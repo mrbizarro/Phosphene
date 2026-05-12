@@ -6667,7 +6667,11 @@ def _is_metal_warmup_crash(exc: Exception, elapsed_sec: float) -> bool:
     __cxa_throw → terminate → abort. Confirmed via crash reports: the crash
     path is check_error → abort (NOT the JIT path createComputeProgramVariant
     → abort). The Metal shader cache is empty — cache-flushing is irrelevant.
-    Waiting 20 s gives macOS time to complete memory reclamation before retry.
+    Waiting 45 s gives macOS time to complete memory reclamation before retry.
+    20 s proved insufficient on M2 Max 64 GB: the retry crashed at ~7 s,
+    27 s after the first crash (confirmed via DiagnosticReports timestamps).
+    The heap reclamation window is proportional to heap size; at ~10–15 GB
+    it extends past 20 s on this tier.
 
     Detection criteria: the helper died within 20 seconds AND the error
     message names SIGABRT or an unexplained pipe close (both map to the same
@@ -6711,10 +6715,10 @@ def worker_loop() -> None:
                     # cycle. Retrying immediately hits transient Metal
                     # allocation failures while reclamation is in progress.
                     push(
-                        "Cold-start crash — waiting 20 s for macOS to reclaim "
+                        "Cold-start crash — waiting 45 s for macOS to reclaim "
                         "Metal memory from the previous helper, then auto-retrying..."
                     )
-                    time.sleep(20)
+                    time.sleep(45)
                     job.pop("error", None)
                     job["status"] = "running"
                     job["started_at"] = iso_now()
