@@ -6658,6 +6658,27 @@ def run_job_inner(job: dict) -> None:
 
 # ---- worker thread -----------------------------------------------------------
 
+def _is_metal_warmup_crash(exc: Exception, elapsed_sec: float) -> bool:
+    """True when the failure looks like a cold-start Metal memory crash.
+
+    After a helper Stop/Start cycle, the previous helper process's Metal/GPU
+    memory (~10 GB) is being reclaimed by macOS. A new helper spawned during
+    reclamation hits transient Metal allocation failures → check_error →
+    __cxa_throw → terminate → abort. Confirmed via crash reports: the crash
+    path is check_error → abort (NOT the JIT path createComputeProgramVariant
+    → abort). The Metal shader cache is empty — cache-flushing is irrelevant.
+    Waiting 20 s gives macOS time to complete memory reclamation before retry.
+
+    Detection criteria: the helper died within 20 seconds AND the error
+    message names SIGABRT or an unexplained pipe close (both map to the same
+    underlying abort path).
+    """
+    if elapsed_sec > 20:
+        return False
+    msg = str(exc).lower()
+    return "sigabrt" in msg or "helper pipe closed" in msg
+
+
 def worker_loop() -> None:
     while True:
         with QUEUE_COND:
@@ -6683,9 +6704,33 @@ def worker_loop() -> None:
                 job["status"] = "cancelled"
                 push("Job cancelled.")
             else:
-                job["status"] = "failed"
-                job["error"] = str(exc)
-                push(f"ERROR: {exc}")
+                elapsed = time.time() - (job.get("started_ts") or time.time())
+                if _is_metal_warmup_crash(exc, elapsed):
+                    # Cold-start crash: macOS needs ~20 s to fully reclaim the
+                    # previous helper's Metal/GPU memory after a Stop/Start
+                    # cycle. Retrying immediately hits transient Metal
+                    # allocation failures while reclamation is in progress.
+                    push(
+                        "Cold-start crash — waiting 20 s for macOS to reclaim "
+                        "Metal memory from the previous helper, then auto-retrying..."
+                    )
+                    time.sleep(20)
+                    job.pop("error", None)
+                    job["status"] = "running"
+                    job["started_at"] = iso_now()
+                    job["started_ts"] = time.time()
+                    STATE["log"] = []
+                    try:
+                        run_job_inner(job)
+                        job["status"] = "done"
+                    except Exception as retry_exc:
+                        job["status"] = "failed"
+                        job["error"] = str(retry_exc)
+                        push(f"ERROR (retry also failed): {retry_exc}")
+                else:
+                    job["status"] = "failed"
+                    job["error"] = str(exc)
+                    push(f"ERROR: {exc}")
         finally:
             job["finished_at"] = iso_now()
             if job.get("started_ts"):
