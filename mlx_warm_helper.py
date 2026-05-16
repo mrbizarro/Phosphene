@@ -1229,6 +1229,7 @@ def configure_acceleration(mode: str) -> str:
 
     import ltx_pipelines_mlx.ti2vid_one_stage as ti2vid
     import ltx_pipelines_mlx.utils.samplers as samplers
+    import ltx_pipelines_mlx.distilled as distilled_mod
 
     if _ORIGINAL_DENOISE_LOOP is None:
         _ORIGINAL_DENOISE_LOOP = samplers.denoise_loop
@@ -1242,14 +1243,17 @@ def configure_acceleration(mode: str) -> str:
     if requested == "off":
         samplers.denoise_loop = _ORIGINAL_DENOISE_LOOP
         ti2vid.denoise_loop = _ORIGINAL_DENOISE_LOOP
+        distilled_mod.denoise_loop = _ORIGINAL_DENOISE_LOOP
     elif requested == "boost":
         loop = _build_adaptive_x0_loop("boost", max_skips=2, video_thresh=0.02, audio_thresh=0.02)
         samplers.denoise_loop = loop
         ti2vid.denoise_loop = loop
+        distilled_mod.denoise_loop = loop
     else:
         loop = _build_adaptive_x0_loop("turbo", max_skips=3, video_thresh=0.03, audio_thresh=0.03)
         samplers.denoise_loop = loop
         ti2vid.denoise_loop = loop
+        distilled_mod.denoise_loop = loop
 
     _CURRENT_ACCEL_MODE = requested
     emit({"event": "log", "line": f"accel:mode {requested}"})
