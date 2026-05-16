@@ -267,6 +267,30 @@ PATCH_VAE_STREAM_NEW = '''        try:
                         aggressive_cleanup()'''
 
 
+# ---- Patch 6: distilled generate_from_image — tighten DiT eval cadence for I2V ----
+# Why: DistilledPipeline.generate_from_image() sets
+#   _DIT_EVAL_EVERY = min(2, orig)
+# to limit Metal command-buffer size. That value was calibrated for T2V at
+# ~4800 tokens (16×15×20 at 121f, 640×480). I2V prepends a conditioning frame
+# (+15×20 = 300 tokens), pushing the total to 5100. The first cold-compile
+# Metal kernel at 5100 tokens consistently exceeds the 10-second watchdog
+# (MTLCommandBufferErrorInternal code 0x0e / 14) and crashes the helper.
+# Fix: use min(1, orig) — 1 block per buffer halves per-buffer compute cost.
+# ~48 extra mx.eval() syncs per step add ~20 ms total (negligible vs. ~2 min).
+# Reference: 640×480 × 121f I2V with ≥1 LoRA (extra VRAM → tighter watchdog
+# budget) is the reliably-reproducible trigger. Smaller resolutions or fewer
+# frames sit under the threshold with min(2).
+PATCH_DISTILLED_EVAL_OLD = '        _dit_mod._DIT_EVAL_EVERY = min(2, _orig_eval_every) if _orig_eval_every > 0 else _orig_eval_every'
+PATCH_DISTILLED_EVAL_NEW = (
+    '        # PATCHED (LTX23MLX): I2V at 121f adds conditioning-frame tokens on top of\n'
+    '        # generation tokens (4800 + 300 = 5100 at 640×480). The upstream min(2, ...)\n'
+    '        # means 2 DiT blocks per Metal command buffer; at 5100 tokens the first\n'
+    '        # cold-compile buffer consistently exceeds the 10-second Metal watchdog\n'
+    '        # (MTLCommandBufferErrorInternal code 0x0e). Using 1 block/buffer halves\n'
+    '        # per-buffer compute; ~48 extra mx.eval() syncs add ~20 ms total.\n'
+    '        _dit_mod._DIT_EVAL_EVERY = min(1, _orig_eval_every) if _orig_eval_every > 0 else _orig_eval_every'
+)
+
 # NOTE: Keyframe interpolation OOMs at the stage-1 → stage-2 transition on
 # 64 GB Macs. We tried free-DiT-before-upscale + reload-after-upscale; that
 # *didn't* help (the reload hit the same memory peak from a different angle
@@ -562,7 +586,37 @@ def main() -> int:
     # fewer semantic frames at 12fps, keep LTX audio duration aligned, then
     # interpolate the delivered export back to 24fps.
     fps_outcome = apply_one_stage_fps_patch(i2v_target)
+    if fps_outcome in (OUTCOME_DRIFT, OUTCOME_MISSING):
+        print(
+            "  [one-stage frame_rate] note: anchor not found — pipeline may "
+            "have been refactored upstream. T2V / I2V at native fps work fine; "
+            "the panel's Long Clip Boost (12→24fps interpolation) mode is "
+            "unavailable until the patch is updated.",
+            file=sys.stderr,
+        )
+        fps_outcome = OUTCOME_ALREADY
     outcomes.append(("one-stage frame_rate (12→24fps long clips)", fps_outcome))
+
+    # Patch 7: tighten DiT eval cadence in generate_from_image for I2V.
+    # Optional — if dgrauet changes the block structure or removes the explicit
+    # _DIT_EVAL_EVERY override, DRIFT is a warning rather than a hard failure;
+    # the worst case is the upstream behavior (min(2,...)) which crashes on 121f
+    # I2V at 640×480 but works at smaller resolutions.
+    distilled_target = _find("ltx_pipelines_mlx/distilled.py")
+    eval_outcome = apply_patch(
+        distilled_target, PATCH_DISTILLED_EVAL_OLD, PATCH_DISTILLED_EVAL_NEW,
+        marker="PATCHED (LTX23MLX): I2V at 121f adds conditioning-frame tokens",
+        label="distilled DiT eval cadence (I2V watchdog fix)",
+    )
+    if eval_outcome in (OUTCOME_DRIFT, OUTCOME_MISSING):
+        print(
+            "  [distilled DiT eval cadence] note: anchor not found — upstream may have "
+            "changed _DIT_EVAL_EVERY handling. 121f I2V at 640×480 may crash with "
+            "MTLCommandBufferErrorInternal code 14. T2V unaffected.",
+            file=sys.stderr,
+        )
+        eval_outcome = OUTCOME_ALREADY
+    outcomes.append(("distilled DiT eval cadence (I2V watchdog fix)", eval_outcome))
 
     # (Keyframe OOM patch was removed — see NOTE in the patches block above.
     #  The fix is currently a panel-side resolution clamp, not a pipeline edit.)
