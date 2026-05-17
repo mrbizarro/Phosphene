@@ -6710,27 +6710,48 @@ def worker_loop() -> None:
             else:
                 elapsed = time.time() - (job.get("started_ts") or time.time())
                 if _is_metal_warmup_crash(exc, elapsed):
-                    # Cold-start crash: macOS needs ~20 s to fully reclaim the
-                    # previous helper's Metal/GPU memory after a Stop/Start
-                    # cycle. Retrying immediately hits transient Metal
-                    # allocation failures while reclamation is in progress.
-                    push(
-                        "Cold-start crash — waiting 45 s for macOS to reclaim "
-                        "Metal memory from the previous helper, then auto-retrying..."
-                    )
-                    time.sleep(45)
-                    job.pop("error", None)
-                    job["status"] = "running"
-                    job["started_at"] = iso_now()
-                    job["started_ts"] = time.time()
-                    STATE["log"] = []
-                    try:
-                        run_job_inner(job)
-                        job["status"] = "done"
-                    except Exception as retry_exc:
-                        job["status"] = "failed"
-                        job["error"] = str(retry_exc)
-                        push(f"ERROR (retry also failed): {retry_exc}")
+                    # Cold-start crash: after a Stop/Start cycle macOS needs
+                    # time to reclaim the previous helper's Metal/GPU heap
+                    # (~10–15 GB on 64 GB Macs). A single 45 s wait proved
+                    # insufficient — on M2 Max 64 GB reclamation extended past
+                    # that window and the retry crashed at the same ~7 s mark
+                    # (confirmed via DiagnosticReports timestamps). Retry up to
+                    # 3 times with increasing delays; stop early if the retry
+                    # error is no longer a warmup crash (different root cause).
+                    _warmup_delays = [45, 60, 90]
+                    for _attempt, _delay in enumerate(_warmup_delays, 1):
+                        push(
+                            f"Cold-start Metal crash — waiting {_delay} s for macOS "
+                            f"to reclaim GPU memory "
+                            f"(retry {_attempt}/{len(_warmup_delays)})..."
+                        )
+                        time.sleep(_delay)
+                        if job.get("cancel_requested"):
+                            job["status"] = "cancelled"
+                            push("Job cancelled.")
+                            break
+                        job.pop("error", None)
+                        job["status"] = "running"
+                        job["started_at"] = iso_now()
+                        job["started_ts"] = time.time()
+                        STATE["log"] = []
+                        try:
+                            run_job_inner(job)
+                            job["status"] = "done"
+                            break
+                        except Exception as retry_exc:
+                            _retry_elapsed = time.time() - job["started_ts"]
+                            if (_attempt == len(_warmup_delays)
+                                    or not _is_metal_warmup_crash(retry_exc, _retry_elapsed)):
+                                if job.get("cancel_requested"):
+                                    job["status"] = "cancelled"
+                                    push("Job cancelled.")
+                                else:
+                                    job["status"] = "failed"
+                                    job["error"] = str(retry_exc)
+                                    push(f"ERROR (retry {_attempt} failed): {retry_exc}")
+                                break
+                            push(f"Retry {_attempt} also crashed — will try again.")
                 else:
                     job["status"] = "failed"
                     job["error"] = str(exc)
