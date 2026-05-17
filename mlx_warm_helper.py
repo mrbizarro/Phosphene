@@ -832,6 +832,23 @@ def _free_pipe_for_decode(pipe):
 
 
 def _generate_latents(pipe, *, needs_image: bool, kwargs: dict):
+    # On second+ runs the video/audio decoders (~2.5 GB combined) remain
+    # resident from the previous job's decode phase.  During the
+    # block-by-block DiT+LoRA materialization that follows (48 blocks ×
+    # ~300 MB each), the combined Metal heap can stall allocation past the
+    # 10-second GPU watchdog threshold.  Free decoders here so they don't
+    # compete with the DiT load; they reload lazily when decode starts.
+    if LOW_MEMORY:
+        if hasattr(pipe, "video_decoder_block"):
+            pipe.video_decoder_block.free()
+        if hasattr(pipe, "audio_decoder_block"):
+            pipe.audio_decoder_block.free()
+        try:
+            from ltx_core_mlx.utils.memory import aggressive_cleanup as _ac
+            _ac()
+        except Exception:
+            pass
+
     # Pre-refactor packages: old TextToVideoPipeline.generate /
     #   ImageToVideoPipeline.generate_from_image — single-stage Q4
     #   path with explicit frame_rate plumbing.
