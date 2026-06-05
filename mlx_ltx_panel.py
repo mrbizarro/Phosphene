@@ -2651,94 +2651,6 @@ def repo_status_list() -> list[dict]:
     return out
 
 
-# ---- Model integrity (corrupt/partial-weight detection) ----------------------
-# A truncated or corrupt safetensors decodes to garbage — the leading
-# *non-Metal* explanation for the "mosaic" / latent-grid output some users hit
-# (it hits some Macs and not others — exactly the observed pattern — and a clean
-# re-download fixes it). These checks are header-only (no tensor load), so they
-# are cheap enough to run at boot and surface in /status.
-def _verify_safetensors(path: Path) -> tuple[bool, str]:
-    """Validate a .safetensors file's structure WITHOUT loading tensors.
-
-    Layout: [8-byte little-endian u64 header_len][header JSON][tensor data].
-    Each tensor entry carries ``data_offsets`` [start, end] into the data blob,
-    so the file must be exactly ``8 + header_len + max(end)`` bytes. A shorter
-    file = an interrupted/partial download. Returns ``(ok, reason)``."""
-    try:
-        size = path.stat().st_size
-    except OSError as e:
-        return False, f"missing ({e})"
-    if size < 8:
-        return False, f"too small ({size} bytes)"
-    try:
-        with open(path, "rb") as fh:
-            hdr_len = int.from_bytes(fh.read(8), "little")
-            if hdr_len <= 0 or hdr_len > 100 * 1024 * 1024:
-                return False, f"implausible header length ({hdr_len})"
-            if 8 + hdr_len > size:
-                return False, f"truncated header (need {8 + hdr_len}, file is {size})"
-            header = json.loads(fh.read(hdr_len).decode("utf-8"))
-    except Exception as e:  # noqa: BLE001 — any parse failure means corrupt
-        return False, f"unreadable header ({e})"
-    max_end = 0
-    for name, meta in header.items():
-        if name == "__metadata__":
-            continue
-        off = (meta or {}).get("data_offsets")
-        if isinstance(off, list) and len(off) == 2:
-            try:
-                max_end = max(max_end, int(off[1]))
-            except (TypeError, ValueError):
-                return False, "corrupt data_offsets in header"
-    expected = 8 + hdr_len + max_end
-    if size < expected:
-        return False, (f"incomplete: {size} bytes on disk, header declares "
-                       f"{expected} ({expected - size} short — interrupted download)")
-    return True, "ok"
-
-
-_INTEGRITY_LOCK = threading.Lock()
-_INTEGRITY_CACHE: dict = {"ts": 0.0, "data": None}
-
-
-def _model_integrity(force: bool = False) -> dict:
-    """Header-only integrity scan of installed model weights. Cached ~120 s so
-    the frequently-polled /status doesn't re-read headers every tick.
-
-    Returns {"ok": bool, "bad": [{"repo","file","reason"}], "checked": int,
-             "scanned_ts": float}."""
-    now = time.time()
-    with _INTEGRITY_LOCK:
-        cached = _INTEGRITY_CACHE["data"]
-        if (not force) and cached is not None and (now - _INTEGRITY_CACHE["ts"] < 120):
-            return cached
-    result: dict = {"ok": True, "bad": [], "checked": 0, "scanned_ts": now}
-    try:
-        snap = repo_status_list()
-    except Exception:  # noqa: BLE001 — integrity must never break /status
-        snap = []
-    defs = {r["key"]: r for r in _repos()}
-    for r in snap:
-        if not r.get("complete"):
-            continue  # a missing model is the download flow's job, not integrity's
-        base = Path(r.get("location") or (ROOT / r["local_dir"]))
-        for fname in defs.get(r["key"], {}).get("files", []):
-            if not fname.endswith(".safetensors"):
-                continue
-            fpath = base / fname
-            if not fpath.exists():
-                continue  # presence already vetted by repo_status_list; don't false-flag
-            ok, reason = _verify_safetensors(fpath)
-            result["checked"] += 1
-            if not ok:
-                result["ok"] = False
-                result["bad"].append({"repo": r["key"], "file": fname, "reason": reason})
-    with _INTEGRITY_LOCK:
-        _INTEGRITY_CACHE["ts"] = now
-        _INTEGRITY_CACHE["data"] = result
-    return result
-
-
 # ---- HF download (in-panel model fetcher) ------------------------------------
 # `hf` is the v1+ huggingface_hub CLI. We resolve it from (in order):
 #   1. $LTX_HF env var
@@ -4868,17 +4780,21 @@ def _validate_character_quality(form: dict[str, list[str]] | dict[str, str]) -> 
         if isinstance(v, list):
             v = v[0] if v else default
         return (v or "").strip()
+    allow_q4_preview = _f("allow_q4_character_lora", "").lower() in (
+        "1", "true", "yes", "on"
+    )
     quality = _f("quality", "balanced").lower()
     cid = _f("character_id", "")
     if cid:
-        if quality != "high":
+        if quality != "high" and not allow_q4_preview:
             return (
                 f"character {cid!r} requires quality=high (Q8 HQ pipeline). "
                 f"Got quality={quality!r}. Character LoRAs are trained against "
                 f"the Q8 dev transformer's sigma schedule; the Q4 distilled "
                 f"pipeline fuses them into the wrong base and produces "
                 f"identity-mushed output. Pick Q8 Pro or Q8 Draft in the "
-                f"Character quality strip."
+                f"Character quality strip, or enable Q4 character-preview "
+                f"mode if this is a low-fidelity compatibility test."
             )
         return None
     # No character_id — but a raw train_character LoRA in `loras` triggers
@@ -4899,12 +4815,16 @@ def _validate_character_quality(form: dict[str, list[str]] | dict[str, str]) -> 
         except Exception:
             continue
         if (meta.get("kind") or "") == "train_character":
+            if allow_q4_preview:
+                continue
             return (
                 f"a character LoRA ({p.name!r}) requires quality=high "
                 f"(Q8 HQ pipeline). Got quality={quality!r}. Character LoRAs "
                 f"are trained against the Q8 dev transformer's sigma schedule; "
                 f"the Q4 distilled pipeline fuses them into the wrong base "
-                f"and produces identity-mushed output. Pick Q8 Pro or Q8 Draft."
+                f"and produces identity-mushed output. Pick Q8 Pro or Q8 Draft, "
+                f"or enable Q4 character-preview mode if this is a low-fidelity "
+                f"compatibility test."
             )
     return None
 
@@ -5214,16 +5134,29 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             "extend_direction": f("extend_direction", "after"),
             "extend_steps": max(1, int(f("extend_steps", "8") or 8)),
             "extend_cfg": float(f("extend_cfg", "1.0") or 1.0),
-            # keyframe (FFLF) mode params.
-            # Two-keyframe path (start_image + end_image) is the legacy panel
-            # contract still used by the manual UI. The agent SDK can pass
-            # `keyframes_json` — a JSON-encoded list of {image_path, frame_index}
-            # — to use the engine's full multi-keyframe support (Layer 2 of
-            # the keyframe SDK; see docs/SDK_KEYFRAME_INTERPOLATION.md).
+            # keyframe mode params. FFLF uses start_image + end_image.
+            # Multi-keyframe serializes every selected anchor to
+            # `keyframes_json`, a JSON-encoded list of {image_path,
+            # frame_index} pairs for the helper's native path. The
+            # legacy mid/04/05 fields stay here so older sidecars and
+            # hand-posted forms still round-trip cleanly.
             "start_image": f("start_image", ""),
+            "keyframe_02_image": f("keyframe_02_image", ""),
+            "mid_image": f("mid_image", ""),
+            "keyframe_04_image": f("keyframe_04_image", ""),
+            "keyframe_05_image": f("keyframe_05_image", ""),
             "end_image": f("end_image", ""),
             "keyframes_json": f("keyframes_json", ""),
+            "keyframe_02_seconds": f("keyframe_02_seconds", ""),
+            "keyframe_02_frame": f("keyframe_02_frame", ""),
+            "keyframe_mid_seconds": f("keyframe_mid_seconds", ""),
+            "keyframe_mid_frame": f("keyframe_mid_frame", ""),
+            "keyframe_04_seconds": f("keyframe_04_seconds", ""),
+            "keyframe_04_frame": f("keyframe_04_frame", ""),
+            "keyframe_05_seconds": f("keyframe_05_seconds", ""),
+            "keyframe_05_frame": f("keyframe_05_frame", ""),
             "keyframes_total_frames": f("keyframes_total_frames", ""),
+            "keyframe_count": f("keyframe_count", ""),
             # Optional session tag — agent runs stamp this so the manifest
             # writer can later filter all jobs that came from one session.
             "session_tag": f("session_tag", ""),
@@ -5232,6 +5165,13 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             "open_when_done": f("open_when_done", "off") == "on",
             "label": f("preset_label", "") or None,
             "quality": quality,                    # quick / balanced / standard / high
+            # Explicit low-fidelity escape hatch for users who only have Q4.
+            # Character LoRAs are trained on the Q8 dev transformer, so this
+            # path is preview-only and may produce identity-mushed output.
+            "allow_q4_character_lora": (
+                f("allow_q4_character_lora", "").lower()
+                in ("1", "true", "yes", "on")
+            ),
             "accel": f("accel", "off"),            # off / boost / turbo
             "temporal_mode": temporal_mode,         # native / fps12_interp24
             "upscale": upscale,                     # off / fit_720p / x2
@@ -8144,9 +8084,6 @@ class Handler(BaseHTTPRequestHandler):
             _repo_snap = repo_status_list()
             payload["repos_total"] = len(_repo_snap)
             payload["repos_ready"] = sum(1 for r in _repo_snap if r.get("complete"))
-            # Structural integrity of installed weights — corrupt/partial
-            # safetensors decode to a garbage "mosaic". Cached + header-only.
-            payload["model_integrity"] = _model_integrity(force=False)
             # Hardware tier — UI uses this to disable mode pills / quality
             # buttons / show a helpful banner explaining what this Mac can
             # and can't do. Detected once at startup; the override env
@@ -10074,6 +10011,10 @@ class Handler(BaseHTTPRequestHandler):
             if quality not in _CHARACTER_QUALITY_RESOLUTION:
                 self._json({"error": "quality must be draft, balanced or high"}, 400); return
             width, height = _CHARACTER_QUALITY_RESOLUTION[quality]
+            allow_q4_character_lora = (
+                (form.get("allow_q4_character_lora", [""])[0] or "").lower()
+                in ("1", "true", "yes", "on")
+            )
 
             seed = (form.get("seed", ["-1"])[0] or "-1").strip()
             try:
@@ -10162,7 +10103,7 @@ class Handler(BaseHTTPRequestHandler):
                 "frames": [str(frames)],
                 "frame_rate": ["24"],
                 "seed": [str(seed_int)],
-                "quality": ["high"],
+                "quality": ["balanced" if allow_q4_character_lora else "high"],
                 "temporal_mode": ["native"],
                 "stage1_steps": [_val("stage1_steps", "10")],
                 "stage2_steps": [_val("stage2_steps", "3")],
@@ -10181,6 +10122,9 @@ class Handler(BaseHTTPRequestHandler):
                 "enhance": ["false"],   # CRITICAL: don't let Gemma strip the trigger
                 "hdr": ["false"],
                 "loras": [json.dumps(lora_stack)],
+                "allow_q4_character_lora": [
+                    "true" if allow_q4_character_lora else ""
+                ],
                 "label": [f"{char.get('name', char['trigger'])} · {duration} · {quality}"],
             }
             if image_path:
@@ -10607,6 +10551,8 @@ class Handler(BaseHTTPRequestHandler):
         # `download` block for progress (existing infra).
         if path == "/train/install":
             key = (form.get("key", [""])[0] or "").strip()
+            if not key:
+                key = "ltx_dev_transformer"
             if key != "ltx_dev_transformer":
                 self._json({"error": f"unknown install key {key!r}"}, 400); return
             result = _train_install_dev_transformer(push)
@@ -10652,6 +10598,9 @@ class Handler(BaseHTTPRequestHandler):
                 "character_id": src_params.get("character_id") or "",
                 "quality": src_params.get("quality") or "",
                 "loras": json.dumps(src_params.get("loras") or []),
+                "allow_q4_character_lora": (
+                    "true" if src_params.get("allow_q4_character_lora") else ""
+                ),
             }
             err = _validate_character_quality(_retry_form)
             if err:
@@ -11488,52 +11437,6 @@ class Handler(BaseHTTPRequestHandler):
             _kill_active_download()
             push(f"[hf] cancel requested for {rid}")
             self._json({"ok": True}); return
-
-        if path == "/models/verify":
-            # On-demand structural integrity re-scan of installed weights.
-            self._json(_model_integrity(force=True)); return
-
-        if path == "/models/repair":
-            # Re-download corrupt/partial weight files for a repo. We DELETE the
-            # bad files first (hf skips files it believes are already complete,
-            # so a same-size-but-corrupt file would never be re-fetched), then
-            # run the normal resumable download. POST { repo_key }.
-            key = (form.get("repo_key", [""])[0] or "").strip()
-            repo = next((r for r in _repos() if r.get("key") == key), None)
-            if not repo:
-                self._json({"error": f"unknown repo key: {key!r}"}, 400); return
-            bad = [b["file"] for b in _model_integrity(force=True)["bad"] if b["repo"] == key]
-            if not bad:
-                self._json({"ok": True, "nothing_to_repair": True,
-                            "note": f"no corrupt files detected for {key!r}"}); return
-            if HF_BIN is None:
-                self._json({"error": "hf binary not found. Reinstall Phosphene."}, 500); return
-            target = Q8_LOCAL_PATH if key == "q8" else (ROOT / repo["local_dir"])
-            deleted = []
-            for fname in bad:
-                for cand in {Path(target) / fname, ROOT / repo["local_dir"] / fname}:
-                    try:
-                        if cand.exists():
-                            cand.unlink()
-                            if fname not in deleted:
-                                deleted.append(fname)
-                    except OSError:
-                        pass
-            with DOWNLOAD_LOCK:
-                if DOWNLOAD["active"]:
-                    self._json({"error": f"another download is in progress: "
-                                         f"{DOWNLOAD['repo_id']}. Wait or Cancel."}, 409); return
-                DOWNLOAD["active"] = True
-                DOWNLOAD["key"] = key
-                DOWNLOAD["repo_id"] = repo["repo_id"]
-                DOWNLOAD["started_ts"] = time.time()
-                DOWNLOAD["last_line"] = "repairing…"
-            with _INTEGRITY_LOCK:           # bust the cache so the next scan re-checks
-                _INTEGRITY_CACHE["ts"] = 0.0
-            push(f"[repair] {key}: deleted {len(deleted)} corrupt/partial file(s) "
-                 f"({', '.join(deleted)}) — re-downloading.")
-            threading.Thread(target=_download_thread, args=(repo,), daemon=True).start()
-            self._json({"ok": True, "deleted": deleted, "repo_id": repo["repo_id"]}, 202); return
 
         if path == "/prompt/enhance":
             # Gemma-driven prompt enhancement, routed through the warm
@@ -14326,6 +14229,38 @@ HTML = r"""<!doctype html>
     .mode-only { display: none; }
     .mode-only.show { display: block; }
 
+/* Keyframe mode toggle (FFLF vs Start-Mid-End) */
+.kf-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border, rgba(255,255,255,0.10));
+  border-radius: 8px;
+  background: rgba(255,255,255,0.02);
+}
+.kf-toggle-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--c-sub);
+  white-space: nowrap;
+}
+.kf-toggle-chip.pill-btn {
+  font-size: 12px;
+  padding: 3px 10px;
+}
+.kf-sub {
+  display: block;
+  font-size: 9px;
+  font-weight: 400;
+  opacity: 0.6;
+  line-height: 1.1;
+}
+
+
     /* Image preview */
     .img-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
     .img-row input[type="file"] { display: none; }
@@ -14592,9 +14527,9 @@ HTML = r"""<!doctype html>
        was being ignored and BOTH the default + character quality strips
        showed at once (Mr Bizarro screenshot 2026-05-17). Restore intent. */
     .quality-strip[hidden] { display: none !important; }
-    /* Character-quality strip has 2 chips, not 4 — distribute evenly. */
+    /* Character-quality strip has Q4 Preview + Q8 Draft + Q8 Pro. */
     #qualityGroupCharacter.quality-strip {
-      grid-template-columns: repeat(2, 1fr);
+      grid-template-columns: repeat(3, 1fr);
     }
     /* Skip-step boost toggle — small secondary affordance under the
        character quality chips. Reads as opt-in (not a noisy default
@@ -18041,6 +17976,9 @@ HTML = r"""<!doctype html>
       <button type="button" class="mode-chip pill-btn" data-mode="character">Character<span class="mc-sub sub">trained face + voice</span></button>
       <button type="button" class="mode-chip pill-btn" data-mode="i2v">Image<span class="mc-sub sub">image + prompt</span></button>
       <button type="button" class="mode-chip pill-btn" data-mode="keyframe">FFLF<span class="mc-sub sub">first + last</span></button>
+      <!-- Multi-keyframe shares backend mode="keyframe"; the form dropdown
+           chooses any total anchor count from 3–24. -->
+      <button type="button" class="mode-chip pill-btn" data-mode="keyframe" data-kf-default="multi">Keyframes<span class="mc-sub sub">3–24 frames</span></button>
       <button type="button" class="mode-chip pill-btn" data-mode="extend">Extend<span class="mc-sub sub">continue a clip</span></button>
       <!-- "Train" used to live here as a mode chip; promoted 2026-05-15 to
            a workflow tier (top tab strip). "Studio" (image generation) also
@@ -18148,7 +18086,15 @@ HTML = r"""<!doctype html>
             </div>
           </div>
 
-          <!-- FFLF — start + end pickers. -->
+          <!-- Keyframe interpolation — FFLF or a dynamic 3–24-anchor shot. -->
+          <div class="kf-toggle-row" id="kfToggleRow" style="display:none">
+            <span class="kf-toggle-label">Keyframe mode</span>
+            <div class="kf-toggle-group pill-group" role="group">
+              <button type="button" class="kf-toggle-chip pill-btn active" data-kf-mode="2" onclick="setKeyframeMode(2)">FFLF <span class="kf-sub">start → end</span></button>
+              <button type="button" class="kf-toggle-chip pill-btn" data-kf-mode="multi" onclick="setKeyframeMode(parseInt(document.getElementById('keyframe_count')?.value || '6', 10))">Multi-Keyframe <span class="kf-sub">3–24 frames</span></button>
+            </div>
+          </div>
+
           <div class="mode-only" id="keyframeSection">
             <h2>Start frame (frame 0)</h2>
             <div class="picker" data-key="start_image">
@@ -18166,6 +18112,44 @@ HTML = r"""<!doctype html>
               <div class="picker-recent" id="picker_recent_start_image_wrap" style="display:none">
                 <div class="picker-recent-label">Recent uploads · click to use</div>
                 <div class="picker-recent-strip" id="picker_recent_start_image"></div>
+              </div>
+            </div>
+
+            <div class="kf-count-row" id="kfCountRow" style="display:none">
+              <label class="lbl" for="keyframe_count">Keyframes</label>
+              <select id="keyframe_count" name="keyframe_count" onchange="setKeyframeMode(parseInt(this.value, 10))">
+                <option value="3">3 keyframes</option>
+                <option value="4">4 keyframes</option>
+                <option value="5">5 keyframes</option>
+                <option value="6" selected>6 keyframes</option>
+                <option value="7">7 keyframes</option>
+                <option value="8">8 keyframes</option>
+                <option value="9">9 keyframes</option>
+                <option value="10">10 keyframes</option>
+                <option value="11">11 keyframes</option>
+                <option value="12">12 keyframes</option>
+                <option value="13">13 keyframes</option>
+                <option value="14">14 keyframes</option>
+                <option value="15">15 keyframes</option>
+                <option value="16">16 keyframes</option>
+                <option value="17">17 keyframes</option>
+                <option value="18">18 keyframes</option>
+                <option value="19">19 keyframes</option>
+                <option value="20">20 keyframes</option>
+                <option value="21">21 keyframes</option>
+                <option value="22">22 keyframes</option>
+                <option value="23">23 keyframes</option>
+                <option value="24">24 keyframes</option>
+              </select>
+              <div class="hint" style="margin-top:6px">Start and End are fixed; the selected count creates the intermediate beats below.</div>
+            </div>
+
+            <div id="keyframeDynamicSlots"></div>
+
+            <div class="mini-fields" id="kfTimingRow" style="display:none;margin-top:10px">
+              <div class="mf-cell" style="grid-column:span 3">
+                <span class="mf-label">Segment timing</span>
+                <div class="hint" id="kfTimingHint" style="margin-top:8px">Intermediate beat timing is distributed evenly by default.</div>
               </div>
             </div>
 
@@ -18188,7 +18172,7 @@ HTML = r"""<!doctype html>
               </div>
             </div>
 
-            <div class="hint" style="margin-top:8px">FFLF needs Q8 (auto-selects High quality). The model interpolates between the two frames you provide.</div>
+            <div class="hint" id="keyframeHint" style="margin-top:8px">Keyframe mode needs Q8 (auto-selects High quality). FFLF anchors the first and last frames; multi-keyframe mode locks every intermediate beat at its At(s) time.</div>
           </div>
 
           <!-- Extend — source-video select + extend-by + direction +
@@ -18381,6 +18365,11 @@ HTML = r"""<!doctype html>
                on save to the final delivery resolution. Hidden by default;
                .show class adds the actual display. -->
           <div class="quality-strip pill-group" id="qualityGroupCharacter" hidden>
+            <button type="button" class="q-chip pill-btn pill-quality char-quality" data-char-quality="q4_preview" data-quality="quick" data-width="512" data-height="288" title="Q4 preview path for Q4-only Macs. Lower identity fidelity than Q8, but it runs without the Q8 weights.">
+              <span class="ql-name">Q4 Preview</span>
+              <span class="q-spec ql-spec sub">512×288</span>
+              <span class="ql-tier">Q4 · preview · weaker identity</span>
+            </button>
             <button type="button" class="q-chip pill-btn pill-quality char-quality" data-char-quality="draft" data-width="736" data-height="416" title="Q8 HQ at 736×416 — faster, slightly less per-frame detail.">
               <span class="ql-name">Q8 Draft</span>
               <span class="q-spec ql-spec sub">736×416</span>
@@ -18427,7 +18416,7 @@ HTML = r"""<!doctype html>
           <div class="mini-fields">
             <div class="mf-cell">
               <span class="mf-label">Duration (s)</span>
-              <input id="duration" value="5" type="number" min="1" max="20" step="1">
+              <input id="duration" value="5" type="number" min="1" max="35" step="1">
             </div>
             <div class="mf-cell">
               <span class="mf-label">Frames <span class="mf-hint">8k+1</span></span>
@@ -18493,6 +18482,12 @@ HTML = r"""<!doctype html>
                  hidden when they switch engine in Image Studio. -->
             <div class="lora-mode-banner hint" id="loraModeBanner"
                  style="margin: 0 0 6px 0; font-size: 11px;"></div>
+            <label class="toggle-pill" id="q4CharPreviewPill"
+                   title="Preview Phosphene-trained character LoRAs on the Q4 distilled path. This is lower fidelity than High/Q8 and may weaken identity, but it lets Q4-only Macs test trained characters.">
+              <input type="checkbox" id="allowQ4CharacterLora" name="allow_q4_character_lora">
+              <span class="toggle-dot"></span>
+              <span>Q4 character preview</span>
+            </label>
             <!-- Filter/search box. Shows up only when 5+ LoRAs are
                  installed; below that it's just visual noise. Filters by
                  name AND trigger words (case-insensitive substring). -->
@@ -18531,7 +18526,7 @@ HTML = r"""<!doctype html>
            effective state so power users can scan at a glance.
 
            Lives at form level (not mode-conditional) — its inner rows
-           manage their own visibility (e.g. dimsRow stays visible in all flows now;
+           manage their own visibility (e.g. dimsRow hides in I2V flows;
            i2vAudioModeSection only shows for I2V; method only shows
            when an upscale is active). The wrapping #sizingSection
            class kept for the mode-only show/hide that still toggles
@@ -18544,6 +18539,19 @@ HTML = r"""<!doctype html>
             <span class="cz-meta" id="customizeSummary">16:9 · default speed</span>
           </summary>
           <div class="cz-body">
+            <div class="cz-control" id="stableI2vRecipeRow" style="display:none">
+              <div class="cz-label">Stable I2V recipe
+                <span class="cz-label-hint">tested for image-to-video on Q4 dev one-stage</span>
+              </div>
+              <div class="pill-group cols-1">
+                <button type="button" class="pill-btn" id="stableI2vRecipeBtn"
+                        title="Sets Image-to-Video to 512×288, 5 seconds, 12 steps, native export. Use when higher-res I2V shows grid/noise artifacts.">
+                  <span>Stable 5s</span>
+                  <span class="sub">512×288 · 121f · 12 steps · native</span>
+                </button>
+              </div>
+            </div>
+
             <!-- Width × height. Setting custom dimensions makes the form
                  leave the active preset (the Quality pill stays highlighted
                  but the Customize summary shows "custom" so the user knows
@@ -20163,6 +20171,216 @@ function applyTierTimes() {
   });
 }
 
+// Keyframe mode toggle — 2-frame FFLF, or any 3–24-anchor long shot.
+window._kfMode = 2;  // default: FFLF
+window._kfMidTouched = false;
+window._kfTimingTouched = {};
+window._kfTimingLastFrames = null;
+window._kfRenderedMode = null;
+
+function normalizeKeyframeMode(n) {
+  n = parseInt(n, 10);
+  if (!Number.isFinite(n) || n < 3) return 2;
+  return Math.max(3, Math.min(24, n));
+}
+
+function keyframeSlotKey(idx) {
+  return String(idx).padStart(2, '0');
+}
+
+function keyframeImageKey(idx) {
+  return `keyframe_${keyframeSlotKey(idx)}_image`;
+}
+
+function isKeyframeModeChipActive(btn, n) {
+  if (btn.dataset.mode !== 'keyframe') return false;
+  const def = btn.dataset.kfDefault || '2';
+  if (def === 'multi') return n >= 3;
+  return parseInt(def, 10) === n;
+}
+
+function setKeyframeMode(n) {
+  n = normalizeKeyframeMode(n);
+  window._kfMode = n;
+  document.querySelectorAll('.kf-toggle-chip').forEach(c => {
+    const m = c.dataset.kfMode;
+    c.classList.toggle('active', m === 'multi' ? n >= 3 : parseInt(m, 10) === n);
+  });
+  const countRow = document.getElementById('kfCountRow');
+  if (countRow) countRow.style.display = (currentMode === 'keyframe' && n >= 3) ? '' : 'none';
+  const countSelect = document.getElementById('keyframe_count');
+  if (countSelect && n >= 3) countSelect.value = String(n);
+  const hint = document.getElementById('keyframeHint');
+  if (hint) {
+    hint.textContent = n >= 3
+      ? `${n} Keyframes needs Q8 (auto-selects High quality). Intermediate beats are locked at their At(s) times below.`
+      : 'FFLF needs Q8 (auto-selects High quality). The model interpolates between the first and last frames.';
+  }
+  if (currentMode === 'keyframe') {
+    document.querySelectorAll('#modeGroup .pill-btn').forEach(b => {
+      b.classList.toggle('active', isKeyframeModeChipActive(b, n));
+    });
+  }
+  window._kfTimingLastFrames = null;
+  renderKeyframeDynamicSlots();
+  syncKeyframeTiming();
+  if (typeof updatePromptPlaceholder === 'function') updatePromptPlaceholder();
+  if (opts.update !== false) updateDerived();
+}
+
+function keyframeTimingSlots(count = window._kfMode) {
+  count = normalizeKeyframeMode(count);
+  if (count < 3) return [];
+  const slots = [];
+  for (let idx = 2; idx <= count - 1; idx++) {
+    const key = keyframeSlotKey(idx);
+    slots.push({
+      idx,
+      key,
+      label: `Beat ${idx}`,
+      frac: (idx - 1) / (count - 1),
+      imageKey: keyframeImageKey(idx),
+      secId: `keyframe_${key}_seconds`,
+      frameId: `keyframe_${key}_frame`,
+    });
+  }
+  return slots;
+}
+
+function registerDynamicPicker(key) {
+  if (!PICKERS.includes(key)) PICKERS.push(key);
+  pickerWire(key);
+}
+
+function renderKeyframeDynamicSlots() {
+  const wrap = document.getElementById('keyframeDynamicSlots');
+  const timingRow = document.getElementById('kfTimingRow');
+  const countRow = document.getElementById('kfCountRow');
+  if (!wrap) return;
+  const visible = currentMode === 'keyframe' && window._kfMode >= 3;
+  if (countRow) countRow.style.display = visible ? '' : 'none';
+  if (timingRow) timingRow.style.display = visible ? '' : 'none';
+  if (!visible) {
+    wrap.innerHTML = '';
+    window._kfRenderedMode = null;
+    return;
+  }
+  if (window._kfRenderedMode === window._kfMode && wrap.children.length) return;
+  const previousImages = {};
+  const previousSeconds = {};
+  wrap.querySelectorAll('input[type="hidden"][data-kf-image-key]').forEach(inp => { previousImages[inp.id] = inp.value; });
+  wrap.querySelectorAll('input[type="number"][data-kf-seconds-key]').forEach(inp => { previousSeconds[inp.id] = inp.value; });
+  const slots = keyframeTimingSlots();
+  wrap.innerHTML = slots.map(slot => {
+    const imageKey = slot.imageKey;
+    const path = previousImages[imageKey] || '';
+    const sec = previousSeconds[slot.secId] || '';
+    return `
+      <div class="kf-dynamic-section" data-kf-slot="${slot.key}">
+        <h2 style="margin-top:10px">${slot.label} <span class="hint">(keyframe ${slot.idx} of ${window._kfMode})</span></h2>
+        <div class="picker" data-key="${imageKey}">
+          <div class="picker-drop" id="picker_drop_${imageKey}">
+            <div class="picker-empty">
+              <div class="picker-icon"><svg class="ph"><use href="#ph-film-strip"/></svg></div>
+              <div class="picker-cta">Drop <strong>${slot.label.toLowerCase()}</strong>, or <strong>click to browse</strong></div>
+              <div class="hint">Intermediate motion anchor between Start and End.</div>
+            </div>
+            <img class="picker-preview" id="picker_preview_${imageKey}" alt="" style="display:none">
+            <button type="button" class="picker-clear" id="picker_clear_${imageKey}" title="Clear" style="display:none"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+          </div>
+          <input type="file" id="picker_file_${imageKey}" accept="image/*" style="display:none">
+          <input type="hidden" name="${imageKey}" id="${imageKey}" value="${escapeHtml(path)}" data-kf-image-key="1">
+          <div class="picker-recent" id="picker_recent_${imageKey}_wrap" style="display:none">
+            <div class="picker-recent-label">Recent uploads · click to use</div>
+            <div class="picker-recent-strip" id="picker_recent_${imageKey}"></div>
+          </div>
+        </div>
+        <div class="mini-fields" style="margin-top:10px">
+          <div class="mf-cell">
+            <span class="mf-label">${slot.label} at (s)</span>
+            <input id="${slot.secId}" name="${slot.secId}" value="${escapeHtml(sec)}" type="number" min="0.04" step="0.01" data-kf-seconds-key="1">
+            <input id="${slot.frameId}" name="${slot.frameId}" value="" type="hidden">
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+  window._kfRenderedMode = window._kfMode;
+  slots.forEach(slot => {
+    registerDynamicPicker(slot.imageKey);
+    const inp = document.getElementById(slot.secId);
+    if (inp) {
+      inp.addEventListener('input', () => {
+        window._kfTimingTouched[slot.key] = true;
+        syncKeyframeTiming();
+      });
+    }
+    const hidden = document.getElementById(slot.imageKey);
+    if (hidden && hidden.value) pickerSetImage(slot.imageKey, hidden.value, { snapAspect: false, update: false });
+  });
+  if (_uploadsCache.length) refreshUploadsStrip();
+}
+
+function maybeScaleTouchedKeyframeTiming(oldFrames, newFrames) {
+  if (window._kfMode < 3) return;
+  oldFrames = parseInt(oldFrames, 10);
+  newFrames = parseInt(newFrames, 10);
+  if (!Number.isFinite(oldFrames) || !Number.isFinite(newFrames) || oldFrames <= 1 || newFrames <= 1 || oldFrames === newFrames) return;
+  const scale = (newFrames - 1) / (oldFrames - 1);
+  if (!Number.isFinite(scale) || scale <= 0) return;
+  keyframeTimingSlots().forEach(slot => {
+    const touched = !!window._kfTimingTouched[slot.key] || (slot.key === 'mid' && !!window._kfMidTouched);
+    if (!touched) return;
+    const inp = document.getElementById(slot.secId);
+    if (!inp) return;
+    const sec = parseFloat(inp.value || '');
+    if (!Number.isFinite(sec)) return;
+    const scaledFrame = Math.max(1, Math.round(sec * FPS * scale));
+    inp.value = (scaledFrame / FPS).toFixed(2);
+  });
+}
+
+function syncKeyframeTiming() {
+  const hint = document.getElementById('kfTimingHint');
+  if (!hint) return;
+  const frames = Math.max(3, parseInt(document.getElementById('frames')?.value || '121', 10) || 121);
+  const total = Math.max(0, (frames - 1) / FPS);
+  const slots = keyframeTimingSlots();
+  let prevFrame = 0;
+  const actualFrames = [];
+  slots.forEach((slot, i) => {
+    const inp = document.getElementById(slot.secId);
+    const frameInp = document.getElementById(slot.frameId);
+    if (!inp || !frameInp) return;
+    const remaining = slots.length - i;
+    const minFrame = prevFrame + 1;
+    const maxFrame = Math.max(minFrame, frames - 1 - remaining);
+    inp.min = (minFrame / FPS).toFixed(2);
+    inp.max = (maxFrame / FPS).toFixed(2);
+    let sec = parseFloat(inp.value || '');
+    const touched = !!window._kfTimingTouched[slot.key] || (slot.key === 'mid' && !!window._kfMidTouched);
+    if (!Number.isFinite(sec) || !touched) sec = total * slot.frac;
+    let frame = Math.round(sec * FPS);
+    frame = Math.max(minFrame, frame);
+    frame = Math.min(maxFrame, frame);
+    frame = Math.max(1, Math.min(frames - 2, frame));
+    prevFrame = frame;
+    actualFrames.push(frame);
+    frameInp.value = String(frame);
+    inp.value = (frame / FPS).toFixed(2);
+  });
+  window._kfTimingLastFrames = frames;
+  const allFrames = [0, ...actualFrames, frames - 1];
+  const segments = [];
+  for (let i = 0; i < allFrames.length - 1; i++) {
+    segments.push(((allFrames[i + 1] - allFrames[i]) / FPS).toFixed(2) + 's');
+  }
+  hint.textContent = window._kfMode === 6
+    ? `Segments ${segments.join(' / ')} · frames ${allFrames.join(', ')}`
+    : `First segment ${segments[0]} · second segment ${segments[1]} · mid frame ${allFrames[1]}/${frames - 1}`;
+}
+
+
 let filterMode = 'visible';
 let activePath = null;
 let currentOutputs = [];
@@ -20458,6 +20676,7 @@ function setMode(mode) {
     // a starter trigger, refreshes the trained-LoRAs list, computes
     // an initial wall-time estimate.
     if (typeof trainInit === 'function') trainInit();
+    updatePromptPlaceholder();
     return;
   }
   if (mode === 'character') {
@@ -20484,6 +20703,7 @@ function setMode(mode) {
     // and doesn't need to (character_id is what drives the LoRA stack).
     const modeInp = document.getElementById('mode');
     if (modeInp) modeInp.value = 't2v';
+    updatePromptPlaceholder();
     return;
   }
   if (mode === 'image') {
@@ -20528,6 +20748,7 @@ function setMode(mode) {
     if (typeof _autoMainOutputsFilterForMode === 'function') {
       _autoMainOutputsFilterForMode('image');
     }
+    updatePromptPlaceholder();
     return;
   }
   if (studio) studio.classList.remove('show');
@@ -20541,7 +20762,13 @@ function setMode(mode) {
   // Studio to a video mode.
   if (typeof renderLorasList === 'function') renderLorasList();
   document.getElementById('mode').value = mode;
-  document.querySelectorAll('#modeGroup .pill-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+  document.querySelectorAll('#modeGroup .pill-btn').forEach(b => {
+    if (mode === 'keyframe') {
+      b.classList.toggle('active', isKeyframeModeChipActive(b, window._kfMode));
+    } else {
+      b.classList.toggle('active', b.dataset.mode === mode);
+    }
+  });
   // Manual-tab Characters picker is T2V-only (Text-to-Video flow). Other
   // video modes (I2V, FFLF, Extend) have a different mental model — the
   // user is anchoring on a frame, not picking an actor.
@@ -20569,6 +20796,7 @@ function setMode(mode) {
   // Q8 is missing should surface the Download Q8 CTA without waiting for
   // the next 1.5s poll tick.
   if (LAST_STATUS) updateModelsCard(LAST_STATUS);
+  updatePromptPlaceholder();
 }
 
 // Move the unified LoRA picker between its homes (Option A portal).
@@ -21826,6 +22054,11 @@ async function charactersLoadParams(p) {
   // exactly the same, so you can replicate clips. Else, what for?"
   workflowSwitch('manual');
   if (typeof setMode === 'function') setMode('character');
+  const q4CharCb = document.getElementById('allowQ4CharacterLora');
+  if (q4CharCb) {
+    q4CharCb.checked = !!p.allow_q4_character_lora;
+    q4CharCb.dispatchEvent(new Event('change', { bubbles: true }));
+  }
 
   // Wait for the Manual chip strip to be populated so selectManualCharacter
   // can find the character. refreshManualCharacters is idempotent + safe
@@ -22142,16 +22375,10 @@ async function trainCheckPreflight() {
 }
 
 async function trainInstall(key) {
-  // The panel parses POST bodies with parse_qs (urlencoded ONLY); a FormData
-  // body serializes as multipart and reads back empty, so /train/install saw
-  // key='' and returned "unknown install key" (reported by @cocktailpeanut,
-  // 2026-06-04). Send urlencoded like every other POST in this panel.
+  const fd = new FormData();
+  fd.set('key', key);
   try {
-    const r = await fetch('/train/install', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'key=' + encodeURIComponent(key),
-    });
+    const r = await fetch('/train/install', { method: 'POST', body: fd });
     const data = await r.json();
     if (!data.ok) {
       alert('Download failed: ' + (data.error || r.status));
@@ -23274,6 +23501,24 @@ function setUpscaleMethod(m) {
   updateCustomizeSummary();
   updateDerived();
 }
+function applyStableI2vRecipe() {
+  if (typeof setMode === 'function') setMode('i2v');
+  setQuality('balanced');
+  document.getElementById('width').value = '512';
+  document.getElementById('height').value = '288';
+  document.getElementById('frames').value = '121';
+  document.getElementById('duration').value = framesToDuration(121);
+  document.getElementById('steps').value = '12';
+  setUpscale('off');
+  setTemporalMode('native');
+  const recipeBtn = document.getElementById('stableI2vRecipeBtn');
+  if (recipeBtn) {
+    recipeBtn.classList.add('active');
+    window.setTimeout(() => recipeBtn.classList.remove('active'), 900);
+  }
+  updateCustomizeSummary();
+  updateDerived();
+}
 function updateAccelAvailability() {
   const allowed = document.getElementById('quality').value !== 'high' && currentMode !== 'extend' && currentMode !== 'keyframe';
   document.querySelectorAll('#accelGroup .pill-btn').forEach(b => {
@@ -23348,7 +23593,32 @@ function setExtendMode(m) {
     b.classList.toggle('active', b.dataset.extendMode === m));
 }
 
-document.querySelectorAll('#modeGroup .pill-btn').forEach(b => b.onclick = () => setMode(b.dataset.mode));
+function updatePromptPlaceholder() {
+  const prompt = document.getElementById('prompt');
+  if (!prompt) return;
+  const base = 'Describe the scene AND the sound — e.g. wizard in a forest clearing, fireflies spiraling up · low whispered chant, ember crackle, distant owl. Audio is generated jointly with video; without sound cues the model outputs near-silent ambient.';
+  const keyframeTwo = 'Describe the full first-to-last transition in one prompt. Include motion, camera, mood, and audio cues; the start/end images anchor the visual endpoints.';
+  const keyframeMulti = `One prompt controls the whole ${window._kfMode}-keyframe shot; the Beat at(s) controls define segment timing. Write one continuous action with the beats described in order, plus audio cues.`;
+  if (currentMode === 'keyframe') {
+    prompt.placeholder = window._kfMode >= 3 ? keyframeMulti : keyframeTwo;
+  } else if (currentMode === 'i2v') {
+    prompt.placeholder = 'Describe how the reference image should move, plus sound cues. The image anchors frame 0; the prompt directs the full clip.';
+  } else {
+    prompt.placeholder = base;
+  }
+}
+
+// Mode chip click — keyframe has two visible chips backed by one backend
+// mode. The click handler chooses the 2- or 3-frame UI after setMode()
+// restores the shared keyframe screen.
+document.querySelectorAll('#modeGroup .pill-btn').forEach(b => b.onclick = () => {
+  setMode(b.dataset.mode);
+  if (b.dataset.mode === 'keyframe') {
+    const def = b.dataset.kfDefault || '2';
+    const fallback = parseInt(document.getElementById('keyframe_count')?.value || '6', 10);
+    setKeyframeMode(def === 'multi' ? fallback : parseInt(def, 10));
+  }
+});
 document.querySelectorAll('#qualityGroup .pill-btn').forEach(b => b.onclick = () => {
   // Disabled-but-actionable: the High pill becomes a "click to install Q8"
   // CTA when Q8 is missing. Routes to the Models modal so the user lands
@@ -23367,6 +23637,7 @@ document.querySelectorAll('#upscaleGroup .pill-btn').forEach(b => b.onclick = ()
 document.querySelectorAll('#upscaleMethodGroup .pill-btn').forEach(b => b.onclick = () => { if (!b.classList.contains('disabled')) setUpscaleMethod(b.dataset.method); });
 document.querySelectorAll('#aspectGroup .pill-btn').forEach(b => b.onclick = () => setAspect(b.dataset.aspect));
 document.querySelectorAll('#extendModeGroup .pill-btn').forEach(b => b.onclick = () => setExtendMode(b.dataset.extendMode));
+document.getElementById('stableI2vRecipeBtn')?.addEventListener('click', applyStableI2vRecipe);
 
 // Prompt enhancement via Gemma — wraps the upstream CLI's `enhance`
 // subcommand. Cold start ~12-15s (Gemma load), warm ~5s. Blocks the UI
@@ -23577,6 +23848,14 @@ function updateDerived() {
   document.getElementById('imageSection').classList.toggle('show', inI2V && currentMode !== 'keyframe');
   document.getElementById('extendSection').classList.toggle('show', currentMode === 'extend');
   document.getElementById('keyframeSection').classList.toggle('show', currentMode === 'keyframe');
+  // Keyframe toggle row — visible only in keyframe mode
+  const kfToggleRow = document.getElementById('kfToggleRow');
+  if (kfToggleRow) kfToggleRow.style.display = currentMode === 'keyframe' ? '' : 'none';
+  renderKeyframeDynamicSlots();
+  if (currentMode === 'keyframe') {
+    maybeScaleTouchedKeyframeTiming(window._kfTimingLastFrames, f);
+  }
+  syncKeyframeTiming();
   document.getElementById('sizingSection').classList.toggle('show', currentMode !== 'extend');
   // quickMetricsRow (Duration / Frames / Seed) doesn't apply to Extend
   // (extend_seconds drives the new content; the source video provides
@@ -23589,16 +23868,13 @@ function updateDerived() {
   // to swap out, so the dropdown is just noise.
   const i2vAudioSec = document.getElementById('i2vAudioModeSection');
   if (i2vAudioSec) i2vAudioSec.classList.toggle('show', inI2V);
-  // Width/height stays visible in image flows too. (Restored 2026-06-03: the
-  // 2026-05-17 simplification hid it for I2V/FFLF, which cost users the custom
-  // I2V sizing they relied on.) The image still drives the DEFAULT —
-  // snapAspectToImage() auto-snaps aspect+dims on upload so the common case
-  // can't cover-crop a 16:9 photo into 9:16 — but the inputs are now editable
-  // so power users can set an exact custom size. Safe on low-RAM Macs: the
-  // server-side per-tier clamp (tier_max_dim → make_job, ~line 6806) caps base
-  // (<48 GB) I2V at 768 regardless of what's typed, so this can't push to swap.
+  const stableI2vRecipeRow = document.getElementById('stableI2vRecipeRow');
+  if (stableI2vRecipeRow) stableI2vRecipeRow.style.display = inI2V ? '' : 'none';
+  // In image flows the aspect picker is the only sizing control. Width/height
+  // auto-derive from aspect+quality so the source image drives the framing
+  // and we don't accidentally cover-crop a 16:9 photo into 9:16.
   const dimsRow = document.getElementById('dimsRow');
-  if (dimsRow) dimsRow.style.display = '';
+  if (dimsRow) dimsRow.style.display = inImageFlow ? 'none' : '';
 
   // Image previews are now part of the picker component itself — the
   // preview <img> + clear button live inside .picker-drop and are toggled
@@ -23619,6 +23895,17 @@ function updateDerived() {
     // appear/disappear as the user types away from the preset values.
     el.addEventListener('input', () => { updateCustomizeSummary(); updateDerived(); });
   }
+});
+document.getElementById('keyframe_mid_seconds')?.addEventListener('input', () => {
+  window._kfMidTouched = true;
+  window._kfTimingTouched.mid = true;
+  syncKeyframeTiming();
+});
+['02', '04', '05'].forEach(key => {
+  document.getElementById(`keyframe_${key}_seconds`)?.addEventListener('input', () => {
+    window._kfTimingTouched[key] = true;
+    syncKeyframeTiming();
+  });
 });
 // Picker hidden inputs no longer take user input — their value changes
 // via pickerSetImage(), which already calls updateDerived(). No per-input
@@ -23641,14 +23928,23 @@ function snapAspectToImage(path) {
 // still drives the actual transfer; the only change is which JS calls it.
 
 // ====== Image picker component ======
-// One implementation, four call sites: I2V image, FFLF start_image,
-// FFLF end_image, A2V a2v_image. Each picker carries a `key` (the hidden
+// One implementation, five call sites: I2V image, keyframe start/mid/end,
+// and A2V a2v_image. Each picker carries a `key` (the hidden
 // field's name); every DOM element it owns is suffixed with `_<key>` so
 // we can wire listeners by lookup instead of a per-instance closure.
 // `a2v_image` was added 2026-05-20 to replace the old bespoke
 // studio-ref-slot in the Audio-to-Video tab with the same drop +
 // preview + clear + recent-uploads-strip surface every other mode uses.
-const PICKERS = ['image', 'start_image', 'end_image', 'a2v_image'];
+const PICKERS = [
+  'image',
+  'start_image',
+  'keyframe_02_image',
+  'mid_image',
+  'keyframe_04_image',
+  'keyframe_05_image',
+  'end_image',
+  'a2v_image',
+];
 
 function pickerEls(key) {
   return {
@@ -23685,7 +23981,7 @@ function pickerSetImage(key, path, opts = {}) {
     // aspect dropdown (#audioStudioAspect) — calling snapAspectToImage
     // would change the GLOBAL #aspect selector, not the A2V one, so
     // skip it for a2v_image to avoid silently mutating an unrelated mode.
-    if (key !== 'end_image' && key !== 'a2v_image' && opts.snapAspect !== false) {
+    if ((key === 'image' || key === 'start_image') && opts.snapAspect !== false) {
       snapAspectToImage(path);
     }
   } else {
@@ -23761,7 +24057,8 @@ async function refreshUploadsStrip() {
   let data;
   try { data = await api('/uploads?limit=24'); }
   catch (e) { return; }
-  _uploadsCache = data.uploads || [];
+  _uploadsCache = Array.isArray(data && data.uploads) ? data.uploads : [];
+
   PICKERS.forEach(key => {
     const els = pickerEls(key);
     if (!els.recentStrip) return;
@@ -23769,6 +24066,7 @@ async function refreshUploadsStrip() {
       els.recentWrap.style.display = 'none';
       return;
     }
+
     els.recentWrap.style.display = '';
     const currentPath = els.hidden.value;
     els.recentStrip.innerHTML = _uploadsCache.map(u => `
@@ -23887,53 +24185,6 @@ function _setOfflineBanner(visible, msg) {
   }
 }
 
-// 2026-06-04: model-integrity banner. The backend flags corrupt/partial weight
-// files (a garbage-decode "mosaic" cause) in /status.model_integrity; surface a
-// one-click Repair so users self-heal instead of staring at broken renders.
-function renderIntegrityBanner(integ) {
-  const bad = (integ && !integ.ok) ? (integ.bad || []) : [];
-  let el = document.getElementById('integrityBanner');
-  if (!bad.length) { if (el) el.remove(); return; }
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'integrityBanner';
-    el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#7a1f1f;'
-      + 'color:#fff;padding:10px 16px;font-size:13px;line-height:1.4;display:flex;'
-      + 'align-items:center;gap:12px;flex-wrap:wrap;box-shadow:0 2px 10px rgba(0,0,0,.45)';
-    document.body.appendChild(el);
-  }
-  const repos = [...new Set(bad.map(b => b.repo))];
-  const files = bad.map(b => b.file).join(', ');
-  el.innerHTML =
-    '<span style="font-weight:700">Model files look incomplete / corrupt</span>'
-    + '<span style="opacity:.92">' + escapeHtml(files) + ' — this produces garbled / "mosaic" '
-    + 'output (usually an interrupted download).</span>'
-    + '<span style="margin-left:auto;display:flex;gap:8px">'
-    + repos.map(k => '<button class="btn btn-primary" onclick="repairModel(\'' + escapeHtml(k)
-        + '\')">Repair ' + escapeHtml(k.toUpperCase()) + ' (re-download)</button>').join('')
-    + '<button class="btn" onclick="this.closest(\'#integrityBanner\').remove()">Dismiss</button>'
-    + '</span>';
-}
-
-async function repairModel(key) {
-  if (!confirm('Re-download the corrupt ' + key.toUpperCase() + ' model file(s)?\n\n'
-      + 'This deletes the bad files and fetches fresh copies (resumable).')) return;
-  try {
-    const r = await fetch('/models/repair', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'repo_key=' + encodeURIComponent(key),
-    });
-    const data = await r.json();
-    if (data.ok) {
-      alert('Repair started — re-downloading ' + ((data.deleted || []).length) + ' file(s). '
-        + 'Watch the download progress / Logs; the banner clears once the files verify clean.');
-    } else {
-      alert('Repair failed: ' + (data.error || r.status));
-    }
-  } catch (e) { alert('Repair failed: ' + e); }
-}
-
 async function poll() {
   // Reflect HDR-vs-character mutual exclusion every poll cycle. character_id
   // gets set from multiple code paths (manual chip click, load-params,
@@ -23961,9 +24212,6 @@ async function poll() {
     return;
   }
   LAST_STATUS = s;
-
-  // Corrupt/partial-weight banner (mosaic self-heal).
-  try { renderIntegrityBanner(s.model_integrity); } catch (_) {}
 
   // Memory
   const m = s.memory;
@@ -25334,15 +25582,66 @@ async function loadParams() {
   if (seedToRestore != null) {
     document.getElementById('seed').value = seedToRestore;
   }
-  // Image / start / end go through pickerSetImage so the preview tile
+  // Image / keyframes go through pickerSetImage so the preview tile
   // and recent-strip selection state update along with the hidden input.
+  let restoredStartImage = p.start_image || '';
+  let restoredEndImage = p.end_image || '';
+  if (p.mode === 'keyframe') {
+    let restoredKeyframes = null;
+    try {
+      const kfs = p.keyframes_json ? JSON.parse(p.keyframes_json) : null;
+      if (Array.isArray(kfs) && kfs.length >= 3) {
+        restoredKeyframes = kfs;
+        restoredStartImage = restoredStartImage || (kfs[0] && kfs[0].image_path) || '';
+        restoredEndImage = restoredEndImage || (kfs[kfs.length - 1] && kfs[kfs.length - 1].image_path) || '';
+        setKeyframeMode(kfs.length);
+      } else {
+        setKeyframeMode(p.mid_image ? 3 : 2);
+      }
+    } catch (_) {
+      setKeyframeMode(p.mid_image ? 3 : 2);
+    }
+    if (Array.isArray(restoredKeyframes) && restoredKeyframes.length >= 3) {
+      renderKeyframeDynamicSlots();
+      const slots = keyframeTimingSlots(restoredKeyframes.length);
+      slots.forEach((slot, i) => {
+        const kf = restoredKeyframes[i + 1];
+        if (kf && kf.image_path) pickerSetImage(slot.imageKey, kf.image_path, { snapAspect: false });
+        const secInp = document.getElementById(slot.secId);
+        const frameIndex = kf ? parseInt(kf.frame_index, 10) : NaN;
+        if (secInp && Number.isFinite(frameIndex)) {
+          window._kfTimingTouched[slot.key] = true;
+          secInp.value = (frameIndex / FPS).toFixed(2);
+        }
+      });
+      syncKeyframeTiming();
+    } else if (p.mid_image) {
+      renderKeyframeDynamicSlots();
+      const slot = keyframeTimingSlots(3)[0];
+      if (slot) {
+        pickerSetImage(slot.imageKey, p.mid_image, { snapAspect: false });
+        const secInp = document.getElementById(slot.secId);
+        const sec = parseFloat(p.keyframe_mid_seconds || '');
+        if (secInp && Number.isFinite(sec)) {
+          window._kfTimingTouched[slot.key] = true;
+          secInp.value = sec.toFixed(2);
+          syncKeyframeTiming();
+        }
+      }
+    }
+  }
   if (p.image)       pickerSetImage('image', p.image, { snapAspect: false });
-  if (p.start_image) pickerSetImage('start_image', p.start_image, { snapAspect: false });
-  if (p.end_image)   pickerSetImage('end_image', p.end_image, { snapAspect: false });
+  if (restoredStartImage) pickerSetImage('start_image', restoredStartImage, { snapAspect: false });
+  if (restoredEndImage)   pickerSetImage('end_image', restoredEndImage, { snapAspect: false });
   if (p.audio) document.getElementById('audio').value = p.audio;
   // Extend-specific: restore source video path
   if (p.video_path) document.getElementById('video_path').value = p.video_path;
   if (p.label) document.getElementById('preset_label').value = p.label;
+  const q4CharCb = document.getElementById('allowQ4CharacterLora');
+  if (q4CharCb) {
+    q4CharCb.checked = !!p.allow_q4_character_lora;
+    q4CharCb.dispatchEvent(new Event('change', { bubbles: true }));
+  }
 
   // Manual-tab Characters picker — restore the selection if the sidecar
   // recorded a character_id (set by make_job when the form carried one).
@@ -25530,11 +25829,22 @@ function renderOutputInfoBody(path, data) {
   const seedAttr = JSON.stringify(seedVal).replace(/"/g, '&quot;');
   const pathAttr = JSON.stringify(path).replace(/"/g, '&quot;');
   const accelMetrics = (data && data.accel_metrics) || null;
+  const keyframeModeLabel = (() => {
+    if (!p.keyframes_json) return 'FFLF (first + last frame)';
+    try {
+      const kfs = JSON.parse(p.keyframes_json);
+      return Array.isArray(kfs) && kfs.length >= 3
+        ? `${kfs.length} Keyframes`
+        : 'Multi-keyframe';
+    } catch (_) {
+      return 'Multi-keyframe';
+    }
+  })();
   const modeLabel = ({
     t2v: 'Text → Video',
     i2v: 'Image → Video',
     i2v_clean_audio: 'Image → Video (clean audio)',
-    keyframe: 'FFLF (first + last frame)',
+    keyframe: keyframeModeLabel,
     extend: 'Extend',
   })[p.mode] || (p.mode || '—');
 
@@ -25810,6 +26120,58 @@ document.getElementById('genForm').addEventListener('submit', async e => {
     }
   }
   try {
+    // Keyframe mode: FFLF keeps the legacy start/end shape. Dynamic
+    // multi-anchor mode serializes all anchors to keyframes_json so the
+    // helper's native multi-keyframe path receives explicit frame indices.
+    const kfMode = (fd.get('mode') || '').toString();
+    if (kfMode === 'keyframe') {
+      const startImg = (fd.get('start_image') || '').toString().trim();
+      const endImg = (fd.get('end_image') || '').toString().trim();
+      if (!startImg || !endImg) {
+        alert('Pick both a start frame and an end frame before generating.');
+        reenable();
+        return;
+      }
+      const frames = parseInt((fd.get('frames') || '121').toString()) || 121;
+      if (window._kfMode >= 3) {
+        renderKeyframeDynamicSlots();
+        const slots = [
+          { image: startImg, frame: 0, label: 'Start' },
+          ...keyframeTimingSlots().map(slot => ({
+            image: (document.getElementById(slot.imageKey)?.value || '').toString().trim(),
+            frameId: slot.frameId,
+            label: slot.label,
+          })),
+          { image: endImg, frame: frames - 1, label: 'End' },
+        ];
+        const missing = slots.filter(s => !s.image).map(s => s.label || 'Start/End');
+        if (missing.length) {
+          alert(`Pick all ${window._kfMode} keyframe images before generating: ` + missing.join(', '));
+          reenable();
+          return;
+        }
+        syncKeyframeTiming();
+        const kfList = slots.map((slot, i) => {
+          const idx = (slot.frame != null)
+            ? slot.frame
+            : parseInt((document.getElementById(slot.frameId)?.value || '').toString(), 10);
+          return { image_path: slot.image, frame_index: idx };
+        });
+        const idxs = kfList.map(k => k.frame_index);
+        if (idxs.some(i => !Number.isFinite(i)) || idxs.some((i, n) => n > 0 && i <= idxs[n - 1])) {
+          alert('Keyframe times must be strictly increasing. Check the Beat at(s) values.');
+          reenable();
+          return;
+        }
+        fd.set('keyframes_json', JSON.stringify(kfList));
+        fd.set('keyframes_total_frames', String(frames));
+        fd.set('keyframe_count', String(window._kfMode));
+      } else {
+        fd.delete('keyframes_json');
+        fd.delete('keyframes_total_frames');
+        fd.delete('keyframe_count');
+      }
+    }
     await api('/queue/add','POST',fd);
   } finally {
     // Re-enable on the next event-loop tick so the button visibly
@@ -26685,6 +27047,25 @@ async function applySettings() {
   sync();
 })();
 
+// ====== Q4 character-preview toggle ==================================
+// Explicit escape hatch for Q4-only Macs. The default stays conservative:
+// trained character LoRAs use Q8/High because they were trained against
+// transformer-dev. When enabled, the UI and API allow Quick/Standard with a
+// trained character LoRA as a low-fidelity preview path.
+(function () {
+  const pill = document.getElementById('q4CharPreviewPill');
+  const cb = document.getElementById('allowQ4CharacterLora');
+  if (!pill || !cb) return;
+  const sync = () => {
+    pill.classList.toggle('on', cb.checked);
+    try { updateQualityChipsForLora(); } catch (_) {}
+    try { _applyCharacterQualityStripVisibility(); } catch (_) {}
+  };
+  cb.addEventListener('change', sync);
+  pill.addEventListener('click', () => setTimeout(sync, 0));
+  sync();
+})();
+
 // HDR pill tooltip annotator (2026-05-21).
 // Earlier version (1ea5f1d) hard-disabled this pill in Character mode
 // because the docs say HDR-IC requires the distilled checkpoint. Mr
@@ -26835,6 +27216,7 @@ function _serializeLoras() {
 }
 
 function updateQualityChipsForLora() {
+  const q4Preview = !!document.getElementById('allowQ4CharacterLora')?.checked;
   const trained = Array.isArray(_activeLoras) && _activeLoras.some(a => {
     const meta = Array.isArray(_knownUserLoras)
       ? _knownUserLoras.find(u => u.path === a.path)
@@ -26846,10 +27228,12 @@ function updateQualityChipsForLora() {
   });
   document.querySelectorAll('#qualityGroup .pill-btn').forEach(b => {
     const q = b.dataset.quality;
-    const incompat = trained && (q === 'quick' || q === 'standard');
+    const incompat = trained && !q4Preview && (q === 'quick' || q === 'standard');
     b.classList.toggle('disabled', incompat);
     if (incompat) {
       b.title = 'Trained character LoRA needs the dev transformer (High quality). Quick/Standard run the distilled model — different fine-tune, so the LoRA can\'t reproduce the character faithfully.';
+    } else if (trained && q4Preview && (q === 'quick' || q === 'balanced' || q === 'standard')) {
+      b.title = 'Q4 character preview is enabled. This can run on Q4-only Macs, but identity may be weaker than High/Q8 because the LoRA was trained against the dev transformer.';
     } else if (b.dataset.tooltipDefault) {
       b.title = b.dataset.tooltipDefault;
     } else {
@@ -26858,7 +27242,7 @@ function updateQualityChipsForLora() {
   });
   // If the currently-selected preset just became incompatible, bump to High.
   const cur = document.getElementById('quality').value;
-  if (trained && (cur === 'quick' || cur === 'standard')) {
+  if (trained && !q4Preview && (cur === 'quick' || cur === 'standard')) {
     setQuality('high');
   }
 }
@@ -27751,15 +28135,21 @@ function _applyCharacterQualityStripVisibility() {
   const char = document.getElementById('qualityGroupCharacter');
   const skipWrap = document.getElementById('charSkipstepToggleWrap');
   if (!def || !char) return;
+  const q4Preview = !!document.getElementById('allowQ4CharacterLora')?.checked;
   if (_selectedCharacterId) {
     def.hidden = true;
     char.hidden = false;
-    if (skipWrap) skipWrap.hidden = false;
+    if (skipWrap) skipWrap.hidden = q4Preview;
     // Snap to Q8 Pro on first switch — but only if no char-quality
     // chip is currently active (preserves user's choice if they had
     // picked Draft earlier and switched between characters).
-    const anyActive = char.querySelector('.char-quality.active');
-    const target = anyActive || char.querySelector('[data-char-quality="pro"]');
+    let target = null;
+    if (q4Preview) {
+      target = char.querySelector('[data-char-quality="q4_preview"]');
+    } else {
+      const anyActive = char.querySelector('.char-quality.active:not([data-char-quality="q4_preview"])');
+      target = anyActive || char.querySelector('[data-char-quality="pro"]');
+    }
     if (target) _setCharacterQuality(target);
   } else {
     def.hidden = false;
@@ -27804,9 +28194,15 @@ function _setCharacterQuality(btn) {
   const wInp = document.getElementById('width');
   const hInp = document.getElementById('height');
   const aspect = document.getElementById('aspect');
+  const q4Preview = btn.dataset.charQuality === 'q4_preview';
+  const q4Cb = document.getElementById('allowQ4CharacterLora');
   const w = parseInt(btn.dataset.width || '1024', 10);
   const h = parseInt(btn.dataset.height || '576', 10);
-  if (qInp) qInp.value = 'high';
+  if (q4Cb && q4Cb.checked !== q4Preview) {
+    q4Cb.checked = q4Preview;
+    q4Cb.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  if (qInp) qInp.value = q4Preview ? (btn.dataset.quality || 'quick') : 'high';
   // Honor the orientation chip — swap w/h for vertical renders.
   const vertical = aspect && aspect.value === 'vertical';
   if (wInp) wInp.value = vertical ? h : w;
@@ -27822,14 +28218,16 @@ function _setCharacterQuality(btn) {
     : true;
   const skipToggle = document.getElementById('charSkipstepToggle');
   const skipOn = (hqGroup ? !!fastActive : (skipToggle ? !!skipToggle.checked : true));
-  _setSkipStepEnabled(skipOn);
+  if (!q4Preview) {
+    _setSkipStepEnabled(skipOn);
+  }
   if (typeof setUpscale === 'function') {
     try { setUpscale('fit_720p'); } catch (_) {}
   }
   if (typeof updateCustomizeSummary === 'function') {
     try { updateCustomizeSummary(); } catch (_) {}
   }
-  // Quality is now 'high'; reveal the HQ-speed row.
+  // Reveal the HQ-speed row only for the Q8 path.
   if (typeof _applyHqSpeedRowVisibility === 'function') {
     try { _applyHqSpeedRowVisibility(); } catch (_) {}
   }
@@ -29021,25 +29419,6 @@ if __name__ == "__main__":
         raise
     print(f"LTX MLX Studio: http://127.0.0.1:{PORT}", flush=True)
     print(f"queue: {len(STATE['queue'])} pending, hidden: {len(HIDDEN_PATHS)}", flush=True)
-    # Boot-time weight integrity scan. A truncated/corrupt safetensors decodes
-    # to garbage ("mosaic"); flag it loudly so the user can Repair rather than
-    # stare at broken renders. Header-only, so it is fast. ASCII only (emoji in
-    # panel stdout can break the Pinokio/helper handshake — see 2026-06-02).
-    try:
-        _integ = _model_integrity(force=True)
-        if not _integ["ok"]:
-            print("-" * 64, flush=True)
-            print(f"WARNING model integrity: {len(_integ['bad'])} weight file(s) look "
-                  f"corrupt/incomplete:", flush=True)
-            for _b in _integ["bad"]:
-                print(f"    [{_b['repo']}] {_b['file']} - {_b['reason']}", flush=True)
-            print("  This produces garbled / 'mosaic' output. Use the Repair banner in", flush=True)
-            print("  the panel (or re-run Install) to re-download the affected files.", flush=True)
-            print("-" * 64, flush=True)
-        else:
-            print(f"model integrity: OK ({_integ['checked']} weight files verified)", flush=True)
-    except Exception as _ie:  # noqa: BLE001 — never block boot on the scan
-        print(f"model integrity scan skipped: {_ie}", flush=True)
     try:
         server.serve_forever()
     finally:
