@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Local-dev launcher for the Phosphene panel. Pinokio uses pinokio.js +
+# Local launcher for the Phosphene panel. Pinokio uses pinokio.js +
 # start.js; this is the equivalent for running outside Pinokio.
 #
 # Pins the panel to the venv's python3.11 so it shares the exact same
@@ -27,7 +27,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MLX="$ROOT/ltx-2-mlx"
-PY="$MLX/.venv/bin/python3.11"
+PY="$MLX/env/bin/python3.11"
 
 if [[ ! -x "$PY" ]]; then
   echo "ERR: venv python3.11 not found at $PY" >&2
@@ -72,6 +72,7 @@ export LTX_MODELS_DIR="${LTX_MODELS_DIR:-$ROOT/mlx_models}"
 export LTX_Q8_LOCAL="${LTX_Q8_LOCAL:-$ROOT/mlx_models/ltx-2.3-mlx-q8}"
 export LTX_HELPER_PYTHON="${LTX_HELPER_PYTHON:-$PY}"
 export LTX_PORT="${PORT:-${LTX_PORT:-8198}}"
+export PHOSPHENE_PROFILE="${PHOSPHENE_PROFILE:-production}"
 
 cd "$ROOT"
 

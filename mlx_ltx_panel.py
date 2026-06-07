@@ -13,7 +13,8 @@ Features:
 from __future__ import annotations
 
 import atexit
-import cgi
+from email import policy
+from email.parser import BytesParser
 import importlib.util
 import io
 import json
@@ -151,6 +152,7 @@ STATS_DATA_FILE = STATE_DIR / "stats-data.jsonl"
 STATS_HTML_FILE = ROOT / "panel_assets" / "stats.html"
 STATS_FETCHER = ROOT / "scripts" / "fetch_repo_stats.py"
 HELPER_IDLE_TIMEOUT = int(os.environ.get("LTX_HELPER_IDLE_TIMEOUT", "1800"))
+HELPER_START_TIMEOUT = int(os.environ.get("LTX_HELPER_START_TIMEOUT", "600"))
 HELPER_LOW_MEMORY = os.environ.get("LTX_HELPER_LOW_MEMORY", "true")
 FPS = 24
 
@@ -930,6 +932,76 @@ TRAIN_MAX_BYTES_PER_IMAGE = 32 * 1024 * 1024     # 32 MB per image upload
 # urlencoded form on Phosphene; without this cap a malformed Content-Length
 # 500s the handler and a multi-GB declared CL allocates before any check.
 MAX_FORM_BYTES = 1024 * 1024
+
+
+class _MultipartFile:
+    """Small file-field wrapper for panel multipart uploads."""
+
+    def __init__(self, filename: str, data: bytes) -> None:
+        self.filename = filename
+        self.file = io.BytesIO(data)
+
+
+class _MultipartForm:
+    def __init__(self) -> None:
+        self._fields: dict[str, str | _MultipartFile] = {}
+
+    def __contains__(self, key: str) -> bool:
+        return key in self._fields
+
+    def __getitem__(self, key: str) -> str | _MultipartFile:
+        return self._fields[key]
+
+    def set(self, key: str, value: str | _MultipartFile) -> None:
+        self._fields[key] = value
+
+    def getvalue(self, key: str, default: str | None = None) -> str | None:
+        value = self._fields.get(key)
+        if isinstance(value, _MultipartFile):
+            return default
+        return value if value is not None else default
+
+
+def _parse_multipart_form(rfile, ctype: str, content_length: int) -> _MultipartForm:
+    """Parse a multipart/form-data body without deprecated stdlib APIs.
+
+    The caller is still responsible for enforcing a Content-Length cap before
+    invoking this helper. We only need simple text fields and file uploads, so
+    the stdlib email parser is enough and keeps the panel Python 3.13+ ready.
+    """
+    body = rfile.read(content_length)
+    header = (
+        f"Content-Type: {ctype}\r\n"
+        "MIME-Version: 1.0\r\n"
+        "\r\n"
+    ).encode("utf-8")
+    message = BytesParser(policy=policy.default).parsebytes(header + body)
+    if not message.is_multipart():
+        raise ValueError("invalid multipart/form-data body")
+
+    form = _MultipartForm()
+    for part in message.iter_parts():
+        if part.get_content_disposition() != "form-data":
+            continue
+        name = part.get_param("name", header="content-disposition")
+        if not name:
+            continue
+
+        payload = part.get_payload(decode=True)
+        if payload is None:
+            content = part.get_content()
+            if isinstance(content, str):
+                payload = content.encode(part.get_content_charset() or "utf-8")
+            else:
+                payload = bytes(content)
+
+        filename = part.get_filename()
+        if filename is not None:
+            form.set(name, _MultipartFile(filename, payload))
+        else:
+            charset = part.get_content_charset() or "utf-8"
+            form.set(name, payload.decode(charset, "replace"))
+    return form
 
 # User-provided captions. Industry convention: `image_001.png` pairs with
 # `image_001.txt` (same stem) in the same upload. Caption body uses LTX's
@@ -4240,6 +4312,7 @@ class WarmHelper:
         # just log it loudly on a mismatch. Makes healthy remote bug reports
         # carry the version that's actually running.
         self.ready_info: dict = {}
+        self._stdout_buf = b""
 
     def _ensure(self) -> None:
         with self.lock:
@@ -4278,14 +4351,19 @@ class WarmHelper:
             _civ = _active_civitai_key()
             if _civ:
                 env["CIVITAI_API_KEY"] = _civ
-            push(f"Spawning warm helper (low_memory={HELPER_LOW_MEMORY}, idle_timeout={HELPER_IDLE_TIMEOUT}s)")
+            push(f"Spawning warm helper (low_memory={HELPER_LOW_MEMORY}, "
+                 f"idle_timeout={HELPER_IDLE_TIMEOUT}s, "
+                 f"start_timeout={HELPER_START_TIMEOUT}s)")
+            self._stdout_buf = b""
             self.proc = subprocess.Popen(
                 [str(HELPER_PYTHON), str(HELPER_SCRIPT)],
                 cwd=str(MLX), env=env,
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, bufsize=1, start_new_session=True,
             )
-            ready = self._read_until(["ready", "error", "exit"], timeout=120)
+            ready = self._read_until(
+                ["ready", "error", "exit"], timeout=HELPER_START_TIMEOUT,
+            )
             if not ready or ready.get("event") != "ready":
                 raise RuntimeError(f"helper failed to start: {ready}")
             # v3.0.7 (P2): keep the version + model fields for /status.
@@ -4319,33 +4397,49 @@ class WarmHelper:
             return None
         deadline = time.time() + timeout if timeout else None
         # Poll-and-check loop: blocking readline() used to mean a hung helper
-        # froze the worker thread until /stop. select() with a small interval
-        # gives us deterministic deadline enforcement; readline() is only
-        # called once we know there's data waiting.
+        # froze the worker thread until /stop. Do not call TextIOWrapper
+        # readline() after select(): it can pre-buffer multiple JSON lines
+        # internally, leaving later lines invisible to select() even though
+        # the child already wrote them. Read from the raw fd and keep our own
+        # line buffer so a startup "log" immediately followed by "ready" is
+        # consumed deterministically.
         poll_interval = 0.5
-        stdout = self.proc.stdout
+        fd = self.proc.stdout.fileno()
         while True:
-            if deadline and time.time() > deadline:
-                return None
-            # Panic check runs every tick — even when the helper is silent —
-            # so the post-decode hang (helper not emitting anything, file
-            # already on disk) gets rescued promptly.
-            if panic_check is not None:
-                synth = panic_check()
-                if synth is not None:
-                    return synth
-            rlist, _, _ = select.select([stdout], [], [], poll_interval)
-            if not rlist:
-                continue  # idle slice — re-check deadline
-            try:
-                line = stdout.readline()
-            except (OSError, ValueError):
-                # Pipe closed underneath us (kill from another thread).
-                return None
-            if not line:
-                # EOF — helper closed stdout (likely crashed or was killed).
-                return None
-            line = line.strip()
+            if b"\n" not in self._stdout_buf:
+                if deadline and time.time() > deadline:
+                    return None
+                # Panic check runs every tick — even when the helper is silent —
+                # so the post-decode hang (helper not emitting anything, file
+                # already on disk) gets rescued promptly.
+                if panic_check is not None:
+                    synth = panic_check()
+                    if synth is not None:
+                        return synth
+                timeout = poll_interval
+                if deadline:
+                    timeout = max(0.0, min(timeout, deadline - time.time()))
+                rlist, _, _ = select.select([fd], [], [], timeout)
+                if not rlist:
+                    continue  # idle slice — re-check deadline
+                try:
+                    chunk = os.read(fd, 65536)
+                except (OSError, ValueError):
+                    # Pipe closed underneath us (kill from another thread).
+                    return None
+                if not chunk:
+                    # EOF — helper closed stdout (likely crashed or was killed).
+                    if not self._stdout_buf:
+                        return None
+                    line_bytes, self._stdout_buf = self._stdout_buf, b""
+                else:
+                    self._stdout_buf += chunk
+                    if b"\n" not in self._stdout_buf:
+                        continue
+
+            if b"\n" in self._stdout_buf:
+                line_bytes, self._stdout_buf = self._stdout_buf.split(b"\n", 1)
+            line = line_bytes.decode("utf-8", "replace").strip()
             if not line:
                 continue
             try:
@@ -9228,7 +9322,7 @@ class Handler(BaseHTTPRequestHandler):
         # Multipart upload
         if path == "/upload" and ctype.startswith("multipart/form-data"):
             # Hard cap on body size so a misbehaving / malicious caller can't
-            # spool a multi-GB file into memory via cgi.FieldStorage. 64 MB
+            # spool a multi-GB file into memory. 64 MB
             # comfortably covers any reasonable still-image reference; multipart
             # framing adds a small overhead so we read the declared length.
             MAX_UPLOAD_BYTES = 64 * 1024 * 1024
@@ -9242,10 +9336,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": f"upload too large (max {MAX_UPLOAD_BYTES} bytes)"}, 413)
                 return
             try:
-                form = cgi.FieldStorage(
-                    fp=self.rfile, headers=self.headers,
-                    environ={"REQUEST_METHOD": "POST", "CONTENT_TYPE": ctype},
-                )
+                form = _parse_multipart_form(self.rfile, ctype, clen)
                 # Accept either field name — the endpoint is generic
                 # (reference images for i2v, audio clips for i2v_clean_audio,
                 # whatever). Originally `image` only; `audio` added 2026-05-16
@@ -9285,10 +9376,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": f"upload too large (max {MAX_UPLOAD_BYTES} bytes per file)"}, 413)
                 return
             try:
-                form = cgi.FieldStorage(
-                    fp=self.rfile, headers=self.headers,
-                    environ={"REQUEST_METHOD": "POST", "CONTENT_TYPE": ctype},
-                )
+                form = _parse_multipart_form(self.rfile, ctype, clen)
                 # job_id is optional — if absent, mint a fresh one for the
                 # first upload of a session. The JS client echoes the
                 # returned id back on every subsequent upload to keep the
@@ -9418,10 +9506,7 @@ class Handler(BaseHTTPRequestHandler):
                 }, 413)
                 return
             try:
-                form = cgi.FieldStorage(
-                    fp=self.rfile, headers=self.headers,
-                    environ={"REQUEST_METHOD": "POST", "CONTENT_TYPE": ctype},
-                )
+                form = _parse_multipart_form(self.rfile, ctype, clen)
                 requested_id = (form.getvalue("job_id") or "").strip() if "job_id" in form else ""
                 if requested_id:
                     try:
@@ -9616,10 +9701,7 @@ class Handler(BaseHTTPRequestHandler):
                 }, 413)
                 return
             try:
-                form = cgi.FieldStorage(
-                    fp=self.rfile, headers=self.headers,
-                    environ={"REQUEST_METHOD": "POST", "CONTENT_TYPE": ctype},
-                )
+                form = _parse_multipart_form(self.rfile, ctype, clen)
                 # job_id is required: the voice clip must attach to an
                 # existing dataset. The Train UI always uploads the first
                 # image before exposing the voice section, so a job_id is
@@ -20992,7 +21074,7 @@ function imgStudioClearRef(idx) {
 async function imgStudioUploadRef(idx, file) {
   const fd = new FormData();
   // The panel's /upload endpoint expects the multipart field to be named
-  // "image" (cgi.FieldStorage lookup); using "file" silently 400s.
+  // "image"; using "file" silently 400s.
   fd.append('image', file);
   try {
     const r = await fetch('/upload', { method: 'POST', body: fd });
@@ -28522,11 +28604,16 @@ function renderVersionPill() {
   // again, latest is 1ea5f1d (2026-05-21)" instead of just shrugging.
   if (s.suppress_reason) {
     pill.classList.add('pill-dev');
+    if (s.local_branch === 'main') {
+      pill.textContent = `${local} · main`;
+      pill.title = `Update check paused: ${s.suppress_reason}.`
+        + `\nClick to copy a paste-ready debug string.`;
+      return;
+    }
     const sha = s.local_short || '';
     const date = s.local_commit_date || '';
     const trail = sha ? ` · ${sha}${date ? ` (${date})` : ''}` : '';
-    const branchLabel = (s.local_branch && s.local_branch !== 'main')
-      ? s.local_branch : 'dev';
+    const branchLabel = s.local_branch || 'local';
     pill.textContent = `${local} · ${branchLabel}${trail}`;
     pill.title = `Update check paused: ${s.suppress_reason}.`
       + (sha ? `\nFull SHA: ${s.local_sha || sha}` : '')
