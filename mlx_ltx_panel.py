@@ -5955,9 +5955,16 @@ def run_image_job_inner(job: dict) -> None:
         # on HF. Translate the raw GatedRepoError into actionable steps instead
         # of dumping a traceback into the failed-job error.
         _m = str(_gen_exc)
+        # Match the gate even when mflux's truncated stderr tail cuts off the
+        # final "GatedRepoError: 403" line — the resolution/download frames
+        # (_resolve_model_path / snapshot_download / PathResolution) survive in
+        # the tail and only appear when the weights can't be fetched (gate /
+        # token / network), all of which the setup message addresses.
         if engine_override == "ideogram4_inline" and any(
             k in _m for k in ("GatedRepo", "Access denied", "requires approval",
-                              "awaiting", "403", "gated", "Cannot access")):
+                              "awaiting", "403", "401", "Forbidden", "gated",
+                              "Cannot access", "snapshot_download",
+                              "_resolve_model_path", "PathResolution")):
             raise RuntimeError(
                 "Ideogram 4 needs a one-time license approval before its weights "
                 "can download. (1) Accept the license at "

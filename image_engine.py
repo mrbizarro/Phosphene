@@ -446,7 +446,10 @@ MFLUX_FAMILY_DEFAULTS = {
     # values below are placeholders only (the ideogram argv branch in
     # _generate_mflux never reads them). base_model points the loader at
     # the fp8 weights when --model is an HF id / path.
-    "ideogram":      {"steps": 20, "guidance": 0.0,  "base_model": "ideogram-ai/ideogram-4-fp8"},
+    # base_model feeds the mflux `--base-model` ARCHITECTURE enum (dev/…/ideogram4),
+    # NOT the HF repo path (that's config.mflux_model → `--model`). Must be the enum
+    # or argparse exits 2. steps/guidance are inert (Ideogram presets define them).
+    "ideogram":      {"steps": 20, "guidance": 0.0,  "base_model": "ideogram4"},
 }
 
 
