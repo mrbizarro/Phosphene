@@ -11232,6 +11232,31 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": f"open failed: {e}"}, 500)
             return
 
+        if path == "/external/open":
+            # Open an external link in the system default browser. A plain
+            # target="_blank" anchor doesn't reliably open from inside Pinokio's
+            # webview; `open <url>` always does. Restricted to https + an
+            # allowlisted host so this loopback endpoint can't be coerced into
+            # an arbitrary-URL / file opener.
+            url = (form.get("url", [""])[0] or "").strip()
+            _ALLOWED_HOSTS = {
+                "huggingface.co", "civitai.com", "github.com",
+                "ideogram.ai", "pinokio.co", "pinokio.computer",
+            }
+            try:
+                _pp = urllib.parse.urlparse(url)
+                _host = (_pp.netloc or "").lower().split("@")[-1].split(":")[0]
+                if _host.startswith("www."):
+                    _host = _host[4:]
+                if _pp.scheme != "https" or _host not in _ALLOWED_HOSTS:
+                    self._json({"error": f"refused (https + allowlisted host only): {url!r}"}, 400)
+                    return
+                subprocess.run(["open", url], check=False, timeout=5)
+                self._json({"ok": True, "opened": url})
+            except Exception as e:
+                self._json({"error": f"open failed: {e}"}, 500)
+            return
+
         if path == "/output/hide":
             target = qs.get("path", [""])[0] or form.get("path", [""])[0]
             if not target:
@@ -19470,7 +19495,7 @@ HTML = r"""<!doctype html>
             <strong>One-time setup — Ideogram 4 is free, but license-gated.</strong>
             <ol class="ideo-setup-steps">
               <li>Add your <button type="button" class="ideo-link" onclick="openSettingsModal()">Hugging&nbsp;Face token</button> in Settings → API tokens.</li>
-              <li><a id="ideoLicenseLink" href="https://huggingface.co/ideogram-ai/ideogram-4-fp8" target="_blank" rel="noopener" class="ideo-link">Accept the license ↗</a> — click “Agree and access”.</li>
+              <li><a id="ideoLicenseLink" href="https://huggingface.co/ideogram-ai/ideogram-4-fp8" target="_blank" rel="noopener" class="ideo-link" onclick="openExternal(this.href); return false;">Accept the license ↗</a> — click “Agree and access”.</li>
             </ol>
             <span class="ideo-setup-hint">Your first render then downloads it (<span id="ideoSetupDlGb">~27&nbsp;GB</span>, one-time). Personal/research use is free; commercial use needs a paid license from Ideogram.</span>
           </div>
@@ -21957,6 +21982,22 @@ async function imgStudioRefreshEngineStatus() {
   // it as soon as engine status comes back so the Generate button can
   // refuse upfront on a missing add-on (issue #12).
   if (typeof imgStudioUpdateValidity === 'function') imgStudioUpdateValidity();
+}
+
+// Open an external link reliably. A plain target="_blank" anchor does nothing
+// inside Pinokio's webview, so route through the backend (`open <url>`), which
+// opens the system default browser. Falls back to window.open in a plain
+// browser. Call as: onclick="openExternal(this.href); return false;"
+async function openExternal(url) {
+  try {
+    const r = await fetch('/external/open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'url=' + encodeURIComponent(url),
+    });
+    if (r.ok) { try { phosToast && phosToast('Opening ' + (new URL(url)).host + '…'); } catch (_) {} return; }
+  } catch (_) {}
+  try { window.open(url, '_blank', 'noopener'); } catch (_) {}
 }
 
 // Show the one-time license/setup note while the (gated) Ideogram weights
