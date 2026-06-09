@@ -19494,7 +19494,7 @@ HTML = r"""<!doctype html>
           <div class="ideo-setup-body">
             <strong>One-time setup — Ideogram 4 is free, but license-gated.</strong>
             <ol class="ideo-setup-steps">
-              <li>Add your <button type="button" class="ideo-link" onclick="openSettingsModal()">Hugging&nbsp;Face token</button> in Settings → API tokens.</li>
+              <li>Add an HF <button type="button" class="ideo-link" onclick="openSettingsModal()">access token</button> in Settings → API tokens — a <strong>Read</strong> token (a fine-grained token limited to your own repos can’t fetch gated models like this one).</li>
               <li><a id="ideoLicenseLink" href="https://huggingface.co/ideogram-ai/ideogram-4-fp8" target="_blank" rel="noopener" class="ideo-link" onclick="openExternal(this.href); return false;">Accept the license ↗</a> — click “Agree and access”.</li>
             </ol>
             <span class="ideo-setup-hint">Your first render then downloads it (<span id="ideoSetupDlGb">~27&nbsp;GB</span>, one-time). Personal/research use is free; commercial use needs a paid license from Ideogram.</span>
