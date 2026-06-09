@@ -197,19 +197,21 @@ module.exports = {
           // whole repair block — user didn't install Qwen, don't add it
           // on their behalf.
           "if ./ltx-2-mlx/env/bin/python -c 'import mflux' 2>/dev/null; then \\",
-          "  echo 'mflux present — refreshing pin to 0.17.5 with deps to repair any missing transitive packages…' && \\",
+          "  echo 'mflux present — refreshing pin to 0.18.0 with deps to repair any missing transitive packages…' && \\",
           // Step 2: install WITH deps so pip resolves the full transitive
           // set (transformers, accelerate, sentencepiece, etc.). Repairs
           // any user whose previous --no-deps install left deps missing.
-          "  ./ltx-2-mlx/env/bin/pip install 'mflux==0.17.5' && \\",
+          "  ./ltx-2-mlx/env/bin/pip install 'mflux==0.18.0' && \\",
           // Step 3: force-reinstall WITHOUT deps to lock the version
           // without churning the deps we just installed.
-          "  ./ltx-2-mlx/env/bin/pip install --force-reinstall --no-deps 'mflux==0.17.5' && \\",
+          "  ./ltx-2-mlx/env/bin/pip install --force-reinstall --no-deps 'mflux==0.18.0' && \\",
           // Step 4: install (or refresh) mlx-teacache 0.4.1 (MIT) for the
           // optional FLUX.2 TeaCache wrap (run_mflux_with_teacache.py).
           // Gated by the same `import mflux` probe above — only land this
           // for users who actually opted into mflux. Pinned exact for
-          // reproducibility; compatible with mflux>=0.17,<0.18.
+          // reproducibility. The TeaCache wrap self-checks mflux compat and
+          // falls back to the bare CLI if the API moved, so the mflux 0.18
+          // bump (for Ideogram 4 + Qwen-Edit) can't break FLUX.2.
           "  ./ltx-2-mlx/env/bin/pip install 'mlx-teacache==0.4.1'; \\",
           "else \\",
           "  echo 'mflux not installed (user never opted into Qwen image gen) — skipping mflux repair.'; \\",

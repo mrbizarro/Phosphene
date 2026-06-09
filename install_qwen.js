@@ -70,14 +70,14 @@ module.exports = {
         //   Step 2: force-reinstall the same version WITHOUT deps so
         //     pip never silently bumps a transitive dep when we
         //     re-run later.
-        message: "./ltx-2-mlx/env/bin/pip install 'mflux==0.17.5'"
+        message: "./ltx-2-mlx/env/bin/pip install 'mflux==0.18.0'"
       }
     },
     {
       method: "shell.run",
       params: {
         // Pin-tightening pass — see two-step rationale above.
-        message: "./ltx-2-mlx/env/bin/pip install --force-reinstall --no-deps 'mflux==0.17.5'"
+        message: "./ltx-2-mlx/env/bin/pip install --force-reinstall --no-deps 'mflux==0.18.0'"
       }
     },
     {
@@ -93,7 +93,11 @@ module.exports = {
         // to the bare CLI if this import isn't present, so the install
         // step failing isn't fatal — but we pin it next to mflux so a
         // user who opted into Qwen also gets the FLUX.2 speedup.
-        // Library is compatible with mflux>=0.17,<0.18 (matches our pin).
+        // Pinned for reproducibility. The FLUX.2 TeaCache wrap re-verifies
+        // its mflux compat at runtime and falls back to the bare CLI if the
+        // API moved (so a mflux bump never *breaks* FLUX.2 — worst case it
+        // loses the speedup). Bumped to the mflux 0.18 line (Ideogram 4 +
+        // Qwen-Edit share this package); re-confirm the FLUX.2 speedup holds.
         message: "./ltx-2-mlx/env/bin/pip install 'mlx-teacache==0.4.1'"
       }
     },
@@ -101,8 +105,9 @@ module.exports = {
       method: "shell.run",
       params: {
         // FBCache patch — injects optional step-caching into mflux's Qwen
-        // transformer layer loop. Line-targeted against mflux==0.17.5 (the
-        // pin enforced above). Idempotent — script checks for its marker
+        // transformer layer loop. Line-targeted against mflux==0.18.0 (the
+        // pin enforced above; anchors re-verified byte-for-byte on the bump).
+        // Idempotent — script checks for its marker
         // before touching anything. Off unless MFLUX_FB_CACHE=1 is set in
         // the subprocess env (which Phosphene does for the Fast/Medium
         // Qwen tiers via agent/image_engine.py).

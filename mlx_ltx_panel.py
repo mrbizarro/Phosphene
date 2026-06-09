@@ -5339,6 +5339,11 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                 "mode": "image",
                 "prompt": prompt,
                 "engine_override": engine_override,
+                # Ideogram 4 sampler preset (V4_DEFAULT_20 / V4_TURBO_12 /
+                # V4_QUALITY_48). Carried through for the ideogram4_inline
+                # engine; ignored by every other engine. _build_image_engine_config
+                # reads it off these params to set ImageEngineConfig.mflux_preset.
+                "ideo_preset": f("ideo_preset", "V4_DEFAULT_20") or "V4_DEFAULT_20",
                 "aspect": aspect,
                 "n": n,
                 "seed": str(seed),
@@ -5645,6 +5650,14 @@ _PREFLIGHT_BASE_GB: dict[tuple[str, int], float] = {
     ("qwen_edit", 4): 18.0,
     ("qwen_edit", 6): 24.0,
     ("qwen_edit", 8): 32.0,
+    # Ideogram 4 fp8 — 9.3B fp8 DiT + 8B Qwen3-VL text encoder, ~28 GB on
+    # disk. The fp8 weights aren't re-quantized by us (no -q flag on the
+    # ideogram4 CLI), so the quantize key is nominal — every row maps to the
+    # same ~24-28 GB peak Metal residency. We list 4/6/8 so the (family,
+    # quantize) lookup hits exactly regardless of the dataclass default (6).
+    ("ideogram", 4): 26.0,
+    ("ideogram", 6): 26.0,
+    ("ideogram", 8): 28.0,
     # FLUX.2 — distilled 4B and base 4B/9B variants
     ("flux2", 4):      6.0,
     ("flux2", 6):      8.0,
@@ -5843,7 +5856,7 @@ def run_image_job_inner(job: dict) -> None:
         refs_resolved.append(str(rp))
 
     try:
-        cfg = _build_image_engine_config(engine_override)
+        cfg = _build_image_engine_config(engine_override, form=p)
     except ValueError as e:
         raise RuntimeError(str(e))
 
@@ -7840,7 +7853,10 @@ def _auto_promote_image_engine_kind(
     return None
 
 
-def _build_image_engine_config(engine_override: str) -> agent_image_engine.ImageEngineConfig:
+def _build_image_engine_config(
+    engine_override: str,
+    form: dict | None = None,
+) -> agent_image_engine.ImageEngineConfig:
     """Map an `engine_override` shorthand to a transient ImageEngineConfig.
 
     Used by both the synchronous ``/image/generate`` HTTP endpoint AND
@@ -7851,10 +7867,37 @@ def _build_image_engine_config(engine_override: str) -> agent_image_engine.Image
     Returns the user's saved Settings config when ``engine_override == 'auto'``;
     otherwise constructs a transient cfg WITHOUT touching the persisted
     user setting (so trying Qwen once doesn't hijack their default).
+
+    ``form`` is the per-request param dict (the queue worker's
+    ``job["params"]`` or the sync endpoint's JSON ``payload``). It is the
+    channel for engine-specific knobs that aren't expressible as a fixed
+    shorthand — today only Ideogram 4's sampler preset (``ideo_preset``).
+    It is optional so legacy callers that pass only the shorthand keep
+    working (they land on the documented per-engine defaults).
     """
     engine_override = (engine_override or "auto").lower()
+    form = form or {}
     if engine_override == "auto":
         return _load_agent_image_config()
+    # ===== Ideogram 4 (fp8) — typography & layout, text-in-image ===========
+    # 9.3B fp8 DiT + an 8B Qwen3-VL text encoder (~28 GB on disk, gated).
+    # Text-to-image ONLY — NO reference images (mflux's ideogram4 CLI has no
+    # --image-paths). The model is trained on structured JSON captions; the
+    # visual text-placement canvas in the panel serializes a schema-valid
+    # caption into the posted `prompt`, which image_engine.py writes verbatim
+    # to a temp .json and feeds via `--prompt-file`. Steps/guidance are inert
+    # on this CLI — the sampler PRESET defines them, so we thread `ideo_preset`
+    # (V4_DEFAULT_20 / V4_TURBO_12 / V4_QUALITY_48) into `mflux_preset`.
+    if engine_override == "ideogram4_inline":
+        _ideo_preset = str(form.get("ideo_preset") or "V4_DEFAULT_20").strip() or "V4_DEFAULT_20"
+        return agent_image_engine.ImageEngineConfig(
+            kind="mflux",
+            mflux_model="ideogram-ai/ideogram-4-fp8",
+            mflux_family="ideogram",
+            mflux_preset=_ideo_preset,
+            mflux_lora_paths=[],
+            mflux_lora_scales=[],
+        )
     # ===== Qwen-Image-Edit-2511 — Fast / Medium / Quality ====================
     # All three share the same ~24 GB Qwen-Image-Edit-2511 model on disk
     # (Apache 2.0, ungated). The split is steps × quantization × LoRA.
@@ -8512,6 +8555,12 @@ class Handler(BaseHTTPRequestHandler):
                     ("qwen_edit_lightning_inline", "Qwen/Qwen-Image-Edit-2511", 24.0,  35.0,  50.0),
                     ("qwen_edit_inline",           "Qwen/Qwen-Image-Edit-2511", 24.0,  75.0,  50.0),
                     ("qwen_edit_high_inline",      "Qwen/Qwen-Image-Edit-2511", 24.0, 170.0,  60.0),
+                    # Ideogram 4 fp8 — ~28 GB gated download. sec_per_image is
+                    # the default V4_DEFAULT_20 (20-step) baseline; the canvas
+                    # Quality dropdown can switch to V4_TURBO_12 (faster) or
+                    # V4_QUALITY_48 (slower) but the static estimate stays on
+                    # the default tier until observed timings self-correct it.
+                    ("ideogram4_inline",           "ideogram-ai/ideogram-4-fp8", 28.0, 150.0,  60.0),
                     # HiDream lab subprocess: ~45s cold load (BF16 weights →
                     # MLX) per batch. Denoise times measured from the May 2026
                     # step+FBCache bench at HD 2560×1440.
@@ -8527,6 +8576,7 @@ class Handler(BaseHTTPRequestHandler):
                     "qwen_edit_lightning_inline": "qwen_edit",
                     "qwen_edit_inline":           "qwen_edit",
                     "qwen_edit_high_inline":      "qwen_edit",
+                    "ideogram4_inline":           "ideogram",
                 }
                 out = []
                 for engine, repo, dl_gb, sec, cold in ENGINES:
@@ -10047,7 +10097,7 @@ class Handler(BaseHTTPRequestHandler):
             # ``mode == "image"`` queue worker shares the same shorthands.
             engine_override = (payload.get("engine_override") or "auto").lower()
             try:
-                cfg = _build_image_engine_config(engine_override)
+                cfg = _build_image_engine_config(engine_override, form=payload)
             except ValueError as e:
                 self._json({"error": str(e)}, 400); return
 
@@ -13196,6 +13246,243 @@ HTML = r"""<!doctype html>
     .studio-results {
       margin-top: 14px;
     }
+
+    /* ============================================================
+       Ideogram 4 — visual text-placement canvas (.ideo-panel)
+       Shown only when engine == ideogram4_inline. Reuses the app's
+       tokens (--accent/--panel/--border/--r-*/--t-fast) + components
+       (.pill-group/.pill-btn, .qchip, .mf-label). Motion collapses
+       under prefers-reduced-motion via the global rule.
+       ============================================================ */
+    .ideo-panel {
+      margin-top: 12px;
+      border-top: 1px solid var(--border);
+      padding-top: 12px;
+    }
+    .ideo-panel[hidden] { display: none; }
+    .ideo-head {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 12px; margin-bottom: 10px; flex-wrap: wrap;
+    }
+    .ideo-head-titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .ideo-head-title { font-size: 13px; font-weight: 600; color: var(--text); }
+    .ideo-head-sub { font-size: 11px; color: var(--muted); }
+    .ideo-mode-toggle { margin: 0; min-width: 220px; flex: 0 0 auto; }
+    .ideo-prompt-label {
+      display: block; font-size: 11px; font-weight: 600; letter-spacing: .02em;
+      color: var(--muted); text-transform: uppercase; margin: 0 0 6px 2px;
+    }
+    .ideo-prompt-label[hidden] { display: none; }
+    .ideo-simple-hint {
+      font-size: 11.5px; color: var(--muted); line-height: 1.5;
+      background: var(--bg-2); border: 1px solid var(--border);
+      border-radius: var(--r-sm); padding: 8px 10px;
+    }
+    .ideo-simple-hint strong { color: var(--accent-bright); }
+    .ideo-layout[hidden] { display: none; }
+
+    /* Toolbar */
+    .ideo-toolbar {
+      display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+      margin-bottom: 9px;
+    }
+    .ideo-toolbar .qchip { display: inline-flex; align-items: center; }
+    .ideo-toolbar-toggle {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11.5px; color: var(--muted); cursor: pointer; user-select: none;
+      padding: 0 4px;
+    }
+    .ideo-toolbar-toggle input { accent-color: var(--accent); cursor: pointer; }
+    .ideo-example-picker {
+      font-size: 11.5px; padding: 5px 8px; border-radius: var(--r-sm);
+      background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    }
+
+    /* Stage — the frame the user places boxes on. aspect-ratio set inline
+       by ideoApplyAspect(); default 16:9 here as a safe fallback. */
+    .ideo-stage-wrap {
+      width: 100%; display: flex; justify-content: center;
+      background:
+        linear-gradient(var(--bg-2) 0 0) padding-box,
+        repeating-conic-gradient(rgba(255,255,255,0.025) 0% 25%, transparent 0% 50%) 0 0 / 18px 18px;
+      border: 1px solid var(--border); border-radius: var(--r-md);
+      padding: 12px; overflow: hidden;
+    }
+    .ideo-stage {
+      position: relative; width: 100%; max-width: 540px;
+      aspect-ratio: 16 / 9;
+      background: linear-gradient(160deg, #0d1430, #0a0f24);
+      border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+      box-shadow: var(--shadow-1), 0 0 0 1px rgba(0,0,0,0.4) inset;
+      cursor: crosshair; user-select: none; touch-action: none;
+      overflow: hidden;
+    }
+    .ideo-stage:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 2px; }
+    .ideo-stage-hint {
+      position: absolute; inset: 0; display: flex; align-items: center;
+      justify-content: center; text-align: center; padding: 0 24px;
+      font-size: 12px; color: var(--muted); pointer-events: none; opacity: .8;
+    }
+    .ideo-stage-hint strong { color: var(--accent-bright); }
+    .ideo-stage.has-boxes .ideo-stage-hint { display: none; }
+
+    /* Guide lines (snapping feedback) */
+    .ideo-guide {
+      position: absolute; background: var(--accent-bright); opacity: .85;
+      pointer-events: none; z-index: 5;
+    }
+    .ideo-guide.v { width: 1px; top: 0; bottom: 0; }
+    .ideo-guide.h { height: 1px; left: 0; right: 0; }
+
+    /* A placed box */
+    .ideo-box {
+      position: absolute; box-sizing: border-box;
+      border: 1.5px solid var(--accent);
+      background: rgba(47,129,247,0.08);
+      border-radius: 3px; cursor: move; overflow: hidden;
+      transition: border-color var(--t-fast), background var(--t-fast);
+    }
+    .ideo-box.obj { border-style: dashed; border-color: var(--muted); background: rgba(182,191,209,0.06); }
+    .ideo-box:hover { border-color: var(--accent-bright); }
+    .ideo-box.selected {
+      border-color: var(--accent-bright);
+      box-shadow: 0 0 0 1px var(--accent-bright), 0 0 0 4px var(--accent-dim);
+      z-index: 4;
+    }
+    .ideo-box.warn { border-color: var(--warning); }
+    /* literal-text placement preview inside the box */
+    .ideo-box-text {
+      position: absolute; inset: 0; display: flex; padding: 2px 4px;
+      align-items: center; line-height: 1.05; overflow: hidden;
+      pointer-events: none; word-break: break-word; hyphens: auto;
+    }
+    .ideo-box-text.al-left { justify-content: flex-start; text-align: left; }
+    .ideo-box-text.al-center { justify-content: center; text-align: center; }
+    .ideo-box-text.al-right { justify-content: flex-end; text-align: right; }
+    .ideo-box-text.st-headline { font-weight: 800; letter-spacing: -.01em; }
+    .ideo-box-text.st-subhead  { font-weight: 600; }
+    .ideo-box-text.st-body     { font-weight: 400; }
+    .ideo-box-text.st-caps     { font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    .ideo-box-text.st-script   { font-weight: 500; font-style: italic; font-family: "Snell Roundhand","Segoe Script",cursive; }
+    .ideo-box-text.st-serif    { font-weight: 600; font-family: Georgia,"Times New Roman",serif; }
+    .ideo-box-obj-label {
+      position: absolute; left: 0; top: 0; padding: 1px 5px;
+      font-size: 9px; font-family: var(--ph-font-mono); letter-spacing: .04em;
+      color: var(--muted); background: rgba(10,15,36,0.7); border-bottom-right-radius: 3px;
+      pointer-events: none; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    /* resize handles — 8 around the box */
+    .ideo-handle {
+      position: absolute; width: 9px; height: 9px; box-sizing: border-box;
+      background: var(--accent-bright); border: 1px solid #06122b; border-radius: 2px;
+      z-index: 6;
+    }
+    .ideo-handle.n  { top: -5px; left: 50%; margin-left: -4.5px; cursor: ns-resize; }
+    .ideo-handle.s  { bottom: -5px; left: 50%; margin-left: -4.5px; cursor: ns-resize; }
+    .ideo-handle.w  { left: -5px; top: 50%; margin-top: -4.5px; cursor: ew-resize; }
+    .ideo-handle.e  { right: -5px; top: 50%; margin-top: -4.5px; cursor: ew-resize; }
+    .ideo-handle.nw { top: -5px; left: -5px; cursor: nwse-resize; }
+    .ideo-handle.ne { top: -5px; right: -5px; cursor: nesw-resize; }
+    .ideo-handle.sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
+    .ideo-handle.se { bottom: -5px; right: -5px; cursor: nwse-resize; }
+
+    .ideo-stage-note {
+      font-size: 10.5px; color: var(--muted); margin: 6px 2px 0; line-height: 1.45;
+    }
+
+    /* Inspector */
+    .ideo-inspector {
+      margin-top: 11px; padding: 11px; border: 1px solid var(--border);
+      border-radius: var(--r-md); background: var(--panel-2);
+    }
+    .ideo-inspector[hidden] { display: none; }
+    .ideo-insp-row { margin-bottom: 9px; }
+    .ideo-insp-row:last-child { margin-bottom: 0; }
+    .ideo-insp-row .mf-label,
+    .ideo-insp-cell .mf-label {
+      display: block; font-size: 10.5px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px;
+    }
+    .ideo-inspector input[type="text"] {
+      width: 100%; padding: 7px 9px; font-size: 13px;
+      background: var(--bg-2); border: 1px solid var(--border);
+      border-radius: var(--r-sm); color: var(--text);
+    }
+    .ideo-inspector input[type="text"]:focus { border-color: var(--accent); outline: none; }
+    .ideo-inspector select {
+      width: 100%; padding: 7px 9px; font-size: 13px;
+      background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: var(--r-sm); color: var(--text);
+    }
+    .ideo-insp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 11px; margin-bottom: 9px; }
+    .ideo-insp-grid .pill-group { margin-bottom: 0; }
+    .ideo-insp-grid .pill-btn { padding: 6px 4px; font-size: 13px; }
+    .ideo-insp-typeswitch .pill-group { margin-bottom: 0; }
+    .ideo-insp-typeswitch .pill-btn { padding: 6px 8px; }
+    .ideo-swatches { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .ideo-swatch {
+      width: 22px; height: 22px; border-radius: var(--r-sm); cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.18); position: relative; padding: 0;
+    }
+    .ideo-swatch.selected { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent-bright); }
+    .ideo-swatch.removable::after {
+      content: "×"; position: absolute; top: -7px; right: -7px;
+      width: 14px; height: 14px; font-size: 11px; line-height: 13px; text-align: center;
+      background: var(--danger); color: #fff; border-radius: 50%; opacity: 0;
+      transition: opacity var(--t-fast);
+    }
+    .ideo-swatch.removable:hover::after { opacity: 1; }
+    .ideo-swatch-color {
+      width: 22px; height: 22px; padding: 0; border: 1px dashed var(--border-strong);
+      border-radius: var(--r-sm); background: transparent; cursor: pointer;
+    }
+    .ideo-insp-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+    .ideo-insp-bbox { font-size: 10px; font-family: var(--ph-font-mono); color: var(--muted); }
+    .ideo-danger:hover { border-color: var(--danger) !important; color: var(--danger) !important; }
+
+    /* Render / Quality / palette / raw controls */
+    .ideo-controls { display: grid; grid-template-columns: 1.4fr 1fr; gap: 11px; margin-top: 11px; }
+    .ideo-ctrl-cell .mf-label { display: block; font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 5px; }
+    .ideo-ctrl-cell .pill-group { margin-bottom: 0; }
+    .ideo-ctrl-cell select {
+      width: 100%; padding: 8px 9px; font-size: 13px;
+      background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: var(--r-sm); color: var(--text);
+    }
+    .ideo-details {
+      margin-top: 11px; border: 1px solid var(--border);
+      border-radius: var(--r-md); background: var(--panel-2); overflow: hidden;
+    }
+    .ideo-details > summary {
+      cursor: pointer; padding: 9px 11px; font-size: 12px; font-weight: 600;
+      color: var(--text); list-style: none; display: flex; align-items: center; gap: 8px;
+    }
+    .ideo-details > summary::-webkit-details-marker { display: none; }
+    .ideo-details > summary::before {
+      content: "▸"; color: var(--muted); font-size: 10px; transition: transform var(--t-fast);
+    }
+    .ideo-details[open] > summary::before { transform: rotate(90deg); }
+    .ideo-summary-meta { font-size: 10.5px; color: var(--muted); font-weight: 400; }
+    .ideo-palette-body, .ideo-raw-body { padding: 0 11px 11px; }
+    .ideo-help { font-size: 11px; color: var(--muted); margin: 2px 0 8px; line-height: 1.45; }
+    .ideo-palette-add { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
+    .ideo-validity-chip {
+      font-size: 10px; font-family: var(--ph-font-mono); padding: 1px 7px;
+      border-radius: var(--r-pill); border: 1px solid var(--border);
+      color: var(--muted); background: var(--bg-2);
+    }
+    .ideo-validity-chip[data-ok="yes"] { color: var(--success); border-color: rgba(63,185,80,0.35); background: rgba(63,185,80,0.10); }
+    .ideo-validity-chip[data-ok="no"]  { color: var(--danger);  border-color: rgba(248,81,73,0.4);  background: rgba(248,81,73,0.10); }
+    .ideo-raw-textarea {
+      width: 100%; font-family: var(--ph-font-mono); font-size: 11.5px; line-height: 1.5;
+      background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-sm);
+      color: var(--text); padding: 8px 10px; resize: vertical; min-height: 140px;
+    }
+    .ideo-raw-textarea:focus { border-color: var(--accent); outline: none; }
+    .ideo-raw-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+    .ideo-raw-msg { font-size: 11px; color: var(--muted); }
+    .ideo-raw-msg.err { color: var(--danger); }
+    .ideo-raw-msg.ok { color: var(--success); }
 
     /* ============================================================
        Characters pane (.characters-pane) — pick a trained character +
@@ -19097,8 +19384,196 @@ HTML = r"""<!doctype html>
           </div>
         </div>
 
+        <!-- Prompt textarea label — hidden for every engine except Ideogram
+             4, where the Simple/Layout toggle relabels it (in Layout the
+             textarea becomes the scene & background field, not the prompt). -->
+        <label id="imgStudioPromptLabel" class="ideo-prompt-label" for="imgStudioPrompt" hidden></label>
         <textarea id="imgStudioPrompt" class="composer-prompt" rows="4"
                   placeholder="A cinematic medium close-up of a woman in a sunlit kitchen, soft morning light through blinds, shallow depth of field, photorealistic"></textarea>
+      </div>
+
+      <!-- ============== IDEOGRAM 4 — visual text-placement canvas ==============
+           Shown only when the engine is `ideogram4_inline`. ideoSyncVisibility()
+           toggles #ideoPanel.hidden off the engine value. A Simple/Layout
+           toggle switches between (a) plain-prompt mode (the textarea above is
+           a plain prompt, model accepts plain strings) and (b) Layout mode (the
+           textarea relabels to "Scene & background" → compositional_deconstruction.background
+           and this canvas drives the rest of the JSON caption). The serializer
+           ideoBuildCaption() emits the EXACT schema the mflux Ideogram4
+           caption verifier expects; imgStudioGenerate() posts it as `prompt`. -->
+      <div class="ideo-panel" id="ideoPanel" hidden>
+        <div class="ideo-head">
+          <div class="ideo-head-titles">
+            <span class="ideo-head-title">Ideogram 4 — text in image</span>
+            <span class="ideo-head-sub">Place words on the frame; the model renders the final typography.</span>
+          </div>
+          <div class="pill-group cols-2 ideo-mode-toggle" role="group" aria-label="Caption mode">
+            <button type="button" class="pill-btn active" id="ideoModeSimpleBtn" data-ideo-mode="simple" onclick="ideoSetMode('simple')" aria-pressed="true">
+              <span>Simple</span><span class="sub">plain prompt</span>
+            </button>
+            <button type="button" class="pill-btn" id="ideoModeLayoutBtn" data-ideo-mode="layout" onclick="ideoSetMode('layout')" aria-pressed="false">
+              <span>Layout</span><span class="sub">visual canvas</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Simple-mode hint: the textarea above IS the prompt. -->
+        <div class="ideo-simple-hint" id="ideoSimpleHint">
+          The prompt box above is sent as-is. Switch to <strong>Layout</strong> to place text and objects on the frame and ship a structured caption (Ideogram 4 is strongest with structured captions).
+        </div>
+
+        <!-- Layout-mode body — everything below shows only in Layout. -->
+        <div class="ideo-layout" id="ideoLayout" hidden>
+          <!-- Toolbar -->
+          <div class="ideo-toolbar">
+            <button type="button" class="qchip" id="ideoInsertTextBtn" onclick="ideoInsertBox('text')" title="Add a text box (or drag on an empty area of the frame)">
+              <svg class="ph" aria-hidden="true" style="margin-right:5px;vertical-align:-2px"><use href="#ph-pencil-simple"/></svg>Insert text
+            </button>
+            <button type="button" class="qchip" id="ideoInsertObjBtn" onclick="ideoInsertBox('obj')" title="Add an object region (something the model should draw)">
+              <svg class="ph" aria-hidden="true" style="margin-right:5px;vertical-align:-2px"><use href="#ph-image"/></svg>Insert object
+            </button>
+            <span class="qchip-spacer"></span>
+            <label class="ideo-toolbar-toggle" title="Snap boxes to thirds / center / other boxes">
+              <input type="checkbox" id="ideoSnapToggle" checked onchange="ideoState.snap=this.checked">
+              <span>Snap</span>
+            </label>
+            <button type="button" class="qchip" id="ideoUndoBtn" onclick="ideoUndo()" title="Undo (Cmd/Ctrl+Z)" disabled>
+              <svg class="ph" aria-hidden="true" style="margin-right:5px;vertical-align:-2px"><use href="#ph-arrow-clockwise" style="transform:scaleX(-1);transform-origin:center"/></svg>Undo
+            </button>
+            <select id="ideoExamplePicker" class="ideo-example-picker" onchange="ideoLoadExample(this.value); this.value='';" title="Load an example layout">
+              <option value="">Examples…</option>
+              <option value="poster">Poster — 16:9 event</option>
+              <option value="logo">Logo — 1:1 wordmark</option>
+              <option value="label">Product label — 9:16</option>
+              <option value="meme">Meme — 1:1 top/bottom</option>
+            </select>
+          </div>
+
+          <!-- The stage. aspect-ratio is driven from #imgStudioAspect via
+               ideoApplyAspect(); boxes store x,y,w,h as 0..1 fractions so a
+               ratio change just restyles the box, never moves coordinates.
+               role=application + keyboard handlers make it a11y-operable. -->
+          <div class="ideo-stage-wrap">
+            <div class="ideo-stage" id="ideoStage" role="application"
+                 aria-label="Text placement canvas. Click Insert text or drag to add a box; arrow keys nudge the selected box, Delete removes it."
+                 tabindex="0"
+                 onpointerdown="ideoStagePointerDown(event)">
+              <div class="ideo-stage-hint" id="ideoStageHint">Drag here, or click <strong>Insert text</strong>, to place words on the frame.</div>
+              <!-- guide lines + boxes are injected here by ideoRender() -->
+            </div>
+          </div>
+          <div class="ideo-stage-note">
+            <svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-info"/></svg>
+            Placement preview — boxes show where words sit; Ideogram renders the final type, weight, and texture.
+          </div>
+
+          <!-- Inspector — appears when a box is selected. -->
+          <div class="ideo-inspector" id="ideoInspector" hidden>
+            <div class="ideo-insp-row ideo-insp-typeswitch" id="ideoInspTypeSwitch">
+              <span class="mf-label">Region</span>
+              <div class="pill-group cols-2" role="group" aria-label="Region type">
+                <button type="button" class="pill-btn" data-ideo-type="text" onclick="ideoSetSelType('text')">Text</button>
+                <button type="button" class="pill-btn" data-ideo-type="obj" onclick="ideoSetSelType('obj')">Object</button>
+              </div>
+            </div>
+            <div class="ideo-insp-row" id="ideoInspTextRow">
+              <span class="mf-label" id="ideoInspTextLabel">Text (literal words)</span>
+              <input type="text" id="ideoInspText" maxlength="160"
+                     placeholder="THE WORDS TO RENDER"
+                     oninput="ideoUpdateSel({text:this.value})"
+                     onfocus="ideoState._editing=true" onblur="ideoState._editing=false">
+            </div>
+            <div class="ideo-insp-row" id="ideoInspDescRow">
+              <span class="mf-label">Describe it (optional — refines look)</span>
+              <input type="text" id="ideoInspDesc" maxlength="240"
+                     placeholder="e.g. bold serif headline in bright white"
+                     oninput="ideoUpdateSel({descManual:this.value})"
+                     onfocus="ideoState._editing=true" onblur="ideoState._editing=false">
+            </div>
+            <div class="ideo-insp-grid">
+              <div class="ideo-insp-cell" id="ideoInspStyleCell">
+                <span class="mf-label">Style</span>
+                <select id="ideoInspStyle" onchange="ideoUpdateSel({style:this.value})">
+                  <option value="headline">Headline</option>
+                  <option value="subhead">Subhead</option>
+                  <option value="body">Body</option>
+                  <option value="caps">Small caps</option>
+                  <option value="script">Script</option>
+                  <option value="serif">Serif</option>
+                </select>
+              </div>
+              <div class="ideo-insp-cell" id="ideoInspAlignCell">
+                <span class="mf-label">Align</span>
+                <div class="pill-group cols-3" role="group" aria-label="Text alignment">
+                  <button type="button" class="pill-btn" data-ideo-align="left" onclick="ideoUpdateSel({align:'left'})" title="Left">⌷◁</button>
+                  <button type="button" class="pill-btn" data-ideo-align="center" onclick="ideoUpdateSel({align:'center'})" title="Center">▽</button>
+                  <button type="button" class="pill-btn" data-ideo-align="right" onclick="ideoUpdateSel({align:'right'})" title="Right">▷⌷</button>
+                </div>
+              </div>
+            </div>
+            <div class="ideo-insp-row">
+              <span class="mf-label">Color</span>
+              <div class="ideo-swatches" id="ideoInspSwatches"></div>
+            </div>
+            <div class="ideo-insp-actions">
+              <span class="ideo-insp-bbox" id="ideoInspBbox" title="bbox [y_min, x_min, y_max, x_max], 0–1000 row-first">bbox …</span>
+              <span class="qchip-spacer"></span>
+              <button type="button" class="qchip ideo-danger" onclick="ideoDeleteSel()" title="Delete this box (Delete key)">
+                <svg class="ph" aria-hidden="true" style="margin-right:5px;vertical-align:-2px"><use href="#ph-trash-simple"/></svg>Delete
+              </button>
+            </div>
+          </div>
+
+          <!-- Render style + Quality + image-level palette -->
+          <div class="ideo-controls">
+            <div class="ideo-ctrl-cell">
+              <span class="mf-label">Render</span>
+              <div class="pill-group cols-2" role="group" aria-label="Render style">
+                <button type="button" class="pill-btn active" id="ideoRenderArtBtn" data-ideo-render="art" onclick="ideoSetRender('art')">
+                  <span>Design</span><span class="sub">illustration / graphic</span>
+                </button>
+                <button type="button" class="pill-btn" id="ideoRenderPhotoBtn" data-ideo-render="photo" onclick="ideoSetRender('photo')">
+                  <span>Photographic</span><span class="sub">camera realism</span>
+                </button>
+              </div>
+            </div>
+            <div class="ideo-ctrl-cell">
+              <span class="mf-label">Quality</span>
+              <select id="ideoQuality" onchange="ideoState.preset=this.value">
+                <option value="V4_DEFAULT_20" selected>Default — 20 steps</option>
+                <option value="V4_TURBO_12">Turbo — 12 steps (faster)</option>
+                <option value="V4_QUALITY_48">Quality — 48 steps (slower)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Image-level palette (collapsible). ≤16 colors. -->
+          <details class="ideo-details" id="ideoPaletteDetails">
+            <summary>Image palette <span class="ideo-summary-meta" id="ideoPaletteCount"></span></summary>
+            <div class="ideo-palette-body">
+              <p class="ideo-help">Optional. Up to 16 colors steer the whole image. Click a chip to remove it.</p>
+              <div class="ideo-swatches" id="ideoImagePalette"></div>
+              <div class="ideo-palette-add">
+                <input type="color" id="ideoPaletteColor" value="#2F81F7" aria-label="Pick a palette color">
+                <button type="button" class="qchip" onclick="ideoAddImagePaletteColor()">Add color</button>
+              </div>
+            </div>
+          </details>
+
+          <!-- Raw JSON drawer — live serialized caption + validity chip. -->
+          <details class="ideo-details" id="ideoRawDetails">
+            <summary>Raw caption JSON <span class="ideo-validity-chip" id="ideoValidityChip">…</span></summary>
+            <div class="ideo-raw-body">
+              <p class="ideo-help">This is exactly what gets sent. Edit and click <strong>Apply edits</strong> to round-trip back into the canvas.</p>
+              <textarea id="ideoRawJson" class="ideo-raw-textarea" rows="10" spellcheck="false" oninput="ideoOnRawInput()"></textarea>
+              <div class="ideo-raw-actions">
+                <span class="ideo-raw-msg" id="ideoRawMsg"></span>
+                <span class="qchip-spacer"></span>
+                <button type="button" class="qchip" onclick="ideoApplyRaw()" title="Parse the JSON above back into the canvas">Apply edits</button>
+              </div>
+            </div>
+          </details>
+        </div>
       </div>
 
       <!-- Validation / status messages (e.g. "pick a ref image"). Lives
@@ -19118,11 +19593,12 @@ HTML = r"""<!doctype html>
             <span class="qs-meta" id="imgStudioWallEstimate"></span>
           </div>
           <div class="studio-engine-row">
-            <select id="imgStudioEngine" onchange="imgStudioUpdateValidity();imgStudioRefreshEngineStatus();imgStudioUpdateEstimate();imgStudioUpdateRefWarning();if(typeof renderLorasList==='function')renderLorasList()">
+            <select id="imgStudioEngine" onchange="if(typeof ideoSyncVisibility==='function')ideoSyncVisibility();imgStudioUpdateValidity();imgStudioRefreshEngineStatus();imgStudioUpdateEstimate();imgStudioUpdateRefWarning();if(typeof renderLorasList==='function')renderLorasList()">
               <option value="auto">Auto (use Settings)</option>
               <option value="qwen_edit_lightning_inline" selected>Fast &mdash; Lightning 4-step (~1:20, default, multi-ref)</option>
               <option value="qwen_edit_inline">Standard &mdash; 8-step Q6 (~2:05, no LoRA)</option>
               <option value="qwen_edit_high_inline">Quality &mdash; 40-step Q8 + CFG (~3:50, final renders)</option>
+              <option value="ideogram4_inline">Ideogram 4 &mdash; typography &amp; layout (text-in-image)</option>
               <!-- HiDream-O1 hidden 2026-05-28 (issue #15): the engine expects a
                    standalone lab-repo clone at ~/HIDREAM-O1-MLX-LAB-active/.venv
                    which hasn't been made public yet, so selecting any of these
@@ -19145,7 +19621,7 @@ HTML = r"""<!doctype html>
           <div class="mini-fields">
             <div class="mf-cell">
               <span class="mf-label">Aspect</span>
-              <select id="imgStudioAspect" onchange="imgStudioUpdateEstimate()" style="padding:7px 9px;font-size:13px;">
+              <select id="imgStudioAspect" onchange="imgStudioUpdateEstimate();if(typeof ideoApplyAspect==='function')ideoApplyAspect()" style="padding:7px 9px;font-size:13px;">
                 <option value="16:9" selected>16:9 — 1280×720</option>
                 <option value="4:3">4:3 — 1024×768</option>
                 <option value="1:1">1:1 — 1024×1024</option>
@@ -21079,6 +21555,8 @@ function setMode(mode) {
     if (typeof imgStudioRefreshEngineStatus === 'function') imgStudioRefreshEngineStatus();
     if (typeof imgStudioRefreshRecent === 'function') imgStudioRefreshRecent();
     if (typeof imgStudioUpdateEstimate === 'function') imgStudioUpdateEstimate();
+    // Show/hide the Ideogram text-placement canvas based on the engine.
+    if (typeof ideoSyncVisibility === 'function') ideoSyncVisibility();
     // Auto-set the right-pane outputs gallery to "Photos" — image mode
     // is composing photos, so a video gallery makes no sense as the
     // default. User can still flip back to All/Videos manually.
@@ -21196,7 +21674,12 @@ function imgStudioUpdateValidity() {
   const engInfo = (typeof _IMG_ENGINE_STATUS === 'object' && _IMG_ENGINE_STATUS)
     ? _IMG_ENGINE_STATUS[eng.value] : null;
   if (engInfo && engInfo.family_installed === false) {
-    invalidReason = 'The Qwen-Image-Edit add-on isn\'t installed. In Pinokio\'s Phosphene sidebar, click "Install Qwen-Image-Edit (multi-ref keyframes, optional)" — ~30 s, ~150 MB. Then come back and Generate.';
+    // The install-gate is generic across mflux engines; the human-readable
+    // add-on name differs per family. Ideogram 4 ships as part of mflux
+    // 0.18+, so its "missing" case is really "update mflux", not a Qwen hint.
+    invalidReason = (eng.value === 'ideogram4_inline')
+      ? 'The Ideogram 4 engine needs mflux 0.18+ (the mflux-generate-ideogram4 CLI). Update the mflux add-on, then come back and Generate.'
+      : 'The Qwen-Image-Edit add-on isn\'t installed. In Pinokio\'s Phosphene sidebar, click "Install Qwen-Image-Edit (multi-ref keyframes, optional)" — ~30 s, ~150 MB. Then come back and Generate.';
   } else if (needsRefs && refsCount === 0) {
     invalidReason = 'Pick at least 1 reference image (drop a file into one of the 3 slots above) — Qwen-Image-Edit composes against an image, it cannot run text-only. Use the Lightning preset only after picking a ref.';
   }
@@ -21430,10 +21913,16 @@ function imgStudioRenderEnginePill() {
   // every other state is moot.
   if (info.family_installed === false) {
     pill.dataset.state = 'missing-engine';
-    pill.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-bold"/></svg>install Qwen-Image-Edit';
-    pill.title = 'The Qwen-Image-Edit add-on isn\'t installed.\n' +
-                 'In Pinokio\'s Phosphene sidebar, click ' +
-                 '"Install Qwen-Image-Edit (multi-ref keyframes, optional)" — ~30 s, ~150 MB.';
+    if (v === 'ideogram4_inline') {
+      pill.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-bold"/></svg>update mflux';
+      pill.title = 'The Ideogram 4 engine needs mflux 0.18+ ' +
+                   '(the mflux-generate-ideogram4 CLI). Update the mflux add-on.';
+    } else {
+      pill.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-bold"/></svg>install Qwen-Image-Edit';
+      pill.title = 'The Qwen-Image-Edit add-on isn\'t installed.\n' +
+                   'In Pinokio\'s Phosphene sidebar, click ' +
+                   '"Install Qwen-Image-Edit (multi-ref keyframes, optional)" — ~30 s, ~150 MB.';
+    }
     return;
   }
   if (info.cached) {
@@ -21572,12 +22061,929 @@ async function imgStudioUploadRef(idx, file) {
   }
 }
 
+// ====== Ideogram 4 — visual text-placement canvas ===========================
+// The user places text/object boxes on the target frame; the serializer
+// ideoBuildCaption() turns the canvas state into the EXACT structured JSON
+// caption the mflux Ideogram4 verifier expects (key order matters). On
+// submit (Layout mode) imgStudioGenerate posts JSON.stringify(caption) as
+// the `prompt` and sets `ideo_preset`; in Simple mode the textarea text is
+// the prompt verbatim (the model accepts plain strings).
+//
+// Coordinate model: each box stores x,y,w,h as 0..1 FRACTIONS of the frame
+// (aspect-independent). An aspect change only restyles the stage; coords
+// never move. bbox is [y_min,x_min,y_max,x_max] ROW-FIRST normalized ints
+// 0..1000 — the single source of bbox truth is ideoRectToBbox().
+const IDEO_MAX_TEXT_BOXES = 6;          // cap on text boxes
+const IDEO_MIN_FRAC = 0.03;             // min box edge as a fraction (avoid 0-area)
+const IDEO_HISTORY_MAX = 50;            // bounded undo
+
+const ideoState = {
+  mode: 'simple',                       // 'simple' | 'layout'
+  render: 'art',                        // 'art' | 'photo'
+  preset: 'V4_DEFAULT_20',
+  boxes: [],                            // [{id,type,x,y,w,h,text,style,align,color,descManual}]
+  selId: null,
+  imagePalette: [],                     // up to 16 '#RRGGBB'
+  snap: true,
+  history: [],
+  _editing: false,                      // a text input is focused (don't steal keys)
+  _seq: 1,
+};
+
+// Curated swatch palette for the per-element color picker (UPPERCASE hex).
+const IDEO_SWATCHES = ['#FFFFFF','#0A0A0A','#F5C518','#E63946','#2F81F7','#3FB950','#8B5E3C','#5A6B3A'];
+
+// ---- the ONE place bbox math lives (the #1 bug source) ----
+function ideoRectToBbox(b){const c=v=>Math.max(0,Math.min(1,v));const x0=c(b.x),y0=c(b.y),x1=c(b.x+b.w),y1=c(b.y+b.h);const Y0=Math.round(y0*1000),X0=Math.round(x0*1000),Y1=Math.round(y1*1000),X1=Math.round(x1*1000);return [Math.min(Y0,Y1),Math.min(X0,X1),Math.max(Y0,Y1),Math.max(X0,X1)];}
+// Inverse — bbox [y0,x0,y1,x1] (0..1000) → {x,y,w,h} fractions. Used to
+// round-trip Raw-JSON edits back into the canvas.
+function ideoBboxToRect(bbox){
+  const [y0,x0,y1,x1] = bbox.map(Number);
+  const yMin=Math.min(y0,y1)/1000, xMin=Math.min(x0,x1)/1000;
+  const yMax=Math.max(y0,y1)/1000, xMax=Math.max(x0,x1)/1000;
+  return { x:xMin, y:yMin, w:Math.max(0,xMax-xMin), h:Math.max(0,yMax-yMin) };
+}
+
+function ideoIsActive(){
+  const eng = document.getElementById('imgStudioEngine');
+  return !!eng && eng.value === 'ideogram4_inline';
+}
+function ideoInLayout(){ return ideoIsActive() && ideoState.mode === 'layout'; }
+
+// Show/hide the panel + re-skin the surrounding composer based on engine.
+function ideoSyncVisibility(){
+  const panel = document.getElementById('ideoPanel');
+  if (!panel) return;
+  const active = ideoIsActive();
+  panel.hidden = !active;
+  ideoApplyComposerChrome();
+  if (active){
+    ideoApplyAspect();
+    ideoRender();
+    ideoRefreshRaw();
+  }
+}
+
+// When Ideogram is active+Layout: relabel the prompt box to "Scene &
+// background", hide the reference-image slots (text-to-image, no refs), and
+// swap the prompt placeholder. Otherwise restore the studio's normal chrome.
+function ideoApplyComposerChrome(){
+  const refsWrap = document.querySelector('#studioSection .composer-refs');
+  const promptLabel = document.getElementById('imgStudioPromptLabel');
+  const prompt = document.getElementById('imgStudioPrompt');
+  const layout = ideoInLayout();
+  const active = ideoIsActive();
+  // Refs: hidden whenever Ideogram is the engine (it never takes refs).
+  if (refsWrap) refsWrap.style.display = active ? 'none' : '';
+  if (promptLabel){
+    if (layout){
+      promptLabel.hidden = false;
+      promptLabel.textContent = 'Scene & background';
+    } else {
+      promptLabel.hidden = true;
+    }
+  }
+  if (prompt){
+    if (layout){
+      prompt.placeholder = 'Describe the overall scene and background — e.g. "Near-black background with subtle aged-paper texture and a soft vignette."';
+    } else if (active){
+      prompt.placeholder = 'Describe the image you want — Ideogram 4 renders text especially well. e.g. "A bold typographic poster that reads HELLO WORLD in chunky retro letters."';
+    } else {
+      prompt.placeholder = 'A cinematic medium close-up of a woman in a sunlit kitchen, soft morning light through blinds, shallow depth of field, photorealistic';
+    }
+  }
+}
+
+function ideoSetMode(mode){
+  ideoState.mode = (mode === 'layout') ? 'layout' : 'simple';
+  document.querySelectorAll('#ideoPanel [data-ideo-mode]').forEach(b => {
+    const on = b.dataset.ideoMode === ideoState.mode;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  const layoutEl = document.getElementById('ideoLayout');
+  const hint = document.getElementById('ideoSimpleHint');
+  if (layoutEl) layoutEl.hidden = (ideoState.mode !== 'layout');
+  if (hint) hint.hidden = (ideoState.mode === 'layout');
+  ideoApplyComposerChrome();
+  if (ideoState.mode === 'layout'){
+    ideoApplyAspect();
+    ideoRender();
+    ideoRefreshRaw();
+  }
+}
+
+// Map the studio aspect select to a CSS aspect-ratio on the stage. Boxes are
+// fractional so this NEVER moves coordinates — it just restyles the frame.
+function ideoApplyAspect(){
+  const stage = document.getElementById('ideoStage');
+  const sel = document.getElementById('imgStudioAspect');
+  if (!stage || !sel) return;
+  const a = (sel.value || '16:9').split(':');
+  const w = parseFloat(a[0]) || 16, h = parseFloat(a[1]) || 9;
+  stage.style.aspectRatio = `${w} / ${h}`;
+}
+
+function ideoSetRender(r){
+  ideoState.render = (r === 'photo') ? 'photo' : 'art';
+  document.querySelectorAll('#ideoPanel [data-ideo-render]').forEach(b =>
+    b.classList.toggle('active', b.dataset.ideoRender === ideoState.render));
+  ideoRefreshRaw();
+}
+
+// ---- history (bounded undo) ----
+function ideoSnapshot(){
+  try {
+    ideoState.history.push(JSON.stringify({ boxes: ideoState.boxes, imagePalette: ideoState.imagePalette }));
+    if (ideoState.history.length > IDEO_HISTORY_MAX) ideoState.history.shift();
+  } catch(e){}
+  ideoUpdateUndoBtn();
+}
+function ideoUpdateUndoBtn(){
+  const b = document.getElementById('ideoUndoBtn');
+  if (b) b.disabled = ideoState.history.length === 0;
+}
+function ideoUndo(){
+  if (!ideoState.history.length) return;
+  const snap = ideoState.history.pop();
+  try {
+    const st = JSON.parse(snap);
+    ideoState.boxes = st.boxes || [];
+    ideoState.imagePalette = st.imagePalette || [];
+    if (!ideoState.boxes.some(x => x.id === ideoState.selId)) ideoState.selId = null;
+  } catch(e){}
+  ideoUpdateUndoBtn();
+  ideoRender();
+  ideoRenderImagePalette();
+  ideoRefreshRaw();
+}
+
+// ---- box creation ----
+function ideoDefaultBox(type){
+  // Centered default box; text boxes are wide+short, objects squarer.
+  const w = type === 'text' ? 0.6 : 0.45;
+  const h = type === 'text' ? 0.12 : 0.4;
+  return {
+    id: 'b' + (ideoState._seq++),
+    type: type === 'obj' ? 'obj' : 'text',
+    x: (1 - w) / 2, y: (1 - h) / 2, w, h,
+    text: '', style: 'headline', align: 'center',
+    color: '#FFFFFF', descManual: '',
+  };
+}
+function ideoInsertBox(type){
+  if (type === 'text'){
+    const nText = ideoState.boxes.filter(b => b.type === 'text').length;
+    if (nText >= IDEO_MAX_TEXT_BOXES){
+      if (typeof phosToast === 'function') phosToast(`Max ${IDEO_MAX_TEXT_BOXES} text boxes — delete one to add another`, { kind:'warning' });
+      return;
+    }
+  }
+  ideoSnapshot();
+  const box = ideoDefaultBox(type);
+  // Cascade new boxes slightly so stacked inserts don't perfectly overlap.
+  const n = ideoState.boxes.length;
+  const off = Math.min(0.18, n * 0.04);
+  box.x = Math.max(0, Math.min(1 - box.w, box.x + off - 0.09));
+  box.y = Math.max(0, Math.min(1 - box.h, box.y + off - 0.09));
+  ideoState.boxes.push(box);
+  ideoState.selId = box.id;
+  ideoRender();
+  ideoRefreshRaw();
+  // Focus the text input so the user can type immediately.
+  if (box.type === 'text'){
+    const inp = document.getElementById('ideoInspText');
+    if (inp) { try { inp.focus(); } catch(e){} }
+  }
+}
+
+function ideoSelectedBox(){ return ideoState.boxes.find(b => b.id === ideoState.selId) || null; }
+
+function ideoUpdateSel(patch){
+  const box = ideoSelectedBox();
+  if (!box) return;
+  // 'style' and 'align' clear any manual desc override so the synthesized
+  // prose tracks the controls; an explicit descManual edit wins.
+  Object.assign(box, patch);
+  ideoRenderBoxes();      // cheap re-render (don't rebuild handles mid-type)
+  ideoSyncInspector();
+  ideoRefreshRaw();
+}
+
+function ideoSetSelType(type){
+  const box = ideoSelectedBox();
+  if (!box) return;
+  if (type === 'text'){
+    const nText = ideoState.boxes.filter(b => b.type === 'text' && b.id !== box.id).length;
+    if (nText >= IDEO_MAX_TEXT_BOXES){
+      if (typeof phosToast === 'function') phosToast(`Max ${IDEO_MAX_TEXT_BOXES} text boxes`, { kind:'warning' });
+      return;
+    }
+  }
+  ideoSnapshot();
+  box.type = (type === 'obj') ? 'obj' : 'text';
+  ideoRender();
+  ideoRefreshRaw();
+}
+
+function ideoDeleteSel(){
+  const box = ideoSelectedBox();
+  if (!box) return;
+  ideoSnapshot();
+  ideoState.boxes = ideoState.boxes.filter(b => b.id !== box.id);
+  ideoState.selId = null;
+  ideoRender();
+  ideoRefreshRaw();
+}
+
+// ---- rendering ----
+function ideoRender(){
+  ideoRenderBoxes();
+  ideoSyncInspector();
+}
+
+function ideoRenderBoxes(){
+  const stage = document.getElementById('ideoStage');
+  if (!stage) return;
+  // Remove existing boxes + guides (keep the hint node).
+  stage.querySelectorAll('.ideo-box, .ideo-guide').forEach(n => n.remove());
+  stage.classList.toggle('has-boxes', ideoState.boxes.length > 0);
+  const overlaps = ideoComputeOverlaps();
+  ideoState.boxes.forEach(box => {
+    const el = document.createElement('div');
+    el.className = 'ideo-box ' + (box.type === 'obj' ? 'obj' : 'text');
+    if (box.id === ideoState.selId) el.className += ' selected';
+    if (box.type === 'text' && !box.text.trim()) el.className += ' warn';
+    if (overlaps.has(box.id)) el.className += ' warn';
+    el.style.left = (box.x * 100) + '%';
+    el.style.top = (box.y * 100) + '%';
+    el.style.width = (box.w * 100) + '%';
+    el.style.height = (box.h * 100) + '%';
+    el.dataset.id = box.id;
+    el.setAttribute('role', 'group');
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('aria-label',
+      (box.type === 'text' ? ('Text box: ' + (box.text || '(empty)')) : ('Object region: ' + (box.descManual || 'unlabeled'))));
+    if (box.type === 'text'){
+      const t = document.createElement('div');
+      t.className = 'ideo-box-text al-' + box.align + ' st-' + box.style;
+      t.style.color = box.color;
+      t.textContent = box.text || '';
+      // scale font roughly to box height so the preview reads as placement
+      const px = Math.max(8, Math.min(40, Math.round(box.h * (stage.clientHeight || 300) * 0.55)));
+      t.style.fontSize = px + 'px';
+      el.appendChild(t);
+    } else {
+      const lbl = document.createElement('div');
+      lbl.className = 'ideo-box-obj-label';
+      lbl.textContent = box.descManual ? box.descManual.slice(0, 40) : 'object';
+      el.appendChild(lbl);
+    }
+    // resize handles only on the selected box
+    if (box.id === ideoState.selId){
+      ['nw','n','ne','e','se','s','sw','w'].forEach(dir => {
+        const h = document.createElement('div');
+        h.className = 'ideo-handle ' + dir;
+        h.dataset.handle = dir;
+        el.appendChild(h);
+      });
+    }
+    stage.appendChild(el);
+  });
+}
+
+// Boxes whose normalized bbox rectangles intersect (non-blocking warn).
+function ideoComputeOverlaps(){
+  const out = new Set();
+  const rs = ideoState.boxes.map(b => ({ id:b.id, bb: ideoRectToBbox(b) }));
+  for (let i=0;i<rs.length;i++) for (let j=i+1;j<rs.length;j++){
+    const a=rs[i].bb, b=rs[j].bb;
+    const inter = !(a[2] <= b[0] || b[2] <= a[0] || a[3] <= b[1] || b[3] <= a[1]);
+    if (inter){ out.add(rs[i].id); out.add(rs[j].id); }
+  }
+  return out;
+}
+
+// ---- inspector sync ----
+function ideoSyncInspector(){
+  const insp = document.getElementById('ideoInspector');
+  const box = ideoSelectedBox();
+  if (!insp) return;
+  if (!box){ insp.hidden = true; return; }
+  insp.hidden = false;
+  const isText = box.type === 'text';
+  // type pills
+  insp.querySelectorAll('[data-ideo-type]').forEach(b =>
+    b.classList.toggle('active', b.dataset.ideoType === box.type));
+  // text row visible only for text boxes
+  const textRow = document.getElementById('ideoInspTextRow');
+  const styleCell = document.getElementById('ideoInspStyleCell');
+  const alignCell = document.getElementById('ideoInspAlignCell');
+  if (textRow) textRow.style.display = isText ? '' : 'none';
+  if (styleCell) styleCell.style.display = isText ? '' : 'none';
+  if (alignCell) alignCell.style.display = isText ? '' : 'none';
+  const descLabel = document.querySelector('#ideoInspDescRow .mf-label');
+  if (descLabel) descLabel.textContent = isText
+    ? 'Describe it (optional — refines look)'
+    : 'Describe the object (what should appear here)';
+  // values
+  const tInp = document.getElementById('ideoInspText');
+  if (tInp && document.activeElement !== tInp) tInp.value = box.text || '';
+  const dInp = document.getElementById('ideoInspDesc');
+  if (dInp && document.activeElement !== dInp) dInp.value = box.descManual || '';
+  const sSel = document.getElementById('ideoInspStyle');
+  if (sSel) sSel.value = box.style;
+  insp.querySelectorAll('[data-ideo-align]').forEach(b =>
+    b.classList.toggle('active', b.dataset.ideoAlign === box.align));
+  // swatches
+  ideoRenderInspectorSwatches(box);
+  const bb = ideoRectToBbox(box);
+  const bbEl = document.getElementById('ideoInspBbox');
+  if (bbEl) bbEl.textContent = 'bbox [' + bb.join(', ') + ']';
+}
+
+function ideoRenderInspectorSwatches(box){
+  const wrap = document.getElementById('ideoInspSwatches');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  IDEO_SWATCHES.forEach(hex => {
+    const sw = document.createElement('button');
+    sw.type = 'button';
+    sw.className = 'ideo-swatch' + (ideoNormHex(box.color) === hex ? ' selected' : '');
+    sw.style.background = hex;
+    sw.title = hex;
+    sw.setAttribute('aria-label', 'Set color ' + hex);
+    sw.onclick = () => ideoUpdateSel({ color: hex });
+    wrap.appendChild(sw);
+  });
+  // native color input for an arbitrary color
+  const native = document.createElement('input');
+  native.type = 'color';
+  native.className = 'ideo-swatch-color';
+  native.value = ideoNormHex(box.color);
+  native.title = 'Custom color';
+  native.setAttribute('aria-label', 'Custom text color');
+  native.oninput = () => ideoUpdateSel({ color: ideoNormHex(native.value) });
+  wrap.appendChild(native);
+}
+
+function ideoNormHex(s){
+  s = String(s || '').trim();
+  if (/^#?[0-9a-fA-F]{6}$/.test(s)){
+    if (s[0] !== '#') s = '#' + s;
+    return s.toUpperCase();
+  }
+  return '#FFFFFF';
+}
+
+// ---- image-level palette ----
+function ideoAddImagePaletteColor(){
+  const inp = document.getElementById('ideoPaletteColor');
+  if (!inp) return;
+  const hex = ideoNormHex(inp.value);
+  if (ideoState.imagePalette.length >= 16){
+    if (typeof phosToast === 'function') phosToast('Image palette is capped at 16 colors', { kind:'warning' });
+    return;
+  }
+  if (!ideoState.imagePalette.includes(hex)){
+    ideoSnapshot();
+    ideoState.imagePalette.push(hex);
+    ideoRenderImagePalette();
+    ideoRefreshRaw();
+  }
+}
+function ideoRenderImagePalette(){
+  const wrap = document.getElementById('ideoImagePalette');
+  const count = document.getElementById('ideoPaletteCount');
+  if (count) count.textContent = ideoState.imagePalette.length ? ('(' + ideoState.imagePalette.length + ')') : '';
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  ideoState.imagePalette.forEach((hex, i) => {
+    const sw = document.createElement('button');
+    sw.type = 'button';
+    sw.className = 'ideo-swatch removable';
+    sw.style.background = hex;
+    sw.title = hex + ' — click to remove';
+    sw.setAttribute('aria-label', 'Remove palette color ' + hex);
+    sw.onclick = () => { ideoSnapshot(); ideoState.imagePalette.splice(i,1); ideoRenderImagePalette(); ideoRefreshRaw(); };
+    wrap.appendChild(sw);
+  });
+}
+
+// ---- desc prose synthesis (style + align → natural-language desc) ----
+function ideoSynthDesc(box){
+  if (box.descManual && box.descManual.trim()) return box.descManual.trim();
+  if (box.type === 'obj') return 'An object in the scene.';
+  const styleWord = {
+    headline: 'a bold headline',
+    subhead: 'a medium-weight subheading',
+    body: 'clean body text',
+    caps: 'small-caps lettering',
+    script: 'a flowing script',
+    serif: 'an elegant serif',
+  }[box.style] || 'text';
+  const alignWord = { left: 'left-aligned', center: 'centered', right: 'right-aligned' }[box.align] || 'centered';
+  const colorName = ideoColorName(box.color);
+  return `${styleWord[0].toUpperCase()}${styleWord.slice(1)}, ${alignWord}, in ${colorName}.`;
+}
+function ideoColorName(hex){
+  const map = {
+    '#FFFFFF':'white', '#0A0A0A':'near-black', '#000000':'black',
+    '#F5C518':'gold', '#E63946':'red', '#2F81F7':'blue',
+    '#3FB950':'green', '#8B5E3C':'brown', '#5A6B3A':'olive green',
+  };
+  return map[ideoNormHex(hex)] || ('the color ' + ideoNormHex(hex));
+}
+
+// ---- THE SERIALIZER — canvas state → exact Ideogram4 caption schema ----
+// Key order matters: JS object insertion order is preserved by JSON.stringify.
+function ideoBuildCaption(){
+  const background = (document.getElementById('imgStudioPrompt')?.value || '').trim()
+                   || 'A clean, simple background.';
+  const textBoxes = ideoState.boxes.filter(b => b.type === 'text');
+  const nFilled = textBoxes.filter(b => b.text.trim()).length;
+  const hlBits = [];
+  if (nFilled) hlBits.push(`text reading ${textBoxes.filter(b=>b.text.trim()).map(b=>'"'+b.text.trim()+'"').slice(0,4).join(', ')}`);
+  const hld = ideoState.render === 'photo'
+    ? `A photographic image${hlBits.length ? ' featuring ' + hlBits.join('; ') : ''}.`
+    : `A graphic design${hlBits.length ? ' featuring ' + hlBits.join('; ') : ''}.`;
+
+  // root (insertion order = schema order): high_level_description,
+  // style_description, compositional_deconstruction.
+  const cap = {};
+  cap.high_level_description = hld;
+
+  // style_description — EXACTLY ONE of photo XOR art_style.
+  const style = {};
+  if (ideoState.render === 'photo'){
+    // order: aesthetics, lighting, photo, medium, color_palette
+    style.aesthetics = 'clean, considered, balanced composition';
+    style.lighting = 'natural, well-exposed lighting';
+    style.photo = 'eye-level, 50mm lens, natural depth of field';
+    style.medium = 'photograph';
+  } else {
+    // order: aesthetics, lighting, medium, art_style, color_palette
+    style.aesthetics = 'bold, graphic, high-contrast';
+    style.lighting = 'even graphic lighting';
+    style.medium = 'graphic_design';
+    style.art_style = 'clean vector-style graphic design with strong typography and clear layout';
+  }
+  const imgPal = ideoState.imagePalette.map(ideoNormHex).slice(0, 16);
+  if (imgPal.length) style.color_palette = imgPal;
+  cap.style_description = style;
+
+  // compositional_deconstruction — order: background, elements.
+  const elements = [];
+  ideoState.boxes.forEach(box => {
+    if (box.type === 'text' && !box.text.trim()) return;   // drop empty text boxes
+    const bbox = ideoRectToBbox(box);
+    const el = {};
+    el.type = box.type === 'obj' ? 'obj' : 'text';         // type first
+    el.bbox = bbox;                                         // then bbox
+    if (el.type === 'text') el.text = box.text.trim();      // text (text only)
+    el.desc = ideoSynthDesc(box);                           // desc
+    const elPal = [ideoNormHex(box.color)].slice(0, 5);     // per-element palette ≤5
+    if (box.type === 'text') el.color_palette = elPal;
+    elements.push(el);
+  });
+  cap.compositional_deconstruction = { background, elements };
+  return cap;
+}
+
+// ---- a JS mirror of the caption.py verifier (so the UI can show validity
+// + block a broken Raw-JSON edit before it ever reaches the server). Returns
+// a list of human-readable problems; empty = valid. ----
+function ideoValidateCaption(cap){
+  const out = [];
+  const HEX = /^#[0-9A-F]{6}$/;
+  const isStr = v => typeof v === 'string';
+  if (typeof cap !== 'object' || cap === null || Array.isArray(cap)){ out.push('root must be an object'); return out; }
+  const rootKnown = ['high_level_description','style_description','compositional_deconstruction'];
+  Object.keys(cap).forEach(k => { if (!rootKnown.includes(k)) out.push('root: unknown key ' + k); });
+  if ('high_level_description' in cap && !isStr(cap.high_level_description)) out.push('high_level_description must be a string');
+  // style_description
+  if ('style_description' in cap){
+    const sd = cap.style_description;
+    if (typeof sd !== 'object' || sd === null || Array.isArray(sd)){ out.push('style_description must be an object'); }
+    else {
+      const hasPhoto = 'photo' in sd, hasArt = 'art_style' in sd;
+      if (hasPhoto === hasArt) out.push("style_description: exactly one of 'photo' or 'art_style'");
+      const order = hasPhoto
+        ? ['aesthetics','lighting','photo','medium','color_palette']
+        : ['aesthetics','lighting','medium','art_style','color_palette'];
+      const present = Object.keys(sd).filter(k => order.includes(k));
+      const want = order.filter(k => k !== 'color_palette' || 'color_palette' in sd);
+      if (present.join(',') !== want.join(',')) out.push('style_description: key order ' + present.join(',') + ' != ' + want.join(','));
+      Object.keys(sd).forEach(k => { if (!order.includes(k)) out.push('style_description: key ' + k + ' not allowed'); });
+      order.forEach(k => { if (k !== 'color_palette' && !(k in sd)) out.push('style_description: missing ' + k); });
+      if ('color_palette' in sd){
+        if (!Array.isArray(sd.color_palette)) out.push('style_description.color_palette must be a list');
+        else { if (sd.color_palette.length > 16) out.push('style_description.color_palette: >16 colors'); sd.color_palette.forEach(c => { if (!HEX.test(c)) out.push('style_description.color_palette: ' + c + ' not uppercase #RRGGBB'); }); }
+      }
+    }
+  }
+  // compositional_deconstruction (required)
+  if (!('compositional_deconstruction' in cap)){ out.push("root: 'compositional_deconstruction' should exist"); return out; }
+  const cd = cap.compositional_deconstruction;
+  if (typeof cd !== 'object' || cd === null || Array.isArray(cd)){ out.push('compositional_deconstruction must be an object'); return out; }
+  const cdPresent = Object.keys(cd).filter(k => ['background','elements'].includes(k));
+  const cdWant = ['background','elements'].filter(k => k in cd);
+  if (cdPresent.join(',') !== cdWant.join(',')) out.push('compositional_deconstruction: key order');
+  Object.keys(cd).forEach(k => { if (!['background','elements'].includes(k)) out.push('compositional_deconstruction: key ' + k + ' not allowed'); });
+  if (!('background' in cd)) out.push("compositional_deconstruction: 'background' should exist");
+  else if (!isStr(cd.background)) out.push('compositional_deconstruction.background must be a string');
+  if (!('elements' in cd)) { out.push("compositional_deconstruction: 'elements' should exist"); return out; }
+  if (!Array.isArray(cd.elements)) { out.push('compositional_deconstruction.elements must be a list'); return out; }
+  cd.elements.forEach((el, i) => {
+    const p = 'elements[' + i + ']';
+    if (typeof el !== 'object' || el === null || Array.isArray(el)){ out.push(p + ' must be an object'); return; }
+    const elKnown = ['type','bbox','text','desc','color_palette'];
+    Object.keys(el).forEach(k => { if (!elKnown.includes(k)) out.push(p + ': unknown key ' + k); });
+    if (el.type !== 'obj' && el.type !== 'text'){ out.push(p + ": type must be 'obj' or 'text'"); return; }
+    const order = el.type === 'text' ? ['type','bbox','text','desc','color_palette'] : ['type','bbox','desc','color_palette'];
+    const present = Object.keys(el).filter(k => order.includes(k));
+    const want = order.filter(k => (k !== 'bbox' && k !== 'color_palette') || k in el);
+    if (present.join(',') !== want.join(',')) out.push(p + ': key order ' + present.join(',') + ' != ' + want.join(','));
+    if (!('desc' in el)) out.push(p + ": 'desc' should exist");
+    else if (!isStr(el.desc)) out.push(p + '.desc must be a string');
+    if (el.type === 'text'){
+      if (!('text' in el)) out.push(p + ": text elements should include 'text'");
+      else if (!isStr(el.text)) out.push(p + '.text must be a string');
+    }
+    if ('bbox' in el){
+      const bb = el.bbox;
+      if (!Array.isArray(bb) || bb.length !== 4) out.push(p + '.bbox: expected [y_min,x_min,y_max,x_max]');
+      else if (!bb.every(v => Number.isInteger(v))) out.push(p + '.bbox: all values must be integers');
+      else {
+        if (!bb.every(v => v >= 0 && v <= 1000)) out.push(p + '.bbox: values must be in [0,1000]');
+        if (bb[0] > bb[2]) out.push(p + '.bbox: y_min > y_max');
+        if (bb[1] > bb[3]) out.push(p + '.bbox: x_min > x_max');
+      }
+    }
+    if ('color_palette' in el){
+      if (!Array.isArray(el.color_palette)) out.push(p + '.color_palette must be a list');
+      else { if (el.color_palette.length > 5) out.push(p + '.color_palette: >5 colors'); el.color_palette.forEach(c => { if (!HEX.test(c)) out.push(p + '.color_palette: ' + c + ' not uppercase #RRGGBB'); }); }
+    }
+  });
+  return out;
+}
+
+// ---- raw JSON drawer ----
+let _ideoRawDirty = false;   // user is hand-editing — don't clobber on re-render
+function ideoRefreshRaw(){
+  if (_ideoRawDirty) return;
+  const ta = document.getElementById('ideoRawJson');
+  if (!ta) return;
+  let cap, problems;
+  try { cap = ideoBuildCaption(); problems = ideoValidateCaption(cap); }
+  catch(e){ problems = ['serialize error: ' + e.message]; }
+  if (cap) ta.value = JSON.stringify(cap, null, 2);
+  ideoSetValidityChip(problems);
+}
+function ideoSetValidityChip(problems){
+  const chip = document.getElementById('ideoValidityChip');
+  if (!chip) return;
+  if (!problems || problems.length === 0){
+    chip.dataset.ok = 'yes';
+    chip.textContent = 'valid';
+    chip.title = 'Caption matches the Ideogram 4 schema';
+  } else {
+    chip.dataset.ok = 'no';
+    chip.textContent = problems.length + ' issue' + (problems.length === 1 ? '' : 's');
+    chip.title = problems.slice(0, 6).join('\n');
+  }
+}
+function ideoOnRawInput(){
+  _ideoRawDirty = true;
+  const ta = document.getElementById('ideoRawJson');
+  const msg = document.getElementById('ideoRawMsg');
+  if (!ta) return;
+  let problems;
+  try { problems = ideoValidateCaption(JSON.parse(ta.value)); }
+  catch(e){ problems = ['invalid JSON: ' + e.message]; }
+  ideoSetValidityChip(problems);
+  if (msg){
+    if (problems.length === 0){ msg.textContent = 'Valid — click Apply edits to load it into the canvas.'; msg.className = 'ideo-raw-msg ok'; }
+    else { msg.textContent = problems[0]; msg.className = 'ideo-raw-msg err'; }
+  }
+}
+// Round-trip raw JSON back into the canvas (ideoBboxToRect).
+function ideoApplyRaw(){
+  const ta = document.getElementById('ideoRawJson');
+  const msg = document.getElementById('ideoRawMsg');
+  if (!ta) return;
+  let cap;
+  try { cap = JSON.parse(ta.value); }
+  catch(e){ if (msg){ msg.textContent = 'Cannot apply — invalid JSON: ' + e.message; msg.className = 'ideo-raw-msg err'; } return; }
+  const problems = ideoValidateCaption(cap);
+  if (problems.length){ if (msg){ msg.textContent = 'Fix first: ' + problems[0]; msg.className = 'ideo-raw-msg err'; } return; }
+  ideoSnapshot();
+  // background → prompt textarea
+  const bg = cap.compositional_deconstruction?.background;
+  if (typeof bg === 'string'){ const pe = document.getElementById('imgStudioPrompt'); if (pe) pe.value = bg; }
+  // render style
+  if (cap.style_description && 'photo' in cap.style_description) ideoState.render = 'photo';
+  else if (cap.style_description && 'art_style' in cap.style_description) ideoState.render = 'art';
+  // image palette
+  ideoState.imagePalette = Array.isArray(cap.style_description?.color_palette)
+    ? cap.style_description.color_palette.map(ideoNormHex).slice(0,16) : [];
+  // elements → boxes
+  const els = cap.compositional_deconstruction?.elements || [];
+  ideoState.boxes = els.map(el => {
+    const r = el.bbox ? ideoBboxToRect(el.bbox) : { x:0.2,y:0.2,w:0.6,h:0.2 };
+    const color = (Array.isArray(el.color_palette) && el.color_palette[0]) ? ideoNormHex(el.color_palette[0]) : '#FFFFFF';
+    return {
+      id: 'b' + (ideoState._seq++),
+      type: el.type === 'obj' ? 'obj' : 'text',
+      x: r.x, y: r.y, w: r.w, h: r.h,
+      text: el.type === 'text' ? String(el.text || '') : '',
+      style: 'headline', align: 'center', color,
+      descManual: String(el.desc || ''),   // keep the prose as a manual override
+    };
+  });
+  ideoState.selId = null;
+  _ideoRawDirty = false;
+  ideoSetRender(ideoState.render);
+  ideoRender();
+  ideoRenderImagePalette();
+  ideoRefreshRaw();
+  if (msg){ msg.textContent = 'Applied to canvas.'; msg.className = 'ideo-raw-msg ok'; }
+}
+
+// ---- examples (literal canvas-state objects lifted from the README) ----
+const IDEO_EXAMPLES = {
+  poster: {  // 16:9 jazz-fest event poster
+    render: 'art', preset: 'V4_TURBO_12',
+    background: 'Near-black background with subtle aged paper texture.',
+    imagePalette: ['#0A0A0A','#F5C518','#E63946','#FFFFFF'],
+    boxes: [
+      { type:'text', x:0.10, y:0.03, w:0.80, h:0.15, text:'NEW ORLEANS JAZZ FEST', style:'serif', align:'center', color:'#FFFFFF', descManual:'Bold uppercase serif headline in bright white spanning the top of the poster.' },
+      { type:'obj',  x:0.30, y:0.20, w:0.40, h:0.65, text:'', style:'headline', align:'center', color:'#F5C518', descManual:'A silhouette of a trumpet player mid-performance, arm raised, dramatic pose, rendered in deep gold against the dark background.' },
+      { type:'text', x:0.20, y:0.87, w:0.60, h:0.09, text:'JULY 12 . ARMSTRONG PARK', style:'body', align:'center', color:'#E63946', descManual:'Smaller red sans-serif text at the bottom with the date and venue.' },
+    ],
+  },
+  logo: {  // 1:1 hand-sketched wordmark
+    render: 'art', preset: 'V4_DEFAULT_20',
+    background: 'Warm cream aged parchment filling the square frame with soft deckle edges.',
+    imagePalette: ['#F3E9D2','#5A6B3A','#8B5E3C','#C4A574','#3E3228'],
+    boxes: [
+      { type:'text', x:0.25, y:0.18, w:0.50, h:0.20, text:'OLIVA', style:'serif', align:'center', color:'#8B5E3C', descManual:'Large hand-drawn wordmark in warm sepia-brown ink with cross-hatched shading inside the letterforms, sketched not printed.' },
+      { type:'obj',  x:0.20, y:0.42, w:0.60, h:0.40, text:'', style:'headline', align:'center', color:'#5A6B3A', descManual:'Hand-sketched olive branch with leaves and ripe olives in olive-green and sepia ink cross-hatching, the central focal point.' },
+      { type:'text', x:0.20, y:0.85, w:0.60, h:0.08, text:'Cold Pressed . Organic', style:'caps', align:'center', color:'#C4A574', descManual:'Small hand-sketched lettering in golden-ochre ink beneath the branch.' },
+    ],
+  },
+  label: {  // 9:16 product label
+    render: 'art', preset: 'V4_DEFAULT_20',
+    background: 'Warm ivory paper with letterpress texture and margin ticks filling the tall narrow frame.',
+    imagePalette: ['#F3E9D2','#5A6B3A','#3E3228'],
+    boxes: [
+      { type:'text', x:0.10, y:0.05, w:0.80, h:0.07, text:'EXTRA VIRGIN OLIVE OIL', style:'caps', align:'center', color:'#5A6B3A', descManual:'Hand-sketched uppercase lettering in muted olive-green ink arced gently across the top of the label.' },
+      { type:'obj',  x:0.20, y:0.30, w:0.60, h:0.45, text:'', style:'headline', align:'center', color:'#5A6B3A', descManual:'Vertical botanical olive-branch illustration in olive-green and sepia ink, the central focal point.' },
+      { type:'text', x:0.20, y:0.88, w:0.60, h:0.06, text:'750 ml', style:'body', align:'center', color:'#3E3228', descManual:'Tiny hand-sketched volume note in sepia ink near the bottom.' },
+    ],
+  },
+  meme: {  // 1:1 top/bottom meme
+    render: 'photo', preset: 'V4_DEFAULT_20',
+    background: 'A single bold photographic scene filling the square frame.',
+    imagePalette: ['#FFFFFF','#0A0A0A'],
+    boxes: [
+      { type:'text', x:0.05, y:0.03, w:0.90, h:0.16, text:'WHEN THE BUILD PASSES', style:'caps', align:'center', color:'#FFFFFF', descManual:'Bold white uppercase impact-style meme caption across the top with a heavy dark outline.' },
+      { type:'text', x:0.05, y:0.81, w:0.90, h:0.16, text:'ON THE FIRST TRY', style:'caps', align:'center', color:'#FFFFFF', descManual:'Bold white uppercase impact-style meme caption across the bottom with a heavy dark outline.' },
+    ],
+  },
+};
+function ideoLoadExample(name){
+  const ex = IDEO_EXAMPLES[name];
+  if (!ex) return;
+  ideoSnapshot();
+  ideoState.render = ex.render;
+  ideoState.preset = ex.preset;
+  ideoState.imagePalette = (ex.imagePalette || []).map(ideoNormHex).slice(0,16);
+  ideoState.boxes = (ex.boxes || []).map(b => Object.assign(ideoDefaultBox(b.type), b, { id: 'b' + (ideoState._seq++) }));
+  ideoState.selId = null;
+  const pe = document.getElementById('imgStudioPrompt');
+  if (pe) pe.value = ex.background || '';
+  const q = document.getElementById('ideoQuality');
+  if (q) q.value = ex.preset;
+  // make sure we're in layout mode so the user sees the result
+  if (ideoState.mode !== 'layout') ideoSetMode('layout');
+  ideoSetRender(ex.render);
+  ideoApplyAspect();
+  ideoRender();
+  ideoRenderImagePalette();
+  ideoRefreshRaw();
+  if (typeof phosToast === 'function') phosToast('Loaded example — tweak the boxes, then Generate', { kind:'success' });
+}
+
+// ---- pointer interaction (create / move / resize) ----
+let _ideoDrag = null;   // {mode:'create'|'move'|'resize', id, handle, startX, startY, orig, created}
+function ideoStageMetrics(){
+  const stage = document.getElementById('ideoStage');
+  const r = stage.getBoundingClientRect();
+  return { stage, r, W: r.width || 1, H: r.height || 1 };
+}
+function ideoEventFrac(ev, m){
+  return {
+    x: Math.max(0, Math.min(1, (ev.clientX - m.r.left) / m.W)),
+    y: Math.max(0, Math.min(1, (ev.clientY - m.r.top) / m.H)),
+  };
+}
+function ideoStagePointerDown(ev){
+  if (!ideoInLayout()) return;
+  const m = ideoStageMetrics();
+  const handleEl = ev.target.closest('.ideo-handle');
+  const boxEl = ev.target.closest('.ideo-box');
+  const f = ideoEventFrac(ev, m);
+  if (handleEl && boxEl){
+    // resize the selected box
+    const box = ideoState.boxes.find(b => b.id === boxEl.dataset.id);
+    if (!box) return;
+    ideoSnapshot();
+    _ideoDrag = { mode:'resize', id:box.id, handle:handleEl.dataset.handle, startX:f.x, startY:f.y, orig:{...box}, created:false };
+    ideoState.selId = box.id;
+  } else if (boxEl){
+    // move
+    const box = ideoState.boxes.find(b => b.id === boxEl.dataset.id);
+    if (!box) return;
+    ideoSnapshot();
+    _ideoDrag = { mode:'move', id:box.id, startX:f.x, startY:f.y, orig:{...box}, created:false };
+    ideoState.selId = box.id;
+    ideoRenderBoxes(); ideoSyncInspector();
+  } else {
+    // empty stage → start a create-drag (tiny drag becomes a click→default box)
+    ideoSnapshot();
+    const box = ideoDefaultBox('text');
+    box.x = f.x; box.y = f.y; box.w = 0; box.h = 0;
+    ideoState.boxes.push(box);
+    ideoState.selId = box.id;
+    _ideoDrag = { mode:'create', id:box.id, startX:f.x, startY:f.y, orig:{...box}, created:true };
+  }
+  try { document.getElementById('ideoStage').setPointerCapture(ev.pointerId); } catch(e){}
+  ev.preventDefault();
+}
+function ideoStagePointerMove(ev){
+  if (!_ideoDrag) return;
+  const m = ideoStageMetrics();
+  const f = ideoEventFrac(ev, m);
+  const box = ideoState.boxes.find(b => b.id === _ideoDrag.id);
+  if (!box) return;
+  const dx = f.x - _ideoDrag.startX, dy = f.y - _ideoDrag.startY;
+  if (_ideoDrag.mode === 'move'){
+    let nx = _ideoDrag.orig.x + dx, ny = _ideoDrag.orig.y + dy;
+    nx = Math.max(0, Math.min(1 - box.w, nx));
+    ny = Math.max(0, Math.min(1 - box.h, ny));
+    const snapped = ideoSnapMove(box, nx, ny);
+    box.x = snapped.x; box.y = snapped.y;
+  } else if (_ideoDrag.mode === 'resize'){
+    ideoApplyResize(box, _ideoDrag.handle, _ideoDrag.orig, dx, dy);
+  } else if (_ideoDrag.mode === 'create'){
+    const x0 = Math.min(_ideoDrag.startX, f.x), y0 = Math.min(_ideoDrag.startY, f.y);
+    box.x = x0; box.y = y0;
+    box.w = Math.abs(f.x - _ideoDrag.startX);
+    box.h = Math.abs(f.y - _ideoDrag.startY);
+  }
+  ideoRenderBoxes();
+  ideoSyncInspector();
+}
+function ideoStagePointerUp(ev){
+  if (!_ideoDrag) return;
+  const box = ideoState.boxes.find(b => b.id === _ideoDrag.id);
+  if (box){
+    if (_ideoDrag.mode === 'create' && (box.w < IDEO_MIN_FRAC || box.h < IDEO_MIN_FRAC)){
+      // tiny drag = click → snap to a default-sized box centered on the click
+      const d = ideoDefaultBox('text');
+      box.w = d.w; box.h = d.h;
+      box.x = Math.max(0, Math.min(1 - box.w, box.x - box.w/2));
+      box.y = Math.max(0, Math.min(1 - box.h, box.y - box.h/2));
+    }
+    // enforce minimum size on any box
+    box.w = Math.max(IDEO_MIN_FRAC, Math.min(1, box.w));
+    box.h = Math.max(IDEO_MIN_FRAC, Math.min(1, box.h));
+    box.x = Math.max(0, Math.min(1 - box.w, box.x));
+    box.y = Math.max(0, Math.min(1 - box.h, box.y));
+  }
+  _ideoDrag = null;
+  ideoClearGuides();
+  ideoRender();
+  ideoRefreshRaw();
+  if (box && box.type === 'text'){ const inp = document.getElementById('ideoInspText'); if (inp) { try { inp.focus(); } catch(e){} } }
+}
+function ideoApplyResize(box, handle, orig, dx, dy){
+  let x0 = orig.x, y0 = orig.y, x1 = orig.x + orig.w, y1 = orig.y + orig.h;
+  if (handle.includes('n')) y0 = orig.y + dy;
+  if (handle.includes('s')) y1 = orig.y + orig.h + dy;
+  if (handle.includes('w')) x0 = orig.x + dx;
+  if (handle.includes('e')) x1 = orig.x + orig.w + dx;
+  // clamp into frame; allow inversion to be resolved by min/max
+  x0 = Math.max(0, Math.min(1, x0)); x1 = Math.max(0, Math.min(1, x1));
+  y0 = Math.max(0, Math.min(1, y0)); y1 = Math.max(0, Math.min(1, y1));
+  box.x = Math.min(x0, x1); box.y = Math.min(y0, y1);
+  box.w = Math.max(IDEO_MIN_FRAC, Math.abs(x1 - x0));
+  box.h = Math.max(IDEO_MIN_FRAC, Math.abs(y1 - y0));
+  if (box.x + box.w > 1) box.x = 1 - box.w;
+  if (box.y + box.h > 1) box.y = 1 - box.h;
+}
+
+// snapping to thirds / center / edges of other boxes, with guide lines
+function ideoSnapMove(box, nx, ny){
+  if (!ideoState.snap) { ideoClearGuides(); return { x:nx, y:ny }; }
+  const TOL = 0.018;
+  const xTargets = [0, 1/3, 0.5, 2/3, 1];
+  const yTargets = [0, 1/3, 0.5, 2/3, 1];
+  ideoState.boxes.forEach(o => { if (o.id !== box.id){ xTargets.push(o.x, o.x+o.w/2, o.x+o.w); yTargets.push(o.y, o.y+o.h/2, o.y+o.h); } });
+  let bestX = null, bestXd = TOL, guideX = null;
+  // candidate anchor points on the moving box: left, center, right
+  [[nx,'l'], [nx+box.w/2,'c'], [nx+box.w,'r']].forEach(([val, kind]) => {
+    xTargets.forEach(t => { const d = Math.abs(val - t); if (d < bestXd){ bestXd = d; bestX = kind === 'l' ? t : kind === 'c' ? t - box.w/2 : t - box.w; guideX = t; } });
+  });
+  let bestY = null, bestYd = TOL, guideY = null;
+  [[ny,'t'], [ny+box.h/2,'c'], [ny+box.h,'b']].forEach(([val, kind]) => {
+    yTargets.forEach(t => { const d = Math.abs(val - t); if (d < bestYd){ bestYd = d; bestY = kind === 't' ? t : kind === 'c' ? t - box.h/2 : t - box.h; guideY = t; } });
+  });
+  const fx = bestX != null ? Math.max(0, Math.min(1 - box.w, bestX)) : nx;
+  const fy = bestY != null ? Math.max(0, Math.min(1 - box.h, bestY)) : ny;
+  ideoDrawGuides(guideX, guideY);
+  return { x:fx, y:fy };
+}
+function ideoClearGuides(){ const st = document.getElementById('ideoStage'); if (st) st.querySelectorAll('.ideo-guide').forEach(n => n.remove()); }
+function ideoDrawGuides(gx, gy){
+  const st = document.getElementById('ideoStage');
+  if (!st) return;
+  ideoClearGuides();
+  if (gx != null){ const v = document.createElement('div'); v.className = 'ideo-guide v'; v.style.left = (gx*100)+'%'; st.appendChild(v); }
+  if (gy != null){ const h = document.createElement('div'); h.className = 'ideo-guide h'; h.style.top = (gy*100)+'%'; st.appendChild(h); }
+}
+
+// ---- keyboard: arrows nudge, Delete, Esc, Cmd/Ctrl+Z ----
+function ideoOnKeyDown(ev){
+  if (!ideoInLayout()) return;
+  if (ideoState._editing) return;                 // a text input is focused
+  const tag = (ev.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+  // undo
+  if ((ev.metaKey || ev.ctrlKey) && (ev.key === 'z' || ev.key === 'Z')){ ev.preventDefault(); ideoUndo(); return; }
+  const box = ideoSelectedBox();
+  if (ev.key === 'Escape'){ ideoState.selId = null; ideoRender(); return; }
+  if (!box) return;
+  if (ev.key === 'Delete' || ev.key === 'Backspace'){ ev.preventDefault(); ideoDeleteSel(); return; }
+  const STEP = ev.shiftKey ? 0.05 : 0.005;
+  let moved = false;
+  if (ev.key === 'ArrowLeft'){ box.x = Math.max(0, box.x - STEP); moved = true; }
+  else if (ev.key === 'ArrowRight'){ box.x = Math.min(1 - box.w, box.x + STEP); moved = true; }
+  else if (ev.key === 'ArrowUp'){ box.y = Math.max(0, box.y - STEP); moved = true; }
+  else if (ev.key === 'ArrowDown'){ box.y = Math.min(1 - box.h, box.y + STEP); moved = true; }
+  if (moved){ ev.preventDefault(); ideoRenderBoxes(); ideoSyncInspector(); ideoRefreshRaw(); }
+}
+
+// Wire global pointer move/up (capture started in pointerdown) + keydown once.
+(function ideoWireGlobalHandlers(){
+  if (typeof window === 'undefined') return;
+  window.addEventListener('pointermove', ideoStagePointerMove, { passive:false });
+  window.addEventListener('pointerup', ideoStagePointerUp);
+  window.addEventListener('pointercancel', ideoStagePointerUp);
+  window.addEventListener('keydown', ideoOnKeyDown);
+})();
+
 async function imgStudioGenerate() {
   if (IMG_STUDIO.busy) return;
-  const prompt = (document.getElementById('imgStudioPrompt').value || '').trim();
-  if (!prompt) {
-    document.getElementById('imgStudioStatus').textContent = 'Prompt is required.';
-    return;
+  const engineVal = document.getElementById('imgStudioEngine').value;
+  // ----- Ideogram 4 prompt source -----
+  // Layout mode: the canvas is the source — the posted `prompt` is the
+  // serialized JSON caption (the textarea is the scene/background field,
+  // which ideoBuildCaption already folds in). Block on invalid JSON.
+  // Simple mode (and every other engine): the textarea is the prompt.
+  let prompt;
+  let ideoPreset = null;
+  if (typeof ideoInLayout === 'function' && ideoInLayout()) {
+    let caption, problems;
+    try { caption = ideoBuildCaption(); problems = ideoValidateCaption(caption); }
+    catch (e) { problems = ['serialize error: ' + e.message]; }
+    if (problems && problems.length) {
+      document.getElementById('imgStudioStatus').innerHTML =
+        '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-fill"/></svg>' +
+        'Fix the caption before generating: ' + escapeHtml(problems[0]);
+      const det = document.getElementById('ideoRawDetails'); if (det) det.open = true;
+      if (typeof phosToast === 'function') phosToast('Caption has ' + problems.length + ' schema issue' + (problems.length===1?'':'s'), { kind:'danger' });
+      return;
+    }
+    const hasText = (caption.compositional_deconstruction.elements || []).some(e => e.type === 'text');
+    if (!hasText && (caption.compositional_deconstruction.elements || []).length === 0) {
+      document.getElementById('imgStudioStatus').textContent = 'Add at least one text or object box (or switch to Simple mode for a plain prompt).';
+      return;
+    }
+    // Warn (non-blocking) if the user left a text box empty — it was dropped.
+    const emptyText = (ideoState.boxes || []).filter(b => b.type === 'text' && !b.text.trim()).length;
+    if (emptyText && typeof phosToast === 'function') phosToast(emptyText + ' empty text box' + (emptyText===1?'':'es') + ' dropped from the caption', { kind:'warning' });
+    prompt = JSON.stringify(caption);
+    ideoPreset = ideoState.preset || 'V4_DEFAULT_20';
+  } else {
+    prompt = (document.getElementById('imgStudioPrompt').value || '').trim();
+    if (!prompt) {
+      document.getElementById('imgStudioStatus').textContent = 'Prompt is required.';
+      return;
+    }
+    // Simple-mode Ideogram still carries its Quality preset.
+    if (engineVal === 'ideogram4_inline') ideoPreset = (typeof ideoState === 'object' && ideoState.preset) ? ideoState.preset : 'V4_DEFAULT_20';
   }
   const refs = IMG_STUDIO.refs.filter(r => r && r.path).map(r => r.path);
   const body = {
@@ -21585,7 +22991,8 @@ async function imgStudioGenerate() {
     n: parseInt(document.getElementById('imgStudioN').value || '4', 10),
     aspect: document.getElementById('imgStudioAspect').value || '16:9',
     seed: parseInt(document.getElementById('imgStudioSeed').value || '-1', 10),
-    engine_override: document.getElementById('imgStudioEngine').value,
+    engine_override: engineVal,
+    ideo_preset: ideoPreset,
     refs,
   };
   // Submit through the same /queue/add endpoint video jobs use, with
@@ -21606,6 +23013,9 @@ async function imgStudioGenerate() {
     fd.set('mode', 'image');
     fd.set('prompt', body.prompt);
     fd.set('engine_override', body.engine_override || 'auto');
+    // Ideogram 4 sampler preset — only meaningful for ideogram4_inline;
+    // _build_image_engine_config reads it into ImageEngineConfig.mflux_preset.
+    if (body.ideo_preset) fd.set('ideo_preset', body.ideo_preset);
     fd.set('aspect', body.aspect || '16:9');
     fd.set('n', String(body.n || 4));
     fd.set('seed', String(body.seed != null ? body.seed : -1));
@@ -27558,6 +28968,7 @@ function _currentLoraModeFilter() {
   // Image Studio: read the engine override + map to compat tag.
   const eng = (document.getElementById('imgStudioEngine')?.value || 'auto').toLowerCase();
   if (eng.startsWith('qwen_edit')) return 'image:qwen';
+  if (eng.startsWith('ideogram'))  return 'image:ideogram';
   if (eng.startsWith('flux2_edit') || eng.startsWith('flux2'))  return 'image:flux2';
   if (eng.startsWith('flux1') || eng === 'flux1_inline')        return 'image:flux1';
   if (eng.startsWith('kontext'))   return 'image:kontext';
@@ -27590,6 +29001,7 @@ function _loraFilterLabel(tag) {
     case 'video':         return 'LTX-Video LoRAs (active video mode)';
     case 'image':         return 'image LoRAs (any mflux family — auto engine)';
     case 'image:qwen':    return 'Qwen-Image / Qwen-Image-Edit LoRAs';
+    case 'image:ideogram': return 'Ideogram 4 LoRAs (community formats — none validated yet)';
     case 'image:flux2':   return 'FLUX.2 LoRAs';
     case 'image:flux1':   return 'FLUX.1 LoRAs';
     case 'image:kontext': return 'FLUX.1 Kontext LoRAs';

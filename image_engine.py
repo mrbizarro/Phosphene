@@ -200,6 +200,11 @@ class ImageEngineConfig:
     mflux_steps: int = 4                            # Lightning 4-step default (was 0 = family default). The default Lightning LoRA below is distilled for 4 steps; the auto-promote in mlx_ltx_panel.py picks this up when promoting mock/legacy configs onto qwen_edit. Non-Lightning families ignore this and use the family default in MFLUX_FAMILY_DEFAULTS via the `eff_steps = config.mflux_steps if config.mflux_steps > 0 else ...` path in _generate_mflux — set this back to 0 to force the family default.
     mflux_quantize: int = 6                         # 3 | 4 | 5 | 6 | 8 — Q6 is the Apple-Silicon community sweet spot (~4-6% quality loss vs full precision; Q4 is 8-12%). Draw Things uses Q6/Q5 by default. Q4 only matters on ≤16 GB Macs; on 64 GB M4 Max the speed gap is negligible and the quality jump is visible.
     mflux_guidance: float | None = None             # None = use family default (1.0 / 0.0 / 4.5 / 5.0 per family)
+    # Ideogram 4 sampler preset. Only consumed by the `ideogram` family
+    # (passed straight to `--preset`); ignored by every other mflux CLI.
+    # None → the ideogram argv branch falls back to "V4_DEFAULT_20" (20
+    # steps). Valid values: "V4_TURBO_12" | "V4_DEFAULT_20" | "V4_QUALITY_48".
+    mflux_preset: str | None = None
     mflux_python_path: str = ""                     # optional override for the mflux CLI location
     # Optional Lightning / acceleration LoRAs. With qwen_edit + a 4-step
     # Lightning LoRA, generation drops from ~5 min to ~10-15 sec per
@@ -400,6 +405,12 @@ MFLUX_FAMILY_BIN = {
     # needs for keyframe stills. mflux 0.11.1+.
     "qwen_edit":      "mflux-generate-qwen-edit",
     "kontext":        "mflux-generate-kontext",
+    # Ideogram 4 (text-to-image, Qwen3 text encoder + Flux2 VAE). Presets
+    # define step count + guidance schedule + noise schedule — the CLI
+    # IGNORES --steps / --guidance and reads the caption via --prompt-file
+    # (the prompt is a JSON document, so it can't go on the shell as
+    # --prompt). fp8 weights at ideogram-ai/ideogram-4-fp8. mflux 0.18+.
+    "ideogram":       "mflux-generate-ideogram4",
 }
 
 # Sensible per-family defaults so a user who picks a model from the
@@ -429,6 +440,13 @@ MFLUX_FAMILY_DEFAULTS = {
     # the model card.
     "qwen_edit":     {"steps": 8,  "guidance": 4.0,  "base_model": ""},
     "kontext":       {"steps": 30, "guidance": 4.5,  "base_model": ""},
+    # Ideogram 4: steps + guidance are INERT — the preset (V4_TURBO_12 /
+    # V4_DEFAULT_20 / V4_QUALITY_48) defines the step count and guidance
+    # schedule, and the CLI warns-and-ignores --steps / --guidance. The
+    # values below are placeholders only (the ideogram argv branch in
+    # _generate_mflux never reads them). base_model points the loader at
+    # the fp8 weights when --model is an HF id / path.
+    "ideogram":      {"steps": 20, "guidance": 0.0,  "base_model": "ideogram-ai/ideogram-4-fp8"},
 }
 
 
@@ -465,6 +483,8 @@ def _infer_mflux_family(model: str) -> str:
         return "qwen_edit"
     if "qwen" in s and "image" in s:
         return "qwen"
+    if "ideogram" in s:
+        return "ideogram"
     # Default: flux1 (krea-dev / dev / schnell, plus filipstrand/FLUX.1-*)
     return "flux1"
 
@@ -709,18 +729,46 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
     # same shot label without `append: true`.
     output_template = str(output_dir / "cand_{seed}_mflux.png")
 
-    cmd = [
-        bin_path,
-        "--model", config.mflux_model,
-        "--prompt", prompt,
-        "--output", output_template,
-        "--steps", str(eff_steps),
-        "--width", str(width),
-        "--height", str(height),
-        "-q", str(config.mflux_quantize),
-        "--guidance", str(eff_guidance),
-        "--seed", *[str(s) for s in seeds],
-    ]
+    # Ideogram 4 takes a DIFFERENT argv shape than every other mflux CLI:
+    #   - the prompt is a JSON document (braces break shell --prompt
+    #     quoting), so mflux reads it via --prompt-file <path>. We write
+    #     the prompt string VERBATIM to a temp .json and pass that path.
+    #   - --steps / --guidance are warned-and-ignored (the preset defines
+    #     them) so we omit them; the preset goes on --preset.
+    #   - no -q / quantization flag and no --image-paths (text-to-image).
+    # The temp file is deleted in the `finally` after the subprocess ends
+    # (it must outlive the child, which reads it during model setup).
+    ideogram_prompt_file: str | None = None
+    if fam == "ideogram":
+        import tempfile
+        _fd, ideogram_prompt_file = tempfile.mkstemp(
+            suffix=".json", prefix="ideogram_prompt_",
+        )
+        with os.fdopen(_fd, "w", encoding="utf-8") as _pf:
+            _pf.write(prompt)
+        cmd = [
+            bin_path,
+            "--model", config.mflux_model,
+            "--prompt-file", ideogram_prompt_file,
+            "--output", output_template,
+            "--width", str(width),
+            "--height", str(height),
+            "--preset", (config.mflux_preset or "V4_DEFAULT_20"),
+            "--seed", *[str(s) for s in seeds],
+        ]
+    else:
+        cmd = [
+            bin_path,
+            "--model", config.mflux_model,
+            "--prompt", prompt,
+            "--output", output_template,
+            "--steps", str(eff_steps),
+            "--width", str(width),
+            "--height", str(height),
+            "-q", str(config.mflux_quantize),
+            "--guidance", str(eff_guidance),
+            "--seed", *[str(s) for s in seeds],
+        ]
     # Reference image input — three different argument shapes across
     # mflux's edit-flavored CLIs:
     #   qwen_edit  / flux2_edit  : --image-paths (plural, 1+ images)
@@ -1004,6 +1052,13 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
             except OSError:
                 pass
         _unregister_active_proc(proc)
+        # Ideogram's temp --prompt-file outlives the child (read during
+        # model setup); remove it now that the subprocess has exited.
+        if ideogram_prompt_file is not None:
+            try:
+                os.unlink(ideogram_prompt_file)
+            except OSError:
+                pass
 
     stderr_tail = "\n".join(last_lines)
     # SIGTERM/SIGKILL → user hit /stop. Surface as a typed cancellation
