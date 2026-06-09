@@ -5949,6 +5949,23 @@ def run_image_job_inner(job: dict) -> None:
             config=cfg,
             on_log=lambda line: push(f"[image] {line}"),
         )
+    except Exception as _gen_exc:                                       # noqa: BLE001
+        # Friendly message for the Ideogram 4 license gate: mflux 403s on the
+        # weights download until the user accepts the (non-commercial) license
+        # on HF. Translate the raw GatedRepoError into actionable steps instead
+        # of dumping a traceback into the failed-job error.
+        _m = str(_gen_exc)
+        if engine_override == "ideogram4_inline" and any(
+            k in _m for k in ("GatedRepo", "Access denied", "requires approval",
+                              "awaiting", "403", "gated", "Cannot access")):
+            raise RuntimeError(
+                "Ideogram 4 needs a one-time license approval before its weights "
+                "can download. (1) Accept the license at "
+                "https://huggingface.co/ideogram-ai/ideogram-4-fp8 — click "
+                "“Agree and access”. (2) Make sure your Hugging Face token "
+                "is set in Settings → API tokens (same account). Then try again."
+            ) from _gen_exc
+        raise
     finally:
         _IMG_STUDIO_LOCK.release()
     elapsed = round(time.time() - t0, 2)
@@ -8589,7 +8606,15 @@ class Handler(BaseHTTPRequestHandler):
                     elif repo is None:
                         cached = True
                     else:
-                        cached = _repo_hf_cache_dir(repo) is not None
+                        _snap = _repo_hf_cache_dir(repo)
+                        cached = _snap is not None
+                        # A gated repo can leave a stub snapshot (only the public
+                        # README/LICENSE arrived before the 403), which would read
+                        # as "cached". Require a real weight file for Ideogram so
+                        # the setup note stays up until the weights truly land.
+                        if cached and engine == "ideogram4_inline":
+                            cached = (_snap / "transformer"
+                                      / "diffusion_pytorch_model.safetensors").exists()
                         # mflux engines additionally need their per-family
                         # binary on disk (e.g. mflux-generate-qwen-edit).
                         # Issue #12 (sureshkpiitk): the Image Studio let
@@ -8629,6 +8654,13 @@ class Handler(BaseHTTPRequestHandler):
                         "sec_per_image": round(sec, 1),
                         "cold_start_sec": cold,
                         "samples_source": samples,
+                        # Gated HF repo (Ideogram 4 ships non-commercial): the
+                        # user must accept the license once on HF before the
+                        # weights download. Surface it so the UI guides them
+                        # instead of letting the first render fail with a 403.
+                        "gated": (engine == "ideogram4_inline"),
+                        "license_url": ("https://huggingface.co/" + repo)
+                                       if (repo and engine == "ideogram4_inline") else None,
                     })
                 self._json({"engines": out})
             except Exception as exc:                                # noqa: BLE001
@@ -13260,6 +13292,26 @@ HTML = r"""<!doctype html>
       padding-top: 12px;
     }
     .ideo-panel[hidden] { display: none; }
+    /* One-time license/setup note (gated weights). */
+    .ideo-setup-note {
+      display: flex; gap: 10px; align-items: flex-start;
+      margin: 0 0 12px; padding: 10px 12px;
+      background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+      border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+      border-radius: var(--r-md); font-size: 12.5px; line-height: 1.45;
+    }
+    .ideo-setup-note[hidden] { display: none; }
+    .ideo-setup-note svg.ph { color: var(--accent); }
+    .ideo-setup-body strong { display: block; margin-bottom: 4px; }
+    .ideo-setup-steps { margin: 4px 0 6px; padding-left: 18px; }
+    .ideo-setup-steps li { margin: 2px 0; }
+    .ideo-setup-hint { color: var(--muted); font-size: 11.5px; }
+    .ideo-link {
+      background: none; border: none; padding: 0; cursor: pointer;
+      color: var(--accent-bright, var(--accent)); font: inherit;
+      text-decoration: underline; text-underline-offset: 2px;
+    }
+    .ideo-link:hover { filter: brightness(1.15); }
     .ideo-head {
       display: flex; align-items: flex-start; justify-content: space-between;
       gap: 12px; margin-bottom: 10px; flex-wrap: wrap;
@@ -19402,6 +19454,20 @@ HTML = r"""<!doctype html>
            ideoBuildCaption() emits the EXACT schema the mflux Ideogram4
            caption verifier expects; imgStudioGenerate() posts it as `prompt`. -->
       <div class="ideo-panel" id="ideoPanel" hidden>
+        <!-- One-time setup note: Ideogram 4's weights are license-gated
+             (non-commercial). Shown only while they aren't cached yet;
+             toggled + filled by ideoUpdateSetupNote() from engine_status. -->
+        <div class="ideo-setup-note" id="ideoSetupNote" hidden>
+          <svg class="ph" aria-hidden="true" style="flex:0 0 auto;width:18px;height:18px;margin-top:1px"><use href="#ph-lock-key"/></svg>
+          <div class="ideo-setup-body">
+            <strong>One-time setup — Ideogram 4 is free, but license-gated.</strong>
+            <ol class="ideo-setup-steps">
+              <li>Add your <button type="button" class="ideo-link" onclick="openSettingsModal()">Hugging&nbsp;Face token</button> in Settings → API tokens.</li>
+              <li><a id="ideoLicenseLink" href="https://huggingface.co/ideogram-ai/ideogram-4-fp8" target="_blank" rel="noopener" class="ideo-link">Accept the license ↗</a> — click “Agree and access”.</li>
+            </ol>
+            <span class="ideo-setup-hint">Your first render then downloads it (<span id="ideoSetupDlGb">~27&nbsp;GB</span>, one-time). Personal/research use is free; commercial use needs a paid license from Ideogram.</span>
+          </div>
+        </div>
         <div class="ideo-head">
           <div class="ideo-head-titles">
             <span class="ideo-head-title">Ideogram 4 — text in image</span>
@@ -21886,10 +21952,30 @@ async function imgStudioRefreshEngineStatus() {
   if (typeof imgStudioUpdateValidity === 'function') imgStudioUpdateValidity();
 }
 
+// Show the one-time license/setup note while the (gated) Ideogram weights
+// aren't cached yet. Driven off /image/engine_status (gated + cached + url).
+function ideoUpdateSetupNote() {
+  const note = document.getElementById('ideoSetupNote');
+  if (!note) return;
+  const engEl = document.getElementById('imgStudioEngine');
+  const eng = engEl ? engEl.value : '';
+  const info = (typeof _IMG_ENGINE_STATUS === 'object' && _IMG_ENGINE_STATUS)
+    ? _IMG_ENGINE_STATUS[eng] : null;
+  const show = !!(eng === 'ideogram4_inline' && info && info.gated && !info.cached);
+  note.hidden = !show;
+  if (show) {
+    const link = document.getElementById('ideoLicenseLink');
+    if (link && info.license_url) link.href = info.license_url;
+    const gb = document.getElementById('ideoSetupDlGb');
+    if (gb && info.download_gb) gb.textContent = '~' + info.download_gb.toFixed(0) + ' GB';
+  }
+}
+
 function imgStudioRenderEnginePill() {
   const pill = document.getElementById('imgStudioEnginePill');
   const eng = document.getElementById('imgStudioEngine');
   if (!pill || !eng) return;
+  try { ideoUpdateSetupNote(); } catch (_) {}
   const v = eng.value;
   // 'auto' resolves to whatever the user saved in Settings — we don't try
   // to second-guess that here, just show a neutral pill.
