@@ -1780,20 +1780,25 @@ def list_curated_loras() -> list[dict]:
 # This drives the Characters tab — see GET /characters,
 # GET /characters/<id>/preview, POST /characters/<id>/generate.
 
-_CHARACTERS_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_CHARACTERS_ID_RE = re.compile(r"^[A-Za-z0-9 _-]+$")
 _CHARACTERS_PREVIEW_LOCK = threading.Lock()
 _CHARACTERS_CACHE_PATH = MODELS_DIR / "characters"
 # Styles mirror the characters cache layout: mlx_models/styles/<trigger>/
 # holds avatar.{ext} (first training frame) + optional bundle.json. The style
-# id-validation regex piggybacks on _CHARACTERS_ID_RE — same [A-Za-z0-9_-]+
+# id-validation regex piggybacks on _CHARACTERS_ID_RE — same [A-Za-z0-9 _-]+
 # rule, no point in two regexes.
 _STYLES_CACHE_PATH = MODELS_DIR / "styles"
 
 
 def _character_safe_id(value: str) -> str:
     """Validate a character id from a URL path. Trigger ids ship as
-    [A-Za-z0-9_-]+ — anything else is path traversal or junk."""
-    v = (value or "").strip()
+    [A-Za-z0-9 _-]+ (a trigger can legitimately contain a space, e.g.
+    "Annie Phosphene") — anything else is path traversal or junk."""
+    # URL path segments arrive percent-encoded, so a spaced trigger reaches
+    # us as "Annie%20Phosphene"; decode BEFORE validating. Unquote-then-
+    # validate stays traversal-safe: any encoded "../" or "/" decodes to
+    # literal chars the character class below then rejects.
+    v = urllib.parse.unquote((value or "").strip()).strip()
     if not v or not _CHARACTERS_ID_RE.match(v):
         raise ValueError("invalid character id")
     return v
@@ -21607,6 +21612,12 @@ function setMode(mode) {
     if (typeof _updateCharsPickerVisibility === 'function') {
       _updateCharsPickerVisibility('character');
     }
+    // Re-render the avatar strip so the .active ring reflects the CURRENT
+    // selection (which is '' after any prior mode switch) — prevents a stale
+    // highlight from making an unselected character look selected.
+    if (typeof _renderManualCharactersList === 'function') {
+      try { _renderManualCharactersList(); } catch (_) {}
+    }
     if (typeof _applyCharacterQualityStripVisibility === 'function') {
       try { _applyCharacterQualityStripVisibility(); } catch (_) {}
     }
@@ -25532,7 +25543,10 @@ async function enhancePrompt() {
         }
       }
     }
-    const charIdEl = document.getElementById('character_id');
+    // The hidden field's element id is "characterIdInput" (its NAME is
+    // "character_id"); getElementById('character_id') always returned null,
+    // so the active character trigger was never preserved through Enhance.
+    const charIdEl = document.getElementById('characterIdInput');
     if (charIdEl && charIdEl.value) preserveTokens.push(charIdEl.value);
     const fd = new URLSearchParams({ prompt: original, mode });
     if (preserveTokens.length) fd.set('preserve_tokens', JSON.stringify(preserveTokens));
@@ -29749,6 +29763,14 @@ function _updateCharsPickerVisibility(mode) {
     _selectedCharacterId = '';
     const inp = document.getElementById('characterIdInput');
     if (inp) inp.value = '';
+    // Re-render the avatar strip so the .active ring drops in lockstep with
+    // the cleared selection. Without this the old avatar stayed highlighted;
+    // returning to Character mode then showed a character that LOOKED selected
+    // while the hidden field was empty -> Generate shipped character_id="" ->
+    // plain T2V with no LoRA (the desync bug, present since fd59a2c).
+    if (typeof _renderManualCharactersList === 'function') {
+      try { _renderManualCharactersList(); } catch (_) {}
+    }
     _renderCharsAppliedNote();
     // Restore the default quality strip when leaving T2V — the
     // character-only strip should never be visible in I2V / FFLF /
