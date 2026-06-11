@@ -595,6 +595,21 @@ def _active_hf_token() -> str:
     return os.environ.get("HF_TOKEN", "").strip()
 
 
+def _sync_hf_token_to_env() -> None:
+    """Push the configured HF token into this process's environment so every
+    subprocess we spawn — notably the image-engine mflux Popen, which inherits
+    os.environ via _clean_subprocess_env — authenticates as the *configured*
+    account. Without this, huggingface_hub falls back to a stale cached token at
+    ~/.cache/huggingface/token or $HF_HOME/token; on a machine that ran
+    `hf auth login` as a different user, that cached token silently 403s on
+    gated repos (e.g. Ideogram 4) even though Settings holds a valid, authorized
+    token. The HF_TOKEN env var wins over the cache file in hf's resolution."""
+    tok = (get_settings().get("hf_token", "") or "").strip()
+    if tok:
+        os.environ["HF_TOKEN"] = tok
+        os.environ["HUGGING_FACE_HUB_TOKEN"] = tok
+
+
 def get_settings_public() -> dict:
     """Settings shape safe to expose via GET /settings. Tokens are never
     returned — only booleans indicating whether each is configured. This
@@ -621,6 +636,12 @@ _SETTINGS = _load_settings()
 def get_settings() -> dict:
     with _SETTINGS_LOCK:
         return dict(_SETTINGS)
+
+
+# Boot-time: make sure the configured HF token is in os.environ so subprocesses
+# (image-engine mflux, gated downloads) inherit it instead of a stale
+# `hf auth login` cache. Live changes are re-synced on settings save + per job.
+_sync_hf_token_to_env()
 
 
 def output_codec_settings() -> dict[str, str]:
@@ -5821,6 +5842,11 @@ def run_image_job_inner(job: dict) -> None:
     agent-driven sync image render and a panel-queued image render
     can't crash each other on the GPU.
     """
+    # Authenticate the gated-download subprocess (Ideogram 4 / Qwen-Edit) as the
+    # configured HF account — picks up a token the user just saved, and overrides
+    # any stale cached `hf auth login` token that would otherwise 403. See
+    # _sync_hf_token_to_env.
+    _sync_hf_token_to_env()
     p = job["params"]
     prompt = (p.get("prompt") or "").strip()
     if not prompt:
