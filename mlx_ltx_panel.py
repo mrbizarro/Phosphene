@@ -5997,11 +5997,16 @@ def run_image_job_inner(job: dict) -> None:
                               "Cannot access", "snapshot_download",
                               "_resolve_model_path", "PathResolution")):
             raise RuntimeError(
-                "Ideogram 4 needs a one-time license approval before its weights "
-                "can download. (1) Accept the license at "
-                "https://huggingface.co/ideogram-ai/ideogram-4-fp8 — click "
-                "“Agree and access”. (2) Make sure your Hugging Face token "
-                "is set in Settings → API tokens (same account). Then try again."
+                "Ideogram 4 couldn't download its weights — Hugging Face denied "
+                "access to the gated repo. Check both, on the SAME account: "
+                "(1) a Hugging Face Read token is set in Settings → API tokens "
+                "(a fine-grained token limited to your own repos can't read "
+                "another org's gated repo — use a Read token); (2) that same "
+                "account has accepted the license at "
+                "https://huggingface.co/ideogram-ai/ideogram-4-fp8 (click "
+                "“Agree and access”). If you've already done both, your token is "
+                "most likely from a different account than the one that accepted "
+                "— regenerate it on the accepting account. Then try again."
             ) from _gen_exc
         raise
     finally:
