@@ -13459,7 +13459,7 @@ HTML = r"""<!doctype html>
       position: absolute; box-sizing: border-box;
       border: 1.5px solid var(--accent);
       background: rgba(47,129,247,0.08);
-      border-radius: 3px; cursor: move; overflow: hidden;
+      border-radius: 3px; cursor: move; overflow: visible;
       transition: border-color var(--t-fast), background var(--t-fast);
     }
     .ideo-box.obj { border-style: dashed; border-color: var(--muted); background: rgba(182,191,209,0.06); }
@@ -13505,6 +13505,68 @@ HTML = r"""<!doctype html>
     .ideo-handle.ne { top: -5px; right: -5px; cursor: nesw-resize; }
     .ideo-handle.sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
     .ideo-handle.se { bottom: -5px; right: -5px; cursor: nwse-resize; }
+
+    /* ---- inline editing + per-box controls ---- */
+    /* the editable text overrides the stage's user-select:none + crosshair */
+    .ideo-box-text.editing {
+      pointer-events: auto; cursor: text;
+      user-select: text; -webkit-user-select: text; outline: none;
+      background: rgba(8,12,28,0.30);
+      box-shadow: inset 0 0 0 1.5px var(--accent-bright);
+    }
+    .ideo-box-text[data-ph]:empty::before {
+      content: attr(data-ph); opacity: .4; font-weight: 400;
+      text-transform: none; letter-spacing: normal; pointer-events: none;
+    }
+    /* delete button — just outside the top-right corner, fades in on hover/select */
+    .ideo-box-del {
+      position: absolute; top: -9px; right: -9px; width: 19px; height: 19px;
+      display: flex; align-items: center; justify-content: center; padding: 0;
+      border: 1.5px solid var(--bg, #0a0f24); border-radius: 50%;
+      background: #e5484d; color: #fff; font-size: 14px; line-height: 1;
+      cursor: pointer; opacity: 0; transform: scale(.5);
+      transition: opacity var(--t-fast), transform var(--t-fast); z-index: 7;
+    }
+    .ideo-box:hover > .ideo-box-del,
+    .ideo-box.selected > .ideo-box-del { opacity: 1; transform: scale(1); }
+    .ideo-box-del:hover { background: #ff5b60; }
+    /* floating per-box toolbar (color / align / delete) */
+    .ideo-fab {
+      position: absolute; z-index: 8; display: inline-flex; align-items: center; gap: 3px;
+      padding: 4px 6px; white-space: nowrap;
+      background: var(--panel, #11161f); color: var(--text, #e8eef6);
+      border: 1px solid var(--border-strong, #2a3344); border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }
+    .ideo-fab.above { transform: translate(-50%, calc(-100% - 9px)); }
+    .ideo-fab.below { transform: translate(-50%, 9px); }
+    .ideo-fab-sw-row { display: inline-flex; gap: 4px; }
+    .ideo-fab-sw {
+      width: 16px; height: 16px; padding: 0; border-radius: 50%; cursor: pointer;
+      border: 1.5px solid rgba(255,255,255,0.22); box-sizing: border-box;
+      transition: transform var(--t-fast);
+    }
+    .ideo-fab-sw:hover { transform: scale(1.14); }
+    .ideo-fab-sw.on { border-color: var(--accent-bright); box-shadow: 0 0 0 2px var(--accent-dim); }
+    .ideo-fab-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 25px; height: 22px; padding: 0; border-radius: 6px; cursor: pointer;
+      background: transparent; border: 1px solid transparent; color: var(--muted, #9aa6bd);
+    }
+    .ideo-fab-btn:hover { background: var(--bg-2, #0c1226); color: var(--text, #e8eef6); }
+    .ideo-fab-btn.on { background: var(--accent-dim); color: var(--accent-bright); }
+    .ideo-fab-btn.ideo-fab-del { color: #e07a80; }
+    .ideo-fab-btn.ideo-fab-del:hover { background: rgba(229,72,77,0.16); color: #ff6b6f; }
+    .ideo-fab-sep { width: 1px; height: 16px; background: var(--border, #2a3344); margin: 0 1px; }
+    .ideo-fab-btn:focus-visible, .ideo-fab-sw:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 1px; }
+    .ideo-fab-btn:focus:not(:focus-visible), .ideo-fab-sw:focus:not(:focus-visible) { outline: none; }
+    /* On-stage the canvas owns text/align/color/delete, so the left inspector
+       slims to just what the canvas can't do (type, style, describe), and the
+       now-orphaned "placement preview" note is dropped. */
+    body.ideo-canvas-on #ideoStageNote { display: none; }
+    body.ideo-canvas-on .ideo-inspector .ideo-insp-row:has(#ideoInspSwatches) { display: none; }
+    body.ideo-canvas-on .ideo-insp-actions .ideo-danger { display: none; }
+    body.ideo-canvas-on .ideo-insp-grid { grid-template-columns: 1fr; }
 
     .ideo-stage-note {
       font-size: 10.5px; color: var(--muted); margin: 6px 2px 0; line-height: 1.45;
@@ -22323,6 +22385,7 @@ const ideoState = {
   snap: true,
   history: [],
   _editing: false,                      // a text input is focused (don't steal keys)
+  _editId: null,                        // box currently being edited inline on the canvas
   _seq: 1,
 };
 
@@ -22532,10 +22595,9 @@ function ideoInsertBox(type){
   ideoState.selId = box.id;
   ideoRender();
   ideoRefreshRaw();
-  // Focus the text input so the user can type immediately.
+  // Drop the caret straight into the new box so the user types on the canvas.
   if (box.type === 'text'){
-    const inp = document.getElementById('ideoInspText');
-    if (inp) { try { inp.focus(); } catch(e){} }
+    ideoEnterEdit(box.id);
   }
 }
 
@@ -22574,8 +22636,87 @@ function ideoDeleteSel(){
   ideoSnapshot();
   ideoState.boxes = ideoState.boxes.filter(b => b.id !== box.id);
   ideoState.selId = null;
+  ideoState._editId = null;
+  ideoState._editing = false;
   ideoRender();
   ideoRefreshRaw();
+}
+
+// ---- inline text editing on the canvas ----
+// Turn the selected text box into a live-editable element: caret in the box,
+// type/paste directly on the frame. Coordinates are untouched; only box.text
+// changes. _editing flips so the global key handler stops stealing keystrokes.
+function ideoEnterEdit(id){
+  const box = ideoState.boxes.find(b => b.id === id);
+  if (!box || box.type !== 'text') return;
+  ideoState.selId = id;
+  ideoState._editId = id;
+  ideoRenderBoxes();                       // re-render so this box gets contentEditable
+  const el = document.querySelector('.ideo-box[data-id="' + id + '"] .ideo-box-text');
+  if (el){
+    el.focus();
+    try {
+      const range = document.createRange(); range.selectNodeContents(el); range.collapse(false);
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    } catch(e){}
+  }
+  ideoSyncInspector();
+}
+function ideoExitEdit(){
+  if (ideoState._editId == null) return;
+  ideoState._editId = null;
+  ideoState._editing = false;
+  ideoRenderBoxes();
+  ideoSyncInspector();
+  ideoRefreshRaw();
+}
+// Live keystroke handler: mirror the box text without a full re-render (which
+// would blow away the caret), and keep the empty/warn outline + inspector field
+// in sync.
+function ideoBoxTextInput(ev, id){
+  const box = ideoState.boxes.find(b => b.id === id);
+  if (!box) return;
+  box.text = ev.target.textContent || '';
+  const wrap = ev.target.closest('.ideo-box');
+  if (wrap) wrap.classList.toggle('warn', !box.text.trim());
+  const inp = document.getElementById('ideoInspText');
+  if (inp && document.activeElement !== inp) inp.value = box.text;
+  ideoRefreshRaw();
+}
+// The floating per-box toolbar (color, alignment, delete) — appended to the
+// stage and positioned above the box (or below if the box hugs the top edge),
+// so common edits live right on the canvas instead of a far-off side panel.
+function ideoBuildBoxToolbar(box, stage){
+  const bar = document.createElement('div');
+  bar.className = 'ideo-fab';
+  let cx = (box.x + box.w / 2) * 100;
+  cx = Math.max(15, Math.min(85, cx));     // keep it from overflowing the stage sides
+  bar.style.left = cx + '%';
+  if (box.y < 0.14){ bar.style.top = ((box.y + box.h) * 100) + '%'; bar.classList.add('below'); }
+  else { bar.style.top = (box.y * 100) + '%'; bar.classList.add('above'); }
+  bar.addEventListener('pointerdown', e => { e.stopPropagation(); e.preventDefault(); });  // no drag, keep caret focus
+  const A = [['left','M2 4h16M2 8h9M2 12h16'],['center','M2 4h16M5 8h10M2 12h16'],['right','M2 4h16M9 8h7M2 12h16']];
+  let html = '';
+  if (box.type === 'text'){
+    html += '<span class="ideo-fab-sw-row">';
+    IDEO_SWATCHES.forEach(hex => {
+      const on = (box.color || '').toUpperCase() === hex.toUpperCase();
+      html += '<button type="button" class="ideo-fab-sw' + (on ? ' on' : '') + '" data-color="' + hex + '" style="background:' + hex + '" title="' + hex + '"></button>';
+    });
+    html += '</span><span class="ideo-fab-sep"></span>';
+    A.forEach(([al, d]) => {
+      const on = box.align === al;
+      html += '<button type="button" class="ideo-fab-btn' + (on ? ' on' : '') + '" data-align="' + al + '" title="Align ' + al + '"><svg viewBox="0 0 18 16" width="15" height="13"><path d="' + d + '" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg></button>';
+    });
+    html += '<span class="ideo-fab-sep"></span>';
+  }
+  html += '<button type="button" class="ideo-fab-btn ideo-fab-del" data-del title="Delete (Backspace)"><svg viewBox="0 0 20 20" width="14" height="14"><path d="M5 6h10M8 6V4.5h4V6M7.5 6l.6 9h3.8l.6-9" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>';
+  bar.innerHTML = html;
+  bar.querySelectorAll('[data-color]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); ideoState.selId = box.id; ideoUpdateSel({ color: b.dataset.color }); }));
+  bar.querySelectorAll('[data-align]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); ideoState.selId = box.id; ideoUpdateSel({ align: b.dataset.align }); }));
+  const delB = bar.querySelector('[data-del]');
+  if (delB) delB.addEventListener('click', e => { e.stopPropagation(); ideoState.selId = box.id; ideoDeleteSel(); });
+  stage.appendChild(bar);
 }
 
 // ---- rendering ----
@@ -22587,8 +22728,8 @@ function ideoRender(){
 function ideoRenderBoxes(){
   const stage = document.getElementById('ideoStage');
   if (!stage) return;
-  // Remove existing boxes + guides (keep the hint node).
-  stage.querySelectorAll('.ideo-box, .ideo-guide').forEach(n => n.remove());
+  // Remove existing boxes + guides + floating toolbars (keep the hint node).
+  stage.querySelectorAll('.ideo-box, .ideo-guide, .ideo-fab').forEach(n => n.remove());
   stage.classList.toggle('has-boxes', ideoState.boxes.length > 0);
   const overlaps = ideoComputeOverlaps();
   ideoState.boxes.forEach(box => {
@@ -22614,6 +22755,23 @@ function ideoRenderBoxes(){
       // scale font roughly to box height so the preview reads as placement
       const px = Math.max(8, Math.min(40, Math.round(box.h * (stage.clientHeight || 300) * 0.55)));
       t.style.fontSize = px + 'px';
+      t.setAttribute('data-ph', 'Type text…');
+      // Inline editing: the selected-for-edit box becomes a live caret target.
+      // plaintext-only means a paste drops formatting → clean caption text.
+      if (box.id === ideoState._editId){
+        t.contentEditable = 'plaintext-only';
+        t.spellcheck = false;
+        t.classList.add('editing');
+        t.addEventListener('input', e => ideoBoxTextInput(e, box.id));
+        t.addEventListener('focus', () => { ideoState._editing = true; });
+        t.addEventListener('blur', () => { ideoExitEdit(); });
+        t.addEventListener('pointerdown', e => e.stopPropagation());  // caret, not drag
+        t.addEventListener('dblclick', e => e.stopPropagation());
+        t.addEventListener('keydown', e => {
+          e.stopPropagation();                                        // don't nudge/delete
+          if (e.key === 'Escape'){ e.preventDefault(); t.blur(); }
+        });
+      }
       el.appendChild(t);
     } else {
       const lbl = document.createElement('div');
@@ -22621,6 +22779,16 @@ function ideoRenderBoxes(){
       lbl.textContent = box.descManual ? box.descManual.slice(0, 40) : 'object';
       el.appendChild(lbl);
     }
+    // delete affordance on every box (fades in on hover / when selected)
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'ideo-box-del';
+    del.setAttribute('aria-label', 'Delete this box');
+    del.title = 'Delete (Backspace)';
+    del.innerHTML = '&times;';
+    del.addEventListener('pointerdown', e => { e.stopPropagation(); e.preventDefault(); });
+    del.addEventListener('click', e => { e.stopPropagation(); ideoState.selId = box.id; ideoDeleteSel(); });
+    el.appendChild(del);
     // resize handles only on the selected box
     if (box.id === ideoState.selId){
       ['nw','n','ne','e','se','s','sw','w'].forEach(dir => {
@@ -22631,6 +22799,10 @@ function ideoRenderBoxes(){
       });
     }
     stage.appendChild(el);
+    // floating toolbar for the selected box (color / align / delete)
+    if (box.id === ideoState.selId){
+      ideoBuildBoxToolbar(box, stage);
+    }
   });
 }
 
@@ -22657,13 +22829,17 @@ function ideoSyncInspector(){
   // type pills
   insp.querySelectorAll('[data-ideo-type]').forEach(b =>
     b.classList.toggle('active', b.dataset.ideoType === box.type));
-  // text row visible only for text boxes
+  // text row visible only for text boxes. When the canvas is on the right
+  // stage, text/align live on the canvas (inline + floating toolbar), so the
+  // inspector drops them and keeps only what the canvas can't do: type, style,
+  // describe.
+  const onStage = document.body.classList.contains('ideo-canvas-on');
   const textRow = document.getElementById('ideoInspTextRow');
   const styleCell = document.getElementById('ideoInspStyleCell');
   const alignCell = document.getElementById('ideoInspAlignCell');
-  if (textRow) textRow.style.display = isText ? '' : 'none';
+  if (textRow) textRow.style.display = (isText && !onStage) ? '' : 'none';
   if (styleCell) styleCell.style.display = isText ? '' : 'none';
-  if (alignCell) alignCell.style.display = isText ? '' : 'none';
+  if (alignCell) alignCell.style.display = (isText && !onStage) ? '' : 'none';
   const descLabel = document.querySelector('#ideoInspDescRow .mf-label');
   if (descLabel) descLabel.textContent = isText
     ? 'Describe it (optional — refines look)'
@@ -23087,8 +23263,9 @@ function ideoStagePointerDown(ev){
     // move
     const box = ideoState.boxes.find(b => b.id === boxEl.dataset.id);
     if (!box) return;
+    const wasSel = (ideoState.selId === box.id);
     ideoSnapshot();
-    _ideoDrag = { mode:'move', id:box.id, startX:f.x, startY:f.y, orig:{...box}, created:false };
+    _ideoDrag = { mode:'move', id:box.id, startX:f.x, startY:f.y, orig:{...box}, created:false, wasSel:wasSel, moved:false };
     ideoState.selId = box.id;
     ideoRenderBoxes(); ideoSyncInspector();
   } else {
@@ -23110,6 +23287,7 @@ function ideoStagePointerMove(ev){
   const box = ideoState.boxes.find(b => b.id === _ideoDrag.id);
   if (!box) return;
   const dx = f.x - _ideoDrag.startX, dy = f.y - _ideoDrag.startY;
+  if (Math.abs(dx) > 0.004 || Math.abs(dy) > 0.004) _ideoDrag.moved = true;
   if (_ideoDrag.mode === 'move'){
     let nx = _ideoDrag.orig.x + dx, ny = _ideoDrag.orig.y + dy;
     nx = Math.max(0, Math.min(1 - box.w, nx));
@@ -23129,9 +23307,10 @@ function ideoStagePointerMove(ev){
 }
 function ideoStagePointerUp(ev){
   if (!_ideoDrag) return;
-  const box = ideoState.boxes.find(b => b.id === _ideoDrag.id);
+  const drag = _ideoDrag;
+  const box = ideoState.boxes.find(b => b.id === drag.id);
   if (box){
-    if (_ideoDrag.mode === 'create' && (box.w < IDEO_MIN_FRAC || box.h < IDEO_MIN_FRAC)){
+    if (drag.mode === 'create' && (box.w < IDEO_MIN_FRAC || box.h < IDEO_MIN_FRAC)){
       // tiny drag = click → snap to a default-sized box centered on the click
       const d = ideoDefaultBox('text');
       box.w = d.w; box.h = d.h;
@@ -23148,7 +23327,13 @@ function ideoStagePointerUp(ev){
   ideoClearGuides();
   ideoRender();
   ideoRefreshRaw();
-  if (box && box.type === 'text'){ const inp = document.getElementById('ideoInspText'); if (inp) { try { inp.focus(); } catch(e){} } }
+  // Enter inline edit when a text box was just drawn, or an already-selected
+  // text box was clicked without dragging (Figma-style click-to-edit).
+  const enterEdit = box && box.type === 'text' && (
+    drag.mode === 'create' ||
+    (drag.mode === 'move' && !drag.moved && drag.wasSel)
+  );
+  if (enterEdit) ideoEnterEdit(box.id);
 }
 function ideoApplyResize(box, handle, orig, dx, dy){
   let x0 = orig.x, y0 = orig.y, x1 = orig.x + orig.w, y1 = orig.y + orig.h;
