@@ -15550,6 +15550,49 @@ HTML = r"""<!doctype html>
        vertical (so a tall clip doesn't push the carousel off-screen).
        object-fit:contain is the safety net — even if JS fails to set
        aspect, vertical clips letterbox cleanly instead of crop. */
+    /* ===== Ideogram Layout: the placement canvas portals into the big right
+       stage column. Toggle + host are hidden until body.ideo-canvas-on. ===== */
+    #stageModeToggle, #ideoCanvasHost { display: none; }
+    body.ideo-canvas-on #stageModeToggle {
+      display: inline-flex; align-self: flex-start; gap: 4px;
+      margin: 14px 14px 0; padding: 3px;
+      background: var(--bg-2, #11161f); border: 1px solid var(--border);
+      border-radius: 10px; flex: 0 0 auto;
+    }
+    body.ideo-canvas-on #stageModeToggle .smt-btn {
+      appearance: none; border: 0; background: transparent;
+      color: var(--text-dim, #9aa6bd); font: inherit; font-size: 13px;
+      font-weight: 600; padding: 6px 16px; border-radius: 7px;
+      cursor: pointer; transition: background .12s, color .12s;
+      white-space: nowrap;
+    }
+    body.ideo-canvas-on #stageModeToggle .smt-btn:hover { color: var(--text, #e8eef6); }
+    body.ideo-canvas-on #stageModeToggle .smt-btn.active { background: var(--accent, #2f81f7); color: #fff; }
+    /* Edit view: show the canvas host (flex-fills the column), hide the player hero. */
+    body.ideo-canvas-on.stage-editing #ideoCanvasHost {
+      display: flex; flex: 1 1 auto; flex-direction: column;
+      align-items: center; justify-content: center;
+      min-height: 0; padding: 14px; gap: 12px;
+    }
+    body.ideo-canvas-on.stage-editing .stage-pane > .player-surface { display: none; }
+    /* Edit view hides the outputs gallery so the canvas owns the full column
+       height; the Result toggle (or selecting an output) brings both back. */
+    body.ideo-canvas-on.stage-editing .stage-pane > .carousel-wrap { display: none; }
+    #ideoCanvasHost:has(#ideoStageWrap) .ideo-canvas-empty { display: none; }
+    .ideo-canvas-empty {
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      color: var(--text-dim, #9aa6bd); font-size: 14px; text-align: center;
+    }
+    /* The portaled canvas fills the host width, capped so it stays a comfortable
+       size, and never taller than the available column height. */
+    #ideoCanvasHost #ideoStageWrap {
+      width: 100%; max-width: none; margin: 0;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 0;
+    }
+    #ideoCanvasHost #ideoStage {
+      width: 100%; height: auto; max-width: none; max-height: 100%; margin: 0;
+    }
     .player-surface {
       position: relative;
       flex: 0 0 auto;
@@ -19587,7 +19630,7 @@ HTML = r"""<!doctype html>
                ideoApplyAspect(); boxes store x,y,w,h as 0..1 fractions so a
                ratio change just restyles the box, never moves coordinates.
                role=application + keyboard handlers make it a11y-operable. -->
-          <div class="ideo-stage-wrap">
+          <div class="ideo-stage-wrap" id="ideoStageWrap">
             <div class="ideo-stage" id="ideoStage" role="application"
                  aria-label="Text placement canvas. Click Insert text or drag to add a box; arrow keys nudge the selected box, Delete removes it."
                  tabindex="0"
@@ -19596,7 +19639,7 @@ HTML = r"""<!doctype html>
               <!-- guide lines + boxes are injected here by ideoRender() -->
             </div>
           </div>
-          <div class="ideo-stage-note">
+          <div class="ideo-stage-note" id="ideoStageNote">
             <svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-info"/></svg>
             Placement preview — boxes show where words sit; Ideogram renders the final type, weight, and texture.
           </div>
@@ -20505,6 +20548,23 @@ HTML = r"""<!doctype html>
        (#filterAll/#filterHidden retired with the Visible/Hidden
        segmented control — orphan textContent/setFilter calls removed.) -->
   <section class="stage-pane">
+    <!-- Ideogram Layout editor: the placement canvas (#ideoStageWrap) portals
+         into #ideoCanvasHost here in the big right column, and the Edit/Result
+         toggle flips between the canvas and the rendered output. Both are
+         display:none until body gets .ideo-canvas-on (set by ideoSyncStage). -->
+    <div class="stage-mode-toggle" id="stageModeToggle" role="group" aria-label="Stage view">
+      <button type="button" class="smt-btn active" data-stage-mode="edit" onclick="stageSetMode('edit')">Edit canvas</button>
+      <button type="button" class="smt-btn" data-stage-mode="result" onclick="stageSetMode('result')">Result</button>
+    </div>
+    <div class="ideo-canvas-host" id="ideoCanvasHost">
+      <div class="ideo-canvas-empty" id="ideoCanvasEmpty">
+        <svg width="40" height="40" viewBox="0 0 56 56" fill="none" aria-hidden="true">
+          <rect x="8" y="12" width="40" height="32" rx="3" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.4"/>
+          <path d="M16 30 L24 22 L34 32 L40 26" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.4" fill="none"/>
+        </svg>
+        <div>Pick <strong>Layout</strong> on the left to place words on the frame.</div>
+      </div>
+    </div>
     <!-- Player surface — the hero. Holds the <video>/<img>, the filename
          overlay (top), the action overlay (top-right), and an inline
          job-progress overlay (bottom) when something is rendering. The
@@ -22286,6 +22346,50 @@ function ideoIsActive(){
 }
 function ideoInLayout(){ return ideoIsActive() && ideoState.mode === 'layout'; }
 
+// --- Ideogram canvas portal -------------------------------------------------
+// In Layout mode the placement canvas (#ideoStageWrap) moves into the big right
+// stage (#ideoCanvasHost); otherwise it sits in the composer just before the
+// note. Every box handler resolves #ideoStage by id, so relocating the node is
+// safe — coordinates are fractional and survive the move untouched.
+var _stageMode = 'edit';
+var _ideoStageWasOn = false;
+function ideoCanvasPortal(toStage){
+  var wrap = document.getElementById('ideoStageWrap');
+  if (!wrap) return;
+  if (toStage){
+    var host = document.getElementById('ideoCanvasHost');
+    if (host && wrap.parentNode !== host) host.appendChild(wrap);
+  } else {
+    var note = document.getElementById('ideoStageNote');
+    if (note && note.parentNode && wrap.parentNode !== note.parentNode){
+      note.parentNode.insertBefore(wrap, note);
+    }
+  }
+}
+// Flip the right stage between the editor canvas (edit) and the rendered output.
+function stageSetMode(which){
+  _stageMode = (which === 'result') ? 'result' : 'edit';
+  document.body.classList.toggle('stage-editing', _stageMode === 'edit');
+  document.querySelectorAll('#stageModeToggle .smt-btn').forEach(function(b){
+    var on = b.dataset.stageMode === _stageMode;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+}
+// Park the canvas in the right place for the current engine + mode.
+function ideoSyncStage(){
+  var on = ideoInLayout();
+  document.body.classList.toggle('ideo-canvas-on', on);
+  ideoCanvasPortal(on);
+  if (on){
+    if (!_ideoStageWasOn) stageSetMode('edit');   // fresh entry → show the canvas
+    ideoApplyAspect(); ideoRender();
+  } else {
+    document.body.classList.remove('stage-editing');
+  }
+  _ideoStageWasOn = on;
+}
+
 // Show/hide the panel + re-skin the surrounding composer based on engine.
 function ideoSyncVisibility(){
   const panel = document.getElementById('ideoPanel');
@@ -22298,6 +22402,7 @@ function ideoSyncVisibility(){
     ideoRender();
     ideoRefreshRaw();
   }
+  ideoSyncStage();
 }
 
 // When Ideogram is active+Layout: relabel the prompt box to "Scene &
@@ -22347,6 +22452,7 @@ function ideoSetMode(mode){
     ideoRender();
     ideoRefreshRaw();
   }
+  ideoSyncStage();
 }
 
 // Map the studio aspect select to a CSS aspect-ratio on the stage. Boxes are
@@ -27030,6 +27136,10 @@ function _imgEngineLabel(token) {
 
 function animateFromPhoto(payload) {
   if (!payload || !payload.path) return;
+  // Leave the Studio/Ideogram workflow first — otherwise body[data-workflow]
+  // stays "studio" and its CSS keeps the video form (#genForm) hidden, so
+  // setMode('i2v') alone would look like nothing happened. Back to Video.
+  if (typeof workflowSwitch === 'function') workflowSwitch('manual');
   // Switch to i2v mode (pill + form fields). setMode('i2v') hides the
   // Studio pane, shows the video form, and applies the i2v-specific
   // dropdown selection.
@@ -27267,6 +27377,12 @@ function findOutputByPath(path) {
 }
 function selectOutput(path) {
   activePath = path;
+  // If the Ideogram editor canvas is holding the stage, selecting an output
+  // means the user wants to see the render — flip the stage to Result so the
+  // player (populated below) is visible instead of the canvas.
+  if (typeof ideoInLayout === 'function' && ideoInLayout() && typeof stageSetMode === 'function') {
+    stageSetMode('result');
+  }
   document.querySelectorAll('.car-card').forEach(el => el.classList.toggle('active', el.dataset.path === path));
   const wrap = document.getElementById('playerWrap');
   wrap.classList.remove('empty');
