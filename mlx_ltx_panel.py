@@ -26643,8 +26643,8 @@ async function poll() {
     hl.innerHTML = `<li class="empty-state"><span></span><span>${empty}</span><span></span><span></span></li>`;
   }
   else hl.innerHTML = filtered.slice(0, 20).map(j => {
-    const titleText = escapeHtml(j.params.label || snippet(j.params.prompt, 60));
-    const titleAttr = escapeHtml(j.params.prompt || '');
+    const titleText = escapeHtml(j.params.label || snippet(_displayPromptFor(j.params.prompt), 60));
+    const titleAttr = escapeHtml(_displayPromptFor(j.params.prompt));
     let titleHtml;
     if (j.status === 'failed' && j.error) {
       titleHtml = `${titleText} ` +
@@ -26658,7 +26658,7 @@ async function poll() {
     if (isPhoto && j.status === 'done' && j.output_path) {
       const cands = (j.params.candidate_paths && j.params.candidate_paths.length)
         ? j.params.candidate_paths.length : 1;
-      const engineLabel = escapeHtml(j.params.engine || 'image');
+      const engineLabel = escapeHtml(_imgEngineLabel(j.params.engine));
       // Reuse the server-built mtime-versioned URL when available
       // (currentOutputs has each entry's `&v=<mtime>` cache-bust),
       // falling back to a plain URL otherwise. Each job's output_path
@@ -26671,9 +26671,12 @@ async function poll() {
       const thumbSrc = _thumbUrl(matchedOutput
         ? matchedOutput.url
         : `/image?path=${encodeURIComponent(j.output_path)}`, 200);
-      const animateArgs = JSON.stringify({
-        path: j.output_path, prompt: j.params.prompt || ''
-      }).replace(/"/g, '&quot;');
+      // escapeHtml (not a bare " -> &quot; replace) so apostrophes/&/< in an
+      // Ideogram caption can't terminate the single-quoted onclick attribute,
+      // and pre-fill the readable description rather than the raw caption JSON.
+      const animateArgs = escapeHtml(JSON.stringify({
+        path: j.output_path, prompt: _displayPromptFor(j.params.prompt)
+      }));
       return `
       <li class="${j.status}" data-photo="1">
         <span class="badge">photo</span>
@@ -26993,6 +26996,36 @@ async function remakeInQuality(payload) {
     }
     imgStudioGenerate();
   }
+}
+
+// Ideogram 4 stores params.prompt as a structured caption JSON string (root
+// keys high_level_description / style_description / compositional_deconstruction)
+// because mflux reads it from a --prompt-file verbatim. Every UI surface that
+// shows a prompt or pre-fills it into a PLAIN box (Animate→i2v, titles) wants a
+// readable string, never the raw JSON. Parse it and prefer high_level_description;
+// any other engine's plain-text prompt just round-trips unchanged.
+function _parseIdeoCaption(s) {
+  if (typeof s !== 'string') return null;
+  const t = s.trim();
+  if (t.charAt(0) !== '{') return null;
+  try {
+    const o = JSON.parse(t);
+    if (o && typeof o === 'object' && typeof o.high_level_description === 'string') return o;
+  } catch (_) {}
+  return null;
+}
+function _displayPromptFor(prompt) {
+  const cap = _parseIdeoCaption(prompt);
+  return cap ? cap.high_level_description : (prompt || '');
+}
+// Friendly engine label from the internal token stamped on image jobs
+// (params.engine = "mflux/ideogram" etc.). Falls back to the raw token.
+function _imgEngineLabel(token) {
+  const map = {
+    'mflux/ideogram': 'Ideogram 4', 'mflux/hidream': 'HiDream',
+    'mflux/qwen_edit': 'Qwen-Edit', 'mflux/flux2': 'FLUX.2', 'mflux': 'mflux'
+  };
+  return map[token] || (token || 'image');
 }
 
 function animateFromPhoto(payload) {
@@ -27451,7 +27484,7 @@ async function animateActive() {
         // Image sidecars use schema "phosphene/library/image@1" with
         // a top-level `prompt`; video sidecars nest it under `params`.
         // Cover both shapes so the UI works regardless of source.
-        prompt = (data && (data.prompt || (data.params && data.params.prompt))) || '';
+        prompt = _displayPromptFor((data && (data.prompt || (data.params && data.params.prompt))) || '');
       }
     } catch (e) {}
   }
@@ -27531,6 +27564,29 @@ async function loadParams() {
   if (!r.ok) return;
   const data = await r.json();
   const p = data.params;
+  // Image-Studio sidecars (Ideogram 4 etc.) carry a TOP-LEVEL prompt that is a
+  // structured caption JSON, not the video params shape below — the p.mode
+  // dispatch would dump JSON into the i2v prompt box (or throw when p is
+  // undefined). Detect an Ideogram caption and restore it into Image Studio +
+  // its visual canvas instead of the video form.
+  const _ideoSrc = _parseIdeoCaption((data && (data.prompt || (p && p.prompt))) || '');
+  if (_ideoSrc) {
+    const wf = document.querySelector('[data-workflow="studio"]');
+    if (wf) wf.click();                                          // switch to Images
+    const eng = document.getElementById('imgStudioEngine');
+    if (eng) {
+      eng.value = 'ideogram4_inline';
+      if (typeof ideoSyncVisibility === 'function') ideoSyncVisibility();   // reveal the canvas
+    }
+    const pe = document.getElementById('imgStudioPrompt');
+    if (pe) pe.value = _ideoSrc.high_level_description || '';
+    const ta = document.getElementById('ideoRawJson');
+    if (ta) {
+      ta.value = JSON.stringify(_ideoSrc, null, 2);
+      if (typeof ideoApplyRaw === 'function') { try { ideoApplyRaw(); } catch (_) {} }  // rehydrate boxes
+    }
+    return;
+  }
   // If this clip came from the Characters tab, restore the Characters
   // compose state instead of dumping the user into Manual. The sidecar
   // carries the source flag + the original compose chips verbatim
