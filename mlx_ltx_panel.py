@@ -15636,28 +15636,48 @@ HTML = r"""<!doctype html>
        is self-contained on the right; hidden with the host until canvas-on. */
     #ideoStageBar, #ideoCanvasHost { display: none; }
     body[data-workflow="studio"].ideo-canvas-on #ideoStageBar {
-      display: flex; align-items: center; gap: 8px;
-      margin: 14px 14px 0; flex: 0 0 auto;
+      display: flex; align-items: center; gap: 10px;
+      margin: 14px 16px 0; flex: 0 0 auto;
     }
+    /* Joined segment for the two primary creation actions. flex:0 0 auto is
+       load-bearing: with overflow:hidden the group has no min-content floor,
+       so on a tight bar flex-shrink would crush it before anything else. */
+    .ideo-stage-bar .isb-group {
+      display: inline-flex; align-items: stretch; overflow: hidden;
+      flex: 0 0 auto;
+      background: var(--bg-2, #0c1226);
+      border: 1px solid var(--border-strong, #2a3344); border-radius: 9px;
+    }
+    .ideo-stage-bar .isb-group .isb-btn {
+      border: 0; border-radius: 0; background: transparent;
+      color: var(--text, #e8eef6); font-weight: 600;
+    }
+    .ideo-stage-bar .isb-group .isb-btn + .isb-btn { border-left: 1px solid var(--border, #2a3344); }
+    .ideo-stage-bar .isb-group .isb-btn:hover { background: var(--accent-dim); color: var(--accent-bright); }
     .ideo-stage-bar .isb-btn {
-      appearance: none; background: transparent; border: 1px solid var(--border, #2a3344);
+      appearance: none; display: inline-flex; align-items: center;
+      width: auto;              /* the panel-wide reset makes every button width:100% */
+      height: 30px; padding: 0 14px; box-sizing: border-box;
+      background: transparent; border: 1px solid var(--border, #2a3344);
       color: var(--text-dim, #9aa6bd); font: inherit; font-size: 12.5px;
-      padding: 5px 12px; border-radius: 8px; cursor: pointer;
-      transition: color .12s, border-color .12s; white-space: nowrap;
+      border-radius: 9px; cursor: pointer;
+      transition: color .12s, border-color .12s, background .12s; white-space: nowrap;
     }
     .ideo-stage-bar .isb-btn:hover { color: var(--text, #e8eef6); border-color: var(--border-strong, #2a3344); }
-    .ideo-stage-bar .isb-btn:disabled { opacity: .45; cursor: default; }
-    .ideo-stage-bar .isb-sep { width: 1px; height: 18px; background: var(--border, #2a3344); }
+    .ideo-stage-bar .isb-btn:disabled { opacity: .4; cursor: default; }
     .ideo-stage-bar .isb-spacer { flex: 1; }
     .ideo-stage-bar .isb-toggle {
-      display: inline-flex; align-items: center; gap: 5px;
+      display: inline-flex; align-items: center; gap: 6px; height: 30px;
+      padding: 0 4px; box-sizing: border-box;
       font-size: 12px; color: var(--muted, #9aa6bd); cursor: pointer;
     }
     .ideo-stage-bar .isb-toggle input { accent-color: var(--accent, #2f81f7); cursor: pointer; }
     .ideo-stage-bar .isb-select {
-      appearance: none; background: var(--bg-2, #0c1226); border: 1px solid var(--border, #2a3344);
+      appearance: none; height: 30px; box-sizing: border-box;
+      width: 118px;             /* size to the closed label, not the longest option */
+      background: var(--bg-2, #0c1226); border: 1px solid var(--border, #2a3344);
       color: var(--text-dim, #9aa6bd); font: inherit; font-size: 12.5px;
-      padding: 5px 26px 5px 12px; border-radius: 8px; cursor: pointer;
+      padding: 0 26px 0 12px; border-radius: 9px; cursor: pointer;
       transition: color .12s, border-color .12s;
     }
     .ideo-stage-bar .isb-select:hover { color: var(--text, #e8eef6); border-color: var(--border-strong, #2a3344); }
@@ -15670,8 +15690,9 @@ HTML = r"""<!doctype html>
     }
     body[data-workflow="studio"].ideo-canvas-on #stageModeToggle .smt-btn {
       appearance: none; border: 0; background: transparent;
-      color: var(--text-dim, #9aa6bd); font: inherit; font-size: 13px;
-      font-weight: 600; padding: 6px 16px; border-radius: 7px;
+      color: var(--text-dim, #9aa6bd); font: inherit; font-size: 12.5px;
+      font-weight: 600; padding: 4px 14px; height: 22px; box-sizing: border-box;
+      display: inline-flex; align-items: center; border-radius: 7px;
       cursor: pointer; transition: background .12s, color .12s;
       white-space: nowrap;
     }
@@ -15681,7 +15702,7 @@ HTML = r"""<!doctype html>
     body[data-workflow="studio"].ideo-canvas-on.stage-editing #ideoCanvasHost {
       display: flex; flex: 1 1 auto; flex-direction: column;
       align-items: center; justify-content: center;
-      min-height: 0; padding: 14px; gap: 12px;
+      min-height: 0; padding: 16px; gap: 12px;
     }
     body[data-workflow="studio"].ideo-canvas-on.stage-editing .stage-pane > .player-surface { display: none; }
     /* Edit view hides the outputs gallery so the canvas owns the full column
@@ -15699,8 +15720,17 @@ HTML = r"""<!doctype html>
       display: flex; align-items: center; justify-content: center;
       min-height: 0;
     }
+    /* On the stage the canvas is a real artboard: ideoFitStage() sizes it in px
+       to fit the host at the exact aspect (equal margins all around); the card
+       gets a deeper shadow and a faint dot grid for design-tool orientation. */
     #ideoCanvasHost #ideoStage {
-      width: 100%; height: auto; max-width: none; max-height: 100%; margin: 0;
+      width: 100%; height: auto; max-width: none; margin: 0;
+      border-radius: 10px; border-color: var(--border-strong, #2a3344);
+      box-shadow: 0 18px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.35) inset;
+      background-image:
+        radial-gradient(rgba(122,140,180,0.10) 1px, transparent 1.2px),
+        linear-gradient(160deg, #0d1430, #0a0f24);
+      background-size: 22px 22px, 100% 100%;
     }
     .player-surface {
       position: relative;
@@ -20662,9 +20692,10 @@ HTML = r"""<!doctype html>
          toggle flips between the canvas and the rendered output. Both are
          display:none until body gets .ideo-canvas-on (set by ideoSyncStage). -->
     <div class="ideo-stage-bar" id="ideoStageBar">
-      <button type="button" class="isb-btn" onclick="ideoInsertBox('text')" title="Add a text box (or drag on an empty area of the frame)">+ Text</button>
-      <button type="button" class="isb-btn" onclick="ideoInsertBox('obj')" title="Add an object region (something the model should draw)">+ Object</button>
-      <span class="isb-sep"></span>
+      <div class="isb-group" role="group" aria-label="Add to canvas">
+        <button type="button" class="isb-btn" onclick="ideoInsertBox('text')" title="Add a text box (or drag on an empty area of the frame)">+ Text</button>
+        <button type="button" class="isb-btn" onclick="ideoInsertBox('obj')" title="Add an object region (something the model should draw)">+ Object</button>
+      </div>
       <label class="isb-toggle" title="Snap boxes to thirds / center / other boxes">
         <input type="checkbox" id="ideoSnapToggleStage" checked onchange="ideoState.snap=this.checked">
         <span>Snap</span>
@@ -22499,6 +22530,26 @@ function ideoCanvasPortal(toStage){
     }
   }
 }
+// Size the canvas to FIT the host box at the exact aspect ratio — width-bound
+// on wide hosts, height-bound on short ones — so the artboard always sits with
+// even margins instead of width-filling and overflowing the leftover height.
+// Inline px width is cleared when the canvas portals home (the composer copy
+// keeps its own responsive sizing).
+function ideoFitStage(){
+  var host = document.getElementById('ideoCanvasHost');
+  var stage = document.getElementById('ideoStage');
+  var wrap = document.getElementById('ideoStageWrap');
+  if (!host || !stage || !wrap || wrap.parentNode !== host) return;
+  if (!document.body.classList.contains('stage-editing')) return;
+  var cs = getComputedStyle(host);
+  var availW = host.clientWidth - parseFloat(cs.paddingLeft || 0) - parseFloat(cs.paddingRight || 0);
+  var availH = host.clientHeight - parseFloat(cs.paddingTop || 0) - parseFloat(cs.paddingBottom || 0);
+  if (availW <= 50 || availH <= 50) return;
+  var ar = String(stage.style.aspectRatio || '16 / 9').split('/');
+  var r = (parseFloat(ar[0]) || 16) / (parseFloat(ar[1]) || 9);
+  var w = Math.min(availW, availH * r);
+  stage.style.width = Math.max(220, Math.floor(w)) + 'px';
+}
 // Flip the right stage between the editor canvas (edit) and the rendered output.
 function stageSetMode(which){
   _stageMode = (which === 'result') ? 'result' : 'edit';
@@ -22508,6 +22559,7 @@ function stageSetMode(which){
     b.classList.toggle('active', on);
     b.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
+  if (_stageMode === 'edit') ideoFitStage();   // host was hidden in result view
 }
 // Park the canvas in the right place for the current engine + mode.
 // The edit canvas is a property of the Images workflow: leaving for
@@ -22521,10 +22573,12 @@ function ideoSyncStage(){
   if (on){
     if (!_ideoStageWasOn) stageSetMode('edit');   // fresh entry → show the canvas
     var sn = document.getElementById('ideoSnapToggleStage'); if (sn) sn.checked = !!ideoState.snap;
-    ideoApplyAspect(); ideoRender();
+    ideoApplyAspect(); ideoFitStage(); ideoRender();
   } else {
     if (typeof ideoExitEdit === 'function') ideoExitEdit();   // drop any live caret
     document.body.classList.remove('stage-editing');
+    var st = document.getElementById('ideoStage');
+    if (st) st.style.width = '';                  // composer copy sizes itself
   }
   _ideoStageWasOn = on;
 }
@@ -22603,6 +22657,7 @@ function ideoApplyAspect(){
   const a = (sel.value || '16:9').split(':');
   const w = parseFloat(a[0]) || 16, h = parseFloat(a[1]) || 9;
   stage.style.aspectRatio = `${w} / ${h}`;
+  if (typeof ideoFitStage === 'function') ideoFitStage();   // refit the artboard
 }
 
 function ideoSetRender(r){
@@ -23531,6 +23586,9 @@ function ideoOnKeyDown(ev){
   window.addEventListener('pointerup', ideoStagePointerUp);
   window.addEventListener('pointercancel', ideoStagePointerUp);
   window.addEventListener('keydown', ideoOnKeyDown);
+  window.addEventListener('resize', function(){
+    if (document.body.classList.contains('ideo-canvas-on')) ideoFitStage();
+  });
 })();
 
 async function imgStudioGenerate() {
