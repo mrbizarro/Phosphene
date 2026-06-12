@@ -27746,10 +27746,15 @@ function findOutputByPath(path) {
 }
 function selectOutput(path) {
   activePath = path;
-  // If the Ideogram editor canvas is holding the stage, selecting an output
-  // means the user wants to see the render — flip the stage to Result so the
-  // player (populated below) is visible instead of the canvas.
-  if (typeof ideoInLayout === 'function' && ideoInLayout() && typeof stageSetMode === 'function') {
+  // If the Ideogram editor canvas is holding the stage, a USER click on an
+  // output means they want to see the render — flip the stage to Result.
+  // Gate on isTrusted so the boot-time auto-select of the newest output (and
+  // any other programmatic selection) can't yank someone out of mid-edit;
+  // the Generate flow flips explicitly in imgStudioGenerate.
+  var _uev = (typeof window !== 'undefined') ? window.event : null;
+  if (_uev && _uev.isTrusted &&
+      typeof ideoInLayout === 'function' && ideoInLayout() &&
+      typeof stageSetMode === 'function') {
     stageSetMode('result');
   }
   document.querySelectorAll('.car-card').forEach(el => el.classList.toggle('active', el.dataset.path === path));
