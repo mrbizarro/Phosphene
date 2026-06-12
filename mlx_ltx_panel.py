@@ -15550,27 +15550,6 @@ HTML = r"""<!doctype html>
        vertical (so a tall clip doesn't push the carousel off-screen).
        object-fit:contain is the safety net — even if JS fails to set
        aspect, vertical clips letterbox cleanly instead of crop. */
-    /* ===== Ideogram editor portaled into the right stage. All gated on
-       body[data-workflow="studio"] so Video/Audio/Train auto-restore the
-       normal player. .ideo-stage = engine active; .stage-editing = edit mode. */
-    #ideoStageHost, #stageModeToggle { display: none; }
-    body[data-workflow="studio"].ideo-stage #stageModeToggle { display: flex; }
-    body[data-workflow="studio"].ideo-stage.stage-editing #ideoStageHost { display: block; }
-    body[data-workflow="studio"].ideo-stage.stage-editing .stage-pane .player-surface { display: none; }
-    .stage-mode-toggle { gap: 6px; margin: 0 0 10px; }
-    .stage-mode-toggle button {
-      flex: 0 0 auto; padding: 6px 16px; border-radius: 8px;
-      border: 1px solid var(--border); background: var(--panel);
-      color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer;
-      transition: background .12s, color .12s, border-color .12s;
-    }
-    .stage-mode-toggle button.active {
-      background: var(--accent-dim); color: var(--accent-bright); border-color: var(--accent);
-    }
-    /* The portaled editor gets the full stage width — drop the narrow composer cap. */
-    #ideoStageHost .ideo-panel { display: block; }
-    #ideoStageHost .ideo-stage { max-width: none; width: 100%; }
-
     .player-surface {
       position: relative;
       flex: 0 0 auto;
@@ -19542,10 +19521,6 @@ HTML = r"""<!doctype html>
            and this canvas drives the rest of the JSON caption). The serializer
            ideoBuildCaption() emits the EXACT schema the mflux Ideogram4
            caption verifier expects; imgStudioGenerate() posts it as `prompt`. -->
-      <!-- Composer home slot — #ideoPanel lives here when Ideogram is NOT the
-           active engine; ideoSyncVisibility() portals it into the right stage
-           (#ideoStageHost) when it is, and back here when it isn't. -->
-      <div id="ideoComposerSlot"></div>
       <div class="ideo-panel" id="ideoPanel" hidden>
         <!-- One-time setup note: Ideogram 4's weights are license-gated
              (non-commercial). Shown only while they aren't cached yet;
@@ -19567,10 +19542,10 @@ HTML = r"""<!doctype html>
             <span class="ideo-head-sub">Place words on the frame; the model renders the final typography.</span>
           </div>
           <div class="pill-group cols-2 ideo-mode-toggle" role="group" aria-label="Caption mode">
-            <button type="button" class="pill-btn" id="ideoModeSimpleBtn" data-ideo-mode="simple" onclick="ideoSetMode('simple')" aria-pressed="false">
+            <button type="button" class="pill-btn active" id="ideoModeSimpleBtn" data-ideo-mode="simple" onclick="ideoSetMode('simple')" aria-pressed="true">
               <span>Simple</span><span class="sub">plain prompt</span>
             </button>
-            <button type="button" class="pill-btn active" id="ideoModeLayoutBtn" data-ideo-mode="layout" onclick="ideoSetMode('layout')" aria-pressed="true">
+            <button type="button" class="pill-btn" id="ideoModeLayoutBtn" data-ideo-mode="layout" onclick="ideoSetMode('layout')" aria-pressed="false">
               <span>Layout</span><span class="sub">visual canvas</span>
             </button>
           </div>
@@ -20530,16 +20505,6 @@ HTML = r"""<!doctype html>
        (#filterAll/#filterHidden retired with the Visible/Hidden
        segmented control — orphan textContent/setFilter calls removed.) -->
   <section class="stage-pane">
-    <!-- Ideogram text-placement editor is PORTALED here (into #ideoStageHost)
-         by ideoSyncVisibility() when the Ideogram engine is active, so the big
-         canvas lives in the right stage instead of the cramped left composer.
-         The Edit/Result toggle flips between the canvas and the rendered image
-         (#playerWrap). Both hidden unless Ideogram is the active engine. -->
-    <div class="stage-mode-toggle" id="stageModeToggle">
-      <button type="button" id="stageModeEditBtn" class="active" onclick="stageSetMode('edit')">Edit layout</button>
-      <button type="button" id="stageModeResultBtn" onclick="stageSetMode('result')">Result</button>
-    </div>
-    <div class="ideo-stage-host" id="ideoStageHost"></div>
     <!-- Player surface — the hero. Holds the <video>/<img>, the filename
          overlay (top), the action overlay (top-right), and an inline
          job-progress overlay (bottom) when something is rendering. The
@@ -22289,7 +22254,7 @@ const IDEO_MIN_FRAC = 0.03;             // min box edge as a fraction (avoid 0-a
 const IDEO_HISTORY_MAX = 50;            // bounded undo
 
 const ideoState = {
-  mode: 'layout',                       // 'simple' | 'layout' — default Layout so Ideogram lands on the visual editor
+  mode: 'simple',                       // 'simple' | 'layout'
   render: 'art',                        // 'art' | 'photo'
   preset: 'V4_DEFAULT_20',
   boxes: [],                            // [{id,type,x,y,w,h,text,style,align,color,descManual}]
@@ -22321,63 +22286,17 @@ function ideoIsActive(){
 }
 function ideoInLayout(){ return ideoIsActive() && ideoState.mode === 'layout'; }
 
-// 'edit' = the Ideogram canvas occupies the right stage; 'result' = the rendered
-// image (#playerWrap). var (not let) so init order can't TDZ it.
-var _stageMode = 'edit';
-
-// Portal the whole Ideogram editor (#ideoPanel) between its composer home slot
-// and the right-stage host. Same id-based-handler safety as _portalLoraPicker —
-// every ideo* handler resolves elements by id, so moving the node is free.
-function ideoPortal(dest){
-  const node = document.getElementById('ideoPanel');
-  if (!node) return;
-  const target = dest === 'stage'
-    ? document.getElementById('ideoStageHost')
-    : document.getElementById('ideoComposerSlot');
-  if (!target || node.parentElement === target) return;
-  target.appendChild(node);
-}
-
-// Flip the right stage between the editor canvas (edit) and the rendered result.
-// Visibility is pure CSS gated on body[data-workflow="studio"].ideo-stage(.stage-editing),
-// so leaving the studio workflow auto-restores the normal player.
-function stageSetMode(which){
-  _stageMode = (which === 'result') ? 'result' : 'edit';
-  const edit = _stageMode === 'edit';
-  document.body.classList.toggle('stage-editing', edit);
-  const eBtn = document.getElementById('stageModeEditBtn');
-  const rBtn = document.getElementById('stageModeResultBtn');
-  if (eBtn) eBtn.classList.toggle('active', edit);
-  if (rBtn) rBtn.classList.toggle('active', !edit);
-  if (edit && typeof ideoRender === 'function') { try { ideoRender(); } catch(_){} }
-}
-
-// Portal the editor into the right stage ONLY in Layout mode; Simple mode keeps a
-// plain prompt in the composer + the normal player on the right. Called from
-// ideoSyncVisibility (engine change) and ideoSetMode (mode toggle). All the stage
-// CSS is gated on the studio workflow, so other tabs are never affected.
-function ideoSyncStage(){
-  const inLayout = ideoInLayout();
-  ideoPortal(inLayout ? 'stage' : 'composer');
-  document.body.classList.toggle('ideo-stage', inLayout);
-  if (inLayout) stageSetMode(_stageMode);
-  else document.body.classList.remove('stage-editing');
-}
-
 // Show/hide the panel + re-skin the surrounding composer based on engine.
 function ideoSyncVisibility(){
   const panel = document.getElementById('ideoPanel');
   if (!panel) return;
   const active = ideoIsActive();
   panel.hidden = !active;
+  ideoApplyComposerChrome();
   if (active){
-    // Re-apply the current mode so #ideoLayout (canvas) visibility, the pills,
-    // composer chrome, the stage portal and the render are all in sync on
-    // engine-select — ideoSetMode() does the full job (incl. ideoSyncStage).
-    ideoSetMode(ideoState.mode);
-  } else {
-    ideoApplyComposerChrome();
-    ideoSyncStage();
+    ideoApplyAspect();
+    ideoRender();
+    ideoRefreshRaw();
   }
 }
 
@@ -22423,7 +22342,6 @@ function ideoSetMode(mode){
   if (layoutEl) layoutEl.hidden = (ideoState.mode !== 'layout');
   if (hint) hint.hidden = (ideoState.mode === 'layout');
   ideoApplyComposerChrome();
-  ideoSyncStage();   // portal in/out of the right stage as the mode changes
   if (ideoState.mode === 'layout'){
     ideoApplyAspect();
     ideoRender();
@@ -27112,11 +27030,6 @@ function _imgEngineLabel(token) {
 
 function animateFromPhoto(payload) {
   if (!payload || !payload.path) return;
-  // Animate often fires from the Images studio. setMode('i2v') alone leaves
-  // body[data-workflow]="studio", whose CSS keeps #genForm hidden — so the
-  // pre-filled video form stays invisible and the user is stranded on Images.
-  // Switch to the Video ('manual') workflow FIRST, then set i2v mode.
-  if (typeof workflowSwitch === 'function') workflowSwitch('manual');
   // Switch to i2v mode (pill + form fields). setMode('i2v') hides the
   // Studio pane, shows the video form, and applies the i2v-specific
   // dropdown selection.
@@ -27363,12 +27276,6 @@ function selectOutput(path) {
   // until the browser cache expires.
   const o = findOutputByPath(path);
   const isPhoto = isPhotoOutputMain(o);
-  // If the Ideogram editor occupies the stage, a freshly-selected image (e.g. a
-  // just-finished render) flips the stage to the Result view so the user sees it;
-  // they hit "Edit layout" to return to the canvas.
-  if (isPhoto && typeof ideoIsActive === 'function' && ideoIsActive() && typeof stageSetMode === 'function') {
-    stageSetMode('result');
-  }
   // Photo entries don't go through /file (which is OUTPUT-bound and
   // serves video with Range headers). Use /image which supports both
   // OUTPUT and UPLOADS roots, with the right MIME headers. Server-side
