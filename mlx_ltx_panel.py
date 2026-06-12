@@ -13491,6 +13491,17 @@ HTML = r"""<!doctype html>
       color: var(--muted); background: rgba(10,15,36,0.7); border-bottom-right-radius: 3px;
       pointer-events: none; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
+    /* object label in describe mode: fills the box as a centered caret target */
+    .ideo-box-obj-label.editing {
+      inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
+      font-size: 12px; padding: 6px 10px; pointer-events: auto; cursor: text;
+      user-select: text; -webkit-user-select: text; outline: none;
+      background: rgba(8,12,28,0.30); box-shadow: inset 0 0 0 1.5px var(--accent-bright);
+      white-space: normal; max-width: none; border-bottom-right-radius: 0;
+    }
+    .ideo-box-obj-label[data-ph]:empty::before {
+      content: attr(data-ph); opacity: .4; pointer-events: none;
+    }
     /* resize handles — 8 around the box */
     .ideo-handle {
       position: absolute; width: 9px; height: 9px; box-sizing: border-box;
@@ -13558,12 +13569,19 @@ HTML = r"""<!doctype html>
     .ideo-fab-btn.ideo-fab-del { color: #e07a80; }
     .ideo-fab-btn.ideo-fab-del:hover { background: rgba(229,72,77,0.16); color: #ff6b6f; }
     .ideo-fab-sep { width: 1px; height: 16px; background: var(--border, #2a3344); margin: 0 1px; }
+    .ideo-fab-style {
+      height: 22px; font-size: 11.5px; background: var(--bg-2, #0c1226); color: var(--text, #e8eef6);
+      border: 1px solid var(--border, #2a3344); border-radius: 6px; padding: 0 4px; max-width: 92px;
+    }
     .ideo-fab-btn:focus-visible, .ideo-fab-sw:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 1px; }
     .ideo-fab-btn:focus:not(:focus-visible), .ideo-fab-sw:focus:not(:focus-visible) { outline: none; }
     /* On-stage the canvas owns text/align/color/delete, so the left inspector
        slims to just what the canvas can't do (type, style, describe), and the
        now-orphaned "placement preview" note is dropped. */
     body.ideo-canvas-on #ideoStageNote { display: none; }
+    /* the canvas's own stage bar now carries Insert/Snap/Undo/Examples → the
+       composer toolbar is redundant while the canvas holds the right stage. */
+    body.ideo-canvas-on .ideo-toolbar { display: none; }
     body.ideo-canvas-on .ideo-inspector .ideo-insp-row:has(#ideoInspSwatches) { display: none; }
     body.ideo-canvas-on .ideo-insp-actions .ideo-danger { display: none; }
     body.ideo-canvas-on .ideo-insp-grid { grid-template-columns: 1fr; }
@@ -15614,10 +15632,39 @@ HTML = r"""<!doctype html>
        aspect, vertical clips letterbox cleanly instead of crop. */
     /* ===== Ideogram Layout: the placement canvas portals into the big right
        stage column. Toggle + host are hidden until body.ideo-canvas-on. ===== */
-    #stageModeToggle, #ideoCanvasHost { display: none; }
+    /* The stage bar holds creation tools + the Edit/Result toggle, so the canvas
+       is self-contained on the right; hidden with the host until canvas-on. */
+    #ideoStageBar, #ideoCanvasHost { display: none; }
+    body.ideo-canvas-on #ideoStageBar {
+      display: flex; align-items: center; gap: 8px;
+      margin: 14px 14px 0; flex: 0 0 auto;
+    }
+    .ideo-stage-bar .isb-btn {
+      appearance: none; background: transparent; border: 1px solid var(--border, #2a3344);
+      color: var(--text-dim, #9aa6bd); font: inherit; font-size: 12.5px;
+      padding: 5px 12px; border-radius: 8px; cursor: pointer;
+      transition: color .12s, border-color .12s; white-space: nowrap;
+    }
+    .ideo-stage-bar .isb-btn:hover { color: var(--text, #e8eef6); border-color: var(--border-strong, #2a3344); }
+    .ideo-stage-bar .isb-btn:disabled { opacity: .45; cursor: default; }
+    .ideo-stage-bar .isb-sep { width: 1px; height: 18px; background: var(--border, #2a3344); }
+    .ideo-stage-bar .isb-spacer { flex: 1; }
+    .ideo-stage-bar .isb-toggle {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 12px; color: var(--muted, #9aa6bd); cursor: pointer;
+    }
+    .ideo-stage-bar .isb-toggle input { accent-color: var(--accent, #2f81f7); cursor: pointer; }
+    .ideo-stage-bar .isb-select {
+      appearance: none; background: var(--bg-2, #0c1226); border: 1px solid var(--border, #2a3344);
+      color: var(--text-dim, #9aa6bd); font: inherit; font-size: 12.5px;
+      padding: 5px 26px 5px 12px; border-radius: 8px; cursor: pointer;
+      transition: color .12s, border-color .12s;
+    }
+    .ideo-stage-bar .isb-select:hover { color: var(--text, #e8eef6); border-color: var(--border-strong, #2a3344); }
+    /* The Edit/Result toggle keeps its pill-container look but is now a flex
+       child of the stage bar (the spacer pushes it to the right). */
     body.ideo-canvas-on #stageModeToggle {
-      display: inline-flex; align-self: flex-start; gap: 4px;
-      margin: 14px 14px 0; padding: 3px;
+      display: inline-flex; gap: 4px; padding: 3px;
       background: var(--bg-2, #11161f); border: 1px solid var(--border);
       border-radius: 10px; flex: 0 0 auto;
     }
@@ -19697,7 +19744,7 @@ HTML = r"""<!doctype html>
                  aria-label="Text placement canvas. Click Insert text or drag to add a box; arrow keys nudge the selected box, Delete removes it."
                  tabindex="0"
                  onpointerdown="ideoStagePointerDown(event)">
-              <div class="ideo-stage-hint" id="ideoStageHint">Drag here, or click <strong>Insert text</strong>, to place words on the frame.</div>
+              <div class="ideo-stage-hint" id="ideoStageHint">Drag to draw a text box, or use <strong>+ Text</strong> above.</div>
               <!-- guide lines + boxes are injected here by ideoRender() -->
             </div>
           </div>
@@ -20614,9 +20661,27 @@ HTML = r"""<!doctype html>
          into #ideoCanvasHost here in the big right column, and the Edit/Result
          toggle flips between the canvas and the rendered output. Both are
          display:none until body gets .ideo-canvas-on (set by ideoSyncStage). -->
-    <div class="stage-mode-toggle" id="stageModeToggle" role="group" aria-label="Stage view">
-      <button type="button" class="smt-btn active" data-stage-mode="edit" onclick="stageSetMode('edit')">Edit canvas</button>
-      <button type="button" class="smt-btn" data-stage-mode="result" onclick="stageSetMode('result')">Result</button>
+    <div class="ideo-stage-bar" id="ideoStageBar">
+      <button type="button" class="isb-btn" onclick="ideoInsertBox('text')" title="Add a text box (or drag on an empty area of the frame)">+ Text</button>
+      <button type="button" class="isb-btn" onclick="ideoInsertBox('obj')" title="Add an object region (something the model should draw)">+ Object</button>
+      <span class="isb-sep"></span>
+      <label class="isb-toggle" title="Snap boxes to thirds / center / other boxes">
+        <input type="checkbox" id="ideoSnapToggleStage" checked onchange="ideoState.snap=this.checked">
+        <span>Snap</span>
+      </label>
+      <button type="button" class="isb-btn" id="ideoUndoBtnStage" onclick="ideoUndo()" title="Undo (Cmd/Ctrl+Z)" disabled>Undo</button>
+      <select id="ideoExamplePickerStage" class="isb-select" onchange="ideoLoadExample(this.value); this.value='';" title="Load an example layout">
+        <option value="">Examples…</option>
+        <option value="poster">Poster — 16:9 event</option>
+        <option value="logo">Logo — 1:1 wordmark</option>
+        <option value="label">Product label — 9:16</option>
+        <option value="meme">Meme — 1:1 top/bottom</option>
+      </select>
+      <span class="isb-spacer"></span>
+      <div class="stage-mode-toggle" id="stageModeToggle" role="group" aria-label="Stage view">
+        <button type="button" class="smt-btn active" data-stage-mode="edit" onclick="stageSetMode('edit')">Edit canvas</button>
+        <button type="button" class="smt-btn" data-stage-mode="result" onclick="stageSetMode('result')">Result</button>
+      </div>
     </div>
     <div class="ideo-canvas-host" id="ideoCanvasHost">
       <div class="ideo-canvas-empty" id="ideoCanvasEmpty">
@@ -22098,7 +22163,12 @@ function imgStudioUpdateRefWarning() {
   // cinematic-portrait placeholder; 2+ refs swap to a multi-subject
   // example that anchors each reference explicitly.
   if (prompt) {
-    if (refsCount >= 2) {
+    // Ideogram owns the placeholder (ideoApplyComposerChrome words it per
+    // Simple/Layout mode) and takes no reference images — this handler runs
+    // after it in the engine onchange chain, so writing here would stomp it.
+    if (typeof ideoIsActive === 'function' && ideoIsActive()) {
+      /* leave Ideogram's placeholder alone */
+    } else if (refsCount >= 2) {
       prompt.placeholder =
         'the man from reference 1 and the woman from reference 2 sitting at a candlelit dinner, warm tungsten light, soft bokeh, photorealistic';
     } else {
@@ -22446,6 +22516,7 @@ function ideoSyncStage(){
   ideoCanvasPortal(on);
   if (on){
     if (!_ideoStageWasOn) stageSetMode('edit');   // fresh entry → show the canvas
+    var sn = document.getElementById('ideoSnapToggleStage'); if (sn) sn.checked = !!ideoState.snap;
     ideoApplyAspect(); ideoRender();
   } else {
     document.body.classList.remove('stage-editing');
@@ -22545,8 +22616,11 @@ function ideoSnapshot(){
   ideoUpdateUndoBtn();
 }
 function ideoUpdateUndoBtn(){
+  const dis = ideoState.history.length === 0;
   const b = document.getElementById('ideoUndoBtn');
-  if (b) b.disabled = ideoState.history.length === 0;
+  if (b) b.disabled = dis;
+  const bs = document.getElementById('ideoUndoBtnStage');
+  if (bs) bs.disabled = dis;
 }
 function ideoUndo(){
   if (!ideoState.history.length) return;
@@ -22595,10 +22669,9 @@ function ideoInsertBox(type){
   ideoState.selId = box.id;
   ideoRender();
   ideoRefreshRaw();
-  // Drop the caret straight into the new box so the user types on the canvas.
-  if (box.type === 'text'){
-    ideoEnterEdit(box.id);
-  }
+  // Drop the caret straight into the new box so the user types/describes on the
+  // canvas (text boxes get a text caret; object boxes get the describe field).
+  ideoEnterEdit(box.id);
 }
 
 function ideoSelectedBox(){ return ideoState.boxes.find(b => b.id === ideoState.selId) || null; }
@@ -22648,11 +22721,13 @@ function ideoDeleteSel(){
 // changes. _editing flips so the global key handler stops stealing keystrokes.
 function ideoEnterEdit(id){
   const box = ideoState.boxes.find(b => b.id === id);
-  if (!box || box.type !== 'text') return;
+  if (!box) return;
   ideoState.selId = id;
   ideoState._editId = id;
   ideoRenderBoxes();                       // re-render so this box gets contentEditable
-  const el = document.querySelector('.ideo-box[data-id="' + id + '"] .ideo-box-text');
+  // Text boxes edit the .ideo-box-text; object boxes edit the .ideo-box-obj-label.
+  const sel = box.type === 'text' ? '.ideo-box-text' : '.ideo-box-obj-label';
+  const el = document.querySelector('.ideo-box[data-id="' + id + '"] ' + sel);
   if (el){
     el.focus();
     try {
@@ -22683,6 +22758,17 @@ function ideoBoxTextInput(ev, id){
   if (inp && document.activeElement !== inp) inp.value = box.text;
   ideoRefreshRaw();
 }
+// Object-box twin of ideoBoxTextInput: live-mirror the describe text into
+// box.descManual (no full re-render, which would drop the caret) and keep the
+// inspector's describe field in sync.
+function ideoObjDescInput(ev, id){
+  const box = ideoState.boxes.find(b => b.id === id);
+  if (!box) return;
+  box.descManual = ev.target.textContent || '';
+  const inp = document.getElementById('ideoInspDesc');
+  if (inp && document.activeElement !== inp) inp.value = box.descManual;
+  ideoRefreshRaw();
+}
 // The floating per-box toolbar (color, alignment, delete) — appended to the
 // stage and positioned above the box (or below if the box hugs the top edge),
 // so common edits live right on the canvas instead of a far-off side panel.
@@ -22694,7 +22780,9 @@ function ideoBuildBoxToolbar(box, stage){
   bar.style.left = cx + '%';
   if (box.y < 0.14){ bar.style.top = ((box.y + box.h) * 100) + '%'; bar.classList.add('below'); }
   else { bar.style.top = (box.y * 100) + '%'; bar.classList.add('above'); }
-  bar.addEventListener('pointerdown', e => { e.stopPropagation(); e.preventDefault(); });  // no drag, keep caret focus
+  // no drag, keep caret focus — but DON'T preventDefault on a <select>, or its
+  // native dropdown won't open (preventDefault on pointerdown swallows it).
+  bar.addEventListener('pointerdown', function(e){ e.stopPropagation(); if (!e.target.closest('select')) e.preventDefault(); });
   const A = [['left','M2 4h16M2 8h9M2 12h16'],['center','M2 4h16M5 8h10M2 12h16'],['right','M2 4h16M9 8h7M2 12h16']];
   let html = '';
   if (box.type === 'text'){
@@ -22709,11 +22797,20 @@ function ideoBuildBoxToolbar(box, stage){
       html += '<button type="button" class="ideo-fab-btn' + (on ? ' on' : '') + '" data-align="' + al + '" title="Align ' + al + '"><svg viewBox="0 0 18 16" width="15" height="13"><path d="' + d + '" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg></button>';
     });
     html += '<span class="ideo-fab-sep"></span>';
+    // text style picker (Headline/Subhead/Body/Caps/Script/Serif)
+    const STY = [['headline','Headline'],['subhead','Subhead'],['body','Body'],['caps','Caps'],['script','Script'],['serif','Serif']];
+    html += '<select class="ideo-fab-style" title="Text style">';
+    STY.forEach(([v, lbl]) => {
+      html += '<option value="' + v + '"' + (box.style === v ? ' selected' : '') + '>' + lbl + '</option>';
+    });
+    html += '</select><span class="ideo-fab-sep"></span>';
   }
   html += '<button type="button" class="ideo-fab-btn ideo-fab-del" data-del title="Delete (Backspace)"><svg viewBox="0 0 20 20" width="14" height="14"><path d="M5 6h10M8 6V4.5h4V6M7.5 6l.6 9h3.8l.6-9" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>';
   bar.innerHTML = html;
   bar.querySelectorAll('[data-color]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); ideoState.selId = box.id; ideoUpdateSel({ color: b.dataset.color }); }));
   bar.querySelectorAll('[data-align]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); ideoState.selId = box.id; ideoUpdateSel({ align: b.dataset.align }); }));
+  var st = bar.querySelector('.ideo-fab-style');
+  if (st) st.addEventListener('change', function(e){ e.stopPropagation(); ideoState.selId = box.id; ideoUpdateSel({ style: st.value }); });
   const delB = bar.querySelector('[data-del]');
   if (delB) delB.addEventListener('click', e => { e.stopPropagation(); ideoState.selId = box.id; ideoDeleteSel(); });
   stage.appendChild(bar);
@@ -22776,7 +22873,26 @@ function ideoRenderBoxes(){
     } else {
       const lbl = document.createElement('div');
       lbl.className = 'ideo-box-obj-label';
-      lbl.textContent = box.descManual ? box.descManual.slice(0, 40) : 'object';
+      if (box.id === ideoState._editId){
+        // Describe mode: the label fills the box as a live caret target. Empty
+        // descManual shows the placeholder (don't fall back to 'object' here).
+        lbl.contentEditable = 'plaintext-only';
+        lbl.spellcheck = false;
+        lbl.classList.add('editing');
+        lbl.setAttribute('data-ph', 'Describe the object…');
+        lbl.textContent = box.descManual || '';
+        lbl.addEventListener('input', e => ideoObjDescInput(e, box.id));
+        lbl.addEventListener('focus', () => { ideoState._editing = true; });
+        lbl.addEventListener('blur', () => { ideoExitEdit(); });
+        lbl.addEventListener('pointerdown', e => e.stopPropagation());  // caret, not drag
+        lbl.addEventListener('dblclick', e => e.stopPropagation());
+        lbl.addEventListener('keydown', e => {
+          e.stopPropagation();                                          // don't nudge/delete
+          if (e.key === 'Escape'){ e.preventDefault(); lbl.blur(); }
+        });
+      } else {
+        lbl.textContent = box.descManual ? box.descManual.slice(0, 40) : 'object';
+      }
       el.appendChild(lbl);
     }
     // delete affordance on every box (fades in on hover / when selected)
@@ -23327,10 +23443,11 @@ function ideoStagePointerUp(ev){
   ideoClearGuides();
   ideoRender();
   ideoRefreshRaw();
-  // Enter inline edit when a text box was just drawn, or an already-selected
-  // text box was clicked without dragging (Figma-style click-to-edit).
-  const enterEdit = box && box.type === 'text' && (
-    drag.mode === 'create' ||
+  // Enter inline edit when a text box was just drawn (drag-create is always a
+  // text box), or any already-selected box was clicked without dragging
+  // (Figma-style click-to-edit — text boxes type, object boxes describe).
+  const enterEdit = box && (
+    (drag.mode === 'create' && box.type === 'text') ||
     (drag.mode === 'move' && !drag.moved && drag.wasSel)
   );
   if (enterEdit) ideoEnterEdit(box.id);
@@ -23502,6 +23619,10 @@ async function imgStudioGenerate() {
     }
     const r = await fetch('/queue/add', { method: 'POST', body: fd });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    // The job is queued — if the Ideogram canvas is holding the right stage,
+    // flip it to Result so the player (with its inline job-progress overlay) is
+    // visible the moment the render starts.
+    if (typeof ideoInLayout === 'function' && ideoInLayout() && typeof stageSetMode === 'function') stageSetMode('result');
     document.getElementById('imgStudioStatus').textContent =
       'Submitted. Watch Now / Recent → Photos.';
     // Non-blocking toast — the user can stay focused on the form (e.g.
