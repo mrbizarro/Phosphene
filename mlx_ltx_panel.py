@@ -46,6 +46,14 @@ from urllib.parse import parse_qs, quote, urlparse
 # Pre-removal snapshot: git tag pre-agent-removal-2026-05-15.
 import image_engine as agent_image_engine
 
+# Agent-facing Ideogram 4 caption builder + validator (pure stdlib). Powers
+# the GET /image/agent/schema + POST /image/agent endpoints — a clean JSON
+# surface that lets an LLM agent compose an Ideogram 4 layout (scene, text
+# placement, object regions, colors) WITHOUT knowing the model's finicky
+# internal caption schema. Faithful Python port of the panel's JS canvas
+# serializer (ideoBuildCaption / ideoSynthDesc / ideoRectToBbox).
+import ideogram_caption
+
 # --- Paths -------------------------------------------------------------------
 # Everything below is overridable via env vars so the panel can be cloned and
 # run from any directory without source edits. Defaults assume the repo layout:
@@ -8579,6 +8587,227 @@ class Handler(BaseHTTPRequestHandler):
                 limit = 40
             self._json({"uploads": list_uploads(limit=max(1, min(200, limit)))})
             return
+        if parsed.path == "/image/agent/schema":
+            # Self-serve contract for an LLM agent driving Ideogram 4 layout
+            # via POST /image/agent. An agent that reads ONLY this response
+            # should be able to compose a valid request: it documents the
+            # box model (fractions, top-left origin), every field + its
+            # allowed values, the caption rules we enforce, two complete
+            # worked examples, and how wait/validate_only behave. No secrets.
+            self._json({
+                "version": "1.0",
+                "description": (
+                    "Compose an Ideogram 4 image — scene, on-image text, object "
+                    "regions, styles, colors — by describing it in plain terms. "
+                    "POST your spec to /image/agent. The server translates it into "
+                    "Ideogram 4's strict internal caption for you; you never write "
+                    "that caption by hand. Coordinates are FRACTIONS of the frame "
+                    "with a top-left origin: x,y is the top-left corner of a box, "
+                    "w,h its size, each in [0,1]. (0,0)=top-left, (1,1)=bottom-right. "
+                    "Coordinates are aspect-independent — the same box lands in the "
+                    "same relative spot at any aspect ratio."
+                ),
+                "endpoint": {
+                    "method": "POST",
+                    "path": "/image/agent",
+                    "content_type": "application/json",
+                },
+                "spec_schema": {
+                    "scene": {
+                        "type": "string", "required": True,
+                        "doc": "Overall background / setting / mood of the whole image. "
+                               "This becomes the caption background — describe the world, "
+                               "not the text. e.g. 'A moody vintage travel poster of a "
+                               "mountain lake at golden hour, warm muted palette'.",
+                    },
+                    "boxes": {
+                        "type": "array", "required": True,
+                        "doc": "List of placed elements (text and/or objects). May be "
+                               "empty for a pure-scene render. Each item is a box object "
+                               "(see box_schema). Max 6 TEXT boxes; object boxes are "
+                               "uncapped but keep layouts legible.",
+                        "item": "box",
+                    },
+                    "render": {
+                        "type": "string", "required": False, "default": "design",
+                        "enum": list(ideogram_caption.VALID_RENDER),
+                        "doc": "'design' = graphic/poster/vector look (strong typography). "
+                               "'photo' = photographic look. Affects the high-level "
+                               "description the model receives.",
+                    },
+                    "aspect": {
+                        "type": "string", "required": False, "default": "16:9",
+                        "enum": list(ideogram_caption.VALID_ASPECT),
+                        "doc": "Frame aspect ratio. 16:9=1280x720, 1:1=1024x1024, "
+                               "9:16=720x1280, 4:3=1024x768, 3:4=768x1024, 21:9=1280x544.",
+                    },
+                    "quality": {
+                        "type": "string", "required": False, "default": "turbo",
+                        "enum": list(ideogram_caption.VALID_QUALITY),
+                        "doc": "Sampler effort. 'turbo' (12 steps, fastest), "
+                               "'default' (20 steps), 'quality' (48 steps, slowest/best).",
+                    },
+                    "n": {
+                        "type": "integer", "required": False, "default": 1,
+                        "min": 1, "max": 4,
+                        "doc": "How many candidate images to render (1-4).",
+                    },
+                    "seed": {
+                        "type": "integer", "required": False, "default": -1,
+                        "doc": "Fixed seed for reproducibility; -1 (or omit) = random. "
+                               "For n>1 the server uses seed, seed+1, ... per candidate.",
+                    },
+                    "validate_only": {
+                        "type": "boolean", "required": False, "default": False,
+                        "doc": "If true, do NOT render — return the built caption + any "
+                               "warnings so you can inspect/iterate cheaply.",
+                    },
+                    "wait": {
+                        "type": "boolean", "required": False, "default": True,
+                        "doc": "If true (default), block until the render finishes and "
+                               "return image paths/urls. If false, enqueue and return "
+                               "immediately with queued:true.",
+                    },
+                    "box_schema": {
+                        "type": {
+                            "type": "string", "required": True,
+                            "enum": list(ideogram_caption.VALID_TYPES),
+                            "doc": "'text' renders literal words; 'object' renders a "
+                                   "described thing in that region.",
+                        },
+                        "x": {"type": "number", "required": True, "min": 0, "max": 1,
+                              "doc": "Left edge as a fraction of frame width (0=left)."},
+                        "y": {"type": "number", "required": True, "min": 0, "max": 1,
+                              "doc": "Top edge as a fraction of frame height (0=top)."},
+                        "w": {"type": "number", "required": True, "min": 0, "max": 1,
+                              "doc": "Width as a fraction of frame width. x+w must be <= 1."},
+                        "h": {"type": "number", "required": True, "min": 0, "max": 1,
+                              "doc": "Height as a fraction of frame height. y+h must be <= 1."},
+                        "text": {"type": "string", "required": "for type=text",
+                                 "doc": "The literal words to render. Required for text "
+                                        "boxes; empty text boxes are dropped."},
+                        "desc": {"type": "string", "required": "for type=object",
+                                 "doc": "What to render. REQUIRED for object boxes. "
+                                        "Optional for text boxes — when given it overrides "
+                                        "the auto-generated style/align/color description."},
+                        "style": {"type": "string", "required": False, "default": "headline",
+                                  "enum": list(ideogram_caption.VALID_STYLES),
+                                  "doc": "Text-only. Typographic feel: headline/subhead/"
+                                         "body/caps/script/serif."},
+                        "align": {"type": "string", "required": False, "default": "center",
+                                  "enum": list(ideogram_caption.VALID_ALIGN),
+                                  "doc": "Text-only. left/center/right."},
+                        "color": {"type": "string", "required": False, "default": "#FFFFFF",
+                                  "doc": "Text-only. Hex #RRGGBB (any case; normalized to "
+                                         "uppercase). Bad values fall back to #FFFFFF."},
+                    },
+                },
+                "caption_rules_summary": [
+                    "Coordinates are fractions in [0,1] with a top-left origin; "
+                    "internally each box becomes a bbox [y_min,x_min,y_max,x_max] of "
+                    "row-first integers in 0..1000 (you never write this yourself).",
+                    "At most 6 text boxes. Object boxes carry a required desc.",
+                    "Each text box gets one color (#RRGGBB, uppercased). Boxes that "
+                    "extend past the frame edge (x+w>1 or y+h>1) are clamped — a warning "
+                    "is returned.",
+                    "Heavily overlapping boxes (>40% of the smaller box) get a warning "
+                    "but still render.",
+                    "Empty text boxes are silently dropped from the final caption.",
+                ],
+                "examples": [
+                    {
+                        "name": "16:9 poster — 2 text + 1 object",
+                        "request": {
+                            "scene": "A moody vintage travel poster of a mountain lake at "
+                                     "golden hour, warm muted palette",
+                            "render": "design",
+                            "aspect": "16:9",
+                            "quality": "turbo",
+                            "n": 1,
+                            "boxes": [
+                                {"type": "text", "x": 0.08, "y": 0.08, "w": 0.84, "h": 0.18,
+                                 "text": "LAKE DISTRICT", "style": "headline",
+                                 "align": "center", "color": "#F5C518"},
+                                {"type": "text", "x": 0.30, "y": 0.80, "w": 0.40, "h": 0.10,
+                                 "text": "Est. 1951", "style": "serif",
+                                 "align": "center", "color": "#FFFFFF"},
+                                {"type": "object", "x": 0.55, "y": 0.32, "w": 0.35, "h": 0.42,
+                                 "desc": "A small wooden canoe drifting on the still lake"},
+                            ],
+                        },
+                        "built_caption": ideogram_caption.build_caption({
+                            "scene": "A moody vintage travel poster of a mountain lake at "
+                                     "golden hour, warm muted palette",
+                            "render": "design",
+                            "boxes": [
+                                {"type": "text", "x": 0.08, "y": 0.08, "w": 0.84, "h": 0.18,
+                                 "text": "LAKE DISTRICT", "style": "headline",
+                                 "align": "center", "color": "#F5C518"},
+                                {"type": "text", "x": 0.30, "y": 0.80, "w": 0.40, "h": 0.10,
+                                 "text": "Est. 1951", "style": "serif",
+                                 "align": "center", "color": "#FFFFFF"},
+                                {"type": "object", "x": 0.55, "y": 0.32, "w": 0.35, "h": 0.42,
+                                 "desc": "A small wooden canoe drifting on the still lake"},
+                            ],
+                        }),
+                    },
+                    {
+                        "name": "9:16 label — single headline on a clean background",
+                        "request": {
+                            "scene": "A minimalist product label, soft off-white paper "
+                                     "texture, centered composition",
+                            "render": "design",
+                            "aspect": "9:16",
+                            "quality": "default",
+                            "n": 1,
+                            "boxes": [
+                                {"type": "text", "x": 0.10, "y": 0.42, "w": 0.80, "h": 0.16,
+                                 "text": "COLD BREW", "style": "caps",
+                                 "align": "center", "color": "#0A0A0A"},
+                            ],
+                        },
+                        "built_caption": ideogram_caption.build_caption({
+                            "scene": "A minimalist product label, soft off-white paper "
+                                     "texture, centered composition",
+                            "render": "design",
+                            "boxes": [
+                                {"type": "text", "x": 0.10, "y": 0.42, "w": 0.80, "h": 0.16,
+                                 "text": "COLD BREW", "style": "caps",
+                                 "align": "center", "color": "#0A0A0A"},
+                            ],
+                        }),
+                    },
+                ],
+                "usage_notes": {
+                    "validate_only": "POST with validate_only:true to get {ok, caption, "
+                                     "issues} back without rendering — use it to iterate on "
+                                     "a layout for free. issues is a list of human-readable "
+                                     "warnings; an empty list means the spec is clean.",
+                    "wait_true": "Default. The request blocks until the render completes "
+                                 "(or fails/times out) and returns {ok, caption, images:"
+                                 "[{path,url}], seconds}. Open each url on this same host to "
+                                 "view the PNG.",
+                    "wait_false": "Returns 202 {ok, queued:true, caption, where_results_land} "
+                                  "immediately; the job runs on the panel's queue and the "
+                                  "results appear in the panel's Recent tab / library.",
+                    "busy": "If the GPU is busy with another render or training job, a "
+                            "wait:true request waits in the queue. Renders are serialized; "
+                            "expect to wait behind any in-flight job.",
+                    "render_times_per_image": {
+                        "turbo": "~12-step sampler; fastest. Seconds-to-low-minutes per "
+                                 "image after a one-time model load (first call also pays "
+                                 "the cold model load).",
+                        "default": "~20-step sampler; moderate.",
+                        "quality": "~48-step sampler; slowest, highest fidelity.",
+                        "note": "Wall time = one-time model cold-load + n × per-image "
+                                "sampler time. The first Ideogram render after panel start "
+                                "is slower because the weights load once.",
+                    },
+                    "timeout": "A wait:true render gives up after 25 minutes and returns an "
+                               "error; the job may still complete on the queue.",
+                },
+            })
+            return
         if parsed.path == "/image/engine_status":
             # Per-engine cache + wall-time data for the Image Studio's status
             # pill + Generate button label. The Studio polls this on entry +
@@ -10093,6 +10322,219 @@ class Handler(BaseHTTPRequestHandler):
                 })
             except Exception as exc:
                 self._json({"error": f"voice upload failed: {exc}"}, 500)
+            return
+
+        # ===== Agent-facing Ideogram 4 layout endpoint =====================
+        # POST /image/agent — an LLM agent describes a composition in plain
+        # terms (scene + fractional text/object boxes) and we translate it
+        # into Ideogram 4's strict internal caption, then render it through
+        # the SAME queue path the browser UI uses (engine_override=
+        # ideogram4_inline, prompt = the JSON caption). GET /image/agent/schema
+        # is the self-serve contract an agent reads first. Lives before the
+        # urlencoded parsing because the body is JSON. NEVER echoes secrets.
+        if path == "/image/agent" and ctype.startswith("application/json"):
+            try:
+                length = int(self.headers.get("Content-Length") or "0")
+            except ValueError:
+                self._json({"ok": False, "error": "invalid Content-Length"}, 400); return
+            if length <= 0:
+                self._json({"ok": False, "error": "Content-Length required for JSON body"}, 411); return
+            MAX_AGENT_JSON = 1 * 1024 * 1024
+            if length > MAX_AGENT_JSON:
+                self._json({"ok": False, "error": f"body too large (max {MAX_AGENT_JSON} bytes)"}, 413); return
+            try:
+                spec = json.loads(self.rfile.read(length).decode() or "{}")
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                self._json({"ok": False, "error": "invalid JSON body"}, 400); return
+            if not isinstance(spec, dict):
+                self._json({"ok": False, "error": "body must be a JSON object (the spec)"}, 400); return
+
+            # ---- option fields (with HTTP-layer enum/range enforcement) ----
+            render = spec.get("render", "design")
+            aspect = spec.get("aspect", "16:9")
+            quality = spec.get("quality", "turbo")
+            wait = spec.get("wait", True)
+            validate_only = bool(spec.get("validate_only", False))
+            try:
+                n = int(spec.get("n", 1))
+            except (TypeError, ValueError):
+                n = -1
+            try:
+                seed = int(spec.get("seed", -1))
+            except (TypeError, ValueError):
+                seed = -1
+
+            # Fatal, request-shape errors (400) — these block before we even
+            # build a caption. Distinct from spec WARNINGS (returned in issues).
+            shape_errors: list[str] = []
+            if render not in ideogram_caption.VALID_RENDER:
+                shape_errors.append(f"render must be one of {list(ideogram_caption.VALID_RENDER)}")
+            if aspect not in ideogram_caption.VALID_ASPECT:
+                shape_errors.append(f"aspect must be one of {list(ideogram_caption.VALID_ASPECT)}")
+            if quality not in ideogram_caption.VALID_QUALITY:
+                shape_errors.append(f"quality must be one of {list(ideogram_caption.VALID_QUALITY)}")
+            if not isinstance(n, int) or n < 1 or n > 4:
+                shape_errors.append("n must be an integer in 1..4")
+            if not isinstance(spec.get("boxes", []), list):
+                shape_errors.append("boxes must be a list")
+
+            # Content validation — warnings + harder problems, human-readable.
+            issues = ideogram_caption.validate_spec(spec)
+
+            # Which issues are FATAL (the model could not produce a usable
+            # render)? Off-frame clamps, overlaps and bad-color fallbacks are
+            # tolerable warnings; the rest (no scene, object w/o desc, bad
+            # type, out-of-range/missing coords, >6 text boxes) are fatal.
+            def _is_warning(msg: str) -> bool:
+                return (
+                    "extends past the" in msg
+                    or "overlap" in msg
+                    or "default to #FFFFFF" in msg
+                    or "it will be dropped from the caption" in msg
+                )
+            fatal_issues = [m for m in issues if not _is_warning(m)]
+
+            # Build the caption regardless (so validate_only can show it even
+            # when warnings exist); guarded so a malformed box can't 500.
+            try:
+                caption = ideogram_caption.build_caption(spec)
+            except Exception as exc:  # noqa: BLE001
+                self._json({"ok": False, "issues": [f"could not build caption: {exc}"] + issues}, 400)
+                return
+
+            # A render needs at least one element that survives into the
+            # caption (empty boxes => pure-scene is allowed, but an all-empty-
+            # text spec with no objects renders nothing meaningful).
+            elements = caption.get("compositional_deconstruction", {}).get("elements", [])
+            boxes_in = spec.get("boxes", []) if isinstance(spec.get("boxes", []), list) else []
+            if boxes_in and not elements:
+                fatal_issues.append("no renderable elements — every box was empty or invalid")
+
+            if shape_errors or fatal_issues:
+                self._json({"ok": False, "issues": shape_errors + fatal_issues}, 400)
+                return
+
+            if validate_only:
+                # No render — hand back the caption + any remaining warnings.
+                self._json({"ok": True, "caption": caption, "issues": issues})
+                return
+
+            # ---- submit through the SAME queue path the UI uses ----
+            # Build the exact form make_job()'s mode=image branch consumes,
+            # then enqueue like /queue/add. The worker serializes GPU work
+            # (holds _GPU_LOCK for the whole job) and routes mode=image to
+            # run_image_job_inner — identical to a browser submit, so the
+            # render also shows up in the panel's Now/Queue/Recent surfaces.
+            prompt_json = json.dumps(caption, ensure_ascii=False)
+            form = {
+                "mode": "image",
+                "prompt": prompt_json,
+                "engine_override": "ideogram4_inline",
+                "ideo_preset": ideogram_caption.QUALITY_PRESET[quality],
+                "aspect": aspect,
+                "n": str(n),
+                "seed": str(seed),
+                "refs": "[]",
+                "session_tag": "agent",
+            }
+            try:
+                job = make_job(form)
+            except Exception as exc:  # noqa: BLE001
+                self._json({"ok": False, "error": f"could not build job: {exc}"}, 400)
+                return
+            with QUEUE_COND:
+                STATE["queue"].append(job)
+                QUEUE_COND.notify_all()
+            persist_queue()
+            job_id = job["id"]
+
+            if not wait:
+                # Fire-and-forget — tell the agent where to look.
+                self._json({
+                    "ok": True,
+                    "queued": True,
+                    "job_id": job_id,
+                    "caption": caption,
+                    "where_results_land": (
+                        "The render runs on the panel queue; results appear in the "
+                        "panel's Recent tab and under panel_uploads/library/manual/"
+                        "<date>/. Poll GET /state for this job_id, or re-submit with "
+                        "wait:true to block for the images."
+                    ),
+                }, 202)
+                return
+
+            # ---- wait: poll the job to completion (server-side) ----------
+            # A job lives in STATE['queue'] (waiting), STATE['current']
+            # (running) or STATE['history'] (finished) — find it by id across
+            # all three under LOCK. We poll the JOB RECORD (not a global
+            # guess): success => status done + output_path/candidate_paths
+            # populated; failure => status failed/cancelled + error.
+            def _find_job(jid: str):
+                with LOCK:
+                    cur = STATE.get("current")
+                    if cur and cur.get("id") == jid:
+                        return cur
+                    for j in STATE.get("queue", []):
+                        if j.get("id") == jid:
+                            return j
+                    for j in STATE.get("history", []):
+                        if j.get("id") == jid:
+                            return j
+                return None
+
+            deadline = time.time() + 25 * 60  # 25 min timeout
+            poll_t0 = time.time()
+            while True:
+                rec = _find_job(job_id)
+                if rec is not None:
+                    status = rec.get("status")
+                    if status in ("done", "failed", "cancelled"):
+                        break
+                if time.time() > deadline:
+                    self._json({
+                        "ok": False,
+                        "error": "render timed out after 25 minutes (the job may still "
+                                 "finish on the queue)",
+                        "job_id": job_id,
+                        "caption": caption,
+                    }, 504)
+                    return
+                time.sleep(1.0)
+
+            rec = _find_job(job_id) or {}
+            status = rec.get("status")
+            if status != "done":
+                err = (rec.get("error") or "render failed").strip()
+                low = err.lower()
+                # GPU/lock contention or video-in-flight → 503 (transient), not a
+                # generic 500: tell the agent it can retry once the GPU frees up.
+                if ("in progress" in low or "gpu is busy" in low
+                        or "already in progress" in low or "contend" in low):
+                    code = 503
+                elif status == "cancelled":
+                    code = 409
+                else:
+                    code = 500
+                self._json({"ok": False, "error": err, "job_id": job_id, "caption": caption}, code)
+                return
+
+            # Success — collect the candidate PNG paths the worker recorded.
+            params = rec.get("params", {}) or {}
+            paths = list(params.get("candidate_paths") or [])
+            if not paths and rec.get("output_path"):
+                paths = [rec["output_path"]]
+            images = [{"path": p, "url": "/file?path=" + quote(p)} for p in paths]
+            seconds = rec.get("elapsed_sec")
+            if seconds is None:
+                seconds = round(time.time() - poll_t0, 2)
+            self._json({
+                "ok": True,
+                "job_id": job_id,
+                "caption": caption,
+                "images": images,
+                "seconds": seconds,
+            })
             return
 
         # JSON-body endpoint for the manual Image Studio. Lives BEFORE
