@@ -13578,13 +13578,13 @@ HTML = r"""<!doctype html>
     /* On-stage the canvas owns text/align/color/delete, so the left inspector
        slims to just what the canvas can't do (type, style, describe), and the
        now-orphaned "placement preview" note is dropped. */
-    body.ideo-canvas-on #ideoStageNote { display: none; }
+    body[data-workflow="studio"].ideo-canvas-on #ideoStageNote { display: none; }
     /* the canvas's own stage bar now carries Insert/Snap/Undo/Examples → the
        composer toolbar is redundant while the canvas holds the right stage. */
-    body.ideo-canvas-on .ideo-toolbar { display: none; }
-    body.ideo-canvas-on .ideo-inspector .ideo-insp-row:has(#ideoInspSwatches) { display: none; }
-    body.ideo-canvas-on .ideo-insp-actions .ideo-danger { display: none; }
-    body.ideo-canvas-on .ideo-insp-grid { grid-template-columns: 1fr; }
+    body[data-workflow="studio"].ideo-canvas-on .ideo-toolbar { display: none; }
+    body[data-workflow="studio"].ideo-canvas-on .ideo-inspector .ideo-insp-row:has(#ideoInspSwatches) { display: none; }
+    body[data-workflow="studio"].ideo-canvas-on .ideo-insp-actions .ideo-danger { display: none; }
+    body[data-workflow="studio"].ideo-canvas-on .ideo-insp-grid { grid-template-columns: 1fr; }
 
     .ideo-stage-note {
       font-size: 10.5px; color: var(--muted); margin: 6px 2px 0; line-height: 1.45;
@@ -15635,7 +15635,7 @@ HTML = r"""<!doctype html>
     /* The stage bar holds creation tools + the Edit/Result toggle, so the canvas
        is self-contained on the right; hidden with the host until canvas-on. */
     #ideoStageBar, #ideoCanvasHost { display: none; }
-    body.ideo-canvas-on #ideoStageBar {
+    body[data-workflow="studio"].ideo-canvas-on #ideoStageBar {
       display: flex; align-items: center; gap: 8px;
       margin: 14px 14px 0; flex: 0 0 auto;
     }
@@ -15663,30 +15663,30 @@ HTML = r"""<!doctype html>
     .ideo-stage-bar .isb-select:hover { color: var(--text, #e8eef6); border-color: var(--border-strong, #2a3344); }
     /* The Edit/Result toggle keeps its pill-container look but is now a flex
        child of the stage bar (the spacer pushes it to the right). */
-    body.ideo-canvas-on #stageModeToggle {
+    body[data-workflow="studio"].ideo-canvas-on #stageModeToggle {
       display: inline-flex; gap: 4px; padding: 3px;
       background: var(--bg-2, #11161f); border: 1px solid var(--border);
       border-radius: 10px; flex: 0 0 auto;
     }
-    body.ideo-canvas-on #stageModeToggle .smt-btn {
+    body[data-workflow="studio"].ideo-canvas-on #stageModeToggle .smt-btn {
       appearance: none; border: 0; background: transparent;
       color: var(--text-dim, #9aa6bd); font: inherit; font-size: 13px;
       font-weight: 600; padding: 6px 16px; border-radius: 7px;
       cursor: pointer; transition: background .12s, color .12s;
       white-space: nowrap;
     }
-    body.ideo-canvas-on #stageModeToggle .smt-btn:hover { color: var(--text, #e8eef6); }
-    body.ideo-canvas-on #stageModeToggle .smt-btn.active { background: var(--accent, #2f81f7); color: #fff; }
+    body[data-workflow="studio"].ideo-canvas-on #stageModeToggle .smt-btn:hover { color: var(--text, #e8eef6); }
+    body[data-workflow="studio"].ideo-canvas-on #stageModeToggle .smt-btn.active { background: var(--accent, #2f81f7); color: #fff; }
     /* Edit view: show the canvas host (flex-fills the column), hide the player hero. */
-    body.ideo-canvas-on.stage-editing #ideoCanvasHost {
+    body[data-workflow="studio"].ideo-canvas-on.stage-editing #ideoCanvasHost {
       display: flex; flex: 1 1 auto; flex-direction: column;
       align-items: center; justify-content: center;
       min-height: 0; padding: 14px; gap: 12px;
     }
-    body.ideo-canvas-on.stage-editing .stage-pane > .player-surface { display: none; }
+    body[data-workflow="studio"].ideo-canvas-on.stage-editing .stage-pane > .player-surface { display: none; }
     /* Edit view hides the outputs gallery so the canvas owns the full column
        height; the Result toggle (or selecting an output) brings both back. */
-    body.ideo-canvas-on.stage-editing .stage-pane > .carousel-wrap { display: none; }
+    body[data-workflow="studio"].ideo-canvas-on.stage-editing .stage-pane > .carousel-wrap { display: none; }
     #ideoCanvasHost:has(#ideoStageWrap) .ideo-canvas-empty { display: none; }
     .ideo-canvas-empty {
       display: flex; flex-direction: column; align-items: center; gap: 10px;
@@ -22510,8 +22510,12 @@ function stageSetMode(which){
   });
 }
 // Park the canvas in the right place for the current engine + mode.
+// The edit canvas is a property of the Images workflow: leaving for
+// Video/Audio/Train suspends it (classes off, canvas parked home, player
+// restored) and coming back restores it — ideoState keeps the boxes, so
+// nothing is lost across the round-trip.
 function ideoSyncStage(){
-  var on = ideoInLayout();
+  var on = ideoInLayout() && document.body.getAttribute('data-workflow') === 'studio';
   document.body.classList.toggle('ideo-canvas-on', on);
   ideoCanvasPortal(on);
   if (on){
@@ -22519,6 +22523,7 @@ function ideoSyncStage(){
     var sn = document.getElementById('ideoSnapToggleStage'); if (sn) sn.checked = !!ideoState.snap;
     ideoApplyAspect(); ideoRender();
   } else {
+    if (typeof ideoExitEdit === 'function') ideoExitEdit();   // drop any live caret
     document.body.classList.remove('stage-editing');
   }
   _ideoStageWasOn = on;
@@ -31742,6 +31747,10 @@ function workflowSwitch(name) {
     // Manual — show the video form, restore the previous video mode.
     if (manual) manual.style.display = '';
   }
+  // The Ideogram edit canvas belongs to the Images workflow only — re-sync
+  // so leaving suspends it (player/outputs restored) and returning to
+  // Images with Ideogram active brings it back with its boxes intact.
+  if (typeof ideoSyncStage === 'function') ideoSyncStage();
   try { localStorage.setItem('phos_workflow', name); } catch(e) {}
 }
 
