@@ -254,6 +254,29 @@ module.exports = {
     // training install on every panel update — users who clicked
     // Download Q8 dev for training and then Update would lose 11 GB of
     // bandwidth and have to re-download.
+    // ---- Mosaic fix (2026-06-13) -----------------------------------------
+    // The Q4 render path is two-stage: it upscales the half-res latent with
+    // spatial_upscaler_x2_v1_1.safetensors. The Y1.024 download allowlist
+    // dropped that file, so affected Q4 installs silently ran a
+    // RANDOMLY-INITIALISED upsampler -> the "mosaic"/rainbow-grid (#23; root
+    // cause found by @dgrauet, who also made ltx-pipelines-mlx fail loud about
+    // it upstream). It's back in required_files.json (verify/repair flags it),
+    // and fetched here so existing users self-heal on Update without clicking
+    // Repair. ~1 GB, resumable; hf skips it when already present. BEST-EFFORT —
+    // a network hiccup must not fail the update.
+    {
+      method: "shell.run",
+      params: {
+        venv: "env",
+        path: "ltx-2-mlx",
+        env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
+        message: [
+          "echo 'Ensuring the Q4 spatial upscaler is present (mosaic fix)…' && \\",
+          "hf download dgrauet/ltx-2.3-mlx-q4 --local-dir ../mlx_models/ltx-2.3-mlx-q4 --include 'spatial_upscaler_x2_v1_1.safetensors' \\",
+          "|| echo 'WARN: spatial upscaler fetch failed — open the panel and click Repair to retry (fixes the mosaic).'"
+        ].join("\n")
+      }
+    },
     {
       method: "shell.run",
       params: {
