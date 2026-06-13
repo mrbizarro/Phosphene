@@ -5707,12 +5707,12 @@ _PREFLIGHT_BASE_GB: dict[tuple[str, int], float] = {
     ("qwen_edit", 4): 18.0,
     ("qwen_edit", 6): 24.0,
     ("qwen_edit", 8): 32.0,
-    # Ideogram 4 fp8 — 9.3B fp8 DiT + 8B Qwen3-VL text encoder, ~28 GB on
-    # disk. The fp8 weights aren't re-quantized by us (no -q flag on the
-    # ideogram4 CLI), so the quantize key is nominal — every row maps to the
-    # same ~24-28 GB peak Metal residency. We list 4/6/8 so the (family,
-    # quantize) lookup hits exactly regardless of the dataclass default (6).
-    ("ideogram", 4): 26.0,
+    # Ideogram 4 — 9.3B fp8 DiT + 8B text encoder. Raw fp8 (q6 key = the
+    # dataclass default for normal renders) measured ~23 GB peak on an M4 Max.
+    # "Fast mode" sends -q 4 → quantizes on load → measured ~11 GB (half), with
+    # no visible quality loss for typography. The q4 row reflects that so a
+    # 16-24 GB Mac passes preflight in fast mode but is gated on raw fp8.
+    ("ideogram", 4): 14.0,
     ("ideogram", 6): 26.0,
     ("ideogram", 8): 28.0,
     # FLUX.2 — distilled 4B and base 4B/9B variants
@@ -7976,11 +7976,17 @@ def _build_image_engine_config(
     # (V4_DEFAULT_20 / V4_TURBO_12 / V4_QUALITY_48) into `mflux_preset`.
     if engine_override == "ideogram4_inline":
         _ideo_preset = str(form.get("ideo_preset") or "V4_DEFAULT_20").strip() or "V4_DEFAULT_20"
+        # Fast mode: opt-in 4-bit quantize of the fp8 weights → smaller/faster
+        # GPU kernels (clears the macOS Metal watchdog on slower Apple GPUs,
+        # halves RAM). None = raw fp8 (default, best quality).
+        _ideo_q = str(form.get("ideo_quantize") or "").strip()
+        _ideo_quantize = int(_ideo_q) if _ideo_q in ("3", "4", "5", "6", "8") else None
         return agent_image_engine.ImageEngineConfig(
             kind="mflux",
             mflux_model=_resolve_ideogram_repo(),   # un-gated mirror unless official already cached
             mflux_family="ideogram",
             mflux_preset=_ideo_preset,
+            mflux_quantize=_ideo_quantize,          # None → raw fp8; 4 → fast mode (-q 4)
             mflux_lora_paths=[],
             mflux_lora_scales=[],
         )
@@ -20316,6 +20322,14 @@ HTML = r"""<!doctype html>
             </div>
           </div>
 
+          <!-- Fast mode: opt-in 4-bit quantize. The fix for slower Apple GPUs
+               (M1/M2) where the full fp8 model trips the macOS Metal watchdog
+               (ml-explore/mlx#3267), and ~half the RAM. Sends ideo_quantize=4. -->
+          <label class="ideo-fastmode" title="Quantize the model to 4-bit on load — much faster on M1/M2 GPUs (clears the macOS Metal command-buffer watchdog) and roughly half the RAM. Slightly lower quality; leave off on M3/M4." style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 11px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--panel-2);font-size:12.5px;color:var(--muted,#9aa6bd);cursor:pointer">
+            <input type="checkbox" id="ideoFastMode" onchange="ideoState.fast=this.checked" style="accent-color:var(--accent);cursor:pointer;flex:0 0 auto;width:16px;height:16px;margin:0">
+            <span><strong style="color:var(--text)">⚡ Fast mode</strong> &mdash; 4-bit, for M1/M2 or low-RAM Macs <em>(slightly lower quality)</em></span>
+          </label>
+
           <!-- Image-level palette (collapsible). ≤16 colors. -->
           <details class="ideo-details" id="ideoPaletteDetails">
             <summary>Image palette <span class="ideo-summary-meta" id="ideoPaletteCount"></span></summary>
@@ -22938,6 +22952,7 @@ const ideoState = {
   history: [],
   _editing: false,                      // a text input is focused (don't steal keys)
   _editId: null,                        // box currently being edited inline on the canvas
+  fast: false,                          // Fast mode → 4-bit quantize (slower-GPU / low-RAM)
   _seq: 1,
 };
 
@@ -24091,6 +24106,9 @@ async function imgStudioGenerate() {
     seed: parseInt(document.getElementById('imgStudioSeed').value || '-1', 10),
     engine_override: engineVal,
     ideo_preset: ideoPreset,
+    // Fast mode → 4-bit quantize (Ideogram only). Null otherwise so the server
+    // keeps raw fp8.
+    ideo_quantize: (engineVal === 'ideogram4_inline' && typeof ideoState === 'object' && ideoState.fast) ? 4 : null,
     refs,
   };
   // Submit through the same /queue/add endpoint video jobs use, with
@@ -24114,6 +24132,7 @@ async function imgStudioGenerate() {
     // Ideogram 4 sampler preset — only meaningful for ideogram4_inline;
     // _build_image_engine_config reads it into ImageEngineConfig.mflux_preset.
     if (body.ideo_preset) fd.set('ideo_preset', body.ideo_preset);
+    if (body.ideo_quantize) fd.set('ideo_quantize', String(body.ideo_quantize));
     fd.set('aspect', body.aspect || '16:9');
     fd.set('n', String(body.n || 4));
     fd.set('seed', String(body.seed != null ? body.seed : -1));

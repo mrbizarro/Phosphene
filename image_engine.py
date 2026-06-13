@@ -738,7 +738,13 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
     #     the prompt string VERBATIM to a temp .json and pass that path.
     #   - --steps / --guidance are warned-and-ignored (the preset defines
     #     them) so we omit them; the preset goes on --preset.
-    #   - no -q / quantization flag and no --image-paths (text-to-image).
+    #   - --image-paths is unsupported (text-to-image).
+    #   - -q is OFF by default (raw fp8 = best quality). "Fast mode" opts in to
+    #     `-q 4`: it quantizes the fp8 weights on load → smaller/faster GPU
+    #     kernels, which is the only thing that helps slower Apple GPUs (M1/M2)
+    #     clear the macOS Metal command-buffer watchdog (ml-explore/mlx#3267,
+    #     wontfix), and roughly halves RAM. The config builder sets
+    #     mflux_quantize=None for normal Ideogram and 4 for fast mode.
     # The temp file is deleted in the `finally` after the subprocess ends
     # (it must outlive the child, which reads it during model setup).
     ideogram_prompt_file: str | None = None
@@ -757,8 +763,10 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
             "--width", str(width),
             "--height", str(height),
             "--preset", (config.mflux_preset or "V4_DEFAULT_20"),
-            "--seed", *[str(s) for s in seeds],
         ]
+        if config.mflux_quantize:                       # None/0 → raw fp8; 4 → fast mode
+            cmd += ["-q", str(config.mflux_quantize)]
+        cmd += ["--seed", *[str(s) for s in seeds]]
     else:
         cmd = [
             bin_path,
