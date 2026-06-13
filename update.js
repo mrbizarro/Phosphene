@@ -209,10 +209,15 @@ module.exports = {
           // Two-step (WITH deps then --force-reinstall --no-deps) mirrors
           // install_qwen.js so the full transitive set (transformers, accelerate,
           // sentencepiece, …) resolves, then the version is locked.
+          // uv, NOT plain pip: mlx-vlm is installed --no-deps, so plain pip dumps
+          // a scary "ERROR: pip's dependency resolver…" block about mlx-vlm's
+          // unsatisfied extras on every install (verified — this is what made
+          // cocktailpeanut's update look broken even though mflux installed fine).
+          // uv does the same install with zero such noise.
           "echo 'Installing/refreshing the mflux image-engine pack (Ideogram 4 + Qwen-Edit) — now standard…' && \\",
-          "( ./ltx-2-mlx/env/bin/pip install 'mflux==0.18.0' && \\",
-          "  ./ltx-2-mlx/env/bin/pip install --force-reinstall --no-deps 'mflux==0.18.0' && \\",
-          "  ./ltx-2-mlx/env/bin/pip install 'mlx-teacache==0.4.1' ) \\",
+          "( uv pip install --python ./ltx-2-mlx/env/bin/python 'mflux==0.18.0' && \\",
+          "  uv pip install --python ./ltx-2-mlx/env/bin/python --reinstall --no-deps 'mflux==0.18.0' && \\",
+          "  uv pip install --python ./ltx-2-mlx/env/bin/python 'mlx-teacache==0.4.1' ) \\",
           "|| echo 'WARN: mflux image-engine install hit an error — video is unaffected; re-run Update, or use the Reinstall image engines action, to retry.'"
         ].join("\n")
       }

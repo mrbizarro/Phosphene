@@ -351,9 +351,15 @@ module.exports = {
       params: {
         message: [
           "echo 'Installing the mflux image-engine pack (Ideogram 4 + Qwen-Edit)…' && \\",
-          "( ./ltx-2-mlx/env/bin/pip install 'mflux==0.18.0' && \\",
-          "  ./ltx-2-mlx/env/bin/pip install --force-reinstall --no-deps 'mflux==0.18.0' && \\",
-          "  ./ltx-2-mlx/env/bin/pip install 'mlx-teacache==0.4.1' && \\",
+          // uv, NOT plain pip: mlx-vlm is installed --no-deps (to dodge its
+          // PIL>=10/av pins), which leaves its declared extras unsatisfied. Plain
+          // `pip install` then dumps a scary "ERROR: pip's dependency resolver…"
+          // block about mlx-vlm on EVERY later install — verified, and it made
+          // cocktailpeanut's update look broken. uv installs the same packages
+          // with zero such noise (same reason the base deps above use uv).
+          "( uv pip install --python ./ltx-2-mlx/env/bin/python 'mflux==0.18.0' && \\",
+          "  uv pip install --python ./ltx-2-mlx/env/bin/python --reinstall --no-deps 'mflux==0.18.0' && \\",
+          "  uv pip install --python ./ltx-2-mlx/env/bin/python 'mlx-teacache==0.4.1' && \\",
           "  ./ltx-2-mlx/env/bin/python3.11 patch_mflux_fbcache.py ) \\",
           "|| echo 'WARN: mflux image-engine install hit an error — video still works; use the Reinstall image engines action to retry image generation.'"
         ].join("\n")
