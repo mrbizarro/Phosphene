@@ -11,14 +11,15 @@
       "blurb": "Required. Drives Quick / Balanced / Standard renders.",
       "repo_id": "dgrauet/ltx-2.3-mlx-q4",
       "local_dir": "mlx_models/ltx-2.3-mlx-q4",
-      "size_gb": 20,
+      "size_gb": 21,
       "files": [
         "transformer-distilled.safetensors",
         "connector.safetensors",
         "vae_decoder.safetensors",
         "vae_encoder.safetensors",
         "audio_vae.safetensors",
-        "vocoder.safetensors"
+        "vocoder.safetensors",
+        "spatial_upscaler_x2_v1_1.safetensors"
       ],
       "download_include": [
         "*.json",
@@ -27,7 +28,8 @@
         "vae_decoder.safetensors",
         "vae_encoder.safetensors",
         "audio_vae.safetensors",
-        "vocoder.safetensors"
+        "vocoder.safetensors",
+        "spatial_upscaler_x2_v1_1.safetensors"
       ]
     },
     {
