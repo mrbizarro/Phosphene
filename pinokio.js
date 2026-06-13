@@ -177,7 +177,12 @@ module.exports = {
       baseMenu.push({ icon: "fa-solid fa-wand-magic-sparkles", text: "Install Sharp upscaler (PiperSR, optional)", href: "install_sharp.js" })
     }
     if (!qwen_ready) {
-      baseMenu.push({ icon: "fa-solid fa-images", text: "Install Qwen-Image-Edit (multi-ref keyframes, optional)", href: "install_qwen.js" })
+      // mflux image-engine pack now ships in install.js/update.js; this entry
+      // is a recovery action shown only when the pack isn't present (e.g. a
+      // failed pip step, or a pre-3.2.1 install that hasn't updated). Renamed
+      // off "Qwen-Image-Edit" — it enables Ideogram 4 too (cocktailpeanut's
+      // confusion: installing "Qwen" to use Ideogram).
+      baseMenu.push({ icon: "fa-solid fa-images", text: "Reinstall image engines (Ideogram 4 + Qwen-Edit)", href: "install_qwen.js" })
     }
     baseMenu.push(
       { icon: "fa-solid fa-rotate", text: "Update", href: "update.js" },

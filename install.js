@@ -334,11 +334,37 @@ module.exports = {
       }
     },
 
+    // ---- Image-engine pack (mflux: Ideogram 4 + Qwen-Edit) ----------------
+    // 2026-06-13: Ideogram 4 + the visual text-placement editor are headline
+    // features now, so the mflux image-engine runner ships by default instead
+    // of only behind the optional "Install Qwen-Image-Edit" action. (Reported
+    // by cocktailpeanut: token saved + regions drawn but Generate stayed
+    // disabled because mflux — and thus mflux-generate-ideogram4 — was absent.)
+    // Safe to bundle: install.js already pins huggingface-hub to a range mflux
+    // requires, and mflux lives in the same venv as the LTX stack. BEST-EFFORT —
+    // a pip hiccup must not fail the core (video) install; the panel surfaces a
+    // one-click "Reinstall image engines" path if it didn't land. Two-step
+    // (with-deps then --no-deps) mirrors install_qwen.js so transitive deps
+    // resolve, then the version is locked + the FBCache patch applied.
+    {
+      method: "shell.run",
+      params: {
+        message: [
+          "echo 'Installing the mflux image-engine pack (Ideogram 4 + Qwen-Edit)…' && \\",
+          "( ./ltx-2-mlx/env/bin/pip install 'mflux==0.18.0' && \\",
+          "  ./ltx-2-mlx/env/bin/pip install --force-reinstall --no-deps 'mflux==0.18.0' && \\",
+          "  ./ltx-2-mlx/env/bin/pip install 'mlx-teacache==0.4.1' && \\",
+          "  ./ltx-2-mlx/env/bin/python3.11 patch_mflux_fbcache.py ) \\",
+          "|| echo 'WARN: mflux image-engine install hit an error — video still works; use the Reinstall image engines action to retry image generation.'"
+        ].join("\n")
+      }
+    },
+
     // ---- Done -------------------------------------------------------------
     {
       method: "notify",
       params: {
-        html: "<b>Phosphene installed.</b><br>Click <b>Start</b> to launch the panel, then <b>Open Panel</b>."
+        html: "<b>Phosphene installed</b> — video + image generation (incl. Ideogram 4).<br>Click <b>Start</b> to launch the panel, then <b>Open Panel</b>."
       }
     }
   ]

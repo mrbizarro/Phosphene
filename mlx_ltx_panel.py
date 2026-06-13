@@ -2621,6 +2621,29 @@ def _repo_hf_cache_dir(repo_id: str) -> Path | None:
     return revs[0][0]
 
 
+# ---- Ideogram 4 weights source -------------------------------------------
+# The official ideogram-ai/ideogram-4-fp8 repo is license-gated, which forced
+# every user through an HF token + "Agree and access" dance — the #1 support
+# pain (cocktailpeanut hit it too). cocktailpeanut re-published an UN-GATED
+# mirror with identical fp8 weights, so we pull from that: no token, no license
+# click, no 403. We still prefer an already-downloaded official copy so existing
+# users don't re-fetch 28 GB.
+IDEOGRAM_REPO_UNGATED = "cocktailpeanut/ideogram-4-fp8"
+IDEOGRAM_REPO_OFFICIAL = "ideogram-ai/ideogram-4-fp8"
+
+def _ideogram_repo_cached(repo_id: str) -> bool:
+    snap = _repo_hf_cache_dir(repo_id)
+    return snap is not None and (snap / "transformer" / "diffusion_pytorch_model.safetensors").exists()
+
+def _ideogram_any_cached() -> bool:
+    return _ideogram_repo_cached(IDEOGRAM_REPO_OFFICIAL) or _ideogram_repo_cached(IDEOGRAM_REPO_UNGATED)
+
+def _resolve_ideogram_repo() -> str:
+    # Reuse an existing official download; otherwise the un-gated mirror so a
+    # first-time user needs no Hugging Face token.
+    return IDEOGRAM_REPO_OFFICIAL if _ideogram_repo_cached(IDEOGRAM_REPO_OFFICIAL) else IDEOGRAM_REPO_UNGATED
+
+
 def _repo_missing_in_cache(repo: dict) -> list[str] | None:
     """Files missing from the HF cache snapshot for this repo, or None if
     the repo isn't in the cache at all (caller treats None as "fall back to
@@ -6005,16 +6028,11 @@ def run_image_job_inner(job: dict) -> None:
                               "Cannot access", "snapshot_download",
                               "_resolve_model_path", "PathResolution")):
             raise RuntimeError(
-                "Ideogram 4 couldn't download its weights — Hugging Face denied "
-                "access to the gated repo. Check both, on the SAME account: "
-                "(1) a Hugging Face Read token is set in Settings → API tokens "
-                "(a fine-grained token limited to your own repos can't read "
-                "another org's gated repo — use a Read token); (2) that same "
-                "account has accepted the license at "
-                "https://huggingface.co/ideogram-ai/ideogram-4-fp8 (click "
-                "“Agree and access”). If you've already done both, your token is "
-                "most likely from a different account than the one that accepted "
-                "— regenerate it on the accepting account. Then try again."
+                "Ideogram 4 couldn't download its weights from the Hugging Face "
+                "mirror (cocktailpeanut/ideogram-4-fp8). This repo is un-gated, so "
+                "no token or license acceptance is needed — this is almost always "
+                "a network or disk-space issue. Check your connection and free "
+                "space (~28 GB), then try again."
             ) from _gen_exc
         raise
     finally:
@@ -7960,7 +7978,7 @@ def _build_image_engine_config(
         _ideo_preset = str(form.get("ideo_preset") or "V4_DEFAULT_20").strip() or "V4_DEFAULT_20"
         return agent_image_engine.ImageEngineConfig(
             kind="mflux",
-            mflux_model="ideogram-ai/ideogram-4-fp8",
+            mflux_model=_resolve_ideogram_repo(),   # un-gated mirror unless official already cached
             mflux_family="ideogram",
             mflux_preset=_ideo_preset,
             mflux_lora_paths=[],
@@ -8849,7 +8867,7 @@ class Handler(BaseHTTPRequestHandler):
                     # Quality dropdown can switch to V4_TURBO_12 (faster) or
                     # V4_QUALITY_48 (slower) but the static estimate stays on
                     # the default tier until observed timings self-correct it.
-                    ("ideogram4_inline",           "ideogram-ai/ideogram-4-fp8", 28.0, 150.0,  60.0),
+                    ("ideogram4_inline",           IDEOGRAM_REPO_UNGATED,        28.0, 150.0,  60.0),
                     # HiDream lab subprocess: ~45s cold load (BF16 weights →
                     # MLX) per batch. Denoise times measured from the May 2026
                     # step+FBCache bench at HD 2560×1440.
@@ -8880,13 +8898,11 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         _snap = _repo_hf_cache_dir(repo)
                         cached = _snap is not None
-                        # A gated repo can leave a stub snapshot (only the public
-                        # README/LICENSE arrived before the 403), which would read
-                        # as "cached". Require a real weight file for Ideogram so
-                        # the setup note stays up until the weights truly land.
-                        if cached and engine == "ideogram4_inline":
-                            cached = (_snap / "transformer"
-                                      / "diffusion_pytorch_model.safetensors").exists()
+                        # Ideogram: count EITHER the un-gated mirror OR an existing
+                        # official download, and require a real weight file (a
+                        # gated stub snapshot has only README/LICENSE).
+                        if engine == "ideogram4_inline":
+                            cached = _ideogram_any_cached()
                         # mflux engines additionally need their per-family
                         # binary on disk (e.g. mflux-generate-qwen-edit).
                         # Issue #12 (sureshkpiitk): the Image Studio let
@@ -8926,11 +8942,10 @@ class Handler(BaseHTTPRequestHandler):
                         "sec_per_image": round(sec, 1),
                         "cold_start_sec": cold,
                         "samples_source": samples,
-                        # Gated HF repo (Ideogram 4 ships non-commercial): the
-                        # user must accept the license once on HF before the
-                        # weights download. Surface it so the UI guides them
-                        # instead of letting the first render fail with a 403.
-                        "gated": (engine == "ideogram4_inline"),
+                        # Ideogram 4 now pulls an un-gated mirror — no token, no
+                        # license click. gated stays False; the UI just shows a
+                        # one-time-download heads-up until the weights land.
+                        "gated": False,
                         "license_url": ("https://huggingface.co/" + repo)
                                        if (repo and engine == "ideogram4_inline") else None,
                     })
@@ -20146,18 +20161,14 @@ HTML = r"""<!doctype html>
            ideoBuildCaption() emits the EXACT schema the mflux Ideogram4
            caption verifier expects; imgStudioGenerate() posts it as `prompt`. -->
       <div class="ideo-panel" id="ideoPanel" hidden>
-        <!-- One-time setup note: Ideogram 4's weights are license-gated
-             (non-commercial). Shown only while they aren't cached yet;
-             toggled + filled by ideoUpdateSetupNote() from engine_status. -->
+        <!-- One-time download heads-up: shown only while the Ideogram weights
+             aren't cached yet. NO token / license click — Phosphene pulls an
+             un-gated mirror. Toggled by ideoUpdateSetupNote() from engine_status. -->
         <div class="ideo-setup-note" id="ideoSetupNote" hidden>
-          <svg class="ph" aria-hidden="true" style="flex:0 0 auto;width:18px;height:18px;margin-top:1px"><use href="#ph-lock-key"/></svg>
+          <svg class="ph" aria-hidden="true" style="flex:0 0 auto;width:18px;height:18px;margin-top:1px"><use href="#ph-info"/></svg>
           <div class="ideo-setup-body">
-            <strong>One-time setup — Ideogram 4 is free, but license-gated.</strong>
-            <ol class="ideo-setup-steps">
-              <li>Add an HF <button type="button" class="ideo-link" onclick="openSettingsModal()">access token</button> in Settings → API tokens — a <strong>Read</strong> token (a fine-grained token limited to your own repos can’t fetch gated models like this one).</li>
-              <li><a id="ideoLicenseLink" href="https://huggingface.co/ideogram-ai/ideogram-4-fp8" target="_blank" rel="noopener" class="ideo-link" onclick="openExternal(this.href); return false;">Accept the license ↗</a> — click “Agree and access”.</li>
-            </ol>
-            <span class="ideo-setup-hint">Your first render then downloads it (<span id="ideoSetupDlGb">~27&nbsp;GB</span>, one-time). Personal/research use is free; commercial use needs a paid license from Ideogram.</span>
+            <strong>First render downloads Ideogram 4 (<span id="ideoSetupDlGb">~28&nbsp;GB</span>, one-time).</strong>
+            <span class="ideo-setup-hint">No account or token needed — Phosphene pulls an un-gated community mirror. Personal/research use is free; commercial use needs a license from Ideogram.</span>
           </div>
         </div>
         <div class="ideo-head">
@@ -22716,11 +22727,9 @@ function ideoUpdateSetupNote() {
   const eng = engEl ? engEl.value : '';
   const info = (typeof _IMG_ENGINE_STATUS === 'object' && _IMG_ENGINE_STATUS)
     ? _IMG_ENGINE_STATUS[eng] : null;
-  const show = !!(eng === 'ideogram4_inline' && info && info.gated && !info.cached);
+  const show = !!(eng === 'ideogram4_inline' && info && !info.cached);
   note.hidden = !show;
   if (show) {
-    const link = document.getElementById('ideoLicenseLink');
-    if (link && info.license_url) link.href = info.license_url;
     const gb = document.getElementById('ideoSetupDlGb');
     if (gb && info.download_gb) gb.textContent = '~' + info.download_gb.toFixed(0) + ' GB';
   }

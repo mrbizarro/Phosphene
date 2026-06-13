@@ -193,29 +193,27 @@ module.exports = {
       method: "shell.run",
       params: {
         message: [
-          // Step 1: probe. If mflux isn't already on the venv, skip the
-          // whole repair block — user didn't install Qwen, don't add it
-          // on their behalf.
-          "if ./ltx-2-mlx/env/bin/python -c 'import mflux' 2>/dev/null; then \\",
-          "  echo 'mflux present — refreshing pin to 0.18.0 with deps to repair any missing transitive packages…' && \\",
-          // Step 2: install WITH deps so pip resolves the full transitive
-          // set (transformers, accelerate, sentencepiece, etc.). Repairs
-          // any user whose previous --no-deps install left deps missing.
-          "  ./ltx-2-mlx/env/bin/pip install 'mflux==0.18.0' && \\",
-          // Step 3: force-reinstall WITHOUT deps to lock the version
-          // without churning the deps we just installed.
+          // 2026-06-13: the mflux image-engine pack (Ideogram 4 + Qwen-Edit) is
+          // now STANDARD — installed for EVERY user on update, not just those who
+          // once ran the optional installer. This is what unblocks Ideogram 4 for
+          // everyone who never opted in (cocktailpeanut hit exactly this: token
+          // saved, regions drawn, but family_installed:false because the mflux CLI
+          // was absent). Safe to bundle: the base install already pins
+          // huggingface-hub to a range mflux requires (see install.js), and mflux
+          // lives in the same venv as the LTX stack.
+          //
+          // BEST-EFFORT: wrapped in ( … ) || echo so a pip hiccup (network) does
+          // NOT fail the whole update — video is unaffected, and the panel
+          // surfaces a one-click reinstall path if mflux didn't land.
+          //
+          // Two-step (WITH deps then --force-reinstall --no-deps) mirrors
+          // install_qwen.js so the full transitive set (transformers, accelerate,
+          // sentencepiece, …) resolves, then the version is locked.
+          "echo 'Installing/refreshing the mflux image-engine pack (Ideogram 4 + Qwen-Edit) — now standard…' && \\",
+          "( ./ltx-2-mlx/env/bin/pip install 'mflux==0.18.0' && \\",
           "  ./ltx-2-mlx/env/bin/pip install --force-reinstall --no-deps 'mflux==0.18.0' && \\",
-          // Step 4: install (or refresh) mlx-teacache 0.4.1 (MIT) for the
-          // optional FLUX.2 TeaCache wrap (run_mflux_with_teacache.py).
-          // Gated by the same `import mflux` probe above — only land this
-          // for users who actually opted into mflux. Pinned exact for
-          // reproducibility. The TeaCache wrap self-checks mflux compat and
-          // falls back to the bare CLI if the API moved, so the mflux 0.18
-          // bump (for Ideogram 4 + Qwen-Edit) can't break FLUX.2.
-          "  ./ltx-2-mlx/env/bin/pip install 'mlx-teacache==0.4.1'; \\",
-          "else \\",
-          "  echo 'mflux not installed (user never opted into Qwen image gen) — skipping mflux repair.'; \\",
-          "fi"
+          "  ./ltx-2-mlx/env/bin/pip install 'mlx-teacache==0.4.1' ) \\",
+          "|| echo 'WARN: mflux image-engine install hit an error — video is unaffected; re-run Update, or use the Reinstall image engines action, to retry.'"
         ].join("\n")
       }
     },
