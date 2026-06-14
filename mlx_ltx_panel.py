@@ -5364,7 +5364,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         if not prompt:
             prompt = "A cinematic atmospheric scene"
         try:
-            n = max(1, min(8, int(f("n", "4") or 4)))
+            n = max(1, min(8, int(f("n", "1") or 1)))
         except (TypeError, ValueError):
             n = 4
         try:
@@ -5707,16 +5707,14 @@ _PREFLIGHT_BASE_GB: dict[tuple[str, int], float] = {
     ("qwen_edit", 4): 18.0,
     ("qwen_edit", 6): 24.0,
     ("qwen_edit", 8): 32.0,
-    # Ideogram 4 — 9.3B fp8 DiT + 8B text encoder. Raw fp8 (q6 key = the
-    # dataclass default for normal renders) peaks ~29.5 GB by MLX's own report
-    # (a from-zero validation render measured it; RSS reads ~23 GB but MLX
-    # residency is higher). "Fast mode" sends -q 4 → ~11 GB RSS / ~15 GB MLX,
-    # no visible quality loss for typography. So fp8 is gated ~32 GB (warn a
-    # 32 GB Mac BEFORE the 26 GB download instead of letting it crash); fast
-    # mode passes on 16-24 GB.
-    ("ideogram", 4): 15.0,
-    ("ideogram", 6): 32.0,
-    ("ideogram", 8): 34.0,
+    # Ideogram 4 — 9.3B fp8 DiT + 8B text encoder, quantized on load. The
+    # default is now -q 6 (M1-safe); -q 4 is fast mode for ≤16 GB Macs.
+    # Numbers cocktailpeanut validated getting it to run on an M1 Max 64 GB:
+    # q6 (default) ~24 GB, q4 ~18 GB, q8 ~32 GB. The lookup keys on
+    # mflux_quantize (or 6), so the default render path resolves to the q6 row.
+    ("ideogram", 4): 18.0,
+    ("ideogram", 6): 24.0,
+    ("ideogram", 8): 32.0,
     # FLUX.2 — distilled 4B and base 4B/9B variants
     ("flux2", 4):      6.0,
     ("flux2", 6):      8.0,
@@ -5887,7 +5885,7 @@ def run_image_job_inner(job: dict) -> None:
     engine_override = (p.get("engine_override") or "auto").lower()
     aspect = (p.get("aspect") or "16:9").strip() or "16:9"
     try:
-        n = max(1, min(8, int(p.get("n") or 4)))
+        n = max(1, min(8, int(p.get("n") or 1)))
     except (TypeError, ValueError):
         n = 4
     try:
@@ -7978,17 +7976,18 @@ def _build_image_engine_config(
     # (V4_DEFAULT_20 / V4_TURBO_12 / V4_QUALITY_48) into `mflux_preset`.
     if engine_override == "ideogram4_inline":
         _ideo_preset = str(form.get("ideo_preset") or "V4_DEFAULT_20").strip() or "V4_DEFAULT_20"
-        # Fast mode: opt-in 4-bit quantize of the fp8 weights → smaller/faster
-        # GPU kernels (clears the macOS Metal watchdog on slower Apple GPUs,
-        # halves RAM). None = raw fp8 (default, best quality).
+        # Quantize level for the fp8 weights. Default 6 — the M1-safe level
+        # cocktailpeanut validated (raw fp8 trips the macOS Metal watchdog
+        # and is far slower on M1/M2). Fast mode sends ideo_quantize=4 →
+        # smaller/faster kernels + ~half the RAM for ≤16 GB Macs.
         _ideo_q = str(form.get("ideo_quantize") or "").strip()
-        _ideo_quantize = int(_ideo_q) if _ideo_q in ("3", "4", "5", "6", "8") else None
+        _ideo_quantize = int(_ideo_q) if _ideo_q in ("3", "4", "5", "6", "8") else 6
         return agent_image_engine.ImageEngineConfig(
             kind="mflux",
             mflux_model=_resolve_ideogram_repo(),   # un-gated mirror unless official already cached
             mflux_family="ideogram",
             mflux_preset=_ideo_preset,
-            mflux_quantize=_ideo_quantize,          # None → raw fp8; 4 → fast mode (-q 4)
+            mflux_quantize=_ideo_quantize,          # 6 → M1-safe default; 4 → fast mode
             mflux_lora_paths=[],
             mflux_lora_scales=[],
         )
@@ -11726,9 +11725,40 @@ class Handler(BaseHTTPRequestHandler):
         # only so no cross-platform branch needed.
         if path == "/output/open_folder":
             try:
-                target_dir = OUTPUT.resolve()
-                subprocess.run(["open", str(target_dir)], check=False)
-                self._json({"ok": True, "opened": str(target_dir)})
+                # Reveal the folder that actually holds the user's LATEST
+                # output. Videos land under OUTPUT (mlx_outputs); images land
+                # under UPLOADS/library/manual/<date>/. Always opening OUTPUT
+                # showed an empty Finder window to anyone whose last render
+                # was an image (reported by cocktailpeanut). Find the newest
+                # file across both roots and `open -R` it so Finder opens the
+                # right folder with that file selected.
+                roots = [OUTPUT, UPLOADS / "library" / "manual"]
+                newest_file = None
+                newest_mtime = -1.0
+                for _root in roots:
+                    if not _root.is_dir():
+                        continue
+                    for _p in _root.rglob("*"):
+                        # Skip dotfiles and .json sidecars so `open -R` selects
+                        # the actual render (png/mp4), not its metadata twin.
+                        if (not _p.is_file() or _p.name.startswith(".")
+                                or _p.suffix.lower() == ".json"):
+                            continue
+                        try:
+                            _mt = _p.stat().st_mtime
+                        except OSError:
+                            continue
+                        if _mt > newest_mtime:
+                            newest_mtime, newest_file = _mt, _p
+                if newest_file is not None:
+                    subprocess.run(["open", "-R", str(newest_file)], check=False)
+                    self._json({"ok": True, "opened": str(newest_file.parent)})
+                else:
+                    # Nothing rendered yet — open OUTPUT (create if missing).
+                    target_dir = OUTPUT.resolve()
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    subprocess.run(["open", str(target_dir)], check=False)
+                    self._json({"ok": True, "opened": str(target_dir)})
             except Exception as e:
                 self._json({"error": f"open failed: {e}"}, 500)
             return
@@ -12587,6 +12617,18 @@ _DENOISE_RE = re.compile(
     r"Denoising(\s*\([^)]*\))?:[^|]*\|[^|]*\|\s*(\d+)\s*/\s*(\d+)"
 )
 _PER_IT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*s/it")
+# Image engines (mflux / Ideogram) stream a plain tqdm bar with no
+# "Denoising" desc, prefixed `[image] ` by the panel:
+#   `[image] 65%|████▌  | 13/20 [12:23<07:37, 65.39s/it]`
+# Capture step/total so the Now card shows real image progress instead of
+# sitting on "Loading pipeline" — the image job never emits the LTX helper's
+# step:get_pipe markers, so without this its phase never leaves setup.
+# (Reported by cocktailpeanut.) The leading `\d+%` (bar starts with a bare
+# percentage) is deliberate: it matches the denoise bar but NOT the model
+# download bars, which carry a desc — `[image] Fetching 16 files: 0%|...`
+# or `[image] model.safetensors: 45%|...` — so download progress is never
+# mistaken for denoise steps.
+_IMAGE_STEP_RE = re.compile(r"\[image\]\s+\d+%\|[^|]*\|\s*(\d+)\s*/\s*(\d+)")
 
 
 def _parse_progress_signals(log_lines: list[str]) -> dict:
@@ -12605,6 +12647,7 @@ def _parse_progress_signals(log_lines: list[str]) -> dict:
     """
     stage1_step = stage1_total = None  # latest seen for stage 1
     stage2_step = stage2_total = None  # latest seen for stage 2
+    image_step = image_total = None    # latest seen for an mflux image job
     last_per_it = None
     decode_started = decode_done = generate_done = upscale_done = pipe_loaded = False
     for ln in reversed(log_lines or []):
@@ -12633,6 +12676,16 @@ def _parse_progress_signals(log_lines: list[str]) -> dict:
                         pit = _PER_IT_RE.search(ln)
                         if pit:
                             last_per_it = float(pit.group(1))
+        # mflux image job — a single plain tqdm bar (no two-stage). Seeing
+        # it stepping means the model is resident, so flip pipe_loaded too.
+        mi = _IMAGE_STEP_RE.search(ln)
+        if mi and image_step is None:
+            image_step, image_total = int(mi.group(1)), int(mi.group(2))
+            pipe_loaded = True
+            if last_per_it is None:
+                pit = _PER_IT_RE.search(ln)
+                if pit:
+                    last_per_it = float(pit.group(1))
         if not decode_started and "step:decode_and_save start" in ln:
             decode_started = True
         if not decode_done and "step:decode_and_save done" in ln:
@@ -12661,6 +12714,11 @@ def _parse_progress_signals(log_lines: list[str]) -> dict:
         denoise_total = stage1_total
     else:
         denoise_step = denoise_total = None
+
+    # An mflux image job has one tqdm bar (no stages); if we saw image
+    # steps, they ARE the denoise counter — overrides the stage logic.
+    if image_step is not None:
+        denoise_step, denoise_total = image_step, image_total
 
     return {
         "denoise_step": denoise_step,
@@ -20413,11 +20471,16 @@ HTML = r"""<!doctype html>
                 <option value="9:16">9:16 — 720×1280</option>
                 <option value="3:4">3:4 — 768×1024</option>
                 <option value="21:9">21:9 — 1280×544</option>
+                <optgroup label="Smaller — faster, lower RAM">
+                  <option value="16:9s">16:9 — 768×432</option>
+                  <option value="1:1s">1:1 — 512×512</option>
+                  <option value="9:16s">9:16 — 432×768</option>
+                </optgroup>
               </select>
             </div>
             <div class="mf-cell">
               <span class="mf-label">Candidates (n)</span>
-              <input type="number" id="imgStudioN" min="1" max="8" value="4" oninput="imgStudioUpdateEstimate()">
+              <input type="number" id="imgStudioN" min="1" max="8" value="1" oninput="imgStudioUpdateEstimate()">
             </div>
             <div class="mf-cell">
               <span class="mf-label">Seed</span>
@@ -22810,8 +22873,8 @@ function imgStudioUpdateEstimate() {
   const btnLabel = document.getElementById('imgStudioGenBtnLabel');
   if (!out || !btnLabel) return;
   const eng = (document.getElementById('imgStudioEngine') || {}).value || 'auto';
-  const n = parseInt((document.getElementById('imgStudioN') || {}).value || '4', 10);
-  const safeN = Math.max(1, Math.min(8, isFinite(n) ? n : 4));
+  const n = parseInt((document.getElementById('imgStudioN') || {}).value || '1', 10);
+  const safeN = Math.max(1, Math.min(8, isFinite(n) ? n : 1));
   // Wall-time = cold_start (paid once per batch) + n × per-image (denoise).
   // /image/engine_status returns both fields. The HiDream lab subprocess
   // pays ~45s cold load per batch (BF16 weights -> MLX); mflux engines
@@ -24103,13 +24166,13 @@ async function imgStudioGenerate() {
   const refs = IMG_STUDIO.refs.filter(r => r && r.path).map(r => r.path);
   const body = {
     prompt,
-    n: parseInt(document.getElementById('imgStudioN').value || '4', 10),
+    n: parseInt(document.getElementById('imgStudioN').value || '1', 10),
     aspect: document.getElementById('imgStudioAspect').value || '16:9',
     seed: parseInt(document.getElementById('imgStudioSeed').value || '-1', 10),
     engine_override: engineVal,
     ideo_preset: ideoPreset,
-    // Fast mode → 4-bit quantize (Ideogram only). Null otherwise so the server
-    // keeps raw fp8.
+    // Fast mode → 4-bit quantize (Ideogram only). Null otherwise so the
+    // server applies its M1-safe q6 default.
     ideo_quantize: (engineVal === 'ideogram4_inline' && typeof ideoState === 'object' && ideoState.fast) ? 4 : null,
     refs,
   };
@@ -24136,7 +24199,7 @@ async function imgStudioGenerate() {
     if (body.ideo_preset) fd.set('ideo_preset', body.ideo_preset);
     if (body.ideo_quantize) fd.set('ideo_quantize', String(body.ideo_quantize));
     fd.set('aspect', body.aspect || '16:9');
-    fd.set('n', String(body.n || 4));
+    fd.set('n', String(body.n || 1));
     fd.set('seed', String(body.seed != null ? body.seed : -1));
     // refs is a list of paths — the existing /image/generate code
     // accepts a JSON-encoded list as a form field, and make_job()
