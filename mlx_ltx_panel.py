@@ -5708,13 +5708,15 @@ _PREFLIGHT_BASE_GB: dict[tuple[str, int], float] = {
     ("qwen_edit", 6): 24.0,
     ("qwen_edit", 8): 32.0,
     # Ideogram 4 — 9.3B fp8 DiT + 8B text encoder. Raw fp8 (q6 key = the
-    # dataclass default for normal renders) measured ~23 GB peak on an M4 Max.
-    # "Fast mode" sends -q 4 → quantizes on load → measured ~11 GB (half), with
-    # no visible quality loss for typography. The q4 row reflects that so a
-    # 16-24 GB Mac passes preflight in fast mode but is gated on raw fp8.
-    ("ideogram", 4): 14.0,
-    ("ideogram", 6): 26.0,
-    ("ideogram", 8): 28.0,
+    # dataclass default for normal renders) peaks ~29.5 GB by MLX's own report
+    # (a from-zero validation render measured it; RSS reads ~23 GB but MLX
+    # residency is higher). "Fast mode" sends -q 4 → ~11 GB RSS / ~15 GB MLX,
+    # no visible quality loss for typography. So fp8 is gated ~32 GB (warn a
+    # 32 GB Mac BEFORE the 26 GB download instead of letting it crash); fast
+    # mode passes on 16-24 GB.
+    ("ideogram", 4): 15.0,
+    ("ideogram", 6): 32.0,
+    ("ideogram", 8): 34.0,
     # FLUX.2 — distilled 4B and base 4B/9B variants
     ("flux2", 4):      6.0,
     ("flux2", 6):      8.0,
