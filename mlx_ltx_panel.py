@@ -12649,6 +12649,12 @@ _PER_IT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*s/it")
 # or `[image] model.safetensors: 45%|...` — so download progress is never
 # mistaken for denoise steps.
 _IMAGE_STEP_RE = re.compile(r"\[image\]\s+\d+%\|[^|]*\|\s*(\d+)\s*/\s*(\d+)")
+# First-run model download. huggingface_hub prints an aggregate
+# "Fetching N files: …| i/N" tqdm bar to the mflux/helper subprocess stdout,
+# which streams into the job log. Surfacing it stops the Now card from sitting
+# on "Loading pipeline" for the ~10 min a cold 20-30 GB model takes (which
+# reads as a hang). Matches with or without the "[image] " prefix.
+_DL_FETCH_RE = re.compile(r"Fetching\s+\d+\s+files:[^|]*\|[^|]*\|\s*(\d+)\s*/\s*(\d+)")
 
 
 def _parse_progress_signals(log_lines: list[str]) -> dict:
@@ -12668,6 +12674,8 @@ def _parse_progress_signals(log_lines: list[str]) -> dict:
     stage1_step = stage1_total = None  # latest seen for stage 1
     stage2_step = stage2_total = None  # latest seen for stage 2
     image_step = image_total = None    # latest seen for an mflux image job
+    download_seen = False               # a first-run model download is in flight
+    download_files = download_total = None
     last_per_it = None
     decode_started = decode_done = generate_done = upscale_done = pipe_loaded = False
     for ln in reversed(log_lines or []):
@@ -12706,6 +12714,13 @@ def _parse_progress_signals(log_lines: list[str]) -> dict:
                 pit = _PER_IT_RE.search(ln)
                 if pit:
                     last_per_it = float(pit.group(1))
+        # First-run model download progress (huggingface_hub aggregate bar).
+        md = _DL_FETCH_RE.search(ln)
+        if md and download_files is None:
+            download_files, download_total = int(md.group(1)), int(md.group(2))
+            download_seen = True
+        elif not download_seen and "Downloading model from HuggingFace" in ln:
+            download_seen = True
         if not decode_started and "step:decode_and_save start" in ln:
             decode_started = True
         if not decode_done and "step:decode_and_save done" in ln:
@@ -12753,6 +12768,9 @@ def _parse_progress_signals(log_lines: list[str]) -> dict:
         "generate_done": generate_done,
         "upscale_done": upscale_done,
         "pipe_loaded": pipe_loaded,
+        "download_seen": download_seen,
+        "download_files": download_files,
+        "download_total": download_total,
     }
 
 
@@ -12830,6 +12848,7 @@ def _compute_progress(current: dict | None, log_lines: list[str]) -> dict | None
     eta = _bucket_eta(p)
     signals = _parse_progress_signals(log_lines[-200:] if log_lines else [])
     weights = _phase_weights(p)
+    download_frac = 0.0
 
     # Phase pick — newest-first markers win. Order: post > decode > denoise > setup.
     if signals["upscale_done"]:
@@ -12859,6 +12878,18 @@ def _compute_progress(current: dict | None, log_lines: list[str]) -> dict | None
         if param_total > dt:
             dt = param_total
         phase_label = f"Denoising · step {ds} / {dt}"
+    elif signals["download_seen"] and not signals["pipe_loaded"]:
+        # Cold first-run model download — show it (with a moving bar) instead
+        # of sitting on "Loading pipeline" for ~10 min, which reads as a hang.
+        phase = "download"
+        df, dft = signals["download_files"], signals["download_total"]
+        if df is not None and dft:
+            download_frac = max(0.0, min(0.99, df / dft))
+            phase_label = f"Downloading model · first run · {df}/{dft} files"
+        else:
+            # No file count yet — creep on elapsed so the bar still moves.
+            download_frac = min(0.95, elapsed / 600.0)
+            phase_label = "Downloading model · first run · this can take several minutes…"
     else:
         phase = "setup"
         phase_label = "Loading pipeline" if not signals["pipe_loaded"] else "Preparing"
@@ -12872,6 +12903,11 @@ def _compute_progress(current: dict | None, log_lines: list[str]) -> dict | None
         setup_budget = 60.0 if not signals["pipe_loaded"] else 10.0
         within = min(0.92, elapsed / setup_budget) if setup_budget else 0
         pct = within * setup_w
+    elif phase == "download":
+        # Its own 0→95% bar — the cold download dominates first-run wall time
+        # and we can't predict it. When generation starts the phase flips to
+        # "Denoising"; a clear two-phase progress beats a frozen bar.
+        pct = download_frac * 95
     elif phase == "denoise":
         ds = signals["denoise_step"] or 0
         dt = signals["denoise_total"] or 1
@@ -12921,7 +12957,7 @@ def _compute_progress(current: dict | None, log_lines: list[str]) -> dict | None
         else:
             tail = 30.0
         remaining = denoise_left + tail
-    elif eta:
+    elif eta and phase != "download":
         remaining = max(0.0, eta - elapsed)
 
     return {
