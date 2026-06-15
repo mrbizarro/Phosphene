@@ -1091,12 +1091,15 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
         # generous absolute cap is the runaway backstop.
         stall_budget = 1800.0                              # 30 min of silence = stuck
         hard_cap = time.time() + max(timeout_s, 14400.0)   # 4 h absolute backstop
-        deadline = time.time() + stall_budget
-        # Download liveness by DISK, not stdout: a single big shard writes to
-        # the HF cache for many minutes with no stdout (the "Fetching i/N" line
-        # only ticks per file), so a stdout-only stall check false-fires mid
-        # shard. Poll the model's cache dir — growth = download alive (reset the
-        # stall clock) and gives a real GB readout for the Now card.
+        # The download writes to disk for many minutes while its stdout is
+        # silent OR floods \r-progress that readline() blocks on — either way
+        # the read loop below can't tick a stall clock during the pull. So
+        # liveness is owned by a DAEMON THREAD (a separate thread can't be
+        # starved by readline blocking — the GIL releases during blocking I/O):
+        # it polls the model's cache dir (growth = download alive) while the
+        # read loop stamps `_alive` on each render line (render alive). It kills
+        # the subprocess only on a GENUINE stall — neither disk nor stdout for
+        # stall_budget — and emits a GB readout. (HiDream uses the same idea.)
         _hf_home = env.get("HF_HOME") or os.path.expanduser("~/.cache/huggingface")
         dl_dir = ((Path(_hf_home) / "hub"
                    / ("models--" + config.mflux_model.replace("/", "--")))
@@ -1117,8 +1120,27 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
                 return total / 1e9
             except Exception:  # noqa: BLE001
                 return -1.0
-        last_disk_t = time.time()
-        last_sz = _dl_gb()
+        _alive = [time.time()]
+        _wd_stop = threading.Event()
+        _wd_killed = [False]
+        def _watchdog() -> None:
+            _last = _dl_gb()
+            while not _wd_stop.wait(15.0):
+                _sz = _dl_gb()
+                if _sz > _last + 0.001:                  # >1 MB on disk → download alive
+                    _alive[0] = time.time()
+                    if _last >= 0.0 and on_log is not None:
+                        try: on_log(f"[download] model weights: {_sz:.1f} GB")
+                        except Exception:  # noqa: BLE001
+                            pass
+                    _last = max(_last, _sz)
+                if (time.time() - _alive[0] > stall_budget) or (time.time() > hard_cap):
+                    _wd_killed[0] = True
+                    try: os.killpg(os.getpgid(proc.pid), 15)   # SIGTERM tree → readline EOFs
+                    except (OSError, ProcessLookupError):
+                        pass
+                    return
+        threading.Thread(target=_watchdog, name="mflux-dl-watchdog", daemon=True).start()
         poll_interval = 0.5
         if proc.stdout is not None:
             while True:
@@ -1141,7 +1163,7 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
                         break
                     line = raw.rstrip("\n")
                     if line:
-                        deadline = time.time() + stall_budget   # progress → push the stall clock
+                        _alive[0] = time.time()                 # render/output activity → alive
                         last_lines.append(line)
                         if on_log is not None:
                             try:
@@ -1149,26 +1171,8 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
                             except Exception:        # noqa: BLE001
                                 # A buggy logger callback must not break the gen.
                                 pass
-                # Download liveness/progress by disk: poll the cache dir every
-                # ~15 s. Growth means the pull is alive even when stdout is
-                # silent for a whole shard — reset the stall clock + surface GB.
-                _now = time.time()
-                if _now - last_disk_t >= 15.0:
-                    last_disk_t = _now
-                    _sz = _dl_gb()
-                    if _sz > last_sz + 0.001:                   # >1 MB since last check = alive
-                        deadline = _now + stall_budget          # disk grew → reset stall clock
-                        if last_sz >= 0.0 and on_log is not None:
-                            try: on_log(f"[download] model weights: {_sz:.1f} GB")
-                            except Exception:  # noqa: BLE001
-                                pass
-                    if _sz >= 0.0:
-                        last_sz = max(last_sz, _sz)
-                # Deadline check — runs every iteration whether or not
-                # the child wrote a line, so a silent stall still trips.
-                if time.time() > deadline or time.time() > hard_cap:
-                    timed_out = True
-                    break
+                # Stall timeout is owned by the watchdog thread (it sees disk
+                # growth even while readline() above is blocked on \r-output).
                 # Child exited but we haven't seen EOF yet — flush any
                 # remaining buffered output on the next select cycle.
                 # Don't break here: select+readline above will drain
@@ -1176,6 +1180,9 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
                 if proc.poll() is not None and not ready:
                     # No data in this slice + child gone → drain done.
                     break
+        if _wd_killed[0]:                  # watchdog SIGTERM'd a genuine stall
+            timed_out = True
+        _wd_stop.set()                     # stop the watchdog promptly
         if timed_out:
             # SIGTERM the whole process group, give it 2s to clean up,
             # then SIGKILL if still alive. The except subprocess.TimeoutExpired
@@ -1201,7 +1208,7 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
                 f"(a hung download or a Metal deadlock). First-run weight pulls "
                 f"stream progress and keep this alive — a genuine stall tripped it."
             )
-        rc = proc.wait(timeout=max(1, deadline - time.time()))
+        rc = proc.wait(timeout=30)
     except subprocess.TimeoutExpired as e:
         try:
             proc.kill()
@@ -1212,6 +1219,8 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
             f"(possible zombie / stuck cleanup)."
         ) from e
     finally:
+        try: _wd_stop.set()                # belt: stop watchdog even on early error
+        except NameError: pass
         if proc.stdout is not None:
             try:
                 proc.stdout.close()
