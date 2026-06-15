@@ -205,6 +205,13 @@ class ImageEngineConfig:
     # None → the ideogram argv branch falls back to "V4_DEFAULT_20" (20
     # steps). Valid values: "V4_TURBO_12" | "V4_DEFAULT_20" | "V4_QUALITY_48".
     mflux_preset: str | None = None
+    # Ideogram 4 "reference bridge". Ideogram is TEXT-TO-IMAGE only (no
+    # --image-paths), so when this is on AND refs are present we vision-
+    # caption the first ref(s) with local Gemma 3 and splice the caption
+    # into the Ideogram prompt — a re-interpretation of the look, not a
+    # pixel copy. Ignored by every non-ideogram family (they consume refs
+    # directly via --image-paths). See the bridge block in _generate_mflux.
+    ideogram_reference_bridge: bool = False
     mflux_python_path: str = ""                     # optional override for the mflux CLI location
     # Optional Lightning / acceleration LoRAs. With qwen_edit + a 4-step
     # Lightning LoRA, generation drops from ~5 min to ~10-15 sec per
@@ -758,11 +765,86 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
     ideogram_prompt_file: str | None = None
     if fam == "ideogram":
         import tempfile
+        # Reference bridge: Ideogram has no image input, so when the user
+        # enabled it AND dropped reference image(s), vision-caption the
+        # first ref(s) with local Gemma 3 in a SEPARATE subprocess and
+        # splice the caption into the prompt. The subprocess (not an
+        # in-process load) matters here: Gemma's ~6 GB RSS is reclaimed by
+        # the OS the moment it exits — BEFORE we launch the ~24 GB Ideogram
+        # render below — so the two never coexist. The whole block is
+        # best-effort: any failure/timeout falls back to plain text-to-
+        # image with a warning and NEVER breaks the render.
+        eff_prompt = prompt
+        if config.ideogram_reference_bridge and refs and prompt.lstrip().startswith("{"):
+            # Layout-mode prompts are a serialized Ideogram JSON caption (the
+            # on-canvas editor). Appending a plain-text reference description
+            # would corrupt the JSON and mflux would silently drop the whole
+            # structured layout. Skip the bridge — the UI also hides the toggle
+            # in Layout mode, so this is a belt-and-suspenders guard.
+            if on_log is not None:
+                try: on_log("reference bridge skipped — Layout caption uses the canvas, not a reference")
+                except Exception:  # noqa: BLE001
+                    pass
+        elif config.ideogram_reference_bridge and refs:
+            try:
+                # Same interpreter that runs mflux (the venv python sits
+                # next to bin_path), mirroring the TeaCache wrap fallback.
+                bin_dir = Path(bin_path).parent
+                cap_py = bin_dir / "python3"
+                if not cap_py.is_file():
+                    cap_py = bin_dir / "python"
+                if not cap_py.is_file():
+                    cap_py = Path(sys.executable)
+                cap_helper = (Path(__file__).resolve().parent
+                              / "caption_reference_vision.py")
+                cap_cmd = [str(cap_py), str(cap_helper)]
+                for r in refs[:3]:                       # first 3 refs only
+                    cap_cmd += ["--image", str(Path(r).resolve())]
+                if on_log is not None:
+                    try: on_log("captioning reference with Gemma 3 vision…")
+                    except Exception:  # noqa: BLE001
+                        pass
+                cap_res = subprocess.run(
+                    cap_cmd, capture_output=True, text=True,
+                    env=_clean_subprocess_env(), timeout=180,
+                )
+                if cap_res.returncode != 0:
+                    raise RuntimeError(
+                        (cap_res.stderr or "captioner exited non-zero").strip())
+                # Prefer the CAPTION_JSON marker line; fall back to the
+                # last non-empty stdout line.
+                caption = ""
+                for ln in cap_res.stdout.splitlines():
+                    if ln.startswith("CAPTION_JSON:"):
+                        try:
+                            caption = json.loads(
+                                ln.split("CAPTION_JSON:", 1)[1].strip()
+                            ).get("caption", "")
+                        except Exception:  # noqa: BLE001
+                            caption = ""
+                if not caption:
+                    tail = [ln for ln in cap_res.stdout.splitlines() if ln.strip()]
+                    caption = tail[-1].strip() if tail else ""
+                if not caption:
+                    raise RuntimeError("captioner returned no caption")
+                eff_prompt = (
+                    f"{prompt}\n\nVisual reference to echo (subject, "
+                    f"composition, palette, lighting, style): {caption}")
+                if on_log is not None:
+                    try: on_log(f"reference caption: {caption[:120]}…")
+                    except Exception:  # noqa: BLE001
+                        pass
+            except Exception as e:        # noqa: BLE001 — never break the render
+                if on_log is not None:
+                    try: on_log(f"reference caption failed ({e}); rendering text-only")
+                    except Exception:  # noqa: BLE001
+                        pass
+                eff_prompt = prompt
         _fd, ideogram_prompt_file = tempfile.mkstemp(
             suffix=".json", prefix="ideogram_prompt_",
         )
         with os.fdopen(_fd, "w", encoding="utf-8") as _pf:
-            _pf.write(prompt)
+            _pf.write(eff_prompt)
         cmd = [
             bin_path,
             "--model", config.mflux_model,
