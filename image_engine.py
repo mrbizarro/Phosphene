@@ -1080,7 +1080,18 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
     # Register before the wait loop so /stop can find this proc.
     _register_active_proc(proc)
     try:
-        deadline = time.time() + timeout_s
+        # Activity-based (stall) timeout, NOT a fixed total deadline: the model
+        # download runs INSIDE this subprocess, and on a slow connection a
+        # 20-34 GB first-run pull can exceed any fixed render budget. The old
+        # fixed deadline killed a slow-but-progressing download mid-fetch — so a
+        # brand-new user's first generation just "failed" with a partial model.
+        # Reset the deadline on every output line (download "Fetching i/N" lines
+        # stream per file; render emits step lines every few seconds), so we
+        # only abort on a genuine STALL — no output for `stall_budget`. A
+        # generous absolute cap is the runaway backstop.
+        stall_budget = 1800.0                              # 30 min of silence = stuck
+        hard_cap = time.time() + max(timeout_s, 14400.0)   # 4 h absolute backstop
+        deadline = time.time() + stall_budget
         poll_interval = 0.5
         if proc.stdout is not None:
             while True:
@@ -1103,6 +1114,7 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
                         break
                     line = raw.rstrip("\n")
                     if line:
+                        deadline = time.time() + stall_budget   # progress → push the stall clock
                         last_lines.append(line)
                         if on_log is not None:
                             try:
@@ -1112,7 +1124,7 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
                                 pass
                 # Deadline check — runs every iteration whether or not
                 # the child wrote a line, so a silent stall still trips.
-                if time.time() > deadline:
+                if time.time() > deadline or time.time() > hard_cap:
                     timed_out = True
                     break
                 # Child exited but we haven't seen EOF yet — flush any
@@ -1143,9 +1155,9 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
                 except subprocess.TimeoutExpired:
                     pass
             raise RuntimeError(
-                f"{bin_name} timed out after {timeout_s}s on a batch of "
-                f"{n} seeds. First run downloads weights — qwen_edit Q8 "
-                f"weights are ~34 GB; give it longer or pre-pull."
+                f"{bin_name} stalled: no output for {int(stall_budget)}s "
+                f"(a hung download or a Metal deadlock). First-run weight pulls "
+                f"stream progress and keep this alive — a genuine stall tripped it."
             )
         rc = proc.wait(timeout=max(1, deadline - time.time()))
     except subprocess.TimeoutExpired as e:
@@ -1154,8 +1166,8 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
         except OSError:
             pass
         raise RuntimeError(
-            f"{bin_name} timed out after {timeout_s}s on a batch of {n} seeds. "
-            f"First run downloads weights; give it longer next time."
+            f"{bin_name} did not exit after its output ended "
+            f"(possible zombie / stuck cleanup)."
         ) from e
     finally:
         if proc.stdout is not None:
