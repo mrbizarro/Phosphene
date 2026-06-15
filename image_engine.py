@@ -1092,6 +1092,33 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
         stall_budget = 1800.0                              # 30 min of silence = stuck
         hard_cap = time.time() + max(timeout_s, 14400.0)   # 4 h absolute backstop
         deadline = time.time() + stall_budget
+        # Download liveness by DISK, not stdout: a single big shard writes to
+        # the HF cache for many minutes with no stdout (the "Fetching i/N" line
+        # only ticks per file), so a stdout-only stall check false-fires mid
+        # shard. Poll the model's cache dir — growth = download alive (reset the
+        # stall clock) and gives a real GB readout for the Now card.
+        _hf_home = env.get("HF_HOME") or os.path.expanduser("~/.cache/huggingface")
+        dl_dir = ((Path(_hf_home) / "hub"
+                   / ("models--" + config.mflux_model.replace("/", "--")))
+                  if getattr(config, "mflux_model", None) else None)
+        def _dl_gb() -> float:
+            try:
+                if not dl_dir or not dl_dir.exists():
+                    return -1.0
+                total = 0
+                for _root, _dirs, _files in os.walk(dl_dir):
+                    for _f in _files:
+                        _fp = os.path.join(_root, _f)
+                        try:
+                            if not os.path.islink(_fp):   # skip snapshot symlinks → no double count
+                                total += os.path.getsize(_fp)
+                        except OSError:
+                            pass
+                return total / 1e9
+            except Exception:  # noqa: BLE001
+                return -1.0
+        last_disk_t = time.time()
+        last_sz = _dl_gb()
         poll_interval = 0.5
         if proc.stdout is not None:
             while True:
@@ -1122,6 +1149,21 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
                             except Exception:        # noqa: BLE001
                                 # A buggy logger callback must not break the gen.
                                 pass
+                # Download liveness/progress by disk: poll the cache dir every
+                # ~15 s. Growth means the pull is alive even when stdout is
+                # silent for a whole shard — reset the stall clock + surface GB.
+                _now = time.time()
+                if _now - last_disk_t >= 15.0:
+                    last_disk_t = _now
+                    _sz = _dl_gb()
+                    if _sz > last_sz + 0.001:                   # >1 MB since last check = alive
+                        deadline = _now + stall_budget          # disk grew → reset stall clock
+                        if last_sz >= 0.0 and on_log is not None:
+                            try: on_log(f"[download] model weights: {_sz:.1f} GB")
+                            except Exception:  # noqa: BLE001
+                                pass
+                    if _sz >= 0.0:
+                        last_sz = max(last_sz, _sz)
                 # Deadline check — runs every iteration whether or not
                 # the child wrote a line, so a silent stall still trips.
                 if time.time() > deadline or time.time() > hard_cap:

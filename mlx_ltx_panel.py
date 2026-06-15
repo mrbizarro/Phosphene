@@ -12655,6 +12655,11 @@ _IMAGE_STEP_RE = re.compile(r"\[image\]\s+\d+%\|[^|]*\|\s*(\d+)\s*/\s*(\d+)")
 # on "Loading pipeline" for the ~10 min a cold 20-30 GB model takes (which
 # reads as a hang). Matches with or without the "[image] " prefix.
 _DL_FETCH_RE = re.compile(r"Fetching\s+\d+\s+files:[^|]*\|[^|]*\|\s*(\d+)\s*/\s*(\d+)")
+# image_engine emits a disk-based "[download] model weights: X.X GB" line every
+# ~15 s while a model downloads — more reliable than the per-file Fetching bar
+# on big shards (which is silent for minutes). Prefer it: a climbing GB count is
+# honest and never sticks at 90% like the elapsed-creep fallback.
+_DL_GB_RE = re.compile(r"\[download\]\s*model weights:\s*([\d.]+)\s*GB")
 
 
 def _parse_progress_signals(log_lines: list[str]) -> dict:
@@ -12676,6 +12681,7 @@ def _parse_progress_signals(log_lines: list[str]) -> dict:
     image_step = image_total = None    # latest seen for an mflux image job
     download_seen = False               # a first-run model download is in flight
     download_files = download_total = None
+    download_gb = None                  # disk-based GB downloaded (preferred signal)
     last_per_it = None
     decode_started = decode_done = generate_done = upscale_done = pipe_loaded = False
     for ln in reversed(log_lines or []):
@@ -12715,6 +12721,11 @@ def _parse_progress_signals(log_lines: list[str]) -> dict:
                 if pit:
                     last_per_it = float(pit.group(1))
         # First-run model download progress (huggingface_hub aggregate bar).
+        mg = _DL_GB_RE.search(ln)
+        if mg and download_gb is None:
+            try: download_gb = float(mg.group(1))
+            except ValueError: download_gb = None
+            download_seen = True
         md = _DL_FETCH_RE.search(ln)
         if md and download_files is None:
             download_files, download_total = int(md.group(1)), int(md.group(2))
@@ -12771,6 +12782,7 @@ def _parse_progress_signals(log_lines: list[str]) -> dict:
         "download_seen": download_seen,
         "download_files": download_files,
         "download_total": download_total,
+        "download_gb": download_gb,
     }
 
 
@@ -12882,12 +12894,17 @@ def _compute_progress(current: dict | None, log_lines: list[str]) -> dict | None
         # Cold first-run model download — show it (with a moving bar) instead
         # of sitting on "Loading pipeline" for ~10 min, which reads as a hang.
         phase = "download"
-        df, dft = signals["download_files"], signals["download_total"]
-        if df is not None and dft:
+        df, dft, dgb = signals["download_files"], signals["download_total"], signals.get("download_gb")
+        if dgb is not None:
+            # Disk-based GB — the honest signal; bar creeps on elapsed but the
+            # GB count is what tells the user it's progressing, not frozen.
+            download_frac = min(0.95, elapsed / 900.0)
+            phase_label = f"Downloading model · first run · {dgb:.1f} GB"
+        elif df is not None and dft:
             download_frac = max(0.0, min(0.99, df / dft))
             phase_label = f"Downloading model · first run · {df}/{dft} files"
         else:
-            # No file count yet — creep on elapsed so the bar still moves.
+            # No signal yet — creep on elapsed so the bar still moves.
             download_frac = min(0.95, elapsed / 600.0)
             phase_label = "Downloading model · first run · this can take several minutes…"
     else:
