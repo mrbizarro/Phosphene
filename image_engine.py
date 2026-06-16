@@ -1314,6 +1314,21 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
     # no per-image metadata to show / reproduce / debug. The candidates
     # below are still ordered by `seeds` so n=4 batches map to consistent
     # indices in the UI.
+    def _is_safety_placeholder(png: Path) -> bool:
+        # Ideogram's safety head returns a flat gray "Image blocked by safety
+        # filter" placeholder on some benign prompts (no mflux signal — it's
+        # baked into the model weights). A real render has high colour variance;
+        # the placeholder is uniform mid-gray. Detect it so the job fails
+        # honestly instead of reporting a gray box as a successful render.
+        try:
+            from PIL import Image, ImageStat
+            st = ImageStat.Stat(Image.open(png).convert("RGB"))
+            mean_std = sum(st.stddev) / 3.0
+            spread = max(st.mean) - min(st.mean)   # gray = channels ~equal
+            return mean_std < 15.0 and spread < 25.0
+        except Exception:  # noqa: BLE001 — detection must never break a render
+            return False
+
     results: list[dict] = []
     for i, seed in enumerate(seeds):
         # Try the templated path first (old mflux behavior + the n=1 case).
@@ -1357,7 +1372,17 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
             # (Code-review P3, 2026-05-09.)
             "refs_ignored": (bool(refs) and not refs_used),
             "lora_paths": list(config.mflux_lora_paths or []),
+            "safety_blocked": (fam == "ideogram" and _is_safety_placeholder(path)),
         })
+
+    if fam == "ideogram" and results and all(r.get("safety_blocked") for r in results):
+        raise RuntimeError(
+            "Ideogram's safety filter blocked this prompt — it returned a gray "
+            "placeholder instead of a render. This is a known false-positive in "
+            "the Ideogram model itself (baked into the weights, not Phosphene) on "
+            "some perfectly benign prompts. Try rephrasing the prompt, or switch "
+            "to a Reference Edit engine."
+        )
 
     if not results:
         raise RuntimeError(
