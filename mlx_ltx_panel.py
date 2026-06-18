@@ -20160,7 +20160,7 @@ HTML = r"""<!doctype html>
                  handler also fd.set()s it explicitly. -->
             <div id="stgRow" class="cz-control" hidden>
               <div class="cz-label">STG — detail guidance
-                <span class="cz-label-hint">cleaner motion &amp; detail, slower · 0 = off</span>
+                <span class="cz-label-hint">cleaner motion &amp; detail, slower · 0 = off · try 1&ndash;1.5</span>
               </div>
               <div class="characters-strength-control" style="display:flex;align-items:center;gap:10px;">
                 <input type="range" name="stg_scale" id="stgScale"
