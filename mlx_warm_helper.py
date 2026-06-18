@@ -2180,9 +2180,13 @@ for line in sys.__stdin__:
                 stage1_steps=int(p.get("stage1_steps", 15)),
                 stage2_steps=int(p.get("stage2_steps", 3)),
                 cfg_scale=float(p.get("cfg_scale", 3.0)),
-                # Default 0.0 — upstream HQ (TwoStageHQPipeline) uses empty
-                # stg_blocks, so any nonzero stg_scale just runs an extra
-                # forward pass per step that's then discarded.
+                # STG (Spatio-Temporal Guidance) — "detail guidance" slider.
+                # Default 0.0 = OFF. The pipeline forces stg_blocks=[] when no
+                # explicit guider params are passed, so stg_scale alone is a
+                # no-op (an extra forward pass per step that's then discarded).
+                # When stg_scale>0 we ALSO pass explicit video/audio guider
+                # params with stg_blocks=[28] just below, which is what makes
+                # the knob actually do something on the HQ path.
                 stg_scale=float(p.get("stg_scale", 0.0)),
                 enable_teacache=bool(p.get("enable_teacache", True)),
                 teacache_thresh=float(p.get("teacache_thresh", 1.0)),
@@ -2207,6 +2211,36 @@ for line in sys.__stdin__:
                     p.get("stage2_image_conditioning", "full")
                 ),
             )
+            # STG engage: stg_scale>0 only bites if stg_blocks is non-empty.
+            # The HQ pipeline forces stg_blocks=[] in its own default guider
+            # params, so we hand it explicit params with stg_blocks=[28] (the
+            # block the one/two-stage pipelines perturb). Mirror the pipeline's
+            # other defaults verbatim (cfg/rescale/modality) so STG is the only
+            # thing that changes. At stg_scale<=0 we pass nothing → the pipeline
+            # builds its own [] params → byte-identical to the pre-slider path.
+            _stg = float(kwargs.get("stg_scale", 0.0))
+            if _stg > 0.0:
+                try:
+                    from ltx_core_mlx.components.guiders import MultiModalGuiderParams
+                    kwargs["video_guider_params"] = MultiModalGuiderParams(
+                        cfg_scale=float(kwargs.get("cfg_scale", 3.0)),
+                        stg_scale=_stg,
+                        rescale_scale=0.45,
+                        modality_scale=3.0,
+                        stg_blocks=[28],
+                    )
+                    kwargs["audio_guider_params"] = MultiModalGuiderParams(
+                        cfg_scale=7.0,
+                        stg_scale=_stg,
+                        rescale_scale=1.0,
+                        modality_scale=3.0,
+                        stg_blocks=[28],
+                    )
+                    emit({"event": "log", "line": f"STG detail guidance ON — stg_scale={_stg:g}, stg_blocks=[28]"})
+                except Exception as _stg_exc:
+                    # Never let STG wiring block a render — fall back to the
+                    # plain (STG-off) HQ path if the import/shape ever drifts.
+                    emit({"event": "log", "line": f"STG setup skipped ({_stg_exc}); rendering without STG."})
             img = p.get("image")
             if img:
                 if not os.path.exists(img):

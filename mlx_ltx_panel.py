@@ -5604,6 +5604,24 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         "output_path": None,
         "error": None,
     }
+    # STG (Spatio-Temporal Guidance) — "detail guidance" slider. Only stamp
+    # `stg_scale` onto params when the form actually sent a value, so each
+    # dispatch keeps its OWN default when the user didn't touch the slider:
+    #   - generate_hq reads p.get("stg_scale", 0.0)  → HQ STG off by default
+    #   - generate_a2v reads p.get("stg_scale", 1.0) → A2V STG on by default
+    # Forcing a key here would clobber the A2V default to 0.0 and silently
+    # turn A2V STG off — hence the conditional. STG only acts on the Q8 CFG
+    # pipelines (HQ / A2V); the Q4 distilled paths (Quick/Standard/Balanced)
+    # run X0Model with no guider and ignore it entirely. Clamp to the guider's
+    # sane band 0.0–4.0. This key MUST be set on params or it silently no-ops
+    # on /queue/add (the known allowlist trap), which is exactly why the panel
+    # JS only sends it on quality=high and we mirror that intent here.
+    _stg_raw = f("stg_scale", "")
+    if _stg_raw != "":
+        try:
+            job["params"]["stg_scale"] = max(0.0, min(4.0, float(_stg_raw)))
+        except (TypeError, ValueError):
+            pass
     # Attach Characters-origin metadata only when the form actually carried
     # it. Keeps the params shape unchanged for every other entry point.
     if _source == "characters" and _character_id:
@@ -7409,13 +7427,19 @@ def run_job_inner(job: dict) -> None:
                 "stage1_steps": int(p.get("stage1_steps", 10)),
                 "stage2_steps": int(p.get("stage2_steps", 3)),
                 "cfg_scale": float(p.get("cfg_scale", 3.0)),
-                # Upstream HQ params (`LTX_2_3_HQ_PARAMS`) and the
-                # TwoStageHQPipeline signature both default stg_scale=0.0.
-                # HQ uses res_2s sampler with `stg_blocks=[]`, so STG is
-                # meant to be off — passing 1.0 burns one extra forward
-                # pass per outer step (~33% slower) for nothing. Was 1.0
-                # by mistake (copy from standard params); fixed here.
-                "stg_scale": 0.0,
+                # STG (Spatio-Temporal Guidance) scale — driven by the
+                # "detail guidance" slider (make_job clamps to 0.0–4.0;
+                # default 0.0 = OFF). The TwoStageHQPipeline signature
+                # defaults stg_scale=0.0 AND forces stg_blocks=[] when no
+                # explicit guider params are passed, so a bare stg_scale>0
+                # would burn an extra forward pass per outer step for zero
+                # effect. The helper's generate_hq branch closes that gap:
+                # when stg_scale>0 it builds explicit video/audio guider
+                # params with stg_blocks=[28] (the block the one/two-stage
+                # pipelines perturb) so the knob actually engages. At 0.0
+                # the helper passes nothing extra → byte-identical to the
+                # prior hardcoded-0.0 behaviour.
+                "stg_scale": float(p.get("stg_scale", 0.0)),
                 "enable_teacache": True,
                 # HQ TeaCache default — see make_job comment. 1.8 is the
                 # empirical sweet spot for character mode (revert from
@@ -20123,6 +20147,31 @@ HTML = r"""<!doctype html>
               </div>
             </div>
 
+            <!-- STG (Spatio-Temporal Guidance) — "detail guidance". The Q8 HQ
+                 res_2s guider adds stg_scale·(cond - perturbed) to the
+                 prediction (guiders.py MultiModalGuider.calculate), which
+                 cleans up motion + fine detail at the cost of an extra forward
+                 pass per outer step (slower). 0.0 = OFF (default — the guider
+                 short-circuits at exactly 0.0). Only acts on the Q8 HQ path
+                 (quality=high); the Q4 distilled paths ignore STG entirely, so
+                 the row is revealed only when quality=high (same gating as the
+                 HQ-speed row above — _applyStgRowVisibility). The range input
+                 carries name="stg_scale" so FormData collects it; the submit
+                 handler also fd.set()s it explicitly. -->
+            <div id="stgRow" class="cz-control" hidden>
+              <div class="cz-label">STG — detail guidance
+                <span class="cz-label-hint">cleaner motion &amp; detail, slower · 0 = off</span>
+              </div>
+              <div class="characters-strength-control" style="display:flex;align-items:center;gap:10px;">
+                <input type="range" name="stg_scale" id="stgScale"
+                       min="0" max="4" step="0.5" value="0"
+                       style="flex:1;width:auto"
+                       oninput="document.getElementById('stgScaleValue').textContent = (this.value==='0' ? 'Off' : (+this.value).toFixed(1));"
+                       title="0 = off (no quality/speed change). 1.0–1.5 is a sensible starting band for a visible detail/motion lift; higher = stronger but slower and can over-sharpen.">
+                <span class="characters-strength-value" id="stgScaleValue">Off</span>
+              </div>
+            </div>
+
             <!-- Long Clip Boost — asks LTX 2.3 to generate fewer semantic
                  frames at 12fps, then exports a normal 24fps file with
                  motion interpolation. This is explicit because dialogue,
@@ -26524,6 +26573,9 @@ function setQuality(q) {
   if (typeof _applyHqSpeedRowVisibility === 'function') {
     try { _applyHqSpeedRowVisibility(); } catch (_) {}
   }
+  if (typeof _applyStgRowVisibility === 'function') {
+    try { _applyStgRowVisibility(); } catch (_) {}
+  }
   if (LAST_STATUS) updateModelsCard(LAST_STATUS);
 }
 function setAccel(a) {
@@ -29395,6 +29447,22 @@ document.getElementById('genForm').addEventListener('submit', async e => {
         fd.delete('keyframe_count');
       }
     }
+    // STG "detail guidance" — explicit fd.set so the value is unambiguous
+    // and so it only rides along when it can actually do something. STG acts
+    // only on the Q8 HQ path (quality=high); the Q4 distilled paths ignore it
+    // entirely (DistilledPipeline runs no guider). On any non-high quality we
+    // drop the field so a stale slider value can't reach the worker. The range
+    // input already carries name="stg_scale", but the FormData copy is
+    // post-processed here so this set() wins regardless of input order.
+    {
+      const _q = (fd.get('quality') || '').toString();
+      const _stgEl = document.getElementById('stgScale');
+      if (_q === 'high' && _stgEl) {
+        fd.set('stg_scale', _stgEl.value || '0');
+      } else {
+        fd.delete('stg_scale');
+      }
+    }
     await api('/queue/add','POST',fd);
   } finally {
     // Re-enable on the next event-loop tick so the button visibly
@@ -31424,9 +31492,12 @@ function _setCharacterQuality(btn) {
   if (typeof updateCustomizeSummary === 'function') {
     try { updateCustomizeSummary(); } catch (_) {}
   }
-  // Quality is now 'high'; reveal the HQ-speed row.
+  // Quality is now 'high'; reveal the HQ-speed row + STG slider.
   if (typeof _applyHqSpeedRowVisibility === 'function') {
     try { _applyHqSpeedRowVisibility(); } catch (_) {}
+  }
+  if (typeof _applyStgRowVisibility === 'function') {
+    try { _applyStgRowVisibility(); } catch (_) {}
   }
 }
 
@@ -31481,6 +31552,20 @@ function _wireHqSpeedPills() {
 // optimization).
 function _applyHqSpeedRowVisibility() {
   const row = document.getElementById('hqSpeedRow');
+  if (!row) return;
+  const q = document.getElementById('quality')?.value || '';
+  row.hidden = (q !== 'high');
+}
+
+// Show the STG "detail guidance" slider only when quality=high (Q8 HQ).
+// STG is a no-op on the Q4 distilled paths, so there's nothing to expose
+// for Quick/Standard/Balanced. Hiding the row does NOT reset stg_scale —
+// the slider's own value persists; the make_job clamp + the helper's
+// stg_scale>0 gate mean a stale non-zero value can't engage on a Q4 render
+// anyway (the Q4 dispatch never reads stg_scale). Mirror of
+// _applyHqSpeedRowVisibility so the two HQ-only rows reveal together.
+function _applyStgRowVisibility() {
+  const row = document.getElementById('stgRow');
   if (!row) return;
   const q = document.getElementById('quality')?.value || '';
   row.hidden = (q !== 'high');
@@ -31925,9 +32010,12 @@ document.addEventListener('DOMContentLoaded', () => {
   if (typeof _applyCharacterQualityStripVisibility === 'function') {
     try { _applyCharacterQualityStripVisibility(); } catch (e) {}
   }
-  // Apply correct HQ-speed-row visibility based on initial quality.
+  // Apply correct HQ-speed-row + STG-slider visibility based on initial quality.
   if (typeof _applyHqSpeedRowVisibility === 'function') {
     try { _applyHqSpeedRowVisibility(); } catch (e) {}
+  }
+  if (typeof _applyStgRowVisibility === 'function') {
+    try { _applyStgRowVisibility(); } catch (e) {}
   }
 });
 
