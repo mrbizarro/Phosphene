@@ -902,7 +902,21 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
     # (and their paired scales, kept index-aligned) up front and log it.
     _lora_paths_in = list(config.mflux_lora_paths or [])
     _lora_scales_in = list(config.mflux_lora_scales or [])
-    if fam != "qwen_edit" and _lora_paths_in:
+    if fam == "ideogram" and _lora_paths_in:
+        # Ideogram 4 CANNOT consume external LoRAs: its transformer key
+        # names share zero overlap with Qwen/FLUX LoRA keys, so mflux's
+        # loader matches 0/2304 keys yet prints "applied successfully" — a
+        # silent no-LoRA render that makes users blame Ideogram for ignoring
+        # their character. Drop ALL user LoRAs (not just Qwen ones) and log
+        # honestly. This one chokepoint covers every entry path: the picker,
+        # a selection carried over from an engine switch, and /image/agent.
+        for _lp in _lora_paths_in:
+            if on_log is not None:
+                try: on_log(f"[lora] Ideogram cannot use external LoRAs — ignoring: {_lp}")
+                except Exception:  # noqa: BLE001
+                    pass
+        _lora_paths_in, _lora_scales_in = [], []
+    elif fam != "qwen_edit" and _lora_paths_in:
         _kept_p: list = []
         _kept_s: list = []
         for _i, _lp in enumerate(_lora_paths_in):
