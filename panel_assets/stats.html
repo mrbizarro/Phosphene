@@ -712,6 +712,21 @@
       <div class="section-head">
         <h2>Discovery funnel <span class="h2-sub">how the repo converts pageviews to commitment</span></h2>
       </div>
+      <!-- All-time install/user headline — the number GitHub can't show
+           (it only keeps 14 days). Computed from the stitched clone archive
+           in renderFunnel(). This is what "how many actual users" means. -->
+      <div id="alltime-hero" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:0 0 16px">
+        <div style="background:rgba(63,185,80,0.06);border:1px solid rgba(63,185,80,0.28);border-radius:12px;padding:16px 18px">
+          <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Estimated users <span style="color:#3fb950;opacity:.85">· all-time</span></div>
+          <div id="ath-users" style="font-size:34px;font-weight:680;color:var(--text);line-height:1.05;margin-top:5px">—</div>
+          <div id="ath-users-sub" style="font-size:11.5px;color:var(--muted);margin-top:4px">distinct installs · since first archive</div>
+        </div>
+        <div style="background:rgba(63,185,80,0.06);border:1px solid rgba(63,185,80,0.28);border-radius:12px;padding:16px 18px">
+          <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Total clones <span style="color:#3fb950;opacity:.85">· all-time</span></div>
+          <div id="ath-clones" style="font-size:34px;font-weight:680;color:var(--text);line-height:1.05;margin-top:5px">—</div>
+          <div id="ath-clones-sub" style="font-size:11.5px;color:var(--muted);margin-top:4px">vs GitHub's 14-day window</div>
+        </div>
+      </div>
       <div class="funnel" id="funnel"
            aria-label="Funnel from views to clones to stars to forks">
         <!-- populated by JS -->
@@ -1523,6 +1538,23 @@
           ${!last ? `<div class="funnel-arrow" aria-hidden="true">›</div>` : ''}
         </div>`;
     }).join('');
+
+    // All-time install / user headline — the number GitHub can't show.
+    // clonesSeriesAllTime() unions EVERY snapshot's 14-day window into one
+    // continuous history, so we recover the full record beyond GitHub's
+    // 14-day cutoff. est users = sum of daily unique IPs ÷ 1.7 (reinstall
+    // pattern); the true count sits between this and the raw unique sum.
+    const _at = clonesSeriesAllTime(rows);
+    const _atClones = _at.reduce((a, p) => a + (p.count || 0), 0);
+    const _atUniq   = _at.reduce((a, p) => a + (p.uniques || 0), 0);
+    const _atUsers  = _atUniq > 0 ? Math.round(_atUniq / 1.7) : 0;
+    const _setTxt = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+    _setTxt('ath-users', fmt(_atUsers));
+    _setTxt('ath-clones', fmt(_atClones));
+    if (_at.length) {
+      _setTxt('ath-users-sub', `≈ distinct installs · ${_atUniq.toLocaleString()} unique IPs since ${_at[0].date}`);
+      _setTxt('ath-clones-sub', `${_at.length} days archived · GitHub only keeps 14`);
+    }
   }
 
   // ===================================================================
