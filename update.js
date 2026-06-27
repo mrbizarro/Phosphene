@@ -282,6 +282,25 @@ module.exports = {
         ].join("\n")
       }
     },
+
+    // ---- Colorize IC-LoRA (restore mode, ~0.3 GB, un-gated) --------------
+    // Self-heal existing installs onto the Colorize restore feature. UN-GATED
+    // community weights (no HF token). BEST-EFFORT — a network hiccup must not
+    // fail the update; the worker falls back to the repo id, and the panel
+    // surfaces Repair. hf skips it when already present (fast verify).
+    {
+      method: "shell.run",
+      params: {
+        venv: "env",
+        path: "ltx-2-mlx",
+        env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
+        message: [
+          "echo 'Ensuring the Colorize IC-LoRA is present (restore mode, optional)…' && \\",
+          "hf download DoctorDiffusion/LTX-2.3-IC-LoRA-Colorizer --local-dir ../mlx_models/loras/ic --include 'LTX-2.3-22b-IC-LoRA-Colorizer-0.9.safetensors' \\",
+          "|| echo 'WARN: Colorize IC-LoRA fetch failed — the Colorize mode will fetch it on first use, or click Repair.'"
+        ].join("\n")
+      }
+    },
     {
       method: "shell.run",
       params: {

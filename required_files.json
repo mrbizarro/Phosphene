@@ -76,6 +76,24 @@
         "vocoder.safetensors",
         "spatial_upscaler_x2_v1_1.safetensors"
       ]
+    },
+    {
+      "key": "ic_colorize",
+      "kind": "optional",
+      "name": "Colorize IC-LoRA (community)",
+      "blurb": "Optional. Powers the Colorize restore mode — adds natural color to a B&W source clip. Un-gated community weights (no HF token).",
+      "repo_id": "DoctorDiffusion/LTX-2.3-IC-LoRA-Colorizer",
+      "local_dir": "mlx_models/loras/ic",
+      "size_gb": 1,
+      "files": [
+        "LTX-2.3-22b-IC-LoRA-Colorizer-0.9.safetensors"
+      ],
+      "file_sizes": {
+        "LTX-2.3-22b-IC-LoRA-Colorizer-0.9.safetensors": 327287384
+      },
+      "download_include": [
+        "LTX-2.3-22b-IC-LoRA-Colorizer-0.9.safetensors"
+      ]
     }
   ],
 

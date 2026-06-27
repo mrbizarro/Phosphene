@@ -743,6 +743,30 @@ CURATED_LORAS: dict[str, dict] = {
         "is_curated": True,
         "is_hdr_toggle": False,
     },
+    # Colorize — the first real IC-LoRA feature, on UN-GATED community weights
+    # (DoctorDiffusion/LTX-2.3-IC-LoRA-Colorizer). Drives the "Colorize"
+    # (restore) mode, not the LoRA picker — `is_restore_lora` keeps it out of
+    # the user-facing curated list the way `is_hdr_toggle` hides HDR. The
+    # worker injects it by `local_path` when mode=="restore". The LoRA was
+    # trained against the Q4 distilled checkpoint, so restore forces Q4.
+    "colorize": {
+        "id": "colorize",
+        "name": "Colorize",
+        "description": "Community IC-LoRA that adds natural color to a B&W / "
+                       "desaturated source clip. Drives the Colorize restore "
+                       "mode; takes the source video on the IC reference "
+                       "channel. Un-gated — no HF token needed.",
+        "repo_id": "DoctorDiffusion/LTX-2.3-IC-LoRA-Colorizer",
+        # Local file the installer fetches (see required_files.json →
+        # repos[ic_colorize] + install.js/update.js). Preferred over repo_id so
+        # the helper fuses a local .safetensors with no snapshot_download.
+        "local_path": str(LORAS_DIR / "ic" / "LTX-2.3-22b-IC-LoRA-Colorizer-0.9.safetensors"),
+        "default_strength": 1.0,
+        "trigger_words": [],
+        "is_curated": True,
+        "is_hdr_toggle": False,
+        "is_restore_lora": True,        # hide from the LoRA picker (mode-driven)
+    },
 }
 
 
@@ -5521,6 +5545,10 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             "audio": f("audio", str(AUDIO_DEFAULT)),
             # extend mode params
             "video_path": f("video_path", ""),
+            # restore (Colorize) mode — the B&W source clip to colorize. MUST
+            # be in this allowlist or the path silently no-ops on /queue/add
+            # (the known make_job allowlist trap — see CLAUDE.md).
+            "restore_video_path": f("restore_video_path", ""),
             "extend_frames": max(1, int(f("extend_frames", "5") or 5)),
             "extend_direction": f("extend_direction", "after"),
             "extend_steps": max(1, int(f("extend_steps", "8") or 8)),
@@ -6754,7 +6782,7 @@ def run_job_inner(job: dict) -> None:
     quality = p.get("quality", "standard")
     if p.get("accel") not in ("off", "boost", "turbo"):
         p["accel"] = "off"
-    if quality == "high" or mode in ("extend", "keyframe", "a2v"):
+    if quality == "high" or mode in ("extend", "keyframe", "a2v", "restore"):
         p["accel"] = "off"
 
     # Guard: Q4 distilled hardcoded 9-sigma schedule needs the full walk to
@@ -6765,7 +6793,7 @@ def run_job_inner(job: dict) -> None:
     #   - extend / keyframe use stage1_steps + stage2_steps via two-stage path
     #   - high quality uses two-stage HQ with its own schedule
     #   - a2v uses A2VidPipelineTwoStage's stage1/stage2 walks
-    if mode not in ("extend", "keyframe", "a2v") and quality != "high" and int(p.get("steps", 8)) < 8:
+    if mode not in ("extend", "keyframe", "a2v", "restore") and quality != "high" and int(p.get("steps", 8)) < 8:
         raise RuntimeError(
             f"steps={p.get('steps')} is below the 8-step minimum for the Q4 distilled "
             "schedule. Fewer steps truncates the sigma walk and leaves >70% noise in "
@@ -6885,6 +6913,108 @@ def run_job_inner(job: dict) -> None:
         write_sidecar(final_out.with_suffix(final_out.suffix + ".json"), sidecar)
         job["output_path"] = str(final_out)
         push(f"Extend done in {sidecar['elapsed_sec']}s → {final_out.name}")
+        if p.get("open_when_done"):
+            subprocess.run(["open", str(final_out)], check=False)
+        return
+
+    if mode == "restore":
+        # Restore (Colorize) — B&W / desaturated source clip → colorized clip,
+        # via the community Colorize IC-LoRA. Modeled on the EXTEND branch:
+        # validate a source video, force the Q4 distilled folder (the LoRA was
+        # trained against Q4 distilled, NOT Q8), inject the curated colorize
+        # LoRA, ride the source on the IC reference channel, dispatch via
+        # HELPER.run(generate_restore). Default off — no other mode changes.
+        src = p.get("restore_video_path") or ""
+        if not src or not Path(src).exists():
+            raise RuntimeError(
+                f"source video for Colorize not found: {src!r}. Pick a B&W clip "
+                "in the Colorize source picker (or paste a path)."
+            )
+        # Resolution clamp — same shape as Extend. Restore runs the distilled
+        # two-stage walk; keep the source within the tier's max side so the
+        # VAE encode + denoise fits memory. Cached by target dims.
+        original_src = Path(src)
+        res_max = tier_max_dim("i2v")
+        if res_max:
+            downscaled_src = _ensure_downscaled(original_src, max_dim=res_max)
+            if downscaled_src != original_src:
+                push(f"Colorize: source {original_src.name} downscaled to "
+                     f"{downscaled_src.name} (≤{res_max} max-side, "
+                     f"{SYSTEM_CAPS['label']} tier).")
+                src = str(downscaled_src)
+        # Match the output canvas to the (possibly downscaled) source so the
+        # IC reference and the generated frames line up. _probe_video_dims is
+        # the same ffprobe wrapper the rest of the panel uses (returns (0,0)
+        # on failure → fall back to the form's width/height). This branch runs
+        # BEFORE the shared width/height/frames locals are computed further
+        # down run_job_inner, so read straight off `p`.
+        req_w = int(p.get("width") or 0)
+        req_h = int(p.get("height") or 0)
+        req_frames = int(p.get("frames") or 0) or 49
+        sw, sh = _probe_video_dims(src)
+        # LTX requires width/height multiples of 32 and frames % 8 == 1.
+        col_w = max(32, (int(sw) // 32) * 32) if sw else max(32, req_w)
+        col_h = max(32, (int(sh) // 32) * 32) if sh else max(32, req_h)
+        col_frames = req_frames
+        if col_frames % 8 != 1:
+            col_frames = max(9, col_frames - (col_frames % 8) + 1)
+        strength = float(CURATED_LORAS["colorize"]["default_strength"])
+        # Prefer the local file the installer fetched; fall back to repo_id so
+        # the helper's _resolve_lora_path can snapshot_download it on first use.
+        colorize_lora_path = CURATED_LORAS["colorize"].get("local_path") or ""
+        if not (colorize_lora_path and Path(colorize_lora_path).exists()):
+            colorize_lora_path = CURATED_LORAS["colorize"]["repo_id"]
+        restore_loras = list(p.get("loras") or []) + [{
+            "path": colorize_lora_path,
+            "strength": strength,
+        }]
+        out_name = original_src.stem + f"_colorized_{stamp}.mp4"
+        final_out = OUTPUT / out_name
+        job["raw_path"] = str(final_out)
+        # Force the Q4 distilled folder — same rule HDR uses. The Colorize
+        # IC-LoRA was trained against transformer-distilled.safetensors.
+        restore_model_dir = (str(MODELS_DIR / "ltx-2.3-mlx-q4")
+                             if (MODELS_DIR / "ltx-2.3-mlx-q4").is_dir()
+                             else str(MODELS_DIR))
+        job_spec = {
+            "action": "generate_restore",
+            "id": job["id"],
+            "params": {
+                "model_dir": restore_model_dir,
+                "prompt": p["prompt"],
+                "negative_prompt": p.get("negative_prompt", ""),
+                "output_path": str(final_out),
+                "height": col_h,
+                "width": col_w,
+                "frames": col_frames,
+                "frame_rate": float(FPS),
+                "seed": p["seed"],
+                # The source clip rides the IC reference channel.
+                "video_conditioning": [[src, strength]],
+                "loras": restore_loras,
+                # Distilled two-stage defaults (same as the HDR IC path).
+                "stage1_steps": int(p.get("stage1_steps", 8)),
+                "stage2_steps": int(p.get("stage2_steps", 3)),
+            },
+        }
+        push(f"Colorize via helper: id={job['id']} src={original_src.name} "
+             f"{col_w}x{col_h} {col_frames}f (Q4 distilled + Colorize IC-LoRA)")
+        result = HELPER.run(job_spec)
+        if "seed_used" in result:
+            push(f"seed used: {result['seed_used']}")
+            p["seed_used"] = result["seed_used"]
+        sidecar = {
+            "output": str(final_out), "raw_output": str(final_out),
+            "params": {**p, "command": "restore"},
+            "started": job.get("started_at"),
+            "elapsed_sec": round(time.time() - job["started_ts"], 2) if job.get("started_ts") else None,
+            "fps": FPS, "model": restore_model_dir, "queue_id": job["id"],
+            "helper_elapsed_sec": result.get("elapsed_sec"),
+            "output_codec": output_codec_settings(),
+        }
+        write_sidecar(final_out.with_suffix(final_out.suffix + ".json"), sidecar)
+        job["output_path"] = str(final_out)
+        push(f"Colorize done in {sidecar['elapsed_sec']}s → {final_out.name}")
         if p.get("open_when_done"):
             subprocess.run(["open", str(final_out)], check=False)
         return
@@ -7361,13 +7491,16 @@ def run_job_inner(job: dict) -> None:
                 "stage2_steps": int(p.get("stage2_steps", 3)),
             },
         }
-        if helper:
-            push(f"Run HDR via helper: id={job['id']} {width}x{height} {frames}f")
-            helper.send(job_spec)
-            sidecar = helper.wait_done(job["id"])
-            push(f"HDR done in {sidecar['elapsed_sec']}s → {Path(raw_out).name}")
-        else:
-            raise RuntimeError("HDR requires the warm helper subprocess")
+        # WarmHelper exposes only .run(job_spec) (it serializes the whole
+        # round-trip and returns the done/error event) — the old
+        # helper.send()/helper.wait_done() pair never existed on this class,
+        # so this dispatch raised AttributeError if HDR were ever re-exposed.
+        # Match the EXTEND / restore branches: one HELPER.run call.
+        push(f"Run HDR via helper: id={job['id']} {width}x{height} {frames}f")
+        result = HELPER.run(job_spec)
+        if "seed_used" in result:
+            p["seed_used"] = result["seed_used"]
+        push(f"HDR done in {result.get('elapsed_sec')}s → {Path(raw_out).name}")
         # Post-process: same encode pass T2V/I2V get (mux audio, upscale,
         # write sidecar). Re-uses the standard tail of run_job_inner by
         # falling through to it — set up the bookkeeping fields the same
@@ -9208,7 +9341,8 @@ class Handler(BaseHTTPRequestHandler):
                     if not _is_character_lora(l, blocked_names)
                 ]
             curated = [c for c in list_curated_loras()
-                       if not c.get("is_hdr_toggle")]
+                       if not c.get("is_hdr_toggle")
+                       and not c.get("is_restore_lora")]
             self._json({
                 "user": user_loras,
                 "curated": curated,
@@ -19550,6 +19684,10 @@ HTML = r"""<!doctype html>
            chooses any total anchor count from 3–8. -->
       <button type="button" class="mode-chip pill-btn" data-mode="keyframe" data-kf-default="multi">Keyframes<span class="mc-sub sub">3–8 frames</span></button>
       <button type="button" class="mode-chip pill-btn" data-mode="extend">Extend<span class="mc-sub sub">continue a clip</span></button>
+      <!-- Colorize (restore) — the first community IC-LoRA feature. Runs on
+           Q4 distilled (unlike FFLF/Extend/Character, which are Q8-only and
+           hidden on the Q4 tier), so it stays visible at every tier. -->
+      <button type="button" class="mode-chip pill-btn" data-mode="restore">Colorize<span class="mc-sub sub">B&amp;W clip → color</span></button>
       <!-- "Train" used to live here as a mode chip; promoted 2026-05-15 to
            a workflow tier (top tab strip). "Studio" (image generation) also
            lived here until 2026-05-17 — Mr Bizarro flagged that mixing image gen
@@ -19782,6 +19920,18 @@ HTML = r"""<!doctype html>
             <input type="hidden" name="extend_steps" id="extend_steps" value="12">
             <input type="hidden" name="extend_cfg"   id="extend_cfg"   value="1.0">
             <div class="hint">Each latent ≈ 8 frames (~0.33s). Q8 Pro runs the upstream Lightricks defaults but pushes 1280×704 into swap on 64 GB Macs (~2 hr/render). Stick with Q8 Draft unless you've got more RAM.</div>
+          </div>
+
+          <!-- Colorize (restore) — source-video picker, cloned from the
+               Extend block. The user picks a B&W / desaturated clip; the
+               Colorize IC-LoRA rides it on the reference channel and paints
+               in natural color. Q4 distilled (no Q8 needed). Shown/hidden by
+               updateDerived() when currentMode === 'restore'. -->
+          <div class="mode-only" id="restoreSection">
+            <h2>Source video to colorize</h2>
+            <select id="restoreSrcSelect" onchange="document.getElementById('restore_video_path').value=this.value"></select>
+            <input name="restore_video_path" id="restore_video_path" placeholder="/path/to/blackandwhite.mp4" style="margin-top:6px">
+            <div class="hint" style="margin-top:6px">Pick a black-and-white or washed-out clip. The prompt below describes the colors to paint in (e.g. "golden warm sunlight, blue sky, green grass"). Output matches the source's resolution + length. Runs on Q4 — no Q8 needed.</div>
           </div>
         </div>
 
@@ -22382,7 +22532,7 @@ function _autoMainOutputsFilterForMode(mode) {
   // Auto-set NEVER lands on 'all' — that's user-only, per spec.
   let target = null;
   if (mode === 'image') target = 'photos';
-  else if (mode === 't2v' || mode === 'i2v' || mode === 'keyframe' || mode === 'extend') target = 'videos';
+  else if (mode === 't2v' || mode === 'i2v' || mode === 'keyframe' || mode === 'extend' || mode === 'restore') target = 'videos';
   if (!target) return;
   // Same-filter early-return is conditional now: if the filter is already
   // on `target` but the visible list is empty AND we haven't loaded the
@@ -22469,6 +22619,9 @@ function setMode(mode) {
   // hides the chips, but a stale localStorage, charactersLoadParams(), or
   // a JS caller could still try to switch. Snap to t2v with a console
   // warning so we never end up in an unrenderable mode by accident.
+  // NOTE: 'restore' (Colorize) is deliberately NOT in this list — its
+  // IC-LoRA was trained against the Q4 distilled checkpoint, so it RUNS on
+  // the Q4 tier. Don't add it here or you'll break the feature on sub-48GB.
   if (window.PHOSPHENE_CAP_TIER === 'q4' && (mode === 'keyframe' || mode === 'extend' || mode === 'character')) {
     console.warn(`setMode(${mode}): not available on Q4 tier — snapping to t2v`);
     mode = 't2v';
@@ -26950,6 +27103,11 @@ function updateDerived() {
   const inImageFlow = inI2V || currentMode === 'keyframe';
   document.getElementById('imageSection').classList.toggle('show', inI2V && currentMode !== 'keyframe');
   document.getElementById('extendSection').classList.toggle('show', currentMode === 'extend');
+  // Colorize (restore) shows its own source-video picker. Unlike Extend it
+  // KEEPS the sizing + quick-metrics rows below (the source's own dims/length
+  // drive the output, but the prompt + seed still apply).
+  const _restoreSection = document.getElementById('restoreSection');
+  if (_restoreSection) _restoreSection.classList.toggle('show', currentMode === 'restore');
   document.getElementById('keyframeSection').classList.toggle('show', currentMode === 'keyframe');
   // Keyframe toggle row — visible only in keyframe mode
   const kfToggleRow = document.getElementById('kfToggleRow');
@@ -27932,8 +28090,12 @@ async function poll() {
     // .png as an Extend source (which would 400 server-side).
     const sel = document.getElementById('extendSrcSelect');
     const videoOutputs = currentOutputs.filter(o => !isPhotoOutputMain(o));
-    sel.innerHTML = '<option value="">— pick an output below or paste a path —</option>' +
+    const _videoOpts = '<option value="">— pick an output below or paste a path —</option>' +
       videoOutputs.slice(0, 40).map(o => `<option value="${escapeHtml(o.path)}">${escapeHtml(o.name)}</option>`).join('');
+    sel.innerHTML = _videoOpts;
+    // Colorize (restore) source dropdown — same video-only list as Extend.
+    const restoreSel = document.getElementById('restoreSrcSelect');
+    if (restoreSel) restoreSel.innerHTML = _videoOpts;
   }
   // (The old "Hidden (N)" pill that lived here was retired with the
   // Visible/Hidden segmented control — the carousel-head comment above

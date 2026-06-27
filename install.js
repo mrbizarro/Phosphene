@@ -366,6 +366,28 @@ module.exports = {
       }
     },
 
+    // ---- Colorize IC-LoRA (~0.3 GB, un-gated community weights) -----------
+    // Powers the Colorize restore mode (B&W clip → color). UN-GATED, so no
+    // HF token is needed — but BEST-EFFORT regardless: a network hiccup (or a
+    // future gating change) must NEVER fail the core video install. The panel
+    // surfaces the same Repair path if the file didn't land, and the worker
+    // falls back to resolving the repo id at first use. Lands the file at
+    // mlx_models/loras/ic/ (matches required_files.json → repos[ic_colorize]
+    // + CURATED_LORAS["colorize"].local_path).
+    {
+      method: "shell.run",
+      params: {
+        venv: "env",
+        path: "ltx-2-mlx",
+        env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
+        message: [
+          "echo 'Fetching the Colorize IC-LoRA (restore mode, ~0.3 GB, optional)…' && \\",
+          "hf download DoctorDiffusion/LTX-2.3-IC-LoRA-Colorizer --local-dir ../mlx_models/loras/ic --include 'LTX-2.3-22b-IC-LoRA-Colorizer-0.9.safetensors' \\",
+          "|| echo 'WARN: Colorize IC-LoRA fetch failed — video + image still work; the Colorize mode will fetch it on first use, or click Repair.'"
+        ].join("\n")
+      }
+    },
+
     // ---- Done -------------------------------------------------------------
     {
       method: "notify",

@@ -2603,6 +2603,114 @@ for line in sys.__stdin__:
             _is_busy = False
         continue
 
+    if action == "generate_restore":
+        # Restore (Colorize) via a community IC-LoRA. The first real IC-LoRA
+        # feature on un-gated weights (DoctorDiffusion/LTX-2.3-IC-LoRA-
+        # Colorizer). Mechanically this mirrors generate_hdr but with TWO
+        # deliberate differences:
+        #   (a) ICLoraPipeline (ltx_pipelines_mlx.ic_lora), NOT
+        #       HDRICLoraPipeline. The community Colorize LoRA carries no
+        #       hdr_transform metadata — only reference_downscale_factor=1 —
+        #       so the LogC3 inverse + HDR .npz companion the HDR class adds
+        #       would be wrong here. ICLoraPipeline fuses the LoRA, runs the
+        #       two-stage walk, and writes a plain SDR mp4.
+        #   (b) A non-empty SOURCE video is REQUIRED. It rides the IC
+        #       reference channel as video_conditioning=[(src, strength)] —
+        #       the B&W clip the user wants colorized. (HDR Phase 1 ran
+        #       text-driven with video_conditioning=[].) Verified on MLX by
+        #       the de-risk render (scratchpad/ic_colorize_smoke.py).
+        #
+        # Routing: like HDR, the LoRA was trained against the Q4 distilled
+        # checkpoint, so the panel forces model_dir onto the Q4 distilled
+        # folder. ffprobe (probe_video_info, called inside generate_and_save
+        # for the reference video) needs FFMPEG_BIN on PATH — the helper
+        # inherits it from the panel (mlx_ltx_panel.py:5008).
+        job_id = msg.get("id", "?")
+        p = msg.get("params", {}) or {}
+        model_dir = p.get("model_dir") or MODEL_ID
+        seed = int(p.get("seed", -1))
+        if seed == -1:
+            seed = random.randint(0, 2**31 - 1)
+        _is_busy = True
+        try:
+            t0 = time.time()
+            configure_acceleration("off")
+            from ltx_pipelines_mlx.ic_lora import ICLoraPipeline
+            loras = p.get("loras") or []
+            if not loras:
+                raise RuntimeError(
+                    "Restore job requires the Colorize IC-LoRA in `loras`. The "
+                    "panel should have injected the curated colorize LoRA."
+                )
+            # A source video is mandatory — it IS the IC reference channel.
+            video_conditioning = p.get("video_conditioning") or []
+            if not video_conditioning:
+                raise RuntimeError(
+                    "Restore (Colorize) requires a source video. The panel "
+                    "should have set video_conditioning=[(src, strength)] from "
+                    "restore_video_path."
+                )
+            # Resolve each LoRA path (HF repo id → local safetensors via
+            # snapshot_download + largest-file pick; absolute path → pass-through).
+            resolved = [
+                (_resolve_lora_path(str(l["path"])), float(l.get("strength", 1.0)))
+                for l in loras
+            ]
+            num_frames = int(p["frames"])
+            _apply_vae_streaming_decision(num_frames)
+            # Tear down any existing cached pipeline before instantiating
+            # ICLoraPipeline — it loads its own DiT + VAE at init, so holding
+            # the t2v / i2v caches just doubles the memory footprint.
+            release_pipelines("restore render incoming")
+            pipe = ICLoraPipeline(
+                model_dir=Path(model_dir),
+                lora_paths=resolved,
+                low_memory=LOW_MEMORY,
+            )
+            emit({"event": "log",
+                  "line": f"step:generate_restore {p['width']}x{p['height']} "
+                          f"{num_frames}f @{float(p.get('frame_rate', 24.0)):.1f}fps "
+                          f"stage1={int(p.get('stage1_steps', 8))} "
+                          f"stage2={int(p.get('stage2_steps', 3))} "
+                          f"loras={len(resolved)} "
+                          f"ref_videos={len(video_conditioning)} "
+                          f"ref_downscale={getattr(pipe, 'reference_downscale_factor', '?')}"})
+            kwargs = dict(
+                prompt=p["prompt"],
+                output_path=p["output_path"],
+                video_conditioning=video_conditioning,
+                height=int(p["height"]),
+                width=int(p["width"]),
+                num_frames=num_frames,
+                frame_rate=float(p.get("frame_rate", 24.0)),
+                seed=seed,
+                stage1_steps=int(p.get("stage1_steps", 8)),
+                stage2_steps=int(p.get("stage2_steps", 3)),
+            )
+            kwargs = _filter_unsupported_kwargs(pipe.generate_and_save, kwargs)
+            out_path = pipe.generate_and_save(**kwargs)
+            # Drop the pipeline aggressively — restore jobs are rare and the
+            # DiT+VAE cost is substantial; don't cache it like t2v/i2v.
+            try:
+                pipe = None
+                from ltx_core_mlx.utils.memory import aggressive_cleanup as _ac
+                _ac()
+            except Exception:
+                pass
+            elapsed = round(time.time() - t0, 2)
+            _last_activity = time.time()
+            emit({
+                "event": "done", "id": job_id,
+                "output": str(out_path), "elapsed_sec": elapsed,
+                "seed_used": seed,
+            })
+        except Exception as exc:
+            _last_activity = time.time()
+            emit({"event": "error", "id": job_id, "error": str(exc), "trace": traceback.format_exc()})
+        finally:
+            _is_busy = False
+        continue
+
     if action == "enhance_prompt":
         # Gemma-driven prompt rewriting. Same model file as the pipeline's
         # text encoder, but loaded as a `GemmaLanguageModel` (the wrapper
