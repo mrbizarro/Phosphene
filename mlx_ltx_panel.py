@@ -856,12 +856,12 @@ LORA_LAB_RUN_SH = Path(
 # Quality preset → training hyperparams. lora_lab/train_character.py reads
 # these out of the spec JSON; the values here are the contract surface.
 #
-# Step counts are NOT hardcoded — they're derived from `epochs × image_count`
-# at job-build time (see make_job). The validated v2 recipe was 5000 steps
-# at 50 images = 100 epochs; that ratio is what each preset preserves as
-# the dataset grows. 79 images on "high" → 7900 steps, not 5000. Power
-# users can override per-run via the advanced "steps" field in the Train
-# tab — make_job honors form["steps"] when present.
+# Step counts are derived from `epochs × image_count` at job-build time
+# (see make_job), then capped by the active hardware training profile.
+# Unbounded epoch scaling made a 47-image Quick run launch 1410 full LTX
+# backward passes on a 48 GB Mac, which pushed MLX into swap and produced
+# a bogus multi-hour ETA. Presets now carry `max_steps`, and make_job also
+# clamps stale advanced form values server-side.
 #
 # `seconds_per_step` is the per-step wall-time measurement on M4 Max at the
 # preset's rank/resolution (1.75 s/step at rank-8 / 512×320 — see
@@ -871,12 +871,14 @@ TRAIN_PRESETS = {
                "seconds_per_step": 1.5,  "ram_peak_gb": 12,
                "label": "Quick",
                "subtitle": "~30 epochs · rank 8 · 512px",
-               "checkpoint_interval": 500},
+               "checkpoint_interval": 500,
+               "max_steps": 3000},
     "medium": {"epochs":  60, "rank": 16, "lr": 1e-4, "resolution": 576,
                "seconds_per_step": 2.2,  "ram_peak_gb": 18,
                "label": "Medium",
                "subtitle": "~60 epochs · rank 16 · 576px",
-               "checkpoint_interval": 500},
+               "checkpoint_interval": 500,
+               "max_steps": 5000},
     # high tier mirrors the validated CLI recipe (rank 32 / 100 epochs /
     # lr 1e-4 / 512px) — at 50 images that's the legacy 5000 steps. The
     # earlier 5e-5 LR was a mistake; 1e-4 is the proven default
@@ -886,7 +888,8 @@ TRAIN_PRESETS = {
                "seconds_per_step": 2.0,  "ram_peak_gb": 28,
                "label": "High",
                "subtitle": "~100 epochs · rank 32 · 512px (validated v2 recipe)",
-               "checkpoint_interval": 250},
+               "checkpoint_interval": 250,
+               "max_steps": 7000},
 }
 
 # Style LoRA presets — parallel to TRAIN_PRESETS but tuned for aesthetic
@@ -908,32 +911,135 @@ TRAIN_STYLE_PRESETS = {
                "seconds_per_step": 1.5,  "ram_peak_gb": 12,
                "label": "Quick",
                "subtitle": "~30 epochs · rank 16 · 512px",
-               "checkpoint_interval": 500},
+               "checkpoint_interval": 500,
+               "max_steps": 3000},
     "medium": {"epochs":  60, "rank": 32, "lr": 1e-4, "resolution": 512,
                "seconds_per_step": 2.0,  "ram_peak_gb": 18,
                "label": "Medium",
                "subtitle": "~60 epochs · rank 32 · 512px",
-               "checkpoint_interval": 500},
+               "checkpoint_interval": 500,
+               "max_steps": 5000},
     "high":   {"epochs": 100, "rank": 32, "lr": 1e-4, "resolution": 512,
                "seconds_per_step": 2.0,  "ram_peak_gb": 28,
                "label": "High",
                "subtitle": "~100 epochs · rank 32 · 512px",
-               "checkpoint_interval": 250},
+               "checkpoint_interval": 250,
+               "max_steps": 7000},
 }
+
+
+TRAIN_TARGET_MODULES_DEFAULT = ["to_q", "to_k", "to_v", "to_out"]
+TRAIN_TARGET_MODULES_COMPACT = ["to_q", "to_v"]
 
 
 def _preset_steps_for(preset_cfg: dict, image_count: int) -> int:
     """Compute steps for a preset given the dataset size.
 
-    `epochs × image_count` is the contract. Floor of 1 (so a degenerate
-    image_count=0 doesn't yield zero-step training, which would just
-    skip the loop and emit a useless artifact). No upper bound here —
-    if a power user uploads 200 images to a "high" preset and wants
-    20000 steps (~11h), the system honors that. The Train tab's wall-
-    time chip surfaces the cost up-front so it's their informed call.
+    `epochs × image_count` is the baseline. Floor of 1 (so a degenerate
+    image_count=0 doesn't yield zero-step training), then cap by the
+    preset's `max_steps` when present. The cap is deliberately part of the
+    server contract: old browser JS and hand-written API calls must not be
+    able to enqueue a multi-thousand-step run on a memory-constrained Mac
+    by accident.
     """
     epochs = int(preset_cfg.get("epochs", 0))
-    return max(1, epochs * max(1, int(image_count or 0)))
+    steps = max(1, epochs * max(1, int(image_count or 0)))
+    try:
+        max_steps = int(preset_cfg.get("max_steps") or 0)
+    except (TypeError, ValueError):
+        max_steps = 0
+    if max_steps > 0:
+        steps = min(steps, max_steps)
+    return steps
+
+
+def _select_train_profile(total_ram_gb: float, tier_key: str) -> dict:
+    """Mutate Train presets for hardware-sensitive LoRA training.
+
+    Video rendering and LoRA training have different memory shapes. A 48 GB
+    Mac can run the regular Q4/Q8 video modes, but full 512px LTX LoRA
+    training still materializes backward activations for the dev transformer
+    and falls into heavy swap. The compact profile trades capacity for a run
+    that finishes: lower canvas, lower rank, fewer target modules, and capped
+    steps. The clamps are mirrored in make_job so stale forms cannot bypass
+    them.
+    """
+    if 0 < float(total_ram_gb or 0) < 64:
+        compact_modules = list(TRAIN_TARGET_MODULES_COMPACT)
+        TRAIN_PRESETS.update({
+            "quick":  {"epochs": 2,  "rank": 4, "lr": 1e-4, "resolution": 384,
+                       "seconds_per_step": 14.0, "ram_peak_gb": 38,
+                       "label": "Quick",
+                       "subtitle": "~2 epochs · rank 4 · 384px · max 120 steps",
+                       "checkpoint_interval": 100,
+                       "max_steps": 120, "max_rank": 4, "max_resolution": 384,
+                       "target_modules": compact_modules},
+            "medium": {"epochs": 5,  "rank": 8, "lr": 1e-4, "resolution": 384,
+                       "seconds_per_step": 16.0, "ram_peak_gb": 40,
+                       "label": "Medium",
+                       "subtitle": "~5 epochs · rank 8 · 384px · max 300 steps",
+                       "checkpoint_interval": 100,
+                       "max_steps": 300, "max_rank": 8, "max_resolution": 384,
+                       "target_modules": compact_modules},
+            "high":   {"epochs": 10, "rank": 8, "lr": 1e-4, "resolution": 448,
+                       "seconds_per_step": 20.0, "ram_peak_gb": 44,
+                       "label": "High",
+                       "subtitle": "~10 epochs · rank 8 · 448px · max 500 steps",
+                       "checkpoint_interval": 100,
+                       "max_steps": 500, "max_rank": 8, "max_resolution": 448,
+                       "target_modules": compact_modules},
+        })
+        TRAIN_STYLE_PRESETS.update({
+            "quick":  {"epochs": 2,  "rank": 8, "lr": 1e-4, "resolution": 384,
+                       "seconds_per_step": 14.0, "ram_peak_gb": 38,
+                       "label": "Quick",
+                       "subtitle": "~2 epochs · rank 8 · 384px · max 120 steps",
+                       "checkpoint_interval": 100,
+                       "max_steps": 120, "max_rank": 8, "max_resolution": 384,
+                       "target_modules": compact_modules},
+            "medium": {"epochs": 5,  "rank": 8, "lr": 1e-4, "resolution": 384,
+                       "seconds_per_step": 16.0, "ram_peak_gb": 40,
+                       "label": "Medium",
+                       "subtitle": "~5 epochs · rank 8 · 384px · max 300 steps",
+                       "checkpoint_interval": 100,
+                       "max_steps": 300, "max_rank": 8, "max_resolution": 384,
+                       "target_modules": compact_modules},
+            "high":   {"epochs": 10, "rank": 8, "lr": 1e-4, "resolution": 448,
+                       "seconds_per_step": 20.0, "ram_peak_gb": 44,
+                       "label": "High",
+                       "subtitle": "~10 epochs · rank 8 · 448px · max 500 steps",
+                       "checkpoint_interval": 100,
+                       "max_steps": 500, "max_rank": 8, "max_resolution": 448,
+                       "target_modules": compact_modules},
+        })
+        return {
+            "key": "compact_training",
+            "label": "48 GB safe training",
+            "ram_gb": round(float(total_ram_gb or 0), 1),
+            "tier": tier_key,
+            "compact": True,
+            "max_rank": 8,
+            "max_resolution": 448,
+            "max_steps": 500,
+            "target_modules": compact_modules,
+            "note": (
+                "Training uses compact LoRA settings on 48 GB-class Macs to "
+                "avoid MLX swap thrash."
+            ),
+        }
+    return {
+        "key": "full_training",
+        "label": "Full training",
+        "ram_gb": round(float(total_ram_gb or 0), 1),
+        "tier": tier_key,
+        "compact": False,
+        "max_rank": 64,
+        "max_resolution": 768,
+        "max_steps": 7000,
+        "target_modules": list(TRAIN_TARGET_MODULES_DEFAULT),
+    }
+
+
 
 # Train-type values accepted by /train/start and stamped onto job params.
 TRAIN_TYPES = ("character", "style")
@@ -3812,7 +3918,9 @@ CAPABILITIES: dict[str, dict] = {
         },
     },
     "standard": {
-        # 48–79 GB. 64 GB M-Studio is the canonical hardware here.
+        # 48–79 GB. 64 GB M-Studio is the canonical video-render baseline,
+        # but 48 GB systems still need a separate compact profile for LoRA
+        # training because backward activations are heavier than inference.
         "label": "Comfortable",
         "ram_label": "48–79 GB",
         "tagline": "Every mode works · larger modes capped at 768 px",
@@ -3824,14 +3932,14 @@ CAPABILITIES: dict[str, dict] = {
         "allows_keyframe": True,
         "allows_extend": True,
         "blurb": (
-            "This is the 64 GB tier — the panel was built and tuned on "
-            "exactly this hardware. Every mode works. Text-to-video and "
-            "image-to-video run at the full 1280×704. The two biggest "
-            "modes (first-last-frame interpolation and extending an "
-            "existing clip) cap their video size at 768 pixels on the "
-            "longer side because the bigger model behind them runs out "
-            "of memory above that. 768 is a sweet-spot working size; "
-            "you can run a separate upscaler afterwards if you need 720p+."
+            "This Mac has 48–79 GB of unified memory. Every video mode "
+            "works. Text-to-video and image-to-video run at the full "
+            "1280×704. The two biggest modes (first-last-frame "
+            "interpolation and extending an existing clip) cap their "
+            "video size at 768 pixels on the longer side because the "
+            "bigger model behind them runs out of memory above that. "
+            "48 GB machines use a compact LoRA training profile so "
+            "training does not fall into multi-hour swap thrash."
         ),
         # Times are measured wall clocks for a 5 s render (121 frames @ 24 fps)
         # at Exact speed, on the canonical Comfortable hardware (M-Studio /
@@ -3933,6 +4041,21 @@ CAPABILITIES: dict[str, dict] = {
 }
 
 
+def _detect_total_ram_gb() -> float:
+    """Return physical unified memory in GiB, or 0.0 when unavailable."""
+    try:
+        out = subprocess.run(
+            ["sysctl", "-n", "hw.memsize"],
+            capture_output=True, text=True, timeout=1,
+        ).stdout.strip()
+        return int(out) / 1024**3
+    except Exception:
+        return 0.0
+
+
+SYSTEM_RAM_GB = _detect_total_ram_gb()
+
+
 def _detect_tier() -> str:
     """Pick a tier based on `hw.memsize`. Cached at module load — RAM is
     fixed at boot. LTX_TIER_OVERRIDE env var lets advanced users force a
@@ -3940,13 +4063,8 @@ def _detect_tier() -> str:
     override = os.environ.get("LTX_TIER_OVERRIDE", "").strip().lower()
     if override in CAPABILITIES:
         return override
-    try:
-        out = subprocess.run(
-            ["sysctl", "-n", "hw.memsize"],
-            capture_output=True, text=True, timeout=1,
-        ).stdout.strip()
-        gb = int(out) / 1024**3
-    except Exception:
+    gb = SYSTEM_RAM_GB
+    if gb <= 0:
         return "standard"   # safe default
     if gb < 48:  return "base"
     if gb < 80:  return "standard"
@@ -3956,6 +4074,116 @@ def _detect_tier() -> str:
 
 SYSTEM_TIER = _detect_tier()
 SYSTEM_CAPS = CAPABILITIES[SYSTEM_TIER]
+TRAIN_PROFILE = _select_train_profile(SYSTEM_RAM_GB, SYSTEM_TIER)
+
+
+def _select_generation_profile(total_ram_gb: float, tier_key: str) -> dict:
+    """Hardware profile for video generation, separate from render tier labels.
+
+    A 48 GB M5 Pro can run the model, but long native 24 fps clips plus large
+    LoRA stacks push unified memory into swap. The regular `standard` tier is
+    still correct for feature availability; this profile only changes how new
+    T2V/I2V jobs are shaped so they do not start in the pathological state the
+    current live render hit.
+    """
+    if 0 < float(total_ram_gb or 0) < 64:
+        return {
+            "key": "m5pro48_generation",
+            "label": "48 GB fast generation",
+            "ram_gb": round(float(total_ram_gb or 0), 1),
+            "tier": tier_key,
+            "compact": True,
+            "max_dim": 1024,
+            "auto_temporal_after_frames": 241,
+            "warn_loras": 6,
+            "note": (
+                "Long Q4 T2V/I2V renders use 12->24 fps generation on "
+                "48 GB-class Macs to avoid MLX swap thrash."
+            ),
+        }
+    return {
+        "key": "full_generation",
+        "label": "Full generation",
+        "ram_gb": round(float(total_ram_gb or 0), 1),
+        "tier": tier_key,
+        "compact": False,
+        "max_dim": 0,
+        "auto_temporal_after_frames": 0,
+        "warn_loras": 0,
+    }
+
+
+GENERATION_PROFILE = _select_generation_profile(SYSTEM_RAM_GB, SYSTEM_TIER)
+
+
+def _scale_dims_to_max(width: int, height: int, max_dim: int,
+                       *, align: int = 32) -> tuple[int, int]:
+    """Scale dimensions down to max_dim while preserving aspect and alignment."""
+    if max_dim <= 0 or max(width, height) <= max_dim:
+        return width, height
+    scale = max_dim / float(max(width, height))
+    new_w = max(align, int(round((width * scale) / align)) * align)
+    new_h = max(align, int(round((height * scale) / align)) * align)
+    return new_w, new_h
+
+
+def _apply_generation_profile_to_job(job: dict) -> None:
+    """Clamp new video jobs for the active generation profile.
+
+    This is intentionally server-side. The browser may be stale, Load Params
+    can replay older sidecars, and external callers can post directly to
+    /queue/add. Any of those paths must still avoid a 48 GB machine accepting
+    a long native 24 fps render that immediately falls into swap.
+    """
+    profile = GENERATION_PROFILE
+    params = job.get("params") or {}
+    params["generation_profile"] = profile.get("key")
+    params["generation_profile_label"] = profile.get("label")
+    if not profile.get("compact"):
+        return
+    mode = (params.get("mode") or "").lower()
+    quality = (params.get("quality") or "balanced").lower()
+    if mode not in ("t2v", "i2v", "i2v_clean_audio", "a2v"):
+        return
+    notes: list[str] = list(params.get("generation_clamp_notes") or [])
+    new_notes: list[str] = []
+    try:
+        width = int(params.get("width") or 0)
+        height = int(params.get("height") or 0)
+        frames = int(params.get("frames") or 0)
+    except (TypeError, ValueError):
+        return
+
+    # Q4 one-stage jobs are the common fast path and support Long Clip Boost.
+    # Q8 High has a different sampler and does not support the 12->24 fps path,
+    # so leave High alone rather than silently changing requested quality.
+    if quality != "high":
+        max_dim = int(profile.get("max_dim") or 0)
+        new_w, new_h = _scale_dims_to_max(width, height, max_dim)
+        if (new_w, new_h) != (width, height):
+            params["width"], params["height"] = new_w, new_h
+            new_notes.append(f"resolution {width}x{height} -> {new_w}x{new_h}")
+
+        auto_after = int(profile.get("auto_temporal_after_frames") or 0)
+        if (mode in ("t2v", "i2v") and auto_after and frames > auto_after
+                and (params.get("temporal_mode") or "native") == "native"):
+            params["temporal_mode"] = "fps12_interp24"
+            approx = round(_frames_to_model_duration(frames, FPS), 1)
+            new_notes.append(
+                f"Long Clip Boost auto-enabled for {frames}f (~{approx}s)"
+            )
+
+    warn_loras = int(profile.get("warn_loras") or 0)
+    lora_count = len(params.get("loras") or [])
+    if warn_loras and lora_count > warn_loras:
+        new_notes.append(
+            f"{lora_count} LoRAs selected; large stacks are slower on 48 GB"
+        )
+    for note in new_notes:
+        if note not in notes:
+            notes.append(note)
+    if notes:
+        params["generation_clamp_notes"] = notes
 
 
 def tier_max_dim(kind: str) -> int:
@@ -5276,6 +5504,52 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         resolution = _int_or("resolution", cfg["resolution"])
         train_width = _int_or("width", 0) or resolution
         train_height = _int_or("height", 0) or resolution
+        clamp_notes: list[str] = []
+        # Hardware training profile clamps. These are server-side on purpose:
+        # a stale browser tab can still post the old 512px/rank-32/10000-step
+        # advanced values. Without this guard a 48 GB Mac accepts the request,
+        # then spends hours in MLX/Metal swap thrash.
+        try:
+            max_rank = int(cfg.get("max_rank") or TRAIN_PROFILE.get("max_rank") or 0)
+        except (TypeError, ValueError):
+            max_rank = 0
+        if max_rank > 0 and rank > max_rank:
+            clamp_notes.append(f"rank {rank} -> {max_rank}")
+            rank = max_rank
+        try:
+            max_steps = int(cfg.get("max_steps") or TRAIN_PROFILE.get("max_steps") or 0)
+        except (TypeError, ValueError):
+            max_steps = 0
+        if max_steps > 0 and steps > max_steps:
+            clamp_notes.append(f"steps {steps} -> {max_steps}")
+            steps = max_steps
+        try:
+            max_resolution = int(cfg.get("max_resolution") or
+                                 TRAIN_PROFILE.get("max_resolution") or 0)
+        except (TypeError, ValueError):
+            max_resolution = 0
+        if max_resolution > 0 and max(train_width, train_height, resolution) > max_resolution:
+            old_dims = (train_width, train_height)
+            if train_width == train_height:
+                train_width = train_height = max_resolution
+            else:
+                scale = max_resolution / float(max(train_width, train_height))
+                align = 32
+                train_width = max(align, int(round((train_width * scale) / align)) * align)
+                train_height = max(align, int(round((train_height * scale) / align)) * align)
+            resolution = min(resolution, max_resolution)
+            clamp_notes.append(
+                f"resolution {old_dims[0]}x{old_dims[1]} -> {train_width}x{train_height}"
+            )
+        raw_modules = cfg.get("target_modules") or TRAIN_PROFILE.get("target_modules")
+        allowed_modules = set(TRAIN_TARGET_MODULES_DEFAULT)
+        if isinstance(raw_modules, str):
+            target_modules = [x.strip() for x in raw_modules.split(",") if x.strip()]
+        else:
+            target_modules = list(raw_modules or TRAIN_TARGET_MODULES_DEFAULT)
+        target_modules = [m for m in target_modules if m in allowed_modules]
+        if not target_modules:
+            target_modules = list(TRAIN_TARGET_MODULES_DEFAULT)
         caption_strategy = (f("caption_strategy", "trigger_simple")
                             or "trigger_simple").lower()
         # Crop strategy for the training preprocess.
@@ -5336,11 +5610,16 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                 "preset": preset,
                 "trigger": trigger,
                 "rank": rank,
+                "alpha": rank,
                 "steps": steps,
                 "lr": lr,
                 "resolution": resolution,
                 "width": train_width,
                 "height": train_height,
+                "target_modules": target_modules,
+                "train_profile": TRAIN_PROFILE.get("key"),
+                "train_profile_label": TRAIN_PROFILE.get("label"),
+                "train_clamp_notes": clamp_notes,
                 "caption_strategy": caption_strategy,
                 "crop_strategy": crop_strategy,
                 "image_count": image_count,
@@ -5684,6 +5963,8 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # Persist the strength too so Load Params can restore the
             # exact slider value (defaults to 1.0 on the picker).
             job["params"].setdefault("character_strength", char_strength)
+
+    _apply_generation_profile_to_job(job)
 
     lora_artifact_neg = _lora_artifact_negative_prompt(job["params"].get("loras") or [])
     if lora_artifact_neg:
@@ -6165,6 +6446,16 @@ def run_train_job_inner(job: dict) -> None:
     trigger = p.get("trigger") or _suggest_trigger_token()
     caption_strategy = p.get("caption_strategy", "trigger_simple")
     preset_table = TRAIN_STYLE_PRESETS if is_style else TRAIN_PRESETS
+    clamp_notes = p.get("train_clamp_notes") or []
+    profile_label = p.get("train_profile_label") or TRAIN_PROFILE.get("label")
+    if profile_label:
+        push(f"[train] profile: {profile_label}")
+    if clamp_notes:
+        push("[train] hardware clamps applied: " + "; ".join(map(str, clamp_notes)))
+    target_modules = p.get("target_modules") or preset_table.get(preset, {}).get("target_modules")
+    if not target_modules:
+        target_modules = list(TRAIN_TARGET_MODULES_DEFAULT)
+    push("[train] LoRA target modules: " + ", ".join(map(str, target_modules)))
 
     # ---- Captions -------------------------------------------------------
     # Two paths into this block:
@@ -6277,8 +6568,12 @@ def run_train_job_inner(job: dict) -> None:
         "trigger": trigger,
         "preset": preset,
         "rank": p.get("rank"),
+        "alpha": p.get("alpha") or p.get("rank"),
         "steps": p.get("steps"),
         "lr": p.get("lr"),
+        "target_modules": target_modules,
+        "train_profile": p.get("train_profile"),
+        "train_profile_label": profile_label,
         # `resolution` is the legacy v2 field — keep it for back-compat
         # (some external tools still read it). For widescreen training
         # we just write the width into this slot; consumers reading
@@ -6733,6 +7028,9 @@ def run_job_inner(job: dict) -> None:
         return run_image_job_inner(job)
     if mode == "train":
         return run_train_job_inner(job)
+    _apply_generation_profile_to_job(job)
+    for note in p.get("generation_clamp_notes") or []:
+        push(f"[generation] {p.get('generation_profile_label')}: {note}")
     quality = p.get("quality", "standard")
     if p.get("accel") not in ("off", "boost", "turbo"):
         p["accel"] = "off"
@@ -8574,6 +8872,10 @@ class Handler(BaseHTTPRequestHandler):
                 "extend_max_dim": SYSTEM_CAPS["extend_max_dim"],
                 "times": SYSTEM_CAPS.get("times", {}),
             }
+            payload["train_profile"] = TRAIN_PROFILE
+            payload["train_presets"] = TRAIN_PRESETS
+            payload["train_style_presets"] = TRAIN_STYLE_PRESETS
+            payload["generation_profile"] = GENERATION_PROFILE
             # Active model-download status — UI shows a progress strip when
             # this is set. last_line is the most recent hf output line so the
             # user gets live feedback even before opening the log panel.
@@ -11117,11 +11419,11 @@ class Handler(BaseHTTPRequestHandler):
                     }, 400)
                     return
             # Make sure the form has the canonical image_count so make_job's
-            # estimate is right even if the JS forgot to set it.
+            # estimate and step cap use the dataset on disk, not stale JS state.
             form["mode"] = ["train"]
             form["train_job_id"] = [train_job_id]
             form["train_type"] = [train_type]
-            form.setdefault("image_count", [str(len(image_files))])
+            form["image_count"] = [str(len(image_files))]
             job = make_job(form)
             with QUEUE_COND:
                 STATE["queue"].append(job)
@@ -11171,13 +11473,17 @@ class Handler(BaseHTTPRequestHandler):
                                  f"{CAPTION_STATE.get('train_job_id')}",
                     }, 409)
                     return
-                # Refuse if a training job is in flight on the same
-                # dataset — captioning would race the training preprocess.
+                # Refuse while ANY GPU job is in flight. This originally only
+                # blocked training, which allowed Gemma auto-captioning to run
+                # beside a long video render. On 48 GB Macs that pushes MLX
+                # into compressor/swap, and the active render usually never
+                # recovers speed mid-job even after Gemma exits.
                 cur = STATE.get("current")
-                if cur and cur.get("params", {}).get("mode") == "train":
+                if cur or _GPU_LOCK.locked():
+                    cur_mode = ((cur or {}).get("params") or {}).get("mode") or "render"
                     self._json({
-                        "error": "training is currently running — wait for "
-                                 "it to finish before auto-captioning",
+                        "error": f"GPU is busy with {cur_mode} — wait for the "
+                                 "current job to finish before auto-captioning",
                     }, 409)
                     return
                 # Reset state for this run.
@@ -13022,6 +13328,12 @@ def page() -> str:
         "profile": PROFILE,
         "model_upscale_enabled": MODEL_UPSCALE_ENABLED,
         "pipersr_upscale_enabled": PIPERSR_UPSCALE_ENABLED,
+        "train_presets": TRAIN_PRESETS,
+        "train_style_presets": TRAIN_STYLE_PRESETS,
+        "train_profile": TRAIN_PROFILE,
+        "train_min_images": TRAIN_MIN_IMAGES,
+        "train_max_images": TRAIN_MAX_IMAGES,
+        "generation_profile": GENERATION_PROFILE,
         # Hardware-aware time estimates for the Quality pills. The pill HTML
         # ships with the Comfortable-tier defaults; on boot we rewrite the
         # subtext using the active tier's quality_times. Compact users see
@@ -21006,6 +21318,7 @@ HTML = r"""<!doctype html>
               <span class="mf-label">Rank</span>
               <select id="trainRank">
                 <option value="">preset default</option>
+                <option value="4">4</option>
                 <option value="8">8</option>
                 <option value="16">16</option>
                 <option value="32">32</option>
@@ -21030,6 +21343,8 @@ HTML = r"""<!doctype html>
               <span class="mf-label">Resolution</span>
               <select id="trainResolution">
                 <option value="">preset default</option>
+                <option value="384">384²</option>
+                <option value="448">448²</option>
                 <option value="512">512²</option>
                 <option value="576">576²</option>
                 <option value="768">768²</option>
@@ -24643,33 +24958,35 @@ const TRAIN = {
   // card hides for style; guidance + labels swap). Mirrors the server-side
   // TRAIN_TYPES tuple in mlx_ltx_panel.py.
   trainType: 'character',
-  // Local mirror of the preset table; server has the authoritative copy in
-  // TRAIN_PRESETS but the JS-side estimator is instant — saves a /status
-  // round-trip per keystroke. Keep these in sync with TRAIN_PRESETS in py.
+  // Local mirror of the server preset table. BOOT carries the authoritative,
+  // hardware-adjusted version so 48 GB Macs see the compact training profile
+  // instead of the old 64 GB-class defaults. Static fallbacks below are only
+  // for damaged/old boot payloads.
   //
   // Schema change 2026-05-19: presets describe EPOCHS, not steps. Actual
   // step count is computed from `epochs × image_count` at the consumer
   // (trainComputeSteps below) so the same preset auto-scales with
   // dataset size. Advanced trainSteps override still wins.
-  presets: {
+  presets: BOOT.train_presets || {
     quick:  { epochs:  30, rank: 8,  resolution: 512, seconds_per_step: 1.5, ram_peak_gb: 12,
-              label: 'Quick',  subtitle: '~30 epochs · rank 8 · 512px' },
+              label: 'Quick',  subtitle: '~30 epochs · rank 8 · 512px', max_steps: 3000 },
     medium: { epochs:  60, rank: 16, resolution: 576, seconds_per_step: 2.2, ram_peak_gb: 18,
-              label: 'Medium', subtitle: '~60 epochs · rank 16 · 576px' },
+              label: 'Medium', subtitle: '~60 epochs · rank 16 · 576px', max_steps: 5000 },
     high:   { epochs: 100, rank: 32, resolution: 512, seconds_per_step: 2.0, ram_peak_gb: 28,
-              label: 'High',   subtitle: '~100 epochs · rank 32 · 512px (v2 recipe)' },
+              label: 'High',   subtitle: '~100 epochs · rank 32 · 512px (v2 recipe)', max_steps: 7000 },
   },
   // Mirror of the server-side TRAIN_STYLE_PRESETS. Style table differs from
   // character: quick uses rank 16 (not rank 8), and "high" adds epochs not
   // rank (rank 32 is the validated capacity ceiling for our LTX-2.3 stack).
-  stylePresets: {
+  stylePresets: BOOT.train_style_presets || {
     quick:  { epochs:  30, rank: 16, resolution: 512, seconds_per_step: 1.5, ram_peak_gb: 12,
-              label: 'Quick',  subtitle: '~30 epochs · rank 16 · 512px' },
+              label: 'Quick',  subtitle: '~30 epochs · rank 16 · 512px', max_steps: 3000 },
     medium: { epochs:  60, rank: 32, resolution: 512, seconds_per_step: 2.0, ram_peak_gb: 18,
-              label: 'Medium', subtitle: '~60 epochs · rank 32 · 512px' },
+              label: 'Medium', subtitle: '~60 epochs · rank 32 · 512px', max_steps: 5000 },
     high:   { epochs: 100, rank: 32, resolution: 512, seconds_per_step: 2.0, ram_peak_gb: 28,
-              label: 'High',   subtitle: '~100 epochs · rank 32 · 512px' },
+              label: 'High',   subtitle: '~100 epochs · rank 32 · 512px', max_steps: 7000 },
   },
+  trainProfile: BOOT.train_profile || {},
   // Voice (optional) state. `voiceFile` is the server-saved record once
   // an upload completes; `voiceEnabled` mirrors the toggle.
   //
@@ -24700,6 +25017,64 @@ const TRAIN = {
 // don't each have to know about both tables.
 function trainActivePresets() {
   return TRAIN.trainType === 'style' ? TRAIN.stylePresets : TRAIN.presets;
+}
+
+function trainActivePreset() {
+  const table = trainActivePresets();
+  return table[TRAIN.preset] || table.quick || {};
+}
+
+function trainUpdatePresetButtons() {
+  const table = trainActivePresets();
+  document.querySelectorAll('#trainPresetGroup .pill-btn').forEach((b) => {
+    const key = b.dataset.trainPreset;
+    b.classList.toggle('active', key === TRAIN.preset);
+  });
+  const subIds = {
+    quick: 'trainPresetQuickSub',
+    medium: 'trainPresetMediumSub',
+    high: 'trainPresetHighSub',
+  };
+  Object.keys(subIds).forEach((key) => {
+    const el = document.getElementById(subIds[key]);
+    const p = table[key];
+    if (el && p && p.subtitle) el.textContent = p.subtitle;
+  });
+}
+
+function trainDisableSelectAbove(selectId, maxValue) {
+  const sel = document.getElementById(selectId);
+  const max = Number(maxValue || 0);
+  if (!sel || !max) return;
+  Array.from(sel.options).forEach((opt) => {
+    if (!opt.value) {
+      opt.disabled = false;
+      return;
+    }
+    const n = Number(opt.value);
+    opt.disabled = Number.isFinite(n) && n > max;
+  });
+  const selected = Number(sel.value || 0);
+  if (selected && selected > max) sel.value = '';
+}
+
+function trainApplyAdvancedLimits() {
+  const preset = trainActivePreset();
+  const maxRank = Number(preset.max_rank || TRAIN.trainProfile.max_rank || 0);
+  const maxResolution = Number(preset.max_resolution || TRAIN.trainProfile.max_resolution || 0);
+  const maxSteps = Number(preset.max_steps || TRAIN.trainProfile.max_steps || 0);
+  if (maxRank) trainDisableSelectAbove('trainRank', maxRank);
+  if (maxResolution) trainDisableSelectAbove('trainResolution', maxResolution);
+  const stepsInput = document.getElementById('trainSteps');
+  if (stepsInput && maxSteps) {
+    stepsInput.max = String(maxSteps);
+    const current = Number(stepsInput.value || 0);
+    if (current && current > maxSteps) stepsInput.value = '';
+  }
+}
+
+function trainUpdateAdvancedFields() {
+  trainApplyAdvancedLimits();
 }
 
 // ============================================================================
@@ -25289,8 +25664,8 @@ async function charactersLoadParams(p) {
 // ============================================================================
 // TRAIN CHARACTER tab
 // ============================================================================
-const TRAIN_MIN = 15;
-const TRAIN_MAX = 50;
+const TRAIN_MIN = Number(BOOT.train_min_images || 15);
+const TRAIN_MAX = Number(BOOT.train_max_images || 50);
 
 function trainInit() {
   // Idempotent — safe to call on every setMode('train') without re-binding
@@ -25319,6 +25694,8 @@ function trainInit() {
       trainUpdateEstimate();
     });
   }
+  trainUpdatePresetButtons();
+  trainUpdateAdvancedFields();
   trainRefreshLoraList();
   trainUpdateEstimate();
   trainUpdateButtonState();
@@ -25580,6 +25957,7 @@ function trainWirePresetButtons() {
       TRAIN.preset = b.dataset.trainPreset;
       document.querySelectorAll('#trainPresetGroup .pill-btn').forEach(x =>
         x.classList.toggle('active', x === b));
+      trainUpdateAdvancedFields();
       trainUpdateEstimate();
     });
   });
@@ -25602,9 +25980,16 @@ function trainWireAdvancedFields() {
   ['trainRank', 'trainSteps', 'trainLR', 'trainResolution', 'trainCaptionStrategy']
     .forEach(id => {
       const el = document.getElementById(id);
-      if (el) el.addEventListener('change', trainUpdateEstimate);
-      if (el) el.addEventListener('input', trainUpdateEstimate);
+      if (el) el.addEventListener('change', () => {
+        trainApplyAdvancedLimits();
+        trainUpdateEstimate();
+      });
+      if (el) el.addEventListener('input', () => {
+        trainApplyAdvancedLimits();
+        trainUpdateEstimate();
+      });
     });
+  trainApplyAdvancedLimits();
 }
 
 async function trainUploadFiles(fileList) {
@@ -26008,20 +26393,27 @@ function trainEffectiveSteps() {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-// Mirrors py-side _preset_steps_for(): steps = epochs × image_count.
+// Mirrors py-side _preset_steps_for(): steps = epochs × image_count, capped
+// by preset.max_steps when the active hardware profile supplies one.
 // Used by trainUpdateEstimate to keep the ETA chip honest as the user
 // drops more photos in. Floor of 1 image so n=0 doesn't yield zero
 // steps (matches server behavior).
 function trainComputeSteps(preset, imageCount) {
   const epochs = parseInt(preset.epochs, 10) || 0;
-  return Math.max(1, epochs * Math.max(1, imageCount | 0));
+  let steps = Math.max(1, epochs * Math.max(1, imageCount | 0));
+  const maxSteps = Number(preset.max_steps || 0);
+  if (maxSteps > 0) steps = Math.min(steps, maxSteps);
+  return steps;
 }
 
 function trainUpdateEstimate() {
-  const preset = (trainActivePresets()[TRAIN.preset]) || trainActivePresets().quick;
+  trainApplyAdvancedLimits();
+  const preset = trainActivePreset();
   const stepOverride = trainEffectiveSteps();
   const n = TRAIN.images.length;
-  const steps = stepOverride || trainComputeSteps(preset, n);
+  let steps = stepOverride || trainComputeSteps(preset, n);
+  const maxSteps = Number(preset.max_steps || TRAIN.trainProfile.max_steps || 0);
+  if (maxSteps > 0) steps = Math.min(steps, maxSteps);
   const sec = Math.round(3 * Math.max(0, n) + steps * preset.seconds_per_step + 30);
   // Estimate row is hidden until the user has dropped at least one
   // image. Before that, the row reads as missing data — not a useful
@@ -26031,7 +26423,12 @@ function trainUpdateEstimate() {
   const ramRow = document.getElementById('trainEstimateRam');
   const timeRow = document.getElementById('trainEstimateTime');
   const outRow = document.getElementById('trainEstimateOut');
-  if (timeRow && n > 0) timeRow.textContent = trainFmtDuration(sec) + ` · ${steps} steps`;
+  if (timeRow && n > 0) {
+    const profile = TRAIN.trainProfile && TRAIN.trainProfile.label
+      ? ` · ${TRAIN.trainProfile.label}`
+      : '';
+    timeRow.textContent = trainFmtDuration(sec) + ` · ${steps} steps${profile}`;
+  }
   if (ramRow) ramRow.textContent = `~${preset.ram_peak_gb} GB peak`;
   if (outRow) {
     const trig = (document.getElementById('trainTrigger').value || 'mrz07');

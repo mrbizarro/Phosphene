@@ -132,6 +132,21 @@ _PREPROCESS_FIXED_S = 90.0    # model load + Gemma init
 _PREPROCESS_PER_IMAGE_S = 2.0 # VAE encode per image
 
 
+def _normalize_target_modules(value: Any) -> list[str]:
+    """Accept panel-supplied LoRA target modules while keeping a safe allowlist."""
+    if value is None:
+        return list(TARGET_MODULES)
+    if isinstance(value, str):
+        raw = [x.strip() for x in value.split(",") if x.strip()]
+    elif isinstance(value, (list, tuple)):
+        raw = [str(x).strip() for x in value if str(x).strip()]
+    else:
+        raw = []
+    allowed = set(TARGET_MODULES)
+    mods = [m for m in raw if m in allowed]
+    return mods or list(TARGET_MODULES)
+
+
 def resolve_preset(preset: str, advanced: dict[str, Any] | None) -> dict[str, Any]:
     """Merge a preset with optional `advanced` overrides. None values fall through."""
     if preset not in PRESETS:
@@ -141,6 +156,10 @@ def resolve_preset(preset: str, advanced: dict[str, Any] | None) -> dict[str, An
         for k, v in advanced.items():
             if v is not None and k in cfg:
                 cfg[k] = v
+        if advanced.get("target_modules") is not None:
+            cfg["target_modules"] = _normalize_target_modules(advanced.get("target_modules"))
+    if "target_modules" not in cfg:
+        cfg["target_modules"] = list(TARGET_MODULES)
     return cfg
 
 
@@ -235,7 +254,7 @@ def load_spec(spec_path: Path) -> dict[str, Any]:
         spec["advanced"] = {}
     for k in ("rank", "alpha", "steps", "lr", "resolution",
               "width", "height",
-              "caption_strategy", "crop_strategy"):
+              "target_modules", "caption_strategy", "crop_strategy"):
         if k in spec and k not in spec["advanced"]:
             spec["advanced"][k] = spec[k]
     cs = spec["advanced"].get("caption_strategy")
@@ -553,7 +572,7 @@ def build_trainer_config(
             "rank": int(cfg["rank"]),
             "alpha": int(cfg["alpha"]),
             "dropout": 0.0,
-            "target_modules": list(TARGET_MODULES),
+            "target_modules": _normalize_target_modules(cfg.get("target_modules")),
         },
         "optimization": {
             "learning_rate": float(cfg["lr"]),
@@ -737,6 +756,7 @@ def write_sidecar(
         "height": int(cfg.get("height") or cfg.get("resolution") or 576),
         "image_count": image_count,
         "caption_strategy": cfg["caption_strategy"],
+        "target_modules": _normalize_target_modules(cfg.get("target_modules")),
         "training_wall_seconds": round(float(training_wall_s), 1),
         "created_at": _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "base_model": "Lightricks/LTX-2.3 (dgrauet/ltx-2.3-mlx-q4 dev transformer)",
