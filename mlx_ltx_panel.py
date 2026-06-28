@@ -7534,6 +7534,19 @@ def run_job_inner(job: dict) -> None:
         except (TypeError, ValueError):
             ing_ref_strength = 0.0
         ing_ref_strength = max(0.0, min(1.0, ing_ref_strength))
+        # Quality → single-stage vs two-stage. The original Ingredients recipe
+        # skipped stage 2 (the refine + 2x upscale), which is exactly what gave
+        # the dreamy "hallucination" look at 768x448. Running the SECOND stage
+        # cleans that up AND outputs at full 1536x896 — validated A/B: the trippy
+        # look is SINGLE-STAGE, not Q4 itself (Q8 sharpened faces but tripped the
+        # bizarrotrn gold-sparkle artifact and is off-spec for the Q4-trained
+        # IC-LoRA, so it's deliberately NOT used here). Mapping: only Quick/Draft
+        # stay single-stage (fast, smaller, the dreamy look on purpose);
+        # Balanced (the default) / Standard / High run two-stage (clean, full
+        # res). The per-tier res clamp above already caps gen size, so two-stage
+        # stays memory-safe on smaller Macs (Quick is the low-memory escape).
+        ing_quality = (p.get("quality") or "balanced").strip().lower()
+        ing_skip_stage_2 = ing_quality in ("quick", "draft")
         job_spec = {
             "action": "generate_restore",
             "id": job["id"],
@@ -7553,15 +7566,18 @@ def run_job_inner(job: dict) -> None:
                 # the pinned sheet.
                 "video_conditioning": [[str(cond_mp4), ing_ref_strength]],
                 "loras": ingredients_loras,
-                # Single-stage recipe — the differentiator vs Colorize.
-                "skip_stage_2": True,
+                # Quality-driven: Quick/Draft = single-stage (fast, dreamy);
+                # Balanced (default) / Standard / High = two-stage refine + 2x
+                # upscale (clean, full 1536x896). See ing_skip_stage_2 above.
+                "skip_stage_2": ing_skip_stage_2,
                 "stage1_steps": int(p.get("stage1_steps", 8)),
-                "stage2_steps": int(p.get("stage2_steps", 3)),
+                "stage2_steps": int(p.get("stage2_steps", 4)),
             },
         }
         push(f"Ingredients via helper: id={job['id']} refs={len(image_paths)} "
              f"{gen_w}x{gen_h} {ing_frames}f (Q4 distilled + Ingredients IC-LoRA, "
-             f"single-stage, LoRA strength {ing_strength}, "
+             f"{'single-stage' if ing_skip_stage_2 else 'two-stage refine'} "
+             f"[{ing_quality}], LoRA strength {ing_strength}, "
              f"ref strength {ing_ref_strength}).")
         result = HELPER.run(job_spec)
         if "seed_used" in result:
@@ -20286,18 +20302,15 @@ HTML = r"""<!doctype html>
            chooses any total anchor count from 3–8. -->
       <button type="button" class="mode-chip pill-btn" data-mode="keyframe" data-kf-default="multi">Keyframes<span class="mc-sub sub">3–8 frames</span></button>
       <button type="button" class="mode-chip pill-btn" data-mode="extend">Extend<span class="mc-sub sub">continue a clip</span></button>
-      <!-- Colorize (restore) — the first community IC-LoRA feature. Runs on
-           Q4 distilled (unlike FFLF/Extend/Character, which are Q8-only and
-           hidden on the Q4 tier), so it stays visible at every tier. -->
-      <button type="button" class="mode-chip pill-btn" data-mode="restore">Colorize<span class="mc-sub sub">B&amp;W clip → color</span></button>
-      <!-- Ingredients (multi-reference) — the FLAGSHIP IC-LoRA feature. 2-8
-           images (face + prop + location) → one composed clip. Runs on Q4
-           distilled (like Colorize), so it stays visible at every tier. -->
-      <button type="button" class="mode-chip pill-btn" data-mode="ingredients">Ingredients<span class="mc-sub sub">2–8 refs → one clip</span></button>
-      <!-- Control (Union) — drives motion/structure/composition from a control
-           video. Like Colorize/Ingredients it runs on Q4 distilled (the Union
-           IC-LoRA was trained against Q4), so it stays visible at every tier. -->
-      <button type="button" class="mode-chip pill-btn" data-mode="control">Control<span class="mc-sub sub">drive from a video</span></button>
+      <!-- Remix — the IC-LoRA reference tools (Ingredients / Control / Colorize)
+           grouped under ONE pill so the mode bar stays uncluttered. All three
+           run on Q4 distilled (unlike FFLF/Extend/Character, which are Q8-only
+           and hidden on the Q4 tier), so the parent is visible at every tier.
+           Clicking it reveals #remixSubGroup and resumes the last-used tool
+           (default Ingredients). The backend modes stay ingredients/control/
+           restore — this is PURE UI grouping (see REMIX_MODES + setMode + the
+           #remixSubGroup click wiring). -->
+      <button type="button" class="mode-chip pill-btn" data-mode="remix">Remix<span class="mc-sub sub">your media → new video</span></button>
       <!-- "Train" used to live here as a mode chip; promoted 2026-05-15 to
            a workflow tier (top tab strip). "Studio" (image generation) also
            lived here until 2026-05-17 — Mr Bizarro flagged that mixing image gen
@@ -20305,6 +20318,20 @@ HTML = r"""<!doctype html>
            promoted to its own workflow tab as well. setMode('image') is
            still the entry point; workflowSwitch('studio') just calls it
            after hiding the other panes. -->
+    </div>
+
+    <!-- Remix sub-tools — second-level selector, visible ONLY when a Remix mode
+         is active (toggled in setMode via REMIX_MODES). Each sub-pill sets the
+         REAL backend mode (data-remix → setMode); the parent Remix pill above
+         stays lit. Inline styles use var(--x, fallback) so they're safe whether
+         or not the theme defines those vars. -->
+    <div id="remixSubGroup" style="display:none;margin:-2px 0 12px;padding:9px 11px;border:1px solid var(--line,#262a33);border-left:3px solid var(--accent,#8b7bff);border-radius:11px;background:var(--accent-wash,rgba(139,123,255,.06))">
+      <div style="font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--dim,#7a8194);margin-bottom:7px">Remix tool · bring your own media</div>
+      <div class="mode-bar pill-group">
+        <button type="button" class="mode-chip pill-btn" data-remix="ingredients">Ingredients<span class="mc-sub sub">2–8 refs → one clip</span></button>
+        <button type="button" class="mode-chip pill-btn" data-remix="control">Control<span class="mc-sub sub">drive from a video</span></button>
+        <button type="button" class="mode-chip pill-btn" data-remix="restore">Colorize<span class="mc-sub sub">B&amp;W clip → color</span></button>
+      </div>
     </div>
 
     <form id="genForm">
@@ -23040,6 +23067,10 @@ let filterMode = 'visible';
 let activePath = null;
 let currentOutputs = [];
 let currentMode = 't2v';
+// REMIX_MODES — the IC-LoRA reference tools grouped under the single "Remix"
+// mode pill. These are REAL backend modes (the #mode field + the dispatch see
+// them); "remix" itself is a UI-only pseudo-mode that resolves to one of these.
+const REMIX_MODES = ['ingredients', 'control', 'restore'];
 
 // Main right-pane gallery kind filter (All / Videos / Photos). Independent
 // of `filterMode` (which is visible/hidden) and independent of
@@ -23289,6 +23320,10 @@ function syncAvoidRowFromValue() {
 }
 
 function setMode(mode) {
+  // "remix" is a UI GROUP, not a backend mode — clicking the parent Remix pill
+  // resumes the last-used Remix tool (default Ingredients). Everything below
+  // (and the backend) only ever sees a real mode from REMIX_MODES.
+  if (mode === 'remix') mode = window._lastRemixMode || 'ingredients';
   // Capability guard — Q4 (sub-48GB) tier can't run FFLF, Extend, or
   // Character (HQ-only pipelines + Q8 trainer-base contract). CSS already
   // hides the chips, but a stale localStorage, charactersLoadParams(), or
@@ -23431,10 +23466,24 @@ function setMode(mode) {
   document.querySelectorAll('#modeGroup .pill-btn').forEach(b => {
     if (mode === 'keyframe') {
       b.classList.toggle('active', isKeyframeModeChipActive(b, window._kfMode));
+    } else if (b.dataset.mode === 'remix') {
+      // The parent Remix pill stays lit for ANY of its sub-tools.
+      b.classList.toggle('active', REMIX_MODES.indexOf(mode) !== -1);
     } else {
       b.classList.toggle('active', b.dataset.mode === mode);
     }
   });
+  // Remix group: reveal the sub-tool row + light the active sub-pill when the
+  // current mode is one of the Remix tools; hide the row otherwise. Remember
+  // the last Remix tool so the parent pill resumes it next time it's clicked.
+  const _inRemix = REMIX_MODES.indexOf(mode) !== -1;
+  if (_inRemix) window._lastRemixMode = mode;
+  const _remixBar = document.getElementById('remixSubGroup');
+  if (_remixBar) _remixBar.style.display = _inRemix ? '' : 'none';
+  if (_inRemix) {
+    document.querySelectorAll('#remixSubGroup .pill-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.remix === mode));
+  }
   // Manual-tab Characters picker is T2V-only (Text-to-Video flow). Other
   // video modes (I2V, FFLF, Extend) have a different mental model — the
   // user is anchoring on a frame, not picking an actor.
@@ -27557,6 +27606,12 @@ document.querySelectorAll('#modeGroup .pill-btn').forEach(b => b.onclick = () =>
     const fallback = parseInt(document.getElementById('keyframe_count')?.value || '6', 10);
     setKeyframeMode(def === 'multi' ? fallback : parseInt(def, 10));
   }
+});
+// Remix sub-tool clicks set the REAL backend mode (ingredients/control/restore);
+// setMode keeps the parent Remix pill lit + this sub-pill active + the section
+// shown. Wired here alongside the #modeGroup handler so both rows behave alike.
+document.querySelectorAll('#remixSubGroup .pill-btn').forEach(b => b.onclick = () => {
+  setMode(b.dataset.remix);
 });
 document.querySelectorAll('#qualityGroup .pill-btn').forEach(b => b.onclick = () => {
   // Disabled-but-actionable: the High pill becomes a "click to install Q8"
