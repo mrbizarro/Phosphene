@@ -113,6 +113,25 @@
       "download_include": [
         "ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors"
       ]
+    },
+    {
+      "_comment": "Control (Union) IC-LoRA — drives a render's motion/structure/composition from a control video. This is the OFFICIAL Lightricks weight and it is UN-GATED + public (gated:false, single 654465352-byte safetensors), so it downloads token-less exactly like the community Colorizer — NO mrbizarro mirror, NO HF token, NO mega-repo workaround. reference_downscale_factor=2 (the IC encoder halves the control clip; handled in iclora_utils).",
+      "key": "ic_union_control",
+      "kind": "optional",
+      "name": "Control IC-LoRA (Union, official)",
+      "blurb": "Optional. Powers the Control mode — drives motion/structure/composition from a control video. Official un-gated Lightricks weight (no HF token).",
+      "repo_id": "Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control",
+      "local_dir": "mlx_models/loras/ic",
+      "size_gb": 1,
+      "files": [
+        "ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors"
+      ],
+      "file_sizes": {
+        "ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors": 654465352
+      },
+      "download_include": [
+        "ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors"
+      ]
     }
   ],
 

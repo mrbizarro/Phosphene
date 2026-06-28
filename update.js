@@ -323,6 +323,27 @@ module.exports = {
         ].join("\n")
       }
     },
+
+    // ---- Control (Union) IC-LoRA (control mode, ~0.65 GB, OFFICIAL un-gated)
+    // Self-heal existing installs onto the Control feature. This is the
+    // OFFICIAL Lightricks weight and it is UN-GATED + public (no HF token, no
+    // mirror, no mega-repo workaround) — a plain single-file fetch like the
+    // Colorize one above. BEST-EFFORT — must not fail the update; the worker
+    // falls back to the repo id, and the panel surfaces Repair. hf skips it
+    // when already present (fast verify).
+    {
+      method: "shell.run",
+      params: {
+        venv: "env",
+        path: "ltx-2-mlx",
+        env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
+        message: [
+          "echo 'Ensuring the Control IC-LoRA is present (Union, control mode, optional)…' && \\",
+          "hf download Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control --local-dir ../mlx_models/loras/ic --include 'ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors' \\",
+          "|| echo 'WARN: Control IC-LoRA fetch failed — the Control mode will fetch it on first use, or click Repair.'"
+        ].join("\n")
+      }
+    },
     {
       method: "shell.run",
       params: {

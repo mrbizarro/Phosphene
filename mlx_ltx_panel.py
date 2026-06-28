@@ -732,16 +732,42 @@ CURATED_LORAS: dict[str, dict] = {
         "is_curated": True,
         "is_hdr_toggle": False,
     },
+    # Control (Union) — drives a render's motion / structure / composition from
+    # a control video. This is the OFFICIAL Lightricks weight and — unlike the
+    # other official IC-LoRAs (Ingredients/Colorize gated or community-mirrored)
+    # — it is UN-GATED + public (verified gated:False, single 654,465,352-byte
+    # safetensors), so it downloads token-less exactly like Colorize. Drives the
+    # "Control" mode, not the LoRA picker — `is_control_lora` keeps it out of the
+    # user-facing curated list the way `is_restore_lora` hides Colorize. The
+    # worker injects it by `local_path` when mode=="control".
+    #
+    # Recon gate (2026-06-27) PROVED raw RGB on the IC reference channel at
+    # STRENGTH 1.0 transfers the driving clip's structure/composition onto the
+    # prompted subject (A/B causation confirmed vs no-control). Unlike Ingredients
+    # (ref strength 0.0 to RECOMPOSE), Control WANTS to follow the driver, so the
+    # reference is held near-pristine at ~1.0. Trained against the Q4 distilled
+    # checkpoint, so Control forces Q4 like Colorize/Ingredients/HDR. The weight
+    # carries reference_downscale_factor=2 → the IC encoder halves the reference
+    # and the pipeline generates at the requested dims (handled in iclora_utils;
+    # the panel feeds output dims and lets the encoder do the /2).
     "union-control": {
         "id": "union-control",
         "name": "Union Control",
-        "description": "Lightricks IC-LoRA combining multiple control signals "
-                       "(depth, edges, pose) into one network.",
+        "description": "Official Lightricks IC-LoRA combining multiple control "
+                       "signals (depth, edges, pose) into one network. Drives "
+                       "the Control mode; takes the control clip on the IC "
+                       "reference channel at follow-strength. Un-gated official "
+                       "weight — no HF token needed.",
         "repo_id": "Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control",
+        # Local file the installer fetches (see required_files.json →
+        # repos[ic_union_control] + install.js/update.js). Preferred over repo_id
+        # so the helper fuses a local .safetensors with no snapshot_download.
+        "local_path": str(LORAS_DIR / "ic" / "ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors"),
         "default_strength": 1.0,
         "trigger_words": [],
         "is_curated": True,
         "is_hdr_toggle": False,
+        "is_control_lora": True,        # hide from the LoRA picker (mode-driven)
     },
     # Colorize — the first real IC-LoRA feature, on UN-GATED community weights
     # (DoctorDiffusion/LTX-2.3-IC-LoRA-Colorizer). Drives the "Colorize"
@@ -5735,6 +5761,11 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # posts there). `prompt` above carries the SHEET description.
             "ingredient_images_json": f("ingredient_images_json", ""),
             "ingredient_action": f("ingredient_action", ""),
+            # control (Union) mode — the RAW-RGB control clip whose
+            # motion/structure/composition drives the render. SAME allowlist
+            # trap: this MUST be here or it silently no-ops on /queue/add (the
+            # panel UI posts there). `prompt` carries the new subject/scene.
+            "control_video_path": f("control_video_path", ""),
             "extend_frames": max(1, int(f("extend_frames", "5") or 5)),
             "extend_direction": f("extend_direction", "after"),
             "extend_steps": max(1, int(f("extend_steps", "8") or 8)),
@@ -6968,7 +6999,7 @@ def run_job_inner(job: dict) -> None:
     quality = p.get("quality", "standard")
     if p.get("accel") not in ("off", "boost", "turbo"):
         p["accel"] = "off"
-    if quality == "high" or mode in ("extend", "keyframe", "a2v", "restore", "ingredients"):
+    if quality == "high" or mode in ("extend", "keyframe", "a2v", "restore", "ingredients", "control"):
         p["accel"] = "off"
 
     # Guard: Q4 distilled hardcoded 9-sigma schedule needs the full walk to
@@ -6979,7 +7010,7 @@ def run_job_inner(job: dict) -> None:
     #   - extend / keyframe use stage1_steps + stage2_steps via two-stage path
     #   - high quality uses two-stage HQ with its own schedule
     #   - a2v uses A2VidPipelineTwoStage's stage1/stage2 walks
-    if mode not in ("extend", "keyframe", "a2v", "restore", "ingredients") and quality != "high" and int(p.get("steps", 8)) < 8:
+    if mode not in ("extend", "keyframe", "a2v", "restore", "ingredients", "control") and quality != "high" and int(p.get("steps", 8)) < 8:
         raise RuntimeError(
             f"steps={p.get('steps')} is below the 8-step minimum for the Q4 distilled "
             "schedule. Fewer steps truncates the sigma walk and leaves >70% noise in "
@@ -7099,6 +7130,138 @@ def run_job_inner(job: dict) -> None:
         write_sidecar(final_out.with_suffix(final_out.suffix + ".json"), sidecar)
         job["output_path"] = str(final_out)
         push(f"Extend done in {sidecar['elapsed_sec']}s → {final_out.name}")
+        if p.get("open_when_done"):
+            subprocess.run(["open", str(final_out)], check=False)
+        return
+
+    if mode == "control":
+        # Control (Union) — drive a render's motion / structure / composition
+        # from a control video, via the OFFICIAL un-gated Union-Control IC-LoRA.
+        # Structurally IDENTICAL to the Colorize (restore) branch — validate a
+        # source clip, force the Q4 distilled folder (the LoRA was trained
+        # against Q4 distilled), inject the curated union-control LoRA, ride the
+        # control clip on the IC reference channel, dispatch via
+        # HELPER.run(generate_restore) (two-stage). The ONE deliberate
+        # difference vs Ingredients: the reference STRENGTH is a FOLLOW value
+        # (~1.0), NOT the 0.0 Ingredients uses. Control WANTS to follow the
+        # driving structure (recon A/B proved raw RGB @1.0 transfers
+        # composition); Ingredients wants to RECOMPOSE away from its sheet.
+        # Default off — no other mode changes.
+        src = p.get("control_video_path") or ""
+        if not src or not Path(src).exists():
+            raise RuntimeError(
+                f"control video not found: {src!r}. Pick a clip in the Control "
+                "video picker (or paste a path) whose motion/structure should "
+                "drive the render."
+            )
+        # Resolution clamp — same shape as Colorize/Extend. Control runs the
+        # distilled two-stage walk; keep the source within the tier's max side
+        # so the VAE encode + denoise fits memory. Cached by target dims.
+        original_src = Path(src)
+        res_max = tier_max_dim("i2v")
+        if res_max:
+            downscaled_src = _ensure_downscaled(original_src, max_dim=res_max)
+            if downscaled_src != original_src:
+                push(f"Control: control clip {original_src.name} downscaled to "
+                     f"{downscaled_src.name} (≤{res_max} max-side, "
+                     f"{SYSTEM_CAPS['label']} tier).")
+                src = str(downscaled_src)
+        # Match the output canvas to the (possibly downscaled) control clip so
+        # the IC reference and the generated frames line up. The Union weight
+        # carries reference_downscale_factor=2 — the IC encoder halves the
+        # reference internally (iclora_utils), so we feed the FULL output dims
+        # here (the encoder does the /2), exactly as Colorize does. Same
+        # ffprobe wrapper the rest of the panel uses (returns (0,0) on failure
+        # → fall back to the form's width/height). Runs BEFORE the shared
+        # width/height/frames locals further down, so read straight off `p`.
+        req_w = int(p.get("width") or 0)
+        req_h = int(p.get("height") or 0)
+        req_frames = int(p.get("frames") or 0) or 49
+        sw, sh = _probe_video_dims(src)
+        # LTX requires width/height multiples of 32 and frames % 8 == 1.
+        ctl_w = max(32, (int(sw) // 32) * 32) if sw else max(32, req_w)
+        ctl_h = max(32, (int(sh) // 32) * 32) if sh else max(32, req_h)
+        ctl_frames = req_frames
+        if ctl_frames % 8 != 1:
+            ctl_frames = max(9, ctl_frames - (ctl_frames % 8) + 1)
+        ctl_meta = CURATED_LORAS["union-control"]
+        strength = float(ctl_meta["default_strength"])
+        # Prefer the local file the installer fetched; fall back to repo_id so
+        # the helper's _resolve_lora_path can snapshot_download it on first use.
+        # (Unlike Ingredients, the Union repo is a clean single-file un-gated
+        # repo — no mega-repo workaround needed, so the repo_id fallback is safe.)
+        control_lora_path = ctl_meta.get("local_path") or ""
+        if not (control_lora_path and Path(control_lora_path).exists()):
+            control_lora_path = ctl_meta["repo_id"]
+        control_loras = list(p.get("loras") or []) + [{
+            "path": control_lora_path,
+            "strength": strength,
+        }]
+        # IC reference STRENGTH — the FOLLOW lever (second element of each
+        # video_conditioning tuple). VideoConditionByReferenceLatent holds the
+        # reference latent with mask_value = 1.0 - strength: 1.0 = control clip
+        # pinned pristine (render FOLLOWS its structure), 0.0 = fully denoisable
+        # (Ingredients' recompose). Recon proved raw RGB @1.0 drives the
+        # composition. Default 1.0; tunable via LTX_CONTROL_REF_STRENGTH for a
+        # looser "inspired-by" follow; clamped to [0.0, 1.0].
+        try:
+            ctl_ref_strength = float(
+                os.environ.get("LTX_CONTROL_REF_STRENGTH", "1.0"))
+        except (TypeError, ValueError):
+            ctl_ref_strength = 1.0
+        ctl_ref_strength = max(0.0, min(1.0, ctl_ref_strength))
+        out_name = original_src.stem + f"_control_{stamp}.mp4"
+        final_out = OUTPUT / out_name
+        job["raw_path"] = str(final_out)
+        # Force the Q4 distilled folder — same rule HDR / Colorize / Ingredients
+        # use. The Union-Control IC-LoRA was trained against the distilled
+        # checkpoint.
+        control_model_dir = (str(MODELS_DIR / "ltx-2.3-mlx-q4")
+                             if (MODELS_DIR / "ltx-2.3-mlx-q4").is_dir()
+                             else str(MODELS_DIR))
+        job_spec = {
+            "action": "generate_restore",
+            "id": job["id"],
+            "params": {
+                "model_dir": control_model_dir,
+                "prompt": p["prompt"],
+                "negative_prompt": p.get("negative_prompt", ""),
+                "output_path": str(final_out),
+                "height": ctl_h,
+                "width": ctl_w,
+                "frames": ctl_frames,
+                "frame_rate": float(FPS),
+                "seed": p["seed"],
+                # The control clip rides the IC reference channel at FOLLOW
+                # strength (~1.0) so the render inherits its structure/motion.
+                "video_conditioning": [[src, ctl_ref_strength]],
+                "loras": control_loras,
+                # Two-stage distilled walk (same as Colorize; NOT single-stage
+                # like Ingredients).
+                "stage1_steps": int(p.get("stage1_steps", 8)),
+                "stage2_steps": int(p.get("stage2_steps", 3)),
+            },
+        }
+        push(f"Control via helper: id={job['id']} ctl={original_src.name} "
+             f"{ctl_w}x{ctl_h} {ctl_frames}f (Q4 distilled + Union-Control "
+             f"IC-LoRA, LoRA strength {strength}, "
+             f"ref/follow strength {ctl_ref_strength})")
+        result = HELPER.run(job_spec)
+        if "seed_used" in result:
+            push(f"seed used: {result['seed_used']}")
+            p["seed_used"] = result["seed_used"]
+        sidecar = {
+            "output": str(final_out), "raw_output": str(final_out),
+            "params": {**p, "command": "control"},
+            "started": job.get("started_at"),
+            "elapsed_sec": round(time.time() - job["started_ts"], 2) if job.get("started_ts") else None,
+            "fps": FPS, "model": control_model_dir, "queue_id": job["id"],
+            "helper_elapsed_sec": result.get("elapsed_sec"),
+            "output_codec": output_codec_settings(),
+        }
+        write_sidecar(final_out.with_suffix(final_out.suffix + ".json"), sidecar)
+        job["output_path"] = str(final_out)
+        push(f"Control done in {sidecar['elapsed_sec']}s → {final_out.name}")
         if p.get("open_when_done"):
             subprocess.run(["open", str(final_out)], check=False)
         return
@@ -9707,7 +9870,8 @@ class Handler(BaseHTTPRequestHandler):
             curated = [c for c in list_curated_loras()
                        if not c.get("is_hdr_toggle")
                        and not c.get("is_restore_lora")
-                       and not c.get("is_ingredients_lora")]
+                       and not c.get("is_ingredients_lora")
+                       and not c.get("is_control_lora")]
             self._json({
                 "user": user_loras,
                 "curated": curated,
@@ -20087,6 +20251,10 @@ HTML = r"""<!doctype html>
            images (face + prop + location) → one composed clip. Runs on Q4
            distilled (like Colorize), so it stays visible at every tier. -->
       <button type="button" class="mode-chip pill-btn" data-mode="ingredients">Ingredients<span class="mc-sub sub">2–8 refs → one clip</span></button>
+      <!-- Control (Union) — drives motion/structure/composition from a control
+           video. Like Colorize/Ingredients it runs on Q4 distilled (the Union
+           IC-LoRA was trained against Q4), so it stays visible at every tier. -->
+      <button type="button" class="mode-chip pill-btn" data-mode="control">Control<span class="mc-sub sub">drive from a video</span></button>
       <!-- "Train" used to live here as a mode chip; promoted 2026-05-15 to
            a workflow tier (top tab strip). "Studio" (image generation) also
            lived here until 2026-05-17 — Mr Bizarro flagged that mixing image gen
@@ -20361,6 +20529,19 @@ HTML = r"""<!doctype html>
             <textarea id="ingredient_action" name="ingredient_action" class="composer-prompt" style="min-height:64px"
                       placeholder="What happens in the clip — e.g. the hedgehog waddles up and waves, the rabbit hops past with a spray bottle; warm acoustic jingle, cheerful voice, soft footsteps."></textarea>
             <div class="hint" style="margin-top:6px">The big prompt below describes WHAT'S in the reference sheet (each character, prop, and the location). This Action field describes the shot itself. Runs on Q4 — no Q8 needed.</div>
+          </div>
+
+          <!-- Control (Union) — control-video picker, cloned from the Colorize
+               (restore) source block. The user picks a RAW RGB clip; the Union
+               IC-LoRA rides it on the reference channel at follow-strength so
+               the render inherits its motion/structure/composition while the
+               prompt swaps the subject/scene. Q4 distilled (no Q8 needed).
+               Shown/hidden by updateDerived() when currentMode === 'control'. -->
+          <div class="mode-only" id="controlSection">
+            <h2>Control video</h2>
+            <select id="controlSrcSelect" onchange="document.getElementById('control_video_path').value=this.value"></select>
+            <input name="control_video_path" id="control_video_path" placeholder="/path/to/control.mp4" style="margin-top:6px">
+            <div class="hint" style="margin-top:6px">Pick a clip whose <strong>motion, structure, and composition</strong> you want to drive the render. The prompt below describes the NEW subject/scene to paint onto that structure (e.g. "a red origami crane unfolding"). Raw video works — a depth/pose map is an optional precision upgrade, not required. Output matches the control clip's resolution + length. Runs on Q4 — no Q8 needed.</div>
           </div>
         </div>
 
@@ -22961,7 +23142,7 @@ function _autoMainOutputsFilterForMode(mode) {
   // Auto-set NEVER lands on 'all' — that's user-only, per spec.
   let target = null;
   if (mode === 'image') target = 'photos';
-  else if (mode === 't2v' || mode === 'i2v' || mode === 'keyframe' || mode === 'extend' || mode === 'restore' || mode === 'ingredients') target = 'videos';
+  else if (mode === 't2v' || mode === 'i2v' || mode === 'keyframe' || mode === 'extend' || mode === 'restore' || mode === 'ingredients' || mode === 'control') target = 'videos';
   if (!target) return;
   // Same-filter early-return is conditional now: if the filter is already
   // on `target` but the visible list is empty AND we haven't loaded the
@@ -27294,6 +27475,8 @@ function updatePromptPlaceholder() {
     prompt.placeholder = 'Describe how the reference image should move, plus sound cues. The image anchors frame 0; the prompt directs the full clip.';
   } else if (currentMode === 'ingredients') {
     prompt.placeholder = "Describe WHAT'S in the reference sheet — each character, prop, and the location. e.g. a friendly cartoon hedgehog with rounded chestnut fur; a green coiled garden hose; the bright interior of a 'Greenfield' garden store. (The Action field above describes the shot itself.)";
+  } else if (currentMode === 'control') {
+    prompt.placeholder = "Describe the NEW subject/scene to paint onto the control clip's motion and structure — plus sound cues. e.g. a red origami crane unfolding on a black table · soft paper rustle. The control video drives the composition; this prompt swaps what's in it.";
   } else {
     prompt.placeholder = base;
   }
@@ -27550,6 +27733,11 @@ function updateDerived() {
   // sheet drives the rest).
   const _ingredientsSection = document.getElementById('ingredientsSection');
   if (_ingredientsSection) _ingredientsSection.classList.toggle('show', currentMode === 'ingredients');
+  // Control (Union) — its own control-video picker. Like Colorize it KEEPS the
+  // sizing/quick-metrics rows (the control clip drives dims/length; prompt +
+  // seed still apply).
+  const _controlSection = document.getElementById('controlSection');
+  if (_controlSection) _controlSection.classList.toggle('show', currentMode === 'control');
   document.getElementById('keyframeSection').classList.toggle('show', currentMode === 'keyframe');
   // Keyframe toggle row — visible only in keyframe mode
   const kfToggleRow = document.getElementById('kfToggleRow');
@@ -28654,6 +28842,9 @@ async function poll() {
     // Colorize (restore) source dropdown — same video-only list as Extend.
     const restoreSel = document.getElementById('restoreSrcSelect');
     if (restoreSel) restoreSel.innerHTML = _videoOpts;
+    // Control (Union) control-video dropdown — same video-only list.
+    const controlSel = document.getElementById('controlSrcSelect');
+    if (controlSel) controlSel.innerHTML = _videoOpts;
   }
   // (The old "Hidden (N)" pill that lived here was retired with the
   // Visible/Hidden segmented control — the carousel-head comment above

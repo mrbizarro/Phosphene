@@ -413,6 +413,30 @@ module.exports = {
       }
     },
 
+    // ---- Control (Union) IC-LoRA (~0.65 GB, OFFICIAL + un-gated) ----------
+    // Powers the Control mode (drive motion/structure/composition from a
+    // control video). This is the OFFICIAL Lightricks weight AND it is UN-GATED
+    // + public, so — unlike Ingredients — no token, no mirror, no mega-repo
+    // workaround: a plain single-file `hf download --include`, exactly like the
+    // Colorize fetch above. BEST-EFFORT: a hiccup must never fail the core
+    // video install. The worker falls back to resolving the repo id at first
+    // use; the panel surfaces Repair. Lands the file at mlx_models/loras/ic/
+    // (matches required_files.json → repos[ic_union_control] +
+    // CURATED_LORAS["union-control"].local_path).
+    {
+      method: "shell.run",
+      params: {
+        venv: "env",
+        path: "ltx-2-mlx",
+        env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
+        message: [
+          "echo 'Fetching the Control IC-LoRA (Union, control mode, ~0.65 GB, optional)…' && \\",
+          "hf download Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control --local-dir ../mlx_models/loras/ic --include 'ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors' \\",
+          "|| echo 'WARN: Control IC-LoRA fetch failed — video + image still work; the Control mode will fetch it on first use, or click Repair.'"
+        ].join("\n")
+      }
+    },
+
     // ---- Done -------------------------------------------------------------
     {
       method: "notify",
