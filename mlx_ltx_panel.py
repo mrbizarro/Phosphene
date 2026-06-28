@@ -5761,6 +5761,17 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # posts there). `prompt` above carries the SHEET description.
             "ingredient_images_json": f("ingredient_images_json", ""),
             "ingredient_action": f("ingredient_action", ""),
+            # Ingredients × Character — OPTIONAL trained character LoRA stacked
+            # ON TOP of the Ingredients IC-LoRA so the SAME trained face lands in
+            # every composed scene (identity from the LoRA, not a face photo).
+            # The differentiating feature — see the ingredients dispatch where
+            # these get fused into `ingredients_loras` at char strength while
+            # ref-strength stays 0.0. SAME allowlist trap: must be here or they
+            # silently no-op on /queue/add. Empty `ingredient_char_lora` = the
+            # plain (no-character) path, byte-identical to before.
+            "ingredient_char_lora": f("ingredient_char_lora", ""),
+            "ingredient_char_strength": f("ingredient_char_strength", "1.8"),
+            "ingredient_char_trigger": f("ingredient_char_trigger", ""),
             # control (Union) mode — the RAW-RGB control clip whose
             # motion/structure/composition drives the render. SAME allowlist
             # trap: this MUST be here or it silently no-ops on /queue/add (the
@@ -7409,6 +7420,17 @@ def run_job_inner(job: dict) -> None:
         # back gracefully so a render still happens.
         sheet_desc = (p.get("prompt") or "").strip()
         action_desc = (p.get("ingredient_action") or "").strip()
+        # Ingredients × Character — resolve the optional trained character LoRA
+        # up front. Its trigger word MUST appear in the action or the fused
+        # character delta won't fire, so prepend it when the user left it out
+        # (the UI injects it client-side too; this is the server-side safety net).
+        ing_char_lora = (p.get("ingredient_char_lora") or "").strip()
+        ing_char_trigger = (p.get("ingredient_char_trigger") or "").strip()
+        if ing_char_lora and ing_char_trigger:
+            if action_desc and ing_char_trigger.lower() not in action_desc.lower():
+                action_desc = f"{ing_char_trigger} {action_desc}"
+            elif not action_desc:
+                action_desc = ing_char_trigger
         if sheet_desc and action_desc:
             ing_prompt = f"Reference sheet: {sheet_desc}\n\nGenerated video: {action_desc}"
         elif action_desc:
@@ -7459,6 +7481,27 @@ def run_job_inner(job: dict) -> None:
             "path": ing_lora_path,
             "strength": ing_strength,
         }]
+        # Stack the optional trained character LoRA ON TOP of the Ingredients
+        # IC-LoRA. Both fuse additively into the Q4 distilled transformer
+        # (_fuse_loras loops every entry); the character carries identity while
+        # ref-strength stays 0.0, so the scene still recomposes instead of
+        # copying the sheet. The character strength is cranked ABOVE the
+        # ingredients strength — relative weight is the lever (validated:
+        # char @ 1.8 + ingredients @ 0.9 = tight identity AND a new scene, the
+        # thing the ref-strength dial alone can't do).
+        if ing_char_lora and Path(ing_char_lora).exists():
+            try:
+                _char_str = float(p.get("ingredient_char_strength") or 1.8)
+            except (TypeError, ValueError):
+                _char_str = 1.8
+            _char_str = max(0.0, min(3.0, _char_str))
+            ingredients_loras.append({"path": ing_char_lora, "strength": _char_str})
+            push(f"Ingredients × Character: stacking {Path(ing_char_lora).name} "
+                 f"@ {_char_str} (trigger {ing_char_trigger!r}) on top of the "
+                 f"Ingredients IC-LoRA — identity from the LoRA, scene recomposed.")
+        elif ing_char_lora:
+            push(f"Ingredients × Character: selected character LoRA not found on "
+                 f"disk ({ing_char_lora!r}); rendering without it.")
         out_name = f"ingredients_{stamp}.mp4"
         final_out = OUTPUT / out_name
         job["raw_path"] = str(final_out)
@@ -20529,6 +20572,28 @@ HTML = r"""<!doctype html>
             <textarea id="ingredient_action" name="ingredient_action" class="composer-prompt" style="min-height:64px"
                       placeholder="What happens in the clip — e.g. the hedgehog waddles up and waves, the rabbit hops past with a spray bottle; warm acoustic jingle, cheerful voice, soft footsteps."></textarea>
             <div class="hint" style="margin-top:6px">The big prompt below describes WHAT'S in the reference sheet (each character, prop, and the location). This Action field describes the shot itself. Runs on Q4 — no Q8 needed.</div>
+
+            <!-- Ingredients × Character — OPTIONAL trained character LoRA stacked
+                 on top of the Ingredients IC-LoRA so the SAME trained face lands
+                 in every composed scene. Options are filled from _knownUserLoras
+                 (kind=train_character) by populateIngredientCharLoras(). The
+                 selected character's trigger rides a hidden field; the server
+                 prepends it to the action if missing so the LoRA fires. -->
+            <div id="ingredientCharWrap" style="margin-top:16px">
+              <h2 style="margin-bottom:0">Character <span class="hint" style="font-weight:400">· optional — drop your trained face into every scene</span></h2>
+              <select id="ingredient_char_lora" name="ingredient_char_lora" onchange="onIngredientCharChange()" style="margin-top:6px"></select>
+              <input type="hidden" name="ingredient_char_strength" id="ingredient_char_strength" value="1.8">
+              <input type="hidden" name="ingredient_char_trigger" id="ingredient_char_trigger" value="">
+              <div id="ingredientCharEmpty" class="hint" style="margin-top:8px;display:none">No trained characters yet — train one in the <strong>Character</strong> tab and it appears here. Then your face composes into any scene you build.</div>
+              <div id="ingredientCharTune" style="margin-top:8px;display:none">
+                <div class="hint">Identity comes from the LoRA, not a face photo — so the same face holds across every scene (tighter than a reference image alone). The references still set the props, wardrobe, and location.</div>
+                <div style="margin-top:8px;display:flex;align-items:center;gap:10px">
+                  <span class="hint" style="white-space:nowrap">Identity strength <strong id="ingCharStrLabel">1.8</strong></span>
+                  <input type="range" min="0.8" max="2.4" step="0.1" value="1.8" id="ingCharStrSlider" oninput="onIngredientCharStrength(this.value)" style="flex:1;max-width:280px">
+                </div>
+                <div id="ingredientCharTrigHint" class="hint" style="margin-top:6px"></div>
+              </div>
+            </div>
           </div>
 
           <!-- Control (Union) — control-video picker, cloned from the Colorize
@@ -31454,6 +31519,62 @@ function setLoraStrength(path, strength) {
   _serializeLoras();
 }
 
+// --- Ingredients × Character picker -------------------------------------
+// Fills the optional character dropdown in Ingredients mode from the trained
+// characters in _knownUserLoras (kind=train_character). Selecting one stacks
+// the character LoRA on top of the Ingredients IC-LoRA server-side so the SAME
+// trained face lands in every composed scene. The character's trigger word
+// rides a hidden field; the server prepends it to the Action if missing.
+function populateIngredientCharLoras() {
+  const sel = document.getElementById('ingredient_char_lora');
+  const empty = document.getElementById('ingredientCharEmpty');
+  if (!sel) return;
+  const chars = (Array.isArray(_knownUserLoras) ? _knownUserLoras : [])
+    .filter(u => u && u.kind === 'train_character');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">None — compose from the reference images only</option>';
+  for (const c of chars) {
+    const o = document.createElement('option');
+    o.value = c.path;
+    const trig = (Array.isArray(c.trigger_words) && c.trigger_words[0]) || '';
+    o.dataset.trigger = trig;
+    o.textContent = (c.name || c.filename || c.path) + (trig ? ` · "${trig}"` : '');
+    sel.appendChild(o);
+  }
+  if (prev && chars.some(c => c.path === prev)) sel.value = prev;
+  sel.style.display = chars.length ? '' : 'none';
+  if (empty) empty.style.display = chars.length ? 'none' : '';
+  onIngredientCharChange();
+}
+
+function onIngredientCharChange() {
+  const sel = document.getElementById('ingredient_char_lora');
+  const tune = document.getElementById('ingredientCharTune');
+  const trigHint = document.getElementById('ingredientCharTrigHint');
+  const trigField = document.getElementById('ingredient_char_trigger');
+  if (!sel) return;
+  const opt = sel.options[sel.selectedIndex];
+  const trigger = (opt && opt.dataset.trigger) || '';
+  if (trigField) trigField.value = trigger;
+  const picked = !!sel.value;
+  if (tune) tune.style.display = picked ? '' : 'none';
+  if (trigHint) {
+    trigHint.innerHTML = picked
+      ? (trigger
+          ? 'Trigger word <code>' + escapeHtml(trigger) + '</code> is added to your Action automatically so the character fires.'
+          : 'No trigger word recorded for this character — it may still fire from the LoRA alone.')
+      : '';
+  }
+}
+
+function onIngredientCharStrength(v) {
+  const lab = document.getElementById('ingCharStrLabel');
+  const field = document.getElementById('ingredient_char_strength');
+  const f = parseFloat(v);
+  if (lab) lab.textContent = (isNaN(f) ? 1.8 : f).toFixed(1);
+  if (field) field.value = String(v);
+}
+
 async function refreshLoras() {
   // Pull the FULL library (no mode filter) so _knownUserLoras keeps every
   // entry — that lets refreshLoras() also serve as the "deleted on disk"
@@ -31502,6 +31623,10 @@ async function refreshLoras() {
     knownPaths.has(l.path) || l.path.includes('/'));   // keep HF ids (no dir slash)
   renderLorasList();
   _serializeLoras();
+  // Refill the Ingredients-mode character dropdown from the same library
+  // (kind=train_character). Runs here so a newly-trained character appears
+  // the moment /loras is re-fetched after training.
+  try { populateIngredientCharLoras(); } catch (_) {}
 }
 
 function renderLorasList() {
