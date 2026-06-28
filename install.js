@@ -388,6 +388,31 @@ module.exports = {
       }
     },
 
+    // ---- Ingredients IC-LoRA (~1.3 GB, un-gated mirror) -------------------
+    // Powers the flagship Ingredients mode (2-8 refs → one composed clip).
+    // The official Lightricks weight is GATED; DeepBeepMeep/LTX-2 carries the
+    // BYTE-IDENTICAL file un-gated, so no HF token is needed. BEST-EFFORT: a
+    // hiccup must never fail the core video install. CRITICAL: --include pulls
+    // ONLY the one ingredients file — DeepBeepMeep/LTX-2 is a ~708 GB mega-repo,
+    // so a bare `hf download` of it would be catastrophic. The worker falls
+    // back to a targeted single-file fetch at first use; the panel surfaces
+    // Repair. Lands the file at mlx_models/loras/ic/ (matches
+    // required_files.json → repos[ic_ingredients] +
+    // CURATED_LORAS["ingredients"].local_path).
+    {
+      method: "shell.run",
+      params: {
+        venv: "env",
+        path: "ltx-2-mlx",
+        env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
+        message: [
+          "echo 'Fetching the Ingredients IC-LoRA (multi-reference mode, ~1.3 GB, optional)…' && \\",
+          "hf download DeepBeepMeep/LTX-2 --local-dir ../mlx_models/loras/ic --include 'ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors' \\",
+          "|| echo 'WARN: Ingredients IC-LoRA fetch failed — video + image still work; the Ingredients mode will fetch it on first use, or click Repair.'"
+        ].join("\n")
+      }
+    },
+
     // ---- Done -------------------------------------------------------------
     {
       method: "notify",

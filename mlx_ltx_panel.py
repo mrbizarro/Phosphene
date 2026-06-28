@@ -767,6 +767,53 @@ CURATED_LORAS: dict[str, dict] = {
         "is_hdr_toggle": False,
         "is_restore_lora": True,        # hide from the LoRA picker (mode-driven)
     },
+    # Ingredients — the FLAGSHIP multi-reference IC-LoRA. 2-8 reference images
+    # (a face + a prop + a location) are tiled into ONE "reference sheet", the
+    # sheet is repeated to N frames as the IC video_conditioning, and the model
+    # composes them into one new clip. Drives the "Ingredients" mode, not the
+    # LoRA picker — `is_ingredients_lora` keeps it out of the user-facing list
+    # the way `is_restore_lora` hides Colorize. Worker injects it by
+    # `local_path` when mode=="ingredients".
+    #
+    # WEIGHT: the OFFICIAL Lightricks weight is GATED (auto-approve). The
+    # un-gated community mirror DeepBeepMeep/LTX-2 carries the BYTE-IDENTICAL
+    # file (same 1,308,778,338-byte size; sha256
+    # 515e4e139001ac6282357a5b35372e42e98b3affd5fcc886a52242abeed19559;
+    # token-less download verified). BUT that mirror is a 708 GB mega-repo of
+    # 71 safetensors — NEVER hand its bare repo_id to _resolve_lora_path
+    # (snapshot_download would try to pull all 708 GB). So we set `repo_file`
+    # to the exact filename and the worker fetches that ONE file with
+    # hf_hub_download. `local_path` (installer-fetched) is always preferred.
+    #
+    # Recipe is the public Space ltx-community/ltx-2.3-ingredients-distilled:
+    # LoRA fuse strength 1.4 (NOT 1.0), single-stage (skip_stage_2=True), the
+    # sheet rides video_conditioning at strength 1.0, prompt is
+    # "Reference sheet: <desc>\n\nGenerated video: <action>". Trained against
+    # the Q4 distilled checkpoint → ingredients forces Q4 like Colorize/HDR.
+    "ingredients": {
+        "id": "ingredients",
+        "name": "Ingredients",
+        "description": "Official-equivalent IC-LoRA that composes 2-8 reference "
+                       "images (a face + a prop + a location) into one new "
+                       "video. Drives the Ingredients mode; the references are "
+                       "tiled into a sheet and ride the IC reference channel. "
+                       "Un-gated mirror — no HF token needed.",
+        # Un-gated mirror that carries the byte-identical official weight.
+        "repo_id": "DeepBeepMeep/LTX-2",
+        # Exact file WITHIN that mega-repo — the worker fetches ONLY this file
+        # (hf_hub_download), never the whole 708 GB repo.
+        "repo_file": "ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors",
+        # Local file the installer fetches (see required_files.json →
+        # repos[ic_ingredients] + install.js/update.js). Preferred over repo_id
+        # so the helper fuses a local .safetensors with no download.
+        "local_path": str(LORAS_DIR / "ic" / "ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors"),
+        # Public-Space fuse strength for the Ingredients LoRA (1.4, not 1.0).
+        "default_strength": 1.4,
+        "trigger_words": [],
+        "is_curated": True,
+        "is_hdr_toggle": False,
+        "is_ingredients_lora": True,    # hide from the LoRA picker (mode-driven)
+    },
 }
 
 
@@ -4196,6 +4243,139 @@ def _ensure_downscaled(src: Path, max_dim: int = 768, align: int = 32) -> Path:
     return cached
 
 
+# ============================================================================
+# Ingredients (multi-reference) — sheet compositing + conditioning clip
+# ============================================================================
+# The Ingredients IC-LoRA conditions on a single "reference sheet" image: the
+# 2-8 subject images tiled into one frame. That sheet, repeated to N frames, is
+# the IC `video_conditioning`. Both helpers below are faithful ports of the
+# public Space ltx-community/ltx-2.3-ingredients-distilled (compose_sheet /
+# _fit_contain / _sheet_to_video) — the SAME 1536x896 canvas, ceil(sqrt(N))
+# grid, 16px gutter, aspect-preserving contain-pad (nothing cropped). The only
+# deviation: we loop the sheet PNG into the clip with ffmpeg (the panel's
+# resolver) instead of imageio, which isn't in the venv.
+
+def _fit_contain_cell(im, cw: int, ch: int, bg=(0, 0, 0)):
+    """Scale `im` to fit fully inside (cw, ch) keeping aspect, center on a
+    padded cell. Unlike a cover-crop, nothing is cropped off. Port of the
+    Space's `_fit_contain`."""
+    from PIL import Image, ImageOps
+    fitted = ImageOps.contain(im, (cw, ch), Image.LANCZOS)
+    cell = Image.new("RGB", (cw, ch), bg)
+    cell.paste(fitted, ((cw - fitted.width) // 2, (ch - fitted.height) // 2))
+    return cell
+
+
+def _compose_ingredient_sheet(image_paths: list[str], out_path: Path) -> Path:
+    """Tile 2-8 reference images into ONE sheet PNG at `out_path`.
+
+    Faithful port of the Space's `compose_sheet`: 1536x896 black canvas,
+    cols = ceil(sqrt(N)), rows = ceil(N/cols), 16px gutter, each cell
+    aspect-preserved + centered (no crop). A single image is written through
+    unchanged (resized only by the conditioning step). Returns `out_path`."""
+    import math
+    from PIL import Image
+    paths = [p for p in (image_paths or []) if p and Path(p).exists()]
+    if not paths:
+        raise RuntimeError(
+            "Ingredients needs at least one reference image. Upload 2-8 "
+            "subjects (a face + a prop + a location) in the Ingredients picker."
+        )
+    imgs = [Image.open(p).convert("RGB") for p in paths]
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if len(imgs) == 1:
+        imgs[0].save(out_path, format="PNG")
+        return out_path
+    BG = (0, 0, 0)
+    CW, CH = 1536, 896
+    canvas = Image.new("RGB", (CW, CH), BG)
+    cols = math.ceil(math.sqrt(len(imgs)))
+    rows = math.ceil(len(imgs) / cols)
+    g = 16
+    cw = (CW - g * (cols + 1)) // cols
+    ch = (CH - g * (rows + 1)) // rows
+    for i, im in enumerate(imgs):
+        r, c = divmod(i, cols)
+        canvas.paste(_fit_contain_cell(im, cw, ch, BG),
+                     (g + c * (cw + g), g + r * (ch + g)))
+    canvas.save(out_path, format="PNG")
+    return canvas if False else out_path
+
+
+def _sheet_to_conditioning_clip(sheet_png: Path, width: int, height: int,
+                                num_frames: int, out_path: Path) -> Path:
+    """Resize the sheet PNG to (width, height) and loop it into an N-frame
+    lossless mp4 at `out_path` — the IC `video_conditioning` the Ingredients
+    LoRA reads. Port of the Space's `_sheet_to_video` (sheet repeated to
+    num_frames), written via ffmpeg instead of imageio.
+
+    yuv444p + crf 0 matches the panel's lossless reference codec so the
+    conditioning frames aren't chroma-subsampled. Atomic .partial rename."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    partial = out_path.with_suffix(out_path.suffix + ".partial")
+    # `-loop 1 -framerate FPS -i sheet.png -frames:v N` emits exactly N
+    # identical frames. `-f mp4` is mandatory because of the .partial suffix
+    # (same ffmpeg autodetect gotcha as _ensure_downscaled).
+    cmd = [str(FFMPEG), "-y",
+           "-loop", "1", "-framerate", str(int(FPS)), "-i", str(sheet_png),
+           "-t", f"{max(1, num_frames) / float(FPS):.4f}",
+           "-frames:v", str(max(1, int(num_frames))),
+           "-vf", f"scale={int(width)}:{int(height)}",
+           "-c:v", "libx264", "-pix_fmt", "yuv444p", "-crf", "0",
+           "-preset", "veryfast",
+           "-f", "mp4",
+           str(partial)]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, timeout=180)
+        os.replace(partial, out_path)
+    except Exception:
+        try:
+            partial.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+    return out_path
+
+
+def _ensure_ingredients_lora() -> str:
+    """Return a local path to the Ingredients IC-LoRA .safetensors.
+
+    Resolution order:
+      1. The installer-fetched local file (CURATED_LORAS["ingredients"]
+         .local_path) — the fast path on a complete install.
+      2. A TARGETED single-file fetch of just the ingredients weight from the
+         un-gated mirror (DeepBeepMeep/LTX-2 → repo_file) via hf_hub_download,
+         copied into mlx_models/loras/ic/. This is the self-heal path when the
+         install/update best-effort fetch didn't land.
+
+    Critically, this NEVER hands the bare mirror repo_id to the helper's
+    _resolve_lora_path, because DeepBeepMeep/LTX-2 is a ~708 GB mega-repo and a
+    snapshot_download of it (largest-file pick) would try to pull everything.
+    Returns a filesystem path the helper can fuse directly."""
+    meta = CURATED_LORAS["ingredients"]
+    local = meta.get("local_path") or ""
+    if local and Path(local).exists() and Path(local).stat().st_size > 1024:
+        return local
+    repo_id = meta["repo_id"]
+    repo_file = meta["repo_file"]
+    dest_dir = LORAS_DIR / "ic"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / repo_file
+    if dest.exists() and dest.stat().st_size > 1024:
+        return str(dest)
+    push(f"Ingredients IC-LoRA not on disk — fetching just {repo_file} "
+         f"(~1.3 GB) from {repo_id} (un-gated)…")
+    from huggingface_hub import hf_hub_download
+    # Pull ONLY this one file. local_dir places it directly under ic/ so it
+    # matches local_path on the next run (no symlink-into-cache surprise).
+    got = hf_hub_download(
+        repo_id=repo_id,
+        filename=repo_file,
+        local_dir=str(dest_dir),
+    )
+    return str(got)
+
+
 def list_uploads(limit: int = 40) -> list[dict]:
     """Return recent panel_uploads/* images sorted by mtime descending.
 
@@ -5549,6 +5729,12 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # be in this allowlist or the path silently no-ops on /queue/add
             # (the known make_job allowlist trap — see CLAUDE.md).
             "restore_video_path": f("restore_video_path", ""),
+            # ingredients (multi-reference) mode — JSON list of 2-8 uploaded
+            # image paths + the action description. SAME allowlist trap: both
+            # MUST be here or they silently no-op on /queue/add (the panel UI
+            # posts there). `prompt` above carries the SHEET description.
+            "ingredient_images_json": f("ingredient_images_json", ""),
+            "ingredient_action": f("ingredient_action", ""),
             "extend_frames": max(1, int(f("extend_frames", "5") or 5)),
             "extend_direction": f("extend_direction", "after"),
             "extend_steps": max(1, int(f("extend_steps", "8") or 8)),
@@ -6782,7 +6968,7 @@ def run_job_inner(job: dict) -> None:
     quality = p.get("quality", "standard")
     if p.get("accel") not in ("off", "boost", "turbo"):
         p["accel"] = "off"
-    if quality == "high" or mode in ("extend", "keyframe", "a2v", "restore"):
+    if quality == "high" or mode in ("extend", "keyframe", "a2v", "restore", "ingredients"):
         p["accel"] = "off"
 
     # Guard: Q4 distilled hardcoded 9-sigma schedule needs the full walk to
@@ -6793,7 +6979,7 @@ def run_job_inner(job: dict) -> None:
     #   - extend / keyframe use stage1_steps + stage2_steps via two-stage path
     #   - high quality uses two-stage HQ with its own schedule
     #   - a2v uses A2VidPipelineTwoStage's stage1/stage2 walks
-    if mode not in ("extend", "keyframe", "a2v", "restore") and quality != "high" and int(p.get("steps", 8)) < 8:
+    if mode not in ("extend", "keyframe", "a2v", "restore", "ingredients") and quality != "high" and int(p.get("steps", 8)) < 8:
         raise RuntimeError(
             f"steps={p.get('steps')} is below the 8-step minimum for the Q4 distilled "
             "schedule. Fewer steps truncates the sigma walk and leaves >70% noise in "
@@ -7015,6 +7201,184 @@ def run_job_inner(job: dict) -> None:
         write_sidecar(final_out.with_suffix(final_out.suffix + ".json"), sidecar)
         job["output_path"] = str(final_out)
         push(f"Colorize done in {sidecar['elapsed_sec']}s → {final_out.name}")
+        if p.get("open_when_done"):
+            subprocess.run(["open", str(final_out)], check=False)
+        return
+
+    if mode == "ingredients":
+        # Ingredients (multi-reference) — the FLAGSHIP IC-LoRA feature. 2-8
+        # subject images (a face + a prop + a location) are composed into ONE
+        # reference sheet, the sheet is looped to N frames as the IC
+        # video_conditioning, and the model composes them into one new clip.
+        # Reuses the generate_restore HELPER surface (same ICLoraPipeline +
+        # Q4 distilled + reference channel) — the only differences are the
+        # injected LoRA (Ingredients, strength 1.4), the single-stage recipe
+        # (skip_stage_2=True), and the two-field prompt. Default off; no other
+        # mode changes. Recipe matches the public Space
+        # ltx-community/ltx-2.3-ingredients-distilled.
+        try:
+            image_paths = json.loads(p.get("ingredient_images_json") or "[]")
+            if not isinstance(image_paths, list):
+                image_paths = []
+        except (ValueError, TypeError):
+            image_paths = []
+        image_paths = [str(x) for x in image_paths if x]
+        if len(image_paths) < 2:
+            raise RuntimeError(
+                f"Ingredients needs 2-8 reference images (got {len(image_paths)}). "
+                "Upload a face + a prop + a location in the Ingredients picker."
+            )
+        if len(image_paths) > 8:
+            # The sheet stays readable up to 8 cells; trim extras rather than
+            # erroring so a user who over-selected still gets a render.
+            push(f"Ingredients: {len(image_paths)} images selected; using the first 8.")
+            image_paths = image_paths[:8]
+        missing = [ip for ip in image_paths if not Path(ip).exists()]
+        if missing:
+            raise RuntimeError(
+                f"Ingredients: {len(missing)} reference image(s) not found on disk, "
+                f"e.g. {missing[0]!r}. Re-upload them in the Ingredients picker."
+            )
+        # The Ingredients prompt has two parts (Space's build_prompt):
+        #   "Reference sheet: <what's in the sheet>\n\nGenerated video: <action>"
+        # The panel sends them as `prompt` (the SHEET description) and
+        # `ingredient_action` (the action). If only one prompt was given, fall
+        # back gracefully so a render still happens.
+        sheet_desc = (p.get("prompt") or "").strip()
+        action_desc = (p.get("ingredient_action") or "").strip()
+        if sheet_desc and action_desc:
+            ing_prompt = f"Reference sheet: {sheet_desc}\n\nGenerated video: {action_desc}"
+        elif action_desc:
+            ing_prompt = f"Generated video: {action_desc}"
+        else:
+            ing_prompt = sheet_desc or "the subjects from the reference sheet, cinematic"
+        # Geometry: the Space fixes 768x448 base and, because skip_stage_2 runs
+        # a single stage, GENERATES at 2x (1536x896). Honor the form's frames
+        # (49/73/97/121), clamped to the 8k+1 rule. The tier max-dim caps the
+        # generated size so it fits memory on smaller Macs.
+        SHEET_BASE_W, SHEET_BASE_H = 768, 448
+        gen_w, gen_h = SHEET_BASE_W * 2, SHEET_BASE_H * 2   # skip_stage_2 → 2x
+        res_max = tier_max_dim("i2v")
+        if res_max and max(gen_w, gen_h) > res_max:
+            scale = res_max / float(max(gen_w, gen_h))
+            gen_w = max(32, (int(gen_w * scale) // 32) * 32)
+            gen_h = max(32, (int(gen_h * scale) // 32) * 32)
+            push(f"Ingredients: generated size clamped to {gen_w}x{gen_h} "
+                 f"({SYSTEM_CAPS['label']} tier).")
+        ing_frames = int(p.get("frames") or 0) or 121
+        if ing_frames % 8 != 1:
+            ing_frames = max(9, ing_frames - (ing_frames % 8) + 1)
+        # 1) Compose the sheet PNG, then 2) loop it into the conditioning clip.
+        # The clip is authored at the BASE (half-gen) resolution, NOT the gen
+        # size — exactly like the Space (`_sheet_to_video(sheet, 768, 448, …)`
+        # at 1x, then generate at 2x). The IC encoder resizes the reference to
+        # `height//2 × width//2` (ic_lora.py:365,378 → iclora_utils resize), so
+        # authoring at the gen size made the encoder DOWNSCALE 2x and changed
+        # the reference latent the model anchors on; authoring at half makes
+        # that resize an identity, matching the Space byte-for-byte.
+        cond_w = max(32, (gen_w // 2 // 32) * 32)
+        cond_h = max(32, (gen_h // 2 // 32) * 32)
+        UPLOADS.mkdir(parents=True, exist_ok=True)
+        sheet_png = UPLOADS / f".ingredients_{job['id']}_{stamp}_sheet.png"
+        cond_mp4 = UPLOADS / f".ingredients_{job['id']}_{stamp}_cond.mp4"
+        _compose_ingredient_sheet(image_paths, sheet_png)
+        _sheet_to_conditioning_clip(sheet_png, cond_w, cond_h, ing_frames, cond_mp4)
+        push(f"Ingredients: composed {len(image_paths)}-image sheet → "
+             f"{ing_frames}f conditioning clip at {cond_w}x{cond_h} "
+             f"(generate {gen_w}x{gen_h}).")
+        # Inject the Ingredients LoRA (prefer the installer-fetched local file;
+        # fall back to a TARGETED single-file fetch from the un-gated mirror —
+        # never a bare snapshot of the 708 GB mega-repo).
+        ing_meta = CURATED_LORAS["ingredients"]
+        ing_strength = float(ing_meta["default_strength"])   # 1.4
+        ing_lora_path = _ensure_ingredients_lora()
+        ingredients_loras = list(p.get("loras") or []) + [{
+            "path": ing_lora_path,
+            "strength": ing_strength,
+        }]
+        out_name = f"ingredients_{stamp}.mp4"
+        final_out = OUTPUT / out_name
+        job["raw_path"] = str(final_out)
+        # Force Q4 distilled — the Ingredients LoRA was trained against
+        # transformer-distilled.safetensors (same rule HDR / Colorize use).
+        ing_model_dir = (str(MODELS_DIR / "ltx-2.3-mlx-q4")
+                         if (MODELS_DIR / "ltx-2.3-mlx-q4").is_dir()
+                         else str(MODELS_DIR))
+        # IC reference STRENGTH — the composition lever. This is the second
+        # element of each video_conditioning tuple, and it sets how clean the
+        # reference latent is held during denoise (VideoConditionByReferenceLatent
+        # uses mask_value = 1.0 - strength: 1.0 = reference pinned pristine,
+        # 0.0 = reference fully denoisable). Ingredients must RECOMPOSE the
+        # subjects into the prompted scene, NOT reproduce the reference sheet.
+        # At strength 1.0 the looped sheet is held pristine and the model copies
+        # it verbatim (measured MAD ~4.2/255, static 2x2 grid, prompted action
+        # absent). Crucially, conditioning_attention_strength does NOT fix this:
+        # an empirical CAS sweep is flat (MAD ~3.6-4.2 across CAS 0.0..1.0; even
+        # CAS=0.0 reproduces the grid). The reference STRENGTH is the real knob —
+        # MAD climbs 4.2(s=1.0) → 7.2(0.3) → 18(0.1) → 86(0.0), and only s=0.0
+        # yields a clean single composed shot with motion and preserved identity
+        # (the fused Ingredients LoRA carries the subjects when the literal sheet
+        # latent is no longer pinned). Default 0.0; tunable via
+        # LTX_INGREDIENTS_REF_STRENGTH for iteration; clamped to [0.0, 1.0].
+        # Colorize keeps its own strength (curated default, pristine reference)
+        # → byte-identical, this branch never touches it.
+        try:
+            ing_ref_strength = float(
+                os.environ.get("LTX_INGREDIENTS_REF_STRENGTH", "0.0"))
+        except (TypeError, ValueError):
+            ing_ref_strength = 0.0
+        ing_ref_strength = max(0.0, min(1.0, ing_ref_strength))
+        job_spec = {
+            "action": "generate_restore",
+            "id": job["id"],
+            "params": {
+                "model_dir": ing_model_dir,
+                "prompt": ing_prompt,
+                "negative_prompt": p.get("negative_prompt", ""),
+                "output_path": str(final_out),
+                "height": gen_h,
+                "width": gen_w,
+                "frames": ing_frames,
+                "frame_rate": float(FPS),
+                "seed": p["seed"],
+                # The reference SHEET clip rides the IC reference channel. Its
+                # STRENGTH (not attention) is the composition lever — see above.
+                # 0.0 lets the model compose from the LoRA instead of copying
+                # the pinned sheet.
+                "video_conditioning": [[str(cond_mp4), ing_ref_strength]],
+                "loras": ingredients_loras,
+                # Single-stage recipe — the differentiator vs Colorize.
+                "skip_stage_2": True,
+                "stage1_steps": int(p.get("stage1_steps", 8)),
+                "stage2_steps": int(p.get("stage2_steps", 3)),
+            },
+        }
+        push(f"Ingredients via helper: id={job['id']} refs={len(image_paths)} "
+             f"{gen_w}x{gen_h} {ing_frames}f (Q4 distilled + Ingredients IC-LoRA, "
+             f"single-stage, LoRA strength {ing_strength}, "
+             f"ref strength {ing_ref_strength}).")
+        result = HELPER.run(job_spec)
+        if "seed_used" in result:
+            push(f"seed used: {result['seed_used']}")
+            p["seed_used"] = result["seed_used"]
+        # Best-effort cleanup of the scratch sheet + conditioning clip.
+        for scratch in (sheet_png, cond_mp4):
+            try:
+                scratch.unlink()
+            except OSError:
+                pass
+        sidecar = {
+            "output": str(final_out), "raw_output": str(final_out),
+            "params": {**p, "command": "ingredients"},
+            "started": job.get("started_at"),
+            "elapsed_sec": round(time.time() - job["started_ts"], 2) if job.get("started_ts") else None,
+            "fps": FPS, "model": ing_model_dir, "queue_id": job["id"],
+            "helper_elapsed_sec": result.get("elapsed_sec"),
+            "output_codec": output_codec_settings(),
+        }
+        write_sidecar(final_out.with_suffix(final_out.suffix + ".json"), sidecar)
+        job["output_path"] = str(final_out)
+        push(f"Ingredients done in {sidecar['elapsed_sec']}s → {final_out.name}")
         if p.get("open_when_done"):
             subprocess.run(["open", str(final_out)], check=False)
         return
@@ -9342,7 +9706,8 @@ class Handler(BaseHTTPRequestHandler):
                 ]
             curated = [c for c in list_curated_loras()
                        if not c.get("is_hdr_toggle")
-                       and not c.get("is_restore_lora")]
+                       and not c.get("is_restore_lora")
+                       and not c.get("is_ingredients_lora")]
             self._json({
                 "user": user_loras,
                 "curated": curated,
@@ -17643,6 +18008,36 @@ HTML = r"""<!doctype html>
     .picker-recent-thumb:hover { border-color: var(--accent, #5a7cff); transform: translateY(-1px); }
     .picker-recent-thumb.selected { border-color: var(--success, #3fb950); }
 
+    /* Ingredients (multi-reference) picker — drop tile + thumbnail grid. */
+    .ingredients-drop { min-height: 96px; }
+    .ingredients-thumbs {
+      display: grid; gap: 8px; margin-top: 8px;
+      grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    }
+    .ingredients-thumbs:empty { margin-top: 0; }
+    .ingredient-thumb {
+      position: relative; aspect-ratio: 1 / 1; border-radius: 8px;
+      overflow: hidden; border: 1px solid var(--border, #2a3140);
+      background: rgba(255,255,255,0.04);
+    }
+    .ingredient-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .ingredient-thumb-x {
+      position: absolute; top: 4px; right: 4px;
+      width: 22px; height: 22px; border-radius: 50%; border: none;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.62); color: #fff; cursor: pointer;
+      transition: background 120ms ease;
+    }
+    .ingredient-thumb-x:hover { background: var(--danger, #d9534f); }
+    .ingredient-thumb-x .ph { width: 12px; height: 12px; }
+    .ingredient-thumb-n {
+      position: absolute; bottom: 4px; left: 4px;
+      min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 600; line-height: 1;
+      background: rgba(0,0,0,0.62); color: #fff;
+    }
+
     /* LoRA picker — collapsible <details>. Compact list rows (Y1.007).
        Distinct visual section so users notice it (Y1.008): wrapped in a
        bordered container, separator dividers above/below, custom chevron
@@ -19688,6 +20083,10 @@ HTML = r"""<!doctype html>
            Q4 distilled (unlike FFLF/Extend/Character, which are Q8-only and
            hidden on the Q4 tier), so it stays visible at every tier. -->
       <button type="button" class="mode-chip pill-btn" data-mode="restore">Colorize<span class="mc-sub sub">B&amp;W clip → color</span></button>
+      <!-- Ingredients (multi-reference) — the FLAGSHIP IC-LoRA feature. 2-8
+           images (face + prop + location) → one composed clip. Runs on Q4
+           distilled (like Colorize), so it stays visible at every tier. -->
+      <button type="button" class="mode-chip pill-btn" data-mode="ingredients">Ingredients<span class="mc-sub sub">2–8 refs → one clip</span></button>
       <!-- "Train" used to live here as a mode chip; promoted 2026-05-15 to
            a workflow tier (top tab strip). "Studio" (image generation) also
            lived here until 2026-05-17 — Mr Bizarro flagged that mixing image gen
@@ -19932,6 +20331,36 @@ HTML = r"""<!doctype html>
             <select id="restoreSrcSelect" onchange="document.getElementById('restore_video_path').value=this.value"></select>
             <input name="restore_video_path" id="restore_video_path" placeholder="/path/to/blackandwhite.mp4" style="margin-top:6px">
             <div class="hint" style="margin-top:6px">Pick a black-and-white or washed-out clip. The prompt below describes the colors to paint in (e.g. "golden warm sunlight, blue sky, green grass"). Output matches the source's resolution + length. Runs on Q4 — no Q8 needed.</div>
+          </div>
+
+          <!-- Ingredients (multi-reference) — the flagship IC-LoRA. Pick 2-8
+               subject images (a face + a prop + a location); they're tiled
+               into one reference sheet and the model composes them into a new
+               clip. The prompt below describes WHAT'S in the sheet; the Action
+               field describes the shot. Q4 distilled. Shown/hidden by
+               updateDerived() when currentMode === 'ingredients'. -->
+          <div class="mode-only" id="ingredientsSection">
+            <h2>Reference images <span class="hint" style="font-weight:400">· 2–8 (a face + a prop + a location)</span></h2>
+            <div class="ingredients-picker">
+              <div class="picker-drop ingredients-drop" id="ingredients_drop">
+                <div class="picker-empty">
+                  <div class="picker-icon"><svg class="ph"><use href="#ph-image"/></svg></div>
+                  <div class="picker-cta">Drop images here, or <strong>click to browse</strong></div>
+                  <div class="hint">PNG / JPG / WEBP · pick 2–8 — they tile into one reference sheet</div>
+                </div>
+              </div>
+              <input type="file" id="ingredients_file" accept="image/*" multiple style="display:none">
+              <input type="hidden" name="ingredient_images_json" id="ingredient_images_json" value="[]">
+              <div class="ingredients-thumbs" id="ingredients_thumbs"></div>
+              <div class="picker-recent" id="ingredients_recent_wrap" style="display:none">
+                <div class="picker-recent-label">Recent uploads · click to add</div>
+                <div class="picker-recent-strip" id="ingredients_recent"></div>
+              </div>
+            </div>
+            <h2 style="margin-top:14px">Action / shot to generate</h2>
+            <textarea id="ingredient_action" name="ingredient_action" class="composer-prompt" style="min-height:64px"
+                      placeholder="What happens in the clip — e.g. the hedgehog waddles up and waves, the rabbit hops past with a spray bottle; warm acoustic jingle, cheerful voice, soft footsteps."></textarea>
+            <div class="hint" style="margin-top:6px">The big prompt below describes WHAT'S in the reference sheet (each character, prop, and the location). This Action field describes the shot itself. Runs on Q4 — no Q8 needed.</div>
           </div>
         </div>
 
@@ -22532,7 +22961,7 @@ function _autoMainOutputsFilterForMode(mode) {
   // Auto-set NEVER lands on 'all' — that's user-only, per spec.
   let target = null;
   if (mode === 'image') target = 'photos';
-  else if (mode === 't2v' || mode === 'i2v' || mode === 'keyframe' || mode === 'extend' || mode === 'restore') target = 'videos';
+  else if (mode === 't2v' || mode === 'i2v' || mode === 'keyframe' || mode === 'extend' || mode === 'restore' || mode === 'ingredients') target = 'videos';
   if (!target) return;
   // Same-filter early-return is conditional now: if the filter is already
   // on `target` but the visible list is empty AND we haven't loaded the
@@ -22783,6 +23212,12 @@ function setMode(mode) {
   updateAccelAvailability();
   updateTemporalAvailability();
   updateDerived();
+  // Ingredients (multi-reference) — lazily wire the multi-image picker + load
+  // the recent-uploads strip on first entry. Idempotent (guarded by __wired).
+  if (mode === 'ingredients') {
+    if (typeof ingredientPickerWire === 'function') ingredientPickerWire();
+    if (typeof refreshIngredientRecent === 'function') refreshIngredientRecent();
+  }
   // Refresh the inline models card immediately — switching to FFLF when
   // Q8 is missing should surface the Download Q8 CTA without waiting for
   // the next 1.5s poll tick.
@@ -26857,6 +27292,8 @@ function updatePromptPlaceholder() {
     prompt.placeholder = window._kfMode >= 3 ? keyframeMulti : keyframeTwo;
   } else if (currentMode === 'i2v') {
     prompt.placeholder = 'Describe how the reference image should move, plus sound cues. The image anchors frame 0; the prompt directs the full clip.';
+  } else if (currentMode === 'ingredients') {
+    prompt.placeholder = "Describe WHAT'S in the reference sheet — each character, prop, and the location. e.g. a friendly cartoon hedgehog with rounded chestnut fur; a green coiled garden hose; the bright interior of a 'Greenfield' garden store. (The Action field above describes the shot itself.)";
   } else {
     prompt.placeholder = base;
   }
@@ -27108,6 +27545,11 @@ function updateDerived() {
   // drive the output, but the prompt + seed still apply).
   const _restoreSection = document.getElementById('restoreSection');
   if (_restoreSection) _restoreSection.classList.toggle('show', currentMode === 'restore');
+  // Ingredients (multi-reference) — its own multi-image picker + action field.
+  // Like Colorize it KEEPS the sizing/quick-metrics rows (frames apply; the
+  // sheet drives the rest).
+  const _ingredientsSection = document.getElementById('ingredientsSection');
+  if (_ingredientsSection) _ingredientsSection.classList.toggle('show', currentMode === 'ingredients');
   document.getElementById('keyframeSection').classList.toggle('show', currentMode === 'keyframe');
   // Keyframe toggle row — visible only in keyframe mode
   const kfToggleRow = document.getElementById('kfToggleRow');
@@ -27342,6 +27784,122 @@ async function refreshUploadsStrip() {
       img.addEventListener('click', () => pickerSetImage(key, img.dataset.path));
     });
   });
+}
+
+// ====== Ingredients (multi-reference) picker ======
+// Unlike the single-image pickers above, Ingredients holds an ORDERED LIST of
+// 2-8 server-side paths. The list is mirrored into the hidden
+// #ingredient_images_json input that make_job reads (and that's in the
+// allowlist — see the make_job params dict). Uploads go through the same
+// /upload endpoint; selecting from "Recent uploads" appends a path.
+let _ingredientPaths = [];   // array of server-side panel_uploads/* paths
+
+function _ingredientSync() {
+  const hidden = document.getElementById('ingredient_images_json');
+  if (hidden) hidden.value = JSON.stringify(_ingredientPaths);
+  _ingredientRenderThumbs();
+  // Keep the recent strip's "added" highlight in sync.
+  if (typeof refreshIngredientRecent === 'function') refreshIngredientRecent();
+}
+
+function _ingredientRenderThumbs() {
+  const wrap = document.getElementById('ingredients_thumbs');
+  if (!wrap) return;
+  if (!_ingredientPaths.length) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = _ingredientPaths.map((p, i) => `
+    <div class="ingredient-thumb" data-idx="${i}">
+      <img src="${escapeHtml(_thumbUrl('/image?path=' + encodeURIComponent(p), 160))}" alt="">
+      <button type="button" class="ingredient-thumb-x" data-idx="${i}" title="Remove"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+      <span class="ingredient-thumb-n">${i + 1}</span>
+    </div>
+  `).join('');
+  wrap.querySelectorAll('.ingredient-thumb-x').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.idx, 10);
+      _ingredientPaths.splice(idx, 1);
+      _ingredientSync();
+    });
+  });
+}
+
+function ingredientAddPath(path) {
+  if (!path) return;
+  if (_ingredientPaths.includes(path)) return;   // no dupes
+  if (_ingredientPaths.length >= 8) { alert('Ingredients takes at most 8 images.'); return; }
+  _ingredientPaths.push(path);
+  _ingredientSync();
+}
+
+async function ingredientUploadFile(file) {
+  const drop = document.getElementById('ingredients_drop');
+  if (!file || !drop) return;
+  let busy = drop.querySelector('.picker-uploading');
+  if (!busy) {
+    busy = document.createElement('div');
+    busy.className = 'picker-uploading';
+    drop.appendChild(busy);
+  }
+  busy.textContent = `Uploading ${file.name}…`;
+  try {
+    const fd = new FormData(); fd.append('image', file);
+    const r = await fetch('/upload', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error || 'upload failed');
+    ingredientAddPath(data.path);
+    if (typeof refreshUploadsStrip === 'function') refreshUploadsStrip();
+  } catch (e) {
+    alert(`Upload failed: ${e.message || e}`);
+  } finally {
+    busy.remove();
+  }
+}
+
+async function refreshIngredientRecent() {
+  const wrap = document.getElementById('ingredients_recent_wrap');
+  const strip = document.getElementById('ingredients_recent');
+  if (!wrap || !strip) return;
+  // Reuse the module-level uploads cache the single pickers already fill.
+  let list = _uploadsCache;
+  if (!list || !list.length) {
+    try { const d = await api('/uploads?limit=24'); list = (d && d.uploads) || []; _uploadsCache = list; }
+    catch (e) { list = []; }
+  }
+  if (!list.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  strip.innerHTML = list.map(u => `
+    <img class="picker-recent-thumb${_ingredientPaths.includes(u.path) ? ' selected' : ''}"
+         src="${escapeHtml(_thumbUrl(u.url, 128))}"
+         data-path="${escapeHtml(u.path)}"
+         title="${escapeHtml(u.name)} · ${u.size_kb} KB"
+         alt="">
+  `).join('');
+  strip.querySelectorAll('img').forEach(img => {
+    img.addEventListener('click', () => ingredientAddPath(img.dataset.path));
+  });
+}
+
+function ingredientPickerWire() {
+  const drop = document.getElementById('ingredients_drop');
+  const file = document.getElementById('ingredients_file');
+  if (!drop || !file || drop.__wired) return;
+  drop.__wired = true;
+  drop.addEventListener('click', (e) => {
+    if (e.target.closest('.ingredient-thumb-x')) return;
+    file.click();
+  });
+  file.addEventListener('change', () => {
+    Array.from(file.files || []).forEach(f => ingredientUploadFile(f));
+    file.value = '';   // allow re-uploading the same file
+  });
+  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('dragover'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
+  drop.addEventListener('drop', (e) => {
+    e.preventDefault();
+    drop.classList.remove('dragover');
+    Array.from((e.dataTransfer && e.dataTransfer.files) || []).forEach(f => ingredientUploadFile(f));
+  });
+  _ingredientSync();
 }
 
 // ====== Format helpers ======

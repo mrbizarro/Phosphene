@@ -2604,10 +2604,18 @@ for line in sys.__stdin__:
         continue
 
     if action == "generate_restore":
-        # Restore (Colorize) via a community IC-LoRA. The first real IC-LoRA
-        # feature on un-gated weights (DoctorDiffusion/LTX-2.3-IC-LoRA-
-        # Colorizer). Mechanically this mirrors generate_hdr but with TWO
-        # deliberate differences:
+        # IC-LoRA reference-conditioned render. Serves TWO panel modes through
+        # one code path (both fuse an IC-LoRA + ride a source clip on the IC
+        # reference channel via ICLoraPipeline):
+        #   - Colorize (mode=restore): the source is a B&W clip; LoRA strength
+        #     1.0; two-stage (skip_stage_2 unset). The first real IC-LoRA
+        #     feature on un-gated weights (DoctorDiffusion Colorizer).
+        #   - Ingredients (mode=ingredients): the "source" is the reference
+        #     SHEET looped to N frames (the panel composes + writes it); LoRA
+        #     strength 1.4; single-stage (skip_stage_2=True). Flagship
+        #     multi-reference composition.
+        # Mechanically this mirrors generate_hdr but with TWO deliberate
+        # differences:
         #   (a) ICLoraPipeline (ltx_pipelines_mlx.ic_lora), NOT
         #       HDRICLoraPipeline. The community Colorize LoRA carries no
         #       hdr_transform metadata — only reference_downscale_factor=1 —
@@ -2674,6 +2682,7 @@ for line in sys.__stdin__:
                           f"stage2={int(p.get('stage2_steps', 3))} "
                           f"loras={len(resolved)} "
                           f"ref_videos={len(video_conditioning)} "
+                          f"ref_strengths={[round(float(s), 3) for _, s in video_conditioning]} "
                           f"ref_downscale={getattr(pipe, 'reference_downscale_factor', '?')}"})
             kwargs = dict(
                 prompt=p["prompt"],
@@ -2687,7 +2696,31 @@ for line in sys.__stdin__:
                 stage1_steps=int(p.get("stage1_steps", 8)),
                 stage2_steps=int(p.get("stage2_steps", 3)),
             )
+            # Ingredients (multi-reference) reuses this same action but runs the
+            # public Space's single-stage recipe — skip_stage_2=True, generated
+            # at 2x the sheet resolution. Colorize leaves this False (two-stage),
+            # so restore stays byte-identical. Only set the kwarg when the panel
+            # asked for it, so the pipeline default still wins otherwise.
+            if p.get("skip_stage_2"):
+                kwargs["skip_stage_2"] = True
             kwargs = _filter_unsupported_kwargs(pipe.generate_and_save, kwargs)
+            # Ingredients is single-stage ONLY (the public Space's recipe). If the
+            # imported pipeline package is an older/pinned build whose
+            # generate_and_save lacks `skip_stage_2`, _filter_unsupported_kwargs
+            # would have SILENTLY dropped it → a two-stage run whose clean,
+            # no-LoRA Stage 2 refines against the raw reference and collapses the
+            # output back to a faithful copy of the sheet (static, ~no motion).
+            # Fail loudly here instead of shipping that broken render. Colorize
+            # never sets skip_stage_2, so this guard is inert for it (byte-identical).
+            if p.get("skip_stage_2") and "skip_stage_2" not in kwargs:
+                raise RuntimeError(
+                    "Ingredients requires single-stage generation (skip_stage_2), "
+                    "but the imported ltx-pipelines-mlx build's generate_and_save "
+                    "does not accept it — it would silently run two-stage and "
+                    "produce a static copy of the reference sheet. Upgrade/repair "
+                    "the ltx-2-mlx pipeline (need a build with skip_stage_2; "
+                    "v0.14.8+ has it)."
+                )
             out_path = pipe.generate_and_save(**kwargs)
             # Drop the pipeline aggressively — restore jobs are rare and the
             # DiT+VAE cost is substantial; don't cache it like t2v/i2v.

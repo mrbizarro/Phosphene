@@ -301,6 +301,28 @@ module.exports = {
         ].join("\n")
       }
     },
+
+    // ---- Ingredients IC-LoRA (multi-reference mode, ~1.3 GB, un-gated) ----
+    // Self-heal existing installs onto the flagship Ingredients feature. The
+    // official weight is GATED; DeepBeepMeep/LTX-2 mirrors the BYTE-IDENTICAL
+    // file un-gated (no HF token). BEST-EFFORT — must not fail the update; the
+    // worker self-heals via a targeted single-file fetch, and the panel
+    // surfaces Repair. CRITICAL: --include pulls ONLY the one ingredients file
+    // (DeepBeepMeep/LTX-2 is a ~708 GB mega-repo). hf skips it when already
+    // present (fast verify).
+    {
+      method: "shell.run",
+      params: {
+        venv: "env",
+        path: "ltx-2-mlx",
+        env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
+        message: [
+          "echo 'Ensuring the Ingredients IC-LoRA is present (multi-reference mode, optional)…' && \\",
+          "hf download DeepBeepMeep/LTX-2 --local-dir ../mlx_models/loras/ic --include 'ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors' \\",
+          "|| echo 'WARN: Ingredients IC-LoRA fetch failed — the Ingredients mode will fetch it on first use, or click Repair.'"
+        ].join("\n")
+      }
+    },
     {
       method: "shell.run",
       params: {
