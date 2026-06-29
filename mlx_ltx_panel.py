@@ -5770,7 +5770,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # silently no-op on /queue/add. Empty `ingredient_char_lora` = the
             # plain (no-character) path, byte-identical to before.
             "ingredient_char_lora": f("ingredient_char_lora", ""),
-            "ingredient_char_strength": f("ingredient_char_strength", "1.8"),
+            "ingredient_char_strength": f("ingredient_char_strength", "1.3"),
             "ingredient_char_trigger": f("ingredient_char_trigger", ""),
             # control (Union) mode — the RAW-RGB control clip whose
             # motion/structure/composition drives the render. SAME allowlist
@@ -7485,16 +7485,19 @@ def run_job_inner(job: dict) -> None:
         # IC-LoRA. Both fuse additively into the Q4 distilled transformer
         # (_fuse_loras loops every entry); the character carries identity while
         # ref-strength stays 0.0, so the scene still recomposes instead of
-        # copying the sheet. The character strength is cranked ABOVE the
-        # ingredients strength — relative weight is the lever (validated:
-        # char @ 1.8 + ingredients @ 0.9 = tight identity AND a new scene, the
-        # thing the ref-strength dial alone can't do).
+        # copying the sheet. STRENGTH IS A MOTION/IDENTITY TRADE-OFF, not "more
+        # is better": cranked too high (~1.6+) the character LoRA over-constrains
+        # the distilled video model and FREEZES the motion + smears distortion
+        # into the frame (validated by motion-strip A/B — char 1.8 = near-static,
+        # warped; char 1.0 = full natural camera motion but looser ID). The sweet
+        # spot is ~1.3 — real motion AND a recognizable trained face. Clamp the
+        # ceiling at 1.8 so a stray high value can't reintroduce the freeze.
         if ing_char_lora and Path(ing_char_lora).exists():
             try:
-                _char_str = float(p.get("ingredient_char_strength") or 1.8)
+                _char_str = float(p.get("ingredient_char_strength") or 1.3)
             except (TypeError, ValueError):
-                _char_str = 1.8
-            _char_str = max(0.0, min(3.0, _char_str))
+                _char_str = 1.3
+            _char_str = max(0.0, min(1.8, _char_str))
             ingredients_loras.append({"path": ing_char_lora, "strength": _char_str})
             push(f"Ingredients × Character: stacking {Path(ing_char_lora).name} "
                  f"@ {_char_str} (trigger {ing_char_trigger!r}) on top of the "
@@ -20609,14 +20612,14 @@ HTML = r"""<!doctype html>
             <div id="ingredientCharWrap" style="margin-top:16px">
               <h2 style="margin-bottom:0">Character <span class="hint" style="font-weight:400">· optional — drop your trained face into every scene</span></h2>
               <select id="ingredient_char_lora" name="ingredient_char_lora" onchange="onIngredientCharChange()" style="margin-top:6px"></select>
-              <input type="hidden" name="ingredient_char_strength" id="ingredient_char_strength" value="1.8">
+              <input type="hidden" name="ingredient_char_strength" id="ingredient_char_strength" value="1.3">
               <input type="hidden" name="ingredient_char_trigger" id="ingredient_char_trigger" value="">
               <div id="ingredientCharEmpty" class="hint" style="margin-top:8px;display:none">No trained characters yet — train one in the <strong>Character</strong> tab and it appears here. Then your face composes into any scene you build.</div>
               <div id="ingredientCharTune" style="margin-top:8px;display:none">
-                <div class="hint">Identity comes from the LoRA, not a face photo — so the same face holds across every scene (tighter than a reference image alone). The references still set the props, wardrobe, and location.</div>
+                <div class="hint">Identity comes from the LoRA, not a face photo — so the same face holds across every scene (tighter than a reference image alone). The references still set the props, wardrobe, and location. <strong>Strength is a trade-off:</strong> higher = tighter face but stiffer motion; lower = freer, more natural motion. ~1.3 is the sweet spot.</div>
                 <div style="margin-top:8px;display:flex;align-items:center;gap:10px">
-                  <span class="hint" style="white-space:nowrap">Identity strength <strong id="ingCharStrLabel">1.8</strong></span>
-                  <input type="range" min="0.8" max="2.4" step="0.1" value="1.8" id="ingCharStrSlider" oninput="onIngredientCharStrength(this.value)" style="flex:1;max-width:280px">
+                  <span class="hint" style="white-space:nowrap">Identity strength <strong id="ingCharStrLabel">1.3</strong></span>
+                  <input type="range" min="0.8" max="1.8" step="0.1" value="1.3" id="ingCharStrSlider" oninput="onIngredientCharStrength(this.value)" style="flex:1;max-width:280px">
                 </div>
                 <div id="ingredientCharTrigHint" class="hint" style="margin-top:6px"></div>
               </div>
