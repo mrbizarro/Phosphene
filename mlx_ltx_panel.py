@@ -15773,7 +15773,7 @@ HTML = r"""<!doctype html>
        small so the bar height stays low. */
     .mode-bar {
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
+      grid-template-columns: repeat(6, 1fr);
       gap: 4px;
       padding: 4px;
       background: var(--panel);
