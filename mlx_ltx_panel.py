@@ -7046,7 +7046,7 @@ def run_job_inner(job: dict) -> None:
         if not audio_src or not Path(audio_src).exists():
             raise RuntimeError(f"audio file not found: {audio_src}")
         width, height = int(p["width"]), int(p["height"])
-        # Clamp resolution on Q4 tier to keep within 24 GB budget.
+        # Clamp resolution by tier cap (no-op when tier_max_dim returns 0).
         max_dim = tier_max_dim("t2v")
         if max_dim:
             width = min(width, max_dim)
@@ -13530,9 +13530,9 @@ HTML = r"""<!doctype html>
        everything (no display: none rules apply when cap_tier="q8").
        Q4 path remains available to Q8 users via the Customize Compute
        toggle (Pass 6) for quick non-character drafts. */
-     body[data-cap-tier="q4"] #modeGroup [data-mode="keyframe"],
-     body[data-cap-tier="q4"] #modeGroup [data-mode="extend"],
-      body[data-cap-tier="q4"] #qualityGroup [data-quality="high"] { display: none !important; }
+    body[data-cap-tier="q4"] #modeGroup [data-mode="keyframe"],
+    body[data-cap-tier="q4"] #modeGroup [data-mode="extend"],
+    body[data-cap-tier="q4"] #qualityGroup [data-quality="high"] { display: none !important; }
     /* Quality strip becomes a 3-col grid (Quick/Balanced/Standard)
        since the 4th column ("High") is gone. */
     body[data-cap-tier="q4"] #qualityGroup.quality-strip {

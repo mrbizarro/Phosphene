@@ -1123,7 +1123,12 @@ def get_a2v_distilled_pipe(model_dir: str):
     Cached on model_dir so switching between Q4 and Q8 paths rebuilds.
     """
     global _a2v_distilled_pipe, _a2v_distilled_model_dir
-    from a2vid_distilled import A2VidDistilledPipeline
+    try:
+        from a2vid_distilled import A2VidDistilledPipeline
+    except ModuleNotFoundError:
+        raise RuntimeError(
+            "A2V distilled module not found — run Update to install it."
+        ) from None
 
     _install_a2v_frame_rate_patch()
 
