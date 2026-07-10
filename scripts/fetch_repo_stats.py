@@ -45,6 +45,17 @@ OUTPUT SCHEMA  (one JSON object per UTC day, newline-delimited)
       "watchers":      N,                         # alias for stars (GH legacy)
       "subscribers":   N,                         # actual GitHub "watch"
       "open_prs":      N,
+      # The live "what needs attention" board: the ACTUAL open issues +
+      # PRs (not just counts), newest-first, capped at OPEN_ITEMS_CAP.
+      # Non-sensitive fields only — this stays local-only (gitignored).
+      "open_items": [
+        {"number": N, "title": "...", "author": "login",
+         "created_at": "...Z", "html_url": "...", "is_pr": false,
+         "labels": [{"name": "bug", "color": "d73a4a"}],
+         "comments": N, "draft": false},
+        ...
+      ],
+      "open_items_truncated": false,   # true if list hit OPEN_ITEMS_CAP
       # Back-compat: most-recent-day slice. Same numbers as the last
       # element of clones_window/views_window. Kept so older dashboards
       # don't break.
@@ -125,6 +136,10 @@ STARS_CAP = 5000
 FORKS_CAP   = 2000
 ISSUES_CAP  = 5000   # combined issues + PRs in one stream
 COMMITS_CAP = 3000   # trailing 365-day window
+# The live "open items" board only needs the current backlog head, not the
+# whole history. 200 open issues+PRs is already an unusable wall on a
+# glance-board; beyond that we truncate and flag it.
+OPEN_ITEMS_CAP = 200
 
 # Retry policy for transient failures.
 RETRY_BACKOFFS = (2, 8, 30)
@@ -296,6 +311,58 @@ def fetch_open_prs(repo: str) -> int:
     q = f"repo:{repo}+is:pr+is:open"
     r = _get(f"/search/issues?q={q}")
     return int(r.get("total_count", 0))
+
+
+def fetch_open_items(repo: str) -> list[dict]:
+    """The actual list of currently-open issues AND pull requests, so the
+    dashboard can render a live "what needs attention" board instead of a
+    bare count.
+
+    GitHub's /issues endpoint returns PRs too (a PR is a subclass of
+    Issue), discriminated by the presence of a `pull_request` key. We keep
+    only the small, non-sensitive fields the board renders — number, title,
+    author login, created_at, is_pr, labels (name only), and comment count.
+    We deliberately DROP body text, reactions, assignees, etc.: the board
+    is a glanceable attention list, and this file is local-only anyway
+    (Mr Bizarro 2026-07-10).
+
+    Newest-first (GitHub's default sort=created&direction=desc), capped at
+    OPEN_ITEMS_CAP so a viral repo's backlog can't bloat the row. The count
+    fields (open_issues / open_prs) remain the source of truth for totals;
+    a `truncated` flag tells the dashboard when the list is a head slice."""
+    entries = _get_paginated(
+        f"/repos/{repo}/issues?state=open&sort=created&direction=desc",
+        max_items=OPEN_ITEMS_CAP,
+    )
+    out: list[dict] = []
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        is_pr = "pull_request" in e and bool(e.get("pull_request"))
+        user = e.get("user") or {}
+        labels = []
+        for lb in e.get("labels") or []:
+            if isinstance(lb, dict):
+                name = lb.get("name")
+                if name:
+                    labels.append({
+                        "name": str(name)[:60],
+                        "color": str(lb.get("color") or "")[:6],
+                    })
+            elif isinstance(lb, str):
+                labels.append({"name": lb[:60], "color": ""})
+        out.append({
+            "number":     int(e.get("number", 0)),
+            "title":      (e.get("title") or "")[:280],
+            "author":     str(user.get("login") or "") or "ghost",
+            "created_at": e.get("created_at") or "",
+            "html_url":   e.get("html_url") or "",
+            "is_pr":      is_pr,
+            "labels":     labels[:6],
+            "comments":   int(e.get("comments", 0)),
+            "draft":      bool(e.get("draft", False)) if is_pr else False,
+        })
+    return out
 
 
 def _normalize_traffic_day(entry: dict) -> dict:
@@ -642,6 +709,15 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  prs: {open_prs} (open_issues adjusted to {repo_obj['open_issues']})",
           flush=True)
 
+    # The actual open issues + PRs, so the dashboard renders a live
+    # attention board (not just the count). Cheap on a normal repo; capped.
+    open_items = fetch_open_items(repo)
+    open_items_truncated = len(open_items) >= OPEN_ITEMS_CAP
+    _n_pr = sum(1 for it in open_items if it.get("is_pr"))
+    print(f"  open items: {len(open_items)} listed "
+          f"({len(open_items) - _n_pr} issues · {_n_pr} prs)"
+          + ("  (TRUNCATED)" if open_items_truncated else ""), flush=True)
+
     clones_window = fetch_clones_window(repo)
     views_window = fetch_views_window(repo)
     # Back-compat: most-recent-day slice as a dict.
@@ -721,6 +797,8 @@ def main(argv: list[str] | None = None) -> int:
         "issues_closed":    issue_pr["issues_closed"],
         "prs_opened":       issue_pr["prs_opened"],
         "prs_closed":       issue_pr["prs_closed"],
+        "open_items":            open_items,
+        "open_items_truncated":  open_items_truncated,
         "commits_timeline": commits_timeline,
         "release_timeline": release_timeline,
         "referrers": referrers,

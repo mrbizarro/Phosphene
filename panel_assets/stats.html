@@ -551,6 +551,131 @@
     }
 
     /* ============================================================
+       Open items board — the live "what needs attention" list.
+       Two columns (issues | PRs), each a stack of rows. Newest first.
+       ============================================================ */
+    .board {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+    }
+    @media (max-width: 760px) { .board { grid-template-columns: 1fr; } }
+    .board-col { min-width: 0; }
+    .board-col > h3 {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .board-col .count-pill {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 20px; height: 18px; padding: 0 6px;
+      border-radius: var(--r-pill);
+      background: var(--bg-2); border: 1px solid var(--border);
+      color: var(--muted); font-size: 10.5px; font-weight: 700;
+      font-family: var(--ph-font-mono); font-variant-numeric: tabular-nums;
+      letter-spacing: 0;
+    }
+    .board-list {
+      display: flex; flex-direction: column; gap: 7px;
+      list-style: none; margin: 0; padding: 0;
+    }
+    .item {
+      position: relative;
+      display: block;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-left-width: 3px;
+      border-radius: var(--r-md);
+      padding: 11px 13px 11px 12px;
+      text-decoration: none;
+      color: var(--text);
+      transition: border-color var(--t-base), background var(--t-base), transform var(--t-fast);
+    }
+    .item:hover {
+      background: var(--panel-2);
+      border-color: var(--border-strong);
+      text-decoration: none;
+      transform: translateY(-1px);
+    }
+    .item.is-issue { border-left-color: var(--success); }
+    .item.is-pr    { border-left-color: var(--purple, #B14AFF); }
+    .item.is-draft { border-left-color: var(--faint); }
+    .item-top {
+      display: flex; align-items: baseline; gap: 8px;
+    }
+    .item-badge {
+      flex-shrink: 0;
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 7px; border-radius: var(--r-pill);
+      font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-family: var(--ph-font-mono);
+      border: 1px solid transparent;
+    }
+    .item-badge.issue {
+      color: var(--success);
+      background: rgba(63, 185, 80, 0.10);
+      border-color: rgba(63, 185, 80, 0.30);
+    }
+    .item-badge.pr {
+      color: #c99bff;
+      background: rgba(177, 74, 255, 0.12);
+      border-color: rgba(177, 74, 255, 0.32);
+    }
+    .item-badge.draft {
+      color: var(--muted);
+      background: rgba(140, 160, 220, 0.08);
+      border-color: var(--border);
+    }
+    .item-num {
+      flex-shrink: 0;
+      color: var(--faint);
+      font-family: var(--ph-font-mono); font-size: 11.5px; font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    .item-title {
+      flex: 1 1 auto; min-width: 0;
+      color: var(--text);
+      font-size: 12.5px; font-weight: 500; line-height: 1.4;
+      /* Clamp to 2 lines so a very long title can't blow up a row. */
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .item:hover .item-title { color: var(--accent-bright); }
+    .item-meta {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin-top: 7px;
+      color: var(--faint);
+      font-size: 10.5px;
+      font-family: var(--ph-font-mono);
+    }
+    .item-meta .who { color: var(--muted); }
+    .item-meta .dot { color: var(--faint); opacity: 0.6; }
+    .item-meta .comments { display: inline-flex; align-items: center; gap: 3px; }
+    .item-labels {
+      display: inline-flex; align-items: center; gap: 5px; flex-wrap: wrap;
+    }
+    .item-label {
+      display: inline-flex; align-items: center;
+      padding: 1px 7px; border-radius: var(--r-pill);
+      font-size: 9.5px; font-weight: 600; line-height: 1.5;
+      border: 1px solid var(--lc, var(--border));
+      color: var(--lc, var(--muted));
+      background: color-mix(in srgb, var(--lc, var(--border)) 12%, transparent);
+      white-space: nowrap;
+    }
+    .board-more {
+      margin-top: 8px;
+      color: var(--faint); font-size: 10.5px; font-style: italic;
+      font-family: var(--ph-font-mono);
+    }
+    .board-empty {
+      display: flex; align-items: center; gap: 8px;
+      padding: 18px 14px;
+      background: var(--bg-2);
+      border: 1px dashed var(--border);
+      border-radius: var(--r-md);
+      color: var(--muted); font-size: 12px;
+    }
+    .board-empty .ok { color: var(--success); font-size: 14px; }
+
+    /* ============================================================
        Skeleton loading state.
        ============================================================ */
     @keyframes skel-pulse {
@@ -702,6 +827,36 @@
         <div class="skel-kpi"><span class="skel label"></span><br><span class="skel value"></span><br><span class="skel delta"></span></div>
         <div class="skel-kpi"><span class="skel label"></span><br><span class="skel value"></span><br><span class="skel delta"></span></div>
         <div class="skel-kpi"><span class="skel label"></span><br><span class="skel value"></span><br><span class="skel delta"></span></div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         NEEDS ATTENTION — live board of the actual open issues + PRs.
+         Populated from the latest snapshot's `open_items` array (added
+         by scripts/fetch_repo_stats.py). Hidden entirely if the fetcher
+         predates the field (older snapshot) so old data degrades cleanly.
+         ============================================================ -->
+    <section class="card" id="sec-attention" hidden>
+      <div class="section-head">
+        <h2>Needs attention <span class="h2-sub">open issues &amp; pull requests · newest first</span></h2>
+        <a class="icon-btn" id="attention-repo-link"
+           href="https://github.com/mrbizarro/phosphene/issues"
+           target="_blank" rel="noopener"
+           title="Open the issues + PRs on GitHub">
+           <span class="ico">↗</span> on GitHub
+        </a>
+      </div>
+      <div class="board">
+        <div class="board-col">
+          <h3>Open issues <span class="count-pill" id="attn-issues-count">0</span></h3>
+          <ul class="board-list" id="attn-issues-list"></ul>
+          <div class="board-more" id="attn-issues-more" hidden></div>
+        </div>
+        <div class="board-col">
+          <h3>Open PRs <span class="count-pill" id="attn-prs-count">0</span></h3>
+          <ul class="board-list" id="attn-prs-list"></ul>
+          <div class="board-more" id="attn-prs-more" hidden></div>
+        </div>
       </div>
     </section>
 
@@ -2111,6 +2266,123 @@
     return `<span class="trend down" title="${diff.toLocaleString()} vs prior snapshot">↓</span>`;
   }
 
+  // ===================================================================
+  //  NEEDS ATTENTION — live board of the actual open issues + PRs.
+  //  Reads last.open_items (added by the fetcher). Degrades to hidden
+  //  when the field is absent (older snapshot / fetcher).
+  // ===================================================================
+
+  /** Terse age like "3d" / "2w" / "5mo" / "1y" for the board rows. */
+  function ageShort(iso) {
+    const t = new Date(iso).getTime();
+    if (!Number.isFinite(t)) return '';
+    const s = Math.max(0, (Date.now() - t) / 1000);
+    if (s < 3600)      return Math.max(1, Math.floor(s / 60))   + 'm';
+    if (s < 86400)     return Math.floor(s / 3600)  + 'h';
+    const d = Math.floor(s / 86400);
+    if (d < 14)  return d + 'd';
+    if (d < 60)  return Math.floor(d / 7)   + 'w';
+    if (d < 365) return Math.floor(d / 30)  + 'mo';
+    return (d / 365).toFixed(d % 365 === 0 ? 0 : 1).replace(/\.0$/, '') + 'y';
+  }
+
+  /** One board row for an open issue / PR. */
+  function openItemRow(it) {
+    const isPr  = !!it.is_pr;
+    const draft = isPr && !!it.draft;
+    const kls   = draft ? 'is-draft' : (isPr ? 'is-pr' : 'is-issue');
+    const badge = draft
+      ? '<span class="item-badge draft">draft</span>'
+      : (isPr ? '<span class="item-badge pr">PR</span>'
+              : '<span class="item-badge issue">issue</span>');
+    const href = it.html_url
+      ? escapeAttr(it.html_url)
+      : `https://github.com/mrbizarro/phosphene/issues/${encodeURIComponent(it.number)}`;
+    const created = it.created_at || '';
+    const age = ageShort(created);
+    const ageHtml = age
+      ? `<span class="dot" aria-hidden="true">·</span><span title="opened ${escapeAttr(created)}">${escapeHtml(age)}</span>`
+      : '';
+    const commentsHtml = (it.comments > 0)
+      ? `<span class="dot" aria-hidden="true">·</span><span class="comments" title="${fmt(it.comments)} comment${it.comments === 1 ? '' : 's'}">💬 ${escapeHtml(String(it.comments))}</span>`
+      : '';
+    const labels = Array.isArray(it.labels) ? it.labels.slice(0, 4) : [];
+    const labelsHtml = labels.length
+      ? `<span class="item-labels">` + labels.map(l => {
+          const raw = (l && l.color) ? String(l.color).replace(/[^0-9a-fA-F]/g, '') : '';
+          const col = /^[0-9a-fA-F]{6}$/.test(raw) ? '#' + raw : 'var(--faint)';
+          return `<span class="item-label" style="--lc:${col}">${escapeHtml(l.name || '')}</span>`;
+        }).join('') + `</span>`
+      : '';
+    return `<li>
+      <a class="item ${kls}" href="${href}" target="_blank" rel="noopener">
+        <div class="item-top">
+          ${badge}
+          <span class="item-num">#${escapeHtml(String(it.number))}</span>
+          <span class="item-title">${escapeHtml(it.title || '(untitled)')}</span>
+        </div>
+        <div class="item-meta">
+          <span class="who">@${escapeHtml(it.author || 'ghost')}</span>
+          ${ageHtml}
+          ${commentsHtml}
+          ${labelsHtml}
+        </div>
+      </a>
+    </li>`;
+  }
+
+  function renderOpenItems(rows) {
+    const sec = $('#sec-attention');
+    if (!sec) return;
+    const last = rows[rows.length - 1] || {};
+    const items = Array.isArray(last.open_items) ? last.open_items : null;
+
+    // Feature-detect: hide the whole section on a snapshot that predates
+    // the fetcher field, so old archives don't show an empty board.
+    if (items == null) { sec.hidden = true; return; }
+    sec.hidden = false;
+
+    const issues = items.filter(it => !it.is_pr);
+    const prs    = items.filter(it =>  it.is_pr);
+
+    // Prefer the authoritative counts (open_issues / open_prs) for the
+    // pills — they're the true totals even if the list itself was capped.
+    const issuesTotal = (last.open_issues != null) ? last.open_issues : issues.length;
+    const prsTotal    = (last.open_prs    != null) ? last.open_prs    : prs.length;
+    $('#attn-issues-count').textContent = fmt(issuesTotal);
+    $('#attn-prs-count').textContent    = fmt(prsTotal);
+
+    // Cap what we actually paint per column so a big backlog stays glanceable.
+    const SHOWN = 12;
+
+    const paint = (list, listSel, moreSel, total, noun) => {
+      const body = $(listSel);
+      const more = $(moreSel);
+      if (!list.length) {
+        body.innerHTML = `<li><div class="board-empty">
+          <span class="ok" aria-hidden="true">✓</span>
+          <span>No open ${noun} — inbox zero.</span>
+        </div></li>`;
+        if (more) more.hidden = true;
+        return;
+      }
+      body.innerHTML = list.slice(0, SHOWN).map(openItemRow).join('');
+      const hiddenCount = Math.max(0, total - Math.min(list.length, SHOWN));
+      const capped = !!last.open_items_truncated;
+      if (more && (hiddenCount > 0 || capped)) {
+        more.hidden = false;
+        more.textContent = capped
+          ? `+ more (list capped at fetch time) — see all on GitHub ↗`
+          : `+ ${hiddenCount} more ${noun} — see all on GitHub ↗`;
+      } else if (more) {
+        more.hidden = true;
+      }
+    };
+
+    paint(issues, '#attn-issues-list', '#attn-issues-more', issuesTotal, 'issues');
+    paint(prs,    '#attn-prs-list',    '#attn-prs-more',    prsTotal,    'PRs');
+  }
+
   function renderTables(rows) {
     const last = rows[rows.length - 1] || {};
     const refs = Array.isArray(last.referrers) ? last.referrers : [];
@@ -2301,7 +2573,7 @@
   // ===================================================================
 
   function showError(err) {
-    ['sec-now', 'sec-funnel', 'sec-over-time', 'sec-traffic', 'sec-releases']
+    ['sec-now', 'sec-attention', 'sec-funnel', 'sec-over-time', 'sec-traffic', 'sec-releases']
       .forEach(id => { const e = document.getElementById(id); if (e) e.hidden = true; });
     const meta = $('#meta');
     if (meta) meta.innerHTML = `<span style="color:var(--danger)">could not load stats</span>`;
@@ -2386,6 +2658,7 @@
         return;
       }
       renderKpiStrip(allRows);
+      renderOpenItems(allRows);
       renderFunnel(allRows);
       renderTables(allRows);
       renderReleases(allRows);
