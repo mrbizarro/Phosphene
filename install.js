@@ -188,7 +188,18 @@ module.exports = {
           "echo '=== /diagnostics ==='",
           // Force the mlx pin BEFORE installing ltx-* packages so their deps
           // resolve to the pinned version instead of pulling latest 0.31.x.
-          "uv pip install --python env/bin/python 'mlx==0.31.1' 'mlx-lm==0.31.1' 'mlx-metal==0.31.1'",
+          //
+          // SHIP-BLOCKER (2026-07-10, GitHub #40/#38/#37/#33): also pin
+          // transformers <5.13.0. mlx-lm 0.31.1 declares `transformers>=5.0.0`
+          // with NO upper bound, so any fresh install after transformers 5.13.0
+          // dropped (~Jul 9) pulls 5.13.0 — which breaks mlx_lm.tokenizer_utils.
+          // EVERY generation then crashes with "'str' object has no attribute
+          // '__module__'": the Gemma text-encoder load silently no-ops ("done in
+          // 0.0s") → downstream "Model not loaded. Call load() first." Known-good:
+          // 5.7.0 (our validated build) and 5.12.x. Cap it on the SAME resolve as
+          // mlx-lm so the constraint sticks (uv downgrades an already-installed
+          // 5.13.0 on the next Update). Diagnosed by @saved-j + @xandreau.
+          "uv pip install --python env/bin/python 'mlx==0.31.1' 'mlx-lm==0.31.1' 'mlx-metal==0.31.1' 'transformers>=5.0.0,<5.13.0'",
           // Y3 — Train Character ships in 3.0. Without ltx-trainer-mlx in
           // the venv, the trainer subprocess fails at `import yaml` because
           // pyyaml is a transitive dep of ltx-trainer (declared in its
