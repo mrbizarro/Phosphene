@@ -1,3 +1,22 @@
+## About this fork
+
+This fork adds audio-to-video mode for low memory pipeline.
+
+Adds A2V Distilled Pipeline (a2vid_distilled.py) in phosphene root for
+Q4-distilled audio-to-video generation. No ltx-2-mlx modifications
+required — imports from stock ltx-pipelines-mlx package.
+
+Key differences from the standard A2V path:
+- a2vid_distilled.py lives in phosphene root (not inside ltx-2-mlx)
+- mlx_warm_helper.py imports from the local a2vid_distilled module
+- Distilled path (generate_a2v_distilled) passes audio_conditioning_scale
+  (built into a2vid_distilled.py)
+- Non-distilled path (generate_a2v) omits audio_conditioning_scale
+  (upstream A2VidPipelineTwoStage does not accept it)
+- patch_ltx_codec.py is unchanged (codec patch only)
+
+
+
 <p align="center">
   <img src="assets/phosphene_banner.png" alt="Phosphene" width="100%">
 </p>

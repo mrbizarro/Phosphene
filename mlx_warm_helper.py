@@ -102,6 +102,36 @@ MODEL_UPSCALE_ENABLED = os.environ.get("LTX_ENABLE_MODEL_UPSCALE", "").lower() i
 _USER_VAE_STREAMING_OVERRIDE = os.environ.get("LTX_VAE_STREAMING")
 
 
+def _log_memory_pressure() -> None:
+    """Emit a log line with current memory stats for diagnosing GPU timeouts."""
+    try:
+        import subprocess, re
+        total = int(subprocess.run(["sysctl", "-n", "hw.memsize"],
+            capture_output=True, text=True, timeout=1).stdout.strip())
+        vm = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=1).stdout
+        m = re.search(r"page size of (\d+)", vm)
+        page_size = int(m.group(1)) if m else 16384
+        def pages(name: str) -> int:
+            mm = re.search(rf"{re.escape(name)}:\s+(\d+)", vm)
+            return int(mm.group(1)) if mm else 0
+        used_bytes = (pages("Pages active") + pages("Pages wired down")
+                      + pages("Pages occupied by compressor")) * page_size
+        used_gb = used_bytes / 1024**3
+        pct = round(used_bytes / total * 100) if total else 0
+        emit({"event": "log", "line": f"[mem] used={used_gb:.1f}G/{total/1024**3:.0f}G ({pct}%)"})
+    except Exception:
+        pass
+
+
+def _aggressive_cleanup_before_generate() -> None:
+    """Minimize Metal heap fragmentation before pipeline generation."""
+    try:
+        from ltx_core_mlx.utils.memory import aggressive_cleanup as _ac
+        _ac()
+    except Exception:
+        pass
+
+
 def _apply_vae_streaming_decision(num_frames: int) -> None:
     """Set/unset os.environ['LTX_VAE_STREAMING'] for the upcoming decode.
     No-op if the user pinned a value at helper start time. Threshold reads
@@ -236,6 +266,8 @@ _hq_model_dir = None     # remember which model the HQ pipe was built against
 _a2v_pipe = None         # A2VidPipelineTwoStage (Q8 dev + distilled LoRA stage 2)
 _a2v_model_dir = None    # which model the A2V pipe was built against
 _a2v_lora_key: tuple | None = None  # LoRA fingerprint for current A2V cache
+_a2v_distilled_pipe = None   # A2VidDistilledPipeline (Q4 distilled, no CFG)
+_a2v_distilled_model_dir = None
 _pipe_lock = threading.Lock()
 
 
@@ -321,6 +353,7 @@ def release_pipelines(keep_kind=None):
     """
     global _t2v_pipe, _i2v_pipe, _extend_pipe, _hq_pipe, _kf_pipe, _hq_model_dir, _kf_model_dir
     global _a2v_pipe, _a2v_model_dir
+    global _a2v_distilled_pipe, _a2v_distilled_model_dir
     global _gemma_lm
     try:
         from ltx_core_mlx.utils.memory import aggressive_cleanup
@@ -340,6 +373,8 @@ def release_pipelines(keep_kind=None):
         _kf_pipe = None; _kf_model_dir = None; freed.append("Keyframe")
     if keep_kind != "a2v" and _a2v_pipe is not None:
         _a2v_pipe = None; _a2v_model_dir = None; freed.append("A2V")
+    if keep_kind != "a2v_distilled" and _a2v_distilled_pipe is not None:
+        _a2v_distilled_pipe = None; _a2v_distilled_model_dir = None; freed.append("A2V-distilled")
     # Always free Gemma LanguageModel when releasing for any pipeline —
     # ~6 GB persistent that competes with the dev transformer's headroom.
     # Re-loaded on demand by the next enhance call (one-time ~10s cost).
@@ -1079,6 +1114,44 @@ def get_a2v_pipe(model_dir: str, loras: list[dict] | None = None):
             _a2v_model_dir = model_dir
             _a2v_lora_key = fp
         return _a2v_pipe
+
+
+def get_a2v_distilled_pipe(model_dir: str):
+    """Returns A2VidDistilledPipeline lazily.
+
+    Q4-compatible distilled pipeline — no dev transformer, no CFG, 8+3 steps.
+    Cached on model_dir so switching between Q4 and Q8 paths rebuilds.
+    """
+    global _a2v_distilled_pipe, _a2v_distilled_model_dir
+    try:
+        from a2vid_distilled import A2VidDistilledPipeline
+    except ModuleNotFoundError:
+        raise RuntimeError(
+            "A2V distilled module not found — run Update to install it."
+        ) from None
+
+    _install_a2v_frame_rate_patch()
+
+    try:
+        from ltx_core_mlx.utils.memory import aggressive_cleanup as _ac
+    except Exception:
+        _ac = lambda: None
+    with _pipe_lock:
+        release_pipelines(keep_kind="a2v_distilled")
+        if _a2v_distilled_pipe is None or _a2v_distilled_model_dir != model_dir:
+            if _a2v_distilled_pipe is not None:
+                emit({"event": "log", "line": "model_dir changed; reloading A2V distilled pipeline."})
+                _a2v_distilled_pipe = None
+                _ac()
+            emit({"event": "log",
+                  "line": f"Loading A2V distilled pipeline (Q4 — {model_dir})..."})
+            _a2v_distilled_pipe = A2VidDistilledPipeline(
+                model_dir=model_dir,
+                gemma_model_id=GEMMA_PATH,
+                low_memory=LOW_MEMORY,
+            )
+            _a2v_distilled_model_dir = model_dir
+        return _a2v_distilled_pipe
 
 
 # ---- prompt enhancement (Gemma language model) ------------------------------
@@ -1895,6 +1968,7 @@ for line in sys.__stdin__:
                       "line": f"step:get_pipe kind={('i2v' if needs_image else 't2v')}"})
             pipe = get_pipe("i2v" if needs_image else "t2v", loras=loras)
             emit({"event": "log", "line": "step:get_pipe done"})
+            _log_memory_pressure()
             accel_mode = configure_acceleration(p.get("accel", "off"))
             negative_prompt = _clean_text(p.get("negative_prompt"))
             effective_prompt = _prompt_with_soft_negative(p["prompt"], negative_prompt)
@@ -1958,6 +2032,7 @@ for line in sys.__stdin__:
                 elif not upscaler_available():
                     emit({"event": "log", "line": "Sharper upscale requested but model weights missing — falling back to Lanczos."})
 
+            _aggressive_cleanup_before_generate()
             if use_model_upscale:
                 emit({"event": "log", "line": f"step:generate mode={mode} {kwargs['width']}x{kwargs['height']} {kwargs['num_frames']}f @{kwargs['frame_rate']:.1f}fps steps={kwargs['num_steps']} accel={accel_mode} upscale=model"})
                 # Step 1: generate latents (no save)
@@ -1981,7 +2056,8 @@ for line in sys.__stdin__:
                 # panel's wait_done while MLX tears down ~10 GB of Metal
                 # buffers + lazy graph nodes synchronously.
                 emit({"event": "log", "line": "step:decode_and_save done"})
-            else:
+            _aggressive_cleanup_before_generate()
+            if not use_model_upscale:
                 emit({"event": "log", "line": f"step:generate mode={mode} {kwargs['width']}x{kwargs['height']} {kwargs['num_frames']}f @{kwargs['frame_rate']:.1f}fps steps={kwargs['num_steps']} accel={accel_mode}"})
                 video_latent, audio_latent = _generate_latents(pipe, needs_image=needs_image, kwargs=kwargs)
                 emit({"event": "log", "line": "step:generate done"})
@@ -2505,6 +2581,79 @@ for line in sys.__stdin__:
         finally:
             # Clear so the next non-A2V action doesn't inherit a stale gate.
             _A2V_TC_CONFIG = None
+            _is_busy = False
+        continue
+
+    if action == "generate_a2v_distilled":
+        # Audio-to-Video via the Q4 distilled pipeline (no dev transformer,
+        # no CFG, 8+3 steps). Fits 24 GB systems where Q8 dev doesn't.
+        job_id = msg.get("id", "?")
+        p = msg.get("params", {}) or {}
+        model_dir = p.get("model_dir") or MODEL_ID
+        seed = int(p.get("seed", -1))
+        if seed == -1:
+            seed = random.randint(0, 2**31 - 1)
+        _is_busy = True
+        try:
+            t0 = time.time()
+            configure_acceleration("off")
+            audio_path = p.get("audio_path") or ""
+            if not audio_path:
+                raise RuntimeError("audio_path is required for A2V")
+            if not os.path.exists(audio_path):
+                raise RuntimeError(f"audio file not found: {audio_path}")
+            num_frames = int(p["frames"])
+            pipe = get_a2v_distilled_pipe(model_dir)
+            _apply_vae_streaming_decision(num_frames)
+            kwargs = dict(
+                prompt=p["prompt"],
+                output_path=p["output_path"],
+                audio_path=audio_path,
+                height=int(p["height"]),
+                width=int(p["width"]),
+                num_frames=num_frames,
+                frame_rate=float(p.get("frame_rate", 24.0)),
+                seed=seed,
+                stage1_steps=int(p.get("stage1_steps", 8)),
+                stage2_steps=int(p.get("stage2_steps", 3)),
+                audio_start_time=float(p.get("audio_start_time", 0.0)),
+                audio_conditioning_scale=float(p.get("audio_conditioning_scale", 1.0)),
+            )
+            ref_image = p.get("image") or None
+            if ref_image:
+                if not os.path.exists(ref_image):
+                    raise RuntimeError(f"reference image not found: {ref_image}")
+                kwargs["image"] = ref_image
+            amd = p.get("audio_max_duration")
+            if amd is not None:
+                try:
+                    kwargs["audio_max_duration"] = float(amd)
+                except (TypeError, ValueError):
+                    pass
+            emit({
+                "event": "log",
+                "line": (
+                    f"step:generate_a2v_distilled {kwargs['width']}x{kwargs['height']} "
+                    f"{kwargs['num_frames']}f @{kwargs['frame_rate']:.1f}fps "
+                    f"stage1={kwargs['stage1_steps']} stage2={kwargs['stage2_steps']} "
+                    f"audio={os.path.basename(audio_path)}"
+                    f" a2v_scale={kwargs.get('audio_conditioning_scale', 1.0)}"
+                    f"{' image=' + os.path.basename(ref_image) if ref_image else ''}"
+                ),
+            })
+            kwargs = _filter_unsupported_kwargs(pipe.generate_and_save, kwargs)
+            out_path = pipe.generate_and_save(**kwargs)
+            elapsed = round(time.time() - t0, 2)
+            _last_activity = time.time()
+            emit({
+                "event": "done", "id": job_id,
+                "output": str(out_path), "elapsed_sec": elapsed,
+                "seed_used": seed,
+            })
+        except Exception as exc:
+            _last_activity = time.time()
+            emit({"event": "error", "id": job_id, "error": str(exc), "trace": traceback.format_exc()})
+        finally:
             _is_busy = False
         continue
 

@@ -5605,25 +5605,16 @@ def _new_job_id() -> str:
 
 
 def _validate_character_quality(form: dict[str, list[str]] | dict[str, str]) -> str | None:
-    """Defense-in-depth: when a character_id is set, the job must route
-    through the Q8 HQ pipeline (quality=high). Q4 distilled inference
-    fuses dev-trained character LoRAs into the wrong base (mismatched
-    sigma schedule) and produces a generic-everyone-looks-vaguely-like
-    -them result — confirmed empirically 2026-05-17 with the Eltrumpo
-    Q4-Balanced runs.
+    """Character mode is available on Q4 — LoRAs fuse into the distilled
+    base (identity match is mediocre per 2026-05-17 empirical test with
+    the Eltrumpo Q4-Balanced runs, but the render completes). When Q8 is
+    installed and the user picks quality=high, the Q8 HQ pipeline is used
+    and yields faithful identity.
 
-    The UI already prevents the bad combination by swapping the quality
-    strip to Q8-only when a character chip is selected, but a stale
-    form payload, a scripted /queue/batch caller, or a future tab that
-    forgets the chip-swap logic could submit the broken combo. Returning
-    an error keeps the trainer-base contract honest at the API boundary.
-
-    Also catches the loras=[] back-door: a scripted POST with a raw
-    train_character-kind LoRA in the `loras` JSON array (no character_id)
-    + quality=balanced would otherwise bypass this check — the UI's
-    updateQualityChipsForLora handles it client-side but the server
-    must enforce the same rule.
-
+    This function still catches the loras=[] back-door: a scripted POST
+    with a raw train_character-kind LoRA in the `loras` JSON array (no
+    character_id) + a non-high quality asserts a character LoRA against
+    the Q4 base, which produces the same mediocre-identity result.
     Returns None when valid, or an error string to surface as a 400."""
     def _f(name: str, default: str = "") -> str:
         v = form.get(name, default)
@@ -5633,21 +5624,15 @@ def _validate_character_quality(form: dict[str, list[str]] | dict[str, str]) -> 
     quality = _f("quality", "balanced").lower()
     cid = _f("character_id", "")
     if cid:
-        if quality != "high":
-            return (
-                f"character {cid!r} requires quality=high (Q8 HQ pipeline). "
-                f"Got quality={quality!r}. Character LoRAs are trained against "
-                f"the Q8 dev transformer's sigma schedule; the Q4 distilled "
-                f"pipeline fuses them into the wrong base and produces "
-                f"identity-mushed output. Pick Q8 Pro or Q8 Draft in the "
-                f"Character quality strip."
-            )
+        # Character mode on Q4 submits with Quick/Balanced/Standard.
+        # The identity match is imperfect but it renders and does not
+        # error. Q8 users who pick quality=high get the full fidelity
+        # path — no enforcement needed.
         return None
     # No character_id — but a raw train_character LoRA in `loras` triggers
-    # the same incompatibility. Resolve each entry's sidecar and refuse if
-    # any one of them is kind == "train_character" and quality != high.
-    if quality == "high":
-        return None  # the only outcome that needs to fail is non-high here
+    # the same quality concern. 2026-06-26: we allow it on Q4 (same
+    # mediocre-identity trade-off the user accepted by enabling character
+    # mode). Log a note but do not block.
     try:
         loras = parse_loras_from_form(form)
     except Exception:
@@ -5661,13 +5646,8 @@ def _validate_character_quality(form: dict[str, list[str]] | dict[str, str]) -> 
         except Exception:
             continue
         if (meta.get("kind") or "") == "train_character":
-            return (
-                f"a character LoRA ({p.name!r}) requires quality=high "
-                f"(Q8 HQ pipeline). Got quality={quality!r}. Character LoRAs "
-                f"are trained against the Q8 dev transformer's sigma schedule; "
-                f"the Q4 distilled pipeline fuses them into the wrong base "
-                f"and produces identity-mushed output. Pick Q8 Pro or Q8 Draft."
-            )
+            log_push(f"[character] raw train_character LoRA {p.name!r} at quality={quality!r} "
+                     f"on Q4 base — identity match may be imperfect")
     return None
 
 
@@ -6140,6 +6120,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # 48-79 GB tier to dodge boundary OOM). User can override
             # explicitly to "full" or "off" via this form field.
             "stage2_image_conditioning": f("stage2_image_conditioning", "") or "",
+            "audio_conditioning_scale": float(f("audio_conditioning_scale", "1.0") or 1.0),
         },
         "command": None,
         "raw_path": None,
@@ -8076,31 +8057,42 @@ def run_job_inner(job: dict) -> None:
             subprocess.run(["open", str(out_path)], check=False)
         return
 
-    # Audio → Video (A2VidPipelineTwoStage).
+    # Audio → Video (A2VidPipelineTwoStage / A2VidDistilledPipeline).
     # Pipeline drives generation FROM the input audio waveform. Optional
     # reference image conditions frame 0 (single picture; pipeline cover-
     # crops to target). Original audio is muxed onto the output by the
     # pipeline itself — no panel-side mux needed (unlike i2v_clean_audio).
-    # Always Q8 dev + distilled LoRA stage 2 (the pipeline requires both).
+    #
+    # Two backends:
+    #   Q8 tier  → A2VidPipelineTwoStage (dev + CFG + TeaCache)
+    #   Q4 tier  → A2VidDistilledPipeline (distilled, no CFG, 8+3 steps)
     if mode == "a2v":
-        if not SYSTEM_CAPS["allows_q8"]:
-            raise RuntimeError(
-                f"Audio → Video isn't supported on the {SYSTEM_CAPS['label']} "
-                f"hardware tier — the Q8 dev transformer + audio VAE peak "
-                f"doesn't fit. Bump to 64+ GB."
-            )
-        a2v_missing = q8_missing_files()
-        if a2v_missing:
-            raise RuntimeError(
-                f"Audio → Video requires the full Q8 model at {Q8_LOCAL_PATH}. "
-                f"Missing {len(a2v_missing)} file(s): {', '.join(a2v_missing[:3])}"
-                f"{' …' if len(a2v_missing) > 3 else ''}. "
-                f"Run: hf download {MODEL_ID_HQ} --local-dir {Q8_LOCAL_PATH}"
-            )
+        uses_q8 = SYSTEM_CAPS["allows_q8"]
+        if uses_q8:
+            a2v_missing = q8_missing_files()
+            if a2v_missing:
+                push(f"Q8 not available ({len(a2v_missing)} file(s) missing) "
+                     f"— falling back to Q4 distilled A2V pipeline")
+                uses_q8 = False
+        if uses_q8:
+            action = "generate_a2v"
+            model_dir = str(Q8_LOCAL_PATH)
+            default_stage1 = 20
+            default_stage2 = 3
+        else:
+            action = "generate_a2v_distilled"
+            model_dir = str(Q4_LOCAL_PATH)
+            default_stage1 = 8
+            default_stage2 = 3
         audio_src = (p.get("audio") or "").strip()
         if not audio_src or not Path(audio_src).exists():
             raise RuntimeError(f"audio file not found: {audio_src}")
         width, height = int(p["width"]), int(p["height"])
+        # Clamp resolution by tier cap (no-op when tier_max_dim returns 0).
+        max_dim = tier_max_dim("t2v")
+        if max_dim:
+            width = min(width, max_dim)
+            height = min(height, max_dim)
         frames = int(p["frames"])
         desc_stem = _descriptive_filename(
             p.get("label") or "", p.get("prompt") or "", fallback="a2v"
@@ -8129,41 +8121,39 @@ def run_job_inner(job: dict) -> None:
                 pass
         if ref_image_path and not Path(ref_image_path).exists():
             ref_image_path = None
-        # LoRAs flow through unchanged — useful for character A2V.
         a2v_loras = list(p.get("loras") or [])
         if p.get("hdr"):
             a2v_loras.append({
                 "path": CURATED_LORAS["hdr"]["repo_id"],
                 "strength": float(CURATED_LORAS["hdr"]["default_strength"]),
             })
-        job_spec = {
-            "action": "generate_a2v",
-            "id": job["id"],
-            "params": {
-                "model_dir": str(Q8_LOCAL_PATH),
-                "prompt": p["prompt"],
-                "negative_prompt": p.get("negative_prompt", ""),
-                "output_path": str(out_path),
-                "audio_path": audio_src,
-                "image": ref_image_path,
-                "height": height,
-                "width": width,
-                "frames": frames,
-                "frame_rate": float(FPS),
-                "seed": p["seed"],
-                "stage1_steps": int(p.get("stage1_steps", 20)),
-                "stage2_steps": int(p.get("stage2_steps", 3)),
-                "cfg_scale": float(p.get("cfg_scale", 3.0)),
-                "stg_scale": float(p.get("stg_scale", 1.0)),
-                "loras": a2v_loras,
-            },
+        a2v_params = {
+            "model_dir": model_dir,
+            "prompt": p["prompt"],
+            "negative_prompt": p.get("negative_prompt", ""),
+            "output_path": str(out_path),
+            "audio_path": audio_src,
+            "image": ref_image_path,
+            "height": height,
+            "width": width,
+            "frames": frames,
+            "frame_rate": float(FPS),
+            "seed": p["seed"],
+            "stage1_steps": int(p.get("stage1_steps", default_stage1)),
+            "stage2_steps": int(p.get("stage2_steps", default_stage2)),
+            "audio_conditioning_scale": float(p.get("audio_conditioning_scale", 1.0)),
         }
+        if uses_q8:
+            a2v_params["cfg_scale"] = float(p.get("cfg_scale", 3.0))
+            a2v_params["stg_scale"] = float(p.get("stg_scale", 1.0))
+            a2v_params["loras"] = a2v_loras
+        job_spec = {"action": action, "id": job["id"], "params": a2v_params}
         push(
-            f"Run A2V via helper: id={job['id']} {width}x{height} {frames}f · "
+            f"Run A2V ({'Q8' if uses_q8 else 'Q4-distilled'}) via helper: "
+            f"id={job['id']} {width}x{height} {frames}f · "
             f"audio={Path(audio_src).name}"
-            f"{' image=' + Path(ref_image_path).name if ref_image_path else ''} · "
-            f"{len(a2v_loras)} LoRA"
-            f"{'s' if len(a2v_loras) != 1 else ''}"
+            f"{' image=' + Path(ref_image_path).name if ref_image_path else ''}"
+            f" scale={a2v_params['audio_conditioning_scale']}"
         )
         result = HELPER.run(job_spec)
         if "seed_used" in result:
@@ -8171,13 +8161,13 @@ def run_job_inner(job: dict) -> None:
             p["seed_used"] = result["seed_used"]
         sidecar = {
             "output": str(out_path), "raw_output": str(out_path),
-            "params": {**p, "command": "generate_a2v", "audio": audio_src,
+            "params": {**p, "command": action, "audio": audio_src,
                        "image": ref_image_path},
             "started": job.get("started_at"),
             "elapsed_sec": round(time.time() - job["started_ts"], 2)
             if job.get("started_ts") else None,
             "video_duration_sec": video_duration(frames),
-            "fps": FPS, "model": str(Q8_LOCAL_PATH), "queue_id": job["id"],
+            "fps": FPS, "model": model_dir, "queue_id": job["id"],
             "helper_elapsed_sec": result.get("elapsed_sec"),
             "output_codec": output_codec_settings(),
         }
@@ -14610,12 +14600,6 @@ HTML = r"""<!doctype html>
        toggle (Pass 6) for quick non-character drafts. */
     body[data-cap-tier="q4"] #modeGroup [data-mode="keyframe"],
     body[data-cap-tier="q4"] #modeGroup [data-mode="extend"],
-    body[data-cap-tier="q4"] #modeGroup [data-mode="character"],
-    body[data-cap-tier="q4"] #manualCharactersPickerSlot,
-    body[data-cap-tier="q4"] #charactersPickerDivider,
-    body[data-cap-tier="q4"] #qualityGroupCharacter,
-    body[data-cap-tier="q4"] #charSkipstepToggleWrap,
-    body[data-cap-tier="q4"] #workflowTabs button[data-workflow="audio"],
     body[data-cap-tier="q4"] #qualityGroup [data-quality="high"] { display: none !important; }
     /* Quality strip becomes a 3-col grid (Quick/Balanced/Standard)
        since the 4th column ("High") is gone. */
@@ -14645,6 +14629,19 @@ HTML = r"""<!doctype html>
     }
     textarea { min-height: 84px; resize: vertical; font-family: inherit; }
     textarea.avoid-textarea { min-height: 54px; }
+
+    /* Range slider strip (used in Audio Studio, etc.) */
+    .range-strip {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .range-strip input[type="range"] {
+      flex: 1 1 auto; accent-color: var(--accent, #2f81f7);
+      padding: 0; border: none; background: none;
+    }
+    .range-val {
+      min-width: 32px; text-align: center; font-size: 14px;
+      font-weight: 600; color: var(--accent, #2f81f7);
+    }
 
     /* Pill button groups (mode/quality/aspect) */
     .pill-group {
@@ -22458,48 +22455,57 @@ HTML = r"""<!doctype html>
 
         <textarea id="audioStudioPrompt" class="composer-prompt" rows="4"
                   placeholder="A photoreal medium close-up of a woman speaking to camera, soft daylight, shallow depth of field, natural skin pores"></textarea>
+        <div class="composer-tools">
+          <button type="button" class="ghost-btn" id="audioStudioEnhanceBtn" onclick="audioStudioEnhancePrompt()" title="Use Gemma to rewrite your prompt"><svg class="ph" aria-hidden="true" style="margin-right:6px"><use href="#ph-sparkle-fill"/></svg>Enhance</button>
+          <span class="ct-spacer"></span>
+        </div>
       </div>
 
       <div class="studio-status-row" style="margin: 6px 0 -4px;">
         <span id="audioStudioStatus" class="hint"></span>
       </div>
 
-      <!-- Quick settings: aspect / duration / seed / quality.
-           Aspect maps to the same width/height table the Characters tab
-           uses (1024×576 high, 736×416 draft). Duration → frames at
-           8k+1 cadence the model expects. -->
+      <!-- Quick settings: width / height / duration / seed.
+           Width/height are free-form; the panel snaps to 32 px multiple.
+           Duration slider covers 1–30 s; JS rounds frames to 8k+1. -->
       <div class="quick-settings">
         <div>
           <div class="mini-fields">
             <div class="mf-cell">
-              <span class="mf-label">Aspect</span>
-              <select id="audioStudioAspect" style="padding:7px 9px;font-size:13px;">
-                <option value="16:9" selected>16:9 — 1024×576</option>
-                <option value="9:16">9:16 — 576×1024</option>
-                <option value="1:1">1:1 — 768×768</option>
-                <option value="4:3">4:3 — 832×608</option>
-              </select>
+              <span class="mf-label">Width</span>
+              <input type="number" id="audioStudioWidth" value="1024" min="256" max="1920" step="32">
             </div>
             <div class="mf-cell">
-              <span class="mf-label">Duration</span>
-              <select id="audioStudioDuration" style="padding:7px 9px;font-size:13px;">
-                <option value="5">5 s</option>
-                <option value="7" selected>7 s</option>
-                <option value="10">10 s</option>
-              </select>
+              <span class="mf-label">Height</span>
+              <input type="number" id="audioStudioHeight" value="576" min="256" max="1920" step="32">
             </div>
             <div class="mf-cell">
               <span class="mf-label">Seed</span>
               <input type="number" id="audioStudioSeed" value="-1" placeholder="-1 = random">
             </div>
           </div>
+          <div class="mf-cell" style="margin-top:8px">
+            <span class="mf-label">Duration</span>
+            <div class="range-strip">
+              <input type="range" id="audioStudioDuration" min="1" max="30" step="1" value="7"
+                     oninput="document.getElementById('audioStudioDurationVal').textContent=this.value + ' s'">
+              <span id="audioStudioDurationVal" class="range-val">7 s</span>
+            </div>
+          </div>
+          <div class="mf-cell" style="margin-top:8px">
+            <span class="mf-label">Audio conditioning strength</span>
+            <div class="range-strip">
+              <input type="range" id="audioConditioningScale" min="0.5" max="5.0" step="0.1" value="1.0"
+                     oninput="document.getElementById('audioConditioningScaleVal').textContent=this.value">
+              <span id="audioConditioningScaleVal" class="range-val">1.0</span>
+            </div>
+            <div class="hint" style="margin-top:2px">Higher = stronger audio adhesion, lower visual flexibility</div>
+          </div>
         </div>
       </div>
 
-      <div class="hint" style="margin-top:8px">
-        Audio → Video uses the Q8 dev transformer with audio conditioning.
-        Wall time is similar to High-quality I2V (~7–9 min on a 64 GB M-Max
-        for a 7 s 1024×576 clip).
+      <div class="hint" style="margin-top:8px" id="audioStudioHint">
+        Audio → Video uses audio conditioning during generation (not post-hoc mux). Some seeds may not work properly — retry if the mouth doesn't move.
       </div>
 
       <div class="form-action-footer" id="audioStudioFooter">
@@ -23649,15 +23655,17 @@ function setMode(mode) {
   // resumes the last-used Remix tool (default Ingredients). Everything below
   // (and the backend) only ever sees a real mode from REMIX_MODES.
   if (mode === 'remix') mode = window._lastRemixMode || 'ingredients';
-  // Capability guard — Q4 (sub-48GB) tier can't run FFLF, Extend, or
-  // Character (HQ-only pipelines + Q8 trainer-base contract). CSS already
-  // hides the chips, but a stale localStorage, charactersLoadParams(), or
-  // a JS caller could still try to switch. Snap to t2v with a console
-  // warning so we never end up in an unrenderable mode by accident.
-  // NOTE: 'restore' (Colorize) is deliberately NOT in this list — its
-  // IC-LoRA was trained against the Q4 distilled checkpoint, so it RUNS on
-  // the Q4 tier. Don't add it here or you'll break the feature on sub-48GB.
-  if (window.PHOSPHENE_CAP_TIER === 'q4' && (mode === 'keyframe' || mode === 'extend' || mode === 'character')) {
+  // Capability guard — Q4 (sub-48GB) tier can't run FFLF or Extend
+  // (Q8-only pipelines). CSS already hides the chips, but a stale
+  // localStorage, charactersLoadParams(), or a JS caller could still try
+  // to switch. Snap to t2v with a console warning so we never end up in an
+  // unrenderable mode by accident. Character IS available on Q4 (the LoRA
+  // fuses into the distilled base — identity match is mediocre but the
+  // render completes), so it's deliberately NOT in this list.
+  // NOTE: 'restore' (Colorize) is also NOT in this list — its IC-LoRA was
+  // trained against the Q4 distilled checkpoint, so it RUNS on the Q4 tier.
+  // Don't add either back here or you'll break the feature on sub-48GB.
+  if (window.PHOSPHENE_CAP_TIER === 'q4' && (mode === 'keyframe' || mode === 'extend')) {
     console.warn(`setMode(${mode}): not available on Q4 tier — snapping to t2v`);
     mode = 't2v';
   }
@@ -23699,9 +23707,10 @@ function setMode(mode) {
   }
   if (mode === 'character') {
     // Character is a UI intent, not a backend mode — the hidden #mode
-    // field still ships 't2v' on submit. make_job sees character_id +
-    // routes to Q8 HQ. CSS-only chrome (chip strip + Q8 quality strip)
-    // makes the cascade visible.
+    // field still ships 't2v' on submit. make_job sees character_id and
+    // expands it into face+audio LoRAs. On Q8, the quality strip swaps
+    // to Q8 Draft/Pro; on Q4, the regular quality pills stay visible
+    // and the LoRAs fuse into the distilled base.
     if (studio) studio.classList.remove('show');
     if (train) train.classList.remove('show');
     if (genForm) genForm.style.display = '';
@@ -25802,6 +25811,24 @@ function audioStudioRenderSlots() {
   }
 }
 
+async function audioStudioEnhancePrompt() {
+  const ta = document.getElementById('audioStudioPrompt');
+  const original = ta.value.trim();
+  if (!original) { alert('Type a prompt before enhancing it.'); return; }
+  const btn = document.getElementById('audioStudioEnhanceBtn');
+  const originalLabel = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:6px;vertical-align:-2px"><use href="#ph-sparkle-fill"/></svg>Loading Gemma\u2026 (~15s)';
+  try {
+    const r = await fetch('/prompt/enhance', { method: 'POST', body: new URLSearchParams({ prompt: original, mode: 't2v' }) });
+    const res = await r.json();
+    if (res.error) { alert('Enhance failed: ' + res.error); return; }
+    if (confirm('Original:\n' + res.original + '\n\nEnhanced:\n' + res.enhanced + '\n\nReplace your prompt with the enhanced version?'))
+      { ta.value = res.enhanced; ta.dispatchEvent(new Event('input', { bubbles: true })); }
+  } catch (e) { alert('Enhance request failed: ' + (e.message || e)); }
+  finally { btn.disabled = false; btn.innerHTML = originalLabel; }
+}
+
 async function audioStudioGenerate() {
   if (AUDIO_STUDIO.busy) return;
   const status = document.getElementById('audioStudioStatus');
@@ -25815,23 +25842,16 @@ async function audioStudioGenerate() {
     if (status) status.textContent = 'Prompt is required.';
     return;
   }
-  // Aspect → width/height map. Snapped to multiples of 32 so the latent
-  // grid is exact (LTX requires HW % 32 == 0; the panel checks this in
-  // make_job too but we pre-snap to keep the user's chosen ratio).
-  const aspect = (document.getElementById('audioStudioAspect').value || '16:9');
-  const aspectMap = {
-    '16:9': [1024, 576],
-    '9:16': [576, 1024],
-    '1:1':  [768, 768],
-    '4:3':  [832, 608],
-  };
-  const [w, h] = aspectMap[aspect] || aspectMap['16:9'];
-  // Duration → frames at 8k+1 cadence the model expects.
+  // Width / height from free-form inputs; snap to 32 px multiple
+  // (LTX latent grid requirement).
+  const w = Math.max(32, Math.round(parseInt(document.getElementById('audioStudioWidth').value || '1024', 10) / 32) * 32);
+  const h = Math.max(32, Math.round(parseInt(document.getElementById('audioStudioHeight').value || '576', 10) / 32) * 32);
+  // Duration from slider → frames at 8k+1 cadence the model expects.
   const dur = parseInt(document.getElementById('audioStudioDuration').value || '7', 10);
-  // 24 fps → frames per second; snap to nearest 8k+1.
   const targetFrames = Math.max(1, Math.round(dur * 24));
   const frames = ((targetFrames - 1 + 7) >> 3 << 3) + 1;  // round up to 8k+1
   const seed = parseInt(document.getElementById('audioStudioSeed').value || '-1', 10);
+  const audioConditioningScale = parseFloat(document.getElementById('audioConditioningScale').value || '1.0');
 
   AUDIO_STUDIO.busy = true;
   if (btn) btn.disabled = true;
@@ -25851,7 +25871,8 @@ async function audioStudioGenerate() {
     fd.set('height', String(h));
     fd.set('frames', String(frames));
     fd.set('seed', String(seed));
-    fd.set('quality', 'high');  // A2V is always Q8 dev-class
+    fd.set('audio_conditioning_scale', String(audioConditioningScale));
+    fd.set('quality', 'high');  // A2V is always pipeline-class (Q8 dev or Q4 distilled)
     // No accel, no enhance — A2V uses A2VidPipelineTwoStage's own walks.
     fd.set('accel', 'off');
     fd.set('enhance', 'off');
@@ -28399,9 +28420,9 @@ function pickerSetImage(key, path, opts = {}) {
     // FFLF anchors framing on the start frame; I2V anchors on its single
     // image. End frame doesn't drive aspect (would override the start
     // frame). a2v_image lives in the Audio→Video tab which has its own
-    // aspect dropdown (#audioStudioAspect) — calling snapAspectToImage
-    // would change the GLOBAL #aspect selector, not the A2V one, so
-    // skip it for a2v_image to avoid silently mutating an unrelated mode.
+    // width/height inputs — calling snapAspectToImage would change the
+    // GLOBAL #aspect selector, not the A2V one, so skip it for a2v_image
+    // to avoid silently mutating an unrelated mode.
     if ((key === 'image' || key === 'start_image') && opts.snapAspect !== false) {
       snapAspectToImage(path);
     }
@@ -32908,6 +32929,10 @@ function selectManualCharacter(id) {
 // based on whether a character is currently selected. Idempotent — safe
 // to call any time the selection state changes.
 function _applyCharacterQualityStripVisibility() {
+  // Q4 tier keeps the regular quality pills (Quick/Balanced/Standard) —
+  // no Q8-only character quality strip. The character LoRA fuses into
+  // the Q4 distilled base; identity match is imperfect but it renders.
+  if (window.PHOSPHENE_CAP_TIER === 'q4') return;
   const def  = document.getElementById('qualityGroup');
   const char = document.getElementById('qualityGroupCharacter');
   const skipWrap = document.getElementById('charSkipstepToggleWrap');
@@ -34018,12 +34043,7 @@ function workflowSwitch(name) {
   // chip strip is integrated into Manual (T2V). If we get a stale
   // 'characters' value from localStorage, snap to 'manual'.
   if (name === 'characters') name = 'manual';
-  // Q4 cap-tier doesn't ship the audio workflow. If 'audio' is requested
-  // anyway (stale localStorage, Load Params on a historical A2V job,
-  // scripted caller), snap to 'manual' before any pane logic runs.
-  if (name === 'audio' && document.body.dataset.capTier === 'q4') {
-    name = 'manual';
-  }
+  // Q4 tier uses the distilled A2V pipeline (no Q8 dev required).
   document.querySelectorAll('#workflowTabs button[data-workflow]')
     .forEach(b => b.classList.toggle('active', b.dataset.workflow === name));
   const manual = document.getElementById('genForm');
