@@ -441,14 +441,26 @@ def _restore_audio_lora_targets() -> None:
     The face-side patch drops any LoRA target whose path contains
     ``audio_attn`` or ``audio_ff`` — that's correct for face training (random
     gradients corrupt the audio path). For AUDIO training those are exactly
-    the targets we want to keep, so we re-bind ``_find_lora_targets`` to the
-    underlying upstream implementation.
-    """
-    import ltx_trainer_mlx.trainer as _trainer
+    the targets we want to keep, so we force-reimport the trainer module
+    and restore the original ``_find_lora_targets``.
 
-    # The original was captured via closure in the face patch; we can't reach
-    # back into it, so re-import the upstream module fresh.
+    A plain ``importlib.reload`` does not always suffice because patched
+    references may persist elsewhere in the import graph. We delete every
+    cached reference under ``ltx_trainer_mlx`` first, then do a fresh
+    ``importlib.reload`` on the root package to cascade into sub-modules.
+    """
+    import sys
     import importlib
+
+    # Nuke all cached modules under the ltx_trainer_mlx namespace so a
+    # subsequent ``reload`` actually re-executes ``trainer.py`` and
+    # restores ``_find_lora_targets`` to its original implementation.
+    stale = [k for k in sys.modules if k.startswith("ltx_trainer_mlx")]
+    for k in stale:
+        del sys.modules[k]
+    importlib.invalidate_caches()
+
+    import ltx_trainer_mlx.trainer as _trainer
     importlib.reload(_trainer)
     logger.info("audio LoRA: restored upstream _find_lora_targets (audio paths preserved)")
 
