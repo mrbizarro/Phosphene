@@ -54,45 +54,90 @@ def _patch_loader_prefer_dev_transformer() -> None:
         the distilled file). The panel's preflight (_train_required_models in
         mlx_ltx_panel.py) already accepts either location via ``extra_dirs=
         [q8_local_dir]``, but the trainer process — running in a separate venv
-        — has to do its own probing. We look at ``<model_dir>`` first
-        (matches existing behavior), then at the sibling ``ltx-2.3-mlx-q8/``
-        next to it, and pin to whichever exists. If NEITHER exists we raise
-        a clear, actionable error instead of letting the loader silently fall
-        back to the distilled file — silent fallback was the original bug:
-        identity capture quietly broke because the trainer was optimizing
-        against the wrong sigma schedule.
+        — has to do its own probing. We look at both ``<model_dir>`` and the
+        sibling ``ltx-2.3-mlx-q8/`` next to it, and pin to whichever holds a
+        **full-precision** dev. If NEITHER exists we raise a clear, actionable
+        error instead of letting the loader silently fall back to the distilled
+        file — silent fallback was the original bug: identity capture quietly
+        broke because the trainer was optimizing against the wrong sigma schedule.
+
+    Precision guard (2026-07-20, #35/#36):
+        A 4-bit *quantized* dev transformer (~11 GB) can sit in the Q4 dir and
+        pass a bare exists() check — but training against quantized weights also
+        yields a near-zero LoRA. So we compare file sizes: a full-precision dev
+        is ~19 GB, quantized ~11 GB. We prefer the largest dev ≥ 15 GB and warn
+        loudly if a quantized one is shadowing it. Reported by @saved-j in #36.
     """
     from pathlib import Path
+
+    # A full-precision dev transformer is ~19 GB; a 4-bit quantized dev is ~11 GB.
+    # Training against the quantized one produces a near-zero LoRA (#35/#36), so we
+    # must never pick it while a full-precision dev exists anywhere. 15 GB cleanly
+    # separates the two.
+    FULL_DEV_MIN_BYTES = 15 * 1000**3
+
+    def _dev_size(p: "Path") -> int:
+        try:
+            return p.stat().st_size if p.exists() else 0
+        except OSError:
+            return 0
+
     _orig = ml_module.load_transformer
 
     def patched(model_dir, transformer_file=None):
         if transformer_file is None:
             primary = Path(model_dir) / "transformer-dev.safetensors"
             sibling = Path(model_dir).parent / "ltx-2.3-mlx-q8" / "transformer-dev.safetensors"
-            if primary.exists():
-                logger.info(
-                    "training-side override: using transformer-dev.safetensors "
-                    "from %s (not distilled)",
-                    primary.parent,
+            p_size, s_size = _dev_size(primary), _dev_size(sibling)
+
+            # Each candidate is (dir_to_pass_to_loader, size_bytes, human_label).
+            # The sibling repoints the loader at the Q8 DIR as `model_dir` so
+            # `load_split_safetensors` resolves the shards relative to the right
+            # snapshot — passing only the basename would still join against the
+            # Q4 dir and miss the sibling's shard files.
+            candidates = []
+            if p_size:
+                candidates.append((model_dir, p_size, str(primary.parent)))
+            if s_size:
+                candidates.append((str(sibling.parent), s_size, str(sibling.parent)))
+
+            full = [c for c in candidates if c[1] >= FULL_DEV_MIN_BYTES]
+            if full:
+                chosen = max(full, key=lambda c: c[1])
+                if p_size and p_size < FULL_DEV_MIN_BYTES:
+                    # A quantized dev is shadowing the full one in the Q4 dir —
+                    # this is the exact #35/#36 silent failure. Skip it, loudly.
+                    logger.warning(
+                        "training-side override: IGNORING quantized transformer-dev.safetensors "
+                        "(%.1f GB) in %s — it would train a near-zero LoRA (#35/#36). Using the "
+                        "full-precision dev (%.1f GB) from %s instead.",
+                        p_size / 1e9, primary.parent, chosen[1] / 1e9, chosen[2],
+                    )
+                else:
+                    logger.info(
+                        "training-side override: using full-precision transformer-dev.safetensors "
+                        "(%.1f GB) from %s (not distilled)",
+                        chosen[1] / 1e9, chosen[2],
+                    )
+                return _orig(chosen[0], transformer_file="transformer-dev.safetensors")
+
+            if candidates:
+                # Only a suspiciously small (likely quantized) dev exists anywhere.
+                # Better than the distilled base, but identity capture will be weak —
+                # use it and shout so the user knows to re-download the full dev.
+                chosen = max(candidates, key=lambda c: c[1])
+                logger.warning(
+                    "training-side override: only a small transformer-dev.safetensors (%.1f GB) "
+                    "found at %s — expected the full-precision dev (~19 GB). Character identity "
+                    "capture will be weak; re-download it via Train Character -> Preflight.",
+                    chosen[1] / 1e9, chosen[2],
                 )
-                return _orig(model_dir, transformer_file="transformer-dev.safetensors")
-            if sibling.exists():
-                # Repoint the loader at the Q8 sibling directory. We invoke
-                # the upstream loader with the sibling DIR as `model_dir` so
-                # `load_split_safetensors` resolves the shards relative to
-                # the right snapshot — passing only the basename would still
-                # join against the Q4 dir and miss the sibling's shard files.
-                logger.info(
-                    "training-side override: using transformer-dev.safetensors "
-                    "from Q8 sibling at %s (Q4 dir has no dev transformer)",
-                    sibling.parent,
-                )
-                return _orig(str(sibling.parent),
-                             transformer_file="transformer-dev.safetensors")
+                return _orig(chosen[0], transformer_file="transformer-dev.safetensors")
+
             raise FileNotFoundError(
                 f"transformer-dev.safetensors not found in {primary.parent} "
                 f"or {sibling.parent}. Open Phosphene → Train Character → "
-                f"Preflight to download it (~11 GB)."
+                f"Preflight to download the full-precision dev transformer (~19 GB)."
             )
         return _orig(model_dir, transformer_file=transformer_file)
 
