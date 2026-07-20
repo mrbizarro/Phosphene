@@ -2655,13 +2655,14 @@ def _resolve_github_token() -> str:
 
 
 _STATS_WARNED_NO_TOKEN = False
+_STATS_WARNED_FETCH_FAIL = False
 
 
 def _run_stats_fetch_once() -> None:
     """Spawn scripts/fetch_repo_stats.py as a subprocess. Output to the
     panel's `push()` log so the user can see what happened. Idempotent —
     the fetcher itself replaces today's row on re-runs in the same UTC day."""
-    global _STATS_WARNED_NO_TOKEN
+    global _STATS_WARNED_NO_TOKEN, _STATS_WARNED_FETCH_FAIL
     if not STATS_FETCHER.is_file():
         return  # repo install missing the script — fail silent
     token = _resolve_github_token()
@@ -2683,9 +2684,22 @@ def _run_stats_fetch_once() -> None:
             capture_output=True, text=True, timeout=120, env=env,
         )
         if cp.returncode != 0:
-            push(f"stats: fetch failed (exit {cp.returncode}): "
-                 f"{(cp.stderr or cp.stdout or '').strip().splitlines()[-1][:200]}")
+            # The stats dashboard is a maintainer-only nicety; a fetch failure
+            # (403 rate-limit/token-scope, network blip, etc.) has ZERO effect
+            # on generation, models, or training. Warn once, cosmetically, so a
+            # transient 403 doesn't spam the log or read as a real failure that
+            # sends users to the bug tracker (issue #43).
+            if not _STATS_WARNED_FETCH_FAIL:
+                _detail = (cp.stderr or cp.stdout or "").strip().splitlines()
+                _detail = _detail[-1][:160] if _detail else "unknown error"
+                push(f"stats: dashboard refresh skipped ({_detail}). "
+                     "This only affects the maintainer stats panel — "
+                     "generation, models, and training are unaffected.")
+                _STATS_WARNED_FETCH_FAIL = True
             return
+        # Success — clear the one-shot warning latch so a genuine future
+        # failure can surface again.
+        _STATS_WARNED_FETCH_FAIL = False
         # Last stdout line is the human-readable summary the fetcher prints
         # at exit. Forward to the panel log so /status surfaces it.
         last_line = ""
@@ -2695,9 +2709,15 @@ def _run_stats_fetch_once() -> None:
         if last_line:
             push(f"stats: {last_line}")
     except subprocess.TimeoutExpired:
-        push("stats: fetch timed out after 120s (rate limit? network?)")
+        if not _STATS_WARNED_FETCH_FAIL:
+            push("stats: dashboard refresh timed out (harmless — maintainer "
+                 "stats panel only; generation is unaffected).")
+            _STATS_WARNED_FETCH_FAIL = True
     except Exception as exc:  # noqa: BLE001
-        push(f"stats: fetch raised {exc!r}")
+        if not _STATS_WARNED_FETCH_FAIL:
+            push(f"stats: dashboard refresh skipped ({exc!r}). Harmless — "
+                 "maintainer stats panel only; generation is unaffected.")
+            _STATS_WARNED_FETCH_FAIL = True
 
 
 def stats_fetch_loop() -> None:
