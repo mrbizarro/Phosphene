@@ -5607,7 +5607,7 @@ def _new_job_id() -> str:
 def _validate_character_quality(form: dict[str, list[str]] | dict[str, str]) -> str | None:
     """Character mode is available on Q4 — LoRAs fuse into the distilled
     base (identity match is mediocre per 2026-05-17 empirical test with
-    the Eltrumpo Q4-Balanced runs, but the render completes). When Q8 is
+    the chartest Q4-Balanced runs, but the render completes). When Q8 is
     installed and the user picks quality=high, the Q8 HQ pipeline is used
     and yields faithful identity.
 
@@ -5980,7 +5980,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # field set, and a curl/script submission that sends only
     # `duration=10` would otherwise silently fall back to the 121-frame
     # (5 s) default at line 4306. Mr Bizarro hit this exact bug 2026-05-17
-    # batch-queuing 10 s + 15 s Eltrumpo clips. Now: if `duration` is
+    # batch-queuing 10 s + 15 s chartest clips. Now: if `duration` is
     # present and `frames` isn't, compute frames at the 8k+1 cadence the
     # trainer expects (LTX 2.x requires `frames % 8 == 1`).
     _explicit_frames = f("frames", "")
@@ -6102,7 +6102,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             #   - 1.8 → clean caching, ~5 min wall vs ~6.3 min at 1.0,
             #           visibly cleaner output (matches Bizarrotrn v2 and
             #           Salotrn v2 era when 1.8 shipped as default)
-            # Mr Bizarro confirmed visually 2026-05-20 on the elontrn v3
+            # Mr Bizarro confirmed visually 2026-05-20 on the chartest v3
             # diagnostic batch. Revert from the ill-calibrated 1.0 back
             # to 1.8.
             "teacache_thresh": float(f("teacache_thresh", "1.8") or 1.8),
@@ -6818,7 +6818,7 @@ def run_train_job_inner(job: dict) -> None:
                    else "phosphene/train_character@1")
     # Resolve training canvas dims (width × height). Spec may carry
     # `width` and `height` independently (widescreen training, added
-    # 2026-05-20 after the elontrn v3 diagnostic showed square-trained
+    # 2026-05-20 after the chartest v3 diagnostic showed square-trained
     # LoRAs degrade on widescreen inference). Falls back to legacy
     # `resolution` for backwards-compat with v2 spec consumers.
     _train_w = p.get("width") or p.get("resolution")
@@ -8460,7 +8460,7 @@ def run_job_inner(job: dict) -> None:
                 "enable_teacache": True,
                 # HQ TeaCache default — see make_job comment. 1.8 is the
                 # empirical sweet spot for character mode (revert from
-                # 1.0 after the 2026-05-20 elontrn v3 diagnostic).
+                # 1.0 after the 2026-05-20 chartest v3 diagnostic).
                 "teacache_thresh": float(p.get("teacache_thresh", 1.8)),
                 "bongmath_max_iter": int(p.get("bongmath_max_iter", 100)),
                 "video_skip_step": int(p.get("video_skip_step", 0)),
@@ -12065,7 +12065,7 @@ class Handler(BaseHTTPRequestHandler):
                 "stage2_steps": [_val("stage2_steps", "3")],
                 # HQ TeaCache default — 1.8 is the empirical sweet spot for
                 # character mode (see make_job comment). Reverted from 1.0
-                # after the 2026-05-20 elontrn v3 diagnostic confirmed 1.0
+                # after the 2026-05-20 chartest v3 diagnostic confirmed 1.0
                 # produces specks + slower wall than 1.8.
                 "teacache_thresh": [_val("teacache_thresh", "1.8")],
                 "cfg_scale": [_val("cfg_scale", "3.0")],

@@ -645,7 +645,7 @@ def run_training(
     # the trainer. Result: with batch=1 over 5000 steps, two identical-
     # recipe runs traverse the dataset in different orders and land at
     # different minima — exactly the variance Mr Bizarro saw between the
-    # OLD elontrn_v2 (good) and the 2026-05-18 retrain (worse). Pinning
+    # OLD chartest_v2 (good) and the 2026-05-18 retrain (worse). Pinning
     # stdlib + numpy RNG here closes the biggest reproducibility hole.
     # (MLX/Metal matmul nondeterminism still remains as a smaller second-
     # order source — documented, unfixable today.)

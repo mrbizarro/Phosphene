@@ -80,7 +80,7 @@ Stacking with character LoRAs:
   practical sweet spot below 1.5.
 - Starting weights: character 0.9–1.0, scene 0.5–0.7. The character
   LoRA's larger weight deltas need the scene to be turned down so
-  the scene effect isn't drowned (matches the 2026-05-20 elontrn
+  the scene effect isn't drowned (matches the 2026-05-20 chartest
   diag observation about strength dominance).
 - Reduce `strength_clip` on the scene LoRA before `strength_model`
   if the room effect is still too faint.
