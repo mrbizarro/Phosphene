@@ -142,6 +142,15 @@ module.exports = {
           // had no log evidence to confirm. These echoes change nothing
           // operationally; they just leave a trail.
           "echo '=== install diagnostics: venv create ==='",
+          // SHIP-BLOCKER GUARD (2026-07-23, from @hottboytank's Pinokio report):
+          // mlx 0.31.1 publishes NO macOS-13 wheel — its builds start at
+          // macosx_14_0_arm64. On Ventura the mlx step dies deep inside uv's
+          // resolver ("No solution found ... no wheels with a matching platform
+          // tag"), ltx_core_mlx never installs, and the user only sees a cryptic
+          // ModuleNotFoundError at the very end — under an auto-generated title
+          // about python3.11 that points at completely the wrong thing.
+          // Fail fast, up front, with the actual fix.
+          "MACOS_VER=$(sw_vers -productVersion 2>/dev/null || echo 0); MACOS_MAJOR=$(echo $MACOS_VER | cut -d. -f1); if [ \"$MACOS_MAJOR\" -lt 14 ] 2>/dev/null; then echo '=================================================================='; echo \"PHOSPHENE CANNOT INSTALL ON macOS $MACOS_VER\"; echo 'Phosphene needs macOS 14 (Sonoma) or newer.'; echo 'Why: mlx 0.31.1 ships no macOS 13 build, so the engine cannot install'; echo 'and every generation would fail.'; echo 'Fix: System Settings > General > Software Update -> macOS 14 or 15,'; echo 'then reinstall Phosphene.'; echo '=================================================================='; exit 1; else echo \"macOS $MACOS_VER OK (needs >= 14)\"; fi",
           "which uv && uv --version || echo 'uv NOT FOUND'",
           "which python3.11 && python3.11 --version || echo 'system python3.11 NOT FOUND (uv will try to fetch)'",
           "uname -a",

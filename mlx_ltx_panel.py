@@ -5287,7 +5287,24 @@ class WarmHelper:
                 hint = {
                     "SIGKILL": "out of memory (jetsam) or external kill — close memory-heavy apps and retry",
                     "SIGSEGV": "native segfault inside MLX/Metal — share the crashlog at ~/Library/Logs/DiagnosticReports/python3.11_*.crash",
-                    "SIGABRT": "C-level assertion failed — share the crashlog as above",
+                    # 2026-07-23 (#44, @BobDixon58, M1 Max): the dominant SIGABRT
+                    # in the wild is a Metal GPU-watchdog timeout during Gemma
+                    # prompt encoding — "[METAL] Command buffer execution failed:
+                    # Caused GPU Timeout Error". Name it, because the generic
+                    # "assertion failed" sends people hunting the wrong thing.
+                    # Note LTX2_GEMMA_EVAL_EVERY is already 1 (the smallest
+                    # command-buffer setting) so there is no knob left to turn —
+                    # this is an engine/driver issue worth reporting upstream.
+                    "SIGABRT": (
+                        "C-level abort. If the log shows '[METAL] Command buffer "
+                        "execution failed: Caused GPU Timeout Error', this is the "
+                        "macOS GPU watchdog killing an over-long Metal command "
+                        "buffer (seen on M1/M2-class GPUs during prompt encoding). "
+                        "Phosphene already runs the smallest command buffers it "
+                        "can (LTX2_GEMMA_EVAL_EVERY=1), so please open an issue "
+                        "with your chip + macOS version and the crashlog at "
+                        "~/Library/Logs/DiagnosticReports/python3.11_*.ips"
+                    ),
                     "SIGBUS":  "memory access fault — could indicate a Metal driver issue or a bad weight file",
                 }.get(sig_name, "external kill")
                 raise RuntimeError(
