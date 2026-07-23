@@ -150,7 +150,11 @@ module.exports = {
           // ModuleNotFoundError at the very end — under an auto-generated title
           // about python3.11 that points at completely the wrong thing.
           // Fail fast, up front, with the actual fix.
-          "MACOS_VER=$(sw_vers -productVersion 2>/dev/null || echo 0); MACOS_MAJOR=$(echo $MACOS_VER | cut -d. -f1); if [ \"$MACOS_MAJOR\" -lt 14 ] 2>/dev/null; then echo '=================================================================='; echo \"PHOSPHENE CANNOT INSTALL ON macOS $MACOS_VER\"; echo 'Phosphene needs macOS 14 (Sonoma) or newer.'; echo 'Why: mlx 0.31.1 ships no macOS 13 build, so the engine cannot install'; echo 'and every generation would fail.'; echo 'Fix: System Settings > General > Software Update -> macOS 14 or 15,'; echo 'then reinstall Phosphene.'; echo '=================================================================='; exit 1; else echo \"macOS $MACOS_VER OK (needs >= 14)\"; fi",
+          // FAIL-OPEN BY DESIGN: only block when we positively identify a
+          // macOS major < 14. If sw_vers is missing, unparseable, or non-numeric
+          // for any reason, we PROCEED — a preflight that can't read the version
+          // must never be the thing that bricks an otherwise-fine install.
+          "MACOS_VER=$(sw_vers -productVersion 2>/dev/null); MACOS_MAJOR=$(echo \"$MACOS_VER\" | cut -d. -f1); if echo \"$MACOS_MAJOR\" | grep -qE '^[0-9]+$' && [ \"$MACOS_MAJOR\" -lt 14 ]; then echo '=================================================================='; echo \"PHOSPHENE CANNOT INSTALL ON macOS $MACOS_VER\"; echo 'Phosphene needs macOS 14 (Sonoma) or newer.'; echo 'Why: mlx 0.31.1 ships no macOS 13 build, so the engine cannot install'; echo 'and every generation would fail.'; echo 'Fix: System Settings > General > Software Update -> macOS 14 or 15,'; echo 'then reinstall Phosphene.'; echo '=================================================================='; exit 1; else echo \"macOS preflight OK (detected '$MACOS_VER', needs >= 14)\"; fi",
           "which uv && uv --version || echo 'uv NOT FOUND'",
           "which python3.11 && python3.11 --version || echo 'system python3.11 NOT FOUND (uv will try to fetch)'",
           "uname -a",
