@@ -23939,7 +23939,7 @@ function imgStudioUpdateValidity() {
     // 0.18+, so its "missing" case is really "update mflux", not a Qwen hint.
     invalidReason = (eng.value === 'ideogram4_inline')
       ? 'The Ideogram 4 engine needs mflux 0.18+ (the mflux-generate-ideogram4 CLI). Update the mflux add-on, then come back and Generate.'
-      : 'The Qwen-Image-Edit add-on isn\'t installed. In Pinokio\'s Phosphene sidebar, click "Install Qwen-Image-Edit (multi-ref keyframes, optional)" — ~30 s, ~150 MB. Then come back and Generate.';
+      : 'The Qwen-Image-Edit engine isn\'t installed. It ships with the image-engine pack: click Update in Pinokio\'s Phosphene sidebar (NOT in this panel), then come back and Generate. If it\'s still missing after Update, the sidebar also shows "Reinstall image engines (Ideogram 4 + Qwen-Edit)" — ~30 s, ~150 MB.';
   } else if (needsRefs && refsCount === 0) {
     invalidReason = 'Pick at least 1 reference image (drop a file into one of the 3 slots above) — Qwen-Image-Edit composes against an image, it cannot run text-only. Use the Lightning preset only after picking a ref.';
   }
@@ -24234,10 +24234,16 @@ function imgStudioRenderEnginePill() {
       pill.title = 'The Ideogram 4 engine needs mflux 0.18+ ' +
                    '(the mflux-generate-ideogram4 CLI). Update the mflux add-on.';
     } else {
-      pill.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-bold"/></svg>install Qwen-Image-Edit';
-      pill.title = 'The Qwen-Image-Edit add-on isn\'t installed.\n' +
-                   'In Pinokio\'s Phosphene sidebar, click ' +
-                   '"Install Qwen-Image-Edit (multi-ref keyframes, optional)" — ~30 s, ~150 MB.';
+      // Status pill, NOT a button — label it as a state ("not installed"), not
+      // an imperative ("install ..."), or users click the pill, get the help
+      // cursor from its tooltip, and nothing happens (reported on Pinokio by
+      // @poppy0396). The real action lives in Pinokio's sidebar, not here.
+      pill.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-bold"/></svg>Qwen-Image-Edit not installed';
+      pill.title = 'The Qwen-Image-Edit engine isn\'t installed.\n' +
+                   'This pill is a status indicator — the action is in Pinokio\'s\n' +
+                   'Phosphene sidebar, not in this panel: click Update there.\n' +
+                   'If it\'s still missing afterwards, the sidebar also shows\n' +
+                   '"Reinstall image engines (Ideogram 4 + Qwen-Edit)" — ~30 s, ~150 MB.';
     }
     return;
   }
