@@ -4,6 +4,25 @@
 
 Current `dev` head: see `git log -1` for the live SHA. `dev` tracks `beta/main` (private repo — see §1).
 
+> ## ⏭️ SHIPPING TOMORROW (2026-07-24) — the Remix wave. Read this first.
+> **v3.2.7 shipped public 2026-07-23** (`0220e19`, tagged) = fixes only. Public VERSION is **3.2.7**; beta/dev is at **2775165**. The Remix wave is the NEXT release.
+>
+> **✅ Ship gate ALREADY PASSED — fresh-install weight-manifest audit (the mosaic bug class).**
+> Every weight the new features load was checked against the download manifests:
+> - `ltx-2.3-22b-ic-lora-ingredients-0.9` · `ltx-2.3-22b-ic-lora-union-control-ref0.5` · `LTX-2.3-22b-IC-LoRA-Colorizer-0.9` → present in **both** `install.js` and `update.js` ✅
+> - `spatial_upscaler_x2_v1_1` → present in install.js + update.js + download_q8.js ✅
+> - `transformer-dev` + `ltx-2.3-22b-distilled-lora-384` → in **`download_q8.js`**, which is correct: `_kf_pipe` (keyframe interp) and `_a2v_pipe` (A2V Q8, PR #29) are Q8-tier pipelines. Not a gap. ✅
+> - `audio_vae` (A2V) → in install.js Q4 manifest ✅
+> **No missing-weight gap. This is the check that would have caught the 7-week Q4 mosaic bug.**
+>
+> **REMAINING before pushing Remix public:**
+> 1. **From-zero fresh-Pinokio-install run** — the manifest audit is static analysis; still do one real clean install + one render per new mode (Ingredients / Control / Colorize / Ingredients×Character / A2V). This is the last hard gate ([[feedback_validate_from_zero]]).
+> 2. **Q4-character label — DECIDED, NOT YET IMPLEMENTED.** Decision: character stays UNLOCKED on Q4 (check-in data: 8 GB = 20%, 16 GB = 25% of users → locking out 45% costs more than a softer face). Add a short "Q4 fallback — identity is approximate; Q8 gives faithful faces" note near the character quality strip. Relevant code: `setMode()` character branch ~`mlx_ltx_panel.py:23745`, quality chips ~20903/21131, `_validate_character_quality` ~5607 (server already allows Q4). Reversible one-liner if Mr Bizarro disagrees.
+> 3. **Publish the staged Remix post WITH the release** — full text + live `assets.pinokio.co` media URLs backed up at `~/AI/projects/phosphene/launch/remix_launch_post_DRAFT.md`. ⚠️ The Pinokio composer AUTO-SAVES and the browser draft was overwritten by the v3.2.7 post — use the backup file, not the composer draft.
+> 4. Bump VERSION (3.2.13 → 3.3.0 suggested; it's a feature wave, not a patch) + tag.
+> 5. saved-j's training validation — a real train run to confirm the precision fix (#35/#36) end-to-end.
+
+
 > **Session 2026-07-20 — Pinokio notifications + GitHub triage + #35/#36 training fix + identity scrub (beta `3164512`, still v3.2.13, NOT public):**
 > - **Pinokio inbox → zero.** Answered all 3 substantive @bizarro posts: **@hottboytank** (auto-titled "python3.11 NOT FOUND", but the real blocker is **macOS 13 Ventura** — `mlx 0.31.1` has no `macosx_13_0` wheel, so `ltx_core_mlx` never installs; also 8 GB M1, under floor → told him to upgrade to macOS 14+); **@fardad_resin** (#showcase resin-pendant Reel prompt → 3 tips: Q8 for macro detail, video can't render legible calligraphy, image→video for the hero shot); **@shaurya11** (transformers-5.13.0 crash, self-resolved → warm close). Marked all read.
 > - **GitHub: PR queue emptied, every open issue answered.** **PR #29** (@anton-vsh A2V distilled) adopted onto beta (was already in `d335c7c`) + **closed** as adopted. Issues: **#43** (samuellzengkang) = the harmless stats-403 → replied + FIXED (below); **#36** (@saved-j) → replied owning the 6-day silence + real diagnosis + immediate workaround; **#34** circle-back (auto-close in a few days if silent); #35 kept open (tracks the training fix); #30/#24/#21 unchanged.
