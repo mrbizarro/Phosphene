@@ -19185,6 +19185,19 @@ HTML = r"""<!doctype html>
     }
     .chars-strip-empty a { color: var(--accent-bright); }
 
+    /* Q4-tier honesty note under the character strip. Hidden by default so
+       Q8-capable machines never see it; shown only when the page renders in
+       the Q4 tier (16 GB / Q4 fallback), where a character fuses into the
+       distilled base and identity comes out approximate vs. faithful on Q8. */
+    .chars-q4-note { display: none; }
+    body[data-cap-tier="q4"] .chars-q4-note {
+      display: block;
+      font-size: 11px; line-height: 1.5;
+      color: var(--muted);
+      padding: 4px 2px 2px;
+    }
+    body[data-cap-tier="q4"] .chars-q4-note b { color: var(--text); font-weight: 600; }
+
     /* Manage characters modal — list view with rename + delete per row. */
     .chars-manage-list {
       display: flex; flex-direction: column;
@@ -20857,6 +20870,7 @@ HTML = r"""<!doctype html>
                   title="Rescan mlx_models/characters/ for new bundles"
                   onclick="refreshManualCharacters()"><svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise-bold"/></svg></button>
         </div>
+        <div class="chars-q4-note"><b>Q4 fallback:</b> on this machine characters render on the fast (distilled) base — identity comes out <em>approximate</em>. A Q8-capable Mac renders faithful faces.</div>
         <!-- One-liner that surfaces under the strip when a character is
              active. Shows trigger word + a tiny strength control inline.
              charsSummaryMeta stays as a hidden carrier for legacy JS
