@@ -4,8 +4,13 @@
 
 Current `dev` head: see `git log -1` for the live SHA. `dev` tracks `beta/main` (private repo — see §1).
 
-> ## ⏭️ SHIPPING TOMORROW (2026-07-24) — the Remix wave. Read this first.
-> **v3.2.7 shipped public 2026-07-23** (`0220e19`, tagged) = fixes only. Public VERSION is **3.2.7**; beta/dev is at **2775165**. The Remix wave is the NEXT release.
+> ## ✅ SHIPPED PUBLIC 2026-07-24 — Remix wave = **v3.3.0** (`733e37f`, tagged). Read this first.
+> Public `origin/main` = `733e37f`, VERSION **3.3.0**, tag `v3.3.0`; tree identical to beta. Promoted via a single clean `release(v3.3.0)` commit (worktree, tree brought to beta exactly, verified identical before push) crediting @anton-vsh (#29) + @anubissbe (#31). **Launch post PUBLISHED** on Pinokio: <https://beta.pinokio.co/posts/01ky9kqqzx8nte88y8s39h5bj2> (recipe graphic + demo video + UX shot; sample-character CTA woven in).
+> **Ship gates cleared:** weight-manifest audit PASSED + every new IC-LoRA weight verified to resolve/fetch from its HF repo (dgrauet/DoctorDiffusion/DeepBeepMeep/Lightricks); Q4-character honesty label shipped (CSS-gated to `data-cap-tier=q4`, verified). **Sample character** (Bizarro) hosted + one-click download live.
+> **NOT done (residual):** (1) a true bare-metal fresh-Pinokio-install render pass — not feasible in-session (tens of GB); mitigated by the manifest+fetchability audit + each mode's build-time validation, but worth a real clean-install smoke test when convenient. (2) saved-j's #35/#36 train-run validation (needs a real training run with their dataset). (3) HF mirror of the sample character (blocked — read-only token).
+>
+> --- historical (pre-3.3.0) ---
+> **v3.2.7 shipped public 2026-07-23** (`0220e19`, tagged) = fixes only. The Remix wave was the next release (now shipped as v3.3.0 above).
 >
 > **✅ Ship gate ALREADY PASSED — fresh-install weight-manifest audit (the mosaic bug class).**
 > Every weight the new features load was checked against the download manifests:
