@@ -2166,6 +2166,100 @@ def list_characters() -> list[dict]:
     return out
 
 
+# ---- Shipped sample character ------------------------------------------------
+# So a new user can try Character / Remix WITHOUT training a LoRA first (the #1
+# barrier to trying the feature — nobody wants to spend an hour training before
+# they know it even works). Hosted as a GitHub release asset on the public repo.
+# The SERVER owns the URL — clients only trigger the fetch; this is not a generic
+# downloader. Lands in mlx_models/loras/ where list_characters() discovers it by
+# the <trigger>_v2.safetensors convention (→ shows up as "Bizarro").
+SAMPLE_CHARACTER = {
+    "trigger": "bizarrotrn",
+    "name": "Bizarro (sample)",
+    "filename": "bizarrotrn_v2.safetensors",
+    "url": ("https://github.com/mrbizarro/phosphene/releases/download/"
+            "sample-character-bizarro/bizarrotrn_v2.safetensors"),
+    "sha256": "a52e648a4e3edccd279363acdc85337d1d9813ca5dab30f8948f79393a4ba615",
+    "size_bytes": 855966824,
+}
+
+_sample_char_lock = threading.Lock()
+# status: idle | downloading | done | error
+_sample_char_state: dict = {"status": "idle", "mb": 0,
+                            "total_mb": SAMPLE_CHARACTER["size_bytes"] // (1 << 20),
+                            "error": None}
+
+
+def _set_sample_state(**kw) -> None:
+    """Rebind-free state update (mutate in place under the lock) so no route
+    needs a `global` declaration."""
+    with _sample_char_lock:
+        _sample_char_state.clear()
+        _sample_char_state.update(kw)
+
+
+def _sample_character_present() -> bool:
+    # Existence-only (NOT a size match): if any bizarrotrn_v2.safetensors is on
+    # disk — ours or a user's own — the character already shows in the picker,
+    # and we must never overwrite it.
+    try:
+        return (_safe_loras_dir() / SAMPLE_CHARACTER["filename"]).is_file()
+    except OSError:
+        return False
+
+
+def _download_sample_character_bg() -> None:
+    """Stream the sample character LoRA into mlx_models/loras/ in a daemon
+    thread. Atomic (.partial → rename) + sha256-verified, so a mid-download kill
+    or a corrupt transfer never leaves a file list_characters() would pick up."""
+    import urllib.request
+    import hashlib
+    spec = SAMPLE_CHARACTER
+    total_mb = spec["size_bytes"] // (1 << 20)
+    tmp: Path | None = None
+    try:
+        loras_dir = _safe_loras_dir()
+        loras_dir.mkdir(parents=True, exist_ok=True)
+        target = loras_dir / spec["filename"]
+        if target.is_file():
+            # Never clobber an existing bizarrotrn_v2 (ours from a prior run, or
+            # a user who trained their own with that trigger). It already lists.
+            _set_sample_state(status="done", mb=total_mb, total_mb=total_mb, error=None)
+            return
+        tmp = target.with_suffix(target.suffix + ".partial")
+        push(f"[sample-character] downloading {spec['name']} (~{total_mb} MB)…")
+        req = urllib.request.Request(spec["url"], headers={"User-Agent": "Phosphene"})
+        h = hashlib.sha256()
+        written = 0
+        last_log = 0.0
+        with urllib.request.urlopen(req, timeout=60) as resp, open(tmp, "wb") as fh:
+            while True:
+                chunk = resp.read(1 << 20)
+                if not chunk:
+                    break
+                fh.write(chunk)
+                h.update(chunk)
+                written += len(chunk)
+                now = time.time()
+                if now - last_log > 2.5:
+                    _set_sample_state(status="downloading", mb=written // (1 << 20),
+                                      total_mb=total_mb, error=None)
+                    last_log = now
+        if h.hexdigest() != spec["sha256"]:
+            raise RuntimeError("checksum mismatch (download corrupt) — please retry")
+        tmp.replace(target)
+        _set_sample_state(status="done", mb=total_mb, total_mb=total_mb, error=None)
+        push(f"[sample-character] installed → character '{spec['trigger']}' ({spec['name']})")
+    except Exception as e:  # noqa: BLE001
+        if tmp is not None:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+        _set_sample_state(status="error", mb=0, total_mb=total_mb, error=str(e)[:200])
+        push(f"[sample-character] FAILED: {e}")
+
+
 def _character_lora_basenames() -> set[str]:
     """Collect basenames of files that belong to a TRAINED character bundle —
     face LoRA, audio LoRA, voice clip. Used by the Manual-tab LoRA picker to
@@ -10353,6 +10447,14 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"characters": list_characters()})
             return
 
+        # Progress poll for the one-click sample-character download.
+        if parsed.path == "/characters/download-sample/status":
+            with _sample_char_lock:
+                st = dict(_sample_char_state)
+            st["present"] = _sample_character_present()
+            self._json(st)
+            return
+
         # Serve the sample training image for a character so the browser
         # can <img src="/characters/<id>/preview">. Path-traversal safe:
         # `id` is validated against [A-Za-z0-9_-]+ at parse time, and the
@@ -10956,6 +11058,26 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "queued": True,
                         "hint": "fetch running in background; reload "
                                 "/stats in ~15 s for fresh numbers"}, 202)
+            return
+
+        # One-click: fetch the shipped sample character so a user can try
+        # Character / Remix without training their own first. ~817 MB, so it
+        # runs in a background thread + returns 202; the UI polls
+        # /characters/download-sample/status until status == done|error.
+        if path == "/characters/download-sample":
+            if _sample_character_present():
+                self._json({"ok": True, "status": "done", "already": True,
+                            "character_id": SAMPLE_CHARACTER["trigger"]})
+                return
+            with _sample_char_lock:
+                already_running = _sample_char_state.get("status") == "downloading"
+            if not already_running:
+                _set_sample_state(status="downloading", mb=0,
+                                  total_mb=SAMPLE_CHARACTER["size_bytes"] // (1 << 20),
+                                  error=None)
+                threading.Thread(target=_download_sample_character_bg,
+                                 daemon=True, name="phos-sample-char").start()
+            self._json({"ok": True, "status": "downloading"}, 202)
             return
 
         # Multipart upload
@@ -20744,7 +20866,12 @@ HTML = r"""<!doctype html>
         <!-- Empty state — visible only when no bundles exist on disk. -->
         <div class="chars-strip-empty" id="charsEmpty" hidden>
           No trained characters yet —
-          <a href="#" onclick="workflowSwitch('train'); return false;">train one in the Train tab</a>.
+          <a href="#" onclick="workflowSwitch('train'); return false;">train one in the Train tab</a>,
+          or
+          <button type="button" class="ghost-btn js-get-sample-char" style="padding:2px 8px;font-size:12px"
+                  onclick="downloadSampleCharacter()">get a sample character (Bizarro)</button>
+          to try it right now.
+          <div class="js-get-sample-char-status" style="font-size:12px;opacity:.9;margin-top:6px" hidden></div>
         </div>
         <!-- Strength row carrier (kept in DOM for JS toggles; hidden
              from view — the slider lives inside charsAppliedNote when a
@@ -21897,6 +22024,11 @@ HTML = r"""<!doctype html>
             Train one in the <a href="#" onclick="workflowSwitch('train'); return false;">Train tab</a> —
             once a <code>&lt;trigger&gt;_v2.safetensors</code> LoRA lands in <code>mlx_models/loras/</code> it shows up here automatically.
             Add a matching <code>.audio.safetensors</code> for voice; without it the character is silent.
+          </div>
+          <div style="margin-top:16px;display:flex;flex-direction:column;align-items:center;gap:8px">
+            <button type="button" class="primary-btn js-get-sample-char" onclick="downloadSampleCharacter()">Get a sample character (Bizarro)</button>
+            <div style="font-size:12px;opacity:.7;max-width:34rem;line-height:1.5">Don't want to train one yet? Grab a ready-made character (~817&nbsp;MB, one-time) and try Character &amp; Remix right now.</div>
+            <div class="js-get-sample-char-status" style="font-size:12px;opacity:.9" hidden></div>
           </div>
         </div>
       </div>
@@ -26142,6 +26274,50 @@ const CHARACTERS_QUALITY = [
 const CHARACTERS_FRAMING_TEXT = Object.fromEntries(
   CHARACTERS_FRAMING.map(([v, , full]) => [v, full])
 );
+
+async function downloadSampleCharacter() {
+  // Class-based (not id) so the button can live in more than one empty state
+  // (the Character-mode strip AND the standalone Characters grid) and both
+  // update together.
+  const btns = Array.from(document.querySelectorAll('.js-get-sample-char'));
+  const statuses = Array.from(document.querySelectorAll('.js-get-sample-char-status'));
+  if (!btns.length) return;
+  const setStatus = (msg) => statuses.forEach(s => { s.hidden = false; s.textContent = msg; });
+  const setDisabled = (v) => btns.forEach(b => { b.disabled = v; });
+  setDisabled(true);
+  setStatus('Starting… (~817 MB, one-time)');
+  const finishOk = async (msg) => {
+    setStatus(msg);
+    // Re-init the picker(s) so the new character appears + the empty state hides.
+    try { if (typeof charactersInit === 'function') await charactersInit(); } catch (_) {}
+    try { if (typeof refreshManualCharacters === 'function') await refreshManualCharacters(); } catch (_) {}
+    setDisabled(false);
+  };
+  try {
+    const r = await fetch('/characters/download-sample', { method: 'POST' });
+    const j = await r.json().catch(() => ({}));
+    if (j && j.already) { await finishOk('Already installed — "Bizarro" is in your characters.'); return; }
+    if (!r.ok && r.status !== 202) { throw new Error((j && j.error) || ('HTTP ' + r.status)); }
+    const poll = setInterval(async () => {
+      let s;
+      try { s = await (await fetch('/characters/download-sample/status')).json(); }
+      catch (_) { return; }
+      if (s.status === 'downloading') {
+        setStatus('Downloading… ' + (s.mb || 0) + ' / ' + (s.total_mb || '?') + ' MB');
+      } else if (s.status === 'done' || s.present) {
+        clearInterval(poll);
+        await finishOk('Installed! "Bizarro" is in your characters now — pick it to start.');
+      } else if (s.status === 'error') {
+        clearInterval(poll);
+        setStatus('Download failed: ' + (s.error || 'unknown') + ' — try again.');
+        setDisabled(false);
+      }
+    }, 2500);
+  } catch (e) {
+    setStatus('Could not start: ' + (e.message || e));
+    setDisabled(false);
+  }
+}
 
 async function charactersInit() {
   // Idempotent. The grid is the default view; compose state only
