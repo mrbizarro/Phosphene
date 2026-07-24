@@ -15,6 +15,12 @@ Current `dev` head: see `git log -1` for the live SHA. `dev` tracks `beta/main` 
 > - `audio_vae` (A2V) → in install.js Q4 manifest ✅
 > **No missing-weight gap. This is the check that would have caught the 7-week Q4 mosaic bug.**
 >
+> **✅ DONE 2026-07-23 — shippable sample character (kills the #1 barrier: "must train a LoRA before you can try Remix").**
+> - `bizarrotrn_v2.safetensors` (817 MB, the exact character from the demo clip) hosted as a **public GitHub release asset**: `https://github.com/mrbizarro/phosphene/releases/tag/sample-character-bizarro` (HTTP 200 verified; sha256 `a52e648a…`). Visual LoRA only (no voice) — the audio sibling is optional per `list_characters()`.
+> - **In-app one-click** "Get a sample character (Bizarro)" button in BOTH empty states (Character-mode strip `charsEmpty` + standalone Characters grid `charactersEmpty`). Backend: `POST /characters/download-sample` (202 + bg thread, atomic .partial→rename, sha256-verified, **refuses to overwrite** an existing `bizarrotrn_v2`) + `GET /characters/download-sample/status` poll. Commit `033acb5` (beta). Verified live end-to-end (both buttons render + click cleanly; already-installed path; character discovered as "Bizarro").
+> - Remix draft post (`~/AI/projects/phosphene/launch/remix_launch_post_DRAFT.md`) updated to explain the Character requirement + point at the one-click sample.
+> - ⚠️ **HF hosting was NOT possible** — this machine's HF token is READ-only (salocharly). If Mr Bizarro wants it mirrored on Hugging Face too, that needs a WRITE token he provides. GitHub release is the shipped path.
+>
 > **REMAINING before pushing Remix public:**
 > 1. **From-zero fresh-Pinokio-install run** — the manifest audit is static analysis; still do one real clean install + one render per new mode (Ingredients / Control / Colorize / Ingredients×Character / A2V). This is the last hard gate ([[feedback_validate_from_zero]]).
 > 2. **Q4-character label — DECIDED, NOT YET IMPLEMENTED.** Decision: character stays UNLOCKED on Q4 (check-in data: 8 GB = 20%, 16 GB = 25% of users → locking out 45% costs more than a softer face). Add a short "Q4 fallback — identity is approximate; Q8 gives faithful faces" note near the character quality strip. Relevant code: `setMode()` character branch ~`mlx_ltx_panel.py:23745`, quality chips ~20903/21131, `_validate_character_quality` ~5607 (server already allows Q4). Reversible one-liner if Mr Bizarro disagrees.
