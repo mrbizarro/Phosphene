@@ -31849,7 +31849,22 @@ function renderOutputInfoBody(path, data) {
   // ---- Generation parameters ----
   const genRows = [];
   genRows.push(`<dt>Mode</dt><dd>${escapeHtml(modeLabel)}</dd>`);
-  genRows.push(`<dt>Quality</dt><dd>${escapeHtml((p.quality || 'standard').replace(/^./, c => c.toUpperCase()))}</dd>`);
+  // A Hailuo H3 render has no LTX quality preset. `params.quality` is just
+  // whatever the quality strip happened to hold when Generate was pressed —
+  // the H3 TIER defined this render's geometry — so printing "Quality:
+  // Balanced" on an H3 clip states something that was never true of it.
+  // Exact-match the tier rather than reusing h3TierByKey(), which falls back
+  // to the first tier and would relabel an unknown key as "Draft · 3s"; on a
+  // machine with no H3 pack installed (H3.tiers empty) the raw key is printed,
+  // which is honest, where a fallback label would not be.
+  if (String(p.engine || 'ltx').toLowerCase() === 'h3') {
+    const h3TierKey = p.h3_tier || (data && data.h3 && data.h3.tier) || '';
+    const h3TierDef = ((H3 && H3.tiers) || []).find(t => t.key === h3TierKey);
+    genRows.push(`<dt>Engine</dt><dd>Hailuo H3</dd>`);
+    genRows.push(`<dt>H3 tier</dt><dd>${escapeHtml(h3TierDef ? h3TierDef.label : (h3TierKey || '—'))}</dd>`);
+  } else {
+    genRows.push(`<dt>Quality</dt><dd>${escapeHtml((p.quality || 'standard').replace(/^./, c => c.toUpperCase()))}</dd>`);
+  }
   if (p.accel && p.accel !== 'off') {
     genRows.push(`<dt>Speed</dt><dd>${escapeHtml(p.accel.replace(/^./, c => c.toUpperCase()))}</dd>`);
   }
