@@ -7853,6 +7853,12 @@ def run_h3_job_inner(job: dict) -> None:
     push("[h3] $ " + " ".join(shlex.quote(c) for c in cmd))
 
     t0 = time.time()
+    # Denoise clock, started when the runner enters `joint_denoise`. The ETA
+    # has to be per-DENOISE-step, not per-wall-second: the staged loads
+    # (text encoder + 41 GB DiT) eat ~45 s up front, so dividing total elapsed
+    # by completed steps reads ~2x high at step 1 and then visibly "falls",
+    # which looks like a broken estimate.
+    denoise_t0: float | None = None
     proc: subprocess.Popen | None = None
     step_rx = re.compile(r"^step (\d+)/(\d+):")
     phase_rx = re.compile(r"^== (.+) ==$")
@@ -7893,6 +7899,8 @@ def run_h3_job_inner(job: dict) -> None:
                     "audio_vae_decode": "Decoding audio",
                     "encode_mux": "Encoding mp4",
                 }.get(m_phase.group(1).strip(), m_phase.group(1).strip())
+                if m_phase.group(1).strip() == "joint_denoise":
+                    denoise_t0 = time.time()
             m_step = step_rx.match(line.strip())
             if m_step:
                 try:
@@ -7905,7 +7913,8 @@ def run_h3_job_inner(job: dict) -> None:
             # doesn't sit at 0 through a 30 s model load and then jump.
             if last_step:
                 pct = 5.0 + 87.0 * (last_step / float(total_steps))
-                per_step = elapsed / max(1, last_step)
+                spent = elapsed if denoise_t0 is None else max(0.0, time.time() - denoise_t0)
+                per_step = spent / max(1, last_step)
                 eta = max(0.0, (total_steps - last_step) * per_step)
                 label = f"{phase_label} · step {last_step} / {total_steps}"
             else:
@@ -10276,10 +10285,17 @@ class Handler(BaseHTTPRequestHandler):
             # real "Training face · step N / total", making the Now card
             # appear stuck at Loading pipeline. Skip the override when the
             # job mode is "train".
+            #
+            # Hailuo H3 renders are in the SAME boat and for the same reason:
+            # run_h3_job_inner writes its own phase + step progress from the
+            # staged runner's stdout ("== joint_denoise ==", "step 3/8: 57.9s"),
+            # which _compute_progress can't parse — leaving the Now card on
+            # "Loading pipeline" for the whole render. Caught in validation.
             if payload.get("current"):
-                _mode = ((payload["current"].get("params") or {})
-                         .get("mode") or "").lower()
-                if _mode != "train":
+                _cur_params = (payload["current"].get("params") or {})
+                _mode = (_cur_params.get("mode") or "").lower()
+                _engine = (_cur_params.get("engine") or "ltx").lower()
+                if _mode != "train" and _engine != "h3":
                     payload["current"]["progress"] = _compute_progress(
                         payload["current"], payload.get("log") or [],
                     )
