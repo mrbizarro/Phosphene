@@ -17431,6 +17431,53 @@ HTML = r"""<!doctype html>
     .pill-quality.active .ql-spec { opacity: 1; }
     .pill-quality.active .ql-tier { color: var(--accent-bright); opacity: 0.7; }
 
+    /* ---- Engine picker (LTX-2.3 vs Hailuo H3) --------------------------
+       One thin row above the Quality strip. Same pill vocabulary as the
+       mode bar so it reads as "which model", not "another setting". The
+       whole row is display:none for machines that can't run H3 — see
+       _engineRowVisible() — so nothing new appears for users under 64 GB. */
+    .engine-row {
+      display: flex; align-items: center; gap: 10px;
+      margin: 0 0 10px 0; padding: 0 2px; flex-wrap: wrap;
+    }
+    .engine-row[hidden] { display: none !important; }
+    .engine-row-label {
+      font-size: 11px; color: var(--muted); text-transform: uppercase;
+      letter-spacing: .4px; font-weight: 600; flex: 0 0 auto;
+    }
+    .engine-group { display: flex; gap: 4px; flex: 0 0 auto; }
+    .engine-chip {
+      padding: 5px 12px; font-size: 12.5px;
+      flex-direction: column; align-items: flex-start; gap: 1px;
+    }
+    .engine-chip .mc-sub { font-size: 9.5px; letter-spacing: .03em; }
+    /* Not-installed / not-capable H3: dimmed but STILL CLICKABLE when the
+       Mac is capable, because the click is what opens the install card.
+       .pill-btn.disabled sets pointer-events:none, so the needs-install
+       state uses its own class instead of reusing .disabled. */
+    .engine-chip.needs-install { opacity: .62; border-style: dashed; }
+    .engine-chip.needs-install:hover { opacity: .85; }
+    .engine-row-note {
+      font-size: 11px; color: var(--muted); flex: 1 1 160px; min-width: 0;
+    }
+    .engine-hint {
+      font-size: 11.5px; color: var(--muted);
+      margin: -4px 0 10px 0; padding: 0 2px;
+      border-left: 2px solid var(--accent, #8b7bff);
+      padding-left: 8px; line-height: 1.4;
+    }
+    .engine-hint[hidden] { display: none !important; }
+
+    /* H3-active surface swap. Every control that only means something to the
+       LTX pipeline (quality pills, orientation, duration/frames, the LoRA
+       picker) carries data-ltx-only and folds away; the H3 tier strip takes
+       the quality strip's place. Seed stays — H3 honours it. */
+    /* NOTE: #h3TierGroup visibility is toggled by the `hidden` attribute in
+       JS, not here — `.quality-strip[hidden] { display:none !important }`
+       above already beats the grid rule (that fight was lost once already,
+       2026-05-17, when both quality strips showed at the same time). */
+    body[data-h3-engine="h3"] [data-ltx-only] { display: none !important; }
+
     /* Customize disclosure inside the form — sub-tier UI, lighter than
        a top-level <details>. Subtle border, indented body, distinct
        chevron so it doesn't compete with the LoRAs section header. */
@@ -21827,9 +21874,37 @@ HTML = r"""<!doctype html>
            (aspect, dims, speed, long-clips, export, audio source,
            open-when-done) is folded into the Customize disclosure below. -->
       <div class="quick-settings">
+        <!-- ============== ENGINE PICKER ==============
+             Which model renders this shot. LTX-2.3 is the built-in warm-helper
+             pipeline (every mode, every feature). Hailuo H3 is an OPTIONAL
+             ~75 GB pack that renders video + dialogue + sound jointly, and
+             only serves Text and Image — setEngine() snaps back to LTX in any
+             other mode. The row hides itself entirely on Macs that can't run
+             H3 (see _engineRowVisible), so nothing new appears for the ~80% of
+             users under 64 GB. Hidden inputs live here so FormData(genForm)
+             carries them; both are in the make_job allowlist. -->
+        <div class="engine-row" id="engineRow" hidden>
+          <span class="engine-row-label">Engine</span>
+          <div class="pill-group engine-group" id="engineGroup">
+            <button type="button" class="pill-btn engine-chip active" data-engine="ltx"
+                    title="LTX-2.3 — the built-in engine. Every mode, LoRAs, characters.">
+              LTX-2.3<span class="mc-sub sub">built in · every mode</span>
+            </button>
+            <button type="button" class="pill-btn engine-chip" data-engine="h3" id="engineChipH3"
+                    title="Hailuo H3 — joint video + dialogue + sound. Text and Image only.">
+              Hailuo H3<span class="mc-sub sub" id="engineChipH3Sub">video + dialogue</span>
+            </button>
+          </div>
+          <span class="engine-row-note" id="engineRowNote"></span>
+        </div>
+        <input type="hidden" name="engine" id="engine" value="ltx">
+        <input type="hidden" name="h3_tier" id="h3_tier" value="draft_3s">
+        <div class="engine-hint" id="h3Hint" hidden>
+          Dialogue + sound are generated jointly — write them into the prompt.
+        </div>
         <div>
           <div class="qs-label">
-            <span class="qs-name">Quality</span>
+            <span class="qs-name" id="qualityLabelName">Quality</span>
             <span class="qs-meta" id="qualityMeta"></span>
           </div>
           <!-- Compact 4-col strip. Each chip carries name + a single spec
@@ -21845,7 +21920,7 @@ HTML = r"""<!doctype html>
                inference uses transformer-distilled.safetensors and the
                identity barely locks). Forcing quality=high here means
                the user can't accidentally ship a Q4 character render. -->
-          <div class="quality-strip pill-group" id="qualityGroup">
+          <div class="quality-strip pill-group" id="qualityGroup" data-ltx-only>
             <button type="button" class="q-chip pill-btn pill-quality" data-quality="quick">
               <span class="ql-name">Quick</span>
               <span class="q-spec ql-spec sub">640×480</span>
@@ -21886,6 +21961,13 @@ HTML = r"""<!doctype html>
               <span class="ql-tier">Q8 HQ · ~5 min / 5s · best identity</span>
             </button>
           </div>
+          <!-- Hailuo H3 tier strip — the H3 replacement for the LTX Quality
+               pills. Same .quality-strip visual language, separate element so
+               neither engine's chips can ever be half-lit. Chips are rendered
+               by renderH3Tiers() from BOOT.h3.tiers (the server-side H3_TIERS
+               table stays the single source of truth for geometry + steps, so
+               a tier change is one Python edit, not two). -->
+          <div class="quality-strip pill-group" id="h3TierGroup" hidden></div>
           <!-- 2026-05-17 (Codex C+ pass 6): the character-only skip-step
                toggle moved out of here into the Customize section as
                "HQ speed". It's a Q8 sampler control, not a character
@@ -21904,7 +21986,7 @@ HTML = r"""<!doctype html>
              dig for it. Compact 2-pill row reusing the same id="aspect"
              hidden input + id="aspectGroup" click delegation + id="aspectRow"
              container that setQuality() hides when quality=quick. -->
-        <div class="mode-only show" id="aspectRow" style="display:flex;align-items:center;gap:10px;margin:6px 0 8px 0;padding:0 2px;">
+        <div class="mode-only show" id="aspectRow" data-ltx-only style="display:flex;align-items:center;gap:10px;margin:6px 0 8px 0;padding:0 2px;">
           <span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600;flex:0 0 auto;">Orientation</span>
           <div class="pill-group" id="aspectGroup" style="display:flex;gap:4px;flex:0 0 auto;">
             <button type="button" class="pill-btn active" data-aspect="landscape" title="Landscape 16:9" style="padding:4px 10px;font-size:12px;display:inline-flex;gap:6px;align-items:center;">
@@ -21919,11 +22001,11 @@ HTML = r"""<!doctype html>
 
         <div class="mode-only show" id="quickMetricsRow">
           <div class="mini-fields">
-            <div class="mf-cell">
+            <div class="mf-cell" data-ltx-only>
               <span class="mf-label">Duration (s)</span>
               <input id="duration" value="5" type="number" min="1" max="20" step="1">
             </div>
-            <div class="mf-cell">
+            <div class="mf-cell" data-ltx-only>
               <span class="mf-label">Frames <span class="mf-hint">8k+1</span></span>
               <input name="frames" id="frames" value="121" type="number" min="1" title="Must be 8k+1 (e.g., 121, 161, 201). Duration auto-syncs.">
             </div>
@@ -21960,7 +22042,7 @@ HTML = r"""<!doctype html>
            it easy to forget. Default open so first-time users see what's
            inside without hunting for the disclosure triangle. -->
       <div class="form-divider"></div>
-      <div id="loraPickerVideoSlot">
+      <div id="loraPickerVideoSlot" data-ltx-only>
         <details id="lorasDetails" open class="loras-section">
           <summary class="loras-summary">
             <span class="loras-chevron" aria-hidden="true"><svg class="ph"><use href="#ph-caret-down-bold"/></svg></span>
@@ -23775,6 +23857,29 @@ HTML = r"""<!doctype html>
   </div>
 </div>
 
+<!-- ============== HAILUO H3 INSTALL CARD ============== -->
+<!-- Opened by clicking the H3 engine pill when the pack isn't installed, and
+     by the H3 row in the Models modal. H3 installs through Pinokio (clone +
+     venv + ~75 GB of weights), not through the panel's `hf download` path, so
+     this card explains the one sidebar click — the same shape the Sharp and
+     image-engine optional packs already use. -->
+<div id="h3InstallModal" class="models-modal" style="display:none"
+     role="dialog" aria-modal="true" aria-labelledby="h3InstallTitle"
+     onclick="if(event.target===this) closeH3InstallCard()">
+  <div class="models-card">
+    <div class="models-head">
+      <h2 id="h3InstallTitle">Hailuo H3 · optional engine</h2>
+      <button class="ghost-btn" onclick="closeH3InstallCard()">Close</button>
+    </div>
+    <div class="models-hint" id="h3InstallBody"></div>
+    <div class="models-foot">
+      Already have a checkout? Launch the panel with
+      <code>LTX_H3_ROOT</code> + <code>LTX_H3_MODELS</code> pointing at it —
+      see <code>docs/H3_ENGINE.md</code>.
+    </div>
+  </div>
+</div>
+
 <!-- ============== MODELS MODAL ============== -->
 <!-- Opened by the "models" pill in the header. Shows per-repo download
      status from /models, with a Download button per row. Active downloads
@@ -24526,6 +24631,11 @@ function setMode(mode) {
     // and doesn't need to (character_id is what drives the LoRA stack).
     const modeInp = document.getElementById('mode');
     if (modeInp) modeInp.value = 't2v';
+    // Character stacks LTX LoRAs; H3 has no LoRA path, so force LTX here too
+    // (the mode hidden field says t2v, which H3 *would* otherwise accept).
+    if (typeof _syncEngineForMode === 'function') {
+      try { _syncEngineForMode(); } catch (e) {}
+    }
     updatePromptPlaceholder();
     return;
   }
@@ -24641,6 +24751,12 @@ function setMode(mode) {
   // Q8 is missing should surface the Download Q8 CTA without waiting for
   // the next 1.5s poll tick.
   if (LAST_STATUS) updateModelsCard(LAST_STATUS);
+  // Engine ↔ mode consistency. Hailuo H3 only serves Text and Image; every
+  // other mode snaps the picker back to LTX-2.3 with a one-line note rather
+  // than letting the user queue a job the server would reject.
+  if (typeof _syncEngineForMode === 'function') {
+    try { _syncEngineForMode(); } catch (e) {}
+  }
   updatePromptPlaceholder();
 }
 
@@ -28900,6 +29016,219 @@ document.querySelectorAll('#upscaleMethodGroup .pill-btn').forEach(b => b.onclic
 document.querySelectorAll('#aspectGroup .pill-btn').forEach(b => b.onclick = () => setAspect(b.dataset.aspect));
 document.querySelectorAll('#extendModeGroup .pill-btn').forEach(b => b.onclick = () => setExtendMode(b.dataset.extendMode));
 
+// ============================================================================
+// Engine picker — LTX-2.3 (built in) vs Hailuo H3 (optional pack)
+// ============================================================================
+// H3 is a second VIDEO engine, not a quality setting: different model, its own
+// venv, its own subprocess, its own geometry rules. It serves Text and Image
+// only, so every other mode force-snaps back to LTX (setMode calls
+// _syncEngineForMode). The tier table comes from the server (BOOT.h3.tiers /
+// status.h3.tiers) so H3_TIERS in Python stays the single source of truth for
+// geometry + steps — a tier change is one Python edit, not two.
+//
+// Three gate states on the H3 pill:
+//   not capable  → the whole row is hidden (a 32 GB Mac never learns H3 exists)
+//   capable, not installed → dashed pill; clicking opens the install card
+//   installed    → normal pill
+let H3 = (BOOT.h3 || { capable: false, available: false, tiers: [] });
+const H3_ENGINE_LS_KEY = 'phos_video_engine';
+
+function h3TierByKey(key) {
+  return (H3.tiers || []).find(t => t.key === key) || (H3.tiers || [])[0] || null;
+}
+
+function _engineRowVisible() {
+  // Only Macs that could actually run H3 see the picker at all. Showing a
+  // permanently-disabled engine to the ~80% of users under 64 GB is noise.
+  return !!H3.capable;
+}
+
+function renderH3Tiers() {
+  const strip = document.getElementById('h3TierGroup');
+  if (!strip) return;
+  const tiers = H3.tiers || [];
+  const active = (document.getElementById('h3_tier') || {}).value || H3.default_tier;
+  strip.style.gridTemplateColumns = `repeat(${Math.max(1, tiers.length)}, 1fr)`;
+  strip.innerHTML = tiers.map(t => `
+    <button type="button" class="q-chip pill-btn pill-quality${t.key === active ? ' active' : ''}"
+            data-h3-tier="${escapeHtml(t.key)}" title="${escapeHtml(t.blurb || '')}">
+      <span class="ql-name">${escapeHtml(t.label)}</span>
+      <span class="q-spec ql-spec sub">${escapeHtml(t.spec)}</span>
+      <span class="ql-tier">${escapeHtml(t.eta)}</span>
+    </button>`).join('');
+  strip.querySelectorAll('[data-h3-tier]').forEach(b => {
+    b.onclick = () => setH3Tier(b.dataset.h3Tier);
+  });
+}
+
+function setH3Tier(key) {
+  const tier = h3TierByKey(key);
+  if (!tier) return;
+  const inp = document.getElementById('h3_tier');
+  if (inp) inp.value = tier.key;
+  document.querySelectorAll('#h3TierGroup [data-h3-tier]').forEach(b =>
+    b.classList.toggle('active', b.dataset.h3Tier === tier.key));
+  // Mirror the tier geometry into the shared hidden fields so the queue card,
+  // the "Generate" estimate and Load Params all read the truth. make_job
+  // re-stamps these server-side too — a stale tab must never win.
+  const w = document.getElementById('width');
+  const h = document.getElementById('height');
+  const f = document.getElementById('frames');
+  const s = document.getElementById('steps');
+  if (w) w.value = tier.width;
+  if (h) h.value = tier.height;
+  if (f) f.value = tier.frames;
+  if (s) s.value = tier.steps;
+  try { localStorage.setItem('phos_h3_tier', tier.key); } catch (e) {}
+  if (typeof updateDerived === 'function') { try { updateDerived(); } catch (e) {} }
+}
+
+// Modes H3 can serve. Anything else must run on LTX.
+function _h3ServesMode(mode) {
+  const modes = H3.modes || ['t2v', 'i2v'];
+  // 'character' is a UI intent that submits mode=t2v, but it stacks LTX LoRAs —
+  // H3 has no LoRA path, so it stays LTX-only. i2v_clean_audio muxes an
+  // external track onto LTX video; H3 generates its own audio.
+  if (mode === 'character' || mode === 'i2v_clean_audio') return false;
+  return modes.indexOf(mode) !== -1;
+}
+
+function setEngine(engine, opts) {
+  opts = opts || {};
+  const row = document.getElementById('engineRow');
+  if (row) row.hidden = !_engineRowVisible();
+  const note = document.getElementById('engineRowNote');
+  const chipH3 = document.getElementById('engineChipH3');
+  const sub = document.getElementById('engineChipH3Sub');
+  let target = (engine === 'h3') ? 'h3' : 'ltx';
+  let reason = '';
+
+  if (target === 'h3') {
+    if (!H3.capable) { target = 'ltx'; reason = 'Hailuo H3 needs 64 GB unified memory.'; }
+    else if (!H3.available) { target = 'ltx'; reason = 'Hailuo H3 isn\'t installed yet.'; }
+    else if (!_h3ServesMode(currentMode)) {
+      target = 'ltx';
+      reason = 'Hailuo H3 renders Text and Image only — back on LTX-2.3 for this mode.';
+    } else if (currentMode === 'i2v' && H3.first_frame === false) {
+      target = 'ltx';
+      reason = 'This H3 build has no first-frame support — update the pack to use Image mode.';
+    }
+  }
+
+  const inp = document.getElementById('engine');
+  if (inp) inp.value = target;
+  document.body.dataset.h3Engine = target;
+  document.querySelectorAll('#engineGroup .engine-chip').forEach(b =>
+    b.classList.toggle('active', b.dataset.engine === target));
+
+  // H3 pill affordance: dashed + a "what it costs" subtitle when it isn't
+  // installed, so the click reads as an offer rather than a dead button.
+  if (chipH3) {
+    chipH3.classList.toggle('needs-install', !!H3.capable && !H3.available);
+    chipH3.classList.toggle('disabled', !H3.capable);
+    chipH3.title = !H3.capable
+      ? 'Needs 64 GB unified memory'
+      : (!H3.available
+          ? 'Hailuo H3 isn\'t installed — click to see how (~75 GB)'
+          : 'Hailuo H3 — joint video + dialogue + sound. Text and Image only.');
+  }
+  if (sub) sub.textContent = (H3.capable && !H3.available) ? 'not installed · ~75 GB'
+                                                          : 'video + dialogue';
+  if (note) note.textContent = reason;
+
+  // Surface swap: H3 tier strip replaces the quality strip; data-ltx-only
+  // controls fold away via CSS on body[data-h3-engine].
+  const h3Strip = document.getElementById('h3TierGroup');
+  const hint = document.getElementById('h3Hint');
+  const qLabel = document.getElementById('qualityLabelName');
+  if (h3Strip) h3Strip.hidden = (target !== 'h3');
+  if (hint) hint.hidden = (target !== 'h3');
+  if (qLabel) qLabel.textContent = (target === 'h3') ? 'H3 tier' : 'Quality';
+  if (target === 'h3') {
+    renderH3Tiers();
+    setH3Tier((document.getElementById('h3_tier') || {}).value || H3.default_tier);
+  } else if (typeof _applyCharacterQualityStripVisibility === 'function') {
+    // Restore whichever LTX strip the current selection calls for.
+    try { _applyCharacterQualityStripVisibility(); } catch (e) {}
+  }
+  if (opts.persist !== false) {
+    try { localStorage.setItem(H3_ENGINE_LS_KEY, target); } catch (e) {}
+  }
+  if (typeof updatePromptPlaceholder === 'function') {
+    try { updatePromptPlaceholder(); } catch (e) {}
+  }
+  return target;
+}
+
+function currentEngine() {
+  return (document.getElementById('engine') || {}).value || 'ltx';
+}
+
+// Called from setMode(): a mode H3 can't serve snaps the engine back to LTX
+// with a one-line note, instead of silently submitting a job the server would
+// have to reject.
+function _syncEngineForMode() {
+  if (currentEngine() !== 'h3') { setEngine('ltx', { persist: false }); return; }
+  setEngine('h3', { persist: false });
+}
+
+// /status carries a fresh h3 block every tick, so an install finishing in the
+// Pinokio sidebar unlocks the engine without a panel restart (same contract
+// the Q8 download already has with the High pill).
+function updateH3Availability(s) {
+  const next = s && s.h3;
+  if (!next) return;
+  const changed = (next.available !== H3.available)
+               || (next.capable !== H3.capable)
+               || (next.first_frame !== H3.first_frame);
+  H3 = next;
+  if (changed) setEngine(currentEngine(), { persist: false });
+}
+
+document.querySelectorAll('#engineGroup .engine-chip').forEach(b => b.onclick = () => {
+  if (b.dataset.engine === 'h3' && H3.capable && !H3.available) {
+    openH3InstallCard();
+    return;
+  }
+  if (b.classList.contains('disabled')) return;
+  setEngine(b.dataset.engine);
+});
+
+// Install card — H3 is a Pinokio-script install (clone + venv + ~75 GB of
+// weights), not an in-panel `hf download`, so the panel explains the one
+// sidebar click rather than pretending it can do it itself. Same shape the
+// Sharp/Qwen optional packs use.
+function openH3InstallCard() {
+  const m = document.getElementById('h3InstallModal');
+  const body = document.getElementById('h3InstallBody');
+  if (body) {
+    const missing = (H3.missing || []);
+    body.innerHTML = `
+      <p style="margin:0 0 10px">
+        <b>Hailuo H3</b> is a second video engine: one prompt in, video
+        <em>and</em> synced dialogue <em>and</em> sound out. It runs fully
+        locally, alongside LTX — installing it changes nothing about your
+        existing renders.
+      </p>
+      <p style="margin:0 0 10px;color:var(--muted)">
+        ${escapeHtml(H3.size_note || '')}
+      </p>
+      <p style="margin:0 0 10px">
+        Install it from Pinokio, not from here: open the <b>Phosphene</b> entry
+        in the Pinokio sidebar and click
+        <b>“Install Hailuo H3 (optional, ~75 GB)”</b>. The panel picks it up
+        within a couple of seconds — no restart.
+      </p>
+      ${missing.length ? `<p style="margin:0;color:var(--muted);font-size:12px">
+        Currently missing: ${escapeHtml(missing.join('; '))}</p>` : ''}`;
+  }
+  if (m) m.style.display = 'flex';
+}
+function closeH3InstallCard() {
+  const m = document.getElementById('h3InstallModal');
+  if (m) m.style.display = 'none';
+}
+
 // Prompt enhancement via Gemma — wraps the upstream CLI's `enhance`
 // subcommand. Cold start ~12-15s (Gemma load), warm ~5s. Blocks the UI
 // during the request (just the button — rest of the form stays usable).
@@ -29820,6 +30149,9 @@ async function poll() {
   // Inline models card — top-of-form, big, can't miss it. State logic
   // lives in updateModelsCard so we don't bloat poll() further.
   updateModelsCard(s);
+  // Hailuo H3 install state — refreshes the engine pill in place when the
+  // pack lands (or disappears), same live-unlock contract Q8 already has.
+  if (typeof updateH3Availability === 'function') updateH3Availability(s);
 
   // Queue pill + tab badge. Animate the bottom-pane Queue badge with
   // a brief scale-up "pop" when the count goes up — draws the eye to
@@ -34457,7 +34789,39 @@ async function refreshModelsModal({ silent = false } = {}) {
         ${btnHtml}
       </li>`;
   }).join('');
-  list.innerHTML = rows || `<li class="empty-state">No model manifest found — required_files.json is missing or unreadable.</li>`;
+  // Hailuo H3 — an optional PACK, not an `hf download` repo (clone + its own
+  // venv + ~75 GB of weights), so it can't come from the manifest loop above.
+  // It still belongs in this list: this is where users look for "what else can
+  // I install". Rendered from the live /status snapshot, with a button that
+  // routes to the same install card the engine pill opens.
+  let h3Row = '';
+  {
+    const h3 = (LAST_STATUS && LAST_STATUS.h3) || (typeof H3 === 'object' ? H3 : null);
+    if (h3 && h3.capable) {
+      const ready = !!h3.available;
+      const cls = ready ? 'ready' : 'missing';
+      const icon = ready
+        ? '<svg class="ph" aria-hidden="true"><use href="#ph-check-bold"/></svg>'
+        : '<svg class="ph" aria-hidden="true"><use href="#ph-x-circle"/></svg>';
+      const statusText = ready
+        ? `Ready · engine picker unlocked · ${escapeHtml(h3.root || '')}`
+        : 'Not installed · install from the Pinokio sidebar';
+      const btn = ready
+        ? `<button class="ghost" disabled>Installed</button>`
+        : `<button onclick="openH3InstallCard()">How to install</button>`;
+      h3Row = `
+        <li class="${cls}">
+          <span class="icon">${icon}</span>
+          <div class="meta">
+            <span class="ttl">Hailuo H3 (MiniMax-H3 FL2VA) · <span style="color:var(--muted)">optional</span></span>
+            <span class="sub">Second video engine — joint video + dialogue + sound</span>
+            <span class="sub">${statusText} · ${escapeHtml(h3.size_note || '')}</span>
+          </div>
+          ${btn}
+        </li>`;
+    }
+  }
+  list.innerHTML = (rows + h3Row) || `<li class="empty-state">No model manifest found — required_files.json is missing or unreadable.</li>`;
   // Footer summarises required vs optional counts.
   const reqRepos = repos.filter(r => r.kind !== 'optional');
   const optRepos = repos.filter(r => r.kind === 'optional');
@@ -34854,6 +35218,17 @@ setMode('t2v');
 setAspect('landscape');         // sets aspect first so the default preset orients correctly
 setQuality('balanced');         // bundles quality + dims; respects current aspect
 applyTierTimes();               // rewrite Quality pill subtitles to match this Mac
+// Engine picker — restore the last-used engine + H3 tier. setEngine() re-runs
+// every gate (capable / installed / mode), so a stale localStorage value from
+// a machine that has since lost the pack just lands back on LTX.
+(function restoreEngineChoice() {
+  let tier = null, engine = null;
+  try { tier = localStorage.getItem('phos_h3_tier'); } catch (e) {}
+  try { engine = localStorage.getItem(H3_ENGINE_LS_KEY); } catch (e) {}
+  const tierInp = document.getElementById('h3_tier');
+  if (tierInp && tier && h3TierByKey(tier)) tierInp.value = tier;
+  setEngine(engine === 'h3' ? 'h3' : 'ltx', { persist: false });
+})();
 updateCustomizeSummary();
 updateDerived();
 
