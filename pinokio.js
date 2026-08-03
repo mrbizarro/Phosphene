@@ -17,7 +17,25 @@
 // crash because Q4/Gemma aren't on disk.
 
 const fs = require("fs")
+const os = require("os")
 const path = require("path")
+
+// Hailuo H3 (optional second video engine) needs ~40 GiB resident at peak, so
+// the menu entry only appears on 64 GB+ Macs. A 64 GB machine reports ~63.x GB
+// after firmware reservations, hence the 60 GB floor — the same number
+// h3_capable() uses in mlx_ltx_panel.py. Keep them in sync.
+const H3_MIN_BYTES = 60 * 1000 * 1000 * 1000
+
+function h3Capable() {
+  try {
+    return os.totalmem() >= H3_MIN_BYTES
+  } catch (e) {
+    // Fail CLOSED here (unlike the installer's fail-open preflight): if we
+    // can't read the hardware, don't advertise a 75 GB download that might
+    // never run. The user can still install it from the panel's instructions.
+    return false
+  }
+}
 
 function getInstallRoot(info) {
   // Pinokio's `info.path` API has shifted across versions:
@@ -98,6 +116,14 @@ module.exports = {
     // `mflux-generate-qwen-edit` binary didn't land (mflux <0.17.5).
     const qwen_ready =
       info.exists("ltx-2-mlx/env/bin/mflux-generate-qwen-edit")
+    // Hailuo H3 readiness — the engine's own venv AND the pruned bf16 DiT (the
+    // one 41 GB file; if that landed, the small siblings did too). Weights live
+    // under mlx_models/ so they survive Reset like every other model. Both
+    // download layouts are accepted, matching _h3_model_roots() in the panel.
+    const h3_ready =
+      info.exists("minimax-h3-mlx/.venv/bin/python3.11") &&
+      (info.exists("mlx_models/hailuo-h3/models/deepbeep-pruned-bf16/MiniMax-H3-FL2VA-pruned_bf16.safetensors") ||
+       info.exists("mlx_models/hailuo-h3/deepbeep-pruned-bf16/MiniMax-H3-FL2VA-pruned_bf16.safetensors"))
 
     // User-content folders persist across Reset (which only removes the venv).
     // Keep their shortcuts visible whenever they exist on disk so users can
@@ -114,6 +140,7 @@ module.exports = {
       q8download: info.running("download_q8.js"),
       sharp:      info.running("install_sharp.js"),
       qwen:       info.running("install_qwen.js"),
+      h3:         info.running("install_h3.js"),
     }
 
     // Running states first — show what's in progress, hide everything else.
@@ -123,6 +150,7 @@ module.exports = {
     if (running.q8download) return [{ default: true, icon: "fa-solid fa-download", text: "Downloading Q8 (~37 GB)",      href: "download_q8.js" }]
     if (running.sharp)      return [{ default: true, icon: "fa-solid fa-wand-magic-sparkles", text: "Installing Sharp upscaler", href: "install_sharp.js" }]
     if (running.qwen)       return [{ default: true, icon: "fa-solid fa-images", text: "Installing Qwen-Image-Edit (multi-ref)", href: "install_qwen.js" }]
+    if (running.h3)         return [{ default: true, icon: "fa-solid fa-comments", text: "Installing Hailuo H3 (~75 GB)", href: "install_h3.js" }]
 
     // No env at all → fresh install path. Recovery shortcuts to user content
     // folders if a previous install left files behind.
@@ -183,6 +211,13 @@ module.exports = {
       // off "Qwen-Image-Edit" — it enables Ideogram 4 too (cocktailpeanut's
       // confusion: installing "Qwen" to use Ideogram).
       baseMenu.push({ icon: "fa-solid fa-images", text: "Reinstall image engines (Ideogram 4 + Qwen-Edit)", href: "install_qwen.js" })
+    }
+    if (!h3_ready && h3Capable()) {
+      // Second VIDEO engine — joint picture + dialogue + sound. Opt-in only:
+      // ~75 GB, 64 GB+ Macs, MiniMax Community License with territory
+      // restrictions. Hidden entirely on machines that can't run it, so it
+      // never reads as a missing piece of the base install.
+      baseMenu.push({ icon: "fa-solid fa-comments", text: "Install Hailuo H3 (optional, ~75 GB)", href: "install_h3.js" })
     }
     baseMenu.push(
       { icon: "fa-solid fa-rotate", text: "Update", href: "update.js" },
