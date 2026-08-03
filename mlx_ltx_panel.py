@@ -28860,6 +28860,16 @@ function setQuality(q) {
     try { _applyStgRowVisibility(); } catch (_) {}
   }
   if (LAST_STATUS) updateModelsCard(LAST_STATUS);
+  // H3 owns the render shape while it's the active engine, and setQuality()
+  // has several callers (boot, aspect changes, Load Params, the workflow-tab
+  // restore) that would otherwise stomp the tier geometry with LTX preset dims
+  // and re-arm the LTX upscale. Re-applying here makes every path
+  // self-correcting instead of leaving the quick-settings advertising
+  // "1024×576 → 1280×720 fit" for a render that ships 768×448.
+  if (document.body.dataset.h3Engine === 'h3' && typeof setH3Tier === 'function') {
+    try { setH3Tier((document.getElementById('h3_tier') || {}).value); } catch (_) {}
+    if (typeof setUpscale === 'function') { try { setUpscale('off'); } catch (_) {} }
+  }
 }
 function setAccel(a) {
   const allowed = document.getElementById('quality').value !== 'high' && currentMode !== 'extend' && currentMode !== 'keyframe';
@@ -28929,6 +28939,13 @@ function setAspect(a) {
   document.getElementById('aspect').value = a;
   document.querySelectorAll('#aspectGroup .pill-btn').forEach(b => b.classList.toggle('active', b.dataset.aspect === a));
   applyAspect(a);
+  // Same guard as setQuality: the H3 tier pins the canvas, so an orientation
+  // change (the row is hidden under H3, but boot and Load Params still call
+  // this) must not leave the quick-settings advertising dims the render won't
+  // use.
+  if (document.body.dataset.h3Engine === 'h3' && typeof setH3Tier === 'function') {
+    try { setH3Tier((document.getElementById('h3_tier') || {}).value); } catch (_) {}
+  }
 }
 
 // Compose the right-aligned line in the Customize summary. Reflects the
@@ -29053,6 +29070,19 @@ function h3TierByKey(key) {
   return (H3.tiers || []).find(t => t.key === key) || (H3.tiers || [])[0] || null;
 }
 
+// Restore the saved tier into the hidden input HERE, at parse time — before
+// the boot sequence at the bottom of this script runs setMode('t2v'), which
+// reaches setEngine → setH3Tier and would otherwise persist the HTML default
+// over the user's choice. (Caught in validation: the tier reset to Draft on
+// every reload.)
+(function _restoreH3TierEarly() {
+  const inp = document.getElementById('h3_tier');
+  if (!inp) return;
+  let saved = null;
+  try { saved = localStorage.getItem('phos_h3_tier'); } catch (e) {}
+  if (saved && h3TierByKey(saved) && h3TierByKey(saved).key === saved) inp.value = saved;
+})();
+
 function _engineRowVisible() {
   // Only Macs that could actually run H3 see the picker at all. Showing a
   // permanently-disabled engine to the ~80% of users under 64 GB is noise.
@@ -29163,9 +29193,29 @@ function setEngine(engine, opts) {
   if (target === 'h3') {
     renderH3Tiers();
     setH3Tier((document.getElementById('h3_tier') || {}).value || H3.default_tier);
-  } else if (typeof _applyCharacterQualityStripVisibility === 'function') {
-    // Restore whichever LTX strip the current selection calls for.
-    try { _applyCharacterQualityStripVisibility(); } catch (e) {}
+    // LTX post-processing doesn't run on an H3 render (make_job neutralises
+    // all three server-side). Mirror that in the UI or the derived line lies:
+    // it was reading "768×448 → 1280×720 fit" for a render that ships 768×448.
+    if (typeof setUpscale === 'function') { try { setUpscale('off'); } catch (e) {} }
+    if (typeof setAccel === 'function') { try { setAccel('off'); } catch (e) {} }
+    if (typeof setTemporalMode === 'function') { try { setTemporalMode('native'); } catch (e) {} }
+  } else {
+    // Coming back from H3: its frame counts live on the 17n+5 grid (124, 243),
+    // which LTX rejects — it needs 8k+1. Snap on the way out so the field the
+    // user is now looking at is a value LTX will actually accept, and the
+    // bound Duration stays truthful.
+    if (typeof snapFramesTo8kPlus1 === 'function') {
+      try { snapFramesTo8kPlus1(); } catch (e) {}
+    }
+    // Give the active quality preset its upscale back (H3 forced it off).
+    if (typeof setUpscale === 'function' && typeof QUALITY_PRESETS === 'object') {
+      const _qp = QUALITY_PRESETS[(document.getElementById('quality') || {}).value];
+      if (_qp) { try { setUpscale(_qp.upscale || 'off'); } catch (e) {} }
+    }
+    if (typeof _applyCharacterQualityStripVisibility === 'function') {
+      // Restore whichever LTX strip the current selection calls for.
+      try { _applyCharacterQualityStripVisibility(); } catch (e) {}
+    }
   }
   if (opts.persist !== false) {
     try { localStorage.setItem(H3_ENGINE_LS_KEY, target); } catch (e) {}
@@ -29180,12 +29230,15 @@ function currentEngine() {
   return (document.getElementById('engine') || {}).value || 'ltx';
 }
 
-// Called from setMode(): a mode H3 can't serve snaps the engine back to LTX
-// with a one-line note, instead of silently submitting a job the server would
-// have to reject.
+// Called from setMode(). Re-applies the user's PERSISTED engine choice rather
+// than whatever is currently selected, so the snap-back is temporary: flipping
+// Text → FFLF drops to LTX with a note, and flipping back to Text restores H3
+// instead of silently leaving the user on the other engine. setEngine() re-runs
+// every gate, so an unsupported mode still lands on LTX.
 function _syncEngineForMode() {
-  if (currentEngine() !== 'h3') { setEngine('ltx', { persist: false }); return; }
-  setEngine('h3', { persist: false });
+  let want = null;
+  try { want = localStorage.getItem(H3_ENGINE_LS_KEY); } catch (e) {}
+  setEngine(want === 'h3' ? 'h3' : 'ltx', { persist: false });
 }
 
 // /status carries a fresh h3 block every tick, so an install finishing in the
@@ -29438,9 +29491,14 @@ function updateDerived() {
   }
 
   const warns = [];
+  // Hailuo H3 counts frames on a 17n+5 grid, not LTX's 8k+1, and its tiers
+  // are fixed — so the 8k+1 nudge is not just irrelevant there, it's wrong
+  // (it told the user 124 was a mistake when 124 is the HQ·5s tier). The
+  // 32-alignment rule holds for both engines and stays.
+  const _h3Active = document.body.dataset.h3Engine === 'h3';
   if (w % 32 !== 0) warns.push(`Width ${w} isn't a multiple of 32 (closest ${Math.round(w/32)*32})`);
   if (h % 32 !== 0) warns.push(`Height ${h} isn't a multiple of 32 (closest ${Math.round(h/32)*32})`);
-  if (f > 1 && (f - 1) % 8 !== 0) {
+  if (!_h3Active && f > 1 && (f - 1) % 8 !== 0) {
     const closest = Math.max(1, Math.round((f - 1) / 8) * 8 + 1);
     warns.push(`Frames work best as 8k+1 (closest ${closest})`);
   }
@@ -32108,6 +32166,20 @@ document.getElementById('genForm').addEventListener('submit', async e => {
         fd.set('stg_scale', _stgEl.value || '0');
       } else {
         fd.delete('stg_scale');
+      }
+    }
+    // Hailuo H3: send the tier's geometry explicitly. make_job re-stamps it
+    // server-side too (a stale tab must never win), but posting the truth
+    // means the queue card is right the instant the job lands, and it can't
+    // carry an LTX 8k+1 frame count into a runner that snaps to 17n+5.
+    if ((fd.get('engine') || 'ltx').toString() === 'h3') {
+      const _t = (typeof h3TierByKey === 'function')
+        ? h3TierByKey((fd.get('h3_tier') || '').toString()) : null;
+      if (_t) {
+        fd.set('width', String(_t.width));
+        fd.set('height', String(_t.height));
+        fd.set('frames', String(_t.frames));
+        fd.set('steps', String(_t.steps));
       }
     }
     await api('/queue/add','POST',fd);
@@ -35234,15 +35306,14 @@ setMode('t2v');
 setAspect('landscape');         // sets aspect first so the default preset orients correctly
 setQuality('balanced');         // bundles quality + dims; respects current aspect
 applyTierTimes();               // rewrite Quality pill subtitles to match this Mac
-// Engine picker — restore the last-used engine + H3 tier. setEngine() re-runs
-// every gate (capable / installed / mode), so a stale localStorage value from
-// a machine that has since lost the pack just lands back on LTX.
+// Engine picker — re-apply the last-used engine after the boot sequence above
+// has settled the mode. setEngine() re-runs every gate (capable / installed /
+// mode), so a stale localStorage value from a machine that has since lost the
+// pack just lands back on LTX. The tier was restored at parse time (see
+// _restoreH3TierEarly).
 (function restoreEngineChoice() {
-  let tier = null, engine = null;
-  try { tier = localStorage.getItem('phos_h3_tier'); } catch (e) {}
+  let engine = null;
   try { engine = localStorage.getItem(H3_ENGINE_LS_KEY); } catch (e) {}
-  const tierInp = document.getElementById('h3_tier');
-  if (tierInp && tier && h3TierByKey(tier)) tierInp.value = tier;
   setEngine(engine === 'h3' ? 'h3' : 'ltx', { persist: false });
 })();
 updateCustomizeSummary();
