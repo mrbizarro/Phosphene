@@ -29,7 +29,7 @@
 // runner for the flag and keeps Image mode on LTX when it's absent, so an
 // older checkout degrades to Text-only instead of failing mid-render. Bump
 // this pin when the first-frame work is published.
-const H3_BRANCH = "codex/practical-apple-silicon"
+const H3_BRANCH = "codex/h3-engine"
 
 module.exports = {
   requires: { bundle: "ai" },
