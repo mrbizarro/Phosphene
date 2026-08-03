@@ -3916,6 +3916,10 @@ STATE: dict = {
     "queue": [], "current": None, "history": [],
     "paused": False, "log": [],
     "running": False, "pid": None, "pgid": None,
+    # Process group of an in-flight Hailuo H3 render (the optional second
+    # video engine — a `caffeinate → python → ffmpeg` tree outside HELPER).
+    # /stop and the atexit hook kill it by pgid, same contract as train_pgid.
+    "h3_pgid": None,
 }
 LOCK = threading.RLock()
 QUEUE_COND = threading.Condition(LOCK)
@@ -4332,6 +4336,228 @@ def _select_generation_profile(total_ram_gb: float, tier_key: str) -> dict:
 
 
 GENERATION_PROFILE = _select_generation_profile(SYSTEM_RAM_GB, SYSTEM_TIER)
+
+
+# ---- Hailuo H3 — the optional SECOND video engine ----------------------------
+#
+# MiniMax-H3 (FL2VA) renders joint video + audio from one prompt. It is NOT
+# part of the LTX warm-helper pipeline and never touches it: H3 ships as an
+# optional pack — a sibling checkout of mrbizarro/minimax-h3-mlx with its OWN
+# venv — and runs exactly like the mflux image engines already do: spawn a CLI,
+# stream its stdout into push(), read its metrics JSON when it exits.
+#
+# Why a subprocess and not a helper action:
+#   * H3's staged runner materializes ONE large component at a time (Q8 text
+#     encoder → free → bf16 pruned DiT → free → the two VAEs). Peak ~40 GiB.
+#     The LTX warm helper holds its own weights resident. Both at once does not
+#     fit on a 64 GB Mac, so run_h3_job_inner() KILLS the warm helper first
+#     (it respawns lazily on the next LTX job — existing behaviour).
+#   * It keeps a second engine's dependency tree (mlx-vlm, transformers,
+#     pillow) out of the ltx-2-mlx venv, so an H3 install can never break LTX.
+#
+# Layout (both supported — see _h3_model_roots):
+#   <H3_ROOT>/scripts/generate_staged.py     the validated CLI
+#   <H3_ROOT>/.venv/bin/python               its own interpreter
+#   <H3_MODELS>/deepbeep-pruned-bf16/MiniMax-H3-FL2VA-pruned_bf16.safetensors
+#   <H3_MODELS>/ddalcu-q8/{text_encoder,video_vae,audio_vae}.safetensors + cfg
+#   <H3_MODELS>/upstream-meta/FL2VA/text_encoder/config.json
+#
+# Both roots are env-overridable so a dev box can point at an existing 75 GB
+# checkout instead of duplicating it under the Pinokio install:
+#   LTX_H3_ROOT=/path/to/minimax-h3-mlx  LTX_H3_MODELS=/path/to/models
+# See docs/H3_ENGINE.md.
+H3_ROOT = Path(os.environ.get("LTX_H3_ROOT", str(ROOT / "minimax-h3-mlx")))
+H3_MODELS = Path(os.environ.get("LTX_H3_MODELS", str(ROOT / "mlx_models" / "hailuo-h3")))
+# 64 GB machines report ~63.x GiB after firmware reservations, so the floor is
+# 60, not 64. Below this the staged runner swaps and a 3 s clip takes hours.
+H3_MIN_RAM_GB = 60.0
+H3_DIT_FILENAME = "MiniMax-H3-FL2VA-pruned_bf16.safetensors"
+H3_COMPACT_FILES = ("text_encoder.safetensors", "video_vae.safetensors",
+                    "audio_vae.safetensors")
+H3_TEXT_CONFIG_REL = ("FL2VA", "text_encoder", "config.json")
+# H3 runs at 24 fps like LTX, on a 17n+5 frame grid (the runner snaps up).
+H3_FPS = 24.0
+
+# Quality tiers for H3. These are DATA, not magic numbers — every value below
+# was measured on a 64 GB M4 Max (see the metrics JSONs in the H3 campaign):
+#
+#   steps = SIGMA POINTS; the runner does points-1 forwards. 9 points = 8
+#   forwards, which a matched-cost A/B showed is visually free at or below
+#   ~13k packed rows (640×384/73f = 6.4k rows, 768×448/124f = 13.7k rows).
+#   The 10 s tier is NOT the same regime: 768×448/243f is ~25k packed rows and
+#   8 forwards ghosts there, so it needs 16 points / 15 forwards — which is why
+#   it costs ~36 min and is flagged as a batch-it-and-walk-away render.
+#
+# Height/width must be multiples of 32 (runner errors otherwise). Frames land
+# on the 17n+5 grid: 73 = 3.0 s, 124 → snaps to 124 (5.1 s), 243 → 10.1 s.
+H3_TIERS: dict[str, dict] = {
+    "draft_3s": {
+        "key": "draft_3s", "label": "Draft · 3s",
+        "width": 640, "height": 384, "frames": 73, "steps": 9,
+        "spec": "640×384 · 73f", "eta": "~3 min",
+        "blurb": "Fastest look-see. Good enough to judge motion + dialogue timing.",
+    },
+    "hq_3s": {
+        "key": "hq_3s", "label": "HQ · 3s",
+        "width": 768, "height": 448, "frames": 73, "steps": 9,
+        "spec": "768×448 · 73f", "eta": "~4-5 min",
+        "blurb": "Same length as Draft at the delivery resolution.",
+    },
+    "hq_5s": {
+        "key": "hq_5s", "label": "HQ · 5s",
+        "width": 768, "height": 448, "frames": 124, "steps": 9,
+        "spec": "768×448 · 124f", "eta": "~8 min",
+        "blurb": "The workhorse: a full 5 s beat with synced dialogue.",
+    },
+    "long_10s": {
+        "key": "long_10s", "label": "Long · 10s",
+        "width": 768, "height": 448, "frames": 243, "steps": 16,
+        "spec": "768×448 · 243f", "eta": "~36 min · batch",
+        "blurb": "Needs 15 forwards — 8 ghosts at this row count. Queue it and walk away.",
+    },
+}
+H3_TIER_DEFAULT = "draft_3s"
+# Modes H3 can serve. Text = prompt only; Image = FL2VA first-frame
+# conditioning. Everything else (FFLF, Extend, Remix, Character, A2V) is
+# LTX-pipeline-specific and has no H3 equivalent.
+H3_MODES = ("t2v", "i2v")
+
+
+def _h3_model_roots() -> list[Path]:
+    """Candidate roots for the three H3 weight components.
+
+    Two layouts are supported and both carry the SAME three component dirs:
+      <H3_MODELS>/{deepbeep-pruned-bf16,ddalcu-q8,upstream-meta}
+          the canonical shape (what the campaign tree uses, and what
+          install_h3.js reproduces under mlx_models/hailuo-h3/)
+      <H3_MODELS>/models/{...}
+          what the upstream `scripts/download_selected.py --root X` writes,
+          since it appends `models/` to the root it is given.
+    Ordered, cheap, deterministic — no globbing over a HF cache.
+    """
+    return [H3_MODELS, H3_MODELS / "models"]
+
+
+def _h3_python() -> Path | None:
+    """Interpreter for the H3 pack. LTX_H3_PYTHON overrides (dev boxes that
+    keep the venv in a sibling checkout); otherwise the pack's own .venv."""
+    override = os.environ.get("LTX_H3_PYTHON", "").strip()
+    if override:
+        p = Path(override)
+        return p if p.exists() else None
+    for cand in (H3_ROOT / ".venv" / "bin" / "python3.11",
+                 H3_ROOT / ".venv" / "bin" / "python"):
+        if cand.exists():
+            return cand
+    return None
+
+
+def h3_paths() -> dict:
+    """Resolve every H3 component. Never raises — reports what's missing so
+    the UI can render an honest install card instead of a stack trace."""
+    runner = H3_ROOT / "scripts" / "generate_staged.py"
+    python = _h3_python()
+    dit = compact_root = text_config = models_root = None
+    for root in _h3_model_roots():
+        cand_dit = root / "deepbeep-pruned-bf16" / H3_DIT_FILENAME
+        if not cand_dit.is_file():
+            continue
+        models_root = root
+        dit = cand_dit
+        cand_compact = root / "ddalcu-q8"
+        if all((cand_compact / f).is_file() for f in H3_COMPACT_FILES):
+            compact_root = cand_compact
+        cand_cfg = root.joinpath("upstream-meta", *H3_TEXT_CONFIG_REL)
+        if cand_cfg.is_file():
+            text_config = cand_cfg
+        break
+    missing: list[str] = []
+    if not runner.is_file():
+        missing.append(f"runner {runner}")
+    if python is None:
+        missing.append(f"venv python under {H3_ROOT / '.venv'}")
+    if dit is None:
+        missing.append(f"pruned bf16 DiT ({H3_DIT_FILENAME})")
+    if compact_root is None:
+        missing.append("Q8 components (text_encoder / video_vae / audio_vae)")
+    if text_config is None:
+        missing.append("upstream text_encoder config.json")
+    return {
+        "root": str(H3_ROOT),
+        "models": str(H3_MODELS),
+        "models_root": str(models_root) if models_root else None,
+        "runner": runner,
+        "python": python,
+        "dit": dit,
+        "compact_root": compact_root,
+        "text_config": text_config,
+        "missing": missing,
+    }
+
+
+def h3_available() -> bool:
+    """True when the runner, its venv and all three weight components exist."""
+    return not h3_paths()["missing"]
+
+
+def h3_capable() -> bool:
+    """True when this Mac has the unified memory H3 needs (~40 GiB peak).
+
+    Reuses the same `hw.memsize` reading the capability tiers are built on
+    (SYSTEM_RAM_GB). LTX_H3_FORCE_CAPABLE=1 is a test override only — it does
+    not make a 32 GB Mac able to render, it just stops the UI hiding the pill.
+    """
+    if os.environ.get("LTX_H3_FORCE_CAPABLE", "").strip() in ("1", "true", "yes"):
+        return True
+    return SYSTEM_RAM_GB >= H3_MIN_RAM_GB
+
+
+_H3_FF_CACHE: dict[str, bool] = {}
+
+
+def h3_supports_first_frame() -> bool:
+    """Whether the INSTALLED runner accepts `--first-frame` (FL2VA image
+    conditioning). The flag landed after the first public branch, so an older
+    checkout renders Text fine but would die with an argparse error on Image.
+    Probed from the script source (cheap, no subprocess) and cached per mtime.
+    """
+    runner = H3_ROOT / "scripts" / "generate_staged.py"
+    try:
+        key = f"{runner}:{runner.stat().st_mtime_ns}"
+    except OSError:
+        return False
+    if key in _H3_FF_CACHE:
+        return _H3_FF_CACHE[key]
+    try:
+        supported = "--first-frame" in runner.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        supported = False
+    _H3_FF_CACHE.clear()
+    _H3_FF_CACHE[key] = supported
+    return supported
+
+
+def h3_status() -> dict:
+    """Compact H3 snapshot for /status + the page bootstrap."""
+    paths = h3_paths()
+    capable = h3_capable()
+    available = not paths["missing"]
+    return {
+        "capable": capable,
+        "available": available,
+        "installed": available,
+        "first_frame": available and h3_supports_first_frame(),
+        "min_ram_gb": H3_MIN_RAM_GB,
+        "ram_gb": round(SYSTEM_RAM_GB, 1),
+        "root": paths["root"],
+        "models": paths["models"],
+        "missing": paths["missing"],
+        "tiers": list(H3_TIERS.values()),
+        "default_tier": H3_TIER_DEFAULT,
+        "modes": list(H3_MODES),
+        "size_note": "~75 GB · needs 64 GB unified memory · "
+                     "MiniMax Community License (territory restrictions apply)",
+    }
 
 
 def _scale_dims_to_max(width: int, height: int, max_dim: int,
@@ -5516,6 +5742,22 @@ def _kill_train_proc() -> None:
         pass
 
 
+def _kill_h3_proc() -> None:
+    """Atexit hook — SIGTERM a running Hailuo H3 render by its pgid, so
+    quitting Pinokio doesn't leave a 40 GiB MLX process behind. Mirrors
+    _kill_train_proc."""
+    try:
+        pgid = STATE.get("h3_pgid")
+    except Exception:      # noqa: BLE001
+        pgid = None
+    if not pgid:
+        return
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        pass
+
+
 def _kill_image_procs() -> None:
     """Atexit hook — SIGTERM any in-flight image-engine subprocesses
     (HiDream BF16 helper, mflux per-family binaries). Each engine registers
@@ -5529,6 +5771,7 @@ def _kill_image_procs() -> None:
 
 
 atexit.register(_kill_train_proc)
+atexit.register(_kill_h3_proc)
 atexit.register(_kill_image_procs)
 
 
@@ -5668,6 +5911,7 @@ def stop_current_job(timeout: float = 5.0) -> None:
         cur = STATE["current"]
         mux_pgid = STATE.get("mux_pgid")
         train_pgid = STATE.get("train_pgid")
+        h3_pgid = STATE.get("h3_pgid")
     if cur is not None:
         cur["cancel_requested"] = True
     push("Stop requested — killing helper + ffmpeg post-process + training subprocess to abort current job.")
@@ -5691,6 +5935,30 @@ def stop_current_job(timeout: float = 5.0) -> None:
             push(f"SIGTERM sent to mux pgid {mux_pgid}")
         except ProcessLookupError:
             pass
+    # Hailuo H3 renders live entirely outside HELPER — a `caffeinate → python →
+    # ffmpeg` tree in its own process group. Without this, /stop left a 40 GiB
+    # MLX process running and the worker moved on to the next job on a machine
+    # that no longer had the memory for it.
+    if h3_pgid:
+        try:
+            os.killpg(h3_pgid, signal.SIGTERM)
+            push(f"SIGTERM sent to H3 pgid {h3_pgid}")
+        except ProcessLookupError:
+            pass
+        else:
+            # Same escape hatch the trainer gets: MLX can sit inside a Metal
+            # kernel past SIGTERM. Fire-and-forget so /stop returns now.
+            def _force_kill_h3(grace: float, pgid: int) -> None:
+                time.sleep(grace)
+                try:
+                    os.killpg(pgid, signal.SIGKILL)
+                    push(f"SIGKILL sent to H3 pgid {pgid} (no SIGTERM ack)")
+                except ProcessLookupError:
+                    pass
+            threading.Thread(
+                target=_force_kill_h3, args=(8.0, h3_pgid),
+                daemon=True, name=f"sigkill-h3-{h3_pgid}",
+            ).start()
     # Training subprocess (lora_lab.train_character + lora_lab.train_audio)
     # lives in its own session/pgid (start_new_session=True on both
     # Popens). Without this, /stop only killed HELPER + mux ffmpeg and the
@@ -6127,6 +6395,29 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     else:
         _frames_default = "121"
 
+    # ---- Engine selection (LTX warm helper vs the optional Hailuo H3 pack) --
+    # Resolved BEFORE the params dict so the H3 tier can overwrite
+    # width/height/frames/steps below. Every gate here is server-side on
+    # purpose: a stale browser tab, a Load-Params replay of an old sidecar, or
+    # a direct curl to /queue/add must never reach the worker with an engine
+    # this Mac (or this mode) can't actually run.
+    _engine = (f("engine", "ltx") or "ltx").strip().lower()
+    if _engine not in ("ltx", "h3"):
+        _engine = "ltx"
+    _h3_tier = (f("h3_tier", H3_TIER_DEFAULT) or H3_TIER_DEFAULT).strip().lower()
+    if _h3_tier not in H3_TIERS:
+        _h3_tier = H3_TIER_DEFAULT
+    if _engine == "h3":
+        if mode_in not in H3_MODES:
+            push(f"engine=h3 requested for mode={mode_in!r} — Hailuo H3 only "
+                 f"serves {', '.join(H3_MODES)}; falling back to LTX.")
+            _engine = "ltx"
+        elif not h3_capable():
+            push(f"engine=h3 requested but this Mac reports "
+                 f"{SYSTEM_RAM_GB:.0f} GB unified memory (needs "
+                 f"{H3_MIN_RAM_GB:.0f}+) — falling back to LTX.")
+            _engine = "ltx"
+
     job = {
         "id": _new_job_id(),
         "status": "queued",
@@ -6137,6 +6428,14 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         "elapsed_sec": None,
         "params": {
             "mode": f("mode", "t2v"),
+            # Which video engine renders this job: "ltx" (the warm-helper
+            # pipeline, default and unchanged) or "h3" (the optional Hailuo H3
+            # subprocess pack). run_job_inner dispatches on this BEFORE any
+            # LTX-only validation. Both keys MUST live in this allowlist or
+            # they silently no-op on /queue/add — the known make_job trap
+            # (see CLAUDE.md and the restore/ingredients/control notes below).
+            "engine": _engine,
+            "h3_tier": _h3_tier,
             "prompt": prompt,
             "negative_prompt": f("negative_prompt", ""),
             "width": max(32, int(f("width", str(default_w)) or default_w)),
@@ -6258,6 +6557,24 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         "output_path": None,
         "error": None,
     }
+    # H3 geometry is TIER-DEFINED, not user-typed. The tier table is the single
+    # source of truth for width/height/frames/steps (see H3_TIERS for why each
+    # number is what it is), so stamp it over whatever the form carried. This
+    # also makes the queue card show the real geometry before the job starts,
+    # and keeps a stale tab from posting an LTX 8k+1 frame count (121) into a
+    # runner that snaps frames to the 17n+5 grid.
+    if _engine == "h3":
+        _tier_cfg = H3_TIERS[_h3_tier]
+        job["params"]["width"] = _tier_cfg["width"]
+        job["params"]["height"] = _tier_cfg["height"]
+        job["params"]["frames"] = _tier_cfg["frames"]
+        job["params"]["steps"] = _tier_cfg["steps"]
+        # LTX-only post-processing has no meaning for an H3 render: the runner
+        # writes its own muxed mp4 at native size. Neutralise them so the
+        # sidecar (and the ⓘ modal) don't claim an upscale that never ran.
+        job["params"]["upscale"] = "off"
+        job["params"]["temporal_mode"] = "native"
+        job["params"]["accel"] = "off"
     # STG (Spatio-Temporal Guidance) — "detail guidance" slider. Only stamp
     # `stg_scale` onto params when the form actually sent a value, so each
     # dispatch keeps its OWN default when the user didn't touch the slider:
@@ -7411,6 +7728,281 @@ def run_train_job_inner(job: dict) -> None:
     push(f"[train.audio] done: {audio_lora_path} (elapsed {audio_elapsed}s)")
 
 
+def run_h3_job_inner(job: dict) -> None:
+    """Render one job on the Hailuo H3 engine (optional subprocess pack).
+
+    Shape mirrors run_train_job_inner: build an argv, spawn it in its OWN
+    process group so /stop can kill the whole tree, stream stdout into push(),
+    then write the same `<output>.mp4.json` sidecar every LTX render writes so
+    the gallery, the ⓘ modal and Load Params all work with no gallery changes.
+
+    The ONE thing this does that no other job does: it kills the LTX warm
+    helper first. H3's staged runner peaks around 40 GiB and the helper holds
+    its own weights resident — both at once does not fit on a 64 GB Mac. The
+    helper respawns lazily on the next LTX job (WarmHelper._ensure), so this
+    costs one cold start and nothing else.
+    """
+    p = job["params"]
+    mode = (p.get("mode") or "t2v").strip().lower()
+    paths = h3_paths()
+
+    # ---- gates ----------------------------------------------------------
+    if not h3_capable():
+        raise RuntimeError(
+            f"Hailuo H3 needs about 64 GB of unified memory; this Mac reports "
+            f"{SYSTEM_RAM_GB:.0f} GB. Render on the LTX engine instead.")
+    if paths["missing"]:
+        raise RuntimeError(
+            "The Hailuo H3 pack isn't installed — missing: "
+            + "; ".join(paths["missing"])
+            + ". Install it from the Phosphene sidebar in Pinokio "
+              "('Install Hailuo H3'), or point LTX_H3_ROOT / LTX_H3_MODELS at "
+              "an existing checkout.")
+    if mode not in H3_MODES:
+        raise RuntimeError(
+            f"Hailuo H3 doesn't serve mode {mode!r} — only "
+            f"{', '.join(H3_MODES)}. Switch the engine back to LTX.")
+
+    tier_key = (p.get("h3_tier") or H3_TIER_DEFAULT).strip().lower()
+    tier = H3_TIERS.get(tier_key) or H3_TIERS[H3_TIER_DEFAULT]
+    width = int(p.get("width") or tier["width"])
+    height = int(p.get("height") or tier["height"])
+    frames = int(p.get("frames") or tier["frames"])
+    steps = int(p.get("steps") or tier["steps"])
+    prompt = (p.get("prompt") or "").strip()
+    if not prompt:
+        raise RuntimeError("H3 needs a prompt — dialogue and sound are "
+                           "generated jointly from it.")
+
+    # First-frame conditioning (Image mode). The flag landed on the runner
+    # after the first public branch, so probe the INSTALLED script rather than
+    # assuming; an older pack renders Text fine and must fail here with a
+    # readable message instead of an argparse error 30 s in.
+    first_frame: Path | None = None
+    if mode == "i2v":
+        src = (p.get("image") or "").strip()
+        if not src or not Path(src).exists():
+            raise RuntimeError(
+                "Image mode on H3 needs a reference image — pick one, or "
+                "switch to Text mode.")
+        if not h3_supports_first_frame():
+            raise RuntimeError(
+                "This Hailuo H3 checkout has no `--first-frame` support "
+                f"({paths['runner']}). Update the H3 pack, or use Text mode.")
+        first_frame = Path(src)
+
+    # Seed: the panel keeps "-1" = random. H3's runner has no random mode, so
+    # resolve it here and record what we used (matches the LTX seed_used
+    # contract the ⓘ modal + Load Params already read).
+    try:
+        seed = int(str(p.get("seed", "-1") or "-1").strip())
+    except (TypeError, ValueError):
+        seed = -1
+    if seed < 0:
+        seed = random.randint(0, 2**31 - 1)
+    p["seed_used"] = seed
+
+    out_path = _unique_output_path(
+        OUTPUT,
+        _descriptive_filename(p.get("label") or "", prompt, fallback="h3") + "_h3",
+    )
+    metrics_dir = STATE_DIR / "h3_metrics"
+    metrics_path = metrics_dir / f"{job['id']}.json"
+    try:
+        metrics_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    job["raw_path"] = str(out_path)
+
+    # ---- memory safety: the warm helper cannot coexist with H3 -----------
+    if HELPER.is_alive():
+        push("[h3] stopping the LTX warm helper — H3 peaks around 40 GiB and "
+             "the two engines can't both be resident. It restarts by itself on "
+             "your next LTX render.")
+        HELPER.kill()
+
+    cmd = [
+        # caffeinate keeps the Mac awake for the whole render; being the
+        # process-group leader means /stop's killpg takes both down together.
+        "caffeinate", "-i",
+        str(paths["python"]), str(paths["runner"]),
+        prompt,
+        "--dit", str(paths["dit"]),
+        "--compact-root", str(paths["compact_root"]),
+        "--text-config", str(paths["text_config"]),
+        "-o", str(out_path),
+        "--metrics", str(metrics_path),
+        "--frames", str(frames),
+        "--height", str(height),
+        "--width", str(width),
+        "--steps", str(steps),
+        "--seed", str(seed),
+    ]
+    if first_frame is not None:
+        cmd += ["--first-frame", str(first_frame)]
+
+    env = os.environ.copy()
+    # The runner pipes raw RGB into `ffmpeg` from PATH (minimax_h3_mlx.media);
+    # Pinokio's bundled binary is not on the default PATH.
+    env["PATH"] = f"{FFMPEG_BIN}:{env.get('PATH', '')}"
+    env["PYTHONUNBUFFERED"] = "1"
+
+    push(f"[h3] {tier['label']} · {width}×{height} · {frames}f · "
+         f"{steps} sigma points ({steps - 1} forwards) · seed {seed}"
+         + (f" · first frame {first_frame.name}" if first_frame else ""))
+    push("[h3] $ " + " ".join(shlex.quote(c) for c in cmd))
+
+    t0 = time.time()
+    proc: subprocess.Popen | None = None
+    step_rx = re.compile(r"^step (\d+)/(\d+):")
+    phase_rx = re.compile(r"^== (.+) ==$")
+    phase_label = "Loading H3 text encoder"
+    last_step, total_steps = 0, max(1, steps - 1)
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(H3_ROOT),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            # Own process group so /stop can take down caffeinate + python +
+            # the ffmpeg it pipes into with one killpg.
+            start_new_session=True,
+        )
+        with LOCK:
+            STATE["pid"] = proc.pid
+            STATE["h3_pgid"] = os.getpgid(proc.pid)
+        assert proc.stdout is not None
+        for raw in proc.stdout:
+            line = raw.rstrip("\n")
+            if not line.strip():
+                continue
+            push(f"[h3] {line}")
+            m_phase = phase_rx.match(line.strip())
+            if m_phase:
+                phase_label = {
+                    "text_encode_q8": "Encoding prompt (Q8 text encoder)",
+                    "text_cache_load": "Loading cached prompt embedding",
+                    "keyframe_encode": "Encoding first frame",
+                    "dit_load_bf16": "Loading H3 transformer (bf16)",
+                    "adaln_cache_and_noise": "Building AdaLN cache",
+                    "joint_denoise": "Denoising video + audio",
+                    "video_vae_decode": "Decoding video",
+                    "audio_vae_decode": "Decoding audio",
+                    "encode_mux": "Encoding mp4",
+                }.get(m_phase.group(1).strip(), m_phase.group(1).strip())
+            m_step = step_rx.match(line.strip())
+            if m_step:
+                try:
+                    last_step = int(m_step.group(1))
+                    total_steps = max(1, int(m_step.group(2)))
+                except (TypeError, ValueError):
+                    pass
+            elapsed = time.time() - t0
+            # Denoise dominates wall time; give it the 5–92% band so the bar
+            # doesn't sit at 0 through a 30 s model load and then jump.
+            if last_step:
+                pct = 5.0 + 87.0 * (last_step / float(total_steps))
+                per_step = elapsed / max(1, last_step)
+                eta = max(0.0, (total_steps - last_step) * per_step)
+                label = f"{phase_label} · step {last_step} / {total_steps}"
+            else:
+                pct, eta = 3.0, 0.0
+                label = phase_label
+            with LOCK:
+                cur = STATE.get("current")
+                if cur and cur.get("id") == job["id"]:
+                    cur["progress"] = {
+                        "phase": "denoise" if last_step else "load",
+                        "phase_label": label,
+                        "pct": min(99.0, pct),
+                        "elapsed_sec": elapsed,
+                        "eta_sec": eta,
+                        "denoise_step": last_step,
+                        "denoise_total": total_steps,
+                    }
+        rc = proc.wait()
+        proc = None
+        with LOCK:
+            STATE["pid"] = None
+            STATE["h3_pgid"] = None
+        if rc != 0:
+            raise RuntimeError(
+                f"H3 render exited with code {rc} — see the log above for the "
+                f"traceback (metrics at {metrics_path}).")
+    finally:
+        if proc is not None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except (OSError, ProcessLookupError):
+                pass
+            try:
+                proc.wait(timeout=5)
+            except Exception:      # noqa: BLE001
+                try:
+                    proc.kill()
+                except Exception:  # noqa: BLE001
+                    pass
+            with LOCK:
+                STATE["pid"] = None
+                STATE["h3_pgid"] = None
+
+    if not out_path.is_file():
+        raise RuntimeError(
+            f"H3 finished but no file landed at {out_path} — check the log.")
+
+    # ---- metrics → sidecar ----------------------------------------------
+    metrics: dict = {}
+    try:
+        metrics = json.loads(metrics_path.read_text(encoding="utf-8")) or {}
+    except (OSError, json.JSONDecodeError):
+        pass
+    elapsed = round(time.time() - t0, 2)
+    phases = {ph.get("name"): ph for ph in (metrics.get("phases") or [])
+              if isinstance(ph, dict)}
+    sidecar = {
+        "output": str(out_path),
+        "raw_output": str(out_path),
+        "params": {
+            **p,
+            "engine": "h3",
+            "h3_tier": tier["key"],
+            "h3_tier_label": tier["label"],
+            "width": width, "height": height, "frames": frames, "steps": steps,
+            "seed_used": seed,
+            "image": str(first_frame) if first_frame else None,
+        },
+        "command": "hailuo_h3",
+        "engine": "h3",
+        "started": job.get("started_at"),
+        "elapsed_sec": elapsed,
+        "video_duration_sec": round(max(0.0, frames / H3_FPS), 3),
+        "fps": H3_FPS,
+        "model": str(paths["dit"]),
+        "queue_id": job["id"],
+        "h3": {
+            "tier": tier["key"],
+            "runner": str(paths["runner"]),
+            "metrics_path": str(metrics_path),
+            "packed_rows": metrics.get("packed_rows"),
+            "prompt_tokens": metrics.get("prompt_tokens"),
+            "total_seconds": metrics.get("total_seconds"),
+            "mean_denoise_step_seconds": metrics.get("mean_denoise_step_seconds"),
+            "phase_seconds": {k: v.get("seconds") for k, v in phases.items()},
+            "peak_gib": max([v.get("peak_gib") or 0 for v in phases.values()] or [0]),
+            "first_frame": str(first_frame) if first_frame else None,
+        },
+    }
+    write_sidecar(out_path.with_suffix(out_path.suffix + ".json"), sidecar)
+    job["output_path"] = str(out_path)
+    p["elapsed_seconds"] = elapsed
+    push(f"[h3] done in {elapsed}s → {out_path.name}")
+    if p.get("open_when_done"):
+        subprocess.run(["open", str(out_path)], check=False)
+
+
 def run_job_inner(job: dict) -> None:
     p = job["params"]
     mode = p["mode"]
@@ -7421,6 +8013,12 @@ def run_job_inner(job: dict) -> None:
         return run_image_job_inner(job)
     if mode == "train":
         return run_train_job_inner(job)
+    # Second video engine. H3 is a self-contained subprocess pack with its own
+    # geometry rules (17n+5 frames, 32-aligned dims) and no warm helper, so it
+    # dispatches BEFORE every LTX-only clamp/validation below — none of which
+    # applies to it.
+    if (p.get("engine") or "ltx").strip().lower() == "h3":
+        return run_h3_job_inner(job)
     _apply_generation_profile_to_job(job)
     for note in p.get("generation_clamp_notes") or []:
         push(f"[generation] {p.get('generation_profile_label')}: {note}")
@@ -9746,6 +10344,11 @@ class Handler(BaseHTTPRequestHandler):
                 "extend_max_dim": SYSTEM_CAPS["extend_max_dim"],
                 "times": SYSTEM_CAPS.get("times", {}),
             }
+            # Hailuo H3 — the optional second video engine. Re-read every tick
+            # (it's a handful of stat() calls) so an install finishing in the
+            # Pinokio sidebar unlocks the engine pill without a panel restart,
+            # exactly like the Q8 download already does.
+            payload["h3"] = h3_status()
             payload["train_profile"] = TRAIN_PROFILE
             payload["train_presets"] = TRAIN_PRESETS
             payload["train_style_presets"] = TRAIN_STYLE_PRESETS
@@ -14252,6 +14855,10 @@ def page() -> str:
         # body[data-cap-tier="..."] CSS rules key off of. JS can also read
         # window.PHOSPHENE_CAP_TIER for any runtime branches.
         "cap_tier": cap_tier,
+        # Hailuo H3 — engine picker gating + the H3 tier table. Shipped in the
+        # bootstrap (not just /status) so the picker renders correctly on the
+        # first paint instead of flickering in a tick later.
+        "h3": h3_status(),
     })
     # Profile badge — only visible in the dev panel. Lets Mr Bizarro tell at a
     # glance which install he's looking at when both panels are open.
