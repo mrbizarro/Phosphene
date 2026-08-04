@@ -22,7 +22,7 @@
 //   surfaces a "downloading model…" status during it.
 //
 // Idempotent:
-//   pip install -U is a no-op when mflux is already at >=0.17.5.
+//   Exact-version pip installs are idempotent when mflux is already at 0.18.0.
 //   Re-running this script is safe.
 //
 // Survives Pinokio Reset:
@@ -46,7 +46,7 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        // EXACT pin to 0.17.5 (not >=). 0.17.5 is the version our local
+        // EXACT pin to 0.18.0 (not >=). 0.18.0 is the version our local
         // patch_mflux_fbcache.py is line-targeted against — bumping mflux
         // without re-validating the patch risks silent failure or worse,
         // a partial patch that produces broken output. To upgrade:
@@ -54,7 +54,7 @@ module.exports = {
         //   2. Re-run the patch script and confirm it still finds the
         //      QwenTransformer / Flux2Transformer layer loops.
         //   3. Bench a known prompt before/after, verify quality.
-        // The 0.17.5 baseline shipped Edit-2509 multi-image fixes
+        // The 0.18.0 baseline includes the Edit-2509 multi-image fixes
         // (vision encoder save bug) and is the bottom of our FBCache
         // patch contract.
         //
@@ -70,7 +70,7 @@ module.exports = {
         //   Step 2: force-reinstall the same version WITHOUT deps so
         //     pip never silently bumps a transitive dep when we
         //     re-run later.
-        message: "./ltx-2-mlx/env/bin/pip install 'mflux==0.18.0'"
+        message: "./ltx-2-mlx/env/bin/pip install -c runtime-constraints.txt 'mflux==0.18.0'"
       }
     },
     {
@@ -98,7 +98,7 @@ module.exports = {
         // API moved (so a mflux bump never *breaks* FLUX.2 — worst case it
         // loses the speedup). Bumped to the mflux 0.18 line (Ideogram 4 +
         // Qwen-Edit share this package); re-confirm the FLUX.2 speedup holds.
-        message: "./ltx-2-mlx/env/bin/pip install 'mlx-teacache==0.4.1'"
+        message: "./ltx-2-mlx/env/bin/pip install -c runtime-constraints.txt 'mlx-teacache==0.4.1'"
       }
     },
     {

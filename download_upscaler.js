@@ -1,3 +1,5 @@
+const Q8_REVISION = "2929765d5bef857e62372a5a047d1c491fc3598e"
+
 module.exports = {
   // Optional official LTX 2.3 latent spatial upscaler.
   // ~1 GB, resumable. This is separate from Q8 so users can download the
@@ -16,7 +18,7 @@ module.exports = {
         venv: "ltx-2-mlx/env",
         env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
         message: [
-          "hf download dgrauet/ltx-2.3-mlx-q8 spatial_upscaler_x2_v1_1.safetensors --local-dir mlx_models/ltx-2.3-mlx-q8"
+          "hf download dgrauet/ltx-2.3-mlx-q8 spatial_upscaler_x2_v1_1.safetensors --revision " + Q8_REVISION + " --local-dir mlx_models/ltx-2.3-mlx-q8"
         ]
       }
     },

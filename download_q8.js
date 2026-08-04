@@ -1,3 +1,5 @@
+const Q8_REVISION = "2929765d5bef857e62372a5a047d1c491fc3598e"
+
 module.exports = {
   // On-demand Q8 download for the High quality tier.
   // ~37 GB, resumable. The panel auto-detects when it lands and unlocks
@@ -31,7 +33,7 @@ module.exports = {
         // with a warning if the package isn't on disk for any reason.
         env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
         message: [
-          "hf download dgrauet/ltx-2.3-mlx-q8 --local-dir mlx_models/ltx-2.3-mlx-q8 --include '*.json' --include 'transformer-dev.safetensors' --include 'connector.safetensors' --include 'ltx-2.3-22b-distilled-lora-384.safetensors' --include 'vae_decoder.safetensors' --include 'vae_encoder.safetensors' --include 'audio_vae.safetensors' --include 'vocoder.safetensors' --include 'spatial_upscaler_x2_v1_1.safetensors'"
+          "hf download dgrauet/ltx-2.3-mlx-q8 --revision " + Q8_REVISION + " --local-dir mlx_models/ltx-2.3-mlx-q8 --include '*.json' --include 'transformer-dev.safetensors' --include 'connector.safetensors' --include 'ltx-2.3-22b-distilled-lora-384.safetensors' --include 'vae_decoder.safetensors' --include 'vae_encoder.safetensors' --include 'audio_vae.safetensors' --include 'vocoder.safetensors' --include 'spatial_upscaler_x2_v1_1.safetensors'"
         ]
       }
     },

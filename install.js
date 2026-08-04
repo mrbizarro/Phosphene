@@ -21,6 +21,18 @@
 // pip step. The hf download steps still use `venv: "env"` for activation
 // only (sourcing the existing 3.11 venv to put `hf` on PATH).
 
+// Immutable identity behind the validated v0.14.8 tag. A tag can be moved;
+// a full Git object ID makes fresh and resumed installs converge on the code
+// that was actually reviewed.
+const LTX_COMMIT = "d2ad8e9948157c14a063aca54e510d3d80c2c463"
+const MODEL_REVISIONS = {
+  q4: "9a55febea4843e38784fcfacdf73fcd4a5516aa2",
+  gemma: "86cc6a8dedbc456dd0e4af01a9d09f396f77e558",
+  colorize: "2358e0e09a2205c6fda7f6e087757f0347d7f0ad",
+  ingredients: "dd73f87f2dcd6fb0cfcb1a84c9e795930f573bb3",
+  unionControl: "b4d1c4d8c9e544e9bbbd6811bb4363708b6093ff"
+}
+
 module.exports = {
   // Pulls in `huggingface-cli`/`hf`, `ffmpeg`, `git`, `uv`, `python3.11` etc.
   requires: { bundle: "ai" },
@@ -108,7 +120,8 @@ module.exports = {
         path: "ltx-2-mlx",
         message: [
           "git fetch --tags origin",
-          "git checkout v0.14.8",
+          "git checkout --detach " + LTX_COMMIT,
+          "test \"$(git rev-parse HEAD)\" = \"" + LTX_COMMIT + "\" || (echo 'ERROR: ltx-2-mlx commit verification failed' && exit 1)",
           "git rev-parse --short HEAD"
         ]
       }
@@ -212,12 +225,17 @@ module.exports = {
           // 5.7.0 (our validated build) and 5.12.x. Cap it on the SAME resolve as
           // mlx-lm so the constraint sticks (uv downgrades an already-installed
           // 5.13.0 on the next Update). Diagnosed by @saved-j + @xandreau.
-          "uv pip install --python env/bin/python 'mlx==0.31.1' 'mlx-lm==0.31.1' 'mlx-metal==0.31.1' 'transformers>=5.0.0,<5.13.0'",
+          "uv pip install --python env/bin/python --constraint ../runtime-constraints.txt 'mlx==0.31.1' 'mlx-lm==0.31.1' 'mlx-metal==0.31.1' 'transformers>=5.0.0,<5.13.0'",
+          // Install the exact local-package build backend into the target
+          // venv, then disable isolated builds. Otherwise each run creates a
+          // temporary environment and executes the latest published hatchling
+          // outside our constraints file.
+          "uv pip install --python env/bin/python --constraint ../runtime-constraints.txt 'pip==26.1.2' 'hatchling==1.31.0'",
           // Y3 — Train Character ships in 3.0. Without ltx-trainer-mlx in
           // the venv, the trainer subprocess fails at `import yaml` because
           // pyyaml is a transitive dep of ltx-trainer (declared in its
           // pyproject). Codex pre-ship review 2026-05-18 caught this.
-          "uv pip install --python env/bin/python ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer",
+          "uv pip install --python env/bin/python --constraint ../runtime-constraints.txt --no-build-isolation ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer",
           // Auto-caption (Gemma 3 12B via mlx-vlm) needs the mlx-vlm
           // package. Pinned to 0.4.4 — caption_with_gemma.py's import
           // surface (load, generate, prompt_utils.apply_chat_template)
@@ -225,38 +243,26 @@ module.exports = {
           // mlx-vlm's heavy default deps (PIL>=10, av, etc. that fight
           // mflux/transformers pins). The runtime imports it lazily so
           // a partial install doesn't break the rest of the panel.
-          "uv pip install --python env/bin/python --no-deps 'mlx-vlm==0.4.4'",
+          "uv pip install --python env/bin/python --constraint ../runtime-constraints.txt --no-deps 'mlx-vlm==0.4.4'",
           // hf_transfer is HuggingFace's Rust-based downloader — 5-10× faster
           // than the default Python downloader for big repos like Q8 (~25 GB).
           // The panel sets HF_HUB_ENABLE_HF_TRANSFER=1 in download envs; if the
           // package is missing the hf CLI falls back gracefully with a warning.
-          // litellm: agent's chat client (multi-provider router for OpenAI /
-          // Anthropic / Ollama / mlx-lm.server). Pinned to >=1.83.14 — the
-          // March 2026 PyPI supply-chain incident affected earlier 1.x
-          // releases (stole SSH keys via a poisoned post-install script).
-          // See agent/engine.py for routing details. Falls back to stdlib
-          // urllib if missing — safe to omit but the loop is less robust.
-          //
-          // smolagents: Phase 2 of the agent-layer refactor. Powers
-          // the optional CodeAgent runtime in agent/runtime_smol.py,
-          // selectable per-request via PHOSPHENE_RUNTIME=smol. smolagents
-          // pulls transformers as a transitive dep — the huggingface-hub
-          // floor is bumped to >=1.5.0 to satisfy transformers' pin.
-          // smolagents itself ships with a pessimistic <1.0 hub pin that
-          // is empirically benign in practice.
-          //
           // The hub pin range we settle on (>=1.5.0,<2.0) satisfies:
-          //   - mflux>=0.17.5            wants >=1.1.6,<2.0
+          //   - mflux==0.18.0            wants >=1.1.6,<2.0
           //   - transformers (5.7.0+)    wants >=1.5.0,<2.0
-          //   - smolagents 1.24.0        warns about <1.0 but works
           //   - hf download CLI          needs v1+ for the new command name
+          // litellm and smolagents were left behind by the removed agent-chat
+          // feature and are intentionally not installed. Besides being dead
+          // weight, they materially widen the dependency and credential
+          // attack surface of every fresh install.
           // 2026-05-31 review fix (E3): pin `certifi` explicitly. start.js
           // points SSL_CERT_FILE at certifi's cacert.pem (the v3.0.4 fix for
           // the CivitAI CERTIFICATE_VERIFY_FAILED on uv-Python). certifi was
           // only ever a transitive dep — if a future dep change drops it, the
           // SSL_CERT_FILE path vanishes and ALL panel stdlib HTTPS breaks.
           // Naming it here keeps the cert bundle guaranteed-present.
-          "uv pip install --python env/bin/python certifi pillow numpy 'huggingface-hub>=1.5.0,<2.0' 'hf_transfer>=0.1.6' 'litellm>=1.83.14' 'smolagents>=1.24.0'",
+          "uv pip install --python env/bin/python --constraint ../runtime-constraints.txt certifi pillow numpy 'huggingface-hub>=1.5.0,<2.0' 'hf_transfer>=0.1.6'",
           // v2.0.3: post-install confirmation that the local packages
           // actually landed in site-packages. The Y1.034+ patch script's
           // i2v target tolerates a missing ltx_pipelines_mlx — without
@@ -336,7 +342,7 @@ module.exports = {
         // isn't yet on disk (warning + plain Python downloader).
         env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
         message: [
-          "hf download dgrauet/ltx-2.3-mlx-q4 --local-dir ../mlx_models/ltx-2.3-mlx-q4 --include '*.json' --include 'transformer-distilled.safetensors' --include 'connector.safetensors' --include 'vae_decoder.safetensors' --include 'vae_encoder.safetensors' --include 'audio_vae.safetensors' --include 'vocoder.safetensors' --include 'spatial_upscaler_x2_v1_1.safetensors'"
+          "hf download dgrauet/ltx-2.3-mlx-q4 --revision " + MODEL_REVISIONS.q4 + " --local-dir ../mlx_models/ltx-2.3-mlx-q4 --include '*.json' --include 'transformer-distilled.safetensors' --include 'connector.safetensors' --include 'vae_decoder.safetensors' --include 'vae_encoder.safetensors' --include 'audio_vae.safetensors' --include 'vocoder.safetensors' --include 'spatial_upscaler_x2_v1_1.safetensors'"
         ]
       }
     },
@@ -353,7 +359,7 @@ module.exports = {
         path: "ltx-2-mlx",
         env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
         message: [
-          "hf download mlx-community/gemma-3-12b-it-4bit --local-dir ../mlx_models/gemma-3-12b-it-4bit"
+          "hf download mlx-community/gemma-3-12b-it-4bit --revision " + MODEL_REVISIONS.gemma + " --local-dir ../mlx_models/gemma-3-12b-it-4bit"
         ]
       }
     },
@@ -381,9 +387,9 @@ module.exports = {
           // block about mlx-vlm on EVERY later install — verified, and it made
           // cocktailpeanut's update look broken. uv installs the same packages
           // with zero such noise (same reason the base deps above use uv).
-          "( uv pip install --python ./ltx-2-mlx/env/bin/python 'mflux==0.18.0' && \\",
+          "( uv pip install --python ./ltx-2-mlx/env/bin/python --constraint runtime-constraints.txt 'mflux==0.18.0' && \\",
           "  uv pip install --python ./ltx-2-mlx/env/bin/python --reinstall --no-deps 'mflux==0.18.0' && \\",
-          "  uv pip install --python ./ltx-2-mlx/env/bin/python 'mlx-teacache==0.4.1' && \\",
+          "  uv pip install --python ./ltx-2-mlx/env/bin/python --constraint runtime-constraints.txt 'mlx-teacache==0.4.1' && \\",
           "  ./ltx-2-mlx/env/bin/python3.11 patch_mflux_fbcache.py ) \\",
           "|| echo 'WARN: mflux image-engine install hit an error — video still works; use the Reinstall image engines action to retry image generation.'"
         ].join("\n")
@@ -406,7 +412,7 @@ module.exports = {
         env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
         message: [
           "echo 'Fetching the Colorize IC-LoRA (restore mode, ~0.3 GB, optional)…' && \\",
-          "hf download DoctorDiffusion/LTX-2.3-IC-LoRA-Colorizer --local-dir ../mlx_models/loras/ic --include 'LTX-2.3-22b-IC-LoRA-Colorizer-0.9.safetensors' \\",
+          "hf download DoctorDiffusion/LTX-2.3-IC-LoRA-Colorizer --revision " + MODEL_REVISIONS.colorize + " --local-dir ../mlx_models/loras/ic --include 'LTX-2.3-22b-IC-LoRA-Colorizer-0.9.safetensors' \\",
           "|| echo 'WARN: Colorize IC-LoRA fetch failed — video + image still work; the Colorize mode will fetch it on first use, or click Repair.'"
         ].join("\n")
       }
@@ -431,7 +437,7 @@ module.exports = {
         env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
         message: [
           "echo 'Fetching the Ingredients IC-LoRA (multi-reference mode, ~1.3 GB, optional)…' && \\",
-          "hf download DeepBeepMeep/LTX-2 --local-dir ../mlx_models/loras/ic --include 'ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors' \\",
+          "hf download DeepBeepMeep/LTX-2 --revision " + MODEL_REVISIONS.ingredients + " --local-dir ../mlx_models/loras/ic --include 'ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors' \\",
           "|| echo 'WARN: Ingredients IC-LoRA fetch failed — video + image still work; the Ingredients mode will fetch it on first use, or click Repair.'"
         ].join("\n")
       }
@@ -455,7 +461,7 @@ module.exports = {
         env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
         message: [
           "echo 'Fetching the Control IC-LoRA (Union, control mode, ~0.65 GB, optional)…' && \\",
-          "hf download Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control --local-dir ../mlx_models/loras/ic --include 'ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors' \\",
+          "hf download Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control --revision " + MODEL_REVISIONS.unionControl + " --local-dir ../mlx_models/loras/ic --include 'ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors' \\",
           "|| echo 'WARN: Control IC-LoRA fetch failed — video + image still work; the Control mode will fetch it on first use, or click Repair.'"
         ].join("\n")
       }

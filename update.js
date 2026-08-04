@@ -1,3 +1,13 @@
+// Executable upstream code is pinned by immutable commit, not by a movable
+// tag. Keep the human tag in comments/UI, but verify the object identity.
+const LTX_COMMIT = "d2ad8e9948157c14a063aca54e510d3d80c2c463"
+const MODEL_REVISIONS = {
+  q4: "9a55febea4843e38784fcfacdf73fcd4a5516aa2",
+  colorize: "2358e0e09a2205c6fda7f6e087757f0347d7f0ad",
+  ingredients: "dd73f87f2dcd6fb0cfcb1a84c9e795930f573bb3",
+  unionControl: "b4d1c4d8c9e544e9bbbd6811bb4363708b6093ff"
+}
+
 module.exports = {
   run: [
     // Note: fs.link is only declared in install.js, not here. New users
@@ -15,9 +25,10 @@ module.exports = {
     // currently-checked-out branch is whatever the install was set up
     // with; we pull origin/<that branch> rather than hardcoding `main`.
     //
-    // Recovery from divergence (Y1.002) is preserved: if --ff-only
-    // refuses, we fall back to reset --hard origin/<branch>. A Pinokio
-    // panel install is never expected to carry local commits.
+    // Recovery from divergence (Y1.002) remains available, but a destructive
+    // reset now requires PHOSPHENE_ALLOW_DESTRUCTIVE_UPDATE=1. The default
+    // behavior stops and points at Reset → Install instead of silently
+    // discarding state that the probes may have missed.
     {
       method: "shell.run",
       params: {
@@ -28,12 +39,13 @@ module.exports = {
           // 2026-05-22 split into public + private repos). The
           // explicit-origin form `git pull origin <branch>` broke
           // when public origin/dev was deleted.
-          "REMOTE=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null | cut -d/ -f1)",
+          "REMOTE=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null | cut -d/ -f1)",
           "BRANCH=$(git rev-parse --abbrev-ref HEAD)",
-          "UPSTREAM=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null)",
+          "UPSTREAM=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)",
           "echo \"updating branch: $BRANCH (upstream: $UPSTREAM)\"",
-          "git fetch $REMOTE",
-          "git pull --ff-only $UPSTREAM || (echo 'history diverged from upstream; falling back to reset --hard' && git reset --hard $UPSTREAM)",
+          "test -n \"$REMOTE\" && test -n \"$UPSTREAM\" || (echo 'ERROR: current branch has no configured upstream; refusing update' && exit 1)",
+          "git fetch \"$REMOTE\"",
+          "if git merge --ff-only \"$UPSTREAM\"; then :; elif [ \"${PHOSPHENE_ALLOW_DESTRUCTIVE_UPDATE:-0}\" = \"1\" ]; then echo 'WARNING: destructive update explicitly enabled; resetting to upstream' && git reset --hard \"$UPSTREAM\"; else echo 'ERROR: fast-forward refused; automatic hard reset is disabled. Use Pinokio Reset -> Install, or inspect the repo and set PHOSPHENE_ALLOW_DESTRUCTIVE_UPDATE=1.'; exit 1; fi",
           "git rev-parse --short HEAD"
         ]
       }
@@ -55,9 +67,21 @@ module.exports = {
         path: "ltx-2-mlx",
         message: [
           "git fetch --tags origin",
-          "git checkout v0.14.8",
+          "git checkout --detach " + LTX_COMMIT,
+          "test \"$(git rev-parse HEAD)\" = \"" + LTX_COMMIT + "\" || (echo 'ERROR: ltx-2-mlx commit verification failed' && exit 1)",
           "git rev-parse --short HEAD"
         ]
+      }
+    },
+    // Pin the installer and local-package build backend before any pip command
+    // in this update. Isolated builds are disabled below, so hatchling stays
+    // inside the reviewed constraints graph instead of executing the newest
+    // published version in a temporary environment.
+    {
+      method: "shell.run",
+      params: {
+        path: "ltx-2-mlx",
+        message: "uv pip install --python env/bin/python --constraint ../runtime-constraints.txt 'pip==26.1.2' 'hatchling==1.31.0'"
       }
     },
     // Force-downgrade mlx to 0.31.1 — fixes 22 dB audio regression on mlx
@@ -69,7 +93,7 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        message: "./ltx-2-mlx/env/bin/pip install --force-reinstall --no-deps 'mlx==0.31.1' 'mlx-lm==0.31.1' 'mlx-metal==0.31.1'"
+        message: "./ltx-2-mlx/env/bin/pip install -c runtime-constraints.txt --force-reinstall --no-deps 'mlx==0.31.1' 'mlx-lm==0.31.1' 'mlx-metal==0.31.1'"
       }
     },
     // Re-install ltx-core-mlx + ltx-pipelines-mlx + ltx-trainer-mlx from
@@ -90,7 +114,7 @@ module.exports = {
       method: "shell.run",
       params: {
         path: "ltx-2-mlx",
-        message: "./env/bin/pip install --force-reinstall --no-deps ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer"
+        message: "./env/bin/pip install -c ../runtime-constraints.txt --no-build-isolation --force-reinstall --no-deps ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer"
       }
     },
     // 3.0: pyyaml + pydantic + tqdm + rich are ltx-trainer-mlx's
@@ -101,7 +125,7 @@ module.exports = {
       method: "shell.run",
       params: {
         path: "ltx-2-mlx",
-        message: "./env/bin/pip install 'pyyaml>=6.0' 'pydantic>=2.0' 'tqdm>=4.65' 'rich>=13.0'"
+        message: "./env/bin/pip install -c ../runtime-constraints.txt 'pyyaml>=6.0' 'pydantic>=2.0' 'tqdm>=4.65' 'rich>=13.0'"
       }
     },
     // 3.0: auto-caption (Gemma 3 12B via mlx-vlm) needs mlx-vlm 0.4.4.
@@ -113,7 +137,7 @@ module.exports = {
       method: "shell.run",
       params: {
         path: "ltx-2-mlx",
-        message: "./env/bin/pip install --no-deps 'mlx-vlm==0.4.4'"
+        message: "./env/bin/pip install -c ../runtime-constraints.txt --no-deps 'mlx-vlm==0.4.4'"
       }
     },
     // Y1.022: hf_transfer is HuggingFace's Rust accelerator — 5-10× faster
@@ -126,7 +150,7 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        message: "./ltx-2-mlx/env/bin/pip install --upgrade 'hf_transfer>=0.1.6'"
+        message: "./ltx-2-mlx/env/bin/pip install -c runtime-constraints.txt --upgrade 'hf_transfer>=0.1.6'"
       }
     },
     // 2026-05-31 review fix (E3): ensure certifi is present on every update.
@@ -136,46 +160,14 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        message: "./ltx-2-mlx/env/bin/pip install --upgrade certifi"
+        message: "./ltx-2-mlx/env/bin/pip install -c runtime-constraints.txt --upgrade certifi"
       }
     },
-    // litellm: replaces the stdlib urllib chat client in agent/engine.py
-    // with a multi-provider router (free retries, normalized errors,
-    // single abstraction for OpenAI / Anthropic / Ollama / mlx-lm.server).
-    // Pinned to >=1.83.14 — earlier 1.x had a March 2026 PyPI supply-
-    // chain incident (post-install script stole SSH keys). engine.py
-    // falls back to stdlib urllib if litellm is missing — safe but the
-    // loop is less robust. Idempotent on repeat updates.
-    {
-      method: "shell.run",
-      params: {
-        message: "./ltx-2-mlx/env/bin/pip install --upgrade 'litellm>=1.83.14'"
-      }
-    },
-    // smolagents: powers the optional CodeAgent runtime in
-    // agent/runtime_smol.py (Phase 2 of the agent-layer refactor).
-    // Off by default; the panel uses it only when launched with
-    // PHOSPHENE_RUNTIME=smol.
-    //
-    // IMPORTANT: smolagents 1.24.0 hard-pins huggingface-hub<1.0.0 in its
-    // setup, which conflicts with our >=1.5.0 floor (transformers 5+,
-    // mflux, hf v1 CLI all need hub 1.x). Plain `pip install --upgrade`
-    // refuses to resolve and fails the entire update with
-    // ResolutionImpossible — Mr Bizarro saw this as a "blue screen error
-    // flashing for a second every update".
-    //
-    // Fix: match install.js and use `uv pip install`. uv allows the
-    // version-overlap conflict and installs both, leaving smolagents in
-    // a "warned but functional" state (verified CodeAgent +
-    // LocalPythonExecutor both work on hub 1.14.0).
-    {
-      method: "shell.run",
-      params: {
-        message: "uv pip install --python ./ltx-2-mlx/env/bin/python --upgrade 'huggingface-hub>=1.5.0,<2.0' 'smolagents>=1.24.0'"
-      }
-    },
+    // The removed agent-chat feature was the sole consumer of litellm and
+    // smolagents. Do not reinstall those unused dependency trees on updates;
+    // existing environments may remove them manually or on the next Reset.
     // Pin mflux to the exact version our FBCache patch is line-targeted
-    // against (0.17.5). If a future bump is needed, change the pin here
+    // against (0.18.0). If a future bump is needed, change the pin here
     // AND in install_qwen.js AND re-validate patch_mflux_fbcache.py.
     //
     // Two-step shape mirrors install_qwen.js (the previous single-step
@@ -215,9 +207,9 @@ module.exports = {
           // cocktailpeanut's update look broken even though mflux installed fine).
           // uv does the same install with zero such noise.
           "echo 'Installing/refreshing the mflux image-engine pack (Ideogram 4 + Qwen-Edit) — now standard…' && \\",
-          "( uv pip install --python ./ltx-2-mlx/env/bin/python 'mflux==0.18.0' && \\",
+          "( uv pip install --python ./ltx-2-mlx/env/bin/python --constraint runtime-constraints.txt 'mflux==0.18.0' && \\",
           "  uv pip install --python ./ltx-2-mlx/env/bin/python --reinstall --no-deps 'mflux==0.18.0' && \\",
-          "  uv pip install --python ./ltx-2-mlx/env/bin/python 'mlx-teacache==0.4.1' ) \\",
+          "  uv pip install --python ./ltx-2-mlx/env/bin/python --constraint runtime-constraints.txt 'mlx-teacache==0.4.1' ) \\",
           "|| echo 'WARN: mflux image-engine install hit an error — video is unaffected; re-run Update, or use the Reinstall image engines action, to retry.'"
         ].join("\n")
       }
@@ -277,7 +269,7 @@ module.exports = {
         env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
         message: [
           "echo 'Ensuring the Q4 spatial upscaler is present (mosaic fix)…' && \\",
-          "hf download dgrauet/ltx-2.3-mlx-q4 --local-dir ../mlx_models/ltx-2.3-mlx-q4 --include 'spatial_upscaler_x2_v1_1.safetensors' \\",
+          "hf download dgrauet/ltx-2.3-mlx-q4 --revision " + MODEL_REVISIONS.q4 + " --local-dir ../mlx_models/ltx-2.3-mlx-q4 --include 'spatial_upscaler_x2_v1_1.safetensors' \\",
           "|| echo 'WARN: spatial upscaler fetch failed — open the panel and click Repair to retry (fixes the mosaic).'"
         ].join("\n")
       }
@@ -296,7 +288,7 @@ module.exports = {
         env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
         message: [
           "echo 'Ensuring the Colorize IC-LoRA is present (restore mode, optional)…' && \\",
-          "hf download DoctorDiffusion/LTX-2.3-IC-LoRA-Colorizer --local-dir ../mlx_models/loras/ic --include 'LTX-2.3-22b-IC-LoRA-Colorizer-0.9.safetensors' \\",
+          "hf download DoctorDiffusion/LTX-2.3-IC-LoRA-Colorizer --revision " + MODEL_REVISIONS.colorize + " --local-dir ../mlx_models/loras/ic --include 'LTX-2.3-22b-IC-LoRA-Colorizer-0.9.safetensors' \\",
           "|| echo 'WARN: Colorize IC-LoRA fetch failed — the Colorize mode will fetch it on first use, or click Repair.'"
         ].join("\n")
       }
@@ -318,7 +310,7 @@ module.exports = {
         env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
         message: [
           "echo 'Ensuring the Ingredients IC-LoRA is present (multi-reference mode, optional)…' && \\",
-          "hf download DeepBeepMeep/LTX-2 --local-dir ../mlx_models/loras/ic --include 'ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors' \\",
+          "hf download DeepBeepMeep/LTX-2 --revision " + MODEL_REVISIONS.ingredients + " --local-dir ../mlx_models/loras/ic --include 'ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors' \\",
           "|| echo 'WARN: Ingredients IC-LoRA fetch failed — the Ingredients mode will fetch it on first use, or click Repair.'"
         ].join("\n")
       }
@@ -339,7 +331,7 @@ module.exports = {
         env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
         message: [
           "echo 'Ensuring the Control IC-LoRA is present (Union, control mode, optional)…' && \\",
-          "hf download Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control --local-dir ../mlx_models/loras/ic --include 'ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors' \\",
+          "hf download Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control --revision " + MODEL_REVISIONS.unionControl + " --local-dir ../mlx_models/loras/ic --include 'ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors' \\",
           "|| echo 'WARN: Control IC-LoRA fetch failed — the Control mode will fetch it on first use, or click Repair.'"
         ].join("\n")
       }

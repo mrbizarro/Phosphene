@@ -22,7 +22,7 @@ This module is the dispatch layer. Four backends ship today:
     Requires `bfl_api_key`. Models: flux-dev (cheap, 25 steps),
     flux-pro (better, slower), flux-schnell (4 steps, fastest).
   - **mflux** — fully-local Mac generation via filipstrand/mflux. Now
-    multi-family: mflux 0.17.x ships per-family CLI commands
+    multi-family: mflux 0.18.x ships per-family CLI commands
     (`mflux-generate-flux2`, `mflux-generate-z-image-turbo`,
     `mflux-generate-fibo`, `mflux-generate-qwen`, `mflux-generate-kontext`)
     in addition to the legacy `mflux-generate` (flux1-only). We auto-detect
@@ -67,6 +67,8 @@ import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from phosphene_security import sanitized_subprocess_env, validated_bfl_base_url
+
 
 # Active-subprocess registry — every image engine that spawns a Popen
 # registers it here so the panel's /stop endpoint can terminate the
@@ -82,7 +84,7 @@ _ACTIVE_PROCS: set = set()  # set[subprocess.Popen]
 
 
 def _clean_subprocess_env() -> dict:
-    """os.environ.copy() with macOS Malloc* debug vars stripped.
+    """Minimal runtime environment for third-party image engines.
 
     Pinokio's launcher (and some macOS dev tools) export Malloc* env
     vars — most commonly an empty/zero MallocStackLogging or
@@ -91,16 +93,14 @@ def _clean_subprocess_env() -> dict:
     logging because it was not enabled" to stderr on exit. With the
     HiDream / mflux lab spawning 50+ Python subprocesses per request
     (HF download workers + the generation process + helpers), that
-    flooded the terminal. Stripping the Malloc* vars makes the
-    warning go away cleanly — those vars are only useful if you're
-    actively profiling with Instruments, and we never are.
+    flooded the terminal. More importantly, copying the full parent
+    environment exposed unrelated GitHub, cloud, and developer credentials
+    to every optional engine subprocess. Keep only runtime configuration and
+    the explicitly supported HF credential used for gated model downloads.
     """
-    import os as _os
-    env = _os.environ.copy()
-    for key in list(env.keys()):
-        if key.startswith("Malloc"):
-            del env[key]
-    return env
+    return sanitized_subprocess_env(
+        allow_secrets=("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"),
+    )
 
 
 class ImageJobCancelled(RuntimeError):
@@ -377,6 +377,10 @@ def health_check(config: ImageEngineConfig) -> tuple[bool, str]:
     if config.kind == "bfl":
         if not config.bfl_api_key:
             return False, "BFL API key not configured"
+        try:
+            validated_bfl_base_url(config.bfl_base_url)
+        except ValueError as exc:
+            return False, str(exc)
         return True, f"BFL configured for {config.bfl_model}"
     if config.kind == "hidream":
         py = _resolve_hidream_python(config)
@@ -391,7 +395,7 @@ def health_check(config: ImageEngineConfig) -> tuple[bool, str]:
     return False, f"unknown engine kind: {config.kind!r}"
 
 
-# Per-family CLI command. mflux 0.17.x splits FLUX.1, FLUX.2, Z-Image,
+# Per-family CLI command. mflux 0.18.x splits FLUX.1, FLUX.2, Z-Image,
 # FIBO, Qwen, and Kontext into separate `mflux-generate-*` binaries —
 # each one knows its architecture, expected step count, guidance scale,
 # etc. We dispatch by family. The legacy `mflux-generate` remains for
@@ -671,7 +675,7 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
     Family is inferred from `config.mflux_model` (or taken from
     `config.mflux_family` when set). FLUX.1 / FLUX.2 / Z-Image /
     Z-Image-Turbo / FIBO / Qwen / Qwen-Edit / Kontext each have their
-    dedicated CLI from mflux 0.17.x.
+    dedicated CLI from mflux 0.18.x.
 
     `config.mflux_lora_paths` + `config.mflux_lora_scales` plumb through
     to `--lora-paths` and `--lora-scales`. The intended use is a
@@ -704,7 +708,8 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
         raise RuntimeError(
             f"{bin_name} not found (family: {fam}). Install or upgrade "
             f"mflux into the panel's venv: "
-            f"`ltx-2-mlx/env/bin/pip install -U mflux>=0.17` "
+            f"`uv pip install --python ltx-2-mlx/env/bin/python "
+            f"--constraint runtime-constraints.txt mflux==0.18.0` "
             f"(see docs/AGENTIC_FLOWS.md § Image generation backends). "
             f"First-run model download is 4-34 GB to ~/.cache/huggingface "
             f"depending on family."
@@ -1316,7 +1321,7 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
     # so candidate numbering is deterministic.
     #
     # IMPORTANT (2026-05-31 review H7 — do NOT delete this as "future compat"):
-    # mflux is pinned ==0.17.5 (<0.18). The PINNED 0.17.5 appends _seed_<seed>
+    # mflux is pinned ==0.18.0. The pinned build appends _seed_<seed>
     # to the filename whenever n>1 seeds are passed (the default agent batch is
     # n=4) — even when the template already substitutes {seed}. So our
     # `cand_{seed}_mflux.png` template lands on disk as
@@ -1349,7 +1354,7 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
         path = Path(output_template.format(seed=seed))
         if not path.is_file():
             # Fall back to scanning the output dir for the EXACT filename
-            # pinned mflux 0.17.5 writes on n>1 (template + auto-`_seed_<seed>`).
+            # pinned mflux 0.18.0 writes on n>1 (template + auto-`_seed_<seed>`).
             # Substring matching by `seed_str in p.name` was wrong: seed
             # 123 would also match `cand_9123_mflux.png` from a previous
             # run in the same agent shot folder, returning the wrong PNG.
@@ -1420,10 +1425,14 @@ def _generate_bfl(prompt: str, n: int, width: int, height: int,
             "BFL API key not configured. Add one under Settings → Image "
             "generation, or pick the mock engine to test the workflow."
         )
+    # The API key is sent on both submit and poll requests.  Validate the
+    # configured base before constructing either URL so a tampered settings
+    # file cannot redirect the credential to an attacker-controlled host.
+    base_url = validated_bfl_base_url(config.bfl_base_url)
     headers = {"Content-Type": "application/json", "X-Key": config.bfl_api_key}
     poll_headers = {"X-Key": config.bfl_api_key}
-    submit_url = f"{config.bfl_base_url.rstrip('/')}/{config.bfl_model}"
-    poll_url_base = f"{config.bfl_base_url.rstrip('/')}/get_result"
+    submit_url = f"{base_url}/{config.bfl_model}"
+    poll_url_base = f"{base_url}/get_result"
 
     results = []
     for i in range(n):

@@ -32,13 +32,22 @@
 #      live OUTSIDE git tracking, so they're untouched.
 #
 # Usage (read the script first, please):
-#   bash recover.sh
+#   PHOSPHENE_ALLOW_DESTRUCTIVE_UPDATE=1 bash recover.sh
 #   # — or pointing at a non-default install dir —
-#   PHOSPHENE_DIR=/Volumes/AI/pinokio/api/phosphene.git bash recover.sh
+#   PHOSPHENE_ALLOW_DESTRUCTIVE_UPDATE=1 \
+#     PHOSPHENE_DIR=/Volumes/AI/pinokio/api/phosphene.git bash recover.sh
 
 set -euo pipefail
 
 DIR="${PHOSPHENE_DIR:-$HOME/pinokio/api/phosphene.git}"
+
+if [[ "${PHOSPHENE_ALLOW_DESTRUCTIVE_UPDATE:-0}" != "1" ]]; then
+  echo "✗ destructive recovery is disabled by default." >&2
+  echo "   inspect this script and the target repo, then re-run with" >&2
+  echo "   PHOSPHENE_ALLOW_DESTRUCTIVE_UPDATE=1 if you accept losing" >&2
+  echo "   tracked changes and local commits in that repo." >&2
+  exit 1
+fi
 
 if [[ ! -d "$DIR/.git" ]]; then
   echo "✗ no git repo at: $DIR" >&2
@@ -51,11 +60,15 @@ cd "$DIR"
 # Defensive sanity check — this script wipes the tree, so we don't run it
 # on a non-phosphene repo by accident.
 remote_url="$(git config --get remote.origin.url || echo '')"
-if [[ "$remote_url" != *"mrbizarro/phosphene"* ]]; then
+case "$remote_url" in
+  https://github.com/mrbizarro/phosphene|https://github.com/mrbizarro/phosphene.git|git@github.com:mrbizarro/phosphene.git|ssh://git@github.com/mrbizarro/phosphene.git)
+    ;;
+  *)
   echo "✗ this isn't phosphene (origin = $remote_url)" >&2
   echo "   refusing to reset --hard on an unrelated repo." >&2
   exit 1
-fi
+    ;;
+esac
 
 echo "→ phosphene install: $DIR"
 echo "→ origin: $remote_url"
@@ -80,5 +93,5 @@ echo "  2. Click Update on the Phosphene panel — should run cleanly now."
 echo "  3. Click Stop, then Start."
 echo "  4. Hard-refresh the panel page in your browser (Cmd+Shift+R)."
 echo
-echo "From Y1.002 onward this fallback runs automatically inside Update,"
-echo "so you should never need to run this script again."
+echo "Routine Update never hard-resets by default. Keep this script as an"
+echo "audited, explicit last resort; Reset → Install remains preferred."

@@ -19,16 +19,22 @@ panel itself. Nothing public, no GitHub Pages, no telemetry, no cloud.
 
 ## What you actually need to do
 
-**Once:** make sure a GitHub token is resolvable. The panel checks these in
-order, first hit wins:
+**Once:** explicitly enable the feature and provide a dedicated token to the
+panel process:
 
-1. `PHOSPHENE_REPO_STATS_TOKEN` env var (explicit, recommended for Pinokio)
-2. `GH_STATS_TOKEN` env var
-3. `GH_TOKEN` / `GITHUB_TOKEN` env var
-4. `gh auth token` subprocess (when the gh CLI is installed + logged in)
+```bash
+PHOSPHENE_ENABLE_REPO_STATS=1 \
+PHOSPHENE_REPO_STATS_TOKEN='<dedicated token>' \
+./ltx-2-mlx/env/bin/python3.11 mlx_ltx_panel.py
+```
 
-The token needs the `repo` scope (the GitHub Traffic API requires push
-access). `gh auth login` gives you that by default.
+The panel deliberately ignores `GH_TOKEN`, `GITHUB_TOKEN`, `GH_STATS_TOKEN`,
+and the GitHub CLI keychain. An unrelated authenticated developer shell is not
+consent to give Phosphene a push-capable token.
+
+The token needs access to the target repository's Traffic API. Create a
+dedicated, narrowly scoped token for this feature; do not reuse your normal
+GitHub CLI credential.
 
 **Then:** restart the panel. Within 90 seconds the background thread runs
 the first fetch. Open `/stats` — done.
@@ -36,14 +42,17 @@ the first fetch. Open `/stats` — done.
 ## Run the fetcher manually (debug / catch-up)
 
 ```bash
-GITHUB_TOKEN=$(gh auth token) python3 scripts/fetch_repo_stats.py
+PHOSPHENE_REPO_STATS_TOKEN='<dedicated token>' \
+  python3 scripts/fetch_repo_stats.py
 ```
 
 Useful flags:
 
 ```bash
-python3 scripts/fetch_repo_stats.py --dry-run             # don't write JSONL
-python3 scripts/fetch_repo_stats.py --repo OWNER/NAME     # different repo
+PHOSPHENE_REPO_STATS_TOKEN='<dedicated token>' \
+  python3 scripts/fetch_repo_stats.py --dry-run
+PHOSPHENE_REPO_STATS_TOKEN='<dedicated token>' \
+  python3 scripts/fetch_repo_stats.py --repo OWNER/NAME
 ```
 
 The fetcher is idempotent — re-running on the same UTC day REPLACES today's
@@ -96,8 +105,8 @@ much into day-level fluctuations.
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Dashboard at /stats is blank | No data yet (first fetch hasn't run) | Wait 90 s after panel boot or run fetcher manually |
-| Panel log: `stats: no GitHub token resolvable` | No token configured anywhere | `gh auth login`, or set `GITHUB_TOKEN` / `PHOSPHENE_REPO_STATS_TOKEN` |
-| Panel log: `stats: fetch failed (exit 1)` | Token lacks `repo` scope | `gh auth refresh -s repo` |
+| Panel log: `stats: enabled but PHOSPHENE_REPO_STATS_TOKEN is not set` | Feature enabled without its dedicated token | Set `PHOSPHENE_REPO_STATS_TOKEN`, then restart |
+| Panel log: `stats: fetch failed (exit 1)` | Dedicated token lacks target-repository Traffic access | Replace it with a narrowly scoped token that can read Traffic data |
 | `/stats/data` returns empty body | `state/stats-data.jsonl` doesn't exist yet | Same as "blank" above |
 | Charts blank but cards filled | Only one snapshot so far — charts need ≥2 points | Wait for tomorrow's fetch or change system date for testing |
 | Dashboard ships data into a public commit | Should be impossible after the 2026-05-22 rewrite — `state/` is gitignored | If you see this, file an issue immediately |

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Fetch GitHub repo stats and append a daily snapshot to state/stats-data.jsonl.
 
-Runs from .github/workflows/repo-stats.yml on a 24h cron. The GitHub Action
-default token has push access to the repo it runs in, which is exactly what
-the Traffic API (/repos/:owner/:repo/traffic/*) requires.
+This maintainer-only helper is normally spawned by the explicitly enabled
+local panel stats loop. It never discovers GitHub CLI or generic environment
+credentials.
 
 Why a custom script (not the off-the-shelf `github-repo-stats` Action):
 - Mr Bizarro asked for "stable, has historic data, basic stuff" — keep the
@@ -16,21 +16,23 @@ Why a custom script (not the off-the-shelf `github-repo-stats` Action):
 RUNNING LOCALLY
 ------------------------------------------------------------------------
 
-    GITHUB_TOKEN=$(gh auth token) python3 scripts/fetch_repo_stats.py
-    GITHUB_TOKEN=$(gh auth token) python3 scripts/fetch_repo_stats.py --dry-run
-    GITHUB_TOKEN=$(gh auth token) python3 scripts/fetch_repo_stats.py \
+    PHOSPHENE_REPO_STATS_TOKEN='<dedicated token>' \
+        python3 scripts/fetch_repo_stats.py
+    PHOSPHENE_REPO_STATS_TOKEN='<dedicated token>' \
+        python3 scripts/fetch_repo_stats.py --dry-run
+    PHOSPHENE_REPO_STATS_TOKEN='<dedicated token>' \
+        python3 scripts/fetch_repo_stats.py \
         --repo owner/name
 
 Env vars:
-- GITHUB_TOKEN     default token (auto-injected in GitHub Actions)
-- GH_STATS_TOKEN   explicit override; wins over GITHUB_TOKEN
+- PHOSPHENE_REPO_STATS_TOKEN  dedicated token; the only accepted credential
 - PHOSPHENE_REPO   default repo override (CLI --repo wins over env)
 
 Required token scopes for the default repo:
 - public_repo / repo  (Traffic API requires push access)
 - read:org            (only if querying a private org repo)
 
-The classic `gh auth token` for the repo owner is sufficient.
+Do not reuse a general-purpose developer or GitHub CLI token.
 
 ------------------------------------------------------------------------
 OUTPUT SCHEMA  (one JSON object per UTC day, newline-delimited)
@@ -106,11 +108,7 @@ from pathlib import Path
 # ---- config --------------------------------------------------------------
 
 DEFAULT_REPO = os.environ.get("PHOSPHENE_REPO", "mrbizarro/phosphene")
-TOKEN = (
-    os.environ.get("GH_STATS_TOKEN")  # explicit override
-    or os.environ.get("GITHUB_TOKEN")  # default in GH Actions
-    or ""
-).strip()
+TOKEN = (os.environ.get("PHOSPHENE_REPO_STATS_TOKEN") or "").strip()
 # Writes into the panel's gitignored state/ dir (NEVER in the public
 # repo — Mr Bizarro 2026-05-22). PHOSPHENE_STATS_OUT overrides for
 # debugging against a sandbox path. Pre-2026-05-22 this was
@@ -152,8 +150,8 @@ _last_rate_limit: dict = {"remaining": None, "limit": None, "reset": None}
 
 if not TOKEN:
     sys.stderr.write(
-        "ERROR: no GitHub token. Set GH_STATS_TOKEN or run inside GitHub "
-        "Actions (which injects GITHUB_TOKEN automatically).\n"
+        "ERROR: no GitHub token. Set the dedicated "
+        "PHOSPHENE_REPO_STATS_TOKEN variable.\n"
     )
     sys.exit(1)
 

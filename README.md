@@ -36,7 +36,7 @@ Key differences from the standard A2V path:
 
 ## Overview
 
-Phosphene is a local generative-media panel for Apple Silicon. It runs [LTX-Video 2.3](https://github.com/Lightricks/LTX-Video) (MLX port) for joint audio-and-video synthesis, [Qwen-Image-Edit-2509](https://huggingface.co/Qwen/Qwen-Image-Edit-2509) (with a Lightning 4-step fast tier) for stills, and ships an in-panel LoRA training pipeline for character identity (face + optional voice from a single dataset). Everything runs on-device. No cloud, no API keys, no telemetry.
+Phosphene is a local generative-media panel for Apple Silicon. It runs [LTX-Video 2.3](https://github.com/Lightricks/LTX-Video) (MLX port) for joint audio-and-video synthesis, [Qwen-Image-Edit-2509](https://huggingface.co/Qwen/Qwen-Image-Edit-2509) (with a Lightning 4-step fast tier) for stills, and ships an in-panel LoRA training pipeline for character identity (face + optional voice from a single dataset). Generation defaults to on-device models with no telemetry. Optional BFL generation is a cloud service and sends its prompts to Black Forest Labs only when explicitly configured.
 
 3.0 introduces in-panel character training (face + voice LoRA from one dataset), the Audio-to-Video workflow, the Image Studio tab, hardware capability tiering, and an agentic prompt enhancer driven by the same local Gemma 3 12B used for auto-captioning.
 
@@ -129,11 +129,14 @@ If you have a Hugging Face token, paste it under **Settings** in the panel. Down
 ### Manual install
 
 ```bash
-# 1. Clone Phosphene + the upstream MLX port (pinned to v0.14.8).
+# 1. Clone Phosphene + the upstream MLX port (v0.14.8, immutable commit).
 git clone https://github.com/mrbizarro/phosphene.git
 cd phosphene
 git clone https://github.com/dgrauet/ltx-2-mlx.git ltx-2-mlx
-cd ltx-2-mlx && git checkout v0.14.8 && cd ..
+cd ltx-2-mlx
+git checkout --detach d2ad8e9948157c14a063aca54e510d3d80c2c463
+test "$(git rev-parse HEAD)" = d2ad8e9948157c14a063aca54e510d3d80c2c463
+cd ..
 
 # 2. Create the Python 3.11 venv inside ltx-2-mlx (uv-managed).
 cd ltx-2-mlx
@@ -141,17 +144,25 @@ uv venv --python 3.11 --seed env
 
 # 3. Install the MLX pipeline + trainer packages. Pin mlx to 0.31.1 —
 #    0.31.2 attenuates the LTX vocoder by 22 dB.
-./env/bin/uv pip install --python env/bin/python \
+uv pip install --python env/bin/python \
+  --constraint ../runtime-constraints.txt \
   'mlx==0.31.1' 'mlx-lm==0.31.1' 'mlx-metal==0.31.1'
-./env/bin/uv pip install --python env/bin/python \
+uv pip install --python env/bin/python \
+  --constraint ../runtime-constraints.txt \
+  'pip==26.1.2' 'hatchling==1.31.0'
+uv pip install --python env/bin/python \
+  --constraint ../runtime-constraints.txt --no-build-isolation \
   ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer
-./env/bin/uv pip install --python env/bin/python \
+uv pip install --python env/bin/python \
+  --constraint ../runtime-constraints.txt \
   pyyaml pydantic tqdm rich
 # mlx-vlm powers Gemma 3 auto-caption. --no-deps so it doesn't drag mlx-lm past 0.31.1.
-./env/bin/uv pip install --python env/bin/python --no-deps 'mlx-vlm==0.4.4'
-# Agent + downloader + hub pin range.
-./env/bin/pip install pillow numpy 'huggingface-hub>=1.5.0,<2.0' \
-  'hf_transfer>=0.1.6' 'litellm>=1.83.14' 'smolagents>=1.24.0'
+uv pip install --python env/bin/python \
+  --constraint ../runtime-constraints.txt --no-deps 'mlx-vlm==0.4.4'
+# Downloader + hub pin range.
+./env/bin/pip install --constraint ../runtime-constraints.txt \
+  pillow numpy 'huggingface-hub>=1.5.0,<2.0' \
+  'hf_transfer>=0.1.6'
 cd ..
 
 # 4. Apply the runtime patches (idempotent, fail loud on upstream drift).
@@ -159,13 +170,19 @@ cd ..
 
 # 5. Download the Q4 LTX weights + the Gemma 3 4-bit encoder (~28 GB total).
 HF_HUB_ENABLE_HF_TRANSFER=1 ./ltx-2-mlx/env/bin/hf download \
-  dgrauet/ltx-2.3-mlx-q4 --local-dir mlx_models/ltx-2.3-mlx-q4
+  dgrauet/ltx-2.3-mlx-q4 \
+  --revision 9a55febea4843e38784fcfacdf73fcd4a5516aa2 \
+  --local-dir mlx_models/ltx-2.3-mlx-q4
 HF_HUB_ENABLE_HF_TRANSFER=1 ./ltx-2-mlx/env/bin/hf download \
-  mlx-community/gemma-3-12b-it-4bit --local-dir mlx_models/gemma-3-12b-it-4bit
+  mlx-community/gemma-3-12b-it-4bit \
+  --revision 86cc6a8dedbc456dd0e4af01a9d09f396f77e558 \
+  --local-dir mlx_models/gemma-3-12b-it-4bit
 
 # 6. (Optional) Image tab — install mflux + apply the FBCache patch.
-./ltx-2-mlx/env/bin/pip install 'mflux==0.17.5'
-./ltx-2-mlx/env/bin/pip install --force-reinstall --no-deps 'mflux==0.17.5'
+uv pip install --python ./ltx-2-mlx/env/bin/python \
+  --constraint runtime-constraints.txt 'mflux==0.18.0'
+uv pip install --python ./ltx-2-mlx/env/bin/python \
+  --reinstall --no-deps 'mflux==0.18.0'
 ./ltx-2-mlx/env/bin/python3.11 patch_mflux_fbcache.py
 
 # 7. (Optional) HiDream — separate one-time clone for the photoreal engine.
@@ -177,7 +194,7 @@ HF_HUB_ENABLE_HF_TRANSFER=1 ./ltx-2-mlx/env/bin/hf download \
 ./ltx-2-mlx/env/bin/python3.11 mlx_ltx_panel.py
 ```
 
-About the version pins: `mlx 0.31.2` attenuates the LTX vocoder by 22 dB. Stay on 0.31.1. `ltx-2-mlx` is pinned to `v0.14.8` — we track a known-good tag, never upstream `main`. `mflux 0.17.5` is the version `patch_mflux_fbcache.py` is line-targeted against.
+About the version pins: `mlx 0.31.2` attenuates the LTX vocoder by 22 dB. Stay on 0.31.1. `ltx-2-mlx` is pinned to the immutable commit behind `v0.14.8`, never upstream `main`. The full Python resolution used by fresh installs is constrained in `runtime-constraints.txt`; update that file only after resolution, vulnerability scanning, and runtime validation. `mflux 0.18.0` is the version `patch_mflux_fbcache.py` is line-targeted against.
 
 ## Interface
 
@@ -269,4 +286,8 @@ Phosphene is free and open source.
 
 ## Network note
 
-Phosphene runs locally. No telemetry. A clean production install checks GitHub every 30 minutes for an update badge, and only touches Hugging Face or CivitAI when you download models or LoRAs. Disable the update check with `PHOSPHENE_DISABLE_VERSION_CHECK=1`. The panel binds to `127.0.0.1` with no auth. It's not designed for LAN exposure or tunneling.
+Phosphene's default generation path is local and has no telemetry. A clean production install checks GitHub every 30 minutes for a read-only update badge; disable that with `PHOSPHENE_DISABLE_VERSION_CHECK=1`. In-panel code mutation is disabled by default—review changes and use Pinokio's explicit Update action. Power users can opt in with `PHOSPHENE_ENABLE_SELF_UPDATE=1`; destructive reset recovery additionally requires `PHOSPHENE_ALLOW_DESTRUCTIVE_UPDATE=1`.
+
+The maintainer repo-statistics dashboard is disabled by default and never reads `GH_TOKEN`, `GITHUB_TOKEN`, or the GitHub CLI keychain. Enabling it requires both `PHOSPHENE_ENABLE_REPO_STATS=1` and a purpose-specific `PHOSPHENE_REPO_STATS_TOKEN`. Hugging Face and CivitAI are contacted when their models or LoRAs are downloaded. Optional BFL generation sends prompts to `api.bfl.ml` after the user configures a BFL key.
+
+The panel binds to `127.0.0.1` with no API authentication. It rejects non-loopback Host/Origin values and sends anti-framing/browser security headers, but it is not designed for LAN exposure, tunneling, or an untrusted multi-user Mac. See [SECURITY.md](SECURITY.md) for the threat model and hardening guidance.

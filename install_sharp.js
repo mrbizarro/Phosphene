@@ -9,7 +9,7 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        message: "./ltx-2-mlx/env/bin/pip install 'pipersr==1.0.0'"
+        message: "./ltx-2-mlx/env/bin/pip install -c runtime-constraints.txt 'pipersr==1.0.0'"
       }
     },
     {

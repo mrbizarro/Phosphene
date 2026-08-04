@@ -401,12 +401,13 @@ def _lora_fingerprint(loras: list[dict] | None) -> tuple:
     if not loras:
         return ()
     return tuple(sorted(
-        (str(l.get("path", "")), float(l.get("strength", 1.0)))
+        (str(l.get("path", "")), str(l.get("revision", "")),
+         float(l.get("strength", 1.0)))
         for l in loras
     ))
 
 
-def _resolve_lora_path(path: str) -> str:
+def _resolve_lora_path(path: str, revision: str | None = None) -> str:
     """Resolve a LoRA path to a local .safetensors file.
 
     The upstream `_pending_loras` hook calls SafetensorsStateDictLoader
@@ -442,7 +443,11 @@ def _resolve_lora_path(path: str) -> str:
             f"need huggingface_hub to resolve HF LoRA {p}: {exc}"
         ) from exc
     try:
-        repo_dir = snapshot_download(repo_id=p, allow_patterns=["*.safetensors"])
+        repo_dir = snapshot_download(
+            repo_id=p,
+            revision=revision or None,
+            allow_patterns=["*.safetensors"],
+        )
     except GatedRepoError as exc:
         # Most Lightricks LoRAs are gated — they require accepting a
         # license on the model page AND an HF token authenticated with
@@ -829,7 +834,7 @@ def _attach_loras(pipe, loras: list[dict] | None) -> None:
         return
     pairs = []
     for l in loras:
-        path = _resolve_lora_path(str(l["path"]))
+        path = _resolve_lora_path(str(l["path"]), l.get("revision"))
         strength = float(l.get("strength", 1.0))
         pairs.append((path, strength))
         emit({"event": "log",
@@ -2693,7 +2698,8 @@ for line in sys.__stdin__:
             # Resolve each LoRA path (HF repo id → local safetensors via
             # snapshot_download + largest-file pick; absolute path → pass-through).
             resolved = [
-                (_resolve_lora_path(str(l["path"])), float(l.get("strength", 1.0)))
+                (_resolve_lora_path(str(l["path"]), l.get("revision")),
+                 float(l.get("strength", 1.0)))
                 for l in loras
             ]
             num_frames = int(p["frames"])
@@ -2810,7 +2816,8 @@ for line in sys.__stdin__:
             # Resolve each LoRA path (HF repo id → local safetensors via
             # snapshot_download + largest-file pick; absolute path → pass-through).
             resolved = [
-                (_resolve_lora_path(str(l["path"])), float(l.get("strength", 1.0)))
+                (_resolve_lora_path(str(l["path"]), l.get("revision")),
+                 float(l.get("strength", 1.0)))
                 for l in loras
             ]
             num_frames = int(p["frames"])

@@ -45,6 +45,12 @@ from urllib.parse import parse_qs, quote, urlparse
 # External agents drive Phosphene via the HTTP API documented in docs/API.md.
 # Pre-removal snapshot: git tag pre-agent-removal-2026-05-15.
 import image_engine as agent_image_engine
+from phosphene_security import (
+    SECURITY_HEADERS,
+    is_trusted_loopback_request,
+    sanitized_subprocess_env,
+    validated_bfl_base_url,
+)
 
 # Agent-facing Ideogram 4 caption builder + validator (pure stdlib). Powers
 # the GET /image/agent/schema + POST /image/agent endpoints — a clean JSON
@@ -137,7 +143,7 @@ FFPROBE = FFMPEG.parent / "ffprobe"  # ships next to ffmpeg in every distributio
 Q4_LOCAL_PATH = MODELS_DIR / "ltx-2.3-mlx-q4"
 MODEL_ID = os.environ.get(
     "LTX_MODEL",
-    str(Q4_LOCAL_PATH) if Q4_LOCAL_PATH.is_dir() else "dgrauet/ltx-2.3-mlx-q4",
+    str(Q4_LOCAL_PATH),
 )
 MODEL_ID_HQ = os.environ.get("LTX_MODEL_HQ", "dgrauet/ltx-2.3-mlx-q8")
 # Q8 model is detected on disk so the High quality tier can be conditionally enabled.
@@ -204,6 +210,17 @@ PROFILE = _detect_profile()
 MODEL_UPSCALE_ENABLED = _optional_bool_env("LTX_ENABLE_MODEL_UPSCALE") is True
 PIPERSR_UPSCALE_ENABLED = _optional_bool_env("LTX_ENABLE_PIPERSR") is not False and importlib.util.find_spec("pipersr") is not None
 VERSION_CHECK_ENABLED = _optional_bool_env("PHOSPHENE_DISABLE_VERSION_CHECK") is not True
+# Code updates are intentionally a separate opt-in from the read-only version
+# check. A local media panel should not turn a remote mutable branch into code
+# running with the user's full account privileges merely because a UI pill was
+# clicked. Pinokio's explicit Update action remains available.
+SELF_UPDATE_ENABLED = _optional_bool_env("PHOSPHENE_ENABLE_SELF_UPDATE") is True
+DESTRUCTIVE_UPDATE_ENABLED = (
+    _optional_bool_env("PHOSPHENE_ALLOW_DESTRUCTIVE_UPDATE") is True
+)
+# Maintainer traffic statistics require a push-capable GitHub token. They are
+# unrelated to generation and therefore disabled unless explicitly enabled.
+REPO_STATS_ENABLED = _optional_bool_env("PHOSPHENE_ENABLE_REPO_STATS") is True
 # Default port: 8198 production, 8199 dev — so both panels can run side by
 # side. LTX_PORT env var still overrides if the user wants something else.
 DEFAULT_PORT = 8199 if PROFILE == "dev" else 8198
@@ -715,6 +732,7 @@ CURATED_LORAS: dict[str, dict] = {
                        "the form, not buried under LoRAs — most users won't "
                        "want to know what's under the hood.",
         "repo_id": "Lightricks/LTX-2.3-22b-IC-LoRA-HDR",
+        "revision": "577ab50f447358d00ba68ef204648dfe05646300",
         "default_strength": 1.0,
         "trigger_words": [],          # HDR is conditioning-style, no trigger
         "is_curated": True,
@@ -727,6 +745,7 @@ CURATED_LORAS: dict[str, dict] = {
                        "Pairs with a video conditioning input for motion "
                        "transfer-style workflows.",
         "repo_id": "Lightricks/LTX-2.3-22b-IC-LoRA-Motion-Track-Control",
+        "revision": "572bb9c9a1ba3d8e8724cce69783ffc2422386db",
         "default_strength": 1.0,
         "trigger_words": [],
         "is_curated": True,
@@ -759,6 +778,7 @@ CURATED_LORAS: dict[str, dict] = {
                        "reference channel at follow-strength. Un-gated official "
                        "weight — no HF token needed.",
         "repo_id": "Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control",
+        "revision": "b4d1c4d8c9e544e9bbbd6811bb4363708b6093ff",
         # Local file the installer fetches (see required_files.json →
         # repos[ic_union_control] + install.js/update.js). Preferred over repo_id
         # so the helper fuses a local .safetensors with no snapshot_download.
@@ -783,6 +803,7 @@ CURATED_LORAS: dict[str, dict] = {
                        "mode; takes the source video on the IC reference "
                        "channel. Un-gated — no HF token needed.",
         "repo_id": "DoctorDiffusion/LTX-2.3-IC-LoRA-Colorizer",
+        "revision": "2358e0e09a2205c6fda7f6e087757f0347d7f0ad",
         # Local file the installer fetches (see required_files.json →
         # repos[ic_colorize] + install.js/update.js). Preferred over repo_id so
         # the helper fuses a local .safetensors with no snapshot_download.
@@ -826,6 +847,7 @@ CURATED_LORAS: dict[str, dict] = {
                        "Un-gated mirror — no HF token needed.",
         # Un-gated mirror that carries the byte-identical official weight.
         "repo_id": "DeepBeepMeep/LTX-2",
+        "revision": "dd73f87f2dcd6fb0cfcb1a84c9e795930f573bb3",
         # Exact file WITHIN that mega-repo — the worker fetches ONLY this file
         # (hf_hub_download), never the whole 708 GB repo.
         "repo_file": "ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors",
@@ -1249,11 +1271,33 @@ TRAIN_CAPTION_MAX_BYTES = 64 * 1024              # 64 KB per caption (huge headr
 # /train/upload-bundle limits — covers 50 images × ~10 MB each, plus captions.
 TRAIN_BUNDLE_MAX_BYTES = 500 * 1024 * 1024        # 500 MB upper bound
 TRAIN_BUNDLE_MAX_ENTRIES = 200                    # paranoia cap on ZIP entries
+TRAIN_BUNDLE_MAX_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024  # ZIP-bomb ceiling
 # Allowed entry name pattern — basename only, no subdirs, no path traversal.
 # Stem ≤ 64 chars, then a single dot + one of our extensions.
 TRAIN_BUNDLE_NAME_RE = re.compile(
     r"^[A-Za-z0-9_\-]{1,64}\.(png|jpg|jpeg|webp|txt)$"
 )
+
+
+def _train_bundle_size_error(entries: list[zipfile.ZipInfo]) -> str | None:
+    """Return a rejection reason for an oversized or ZIP-bomb-like bundle."""
+    if len(entries) > TRAIN_BUNDLE_MAX_ENTRIES:
+        return f"too many entries in ZIP (max {TRAIN_BUNDLE_MAX_ENTRIES})"
+    declared_uncompressed = sum(max(0, info.file_size) for info in entries)
+    if declared_uncompressed > TRAIN_BUNDLE_MAX_UNCOMPRESSED_BYTES:
+        return "ZIP expands beyond the 1 GB safety limit"
+    for info in entries:
+        name = Path(info.filename).name
+        if not name or not TRAIN_BUNDLE_NAME_RE.fullmatch(name):
+            continue
+        limit = (
+            TRAIN_CAPTION_MAX_BYTES
+            if Path(name).suffix.lower() == ".txt"
+            else TRAIN_MAX_BYTES_PER_IMAGE
+        )
+        if info.file_size < 0 or info.file_size > limit:
+            return f"ZIP entry {name!r} exceeds its per-file safety limit"
+    return None
 
 # Voice clip rules. The voice clip is optional — if the user uploads one and
 # flips the toggle, run_train_job_inner chains a second `lora_lab.train_audio`
@@ -1690,6 +1734,9 @@ def _train_install_dev_transformer(push_log) -> dict:
                          f"({DOWNLOAD.get('repo_id', '?')})."}
 
     repo_id = "dgrauet/ltx-2.3-mlx-q4"
+    repo_def = next((r for r in _REQUIRED.get("repos", [])
+                     if r.get("key") == "q4"), {})
+    revision = repo_def.get("revision")
     local_dir = ROOT / "mlx_models" / "ltx-2.3-mlx-q4"
     local_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1697,11 +1744,13 @@ def _train_install_dev_transformer(push_log) -> dict:
     if hf_bin is None:
         return {"ok": False, "error": "hf CLI not found on PATH."}
 
-    cmd = [str(hf_bin), "download", repo_id,
-           "--include", "transformer-dev.safetensors",
-           "--local-dir", str(local_dir)]
+    cmd = [str(hf_bin), "download", repo_id]
+    if revision:
+        cmd.extend(["--revision", revision])
+    cmd.extend(["--include", "transformer-dev.safetensors",
+                "--local-dir", str(local_dir)])
 
-    env = dict(os.environ)
+    env = sanitized_subprocess_env()
     hf_token = _active_hf_token()
     if hf_token:
         env["HF_TOKEN"] = hf_token
@@ -2502,6 +2551,7 @@ _VERSION_STATE: dict = {
     "pull_pulled_to_short": None,  # SHA we ended up at after the pull
     "pull_pulled_to_version": None,# VERSION label after the pull
     "pull_requires_full_update": False,  # True if the diff touched deps/patches
+    "self_update_enabled": SELF_UPDATE_ENABLED,
 }
 
 
@@ -2717,8 +2767,9 @@ def get_version_state() -> dict:
 # Runs the stdlib-only fetcher script as a subprocess once per 24h, appending
 # a JSON line to state/stats-data.jsonl. Dashboard at /stats reads this file.
 # 127.0.0.1-only by design (state/ is gitignored, file lives on the user's
-# Mac only). Skipped silently if no GitHub token is resolvable — no telemetry
-# is the floor, this is opt-in via "have a token configured".
+# Mac only). The entire feature is disabled unless
+# PHOSPHENE_ENABLE_REPO_STATS=1. Merely having a GitHub credential elsewhere
+# on the machine is never consent to hand it to this process.
 # ---------------------------------------------------------------------------
 
 _STATS_POLL_INTERVAL_SEC = 24 * 60 * 60  # daily
@@ -2727,25 +2778,15 @@ _STATS_MIN_REFETCH_SEC   = 6 * 60 * 60   # don't re-fetch faster than every 6h
 
 
 def _resolve_github_token() -> str:
-    """Token resolution for the stats fetcher, in priority order:
-       1. PHOSPHENE_REPO_STATS_TOKEN — explicit override for this purpose
-       2. GH_STATS_TOKEN — fetcher's own preferred name
-       3. GH_TOKEN / GITHUB_TOKEN — generic env vars
-       4. `gh auth token` subprocess (when gh CLI is installed + authed)
-    Returns empty string if nothing works — caller logs once and skips."""
-    for name in ("PHOSPHENE_REPO_STATS_TOKEN", "GH_STATS_TOKEN",
-                 "GH_TOKEN", "GITHUB_TOKEN"):
-        v = (os.environ.get(name) or "").strip()
-        if v:
-            return v
-    try:
-        out = subprocess.run(
-            ["gh", "auth", "token"], check=True, capture_output=True,
-            timeout=5, text=True,
-        )
-        return (out.stdout or "").strip()
-    except (FileNotFoundError, subprocess.SubprocessError):
+    """Return only the credential explicitly dedicated to repo statistics.
+
+    Do not fall back to GH_TOKEN, GITHUB_TOKEN, or ``gh auth token``. Those
+    credentials commonly have write access to unrelated private repositories
+    and their mere presence is not informed opt-in for a local dashboard.
+    """
+    if not REPO_STATS_ENABLED:
         return ""
+    return (os.environ.get("PHOSPHENE_REPO_STATS_TOKEN") or "").strip()
 
 
 _STATS_WARNED_NO_TOKEN = False
@@ -2763,15 +2804,16 @@ def _run_stats_fetch_once() -> None:
     if not token:
         if not _STATS_WARNED_NO_TOKEN:
             push(
-                "stats: no GitHub token resolvable (tried "
-                "PHOSPHENE_REPO_STATS_TOKEN, GH_STATS_TOKEN, GH_TOKEN, "
-                "GITHUB_TOKEN, `gh auth token`). Dashboard will be empty "
-                "until you set one. See docs/stats-README.md."
+                "stats: enabled but PHOSPHENE_REPO_STATS_TOKEN is not set. "
+                "Dashboard refresh skipped; generation is unaffected."
             )
             _STATS_WARNED_NO_TOKEN = True
         return
-    env = os.environ.copy()
-    env["GITHUB_TOKEN"] = token
+    stats_extra = {"PHOSPHENE_REPO_STATS_TOKEN": token}
+    repo_override = (os.environ.get("PHOSPHENE_REPO") or "").strip()
+    if repo_override:
+        stats_extra["PHOSPHENE_REPO"] = repo_override
+    env = sanitized_subprocess_env(extra=stats_extra)
     try:
         cp = subprocess.run(
             [sys.executable, str(STATS_FETCHER)],
@@ -2868,13 +2910,27 @@ def parse_loras_from_form(form: dict) -> list[dict]:
         # Clamp; LoRA strengths beyond ±2 are usually nonsense and risk
         # numerical issues during fusion.
         strength = max(-2.0, min(2.0, strength))
-        out.append({"path": path, "strength": strength})
+        entry = {"path": path, "strength": strength}
+        curated = next(
+            (meta for meta in CURATED_LORAS.values()
+             if meta.get("repo_id") == path),
+            None,
+        )
+        if curated and curated.get("revision"):
+            entry["revision"] = curated["revision"]
+        out.append(entry)
     return out
 
 
 def _repos() -> list[dict]:
     """All repo entries from required_files.json (list, in order)."""
     return list(_REQUIRED.get("repos", []))
+
+
+def _repo_revision(key: str) -> str:
+    """Immutable Hugging Face revision for a required model repository."""
+    repo = next((r for r in _repos() if r.get("key") == key), {})
+    return str(repo.get("revision") or "")
 
 
 def _repo_missing(repo: dict) -> list[str]:
@@ -2925,13 +2981,19 @@ def _hf_cache_root() -> Path:
     return Path.home() / ".cache/huggingface/hub"
 
 
-def _repo_hf_cache_dir(repo_id: str) -> Path | None:
-    """Return the most recent snapshot dir for repo_id in the HF cache, or
-    None if not present. Layout: <cache>/models--<owner>--<repo>/snapshots/<rev>/"""
+def _repo_hf_cache_dir(repo_id: str, revision: str | None = None) -> Path | None:
+    """Return a snapshot dir for repo_id in the HF cache, or None.
+
+    Required models pass their immutable manifest revision. Other optional
+    integrations retain the previous most-recent-cache behavior.
+    """
     safe = repo_id.replace("/", "--")
     base = _hf_cache_root() / f"models--{safe}" / "snapshots"
     if not base.is_dir():
         return None
+    if revision:
+        pinned = base / revision
+        return pinned if pinned.is_dir() else None
     revs = []
     try:
         for d in base.iterdir():
@@ -2973,7 +3035,7 @@ def _repo_missing_in_cache(repo: dict) -> list[str] | None:
     the repo isn't in the cache at all (caller treats None as "fall back to
     local-dir reporting"). HF cache stores symlinks to ../blobs/<hash>; we
     follow them and check size on the actual blob."""
-    cache_dir = _repo_hf_cache_dir(repo["repo_id"])
+    cache_dir = _repo_hf_cache_dir(repo["repo_id"], repo.get("revision"))
     if cache_dir is None:
         return None
     missing = []
@@ -3091,7 +3153,7 @@ def repo_status_list() -> list[dict]:
             where = "hf_cache"
             missing = cache_missing
             present = cache_present
-            location = str(_repo_hf_cache_dir(r["repo_id"]) or _hf_cache_root())
+            location = str(_repo_hf_cache_dir(r["repo_id"], r.get("revision")) or _hf_cache_root())
         else:
             where = "local_dir"
             missing = local_missing
@@ -3219,24 +3281,26 @@ def _model_integrity(force: bool = False) -> dict:
 # It hashes every byte (~1-2 min/repo), so it is ON-DEMAND only — never on boot
 # or in the /status hot path. Runs in a daemon thread; progress + result live in
 # _DEEP_VERIFY and are surfaced via /status.deep_verify.
-_UPSTREAM_SHA_CACHE: dict = {}          # repo_id -> {filename: sha256}
+_UPSTREAM_SHA_CACHE: dict = {}          # (repo_id, revision) -> {filename: sha256}
 _UPSTREAM_SHA_LOCK = threading.Lock()
 _DEEP_VERIFY_LOCK = threading.Lock()
 _DEEP_VERIFY: dict = {"active": False, "result": None, "progress": "", "started_ts": 0.0}
 
 
-def _upstream_shas(repo_id: str) -> dict:
+def _upstream_shas(repo_id: str, revision: str | None = None) -> dict:
     """filename -> published SHA-256 from HuggingFace LFS metadata, cached for
     the session (upstream rarely changes mid-session). Returns {} on any
     network/lib failure — the caller treats 'unknown' as unverifiable, never as
     corrupt, so a flaky lookup can never trigger a spurious re-download."""
+    cache_key = (repo_id, revision or "")
     with _UPSTREAM_SHA_LOCK:
-        if repo_id in _UPSTREAM_SHA_CACHE:
-            return _UPSTREAM_SHA_CACHE[repo_id]
+        if cache_key in _UPSTREAM_SHA_CACHE:
+            return _UPSTREAM_SHA_CACHE[cache_key]
     out: dict = {}
     try:
         from huggingface_hub import HfApi
-        info = HfApi().repo_info(repo_id, files_metadata=True,
+        info = HfApi().repo_info(repo_id, revision=revision,
+                                 files_metadata=True,
                                  token=_active_hf_token() or None)
         for s in info.siblings:
             lfs = getattr(s, "lfs", None)
@@ -3247,7 +3311,7 @@ def _upstream_shas(repo_id: str) -> dict:
         push(f"[deep-verify] upstream checksum lookup failed for {repo_id}: {e}")
         return {}
     with _UPSTREAM_SHA_LOCK:
-        _UPSTREAM_SHA_CACHE[repo_id] = out
+        _UPSTREAM_SHA_CACHE[cache_key] = out
     return out
 
 
@@ -3274,7 +3338,7 @@ def _deep_verify_thread() -> None:
             repo_def = defs.get(r["key"], {})
             repo_id = repo_def.get("repo_id", "")
             base = Path(r.get("location") or (ROOT / r["local_dir"]))
-            up = _upstream_shas(repo_id)
+            up = _upstream_shas(repo_id, repo_def.get("revision"))
             for fname in repo_def.get("files", []):
                 if not fname.endswith(".safetensors"):
                     continue
@@ -3376,7 +3440,11 @@ def _download_thread(repo: dict) -> None:
     repo_id = repo["repo_id"]
     target = ROOT / repo["local_dir"]
     target.mkdir(parents=True, exist_ok=True)
-    cmd = [str(HF_BIN), "download", repo_id, "--local-dir", str(target)]
+    cmd = [str(HF_BIN), "download", repo_id]
+    revision = repo.get("revision")
+    if revision:
+        cmd.extend(["--revision", revision])
+    cmd.extend(["--local-dir", str(target)])
     # Y1.024 — apply --include filter when the repo entry declares one. Without
     # it `hf download` grabs every file in the upstream repo. dgrauet's LTX
     # repos host duplicate transformer variants (-distilled, -distilled-1.1,
@@ -3397,7 +3465,7 @@ def _download_thread(repo: dict) -> None:
     # and falls back to the Python downloader (slower but still works).
     # HF_TOKEN unlocks faster throughput for users who configured a token
     # in Settings — anonymous HF is throttled hard.
-    env = os.environ.copy()
+    env = sanitized_subprocess_env()
     env["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
     hf_token = _active_hf_token()
     if hf_token:
@@ -4972,6 +5040,7 @@ def _ensure_ingredients_lora() -> str:
     got = hf_hub_download(
         repo_id=repo_id,
         filename=repo_file,
+        revision=meta.get("revision"),
         local_dir=str(dest_dir),
     )
     return str(got)
@@ -5310,7 +5379,7 @@ class WarmHelper:
         with self.lock:
             if self.proc is not None and self.proc.poll() is None:
                 return
-            env = os.environ.copy()
+            env = sanitized_subprocess_env()
             env["PATH"] = f"{FFMPEG_BIN}:{env.get('PATH', '')}"
             env["LTX_MODEL"] = MODEL_ID
             env["LTX_GEMMA"] = str(GEMMA)
@@ -5330,19 +5399,14 @@ class WarmHelper:
             #   HF_TOKEN  → huggingface_hub.snapshot_download() picks it
             #     up automatically when the helper resolves a gated LoRA
             #     (Lightricks HDR, etc.).
-            #   CIVITAI_API_KEY → not used by the helper currently
-            #     (CivitAI downloads happen panel-side), but threaded
-            #     through anyway so future helper-side CivitAI code
-            #     inherits without ceremony.
+            # CivitAI credentials are deliberately not passed: downloads are
+            # panel-side, and unused secrets do not belong in model code.
             _hf = _active_hf_token()
             if _hf:
                 env["HF_TOKEN"] = _hf
                 # huggingface_hub also reads HUGGING_FACE_HUB_TOKEN —
                 # set both so older lib versions work too.
                 env["HUGGING_FACE_HUB_TOKEN"] = _hf
-            _civ = _active_civitai_key()
-            if _civ:
-                env["CIVITAI_API_KEY"] = _civ
             push(f"Spawning warm helper (low_memory={HELPER_LOW_MEMORY}, idle_timeout={HELPER_IDLE_TIMEOUT}s)")
             self.proc = subprocess.Popen(
                 [str(HELPER_PYTHON), str(HELPER_SCRIPT)],
@@ -5843,7 +5907,7 @@ def compute_upscale_plan(w: int, h: int, mode: str | None,
 def run_postprocess_tracked(cmd: list[str], label: str) -> tuple[str, str]:
     """Run a post-process in its own process group so /stop can kill it."""
     push(f"{label}: " + " ".join(shlex.quote(c) for c in cmd))
-    env = os.environ.copy()
+    env = sanitized_subprocess_env()
     env["PATH"] = f"{FFMPEG_BIN}:{env.get('PATH', '')}"
     proc = subprocess.Popen(
         cmd, env=env, text=True,
@@ -7346,7 +7410,16 @@ def run_train_job_inner(job: dict) -> None:
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
-            env={**os.environ},
+            env=sanitized_subprocess_env(
+                extra={
+                    key: value
+                    for key, value in {
+                        "HF_TOKEN": _active_hf_token(),
+                        "HUGGING_FACE_HUB_TOKEN": _active_hf_token(),
+                    }.items()
+                    if value
+                },
+            ),
             # Own process group so /stop can take down the entire trainer
             # tree (train_character + its lora_lab + LtxvTrainer threads +
             # any ffmpeg helpers) with a single os.killpg. Without this,
@@ -7603,7 +7676,16 @@ def run_train_job_inner(job: dict) -> None:
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
-            env={**os.environ},
+            env=sanitized_subprocess_env(
+                extra={
+                    key: value
+                    for key, value in {
+                        "HF_TOKEN": _active_hf_token(),
+                        "HUGGING_FACE_HUB_TOKEN": _active_hf_token(),
+                    }.items()
+                    if value
+                },
+            ),
             # Same reasoning as the face trainer above — own pgid so
             # /stop can SIGTERM the whole audio tree at once.
             start_new_session=True,
@@ -7841,7 +7923,7 @@ def run_h3_job_inner(job: dict) -> None:
     if first_frame is not None:
         cmd += ["--first-frame", str(first_frame)]
 
-    env = os.environ.copy()
+    env = sanitized_subprocess_env()
     # The runner pipes raw RGB into `ffmpeg` from PATH (minimax_h3_mlx.media);
     # Pinokio's bundled binary is not on the default PATH.
     env["PATH"] = f"{FFMPEG_BIN}:{env.get('PATH', '')}"
@@ -8231,6 +8313,7 @@ def run_job_inner(job: dict) -> None:
         control_loras = list(p.get("loras") or []) + [{
             "path": control_lora_path,
             "strength": strength,
+            "revision": ctl_meta.get("revision"),
         }]
         # IC reference STRENGTH — the FOLLOW lever (second element of each
         # video_conditioning tuple). VideoConditionByReferenceLatent holds the
@@ -8351,6 +8434,7 @@ def run_job_inner(job: dict) -> None:
         restore_loras = list(p.get("loras") or []) + [{
             "path": colorize_lora_path,
             "strength": strength,
+            "revision": CURATED_LORAS["colorize"].get("revision"),
         }]
         out_name = original_src.stem + f"_colorized_{stamp}.mp4"
         final_out = OUTPUT / out_name
@@ -8654,7 +8738,8 @@ def run_job_inner(job: dict) -> None:
                 f"Keyframe mode requires the full Q8 model at {Q8_LOCAL_PATH}. "
                 f"Missing {len(kf_missing)} file(s): {', '.join(kf_missing[:3])}"
                 f"{' …' if len(kf_missing) > 3 else ''}. "
-                f"Run: hf download {MODEL_ID_HQ} --local-dir {Q8_LOCAL_PATH}"
+                f"Run: hf download {MODEL_ID_HQ} --revision {_repo_revision('q8')} "
+                f"--local-dir {Q8_LOCAL_PATH}"
             )
         # Multi-keyframe path: agent submits a JSON-encoded list of
         # {image_path, frame_index} pairs. Layer 1 of the SDK shipped the
@@ -8864,6 +8949,7 @@ def run_job_inner(job: dict) -> None:
             a2v_loras.append({
                 "path": CURATED_LORAS["hdr"]["repo_id"],
                 "strength": float(CURATED_LORAS["hdr"]["default_strength"]),
+                "revision": CURATED_LORAS["hdr"].get("revision"),
             })
         a2v_params = {
             "model_dir": model_dir,
@@ -9082,6 +9168,7 @@ def run_job_inner(job: dict) -> None:
         hdr_loras = list(user_loras_pre_hdr) + [{
             "path": CURATED_LORAS["hdr"]["repo_id"],
             "strength": float(CURATED_LORAS["hdr"]["default_strength"]),
+            "revision": CURATED_LORAS["hdr"].get("revision"),
         }]
         job_spec = {
             "action": "generate_hdr",
@@ -9147,7 +9234,8 @@ def run_job_inner(job: dict) -> None:
                 f"High quality requires the full Q8 model at {Q8_LOCAL_PATH}. "
                 f"Missing {len(hq_missing)} file(s): {', '.join(hq_missing[:3])}"
                 f"{' …' if len(hq_missing) > 3 else ''}. "
-                f"Run: hf download {MODEL_ID_HQ} --local-dir {Q8_LOCAL_PATH}"
+                f"Run: hf download {MODEL_ID_HQ} --revision {_repo_revision('q8')} "
+                f"--local-dir {Q8_LOCAL_PATH}"
             )
         # HQ is the only inference path that runs the dev transformer with
         # CFG and the full sigma schedule — which is exactly what character
@@ -9160,6 +9248,7 @@ def run_job_inner(job: dict) -> None:
             hq_loras.append({
                 "path": CURATED_LORAS["hdr"]["repo_id"],
                 "strength": float(CURATED_LORAS["hdr"]["default_strength"]),
+                "revision": CURATED_LORAS["hdr"].get("revision"),
             })
         job_spec = {
             "action": "generate_hq",
@@ -9242,6 +9331,7 @@ def run_job_inner(job: dict) -> None:
             loras.append({
                 "path": CURATED_LORAS["hdr"]["repo_id"],
                 "strength": float(CURATED_LORAS["hdr"]["default_strength"]),
+                "revision": CURATED_LORAS["hdr"].get("revision"),
             })
         job_spec = {
             "action": "generate",
@@ -9966,6 +10056,10 @@ def _save_agent_image_config(updates: dict) -> agent_image_engine.ImageEngineCon
             if k == "mflux_python_path":
                 # Raises ValueError on bad input; HTTP layer maps to 400.
                 v = _validate_mflux_python_path(v)
+            if k == "bfl_base_url":
+                # The BFL key is attached to every request. Never let a
+                # settings update redirect it away from the official API.
+                v = validated_bfl_base_url(str(v))
             merged[k] = v
         cfg = agent_image_engine.ImageEngineConfig(**merged)
         STATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -10031,6 +10125,12 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):  # noqa: A002
         return
 
+    def end_headers(self) -> None:
+        """Attach browser hardening to every success and error response."""
+        for name, value in SECURITY_HEADERS.items():
+            self.send_header(name, value)
+        super().end_headers()
+
     def _is_local_request(self) -> bool:
         """Reject DNS-rebinding and `Origin: null` CSRF attacks.
 
@@ -10043,37 +10143,20 @@ class Handler(BaseHTTPRequestHandler):
 
         Rules:
           - Host header must be loopback (127.0.0.1, [::1], localhost) on
-            our PORT, or empty (some local tooling omits it).
-          - If Origin is present it must be loopback. `Origin: null` is
-            REJECTED — browsers send `null` for `file://` pages, sandboxed
-            iframes, opaque-origin redirects, and some PDF viewers, which
-            is exactly the CSRF surface a local malicious HTML drop would
-            use. The legitimate panel UI always sends the loopback origin.
+            our actual listening port, or empty (some local tooling omits it).
+          - If Origin is present it must match the request's loopback host and
+            port exactly. `Origin: null` is REJECTED — browsers send `null`
+            for `file://` pages, sandboxed iframes, opaque-origin redirects,
+            and some PDF viewers, which is exactly the CSRF surface a local
+            malicious HTML drop would use.
           - Referer-based fallback is intentionally not honored.
         """
-        host = (self.headers.get("Host") or "").strip().lower()
-        # Host can include the port; strip it.
-        host_name = host.rsplit(":", 1)[0] if host else ""
-        if host_name.startswith("[") and host_name.endswith("]"):
-            host_name = host_name[1:-1]
-        allowed = {"127.0.0.1", "::1", "localhost", ""}
-        if host_name not in allowed:
-            return False
-        origin = (self.headers.get("Origin") or "").strip().lower()
-        if origin:
-            # Treat `null` as untrusted — see docstring.
-            if origin == "null":
-                return False
-            try:
-                from urllib.parse import urlparse as _u
-                ohost = (_u(origin).hostname or "").lower()
-                if ohost.startswith("[") and ohost.endswith("]"):
-                    ohost = ohost[1:-1]
-                if ohost not in {"127.0.0.1", "::1", "localhost"}:
-                    return False
-            except Exception:
-                return False
-        return True
+        server_port = int(getattr(self.server, "server_port", PORT))
+        return is_trusted_loopback_request(
+            self.headers.get("Host") or "",
+            self.headers.get("Origin") or "",
+            server_port,
+        )
 
     def _ok(self, body: bytes, content_type: str = "text/html; charset=utf-8") -> None:
         self.send_response(200)
@@ -11915,11 +11998,9 @@ class Handler(BaseHTTPRequestHandler):
                 # path traversal / unsupported types before doing any disk
                 # writes. The regex enforces basename + safe extension.
                 entries = [e for e in zf.infolist() if not e.is_dir()]
-                if len(entries) > TRAIN_BUNDLE_MAX_ENTRIES:
-                    self._json({
-                        "error": f"too many entries in ZIP (max "
-                                 f"{TRAIN_BUNDLE_MAX_ENTRIES})"
-                    }, 413)
+                size_error = _train_bundle_size_error(entries)
+                if size_error:
+                    self._json({"error": size_error}, 413)
                     return
 
                 validated: list[tuple[zipfile.ZipInfo, str, str]] = []  # (info, stem, ext)
@@ -13043,6 +13124,16 @@ class Handler(BaseHTTPRequestHandler):
                         stderr=subprocess.STDOUT,
                         text=True,
                         bufsize=1,
+                        env=sanitized_subprocess_env(
+                            extra={
+                                key: value
+                                for key, value in {
+                                    "HF_TOKEN": _active_hf_token(),
+                                    "HUGGING_FACE_HUB_TOKEN": _active_hf_token(),
+                                }.items()
+                                if value
+                            },
+                        ),
                         # Own process group so /stop's killpg can take down
                         # the captioner + any child it spawned.
                         start_new_session=True,
@@ -13714,6 +13805,21 @@ class Handler(BaseHTTPRequestHandler):
             # restart ourselves from inside our own process), but we
             # surface that clearly via the pull_state field.
             #
+            # Code mutation is disabled by default. The read-only version
+            # check still works, while updates stay in the explicit Pinokio
+            # flow where the command and terminal output are visible.
+            if not SELF_UPDATE_ENABLED:
+                self._json({
+                    "ok": False,
+                    "error": (
+                        "in-panel updates are disabled for security. Review "
+                        "the incoming changes, then use Pinokio Update. Power "
+                        "users can opt in with PHOSPHENE_ENABLE_SELF_UPDATE=1."
+                    ),
+                    "state": get_version_state(),
+                }, 403)
+                return
+
             # If the pulled diff touches dependency manifests / patch
             # scripts (anything that update.js does in addition to
             # `git pull`), we set pull_requires_full_update=True and the
@@ -13802,13 +13908,20 @@ class Handler(BaseHTTPRequestHandler):
                     capture_output=True, timeout=60,
                 )
                 pull_out = (pull_proc.stdout + pull_proc.stderr).decode("utf-8", "replace").strip()
-                # Step 3: if the fast-forward refused (history diverged from
-                # origin — e.g. because of a past force-push that scrubbed
-                # commit identities), fall back to a hard reset onto
-                # origin/main. Guards above already proved this is safe
-                # (clean tree + on main + nothing ahead), so the reset just
-                # snaps the diverged history back to upstream.
+                # Step 3: a hard reset is destructive even when the probes
+                # above believe the tree is disposable. Keep the historical
+                # recovery path available only behind an explicit power-user
+                # opt-in; default installs stop and direct the user to Reset →
+                # Install where the operation and preserved data are visible.
                 if pull_proc.returncode != 0:
+                    if not DESTRUCTIVE_UPDATE_ENABLED:
+                        raise RuntimeError(
+                            "fast-forward update refused; automatic hard reset "
+                            "is disabled. Use Pinokio Reset → Install, or set "
+                            "PHOSPHENE_ALLOW_DESTRUCTIVE_UPDATE=1 after "
+                            "reviewing the local repository state.\n"
+                            f"git pull: {pull_out}"
+                        )
                     reset_proc = subprocess.run(
                         ["git", "-C", str(ROOT), "reset", "--hard", "origin/main"],
                         capture_output=True, timeout=30,
@@ -13836,7 +13949,8 @@ class Handler(BaseHTTPRequestHandler):
                     deps_signals = (
                         "install.js", "update.js", "pinokio.js", "download_q8.js",
                         "patch_ltx_codec.py", "required_files.json",
-                        "requirements.txt", "pyproject.toml", "setup.py",
+                        "requirements.txt", "runtime-constraints.txt",
+                        "pyproject.toml", "setup.py",
                     )
                     for line in diff_out.splitlines():
                         if line in deps_signals or line.startswith("ltx-2-mlx/"):
@@ -35050,7 +35164,9 @@ function renderVersionPill() {
   if (!s.error && s.checked_ts && (s.behind_by | 0) > 0) {
     pill.classList.add('pill-update');
     pill.innerHTML = `<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-arrow-up"/></svg>Update to ${remote}`;
-    pill.title = `You're on ${local}; latest is ${remote}. Click to pull the update.`;
+    pill.title = s.self_update_enabled
+      ? `You're on ${local}; latest is ${remote}. Click to pull the update.`
+      : `You're on ${local}; latest is ${remote}. In-panel code updates are disabled. Click for the safe update instructions.`;
     return;
   }
   // Last check errored (offline).
@@ -35112,6 +35228,16 @@ async function versionPillClick() {
   }
   // Behind: pull the update.
   if (!s.error && s.checked_ts && (s.behind_by | 0) > 0) {
+    if (!s.self_update_enabled) {
+      alert(
+        `Phosphene found an update, but in-panel code mutation is disabled ` +
+        `by default. Review the incoming changes, then use Pinokio's Update ` +
+        `action so the command and dependency reinstall remain visible.\n\n` +
+        `Power users can restore the one-click path with ` +
+        `PHOSPHENE_ENABLE_SELF_UPDATE=1.`
+      );
+      return;
+    }
     await versionDoPull();
     return;
   }
@@ -35521,11 +35647,11 @@ if __name__ == "__main__":
         threading.Thread(target=version_check_loop, daemon=True).start()
     else:
         _detect_local_install_state()
-    # Repo-stats fetcher — appends to state/stats-data.jsonl daily so
-    # the dashboard at /stats has historic data. Data stays on disk in
-    # state/ (gitignored), never on the public repo. Skipped silently
-    # when no GitHub token is resolvable.
-    threading.Thread(target=stats_fetch_loop, daemon=True).start()
+    # Repo-stats is a maintainer-only feature requiring a privileged GitHub
+    # token. Never start it just because the user's shell or gh CLI happens to
+    # be authenticated; both the feature and its dedicated token are opt-in.
+    if REPO_STATS_ENABLED:
+        threading.Thread(target=stats_fetch_loop, daemon=True).start()
     # Pre-flight: bind in a try/except so a busy port surfaces an actionable
     # one-liner instead of a 6-frame Python traceback. The bare OSError
     # ("[Errno 48] Address already in use") was confusing users who'd closed

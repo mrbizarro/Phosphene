@@ -1,5 +1,5 @@
 {
-  "_comment": "Single source of truth for what counts as a complete install. Read by pinokio.js (sidebar menu), mlx_ltx_panel.py (/status, /models, run-time job validation), and consumed indirectly by install.js + download_q8.js (whose `hf download` calls land files at the local_dir paths listed below). When the upstream model layout changes, edit ONE file.",
+  "_comment": "Single source of truth for what counts as a complete install. Read by pinokio.js (sidebar menu), mlx_ltx_panel.py (/status, /models, run-time job validation), and consumed indirectly by install.js + download_q8.js (whose `hf download` calls land files at the local_dir paths listed below). Each repository is pinned to an immutable Hugging Face commit in `revision`; update that pin only after reviewing the changed files. When the upstream model layout changes, edit ONE file.",
 
   "_download_include_comment": "Y1.024 — `download_include` is the list of patterns passed as `--include` flags to `hf download`. Without it `hf download` grabs every file in the repo, which on dgrauet's LTX repos means duplicate transformer variants (transformer-distilled.safetensors AND transformer-distilled-1.1.safetensors AND transformer-dev.safetensors), duplicate distilled LoRAs (-384 and -384-1.1), the temporal upscaler we don't wire, and the x1.5 spatial upscaler we don't use — turning a declared 25 GB Q8 download into 82 GB on disk (and a 25 GB Q4 into 56 GB). With `download_include` we pull only what the panel actually loads. Pattern syntax: huggingface_hub fnmatch globs — bare filenames and wildcards both work. We pass `*.json` to keep all sidecar configs (split_model.json etc.) which are tiny and required at runtime.",
 
@@ -10,6 +10,7 @@
       "name": "LTX 2.3 — Q4 (base model, distilled)",
       "blurb": "Required. Drives Quick / Balanced / Standard renders.",
       "repo_id": "dgrauet/ltx-2.3-mlx-q4",
+      "revision": "9a55febea4843e38784fcfacdf73fcd4a5516aa2",
       "local_dir": "mlx_models/ltx-2.3-mlx-q4",
       "size_gb": 20,
       "files": [
@@ -38,6 +39,7 @@
       "name": "Gemma 3 12B (4-bit text encoder)",
       "blurb": "Required. Encodes the prompt for the diffusion model.",
       "repo_id": "mlx-community/gemma-3-12b-it-4bit",
+      "revision": "86cc6a8dedbc456dd0e4af01a9d09f396f77e558",
       "local_dir": "mlx_models/gemma-3-12b-it-4bit",
       "size_gb": 6,
       "files": [
@@ -53,6 +55,7 @@
       "name": "LTX 2.3 — Q8 (high-quality + FFLF)",
       "blurb": "Optional. Unlocks High quality and keyframe (FFLF) interpolation.",
       "repo_id": "dgrauet/ltx-2.3-mlx-q8",
+      "revision": "2929765d5bef857e62372a5a047d1c491fc3598e",
       "local_dir": "mlx_models/ltx-2.3-mlx-q8",
       "size_gb": 37,
       "files": [
@@ -83,6 +86,7 @@
       "name": "Colorize IC-LoRA (community)",
       "blurb": "Optional. Powers the Colorize restore mode — adds natural color to a B&W source clip. Un-gated community weights (no HF token).",
       "repo_id": "DoctorDiffusion/LTX-2.3-IC-LoRA-Colorizer",
+      "revision": "2358e0e09a2205c6fda7f6e087757f0347d7f0ad",
       "local_dir": "mlx_models/loras/ic",
       "size_gb": 1,
       "files": [
@@ -102,6 +106,7 @@
       "name": "Ingredients IC-LoRA",
       "blurb": "Optional. Powers the Ingredients mode — composes 2-8 reference images (face + prop + location) into one new video. Un-gated mirror of the official weight (no HF token).",
       "repo_id": "DeepBeepMeep/LTX-2",
+      "revision": "dd73f87f2dcd6fb0cfcb1a84c9e795930f573bb3",
       "local_dir": "mlx_models/loras/ic",
       "size_gb": 2,
       "files": [
@@ -121,6 +126,7 @@
       "name": "Control IC-LoRA (Union, official)",
       "blurb": "Optional. Powers the Control mode — drives motion/structure/composition from a control video. Official un-gated Lightricks weight (no HF token).",
       "repo_id": "Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control",
+      "revision": "b4d1c4d8c9e544e9bbbd6811bb4363708b6093ff",
       "local_dir": "mlx_models/loras/ic",
       "size_gb": 1,
       "files": [

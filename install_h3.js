@@ -30,6 +30,10 @@
 // older checkout degrades to Text-only instead of failing mid-render. Bump
 // this pin when the first-frame work is published.
 const H3_BRANCH = "codex/h3-engine"
+// Immutable identity reviewed with Phosphene v3.4.0. The branch above is used
+// only to make the object fetchable; executable code always checks out and
+// verifies this exact commit.
+const H3_COMMIT = "72da8d30c4f5b415a4dd5a1e8a9ac1e49afa0f34"
 
 module.exports = {
   requires: { bundle: "ai" },
@@ -72,15 +76,16 @@ module.exports = {
       }
     },
 
-    // Pin to the branch on every run, so Resume Install after a partial clone
-    // lands on the same code the panel was validated against.
+    // Fetch the source branch, then detach at the reviewed object. A moving
+    // branch name is not a security pin and must never select executable code.
     {
       method: "shell.run",
       params: {
         path: "minimax-h3-mlx",
         message: [
           "git fetch origin " + H3_BRANCH,
-          "git checkout " + H3_BRANCH,
+          "git checkout --detach " + H3_COMMIT,
+          "test \"$(git rev-parse HEAD)\" = \"" + H3_COMMIT + "\" || (echo 'ERROR: H3 commit verification failed' && exit 1)",
           "git rev-parse --short HEAD"
         ]
       }
@@ -113,17 +118,16 @@ module.exports = {
         path: "minimax-h3-mlx",
         message: [
           "echo '=== H3 dependencies ==='",
-          "uv pip install --python .venv/bin/python -r requirements.txt",
+          "uv pip install --python .venv/bin/python --constraint ../h3-constraints.txt -r requirements.txt",
           ".venv/bin/python -c \"import mlx.core as mx, numpy, PIL; print('H3 deps OK')\""
         ]
       }
     },
 
     // ---- Weights (~75 GB) --------------------------------------------------
-    // The repo's own scripts/download_selected.py is the source of truth for
-    // WHICH files the staged runner loads (pruned bf16 DiT + the Q8 compact
-    // components + the upstream text-encoder config). Calling it instead of
-    // re-listing filenames here means the manifest can never drift.
+    // Our local downloader mirrors the reviewed upstream selection but pins
+    // every repository to an immutable Hugging Face commit. This prevents a
+    // later model-repository update from silently changing a resumed install.
     //
     // It appends `models/` to whatever --root it is given, so the components
     // land at mlx_models/hailuo-h3/models/{deepbeep-pruned-bf16,ddalcu-q8,
@@ -147,7 +151,7 @@ module.exports = {
           HF_XET_HIGH_PERFORMANCE: "1"
         },
         message: [
-          ".venv/bin/python scripts/download_selected.py --root '{{cwd}}/mlx_models/hailuo-h3'"
+          ".venv/bin/python ../scripts/download_h3_models.py --root '{{cwd}}/mlx_models/hailuo-h3'"
         ]
       }
     },
