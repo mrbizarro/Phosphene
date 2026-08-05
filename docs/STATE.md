@@ -19,6 +19,35 @@
 >
 > **Deferred (not touched here, deliberately):** the *base* render — LTX with export `off` — is still untagged, because that mp4 is written by the vendored `ltx_core_mlx` encode that `patch_ltx_codec.py` patches at install time. That call has no `-vf`, so flags alone would be enough there; it was left alone because widening the CODEC-ONLY patch on a release commit risks the installer. Same file, same visit: that encode passes `-shortest` alongside `-c:a aac`, which is why a 49-frame LTX render delivers 48 frames (the panel's duration model already assumes this). Both belong in one careful pass over `patch_ltx_codec.py`.
 
+> **🚨 2026-08-05 — v3.4.0 FIELD REGRESSION FIXED on `dev`/`beta`: "I installed other packs and Hailuo H3 vanished."** A public v3.4.0 user installed H3, rendered with it happily (10 s clips on an M5 Pro), then installed other optional packs — and H3 disappeared from the panel. He ran **Reset**; H3 was still gone.
+>
+> **Root cause — `mlx_ltx_panel.py:_h3_python()` + `pinokio.js` h3_ready, both trusting `.venv/bin/python3.11`.** Nothing is ever deleted. `install_h3.js` builds the H3 venv with `uv venv`, and uv creates the interpreter as a symlink chain into Pinokio's **shared, app-external** managed Python:
+>
+> ```
+> minimax-h3-mlx/.venv/bin/python3.11 -> python
+> minimax-h3-mlx/.venv/bin/python     -> <pinokio>/cache/XDG_DATA_HOME/uv/python/
+>                                        cpython-3.11-macos-aarch64-none/bin/python3.11
+> ```
+>
+> That target belongs to Pinokio, not to Phosphene (verified on this machine against the LTX venv, which has the identical chain). Any other pack install — or any other Pinokio app — that makes uv re-resolve, bump or prune the managed interpreter leaves the chain **dangling**. `Path.exists()` follows symlinks, so `_h3_python()` returns `None`, `h3_available()` goes false, and the panel tells a user with **~75 GB of H3 weights still on disk** that H3 is "not installed". The engine pill demotes, the tier strip disappears — "H3 vanished".
+>
+> **Why Reset made it worse, not better.** `reset.js` removes only `ltx-2-mlx/`, so it never touches `minimax-h3-mlx/` — it *cannot* repair this. And because Reset makes `env_ready` false, `pinokio.js` early-returns at the `!env_ready` branch, which never reaches the H3 row — so after Reset there was **no H3 affordance anywhere in the product**. That is the whole reported experience, exactly.
+>
+> **This bug class was already documented in this repo and we repeated it.** `required_files.json → env._comment` records the same trap for the LTX venv, cocktailpeanut-confirmed: *"we used to point at `bin/python3.11` but uv creates that as a symlink chain … Pinokio's `info.exists()` check returned false on that chain … use `pyvenv.cfg` instead."* H3 shipped pointing at `bin/python3.11` anyway. **Any new venv-backed pack must not probe `bin/python*`.**
+>
+> **Fixed (`3c9bdf6`):**
+> - `h3_paths()` / `h3_status()` now report **why**, not just that it's unavailable: `reason` (`ok` | `not_installed` | `missing_weights` | `missing_venv` | `missing_runner`) plus `repairable`, `venv_broken`, `weights_ok`, all on `/status.h3` and the page bootstrap. `repairable` = weights on disk, only code/venv broken.
+> - The panel offers **repair, not reinstall**: engine pill (`needs repair · weights kept`), the H3 card (rewritten for the repair case), the job-time error, and a new branch in `updateModelsCard()` — gated on `repairable`, so a user who never installed H3 is never nagged.
+> - `pinokio.js` probes the interpreter with **`fs.existsSync`** (follows symlinks → a dangling chain is definitively false) instead of `info.exists`, so menu and panel agree by construction. Adds **"Repair Hailuo H3 (weights kept — no re-download)"** and keeps it reachable from **every** menu state, including post-Reset.
+> - `install_h3.js`'s venv step no longer trusts a path guard — a dangling chain can read as *present* depending on whether the check stats the link or the target, which would silently skip the repair. It now asks whether the interpreter **runs** and rebuilds only when it doesn't (~50 ms on a healthy install, ~2 min self-heal when broken, zero bytes re-downloaded).
+> - `reset.js` documents that `minimax-h3-mlx/` and `mlx_models/hailuo-h3/` are user content and must never be added to it.
+>
+> **Validation.** Sandbox at the DEFAULT paths (no env overrides) driving the **real** `h3_paths()` (spliced from the panel) and the **real** `pinokio.js` menu block, across healthy → stomp → Reset → repair. Before: panel "not installed", menu after Reset `[Install, Models]`. After: panel `reason=missing_venv repairable=true venv_broken=true weights_ok=true`, menu `Repair Hailuo H3` present in the healthy *and* post-Reset states, back to clean once the venv is rebuilt — **5/5 weight components untouched throughout**. `py_compile` + `node --check` on all nine root scripts. The live panel was **not** restarted (a Codex GPU experiment held the box), so this is code-level + simulation validation; a real Pinokio click-through of Repair is the remaining gate.
+>
+> **User recovery on v3.4.0 today, without the fix:** sidebar → **Install Hailuo H3** again. It is idempotent, the weights are still on disk, so it rebuilds the venv and skips every intact file — minutes, not 75 GB. If they already hit Reset, they must click **Install** (base) first, because the H3 entry only renders once the LTX env is back.
+>
+> **Public hotfix?** Judgement: **ride v3.4.1**, don't emergency-patch v3.4.0. It is a discoverability/labelling failure, not data loss (nothing is deleted, no render is corrupted), the workaround is one sidebar click, and H3 is a 64 GB-only opt-in pack so the blast radius is small. But v3.4.1 should ship **soon** rather than waiting to accumulate — every affected user currently reads this as "I lost my 75 GB download".
+
 Current `dev` head: see `git log -1` for the live SHA. `dev` tracks `beta/main` (private repo — see §1).
 
 > ## 🆕 IN PROGRESS on `dev` 2026-08-03 — **Hailuo H3 as a SECOND video engine** (not pushed, VERSION untouched)
