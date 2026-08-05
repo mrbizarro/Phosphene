@@ -14,11 +14,14 @@
 // audio by 22 dB), while the H3 port needs mlx>=0.32. Separate venvs mean an
 // H3 install can never break LTX rendering, and removing H3 is `rm -rf`.
 //
-// Everything below is safe to re-run:
+// Everything below is safe to re-run, and re-running it is ALSO the repair
+// path — the Pinokio menu points "Repair Hailuo H3" at this same script:
 //   clone   — skipped when minimax-h3-mlx/.git exists
-//   venv    — skipped when .venv/bin/python3.11 exists
+//   venv    — reused when its interpreter actually runs; rebuilt when it
+//             doesn't (see the self-healing note on that step)
 //   uv pip  — already-installed packages are no-ops
 //   weights — hf_hub_download resumes partial files, skips intact ones
+// So a user whose engine broke re-runs this and pays ~2 minutes, not 75 GB.
 //
 // The panel discovers the result on its next /status tick (a couple of
 // seconds) and unlocks the engine picker. No restart.
@@ -92,17 +95,33 @@ module.exports = {
     // MLX wheels. Force 3.11 with uv, then target it explicitly on every pip
     // step. If a wrong-Python venv is already there, nuke it — it holds no
     // user data.
+    //
+    // SELF-HEALING, and deliberately NOT gated on `when: !exists(...)`.
+    // `uv venv` builds the interpreter as a symlink chain into Pinokio's
+    // SHARED managed Python:
+    //     .venv/bin/python3.11 -> python
+    //     .venv/bin/python     -> <pinokio>/cache/XDG_DATA_HOME/uv/python/
+    //                             cpython-3.11-macos-aarch64-none/bin/python3.11
+    // That target is Pinokio's, not ours. Any other pack install (or any other
+    // Pinokio app) that makes uv re-resolve, bump or prune the managed
+    // interpreter leaves this chain DANGLING — the engine stops resolving even
+    // though the venv, the clone and all ~75 GB of weights are untouched. That
+    // is the v3.4.0 "installed other packs and Hailuo H3 vanished" report.
+    //
+    // A path-existence `when:` guard cannot fix that reliably: depending on
+    // whether the check stats the link or its target, a dangling chain reads
+    // as either present (repair silently skipped — the failure mode we must
+    // never ship) or absent. So we ask the only question that actually
+    // matters — does this interpreter RUN? — inside the shell, and rebuild
+    // only when it doesn't. Healthy installs pay ~50 ms and skip the rebuild;
+    // broken ones self-heal in ~2 minutes without re-downloading a byte.
     {
-      when: "{{!exists('minimax-h3-mlx/.venv/bin/python3.11')}}",
       method: "shell.run",
       params: {
         path: "minimax-h3-mlx",
         message: [
-          "echo '=== H3 venv create ==='",
-          "which uv && uv --version || echo 'uv NOT FOUND'",
-          "rm -rf .venv",
-          "uv venv --python 3.11 --seed .venv",
-          ".venv/bin/python --version || echo 'venv python NOT executable'"
+          "echo '=== H3 venv check ==='",
+          "if .venv/bin/python -c 'import sys' >/dev/null 2>&1; then echo 'H3 venv healthy - reusing it'; else echo 'H3 venv missing or broken (dangling interpreter) - rebuilding, no weights are re-downloaded'; which uv && uv --version || echo 'uv NOT FOUND'; rm -rf .venv; uv venv --python 3.11 --seed .venv; .venv/bin/python --version || echo 'venv python NOT executable'; fi"
         ]
       }
     },

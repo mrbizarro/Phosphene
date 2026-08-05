@@ -120,10 +120,63 @@ module.exports = {
     // one 41 GB file; if that landed, the small siblings did too). Weights live
     // under mlx_models/ so they survive Reset like every other model. Both
     // download layouts are accepted, matching _h3_model_roots() in the panel.
-    const h3_ready =
-      info.exists("minimax-h3-mlx/.venv/bin/python3.11") &&
-      (info.exists("mlx_models/hailuo-h3/models/deepbeep-pruned-bf16/MiniMax-H3-FL2VA-pruned_bf16.safetensors") ||
-       info.exists("mlx_models/hailuo-h3/deepbeep-pruned-bf16/MiniMax-H3-FL2VA-pruned_bf16.safetensors"))
+    //
+    // Probed with Node's own fs, NOT info.exists() — deliberately, and this is
+    // the whole fix. `uv venv` builds the venv interpreter as a symlink chain
+    // into Pinokio's SHARED managed Python:
+    //     .venv/bin/python3.11 -> python
+    //     .venv/bin/python     -> <pinokio>/cache/XDG_DATA_HOME/uv/python/
+    //                             cpython-3.11-macos-aarch64-none/bin/python3.11
+    // That target belongs to Pinokio, not to us: any other pack install (or
+    // any other Pinokio app) that makes uv re-resolve, bump or prune the
+    // managed interpreter leaves the chain DANGLING. Nothing is deleted — the
+    // venv, the clone and all ~75 GB of weights stay put — but H3 stops
+    // resolving. That is the v3.4.0 "installed other packs and Hailuo H3
+    // vanished" report.
+    //
+    // required_files.json already documents info.exists() as unreliable on
+    // exactly this chain, so it cannot answer the question we need answered
+    // here — "does this interpreter still resolve?" — in either direction.
+    // fs.existsSync FOLLOWS symlinks, so a dangling chain is definitively
+    // false, which makes the menu agree with the panel's _h3_python() by
+    // construction. (repoComplete() above already probes with fs.statSync +
+    // absolute paths for the same reason.) Keep the two in sync.
+    const h3Resolves = (rel) => {
+      try { return fs.existsSync(path.join(installRoot, rel)) } catch (e) { return false }
+    }
+    const h3_venv =
+      h3Resolves("minimax-h3-mlx/.venv/bin/python3.11") ||
+      h3Resolves("minimax-h3-mlx/.venv/bin/python")
+    const h3_runner = h3Resolves("minimax-h3-mlx/scripts/generate_staged.py")
+    // The weights are the expensive thing (~75 GB) and they live under
+    // mlx_models/, a completely different tree from the clone — so they
+    // routinely survive whatever broke the engine.
+    const h3_weights =
+      h3Resolves("mlx_models/hailuo-h3/models/deepbeep-pruned-bf16/MiniMax-H3-FL2VA-pruned_bf16.safetensors") ||
+      h3Resolves("mlx_models/hailuo-h3/deepbeep-pruned-bf16/MiniMax-H3-FL2VA-pruned_bf16.safetensors")
+    const h3_ready = h3_venv && h3_runner && h3_weights
+    // Weights on disk but the code/venv gone → a REPAIR, not a 75 GB install.
+    // install_h3.js is idempotent and skips every intact weight, so the same
+    // script serves both; only the label changes, because telling a user to
+    // "install ~75 GB" when they already have the 75 GB is the thing that
+    // made this look like data loss.
+    const h3_repair = h3_weights && !h3_ready
+
+    // Keep the H3 recovery affordance reachable from EVERY menu state, not
+    // only the healthy one. Reset wipes ltx-2-mlx, so env_ready goes false and
+    // the menu early-returns (below) long before it reaches the H3 row — which
+    // is exactly why the v3.4.0 reporter ran Reset and still found "no H3
+    // anywhere". The pack is independent of the LTX install (own clone, own
+    // venv, weights in a different tree), so offering the repair mid-reinstall
+    // is safe and never competes with the default action.
+    const pushH3Recovery = (m) => {
+      if (h3_repair && h3Capable()) {
+        m.push({ icon: "fa-solid fa-screwdriver-wrench",
+                 text: "Repair Hailuo H3 (weights kept — no re-download)",
+                 href: "install_h3.js" })
+      }
+      return m
+    }
 
     // User-content folders persist across Reset (which only removes the venv).
     // Keep their shortcuts visible whenever they exist on disk so users can
@@ -159,7 +212,7 @@ module.exports = {
       if (has_outputs) m.push({ icon: "fa-solid fa-film",  text: "Outputs", href: "mlx_outputs?fs=true" })
       if (has_models)  m.push({ icon: "fa-solid fa-cube",  text: "Models",  href: "mlx_models?fs=true" })
       if (has_uploads) m.push({ icon: "fa-solid fa-image", text: "Uploads", href: "panel_uploads?fs=true" })
-      return m
+      return pushH3Recovery(m)
     }
 
     // Env exists but base models aren't fully there → SHIP-BLOCKER fix.
@@ -173,6 +226,7 @@ module.exports = {
       if (has_outputs) m.push({ icon: "fa-solid fa-film",  text: "Outputs", href: "mlx_outputs?fs=true" })
       if (has_models)  m.push({ icon: "fa-solid fa-cube",  text: "Models",  href: "mlx_models?fs=true" })
       if (has_uploads) m.push({ icon: "fa-solid fa-image", text: "Uploads", href: "panel_uploads?fs=true" })
+      pushH3Recovery(m)
       m.push({ icon: "fa-regular fa-circle-xmark", text: "Reset", href: "reset.js" })
       return m
     }
@@ -217,7 +271,9 @@ module.exports = {
       // ~75 GB, 64 GB+ Macs, MiniMax Community License with territory
       // restrictions. Hidden entirely on machines that can't run it, so it
       // never reads as a missing piece of the base install.
-      baseMenu.push({ icon: "fa-solid fa-comments", text: "Install Hailuo H3 (optional, ~75 GB)", href: "install_h3.js" })
+      baseMenu.push(h3_repair
+        ? { icon: "fa-solid fa-screwdriver-wrench", text: "Repair Hailuo H3 (weights kept — no re-download)", href: "install_h3.js" }
+        : { icon: "fa-solid fa-comments", text: "Install Hailuo H3 (optional, ~75 GB)", href: "install_h3.js" })
     }
     baseMenu.push(
       { icon: "fa-solid fa-rotate", text: "Update", href: "update.js" },

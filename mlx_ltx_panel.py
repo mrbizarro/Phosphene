@@ -4497,7 +4497,12 @@ def _h3_model_roots() -> list[Path]:
 
 def _h3_python() -> Path | None:
     """Interpreter for the H3 pack. LTX_H3_PYTHON overrides (dev boxes that
-    keep the venv in a sibling checkout); otherwise the pack's own .venv."""
+    keep the venv in a sibling checkout); otherwise the pack's own .venv.
+
+    STRICT on purpose: this is the interpreter we spawn, so it must resolve to
+    a real executable. `.exists()` follows symlinks, so a dangling chain
+    correctly returns None here — see _h3_venv_present() for why that happens
+    and h3_paths() for how we report it as "repair", not "never installed"."""
     override = os.environ.get("LTX_H3_PYTHON", "").strip()
     if override:
         p = Path(override)
@@ -4507,6 +4512,34 @@ def _h3_python() -> Path | None:
         if cand.exists():
             return cand
     return None
+
+
+def _h3_venv_present() -> bool:
+    """Whether an H3 venv was ever BUILT here — regardless of whether its
+    interpreter still resolves.
+
+    `pyvenv.cfg` is the marker, NOT `bin/python3.11`. `uv venv` builds the
+    interpreter as a symlink chain into Pinokio's SHARED, app-external managed
+    Python:
+
+        .venv/bin/python3.11 -> python
+        .venv/bin/python     -> <pinokio>/cache/XDG_DATA_HOME/uv/python/
+                                cpython-3.11-macos-aarch64-none/bin/python3.11
+
+    That target belongs to Pinokio, not to Phosphene. Any other pack install
+    (or any other Pinokio app) that makes uv re-resolve, bump or prune the
+    managed interpreter leaves this chain DANGLING — at which point
+    `.exists()` is False and H3 reads as "never installed" even though the
+    venv, the runner and all ~75 GB of weights are untouched on disk. This is
+    the user-reported v3.4.0 regression: "installed other packs, H3 vanished".
+
+    required_files.json already documents this exact trap for the LTX venv
+    ("Pinokio's info.exists() check returned false on that chain ... use
+    pyvenv.cfg instead: a tiny ASCII file uv writes to every venv root, never
+    a symlink, never moves"). H3 was repeating it. `bin/activate` is the same
+    kind of plain file and is kept as a secondary probe."""
+    venv = H3_ROOT / ".venv"
+    return (venv / "pyvenv.cfg").is_file() or (venv / "bin" / "activate").is_file()
 
 
 def h3_paths() -> dict:
@@ -4539,6 +4572,36 @@ def h3_paths() -> dict:
         missing.append("Q8 components (text_encoder / video_vae / audio_vae)")
     if text_config is None:
         missing.append("upstream text_encoder config.json")
+
+    # ---- WHY it's unavailable, not just THAT it is --------------------------
+    # The three failure classes need three different sentences from the UI:
+    #
+    #   missing_weights — the ~75 GB really isn't there. A real download.
+    #   missing_venv    — the venv exists but its interpreter no longer
+    #                     resolves (the shared-uv-Python stomp above), or it
+    #                     was never built. Weights are on disk: a REPAIR, ~2
+    #                     minutes, not 75 GB.
+    #   missing_runner  — the clone is gone/partial but the weights (which
+    #                     live under mlx_models/, a different tree) survived.
+    #                     Also a repair.
+    #
+    # `repairable` is the load-bearing one: weights present + code/venv gone.
+    # It is what stops the panel silently reporting "not installed" to a user
+    # who has 75 GB of H3 weights sitting on their disk.
+    weights_ok = dit is not None and compact_root is not None and text_config is not None
+    runner_ok = runner.is_file()
+    venv_ok = python is not None
+    venv_built = _h3_venv_present()
+    if not missing:
+        reason = "ok"
+    elif not weights_ok and not (runner_ok or venv_built):
+        reason = "not_installed"
+    elif not weights_ok:
+        reason = "missing_weights"
+    elif not venv_ok:
+        reason = "missing_venv"
+    else:
+        reason = "missing_runner"
     return {
         "root": str(H3_ROOT),
         "models": str(H3_MODELS),
@@ -4549,6 +4612,14 @@ def h3_paths() -> dict:
         "compact_root": compact_root,
         "text_config": text_config,
         "missing": missing,
+        "reason": reason,
+        "runner_ok": runner_ok,
+        "venv_ok": venv_ok,
+        # venv dir + pyvenv.cfg are there but the interpreter doesn't resolve →
+        # the dangling-shared-uv-Python case, verbatim.
+        "venv_broken": venv_built and not venv_ok,
+        "weights_ok": weights_ok,
+        "repairable": bool(weights_ok and not (runner_ok and venv_ok)),
     }
 
 
@@ -4639,6 +4710,16 @@ def h3_status() -> dict:
         "root": paths["root"],
         "models": paths["models"],
         "missing": paths["missing"],
+        # WHY it's unavailable — ok | not_installed | missing_weights |
+        # missing_venv | missing_runner. `repairable` means the ~75 GB of
+        # weights are still on disk and only the clone/venv needs rebuilding,
+        # so the UI can offer "Repair H3" (minutes) instead of lying about a
+        # 75 GB download the user already did. `venv_broken` narrows it
+        # further to the dangling shared-uv-Python case.
+        "reason": paths["reason"],
+        "repairable": paths["repairable"],
+        "venv_broken": paths["venv_broken"],
+        "weights_ok": paths["weights_ok"],
         "tiers": h3_visible_tiers(),
         "default_tier": H3_TIER_DEFAULT,
         "upscale_modes": list(H3_UPSCALE_MODES),
@@ -8073,11 +8154,17 @@ def run_h3_job_inner(job: dict) -> None:
             f"{SYSTEM_RAM_GB:.0f} GB. Render on the LTX engine instead.")
     if paths["missing"]:
         raise RuntimeError(
-            "The Hailuo H3 pack isn't installed — missing: "
-            + "; ".join(paths["missing"])
-            + ". Install it from the Phosphene sidebar in Pinokio "
-              "('Install Hailuo H3'), or point LTX_H3_ROOT / LTX_H3_MODELS at "
-              "an existing checkout.")
+            ("The Hailuo H3 weights are on disk but the engine needs repair — "
+             if paths["repairable"] else
+             "The Hailuo H3 pack isn't installed — ")
+            + "missing: " + "; ".join(paths["missing"])
+            + (". Click 'Install Hailuo H3' in the Phosphene sidebar in "
+               "Pinokio — it is idempotent and skips every weight already on "
+               "disk, so this is a couple of minutes, NOT a 75 GB download."
+               if paths["repairable"] else
+               ". Install it from the Phosphene sidebar in Pinokio "
+               "('Install Hailuo H3'), or point LTX_H3_ROOT / LTX_H3_MODELS at "
+               "an existing checkout."))
     if mode not in H3_MODES:
         raise RuntimeError(
             f"Hailuo H3 doesn't serve mode {mode!r} — only "
@@ -29704,7 +29791,15 @@ function setEngine(engine, opts) {
 
   if (target === 'h3') {
     if (!H3.capable) { target = 'ltx'; reason = 'Hailuo H3 needs 64 GB unified memory.'; }
-    else if (!H3.available) { target = 'ltx'; reason = 'Hailuo H3 isn\'t installed yet.'; }
+    else if (!H3.available) {
+      target = 'ltx';
+      // Distinguish "you never installed this" from "you DID install this and
+      // something broke it". Telling a user with 75 GB of H3 weights on disk
+      // that H3 "isn't installed" is the v3.4.0 regression report, verbatim.
+      reason = H3.repairable
+        ? 'Hailuo H3 needs repair — your weights are still on disk. Click the pill.'
+        : 'Hailuo H3 isn\'t installed yet.';
+    }
     else if (!_h3ServesMode(currentMode)) {
       target = 'ltx';
       reason = 'Hailuo H3 renders Text and Image only — back on LTX-2.3 for this mode.';
@@ -29728,11 +29823,14 @@ function setEngine(engine, opts) {
     chipH3.title = !H3.capable
       ? 'Needs 64 GB unified memory'
       : (!H3.available
-          ? 'Hailuo H3 isn\'t installed — click to see how (~75 GB)'
+          ? (H3.repairable
+              ? 'Hailuo H3 needs repair — weights are on disk, click for the one-click fix'
+              : 'Hailuo H3 isn\'t installed — click to see how (~75 GB)')
           : 'Hailuo H3 — joint video + dialogue + sound. Text and Image only.');
   }
-  if (sub) sub.textContent = (H3.capable && !H3.available) ? 'not installed · ~75 GB'
-                                                          : 'video + dialogue';
+  if (sub) sub.textContent = (H3.capable && !H3.available)
+    ? (H3.repairable ? 'needs repair · weights kept' : 'not installed · ~75 GB')
+    : 'video + dialogue';
   if (note) note.textContent = reason;
 
   // Surface swap: H3 tier strip replaces the quality strip; data-ltx-only
@@ -29808,6 +29906,10 @@ function updateH3Availability(s) {
                // `chain` gates the 10 s / 15 s tiers, so the strip has to be
                // re-rendered when an H3 pack update brings --chain-windows in.
                || (next.chain !== H3.chain)
+               // Install→repair→install flips the pill's copy and the models
+               // card even when `available` itself hasn't moved yet.
+               || (next.repairable !== H3.repairable)
+               || (next.reason !== H3.reason)
                || ((next.tiers || []).length !== (H3.tiers || []).length);
   H3 = next;
   if (changed) setEngine(currentEngine(), { persist: false });
@@ -29831,7 +29933,30 @@ function openH3InstallCard() {
   const body = document.getElementById('h3InstallBody');
   if (body) {
     const missing = (H3.missing || []);
-    body.innerHTML = `
+    // REPAIR is a different story from INSTALL and has to read like one. A
+    // user whose 75 GB of weights are still on disk must not be shown a "~75
+    // GB download" card — that is what made the v3.4.0 report read as "H3
+    // vanished and Reset didn't bring it back".
+    const intro = H3.repairable ? `
+      <p style="margin:0 0 10px">
+        <b>Hailuo H3 is installed — it just needs repairing.</b> Your weights
+        (~75 GB) are still on disk and are <em>not</em> re-downloaded.
+      </p>
+      <p style="margin:0 0 10px;color:var(--muted)">
+        ${H3.venv_broken
+            ? 'What broke: H3’s Python environment points at Pinokio’s shared '
+              + 'managed interpreter, and installing another pack moved it. '
+              + 'Rebuilding the environment takes about two minutes.'
+            : 'What broke: the engine’s code checkout is missing or incomplete. '
+              + 'Re-cloning it takes about a minute.'}
+      </p>
+      <p style="margin:0 0 10px">
+        Fix it from Pinokio: open the <b>Phosphene</b> entry in the Pinokio
+        sidebar and click <b>“Repair Hailuo H3”</b> (it appears in place of the
+        install entry). The step is idempotent — it skips every weight already
+        on disk. The panel picks the engine back up within a couple of seconds,
+        no restart.
+      </p>` : `
       <p style="margin:0 0 10px">
         <b>Hailuo H3</b> is a second video engine: one prompt in, video
         <em>and</em> synced dialogue <em>and</em> sound out. It runs fully
@@ -29846,7 +29971,8 @@ function openH3InstallCard() {
         in the Pinokio sidebar and click
         <b>“Install Hailuo H3 (optional, ~75 GB)”</b>. The panel picks it up
         within a couple of seconds — no restart.
-      </p>
+      </p>`;
+    body.innerHTML = intro + `
       ${missing.length ? `<p style="margin:0;color:var(--muted);font-size:12px">
         Currently missing: ${escapeHtml(missing.join('; '))}</p>` : ''}`;
   }
@@ -32869,6 +32995,33 @@ function updateModelsCard(s) {
     actions.innerHTML = (s.hf_available ?? true)
       ? `<button onclick="startDownload('q8')">Download Q8 (37 GB)</button>`
       : `<button disabled>hf missing</button>`;
+    return;
+  }
+
+  // ----- Hailuo H3 installed but broken → one-click repair -----------------
+  // `repairable` means the ~75 GB of H3 weights ARE on disk and only the
+  // clone/venv needs rebuilding. The overwhelmingly common cause: H3's venv
+  // interpreter is a symlink chain into Pinokio's SHARED uv-managed Python,
+  // and installing any other pack can move that target out from under it —
+  // the v3.4.0 "installed other packs and H3 vanished" report. Before this
+  // branch the panel just silently demoted the engine pill to "not
+  // installed", which reads as data loss and sent users to Reset (which does
+  // not touch H3 at all, so it never helped).
+  //
+  // Gated on `repairable`, so a user who never installed H3 is never nagged.
+  const h3s = s.h3 || {};
+  if (h3s.capable && !h3s.available && h3s.repairable) {
+    card.style.display = '';
+    card.classList.add('state-warn');
+    icon.innerHTML = '<svg class="ph" aria-hidden="true"><use href="#ph-warning-fill"/></svg>';
+    title.textContent = 'Hailuo H3 needs repair — your weights are still on disk';
+    sub.innerHTML = h3s.venv_broken
+      ? 'H3’s Python environment points at Pinokio’s shared interpreter and '
+        + 'another pack install moved it. Rebuilding takes ~2 minutes and '
+        + '<b>re-downloads nothing</b>.'
+      : 'H3’s code checkout is missing or incomplete. Restoring it takes ~1 '
+        + 'minute and <b>re-downloads nothing</b>.';
+    actions.innerHTML = `<button onclick="openH3InstallCard()">How to repair H3</button>`;
     return;
   }
 
