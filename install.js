@@ -5,7 +5,8 @@
 // pinokio.js). Every step below is safe to repeat:
 //
 //   - clone:       skipped if ltx-2-mlx/.git exists
-//   - venv:        skipped if env/bin/python3.11 exists (force 3.11)
+//   - venv:        reused when its interpreter actually runs; rebuilt when
+//                  it doesn't (self-healing — see that step's note)
 //   - uv pip:      idempotent (already-installed packages are no-ops)
 //   - patch:       patch_ltx_codec.py is idempotent + fails loud on drift
 //   - hf download: resumes partial files, skips intact ones
@@ -125,15 +126,43 @@ module.exports = {
     // to download 35 GB of weights into a broken venv. So we explicitly
     // create the venv with `uv venv --python 3.11` before any pip step.
     //
-    // Idempotency: if env/bin/python3.11 already exists we skip. If env
-    // exists but is 3.10 (our exact failure mode), nuke and rebuild — those
-    // dirs only hold a wrong-Python venv, no user data.
+    // SELF-HEALING, and deliberately NOT gated on `when: !exists(...)` —
+    // the same latent bug fixed for Hailuo H3 in v3.4.0's "installed other
+    // packs and H3 vanished" regression (install_h3.js, 3c9bdf6). `uv venv`
+    // creates the interpreter as a symlink chain into Pinokio's SHARED
+    // managed Python (verified — this venv has the identical chain):
+    //     env/bin/python3.11 -> python
+    //     env/bin/python     -> <pinokio>/cache/XDG_DATA_HOME/uv/python/
+    //                           cpython-3.11-macos-aarch64-none/bin/python3.11
+    // That target is Pinokio's, not ours. Any other pack install — or any
+    // other Pinokio app — that makes uv re-resolve, bump or prune the
+    // managed interpreter leaves the chain DANGLING while env/ still
+    // exists. A path-existence guard cannot handle that state: depending on
+    // whether the check stats the link or its target, a dangling chain
+    // reads as either present (rebuild silently skipped → a broken venv
+    // that re-running Install can never fix) or absent. So we ask the only
+    // question that matters — does the interpreter RUN? — inside the
+    // shell, and rebuild only when it doesn't. python3.11 specifically
+    // (not python): a legacy conda-3.10 venv (the failure mode above) has
+    // a working `python` but no `python3.11`, so probing python3.11 keeps
+    // that rebuild path too — and it is the exact interpreter every later
+    // step invokes. Healthy installs pay ~50 ms; broken ones rebuild in
+    // ~5 min with zero re-downloads. (Unlike H3, Reset+Install could
+    // already recover this venv — reset.js deletes ltx-2-mlx/ wholesale —
+    // but a user should never need Reset for it; env/ holds no user data.)
+    //
+    // One joined multi-line message (the mflux-step idiom below), so the
+    // whole if/else runs as a single shell compound.
     {
-      when: "{{!exists('ltx-2-mlx/env/bin/python3.11')}}",
       method: "shell.run",
       params: {
         path: "ltx-2-mlx",
         message: [
+          "echo '=== LTX venv check ==='",
+          "if env/bin/python3.11 -c 'import sys' >/dev/null 2>&1; then",
+          "echo 'venv healthy - reusing it'",
+          "else",
+          "echo 'venv missing or broken (wrong Python or dangling interpreter) - rebuilding, no models are re-downloaded'",
           // v2.0.3: log the toolchain BEFORE creating the venv so the
           // install log self-documents which Python uv landed on. A user
           // (KTDS) hit a silent "ModuleNotFoundError: ltx_pipelines_mlx"
@@ -163,8 +192,9 @@ module.exports = {
           "uv venv --python 3.11 --seed env",
           "echo '=== venv created ==='",
           "ls -la env/bin/python* 2>&1 || echo 'venv create FAILED'",
-          "env/bin/python --version || echo 'venv python NOT executable'"
-        ]
+          "env/bin/python --version || echo 'venv python NOT executable'",
+          "fi"
+        ].join("\n")
       }
     },
 
