@@ -21189,11 +21189,30 @@ HTML = r"""<!doctype html>
       font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
       color: var(--muted); width: 52px; flex: none;
     }
+    /* Slider needs the same chrome reset as .range-strip — the generic
+       `input, textarea, select, button` rule paints every input with a
+       border + panel background + 8px/11px padding, which turned this
+       track into a boxed control that ate ~24px of row width on top of
+       being the greedy flex child. */
     .lora-row .lora-strength-row input[type="range"] {
       flex: 1; min-width: 0; accent-color: var(--accent);
+      padding: 0; border: none; background: none;
     }
-    .lora-row .lora-strength-row input[type="number"] {
-      width: 54px; padding: 2px 5px; font-size: 11px; text-align: right;
+    /* The picker renders inside #genForm on the video form, where
+       `#genForm input[type="number"]` wins on ID specificity and
+       re-inflated this readout to 13px text with 10px/12px padding.
+       In a 54px border-box that left ~28px of content, and the native
+       spinner ate half of what was left, so the strength value was
+       clipped to an unreadable sliver (issue #45). Repeat the compact
+       sizing at matching specificity, pin the box with flex:none so it
+       can never shrink, and give it room for the widest value ("-1.05").
+       The un-prefixed selector still covers the picker when it's
+       portaled to the Image Studio / Characters slots, which render
+       outside the form. */
+    .lora-row .lora-strength-row input[type="number"],
+    #genForm .lora-row .lora-strength-row input[type="number"] {
+      flex: none; width: 68px;
+      padding: 2px 5px; font-size: 11px; text-align: right;
     }
     .lora-row .trigger-chips {
       display: flex; flex-wrap: wrap; gap: 3px; margin-top: 7px;
