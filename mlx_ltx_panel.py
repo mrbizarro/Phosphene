@@ -7720,6 +7720,17 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         _h3_upscale = "fit_1080p"
     if _h3_upscale not in H3_UPSCALE_MODES:
         _h3_upscale = H3_UPSCALE_DEFAULT
+    # Sampler depth override for an H3 render ("Steps" pills). 0 = Auto = the
+    # tier's tuned count (9 → 8 forwards, the validated speed/quality point).
+    # The official reference recipe runs 20; wall time scales ~(steps-1)/8.
+    _h3_steps_raw = (f("h3_steps", "") or "").strip().lower()
+    if _h3_steps_raw in ("", "auto", "0"):
+        _h3_steps = 0
+    else:
+        try:
+            _h3_steps = max(4, min(30, int(_h3_steps_raw)))
+        except (TypeError, ValueError):
+            _h3_steps = 0
     if _engine == "h3":
         if mode_in not in H3_MODES:
             push(f"engine=h3 requested for mode={mode_in!r} — Hailuo H3 only "
@@ -7765,6 +7776,10 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # fit_1080p). SAME allowlist trap as every key in this dict: a new
             # form field that isn't listed here silently no-ops on /queue/add.
             "h3_upscale": _h3_upscale,
+            # Steps override for H3 (0 = Auto = tier default). Kept alongside
+            # the resolved `steps` below so the ⓘ modal can say the default
+            # was overridden. Same allowlist trap as above.
+            "h3_steps": _h3_steps,
             "prompt": prompt,
             "negative_prompt": f("negative_prompt", ""),
             "width": max(32, int(f("width", str(default_w)) or default_w)),
@@ -7900,7 +7915,10 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         # the per-window count, so the queue card and the duration line read the
         # clip the user actually gets. run_h3_job_inner splits it back out.
         job["params"]["frames"] = _tier_cfg["frames"]
-        job["params"]["steps"] = _tier_cfg["steps"]
+        # Tier steps unless the user pinned a depth on the Steps pills —
+        # run_h3_job_inner reads this resolved value, so the override rides
+        # the SAME path the tier default does (nothing downstream branches).
+        job["params"]["steps"] = int(_h3_steps or _tier_cfg["steps"])
         job["params"]["h3_chain_windows"] = int(_tier_cfg.get("chain_windows") or 1)
         job["params"]["h3_window_frames"] = int(
             _tier_cfg.get("window_frames") or _tier_cfg["frames"])
@@ -23534,6 +23552,29 @@ HTML = r"""<!doctype html>
             </div>
           </div>
           <input type="hidden" name="h3_upscale" id="h3_upscale" value="fit_720p">
+          <!-- H3 sampler depth. Tiers bake 9 steps (8 forwards) — the
+               validated speed/quality point; the official reference recipe
+               runs 20. Four honest pills with the time cost in the tooltip
+               beat an unbounded numeric box. `h3_steps` is in the make_job
+               allowlist (an unlisted field silently no-ops on /queue/add). -->
+          <div class="h3-export-row" id="h3StepsRow" data-h3-only>
+            <span class="h3-export-label">Steps</span>
+            <div class="pill-group" id="h3StepsGroup" style="display:flex;gap:4px;flex:0 0 auto;">
+              <button type="button" class="pill-btn active" data-h3-steps="auto"
+                      style="padding:4px 10px;font-size:12px;"
+                      title="The tier's tuned count — the validated speed/quality point.">Auto</button>
+              <button type="button" class="pill-btn" data-h3-steps="12"
+                      style="padding:4px 10px;font-size:12px;"
+                      title="More refinement — ~1.4× the tier's render time.">12</button>
+              <button type="button" class="pill-btn" data-h3-steps="16"
+                      style="padding:4px 10px;font-size:12px;"
+                      title="~1.9× the tier's render time.">16</button>
+              <button type="button" class="pill-btn" data-h3-steps="20"
+                      style="padding:4px 10px;font-size:12px;"
+                      title="The official reference recipe — ~2.4× the tier's render time.">20</button>
+            </div>
+          </div>
+          <input type="hidden" name="h3_steps" id="h3_steps" value="auto">
           <!-- 2026-05-17 (Codex C+ pass 6): the character-only skip-step
                toggle moved out of here into the Customize section as
                "HQ speed". It's a Q8 sampler control, not a character
@@ -30593,6 +30634,8 @@ function updateCustomizeSummary() {
     const tier = h3TierByKey((document.getElementById('h3_tier') || {}).value);
     const up = (document.getElementById('h3_upscale') || {}).value || 'off';
     const parts = [tier ? tier.spec : 'Hailuo H3'];
+    const stOv = (document.getElementById('h3_steps') || {}).value || 'auto';
+    if (stOv !== 'auto') parts.push(stOv + ' steps');
     if (up === 'fit_720p') parts.push('720p export');
     else if (up === 'fit_1080p') parts.push('1080p export');
     else parts.push('native export');
@@ -30734,6 +30777,12 @@ function h3TierByKey(key) {
   try { savedUp = localStorage.getItem('phos_h3_upscale'); } catch (e) {}
   const allowed = H3.upscale_modes || ['off', 'fit_720p', 'fit_1080p'];
   if (savedUp && allowed.indexOf(savedUp) !== -1) up.value = savedUp;
+  // And again for the sampler-depth pills, same reason.
+  const st = document.getElementById('h3_steps');
+  if (!st) return;
+  let savedSt = null;
+  try { savedSt = localStorage.getItem('phos_h3_steps'); } catch (e) {}
+  if (savedSt && ['auto', '12', '16', '20'].indexOf(savedSt) !== -1) st.value = savedSt;
 })();
 
 // Export canvas for an H3 render. Separate from the LTX `upscale` control
@@ -30751,6 +30800,29 @@ function setH3Upscale(mode) {
 }
 document.querySelectorAll('#h3UpscaleGroup [data-h3-upscale]').forEach(b => {
   b.onclick = () => setH3Upscale(b.dataset.h3Upscale);
+});
+
+// Sampler depth for an H3 render. 'auto' = the tier's tuned count (stamped in
+// H3_TIERS); a number overrides it for every window of the job. Server-side
+// make_job clamps to 4-30 and re-validates — a stale tab must never win.
+function setH3Steps(v) {
+  const allowed = ['auto', '12', '16', '20'];
+  v = allowed.indexOf(String(v)) !== -1 ? String(v) : 'auto';
+  const inp = document.getElementById('h3_steps');
+  if (inp) inp.value = v;
+  document.querySelectorAll('#h3StepsGroup [data-h3-steps]').forEach(b =>
+    b.classList.toggle('active', b.dataset.h3Steps === v));
+  // Mirror the resolved count into the shared hidden `steps` so the queue
+  // card and the estimate line read the truth (make_job re-stamps anyway).
+  const tier = h3TierByKey((document.getElementById('h3_tier') || {}).value);
+  const s = document.getElementById('steps');
+  if (s && tier) s.value = (v === 'auto') ? tier.steps : parseInt(v, 10);
+  try { localStorage.setItem('phos_h3_steps', v); } catch (e) {}
+  if (typeof updateDerived === 'function') { try { updateDerived(); } catch (e) {} }
+  if (typeof updateCustomizeSummary === 'function') { try { updateCustomizeSummary(); } catch (e) {} }
+}
+document.querySelectorAll('#h3StepsGroup [data-h3-steps]').forEach(b => {
+  b.onclick = () => setH3Steps(b.dataset.h3Steps);
 });
 
 function _engineRowVisible() {
@@ -30798,7 +30870,12 @@ function setH3Tier(key) {
   if (w) w.value = tier.width;
   if (h) h.value = tier.height;
   if (f) f.value = tier.frames;
-  if (s) s.value = tier.steps;
+  if (s) {
+    // Respect a pinned Steps override across tier switches; 'auto' follows
+    // the tier's own count.
+    const ov = (document.getElementById('h3_steps') || {}).value || 'auto';
+    s.value = (ov !== 'auto' && /^\d+$/.test(ov)) ? parseInt(ov, 10) : tier.steps;
+  }
   // Chained tiers carry an honest artefact note (one prompt is asked of every
   // window, so a scripted line lands once per window). Surface it where the
   // user is choosing, not in a tooltip.
@@ -30889,6 +30966,7 @@ function setEngine(engine, opts) {
     setH3Tier((document.getElementById('h3_tier') || {}).value || H3.default_tier);
     setH3Upscale((document.getElementById('h3_upscale') || {}).value
                  || H3.default_upscale || 'fit_720p');
+    setH3Steps((document.getElementById('h3_steps') || {}).value || 'auto');
     // LTX post-processing doesn't run on an H3 render (make_job neutralises
     // all three server-side). Mirror that in the UI or the derived line lies:
     // it was reading "768×448 → 1280×720 fit" for a render that ships 768×448.
@@ -33590,6 +33668,11 @@ function renderOutputInfoBody(path, data) {
     const h3TierDef = ((H3 && H3.tiers) || []).find(t => t.key === h3TierKey);
     genRows.push(`<dt>Engine</dt><dd>Hailuo H3</dd>`);
     genRows.push(`<dt>H3 tier</dt><dd>${escapeHtml(h3TierDef ? h3TierDef.label : (h3TierKey || '—'))}</dd>`);
+    // Steps only earns a row when the user pinned a depth — the tier default
+    // is already implied by the tier row.
+    if (Number(p.h3_steps || 0) > 0) {
+      genRows.push(`<dt>Steps</dt><dd>${escapeHtml(String(p.steps || p.h3_steps))} · tier default overridden</dd>`);
+    }
   } else {
     genRows.push(`<dt>Quality</dt><dd>${escapeHtml((p.quality || 'standard').replace(/^./, c => c.toUpperCase()))}</dd>`);
   }
