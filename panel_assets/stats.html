@@ -676,6 +676,89 @@
     .board-empty .ok { color: var(--success); font-size: 14px; }
 
     /* ============================================================
+       USAGE — anonymous panel telemetry. Two possible sources, one
+       renderer: the local mirror (state/usage-log.jsonl, always
+       available) or the PostHog fleet rollup when a personal API key
+       is configured. Deliberately the same card / KPI / list language
+       as the GitHub sections above so the page reads as one dashboard
+       rather than two bolted together.
+       ============================================================ */
+    .usage-note {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin: 0 0 14px;
+      padding: 9px 12px;
+      background: var(--bg-2);
+      border: 1px dashed var(--border);
+      border-radius: var(--r-md);
+      color: var(--muted); font-size: 11.5px;
+    }
+    .usage-note .src {
+      font-family: var(--ph-font-mono); font-size: 10px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      padding: 2px 7px; border-radius: var(--r-pill);
+      background: var(--accent-dim); color: var(--accent-bright);
+    }
+    .usage-note.is-local .src { background: rgba(210,153,34,0.16); color: var(--warning); }
+    .usage-alert {
+      display: flex; align-items: center; gap: 9px;
+      margin: 14px 0 0; padding: 11px 13px;
+      border-radius: var(--r-md);
+      background: rgba(248, 81, 73, 0.08);
+      border: 1px solid rgba(248, 81, 73, 0.34);
+      color: var(--text); font-size: 12.5px;
+    }
+    .usage-alert.is-clear {
+      background: rgba(63, 185, 80, 0.06);
+      border-color: rgba(63, 185, 80, 0.26);
+      color: var(--muted);
+    }
+    .usage-alert .n {
+      font-family: var(--ph-font-mono); font-weight: 700; color: var(--danger);
+    }
+    .usage-alert.is-clear .n { color: var(--success); }
+    .dist-grid {
+      display: grid; gap: 14px; margin-top: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    }
+    .dist-col { min-width: 0; }
+    .dist-col > h3 { display: flex; align-items: center; gap: 8px; }
+    .dist-list {
+      list-style: none; margin: 8px 0 0; padding: 0;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .dist-row {
+      position: relative; overflow: hidden;
+      display: grid; grid-template-columns: 1fr auto; gap: 10px;
+      align-items: center;
+      padding: 7px 11px;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      font-size: 12px;
+    }
+    /* Proportional fill behind each row — same "bar in a table cell"
+       idea the Traffic sources tables use, so the eye reads them alike. */
+    .dist-row .fill {
+      position: absolute; top: 0; bottom: 0; left: 0;
+      background: var(--accent-dim);
+      z-index: 0;
+    }
+    .dist-row .name, .dist-row .n { position: relative; z-index: 1; min-width: 0; }
+    .dist-row .name {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--text);
+    }
+    .dist-row.is-err .name {
+      font-family: var(--ph-font-mono); font-size: 11px; color: var(--muted);
+      white-space: normal; word-break: break-word;
+    }
+    .dist-row.is-err .fill { background: rgba(248, 81, 73, 0.14); }
+    .dist-row .n {
+      font-family: var(--ph-font-mono); font-variant-numeric: tabular-nums;
+      font-weight: 700; color: var(--muted); font-size: 11px;
+    }
+
+    /* ============================================================
        Skeleton loading state.
        ============================================================ */
     @keyframes skel-pulse {
@@ -856,6 +939,53 @@
           <h3>Open PRs <span class="count-pill" id="attn-prs-count">0</span></h3>
           <ul class="board-list" id="attn-prs-list"></ul>
           <div class="board-more" id="attn-prs-more" hidden></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         USAGE — anonymous panel telemetry. Independent of /stats/data:
+         it reads /stats/usage, which always answers (local aggregates
+         from state/usage-log.jsonl) and upgrades to fleet-wide numbers
+         when a PostHog personal API key is configured in Settings.
+         Hidden only if the endpoint itself is missing — i.e. on a panel
+         older than this feature.
+         ============================================================ -->
+    <section class="card" id="sec-usage" hidden>
+      <div class="section-head">
+        <h2>Usage <span class="h2-sub">anonymous panel telemetry · renders, errors, hardware</span></h2>
+        <button class="icon-btn" id="usage-refresh" type="button"
+                title="Re-query PostHog now (bypasses the 6h cache)">
+          <span class="ico">↻</span> refresh
+        </button>
+      </div>
+      <div class="usage-note" id="usage-note">
+        <span class="src" id="usage-src">local</span>
+        <span id="usage-note-text">loading…</span>
+      </div>
+      <div class="kpi-grid" id="usage-tiles" aria-label="Usage headline stats"></div>
+      <!-- Pack-flip alert. A pack going true→false across boots is the
+           "my H3 vanished" bug class; red when it has happened at all. -->
+      <div class="usage-alert is-clear" id="usage-packflip">
+        <span class="n">0</span>
+        <span>optional-pack regressions in the last 7 days.</span>
+      </div>
+      <div class="dist-grid">
+        <div class="dist-col">
+          <h3>Top errors <span class="count-pill" id="usage-errors-count">0</span></h3>
+          <ul class="dist-list" id="usage-errors"></ul>
+        </div>
+        <div class="dist-col">
+          <h3>Versions</h3>
+          <ul class="dist-list" id="usage-versions"></ul>
+        </div>
+        <div class="dist-col">
+          <h3>Chip</h3>
+          <ul class="dist-list" id="usage-chips"></ul>
+        </div>
+        <div class="dist-col">
+          <h3>Memory</h3>
+          <ul class="dist-list" id="usage-ram"></ul>
         </div>
       </div>
     </section>
@@ -1183,6 +1313,9 @@
   // Refresh endpoint is "coming soon" on the panel side — POST best-effort
   // and degrade silently when it 404s.
   const REFRESH_URL = '/stats/refresh';
+  // Anonymous usage telemetry. Answers on every panel new enough to have
+  // the endpoint; 404s on older ones (the Usage section stays hidden).
+  const USAGE_URL = '/stats/usage';
 
   // Color tokens for charts (kept here so chart code is theme-agnostic).
   const C = {
@@ -2383,6 +2516,128 @@
     paint(prs,    '#attn-prs-list',    '#attn-prs-more',    prsTotal,    'PRs');
   }
 
+  // ===================================================================
+  //  USAGE — anonymous panel telemetry from /stats/usage.
+  //
+  //  Runs on its own fetch, independent of the GitHub snapshot archive:
+  //  a fresh install with zero /stats/data rows still has usage numbers
+  //  from its own boots, and a /stats/data failure must not blank this
+  //  section out. One renderer serves both payload sources — the server
+  //  hands back the same shape either way and only `source` differs.
+  // ===================================================================
+
+  /** Render one {name,count} distribution list with proportional fills. */
+  function paintDist(sel, rows, nameKey, opts) {
+    const el = $(sel);
+    if (!el) return;
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) {
+      el.innerHTML = `<li class="dist-row"><span class="name" style="color:var(--faint)">no data yet</span><span class="n">—</span></li>`;
+      return;
+    }
+    const max = Math.max(1, ...list.map(r => Number(r.count) || 0));
+    const cls = (opts && opts.err) ? ' is-err' : '';
+    el.innerHTML = list.map(r => {
+      const pct = Math.max(2, Math.round(100 * (Number(r.count) || 0) / max));
+      const label = r[nameKey];
+      const shown = (label === null || label === undefined || label === '')
+        ? 'unknown' : String(label);
+      return `<li class="dist-row${cls}">
+        <span class="fill" style="width:${pct}%"></span>
+        <span class="name" title="${escapeAttr(shown)}">${escapeHtml(shown)}</span>
+        <span class="n">${fmt(r.count)}</span>
+      </li>`;
+    }).join('');
+  }
+
+  function renderUsage(u) {
+    const sec = $('#sec-usage');
+    if (!sec) return;
+    sec.hidden = false;
+
+    const isFleet = u.source === 'fleet';
+    const note = $('#usage-note');
+    const srcEl = $('#usage-src');
+    const noteText = $('#usage-note-text');
+    if (note) note.classList.toggle('is-local', !isFleet);
+    if (srcEl) srcEl.textContent = isFleet ? 'fleet' : 'this mac';
+    if (noteText) {
+      let msg;
+      if (u.warning) {
+        msg = u.warning;
+      } else if (isFleet) {
+        msg = 'every install that has pinged'
+          + (u.cached ? ' · cached, refreshes every 6h' : ' · fresh')
+          + (u.partial ? ' · some queries returned nothing' : '');
+      } else {
+        msg = u.note || 'this machine only — add a PostHog query key in Settings for fleet data';
+      }
+      noteText.textContent = msg;
+    }
+
+    // Headline tiles. Null values render as "—" rather than 0 so
+    // "we have no data" never masquerades as "the number is zero".
+    const t = u.tiles || {};
+    const tiles = [
+      { label: isFleet ? 'Weekly active installs' : 'Active this week',
+        value: fmt(t.weekly_active_installs),
+        sub: isFleet ? 'unique installs · 7d' : 'this machine · 7d', hero: true },
+      { label: 'Renders this week', value: fmt(t.renders_7d), sub: 'completed + failed · 7d' },
+      { label: 'H3 share', value: fmtPct(t.h3_share_pct), sub: 'of renders · 14d' },
+      { label: 'Error rate', value: fmtPct(t.error_rate_pct), sub: 'failed renders · 14d' },
+    ];
+    const grid = $('#usage-tiles');
+    if (grid) {
+      grid.innerHTML = tiles.map(k => `
+        <div class="kpi${k.hero ? ' is-hero' : ''}">
+          <div class="label">${escapeHtml(k.label)}</div>
+          <div class="value">${k.value}</div>
+          <div class="delta">${escapeHtml(k.sub)}</div>
+        </div>`).join('');
+    }
+
+    // Pack-flip alert — the H3-vanished detector. Any true→false
+    // transition on any pack counts; h3 is called out by name because
+    // it is the one that has actually bitten a user.
+    const flips = u.pack_flips || {};
+    const lost = Number(flips.h3_lost) || 0;
+    const others = (Array.isArray(flips.rows) ? flips.rows : [])
+      .filter(r => r.from && !r.to && r.pack !== 'h3')
+      .reduce((a, r) => a + (Number(r.count) || 0), 0);
+    const alert = $('#usage-packflip');
+    if (alert) {
+      const total = lost + others;
+      alert.classList.toggle('is-clear', total === 0);
+      alert.innerHTML = total === 0
+        ? `<span class="n">0</span><span>optional-pack regressions in the last 7 days.</span>`
+        : `<span class="n">${fmt(total)}</span><span>optional-pack regression${total === 1 ? '' : 's'} in the last 7 days`
+          + (lost ? ` — <strong>H3 went from installed to missing ${fmt(lost)}×</strong>` : '')
+          + `. A pack that disappears between boots is a broken install, not a user choice.</span>`;
+    }
+
+    const errs = Array.isArray(u.top_errors) ? u.top_errors : [];
+    const errCount = $('#usage-errors-count');
+    if (errCount) errCount.textContent = fmt(errs.reduce((a, r) => a + (Number(r.count) || 0), 0));
+    paintDist('#usage-errors', errs, 'signature', { err: true });
+    paintDist('#usage-versions', u.versions, 'version');
+    paintDist('#usage-chips', u.chips, 'chip');
+    paintDist('#usage-ram', u.ram, 'ram_gb');
+  }
+
+  async function loadUsage(force) {
+    try {
+      const r = await fetch(USAGE_URL + (force ? '?force=1' : ''), { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const u = await r.json();
+      if (u && u.ok === false && !u.tiles) throw new Error(u.error || 'usage unavailable');
+      renderUsage(u || {});
+    } catch (e) {
+      // A panel older than this endpoint 404s — leave the section hidden
+      // rather than showing a broken card. Not an error worth surfacing.
+      console.debug('usage unavailable:', e && e.message);
+    }
+  }
+
   function renderTables(rows) {
     const last = rows[rows.length - 1] || {};
     const refs = Array.isArray(last.referrers) ? last.referrers : [];
@@ -2546,6 +2801,20 @@
   //  REFRESH — best-effort POST. Endpoint may 404; fall back to a reload.
   // ===================================================================
 
+  // Usage refresh — busts the server's 6h fleet cache. Separate from the
+  // GitHub refresh button because they hit completely different backends
+  // (PostHog's query API vs the repo-stats fetcher) with different costs.
+  function initUsageRefresh() {
+    const btn = $('#usage-refresh');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      btn.classList.add('is-busy');
+      btn.disabled = true;
+      try { await loadUsage(true); }
+      finally { btn.classList.remove('is-busy'); btn.disabled = false; }
+    });
+  }
+
   function initRefresh() {
     const btn = $('#refresh-btn');
     if (!btn) return;
@@ -2679,7 +2948,12 @@
   initChips();
   initClonesChart();
   initRefresh();
+  initUsageRefresh();
   main();
+  // Own fetch, not awaited by main() — the GitHub archive and the usage
+  // telemetry are independent sources and either can be empty or broken
+  // without taking the other down with it.
+  loadUsage(false);
   </script>
 </body>
 </html>

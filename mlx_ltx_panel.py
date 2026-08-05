@@ -353,13 +353,35 @@ def _settings_defaults() -> dict:
         # Memory/speed policy. Defaults to Auto so 5 s clips keep the fast
         # full-decode path while long/high-pressure renders stay protected.
         "memory_policy": DEFAULT_MEMORY_POLICY,
-        # NOTE: opt-in anonymous telemetry was experimented with in
-        # 2026-05 and removed on 2026-05-22 (see commit history) — Mr
-        # Bizarro chose to stay on GitHub-data-only signal (see
-        # docs/stats.html + scripts/fetch_repo_stats.py) rather than
-        # ship anything that touches the user's render path. Existing
-        # panel_settings.json files may still have analytics_* keys;
-        # they're now silently ignored.
+        # ---- Anonymous usage analytics -----------------------------------
+        # Full contract in the "Anonymous usage analytics" section further
+        # down this file, and the event-by-event schema in docs/ANALYTICS.md.
+        # Short version: counts only, never content, and completely inert
+        # until a PostHog key is configured.
+        #
+        # Default ON. This is a change of posture from the 2026-05 opt-in
+        # experiment that was reverted (da1d6f5) — that one was OFF by
+        # default and therefore told us nothing. A settings file left over
+        # from that 24-hour window may already carry
+        # `analytics_enabled: false`; _load_settings() backfills with
+        # setdefault, so that user's explicit opt-out is preserved rather
+        # than silently flipped back on. That is the intended behaviour.
+        "analytics_enabled": True,
+        # Random UUID4, generated on first use and never derived from
+        # anything about the machine. The only identifier we send.
+        "analytics_install_id": "",
+        # PostHog PROJECT key (write-only, safe to hold on disk). Empty =
+        # analytics opens no sockets at all. Maintainer pastes this in
+        # Settings to switch the fleet on; PHOSPHENE_ANALYTICS_KEY overrides.
+        "analytics_key": "",
+        # PostHog PERSONAL API key (read-only, maintainer-only). Powers the
+        # fleet view on /stats/usage. Never used for capture.
+        "analytics_query_key": "",
+        # Last boot's optional-pack snapshot, diffed on the next boot to
+        # emit pack_state_change. Panel-written, not user-editable.
+        "analytics_last_packs": {},
+        # Whether the one-line boot disclosure has already been printed.
+        "analytics_disclosed": False,
     }
 
 
@@ -573,9 +595,31 @@ def _validate_settings_patch(patch: dict) -> tuple[dict, str | None]:
             return {}, f"unknown memory_policy: {policy}"
         out["memory_policy"] = policy
 
-    # analytics_enabled / analytics_install_id used to be validated here;
-    # both removed 2026-05-22 when opt-in analytics was rolled back. Any
-    # legacy keys in panel_settings.json are now silently ignored.
+    # ---- Anonymous usage analytics -------------------------------------
+    # Additive only: three user-settable fields. `analytics_install_id`,
+    # `analytics_last_packs` and `analytics_disclosed` are deliberately NOT
+    # accepted here — they're panel bookkeeping written via
+    # _settings_set_internal(), and a form must not be able to set the
+    # install id (that would let a page correlate installs).
+    if "analytics_enabled" in patch:
+        # Same urlencoded-bool coercion as spicy_mode / models_card_dismissed.
+        v = patch["analytics_enabled"]
+        if isinstance(v, bool):
+            out["analytics_enabled"] = v
+        else:
+            out["analytics_enabled"] = str(v).strip().lower() in ("1", "true", "yes", "on")
+
+    for _akey, _alabel in (("analytics_key", "PostHog project key"),
+                           ("analytics_query_key", "PostHog personal API key")):
+        if _akey in patch:
+            val = str(patch[_akey]).strip()
+            # Empty is legal and meaningful: it clears the key and (for
+            # analytics_key) returns the panel to fully-inert.
+            if val and not (8 <= len(val) <= 256):
+                return {}, f"{_alabel} length looks wrong (expected 8-256 chars)"
+            if any(c.isspace() for c in val):
+                return {}, f"{_alabel} cannot contain whitespace"
+            out[_akey] = val
 
     return out, None
 
@@ -635,6 +679,19 @@ def get_settings_public() -> dict:
         "models_card_dismissed": bool(s.get("models_card_dismissed", False)),
         "spicy_mode": bool(s.get("spicy_mode", False)),
         "memory_policy": s.get("memory_policy", DEFAULT_MEMORY_POLICY),
+        # Analytics. Same has_X-boolean treatment as the other secrets —
+        # the keys themselves never come back over the wire. The install id
+        # DOES come back: it's a random UUID with no meaning off this
+        # machine, and showing users the exact identifier the panel sends
+        # is the entire point of the Settings row.
+        "analytics_enabled": bool(s.get("analytics_enabled", True)),
+        "analytics_install_id": str(s.get("analytics_install_id", "") or ""),
+        "has_analytics_key": bool(str(s.get("analytics_key", "") or "").strip()
+                                  or ANALYTICS_KEY_DEFAULT
+                                  or os.environ.get("PHOSPHENE_ANALYTICS_KEY", "").strip()),
+        "has_analytics_query_key": bool(
+            str(s.get("analytics_query_key", "") or "").strip()
+            or os.environ.get("PHOSPHENE_ANALYTICS_QUERY_KEY", "").strip()),
     }
 
 
@@ -4728,6 +4785,883 @@ def h3_status() -> dict:
         "size_note": "~75 GB · needs 64 GB unified memory · "
                      "MiniMax Community License (territory restrictions apply)",
     }
+
+
+# ---- Anonymous usage analytics ----------------------------------------------
+#
+# History first, because this file has some: an OPT-IN telemetry module
+# shipped 2026-05-21 and was reverted wholesale the next day (da1d6f5) —
+# "not going to be well accepted in the open source world." What ships now
+# is deliberately a different animal, and the differences are the point:
+#
+#   * INERT BY DEFAULT IN THE PUBLIC TREE. ANALYTICS_KEY_DEFAULT is "" and
+#     an empty key is a hard no-op — no socket is ever opened. The panel
+#     starts pinging only after the maintainer pastes a PostHog project key
+#     into Settings (or sets PHOSPHENE_ANALYTICS_KEY). A fork that never
+#     pastes a key never sends anything, forever, with no code change.
+#   * IT NEVER SEES CONTENT. No prompts, no filenames, no paths, no media,
+#     no LoRA/character names, no seeds. The event list in docs/ANALYTICS.md
+#     is the WHOLE schema. _analytics_clean_props() drops known-dangerous
+#     keys and _analytics_scrub_text() strips absolute paths out of the one
+#     free-text field that exists (error_signature) before truncating it.
+#   * IT CANNOT SLOW OR BREAK A RENDER. Every capture returns immediately;
+#     delivery happens on a daemon thread with a 2 s timeout and a bare
+#     `except Exception: pass` around the whole path. That property is the
+#     one this module must never lose — if analytics ever raises into a
+#     render, the bug is here, not in the caller.
+#   * IT IS VISIBLE AND REVERSIBLE. One line in the boot log the first time
+#     it runs, a Settings toggle (default ON), and a plain-text local mirror
+#     at state/usage-log.jsonl showing exactly what this panel would send.
+#
+# Event volume is deliberately tiny: one app_boot per panel start, zero or
+# more pack_state_change at the same moment, and one event per finished job.
+# There are NO heartbeats and NO background timers in this module.
+
+# Empty string = analytics disabled at the source. This constant stays ""
+# in the public tree; the maintainer supplies the real key at runtime via
+# Settings or PHOSPHENE_ANALYTICS_KEY so it is never committed.
+ANALYTICS_KEY_DEFAULT = ""
+# PostHog ingestion host (capture). Override for a self-hosted receiver.
+ANALYTICS_HOST_DEFAULT = "https://us.i.posthog.com"
+# PostHog app host (HogQL query API — different host from ingestion).
+# Only used by the maintainer-only fleet view on /stats/usage.
+ANALYTICS_API_HOST_DEFAULT = "https://us.posthog.com"
+ANALYTICS_TIMEOUT_SEC = 2.0
+ANALYTICS_STR_MAX = 120
+
+# Local mirror. Written for every captured event whether or not a PostHog
+# key is configured, so /stats always has a "this machine" view and so
+# there is an auditable record of what the panel would transmit. Lives in
+# state/ (gitignored, fs.link-preserved across Pinokio Reset) and is capped
+# so a heavy user's log can't grow without bound.
+USAGE_LOG_FILE = STATE_DIR / "usage-log.jsonl"
+USAGE_LOG_MAX_BYTES = 5 * 1024 * 1024
+USAGE_FLEET_CACHE = STATE_DIR / "usage-fleet.json"
+USAGE_FLEET_TTL_SEC = 6 * 60 * 60
+_USAGE_LOG_LOCK = threading.Lock()
+
+# Keys that must never appear in an event payload. This is defense in depth,
+# not the primary control — no call site passes any of these — but a future
+# edit that spreads `**params` into a props dict would otherwise leak the
+# user's prompt to a server. _analytics_clean_props() drops them by name.
+_ANALYTICS_FORBIDDEN_KEYS = frozenset({
+    "prompt", "negative_prompt", "override_prompt", "caption",
+    "image", "image_path", "images", "audio", "audio_path", "video",
+    "output", "output_path", "raw_output", "native_output", "path", "paths",
+    "file", "filename", "files", "dir", "directory", "root",
+    "first_frame", "last_frame", "refs", "reference", "seed_image",
+    "lora", "loras", "lora_path", "lora_paths", "character", "trigger",
+    "trigger_words", "hostname", "username", "user", "email", "home",
+    "command", "cmd", "argv", "env", "token", "key", "api_key",
+})
+
+# Absolute-path shapes to redact from error signatures. Applied in order:
+# the anchored pass catches the macOS roots a Phosphene error is likely to
+# quote, the generic pass catches anything else with 2+ path segments.
+_ANALYTICS_PATH_RES = (
+    re.compile(r"(?:~|/(?:Users|home|private|var|tmp|opt|Volumes|Applications"
+               r"|Library|System))(?:/[^\s'\"<>,;)\]]*)*"),
+    re.compile(r"(?:/[\w.+\-]+){2,}/?"),
+)
+_ANALYTICS_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
+def _settings_set_internal(**kv) -> None:
+    """Persist panel-internal settings keys that never come from a form.
+
+    `update_settings()` runs the user-input whitelist, which by design
+    rejects anything not in it. Analytics bookkeeping (`install_id`, the
+    last-known pack snapshot, the one-time disclosure flag) is written by
+    the panel itself, so it goes straight to the store. Fail-silent: losing
+    a bookkeeping write costs at most one duplicate boot event."""
+    try:
+        with _SETTINGS_LOCK:
+            _SETTINGS.update(kv)
+            _save_settings(_SETTINGS)
+    except Exception:
+        pass
+
+
+def _analytics_enabled() -> bool:
+    """Master switch. Settings toggle (default ON), with an env kill-switch
+    for users who want it off before the panel ever writes a settings file
+    — PHOSPHENE_ANALYTICS_DISABLED=1 wins over everything.
+
+    Note this is independent of whether a key is configured: with the
+    toggle ON and no key, capture still writes the local mirror (which
+    never leaves the Mac) but opens no socket."""
+    if _optional_bool_env("PHOSPHENE_ANALYTICS_DISABLED") is True:
+        return False
+    return bool(get_settings().get("analytics_enabled", True))
+
+
+def _analytics_key() -> str:
+    """Resolve the PostHog PROJECT key used for capture, in priority order:
+       1. PHOSPHENE_ANALYTICS_KEY env var (maintainer / CI override)
+       2. `analytics_key` in panel_settings.json (Settings modal)
+       3. ANALYTICS_KEY_DEFAULT — "" in the public tree
+    Empty result means "never open a socket"."""
+    env = (os.environ.get("PHOSPHENE_ANALYTICS_KEY") or "").strip()
+    if env:
+        return env
+    saved = str(get_settings().get("analytics_key") or "").strip()
+    return saved or ANALYTICS_KEY_DEFAULT
+
+
+def _analytics_query_key() -> str:
+    """PostHog PERSONAL API key — read-only, maintainer-only, used solely by
+    the fleet view on /stats/usage. Separate from the capture key on
+    purpose: the capture key is write-only and safe to ship in a binary,
+    the personal key can read the whole project and must not be."""
+    env = (os.environ.get("PHOSPHENE_ANALYTICS_QUERY_KEY") or "").strip()
+    if env:
+        return env
+    return str(get_settings().get("analytics_query_key") or "").strip()
+
+
+def _analytics_host() -> str:
+    return (os.environ.get("PHOSPHENE_ANALYTICS_HOST")
+            or ANALYTICS_HOST_DEFAULT).strip().rstrip("/")
+
+
+def _analytics_api_host() -> str:
+    return (os.environ.get("PHOSPHENE_ANALYTICS_API_HOST")
+            or ANALYTICS_API_HOST_DEFAULT).strip().rstrip("/")
+
+
+def _analytics_install_id() -> str:
+    """Random UUID4 generated once and persisted to panel_settings.json.
+
+    This is the ONLY identifier that leaves the machine. It is not derived
+    from anything — not the hardware serial, not the MAC address, not the
+    username, not the install path. Deleting panel_settings.json (or the
+    key) makes this install a brand-new anonymous install with no way to
+    correlate it to the old one.
+
+    A value that isn't a well-formed UUID4 (e.g. the 32-char hex id the
+    reverted 2026-05 module wrote) is discarded and regenerated."""
+    cur = str(get_settings().get("analytics_install_id") or "").strip().lower()
+    if _ANALYTICS_UUID_RE.match(cur):
+        return cur
+    import uuid as _uuid
+    new = str(_uuid.uuid4())
+    _settings_set_internal(analytics_install_id=new)
+    return new
+
+
+def _analytics_scrub_text(text, secrets=()) -> str:
+    """Reduce free text to a safe one-line signature.
+
+    Order matters. Exact user strings (this job's prompt, its image path)
+    are redacted FIRST — an exception message that quotes the prompt is the
+    realistic leak, and exact-substring removal is the only defense that
+    provably catches it. Then absolute paths, then whitespace collapse,
+    then a hard truncation. Returns "" for anything unusable."""
+    try:
+        s = str(text or "").strip()
+        if not s:
+            return ""
+        s = s.splitlines()[0]
+        for secret in secrets or ():
+            sec = str(secret or "").strip()
+            # 6 chars is short enough to catch a terse prompt and long
+            # enough not to blank out ordinary words in an error string.
+            if len(sec) >= 6 and sec in s:
+                s = s.replace(sec, "<redacted>")
+        for rx in _ANALYTICS_PATH_RES:
+            s = rx.sub("<path>", s)
+        s = " ".join(s.split())
+        return s[:ANALYTICS_STR_MAX]
+    except Exception:
+        return ""
+
+
+def _analytics_clean_props(props: dict) -> dict:
+    """Whitelist-by-shape pass over an outgoing property dict.
+
+    Drops forbidden keys outright, keeps only JSON primitives (plus a
+    single level of flat dict, which `packs` needs), and truncates every
+    string. Anything unexpected is dropped rather than coerced — a prop we
+    can't reason about is a prop we don't send."""
+    out: dict = {}
+    for key, val in (props or {}).items():
+        k = str(key)
+        if k.lower() in _ANALYTICS_FORBIDDEN_KEYS:
+            continue
+        if isinstance(val, bool) or isinstance(val, int) or isinstance(val, float):
+            out[k] = val
+        elif isinstance(val, str):
+            out[k] = val[:ANALYTICS_STR_MAX]
+        elif val is None:
+            out[k] = None
+        elif isinstance(val, dict):
+            flat = {}
+            for sk, sv in val.items():
+                if str(sk).lower() in _ANALYTICS_FORBIDDEN_KEYS:
+                    continue
+                if isinstance(sv, (bool, int, float)) or sv is None:
+                    flat[str(sk)] = sv
+                elif isinstance(sv, str):
+                    flat[str(sk)] = sv[:ANALYTICS_STR_MAX]
+            out[k] = flat
+    return out
+
+
+def _analytics_duration_bucket(seconds) -> str:
+    """Bucket an elapsed time. Buckets, not raw seconds, because a raw
+    duration plus a resolution plus a timestamp starts to look like a
+    fingerprint; the buckets answer the only question we actually have
+    ("is this tier usable on real hardware?") without that risk."""
+    try:
+        s = float(seconds or 0)
+    except (TypeError, ValueError):
+        return "unknown"
+    if s <= 0:
+        return "unknown"
+    if s < 120:
+        return "<2m"
+    if s < 300:
+        return "2-5m"
+    if s < 900:
+        return "5-15m"
+    if s < 2400:
+        return "15-40m"
+    return ">40m"
+
+
+def _analytics_os_version() -> str:
+    """macOS version as major.minor ("26.4"). Patch level is dropped — it
+    adds no signal and narrows the anonymity set."""
+    try:
+        import platform as _platform
+        ver = (_platform.mac_ver()[0] or "").strip()
+        if not ver:
+            return "unknown"
+        return ".".join(ver.split(".")[:2])
+    except Exception:
+        return "unknown"
+
+
+_CHIP_FAMILY_CACHE: str | None = None
+_CHIP_FAMILY_RE = re.compile(r"\bM(\d+)\s*(Pro|Max|Ultra)?\b", re.IGNORECASE)
+
+
+def _analytics_chip_family() -> str:
+    """Chip class from the CPU brand string: 'Apple M4 Max' -> 'M4 Max'.
+
+    This is a hardware CLASS, not a hardware ID — every M4 Max on earth
+    reports the same string. It is the field that answers "does this
+    feature work on the machines people actually own?", which is the
+    question that made the H3 tier table honest."""
+    global _CHIP_FAMILY_CACHE
+    if _CHIP_FAMILY_CACHE is not None:
+        return _CHIP_FAMILY_CACHE
+    family = "unknown"
+    try:
+        brand = subprocess.run(
+            ["sysctl", "-n", "machdep.cpu.brand_string"],
+            capture_output=True, text=True, timeout=2,
+        ).stdout.strip()
+        m = _CHIP_FAMILY_RE.search(brand)
+        if m:
+            family = f"M{m.group(1)}" + (f" {m.group(2).title()}" if m.group(2) else "")
+        elif brand:
+            family = "non-apple-silicon"
+    except Exception:
+        pass
+    _CHIP_FAMILY_CACHE = family
+    return family
+
+
+def _qwen_pack_available() -> bool:
+    """Whether the optional Qwen image pack's mflux binary is installed.
+    Same probe the /agent/image/config endpoint uses for its family pills."""
+    try:
+        probe = agent_image_engine.ImageEngineConfig(
+            kind="mflux", mflux_family="qwen_edit")
+        return bool(agent_image_engine._resolve_mflux_bin(probe))
+    except Exception:
+        return False
+
+
+def _analytics_pack_state() -> dict:
+    """Current install state of the four optional packs. Booleans only.
+
+    Diffed against the previous boot's snapshot to emit pack_state_change.
+    A true->false transition is the 'my H3 vanished' bug class: the pack
+    was installed, then a panel Update / Pinokio Reset / venv breakage made
+    it undetectable. Nothing in the panel notices that today; this does."""
+    return {
+        "h3": bool(h3_available()),
+        "sharp": bool(PIPERSR_UPSCALE_ENABLED),
+        "q8": bool(q8_available_anywhere()),
+        "qwen": bool(_qwen_pack_available()),
+    }
+
+
+def _usage_log_rotate() -> None:
+    """Halve the local mirror when it hits the cap. Keeps the NEWEST half —
+    the dashboard's windows are all 7/14-day, so old lines have no readers.
+    Rewrites in place via the same temp+replace shape the rest of the panel
+    uses so a kill mid-rotate can't truncate the log to nothing."""
+    try:
+        lines = USAGE_LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return
+    keep = lines[len(lines) // 2:]
+    tmp = USAGE_LOG_FILE.with_name(f".{USAGE_LOG_FILE.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text("\n".join(keep) + ("\n" if keep else ""), encoding="utf-8")
+        os.replace(tmp, USAGE_LOG_FILE)
+    except OSError:
+        try: tmp.unlink()
+        except OSError: pass
+
+
+def _usage_log_append(record: dict) -> None:
+    """Append one JSON line to the local mirror. Never raises."""
+    try:
+        _ensure_state_dir()
+        line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
+        with _USAGE_LOG_LOCK:
+            try:
+                if USAGE_LOG_FILE.stat().st_size + len(line) > USAGE_LOG_MAX_BYTES:
+                    _usage_log_rotate()
+            except OSError:
+                pass  # missing file is the normal first-write case
+            with USAGE_LOG_FILE.open("a", encoding="utf-8") as fh:
+                fh.write(line)
+    except Exception:
+        pass
+
+
+def _analytics_post(payload: dict) -> None:
+    """Single-event POST to the PostHog capture API. Never raises.
+
+    `$process_person_profile: false` tells PostHog not to build a person
+    record for the install id — we want counts, not people. The IP the
+    request arrives from is whatever the backend sees; PostHog derives a
+    coarse country from it by default and we neither add to nor suppress
+    that (documented in docs/ANALYTICS.md)."""
+    key = _analytics_key()
+    if not key:
+        return  # no key => inert, and this is the only guard that matters
+    body = json.dumps({
+        "api_key": key,
+        "event": payload["event"],
+        "distinct_id": payload["install_id"],
+        "timestamp": payload["utc"],
+        "properties": {
+            **payload["props"],
+            "$process_person_profile": False,
+        },
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"{_analytics_host()}/i/v0/e/",
+        data=body,
+        headers={"Content-Type": "application/json",
+                 "User-Agent": "phosphene-panel-analytics"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=ANALYTICS_TIMEOUT_SEC) as resp:
+        resp.read(256)   # drain so the socket closes cleanly; body unused
+
+
+def _analytics_deliver(payload: dict) -> None:
+    """Thread body: mirror locally, then try the network. Fail-silent.
+
+    The local write happens FIRST and unconditionally, so a dead endpoint
+    or an absent key still leaves the maintainer a complete record on this
+    machine. Nothing here is retried — a dropped event is strictly
+    preferable to a queue that outlives the render it describes."""
+    try:
+        _usage_log_append(payload)
+    except Exception:
+        pass
+    try:
+        _analytics_post(payload)
+    except Exception:
+        pass   # network down, endpoint 500, bad key, offline Mac — all fine
+
+
+def _analytics_capture(event: str, props: dict | None = None) -> None:
+    """Record one event. Returns immediately; never raises; never blocks.
+
+    This is the only entry point call sites should use. Everything after
+    the thread start is best-effort by design — see the module note above
+    for why that contract is non-negotiable."""
+    try:
+        if not _analytics_enabled():
+            return
+        payload = {
+            "event": str(event)[:64],
+            "props": _analytics_clean_props(props or {}),
+            "install_id": _analytics_install_id(),
+            "ts": time.time(),
+            "at": iso_now(),
+            "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+    except Exception:
+        return
+    try:
+        threading.Thread(target=_analytics_deliver, args=(payload,),
+                         name="analytics-capture", daemon=True).start()
+    except Exception:
+        pass
+
+
+def _analytics_disclose_once() -> None:
+    """One line, once per install, in the boot log. Users find out that the
+    panel does this from the panel itself — not from a docs page they'd
+    have to go looking for. ASCII only (emoji in panel stdout can break the
+    Pinokio/helper handshake — see 2026-06-02)."""
+    if get_settings().get("analytics_disclosed"):
+        return
+    print(
+        "Phosphene sends anonymous usage counts (version, hardware class, "
+        "render stats, error signatures - never your prompts or media). "
+        "Disable in Settings.",
+        flush=True,
+    )
+    _settings_set_internal(analytics_disclosed=True)
+
+
+def _analytics_boot() -> None:
+    """Emit app_boot plus any pack transitions since the previous boot.
+
+    Called once from __main__ — never at import time, so `import
+    mlx_ltx_panel` from a test or a script sends nothing."""
+    try:
+        if not _analytics_enabled():
+            return
+        _analytics_disclose_once()
+        packs = _analytics_pack_state()
+        _analytics_capture("app_boot", {
+            "version": _read_local_version() or "unknown",
+            "os_version": _analytics_os_version(),
+            "chip_family": _analytics_chip_family(),
+            "ram_gb": int(round(SYSTEM_RAM_GB)),
+            "cap_tier": _resolve_cap_tier(),
+            "packs": packs,
+            "h3_chain_supported": bool(packs["h3"] and h3_supports_chain()),
+        })
+        prev = get_settings().get("analytics_last_packs")
+        if isinstance(prev, dict):
+            for name in sorted(packs):
+                was = prev.get(name)
+                if isinstance(was, bool) and was != packs[name]:
+                    _analytics_capture("pack_state_change", {
+                        "pack": name, "from": was, "to": packs[name],
+                    })
+        _settings_set_internal(analytics_last_packs=packs)
+    except Exception:
+        pass
+
+
+def _analytics_job_secrets(job: dict) -> list:
+    """Exact strings from this job that must never survive into an error
+    signature. Collected from the job itself so the redaction is exact
+    rather than heuristic — see _analytics_scrub_text()."""
+    p = (job or {}).get("params") or {}
+    out = []
+    for k in ("prompt", "negative_prompt", "image", "audio", "output",
+              "first_frame", "last_frame", "character", "train_job_id"):
+        v = p.get(k)
+        if isinstance(v, str) and v.strip():
+            out.append(v.strip())
+    for k in ("output", "error_path"):
+        v = (job or {}).get(k)
+        if isinstance(v, str) and v.strip():
+            out.append(v.strip())
+    return out
+
+
+def _analytics_render_tier(params: dict, engine: str) -> str:
+    """The user-facing quality/tier selector for this job, per engine.
+    LTX calls it `quality` (quick/balanced/standard/high); H3 calls it
+    `h3_tier` (3s/5s/10s/15s). One field in the event, either way."""
+    if engine == "h3":
+        return str(params.get("h3_tier") or "unknown")
+    return str(params.get("quality") or params.get("mode") or "unknown")
+
+
+def _analytics_render_event(job: dict) -> None:
+    """Emit render_completed / render_failed for a finished queue job.
+
+    Wired at the single point in worker_loop's `finally` where every job
+    from every engine lands, so LTX, H3, image and training jobs are all
+    covered by one call and a future engine gets counted for free.
+    Cancelled jobs are deliberately not reported (a user cancelling is not
+    a signal about the software)."""
+    try:
+        status = (job or {}).get("status")
+        if status not in ("done", "failed"):
+            return
+        p = (job or {}).get("params") or {}
+        engine = str(p.get("engine") or "ltx").strip().lower()
+        try:
+            width, height = int(p.get("width") or 0), int(p.get("height") or 0)
+        except (TypeError, ValueError):
+            width = height = 0
+        try:
+            frames = int(p.get("frames") or 0)
+        except (TypeError, ValueError):
+            frames = 0
+        props = {
+            "engine": engine,
+            "mode": str(p.get("mode") or "unknown"),
+            "tier": _analytics_render_tier(p, engine),
+            "duration_bucket": _analytics_duration_bucket(job.get("elapsed_sec")),
+            "resolution": f"{width}x{height}" if width and height else "unknown",
+            "frames": frames,
+        }
+        if status == "failed":
+            props["error_signature"] = _analytics_scrub_text(
+                job.get("error"), _analytics_job_secrets(job))
+        _analytics_capture(
+            "render_completed" if status == "done" else "render_failed", props)
+    except Exception:
+        pass
+
+
+# ---- Usage report: local aggregates + optional fleet view -------------------
+#
+# Feeds the "Usage" section of the maintainer dashboard at /stats, the same
+# way the GitHub sections are fed by scripts/fetch_repo_stats.py. Two tiers,
+# and the dashboard renders whichever it gets:
+#
+#   LOCAL  — aggregated from state/usage-log.jsonl, i.e. this Mac only.
+#            Always available, needs no keys, works offline. This is also
+#            the debugging view for the fleet pings: whatever the panel
+#            would have sent is sitting in that file in plain text.
+#   FLEET  — aggregated by PostHog over every install that has pinged,
+#            via the HogQL query API. Requires a PostHog PERSONAL API key
+#            (Settings -> analytics_query_key), which is read-only and
+#            maintainer-only. Cached to state/usage-fleet.json for 6 h so
+#            an open dashboard tab can't hammer the query API.
+#
+# Both endpoints are 127.0.0.1-only via the early _is_local_request guard,
+# like everything else on this server.
+
+_USAGE_FLEET_LOCK = threading.Lock()
+
+
+def _usage_log_read(max_age_days: float | None = None) -> list[dict]:
+    """Parse the local mirror. Bad lines are skipped, not fatal — this file
+    is append-only from several threads and a torn last line is possible."""
+    out: list[dict] = []
+    try:
+        raw = USAGE_LOG_FILE.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return out
+    cutoff = (time.time() - max_age_days * 86400) if max_age_days else None
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(rec, dict) or "event" not in rec:
+            continue
+        if cutoff is not None:
+            try:
+                if float(rec.get("ts") or 0) < cutoff:
+                    continue
+            except (TypeError, ValueError):
+                continue
+        out.append(rec)
+    return out
+
+
+def _usage_rank(counter: dict, key_name: str, limit: int = 12) -> list[dict]:
+    """{value: count} -> sorted [{<key_name>: value, "count": n}] rows."""
+    rows = sorted(counter.items(), key=lambda kv: (-kv[1], str(kv[0])))
+    return [{key_name: k, "count": v} for k, v in rows[:limit]]
+
+
+def _usage_local_report() -> dict:
+    """Aggregate the local mirror into the dashboard's payload shape.
+
+    Deliberately the SAME shape the fleet path produces, so stats.html has
+    exactly one renderer and the only difference the user sees is the
+    `source` label and the note above the tiles."""
+    recs = _usage_log_read()
+    now = time.time()
+    d7, d14 = now - 7 * 86400, now - 14 * 86400
+
+    boots_by_day: dict[str, int] = {}
+    engines: dict[str, int] = {}
+    errors: dict[str, int] = {}
+    versions: dict[str, int] = {}
+    chips: dict[str, int] = {}
+    rams: dict[str, int] = {}
+    flips: dict[tuple, int] = {}
+    renders_7d = ok_14d = fail_14d = 0
+    h3_14d = tot_14d = 0
+    active_7d = False
+
+    for rec in recs:
+        try:
+            ts = float(rec.get("ts") or 0)
+        except (TypeError, ValueError):
+            continue
+        ev = str(rec.get("event") or "")
+        props = rec.get("props") if isinstance(rec.get("props"), dict) else {}
+        if ts >= d7:
+            active_7d = True
+        if ev == "app_boot":
+            if ts >= d14:
+                day = time.strftime("%Y-%m-%d", time.localtime(ts))
+                boots_by_day[day] = boots_by_day.get(day, 0) + 1
+                versions[str(props.get("version") or "unknown")] = \
+                    versions.get(str(props.get("version") or "unknown"), 0) + 1
+                chips[str(props.get("chip_family") or "unknown")] = \
+                    chips.get(str(props.get("chip_family") or "unknown"), 0) + 1
+                ram_key = str(props.get("ram_gb") or "unknown")
+                rams[ram_key] = rams.get(ram_key, 0) + 1
+        elif ev in ("render_completed", "render_failed"):
+            if ts >= d7:
+                renders_7d += 1
+            if ts >= d14:
+                tot_14d += 1
+                eng = str(props.get("engine") or "unknown")
+                engines[eng] = engines.get(eng, 0) + 1
+                if eng == "h3":
+                    h3_14d += 1
+                if ev == "render_completed":
+                    ok_14d += 1
+                else:
+                    fail_14d += 1
+            if ev == "render_failed" and ts >= d7:
+                sig = str(props.get("error_signature") or "unknown error")
+                errors[sig] = errors.get(sig, 0) + 1
+        elif ev == "pack_state_change" and ts >= d7:
+            k = (str(props.get("pack") or "?"),
+                 bool(props.get("from")), bool(props.get("to")))
+            flips[k] = flips.get(k, 0) + 1
+
+    flip_rows = [{"pack": p, "from": f, "to": t, "count": c}
+                 for (p, f, t), c in sorted(flips.items(), key=lambda kv: -kv[1])]
+    h3_lost = sum(r["count"] for r in flip_rows
+                  if r["pack"] == "h3" and r["from"] and not r["to"])
+
+    return {
+        "ok": True,
+        "source": "local",
+        "generated_at": iso_now(),
+        "cached": False,
+        "note": ("this machine only - add a PostHog query key in Settings "
+                 "for fleet data"),
+        "tiles": {
+            "weekly_active_installs": 1 if active_7d else 0,
+            "renders_7d": renders_7d,
+            "h3_share_pct": round(100.0 * h3_14d / tot_14d, 1) if tot_14d else None,
+            "error_rate_pct": (round(100.0 * fail_14d / (ok_14d + fail_14d), 1)
+                               if (ok_14d + fail_14d) else None),
+        },
+        "boots_by_day": [{"date": d, "count": boots_by_day[d]}
+                         for d in sorted(boots_by_day)],
+        "engines": _usage_rank(engines, "engine", 8),
+        "top_errors": [{"signature": k, "count": v} for k, v in
+                       sorted(errors.items(), key=lambda kv: (-kv[1], kv[0]))[:5]],
+        "versions": _usage_rank(versions, "version"),
+        "chips": _usage_rank(chips, "chip"),
+        "ram": _usage_rank(rams, "ram_gb"),
+        "pack_flips": {"h3_lost": h3_lost, "rows": flip_rows},
+        "events_logged": len(recs),
+    }
+
+
+# HogQL fragments for the fleet view. Kept as a table (not inline strings)
+# so the whole surface the personal API key touches is auditable in one
+# place: eight read-only aggregate SELECTs over `events`, nothing else.
+# `properties['x']` bracket form throughout — `properties.from` would
+# collide with the SQL keyword in the pack_state_change query.
+_USAGE_FLEET_QUERIES = {
+    "wau": "SELECT count(DISTINCT distinct_id) FROM events "
+           "WHERE event = 'app_boot' AND timestamp > now() - INTERVAL 7 DAY",
+    "dau": "SELECT count(DISTINCT distinct_id) FROM events "
+           "WHERE event = 'app_boot' AND timestamp > now() - INTERVAL 1 DAY",
+    "boots_by_day":
+        "SELECT toDate(timestamp) AS d, count() AS c FROM events "
+        "WHERE event = 'app_boot' AND timestamp > now() - INTERVAL 14 DAY "
+        "GROUP BY d ORDER BY d",
+    "engines":
+        "SELECT properties['engine'] AS e, count() AS c FROM events "
+        "WHERE event IN ('render_completed', 'render_failed') "
+        "AND timestamp > now() - INTERVAL 14 DAY GROUP BY e ORDER BY c DESC",
+    "outcomes":
+        "SELECT event, count() AS c FROM events "
+        "WHERE event IN ('render_completed', 'render_failed') "
+        "AND timestamp > now() - INTERVAL 14 DAY GROUP BY event",
+    "top_errors":
+        "SELECT properties['error_signature'] AS sig, count() AS c FROM events "
+        "WHERE event = 'render_failed' AND timestamp > now() - INTERVAL 7 DAY "
+        "GROUP BY sig ORDER BY c DESC LIMIT 5",
+    "versions":
+        "SELECT properties['version'] AS v, count(DISTINCT distinct_id) AS c "
+        "FROM events WHERE event = 'app_boot' "
+        "AND timestamp > now() - INTERVAL 14 DAY GROUP BY v ORDER BY c DESC LIMIT 12",
+    "chips":
+        "SELECT properties['chip_family'] AS chip, count(DISTINCT distinct_id) AS c "
+        "FROM events WHERE event = 'app_boot' "
+        "AND timestamp > now() - INTERVAL 14 DAY GROUP BY chip ORDER BY c DESC LIMIT 12",
+    "ram":
+        "SELECT properties['ram_gb'] AS ram, count(DISTINCT distinct_id) AS c "
+        "FROM events WHERE event = 'app_boot' "
+        "AND timestamp > now() - INTERVAL 14 DAY GROUP BY ram ORDER BY c DESC LIMIT 12",
+    "pack_flips":
+        "SELECT properties['pack'] AS pack, properties['from'] AS was, "
+        "properties['to'] AS now_, count() AS c FROM events "
+        "WHERE event = 'pack_state_change' AND timestamp > now() - INTERVAL 7 DAY "
+        "GROUP BY pack, was, now_ ORDER BY c DESC",
+}
+
+
+def _usage_fleet_query_one(hogql: str, key: str) -> list:
+    """Run one HogQL query. Returns the `results` rows, or [] on any error.
+
+    10 s timeout (not the 2 s capture timeout — this is a human waiting on a
+    dashboard, not a render path). Raises nothing; the caller treats an
+    empty result as "this panel of the dashboard has no data"."""
+    body = json.dumps({"query": {"kind": "HogQLQuery", "query": hogql}}).encode("utf-8")
+    project = (os.environ.get("PHOSPHENE_ANALYTICS_PROJECT") or "@current").strip()
+    req = urllib.request.Request(
+        f"{_analytics_api_host()}/api/projects/{quote(project)}/query/",
+        data=body,
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"Bearer {key}",
+                 "User-Agent": "phosphene-panel-stats"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read().decode("utf-8", "replace"))
+    rows = data.get("results")
+    return rows if isinstance(rows, list) else []
+
+
+def _usage_fleet_report() -> dict | None:
+    """Build the fleet payload, or None when no query key is configured.
+
+    Every sub-query is independent: one failing (rate limit, schema drift,
+    a property that no install has sent yet) leaves that panel empty rather
+    than collapsing the whole view back to local. If EVERY query fails we
+    return None so the caller falls back to local with a warning."""
+    key = _analytics_query_key()
+    if not key:
+        return None
+    res: dict[str, list] = {}
+    failures = 0
+    for name, hogql in _USAGE_FLEET_QUERIES.items():
+        try:
+            res[name] = _usage_fleet_query_one(hogql, key)
+        except Exception:
+            res[name] = []
+            failures += 1
+    if failures == len(_USAGE_FLEET_QUERIES):
+        return None
+
+    def _scalar(name):
+        rows = res.get(name) or []
+        try:
+            return rows[0][0]
+        except (IndexError, TypeError):
+            return None
+
+    outcomes = {str(r[0]): int(r[1]) for r in (res.get("outcomes") or [])
+                if isinstance(r, (list, tuple)) and len(r) >= 2}
+    ok_n = outcomes.get("render_completed", 0)
+    fail_n = outcomes.get("render_failed", 0)
+    engines = [{"engine": str(r[0] or "unknown"), "count": int(r[1])}
+               for r in (res.get("engines") or [])
+               if isinstance(r, (list, tuple)) and len(r) >= 2]
+    tot = sum(e["count"] for e in engines)
+    h3 = sum(e["count"] for e in engines if e["engine"] == "h3")
+
+    flip_rows = []
+    for r in (res.get("pack_flips") or []):
+        if not (isinstance(r, (list, tuple)) and len(r) >= 4):
+            continue
+        flip_rows.append({
+            "pack": str(r[0] or "?"),
+            "from": str(r[1]).lower() in ("true", "1"),
+            "to": str(r[2]).lower() in ("true", "1"),
+            "count": int(r[3]),
+        })
+    h3_lost = sum(r["count"] for r in flip_rows
+                  if r["pack"] == "h3" and r["from"] and not r["to"])
+
+    return {
+        "ok": True,
+        "source": "fleet",
+        "generated_at": iso_now(),
+        "cached": False,
+        "note": "",
+        "partial": failures > 0,
+        "tiles": {
+            "weekly_active_installs": _scalar("wau"),
+            "daily_active_installs": _scalar("dau"),
+            "renders_7d": ok_n + fail_n,
+            "h3_share_pct": round(100.0 * h3 / tot, 1) if tot else None,
+            "error_rate_pct": (round(100.0 * fail_n / (ok_n + fail_n), 1)
+                               if (ok_n + fail_n) else None),
+        },
+        "boots_by_day": [{"date": str(r[0]), "count": int(r[1])}
+                         for r in (res.get("boots_by_day") or [])
+                         if isinstance(r, (list, tuple)) and len(r) >= 2],
+        "engines": engines,
+        "top_errors": [{"signature": str(r[0] or "unknown error"), "count": int(r[1])}
+                       for r in (res.get("top_errors") or [])
+                       if isinstance(r, (list, tuple)) and len(r) >= 2],
+        "versions": [{"version": str(r[0] or "unknown"), "count": int(r[1])}
+                     for r in (res.get("versions") or [])
+                     if isinstance(r, (list, tuple)) and len(r) >= 2],
+        "chips": [{"chip": str(r[0] or "unknown"), "count": int(r[1])}
+                  for r in (res.get("chips") or [])
+                  if isinstance(r, (list, tuple)) and len(r) >= 2],
+        "ram": [{"ram_gb": str(r[0] or "unknown"), "count": int(r[1])}
+                for r in (res.get("ram") or [])
+                if isinstance(r, (list, tuple)) and len(r) >= 2],
+        "pack_flips": {"h3_lost": h3_lost, "rows": flip_rows},
+    }
+
+
+def _usage_report(force: bool = False) -> dict:
+    """What GET /stats/usage returns. Fleet when a query key is configured
+    and the 6 h cache is stale; otherwise the cache; otherwise local."""
+    with _USAGE_FLEET_LOCK:
+        if _analytics_query_key():
+            if not force:
+                try:
+                    cached = json.loads(USAGE_FLEET_CACHE.read_text(encoding="utf-8"))
+                    if (time.time() - float(cached.get("_fetched_at") or 0)
+                            < USAGE_FLEET_TTL_SEC):
+                        cached["cached"] = True
+                        return cached
+                except (OSError, ValueError, json.JSONDecodeError):
+                    pass
+            fleet = None
+            try:
+                fleet = _usage_fleet_report()
+            except Exception:
+                fleet = None
+            if fleet:
+                fleet["_fetched_at"] = time.time()
+                try:
+                    _ensure_state_dir()
+                    atomic_write_text(USAGE_FLEET_CACHE,
+                                      json.dumps(fleet, indent=2))
+                except Exception:
+                    pass
+                return fleet
+            local = _usage_local_report()
+            local["warning"] = ("PostHog query failed - showing this machine "
+                                "only. Check the personal API key in Settings.")
+            return local
+    return _usage_local_report()
 
 
 def _scale_dims_to_max(width: int, height: int, max_dim: int,
@@ -10039,6 +10973,13 @@ def worker_loop() -> None:
             job["finished_at"] = iso_now()
             if job.get("started_ts"):
                 job["elapsed_sec"] = round(time.time() - job["started_ts"], 2)
+            # Anonymous usage counts. This is the single point every job
+            # from every engine passes through (LTX, H3, image, training),
+            # so one call covers them all and a future engine is counted
+            # for free. Returns immediately and cannot raise — see the
+            # analytics section's contract; it must never be able to turn
+            # a finished render into a failed one.
+            _analytics_render_event(job)
             with LOCK:
                 STATE["history"].insert(0, job)
                 STATE["history"] = STATE["history"][:HISTORY_LIMIT]
@@ -10765,6 +11706,20 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             try: self.wfile.write(body)
             except (BrokenPipeError, ConnectionResetError): pass
+            return
+        # Usage section of the same dashboard. Local aggregates from
+        # state/usage-log.jsonl always; fleet aggregates from PostHog when a
+        # personal API key is configured (6 h cached). `?force=1` busts the
+        # cache for the dashboard's refresh button. Never raises out — a
+        # broken usage view must not 500 the maintainer's stats page.
+        if parsed.path == "/stats/usage":
+            try:
+                qs = parse_qs(parsed.query)
+                report = _usage_report(force=qs.get("force", ["0"])[0] == "1")
+            except Exception as exc:
+                report = {"ok": False, "source": "local",
+                          "error": str(exc)[:200]}
+            self._json(report)
             return
         if parsed.path == "/status":
             qs = parse_qs(parsed.query)
@@ -14686,9 +15641,14 @@ class Handler(BaseHTTPRequestHandler):
                 prev.get("memory_policy", DEFAULT_MEMORY_POLICY) !=
                 current.get("memory_policy", DEFAULT_MEMORY_POLICY)
             )
-            # Analytics opt-in lifecycle removed 2026-05-22 (the entire
-            # analytics surface was rolled back — we stand on GitHub-data
-            # signal via docs/stats.html instead).
+            # Anonymous usage analytics. No helper restart needed — the
+            # analytics path reads get_settings() per event, in-process.
+            # Log the flip so there's a visible record in the panel log
+            # of a setting that governs what leaves the machine.
+            if prev.get("analytics_enabled", True) != current.get("analytics_enabled", True):
+                push("settings: anonymous usage analytics "
+                     + ("ON." if current.get("analytics_enabled", True)
+                        else "OFF - nothing is sent or logged."))
             if codec_changed:
                 push(
                     f"settings: output codec → {current['output_pix_fmt']} "
@@ -24407,6 +25367,89 @@ HTML = r"""<!doctype html>
       <div class="hint" id="spicyHint" style="margin-top:8px; display:none"></div>
     </div>
 
+    <!-- Anonymous usage analytics. Default ON, one click to turn off, and
+         the copy below is the whole truth about what leaves the machine —
+         if this list and docs/ANALYTICS.md ever disagree, the code is the
+         bug. The maintainer key rows live behind a <details> because
+         ordinary users have no use for them; a fork that wants its own
+         receiver, or the project owner switching the fleet on, pastes
+         keys there. Reuses the spicy-row / token-row markup so this
+         section inherits the modal's existing styling with no new CSS. -->
+    <div class="settings-section">
+      <h3>Anonymous usage analytics</h3>
+      <div class="hint" style="margin-bottom:10px">
+        Sends anonymous counts so bugs in the field get noticed: panel
+        version, hardware class (e.g. <em>M4 Max, 64 GB</em>), which
+        optional packs are installed, and for each render the engine,
+        tier, resolution, frame count and a coarse duration bucket —
+        plus the first line of the error when one fails.
+        <b>Never your prompts, filenames, paths, images or video.</b>
+        You are a random ID, generated on this Mac and tied to nothing.
+        Everything the panel would send is also written in plain text to
+        <code>state/usage-log.jsonl</code> so you can read it yourself;
+        the full schema is in <code>docs/ANALYTICS.md</code>.
+      </div>
+      <div class="spicy-row">
+        <span class="spicy-state" id="analyticsStateBadge">ON</span>
+        <button type="button" class="ghost-btn" id="analyticsToggleBtn"
+                onclick="toggleAnalytics()" style="margin-left:auto">
+          Turn off
+        </button>
+      </div>
+      <div class="hint" id="analyticsHint" style="margin-top:8px"></div>
+
+      <details style="margin-top:12px">
+        <summary style="cursor:pointer; font-size:12px; color:var(--muted, #9aa)">
+          Maintainer / self-hosting keys
+        </summary>
+        <div class="hint" style="margin:8px 0">
+          Without a project key this panel opens no network connection at
+          all — analytics is inert and only the local log is written. Point
+          <code>PHOSPHENE_ANALYTICS_HOST</code> at your own receiver to
+          self-host.
+        </div>
+        <div class="token-row">
+          <div class="token-label">
+            <span>PostHog project key <span class="hint">(capture)</span></span>
+            <span class="token-status" id="analyticsKeyStatus">—</span>
+          </div>
+          <div class="token-row-input">
+            <input type="password" id="analyticsKeyInput" autocomplete="off"
+                   placeholder="phc_…">
+            <button type="button" class="ghost-btn"
+                    onclick="toggleTokenVisibility('analyticsKeyInput', this)">show</button>
+            <button type="button" class="primary-btn token-savetest"
+                    onclick="saveAnalyticsKey('analytics_key')">save</button>
+            <button type="button" class="ghost-btn" id="analyticsKeyClear"
+                    onclick="clearAnalyticsKey('analytics_key')" style="display:none">clear</button>
+          </div>
+          <div class="hint">
+            Write-only project key. Pasting one turns the pings on.
+          </div>
+        </div>
+        <div class="token-row">
+          <div class="token-label">
+            <span>PostHog personal API key <span class="hint">(fleet view)</span></span>
+            <span class="token-status" id="analyticsQueryKeyStatus">—</span>
+          </div>
+          <div class="token-row-input">
+            <input type="password" id="analyticsQueryKeyInput" autocomplete="off"
+                   placeholder="phx_…">
+            <button type="button" class="ghost-btn"
+                    onclick="toggleTokenVisibility('analyticsQueryKeyInput', this)">show</button>
+            <button type="button" class="primary-btn token-savetest"
+                    onclick="saveAnalyticsKey('analytics_query_key')">save</button>
+            <button type="button" class="ghost-btn" id="analyticsQueryKeyClear"
+                    onclick="clearAnalyticsKey('analytics_query_key')" style="display:none">clear</button>
+          </div>
+          <div class="hint">
+            Read-only key that unlocks the fleet numbers in the Usage
+            section of the stats dashboard. Never used for sending.
+          </div>
+        </div>
+      </details>
+    </div>
+
     <div class="settings-section" id="settingsCustomSection" style="display:none">
       <h3>Custom (advanced)</h3>
       <div class="settings-row" style="margin-bottom:10px">
@@ -33471,6 +34514,113 @@ async function openSettingsModal() {
   // on the JS side; only ON/OFF gets persisted.
   _spicyArmed = false;
   renderSpicyState(!!cur.spicy_mode);
+
+  // Anonymous usage analytics — badge, hint (shows the actual install id
+  // so "you are a random ID" is verifiable, not a claim), and the two
+  // maintainer key rows. Same has_X-boolean treatment as the other
+  // secrets: the keys never come back from the server.
+  renderAnalyticsState(cur);
+}
+
+// ---- Anonymous usage analytics ---------------------------------------------
+// Single-click both ways: turning it OFF must be at least as easy as
+// leaving it ON, which is the whole justification for defaulting to ON.
+// No confirm dance here (unlike Spicy mode) — nothing irreversible happens.
+function renderAnalyticsState(cur) {
+  const on = cur.analytics_enabled !== false;
+  const badge = document.getElementById('analyticsStateBadge');
+  const btn = document.getElementById('analyticsToggleBtn');
+  const hint = document.getElementById('analyticsHint');
+  if (badge) {
+    badge.textContent = on ? 'ON' : 'OFF';
+    badge.className = 'spicy-state' + (on ? ' on' : '');
+  }
+  if (btn) btn.textContent = on ? 'Turn off' : 'Turn on';
+  if (hint) {
+    if (!on) {
+      hint.textContent = 'Off — nothing is sent, and nothing is written to '
+        + 'the local usage log either.';
+    } else if (!cur.has_analytics_key) {
+      hint.innerHTML = 'On, but no project key is configured — this panel is '
+        + 'sending <b>nothing</b> over the network. Events are only written to '
+        + 'the local log.';
+    } else {
+      hint.textContent = 'Your anonymous ID: ' + (cur.analytics_install_id || '(not yet generated)');
+    }
+  }
+  setTokenStatus('analyticsKey', !!cur.has_analytics_key);
+  setTokenStatus('analyticsQueryKey', !!cur.has_analytics_query_key);
+  const k1 = document.getElementById('analyticsKeyInput');
+  const k2 = document.getElementById('analyticsQueryKeyInput');
+  if (k1) { k1.value = ''; k1.placeholder = cur.has_analytics_key ? '•••••••••• saved — paste new to replace' : 'phc_…'; }
+  if (k2) { k2.value = ''; k2.placeholder = cur.has_analytics_query_key ? '•••••••••• saved — paste new to replace' : 'phx_…'; }
+  const c1 = document.getElementById('analyticsKeyClear');
+  const c2 = document.getElementById('analyticsQueryKeyClear');
+  if (c1) c1.style.display = cur.has_analytics_key ? '' : 'none';
+  if (c2) c2.style.display = cur.has_analytics_query_key ? '' : 'none';
+}
+
+async function toggleAnalytics() {
+  const cur = (_settingsCache && _settingsCache.settings) || {};
+  const target = !(cur.analytics_enabled !== false);
+  const status = document.getElementById('settingsStatus');
+  try {
+    const fd = new URLSearchParams();
+    fd.set('analytics_enabled', target ? 'true' : 'false');
+    const r = await fetch('/settings', { method: 'POST', body: fd });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    if (j.settings) _settingsCache.settings = j.settings;
+    else if (_settingsCache && _settingsCache.settings) {
+      _settingsCache.settings.analytics_enabled = target;
+    }
+    renderAnalyticsState(_settingsCache.settings || {});
+    if (status) {
+      status.textContent = target
+        ? 'Anonymous usage analytics ON'
+        : 'Anonymous usage analytics OFF · nothing will be sent or logged';
+      status.className = 'settings-status ok';
+    }
+  } catch (e) {
+    if (status) {
+      status.textContent = 'Could not change analytics: ' + (e.message || e);
+      status.className = 'settings-status err';
+    }
+  }
+}
+
+async function _persistAnalyticsKey(field, value) {
+  const status = document.getElementById('settingsStatus');
+  try {
+    const fd = new URLSearchParams();
+    fd.set(field, value);
+    const r = await fetch('/settings', { method: 'POST', body: fd });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    if (j.settings) _settingsCache.settings = j.settings;
+    renderAnalyticsState(_settingsCache.settings || {});
+    if (status) {
+      status.textContent = value ? 'Key saved.' : 'Key cleared.';
+      status.className = 'settings-status ok';
+    }
+  } catch (e) {
+    if (status) {
+      status.textContent = 'Could not save key: ' + (e.message || e);
+      status.className = 'settings-status err';
+    }
+  }
+}
+
+function saveAnalyticsKey(field) {
+  const id = field === 'analytics_query_key' ? 'analyticsQueryKeyInput' : 'analyticsKeyInput';
+  const el = document.getElementById(id);
+  const val = (el && el.value || '').trim();
+  if (!val) return;
+  _persistAnalyticsKey(field, val);
+}
+
+function clearAnalyticsKey(field) {
+  _persistAnalyticsKey(field, '');
 }
 
 function renderMemoryPolicyHint() {
@@ -36257,6 +37407,12 @@ if __name__ == "__main__":
     # state/ (gitignored), never on the public repo. Skipped silently
     # when no GitHub token is resolvable.
     threading.Thread(target=stats_fetch_loop, daemon=True).start()
+    # Anonymous usage analytics — one app_boot event plus any optional-pack
+    # transitions since the last boot, then nothing until a job finishes.
+    # Deliberately here in __main__ and not at import time, so `import
+    # mlx_ltx_panel` from a script or a test never emits anything. Inert
+    # unless a PostHog key is configured; see the analytics section above.
+    _analytics_boot()
     # Pre-flight: bind in a try/except so a busy port surfaces an actionable
     # one-liner instead of a 6-frame Python traceback. The bare OSError
     # ("[Errno 48] Address already in use") was confusing users who'd closed

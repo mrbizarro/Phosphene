@@ -20,6 +20,13 @@ panel_settings.json
 # to docs/stats-data.jsonl — rolled back in 70b4489. Never again.)
 **/stats-data.jsonl
 stats-data.jsonl
+# Same defense-in-depth for the anonymous-usage mirror + the cached fleet
+# rollup. These carry no prompts/paths/media by construction, but they are
+# still this machine's own telemetry and have no business in a public repo.
+**/usage-log.jsonl
+usage-log.jsonl
+**/usage-fleet.json
+usage-fleet.json
 *.log
 *.tmp
 # Manual `.original_<date>` asset backups (e.g. before re-exporting a logo).
