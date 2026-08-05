@@ -5908,6 +5908,62 @@ def _probe_video_dims(path: str) -> tuple[int, int]:
     return 0, 0
 
 
+def _native_render_for(src: Path) -> Path:
+    """The un-exported render behind `src`, when there is one.
+
+    Every export pass (`fit_720p`, `fit_1080p`, `x2`, the H3 export) writes
+    `<stem>_<tag>.mp4` NEXT TO the native render, hides the native from the
+    gallery via `set_hidden`, and records the pair in the exported file's
+    sidecar as `native_output`. The gallery therefore only ever OFFERS the
+    export — so every surface that feeds a clip back into a model was
+    silently consuming a lanczos-resampled, re-encoded, sometimes
+    black-bar-padded copy instead of the pixels the model actually made.
+
+    Concretely, on a 1024×576 render exported to 720p and then extended:
+    1024×576 (native) → 1280×720 (upscale + H.264 re-encode) → 768×416
+    (Extend's own downscale + another re-encode). Two full-frame resamples
+    and two lossy generations before the VAE ever sees a pixel, and the
+    letterbox bars an export can add become content the model is asked to
+    continue. Resolving back to the native skips the entire round-trip.
+
+    Returns the native file when the sidecar names one and it is still on
+    disk; otherwise `src` unchanged (own-render sidecars point at
+    themselves, which this treats as "no native to resolve")."""
+    try:
+        sidecar = src.with_suffix(src.suffix + ".json")
+        if not sidecar.is_file():
+            return src
+        data = json.loads(sidecar.read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError):      # ValueError covers JSONDecodeError
+        return src
+    if not isinstance(data, dict):
+        return src
+    # Compare RESOLVED paths: a sidecar stores absolute paths while the
+    # caller may hold a relative one, and `Path("a/b") != Path("/x/a/b")`
+    # even when they are the same file. Without this an own-render sidecar
+    # (`raw_output` == itself) would look like a different, better source
+    # and we'd log a confusing "using the native render X instead of the
+    # export X".
+    try:
+        src_key = src.resolve()
+    except OSError:
+        src_key = src
+    for key in ("native_output", "raw_output"):
+        cand = data.get(key)
+        if not cand:
+            continue
+        try:
+            cand_path = Path(str(cand))
+            if not (cand_path.is_file() and cand_path.stat().st_size > 1024):
+                continue
+            if cand_path.resolve() == src_key:
+                continue
+            return cand_path
+        except OSError:
+            continue
+    return src
+
+
 def _ensure_downscaled(src: Path, max_dim: int = 768, align: int = 32) -> Path:
     """If `src` has its longer side > max_dim, write a downscaled lossless
     copy alongside it and return that. Cached on disk by target dimensions
@@ -5917,7 +5973,17 @@ def _ensure_downscaled(src: Path, max_dim: int = 768, align: int = 32) -> Path:
     source's native resolution. On 64 GB Macs, 1280×704 + dev transformer
     + CFG-style guided denoising peaks past ~50 GB resident and pushes
     8-12 GB into swap, making each step take 4 minutes instead of 25
-    seconds. Pre-downscaling to ≤768 max-side fits cleanly in RAM."""
+    seconds. Pre-downscaling to ≤768 max-side fits cleanly in RAM.
+
+    ASPECT (fixed 2026-08): both target dimensions are floored to a
+    multiple of `align` INDEPENDENTLY, so the aligned box almost never
+    carries the source's aspect ratio — 1280×720 (1.778) lands on 768×416
+    (1.846). The filter used to be a bare `scale=W:H`, which forces those
+    dimensions and therefore squashed every frame ~3.9% vertically before
+    the model saw it. Scale-to-cover + centre-crop keeps the geometry
+    exact instead, at the cost of ≤31 px trimmed on one axis. Crop rather
+    than pad on purpose: pillar/letterbox bars would become in-frame
+    content that the model is then asked to continue."""
     src_w, src_h = _probe_video_dims(str(src))
     if not src_w or not src_h or max(src_w, src_h) <= max_dim:
         return src
@@ -5937,7 +6003,9 @@ def _ensure_downscaled(src: Path, max_dim: int = 768, align: int = 32) -> Path:
     # dies at downscale time. Was silent for a while because Extend wasn't
     # exercised after the .partial rename was added.
     cmd = [str(FFMPEG), "-y", "-i", str(src),
-           "-vf", f"scale={new_w}:{new_h}",
+           "-vf", (f"scale={new_w}:{new_h}:force_original_aspect_ratio=increase"
+                   f":flags=lanczos:force_divisible_by=2,"
+                   f"crop={new_w}:{new_h}"),
            "-c:v", "libx264", "-pix_fmt", "yuv444p", "-crf", "0", "-preset", "veryfast",
            "-c:a", "copy",   # don't re-encode audio — extend doesn't need it transformed
            "-f", "mp4",
@@ -9725,6 +9793,28 @@ def run_job_inner(job: dict) -> None:
         src = p["video_path"]
         if not src or not Path(src).exists():
             raise RuntimeError(f"source video for extend not found: {src}")
+        # Feed the model the NATIVE render, not the export (issue #48).
+        #
+        # An upscaled render hides its native file from the gallery, so the
+        # Extend picker can only ever offer the export — and Extend was
+        # taking it at face value. That put a lanczos upscale + H.264
+        # re-encode (and, when the export letterboxes, black bars) in front
+        # of every extend, and then Extend's own clamp resampled the whole
+        # thing back DOWN again. Chained extends therefore paid a fresh
+        # resample + generation on the first hop of every chain, on top of
+        # the per-round cost the pipeline already carries.
+        #
+        # `_native_render_for` is a no-op for clips that were never
+        # exported and for extend outputs (their sidecar points at
+        # themselves), so this only fires where there is a strictly better
+        # file sitting right next to the one the user picked.
+        picked_src = Path(src)
+        native_src = _native_render_for(picked_src)
+        if native_src != picked_src:
+            src = str(native_src)
+            push(f"Extend: using the native render {native_src.name} instead of "
+                 f"the export {picked_src.name} — skips an upscale + re-encode "
+                 f"round-trip before the model sees it.")
         # Resolution clamp — same fix shape as FFLF. The upstream extend
         # pipeline runs the dev transformer in CFG-guided mode (line 294
         # of extend.py — guided_denoise_loop is unconditional; cfg_scale=1.0
@@ -9800,6 +9890,15 @@ def run_job_inner(job: dict) -> None:
             "fps": FPS, "model": str(Q8_LOCAL_PATH), "queue_id": job["id"],
             "helper_elapsed_sec": result.get("elapsed_sec"),
             "output_codec": output_codec_settings(),
+            # Lineage for issue #48. `extend_picked` is what the user chose in
+            # the UI, `extend_source` is what actually reached the model after
+            # native-resolution + the tier clamp. A chain of these is what a
+            # future "carry the pristine prior segment forward" pass needs to
+            # walk, and it makes a degraded chain diagnosable from the sidecars
+            # alone instead of by reading filenames.
+            "extend_picked": str(picked_src),
+            "extend_source": src,
+            "extend_new_frames": int(p["extend_frames"]) * 8,
         }
         write_sidecar(final_out.with_suffix(final_out.suffix + ".json"), sidecar)
         job["output_path"] = str(final_out)
