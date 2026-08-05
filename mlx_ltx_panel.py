@@ -3219,6 +3219,220 @@ def _verify_safetensors(path: Path) -> tuple[bool, str]:
     return True, "ok"
 
 
+# ---- Model file PLACEMENT verification ---------------------------------------
+# A checksum answers "is this file's content correct?". It cannot answer "is the
+# file in the right PLACE?" — and a byte-perfect weight at the wrong path fails
+# just as hard as a corrupt one, while every existing check reports green:
+#
+#   * a 4-bit `transformer-dev.safetensors` left in the Q4 dir SHADOWS the
+#     full-precision one in the Q8 dir. The trainer resolves the Q4 dir first, so
+#     it silently optimizes against quantized weights and emits a near-zero LoRA
+#     (GitHub #35 / #36, reported by @saved-j — every checksum passed).
+#   * a declared weight that got moved reads as plain "missing", so the panel
+#     offers a fresh ~19 GB download while the bytes sit one directory over.
+#
+# required_files.json already declares each file's expected RELATIVE PATH inside
+# its repo dir, so placement is verifiable from the manifest we already load —
+# no new metadata, no new network calls.
+#
+# Cost discipline: this is stat-only. One non-recursive listdir per declared
+# model dir, no hashing. The deep pass may hand in a hasher, and even then a
+# candidate is hashed ONLY when (a) the declared copy is MISSING — a file
+# deep-verify therefore never hashed anyway — and (b) the candidate's size
+# already matches the expected size. So placement verification adds zero
+# full-file reads to a healthy install.
+#
+# False-positive discipline (these all occur on real installs):
+#   * weight files only. Sidecar configs (`config.json`, `tokenizer.json`)
+#     legitimately repeat across model dirs and are not placement-sensitive.
+#   * a same-NAME, same-SIZE sibling copy is benign, not a shadow: the Q4 and Q8
+#     repos both legitimately ship `ltx-2.3-22b-distilled-lora-384.safetensors`.
+#     Only a copy that DIFFERS from the declared one can mis-resolve.
+#   * nothing is flagged unless the declared copy actually exists to be shadowed.
+#     On a Q4-only install the ~11 GB dev transformer in the Q4 dir is what our
+#     own Train → Preflight puts there; it shadows nothing, so it stays quiet.
+#   * repos that aren't installed at all are skipped (an absent optional Q8 is
+#     not "misplaced"), and HF-cache-backed installs are skipped entirely: that
+#     layer is a content-addressed blob farm with symlinked snapshots, where
+#     placement is huggingface_hub's business, not ours.
+_PLACEMENT_EXT = ".safetensors"
+
+
+def _fmt_gb(n: int) -> str:
+    return f"{n / 1e9:.1f} GB"
+
+
+def _short_path(p: Path) -> str:
+    """ROOT-relative when possible — matches how the manifest and UI name files."""
+    try:
+        return str(Path(p).relative_to(ROOT))
+    except ValueError:
+        return str(p)
+
+
+def _placed_size(p: Path) -> int:
+    """Size in bytes, or 0 if absent/too small to be a real weight. Uses the same
+    `_MIN_FILE_BYTES` floor as `_repo_missing`, so 'present' means the same thing
+    here as everywhere else in the panel."""
+    try:
+        size = p.stat().st_size
+    except OSError:
+        return 0
+    return size if size >= _MIN_FILE_BYTES else 0
+
+
+def _placement_dirs() -> list[tuple[dict, Path]]:
+    """(repo_def, resolved_dir) for every manifest repo whose declared directory
+    exists on disk. Honors the LTX_Q8_LOCAL override the rest of the panel uses."""
+    out = []
+    for r in _repos():
+        base = Q8_LOCAL_PATH if r.get("key") == "q8" else (ROOT / r["local_dir"])
+        try:
+            if base.is_dir():
+                out.append((r, base))
+        except OSError:
+            continue
+    return out
+
+
+def _placement_errors(expected: dict | None = None, hasher=None) -> list[dict]:
+    """Audit installed weights against the placement the manifest declares.
+
+    Returns entries in the exact shape the header and checksum checks emit —
+    ``{"repo", "file", "reason"}`` — so /status, the red banner, the boot warning
+    and one-click Repair all consume them unchanged. (Repair is also the correct
+    cure for a shadow copy: it deletes that repo's copy of the file and re-runs
+    the download, whose `download_include` allowlist never puts it back.) Two
+    extra keys — ``placement``/``found_at``/``expected_at`` — ride along for
+    consumers that want the two paths without parsing prose.
+
+    expected: optional {(repo_key, relpath): {"size": int, "sha256": str}} of
+              known-good metadata (upstream HF info, supplied by the deep pass).
+              The manifest's own `file_sizes` block is always used as a fallback.
+    hasher:   optional callable(Path) -> sha256 hex, supplied by the deep pass so
+              a relocated file can be confirmed by CONTENT rather than by name.
+    """
+    dirs = _placement_dirs()
+    meta = dict(expected or {})
+
+    declared: list[tuple[dict, Path, str]] = []   # (repo, dir, relpath)
+    pairs: set[tuple[str, str]] = set()           # (dir, relpath) the manifest declares
+    homes: dict[str, list[tuple[dict, Path, str]]] = {}   # basename -> declared homes
+    for r, base in dirs:
+        for rel in r.get("files", []):
+            if not rel.endswith(_PLACEMENT_EXT):
+                continue
+            declared.append((r, base, rel))
+            pairs.add((str(base), rel))
+            homes.setdefault(Path(rel).name, []).append((r, base, rel))
+            man_size = int((r.get("file_sizes") or {}).get(rel, 0) or 0)
+            if man_size and not meta.get((r["key"], rel), {}).get("size"):
+                meta.setdefault((r["key"], rel), {})["size"] = man_size
+
+    out: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+
+    def _flag(repo_key: str, fname: str, reason: str, found: str, want: str) -> None:
+        if (repo_key, fname) in seen:
+            return
+        seen.add((repo_key, fname))
+        out.append({"repo": repo_key, "file": fname, "reason": reason,
+                    "placement": True, "found_at": found, "expected_at": want})
+
+    # Pass 1 — SHADOW copies. A weight sitting in a declared model dir under a
+    # name the manifest places somewhere ELSE, whose content differs from the
+    # declared copy. Reported against the repo that OWNS THE DIRECTORY holding
+    # the stray, so Repair deletes the stray and never the good copy.
+    for r, base in dirs:
+        try:
+            names = sorted(os.listdir(base))
+        except OSError:
+            continue
+        for name in names:
+            if not name.endswith(_PLACEMENT_EXT) or (str(base), name) in pairs:
+                continue
+            candidates = homes.get(name) or []
+            if not candidates:
+                continue          # a name we never place anywhere — the user's own file
+            stray = base / name
+            stray_size = _placed_size(stray)
+            if not stray_size:
+                continue
+            for _hr, hbase, hrel in candidates:
+                if hbase == base:
+                    continue      # same dir, different relpath — not a misplacement
+                home = hbase / hrel
+                home_size = _placed_size(home)
+                if not home_size or home_size == stray_size:
+                    continue      # nothing to shadow (Pass 2's job), or a benign twin
+                _flag(r["key"], name,
+                      f"misplaced: {_short_path(stray)} ({_fmt_gb(stray_size)}) is not a "
+                      f"file this model declares, and it shadows the real {name} at "
+                      f"{_short_path(home)} ({_fmt_gb(home_size)}) - anything that "
+                      f"resolves this directory first loads the wrong weights",
+                      _short_path(stray), _short_path(home))
+                break
+
+    # Pass 2 — DISPLACED files. A declared weight is missing from where it
+    # belongs while a same-named file sits in another declared model dir. This is
+    # the case the plain "missing" report turns into a needless multi-GB
+    # re-download. Only runs for repos that are actually installed, so an absent
+    # optional repo is never described as misplaced.
+    for r, base, rel in declared:
+        if not any(_placed_size(base / f) for f in r.get("files", [])):
+            continue              # repo not installed here at all — not our business
+        home = base / rel
+        if _placed_size(home):
+            continue              # exactly where it should be
+        name = Path(rel).name
+        want = meta.get((r["key"], rel), {})
+        want_size = int(want.get("size") or 0)
+        want_sha = want.get("sha256") or ""
+        for _r2, base2 in dirs:
+            if base2 == base:
+                continue
+            cand = base2 / name
+            if (str(base2), name) in pairs and _placed_size(cand):
+                continue          # that dir declares this name too — it's their copy
+            cand_size = _placed_size(cand)
+            if not cand_size:
+                continue
+            detail = (f"same name, {_fmt_gb(cand_size)} - verify it is the same "
+                      f"file before moving it")
+            if want_size and cand_size != want_size:
+                detail = (f"that copy is {_fmt_gb(cand_size)}, not the expected "
+                          f"{_fmt_gb(want_size)} - a different build of {name}, "
+                          f"so it will not stand in for the missing file")
+            elif want_size and want_sha and hasher is not None:
+                # The only hash placement ever asks for: the declared copy is
+                # missing (so the checksum pass skipped it) and the candidate's
+                # size already matches. Net-zero extra hashing on a healthy install.
+                got = ""
+                try:
+                    got = hasher(cand)
+                except OSError as e:   # unreadable candidate is not fatal
+                    detail = f"could not read that copy to confirm it ({e})"
+                if got == want_sha:
+                    detail = (f"same content (sha256 matches) - move it back instead of "
+                              f"re-downloading {_fmt_gb(cand_size)}")
+                elif got:
+                    detail = ("same size but different content (sha256 mismatch) - "
+                              "not the missing file")
+            elif want_size and cand_size == want_size:
+                detail = (f"same name and exactly the expected {_fmt_gb(want_size)} - "
+                          f"almost certainly the missing file in the wrong folder")
+            else:
+                detail = (f"same name, {_fmt_gb(cand_size)} - run Verify (deep) to "
+                          f"confirm it is the same file before moving it")
+            _flag(r["key"], rel,
+                  f"wrong location: expected at {_short_path(home)}, found at "
+                  f"{_short_path(cand)} - {detail}",
+                  _short_path(cand), _short_path(home))
+            break
+
+    return out
+
+
 _INTEGRITY_LOCK = threading.Lock()
 _INTEGRITY_CACHE: dict = {"ts": 0.0, "data": None}
 
@@ -3255,6 +3469,20 @@ def _model_integrity(force: bool = False) -> dict:
             if not ok:
                 result["ok"] = False
                 result["bad"].append({"repo": r["key"], "file": fname, "reason": reason})
+    # Placement audit — right content, wrong path. Folded into the same bad[] the
+    # banner, boot warning and Repair already consume. It is stat-only, so it is
+    # safe in the /status path, and unlike the header scan above it deliberately
+    # runs for INCOMPLETE repos too: "a declared file is missing here and the
+    # bytes are one directory over" is exactly what it exists to catch.
+    try:
+        already = {(b["repo"], b["file"]) for b in result["bad"]}
+        placement = [p for p in _placement_errors()
+                     if (p["repo"], p["file"]) not in already]
+    except Exception:  # noqa: BLE001 — integrity must never break /status
+        placement = []
+    if placement:
+        result["ok"] = False
+        result["bad"].extend(placement)
     with _INTEGRITY_LOCK:
         _INTEGRITY_CACHE["ts"] = now
         _INTEGRITY_CACHE["data"] = result
@@ -3282,11 +3510,15 @@ _DEEP_VERIFY_LOCK = threading.Lock()
 _DEEP_VERIFY: dict = {"active": False, "result": None, "progress": "", "started_ts": 0.0}
 
 
-def _upstream_shas(repo_id: str) -> dict:
-    """filename -> published SHA-256 from HuggingFace LFS metadata, cached for
+def _upstream_meta(repo_id: str) -> dict:
+    """filename -> {"sha256", "size"} from HuggingFace LFS metadata, cached for
     the session (upstream rarely changes mid-session). Returns {} on any
     network/lib failure — the caller treats 'unknown' as unverifiable, never as
-    corrupt, so a flaky lookup can never trigger a spurious re-download."""
+    corrupt, so a flaky lookup can never trigger a spurious re-download.
+
+    The published SIZE comes back in the same `files_metadata=True` response as
+    the checksum (no extra request), and the placement audit uses it to decide
+    whether a relocated file is even worth hashing."""
     with _UPSTREAM_SHA_LOCK:
         if repo_id in _UPSTREAM_SHA_CACHE:
             return _UPSTREAM_SHA_CACHE[repo_id]
@@ -3297,15 +3529,27 @@ def _upstream_shas(repo_id: str) -> dict:
                                  token=_active_hf_token() or None)
         for s in info.siblings:
             lfs = getattr(s, "lfs", None)
-            sha = lfs.get("sha256") if isinstance(lfs, dict) else getattr(lfs, "sha256", None)
-            if sha:
-                out[s.rfilename] = sha
+            if isinstance(lfs, dict):
+                sha, lfs_size = lfs.get("sha256"), lfs.get("size")
+            else:
+                sha = getattr(lfs, "sha256", None)
+                lfs_size = getattr(lfs, "size", None)
+            size = int(lfs_size or getattr(s, "size", 0) or 0)
+            if sha or size:
+                out[s.rfilename] = {"sha256": sha or "", "size": size}
     except Exception as e:  # noqa: BLE001 — network/lib failure → unverifiable
         push(f"[deep-verify] upstream checksum lookup failed for {repo_id}: {e}")
         return {}
     with _UPSTREAM_SHA_LOCK:
         _UPSTREAM_SHA_CACHE[repo_id] = out
     return out
+
+
+def _upstream_shas(repo_id: str) -> dict:
+    """filename -> published SHA-256. Thin view over `_upstream_meta` (same
+    single cached lookup); files upstream publishes without a checksum are
+    omitted, so callers still read a missing key as 'unverifiable'."""
+    return {k: v["sha256"] for k, v in _upstream_meta(repo_id).items() if v.get("sha256")}
 
 
 def _sha256_file(path: Path) -> str:
@@ -3331,7 +3575,7 @@ def _deep_verify_thread() -> None:
             repo_def = defs.get(r["key"], {})
             repo_id = repo_def.get("repo_id", "")
             base = Path(r.get("location") or (ROOT / r["local_dir"]))
-            up = _upstream_shas(repo_id)
+            up = {k: v["sha256"] for k, v in _upstream_meta(repo_id).items() if v.get("sha256")}
             for fname in repo_def.get("files", []):
                 if not fname.endswith(".safetensors"):
                     continue
@@ -3361,6 +3605,25 @@ def _deep_verify_thread() -> None:
                         "repo": r["key"], "file": fname,
                         "reason": f"checksum mismatch (stale/corrupt: upstream {exp[:10]}…, local {local[:10]}…)",
                     })
+        # Placement audit — right content, WRONG PATH. A checksum pass is blind
+        # to it by construction: every byte can be correct and the loader still
+        # resolves the wrong file (#35/#36). Hand it the published sizes and
+        # checksums (already cached from the lookups above) so a relocated weight
+        # can be confirmed by CONTENT, then fold findings into the same bad[].
+        exp_meta: dict = {}
+        for r in _repos():
+            repo_id = r.get("repo_id", "")
+            base = Q8_LOCAL_PATH if r.get("key") == "q8" else (ROOT / r["local_dir"])
+            if not repo_id or not any(_placed_size(base / f) for f in r.get("files", [])):
+                continue                # not installed here — don't ask upstream
+            for fname, m in _upstream_meta(repo_id).items():
+                exp_meta[(r["key"], fname)] = m
+        already = {(b["repo"], b["file"]) for b in result["bad"]}
+        for p in _placement_errors(expected=exp_meta, hasher=_sha256_file):
+            if (p["repo"], p["file"]) in already:
+                continue
+            result["ok"] = False
+            result["bad"].append(p)
     except Exception as e:  # noqa: BLE001 — must never crash the thread silently
         result["error"] = str(e)
     finally:
@@ -3371,9 +3634,16 @@ def _deep_verify_thread() -> None:
         if result.get("error"):
             push(f"[deep-verify] error: {result['error']}")
         elif not result.get("ok"):
-            push("[deep-verify] DONE — checksum mismatch on: "
-                 + ", ".join(f"{b['repo']}/{b['file']}" for b in result["bad"])
-                 + ". Use Repair to re-download.")
+            _misplaced = [b for b in result["bad"] if b.get("placement")]
+            _corrupt = [b for b in result["bad"] if not b.get("placement")]
+            _msg = "[deep-verify] DONE — "
+            if _corrupt:
+                _msg += ("checksum mismatch on: "
+                         + ", ".join(f"{b['repo']}/{b['file']}" for b in _corrupt)
+                         + ". Use Repair to re-download. ")
+            if _misplaced:
+                _msg += "misplaced file(s): " + "; ".join(b["reason"] for b in _misplaced)
+            push(_msg.strip())
         else:
             uv = len(result.get("unverified") or [])
             push(f"[deep-verify] DONE — all {result['checked']} weight file(s) match upstream"
@@ -32100,8 +32370,12 @@ function renderDeepVerifyStatus(deep) {
   if (!r) return;
   if (r.error) { st.textContent = 'verify error: ' + r.error; return; }
   if (!r.ok) {
-    const n = (r.bad || []).length;
-    st.innerHTML = '<span style="color:#e06666">✗ ' + n + ' file(s) corrupt/stale — use the red banner up top to re-download.</span>';
+    const nMisplaced = (r.bad || []).filter(b => b.placement).length;
+    const n = (r.bad || []).length - nMisplaced;
+    st.innerHTML = '<span style="color:#e06666">✗ '
+      + [n ? n + ' file(s) corrupt/stale' : '',
+         nMisplaced ? nMisplaced + ' file(s) in the wrong place' : ''].filter(Boolean).join(', ')
+      + ' — see the red banner up top.</span>';
   } else {
     const uv = (r.unverified || []).length;
     st.innerHTML = '<span style="color:#5bbf7b">✓ all ' + r.checked + ' file(s) match upstream'
@@ -32125,11 +32399,26 @@ function renderIntegrityBanner(integ) {
     document.body.appendChild(el);
   }
   const repos = [...new Set(bad.map(b => b.repo))];
-  const files = bad.map(b => b.file).join(', ');
+  // Placement errors (right content, wrong path) are a different failure from a
+  // corrupt download, and the cure is usually a move rather than a re-fetch — so
+  // they get their own headline and their reason printed in full (it names both
+  // the found-at and expected-at paths). See _placement_errors() in the backend.
+  const misplaced = bad.filter(b => b.placement);
+  const corrupt = bad.filter(b => !b.placement);
   el.innerHTML =
-    '<span style="font-weight:700">Model files look incomplete / corrupt</span>'
-    + '<span style="opacity:.92">' + escapeHtml(files) + ' — this produces garbled / "mosaic" '
-    + 'output (usually an interrupted download).</span>'
+    '<span style="font-weight:700">'
+    + (corrupt.length ? 'Model files look incomplete / corrupt'
+                      : 'Model files are in the wrong place') + '</span>'
+    + (corrupt.length
+        ? '<span style="opacity:.92">' + escapeHtml(corrupt.map(b => b.file).join(', '))
+          + ' — this produces garbled / "mosaic" output (usually an interrupted '
+          + 'download).</span>'
+        : '')
+    + (misplaced.length
+        ? '<span style="opacity:.92;flex-basis:100%">'
+          + misplaced.map(b => escapeHtml(b.reason)).join('<br>')
+          + '</span>'
+        : '')
     + '<span style="margin-left:auto;display:flex;gap:8px">'
     + repos.map(k => '<button class="btn btn-primary" onclick="repairModel(\'' + escapeHtml(k)
         + '\')">Repair ' + escapeHtml(k.toUpperCase()) + ' (re-download)</button>').join('')
@@ -37785,13 +38074,19 @@ if __name__ == "__main__":
     try:
         _integ = _model_integrity(force=True)
         if not _integ["ok"]:
+            _misplaced = [_b for _b in _integ["bad"] if _b.get("placement")]
             print("-" * 64, flush=True)
             print(f"WARNING model integrity: {len(_integ['bad'])} weight file(s) look "
-                  f"corrupt/incomplete:", flush=True)
+                  f"corrupt/incomplete or are in the wrong place:", flush=True)
             for _b in _integ["bad"]:
                 print(f"    [{_b['repo']}] {_b['file']} - {_b['reason']}", flush=True)
             print("  This produces garbled / 'mosaic' output. Use the Repair banner in", flush=True)
             print("  the panel (or re-run Install) to re-download the affected files.", flush=True)
+            if _misplaced:
+                print("  The misplaced file(s) above are a PLACEMENT problem, not a corrupt", flush=True)
+                print("  download: the content can be fine while the loader still resolves the", flush=True)
+                print("  wrong file. Moving/removing the copy named above fixes it without a", flush=True)
+                print("  re-download; Repair also works.", flush=True)
             print("-" * 64, flush=True)
         else:
             print(f"model integrity: OK ({_integ['checked']} weight files verified)", flush=True)
