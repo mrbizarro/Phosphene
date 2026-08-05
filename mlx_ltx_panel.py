@@ -6415,6 +6415,14 @@ class WarmHelper:
         # just log it loudly on a mismatch. Makes healthy remote bug reports
         # carry the version that's actually running.
         self.ready_info: dict = {}
+        # Gemma prompt-encode fallback state (#44). `gemma_max_length` is
+        # sticky for the whole panel boot once a Metal GPU-watchdog timeout
+        # has been observed — every helper spawned afterwards encodes at the
+        # shorter padded length, so the crash happens at most once per boot.
+        # The two flags are per-run and reset at the top of _run_once().
+        self.gemma_max_length: int | None = None
+        self._metal_timeout_seen = False
+        self._past_prompt_encode = False
 
     def _ensure(self) -> None:
         with self.lock:
@@ -6453,6 +6461,24 @@ class WarmHelper:
             _civ = _active_civitai_key()
             if _civ:
                 env["CIVITAI_API_KEY"] = _civ
+            # Gemma prompt-encode fallback (#44) — sticky once a Metal GPU
+            # watchdog timeout has been seen this boot. Upstream reads
+            # LTX2_GEMMA_MAX_LENGTH inside PromptEncoder.encode
+            # (ltx_pipelines_mlx/utils/blocks.py) and defaults to 1024, so
+            # setting it here is the whole mechanism — no patching needed.
+            # A value the user pinned themselves is only overridden when
+            # ours is smaller (they asked for a cap; we may need a tighter
+            # one, but we never loosen theirs).
+            if self.gemma_max_length is not None:
+                try:
+                    _pinned = int(env.get("LTX2_GEMMA_MAX_LENGTH", "") or 0)
+                except ValueError:
+                    _pinned = 0
+                if _pinned <= 0 or self.gemma_max_length < _pinned:
+                    env["LTX2_GEMMA_MAX_LENGTH"] = str(self.gemma_max_length)
+                    push(f"[gemma-fallback] encoding prompts at "
+                         f"{self.gemma_max_length} tokens for the rest of this "
+                         f"session (Metal GPU watchdog seen on this machine)")
             push(f"Spawning warm helper (low_memory={HELPER_LOW_MEMORY}, idle_timeout={HELPER_IDLE_TIMEOUT}s)")
             self.proc = subprocess.Popen(
                 [str(HELPER_PYTHON), str(HELPER_SCRIPT)],
@@ -6572,6 +6598,7 @@ class WarmHelper:
                 ev = json.loads(line)
             except json.JSONDecodeError:
                 push(line)
+                self._sniff_helper_line(line)
                 if log_hook is not None:
                     try: log_hook(line)
                     except Exception: pass
@@ -6580,6 +6607,7 @@ class WarmHelper:
             if ev_type == "log":
                 log_line = ev.get("line", "")
                 push(log_line)
+                self._sniff_helper_line(log_line)
                 if log_hook is not None:
                     try: log_hook(log_line)
                     except Exception: pass
@@ -6684,7 +6712,97 @@ class WarmHelper:
 
         return log_hook, panic_check
 
+    # ---- Gemma prompt-encode watchdog fallback (#44) ---------------------
+    #
+    # 2026-08 (#44, @BobDixon58, M1 Max 32 GB): every render died in
+    # `[Encoding prompt]` with
+    #   [METAL] Command buffer execution failed: Caused GPU Timeout Error
+    #   (00000002:kIOGPUCommandBufferCallbackErrorTimeout)
+    # MLX raises that from the Metal completion-queue thread as an uncaught
+    # C++ exception, so it lands as SIGABRT — the helper process is GONE and
+    # no try/except inside it can ever catch this. The panel is the only
+    # place left that can react, which is why the recovery lives here.
+    #
+    # The lever is the padded sequence length Gemma encodes at. Upstream's
+    # PromptEncoder.encode reads LTX2_GEMMA_MAX_LENGTH (default 1024); each
+    # of the 48 Gemma blocks costs O(T) in its MLP and O(T^2) in attention,
+    # so dropping 1024 -> 256 is ~4x less MLP and ~16x less attention inside
+    # the single command buffer the watchdog is timing. Prompts are
+    # truncated from the LEFT (upstream keeps the last T tokens), so a
+    # normal prompt is untouched. This is NOT applied pre-emptively — it
+    # costs conditioning headroom on very long prompts, so it only arms
+    # itself after this machine has actually proven it needs it.
+    _METAL_TIMEOUT_RX = re.compile(
+        r"kIOGPUCommandBufferCallbackErrorTimeout|Caused GPU Timeout Error",
+        re.IGNORECASE)
+    # Anything proving the run got PAST prompt encoding. If the watchdog
+    # fires later than that (denoise, decode), a shorter prompt encode is
+    # not the fix and an automatic retry would just burn another render.
+    _PAST_PROMPT_ENCODE_RX = re.compile(
+        r"Denoising|\[Decoding|Loading transformer|step:denoise",
+        re.IGNORECASE)
+    # Overridable for anyone who needs a different landing spot.
+    GEMMA_FALLBACK_MAX_LENGTH = max(
+        64, int(os.environ.get("LTX_GEMMA_FALLBACK_MAX_LENGTH", "256") or 256))
+
+    def _sniff_helper_line(self, line: str) -> None:
+        """Watch every helper line for the Metal GPU-watchdog signature.
+
+        Called for BOTH the JSON `log` events and the raw non-JSON lines —
+        the crash line is C++ stderr (`libc++abi: terminating due to ...`),
+        never a structured event, so sniffing only the log events would
+        miss the one line that matters.
+        """
+        if not line:
+            return
+        if not self._metal_timeout_seen and self._METAL_TIMEOUT_RX.search(line):
+            self._metal_timeout_seen = True
+        if not self._past_prompt_encode and self._PAST_PROMPT_ENCODE_RX.search(line):
+            self._past_prompt_encode = True
+
+    def _gemma_fallback_applies(self) -> bool:
+        """True when the run that just died is a retryable Gemma-encode
+        watchdog kill: signature seen, still inside prompt encoding, no
+        fallback armed yet this boot, and the helper really is dead (so
+        there is nothing half-done to collide with)."""
+        # A /stop that lands in the same instant as the crash must win —
+        # never resurrect a job the user just cancelled.
+        with LOCK:
+            cur = STATE.get("current")
+        if cur is not None and cur.get("cancel_requested"):
+            return False
+        return (self._metal_timeout_seen
+                and not self._past_prompt_encode
+                and self.gemma_max_length is None
+                and not self.is_alive())
+
     def run(self, job_spec: dict) -> dict:
+        """Run a job, with one automatic retry at a shorter Gemma prompt
+        encode if the macOS GPU watchdog killed this machine's encode.
+
+        The retry is deliberately cheap and bounded: the timeout happens
+        before ANY sampling or output is written, the helper is already
+        dead (so _ensure respawns it with the shorter length), and the
+        fallback arms at most once per panel boot — every later job in the
+        session spawns pre-mitigated instead of crashing again.
+        """
+        try:
+            return self._run_once(job_spec)
+        except RuntimeError:
+            if not self._gemma_fallback_applies():
+                raise
+            self.gemma_max_length = self.GEMMA_FALLBACK_MAX_LENGTH
+            push(f"[gemma-fallback] the macOS GPU watchdog killed prompt "
+                 f"encoding on this chip. Retrying this job once with Gemma "
+                 f"encoding at {self.gemma_max_length} tokens instead of 1024 "
+                 f"— nothing was rendered yet, so no work is lost.")
+        return self._run_once(job_spec)
+
+    def _run_once(self, job_spec: dict) -> dict:
+        # Per-run detector state — reset here so a watchdog kill seen on an
+        # earlier job can't arm the fallback for an unrelated failure.
+        self._metal_timeout_seen = False
+        self._past_prompt_encode = False
         # Whole-run serialization so concurrent callers don't both park in
         # _read_until and grab each other's done/error events. See __init__
         # for why this is distinct from self.lock.
@@ -6745,6 +6863,25 @@ class WarmHelper:
                     ),
                     "SIGBUS":  "memory access fault — could indicate a Metal driver issue or a bad weight file",
                 }.get(sig_name, "external kill")
+                # #44: when the watchdog signature is actually in this job's
+                # log, stop hedging — name it outright and say what we already
+                # tried. The conditional SIGABRT wording above still covers the
+                # case where the line never reached us.
+                if self._metal_timeout_seen:
+                    _tried = (
+                        f" Prompt encoding was already retried at "
+                        f"{self.gemma_max_length} tokens and still timed out."
+                        if self.gemma_max_length is not None else ""
+                    )
+                    hint = (
+                        "the macOS GPU watchdog killed a Metal command buffer "
+                        "(kIOGPUCommandBufferCallbackErrorTimeout) — that line is "
+                        "in this job's log, so this is a driver-level kill, not a "
+                        "Phosphene assertion." + _tried + " Please add your chip + "
+                        "macOS version and the crashlog at "
+                        "~/Library/Logs/DiagnosticReports/python3.11_*.ips to "
+                        "https://github.com/mrbizarro/phosphene/issues/44"
+                    )
                 raise RuntimeError(
                     f"helper exited from {sig_name} ({hint}); returncode={rc}"
                 )
@@ -11784,6 +11921,11 @@ class Handler(BaseHTTPRequestHandler):
             payload["mlx_metal_version"] = HELPER.ready_info.get("mlx_metal_version")
             payload["chip"] = HELPER.ready_info.get("chip")
             payload["macos"] = HELPER.ready_info.get("macos")
+            # #44: null on a healthy machine. Non-null means this boot hit the
+            # Metal GPU watchdog during prompt encoding and Gemma is now
+            # encoding at the shorter padded length — the single most useful
+            # field on a "my prompts feel weaker" follow-up report.
+            payload["gemma_max_length"] = HELPER.gemma_max_length
             # Per-kind avg ETA: image jobs are 30s–2min, video jobs are
             # 5–30min. Computing queue ETA from one mixed avg makes an
             # image queued after a few videos show "~30 min" — the
