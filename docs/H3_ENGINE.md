@@ -62,6 +62,7 @@ duplicating 75 GB.
 | `LTX_H3_MODELS` | `<install>/mlx_models/hailuo-h3` | the three weight components |
 | `LTX_H3_PYTHON` | `<H3_ROOT>/.venv/bin/python3.11` → `python` | interpreter override (a checkout without its own venv) |
 | `LTX_H3_FORCE_CAPABLE` | unset | test-only: stop the UI hiding the pill on a small Mac. Does **not** make it render. |
+| `LTX_H3_DENSE_10S` | unset | re-adds the pre-chaining dense 10 s tier (36 min) for A/B work |
 
 ### Model layout — both shapes work
 
@@ -85,21 +86,80 @@ shape; the campaign checkout uses the first.
 `H3_TIERS` in `mlx_ltx_panel.py` is the single source of truth — the UI renders
 its chips from `/status.h3.tiers`, so a tier change is one Python edit.
 
-| Tier | Geometry | Sigma points | Wall time |
-|---|---|---|---|
-| Draft · 3s | 640×384 · 73f | 9 (8 forwards) | ~3 min |
-| HQ · 3s | 768×448 · 73f | 9 (8 forwards) | ~4-5 min |
-| HQ · 5s | 768×448 · 124f | 9 (8 forwards) | ~8 min |
-| Long · 10s | 768×448 · 243f | 16 (15 forwards) | ~36 min · batch |
+| Tier | Geometry | Windows | Sigma points | Wall time |
+|---|---|---|---|---|
+| Draft · 3s | 640×384 · 73f | 1 | 9 (8 forwards) | ~3 min |
+| HQ · 3s | 768×448 · 73f | 1 | 9 (8 forwards) | ~4-5 min |
+| HQ · 5s | 768×448 · 124f | 1 | 9 (8 forwards) | ~8 min |
+| Long · 10s | 768×448 · 243f | **2 × 124f chained** | 9 (8 forwards) | ~17 min |
+| Long · 15s | 768×448 · 362f | **3 × 124f chained** | 9 (8 forwards) | ~27 min · batch |
 
-**Why 9 points for three of them and 16 for the last.** `--steps` is sigma
-*points*; the runner does `points - 1` forwards. A matched-cost A/B showed 8
-forwards is visually free at or below ~13k packed rows (640×384/73f ≈ 5.6k,
-768×448/124f ≈ 13.7k). The 10 s tier is a different regime — 768×448/243f is
-~25k rows, where 8 forwards **ghosts** — so it needs 15.
+**Why 9 points everywhere now.** `--steps` is sigma *points*; the runner does
+`points - 1` forwards. A matched-cost A/B showed 8 forwards is visually free at
+or below ~13k packed rows (640×384/73f ≈ 5.6k, 768×448/124f ≈ 13.7k). A *dense*
+768×448/243f pass is ~25k rows, where 8 forwards **ghosts** (two astronauts on
+screen) — which is why the old 10 s tier needed 15 forwards and 36 minutes.
+Chaining removes that regime entirely: every pass is a 5 s pass, so every pass
+is inside the window where 8 forwards was proven.
 
 Geometry rules the runner enforces: width and height must be multiples of 32,
 and frame counts snap up to the `17n+5` grid.
+
+### Chained windows (v3.4.1)
+
+Window *N*'s **last decoded frame** becomes window *N+1*'s first-frame keyframe
+through the ordinary FL2VA conditioning path; the duplicate frame is dropped at
+the join and the pieces butt-join in pixel space, with a one-frame equal-power
+audio cross-fade (the chain's real overlap). The panel passes:
+
+```
+--frames <window_frames>  --chain-windows N  --chain-total-frames <delivered>
+```
+
+Measured (M4 Max 64 GB, `notes/CHAIN_WINDOWS.md` in the H3 campaign):
+
+| | Dense 10 s | Chained 10 s | Chained 15 s |
+|---|---:|---:|---:|
+| Wall | 36:12 | **17:05** | **26:34** |
+| Packed rows | 25,138 | 13,662 max | 13,580 flat |
+| Peak Metal | 42.6 GiB | 40.3 GiB | 40.2 GiB |
+
+Duration is now **linear in wall clock and constant in memory**. Seam grading:
+both 15 s joins measured *quieter* than the clip's own median frame-to-frame
+motion; identity (face, wardrobe, light) held across both.
+
+**Known artefact, surfaced in the UI:** every window receives the same prompt,
+so a prompt that scripts a line asks for that line in *each* window and gets it.
+The tier's `note` field carries that warning ("scripted dialogue repeats once
+per 5 s window — put dialogue cues late in the prompt") and the panel renders it
+under the tier strip. The fix is per-window prompts (`--chain-prompts` on the
+runner); when that reaches the panel UI, delete the `note` and the warning
+disappears everywhere at once.
+
+**Gating.** Chaining needs `--chain-windows` on the *installed* runner.
+`h3_supports_chain()` probes the script source, `/status.h3.chain` reports it,
+`h3_visible_tiers()` withholds the chained tiers from the UI when it's false,
+and `make_job` falls back to the longest single-pass tier rather than failing a
+queued job. `LTX_H3_DENSE_10S=1` restores the old dense 10 s tier for A/B work.
+
+### Export pass — the same post-process LTX renders get
+
+H3 writes 768×448 (12:7), which is neither 720p nor 1080p. The panel now runs
+the identical ffmpeg recipe an LTX render gets: lanczos fit inside the canvas +
+pad the remainder + `libx264` with the user's codec settings (`yuv420p crf 18`
+by default) + `+faststart`, audio copied through untouched. Letterbox bars on
+12:7 content are correct — no crop, no distortion.
+
+- Form field: `h3_upscale` = `off` | `fit_720p` (default) | `fit_1080p`. It is
+  in the `make_job` allowlist; an unlisted field silently no-ops on
+  `/queue/add`.
+- The native file stays on disk but is `set_hidden()` from the gallery, exactly
+  like the LTX upscale path. `UPSCALE_TAGS` (module-level) carries `1080p` /
+  `v1080p` so `/output/delete` trashes the native companion and Load Params
+  still finds the sidecar.
+- Sidecar gains `upscale` (target, method, source, codec) and `output_codec`,
+  and `h3.chain_windows` / `h3.window_frames` / `h3.delivered_frames` /
+  `h3.seams`.
 
 ---
 
@@ -109,9 +169,10 @@ and frame counts snap up to the `17n+5` grid.
   Character, A2V) is LTX-pipeline-specific; the picker snaps back to LTX with a
   note. Character does too — it submits `mode=t2v` but stacks LTX LoRAs, and H3
   has no LoRA path.
-- **LoRAs, upscale, orientation, accel, temporal interpolation**: none apply.
-  Those controls carry `data-ltx-only` and fold away under
-  `body[data-h3-engine="h3"]`.
+- **LoRAs, orientation, accel, temporal interpolation, the LTX upscale
+  control**: none apply. Those carry `data-ltx-only` and fold away under
+  `body[data-h3-engine="h3"]`. H3 has its own export control (`h3_upscale`,
+  `data-h3-only`) — see the export-pass section above.
 - **External audio**: H3 generates its own. `i2v_clean_audio` stays LTX.
 
 ### `--first-frame` (Image mode) is branch-dependent
@@ -166,6 +227,8 @@ restart. `GET /status` → `.h3` tells you what resolved:
 | Image mode snaps back to LTX | `h3.first_frame` false — the installed runner has no `--first-frame` |
 | `ffmpeg not found on PATH` | the runner pipes raw RGB into `ffmpeg`; the panel prepends `FFMPEG_BIN` to the subprocess PATH, so this means the bundled binary is missing |
 | Job cancelled but memory stays high | shouldn't happen — `/stop` SIGTERMs the whole process group and SIGKILLs after 8 s; check `STATE["h3_pgid"]` |
+| 10 s / 15 s tiers missing from the strip | `h3.chain` false — the installed runner has no `--chain-windows`; update the pack |
+| A render survived a panel crash | expected of `kill -9` (atexit can't run), but the NEXT boot reaps it: `state/h3_running.json` names the pid/pgid and `reap_orphan_subprocesses()` kills it before the queue moves. Same guard exists for the warm helper (`state/helper_running.json`). |
 
 Metrics for every run are kept at `state/h3_metrics/<job_id>.json` (the runner's
 own phase timings, peak GiB, packed rows), and summarised into the render's
