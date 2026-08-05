@@ -6013,6 +6013,60 @@ def compute_pad(w: int, h: int) -> tuple[int, int, str | None]:
 UPSCALE_TAGS = ("720p", "v720p", "1080p", "v1080p", "up2x")
 
 
+# ---- BT.709 tagging on every delivered file ---------------------------------
+#
+# Every clip the panel hands the user is Rec.709 (HD primaries, sRGB-ish
+# transfer) — but nothing was SAYING so, and an untagged HD file is a player
+# coin-flip: QuickTime guesses one way, Chrome another, and the symptom users
+# report is "washed out" or "too contrasty" colour that isn't in the pixels.
+#
+# The output options alone are NOT enough on ffmpeg 8. The filtergraph's own
+# frame properties override `-color_primaries` / `-color_trc` / `-colorspace`,
+# and every export pass here has a `-vf`. Measured on both builds a user can
+# hit (8.0.1, Pinokio's bundled binary; 8.1.2, Homebrew), scaling 768×448 →
+# 1280×720:
+#
+#   flags only                  → primaries=bt709, transfer=unknown, matrix=unknown
+#   flags + trailing setparams  → primaries=bt709, transfer=bt709,   matrix=bt709
+#
+# So the filter is what actually lands the tags and the flags stay as the
+# container-level belt to its braces. `setparams` only writes metadata — no
+# pixel conversion, no re-scaling, no measurable cost.
+BT709_SETPARAMS = "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+BT709_FLAGS = ["-color_primaries", "bt709", "-color_trc", "bt709",
+               "-colorspace", "bt709"]
+_FFMPEG_FILTER_CACHE: dict[str, bool] = {}
+
+
+def _ffmpeg_has_filter(name: str) -> bool:
+    """Whether the resolved ffmpeg build carries `name`. `setparams` has shipped
+    since 4.2 (2019) so this is all but always true — but an export pass is the
+    last step of a render that can cost half an hour, and an unknown filter is a
+    hard failure. One cached ~50 ms probe buys the fallback path."""
+    if name in _FFMPEG_FILTER_CACHE:
+        return _FFMPEG_FILTER_CACHE[name]
+    ok = False
+    try:
+        out = subprocess.run([str(FFMPEG), "-hide_banner", "-filters"],
+                             capture_output=True, text=True, timeout=15)
+        ok = any(line.split()[1:2] == [name]
+                 for line in (out.stdout or "").splitlines() if line.strip())
+    except Exception:      # noqa: BLE001 — a probe must never break a render
+        ok = False
+    _FFMPEG_FILTER_CACHE[name] = ok
+    return ok
+
+
+def bt709_vf(vf: str | None = None) -> str:
+    """`vf` with the BT.709 setparams filter appended (or it alone when there is
+    no other filtering to do). Returns `vf` untouched when the build lacks the
+    filter — the flags still tag primaries, which is what we had before."""
+    vf = (vf or "").strip().rstrip(",")
+    if not _ffmpeg_has_filter("setparams"):
+        return vf
+    return f"{vf},{BT709_SETPARAMS}" if vf else BT709_SETPARAMS
+
+
 def compute_upscale_plan(w: int, h: int, mode: str | None,
                           helper_did_model_upscale: bool = False) -> dict | None:
     """Plan a panel-side ffmpeg upscale pass. Returns None when no further
@@ -8326,9 +8380,10 @@ def run_h3_job_inner(job: dict) -> None:
             f"{out_path.stem}_{upscale_plan['tag']}{out_path.suffix}")
         run_ffmpeg_tracked([
             str(FFMPEG), "-y", "-i", str(out_path),
-            "-vf", upscale_plan["vf"],
+            "-vf", bt709_vf(upscale_plan["vf"]),
             "-c:v", "libx264", "-pix_fmt", codec["pix_fmt"], "-crf", codec["crf"],
             "-preset", export_preset,
+            *BT709_FLAGS,
             "-movflags", "+faststart",
             # H3 generates its own AAC track; re-encoding it would only lose
             # fidelity, and the dialogue is the point of the engine.
@@ -9711,11 +9766,15 @@ def run_job_inner(job: dict) -> None:
         mux_crf = codec["crf"]
         mux_cmd = [str(FFMPEG), "-y", "-i", str(raw_out), "-i", audio,
                    "-map", "0:v:0", "-map", "1:a:0"]
-        if pad_filter:
-            mux_cmd += ["-vf", pad_filter]
+        # bt709_vf returns "" only on an ffmpeg build with no `setparams` AND no
+        # pad to do — `-vf ""` is an error, so the flag goes in conditionally.
+        _mux_vf = bt709_vf(pad_filter)
+        if _mux_vf:
+            mux_cmd += ["-vf", _mux_vf]
         mux_cmd += [
             "-af", f"apad,atrim=0:{duration},asetpts=PTS-STARTPTS",
             "-c:v", "libx264", "-pix_fmt", mux_pix_fmt, "-crf", mux_crf, "-preset", "medium",
+            *BT709_FLAGS,
             "-movflags", "+faststart",
             "-c:a", "aac", "-b:a", "192k",
             "-t", f"{duration}",
@@ -9731,9 +9790,10 @@ def run_job_inner(job: dict) -> None:
         temporal_preset = os.environ.get("LTX_TEMPORAL_PRESET", "medium")
         temporal_cmd = [
             str(FFMPEG), "-y", "-i", str(final_target),
-            "-vf", f"minterpolate=fps={FPS}:mi_mode=mci:mc_mode=aobmc:vsbmc=1",
+            "-vf", bt709_vf(f"minterpolate=fps={FPS}:mi_mode=mci:mc_mode=aobmc:vsbmc=1"),
             "-c:v", "libx264", "-pix_fmt", mux_pix_fmt, "-crf", mux_crf,
             "-preset", temporal_preset,
+            *BT709_FLAGS,
             "-movflags", "+faststart",
             "-c:a", "copy",
             "-t", f"{video_duration(frames)}",
@@ -9783,9 +9843,10 @@ def run_job_inner(job: dict) -> None:
         else:
             upscale_cmd = [
                 str(FFMPEG), "-y", "-i", str(final_target),
-                "-vf", upscale_plan["vf"],
+                "-vf", bt709_vf(upscale_plan["vf"]),
                 "-c:v", "libx264", "-pix_fmt", mux_pix_fmt, "-crf", mux_crf,
                 "-preset", upscale_preset,
+                *BT709_FLAGS,
                 "-movflags", "+faststart",
                 "-c:a", "copy",
                 str(upscaled_out),

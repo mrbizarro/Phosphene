@@ -74,11 +74,21 @@ def target_for_mode(width: int, height: int, mode: str) -> tuple[int, int, str]:
     return 720, 1280, "v720p"
 
 
+# Rec.709 tagging — see the same block in mlx_ltx_panel.py. On ffmpeg 8 the
+# filtergraph's frame properties override the -color_* output options, so the
+# trailing `setparams` is what actually makes color_trc/colorspace land; without
+# it an export reads back as `unknown` and players guess at the colour.
+BT709_SETPARAMS = "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+BT709_FLAGS = ["-color_primaries", "bt709", "-color_trc", "bt709",
+               "-colorspace", "bt709"]
+
+
 def fit_filter(target_w: int, target_h: int) -> str:
     return (
         f"scale={target_w}:{target_h}:"
         "force_original_aspect_ratio=decrease:flags=lanczos,"
-        f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black"
+        f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black,"
+        f"{BT709_SETPARAMS}"
     )
 
 
@@ -91,6 +101,7 @@ def make_lanczos(input_mp4: Path, output_mp4: Path, crf: str, pix_fmt: str, pres
         "-i", str(input_mp4),
         "-vf", fit_filter(target_w, target_h),
         "-c:v", "libx264", "-pix_fmt", pix_fmt, "-crf", crf, "-preset", preset,
+        *BT709_FLAGS,
         "-movflags", "+faststart",
         "-c:a", "copy",
         str(output_mp4),
@@ -195,6 +206,7 @@ def make_pipersr(input_mp4: Path, output_mp4: Path, crf: str, pix_fmt: str, pres
             "-map", "0:v:0", "-map", "1:a?",
             "-vf", fit_filter(target_w, target_h),
             "-c:v", "libx264", "-pix_fmt", pix_fmt, "-crf", crf, "-preset", preset,
+            *BT709_FLAGS,
             "-movflags", "+faststart",
             "-c:a", "copy",
             str(output_mp4),
