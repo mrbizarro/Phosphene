@@ -1639,23 +1639,27 @@ def _train_required_models() -> list[dict]:
     is present locally. Surfaces missing models to the UI so the user can
     one-click download them via the existing hf flow.
 
-    Train Character requires `transformer-dev.safetensors` from the LTX-2.3
-    Q4 repo (the dev base — distilled is structurally wrong for training:
-    different sigma schedule than the trainer's flow-matching objective).
-    The default install ships distilled but NOT dev to save ~11 GB on disk
-    for users who only run inference.
+    Train Character requires the FULL-PRECISION `transformer-dev.safetensors`
+    from the LTX-2.3 Q8 repo (~21 GB). The dev base is required because
+    distilled is structurally wrong for training (different sigma schedule
+    than the trainer's flow-matching objective) — and it must be the Q8
+    repo's full-precision copy because the Q4 repo's transformer-dev is
+    QUANTIZED (~11 GB): the trainer refuses it (train.py's
+    FULL_DEV_MIN_BYTES) since it silently trains a near-zero LoRA (#35).
+    The default install ships neither, to save disk for inference-only
+    users.
 
     Gemma + the rest of the Q4 stack (vae, audio, etc.) are already required
     for inference so they should already be present, but we check anyway.
     """
     q4_local_dir = ROOT / "mlx_models" / "ltx-2.3-mlx-q4"
     q8_local_dir = ROOT / "mlx_models" / "ltx-2.3-mlx-q8"
-    q4_repo_id = "dgrauet/ltx-2.3-mlx-q4"
     gemma_local_dir = ROOT / "mlx_models" / "gemma-3-12b-it-4bit"
     gemma_repo_id = "mlx-community/gemma-3-12b-it-4bit"
 
     def _file_present(local_dir: Path, repo_id: str, filename: str,
-                      *, extra_dirs: list[Path] | None = None) -> bool:
+                      *, extra_dirs: list[Path] | None = None,
+                      min_bytes: int = _MIN_FILE_BYTES) -> bool:
         """Check known locations for a model file in this order:
 
           1. The primary local_dir (where the helper expects it by default).
@@ -1693,26 +1697,37 @@ def _train_required_models() -> list[dict]:
             pass
         for c in candidates:
             try:
-                if c.exists() and c.stat().st_size >= _MIN_FILE_BYTES:
+                if c.exists() and c.stat().st_size >= min_bytes:
                     return True
             except OSError:
                 continue
         return False
 
+    # Mirror of lora_lab/train.py FULL_DEV_MIN_BYTES: anything smaller is a
+    # quantized transformer-dev, which the trainer refuses. The preflight
+    # must not show green on a file the trainer will reject (#35).
+    _FULL_DEV_MIN_BYTES = 15 * 1000**3
+
     items = [
         {
             "key": "ltx_dev_transformer",
-            "label": "LTX-2.3 dev transformer (training-only)",
+            "label": "LTX-2.3 dev transformer (training-only, full precision)",
             "blurb": "Required for training. Standard inference uses the distilled "
                      "transformer instead; the dev transformer has the right "
-                     "flow-matching schedule for LoRA-from-images training.",
-            "repo_id": q4_repo_id,
+                     "flow-matching schedule for LoRA-from-images training. "
+                     "Must be the full-precision (~21 GB) copy — a quantized "
+                     "dev transformer trains a LoRA that never applies.",
+            "repo_id": "dgrauet/ltx-2.3-mlx-q8",
             "filename": "transformer-dev.safetensors",
-            "local_dir": str(q4_local_dir),
-            "size_gb": 11.0,
-            "ready": _file_present(q4_local_dir, q4_repo_id,
+            "local_dir": str(q8_local_dir),
+            "size_gb": 20.6,
+            # Size-gated: an 11 GB quantized dev (the old preflight's Q4
+            # download, still on many disks) must show NOT-ready, because
+            # the trainer refuses it and the LoRA comes out dead (#35).
+            "ready": _file_present(q8_local_dir, "dgrauet/ltx-2.3-mlx-q8",
                                    "transformer-dev.safetensors",
-                                   extra_dirs=[q8_local_dir]),
+                                   extra_dirs=[q4_local_dir],
+                                   min_bytes=_FULL_DEV_MIN_BYTES),
         },
         {
             "key": "gemma_text_encoder",
@@ -1731,7 +1746,10 @@ def _train_required_models() -> list[dict]:
 
 def _train_install_dev_transformer(push_log) -> dict:
     """Trigger an hf download for just `transformer-dev.safetensors` from
-    the LTX-2.3 Q4 repo. Reuses the same `hf download` binary the existing
+    the LTX-2.3 Q8 repo — the FULL-PRECISION copy the trainer requires.
+    (Until v3.4.1 this pulled the Q4 repo's transformer-dev, which is
+    quantized: the trainer refuses it and the LoRA trains dead — #35.)
+    Reuses the same `hf download` binary the existing
     HF download flow uses; runs synchronously in a worker thread so the
     caller can stream progress (the panel currently invokes this from a
     /train/install endpoint that returns quickly + then polls /status).
@@ -1746,8 +1764,8 @@ def _train_install_dev_transformer(push_log) -> dict:
                 "error": f"another download is already active "
                          f"({DOWNLOAD.get('repo_id', '?')})."}
 
-    repo_id = "dgrauet/ltx-2.3-mlx-q4"
-    local_dir = ROOT / "mlx_models" / "ltx-2.3-mlx-q4"
+    repo_id = "dgrauet/ltx-2.3-mlx-q8"
+    local_dir = ROOT / "mlx_models" / "ltx-2.3-mlx-q8"
     local_dir.mkdir(parents=True, exist_ok=True)
 
     hf_bin = HF_BIN if HF_BIN is not None else _resolve_hf()
@@ -1774,7 +1792,8 @@ def _train_install_dev_transformer(push_log) -> dict:
     def _runner():
         try:
             push_log(f"[hf] dev transformer download started "
-                     f"({repo_id} / transformer-dev.safetensors, ~11 GB).")
+                     f"({repo_id} / transformer-dev.safetensors, ~21 GB — "
+                     f"the full-precision copy training requires).")
             proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, bufsize=1, env=env, start_new_session=True)
@@ -13225,9 +13244,11 @@ class Handler(BaseHTTPRequestHandler):
 
         # ====== Train Character — preflight model check.
         # required_files.json's q4 entry ships transformer-distilled only.
-        # Training needs transformer-dev (extra ~11 GB), which isn't in the
-        # default install. Surface what's missing so the UI can offer a
-        # one-click download via the existing hf flow.
+        # Training needs the FULL-PRECISION transformer-dev from the Q8 repo
+        # (extra ~21 GB), which isn't in the default install. Surface what's
+        # missing so the UI can offer a one-click download via the existing
+        # hf flow. (The Q4 repo's transformer-dev is quantized — the trainer
+        # refuses it, #35 — so the preflight neither offers nor greenlights it.)
         if parsed.path == "/train/preflight":
             req = _train_required_models()
             self._json({"ok": True, "required": req,
@@ -29912,9 +29933,11 @@ function trainGuidanceDismiss() {
 
 // Hits /train/preflight and surfaces a banner inside the Train form when a
 // required model is missing. Today the only on-demand download is the LTX-2.3
-// dev transformer (~11 GB) — Phosphene's default install ships the distilled
-// transformer only. Banner offers a one-click Download button that triggers
-// /train/install + redirects to /status for progress.
+// full-precision dev transformer (~21 GB, Q8 repo) — Phosphene's default
+// install ships the distilled transformer only, and the Q4 repo's smaller
+// transformer-dev is quantized (trainer refuses it, #35). Banner offers a
+// one-click Download button that triggers /train/install + redirects to
+// /status for progress.
 async function trainCheckPreflight() {
   const box = document.getElementById('trainPreflight');
   if (!box) return;
