@@ -5350,6 +5350,14 @@ class WarmHelper:
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, bufsize=1, start_new_session=True,
             )
+            # Crash guard: the helper is in its own session, so a SIGKILLed
+            # panel would leave it resident holding the LTX weights while the
+            # next panel spawns a second one. Boot reaps it from this file.
+            try:
+                _proc_guard_write("helper", self.proc.pid,
+                                  os.getpgid(self.proc.pid), note="warm helper")
+            except OSError:
+                pass
             # Fresh fd → drop any bytes carried over from a prior helper's pipe
             # so _read_until's line buffer starts clean for this process.
             self._read_carry = b""
@@ -5664,6 +5672,7 @@ class WarmHelper:
                     except Exception:
                         pass
             self.proc = None
+            _proc_guard_clear("helper")
 
     def is_alive(self) -> bool:
         # Snapshot the ref so a concurrent kill() can't null self.proc between
@@ -5756,6 +5765,120 @@ def _kill_h3_proc() -> None:
         os.killpg(pgid, signal.SIGTERM)
     except (OSError, ProcessLookupError):
         pass
+
+
+# ---- crash guards: subprocesses that outlive a SIGKILLed panel --------------
+#
+# Both heavy children (the H3 render and the LTX warm helper) are spawned with
+# start_new_session=True so /stop can killpg the whole tree. That same flag
+# means they are NOT in the panel's process group, so `kill -9 <panel>` — a
+# crash, an OOM reaper, Force Quit — leaves them running: atexit hooks don't
+# run on SIGKILL. An orphaned H3 render holds ~40 GiB while the restarted panel
+# picks the same job back off the queue and starts a SECOND one.
+#
+# So each spawn drops a tiny guard file naming the child; boot reaps it. The
+# guard records the OWNING panel's pid, and reaping verifies the recorded pid
+# is still running the expected script before signalling anything — a recycled
+# pid must never get killed, and a second panel's children must never be
+# reaped by this one.
+_PROC_GUARDS: dict[str, tuple[Path, str]] = {
+    "h3": (STATE_DIR / "h3_running.json", "generate_staged"),
+    "helper": (STATE_DIR / "helper_running.json", "mlx_warm_helper"),
+}
+
+
+def _proc_guard_write(kind: str, pid: int, pgid: int, note: str = "") -> None:
+    entry = _PROC_GUARDS.get(kind)
+    if not entry:
+        return
+    try:
+        atomic_write_text(entry[0], json.dumps({
+            "kind": kind, "pid": int(pid), "pgid": int(pgid),
+            "panel_pid": os.getpid(), "started": iso_now(), "note": note,
+        }, indent=2))
+    except Exception:      # noqa: BLE001 — a guard must never break a render
+        pass
+
+
+def _proc_guard_clear(kind: str) -> None:
+    entry = _PROC_GUARDS.get(kind)
+    if not entry:
+        return
+    try:
+        entry[0].unlink()
+    except (FileNotFoundError, OSError):
+        pass
+
+
+def _pid_cmdline(pid: int) -> str:
+    """`ps` command line for a pid, or "" when it's gone. Cheap and portable
+    enough here — this runs at most twice, at boot."""
+    try:
+        out = subprocess.run(["ps", "-o", "command=", "-p", str(pid)],
+                             capture_output=True, text=True, timeout=5)
+        return (out.stdout or "").strip()
+    except Exception:      # noqa: BLE001
+        return ""
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True        # alive under another uid
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def reap_orphan_subprocesses() -> None:
+    """Boot hook — kill children a previous panel process left behind.
+
+    Only ever signals a pid whose CURRENT command line still matches the
+    script the guard was written for, and only when the panel that spawned it
+    is gone. Anything else (stale guard, recycled pid, a second live panel)
+    results in the guard being dropped and nothing being killed.
+    """
+    for kind, (guard, needle) in _PROC_GUARDS.items():
+        try:
+            if not guard.is_file():
+                continue
+            data = json.loads(guard.read_text(encoding="utf-8")) or {}
+        except (OSError, json.JSONDecodeError):
+            _proc_guard_clear(kind)
+            continue
+        panel_pid = int(data.get("panel_pid") or 0)
+        if panel_pid and panel_pid != os.getpid() and _pid_alive(panel_pid):
+            # Another panel is alive and owns this child — leave both alone.
+            continue
+        pid = int(data.get("pid") or 0)
+        pgid = int(data.get("pgid") or 0)
+        cmdline = _pid_cmdline(pid) if pid else ""
+        if pid and needle in cmdline:
+            print(f"[boot] reaping orphaned {kind} subprocess pid={pid} "
+                  f"pgid={pgid} (previous panel died without cleaning up)",
+                  flush=True)
+            for sig, wait_s in ((signal.SIGTERM, 8.0), (signal.SIGKILL, 2.0)):
+                try:
+                    if pgid:
+                        os.killpg(pgid, sig)
+                    else:
+                        os.kill(pid, sig)
+                except (OSError, ProcessLookupError):
+                    break
+                deadline = time.time() + wait_s
+                while time.time() < deadline:
+                    if not _pid_alive(pid):
+                        break
+                    time.sleep(0.25)
+                if not _pid_alive(pid):
+                    break
+            print(f"[boot] {kind} orphan "
+                  f"{'still alive - kill it manually' if _pid_alive(pid) else 'gone'}",
+                  flush=True)
+        _proc_guard_clear(kind)
 
 
 def _kill_image_procs() -> None:
@@ -7880,6 +8003,11 @@ def run_h3_job_inner(job: dict) -> None:
         with LOCK:
             STATE["pid"] = proc.pid
             STATE["h3_pgid"] = os.getpgid(proc.pid)
+        # Crash guard — see reap_orphan_subprocesses(). start_new_session means
+        # a SIGKILLed panel leaves this 40 GiB render running; the next boot
+        # reaps it from this file before the queue resumes the same job.
+        _proc_guard_write("h3", proc.pid, os.getpgid(proc.pid),
+                          note=f"job {job['id']}")
         assert proc.stdout is not None
         for raw in proc.stdout:
             line = raw.rstrip("\n")
@@ -7937,6 +8065,7 @@ def run_h3_job_inner(job: dict) -> None:
         with LOCK:
             STATE["pid"] = None
             STATE["h3_pgid"] = None
+        _proc_guard_clear("h3")
         if rc != 0:
             raise RuntimeError(
                 f"H3 render exited with code {rc} — see the log above for the "
@@ -7957,6 +8086,7 @@ def run_h3_job_inner(job: dict) -> None:
             with LOCK:
                 STATE["pid"] = None
                 STATE["h3_pgid"] = None
+            _proc_guard_clear("h3")
 
     if not out_path.is_file():
         raise RuntimeError(
@@ -35514,6 +35644,11 @@ if __name__ == "__main__":
     OUTPUT.mkdir(parents=True, exist_ok=True)
     UPLOADS.mkdir(parents=True, exist_ok=True)
     _sweep_orphan_tmps()
+    # Before the queue starts moving: kill anything a previous panel process
+    # left running (a SIGKILLed panel can't run its atexit hooks). Must happen
+    # BEFORE worker_loop starts, or the resumed job races an orphan that is
+    # still holding 40 GiB of the same GPU.
+    reap_orphan_subprocesses()
     load_hidden()
     load_queue()
     threading.Thread(target=worker_loop, daemon=True).start()
