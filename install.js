@@ -83,6 +83,29 @@ module.exports = {
       }
     },
 
+    // ---- STOP LOUDLY if that clone did not land ---------------------------
+    // Everything below this point assumes ltx-2-mlx/ exists: the version pin
+    // runs with `path: "ltx-2-mlx"`, the venv is built inside it, every pip
+    // step targets it. When the clone fails — no network, a VPN/proxy, GitHub
+    // unreachable, a full disk — none of those steps abort the run. Each one
+    // just spawns a shell into a directory that isn't there, prints nothing
+    // useful, and the install marches on for another dozen steps before dying
+    // for a reason that has long since scrolled off screen.
+    //
+    // That silence is what made the v3.5.0 restart loop unreadable: the
+    // console filled with anonymous "Starting Shell / Terminated Shell" pairs
+    // (Pinokio gives every command in a `message` array its own shell) and the
+    // single line that explained anything was thousands of lines up. Fail
+    // here, name the cause, and stop.
+    {
+      when: "{{!exists('ltx-2-mlx/.git')}}",
+      method: "notify",
+      params: {
+        html: "<b>Install stopped: the video engine could not be downloaded.</b><br>Phosphene needs to download <code>github.com/dgrauet/ltx-2-mlx</code> and that step did not finish.<br><br>This is almost always a network problem (no connection, a VPN or proxy, or GitHub blocked) or a full disk. Check your connection and free space, then click <b>Install</b> again — anything already downloaded is kept and will not be downloaded twice."
+      },
+      next: null
+    },
+
     // ---- ltx-2-mlx version: PIN to v0.14.8 (2026-06-01 catch-up). dgrauet asked on 2026-05-12
     //      to lock onto a tag because he's about to push breaking changes
     //      upstream to sync with the official Lightricks repo. Without a

@@ -185,6 +185,51 @@ module.exports = {
     const has_models  = info.exists("mlx_models")
     const has_uploads = info.exists("panel_uploads")
 
+    // --- has an install already been ATTEMPTED here? ------------------------
+    // THE INFINITE-RESTART FIX (@natxou field report, v3.5.0).
+    //
+    // Two Pinokio rules combine badly. From PINOKIO.md:
+    //   "Dynamic menu rendering" — the sidebar menu is re-rendered every time
+    //   a step in the currently running script finishes.
+    //   "Auto-executing menu items" — when a menu item marked `default: true`
+    //   has a script as its href, selecting it also STARTS that script.
+    //
+    // So a `default: true` -> install.js entry is only safe while install.js
+    // is still capable of succeeding. The moment install.js aborts — a dropped
+    // connection during the ltx-2-mlx clone, a HuggingFace 5xx mid-download, a
+    // full disk — the menu re-renders, still sees an incomplete install, hands
+    // Pinokio the very same auto-run entry, and Pinokio starts install.js
+    // again. Which aborts again. Forever.
+    //
+    // The user-visible symptom is NOT a crash loop in the panel: it is the
+    // Pinokio console scrolling
+    //     Starting Shell <uuid> ... Terminated Shell <uuid>
+    // with a DIFFERENT uuid every time (Pinokio gives each command in a
+    // `message` array its own shell, so one install pass alone emits a dozen),
+    // the app parked at ~90 MB on disk, and Python never starting — because
+    // nothing in this state ever reaches start.js. Present in every public
+    // release from v2.0.0 through v3.5.0; it just needed a failing install to
+    // become visible.
+    //
+    // fs.link is install.js's FIRST side-effecting step — it runs before the
+    // clone, before the venv, before every download — so these folders exist
+    // after even an attempt that died immediately. Their presence is a
+    // reliable "install.js has already run at least once" marker. Probed with
+    // fs.existsSync as well as info.exists because fs.link creates them as
+    // symlinks into Pinokio's drive, and a dangling link must still count as
+    // an attempt (see the H3 note above for the same lesson).
+    //
+    // Net effect: a clean machine still auto-installs on first open (nothing
+    // exists yet, so nothing to detect). Every state AFTER a failed attempt
+    // waits for a deliberate click instead of respawning itself.
+    const onDisk = (rel) => {
+      try { return fs.existsSync(path.join(installRoot, rel)) } catch (e) { return false }
+    }
+    const install_attempted =
+      has_models || has_outputs || has_uploads ||
+      onDisk("mlx_models") || onDisk("mlx_outputs") ||
+      onDisk("panel_uploads") || onDisk("state") || onDisk("ltx-2-mlx")
+
     const running = {
       install:    info.running("install.js"),
       start:      info.running("start.js"),
@@ -208,11 +253,23 @@ module.exports = {
     // No env at all → fresh install path. Recovery shortcuts to user content
     // folders if a previous install left files behind.
     if (!env_ready) {
-      const m = [{ default: true, icon: "fa-solid fa-plug", text: "Install", href: "install.js" }]
+      // `default: true` — and therefore Pinokio's auto-run — ONLY on a machine
+      // that has never attempted an install. Anywhere else this is the entry
+      // that restarts a failing install.js forever (see install_attempted).
+      const m = [install_attempted
+        ? { icon: "fa-solid fa-rotate-right",
+            text: "Resume Install (last attempt didn't finish — click to retry)",
+            href: "install.js" }
+        : { default: true, icon: "fa-solid fa-plug", text: "Install", href: "install.js" }]
       if (has_outputs) m.push({ icon: "fa-solid fa-film",  text: "Outputs", href: "mlx_outputs?fs=true" })
       if (has_models)  m.push({ icon: "fa-solid fa-cube",  text: "Models",  href: "mlx_models?fs=true" })
       if (has_uploads) m.push({ icon: "fa-solid fa-image", text: "Uploads", href: "panel_uploads?fs=true" })
-      return pushH3Recovery(m)
+      pushH3Recovery(m)
+      // Escape hatch. This branch used to offer no Reset at all, so a user
+      // whose install died before the venv existed had nothing to click except
+      // the thing that kept failing.
+      if (install_attempted) m.push({ icon: "fa-regular fa-circle-xmark", text: "Reset", href: "reset.js" })
+      return m
     }
 
     // Env exists but base models aren't fully there → SHIP-BLOCKER fix.
@@ -221,7 +278,11 @@ module.exports = {
     // re-runs `hf download` which itself resumes any partial files).
     if (!base_ready) {
       const m = [
-        { default: true, icon: "fa-solid fa-rotate-right", text: "Resume Install (base models incomplete)", href: "install.js" },
+        // Deliberately NOT `default: true`. Reaching this state means
+        // install.js has already run and did not complete, so auto-running it
+        // is precisely the respawn loop documented at install_attempted. The
+        // user clicks Resume when they're ready.
+        { icon: "fa-solid fa-rotate-right", text: "Resume Install (base models incomplete)", href: "install.js" },
       ]
       if (has_outputs) m.push({ icon: "fa-solid fa-film",  text: "Outputs", href: "mlx_outputs?fs=true" })
       if (has_models)  m.push({ icon: "fa-solid fa-cube",  text: "Models",  href: "mlx_models?fs=true" })

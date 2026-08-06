@@ -28,6 +28,20 @@ module.exports = {
           // 2026-05-22 split into public + private repos). The
           // explicit-origin form `git pull origin <branch>` broke
           // when public origin/dev was deleted.
+          // MUST be one joined string, not seven array elements. Pinokio runs
+          // each element of a `message` array in its OWN shell — a fresh
+          // conda-base activation, a fresh process, terminated when the command
+          // returns. Shell variables therefore do NOT survive from one element
+          // to the next. As separate elements this block was silently broken:
+          // Pinokio's own log shows the echo printing
+          //     updating branch:  (upstream: )
+          // which means `git fetch $REMOTE` degraded to a bare `git fetch`,
+          // `git pull --ff-only $UPSTREAM` to a bare `git pull`, and worst of
+          // all the divergence recovery `git reset --hard $UPSTREAM` to a bare
+          // `git reset --hard` — a no-op against HEAD that cannot recover from
+          // divergence at all, which is the one job it exists to do.
+          // Joining with "\n" runs the whole block in a single shell, the way
+          // the other multi-command steps in this file already do.
           "REMOTE=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null | cut -d/ -f1)",
           "BRANCH=$(git rev-parse --abbrev-ref HEAD)",
           "UPSTREAM=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null)",
@@ -35,7 +49,7 @@ module.exports = {
           "git fetch $REMOTE",
           "git pull --ff-only $UPSTREAM || (echo 'history diverged from upstream; falling back to reset --hard' && git reset --hard $UPSTREAM)",
           "git rev-parse --short HEAD"
-        ]
+        ].join("\n")
       }
     },
     // ltx-2-mlx is PINNED to v0.14.8 (2026-06-01 catch-up from v0.14.0;
