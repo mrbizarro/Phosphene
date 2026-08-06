@@ -4926,8 +4926,32 @@ H3_TURBO_NOTE = ("Turbo is a 4-step distillation LoRA — fewer denoise passes, 
 #   8 forwards ghosts there, so it needs 16 points / 15 forwards — which is why
 #   it costs ~36 min and is flagged as a batch-it-and-walk-away render.
 #
-# Height/width must be multiples of 32 (runner errors otherwise). Frames land
-# on the 17n+5 grid: 73 = 3.0 s, 124 → snaps to 124 (5.1 s), 243 → 10.1 s.
+# Height/width must be multiples of 32 (runner errors otherwise — the runner's
+# own check is `if args.height % 32 or args.width % 32: parser.error(...)`).
+# Frames land on the 17n+5 grid: 73 = 3.0 s, 124 → snaps to 124 (5.1 s),
+# 243 → 10.1 s.
+#
+# ASPECT (2026-08-06). Every tier used to render at an odd ratio and then
+# get PILLARBOXED by the export pass — 768×448 is 12:7 (1.714), 640×384 is 5:3
+# (1.667), neither is 16:9 (1.7778), so `fit_720p` scaled the frame to fit by
+# HEIGHT and padded the sides. On the 32-px grid exact 16:9 needs width = 512k,
+# height = 288k, and there are only three of those inside H3's envelope
+# (`packing.py`: SHORT_EDGE 768, MAX_PIXELS 768*1344, CANVAS_MULTIPLE 32):
+#   k=1  512×288    0.15 MP   below anything this campaign has ever rendered
+#   k=2  1024×576   0.59 MP   the delivery canvas — measured, and it exports to
+#                             720p as a pure 1.25× scale and to 1080p as 1.875×
+#   k=3  1536×864   1.33 MP   OVER the model's own MAX_PIXELS budget (1.03 MP,
+#                             what `resolve_canvas_size` clamps ITSELF to; an
+#                             explicit --width/--height bypasses the clamp but
+#                             not the training). H3's native 16:9 is 1344×768,
+#                             measured at 44.8 min per 5 s window — 1536×864
+#                             would cost more than the native canvas and give
+#                             the model a shape it was never handed. NOT SHIPPED.
+# So 1024×576 is the only true-16:9 delivery canvas H3 can serve, and it is
+# also the one the quality campaign landed on ("768×448 is a draft canvas and
+# should stop being used for anything delivered" — QUALITY_LOOP.md).
+# Each tier's `aspect` is DERIVED from its own width/height below, never typed,
+# so an advertised ratio can't drift from the geometry that renders.
 #
 # CHAINED TIERS (v3.4.1). Anything past 5 s is now rendered as N chained 5 s
 # WINDOWS instead of one dense pass: window N's last decoded frame re-enters as
@@ -4961,6 +4985,24 @@ H3_TIER_CHAIN_NOTE = ("Scripted dialogue repeats once per 5 s window — put "
 # the user picks the tier instead of letting them conclude H3 is bad.
 H3_TIER_DRAFT_NOTE = ("Draft is for composition, motion and dialogue timing — "
                       "faces and fine detail only resolve at the higher tiers.")
+# The 16:9 draft (512×288) is a third of the pixels the note above is already
+# hedging about, and NOTHING in the campaign has ever been rendered below
+# 640×384 — the ladder only ever went up (640×384 → 768×448 → 1024×576 →
+# 1152×640 → 1344×768). It is behind LTX_H3_WIDE_DRAFT for exactly that reason.
+H3_TIER_WIDE_DRAFT_NOTE = (
+    "Experimental: 0.15 MP is below anything H3 has been measured at here. "
+    "Framing previews the 16:9 delivery exactly (2× to Wide 5s); expect mush "
+    "everywhere else.")
+
+
+def _h3_aspect(w: int, h: int) -> str:
+    """`w:h` in lowest terms — "16:9", "12:7", "5:3". DERIVED from the tier's own
+    geometry so an advertised ratio can never drift from what renders."""
+    a, b = int(w), int(h)
+    while b:
+        a, b = b, a % b
+    g = a or 1
+    return f"{int(w) // g}:{int(h) // g}"
 
 
 def _build_h3_tiers() -> dict[str, dict]:
@@ -4985,7 +5027,30 @@ def _build_h3_tiers() -> dict[str, dict]:
             "key": "hq_5s", "label": "HQ · 5s",
             "width": 768, "height": 448, "frames": 124, "steps": 9,
             "spec": "768×448 · 124f", "eta": "~8 min", "eta_min": 8.0,
-            "blurb": "The workhorse: a full 5 s beat with synced dialogue.",
+            "blurb": "The workhorse: a full 5 s beat with synced dialogue. "
+                     "12:7, so a 720p/1080p export pads bars at the sides.",
+        },
+        # The only true-16:9 delivery canvas H3 can serve (see the block comment
+        # above for why k=1 and k=3 are out). MEASURED on this 64 GB M4 Max at
+        # exactly this geometry and exactly these 8 forwards — QUALITY_LOOP.md
+        # R1: 22,923 packed rows, 126.0 s/step, 90.5 s VAE decode, 10.71 GiB
+        # decode peak, 18.8 min wall; the same probe put 768×448 at 9.1 min
+        # against this table's ~8 min, so the honest band is ~17-19.
+        # Denoise never left 37.6 GiB active — the same as 768×448, because the
+        # DiT weights dominate and the activations are small next to them. There
+        # is no memory wall here, which is why this is a tier and not a lab toy.
+        # What it buys, same seed, same still, same forwards (R0 vs R1, judged
+        # at 1:1 on a 1080p delivery): eyebrows resolve into individual hairs,
+        # forehead gets pores instead of wax, eyelashes exist at all, fur reads
+        # as strands — plus the pillarbox goes away and 1080p drops from a
+        # 2.41× enlargement to 1.875×.
+        "wide_5s": {
+            "key": "wide_5s", "label": "Wide · 5s",
+            "width": 1024, "height": 576, "frames": 124, "steps": 9,
+            "spec": "1024×576 · 124f", "eta": "~17-19 min", "eta_min": 18.0,
+            "blurb": "True 16:9 — exports to 720p as a pure 1.25× scale with "
+                     "no bars, and resolves face detail 768×448 cannot. The "
+                     "recommended delivery tier; ~2.2× HQ 5s's wall clock.",
         },
         "long_10s": {
             "key": "long_10s", "label": "Long · 10s",
@@ -5006,6 +5071,25 @@ def _build_h3_tiers() -> dict[str, dict]:
             "note": H3_TIER_CHAIN_NOTE,
         },
     }
+    # A 16:9 DRAFT, off by default and behind an env flag for the same reason
+    # the dense 10 s pass is: it is reachable for the A/B that would justify it,
+    # and it is not put in front of users until that A/B exists. 512×288 is the
+    # only 16:9 canvas below the delivery one (32-px grid, see above), it is
+    # 0.15 MP against the 0.25 MP the Draft note already hedges about, and no
+    # render in this campaign has ever gone below 640×384. What it WOULD buy is
+    # the cleanest draft→finish pair on the table: identical aspect, an exact
+    # 2× to Wide 5s, so the framing a draft shows is the framing that ships.
+    # Flip LTX_H3_WIDE_DRAFT=1, render one, and either promote it or delete it.
+    if os.environ.get("LTX_H3_WIDE_DRAFT", "").strip() in ("1", "true", "yes"):
+        tiers["wide_draft_3s"] = {
+            "key": "wide_draft_3s", "label": "Draft 16:9 · 3s",
+            "width": 512, "height": 288, "frames": 73, "steps": 9,
+            "spec": "512×288 · 73f", "eta": "~2 min", "eta_min": 2.0,
+            "blurb": "Experimental 16:9 look-see at 0.15 MP — framing only, "
+                     "and never measured. Exactly 2× up to Wide 5s.",
+            "draft": True,
+            "note": H3_TIER_WIDE_DRAFT_NOTE,
+        }
     # The dense 10 s pass is kept reachable for A/B work but is NOT offered by
     # default: it costs 2.1× the chained tier for the same delivered clip.
     if os.environ.get("LTX_H3_DENSE_10S", "").strip() in ("1", "true", "yes"):
@@ -5017,27 +5101,47 @@ def _build_h3_tiers() -> dict[str, dict]:
             "blurb": "One dense pass at 15 forwards — the pre-chaining path. "
                      "Kept for A/B only; the chained tier is 2.1× faster.",
         }
-    # What each tier would cost with Turbo on. Derived, not measured — see
-    # H3_TURBO_SPEEDUP for where 0.6 comes from and why it is honest to apply it
-    # here but not to call it a measurement.
     for _t in tiers.values():
+        # ASPECT, derived from this tier's own geometry and appended to the spec
+        # the chip prints. Users could not tell which tiers get bars on export
+        # and which don't — every tier said "768×448 · 124f" and only the export
+        # pass knew the difference. `wide` is the machine-readable form (the
+        # export pass's pure-scale path keys off the same equality).
+        _t["aspect"] = _h3_aspect(_t["width"], _t["height"])
+        _t["wide"] = (int(_t["width"]) * 9 == int(_t["height"]) * 16)
+        _t["spec"] = f"{_t['spec']} · {_t['aspect']}"
+        # What each tier would cost with Turbo on. Derived, not measured — see
+        # H3_TURBO_SPEEDUP for where 0.6 comes from and why it is honest to
+        # apply it here but not to call it a measurement.
         _mins = max(1, round(float(_t.get("eta_min") or 0) * H3_TURBO_SPEEDUP))
         _t["turbo_eta"] = f"~{_mins} min"
     return tiers
 
 
 H3_TIERS: dict[str, dict] = _build_h3_tiers()
+# UNCHANGED on purpose. Draft is a 3-minute look-see and it is the right thing
+# to put a first-time H3 user in front of — `wide_5s` is the recommended
+# DELIVERY tier, which is a different job, and pre-selecting a ~19 min render
+# for someone who has not seen the engine work yet would be a worse default
+# even though it is the better picture. The recommendation is carried by the
+# label, the blurb and the export note, not by silently spending the user's
+# afternoon.
 H3_TIER_DEFAULT = "draft_3s"
-# Where "Finish at …" sends a draft by default. hq_5s is the workhorse: same
-# 768×448 delivery geometry as hq_3s but a full 5 s beat, which is the length
-# the dialogue timing a draft was judged on actually needs. The panel offers
-# every non-draft tier in the picker; this is only the pre-selected one.
+# Where "Finish at …" sends a draft by default. Still hq_5s: the finish click
+# is a cost commitment the user makes from a 3-minute draft, and moving the
+# pre-selection from ~8 min to ~17-19 min without them choosing it is exactly
+# the surprise the per-tier etas exist to prevent. Wide 5s sits in the same
+# picker with its own eta, one click away, and the choice persists
+# (`phos_h3_finish_tier`). Flip this line the day the 16:9 canvas has a live
+# click-through behind it.
 H3_TIER_FINISH_DEFAULT = "hq_5s"
-# Post-render export targets for an H3 clip. H3 writes 768×448 (12:7) natively,
+# Post-render export targets for an H3 clip. Most tiers write 768×448 (12:7),
 # which is neither 720p nor 1080p, so the panel applies the SAME ffmpeg recipe
 # LTX renders get: lanczos fit inside the canvas, pad the remainder, re-encode
-# with the user's codec settings. Letterboxing 12:7 into 16:9 is correct — no
-# crop, no distortion.
+# with the user's codec settings. Pillarboxing 12:7 into 16:9 is correct — no
+# crop, no distortion. The `wide_5s` tier renders 1024×576, which IS 16:9, and
+# compute_upscale_plan takes the pure-scale path for it: 1.25× to 720p, 1.875×
+# to 1080p, no pad filter at all.
 H3_UPSCALE_MODES = ("off", "fit_720p", "fit_1080p")
 H3_UPSCALE_DEFAULT = "fit_720p"
 # Modes H3 can serve. Text = prompt only; Image = FL2VA first-frame
@@ -5344,11 +5448,58 @@ def h3_supports_chain() -> bool:
     return _h3_runner_has_flag("--chain-windows")
 
 
+_H3_EXPORT_NOTES: dict[tuple[int, int], dict[str, str]] = {}
+
+
+def _h3_export_notes(w: int, h: int) -> dict[str, str]:
+    """One short sentence per export mode saying what the pass will DO to this
+    canvas — "pure 1.25× scale, no bars" vs "23 px bars left and right".
+
+    Generated from `compute_upscale_plan` itself, so the sentence under the
+    Export row can never disagree with the ffmpeg command that runs. Memoised
+    per canvas because /status polls this on a timer; the plan does no I/O, the
+    cache is just politeness."""
+    key = (int(w), int(h))
+    hit = _H3_EXPORT_NOTES.get(key)
+    if hit is not None:
+        return hit
+    out: dict[str, str] = {}
+    for mode in H3_UPSCALE_MODES:
+        plan = compute_upscale_plan(w, h, mode)
+        if not plan:
+            out[mode] = ""          # "off" — the native file ships untouched
+            continue
+        tw, th = int(plan["target_w"]), int(plan["target_h"])
+        name = "1080p" if str(plan["tag"]).endswith("1080p") else "720p"
+        if not plan.get("pad"):
+            out[mode] = (f"{name}: pure {tw / float(w):g}× scale to {tw}×{th} — "
+                         f"no bars, no padding.")
+        else:
+            fw, fh = int(plan["fit_w"]), int(plan["fit_h"])
+            bars = (f"{(tw - fw) // 2} px bars left and right"
+                    if (tw - fw) >= (th - fh) else
+                    f"{(th - fh) // 2} px bars top and bottom")
+            out[mode] = (f"{name}: {_h3_aspect(w, h)} fits to {fw}×{fh} inside "
+                         f"{tw}×{th} — {bars}.")
+    _H3_EXPORT_NOTES[key] = out
+    return out
+
+
 def h3_visible_tiers() -> list[dict]:
-    """The tiers this installation can actually render, in table order."""
+    """The tiers this installation can actually render, in table order.
+
+    Returns COPIES: `export_note` is attached here rather than baked into
+    H3_TIERS because it is derived from `compute_upscale_plan`, which is
+    defined further down this file than the tier table is built."""
     chain_ok = h3_supports_chain()
-    return [t for t in H3_TIERS.values()
-            if chain_ok or int(t.get("chain_windows") or 1) <= 1]
+    out = []
+    for t in H3_TIERS.values():
+        if not chain_ok and int(t.get("chain_windows") or 1) > 1:
+            continue
+        t = dict(t)
+        t["export_note"] = _h3_export_notes(t["width"], t["height"])
+        out.append(t)
+    return out
 
 
 def h3_status() -> dict:
@@ -7930,6 +8081,16 @@ def bt709_vf(vf: str | None = None) -> str:
     return f"{vf},{BT709_SETPARAMS}" if vf else BT709_SETPARAMS
 
 
+def _fit_inside(w: int, h: int, target_w: int, target_h: int) -> tuple[int, int]:
+    """The content size ffmpeg's `force_original_aspect_ratio=decrease` lands on
+    — the source scaled to touch the canvas on its tighter axis. Used to say how
+    many pixels of bar an export will add BEFORE it runs; the filtergraph does
+    its own arithmetic and can differ by a pixel, which is why the copy that
+    prints this says "bars", not "exactly this many bars"."""
+    s = min(target_w / float(w), target_h / float(h))
+    return max(2, int(round(w * s))), max(2, int(round(h * s)))
+
+
 def compute_upscale_plan(w: int, h: int, mode: str | None,
                           helper_did_model_upscale: bool = False) -> dict | None:
     """Plan a panel-side ffmpeg upscale pass. Returns None when no further
@@ -7948,9 +8109,12 @@ def compute_upscale_plan(w: int, h: int, mode: str | None,
     eff_h = h * 2 if helper_did_model_upscale else h
     if mode in ("fit_720p", "fit_1080p"):
         # No crop, no distortion: fit inside the standard canvas and pad any
-        # remainder. 1024×576 fills 1280×720 exactly; 1280×704 becomes 1280×704
-        # with 8px bars top/bottom; 704×1280 becomes 704×1280 with side bars.
-        # H3's native 768×448 is 12:7, so it letterboxes into 16:9 — correct.
+        # remainder. 1024×576 IS 16:9, so it fills 1280×720 exactly and takes
+        # the pure-scale branch below; 1280×704 becomes 1280×704 with 8px bars
+        # top/bottom; 704×1280 becomes 704×1280 with side bars. H3's 768×448 is
+        # 12:7, which is TALLER than 16:9 — it fits by height and the bars land
+        # at the SIDES (pillarbox, 23 px at 720p, 34 px at 1080p). Correct
+        # either way; the panel now says which one a tier will get.
         if mode == "fit_1080p":
             if eff_w >= eff_h:
                 target_w, target_h, tag = 1920, 1080, "1080p"
@@ -7963,11 +8127,27 @@ def compute_upscale_plan(w: int, h: int, mode: str | None,
         # If the helper already produced the exact target size, skip the pass.
         if eff_w == target_w and eff_h == target_h:
             return None
-        vf = (
-            f"scale={target_w}:{target_h}:"
-            "force_original_aspect_ratio=decrease:flags=lanczos,"
-            f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black"
-        )
+        # A source that ALREADY matches the target aspect needs no bars: fitting
+        # it inside the canvas lands ON the canvas, and the pad filter would be
+        # padding a zero-width bar. That is what H3's `wide_5s` tier does —
+        # 1024×576 → 1280×720 is a pure 1.25× scale, 1024×576 → 1920×1080 a pure
+        # 1.875×. Take the scale-only filtergraph there: one filter instead of
+        # two, no zero-size pad for ffmpeg to reason about, and `pad: False` on
+        # the plan so the sidecar records that nothing was added. Everything
+        # that does NOT match (768×448 = 12:7, 640×384 = 5:3, LTX's 1280×704)
+        # keeps the fit-and-pad path exactly as it was.
+        exact_aspect = (eff_w * target_h == eff_h * target_w)
+        if exact_aspect:
+            fit_w, fit_h = target_w, target_h
+            vf = f"scale={target_w}:{target_h}:flags=lanczos"
+        else:
+            fit_w, fit_h = _fit_inside(eff_w, eff_h, target_w, target_h)
+            vf = (
+                f"scale={target_w}:{target_h}:"
+                "force_original_aspect_ratio=decrease:flags=lanczos,"
+                f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black"
+            )
+        pad = not exact_aspect
         method = "ffmpeg_lanczos_downscale" if helper_did_model_upscale else "ffmpeg_lanczos"
     elif mode == "x2":
         # If the helper already did model x2, the file is already at the
@@ -7975,6 +8155,7 @@ def compute_upscale_plan(w: int, h: int, mode: str | None,
         if helper_did_model_upscale:
             return None
         target_w, target_h, tag = w * 2, h * 2, "up2x"
+        fit_w, fit_h, pad = target_w, target_h, False
         vf = f"scale={target_w}:{target_h}:flags=lanczos"
         method = "ffmpeg_lanczos"
     else:
@@ -7984,6 +8165,12 @@ def compute_upscale_plan(w: int, h: int, mode: str | None,
         "method": method,
         "target_w": target_w,
         "target_h": target_h,
+        # Did this pass ADD anything that isn't the picture? `pad` False means
+        # a pure scale; `fit_w`/`fit_h` are the content size inside the canvas,
+        # so a sidecar reader can tell bars from picture without re-deriving it.
+        "pad": pad,
+        "fit_w": fit_w,
+        "fit_h": fit_h,
         "tag": tag,
         "vf": vf,
     }
@@ -8598,11 +8785,17 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         elif (int((H3_TIERS[_h3_tier].get("chain_windows") or 1)) > 1
                 and h3_available() and not h3_supports_chain()):
             # Chained tiers need --chain-windows on the INSTALLED runner. An
-            # older pack renders 3 s / 5 s fine, so fall back to the longest
-            # single-pass tier rather than failing the job outright.
-            _fallback = next(
-                (k for k, t in reversed(list(H3_TIERS.items()))
-                 if int(t.get("chain_windows") or 1) <= 1), H3_TIER_DEFAULT)
+            # older pack renders 3 s / 5 s fine, so fall back to a single-pass
+            # tier rather than failing the job outright. Named explicitly rather
+            # than "the last single-pass row in the table": that scan used to
+            # mean hq_5s and silently started meaning the ~19 min wide_5s the
+            # day a tier was appended. A fallback nobody asked for must be the
+            # cheap one, and it is the same tier "Finish at …" pre-selects.
+            _singles = [k for k, t in H3_TIERS.items()
+                        if int(t.get("chain_windows") or 1) <= 1]
+            _fallback = (H3_TIER_FINISH_DEFAULT
+                         if H3_TIER_FINISH_DEFAULT in _singles
+                         else (_singles[-1] if _singles else H3_TIER_DEFAULT))
             push(f"h3_tier={_h3_tier!r} needs window chaining, which this H3 "
                  f"checkout doesn't have (no --chain-windows). Update the H3 "
                  f"pack; rendering {_fallback!r} instead.")
@@ -10309,11 +10502,13 @@ def run_h3_job_inner(job: dict) -> None:
             f"H3 finished but no file landed at {out_path} — check the log.")
 
     # ---- export pass: the SAME post-process an LTX render gets ------------
-    # H3 writes 768×448 (12:7), which is neither 720p nor 1080p and looks like
-    # a bug next to LTX output in the gallery. Run the identical ffmpeg recipe:
-    # lanczos fit inside the canvas, pad the remainder, re-encode with the
-    # user's codec settings, audio copied through untouched. Letterboxing 12:7
-    # into 16:9 is the correct answer — no crop, no distortion. The native file
+    # Most tiers write 768×448 (12:7), which is neither 720p nor 1080p and looks
+    # like a bug next to LTX output in the gallery. Run the identical ffmpeg
+    # recipe: lanczos fit inside the canvas, pad the remainder, re-encode with
+    # the user's codec settings, audio copied through untouched. Pillarboxing
+    # 12:7 into 16:9 is the correct answer — no crop, no distortion. The
+    # `wide_5s` tier renders 1024×576, which IS 16:9, so the same call comes
+    # back with a pure-scale plan and no pad filter at all. The native file
     # stays on disk but hidden from the gallery, exactly like the LTX path.
     native_path = out_path
     final_target = out_path
@@ -10346,7 +10541,10 @@ def run_h3_job_inner(job: dict) -> None:
         final_target = upscaled_out
         push(f"[h3] export done → {upscaled_out.name} "
              f"({upscale_plan['target_w']}×{upscale_plan['target_h']}, no crop, "
-             f"{codec['pix_fmt']} crf {codec['crf']}, preset={export_preset})")
+             + ("no bars — pure scale, " if not upscale_plan.get("pad") else
+                f"{upscale_plan['fit_w']}×{upscale_plan['fit_h']} of picture "
+                f"+ bars, ")
+             + f"{codec['pix_fmt']} crf {codec['crf']}, preset={export_preset})")
         set_hidden(str(native_path), True)
         push(f"[h3] native source kept but hidden from gallery → {native_path.name}")
         job["native_path"] = str(native_path)
@@ -24593,11 +24791,12 @@ HTML = r"""<!doctype html>
                prompts land in the UI the warning disappears with one Python
                edit. Hidden for tiers that render as a single pass. -->
           <div class="engine-hint" id="h3TierNote" data-h3-only hidden></div>
-          <!-- H3 export canvas. H3 renders 768×448 (12:7) natively, which is
+          <!-- H3 export canvas. Most tiers render 12:7 (768×448), which is
                neither 720p nor 1080p; this runs the SAME lanczos-fit + pad +
                libx264 pass an LTX render gets, keeping the native file on disk
-               but hidden from the gallery. Letterbox bars on 12:7 content are
-               correct — no crop, no distortion. The hidden input is inside
+               but hidden from the gallery. Bars on 12:7 content are correct —
+               no crop, no distortion — and the Wide tier (1024×576) is exactly
+               16:9, so it scales with no bars at all. The hidden input is inside
                genForm so FormData carries it; `h3_upscale` is in the make_job
                allowlist (an unlisted field silently no-ops on /queue/add). -->
           <div class="h3-export-row" id="h3ExportRow" data-h3-only>
@@ -24605,15 +24804,21 @@ HTML = r"""<!doctype html>
             <div class="pill-group" id="h3UpscaleGroup" style="display:flex;gap:4px;flex:0 0 auto;">
               <button type="button" class="pill-btn" data-h3-upscale="off"
                       style="padding:4px 10px;font-size:12px;"
-                      title="Ship H3's native 768×448 with no post-process.">Native</button>
+                      title="Ship the tier's native canvas with no post-process.">Native</button>
               <button type="button" class="pill-btn active" data-h3-upscale="fit_720p"
                       style="padding:4px 10px;font-size:12px;"
-                      title="Fit inside 1280×720 and pad — no crop, no distortion.">720p</button>
+                      title="Scale to 1280×720 — no crop, no distortion. A 16:9 tier scales clean; anything else is padded.">720p</button>
               <button type="button" class="pill-btn" data-h3-upscale="fit_1080p"
                       style="padding:4px 10px;font-size:12px;"
-                      title="Fit inside 1920×1080 and pad — no crop, no distortion.">1080p</button>
+                      title="Scale to 1920×1080 — no crop, no distortion. A 16:9 tier scales clean; anything else is padded.">1080p</button>
             </div>
           </div>
+          <!-- What THIS tier + THIS export target will actually do: "pure 1.25×
+               scale, no bars" or "12:7 fits to 1234×720 — 23 px bars left and
+               right". The string is built server-side by _h3_export_notes()
+               from compute_upscale_plan itself, so the sentence can never
+               disagree with the ffmpeg command that runs. Hidden on Native. -->
+          <div class="engine-hint" id="h3ExportNote" data-h3-only hidden></div>
           <input type="hidden" name="h3_upscale" id="h3_upscale" value="fit_720p">
           <!-- H3 sampler depth. Tiers bake 9 steps (8 forwards) — the
                validated speed/quality point; the official reference recipe
@@ -31905,6 +32110,23 @@ function h3TierByKey(key) {
   tb.value = (savedTb === '1' && H3.turbo && H3.turbo.available) ? '1' : '0';
 })();
 
+// What the export pass will DO to the selected tier's canvas, in one line under
+// the Export row. Every tier used to advertise itself as "768×448 · 124f" and
+// nothing said which of them came back with black bars on it — the answer
+// depends on BOTH the tier's aspect and the export target, so it is rendered
+// here rather than baked into a chip. The strings come from the server
+// (`tier.export_note[mode]`, generated from compute_upscale_plan itself), so
+// this function only picks one; it never phrases anything.
+function _h3SyncExportNote() {
+  const el = document.getElementById('h3ExportNote');
+  if (!el) return;
+  const tier = h3TierByKey((document.getElementById('h3_tier') || {}).value);
+  const mode = (document.getElementById('h3_upscale') || {}).value || 'off';
+  const txt = (tier && tier.export_note && tier.export_note[mode]) || '';
+  el.textContent = txt;
+  el.hidden = !txt;
+}
+
 // Export canvas for an H3 render. Separate from the LTX `upscale` control
 // (which is data-ltx-only and folds away on H3) so one pill never means two
 // things. Server-side make_job re-validates — a stale tab must never win.
@@ -31916,6 +32138,7 @@ function setH3Upscale(mode) {
   document.querySelectorAll('#h3UpscaleGroup [data-h3-upscale]').forEach(b =>
     b.classList.toggle('active', b.dataset.h3Upscale === v));
   try { localStorage.setItem('phos_h3_upscale', v); } catch (e) {}
+  _h3SyncExportNote();
   if (typeof updateDerived === 'function') { try { updateDerived(); } catch (e) {} }
 }
 document.querySelectorAll('#h3UpscaleGroup [data-h3-upscale]').forEach(b => {
@@ -32076,9 +32299,12 @@ function renderH3Tiers() {
   if (!strip) return;
   const tiers = H3.tiers || [];
   const active = (document.getElementById('h3_tier') || {}).value || H3.default_tier;
-  // Five tiers in one row would squeeze "768×448 · 362f · 3×5s" into ~50 px.
-  // Past four, wrap to three per row — the chips keep their legible width and
-  // the strip grows a second line instead of shrinking its type.
+  // Six tiers in one row would squeeze "768×448 · 362f · 3×5s · 12:7" into
+  // ~40 px. Past four, wrap to three per row — the chips keep their legible
+  // width and the strip grows a second line instead of shrinking its type.
+  // (The spec strings carry the tier's aspect since 2026-08-06, so the longest
+  // of them may wrap onto a second line inside its chip. That is fine: the
+  // chips are flex columns in a grid, so the whole row grows together.)
   const cols = tiers.length > 4 ? 3 : Math.max(1, tiers.length);
   strip.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
   strip.innerHTML = tiers.map(t => `
@@ -32128,6 +32354,9 @@ function setH3Tier(key) {
     noteEl.textContent = n;
     noteEl.hidden = !n;
   }
+  // The export line is per (tier × target): switching tiers changes whether
+  // this canvas exports clean or padded, so it has to be re-read here too.
+  _h3SyncExportNote();
   try { localStorage.setItem('phos_h3_tier', tier.key); } catch (e) {}
   // Turbo's pill carries THIS tier's estimate, so it has to be re-labelled
   // whenever the tier moves.

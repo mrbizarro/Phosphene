@@ -63,6 +63,7 @@ duplicating 75 GB.
 | `LTX_H3_PYTHON` | `<H3_ROOT>/.venv/bin/python3.11` → `python` | interpreter override (a checkout without its own venv) |
 | `LTX_H3_FORCE_CAPABLE` | unset | test-only: stop the UI hiding the pill on a small Mac. Does **not** make it render. |
 | `LTX_H3_DENSE_10S` | unset | re-adds the pre-chaining dense 10 s tier (36 min) for A/B work |
+| `LTX_H3_WIDE_DRAFT` | unset | adds an experimental **512×288 16:9 draft** (~2 min). Off because 0.15 MP is below anything this campaign has measured — see Tiers. |
 
 ### Model layout — both shapes work
 
@@ -86,13 +87,40 @@ shape; the campaign checkout uses the first.
 `H3_TIERS` in `mlx_ltx_panel.py` is the single source of truth — the UI renders
 its chips from `/status.h3.tiers`, so a tier change is one Python edit.
 
-| Tier | Geometry | Windows | Sigma points | Wall time |
-|---|---|---|---|---|
-| Draft · 3s | 640×384 · 73f | 1 | 9 (8 forwards) | ~3 min |
-| HQ · 3s | 768×448 · 73f | 1 | 9 (8 forwards) | ~4-5 min |
-| HQ · 5s | 768×448 · 124f | 1 | 9 (8 forwards) | ~8 min |
-| Long · 10s | 768×448 · 243f | **2 × 124f chained** | 9 (8 forwards) | ~17 min |
-| Long · 15s | 768×448 · 362f | **3 × 124f chained** | 9 (8 forwards) | ~27 min · batch |
+| Tier | Geometry | Aspect | Windows | Sigma points | Wall time |
+|---|---|---|---|---|---|
+| Draft · 3s | 640×384 · 73f | 5:3 | 1 | 9 (8 forwards) | ~3 min |
+| HQ · 3s | 768×448 · 73f | 12:7 | 1 | 9 (8 forwards) | ~4-5 min |
+| HQ · 5s | 768×448 · 124f | 12:7 | 1 | 9 (8 forwards) | ~8 min |
+| **Wide · 5s** | **1024×576 · 124f** | **16:9** | 1 | 9 (8 forwards) | **~17-19 min** |
+| Long · 10s | 768×448 · 243f | 12:7 | **2 × 124f chained** | 9 (8 forwards) | ~17 min |
+| Long · 15s | 768×448 · 362f | 12:7 | **3 × 124f chained** | 9 (8 forwards) | ~27 min · batch |
+
+### Aspect — why one tier is 16:9 and the rest are not (2026-08-06)
+
+Every tier used to render at an odd ratio and get **pillarboxed** by the export
+pass, and nothing in the UI said so. The canvas must be a multiple of 32 in both
+axes (the runner errors otherwise), so exact 16:9 means width `512k`, height
+`288k`, and there are only three of those:
+
+| k | Canvas | Pixels | Verdict |
+|---|---|---|---|
+| 1 | 512×288 | 0.15 MP | below anything measured here — `LTX_H3_WIDE_DRAFT=1` only |
+| 2 | **1024×576** | **0.59 MP** | **the delivery canvas — `wide_5s`** |
+| 3 | 1536×864 | 1.33 MP | over the model's own `MAX_PIXELS` (1.03 MP) and dearer than native 1344×768. Not shipped. |
+
+`wide_5s` is measured, not extrapolated (`notes/QUALITY_LOOP.md` R1 on the same
+M4 Max): 22,923 packed rows, 126.0 s/step, 90.5 s VAE decode, 10.71 GiB decode
+peak, **18.8 min**; the same probe put 768×448 at 9.1 min against this table's
+~8 min, hence the ~17-19 band. Denoise stayed at 37.6 GiB — identical to
+768×448, because the DiT weights dominate. Against 768×448 at the same seed and
+forwards it resolves individual eyebrow hairs, forehead pores, eyelashes and fur
+strands where the smaller canvas has smears — **and** 1080p delivery drops from a
+2.41× enlargement to 1.875× with no bars.
+
+Each tier's `aspect` is derived from its own width/height (`_h3_aspect`) and
+appended to the `spec` string the chip prints, so the advertised ratio can never
+drift from the geometry that renders.
 
 **Why 9 points everywhere now.** `--steps` is sigma *points*; the runner does
 `points - 1` forwards. A matched-cost A/B showed 8 forwards is visually free at
@@ -139,16 +167,35 @@ disappears everywhere at once.
 **Gating.** Chaining needs `--chain-windows` on the *installed* runner.
 `h3_supports_chain()` probes the script source, `/status.h3.chain` reports it,
 `h3_visible_tiers()` withholds the chained tiers from the UI when it's false,
-and `make_job` falls back to the longest single-pass tier rather than failing a
-queued job. `LTX_H3_DENSE_10S=1` restores the old dense 10 s tier for A/B work.
+and `make_job` falls back to `H3_TIER_FINISH_DEFAULT` (`hq_5s`) rather than
+failing a queued job — named explicitly, because the old "last single-pass row
+in the table" scan started meaning the ~19 min `wide_5s` the day a tier was
+appended, and a fallback nobody asked for has to be the cheap one.
+`LTX_H3_DENSE_10S=1` restores the old dense 10 s tier for A/B work.
 
 ### Export pass — the same post-process LTX renders get
 
-H3 writes 768×448 (12:7), which is neither 720p nor 1080p. The panel now runs
+Most tiers write 768×448 (12:7), which is neither 720p nor 1080p. The panel runs
 the identical ffmpeg recipe an LTX render gets: lanczos fit inside the canvas +
 pad the remainder + `libx264` with the user's codec settings (`yuv420p crf 18`
-by default) + `+faststart`, audio copied through untouched. Letterbox bars on
-12:7 content are correct — no crop, no distortion.
+by default) + `+faststart`, audio copied through untouched. Bars on 12:7 content
+are correct — no crop, no distortion — and they land at the **sides**
+(pillarbox: 23 px at 720p, 34 px at 1080p), because 12:7 is *taller* than 16:9.
+
+**A source that already matches the target aspect takes a pure-scale path**
+(2026-08-06). `compute_upscale_plan` compares `w·target_h == h·target_w`; on a match
+it emits `scale=W:H:flags=lanczos` with **no pad filter at all** and reports
+`pad: False` on the plan (plus `fit_w`/`fit_h`, the content size inside the
+canvas, so a sidecar reader can tell bars from picture). `wide_5s` → 720p is a
+pure 1.25× and → 1080p a pure 1.875×. Everything that does not match keeps the
+fit-and-pad filtergraph byte-for-byte.
+
+The panel says which one you are about to get: `_h3_export_notes()` generates one
+sentence per export mode **from `compute_upscale_plan` itself** — "720p: pure
+1.25× scale to 1280×720 — no bars, no padding." vs "720p: 12:7 fits to 1234×720
+inside 1280×720 — 23 px bars left and right." — ships it on each tier as
+`export_note`, and `_h3SyncExportNote()` prints it under the Export row. The copy
+can never disagree with the ffmpeg command because it is generated from it.
 
 - Form field: `h3_upscale` = `off` | `fit_720p` (default) | `fit_1080p`. It is
   in the `make_job` allowlist; an unlisted field silently no-ops on
