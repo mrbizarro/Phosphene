@@ -25348,7 +25348,7 @@ HTML = r"""<!doctype html>
               <div class="pill-group cols-2" id="h3TurboGroup">
                 <button type="button" class="pill-btn active" data-h3-turbo="0"
                         title="The tier's own sampler — 9 sigma points, 8 forwards.">
-                  <span>Standard</span><span class="sub">the tier's own sampler</span>
+                  <span>Standard</span><span class="sub" id="h3StdPillSub"></span>
                 </button>
                 <button type="button" class="pill-btn" data-h3-turbo="1" id="h3TurboPill">
                   <span>Turbo</span><span class="sub" id="h3TurboPillSub"></span>
@@ -25567,8 +25567,13 @@ HTML = r"""<!doctype html>
                  Separate from the LTX Export control below so one pill never
                  means two things. -->
             <div class="cz-control" id="h3ExportRow" data-h3-only>
-              <div class="cz-label">Export
-                <span class="cz-label-hint">post-render, no crop</span>
+              <!-- Labelled "Upscale", not "Export" (owner: "export should be
+                   upscale") — users think of this as making the clip bigger,
+                   which is exactly what it does. The field name, the make_job
+                   key and the sidecar all stay `h3_upscale`; only the human
+                   label changed. -->
+              <div class="cz-label">Upscale
+                <span class="cz-label-hint">after the render · no crop</span>
               </div>
               <div class="pill-group cols-3" id="h3UpscaleGroup">
                 <button type="button" class="pill-btn" data-h3-upscale="off"
@@ -32765,7 +32770,13 @@ function h3TierByKey(key) {
   if (!tb) return;
   let savedTb = null;
   try { savedTb = localStorage.getItem('phos_h3_turbo'); } catch (e) {}
-  tb.value = (savedTb === '1' && H3.turbo && H3.turbo.available) ? '1' : '0';
+  // Turbo is the DEFAULT when the adapter is installed (owner's call): it is
+  // ~half the wall clock and graded better at the mouth than the full-step
+  // path, so the fast one should be the one you land on and Standard the one
+  // you reach for. An explicit "0" is still honoured — only the ABSENCE of a
+  // preference defaults on. Never defaults on when the adapter isn't there.
+  const turboOk = !!(H3.turbo && H3.turbo.available);
+  tb.value = (turboOk && savedTb !== '0') ? '1' : '0';
 })();
 
 // What the export pass will DO to the selected tier's canvas, in one line under
@@ -32847,12 +32858,30 @@ function h3TurboState() {
 // The pill's SECOND line, in the same grammar every other .pill-btn in
 // Customize uses (name on top, one spec line under it): the cost of turning it
 // on, or the cost of getting it at all.
-function h3TurboPillSub() {
+// Both Speed segments print an ABSOLUTE wall clock, in the same shape, so the
+// two are directly comparable. Two mistakes were baked into the old copy and
+// the owner hit both: the Standard segment described the sampler ("the tier's
+// own sampler") while Turbo quoted a number, so there was nothing to compare
+// against; and the number was rendered as "~4 min", whose tilde reads as a
+// MINUS at this size — he read "-4 min at this tier" as four minutes being
+// ADDED. No tildes here, and never a delta: just "8 min" vs "4 min".
+function _h3EtaPlain(s) {
+  // "~17-19 min" -> "17-19 min", "~4 min" -> "4 min", "~27 min · batch" kept.
+  return String(s || '').replace(/[~≈]/g, '').trim();
+}
+function h3SpeedSub(which) {
+  const tier = h3TierByKey((document.getElementById('h3_tier') || {}).value);
+  if (which === 'standard') {
+    const eta = tier && tier.eta ? _h3EtaPlain(tier.eta) : '';
+    return eta || 'the tier as tuned';
+  }
   const t = h3TurboState();
   if (!t.downloaded) return (t.download_gb || 0.8) + ' GB download';
-  const tier = h3TierByKey((document.getElementById('h3_tier') || {}).value);
-  const eta = tier && tier.turbo_eta ? tier.turbo_eta : '';
-  return eta ? (eta + ' at this tier') : '4-step adapter';
+  const eta = tier && tier.turbo_eta ? _h3EtaPlain(tier.turbo_eta) : '';
+  return eta || '4-step adapter';
+}
+function h3TurboPillSub() {
+  return h3SpeedSub('turbo');
 }
 // Kept for anything (and anyone) still reading the one-line form.
 function h3TurboPillLabel() {
@@ -32866,7 +32895,9 @@ function renderH3Turbo() {
   const t = h3TurboState();
   if (row) row.hidden = !t.supported;
   if (!pill) return;
-  if (sub) sub.textContent = h3TurboPillSub();
+  if (sub) sub.textContent = h3SpeedSub('turbo');
+  const stdSub = document.getElementById('h3StdPillSub');
+  if (stdSub) stdSub.textContent = h3SpeedSub('standard');
   pill.classList.toggle('needs-download', !t.downloaded);
   // Two different kinds of number, and the tooltip must not blur them: the tier
   // that has actually been rendered with the adapter says so, everything else
