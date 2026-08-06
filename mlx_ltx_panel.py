@@ -4905,13 +4905,37 @@ H3_TURBO_DOWNLOAD_GB = 0.8
 # the failure mode the H3-vanish lesson says to catch at status time instead.
 H3_TURBO_LORA_MIN_BYTES = 600 * 1024 * 1024
 H3_TURBO_EMBEDDER_MIN_BYTES = 40 * 1024 * 1024
-# 8 forwards -> 3. Denoise dominates at every tier and the rest of the pipeline
-# (staged loads, VAE decode) is untouched, so a whole clip lands near 0.6x.
-# MEASURED at 1152x640 / 124f: 19:26 -> 11:29, i.e. 0.59x, per-forward cost
-# unchanged. The per-tier `turbo_eta` below is that ratio applied to each tier's
-# own measured eta — an ESTIMATE, and labelled as one in the UI, because no tier
-# on this table has been rendered with the adapter end to end yet.
-H3_TURBO_SPEEDUP = 0.6
+# Forwards Turbo runs, whatever the tier bakes. This is the whole cost model and
+# it replaces the flat 0.6 multiplier that shipped this morning, which was
+# WRONG and provably so:
+#
+#   Turbo always runs 3 forwards. The saving therefore depends on how many
+#   forwards the tier would OTHERWISE have run, and the fixed cost (staged
+#   loads, prompt + adaLN cache, VAE decode, mux — about 2 min per window)
+#   does not shrink at all.
+#
+# Both arms measured on this 64 GB M4 Max at 1024×576 / 124f, same seed:
+#   full   8 forwards × 126.0 s + 131 s fixed = 18.8 min   (QUALITY_LOOP.md R1)
+#   turbo  3 forwards × 126.4 s + 131 s fixed =  8.5 min   (wide169/w169.log)
+# → a real ratio of 0.45 on an 8-forward tier. The 0.6 came from the 1152×640
+# hero (19:26 → 11:29), which runs SIX forwards — 0.59 is right there and right
+# nowhere else. A flat multiplier cannot be right for both, so the per-tier
+# `turbo_eta` below is now built from the tier's own geometry instead:
+#
+#   per_forward = (tier eta − fixed) / (windows × (steps − 1))
+#   turbo_eta   = windows × 3 × per_forward + fixed
+#
+# which reproduces 8.0 min for wide_5s from its advertised eta alone, against
+# 8.5 measured — and the measured number is what that tier actually advertises
+# (`turbo_eta` stamped in the table, `turbo_measured: True` so the UI drops the
+# "derived" caveat for it). Overhead-dominated tiers correctly barely move
+# (Draft 3 → 2 min, 0.79×) while forward-dominated ones halve.
+H3_TURBO_FORWARDS = H3_TURBO_STEPS - 1
+# Everything in a render that is NOT a denoise forward, per WINDOW: staged
+# weight loads, text encode, adaLN cache, video + audio VAE decode, encode/mux.
+# 130.7 s of the 1024×576 Turbo run above; ~2 min is the honest round number and
+# it is the floor no sampler change can go below.
+H3_TIER_FIXED_MIN = 2.0
 # One line, no marketing. It is a step-distillation adapter; say so.
 H3_TURBO_NOTE = ("Turbo is a 4-step distillation LoRA — fewer denoise passes, "
                  "same model. Slightly harder contrast than the 9-step default.")
@@ -5050,7 +5074,15 @@ def _build_h3_tiers() -> dict[str, dict]:
             "spec": "1024×576 · 124f", "eta": "~17-19 min", "eta_min": 18.0,
             "blurb": "True 16:9 — exports to 720p as a pure 1.25× scale with "
                      "no bars, and resolves face detail 768×448 cannot. The "
-                     "recommended delivery tier; ~2.2× HQ 5s's wall clock.",
+                     "recommended delivery tier; ~2.2× HQ 5s's wall clock, or "
+                     "about the same as HQ 5s with Turbo on.",
+            # The ONLY tier whose Turbo cost is measured rather than derived,
+            # and at this exact geometry: 3 forwards at 128.0/127.4/123.9 s
+            # + 131 s of fixed cost = 8.5 min end to end
+            # (codex/opt_out/wide169/w169.log, ckpt500-EMA adapter, 22,923
+            # packed rows, 42.71 GiB denoise peak). The derivation below would
+            # have said 8.0; the measurement wins and says so in the UI.
+            "turbo_eta": "~8-9 min", "turbo_measured": True,
         },
         "long_10s": {
             "key": "long_10s", "label": "Long · 10s",
@@ -5110,11 +5142,26 @@ def _build_h3_tiers() -> dict[str, dict]:
         _t["aspect"] = _h3_aspect(_t["width"], _t["height"])
         _t["wide"] = (int(_t["width"]) * 9 == int(_t["height"]) * 16)
         _t["spec"] = f"{_t['spec']} · {_t['aspect']}"
-        # What each tier would cost with Turbo on. Derived, not measured — see
-        # H3_TURBO_SPEEDUP for where 0.6 comes from and why it is honest to
-        # apply it here but not to call it a measurement.
-        _mins = max(1, round(float(_t.get("eta_min") or 0) * H3_TURBO_SPEEDUP))
-        _t["turbo_eta"] = f"~{_mins} min"
+        # What this tier would cost with Turbo on. NOT a flat multiplier — see
+        # H3_TURBO_FORWARDS for why one cannot exist. Turbo runs 3 forwards
+        # whatever this tier bakes, and the fixed per-window cost does not
+        # shrink, so both are modelled explicitly and the tier's own eta is used
+        # only to price ONE forward.
+        _eta_min = float(_t.get("eta_min") or 0)
+        _windows = max(1, int(_t.get("chain_windows") or 1))
+        _forwards = _windows * max(1, int(_t["steps"]) - 1)
+        _fixed = H3_TIER_FIXED_MIN * _windows
+        _per_fwd = max(0.0, _eta_min - _fixed) / _forwards
+        _turbo_min = _windows * H3_TURBO_FORWARDS * _per_fwd + _fixed
+        # Turbo removes forwards; it can never make a tier slower, and a tier
+        # whose eta is at or below its own fixed cost simply doesn't move.
+        _turbo_min = min(_eta_min, _turbo_min) if _eta_min else _turbo_min
+        _t["turbo_forwards"] = _windows * H3_TURBO_FORWARDS
+        # A tier may carry a MEASURED turbo_eta (wide_5s does). The derivation
+        # never overwrites a measurement.
+        if not _t.get("turbo_eta"):
+            _t["turbo_eta"] = f"~{max(1, round(_turbo_min))} min"
+        _t.setdefault("turbo_measured", False)
     return tiers
 
 
@@ -32179,9 +32226,13 @@ function h3TurboState() {
   return (H3 && H3.turbo) || { available: false, supported: false, downloaded: false };
 }
 
-// The per-tier estimate comes from the server's tier table (turbo_eta), which
-// is H3_TURBO_SPEEDUP applied to that tier's own eta. Derived, not measured —
-// the tooltip says so rather than presenting it as a timing.
+// The per-tier estimate comes from the server's tier table (turbo_eta), built
+// from that tier's own GEOMETRY — Turbo runs 3 forwards whatever the tier bakes
+// and the fixed per-window cost doesn't shrink, so there is no single ratio
+// that could be right for every tier (it is 0.45 on an 8-forward one and 0.59
+// on a 6-forward one). One tier — Wide 5s — has been rendered with the adapter
+// end to end and carries `turbo_measured`; the tooltip below distinguishes that
+// from the derived ones rather than presenting both as the same kind of number.
 function h3TurboPillLabel() {
   const t = h3TurboState();
   if (!t.downloaded) return 'Turbo · ' + (t.download_gb || 0.8) + ' GB download';
@@ -32198,8 +32249,18 @@ function renderH3Turbo() {
   if (!pill) return;
   pill.textContent = h3TurboPillLabel();
   pill.classList.toggle('needs-download', !t.downloaded);
+  // Two different kinds of number, and the tooltip must not blur them: the tier
+  // that has actually been rendered with the adapter says so, everything else
+  // says out loud that its figure is derived from geometry.
+  const tier = h3TierByKey((document.getElementById('h3_tier') || {}).value);
+  const basis = (tier && tier.turbo_measured)
+    ? ' Measured end to end at this exact canvas.'
+    : ' Estimated for this tier: Turbo runs ' + ((tier && tier.turbo_forwards) || 3)
+      + ' forwards instead of ' + ((tier && tier.steps)
+          ? ((tier.steps - 1) * ((tier.chain_windows || 1))) : 8)
+      + ', over the same fixed load/decode time. Not measured at this canvas.';
   pill.title = t.downloaded
-    ? (t.note || '') + ' Estimated from this tier’s own time, not measured at this canvas.'
+    ? (t.note || '') + basis
     : 'Downloads the 4-step adapter + the recovered time embedder (~'
       + (t.download_gb || 0.8) + ' GB) into the H3 pack. Nothing is bundled with Phosphene.';
   // The pack could have gone away (or arrived) since boot without a reload.

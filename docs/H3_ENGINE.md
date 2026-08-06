@@ -113,7 +113,12 @@ axes (the runner errors otherwise), so exact 16:9 means width `512k`, height
 M4 Max): 22,923 packed rows, 126.0 s/step, 90.5 s VAE decode, 10.71 GiB decode
 peak, **18.8 min**; the same probe put 768×448 at 9.1 min against this table's
 ~8 min, hence the ~17-19 band. Denoise stayed at 37.6 GiB — identical to
-768×448, because the DiT weights dominate. Against 768×448 at the same seed and
+768×448, because the DiT weights dominate. **On Turbo the same canvas is also
+measured: 8.5 min** (3 forwards at 128.0 / 127.4 / 123.9 s + 131 s of fixed
+load/decode, `codex/opt_out/wide169/w169.log`) — which is why `turbo_eta` is now
+derived per tier from forward counts rather than from a flat ratio (Turbo always
+runs 3 forwards and the fixed cost never shrinks, so the real ratio is 0.45 on an
+8-forward tier and 0.59 on a 6-forward one). Against 768×448 at the same seed and
 forwards it resolves individual eyebrow hairs, forehead pores, eyelashes and fur
 strands where the smaller canvas has smears — **and** 1080p delivery drops from a
 2.41× enlargement to 1.875× with no bars.
