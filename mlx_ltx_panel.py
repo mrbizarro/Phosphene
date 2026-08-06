@@ -5600,6 +5600,196 @@ def h3_status() -> dict:
     }
 
 
+# ============================================================================
+# ENGINE REGISTRY — the one table the whole engine surface is rendered from
+# ============================================================================
+# Phosphene started single-engine (LTX), grew a second one (Hailuo H3) as a
+# pair of hardcoded chips inside the Video form, and is about to grow a third
+# (Flux Video, once weights ship). Two hardcoded chips were already one too
+# many: the H3 pill, its dashed not-installed state, the mode gate, the
+# body[data-*-engine] CSS hook and the surface swap were five separate places
+# that all had to agree, and adding a third engine meant touching all five.
+#
+# This table is now the single source for every one of them:
+#
+#   * the header switcher (label, mark, accent, tooltip, ordering)
+#   * the per-engine CSS emitted into the page (`_engine_css`) — the
+#     `--eng-*` accent variables AND the `[data-<id>-only]` fold rules
+#   * which modes an engine may serve (`modes` / `excluded_modes`), enforced
+#     client-side for the affordance and AGAIN in make_job for the truth
+#   * which workflow tab it belongs to (`surfaces`)
+#   * which status block carries its capability probe (`probe` → the key in
+#     the page bootstrap, e.g. BOOT.h3 built by h3_status())
+#
+# ADDING AN ENGINE IS ONE ENTRY HERE PLUS ONE <symbol id="eng-mark-…"> IN THE
+# SPRITE SHEET. Nothing else in the header or the picker needs to change; an
+# engine's own control surface (its tier strip, if it has one) is named by the
+# `strip` / `hint` / `strip_label` keys and swapped generically.
+#
+# Field notes:
+#   id            form value + body[data-engine] + the `data-<id>-only` fold
+#                 attribute. Keep it short and stable — it lands in sidecars.
+#   builtin       True for the engine that is always present and is the
+#                 fallback whenever a gate fires. Exactly one may be True.
+#   probe         key in the page bootstrap holding {capable, available,
+#                 repairable, …}. None = nothing to probe (it IS the panel).
+#   modes         backend modes it can serve; None = every mode.
+#   excluded_modes  modes it must NOT serve even though they resolve to a
+#                 `modes` entry (`character` submits t2v but stacks LTX LoRAs;
+#                 `i2v_clean_audio` muxes an external track onto LTX video).
+#   accent/_dim/_soft  the three stops of the Phosphene wordmark gradient, one
+#                 engine each, so engines are coloured out of the product's own
+#                 identity instead of a new palette. Used as an active-state
+#                 tint only — never a repaint.
+#   state         "ready" | "announced". An announced engine renders as an
+#                 inert "soon" chip and can never be selected.
+ENGINE_DEFAULT = "ltx"
+
+ENGINES: tuple[dict, ...] = (
+    {
+        "id": "ltx",
+        "label": "LTX-2.3",
+        "sublabel": "built in",
+        "tagline": "every mode, LoRAs, characters",
+        "mark": "eng-mark-ltx",
+        "accent": "#5EEAFF",
+        "accent_dim": "rgba(94,234,255,0.13)",
+        "accent_soft": "rgba(94,234,255,0.40)",
+        "builtin": True,
+        "probe": None,
+        "modes": None,
+        "excluded_modes": (),
+        "serves_label": "every mode",
+        "surfaces": ("video",),
+        # LTX's primary strip is #qualityGroup, but its visibility is owned by
+        # _applyCharacterQualityStripVisibility (it swaps to the character-only
+        # strip when a character is selected). Leaving `strip` empty tells the
+        # generic swap to keep its hands off and let that function decide.
+        "strip": "",
+        "hint": "",
+        "strip_label": "Quality",
+        "state": "ready",
+    },
+    {
+        "id": "h3",
+        "label": "Hailuo H3",
+        "sublabel": "video + dialogue",
+        "tagline": "joint video + dialogue + sound. Text and Image only.",
+        "mark": "eng-mark-h3",
+        "accent": "#FF2E9F",
+        "accent_dim": "rgba(255,46,159,0.14)",
+        "accent_soft": "rgba(255,46,159,0.42)",
+        "builtin": False,
+        "probe": "h3",
+        "modes": H3_MODES,
+        "excluded_modes": ("character", "i2v_clean_audio"),
+        "serves_label": "Text and Image",
+        "surfaces": ("video",),
+        "strip": "h3TierGroup",
+        "hint": "h3Hint",
+        "strip_label": "H3 tier",
+        "install_card": "openH3InstallCard",
+        "install_size": "~75 GB",
+        "state": "ready",
+    },
+    # ---- Flux Video ---------------------------------------------------------
+    # Weights are announced, not released. The entry is real (and rendered as
+    # an inert "soon" chip) only under LTX_ENGINE_PREVIEW=1 — the same pattern
+    # LTX_H3_DENSE_10S / LTX_H3_WIDE_DRAFT use for reachable-but-not-offered
+    # surfaces. It exists in the tree so the N-engine path is exercised end to
+    # end rather than asserted; the day weights ship, `state` becomes "ready",
+    # `probe` points at a flux_status(), and the env gate comes out.
+    *((
+        {
+            "id": "flux",
+            "label": "Flux Video",
+            "sublabel": "coming",
+            "tagline": "weights announced, not released yet",
+            "mark": "eng-mark-flux",
+            "accent": "#B14AFF",
+            "accent_dim": "rgba(177,74,255,0.14)",
+            "accent_soft": "rgba(177,74,255,0.42)",
+            "builtin": False,
+            "probe": None,
+            "modes": ("t2v", "i2v"),
+            "excluded_modes": ("character", "i2v_clean_audio"),
+            "serves_label": "Text and Image",
+            "surfaces": ("video",),
+            "strip": "",
+            "hint": "",
+            "strip_label": "Flux tier",
+            "state": "announced",
+        },
+    ) if os.environ.get("LTX_ENGINE_PREVIEW", "").strip() in ("1", "true", "yes")
+      else ()),
+)
+
+# Every id the server will accept in the `engine` form field. make_job
+# validates against THIS, so a stale tab or a hand-rolled curl can never name
+# an engine that isn't in the table.
+ENGINE_IDS: tuple[str, ...] = tuple(e["id"] for e in ENGINES)
+
+
+def engine_by_id(engine_id: str) -> dict | None:
+    for e in ENGINES:
+        if e["id"] == engine_id:
+            return e
+    return None
+
+
+def engine_serves_mode(engine: dict, mode: str) -> bool:
+    """Does this engine serve `mode`? The client mirrors this for the
+    affordance; make_job calls THIS one for the decision that counts."""
+    if mode in (engine.get("excluded_modes") or ()):
+        return False
+    modes = engine.get("modes")
+    if not modes:
+        return True
+    return mode in modes
+
+
+def engines_payload() -> list[dict]:
+    """The registry as the page sees it. `probe` is a bootstrap KEY, not a
+    callable, so the whole table is JSON-serialisable as-is; tuples become
+    lists so the client can use Array methods on them without guessing."""
+    out: list[dict] = []
+    for e in ENGINES:
+        d = dict(e)
+        d["modes"] = list(e["modes"]) if e.get("modes") else None
+        d["excluded_modes"] = list(e.get("excluded_modes") or ())
+        d["surfaces"] = list(e.get("surfaces") or ("video",))
+        out.append(d)
+    return out
+
+
+def _engine_css() -> str:
+    """Per-engine CSS, emitted into the page at __ENGINE_RULES__.
+
+    Two rules per engine, both of which used to be hand-written for exactly
+    two engines and would have had to be hand-written again for a third:
+
+      1. the accent variables the active engine paints its chips with
+      2. the fold rule — anything tagged `data-<id>-only` disappears the
+         moment the body says a different engine is active. `data-ltx-only`
+         and `data-h3-only` already existed with exactly these semantics, so
+         no attribute in the page had to be renamed.
+    """
+    out: list[str] = []
+    for e in ENGINES:
+        eid = e["id"]
+        out.append(
+            f'body[data-engine="{eid}"] {{'
+            f' --eng-accent: {e["accent"]};'
+            f' --eng-dim: {e["accent_dim"]};'
+            f' --eng-soft: {e["accent_soft"]}; }}'
+        )
+        out.append(
+            f'body:not([data-engine="{eid}"]) [data-{eid}-only]'
+            f' {{ display: none !important; }}'
+        )
+    return "\n    ".join(out)
+
+
 # ---- Anonymous usage analytics ----------------------------------------------
 #
 # History first, because this file has some: an OPT-IN telemetry module
@@ -8784,9 +8974,20 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # purpose: a stale browser tab, a Load-Params replay of an old sidecar, or
     # a direct curl to /queue/add must never reach the worker with an engine
     # this Mac (or this mode) can't actually run.
-    _engine = (f("engine", "ltx") or "ltx").strip().lower()
-    if _engine not in ("ltx", "h3"):
-        _engine = "ltx"
+    # Validated against the ENGINE REGISTRY, not a hardcoded pair: the one
+    # place that decides which engine ids exist is the ENGINES table, and it
+    # is the same table the header switcher is rendered from. An id that isn't
+    # in it — a stale tab, an old sidecar, a hand-rolled curl — resolves to the
+    # built-in engine rather than reaching the worker.
+    _engine = (f("engine", ENGINE_DEFAULT) or ENGINE_DEFAULT).strip().lower()
+    if _engine not in ENGINE_IDS:
+        _engine = ENGINE_DEFAULT
+    # An engine can be in the table and still not be renderable (Flux Video is
+    # `announced` — no weights exist). Refuse it here, not at the worker.
+    if (engine_by_id(_engine) or {}).get("state") == "announced":
+        push(f"engine={_engine!r} isn't released yet — falling back to "
+             f"{ENGINE_DEFAULT}.")
+        _engine = ENGINE_DEFAULT
     _h3_tier = (f("h3_tier", H3_TIER_DEFAULT) or H3_TIER_DEFAULT).strip().lower()
     if _h3_tier not in H3_TIERS:
         _h3_tier = H3_TIER_DEFAULT
@@ -8820,7 +9021,12 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # doesn't have).
     _h3_turbo = (f("h3_turbo", "") or "").strip().lower() in ("1", "true", "on", "yes")
     if _engine == "h3":
-        if mode_in not in H3_MODES:
+        # The same predicate the switcher uses for the affordance, so the two
+        # can't drift — and this is the copy that decides. Reads `modes` +
+        # `excluded_modes` off the registry row instead of H3_MODES directly,
+        # which is what makes 'i2v_clean_audio' (a real backend mode H3 must
+        # never get) a table entry rather than a second hardcoded condition.
+        if not engine_serves_mode(engine_by_id("h3") or {}, mode_in):
             push(f"engine=h3 requested for mode={mode_in!r} — Hailuo H3 only "
                  f"serves {', '.join(H3_MODES)}; falling back to LTX.")
             _engine = "ltx"
@@ -17624,8 +17830,15 @@ def page() -> str:
         "cap_tier": cap_tier,
         # Hailuo H3 — engine picker gating + the H3 tier table. Shipped in the
         # bootstrap (not just /status) so the picker renders correctly on the
-        # first paint instead of flickering in a tick later.
+        # first paint instead of flickering in a tick later. `engines` below
+        # points at this block by name (its `probe` key), rather than the
+        # switcher knowing anything about H3 in particular.
         "h3": h3_status(),
+        # The engine registry (see ENGINES). The header switcher, the mode
+        # gate, the surface swap and the accent tints are all rendered from
+        # this list — adding an engine is one entry there, not a UI rewrite.
+        "engines": engines_payload(),
+        "default_engine": ENGINE_DEFAULT,
     })
     # Profile badge — only visible in the dev panel. Lets Mr Bizarro tell at a
     # glance which install he's looking at when both panels are open.
@@ -17637,6 +17850,7 @@ def page() -> str:
     return (HTML
             .replace("__BOOTSTRAP__", bootstrap)
             .replace("__PROFILE_BADGE__", profile_badge)
+            .replace("__ENGINE_RULES__", _engine_css())
             .replace("__CAP_TIER__", cap_tier))
 
 
@@ -20198,77 +20412,58 @@ HTML = r"""<!doctype html>
     .pill-quality.active .ql-spec { opacity: 1; }
     .pill-quality.active .ql-tier { color: var(--accent-bright); opacity: 0.7; }
 
-    /* ---- Engine picker (LTX-2.3 vs Hailuo H3) --------------------------
-       One thin row above the Quality strip. Same pill vocabulary as the
-       mode bar so it reads as "which model", not "another setting". The
-       whole row is display:none for machines that can't run H3 — see
-       _engineRowVisible() — so nothing new appears for users under 64 GB. */
-    .engine-row {
-      display: flex; align-items: center; gap: 10px;
-      margin: 0 0 10px 0; padding: 0 2px; flex-wrap: wrap;
+    /* ---- Engine surface ------------------------------------------------
+       The picker itself moved to the header (see .engine-switch in the
+       chrome block below) — engine is a choice you make once, not a form
+       field you scroll past. What stays here is the in-form consequence: the
+       one-line note explaining a gate that fired, and the fold rules that
+       swap the surface. */
+    /* Why a gate fired ("H3 renders Text and Image only — back on LTX-2.3
+       for this mode"). Sits where the surface just changed, not in the
+       header where the click happened. Blank + hidden when nothing snapped. */
+    .engine-note {
+      font-size: 11.5px; line-height: 1.45; color: var(--muted);
+      margin: 0 0 10px 0; padding-left: 8px;
+      border-left: 2px solid var(--warning, #d29922);
     }
-    .engine-row[hidden] { display: none !important; }
-    .engine-row-label {
-      font-size: 11px; color: var(--muted); text-transform: uppercase;
-      letter-spacing: .4px; font-weight: 600; flex: 0 0 auto;
-    }
-    .engine-group { display: flex; gap: 4px; flex: 0 0 auto; }
-    .engine-chip {
-      padding: 5px 12px; font-size: 12.5px;
-      flex-direction: column; align-items: flex-start; gap: 1px;
-    }
-    .engine-chip .mc-sub { font-size: 9.5px; letter-spacing: .03em; }
-    /* Not-installed / not-capable H3: dimmed but STILL CLICKABLE when the
-       Mac is capable, because the click is what opens the install card.
-       .pill-btn.disabled sets pointer-events:none, so the needs-install
-       state uses its own class instead of reusing .disabled. */
-    .engine-chip.needs-install { opacity: .62; border-style: dashed; }
-    .engine-chip.needs-install:hover { opacity: .85; }
-    .engine-row-note {
-      font-size: 11px; color: var(--muted); flex: 1 1 160px; min-width: 0;
-    }
+    .engine-note[hidden], .engine-note:empty { display: none !important; }
     .engine-hint {
       font-size: 11.5px; color: var(--muted);
       margin: -4px 0 10px 0; padding: 0 2px;
-      border-left: 2px solid var(--accent, #8b7bff);
+      border-left: 2px solid var(--eng-soft, var(--accent, #8b7bff));
       padding-left: 8px; line-height: 1.4;
     }
     .engine-hint[hidden] { display: none !important; }
 
-    /* H3-active surface swap. Every control that only means something to the
-       LTX pipeline (quality pills, orientation, duration/frames, the LoRA
-       picker) carries data-ltx-only and folds away; the H3 tier strip takes
-       the quality strip's place. Seed stays — H3 honours it. */
-    /* NOTE: #h3TierGroup visibility is toggled by the `hidden` attribute in
-       JS, not here — `.quality-strip[hidden] { display:none !important }`
-       above already beats the grid rule (that fight was lost once already,
-       2026-05-17, when both quality strips showed at the same time). */
-    body[data-h3-engine="h3"] [data-ltx-only] { display: none !important; }
-    /* …and the mirror image: controls that only mean something to H3 (its
-       export canvas, the chained-tier artefact note) stay folded away on LTX.
-       `[hidden]` still wins for the ones JS toggles individually. */
-    body:not([data-h3-engine="h3"]) [data-h3-only] { display: none !important; }
+    /* Engine surface swap — emitted from the ENGINES table by _engine_css().
+       Two rules per engine: the --eng-* accent variables the active engine
+       tints its chips with, and the fold rule that hides anything tagged
+       `data-<id>-only` while a different engine is active. `data-ltx-only`
+       and `data-h3-only` predate the registry and already meant exactly
+       this, so nothing in the page had to be renamed — and the day a third
+       engine lands, `[data-flux-only]` starts working with no CSS edit.
+       NOTE: #h3TierGroup / #qualityGroup visibility is toggled by the
+       `hidden` attribute in JS, not here — `.quality-strip[hidden] {
+       display:none !important }` above already beats the grid rule (that
+       fight was lost once already, 2026-05-17, when both quality strips
+       showed at the same time). */
+    __ENGINE_RULES__
     [data-h3-only][hidden] { display: none !important; }
-    .h3-export-row {
-      display: flex; align-items: center; gap: 10px;
-      margin: 6px 0 8px 0; padding: 0 2px;
-    }
-    .h3-export-row > span.h3-export-label {
-      font-size: 11px; color: var(--muted); text-transform: uppercase;
-      letter-spacing: .4px; font-weight: 600; flex: 0 0 auto;
-    }
     /* Turbo offered but its 0.8 GB isn't downloaded. Same visual grammar as
-       .engine-chip.needs-install — dashed + dimmed reads "real control, not
-       ready yet" — but WITHOUT .pill-btn.disabled, because this one is
-       clickable: the click is what starts the download. */
+       .eng-seg.needs-install in the header — dashed + dimmed reads "real
+       control, not ready yet" — but WITHOUT .pill-btn.disabled, because this
+       one is clickable: the click is what starts the download. */
     .pill-btn.needs-download { opacity: .62; border-style: dashed; }
     .pill-btn.needs-download:hover { opacity: .9; }
-    /* The honest one-liner under the Speed row. Shown only while Turbo is on,
-       so it describes the render being queued rather than advertising. */
-    .h3-turbo-note {
+    /* The honest one-liner under the Speed control. Shown only while Turbo is
+       on, so it describes the render being queued rather than advertising.
+       Shares .cz-note's metrics with the export note so the two sentences
+       under two Customize controls read as the same kind of thing. */
+    .h3-turbo-note, .cz-note {
       font-size: 11px; line-height: 1.45; color: var(--muted);
-      margin: -4px 0 8px 2px; max-width: 62ch;
+      margin: 7px 0 0 0; max-width: 62ch;
     }
+    .h3-turbo-note[hidden], .cz-note[hidden] { display: none !important; }
 
     /* Customize disclosure inside the form — sub-tier UI, lighter than
        a top-level <details>. Subtle border, indented body, distinct
@@ -20738,9 +20933,16 @@ HTML = r"""<!doctype html>
 
     /* Inline mini-fields — Duration / Frames / Seed. Smaller padding,
        label sits inside the field's label slot above. */
+    /* Auto-flow rather than a fixed repeat(3, 1fr): on H3 the Duration and
+       Frames cells are data-ltx-only (the tier owns both), and a fixed
+       3-column grid left the surviving Seed field marooned in the first
+       third of the row. display:none children don't participate in grid
+       layout at all, so auto-columns give exactly N equal columns for the N
+       cells that are actually visible — for any engine, any cell count. */
     .mini-fields {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-auto-flow: column;
+      grid-auto-columns: 1fr;
       gap: 8px;
     }
     .mini-fields .mf-cell {
@@ -23595,6 +23797,94 @@ HTML = r"""<!doctype html>
     body > header > .pill-update { color: var(--warning); border-color: rgba(240,185,64,0.40); background: rgba(240,185,64,0.06); }
     body > header > .pill-restart { color: var(--accent-bright); border-color: rgba(126,152,255,0.40); background: rgba(126,152,255,0.06); }
 
+    /* === ENGINE SWITCHER (header, top right) ====================
+       The one control in the header row that is an INPUT rather than a
+       readout, so it deliberately does not share the .pill language: it sits
+       in its own 36px track (one notch taller than the 34px chips), with a
+       hairline divider separating it from the status pills. Choice on the
+       left of the hairline, state on the right.
+       Accents come from --eng-accent / --eng-dim / --eng-soft, which
+       renderEngineSwitch() sets per segment from the ENGINES table — so this
+       block never learns any engine's name or colour. */
+    body > header .hdr-div {
+      width: 1px; height: 26px; flex: 0 0 auto; margin: 0 2px;
+      background: var(--ph-border-strong);
+    }
+    body > header .hdr-div[hidden] { display: none !important; }
+    body > header .engine-switch {
+      display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto;
+      height: 36px; padding: 3px; border-radius: 10px;
+      background: rgba(140, 160, 220, 0.05);
+      border: 1px solid var(--ph-border-soft);
+    }
+    body > header .engine-switch[hidden] { display: none !important; }
+    body > header .eng-seg {
+      display: inline-flex; align-items: center; gap: 8px;
+      height: 28px; padding: 0 11px 0 5px;
+      border-radius: 7px; border: 1px solid transparent; background: transparent;
+      color: var(--muted);
+      font: inherit; font-size: 12.5px; font-weight: 600; letter-spacing: .005em;
+      cursor: pointer; white-space: nowrap;
+      transition: color var(--t-base), background var(--t-base), border-color var(--t-base);
+    }
+    /* The mark tile. Dimmed while inactive so the row reads as one control
+       rather than a strip of competing logos; full accent when chosen. */
+    body > header .eng-mark {
+      width: 22px; height: 22px; flex: 0 0 auto; border-radius: 6px;
+      display: inline-flex; align-items: center; justify-content: center;
+      color: var(--eng-accent, var(--accent-bright));
+      background: rgba(140, 160, 220, 0.06);
+      opacity: .55;
+      transition: opacity var(--t-base), background var(--t-base);
+    }
+    body > header .eng-mark svg { width: 16px; height: 16px; display: block; }
+    body > header .eng-seg:hover { color: var(--text); background: rgba(140, 160, 220, 0.05); }
+    body > header .eng-seg:hover .eng-mark { opacity: .9; }
+    body > header .eng-seg.active {
+      color: var(--text);
+      background: var(--eng-dim, var(--accent-dim));
+      border-color: var(--eng-soft, var(--accent));
+      box-shadow: 0 1px 2px rgba(0,0,0,.35);
+    }
+    body > header .eng-seg.active .eng-mark {
+      opacity: 1; background: var(--eng-dim, var(--accent-dim));
+    }
+    /* Capable but not installed / needs repair. Dashed and dimmed, but fully
+       clickable — the click is what opens the install card. Never a dead
+       button; the badge carries the cost. */
+    body > header .eng-seg.needs-install { border-style: dashed; border-color: var(--ph-border-strong); }
+    body > header .eng-seg.needs-install .eng-mark { opacity: .42; }
+    body > header .eng-seg.needs-install:hover { border-color: var(--eng-soft, var(--accent)); }
+    /* Real, installed, and not available RIGHT NOW — this mode, or an
+       announced engine with no weights yet. Inert, still legible, and the
+       tooltip says why. */
+    body > header .eng-seg.inert { opacity: .42; cursor: not-allowed; }
+    body > header .eng-seg.inert:hover { background: transparent; color: var(--muted); }
+    body > header .eng-badge {
+      font-family: var(--ph-font-mono);
+      font-size: 9.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
+      padding: 2px 6px; border-radius: 5px; margin-left: -2px;
+      color: var(--muted);
+      background: rgba(140, 160, 220, 0.08);
+      border: 1px solid var(--ph-border-soft);
+    }
+    /* An offer (download / repair) is worth the engine's own colour; a plain
+       constraint ("text · image", "soon") is not. */
+    body > header .eng-badge.offer {
+      color: var(--eng-accent, var(--accent-bright));
+      border-color: var(--eng-soft, var(--accent));
+      background: var(--eng-dim, var(--accent-dim));
+    }
+    /* Narrow windows: the header is flex-wrap:nowrap + overflow:hidden, and
+       the status pills already fill it on a laptop. Drop the segment labels
+       before anything gets clipped — the marks and the active tint still
+       carry the state, and every segment keeps its tooltip. */
+    @media (max-width: 1500px) {
+      body > header .eng-seg { padding: 0 4px; gap: 0; }
+      body > header .eng-seg .eng-seg-name { display: none; }
+      body > header .eng-badge { display: none; }
+    }
+
     /* Settings cog — same height as chips, ghost styling. */
     body > header #settingsBtn,
     body > header .icon-btn {
@@ -24115,6 +24405,54 @@ HTML = r"""<!doctype html>
     button > .ph, a > .ph { display: block; }
     /* Spinner keyframe for refresh icons used in "checking…" pills. */
     @keyframes phSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+    /* === ENGINE TINT ===========================================
+       Last in the sheet so it wins, and DELIBERATELY NARROW: only the
+       controls inside the video form that the active engine actually owns —
+       its primary strip and its Customize chips. Switching engines should
+       feel like changing lens, not repainting the app, so the mode bar, the
+       workflow tabs, the Image Studio, Train and every other surface keep
+       the house accent. --eng-* is emitted per engine by _engine_css() from
+       the ENGINES table; the old values stay as fallbacks so a body with no
+       data-engine (or an engine with no accent) looks exactly as it did.
+
+       If an engine's colour ever reads wrong in situ, it is ONE field in the
+       ENGINES row — nothing here or in the markup knows a hex code. */
+    #genForm .quality-strip .q-chip.active {
+      background: var(--eng-dim, var(--accent-dim));
+      border-color: var(--eng-soft, var(--accent));
+      color: var(--text);
+    }
+    #genForm .quality-strip .q-chip.active .ql-name {
+      color: var(--eng-accent, var(--accent-bright));
+    }
+    #genForm .quality-strip .q-chip.active .ql-tier {
+      color: var(--eng-accent, var(--accent-bright)); opacity: .75;
+    }
+    #genForm .cz-body .pill-btn.active {
+      background: var(--eng-dim, var(--accent-dim));
+      border-color: var(--eng-soft, var(--accent));
+      color: var(--text);
+    }
+    #genForm .cz-body .pill-btn.active .sub {
+      color: var(--eng-accent, var(--accent-bright)); opacity: .85;
+    }
+    #genForm .cz-body .pill-btn:hover:not(.active):not(.disabled) {
+      border-color: var(--eng-soft, var(--accent));
+    }
+    #genForm .customize-section[open] .cz-summary .cz-chevron {
+      color: var(--eng-accent, var(--accent-bright));
+    }
+    /* H3 offers six tiers and renderH3Tiers() switches the strip to three
+       columns past four, so nothing has to shrink its type. Make the second
+       row read as intended rather than as an overflow: a slightly deeper row
+       gap than column gap, chips top-aligned so a 1-line and a 2-line spec
+       still line their names up, and a floor height so the two bands match.
+       The longest spec ("768×448 · 362f · 3×5s · 12:7") wraps at its own
+       separators — every break point in it is a real space. */
+    #h3TierGroup { row-gap: 6px; }
+    #h3TierGroup .q-chip { justify-content: flex-start; min-height: 56px; }
+    #h3TierGroup .q-spec { line-height: 1.35; }
   </style>
 </head>
 <!-- data-cap-tier is set at request time by page() based on SYSTEM_CAPS.allows_q8
@@ -24123,7 +24461,11 @@ HTML = r"""<!doctype html>
      intents are visible: q4 hides FFLF / Extend / Character (Q8-only pipeline
      paths); q8 surfaces all five intents. window.PHOSPHENE_CAP_TIER mirrors
      this for any runtime JS branches. -->
-<body data-cap-tier="__CAP_TIER__">
+<!-- data-engine is stamped in the markup, not left for setEngine() to add on
+     boot: the per-engine fold rules (`body:not([data-engine="ltx"])
+     [data-ltx-only]`) match a body with NO attribute, so every LTX-only
+     control would flash hidden for the frame before the script runs. -->
+<body data-cap-tier="__CAP_TIER__" data-engine="ltx">
 
 <!-- Phosphor Icons (MIT, https://github.com/phosphor-icons/core) — inline symbol library.
      Referenced via <svg class="ph"><use href="#ph-NAME"/></svg>. The symbol set is
@@ -24165,6 +24507,21 @@ HTML = r"""<!doctype html>
 <symbol id="ph-user-plus" viewBox="0 0 256 256"><circle cx="108" cy="100" r="60" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="200" y1="116" x2="248" y2="116" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="224" y1="92" x2="224" y2="140" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M16,208c20.83-36.04,57.06-60,104-60s83.17,23.96,104,60" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 <symbol id="ph-music-notes" viewBox="0 0 256 256"><circle cx="180" cy="184" r="28" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><circle cx="52" cy="200" r="28" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><polyline points="80 200 80 56 208 24 208 184" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="80" y1="88" x2="208" y2="56" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 <symbol id="ph-x-brand" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" fill="currentColor"/></symbol>
+<!-- ==== ENGINE MARKS ====================================================
+     One per row of the ENGINES table (`mark`). Original stroked monograms,
+     drawn here: this ships in an open-source repo and no third-party brand
+     mark goes in it, scraped or bundled. Each is a letterform plus one glyph
+     that says what the engine does, so two engines read apart at 16 px
+     without impersonating anyone. currentColor throughout — the accent comes
+     from --eng-accent, which _engine_css() emits from the same table.
+     ADDING AN ENGINE = one ENGINES entry + one <symbol> here. -->
+<!-- LTX-2.3 — "L" with a play wedge. -->
+<symbol id="eng-mark-ltx" viewBox="0 0 24 24"><path d="M7.6 6.4v11.2h5.6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.6 8.4v7.2l5-3.6z" fill="currentColor"/></symbol>
+<!-- Hailuo H3 — "H" with three ascending level bars: the 3, and the sound. -->
+<symbol id="eng-mark-h3" viewBox="0 0 24 24"><path d="M5.4 6.4v11.2M11.4 6.4v11.2M5.4 12h6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M15.6 10v4M18.6 8.4v7.2M21.4 6.8v10.4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+<!-- Flux Video — "F" with a flow chevron. Rendered only under
+     LTX_ENGINE_PREVIEW=1; the symbol is free to sit here regardless. -->
+<symbol id="eng-mark-flux" viewBox="0 0 24 24"><path d="M7.4 17.6V6.4h6.4M7.4 11.6h5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M16.4 8.6l3.6 3.4-3.6 3.4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 <symbol id="ph-speaker-slash" viewBox="0 0 256 256"><line x1="48" y1="40" x2="208" y2="216" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M80,168H32a8,8,0,0,1-8-8V96a8,8,0,0,1,8-8H80l72-56V147" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M152,179v45L94.4,179.2" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 </defs>
 </svg>
@@ -24174,6 +24531,18 @@ HTML = r"""<!doctype html>
   <span class="version-badge" title="Phosphene 3.0">3.0</span>
   __PROFILE_BADGE__
   <span class="spacer"></span>
+  <!-- ============== ENGINE SWITCHER ==============
+       Which model renders the shot, as a first-class control in the top
+       right — engine is a CHOICE, everything to the right of the divider is
+       STATE the machine reports, and the hairline is there to say so. Empty
+       in the markup: renderEngineSwitch() fills it from BOOT.engines (the
+       server-side ENGINES table), so a third engine is one Python entry plus
+       one <symbol>, not a header rewrite. Hidden until then — a Mac that
+       can't run any optional engine has nothing to choose between, and the
+       switcher and its divider both disappear (the same gate the old inline
+       #engineRow had, preserved). -->
+  <div class="engine-switch" id="engineSwitch" role="group" aria-label="Render engine" hidden></div>
+  <span class="hdr-div" id="engineSwitchDivider" hidden></span>
   <!-- Hardware tier badge — clickable, opens a dialog explaining what
        this Mac's RAM tier allows. Modes / qualities the tier doesn't
        support are visibly disabled in the form below. -->
@@ -24739,31 +25108,26 @@ HTML = r"""<!doctype html>
            (aspect, dims, speed, long-clips, export, audio source,
            open-when-done) is folded into the Customize disclosure below. -->
       <div class="quick-settings">
-        <!-- ============== ENGINE PICKER ==============
-             Which model renders this shot. LTX-2.3 is the built-in warm-helper
-             pipeline (every mode, every feature). Hailuo H3 is an OPTIONAL
-             ~75 GB pack that renders video + dialogue + sound jointly, and
-             only serves Text and Image — setEngine() snaps back to LTX in any
-             other mode. The row hides itself entirely on Macs that can't run
-             H3 (see _engineRowVisible), so nothing new appears for the ~80% of
-             users under 64 GB. Hidden inputs live here so FormData(genForm)
-             carries them; both are in the make_job allowlist. -->
-        <div class="engine-row" id="engineRow" hidden>
-          <span class="engine-row-label">Engine</span>
-          <div class="pill-group engine-group" id="engineGroup">
-            <button type="button" class="pill-btn engine-chip active" data-engine="ltx"
-                    title="LTX-2.3 — the built-in engine. Every mode, LoRAs, characters.">
-              LTX-2.3<span class="mc-sub sub">built in · every mode</span>
-            </button>
-            <button type="button" class="pill-btn engine-chip" data-engine="h3" id="engineChipH3"
-                    title="Hailuo H3 — joint video + dialogue + sound. Text and Image only.">
-              Hailuo H3<span class="mc-sub sub" id="engineChipH3Sub">video + dialogue</span>
-            </button>
-          </div>
-          <span class="engine-row-note" id="engineRowNote"></span>
-        </div>
+        <!-- ============== ENGINE STATE ==============
+             The PICKER lives in the header now (#engineSwitch, rendered from
+             the server-side ENGINES table) — engine is a choice you make once,
+             not a form field you scroll past. What is left here is:
+
+               1. the hidden fields FormData(genForm) has to carry. EVERY ONE
+                  of these is in the make_job allowlist; a field that isn't
+                  listed there silently no-ops on /queue/add (the known trap).
+               2. #engineRowNote — the one-line reason a gate fired, shown
+                  where the surface changed rather than in the header where
+                  the click happened. Id preserved: the Draft→Finish path
+                  reads its textContent for its failure toast.
+               3. #h3Hint — the engine's standing note, named by the H3 row's
+                  `hint` key so setEngine swaps it generically. -->
         <input type="hidden" name="engine" id="engine" value="ltx">
         <input type="hidden" name="h3_tier" id="h3_tier" value="draft_3s">
+        <input type="hidden" name="h3_upscale" id="h3_upscale" value="fit_720p">
+        <input type="hidden" name="h3_steps" id="h3_steps" value="auto">
+        <input type="hidden" name="h3_turbo" id="h3_turbo" value="0">
+        <div class="engine-note" id="engineRowNote" hidden></div>
         <div class="engine-hint" id="h3Hint" hidden>
           Dialogue + sound are generated jointly — write them into the prompt.
         </div>
@@ -24838,78 +25202,15 @@ HTML = r"""<!doctype html>
                prompts land in the UI the warning disappears with one Python
                edit. Hidden for tiers that render as a single pass. -->
           <div class="engine-hint" id="h3TierNote" data-h3-only hidden></div>
-          <!-- H3 export canvas. Most tiers render 12:7 (768×448), which is
-               neither 720p nor 1080p; this runs the SAME lanczos-fit + pad +
-               libx264 pass an LTX render gets, keeping the native file on disk
-               but hidden from the gallery. Bars on 12:7 content are correct —
-               no crop, no distortion — and the Wide tier (1024×576) is exactly
-               16:9, so it scales with no bars at all. The hidden input is inside
-               genForm so FormData carries it; `h3_upscale` is in the make_job
-               allowlist (an unlisted field silently no-ops on /queue/add). -->
-          <div class="h3-export-row" id="h3ExportRow" data-h3-only>
-            <span class="h3-export-label">Export</span>
-            <div class="pill-group" id="h3UpscaleGroup" style="display:flex;gap:4px;flex:0 0 auto;">
-              <button type="button" class="pill-btn" data-h3-upscale="off"
-                      style="padding:4px 10px;font-size:12px;"
-                      title="Ship the tier's native canvas with no post-process.">Native</button>
-              <button type="button" class="pill-btn active" data-h3-upscale="fit_720p"
-                      style="padding:4px 10px;font-size:12px;"
-                      title="Scale to 1280×720 — no crop, no distortion. A 16:9 tier scales clean; anything else is padded.">720p</button>
-              <button type="button" class="pill-btn" data-h3-upscale="fit_1080p"
-                      style="padding:4px 10px;font-size:12px;"
-                      title="Scale to 1920×1080 — no crop, no distortion. A 16:9 tier scales clean; anything else is padded.">1080p</button>
-            </div>
-          </div>
-          <!-- What THIS tier + THIS export target will actually do: "pure 1.25×
-               scale, no bars" or "12:7 fits to 1234×720 — 23 px bars left and
-               right". The string is built server-side by _h3_export_notes()
-               from compute_upscale_plan itself, so the sentence can never
-               disagree with the ffmpeg command that runs. Hidden on Native. -->
-          <div class="engine-hint" id="h3ExportNote" data-h3-only hidden></div>
-          <input type="hidden" name="h3_upscale" id="h3_upscale" value="fit_720p">
-          <!-- H3 sampler depth. Tiers bake 9 steps (8 forwards) — the
-               validated speed/quality point; the official reference recipe
-               runs 20. Four honest pills with the time cost in the tooltip
-               beat an unbounded numeric box. `h3_steps` is in the make_job
-               allowlist (an unlisted field silently no-ops on /queue/add). -->
-          <div class="h3-export-row" id="h3StepsRow" data-h3-only>
-            <span class="h3-export-label">Steps</span>
-            <div class="pill-group" id="h3StepsGroup" style="display:flex;gap:4px;flex:0 0 auto;">
-              <button type="button" class="pill-btn active" data-h3-steps="auto"
-                      style="padding:4px 10px;font-size:12px;"
-                      title="The tier's tuned count — the validated speed/quality point.">Auto</button>
-              <button type="button" class="pill-btn" data-h3-steps="12"
-                      style="padding:4px 10px;font-size:12px;"
-                      title="More refinement — ~1.4× the tier's render time.">12</button>
-              <button type="button" class="pill-btn" data-h3-steps="16"
-                      style="padding:4px 10px;font-size:12px;"
-                      title="~1.9× the tier's render time.">16</button>
-              <button type="button" class="pill-btn" data-h3-steps="20"
-                      style="padding:4px 10px;font-size:12px;"
-                      title="The official reference recipe — ~2.4× the tier's render time.">20</button>
-            </div>
-          </div>
-          <input type="hidden" name="h3_steps" id="h3_steps" value="auto">
-          <!-- H3 Turbo — the 4-step distillation LoRA. Sits with Steps because
-               it is the same axis (how many denoise passes), and it WINS: with
-               Turbo on the Steps pills are disabled and the sampler is pinned
-               at 4. Rendered by renderH3Turbo() from BOOT.h3.turbo, so Python
-               stays the single source of truth for availability, size and copy.
-               The row hides entirely when the installed runner has no --lora.
-               `h3_turbo` is in the make_job allowlist (an unlisted field
-               silently no-ops on /queue/add — the known trap). -->
-          <div class="h3-export-row" id="h3TurboRow" data-h3-only hidden>
-            <span class="h3-export-label">Speed</span>
-            <div class="pill-group" id="h3TurboGroup" style="display:flex;gap:4px;flex:0 0 auto;">
-              <button type="button" class="pill-btn active" data-h3-turbo="0"
-                      style="padding:4px 10px;font-size:12px;"
-                      title="The tier's own sampler — 9 sigma points, 8 forwards.">Standard</button>
-              <button type="button" class="pill-btn" data-h3-turbo="1" id="h3TurboPill"
-                      style="padding:4px 10px;font-size:12px;">Turbo</button>
-            </div>
-          </div>
-          <input type="hidden" name="h3_turbo" id="h3_turbo" value="0">
-          <div class="h3-turbo-note" id="h3TurboNote" data-h3-only hidden></div>
+          <!-- Export / Steps / Speed used to sit here as three flat pill rows
+               with hand-rolled inline styles, stacked under the tier strip
+               with their notes floating loose between them. They are now
+               .cz-control blocks inside the SAME Customize disclosure LTX
+               uses (grep h3ExportRow) — one information architecture,
+               one chip grammar, one summary line, so the two engines read as
+               one product. The hidden inputs moved up next to the other
+               engine fields; every one of them is still in the make_job
+               allowlist, which is the only place they could silently die. -->
           <!-- 2026-05-17 (Codex C+ pass 6): the character-only skip-step
                toggle moved out of here into the Customize section as
                "HQ speed". It's a Q8 sampler control, not a character
@@ -25062,6 +25363,101 @@ HTML = r"""<!doctype html>
             <span class="cz-meta" id="customizeSummary">16:9 · default speed</span>
           </summary>
           <div class="cz-body">
+
+            <!-- ========== HAILUO H3 CONTROLS ==========
+                 The H3 half of Customize. Same .cz-control / .cz-label /
+                 .pill-group grammar as every LTX control below it — that is
+                 the whole point: an H3 render and an LTX render are set up
+                 the same way, so switching engines reads as changing lens,
+                 not changing app. Each block folds away on any other engine
+                 via data-h3-only (rule emitted from the ENGINES table).
+                 Order is deliberate: Speed first because Turbo OVERRULES
+                 Steps, then Steps, then Export. Every hidden input these
+                 write lives up in the engine-state block and is in the
+                 make_job allowlist — an unlisted field silently no-ops on
+                 /queue/add, which is the known trap in this file. -->
+
+            <!-- H3 Turbo — the 4-step distillation LoRA. Grouped with Steps
+                 because it is the same axis (how many denoise passes), and it
+                 WINS: with Turbo on the Steps pills go visibly dead and the
+                 sampler is pinned at 4. Rendered by renderH3Turbo() from
+                 BOOT.h3.turbo, so Python stays the single source of truth for
+                 availability, size and copy — including the tooltip's
+                 measured-vs-derived distinction (only wide_5s has actually
+                 been rendered with the adapter end to end). The whole control
+                 hides when the installed pack's runner has no --lora. -->
+            <div class="cz-control" id="h3TurboRow" data-h3-only hidden>
+              <div class="cz-label">Speed
+                <span class="cz-label-hint">4-step distill adapter · overrules Steps</span>
+              </div>
+              <div class="pill-group cols-2" id="h3TurboGroup">
+                <button type="button" class="pill-btn active" data-h3-turbo="0"
+                        title="The tier's own sampler — 9 sigma points, 8 forwards.">
+                  <span>Standard</span><span class="sub">the tier's own sampler</span>
+                </button>
+                <button type="button" class="pill-btn" data-h3-turbo="1" id="h3TurboPill">
+                  <span>Turbo</span><span class="sub" id="h3TurboPillSub"></span>
+                </button>
+              </div>
+              <div class="h3-turbo-note" id="h3TurboNote" hidden></div>
+            </div>
+
+            <!-- H3 sampler depth. Tiers bake 9 steps (8 forwards) — the
+                 validated speed/quality point; the official reference recipe
+                 runs 20. Four honest pills with the time cost in the tooltip
+                 beat an unbounded numeric box. -->
+            <div class="cz-control" id="h3StepsRow" data-h3-only>
+              <div class="cz-label">Steps
+                <span class="cz-label-hint">Auto = the tier's tuned count</span>
+              </div>
+              <div class="pill-group cols-4" id="h3StepsGroup">
+                <button type="button" class="pill-btn active" data-h3-steps="auto"
+                        title="The tier's tuned count — the validated speed/quality point.">Auto</button>
+                <button type="button" class="pill-btn" data-h3-steps="12"
+                        title="More refinement — ~1.4× the tier's render time.">12</button>
+                <button type="button" class="pill-btn" data-h3-steps="16"
+                        title="~1.9× the tier's render time.">16</button>
+                <button type="button" class="pill-btn" data-h3-steps="20"
+                        title="The official reference recipe — ~2.4× the tier's render time.">20</button>
+              </div>
+            </div>
+
+            <!-- H3 export canvas. Most tiers render 12:7 (768×448), which is
+                 neither 720p nor 1080p; this runs the SAME lanczos-fit + pad +
+                 libx264 pass an LTX render gets, keeping the native file on
+                 disk but hidden from the gallery. Bars on 12:7 content are
+                 correct — no crop, no distortion — and the Wide tier
+                 (1024×576) is exactly 16:9, so it scales with no bars at all.
+                 Separate from the LTX Export control below so one pill never
+                 means two things. -->
+            <div class="cz-control" id="h3ExportRow" data-h3-only>
+              <div class="cz-label">Export
+                <span class="cz-label-hint">post-render, no crop</span>
+              </div>
+              <div class="pill-group cols-3" id="h3UpscaleGroup">
+                <button type="button" class="pill-btn" data-h3-upscale="off"
+                        title="Ship the tier's native canvas with no post-process.">
+                  <span>Native</span><span class="sub">as rendered</span>
+                </button>
+                <button type="button" class="pill-btn active" data-h3-upscale="fit_720p"
+                        title="Scale to 1280×720 — no crop, no distortion. A 16:9 tier scales clean; anything else is padded.">
+                  <span>720p fit</span><span class="sub">scale + pad</span>
+                </button>
+                <button type="button" class="pill-btn" data-h3-upscale="fit_1080p"
+                        title="Scale to 1920×1080 — no crop, no distortion. A 16:9 tier scales clean; anything else is padded.">
+                  <span>1080p fit</span><span class="sub">scale + pad</span>
+                </button>
+              </div>
+              <!-- What THIS tier + THIS export target will actually do: "pure
+                   1.25× scale, no bars" or "12:7 fits to 1234×720 — 23 px bars
+                   left and right". The string is built server-side by
+                   _h3_export_notes() from compute_upscale_plan itself, so the
+                   sentence can never disagree with the ffmpeg command that
+                   runs. Sits UNDER the control it describes now, instead of
+                   floating between two unrelated rows. Hidden on Native. -->
+              <div class="cz-note" id="h3ExportNote" hidden></div>
+            </div>
+
             <!-- Width × height. Setting custom dimensions makes the form
                  leave the active preset (the Quality pill stays highlighted
                  but the Customize summary shows "custom" so the user knows
@@ -25070,8 +25466,12 @@ HTML = r"""<!doctype html>
                  top-level row right under the Quality picker. Keeps the
                  same id="aspectRow" / id="aspectGroup" / id="aspect" so all
                  JS (setAspect, applyAspect, setQuality's quick-mode hide,
-                 Load Params restoration) keeps working unchanged. -->
-            <div id="dimsRow" class="cz-control">
+                 Load Params restoration) keeps working unchanged.
+                 data-ltx-only: an H3 render's geometry is the TIER's, stamped
+                 by setH3Tier — offering an editable box that setH3Tier
+                 overwrites on the next click was the loudest thing wrong with
+                 the old H3 Customize. -->
+            <div id="dimsRow" class="cz-control" data-ltx-only>
               <div class="cz-label">Width × height</div>
               <div class="row">
                 <div><input name="width" id="width" value="1024" type="number" min="32" step="32" aria-label="Width"></div>
@@ -25091,7 +25491,7 @@ HTML = r"""<!doctype html>
                  If a future Q4 lab tool needs the row back, restore it
                  behind `body[data-cap-tier="q4"]` and wire it explicitly
                  to the Q4 path. -->
-            <div id="accelRow" class="cz-control" hidden style="display:none">
+            <div id="accelRow" class="cz-control" data-ltx-only hidden style="display:none">
               <div class="pill-group cols-3" id="accelGroup">
                 <button type="button" class="pill-btn active" data-accel="off">Exact</button>
                 <button type="button" class="pill-btn" data-accel="boost">Boost</button>
@@ -25109,7 +25509,7 @@ HTML = r"""<!doctype html>
                  SPEED_RESULTS_CODEX.md). Fast = skip=1, Exact = skip=0.
                  Visible only when quality=high (Q8 HQ pipeline active);
                  hidden CSS rule belongs in the Q8 capability block. -->
-            <div id="hqSpeedRow" class="cz-control" hidden>
+            <div id="hqSpeedRow" class="cz-control" data-ltx-only hidden>
               <div class="cz-label">HQ speed
                 <span class="cz-label-hint">Q8 sampler · skip-step cache reuse</span>
               </div>
@@ -25138,7 +25538,7 @@ HTML = r"""<!doctype html>
                  HQ-speed row above — _applyStgRowVisibility). The range input
                  carries name="stg_scale" so FormData collects it; the submit
                  handler also fd.set()s it explicitly. -->
-            <div id="stgRow" class="cz-control" hidden>
+            <div id="stgRow" class="cz-control" data-ltx-only hidden>
               <div class="cz-label">STG — detail guidance
                 <span class="cz-label-hint">cleaner motion &amp; detail, slower · 0 = off · try 1&ndash;1.5</span>
               </div>
@@ -25156,7 +25556,7 @@ HTML = r"""<!doctype html>
                  frames at 12fps, then exports a normal 24fps file with
                  motion interpolation. This is explicit because dialogue,
                  lip-sync, and fast motion need user judgment. -->
-            <div class="cz-control" id="temporalRow">
+            <div class="cz-control" id="temporalRow" data-ltx-only>
               <div class="cz-label">Long clips
                 <span class="cz-label-hint">experimental temporal interpolation</span>
               </div>
@@ -25170,7 +25570,7 @@ HTML = r"""<!doctype html>
                  preserves aspect ratio (no crop, no distortion). 2× doubles
                  each side. Native skips the upscale entirely. The "Method"
                  row below picks how the upscaling is done. -->
-            <div class="cz-control">
+            <div class="cz-control" data-ltx-only>
               <div class="cz-label">Export
                 <span class="cz-label-hint">post-render, no crop</span>
               </div>
@@ -25186,7 +25586,7 @@ HTML = r"""<!doctype html>
                  PiperSR/CoreML 2× post-upscale on Apple Neural Engine, then
                  ffmpeg fit/export. The old LTX latent upscaler path remains
                  hidden behind LTX_ENABLE_MODEL_UPSCALE for lab archaeology. -->
-            <div class="cz-control" id="upscaleMethodRow" style="display:none;">
+            <div class="cz-control" id="upscaleMethodRow" data-ltx-only style="display:none;">
               <div class="cz-label">Method
                 <span class="cz-label-hint">how the upscale is done</span>
               </div>
@@ -25200,7 +25600,7 @@ HTML = r"""<!doctype html>
             <!-- Audio source (I2V only) — folded in from the old separate
                  Advanced disclosure. Picker auto-hides when the current
                  mode isn't I2V (see updateDerived's mode-aware visibility). -->
-            <div class="cz-control mode-only" id="i2vAudioModeSection">
+            <div class="cz-control mode-only" id="i2vAudioModeSection" data-ltx-only>
               <div class="cz-label">I2V audio source
                 <span class="cz-label-hint">joint or external</span>
               </div>
@@ -31900,7 +32300,7 @@ function setQuality(q) {
   // and re-arm the LTX upscale. Re-applying here makes every path
   // self-correcting instead of leaving the quick-settings advertising
   // "1024×576 → 1280×720 fit" for a render that ships 768×448.
-  if (document.body.dataset.h3Engine === 'h3' && typeof setH3Tier === 'function') {
+  if (document.body.dataset.engine === 'h3' && typeof setH3Tier === 'function') {
     try { setH3Tier((document.getElementById('h3_tier') || {}).value); } catch (_) {}
     if (typeof setUpscale === 'function') { try { setUpscale('off'); } catch (_) {} }
   }
@@ -31977,7 +32377,7 @@ function setAspect(a) {
   // change (the row is hidden under H3, but boot and Load Params still call
   // this) must not leave the quick-settings advertising dims the render won't
   // use.
-  if (document.body.dataset.h3Engine === 'h3' && typeof setH3Tier === 'function') {
+  if (document.body.dataset.engine === 'h3' && typeof setH3Tier === 'function') {
     try { setH3Tier((document.getElementById('h3_tier') || {}).value); } catch (_) {}
   }
 }
@@ -31990,7 +32390,7 @@ function updateCustomizeSummary() {
   // H3 renders on its own geometry and its own export control; every LTX knob
   // summarised below is folded away in that state, so summarising them would
   // describe a render that isn't happening.
-  if (document.body.dataset.h3Engine === 'h3') {
+  if (document.body.dataset.engine === 'h3') {
     const tier = h3TierByKey((document.getElementById('h3_tier') || {}).value);
     const up = (document.getElementById('h3_upscale') || {}).value || 'off';
     const parts = [tier ? tier.spec : 'Hailuo H3'];
@@ -32103,21 +32503,97 @@ document.querySelectorAll('#aspectGroup .pill-btn').forEach(b => b.onclick = () 
 document.querySelectorAll('#extendModeGroup .pill-btn').forEach(b => b.onclick = () => setExtendMode(b.dataset.extendMode));
 
 // ============================================================================
-// Engine picker — LTX-2.3 (built in) vs Hailuo H3 (optional pack)
+// Engine registry — the header switcher and every gate behind it
 // ============================================================================
-// H3 is a second VIDEO engine, not a quality setting: different model, its own
-// venv, its own subprocess, its own geometry rules. It serves Text and Image
-// only, so every other mode force-snaps back to LTX (setMode calls
-// _syncEngineForMode). The tier table comes from the server (BOOT.h3.tiers /
-// status.h3.tiers) so H3_TIERS in Python stays the single source of truth for
-// geometry + steps — a tier change is one Python edit, not two.
+// An engine is not a quality setting: different model, its own venv, its own
+// subprocess, its own geometry rules, its own set of modes. The registry
+// (BOOT.engines, from the server-side ENGINES table) is the single source for
+// all of it, so adding a third engine is one Python entry plus one <symbol> —
+// nothing below learns any engine's name.
 //
-// Three gate states on the H3 pill:
-//   not capable  → the whole row is hidden (a 32 GB Mac never learns H3 exists)
-//   capable, not installed → dashed pill; clicking opens the install card
-//   installed    → normal pill
-let H3 = (BOOT.h3 || { capable: false, available: false, tiers: [] });
+// The four gate states a segment has to carry, unchanged from the two-engine
+// version and now generic:
+//   not capable   → not rendered at all (a 32 GB Mac never learns H3 exists,
+//                   and with nothing left to choose the switcher disappears)
+//   capable, not installed → dashed segment + a cost badge; the click opens
+//                   the install card. An offer, never a dead button.
+//   installed but broken   → same shape, badge says "repair" and the card
+//                   never mentions a download (the v3.4.0 report, verbatim)
+//   installed, wrong mode  → inert; the reason lands in #engineRowNote
+//
+// The truth is still server-side: make_job re-runs every one of these against
+// the same table, so a stale tab, a Load-Params replay of an old sidecar, or a
+// direct curl to /queue/add can never render on an engine this Mac (or this
+// mode) can't actually run.
+const ENGINES = (BOOT.engines || []);
+const ENGINE_DEFAULT = (BOOT.default_engine || 'ltx');
 const H3_ENGINE_LS_KEY = 'phos_video_engine';
+
+function engineById(id) {
+  return ENGINES.find(e => e.id === id) || null;
+}
+function defaultEngine() {
+  return engineById(ENGINE_DEFAULT) || ENGINES[0]
+      || { id: 'ltx', label: 'LTX-2.3', builtin: true, strip_label: 'Quality' };
+}
+
+// An engine's live capability block. `probe` names the bootstrap key that
+// carries it (BOOT.h3 for Hailuo H3), so this function never mentions an
+// engine by name. The built-in engine has nothing to probe: it IS the panel.
+// An `announced` engine has no weights yet, so it is capable of nothing.
+function engineStatus(e) {
+  if (!e) return { capable: false, available: false };
+  if (e.state === 'announced') return { capable: false, available: false, announced: true };
+  if (!e.probe) return { capable: true, available: true };
+  return (window._ENGINE_PROBES && window._ENGINE_PROBES[e.probe]) || { capable: false, available: false };
+}
+
+// Modes this engine may serve. `excluded_modes` exists because some UI intents
+// resolve to a mode an engine nominally supports but must not get: 'character'
+// submits mode=t2v but stacks LTX LoRAs, and 'i2v_clean_audio' muxes an
+// external track onto LTX video. Mirrors engine_serves_mode() in Python, which
+// is the copy that decides.
+function engineServesMode(e, mode) {
+  if (!e) return false;
+  if ((e.excluded_modes || []).indexOf(mode) !== -1) return false;
+  if (!e.modes) return true;
+  return e.modes.indexOf(mode) !== -1;
+}
+
+// Which workflow tab an engine belongs to. The switcher is a Video-form
+// control; showing it while the user is in Images or Train Character would be
+// offering a choice that changes nothing.
+function _currentSurface() {
+  const wf = (document.body.dataset.workflow || 'manual').toLowerCase();
+  return ({ manual: 'video', studio: 'image', audio: 'audio', train: 'train' })[wf] || 'video';
+}
+function engineOnSurface(e) {
+  return (e.surfaces || ['video']).indexOf(_currentSurface()) !== -1;
+}
+
+// An engine gets a segment when this Mac could plausibly run it one day: the
+// built-in always, an announced one always (that IS the news), and an optional
+// pack only when the hardware is capable. Not-capable is not rendered — a
+// permanently dead engine in the chrome is noise for the ~80% under 64 GB.
+function engineRenderable(e) {
+  if (!engineOnSurface(e)) return false;
+  if (e.builtin || e.state === 'announced') return true;
+  return !!engineStatus(e).capable;
+}
+
+// ---- Capability probes ------------------------------------------------------
+// One entry per engine whose registry row names a `probe`. /status carries a
+// fresh block every tick, so an install finishing in the Pinokio sidebar
+// unlocks its engine without a panel restart (the same contract the Q8
+// download already has with the High pill). A new engine adds a key here the
+// day it has a status function; nothing else in this file changes.
+window._ENGINE_PROBES = {
+  h3: (BOOT.h3 || { capable: false, available: false, tiers: [] }),
+};
+// H3 keeps its own binding because the H3 tier / Turbo / export code below is
+// H3-specific by nature (its own geometry table, its own adapter) and reads it
+// on nearly every line. It is the SAME object the probe map holds.
+let H3 = window._ENGINE_PROBES.h3;
 
 function h3TierByKey(key) {
   return (H3.tiers || []).find(t => t.key === key) || (H3.tiers || [])[0] || null;
@@ -32233,21 +32709,29 @@ function h3TurboState() {
 // on a 6-forward one). One tier — Wide 5s — has been rendered with the adapter
 // end to end and carries `turbo_measured`; the tooltip below distinguishes that
 // from the derived ones rather than presenting both as the same kind of number.
-function h3TurboPillLabel() {
+// The pill's SECOND line, in the same grammar every other .pill-btn in
+// Customize uses (name on top, one spec line under it): the cost of turning it
+// on, or the cost of getting it at all.
+function h3TurboPillSub() {
   const t = h3TurboState();
-  if (!t.downloaded) return 'Turbo · ' + (t.download_gb || 0.8) + ' GB download';
+  if (!t.downloaded) return (t.download_gb || 0.8) + ' GB download';
   const tier = h3TierByKey((document.getElementById('h3_tier') || {}).value);
   const eta = tier && tier.turbo_eta ? tier.turbo_eta : '';
-  return eta ? ('Turbo · ' + eta) : 'Turbo';
+  return eta ? (eta + ' at this tier') : '4-step adapter';
+}
+// Kept for anything (and anyone) still reading the one-line form.
+function h3TurboPillLabel() {
+  return 'Turbo · ' + h3TurboPillSub();
 }
 
 function renderH3Turbo() {
   const row = document.getElementById('h3TurboRow');
   const pill = document.getElementById('h3TurboPill');
+  const sub = document.getElementById('h3TurboPillSub');
   const t = h3TurboState();
   if (row) row.hidden = !t.supported;
   if (!pill) return;
-  pill.textContent = h3TurboPillLabel();
+  if (sub) sub.textContent = h3TurboPillSub();
   pill.classList.toggle('needs-download', !t.downloaded);
   // Two different kinds of number, and the tooltip must not blur them: the tier
   // that has actually been rendered with the adapter says so, everything else
@@ -32349,10 +32833,106 @@ document.querySelectorAll('#h3TurboGroup [data-h3-turbo]').forEach(b => {
   b.onclick = () => (b.dataset.h3Turbo === '1') ? h3TurboClick() : setH3Turbo(false);
 });
 
+// The switcher earns its place only when there is a real choice to make: at
+// least two ACTIONABLE engines on the current workflow. One engine means the
+// control and its divider both disappear — which is exactly what the ~80% of
+// users under 64 GB have always seen, preserved through the move to the
+// header. An `announced` engine is news, not a choice: it rides along once
+// the switcher is already up, but it must never bring it up on its own, or a
+// 32 GB Mac gets a permanently dead chip — the exact noise the capability
+// gate exists to prevent. (Old name kept: it is what the rest of this file
+// calls.)
 function _engineRowVisible() {
-  // Only Macs that could actually run H3 see the picker at all. Showing a
-  // permanently-disabled engine to the ~80% of users under 64 GB is noise.
-  return !!H3.capable;
+  return ENGINES.filter(e => engineRenderable(e) && e.state !== 'announced').length > 1;
+}
+
+// ---- The header switcher ----------------------------------------------------
+// Rendered entirely from the registry. Every visual decision — label, mark,
+// accent, badge, tooltip, order — comes off the engine's own row, so this
+// function has no idea which engines exist. Re-run on: boot, every setEngine,
+// a workflow-tab change, and any /status tick that moves an install.
+function renderEngineSwitch() {
+  const box = document.getElementById('engineSwitch');
+  const div = document.getElementById('engineSwitchDivider');
+  if (!box) return;
+  const show = _engineRowVisible();
+  box.hidden = !show;
+  if (div) div.hidden = !show;
+  if (!show) { box.innerHTML = ''; return; }
+
+  const active = currentEngine();
+  const list = ENGINES.filter(engineRenderable);
+  box.innerHTML = list.map(e => {
+    const st = engineStatus(e);
+    const offer = !e.builtin && !st.announced && st.capable && !st.available;
+    const modeOk = engineServesMode(e, currentMode);
+    // Four badges, four different sentences. An OFFER (download / repair) is
+    // worth the engine's own colour; a constraint is not.
+    let badge = '', badgeClass = '';
+    if (st.announced) { badge = 'soon'; }
+    else if (offer) {
+      badge = st.repairable ? 'repair' : (e.install_size || '').replace(/^~/, '');
+      badgeClass = ' offer';
+    } else if (st.available && !modeOk) { badge = (e.serves_label || '').toLowerCase().replace(' and ', ' · '); }
+    // Inert = real but unreachable RIGHT NOW. Distinct from needs-install,
+    // which IS reachable — that click is the install.
+    const inert = st.announced || (st.available && !modeOk);
+    const cls = 'eng-seg'
+      + (e.id === active ? ' active' : '')
+      + (offer ? ' needs-install' : '')
+      + (inert ? ' inert' : '');
+    return `<button type="button" class="${cls}" data-engine="${escapeHtml(e.id)}"
+        style="--eng-accent:${escapeHtml(e.accent)};--eng-dim:${escapeHtml(e.accent_dim)};--eng-soft:${escapeHtml(e.accent_soft)}"
+        title="${escapeHtml(_engineTooltip(e, st, modeOk))}">
+      <span class="eng-mark"><svg class="ph" aria-hidden="true"><use href="#${escapeHtml(e.mark)}"/></svg></span>
+      <span class="eng-seg-name">${escapeHtml(e.label)}</span>${
+      badge ? `<span class="eng-badge${badgeClass}">${escapeHtml(badge)}</span>` : ''}
+    </button>`;
+  }).join('');
+
+  box.querySelectorAll('.eng-seg').forEach(b => {
+    b.onclick = () => engineSegClick(b.dataset.engine);
+  });
+}
+
+// One sentence per state, and it has to be the RIGHT one — telling a user with
+// 75 GB of weights on disk that the engine "isn't installed" is the v3.4.0
+// regression report, verbatim.
+function _engineTooltip(e, st, modeOk) {
+  const name = e.label + ' · ' + (e.sublabel || '');
+  if (st.announced) return name + ' — ' + (e.tagline || 'not released yet');
+  if (!e.builtin && !st.capable) {
+    return name + ' — needs ' + (st.min_ram_gb || 64) + ' GB unified memory';
+  }
+  if (!e.builtin && !st.available) {
+    return st.repairable
+      ? name + ' — needs repair; your weights are still on disk. Click for the one-click fix.'
+      : name + " — isn't installed. Click to see how (" + (e.install_size || '') + ').';
+  }
+  if (!modeOk) {
+    return name + ' — renders ' + (e.serves_label || 'other modes')
+         + " only, and this mode isn't one of them.";
+  }
+  return name + ' — ' + (e.tagline || '');
+}
+
+// One click, several jobs, and never two at once: select the engine when it is
+// ready, open its install/repair card when it isn't, and do nothing at all
+// when it is inert. A click that starts a download must not also arm a render
+// that has nothing to render with.
+function engineSegClick(id) {
+  const e = engineById(id);
+  if (!e) return;
+  const st = engineStatus(e);
+  if (st.announced) return;
+  if (!e.builtin && st.capable && !st.available) {
+    const fn = e.install_card && window[e.install_card];
+    if (typeof fn === 'function') fn();
+    return;
+  }
+  if (!e.builtin && !st.capable) return;
+  if (!engineServesMode(e, currentMode)) return;
+  setEngine(id);
 }
 
 function renderH3Tiers() {
@@ -32701,78 +33281,78 @@ async function h3FinishActive() {
   form.requestSubmit();
 }
 
-// Modes H3 can serve. Anything else must run on LTX.
+// Modes H3 can serve. Thin wrapper over the registry so the H3-specific code
+// below (and anything else that grew to call this) keeps working unchanged.
 function _h3ServesMode(mode) {
-  const modes = H3.modes || ['t2v', 'i2v'];
-  // 'character' is a UI intent that submits mode=t2v, but it stacks LTX LoRAs —
-  // H3 has no LoRA path, so it stays LTX-only. i2v_clean_audio muxes an
-  // external track onto LTX video; H3 generates its own audio.
-  if (mode === 'character' || mode === 'i2v_clean_audio') return false;
-  return modes.indexOf(mode) !== -1;
+  return engineServesMode(engineById('h3'), mode);
 }
 
 function setEngine(engine, opts) {
   opts = opts || {};
-  const row = document.getElementById('engineRow');
-  if (row) row.hidden = !_engineRowVisible();
+  const fallback = defaultEngine();
   const note = document.getElementById('engineRowNote');
-  const chipH3 = document.getElementById('engineChipH3');
-  const sub = document.getElementById('engineChipH3Sub');
-  let target = (engine === 'h3') ? 'h3' : 'ltx';
+  let e = engineById(engine);
+  let target = e ? e.id : fallback.id;
   let reason = '';
 
-  if (target === 'h3') {
-    if (!H3.capable) { target = 'ltx'; reason = 'Hailuo H3 needs 64 GB unified memory.'; }
-    else if (!H3.available) {
-      target = 'ltx';
+  // ---- gates ---------------------------------------------------------------
+  // Every one of these is re-run server-side in make_job. This copy exists so
+  // the UI can say WHY, not so it can decide.
+  if (e && !e.builtin) {
+    const st = engineStatus(e);
+    if (st.announced) {
+      target = fallback.id;
+      reason = e.label + " isn't released yet.";
+    } else if (!st.capable) {
+      target = fallback.id;
+      reason = e.label + ' needs ' + (st.min_ram_gb || 64) + ' GB unified memory.';
+    } else if (!st.available) {
+      target = fallback.id;
       // Distinguish "you never installed this" from "you DID install this and
       // something broke it". Telling a user with 75 GB of H3 weights on disk
       // that H3 "isn't installed" is the v3.4.0 regression report, verbatim.
-      reason = H3.repairable
-        ? 'Hailuo H3 needs repair — your weights are still on disk. Click the pill.'
-        : 'Hailuo H3 isn\'t installed yet.';
-    }
-    else if (!_h3ServesMode(currentMode)) {
-      target = 'ltx';
-      reason = 'Hailuo H3 renders Text and Image only — back on LTX-2.3 for this mode.';
-    } else if (currentMode === 'i2v' && H3.first_frame === false) {
-      target = 'ltx';
-      reason = 'This H3 build has no first-frame support — update the pack to use Image mode.';
+      reason = st.repairable
+        ? e.label + ' needs repair — your weights are still on disk. Click the chip.'
+        : e.label + " isn't installed yet.";
+    } else if (!engineServesMode(e, currentMode)) {
+      target = fallback.id;
+      reason = e.label + ' renders ' + (e.serves_label || 'other modes')
+             + ' only — back on ' + fallback.label + ' for this mode.';
+    } else if (currentMode === 'i2v' && st.first_frame === false) {
+      target = fallback.id;
+      reason = 'This ' + e.label + ' build has no first-frame support — '
+             + 'update the pack to use Image mode.';
     }
   }
+  if (target !== (e || {}).id) e = engineById(target) || fallback;
 
   const inp = document.getElementById('engine');
   if (inp) inp.value = target;
-  document.body.dataset.h3Engine = target;
-  document.querySelectorAll('#engineGroup .engine-chip').forEach(b =>
-    b.classList.toggle('active', b.dataset.engine === target));
+  // The fold rules (`body:not([data-engine="ltx"]) [data-ltx-only]`) and the
+  // --eng-* accent variables both key off this one attribute, and both are
+  // emitted from the same ENGINES table that produced `target`.
+  document.body.dataset.engine = target;
+  if (note) { note.textContent = reason; note.hidden = !reason; }
+  renderEngineSwitch();
 
-  // H3 pill affordance: dashed + a "what it costs" subtitle when it isn't
-  // installed, so the click reads as an offer rather than a dead button.
-  if (chipH3) {
-    chipH3.classList.toggle('needs-install', !!H3.capable && !H3.available);
-    chipH3.classList.toggle('disabled', !H3.capable);
-    chipH3.title = !H3.capable
-      ? 'Needs 64 GB unified memory'
-      : (!H3.available
-          ? (H3.repairable
-              ? 'Hailuo H3 needs repair — weights are on disk, click for the one-click fix'
-              : 'Hailuo H3 isn\'t installed — click to see how (~75 GB)')
-          : 'Hailuo H3 — joint video + dialogue + sound. Text and Image only.');
-  }
-  if (sub) sub.textContent = (H3.capable && !H3.available)
-    ? (H3.repairable ? 'needs repair · weights kept' : 'not installed · ~75 GB')
-    : 'video + dialogue';
-  if (note) note.textContent = reason;
-
-  // Surface swap: H3 tier strip replaces the quality strip; data-ltx-only
-  // controls fold away via CSS on body[data-h3-engine].
-  const h3Strip = document.getElementById('h3TierGroup');
-  const hint = document.getElementById('h3Hint');
+  // ---- surface swap --------------------------------------------------------
+  // Each engine's registry row NAMES the elements it owns, so this is generic:
+  // hide every engine's strip and standing hint, then reveal the active one's.
+  // An engine with no `strip` (LTX) is left alone — its strip visibility
+  // belongs to _applyCharacterQualityStripVisibility, which has to choose
+  // between the default and character strips.
+  ENGINES.forEach(x => {
+    if (x.strip) {
+      const s = document.getElementById(x.strip);
+      if (s) s.hidden = (x.id !== target);
+    }
+    if (x.hint) {
+      const h = document.getElementById(x.hint);
+      if (h) h.hidden = (x.id !== target);
+    }
+  });
   const qLabel = document.getElementById('qualityLabelName');
-  if (h3Strip) h3Strip.hidden = (target !== 'h3');
-  if (hint) hint.hidden = (target !== 'h3');
-  if (qLabel) qLabel.textContent = (target === 'h3') ? 'H3 tier' : 'Quality';
+  if (qLabel) qLabel.textContent = e.strip_label || 'Quality';
   if (target === 'h3') {
     renderH3Tiers();
     setH3Tier((document.getElementById('h3_tier') || {}).value || H3.default_tier);
@@ -32815,18 +33395,21 @@ function setEngine(engine, opts) {
 }
 
 function currentEngine() {
-  return (document.getElementById('engine') || {}).value || 'ltx';
+  return (document.getElementById('engine') || {}).value || ENGINE_DEFAULT;
 }
 
 // Called from setMode(). Re-applies the user's PERSISTED engine choice rather
 // than whatever is currently selected, so the snap-back is temporary: flipping
-// Text → FFLF drops to LTX with a note, and flipping back to Text restores H3
-// instead of silently leaving the user on the other engine. setEngine() re-runs
-// every gate, so an unsupported mode still lands on LTX.
+// Text → FFLF drops to the built-in engine with a note, and flipping back to
+// Text restores the user's choice instead of silently leaving them on the
+// other engine. setEngine() re-runs every gate, so an unsupported mode still
+// lands on the built-in. An engine that has since left the registry (an old
+// localStorage value, a preview flag turned back off) falls through to the
+// default rather than resolving to nothing.
 function _syncEngineForMode() {
   let want = null;
   try { want = localStorage.getItem(H3_ENGINE_LS_KEY); } catch (e) {}
-  setEngine(want === 'h3' ? 'h3' : 'ltx', { persist: false });
+  setEngine(engineById(want) ? want : ENGINE_DEFAULT, { persist: false });
 }
 
 // /status carries a fresh h3 block every tick, so an install finishing in the
@@ -32851,7 +33434,12 @@ function updateH3Availability(s) {
                || (((next.turbo || {}).available) !== ((H3.turbo || {}).available))
                || (((next.turbo || {}).supported) !== ((H3.turbo || {}).supported))
                || ((next.tiers || []).length !== (H3.tiers || []).length);
+  // BOTH bindings, and they must stay the same object: the H3-specific code
+  // reads `H3` on nearly every line, the registry reads the probe map. A
+  // divergence here is a switcher showing "not installed" over a working
+  // engine (or worse, the reverse).
   H3 = next;
+  window._ENGINE_PROBES.h3 = next;
   if (changed) {
     setEngine(currentEngine(), { persist: false });
     // The Finish button's label and its picker are both derived from H3.tiers,
@@ -32863,15 +33451,6 @@ function updateH3Availability(s) {
     }
   }
 }
-
-document.querySelectorAll('#engineGroup .engine-chip').forEach(b => b.onclick = () => {
-  if (b.dataset.engine === 'h3' && H3.capable && !H3.available) {
-    openH3InstallCard();
-    return;
-  }
-  if (b.classList.contains('disabled')) return;
-  setEngine(b.dataset.engine);
-});
 
 // Install card — H3 is a Pinokio-script install (clone + venv + ~75 GB of
 // weights), not an in-panel `hf download`, so the panel explains the one
@@ -33129,7 +33708,7 @@ function updateDerived() {
   // are fixed — so the 8k+1 nudge is not just irrelevant there, it's wrong
   // (it told the user 124 was a mistake when 124 is the HQ·5s tier). The
   // 32-alignment rule holds for both engines and stays.
-  const _h3Active = document.body.dataset.h3Engine === 'h3';
+  const _h3Active = document.body.dataset.engine === 'h3';
   if (w % 32 !== 0) warns.push(`Width ${w} isn't a multiple of 32 (closest ${Math.round(w/32)*32})`);
   if (h % 32 !== 0) warns.push(`Height ${h} isn't a multiple of 32 (closest ${Math.round(h/32)*32})`);
   if (!_h3Active && f > 1 && (f - 1) % 8 !== 0) {
@@ -39224,6 +39803,13 @@ function workflowSwitch(name) {
   // so leaving suspends it (player/outputs restored) and returning to
   // Images with Ideogram active brings it back with its boxes intact.
   if (typeof ideoSyncStage === 'function') ideoSyncStage();
+  // The engine switcher is a Video-form control (each ENGINES row names the
+  // `surfaces` it belongs to). Offering a render engine while the user is in
+  // Images or Train Character would be a choice that changes nothing, so the
+  // switcher and its divider fold away with the form they belong to.
+  if (typeof renderEngineSwitch === 'function') {
+    try { renderEngineSwitch(); } catch (e) {}
+  }
   try { localStorage.setItem('phos_workflow', name); } catch(e) {}
 }
 
