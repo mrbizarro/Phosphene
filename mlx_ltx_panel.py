@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import atexit
 import hashlib
+import html
 import importlib.util
 import io
 import json
@@ -17850,6 +17851,10 @@ def page() -> str:
     return (HTML
             .replace("__BOOTSTRAP__", bootstrap)
             .replace("__PROFILE_BADGE__", profile_badge)
+            # The header badge used to be the literal string "3.0", so it kept
+            # claiming 3.0 through every release since. It reads the VERSION
+            # file now — the same source /version and the update pill use.
+            .replace("__PANEL_VERSION__", html.escape(_read_local_version() or "dev"))
             .replace("__ENGINE_RULES__", _engine_css())
             .replace("__CAP_TIER__", cap_tier))
 
@@ -24528,7 +24533,7 @@ HTML = r"""<!doctype html>
 
 <header>
   <a href="/" class="brand"><img src="/assets/phosphene_cycle_word_transparent.png" alt="Phosphene"></a>
-  <span class="version-badge" title="Phosphene 3.0">3.0</span>
+  <span class="version-badge" title="Phosphene __PANEL_VERSION__">__PANEL_VERSION__</span>
   __PROFILE_BADGE__
   <span class="spacer"></span>
   <!-- ============== ENGINE SWITCHER ==============
