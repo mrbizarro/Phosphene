@@ -20687,6 +20687,18 @@ HTML = r"""<!doctype html>
       color: var(--accent-bright);
       opacity: 0.7;
     }
+    /* A mode the ACTIVE engine can't serve simply isn't that engine's
+       surface. The switcher already greys an engine that can't serve the
+       current mode; this is the same truth read the other way. Before this,
+       the H3 surface advertised Character, FFLF, Keyframes, Extend and
+       Remix — none of which H3 renders — and clicking one silently threw
+       you back to LTX.
+       HIDDEN, not dimmed: each engine's form should be its own, so what a
+       model can't do is not presented as one of its features. Discovery is
+       safe because the engine switcher sits in the header — switching back
+       to LTX brings its modes with it. Driven entirely by the ENGINES
+       registry, so a third engine scopes itself with no new CSS. */
+    .mode-bar .mode-chip.eng-foreign { display: none; }
 
     /* Composer card — the hero of the form. Wraps the reference picker(s)
        (mode-conditional) + prompt textarea + an inline tools footer
@@ -21363,6 +21375,13 @@ HTML = r"""<!doctype html>
     .po-act:hover svg { opacity: 1; }
     .po-act-label {
       /* Keep label on regular buttons; hidden on the icon-only Hide. */
+    }
+    /* Momentary success state — see _flashActionDone(). An action that
+       succeeds silently reads as a broken button. */
+    .po-act.po-act-done {
+      border-color: var(--ok, #2fbf71);
+      color: var(--ok, #2fbf71);
+      background: rgba(47,191,113,0.12);
     }
     .po-act.po-act-danger .po-act-label { display: none; }
     .po-act.po-act-danger:hover {
@@ -32854,6 +32873,32 @@ function _engineRowVisible() {
 // ---- The header switcher ----------------------------------------------------
 // Rendered entirely from the registry. Every visual decision — label, mark,
 // accent, badge, tooltip, order — comes off the engine's own row, so this
+// Scope the mode strip to what the ACTIVE engine actually renders. Each
+// engine's form should be its own surface: a model that can't do Extend
+// shouldn't advertise Extend. Purely additive to setEngine — the authority
+// is still engineServesMode() (and make_job server-side); this only stops the
+// UI from offering a mode that would silently bounce the user to the other
+// engine. Registry-driven, so a third engine scopes itself for free.
+// The Remix parent pill is a UI GROUP whose children are real modes, so it
+// hides only when the engine serves NONE of them.
+function syncModeStripToEngine() {
+  const e = engineById(currentEngine());
+  if (!e) return;
+  document.querySelectorAll('#modeGroup .mode-chip').forEach(chip => {
+    const mode = chip.dataset.mode;
+    if (!mode) return;
+    let ok;
+    if (mode === 'remix') {
+      const kids = (typeof REMIX_MODES !== 'undefined' && REMIX_MODES)
+        ? REMIX_MODES : ['ingredients'];
+      ok = kids.some(m => engineServesMode(e, m));
+    } else {
+      ok = engineServesMode(e, mode);
+    }
+    chip.classList.toggle('eng-foreign', !ok);
+  });
+}
+
 // function has no idea which engines exist. Re-run on: boot, every setEngine,
 // a workflow-tab change, and any /status tick that moves an install.
 function renderEngineSwitch() {
@@ -33339,6 +33384,7 @@ function setEngine(engine, opts) {
   document.body.dataset.engine = target;
   if (note) { note.textContent = reason; note.hidden = !reason; }
   renderEngineSwitch();
+  try { syncModeStripToEngine(); } catch (e) {}
 
   // ---- surface swap --------------------------------------------------------
   // Each engine's registry row NAMES the elements it owns, so this is generic:
@@ -35956,8 +36002,61 @@ async function loadParams() {
     }
   }
 
+  // ---- Engine + engine-specific settings ----------------------------------
+  // Params restored geometry and prompt but NOT the engine, so loading an LTX
+  // clip while the H3 surface was active left LTX dimensions sitting under an
+  // H3 tier strip — the state the owner hit and rightly called confusing. The
+  // sidecar has carried `engine` (and the H3 fields) since the engine landed;
+  // this just reads them. Order matters: engine first (it swaps the surface),
+  // tier LAST (setH3Tier stamps width/height/frames), and the seed re-applied
+  // after the tier so the tier can't clobber the seed we just loaded.
+  const _seedBefore = (document.getElementById('seed') || {}).value;
+  const _eng = String((p && p.engine) || (data && data.engine) || 'ltx').toLowerCase();
+  if (typeof setEngine === 'function' && typeof engineById === 'function' && engineById(_eng)) {
+    try { setEngine(_eng, { persist: false }); } catch (e) {}
+  }
+  if (_eng === 'h3') {
+    if (typeof setH3Upscale === 'function' && p.h3_upscale) {
+      try { setH3Upscale(p.h3_upscale); } catch (e) {}
+    }
+    if (typeof setH3Turbo === 'function') {
+      try { setH3Turbo(!!Number(p.h3_turbo || 0)); } catch (e) {}
+    }
+    if (typeof setH3Steps === 'function') {
+      try { setH3Steps(Number(p.h3_steps || 0) > 0 ? String(p.h3_steps) : 'auto'); } catch (e) {}
+    }
+    if (typeof setH3Tier === 'function' && p.h3_tier) {
+      try { setH3Tier(p.h3_tier); } catch (e) {}
+    }
+    const _seedEl = document.getElementById('seed');
+    if (_seedEl && _seedBefore != null) _seedEl.value = _seedBefore;
+  }
+
   updateCustomizeSummary();
   updateDerived();
+  // Say it out loud. This whole function ran silently before — the form
+  // changed somewhere off-screen and the click read as a dead button.
+  _flashActionDone('loadParamsBtn', 'Loaded');
+}
+
+// Momentary "it worked" state on an action button. The panel has no toast
+// primitive, and an action that succeeds silently is indistinguishable from
+// one that failed — which is exactly how Params was being read.
+function _flashActionDone(btnId, word) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  const label = btn.querySelector('.po-act-label');
+  if (!label) return;
+  if (btn.dataset.flashing === '1') return;
+  const prev = label.textContent;
+  btn.dataset.flashing = '1';
+  btn.classList.add('po-act-done');
+  label.textContent = word;
+  setTimeout(() => {
+    label.textContent = prev;
+    btn.classList.remove('po-act-done');
+    delete btn.dataset.flashing;
+  }, 1400);
 }
 
 // ====== Output info modal ======
