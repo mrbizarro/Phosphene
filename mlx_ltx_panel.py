@@ -20439,6 +20439,17 @@ HTML = r"""<!doctype html>
       padding-left: 8px; line-height: 1.4;
     }
     .engine-hint[hidden] { display: none !important; }
+    /* An engine's PRIMARY control block — the knobs that belong beside its
+       tier strip rather than behind the Customize disclosure. Borrows
+       .cz-body's stacking so the .cz-control children inside it space exactly
+       as they did when they lived in Customize; the only difference is that
+       it has no panel chrome of its own, because on this surface it isn't a
+       panel — it is a continuation of the strip above it. */
+    .eng-primary {
+      display: flex; flex-direction: column; gap: 12px;
+      margin-top: 10px;
+    }
+    .eng-primary[hidden] { display: none !important; }
 
     /* Engine surface swap — emitted from the ENGINES table by _engine_css().
        Two rules per engine: the --eng-* accent variables the active engine
@@ -20761,6 +20772,15 @@ HTML = r"""<!doctype html>
       display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     }
     .composer-tools .ct-spacer { flex: 1 1 auto; }
+    /* Standing one-liner in the tools strip, used where an engine has no
+       control to offer but the user still needs to know what replaces it
+       (H3: no negative prompt, no Gemma rewrite). Sized to read as a caption,
+       not as a disabled button. */
+    .composer-tools .ct-hint {
+      font-size: 11px; line-height: 1.4;
+      color: var(--muted); opacity: 0.85;
+      flex: 1 1 220px; min-width: 0;
+    }
     /* Avoid disclosure — collapsed by default. When opened, the
        textarea sits outside the composer-card (in its own panel below)
        so the prompt stays clean. */
@@ -24453,15 +24473,22 @@ HTML = r"""<!doctype html>
     #genForm .quality-strip .q-chip.active .ql-tier {
       color: var(--eng-accent, var(--accent-bright)); opacity: .75;
     }
-    #genForm .cz-body .pill-btn.active {
+    /* .eng-primary rides alongside .cz-body in all three of these because an
+       engine's PRIMARY sampler controls don't necessarily live in Customize —
+       H3's Speed + Steps sit up beside the tier strip (see #h3PrimaryControls
+       and the comment there). Same chips, same accent, one selector list. */
+    #genForm .cz-body .pill-btn.active,
+    #genForm .eng-primary .pill-btn.active {
       background: var(--eng-dim, var(--accent-dim));
       border-color: var(--eng-soft, var(--accent));
       color: var(--text);
     }
-    #genForm .cz-body .pill-btn.active .sub {
+    #genForm .cz-body .pill-btn.active .sub,
+    #genForm .eng-primary .pill-btn.active .sub {
       color: var(--eng-accent, var(--accent-bright)); opacity: .85;
     }
-    #genForm .cz-body .pill-btn:hover:not(.active):not(.disabled) {
+    #genForm .cz-body .pill-btn:hover:not(.active):not(.disabled),
+    #genForm .eng-primary .pill-btn:hover:not(.active):not(.disabled) {
       border-color: var(--eng-soft, var(--accent));
     }
     #genForm .customize-section[open] .cz-summary .cz-chevron {
@@ -24772,7 +24799,13 @@ HTML = r"""<!doctype html>
 
            IDs preserved: charsList / charsEmpty / charsStrengthRow /
            charsAppliedNote / charsSummaryMeta — JS layer untouched. -->
-      <div class="mode-only" id="manualCharactersPickerSlot">
+      <!-- data-ltx-only, added with the rest of the engine scoping: a trained
+           character is a pair of LTX LoRAs fused into an LTX checkpoint. H3
+           runs its own subprocess against its own weights and stacks nothing —
+           `character` is in its excluded_modes for exactly that reason. The
+           avatar strip sits in t2v, which H3 DOES serve, so without this tag it
+           was the loudest LTX-only surface still showing on an H3 render. -->
+      <div class="mode-only" id="manualCharactersPickerSlot" data-ltx-only>
         <div class="chars-strip">
           <div class="chars-avatar-row" id="charsList"><!-- avatars rendered by JS --></div>
           <button type="button" class="chars-strip-action"
@@ -25058,10 +25091,27 @@ HTML = r"""<!doctype html>
              Avoid is now a toggle-disclosure (collapsed by default) — it's
              optional and most users won't touch it. -->
         <div class="composer-tools">
-          <button type="button" class="ghost-btn" id="enhanceBtn" onclick="enhancePrompt()" title="Use Gemma to rewrite your prompt in the style LTX 2.3 was trained on"><svg class="ph" aria-hidden="true" style="margin-right:6px"><use href="#ph-sparkle-fill"/></svg>Enhance</button>
-          <button type="button" class="ct-link" id="avoidToggleBtn" onclick="toggleAvoidRow()" title="Add 'avoid' / negative prompt — things the model should NOT generate">
+          <!-- Enhance is data-ltx-only and its own tooltip says why: it asks
+               Gemma to rewrite the prompt "in the style LTX 2.3 was trained
+               on". Run on an H3 prompt it is actively destructive — H3's
+               trained control path is `<d>[English] …</d>`, `(S1)`, `[Shot N]`
+               and the three labelled fields, and a rewrite strips every one of
+               them (H3_PROMPTING_GUIDE §4.1, minimax-prompting SKILL.md). H3
+               prompts go to the encoder verbatim. -->
+          <button type="button" class="ghost-btn" id="enhanceBtn" data-ltx-only onclick="enhancePrompt()" title="Use Gemma to rewrite your prompt in the style LTX 2.3 was trained on"><svg class="ph" aria-hidden="true" style="margin-right:6px"><use href="#ph-sparkle-fill"/></svg>Enhance</button>
+          <!-- Avoid is data-ltx-only because H3 HAS NO NEGATIVE PROMPT. It is
+               guidance-distilled: no CFG, no unconditional branch, one forward
+               per step, and every official ComfyUI template ships zero
+               negative-prompt nodes (H3_PROMPTING_GUIDE §7.4). A box wired to
+               a field the engine never reads is worse than no box. The
+               replacement hint below says what DOES work instead. -->
+          <button type="button" class="ct-link" id="avoidToggleBtn" data-ltx-only onclick="toggleAvoidRow()" title="Add 'avoid' / negative prompt — things the model should NOT generate">
             <span id="avoidToggleLabel">Avoid +</span>
           </button>
+          <!-- Stands in for Enhance + Avoid on the H3 surface: both of the
+               controls it replaces are LTX mechanisms, and this is the one
+               sentence a user needs in their place. -->
+          <span class="ct-hint" data-h3-only>No negative prompt on H3 — write refusals as plain sentences, and only for what it adds unasked: camera drift and on-screen text.</span>
           <span class="ct-spacer"></span>
           <!-- HDR toggle hidden again 2026-05-21 (Mr Bizarro request):
                "remove the HDR LoRA from this release, you can leave the
@@ -25089,7 +25139,20 @@ HTML = r"""<!doctype html>
             <span class="experimental-tag" style="margin-left:4px;font-size:9px;padding:1px 5px;border-radius:6px;background:rgba(255,180,80,0.18);color:#ffb450;letter-spacing:0.4px;text-transform:uppercase;">new</span>
           </label>
           -->
+          <!-- "No music" is the one composer tool that survives BOTH engines,
+               because both engines volunteer a score and neither lets you
+               remove one afterwards (music shares spectral space with
+               dialogue). What differs is the mechanism, and wiring LTX's
+               phrasing to H3 would be a control that looks live and does
+               nothing:
+                 LTX → an audio directive appended to the prose prompt.
+                 H3  → `non_diegetic_music: N/A`, the TRAINED field value for
+                       "no score" (H3_PROMPTING_GUIDE §2.5 / §7.4 mechanism 2).
+               The augmentation and this tooltip both swap in
+               _syncEnginePromptTools(), called from setEngine. -->
           <label class="toggle-pill" id="noMusicPill"
+                 data-title-ltx="When on, the prompt is augmented with: 'Audio: voice and ambient sounds only, no music, no soundtrack, no score.' Useful for clips you'll score yourself in post — music can't be cleanly removed afterwards."
+                 data-title-h3="When on, the prompt carries 'non_diegetic_music: N/A' — the trained way to tell H3 there is no score. Skipped if your prompt already sets that field itself."
                  title="When on, the prompt is augmented with: 'Audio: voice and ambient sounds only, no music, no soundtrack, no score.' Useful for clips you'll score yourself in post — music can't be cleanly removed afterwards.">
             <input type="checkbox" id="noMusic" name="no_music">
             <span class="toggle-dot"></span>
@@ -25105,7 +25168,12 @@ HTML = r"""<!doctype html>
                Only meaningfully relevant when a character with voice is
                active; the pill is hidden otherwise to avoid clutter
                (toggleVoicePillVisibility wires this). -->
-          <label class="toggle-pill" id="noVoicePill" hidden
+          <!-- data-ltx-only: what this pill DOES is drop a trained character's
+               audio LoRA from the stack (make_job, character_id branch).
+               Characters are an LTX construct — `character` is in H3's
+               excluded_modes and no character LoRA loads on the H3 lane — so
+               on H3 the toggle could only ever be a no-op. -->
+          <label class="toggle-pill" id="noVoicePill" hidden data-ltx-only
                  title="Skip the character's voice LoRA for this render. The face still locks, but audio stays ambient — no speech, no gibberish.">
             <input type="checkbox" id="noVoice" name="no_voice">
             <span class="toggle-dot"></span>
@@ -25118,7 +25186,7 @@ HTML = r"""<!doctype html>
            Avoid + button inside the composer-tools strip. Lives outside
            the composer card so the textarea has its own framed surface
            and the composer card stays focused on the positive prompt. -->
-      <div class="avoid-row" id="avoidRow">
+      <div class="avoid-row" id="avoidRow" data-ltx-only>
         <label class="avoid-label" for="negative_prompt">
           <span>Avoid</span>
           <span class="avoid-hint">things the model should NOT generate</span>
@@ -25152,8 +25220,17 @@ HTML = r"""<!doctype html>
         <input type="hidden" name="h3_steps" id="h3_steps" value="auto">
         <input type="hidden" name="h3_turbo" id="h3_turbo" value="0">
         <div class="engine-note" id="engineRowNote" hidden></div>
+        <!-- The engine's standing note. Second sentence added with the player
+             scoping (Part C): Extend is an LTX pipeline and is now hidden on
+             an H3 clip, so the surface has to say where length actually comes
+             from — the chained tiers, chosen BEFORE the render, not a post-hoc
+             action on the result. Said here, next to the tier strip where the
+             user can act on it, rather than as a tooltip on a button that no
+             longer exists. -->
         <div class="engine-hint" id="h3Hint" hidden>
           Dialogue + sound are generated jointly — write them into the prompt.
+          Length is the tier's: the 10 s / 15 s tiers chain windows at render
+          time, so there is no Extend afterwards.
         </div>
         <div>
           <div class="qs-label">
@@ -25202,7 +25279,13 @@ HTML = r"""<!doctype html>
                + faster, Pro renders at the canonical 1024x576. Both upscale
                on save to the final delivery resolution. Hidden by default;
                .show class adds the actual display. -->
-          <div class="quality-strip pill-group" id="qualityGroupCharacter" hidden>
+          <!-- data-ltx-only for a reason the `hidden` attribute can't cover:
+               its visibility is owned by _applyCharacterQualityStripVisibility,
+               which only ever asks "is a character selected?". With a character
+               active, switching to H3 left this strip lit BESIDE the H3 tier
+               strip — two primary strips, both claiming to set the render. The
+               fold rule settles it declaratively, whatever the JS believes. -->
+          <div class="quality-strip pill-group" id="qualityGroupCharacter" hidden data-ltx-only>
             <button type="button" class="q-chip pill-btn pill-quality char-quality" data-char-quality="draft" data-width="736" data-height="416" title="Q8 HQ at 736×416 — faster, slightly less per-frame detail.">
               <span class="ql-name">Q8 Draft</span>
               <span class="q-spec ql-spec sub">736×416</span>
@@ -25226,15 +25309,86 @@ HTML = r"""<!doctype html>
                prompts land in the UI the warning disappears with one Python
                edit. Hidden for tiers that render as a single pass. -->
           <div class="engine-hint" id="h3TierNote" data-h3-only hidden></div>
-          <!-- Export / Steps / Speed used to sit here as three flat pill rows
-               with hand-rolled inline styles, stacked under the tier strip
-               with their notes floating loose between them. They are now
-               .cz-control blocks inside the SAME Customize disclosure LTX
-               uses (grep h3ExportRow) — one information architecture,
-               one chip grammar, one summary line, so the two engines read as
-               one product. The hidden inputs moved up next to the other
-               engine fields; every one of them is still in the make_job
-               allowlist, which is the only place they could silently die. -->
+
+          <!-- ========== H3 PRIMARY CONTROLS — Speed + Steps ==========
+               These two shipped inside the Customize disclosure and the owner
+               could not find Steps at all: "I see you removed the step options
+               we had before, no?" He hadn't lost a control, he'd lost a
+               control's VISIBILITY, and the diagnosis matters — the rule that
+               put them there was "LTX keeps its secondary knobs in Customize,
+               so H3 should too", applied without checking whether they are
+               secondary on this engine. They are not. The tier picks the
+               canvas and the length; Turbo (4-step distill adapter) and Steps
+               (9 → 20 sigma points) are what decide how long you wait, each
+               worth about a 2× swing, and neither is implied by any tier chip.
+               A control that changes wall clock by 2× does not belong behind a
+               disclosure triangle.
+               So they sit here, directly under the tier strip they modify,
+               in the same chip grammar as the rest of the form. Nothing else
+               moved: same ids, same .cz-* classes, same handlers, same hidden
+               inputs (#h3_turbo / #h3_steps, both in the make_job allowlist).
+               .eng-primary is only a CSS hook — the active-pill accent rules
+               were scoped to .cz-body, so leaving Customize would otherwise
+               have cost these chips their engine colour. Order is deliberate:
+               Speed first because Turbo OVERRULES Steps. -->
+          <div class="eng-primary" id="h3PrimaryControls" data-h3-only>
+            <!-- H3 Turbo — the 4-step distillation LoRA. Grouped with Steps
+                 because it is the same axis (how many denoise passes), and it
+                 WINS: with Turbo on the Steps pills go visibly dead and the
+                 sampler is pinned at 4. Rendered by renderH3Turbo() from
+                 BOOT.h3.turbo, so Python stays the single source of truth for
+                 availability, size and copy — including the tooltip's
+                 measured-vs-derived distinction (only wide_5s has actually
+                 been rendered with the adapter end to end). The whole control
+                 hides when the installed pack's runner has no --lora. -->
+            <div class="cz-control" id="h3TurboRow" data-h3-only hidden>
+              <div class="cz-label">Speed
+                <span class="cz-label-hint">4-step distill adapter · overrules Steps</span>
+              </div>
+              <div class="pill-group cols-2" id="h3TurboGroup">
+                <button type="button" class="pill-btn active" data-h3-turbo="0"
+                        title="The tier's own sampler — 9 sigma points, 8 forwards.">
+                  <span>Standard</span><span class="sub">the tier's own sampler</span>
+                </button>
+                <button type="button" class="pill-btn" data-h3-turbo="1" id="h3TurboPill">
+                  <span>Turbo</span><span class="sub" id="h3TurboPillSub"></span>
+                </button>
+              </div>
+              <div class="h3-turbo-note" id="h3TurboNote" hidden></div>
+            </div>
+
+            <!-- H3 sampler depth. Tiers bake 9 steps (8 forwards) — the
+                 validated speed/quality point; the official reference recipe
+                 runs 20. Four honest pills with the time cost in the tooltip
+                 beat an unbounded numeric box. -->
+            <div class="cz-control" id="h3StepsRow" data-h3-only>
+              <div class="cz-label">Steps
+                <span class="cz-label-hint">Auto = the tier's tuned count</span>
+              </div>
+              <div class="pill-group cols-4" id="h3StepsGroup">
+                <button type="button" class="pill-btn active" data-h3-steps="auto"
+                        title="The tier's tuned count — the validated speed/quality point.">Auto</button>
+                <button type="button" class="pill-btn" data-h3-steps="12"
+                        title="More refinement — ~1.4× the tier's render time.">12</button>
+                <button type="button" class="pill-btn" data-h3-steps="16"
+                        title="~1.9× the tier's render time.">16</button>
+                <button type="button" class="pill-btn" data-h3-steps="20"
+                        title="The official reference recipe — ~2.4× the tier's render time.">20</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Export used to sit here too, as a third flat pill row with
+               hand-rolled inline styles and its note floating loose beneath
+               it. It is now a .cz-control inside the SAME Customize disclosure
+               LTX uses (grep h3ExportRow) — one information architecture, one
+               chip grammar, one summary line, so the two engines read as one
+               product. Export earns the demotion that Speed and Steps did not:
+               it is an ffmpeg scale-and-pad pass AFTER the render, so it costs
+               no wall clock and changes no pixel the model produced. The
+               hidden inputs for all three live up in the engine-state block;
+               every one is in the make_job allowlist, which is the only place
+               they could silently die. -->
           <!-- 2026-05-17 (Codex C+ pass 6): the character-only skip-step
                toggle moved out of here into the Customize section as
                "HQ speed". It's a Q8 sampler control, not a character
@@ -25389,62 +25543,20 @@ HTML = r"""<!doctype html>
           <div class="cz-body">
 
             <!-- ========== HAILUO H3 CONTROLS ==========
-                 The H3 half of Customize. Same .cz-control / .cz-label /
-                 .pill-group grammar as every LTX control below it — that is
-                 the whole point: an H3 render and an LTX render are set up
-                 the same way, so switching engines reads as changing lens,
-                 not changing app. Each block folds away on any other engine
-                 via data-h3-only (rule emitted from the ENGINES table).
-                 Order is deliberate: Speed first because Turbo OVERRULES
-                 Steps, then Steps, then Export. Every hidden input these
-                 write lives up in the engine-state block and is in the
-                 make_job allowlist — an unlisted field silently no-ops on
-                 /queue/add, which is the known trap in this file. -->
-
-            <!-- H3 Turbo — the 4-step distillation LoRA. Grouped with Steps
-                 because it is the same axis (how many denoise passes), and it
-                 WINS: with Turbo on the Steps pills go visibly dead and the
-                 sampler is pinned at 4. Rendered by renderH3Turbo() from
-                 BOOT.h3.turbo, so Python stays the single source of truth for
-                 availability, size and copy — including the tooltip's
-                 measured-vs-derived distinction (only wide_5s has actually
-                 been rendered with the adapter end to end). The whole control
-                 hides when the installed pack's runner has no --lora. -->
-            <div class="cz-control" id="h3TurboRow" data-h3-only hidden>
-              <div class="cz-label">Speed
-                <span class="cz-label-hint">4-step distill adapter · overrules Steps</span>
-              </div>
-              <div class="pill-group cols-2" id="h3TurboGroup">
-                <button type="button" class="pill-btn active" data-h3-turbo="0"
-                        title="The tier's own sampler — 9 sigma points, 8 forwards.">
-                  <span>Standard</span><span class="sub">the tier's own sampler</span>
-                </button>
-                <button type="button" class="pill-btn" data-h3-turbo="1" id="h3TurboPill">
-                  <span>Turbo</span><span class="sub" id="h3TurboPillSub"></span>
-                </button>
-              </div>
-              <div class="h3-turbo-note" id="h3TurboNote" hidden></div>
-            </div>
-
-            <!-- H3 sampler depth. Tiers bake 9 steps (8 forwards) — the
-                 validated speed/quality point; the official reference recipe
-                 runs 20. Four honest pills with the time cost in the tooltip
-                 beat an unbounded numeric box. -->
-            <div class="cz-control" id="h3StepsRow" data-h3-only>
-              <div class="cz-label">Steps
-                <span class="cz-label-hint">Auto = the tier's tuned count</span>
-              </div>
-              <div class="pill-group cols-4" id="h3StepsGroup">
-                <button type="button" class="pill-btn active" data-h3-steps="auto"
-                        title="The tier's tuned count — the validated speed/quality point.">Auto</button>
-                <button type="button" class="pill-btn" data-h3-steps="12"
-                        title="More refinement — ~1.4× the tier's render time.">12</button>
-                <button type="button" class="pill-btn" data-h3-steps="16"
-                        title="~1.9× the tier's render time.">16</button>
-                <button type="button" class="pill-btn" data-h3-steps="20"
-                        title="The official reference recipe — ~2.4× the tier's render time.">20</button>
-              </div>
-            </div>
+                 What is left of the H3 half of Customize is EXPORT, and only
+                 export. Speed and Steps used to live here too, on the LTX-parity
+                 argument that Customize holds the secondary knobs — but that
+                 parity was misread. LTX can demote its sampler knobs because
+                 LTX's primary decision is the Quality strip, which already
+                 carries them. H3's tier strip does not: Turbo and Steps move
+                 H3's wall clock by roughly 2× on their own, on top of whatever
+                 tier is selected. They are primary, and they now render as
+                 primary — see #h3PrimaryControls up beside the tier strip.
+                 Export is genuinely secondary (a post-render ffmpeg pass that
+                 changes no pixel the model produced), so it stays. Same
+                 .cz-control / .cz-label / .pill-group grammar as every LTX
+                 control below it, folded away on any other engine by
+                 data-h3-only (rule emitted from the ENGINES table). -->
 
             <!-- H3 export canvas. Most tiers render 12:7 (768×448), which is
                  neither 720p nor 1080p; this runs the SAME lanczos-fit + pad +
@@ -32418,12 +32530,11 @@ function updateCustomizeSummary() {
     const tier = h3TierByKey((document.getElementById('h3_tier') || {}).value);
     const up = (document.getElementById('h3_upscale') || {}).value || 'off';
     const parts = [tier ? tier.spec : 'Hailuo H3'];
-    const stOv = (document.getElementById('h3_steps') || {}).value || 'auto';
-    // Turbo pins the sampler, so it replaces the steps line rather than
-    // sitting next to a number it just overruled.
-    if ((document.getElementById('h3_turbo') || {}).value === '1') {
-      parts.push('Turbo · ' + (((H3 || {}).turbo || {}).steps || 4) + ' steps');
-    } else if (stOv !== 'auto') parts.push(stOv + ' steps');
+    // Turbo and Steps used to be summarised here. They moved onto the primary
+    // surface (#h3PrimaryControls), and a disclosure summary exists to reveal
+    // what the disclosure is HIDING — restating two chips the user can see two
+    // inches above it makes the line longer and tells them nothing. What is
+    // actually folded away on H3 is the export target, so that is what it says.
     if (up === 'fit_720p') parts.push('720p export');
     else if (up === 'fit_1080p') parts.push('1080p export');
     else parts.push('native export');
@@ -32806,11 +32917,17 @@ function setH3Turbo(on) {
     note.textContent = t.note || '';
   }
   if (v === '1') {
-    // Mirror the pinned count into the shared hidden `steps` so the queue card
-    // and the estimate line read the truth (make_job re-stamps it anyway).
+    // ORDER IS LOAD-BEARING, and it was wrong until Steps became a primary
+    // control and the lie got visible: setH3Steps('auto') re-derives the
+    // shared hidden `steps` from the TIER (9), so running it after the pin
+    // overwrote the 4 and the derived line read "Steps 9" on a Turbo render.
+    // Release the pill override first, THEN pin. make_job stamps
+    // H3_TURBO_STEPS server-side either way — this only ever affected what the
+    // form told the user it was about to do, which is the whole reason Speed
+    // and Steps were moved out where the user can see them.
+    if (typeof setH3Steps === 'function') { try { setH3Steps('auto'); } catch (e) {} }
     const s = document.getElementById('steps');
     if (s) s.value = t.steps || 4;
-    if (typeof setH3Steps === 'function') { try { setH3Steps('auto'); } catch (e) {} }
   }
   _h3SyncStepsEnabled();
   try { localStorage.setItem('phos_h3_turbo', v); } catch (e) {}
@@ -33442,7 +33559,29 @@ function setEngine(engine, opts) {
   if (typeof updatePromptPlaceholder === 'function') {
     try { updatePromptPlaceholder(); } catch (e) {}
   }
+  try { _syncEnginePromptTools(); } catch (e) {}
   return target;
+}
+
+// The composer tools that SURVIVE an engine switch but change meaning across
+// it. Everything else in that strip is folded by a data-<engine>-only rule and
+// needs no JS at all — this exists only for the one control whose mechanism
+// differs per engine rather than existing on one engine.
+//
+// "No music": both engines volunteer a score and neither lets you strip one
+// afterwards, so the control is right on both. What it DOES differs — LTX gets
+// a prose audio directive, H3 gets `non_diegetic_music: N/A`, its trained field
+// value (H3_PROMPTING_GUIDE §2.5). The tooltip has to follow the mechanism or
+// it describes a render that isn't happening; both strings live on the element
+// as data-title-* so the copy stays in the markup with the control.
+function _syncEnginePromptTools() {
+  const eng = (document.body.dataset.engine || ENGINE_DEFAULT);
+  const pill = document.getElementById('noMusicPill');
+  if (pill) {
+    const t = pill.getAttribute('data-title-' + eng)
+           || pill.getAttribute('data-title-ltx');
+    if (t) pill.title = t;
+  }
 }
 
 function currentEngine() {
@@ -35558,7 +35697,22 @@ function selectOutput(path) {
   // an i2v render).
   const useExtBtn = document.getElementById('useAsExtendBtn');
   const animBtn = document.getElementById('animateBtn');
-  if (useExtBtn) useExtBtn.style.display = isPhoto ? 'none' : '';
+  // Extend is hidden on TWO kinds of output, for two different reasons:
+  //   * a photo — Extend is a video pipeline (Animate takes its slot instead)
+  //   * an H3 clip — Extend is an LTX pipeline. It runs the LTX Q8 extend
+  //     sampler over a source clip, which would take an H3 render and continue
+  //     it with a different model: different weights, different geometry grid
+  //     (17n+5 vs 8k+1), and no audio branch at all, so the joint soundtrack
+  //     that is the whole point of H3 would simply stop. H3's own answer to
+  //     "make it longer" is window chaining, and chaining is a TIER — a choice
+  //     made before the render, not an action on the result. There is nothing
+  //     coherent to offer here, so the button goes; #h3Hint on the form says
+  //     where length comes from instead, next to the tier strip that sets it.
+  //   Scoped off the SELECTED OUTPUT's engine (sidecar-derived, already in the
+  //   /status payload as o.engine) — not the form's current engine, which is
+  //   about the next render and says nothing about this clip.
+  const outIsH3 = !!(o && o.engine === 'h3');
+  if (useExtBtn) useExtBtn.style.display = (isPhoto || outIsH3) ? 'none' : '';
   if (animBtn) animBtn.style.display = isPhoto ? '' : 'none';
   // "Finish at …" — only for a completed H3 render whose tier is a draft
   // tier. Decided from o.engine / o.h3_tier (both sidecar-derived, already in
@@ -36408,6 +36562,27 @@ document.getElementById('genForm').addEventListener('submit', async e => {
   e.preventDefault();
   const fd = new FormData(e.target);
 
+  // ---- engine payload scrub ------------------------------------------------
+  // The fold rules hide an LTX-only control on H3; they do not empty the hidden
+  // input behind it, and FormData reads the input. So a user who picks a
+  // character, types an Avoid line, then switches to H3 was still POSTing
+  // character_id + a LoRA stack + negative_prompt on a job that reads none of
+  // them. Nothing broke — run_h3_job ignores all three — but the queue card,
+  // the ⓘ modal and the sidecar all then describe a render that didn't happen,
+  // and Load Params replays the fiction. Clear them here so what we send
+  // matches what the surface says. `engine` itself is re-validated in make_job;
+  // this is about honesty of the record, not safety.
+  //
+  // NOT scrubbed: `seed` (H3 resolves -1 itself), `image` (first-frame
+  // conditioning is real on H3), `frames`/`width`/`height` (make_job stamps the
+  // tier's own geometry over them).
+  if ((fd.get('engine') || 'ltx') === 'h3') {
+    fd.set('negative_prompt', '');   // guidance-distilled: no unconditional branch
+    fd.set('character_id', '');      // character LoRAs are an LTX construct
+    fd.set('loras', '');             // ditto — the H3 runner stacks nothing
+    fd.set('no_voice', '');          // only ever meant "skip the character's voice LoRA"
+  }
+
   // Disable the Generate button while we POST to /queue/add so a fast
   // double-click doesn't queue the same job twice. The button is
   // re-enabled after poll() returns (or on error). Keep this ABOVE the
@@ -36426,7 +36601,11 @@ document.getElementById('genForm').addEventListener('submit', async e => {
   try {
     const promptRaw = (fd.get('prompt') || '').toString();
     const promptLower = promptRaw.toLowerCase();
+    // Skipped on H3: the scrub above already dropped the LoRA stack, so the
+    // confirm would be warning about fusion that was never going to happen on
+    // an engine that stacks nothing.
     if (promptLower.trim() &&
+        (fd.get('engine') || 'ltx') !== 'h3' &&
         Array.isArray(_knownUserLoras) &&
         Array.isArray(_activeLoras)) {
       const activePaths = new Set(_activeLoras.map(l => l.path));
@@ -36463,9 +36642,25 @@ document.getElementById('genForm').addEventListener('submit', async e => {
   const noMusic = document.getElementById('noMusic');
   if (noMusic && noMusic.checked) {
     const original = fd.get('prompt') || '';
-    const constraint = ' Audio: voice and ambient sounds only, no music, no soundtrack, no score, no melody.';
-    if (!original.toLowerCase().includes('no music')) {
-      fd.set('prompt', original.trim() + constraint);
+    const lower = original.toLowerCase();
+    if ((fd.get('engine') || 'ltx') === 'h3') {
+      // H3's trained mechanism, not LTX's phrasing. `non_diegetic_music` is one
+      // of the three fields its encoder was trained on and `N/A` is the trained
+      // value for "no score" (H3_PROMPTING_GUIDE §2.5, and §7.4 lists it as one
+      // of the three ways a refusal can work at all on a model with no
+      // unconditional branch). Appending a CFG-era "no music, no soundtrack, no
+      // score" list here would be the wrong idiom AND would spend prompt budget
+      // naming the thing we don't want — which §7.6 warns can summon it.
+      // Skipped when the prompt already sets the field: a user writing the
+      // three-field format owns that line, and a second one would contradict it.
+      if (!lower.includes('non_diegetic_music')) {
+        fd.set('prompt', original.trim() + '\n\nnon_diegetic_music: N/A');
+      }
+    } else {
+      const constraint = ' Audio: voice and ambient sounds only, no music, no soundtrack, no score, no melody.';
+      if (!lower.includes('no music')) {
+        fd.set('prompt', original.trim() + constraint);
+      }
     }
   }
   // No voice — drops the character's audio LoRA server-side (see
