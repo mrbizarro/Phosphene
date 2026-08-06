@@ -4755,8 +4755,20 @@ H3_FPS = 24.0
 #   window_frames  = frames per window handed to --frames
 #   chain_windows  = N (>1 means chained; the runner needs --chain-windows)
 #   note           = the honest artefact warning, rendered under the tier strip
+#   draft          = this is a look-see tier, not a delivery tier. Two things
+#                    read it: the panel shows the tier's `note` while it is
+#                    selected, and a FINISHED render at a draft tier gets the
+#                    "Finish at …" affordance on the output card (re-queue the
+#                    identical job — same seed — at a delivery tier).
 H3_TIER_CHAIN_NOTE = ("Scripted dialogue repeats once per 5 s window — put "
                       "dialogue cues late in the prompt.")
+# The draft tier renders at 0.25 MP (640×384). The H3 community's practical
+# floor is ~0.5 MP, and video STRUCTURE resolves in the last denoise step, so
+# at 9 steps a 0.25 MP pass is genuinely noisy: composition, motion and
+# dialogue timing are trustworthy, per-pixel face detail is not. Say that where
+# the user picks the tier instead of letting them conclude H3 is bad.
+H3_TIER_DRAFT_NOTE = ("Draft is for composition, motion and dialogue timing — "
+                      "faces and fine detail only resolve at the higher tiers.")
 
 
 def _build_h3_tiers() -> dict[str, dict]:
@@ -4766,6 +4778,10 @@ def _build_h3_tiers() -> dict[str, dict]:
             "width": 640, "height": 384, "frames": 73, "steps": 9,
             "spec": "640×384 · 73f", "eta": "~3 min",
             "blurb": "Fastest look-see. Good enough to judge motion + dialogue timing.",
+            # The one tier that is explicitly NOT a delivery tier — see the
+            # `draft` key in the block comment above.
+            "draft": True,
+            "note": H3_TIER_DRAFT_NOTE,
         },
         "hq_3s": {
             "key": "hq_3s", "label": "HQ · 3s",
@@ -4813,6 +4829,11 @@ def _build_h3_tiers() -> dict[str, dict]:
 
 H3_TIERS: dict[str, dict] = _build_h3_tiers()
 H3_TIER_DEFAULT = "draft_3s"
+# Where "Finish at …" sends a draft by default. hq_5s is the workhorse: same
+# 768×448 delivery geometry as hq_3s but a full 5 s beat, which is the length
+# the dialogue timing a draft was judged on actually needs. The panel offers
+# every non-draft tier in the picker; this is only the pre-selected one.
+H3_TIER_FINISH_DEFAULT = "hq_5s"
 # Post-render export targets for an H3 clip. H3 writes 768×448 (12:7) natively,
 # which is neither 720p nor 1080p, so the panel applies the SAME ffmpeg recipe
 # LTX renders get: lanczos fit inside the canvas, pad the remainder, re-encode
@@ -5068,6 +5089,11 @@ def h3_status() -> dict:
         "weights_ok": paths["weights_ok"],
         "tiers": h3_visible_tiers(),
         "default_tier": H3_TIER_DEFAULT,
+        # Pre-selected target for the "Finish at …" affordance on a draft
+        # render. The panel derives the OFFERED list from `tiers` (everything
+        # without `draft: true`), so this table stays the single source of
+        # truth for both — a tier change is still one Python edit.
+        "finish_default": H3_TIER_FINISH_DEFAULT,
         "upscale_modes": list(H3_UPSCALE_MODES),
         "default_upscale": H3_UPSCALE_DEFAULT,
         "modes": list(H3_MODES),
@@ -6651,6 +6677,13 @@ def list_outputs(
         # read is cheap, but tolerate a missing/corrupt sidecar by leaving
         # elapsed_sec null and letting the UI fall back to the file mtime.
         elapsed_sec = None
+        # Which engine rendered this, and (H3 only) at which tier. Both come
+        # out of the sidecar read we are ALREADY doing for elapsed_sec, so
+        # they cost nothing — and they let the stage pane decide synchronously
+        # whether a clip is a finishable H3 draft. Without them the "Finish
+        # at …" button would need a /sidecar fetch on every gallery click.
+        engine = None
+        h3_tier = None
         sidecar = p.with_suffix(p.suffix + ".json")
         has_sidecar = sidecar.exists()
         if has_sidecar:
@@ -6659,6 +6692,17 @@ def list_outputs(
                 v = meta.get("elapsed_sec")
                 if isinstance(v, (int, float)):
                     elapsed_sec = float(v)
+                _sc_params = meta.get("params")
+                if not isinstance(_sc_params, dict):
+                    _sc_params = {}
+                # Top-level `engine` is what the H3 path stamps; the image
+                # path only has params.engine ("mflux/ideogram" etc.).
+                _eng = meta.get("engine") or _sc_params.get("engine")
+                if isinstance(_eng, str) and _eng:
+                    engine = _eng
+                _tier = _sc_params.get("h3_tier")
+                if isinstance(_tier, str) and _tier:
+                    h3_tier = _tier
             except Exception:
                 pass
         # Y1.039 cache-bust — append the file's mtime as a version param so
@@ -6683,6 +6727,11 @@ def list_outputs(
             "elapsed_sec": elapsed_sec,
             "url": url,
             "has_sidecar": has_sidecar,
+            # Sidecar-derived, cheap (see the read above). `engine` is "h3" on
+            # an H3 clip and the mflux token on a still; `h3_tier` is set only
+            # by the H3 path and is what the Finish affordance gates on.
+            "engine": engine,
+            "h3_tier": h3_tier,
             "hidden": is_hidden,
             # 'kind' lets the right-pane viewer + filter chips branch
             # without re-parsing the filename. Mirrors isPhotoOutput() on
@@ -20465,6 +20514,60 @@ HTML = r"""<!doctype html>
       color: #ff8b80;
       border-color: rgba(248,81,73,0.35);
     }
+
+    /* ---- "Finish at …" split control (H3 draft outputs only) -------------
+       Shown by _syncH3FinishAffordance() when the selected clip was rendered
+       at a tier flagged `draft` in H3_TIERS. Two parts sharing one shell:
+       the button commits the draft at the chosen tier, the caret-only
+       <select> beside it changes which tier that is.
+
+       A native <select> rather than a bespoke popover on purpose: the action
+       cluster lives inside .player-surface, which is overflow:hidden in the
+       landscape case, so a custom menu would need portaling out of it to be
+       safe. The native control renders in the browser's own layer, is
+       keyboard-accessible for free, and there is no menu component in this
+       panel to be consistent with anyway. */
+    .po-finish {
+      display: inline-flex; align-items: stretch;
+      border: 1px solid rgba(88,166,255,0.30);
+      border-radius: var(--r-sm);
+      background: rgba(47,129,247,0.14);
+    }
+    .po-finish .po-act.po-act-finish {
+      border: none;
+      color: var(--accent-bright, #58a6ff);
+      border-radius: var(--r-sm) 0 0 var(--r-sm);
+    }
+    .po-finish .po-act.po-act-finish:hover {
+      background: rgba(47,129,247,0.26);
+      color: #fff;
+    }
+    .po-finish-select {
+      appearance: none; -webkit-appearance: none;
+      width: 20px; padding: 0;
+      border: none;
+      border-left: 1px solid rgba(88,166,255,0.25);
+      border-radius: 0 var(--r-sm) var(--r-sm) 0;
+      background: transparent;
+      /* Caret drawn as a data-URI chevron: the select is 20 px wide and shows
+         no value text, so the native arrow (which reserves label width) would
+         clip. Colour matches .po-act-finish. */
+      background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 4 L5 7 L8 4' fill='none' stroke='%2358a6ff' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: center;
+      color: transparent;
+      font-size: 11.5px;
+      cursor: pointer;
+      transition: var(--t-fast);
+    }
+    .po-finish-select:hover { background-color: rgba(47,129,247,0.26); }
+    /* The options themselves DO need readable colours — `color: transparent`
+       above only hides the closed control's own (empty) label. */
+    .po-finish-select option { color: var(--text, #e6edf3); background: var(--bg, #0d1017); }
+    /* The cost is the whole point of this button ("~8 min" is the decision),
+       so it keeps its label in the compact breakpoint below where every other
+       .po-act drops to icon-only. */
+    .po-finish .po-act-label { display: inline !important; }
     /* Vertical-media variant (2026-05-18): for portrait clips the player
        surface shrinks to ~9:16 ratio and the action cluster's default
        top-right anchor lands on top of the subject's head. Mr Bizarro's call:
@@ -25637,6 +25740,29 @@ HTML = r"""<!doctype html>
            working (loadParamsBtn.disabled, animateBtn.style.display,
            useAsExtendBtn.style.display all still apply). -->
       <div class="player-overlay-actions" id="playerOverlayActions" style="display:none">
+        <!-- Draft → Finish (Hailuo H3). Hidden for every clip that wasn't
+             rendered at a tier flagged `draft` in H3_TIERS, which is the
+             only state where "re-run this at a delivery tier" is a coherent
+             offer. Leads the cluster because on a draft it IS the action.
+             Wired exactly like Params/Extend: read the clip's sidecar,
+             restore it into #genForm, submit through the one submit path —
+             the difference is that the tier is swapped on the way in and the
+             seed is pinned to the draft's ACTUAL seed_used, so the finish
+             render is the same clip rather than a new roll of the dice.
+             The label carries the target tier's own `eta` from H3_TIERS. -->
+        <div class="po-finish" id="h3FinishWrap" style="display:none">
+          <button id="h3FinishBtn" class="po-act po-act-finish" type="button"
+                  onclick="h3FinishActive()">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M8 2 L9.6 6.4 L14 8 L9.6 9.6 L8 14 L6.4 9.6 L2 8 L6.4 6.4 Z"
+                    stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" fill="none"/>
+            </svg>
+            <span class="po-act-label" id="h3FinishLabel">Finish</span>
+          </button>
+          <select id="h3FinishTier" class="po-finish-select"
+                  title="Pick the tier to finish at"
+                  onchange="h3FinishSetTier(this.value)"></select>
+        </div>
         <button id="loadParamsBtn" class="po-act" type="button"
                 onclick="loadParams()" title="Load this clip's render params back into the form" disabled>
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -31434,9 +31560,12 @@ function setH3Tier(key) {
     const ov = (document.getElementById('h3_steps') || {}).value || 'auto';
     s.value = (ov !== 'auto' && /^\d+$/.test(ov)) ? parseInt(ov, 10) : tier.steps;
   }
-  // Chained tiers carry an honest artefact note (one prompt is asked of every
-  // window, so a scripted line lands once per window). Surface it where the
-  // user is choosing, not in a tooltip.
+  // Tiers carry an honest note where one is owed and the server owns the
+  // text (H3_TIERS). Two of them exist today: the chained tiers warn that one
+  // prompt is asked of every window (so a scripted line lands once per
+  // window), and the Draft tier says out loud that its 0.25 MP pass resolves
+  // composition and timing but not faces. Surface it where the user is
+  // choosing, not in a tooltip.
   const noteEl = document.getElementById('h3TierNote');
   if (noteEl) {
     const n = tier.note || '';
@@ -31445,6 +31574,273 @@ function setH3Tier(key) {
   }
   try { localStorage.setItem('phos_h3_tier', tier.key); } catch (e) {}
   if (typeof updateDerived === 'function') { try { updateDerived(); } catch (e) {} }
+}
+
+// ============================================================================
+// Draft → Finish — commit an H3 draft at a delivery tier
+// ============================================================================
+// The Draft tier is ~3 min against ~8 min for HQ 5s, which only pays off if
+// the good draft can be re-run AS THE SAME CLIP. That means the finish render
+// has to inherit the draft's ACTUAL seed (sidecar `seed_used`, never the `-1`
+// the user submitted) along with the prompt, the first frame, the export
+// canvas and any pinned step count — change any of those and the user gets a
+// different shot, which would make the button a lie.
+//
+// Mechanically this is the Load Params pattern: read the clip's sidecar,
+// restore it into #genForm, and let the ONE submit path run (it owns the
+// double-submit guard, the LoRA-orphan check and the prompt modifiers). The
+// only divergences are that the tier is swapped on the way in, and that the
+// form is submitted for the user instead of being left for them to press
+// Generate — "iterate cheap, then commit" is a single decision, and the
+// restored form is still sitting there afterwards to tweak and re-run.
+
+// A tier by EXACT key. h3TierByKey() falls back to the first tier when the key
+// is unknown, which is right for a picker but wrong here: a clip rendered at a
+// tier this install no longer offers (LTX_H3_DENSE_10S turned back off, an
+// older pack) must read as "not a draft", not as Draft.
+function h3TierByKeyExact(key) {
+  if (!key) return null;
+  return (H3.tiers || []).find(t => t.key === key) || null;
+}
+
+// The tiers a draft can be finished at: every visible tier the server did NOT
+// flag `draft`. Server-side H3_TIERS stays the single source of truth — this
+// filters, it never invents a tier or an eta.
+function h3FinishTargets() {
+  return (H3.tiers || []).filter(t => !t.draft);
+}
+
+// The user's chosen finish tier, sanity-checked against what this install can
+// actually render. Falls back to the server's `finish_default`, then to the
+// first offered tier — so a stale localStorage entry from a pack that has
+// since lost its chained tiers can't pin the button to something unrenderable.
+function h3FinishTierKey() {
+  const targets = h3FinishTargets();
+  if (!targets.length) return null;
+  let saved = null;
+  try { saved = localStorage.getItem('phos_h3_finish_tier'); } catch (e) {}
+  const wanted = [saved, H3.finish_default, 'hq_5s'];
+  for (const k of wanted) {
+    if (k && targets.some(t => t.key === k)) return k;
+  }
+  return targets[0].key;
+}
+
+function h3FinishSetTier(key) {
+  const targets = h3FinishTargets();
+  if (!targets.some(t => t.key === key)) return;
+  try { localStorage.setItem('phos_h3_finish_tier', key); } catch (e) {}
+  // Re-label in place. The clip stays selected — picking a tier is choosing
+  // what the button will do, not doing it.
+  _syncH3FinishAffordance(findOutputByPath(activePath));
+}
+
+// PURE. Given a completed H3 render's sidecar `params` and the tier to finish
+// at, return the exact #genForm field→value map that reproduces that clip at
+// the new tier — or null when the sidecar isn't a finishable H3 draft.
+//
+// No DOM, no globals: this is the piece that has to be RIGHT (it is where the
+// seed carry-over lives), so it is kept callable in isolation and unit-tested
+// against real sidecar shapes.
+//
+// Every key it emits is in the make_job allowlist — engine, h3_tier,
+// h3_upscale, h3_steps, mode, prompt, negative_prompt, seed, image. A field
+// that isn't in that dict silently no-ops on /queue/add, which is the known
+// trap in this codebase; adding a key here means adding it there too.
+function h3FinishFieldsFromSidecar(p, tierKey) {
+  if (!p || typeof p !== 'object') return null;
+  if (p.engine !== 'h3') return null;
+  if (!tierKey) return null;
+  // seed_used is the integer the H3 path resolved and recorded at render time.
+  // `seed` is what the user SUBMITTED and is '-1' whenever they left it random,
+  // so preferring it would hand the finish render a fresh roll — the exact bug
+  // the Manual loadParams fix (b024bb5) had to correct. Same contract here.
+  const seedRaw = (p.seed_used != null && String(p.seed_used) !== ''
+                   && String(p.seed_used) !== '-1')
+    ? p.seed_used
+    : p.seed;
+  const seed = (seedRaw == null || String(seedRaw) === '') ? '-1' : String(seedRaw);
+  // H3 serves t2v and i2v only; anything else in the sidecar is a corrupt or
+  // hand-edited file, and t2v is the safe read (a bogus mode would be snapped
+  // back server-side anyway, but then the first frame would be silently lost).
+  const mode = (p.mode === 'i2v') ? 'i2v' : 't2v';
+  const fields = {
+    mode: mode,
+    engine: 'h3',
+    h3_tier: String(tierKey),
+    prompt: String(p.prompt || ''),
+    negative_prompt: String(p.negative_prompt || ''),
+    seed: seed,
+    // Export canvas: '' lets the caller keep whatever the panel has, which
+    // matters for sidecars written before h3_upscale existed.
+    h3_upscale: (typeof p.h3_upscale === 'string' && p.h3_upscale) ? p.h3_upscale : '',
+    // The sidecar stores the resolved override as an int, 0 = "the tier's own
+    // count". The form's pills speak 'auto' | '12' | '16' | '20'; anything
+    // outside that set (an older sidecar, a curl'd job) reads as auto so the
+    // finish tier's tuned count is used rather than a depth no pill can show.
+    h3_steps: (['12', '16', '20'].indexOf(String(p.h3_steps)) !== -1)
+      ? String(p.h3_steps) : 'auto',
+    // First frame. i2v without one is not renderable, so it is carried
+    // verbatim; on t2v it is deliberately empty — H3 ignores it and leaving a
+    // stale path in the picker would misrepresent what was queued.
+    image: (mode === 'i2v' && typeof p.image === 'string') ? p.image : '',
+  };
+  if (mode === 'i2v' && !fields.image) return null;
+  return fields;
+}
+
+// Show/hide + re-label the Finish control for the selected output. Called from
+// selectOutput on every selection. Reads o.engine / o.h3_tier, which
+// list_outputs() lifts out of the sidecar read it already performs — no fetch
+// on the selection path.
+function _syncH3FinishAffordance(o) {
+  const wrap = document.getElementById('h3FinishWrap');
+  if (!wrap) return;
+  const label = document.getElementById('h3FinishLabel');
+  const btn = document.getElementById('h3FinishBtn');
+  const sel = document.getElementById('h3FinishTier');
+  const srcTier = (o && o.engine === 'h3') ? h3TierByKeyExact(o.h3_tier) : null;
+  const targetKey = h3FinishTierKey();
+  const target = targetKey ? h3TierByKeyExact(targetKey) : null;
+  // Three ways to be uninteresting: not an H3 clip, an H3 clip already at a
+  // delivery tier, or an install with no non-draft tier to offer.
+  if (!srcTier || !srcTier.draft || !target) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = '';
+  // The eta is the tier's own string from H3_TIERS — never a number computed
+  // here, so the measured wall times stay in one place. The tier's label has
+  // its own "·" ("HQ · 5s"), which is flattened to "HQ 5s" so the one dot left
+  // separates the tier from its cost. Naming the LENGTH matters: "HQ" alone
+  // reads the same for the 3 s and 5 s tiers and only the eta would differ.
+  const name = String(target.label).replace(/\s*·\s*/g, ' ').trim();
+  if (label) label.textContent = `Finish at ${name} · ${target.eta}`;
+  if (btn) {
+    btn.title = `Re-render this draft at ${target.label} (${target.spec}, `
+              + `${target.eta}) with the same prompt, seed and first frame`;
+  }
+  if (sel) {
+    const opts = h3FinishTargets()
+      .map(t => `<option value="${escapeHtml(t.key)}"${t.key === target.key ? ' selected' : ''}>`
+              + `${escapeHtml(t.label)} · ${escapeHtml(t.eta)}</option>`)
+      .join('');
+    // Only rebuild when the option set actually changed — this runs on every
+    // gallery click and blowing away the <select> each time would fight the
+    // native dropdown if it happened to be open.
+    if (sel.dataset.built !== opts) {
+      sel.innerHTML = opts;
+      sel.dataset.built = opts;
+    }
+    sel.value = target.key;
+  }
+}
+
+// Commit the selected draft. Restores the sidecar into the form (Load Params
+// pattern) with the tier swapped, then submits through #genForm's own handler.
+async function h3FinishActive() {
+  if (!activePath) return;
+  const o = findOutputByPath(activePath);
+  const srcTier = (o && o.engine === 'h3') ? h3TierByKeyExact(o.h3_tier) : null;
+  if (!srcTier || !srcTier.draft) return;   // button shouldn't be visible
+  const targetKey = h3FinishTierKey();
+  const target = targetKey ? h3TierByKeyExact(targetKey) : null;
+  if (!target) return;
+
+  let p = null;
+  try {
+    const r = await fetch('/sidecar?path=' + encodeURIComponent(activePath));
+    if (!r.ok) throw new Error('no sidecar (older output?)');
+    const data = await r.json();
+    p = data && data.params;
+  } catch (e) {
+    if (typeof phosToast === 'function') {
+      phosToast('Finish: ' + (e.message || 'failed to read sidecar'), { kind: 'danger' });
+    }
+    return;
+  }
+  const fields = h3FinishFieldsFromSidecar(p, target.key);
+  if (!fields) {
+    if (typeof phosToast === 'function') {
+      phosToast('Finish: this clip\'s sidecar is missing what the re-render needs.',
+                { kind: 'danger' });
+    }
+    return;
+  }
+
+  // ---- restore into the form -------------------------------------------
+  // Leave Image Studio / Train first, or setMode alone looks like a no-op
+  // (body[data-workflow] keeps #genForm hidden) — same reason animateFromPhoto
+  // calls this.
+  if (typeof workflowSwitch === 'function') { try { workflowSwitch('manual'); } catch (e) {} }
+  setMode(fields.mode);
+  if (fields.mode === 'i2v') {
+    // setMode('i2v') copies the #i2vMode SELECT into the hidden #mode, and
+    // that select may still be sitting on 'i2v_clean_audio' from an earlier
+    // LTX render. H3 doesn't serve that mode — make_job would silently demote
+    // the job to LTX and render the wrong engine at H3 geometry. Pin both,
+    // same as loadParams does when restoring an i2v sidecar.
+    const i2vSel = document.getElementById('i2vMode');
+    if (i2vSel) i2vSel.value = 'i2v';
+    document.getElementById('mode').value = 'i2v';
+  }
+  // setMode() runs _syncEngineForMode(), which re-applies the PERSISTED
+  // engine — so the engine has to be forced AFTER it, not before. setEngine
+  // re-runs every gate (RAM, install, mode) and returns what it actually
+  // landed on; if that isn't h3 the job would silently queue on LTX at H3
+  // geometry, so bail loudly instead.
+  const engine = (typeof setEngine === 'function') ? setEngine('h3') : 'ltx';
+  if (engine !== 'h3') {
+    const note = (document.getElementById('engineRowNote') || {}).textContent || '';
+    if (typeof phosToast === 'function') {
+      phosToast('Finish needs the Hailuo H3 engine. ' + note, { kind: 'danger' });
+    }
+    return;
+  }
+  document.getElementById('prompt').value = fields.prompt;
+  document.getElementById('negative_prompt').value = fields.negative_prompt;
+  if (typeof syncAvoidRowFromValue === 'function') {
+    try { syncAvoidRowFromValue(); } catch (e) {}
+  }
+  if (fields.image) {
+    // pickerSetImage keeps the preview tile + recent-strip selection in sync
+    // with the hidden input. snapAspect:false because the H3 tier owns the
+    // geometry (setH3Tier below stamps width/height/frames).
+    if (typeof pickerSetImage === 'function') {
+      pickerSetImage('image', fields.image, { snapAspect: false });
+    } else {
+      document.getElementById('image').value = fields.image;
+    }
+  }
+  if (fields.h3_upscale && typeof setH3Upscale === 'function') setH3Upscale(fields.h3_upscale);
+  if (typeof setH3Steps === 'function') setH3Steps(fields.h3_steps);
+  // Tier LAST of the H3 controls: setH3Tier stamps width/height/frames/steps
+  // from the tier table, so anything geometry-related set after it would be
+  // fighting the source of truth.
+  setH3Tier(fields.h3_tier);
+  // Seed after the tier for the same reason it comes last in loadParams:
+  // nothing downstream may quietly re-randomise it.
+  document.getElementById('seed').value = fields.seed;
+  if (typeof updateCustomizeSummary === 'function') { try { updateCustomizeSummary(); } catch (e) {} }
+  if (typeof updateDerived === 'function') { try { updateDerived(); } catch (e) {} }
+  const formPane = document.querySelector('aside.form-pane');
+  if (formPane) formPane.scrollTop = 0;
+
+  // ---- queue it ---------------------------------------------------------
+  // requestSubmit(), not submit(): the latter bypasses the submit listener
+  // that owns the double-click guard and the prompt modifiers.
+  const form = document.getElementById('genForm');
+  if (!form || typeof form.requestSubmit !== 'function') {
+    if (typeof phosToast === 'function') {
+      phosToast('Finish: form not ready — press Generate.', { kind: 'danger' });
+    }
+    return;
+  }
+  if (typeof phosToast === 'function') {
+    phosToast(`Finishing at ${target.label} · ${target.eta} · seed ${fields.seed}`,
+              { kind: 'success' });
+  }
+  form.requestSubmit();
 }
 
 // Modes H3 can serve. Anything else must run on LTX.
@@ -31591,7 +31987,16 @@ function updateH3Availability(s) {
                || (next.reason !== H3.reason)
                || ((next.tiers || []).length !== (H3.tiers || []).length);
   H3 = next;
-  if (changed) setEngine(currentEngine(), { persist: false });
+  if (changed) {
+    setEngine(currentEngine(), { persist: false });
+    // The Finish button's label and its picker are both derived from H3.tiers,
+    // so a pack install/repair that changes the offered tiers has to re-label
+    // the currently-selected clip's affordance too — otherwise it keeps
+    // advertising a tier this install just stopped (or started) offering.
+    if (typeof _syncH3FinishAffordance === 'function') {
+      try { _syncH3FinishAffordance(findOutputByPath(activePath)); } catch (e) {}
+    }
+  }
 }
 
 document.querySelectorAll('#engineGroup .engine-chip').forEach(b => b.onclick = () => {
@@ -33660,6 +34065,12 @@ function selectOutput(path) {
   const animBtn = document.getElementById('animateBtn');
   if (useExtBtn) useExtBtn.style.display = isPhoto ? 'none' : '';
   if (animBtn) animBtn.style.display = isPhoto ? '' : 'none';
+  // "Finish at …" — only for a completed H3 render whose tier is a draft
+  // tier. Decided from o.engine / o.h3_tier (both sidecar-derived, already in
+  // the /status payload), so no extra request rides the selection path.
+  if (typeof _syncH3FinishAffordance === 'function') {
+    try { _syncH3FinishAffordance(isPhoto ? null : o); } catch (e) {}
+  }
 }
 
 // Expand lightbox — full-viewport viewer for the active output. Reuses
