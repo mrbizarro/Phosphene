@@ -5008,8 +5008,45 @@ H3_TURBO_NOTE = ("Turbo is a 4-step distillation LoRA — fewer denoise passes, 
 #   15 s chain  = 26:34  (3 × 124f — a length the dense path cannot reach here)
 # Chaining is what makes 8 forwards legitimate past 5 s: every pass IS a 5 s
 # pass, so every pass is inside the regime where 8 forwards was validated.
-H3_TIER_CHAIN_NOTE = ("Scripted dialogue repeats once per 5 s window — put "
-                      "dialogue cues late in the prompt.")
+# The chained-window artefact, and its FIX. Every window gets the same prompt
+# unless you say otherwise, so a DISCRETE action ("he raises his arm", "she says
+# the line") is performed again in window 2 and the clip reads as a loop — the
+# frames are genuinely unique (verified frame-by-frame: the background
+# progresses continuously across the seam), it is the ACTION that repeats,
+# because that is exactly what the second window was asked for. A CONTINUOUS
+# action ("he walks") carries on fine. Reported in public by @Wizard_1981 as
+# "10s and 15s just repeat immediately after 5 seconds", which is the same
+# thing seen from the outside.
+#
+# The runner has taken `--chain-prompts` the whole time; the Per-window prompts
+# control wires it up, so this note POINTS AT THE FIX instead of only warning
+# about the symptom. h3_visible_tiers() swaps in the _LEGACY text when the INSTALLED
+# runner predates the flag — an older pack still gets the honest warning, and
+# nothing tells that user to look for a control they don't have.
+H3_TIER_CHAIN_NOTE = ("Every 5 s window is asked for the same prompt, so a "
+                      "one-off action happens once per window — open "
+                      "Per-window prompts below to give each window its own "
+                      "beat.")
+H3_TIER_CHAIN_NOTE_LEGACY = ("Scripted dialogue repeats once per 5 s window — "
+                             "put dialogue cues late in the prompt. Per-window "
+                             "prompts need `--chain-prompts` on the installed "
+                             "H3 runner; re-run 'Install Hailuo H3' from the "
+                             "Phosphene sidebar to update the clone (weights "
+                             "stay).")
+# The `?` copy for the per-window prompts control. Server-side because the panel
+# already keeps every honest sentence in Python — one place to edit, and the UI
+# can never disagree with the mechanism it is describing.
+H3_CHAIN_PROMPT_HELP = (
+    "A 10 s clip renders as two 5-second windows, 15 s as three. By default "
+    "every window is asked for the same prompt, so a one-off action — “he "
+    "raises his arm”, a line of dialogue — happens once in each window and "
+    "the clip reads as a repeat. Give each window its own line and you get a "
+    "real two- or three-beat shot: window 1 sets it up, window 2 pays it off. "
+    "Leave a box empty and that window falls back to the main prompt.")
+# The runner's shell spelling for a chain of prompts. The panel writes a JSON
+# file instead (no separator to collide with a prompt that contains '|||'), but
+# a hand-rolled curl may still post this form and it costs one split to accept.
+H3_CHAIN_PROMPT_SEPARATOR = " ||| "
 # The Draft canvas renders at 0.25 MP. The H3 community's practical floor is
 # ~0.5 MP, and video STRUCTURE resolves in the last denoise step, so at 9 steps a
 # 0.25 MP pass is genuinely noisy: composition, motion and dialogue timing are
@@ -5877,6 +5914,68 @@ def h3_supports_chain() -> bool:
     return _h3_runner_has_flag("--chain-windows")
 
 
+def h3_supports_chain_prompts() -> bool:
+    """Whether the INSTALLED runner accepts `--chain-prompts` (one prompt per
+    chained window).
+
+    Landed on codex/h3-engine AFTER chaining itself ("Give every window in a
+    chain its own prompt"), so a pack cloned in between renders 10 s / 15 s
+    perfectly well and simply cannot be told what each window should do. Same
+    probe, same reason, as --first-frame / --lora-adaln / --chain-windows: hide
+    the control rather than dying on an argparse error 30 s into a render, and
+    keep the honest warning on the cell for that user."""
+    return _h3_runner_has_flag("--chain-prompts")
+
+
+def h3_normalize_chain_prompts(raw, windows: int) -> list[str]:
+    """Whatever the form (or a curl) posted → exactly one entry per window.
+
+    The runner is strict on purpose — it refuses a count that doesn't match
+    `--chain-windows` and refuses an empty window prompt — because silently
+    recycling or truncating a shot list is how dialogue lands in the wrong
+    window. So the panel does the matching here, once, server-side:
+
+      * never MORE than `windows` (an extra entry fails the whole job),
+      * never FEWER (padded with "", which the render path fills from the main
+        prompt — a half-filled form is never a half-empty render),
+      * [] whenever the shape isn't chained, so a stale tab that still holds a
+        10 s shot list cannot smuggle a chain flag onto a 5 s render,
+      * [] when every box is blank, because that IS the default and taking the
+        flag path for it would only add moving parts.
+
+    Wire format is a JSON array of strings — one field whatever the window
+    count, so the control can follow the Length strip instead of being capped
+    by a fixed set of field names. A bare `' ||| '` string is accepted too:
+    that is the runner's own spelling and a hand-rolled curl may well use it.
+    """
+    try:
+        windows = int(windows)
+    except (TypeError, ValueError):
+        windows = 1
+    if windows <= 1:
+        return []
+    items: list = []
+    if isinstance(raw, (list, tuple)):
+        items = list(raw)
+    else:
+        spec = (str(raw or "")).strip()
+        if spec:
+            loaded = None
+            try:
+                loaded = json.loads(spec)
+            except (ValueError, TypeError):
+                loaded = None
+            if isinstance(loaded, list):
+                items = loaded
+            elif isinstance(loaded, str):
+                items = [loaded]
+            else:
+                items = spec.split(H3_CHAIN_PROMPT_SEPARATOR.strip())
+    out = [("" if x is None else str(x)).strip() for x in items][:windows]
+    out += [""] * (windows - len(out))
+    return out if any(out) else []
+
+
 _H3_EXPORT_NOTES: dict[tuple[int, int], dict[str, str]] = {}
 
 
@@ -5926,6 +6025,13 @@ def h3_visible_tiers() -> list[dict]:
     make_job re-runs the same predicate (h3_cell_gate) server-side, so a stale
     tab still cannot queue an unrenderable job."""
     out = []
+    # The chained note is written for the install that HAS the fix ("open
+    # Per-window prompts below"). A pack whose runner predates
+    # `--chain-prompts` has no such control, so it gets the original warning
+    # instead — swapped here rather than in the browser because the cell's
+    # `notes` list is the one place the text lives, and a JS-side string match
+    # would drift the first time either sentence is edited.
+    per_window = h3_supports_chain_prompts()
     for t in H3_TIERS.values():
         if not t.get("offered"):
             continue
@@ -5933,6 +6039,11 @@ def h3_visible_tiers() -> list[dict]:
         t = dict(t)
         t["available"] = ok
         t["unavailable_reason"] = reason
+        if not per_window and int(t.get("chain_windows") or 1) > 1:
+            t["notes"] = [H3_TIER_CHAIN_NOTE_LEGACY
+                          if n == H3_TIER_CHAIN_NOTE else n
+                          for n in (t.get("notes") or [])]
+            t["note"] = " ".join(t["notes"])
         out.append(t)
     return out
 
@@ -5969,6 +6080,15 @@ def h3_status() -> dict:
         "installed": available,
         "first_frame": available and h3_supports_first_frame(),
         "chain": available and h3_supports_chain(),
+        # Per-window prompts — a SECOND probe, not a synonym for `chain`:
+        # chaining and `--chain-prompts` landed on the runner at different
+        # times, so a pack exists that renders 10 s / 15 s and cannot be told
+        # what each window should do. False hides the control and leaves the
+        # cell carrying H3_TIER_CHAIN_NOTE_LEGACY instead.
+        "chain_prompts": available and h3_supports_chain_prompts(),
+        # The `?` copy for that control, so the sentence explaining the
+        # mechanic lives next to the mechanic.
+        "chain_prompt_help": H3_CHAIN_PROMPT_HELP,
         # Turbo — the 4-step distill LoRA. A separate block rather than a bare
         # flag because "off" has three causes the UI must not conflate: H3
         # itself isn't there, the runner predates --lora, or the 0.8 GB simply
@@ -9466,6 +9586,13 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # or a curl must never reach the worker asking for an adapter this install
     # doesn't have).
     _h3_turbo = (f("h3_turbo", "") or "").strip().lower() in ("1", "true", "on", "yes")
+    # Per-window prompts for a CHAINED length: a JSON array of strings, one per
+    # 5 s window, "" meaning "this window uses the main prompt". Read raw here
+    # and normalised below, AFTER the tier fallback has settled — the window
+    # count is a property of the cell that will actually render, not of the one
+    # the form asked for. Empty list = today's behaviour, unchanged.
+    _h3_chain_prompts_raw = f("h3_chain_prompts", "")
+    _h3_chain_prompts: list[str] = []
     if _engine == "h3":
         # The same predicate the switcher uses for the affordance, so the two
         # can't drift — and this is the copy that decides. Reads `modes` +
@@ -9505,7 +9632,26 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                     + "; ".join(_turbo["missing"]) + ")."
                 ) + f" Rendering at this shape's own {H3_TIERS[_h3_tier]['steps']} steps.")
                 _h3_turbo = False
+        # Per-window prompts, matched to the cell that will ACTUALLY render.
+        # Normalising after the fallback above is the whole point: a 15 s
+        # request that degraded to 5 s has one window, and three prompts on a
+        # one-window job is an argparse error, not a render.
+        _h3_chain_prompts = h3_normalize_chain_prompts(
+            _h3_chain_prompts_raw,
+            int(H3_TIERS[_h3_tier].get("chain_windows") or 1))
+        if _h3_chain_prompts and h3_available() and not h3_supports_chain_prompts():
+            # Same shape as the Turbo gate: a control this pack can't serve is
+            # dropped with a sentence, not queued into an argparse failure.
+            push("Per-window prompts need `--chain-prompts` on the installed "
+                 "H3 runner, which this checkout doesn't have — rendering "
+                 "every window with the main prompt. Re-run 'Install Hailuo "
+                 "H3' from the Phosphene sidebar to update the clone; your "
+                 "weights stay.")
+            _h3_chain_prompts = []
     else:
+        # A chained shot list means nothing on the LTX lane, and a fallback to
+        # LTX above must not leave one on the job.
+        _h3_chain_prompts = []
         # Turbo is an H3 sampler mode and means nothing on the LTX lane; a
         # fallback to LTX above must not leave the flag set on the job.
         _h3_turbo = False
@@ -9556,6 +9702,16 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # this dict — leaving `h3_turbo` out of here is how the control
             # would look wired, pass validation, and silently render at 9.
             "h3_turbo": _h3_turbo,
+            # Per-window prompts for a chained length: one entry per 5 s
+            # window, in render order, "" = "use the main prompt for this
+            # window". Already clamped to the resolved cell's window count
+            # (h3_normalize_chain_prompts), and [] on every non-chained shape
+            # and on the LTX lane. Stored as the list the USER typed — blanks
+            # included — so Load Params restores the boxes exactly; the render
+            # path is what fills a blank from the main prompt. SAME allowlist
+            # trap as every key in this dict: leave it out and the whole
+            # control looks wired and silently no-ops on /queue/add.
+            "h3_chain_prompts": _h3_chain_prompts,
             "prompt": prompt,
             "negative_prompt": f("negative_prompt", ""),
             "width": max(32, int(f("width", str(default_w)) or default_w)),
@@ -10940,6 +11096,44 @@ def run_h3_job_inner(job: dict) -> None:
         raise RuntimeError("H3 needs a prompt — dialogue and sound are "
                            "generated jointly from it.")
 
+    # ---- per-window prompts ---------------------------------------------
+    # A chained length renders N 5 s windows and, by default, asks EVERY window
+    # for the SAME prompt. That is the whole of the "10s just repeats after 5
+    # seconds" report: the frames are unique (the background progresses
+    # continuously across the seam — verified frame by frame) but a DISCRETE
+    # action is performed again in window 2, because that is what window 2 was
+    # asked for. `--chain-prompts` gives each window its own text conditioning.
+    #
+    # Three rules, and each one is load-bearing:
+    #   * a blank box falls back to the MAIN prompt here, never to an empty
+    #     string — the runner refuses an empty window prompt outright;
+    #   * an all-identical list is NOT sent, because it is bit-for-bit what the
+    #     default already does, so the flag path is reserved for a real shot
+    #     list and an older pack keeps rendering the job;
+    #   * the flag is probed on the INSTALLED runner, not assumed. A pack from
+    #     between "chaining" and "per-window prompts" renders 10 s happily and
+    #     would die on an argparse error 30 s in.
+    chain_prompts: list[str] = []
+    chain_prompts_path: Path | None = None
+    if chain_windows > 1:
+        _asked = p.get("h3_chain_prompts") or []
+        if isinstance(_asked, str):
+            _asked = h3_normalize_chain_prompts(_asked, chain_windows)
+        if isinstance(_asked, (list, tuple)):
+            _filled = [("" if x is None else str(x)).strip() or prompt
+                       for x in list(_asked)[:chain_windows]]
+            _filled += [prompt] * (chain_windows - len(_filled))
+            if any(x != prompt for x in _filled):
+                if h3_supports_chain_prompts():
+                    chain_prompts = _filled
+                else:
+                    push("[h3] per-window prompts need `--chain-prompts` on "
+                         f"the installed runner ({paths['runner']}) — "
+                         "rendering every window with the main prompt "
+                         "instead. Re-run 'Install Hailuo H3' from the "
+                         "Phosphene sidebar to update the clone; your weights "
+                         "stay.")
+
     # ---- Turbo: the 4-step distillation LoRA -----------------------------
     # make_job already gated this and pinned `steps`, but re-resolve the files
     # HERE: the queue can sit for an hour and a job must not reach the runner
@@ -11002,6 +11196,21 @@ def run_h3_job_inner(job: dict) -> None:
         pass
     job["raw_path"] = str(out_path)
 
+    # The shot list goes to the runner as a FILE, not as a ' ||| '-separated
+    # argv string. Both spellings are accepted by `parse_chain_prompts`; the
+    # file is the one that can't be broken by a prompt that happens to contain
+    # '|||', and it keeps a three-paragraph shot list out of the process table.
+    # `.json` is what makes the runner read it as a path rather than as prompts.
+    if chain_prompts:
+        chain_prompts_path = metrics_dir / f"{job['id']}.chain_prompts.json"
+        try:
+            chain_prompts_path.write_text(
+                json.dumps(chain_prompts, ensure_ascii=False), encoding="utf-8")
+        except OSError as exc:
+            raise RuntimeError(
+                "Couldn't write the per-window prompt list to "
+                f"{chain_prompts_path}: {exc}") from exc
+
     # ---- memory safety: the warm helper cannot coexist with H3 -----------
     if HELPER.is_alive():
         push("[h3] stopping the LTX warm helper — H3 peaks around 40 GiB and "
@@ -11014,7 +11223,14 @@ def run_h3_job_inner(job: dict) -> None:
         # process-group leader means /stop's killpg takes both down together.
         "caffeinate", "-i",
         str(paths["python"]), str(paths["runner"]),
-        prompt,
+    ]
+    # The positional prompt and `--chain-prompts` are MUTUALLY EXCLUSIVE on the
+    # runner ("with both, which one a window should use is a guess"), so the
+    # positional argument is dropped entirely on the shot-list path. Everything
+    # else about the argv is identical.
+    if chain_prompts_path is None:
+        cmd.append(prompt)
+    cmd += [
         "--dit", str(paths["dit"]),
         "--compact-root", str(paths["compact_root"]),
         "--text-config", str(paths["text_config"]),
@@ -11035,6 +11251,8 @@ def run_h3_job_inner(job: dict) -> None:
         # defaults to one frame (the chain's real overlap) in the runner.
         cmd += ["--chain-windows", str(chain_windows),
                 "--chain-total-frames", str(frames)]
+        if chain_prompts_path is not None:
+            cmd += ["--chain-prompts", str(chain_prompts_path)]
     if first_frame is not None:
         cmd += ["--first-frame", str(first_frame)]
     if turbo:
@@ -11055,14 +11273,24 @@ def run_h3_job_inner(job: dict) -> None:
          + (" · Turbo (4-step distill LoRA)" if turbo else "")
          + (f" · {chain_windows} chained windows of {window_frames}f"
             if chain_windows > 1 else "")
+         + (" · per-window prompts" if chain_prompts else "")
          + (f" · first frame {first_frame.name}" if first_frame else ""))
     if turbo:
         push(f"[h3] {H3_TURBO_NOTE}")
+    # The shot list, in the log, in render order — so a clip whose second beat
+    # didn't land can be diagnosed from the log alone.
+    for _i, _wp in enumerate(chain_prompts, 1):
+        push(f"[h3] window {_i}/{chain_windows}: "
+             + (_wp if len(_wp) <= 200 else _wp[:197] + "..."))
     # Every note this shape owes the user, not just the chained one: a Draft
     # 10 s clip carries BOTH the 0.25 MP caveat and the per-window prompt one,
     # and the chained note now applies at any quality rather than only at the
     # two canvases the old fixed tiers happened to offer past 5 s.
     for _note in (tier.get("notes") or []):
+        # The chained note tells the user to open Per-window prompts. They
+        # did — don't warn about a problem this render has already solved.
+        if chain_prompts and _note == H3_TIER_CHAIN_NOTE:
+            continue
         push(f"[h3] note: {_note}")
     push("[h3] $ " + " ".join(shlex.quote(c) for c in cmd))
 
@@ -11343,6 +11571,13 @@ def run_h3_job_inner(job: dict) -> None:
                       if turbo else None),
             "chain_windows": chain_windows,
             "window_frames": window_frames,
+            # The RESOLVED shot list — blanks already filled from the main
+            # prompt — so the ⓘ modal shows what each window was actually
+            # asked for. None means "one prompt, every window" (the default),
+            # which is a fact worth recording rather than an absence. The raw
+            # list the user typed rides in `params.h3_chain_prompts` for Load
+            # Params, blanks and all.
+            "chain_prompts": chain_prompts or None,
             "delivered_frames": metrics.get("delivered_frames", frames),
             "windows": metrics.get("windows"),
             "seams": len(metrics.get("seams") or []) if chain_windows > 1 else 0,
@@ -25002,6 +25237,63 @@ HTML = r"""<!doctype html>
       text-decoration-color: rgba(255,255,255,0.25);
     }
     #h3LengthGroup .q-chip.unavailable .ql-tier { font-style: italic; }
+
+    /* Per-window prompts. Same .cz-control grammar as Speed / Steps / Export,
+       so the fourth H3 control reads as one of the family rather than as a
+       bolted-on box; the toggle is the page's existing .toggle-pill (No music,
+       No voice), pushed right by a spacer the way the composer-tools row does
+       it. Only the textarea sizing and the two new primitives below are new. */
+    .h3-winprompts .h3-winprompts-spacer { flex: 1 1 auto; }
+    .h3-winprompts .toggle-pill { flex: 0 0 auto; }
+    .h3-winlist { display: grid; gap: 8px; }
+    .h3-winlist[hidden] { display: none !important; }
+    .h3-winlist .h3-win-label {
+      display: flex; align-items: baseline; gap: 6px;
+      margin: 0 0 4px 2px;
+      font-size: 10px; font-weight: 600;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--muted);
+    }
+    .h3-winlist .h3-win-span {
+      font-weight: 400; letter-spacing: 0; text-transform: none;
+      font-size: 10px; opacity: 0.7;
+    }
+    /* Two lines is the right size for a beat: enough to see the whole line,
+       small enough that three of them don't push Speed off the screen. */
+    textarea.h3-win-ta { min-height: 48px; }
+    /* The `?` affordance — the panel's first one. Sized to sit on a .cz-label
+       baseline without changing the row's height, and tinted with the active
+       engine's accent when open so it reads as "this is showing you something"
+       rather than as a dead glyph. */
+    .help-dot {
+      width: 15px; height: 15px; flex: 0 0 auto;
+      padding: 0; line-height: 1;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 700;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: transparent; color: var(--muted);
+      cursor: pointer; align-self: center;
+    }
+    .help-dot:hover {
+      color: var(--eng-accent, var(--accent-bright));
+      border-color: var(--eng-soft, var(--accent));
+    }
+    .help-dot[aria-expanded="true"] {
+      color: var(--eng-accent, var(--accent-bright));
+      border-color: var(--eng-soft, var(--accent));
+    }
+    /* The revealed sentence. A left rule instead of a box: it is an aside about
+       the control above it, not a second control. */
+    .h3-winhelp {
+      margin: 0 0 9px 0;
+      padding: 2px 0 2px 9px;
+      border-left: 2px solid var(--eng-soft, var(--border));
+      font-size: 11.5px; line-height: 1.55;
+      font-weight: 400; letter-spacing: 0; text-transform: none;
+      color: var(--muted);
+    }
+    .h3-winhelp[hidden] { display: none !important; }
   </style>
 </head>
 <!-- data-cap-tier is set at request time by page() based on SYSTEM_CAPS.allows_q8
@@ -25727,6 +26019,15 @@ HTML = r"""<!doctype html>
         <input type="hidden" name="h3_upscale" id="h3_upscale" value="fit_720p">
         <input type="hidden" name="h3_steps" id="h3_steps" value="auto">
         <input type="hidden" name="h3_turbo" id="h3_turbo" value="0">
+        <!-- Per-window prompts for a chained length, posted as ONE field: a
+             JSON array of strings, one entry per 5 s window, in render order.
+             One field rather than h3_chain_prompt_1..N because the window count
+             follows the Length strip — a fixed set of field names would either
+             cap the feature or drift from the table the moment a length is
+             added. Empty string = off = one prompt for every window, which is
+             exactly what shipped. In the make_job allowlist (a field that isn't
+             listed there silently no-ops on /queue/add — the known trap). -->
+        <input type="hidden" name="h3_chain_prompts" id="h3_chain_prompts" value="">
         <div class="engine-note" id="engineRowNote" hidden></div>
         <!-- The engine's standing note. Second sentence added with the player
              scoping (Part C): Extend is an LTX pipeline and is now hidden on
@@ -25840,10 +26141,65 @@ HTML = r"""<!doctype html>
                the cell's `notes` list (server-side), so a Draft 10 s clip is
                told BOTH that 0.25 MP doesn't resolve faces and that one prompt
                is asked of every 5 s window. The chained warning now fires at any
-               quality, because chaining is now available at any quality. The day
-               per-window prompts land in the UI, the warning disappears with one
-               Python edit. -->
+               quality, because chaining is now available at any quality. The
+               chained sentence now POINTS AT the control below instead of only
+               warning; h3_visible_tiers() swaps the old warning back in for a
+               pack whose runner has no --chain-prompts. -->
           <div class="engine-hint" id="h3TierNote" data-h3-only hidden></div>
+
+          <!-- ========== PER-WINDOW PROMPTS (chained lengths only) ==========
+               The fix for the public report — @Wizard_1981, v3.6.0: "10s and
+               15s just repeat immediately after 5 seconds." The frames were
+               never duplicated (a 10 s render was checked frame by frame; the
+               background progresses continuously across the seam). What
+               repeated was the ACTION, because a 10 s clip is two chained 5 s
+               windows and BOTH were handed the same prompt. A continuous action
+               ("he walks") carries on fine; a discrete one ("he raises his arm",
+               a line of dialogue) is performed once per window and reads as a
+               loop. Our own tier note has warned about this in words since
+               v3.4.1 — and the runner has taken `--chain-prompts` the whole
+               time. This is the control that reaches it.
+
+               DEFAULT IS UNCHANGED. Off (the default) posts nothing and every
+               window gets the main prompt, exactly as before. On reveals one
+               small textarea per window, seeded with the main prompt so the
+               user EDITS a shot list instead of facing blank boxes, and a box
+               left empty falls back to the main prompt server-side.
+
+               Visible only when the selected Length is chained, and it follows
+               the Length strip live — 10 s shows two boxes, 15 s shows three
+               (renderH3WindowPrompts, called from _h3ApplyShape). Hidden
+               entirely when the INSTALLED runner has no `--chain-prompts`: that
+               user keeps the honest warning on the cell instead of being sent
+               looking for a control they don't have.
+
+               Sits between the Length strip and Speed on purpose — it only
+               exists because of a Length the user just chose, and it is about
+               WHAT renders, not how long it takes. -->
+          <div class="cz-control h3-winprompts" id="h3WindowPromptsRow" data-h3-only hidden>
+            <div class="cz-label">
+              <span>Per-window prompts</span>
+              <!-- The `?`. The panel had no help idiom of its own — every
+                   explanation lived in a title= tooltip, which is invisible on
+                   a trackpad and unreachable on a touch screen. One round
+                   button, one sentence revealed in place, text owned by Python
+                   (H3_CHAIN_PROMPT_HELP) so it can't drift from the mechanism. -->
+              <button type="button" class="help-dot" id="h3WinHelpBtn"
+                      aria-expanded="false" aria-controls="h3WinHelpNote"
+                      title="What are windows?"
+                      onclick="toggleH3WindowHelp()">?</button>
+              <span class="cz-label-hint" id="h3WinPromptsHint"></span>
+              <span class="h3-winprompts-spacer"></span>
+              <label class="toggle-pill" id="h3WinPromptsPill"
+                     title="Give each 5 s window its own line. Off = one prompt for the whole clip.">
+                <input type="checkbox" id="h3WinPromptsToggle">
+                <span class="toggle-dot"></span>
+                <span>One line per window</span>
+              </label>
+            </div>
+            <div class="h3-winhelp" id="h3WinHelpNote" hidden></div>
+            <div class="h3-winlist" id="h3WinPromptsList" hidden></div>
+          </div>
 
           <!-- ========== H3 PRIMARY CONTROLS — Speed + Steps ==========
                These two shipped inside the Customize disclosure and the owner
@@ -33944,6 +34300,12 @@ function _h3ApplyShape(qualityKey, lengthKey, opts) {
   // The export line is per (canvas × target): switching quality changes whether
   // this canvas exports clean or padded, so it has to be re-read here too.
   _h3SyncExportNote();
+  // Per-window prompts exist only for a CHAINED length and there is one box per
+  // window, so the control has to follow the Length axis live: 5s hides it, 10s
+  // shows two boxes, 15s shows three (and the third is seeded, not blank).
+  if (typeof renderH3WindowPrompts === 'function') {
+    try { renderH3WindowPrompts(); } catch (e) {}
+  }
   try {
     localStorage.setItem('phos_h3_quality', cell.quality);
     localStorage.setItem('phos_h3_length', cell.length);
@@ -33955,6 +34317,162 @@ function _h3ApplyShape(qualityKey, lengthKey, opts) {
   if (typeof renderH3Turbo === 'function') { try { renderH3Turbo(); } catch (e) {} }
   if (typeof updateDerived === 'function') { try { updateDerived(); } catch (e) {} }
   if (typeof updateCustomizeSummary === 'function') { try { updateCustomizeSummary(); } catch (e) {} }
+}
+
+// ---- Per-window prompts -----------------------------------------------------
+// A 10 s clip is TWO chained 5-second windows and a 15 s clip is three, and by
+// default every window is handed the same prompt — which is why a one-off
+// action reads as a loop even though the frames are genuinely unique. These
+// five functions are the whole control; the runner has taken `--chain-prompts`
+// since before v3.4.1 and nothing but the UI was missing.
+//
+// The default is untouched: with the toggle off the hidden field posts an empty
+// string, make_job normalises that to [], and run_h3_job_inner takes exactly the
+// argv it always did.
+
+// How many windows the CURRENTLY SELECTED cell renders. Read off the server's
+// cell, never computed here — the browser looks a cell up, it never invents one.
+function h3ChainWindows() {
+  const cell = h3CellFor(h3CurrentQuality(), h3CurrentLength());
+  return Math.max(1, Number((cell && cell.chain_windows) || 1));
+}
+
+// Whether the INSTALLED runner can take a shot list at all. A SECOND probe, not
+// a synonym for H3.chain: chaining and --chain-prompts landed on the runner at
+// different times, so a pack exists that renders 10 s / 15 s and cannot be told
+// what each window should do. That user keeps the honest warning on the cell
+// (swapped in server-side) and never sees this control.
+function h3ChainPromptsSupported() {
+  return !!(H3 && H3.chain_prompts);
+}
+
+function _h3WinValues() {
+  return Array.prototype.slice
+    .call(document.querySelectorAll('#h3WinPromptsList .h3-win-ta'))
+    .map(t => String(t.value || ''));
+}
+
+// The one place the hidden field is written. Anything that isn't a live, on,
+// chained control posts '' — a stale list left over from a 15 s selection must
+// never ride along on a 5 s render (make_job clamps it too, but the form should
+// not be lying about what it is submitting).
+function _h3SerializeWindowPrompts() {
+  const inp = document.getElementById('h3_chain_prompts');
+  if (!inp) return;
+  const row = document.getElementById('h3WindowPromptsRow');
+  const on = !!(document.getElementById('h3WinPromptsToggle') || {}).checked;
+  if (!row || row.hidden || !on) { inp.value = ''; return; }
+  const vals = _h3WinValues().slice(0, h3ChainWindows());
+  // All-blank is the default by another name; post nothing rather than an array
+  // of empty strings.
+  inp.value = vals.some(v => v.trim()) ? JSON.stringify(vals) : '';
+}
+
+// Build (or rebuild) one labelled textarea per window. Existing text survives a
+// rebuild — switching 10s → 15s keeps both beats and adds a third — and a box
+// that did not exist before is seeded with the main prompt whenever the control
+// is on, so the user is always editing a shot list rather than staring at a
+// blank box wondering what belongs in it.
+function renderH3WindowPrompts() {
+  const row = document.getElementById('h3WindowPromptsRow');
+  const list = document.getElementById('h3WinPromptsList');
+  const toggle = document.getElementById('h3WinPromptsToggle');
+  if (!row || !list || !toggle) return;
+  if (!toggle.dataset.init) {
+    toggle.dataset.init = '1';
+    let saved = null;
+    try { saved = localStorage.getItem('phos_h3_winprompts'); } catch (e) {}
+    toggle.checked = (saved === '1');
+    toggle.addEventListener('change', () => toggleH3WindowPrompts(toggle.checked));
+  }
+  const help = document.getElementById('h3WinHelpNote');
+  if (help && H3 && H3.chain_prompt_help && !help.textContent) {
+    help.textContent = H3.chain_prompt_help;
+  }
+  const windows = h3ChainWindows();
+  const engineIsH3 = (((document.getElementById('engine') || {}).value) === 'h3');
+  // Three conditions, and each hides it for a different honest reason: a
+  // non-H3 engine has no windows, a 3 s / 5 s length is ONE window (the box
+  // would change nothing), and a pack without --chain-prompts cannot use one.
+  const show = engineIsH3 && windows > 1 && h3ChainPromptsSupported();
+  row.hidden = !show;
+  if (!show) { _h3SerializeWindowPrompts(); return; }
+  const hint = document.getElementById('h3WinPromptsHint');
+  if (hint) hint.textContent = windows + ' × 5s windows';
+  const prev = _h3WinValues();
+  const main = String((document.getElementById('prompt') || {}).value || '');
+  const parts = [];
+  for (let i = 0; i < windows; i++) {
+    const from = i * 5;
+    const v = (prev[i] != null) ? prev[i] : (toggle.checked ? main : '');
+    parts.push(
+      '<div class="h3-win">'
+      + '<div class="h3-win-label"><span>Window ' + (i + 1) + '</span>'
+      + '<span class="h3-win-span">' + from + '–' + (from + 5) + 's</span></div>'
+      + '<textarea class="h3-win-ta" data-win="' + (i + 1) + '" rows="2"'
+      + ' placeholder="Beat ' + (i + 1) + ' — leave empty to use the main prompt">'
+      + escapeHtml(v) + '</textarea></div>');
+  }
+  list.innerHTML = parts.join('');
+  list.hidden = !toggle.checked;
+  list.querySelectorAll('.h3-win-ta').forEach(t => {
+    t.addEventListener('input', _h3SerializeWindowPrompts);
+  });
+  _h3SerializeWindowPrompts();
+}
+
+// The toggle. Turning it ON seeds every EMPTY box with the main prompt: the
+// user should be editing what they already wrote, not retyping it three times.
+function toggleH3WindowPrompts(on) {
+  const toggle = document.getElementById('h3WinPromptsToggle');
+  const list = document.getElementById('h3WinPromptsList');
+  if (!toggle) return;
+  toggle.checked = !!on;
+  if (toggle.checked) {
+    const main = String((document.getElementById('prompt') || {}).value || '');
+    document.querySelectorAll('#h3WinPromptsList .h3-win-ta').forEach(t => {
+      if (!String(t.value || '').trim()) t.value = main;
+    });
+  }
+  if (list) list.hidden = !toggle.checked;
+  try {
+    localStorage.setItem('phos_h3_winprompts', toggle.checked ? '1' : '0');
+  } catch (e) {}
+  _h3SerializeWindowPrompts();
+}
+
+// The `?`. Reveals the sentence in place rather than in a title= tooltip, and
+// says so to assistive tech via aria-expanded.
+function toggleH3WindowHelp() {
+  const btn = document.getElementById('h3WinHelpBtn');
+  const note = document.getElementById('h3WinHelpNote');
+  if (!btn || !note) return;
+  if (!note.textContent && H3 && H3.chain_prompt_help) {
+    note.textContent = H3.chain_prompt_help;
+  }
+  const open = !!note.hidden;
+  note.hidden = !open;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+// Restore path: a sidecar's raw `params.h3_chain_prompts` (blanks included) →
+// the boxes. Used by Load Params and Draft→Finish. MUST run after the shape has
+// been applied, because the number of boxes is a property of the length.
+function setH3ChainPrompts(listValue) {
+  const toggle = document.getElementById('h3WinPromptsToggle');
+  const list = document.getElementById('h3WinPromptsList');
+  if (!toggle) return;
+  const arr = Array.isArray(listValue)
+    ? listValue.map(x => String(x == null ? '' : x))
+    : [];
+  const on = arr.some(v => v.trim());
+  toggle.checked = on;
+  renderH3WindowPrompts();
+  Array.prototype.slice
+    .call(document.querySelectorAll('#h3WinPromptsList .h3-win-ta'))
+    .forEach((t, i) => { t.value = (arr[i] != null) ? arr[i] : ''; });
+  if (list) list.hidden = !on;
+  _h3SerializeWindowPrompts();
 }
 
 // Kept as the single-key entry point, because a tier key is what every SIDECAR
@@ -34112,6 +34630,12 @@ function h3FinishFieldsFromSidecar(p, tierKey) {
     // from an install that has since lost the files lands on Standard, not on a
     // mode that would fail at queue time.
     h3_turbo: !!p.h3_turbo,
+    // The shot list carries over, and it is safe to: Finish means SAME LENGTH,
+    // higher quality, so the window count is identical by construction and
+    // entry i still means window i. Dropping it would silently finish a
+    // two-beat draft as the same beat twice — the exact bug this control fixes.
+    h3_chain_prompts: Array.isArray(p.h3_chain_prompts)
+      ? p.h3_chain_prompts.map(x => String(x == null ? '' : x)) : [],
     // First frame. i2v without one is not renderable, so it is carried
     // verbatim; on t2v it is deliberately empty — H3 ignores it and leaving a
     // stale path in the picker would misrepresent what was queued.
@@ -34258,6 +34782,11 @@ async function h3FinishActive() {
   // fighting the source of truth. The LENGTH inside `fields.h3_tier` is the
   // clip's own — only the quality moved.
   setH3Tier(fields.h3_tier);
+  // And the shot list after the shape, for the same reason it comes after in
+  // loadParams: the box count is a property of the length.
+  if (typeof setH3ChainPrompts === 'function') {
+    try { setH3ChainPrompts(fields.h3_chain_prompts); } catch (e) {}
+  }
   // Seed after the shape for the same reason it comes last in loadParams:
   // nothing downstream may quietly re-randomise it.
   document.getElementById('seed').value = fields.seed;
@@ -34364,6 +34893,8 @@ function setEngine(engine, opts) {
     setH3Steps((document.getElementById('h3_steps') || {}).value || 'auto');
     renderH3Turbo();
     setH3Turbo((document.getElementById('h3_turbo') || {}).value === '1');
+    // After the shape, because the number of window boxes IS the shape.
+    renderH3WindowPrompts();
     // LTX post-processing doesn't run on an H3 render (make_job neutralises
     // all three server-side). Mirror that in the UI or the derived line lies:
     // it was reading "768×448 → 1280×720 fit" for a render that ships 768×448.
@@ -34449,6 +34980,10 @@ function updateH3Availability(s) {
                // `chain` gates the 10 s / 15 s tiers, so the strip has to be
                // re-rendered when an H3 pack update brings --chain-windows in.
                || (next.chain !== H3.chain)
+               // `chain_prompts` gates the Per-window prompts control AND the
+               // sentence on the chained cells, so a pack update that brings
+               // --chain-prompts in has to re-render both without a reload.
+               || (next.chain_prompts !== H3.chain_prompts)
                // Install→repair→install flips the pill's copy and the models
                // card even when `available` itself hasn't moved yet.
                || (next.repairable !== H3.repairable)
@@ -37025,6 +37560,14 @@ async function loadParams() {
     } else if (typeof setH3Tier === 'function' && p.h3_tier) {
       try { setH3Tier(p.h3_tier); } catch (e) {}
     }
+    // Per-window prompts AFTER the shape: the number of boxes is a property of
+    // the length, so restoring the list before the cell is applied would drop
+    // every entry past the previously-selected window count. The sidecar carries
+    // the RAW list the user typed (blanks included), which is what makes a
+    // reload land on the same form rather than on a resolved one.
+    if (typeof setH3ChainPrompts === 'function') {
+      try { setH3ChainPrompts(p.h3_chain_prompts); } catch (e) {}
+    }
     const _seedEl = document.getElementById('seed');
     if (_seedEl && _seedBefore != null) _seedEl.value = _seedBefore;
   }
@@ -37285,6 +37828,16 @@ function renderOutputInfoBody(path, data) {
   if (data.h3 && Number(data.h3.chain_windows || 1) > 1) {
     const c = data.h3;
     genRows.push(`<dt>Chained</dt><dd>${escapeHtml(String(c.chain_windows))} × ${escapeHtml(String(c.window_frames))}f windows → ${escapeHtml(String(c.delivered_frames || p.frames || '—'))}f · ${escapeHtml(String(c.seams || (c.chain_windows - 1)))} join(s)</dd>`);
+    // What each window was ACTUALLY asked for. The resolved list — blanks
+    // already filled from the main prompt — so a clip whose second beat didn't
+    // land can be read straight off the modal. Absent = one prompt, every
+    // window (the default), and the Chained row above already says how many.
+    const wp = Array.isArray(c.chain_prompts) ? c.chain_prompts : [];
+    if (wp.length) {
+      genRows.push(`<dt>Window prompts</dt><dd>${wp.map((t, i) =>
+        `<div><b>${i + 1}</b> · ${escapeHtml(snippet(String(t == null ? '' : t), 110))}</div>`
+      ).join('')}</dd>`);
+    }
   }
   const codec = data.output_codec || (data.upscale && data.upscale.codec);
   if (codec && codec.pix_fmt && codec.crf != null) {
