@@ -55,7 +55,23 @@ module.exports = {
       method: "shell.run",
       params: {
         message: [
-          "MEM_BYTES=$(sysctl -n hw.memsize 2>/dev/null); if echo \"$MEM_BYTES\" | grep -qE '^[0-9]+$' && [ \"$MEM_BYTES\" -lt 60000000000 ]; then MEM_GB=$((MEM_BYTES / 1000000000)); echo '=================================================================='; echo \"HAILUO H3 NEEDS ABOUT 64 GB OF UNIFIED MEMORY (this Mac has ${MEM_GB} GB)\"; echo 'The staged runner peaks around 40 GiB with one component resident at'; echo 'a time. Below 64 GB it swaps and a 3-second clip takes hours.'; echo 'Nothing was downloaded. Keep using the built-in LTX-2.3 engine.'; echo '=================================================================='; exit 1; else echo 'H3 memory preflight OK'; fi",
+          // Split across short lines: Pinokio 8.0.x hangs its shell on very long
+          // single lines (#50). One shell invocation — the if/else spans lines.
+          [
+            "MEM_BYTES=$(sysctl -n hw.memsize 2>/dev/null)",
+            "if echo \"$MEM_BYTES\" | grep -qE '^[0-9]+$' && [ \"$MEM_BYTES\" -lt 60000000000 ]; then",
+            "  MEM_GB=$((MEM_BYTES / 1000000000))",
+            "  echo '=================================================================='",
+            "  echo \"HAILUO H3 NEEDS ABOUT 64 GB OF UNIFIED MEMORY (this Mac has ${MEM_GB} GB)\"",
+            "  echo 'The staged runner peaks around 40 GiB with one component resident at'",
+            "  echo 'a time. Below 64 GB it swaps and a 3-second clip takes hours.'",
+            "  echo 'Nothing was downloaded. Keep using the built-in LTX-2.3 engine.'",
+            "  echo '=================================================================='",
+            "  exit 1",
+            "else",
+            "  echo 'H3 memory preflight OK'",
+            "fi",
+          ].join("\n"),
           "echo 'free disk space:'",
           "df -h ."
         ]
@@ -121,7 +137,17 @@ module.exports = {
         path: "minimax-h3-mlx",
         message: [
           "echo '=== H3 venv check ==='",
-          "if .venv/bin/python -c 'import sys' >/dev/null 2>&1; then echo 'H3 venv healthy - reusing it'; else echo 'H3 venv missing or broken (dangling interpreter) - rebuilding, no weights are re-downloaded'; which uv && uv --version || echo 'uv NOT FOUND'; rm -rf .venv; uv venv --python 3.11 --seed .venv; .venv/bin/python --version || echo 'venv python NOT executable'; fi"
+          [
+            "if .venv/bin/python -c 'import sys' >/dev/null 2>&1; then",
+            "  echo 'H3 venv healthy - reusing it'",
+            "else",
+            "  echo 'H3 venv missing or broken (dangling interpreter) - rebuilding, no weights are re-downloaded'",
+            "  which uv && uv --version || echo 'uv NOT FOUND'",
+            "  rm -rf .venv",
+            "  uv venv --python 3.11 --seed .venv",
+            "  .venv/bin/python --version || echo 'venv python NOT executable'",
+            "fi",
+          ].join("\n")
         ]
       }
     },

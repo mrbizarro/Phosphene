@@ -31,7 +31,18 @@ module.exports = {
         // with a warning if the package isn't on disk for any reason.
         env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
         message: [
-          "hf download dgrauet/ltx-2.3-mlx-q8 --local-dir mlx_models/ltx-2.3-mlx-q8 --include '*.json' --include 'transformer-dev.safetensors' --include 'connector.safetensors' --include 'ltx-2.3-22b-distilled-lora-384.safetensors' --include 'vae_decoder.safetensors' --include 'vae_encoder.safetensors' --include 'audio_vae.safetensors' --include 'vocoder.safetensors' --include 'spatial_upscaler_x2_v1_1.safetensors'"
+          // One command over shell line-continuations: Pinokio 8.0.x hangs on
+          // very long single lines (#50), and trailing backslashes keep this a
+          // single hf invocation.
+          [
+            "hf download dgrauet/ltx-2.3-mlx-q8 --local-dir mlx_models/ltx-2.3-mlx-q8 \\",
+            "  --include '*.json' --include 'transformer-dev.safetensors' \\",
+            "  --include 'connector.safetensors' \\",
+            "  --include 'ltx-2.3-22b-distilled-lora-384.safetensors' \\",
+            "  --include 'vae_decoder.safetensors' --include 'vae_encoder.safetensors' \\",
+            "  --include 'audio_vae.safetensors' --include 'vocoder.safetensors' \\",
+            "  --include 'spatial_upscaler_x2_v1_1.safetensors'",
+          ].join("\n")
         ]
       }
     },

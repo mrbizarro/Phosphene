@@ -206,7 +206,27 @@ module.exports = {
           // macOS major < 14. If sw_vers is missing, unparseable, or non-numeric
           // for any reason, we PROCEED — a preflight that can't read the version
           // must never be the thing that bricks an otherwise-fine install.
-          "MACOS_VER=$(sw_vers -productVersion 2>/dev/null); MACOS_MAJOR=$(echo \"$MACOS_VER\" | cut -d. -f1); if echo \"$MACOS_MAJOR\" | grep -qE '^[0-9]+$' && [ \"$MACOS_MAJOR\" -lt 14 ]; then echo '=================================================================='; echo \"PHOSPHENE CANNOT INSTALL ON macOS $MACOS_VER\"; echo 'Phosphene needs macOS 14 (Sonoma) or newer.'; echo 'Why: mlx 0.31.1 ships no macOS 13 build, so the engine cannot install'; echo 'and every generation would fail.'; echo 'Fix: System Settings > General > Software Update -> macOS 14 or 15,'; echo 'then reinstall Phosphene.'; echo '=================================================================='; exit 1; else echo \"macOS preflight OK (detected '$MACOS_VER', needs >= 14)\"; fi",
+          // Pinokio 8.0.x wedges its shell on very long single lines (#50: 764
+          // chars hangs, ~373 passes — bisected by @Morac2). Every line below
+          // stays well under that; they run in ONE shell invocation joined by
+          // \n, so the if/else and variables still span lines.
+          [
+            "MACOS_VER=$(sw_vers -productVersion 2>/dev/null)",
+            "MACOS_MAJOR=$(echo \"$MACOS_VER\" | cut -d. -f1)",
+            "if echo \"$MACOS_MAJOR\" | grep -qE '^[0-9]+$' && [ \"$MACOS_MAJOR\" -lt 14 ]; then",
+            "  echo '=================================================================='",
+            "  echo \"PHOSPHENE CANNOT INSTALL ON macOS $MACOS_VER\"",
+            "  echo 'Phosphene needs macOS 14 (Sonoma) or newer.'",
+            "  echo 'Why: mlx 0.31.1 ships no macOS 13 build, so the engine cannot install'",
+            "  echo 'and every generation would fail.'",
+            "  echo 'Fix: System Settings > General > Software Update -> macOS 14 or 15,'",
+            "  echo 'then reinstall Phosphene.'",
+            "  echo '=================================================================='",
+            "  exit 1",
+            "else",
+            "  echo \"macOS preflight OK (detected '$MACOS_VER', needs >= 14)\"",
+            "fi",
+          ].join("\n"),
           "which uv && uv --version || echo 'uv NOT FOUND'",
           "which python3.11 && python3.11 --version || echo 'system python3.11 NOT FOUND (uv will try to fetch)'",
           "uname -a",
@@ -389,7 +409,16 @@ module.exports = {
         // isn't yet on disk (warning + plain Python downloader).
         env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
         message: [
-          "hf download dgrauet/ltx-2.3-mlx-q4 --local-dir ../mlx_models/ltx-2.3-mlx-q4 --include '*.json' --include 'transformer-distilled.safetensors' --include 'connector.safetensors' --include 'vae_decoder.safetensors' --include 'vae_encoder.safetensors' --include 'audio_vae.safetensors' --include 'vocoder.safetensors' --include 'spatial_upscaler_x2_v1_1.safetensors'"
+          // Short lines over shell continuations — Pinokio 8.0.x hangs on very
+          // long single lines (#50); still one hf invocation.
+          [
+            "hf download dgrauet/ltx-2.3-mlx-q4 --local-dir ../mlx_models/ltx-2.3-mlx-q4 \\",
+            "  --include '*.json' --include 'transformer-distilled.safetensors' \\",
+            "  --include 'connector.safetensors' \\",
+            "  --include 'vae_decoder.safetensors' --include 'vae_encoder.safetensors' \\",
+            "  --include 'audio_vae.safetensors' --include 'vocoder.safetensors' \\",
+            "  --include 'spatial_upscaler_x2_v1_1.safetensors'",
+          ].join("\n")
         ]
       }
     },
