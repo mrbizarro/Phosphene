@@ -215,15 +215,69 @@ can never disagree with the ffmpeg command because it is generated from it.
 
 ---
 
+## LoRAs
+
+H3 takes community adapters through the same `--lora PATH[:SCALE]` flag Turbo
+rides on. Four things about that are not obvious, and each is enforced in code:
+
+**Its own library.** H3 LoRAs live in `<models root>/loras/`, beside
+`turbo-lora/` and the weight components — **not** in `mlx_models/loras/`, which
+is the LTX (and mflux image) tree. The split is a directory, not a naming
+convention, because the picker filters on *which tree a file was found in*
+before it looks at any metadata: a hand-dropped `.safetensors` with no sidecar
+classifies as `unknown`, and `unknown` is deliberately permissive. The two
+engines share no module tree, so an LTX adapter handed to H3's loader matches
+zero modules — a **silent** no-op — and an H3 one handed to LTX fails inside the
+fuser. `make_job` scrubs the wrong lane off every job, in both directions.
+
+**One slot.** `generate_staged.py` declares `--lora` with `default=None`, not
+`action="append"`, and calls `parse_spec` once. So there is exactly one adapter
+per render and **Turbo and a user LoRA cannot both run**. The panel refuses to
+pick a winner silently: `h3_lora_slot` (make_job allowlist) is `turbo` by
+default, in which case picking a LoRA while Turbo is on is a hard error naming
+the conflict; setting it to `user` is the explicit opt-out — Turbo is released,
+the step count goes back to the tier's, and both facts are logged. Stacking two
+LoRAs is refused the same way.
+
+**Key layouts.** Three exist in the wild and only two work:
+
+| Layout | Keys | What happens |
+|---|---|---|
+| bare | `blocks.N.attn.qkv_proj.lora_A/B.weight` | loads as-is |
+| ComfyUI repack | the same, namespaced under `diffusion_model.` | **converted in place** at install time — a safetensors *header* rewrite (the offsets are relative to the tensor buffer, so every tensor byte is untouched), recorded in the sidecar as `lora_layout` / `lora_converted_prefix` |
+| diffusers / PEFT | split `to_q`/`to_k`/`to_v`, `ff.net.*` | **refused, by design** |
+| kohya | `lora_down`/`lora_up` + `.alpha` | **refused, by design** |
+
+The refusals are not laziness. A diffusers-namespace adapter needs a runtime
+`alpha / rank` multiplier that **is not in the file** — LightX2V's is
+`8 / 128 = 0.0625`, supplied externally by its own inference script — and
+applying it at 1.0 renders coloured noise, not a slightly-off clip. See
+`LIGHTX2V_LORA_FIX.md` and `scripts/convert_lightx2v_lora.py` in the engine
+repo for the manual path. The panel says exactly this in the error.
+
+**CivitAI.** The browser's video context has family pills (`ltx` / `h3`),
+preselected from the active engine, so an LTX user's default view is unchanged.
+CivitAI's base-model string is **`MiniMax H3`** — verified against the live API;
+`MiniMax`, `Hailuo` and `Hailuo H3` all return zero. Downloads route by the
+item's *own* base model, not by which pill was showing, so a MiniMax H3 LoRA
+lands in the H3 library even if it was found under "All".
+
+`/status.h3.loras` reports `{supported, dir, count, usable, max_stack}`;
+`supported` is a probe of the **installed** runner for `--lora`, and the picker
+is hidden entirely on a pack that predates it.
+
+---
+
 ## What H3 does *not* do
 
 - **Modes**: Text and Image only. Every other mode (FFLF, Extend, Remix,
   Character, A2V) is LTX-pipeline-specific; the picker snaps back to LTX with a
-  note. Character does too — it submits `mode=t2v` but stacks LTX LoRAs, and H3
-  has no LoRA path.
-- **LoRAs, orientation, accel, temporal interpolation, the LTX upscale
-  control**: none apply. Those carry `data-ltx-only` and fold away under
-  `body[data-h3-engine="h3"]`. H3 has its own export control (`h3_upscale`,
+  note. Character does too — it submits `mode=t2v` but stacks **LTX** LoRAs, and
+  those cannot load on H3 (see LoRAs below, which is about H3's own library).
+- **LoRA STACKING**: H3 takes exactly one adapter — see LoRAs below.
+- **Orientation, accel, temporal interpolation, the LTX upscale control**: none
+  apply. Those carry `data-ltx-only` and fold away under
+  `body[data-engine="h3"]`. H3 has its own export control (`h3_upscale`,
   `data-h3-only`) — see the export-pass section above.
 - **External audio**: H3 generates its own. `i2v_clean_audio` stays LTX.
 

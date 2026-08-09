@@ -1999,6 +1999,12 @@ def _h3_install_turbo(push_log) -> dict:
 #
 # Compat tag vocabulary used throughout the panel + JS picker:
 #   "video"           — LTX-Video LoRAs (any t2v / i2v / keyframe / extend)
+#   "video:h3"        — MiniMax / Hailuo H3 LoRAs. Its OWN tag, deliberately
+#                       NOT a flavour of "video": the two video engines share
+#                       no weight layout and no runner, so an LTX LoRA offered
+#                       on the H3 picker is a guaranteed failure rather than a
+#                       maybe. The two libraries also live in two directories
+#                       (see _h3_loras_dir) so the separation is structural.
 #   "image:flux1"     — FLUX.1 [dev] / [schnell] (mflux flux1 family)
 #   "image:flux2"     — FLUX.2 (klein-4b) base + Klein-Edit (flux2 + flux2_edit)
 #   "image:qwen"      — Qwen-Image / Qwen-Image-Edit (qwen + qwen_edit)
@@ -2031,9 +2037,18 @@ def _classify_lora_modes(base_model) -> list[str]:
     norm = "".join(ch for ch in s if ch.isalnum())
 
     tags: list[str] = []
+    # ---- Video lane: Hailuo H3 (MiniMax) ----
+    # CivitAI's taxonomy string is "MiniMax H3" — VERIFIED 2026-08-09 against
+    # the live /models endpoint: `baseModels=MiniMax H3` returns hits while
+    # "MiniMax", "Hailuo" and "Hailuo H3" all return zero. Checked BEFORE the
+    # LTX branch and returned INSTEAD of "video" (not alongside it), because
+    # the whole point of the tag is that these two libraries must never bleed
+    # into each other's picker.
+    if ("minimax" in norm and "h3" in norm) or "hailuoh3" in norm:
+        tags.append("video:h3")
     # ---- Video lane (LTX-Video) ----
     # CivitAI strings include "LTXV 2.3", "LTX-Video", "LTX-2", "LTXV2.3".
-    if "ltx" in norm:
+    elif "ltx" in norm:
         tags.append("video")
     # ---- Image lane: Qwen ----
     # "Qwen Image", "Qwen-Image-Edit", "Qwen Image Edit 2511" → image:qwen.
@@ -2104,6 +2119,16 @@ def _read_lora_sidecar(safetensors_path: Path) -> dict:
         # CivitAI / manual installs. The picker uses this to badge trained
         # LoRAs distinctly so users can find their own characters fast.
         "kind": None,
+        # ---- H3 lane bookkeeping (2026-08-09) ----------------------------
+        # `lora_layout` is the key layout the file was found in — "bare" (what
+        # the MLX loader wants) or "comfyui" (the same tensors under a
+        # `diffusion_model.` namespace). `lora_converted_prefix` records the
+        # namespace we STRIPPED at install time, so the sidecar answers "was
+        # this file modified, and how" without re-reading 700 MB of weights.
+        # Both are None on every LTX-lane sidecar ever written; absent keys
+        # fall back to these defaults, so no existing sidecar needs a rewrite.
+        "lora_layout": None,
+        "lora_converted_prefix": None,
     }
     if sidecar.exists():
         try:
@@ -2170,6 +2195,15 @@ def list_user_loras() -> list[dict]:
             "path": str(path),
             "filename": path.name,
             "size_bytes": size_bytes,
+            # Which ENGINE DIRECTORY this file was discovered in — "ltx" for
+            # the panel's own mlx_models/loras/ tree (LTX video + every mflux
+            # image family), "h3" for the Hailuo pack's loras/ dir. The picker
+            # filters on THIS before it looks at compatible_modes, because a
+            # sidecar-less drop classifies as "unknown" and "unknown" is
+            # deliberately permissive — without the directory being
+            # authoritative, an untagged LTX LoRA would surface in the H3
+            # picker and vice versa. See list_h3_user_loras().
+            "lane": "ltx",
             "trigger_words": trigger_words,
             "recommended_strength": float(meta.get("recommended_strength") or 1.0),
             "preview_url": preview_url,
@@ -4116,12 +4150,34 @@ _CIVITAI_IMAGE_FAMILIES: dict[str, list[str]] = {
     "qwen":    ["Qwen 2", "Qwen"],   # Qwen-Image-Edit-2511 + Qwen-Image (2509)
     "hidream": ["HiDream-O1"],       # HiDream-O1-Image-Dev
 }
+# Sub-families for the VIDEO context — one per video ENGINE. Same mechanism
+# the image context uses, and for a stronger reason: LTX and H3 don't merely
+# prefer different LoRAs, they cannot load each other's at all (different
+# module tree, different runner, different loader). The family pill is
+# therefore not a convenience filter here, it is the lane selector, and
+# openCivitaiModal() preselects it from the ACTIVE engine so an LTX user's
+# default view is byte-for-byte what it was before H3 LoRAs existed.
+#
+# Both strings probed against the live CivitAI API rather than guessed:
+#   "LTXV 2.3"    verified 2026-05-20 — "LTX 2.3", "LTX-Video 2.3" and
+#                 "LTXV2.3" all return zero.
+#   "MiniMax H3"  verified 2026-08-09 — "MiniMax", "Hailuo" and "Hailuo H3"
+#                 all return zero; "MiniMax H3" is the only spelling with hits.
+_CIVITAI_VIDEO_FAMILIES: dict[str, list[str]] = {
+    "ltx": ["LTXV 2.3"],
+    "h3":  ["MiniMax H3"],
+}
+# family-map per context, so the `family` query param means the same thing on
+# both surfaces and adding a family stays a one-line edit in ONE of the two
+# dicts above.
+_CIVITAI_FAMILIES_BY_CONTEXT: dict[str, dict[str, list[str]]] = {
+    "video": _CIVITAI_VIDEO_FAMILIES,
+    "image": _CIVITAI_IMAGE_FAMILIES,
+}
 _CIVITAI_BASE_MODELS_BY_CONTEXT = {
-    # Video LoRAs — the default. LTX-2.3 is the only video base we support.
-    # Verified 2026-05-20 by probing the CivitAI API: "LTXV 2.3" is the
-    # only spelling that returns hits; "LTX 2.3", "LTX-Video 2.3", and
-    # "LTXV2.3" all return zero.
-    "video": ["LTXV 2.3"],
+    # Video LoRAs — the default. Union of every video family; the `family`
+    # query param on /civitai/search narrows it to one engine's lane.
+    "video": [bm for bms in _CIVITAI_VIDEO_FAMILIES.values() for bm in bms],
     # Image LoRAs — union of every family in _CIVITAI_IMAGE_FAMILIES.
     # Sub-filtering happens via the `family` query param on /civitai/search.
     "image": [bm for bms in _CIVITAI_IMAGE_FAMILIES.values() for bm in bms],
@@ -4160,13 +4216,14 @@ def _civitai_search(query: str = "", nsfw: bool = False,
     base_models_filter = _CIVITAI_BASE_MODELS_BY_CONTEXT.get(
         context, _CIVITAI_BASE_MODELS_BY_CONTEXT["video"]
     )
-    # Sub-family narrowing for the image context. The browser exposes pills
-    # for "Qwen-Image" and "HiDream" so users can scope the result set to
-    # the engine they're about to use. family="" (or missing, or "all")
-    # leaves the full image-context list active.
+    # Sub-family narrowing. The browser exposes pills per context — "LTX-2.3"
+    # / "Hailuo H3" on video, "Qwen-Image" / "HiDream" on image — so users can
+    # scope the result set to the engine they're about to use. family=""
+    # (or missing, or "all") leaves the full context list active.
     fam = (family or "").strip().lower()
-    if context == "image" and fam and fam in _CIVITAI_IMAGE_FAMILIES:
-        base_models_filter = _CIVITAI_IMAGE_FAMILIES[fam]
+    _fam_map = _CIVITAI_FAMILIES_BY_CONTEXT.get(context) or {}
+    if fam and fam in _fam_map:
+        base_models_filter = _fam_map[fam]
     # The CivitAI API accepts multi-value baseModels as repeated query
     # params (`baseModels=X&baseModels=Y`), not comma-separated. Passing
     # a list here triggers `urlencode(..., doseq=True)` in _civitai_request
@@ -4255,11 +4312,18 @@ def _civitai_search(query: str = "", nsfw: bool = False,
 
 
 def _civitai_download(download_url: str, meta: dict) -> dict:
-    """Download a CivitAI .safetensors into mlx_models/loras/ and write
-    a sidecar JSON. Returns { name, path, sidecar_path, size_bytes }.
+    """Download a CivitAI .safetensors into the right LoRA dir for its base
+    model and write a sidecar JSON. Returns
+    { name, path, sidecar_path, size_bytes, lane }.
     Streams to a .partial file then renames atomically — a Pinokio kill
     mid-download leaves nothing the next scan would mistake for a
-    complete LoRA."""
+    complete LoRA.
+
+    Lane routing (2026-08-09) is decided from the ITEM's own `base_model`,
+    not from which browser context the click came from. A MiniMax H3 LoRA
+    lands in the H3 weights tree even if the user found it while the browser
+    was showing "All", because the file's family is a property of the file,
+    and mis-filing it would put an unloadable adapter in the LTX picker."""
     import urllib.parse, urllib.request
     if not download_url:
         raise RuntimeError("download_url required")
@@ -4279,7 +4343,12 @@ def _civitai_download(download_url: str, meta: dict) -> dict:
     if api_key_env and "token=" not in (parsed.query or ""):
         sep = "&" if parsed.query else "?"
         download_url = download_url + sep + "token=" + urllib.parse.quote(api_key_env)
-    loras_dir = _safe_loras_dir()
+    # Which engine's library does this belong to? _classify_lora_modes is the
+    # single source for that mapping — the picker filter, the sidecar and this
+    # router all read the same function, so a new family is one edit there.
+    lane = ("h3" if "video:h3" in _classify_lora_modes(meta.get("base_model"))
+            else "ltx")
+    loras_dir = _safe_h3_loras_dir() if lane == "h3" else _safe_loras_dir()
     # Filename from meta (preferred — preserves CivitAI's name) or fall
     # back to the URL's last path segment.
     fname = (meta.get("filename") or
@@ -4300,6 +4369,7 @@ def _civitai_download(download_url: str, meta: dict) -> dict:
             "name": meta.get("name") or target.stem,
             "path": str(target),
             "size_bytes": target.stat().st_size,
+            "lane": lane,
             "skipped": True,
             "reason": "already exists",
         }
@@ -4357,6 +4427,24 @@ def _civitai_download(download_url: str, meta: dict) -> dict:
         except OSError: pass
         raise
     push(f"[civitai] saved {target.name} ({bytes_written // (1024*1024)} MB)")
+    # ---- H3 lane: classify the key layout NOW, at install time --------------
+    # Doing it here rather than at render time means the ComfyUI rename happens
+    # once, in front of the user, with the log open — and a diffusers-namespace
+    # LoRA is refused at the moment they clicked Install instead of 30 s into a
+    # 20-minute render. The file is REMOVED on refusal: leaving an unloadable
+    # adapter in the library would put a permanently-failing entry in the
+    # picker, which is worse than the wasted download it cost to find out.
+    layout_info = {"layout": None, "converted": False, "prefix": ""}
+    if lane == "h3":
+        try:
+            layout_info = _h3_lora_prepare(target)
+        except Exception as exc:
+            try:
+                target.unlink()
+            except OSError:
+                pass
+            push(f"[civitai] refused {target.name}: {exc}")
+            raise RuntimeError(str(exc)) from exc
     # Write the sidecar — kept tolerant of meta gaps so a partial
     # payload still produces a usable picker entry.
     sidecar = target.with_suffix(".json")
@@ -4366,12 +4454,19 @@ def _civitai_download(download_url: str, meta: dict) -> dict:
         "trigger_words": list(meta.get("trigger_words") or []),
         "recommended_strength": float(meta.get("recommended_strength") or 1.0),
         "preview_url": meta.get("preview_url"),
-        "base_model": meta.get("base_model") or "LTXV 2.3",
+        "base_model": (meta.get("base_model")
+                       or ("MiniMax H3" if lane == "h3" else "LTXV 2.3")),
         "civitai_id": meta.get("id"),
         "civitai_version_id": meta.get("version_id"),
         "civitai_url": meta.get("civitai_url"),
         "downloaded_at": iso_now(),
         "downloaded_size_bytes": bytes_written,
+        # What we found, and what we did about it. Written for both lanes so
+        # the field means the same thing everywhere; None on LTX, where the
+        # panel does no layout surgery.
+        "lora_layout": layout_info.get("layout"),
+        "lora_converted_prefix": (layout_info.get("prefix") or None
+                                  if layout_info.get("converted") else None),
     }
     try:
         atomic_write_text(sidecar, json.dumps(sidecar_data, indent=2))
@@ -4382,6 +4477,11 @@ def _civitai_download(download_url: str, meta: dict) -> dict:
         "path": str(target),
         "sidecar_path": str(sidecar),
         "size_bytes": bytes_written,
+        # "ltx" | "h3" — the client uses this to decide whether it may
+        # auto-enable the new LoRA on the currently-selected engine.
+        "lane": lane,
+        "layout": layout_info.get("layout"),
+        "converted": bool(layout_info.get("converted")),
         "skipped": False,
     }
 
@@ -5915,6 +6015,427 @@ def h3_turbo_status() -> dict:
     }
 
 
+# ============================================================================
+# H3 USER LoRAs — CivitAI adapters for the MiniMax H3 lane
+# ============================================================================
+# Turbo proved the mechanism: the staged runner takes `--lora PATH[:SCALE]`
+# and fuses a low-rank adapter into the DiT at load. Nothing about that flag
+# is Turbo-specific, so a community LoRA trained for MiniMax H3 is renderable
+# today. Three things had to be decided before it could be offered, and each
+# one is a trap someone else already fell into:
+#
+# 1. WHERE THEY LIVE. Their OWN directory, next to the weights they apply to,
+#    exactly as `_h3_turbo_dir()` already does — NOT mlx_models/loras/. The
+#    two engines share no module tree: an LTX LoRA handed to H3's loader
+#    matches zero modules (a silent no-op, the worst failure mode there is)
+#    and an H3 LoRA handed to LTX's fuser fails inside the pipeline. Making
+#    the split a DIRECTORY makes it structural — the picker filters on which
+#    tree a file was found in, before it ever looks at a sidecar string, so a
+#    LoRA someone dropped in by hand with no metadata still can't cross lanes.
+#
+# 2. THE COMFYUI PREFIX. Most H3 LoRAs on CivitAI are ComfyUI repacks, whose
+#    keys carry a `diffusion_model.` namespace the MLX loader doesn't expect.
+#    Verified fact (Kijai's repack, diffed against larryvrh's original): the
+#    repack IS the bare layout plus that prefix, tensors bit-identical. So the
+#    fix is a pure key rename — see _h3_lora_strip_prefix, which rewrites the
+#    safetensors HEADER and copies the tensor buffer through untouched.
+#
+# 3. THE PEFT/DIFFUSERS ALPHA TRAP. A diffusers-namespace LoRA (split
+#    to_q/to_k/to_v, ff.net.*) needs BOTH a structural conversion and an
+#    alpha/rank multiplier that IS NOT IN THE FILE — LightX2V's adapter needs
+#    alpha 8 / rank 128 = 0.0625 supplied externally, and running it without
+#    that renders coloured noise (LIGHTX2V_LORA_FIX.md, in the H3 pack). There
+#    is no way to recover that number from the checkpoint, so this pass
+#    DETECTS the layout and REFUSES it with a sentence naming the problem.
+#    Guessing 1.0 would ship a 16x-hot adapter that looks like a broken render.
+H3_LORAS_DIRNAME = "loras"
+
+# The runner's `--lora` takes ONE path. `default=None`, not `action="append"` —
+# checked in scripts/generate_staged.py, which then does a single
+# `lora_mod.parse_spec(args.lora)`. So there is exactly one adapter slot per
+# render and a user LoRA and Turbo cannot both occupy it. That is a fact about
+# the runner, not a policy we chose, and it is why h3_lora_slot exists rather
+# than the panel quietly picking a winner.
+H3_LORA_MAX_STACK = 1
+H3_LORA_SLOTS = ("turbo", "user")
+H3_LORA_SLOT_DEFAULT = "turbo"
+H3_LORA_STACK_NOTE = (
+    "H3's runner has ONE adapter slot (`--lora` takes a single path), so a "
+    "LoRA and Turbo can't both run. Pick which one this render uses.")
+
+# Namespaces other runtimes wrap the DiT in. Longest-first so
+# "model.diffusion_model." wins over "diffusion_model." on a file that has
+# both spellings' worth of depth. Mirrors KNOWN_PREFIXES in the H3 pack's
+# minimax_h3_mlx/lora.py — kept here as well because the panel must classify a
+# file BEFORE any pack code runs, and because older installed packs have no
+# lora.py at all.
+H3_LORA_KNOWN_PREFIXES = ("model.diffusion_model.", "diffusion_model.", "transformer.")
+# Key fragments that identify a diffusers / PEFT-namespace adapter — the one
+# layout this pass refuses. Split attention projections and the diffusers
+# feed-forward path are both present in that namespace and in no other.
+_H3_LORA_DIFFUSERS_MARKERS = (".to_q.", ".to_k.", ".to_v.", ".to_out.", ".ff.net.")
+# kohya / sd-scripts naming. A rename away from ours on paper, but those files
+# also carry `.alpha` scalars whose meaning we would have to honour — same
+# class of trap as the PEFT one, so it gets the same answer: name it, refuse.
+_H3_LORA_KOHYA_SUFFIX = ".lora_down.weight"
+_H3_LORA_A_SUFFIX = ".lora_A.weight"
+_H3_LORA_B_SUFFIX = ".lora_B.weight"
+# A safetensors header is JSON and small (a few hundred KB for a 200-module
+# adapter). Anything claiming more than this is not a header we should read
+# into memory on a /status tick.
+_H3_LORA_MAX_HEADER_BYTES = 64 * 1024 * 1024
+
+
+def _h3_loras_dir() -> Path:
+    """Where H3 user LoRAs live: alongside the other weight components.
+
+    Follows whichever of the two supported model layouts actually holds the
+    DiT — the identical rule `_h3_turbo_dir()` uses, so Turbo's adapter and a
+    CivitAI adapter end up as siblings instead of in two different places."""
+    for root in _h3_model_roots():
+        if (root / "deepbeep-pruned-bf16" / H3_DIT_FILENAME).is_file():
+            return root / H3_LORAS_DIRNAME
+    return H3_MODELS / H3_LORAS_DIRNAME
+
+
+def _safe_h3_loras_dir() -> Path:
+    """Ensure the H3 LoRA dir exists. Idempotent. Called on the DOWNLOAD path
+    only — listing never creates it, so a machine with no H3 install doesn't
+    grow an empty tree that the pack's own probes would then have to ignore."""
+    d = _h3_loras_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _lora_is_h3_lane(path_str) -> bool:
+    """Does this LoRA path live in the H3 library?
+
+    The ONE lane test, used by make_job's scrub, make_job's Turbo-vs-LoRA
+    decision and the render dispatch alike — three places that must never
+    disagree about which engine a file belongs to. Directory containment, not
+    a sidecar string: a file someone hand-copied with no metadata still has
+    exactly one answer here. Never raises; anything unresolvable is "not H3",
+    which keeps LTX (the built-in, forgiving lane) as the default."""
+    raw = str(path_str or "").strip()
+    if not raw:
+        return False
+    try:
+        rp = Path(raw).resolve()
+        base = _h3_loras_dir().resolve()
+    except (OSError, ValueError):
+        return False
+    try:
+        return rp.is_relative_to(base)
+    except ValueError:
+        return False
+
+
+def _safetensors_header(path: Path) -> tuple[dict, int]:
+    """The JSON header of a .safetensors file, and where the tensor buffer
+    starts. Reads the header ONLY — no tensor, no mlx, no torch.
+
+    Format: 8 bytes little-endian u64 header length, that many bytes of UTF-8
+    JSON, then one contiguous tensor buffer. Every entry's `data_offsets` are
+    relative to the START of that buffer, which is what makes a key rename a
+    header-only edit (see _h3_lora_strip_prefix). Classifying a 700 MB adapter
+    this way costs one small read instead of a full load."""
+    with path.open("rb") as fh:
+        raw_len = fh.read(8)
+        if len(raw_len) != 8:
+            raise RuntimeError(f"{path.name} is too short to be a safetensors file.")
+        n = int.from_bytes(raw_len, "little")
+        if n <= 0 or n > _H3_LORA_MAX_HEADER_BYTES:
+            raise RuntimeError(
+                f"{path.name} declares a {n}-byte safetensors header, which is "
+                f"not a plausible LoRA — refusing to read it.")
+        blob = fh.read(n)
+        if len(blob) != n:
+            raise RuntimeError(f"{path.name} is truncated (header cut short).")
+    try:
+        header = json.loads(blob.decode("utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"{path.name} has an unreadable safetensors header ({exc}).")
+    if not isinstance(header, dict):
+        raise RuntimeError(f"{path.name} has a safetensors header that isn't an object.")
+    return header, 8 + n
+
+
+def _h3_lora_layout(path: Path) -> dict:
+    """Classify a .safetensors as an H3 adapter, from its header alone.
+
+    Returns:
+        layout      "bare" | "comfyui" | "diffusers" | "kohya" | "not_a_lora"
+        prefix      the namespace to strip ("" unless layout == "comfyui")
+        pairs       number of lora_A/lora_B module pairs found
+        ok          loadable by the runner exactly as it sits on disk
+        convertible ok after an in-place key rename (comfyui)
+        reason      a sentence for the user when ok is False
+    """
+    header, _ = _safetensors_header(path)
+    keys = [k for k in header if k != "__metadata__"]
+    a_names = sorted({k[: -len(_H3_LORA_A_SUFFIX)] for k in keys
+                      if k.endswith(_H3_LORA_A_SUFFIX)})
+    b_names = {k[: -len(_H3_LORA_B_SUFFIX)] for k in keys
+               if k.endswith(_H3_LORA_B_SUFFIX)}
+    pairs = len([n for n in a_names if n in b_names])
+    diffusers_hit = any(m in k for k in keys for m in _H3_LORA_DIFFUSERS_MARKERS)
+    if diffusers_hit:
+        return {
+            "layout": "diffusers", "prefix": "", "pairs": pairs,
+            "ok": False, "convertible": False,
+            "reason": (
+                "this LoRA is in diffusers layout and needs manual conversion. "
+                "Its attention weights are split into to_q / to_k / to_v and it "
+                "carries no alpha value, so the scale the adapter was trained "
+                "with (PEFT's alpha/rank) is simply not in the file — applying "
+                "it at 1.0 renders coloured noise, not a slightly-off clip. "
+                "Converting it needs the rank and alpha from the model card "
+                "plus scripts/convert_lightx2v_lora.py in the H3 pack; see "
+                "LIGHTX2V_LORA_FIX.md."),
+        }
+    if not a_names and any(k.endswith(_H3_LORA_KOHYA_SUFFIX) for k in keys):
+        return {
+            "layout": "kohya", "prefix": "", "pairs": 0,
+            "ok": False, "convertible": False,
+            "reason": (
+                "this LoRA uses kohya `lora_down` / `lora_up` naming and ships "
+                "its own `.alpha` scalars. The H3 loader reads lora_A / lora_B "
+                "and applies no alpha, so a plain rename would run it at the "
+                "wrong strength — it needs manual conversion."),
+        }
+    if not pairs:
+        return {
+            "layout": "not_a_lora", "prefix": "", "pairs": 0,
+            "ok": False, "convertible": False,
+            "reason": ("no lora_A / lora_B tensor pairs in this file — it "
+                       "doesn't look like a LoRA the H3 runner can apply."),
+        }
+    prefix = ""
+    for cand in sorted(H3_LORA_KNOWN_PREFIXES, key=len, reverse=True):
+        if all(n.startswith(cand) for n in a_names):
+            prefix = cand
+            break
+    if prefix:
+        return {"layout": "comfyui", "prefix": prefix, "pairs": pairs,
+                "ok": False, "convertible": True,
+                "reason": (f"ComfyUI repack — every key is namespaced under "
+                           f"`{prefix}`. Stripping it is a pure rename; the "
+                           f"tensors are untouched.")}
+    return {"layout": "bare", "prefix": "", "pairs": pairs,
+            "ok": True, "convertible": False, "reason": ""}
+
+
+def _h3_lora_strip_prefix(path: Path, prefix: str) -> int:
+    """Rewrite a ComfyUI-repacked H3 LoRA to the bare key layout, IN PLACE.
+
+    This is a HEADER rewrite, not a conversion. safetensors stores
+    `{name: {dtype, shape, data_offsets}}` as JSON followed by one contiguous
+    tensor buffer, and every offset is relative to that buffer — so renaming
+    keys leaves every offset, and therefore every byte of every tensor,
+    bit-identical. No tensor is ever loaded; no mlx, no torch, no numpy. The
+    claim "Kijai's comfy repack == bare layout + prefix, tensors bit-identical"
+    is exactly what makes this legitimate, and this function is careful to do
+    only the part that claim covers.
+
+    Atomic: writes a sibling temp file and os.replace()s it, so a kill
+    mid-write can never leave a half-renamed adapter where the picker would
+    find it. Returns the number of keys renamed."""
+    header, data_start = _safetensors_header(path)
+    meta = header.get("__metadata__")
+    entries = {k: v for k, v in header.items() if k != "__metadata__"}
+    renamed: dict = {}
+    n_renamed = 0
+    for k, v in entries.items():
+        nk = k[len(prefix):] if k.startswith(prefix) else k
+        if nk != k:
+            n_renamed += 1
+        if nk in renamed:
+            raise RuntimeError(
+                f"stripping `{prefix}` from {path.name} would collide on key "
+                f"{nk!r} — refusing to rewrite it.")
+        renamed[nk] = v
+    if not n_renamed:
+        return 0
+    new_meta = dict(meta or {}) if isinstance(meta, (dict, type(None))) else {}
+    # safetensors metadata values must be strings.
+    new_meta["phosphene_stripped_prefix"] = str(prefix)
+    new_meta["phosphene_converted_at"] = iso_now()
+    new_header: dict = {"__metadata__": new_meta}
+    new_header.update(renamed)
+    blob = json.dumps(new_header, separators=(",", ":")).encode("utf-8")
+    # The tensor buffer must start 8-byte aligned; the spec pads the JSON with
+    # spaces to get there, which is why trailing whitespace inside the header
+    # is legal and ignored by every reader.
+    blob += b" " * ((-len(blob)) % 8)
+    tmp = path.with_name(path.name + ".converting")
+    try:
+        with path.open("rb") as src, tmp.open("wb") as dst:
+            dst.write(len(blob).to_bytes(8, "little"))
+            dst.write(blob)
+            src.seek(data_start)
+            shutil.copyfileobj(src, dst, 1024 * 1024)
+        # Prove the rewrite before it replaces the original: re-read the temp
+        # file's header and require the same pair count under bare names.
+        check = _h3_lora_layout(tmp)
+        if check["layout"] != "bare" or check["pairs"] < 1:
+            raise RuntimeError(
+                f"post-rewrite check failed (layout={check['layout']}, "
+                f"pairs={check['pairs']}) — leaving the original untouched.")
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+    return n_renamed
+
+
+def _h3_lora_prepare(path: Path) -> dict:
+    """Make `path` loadable by the H3 runner, or raise saying why it can't be.
+
+    Called on the CivitAI download path (so the conversion happens once, at
+    install time, where the user is watching the log) AND again immediately
+    before a render (so a file dropped in by hand, or a pre-existing download,
+    gets the same treatment instead of failing inside the runner). Idempotent:
+    a bare-layout file is inspected and returned untouched."""
+    info = _h3_lora_layout(path)
+    if info["ok"]:
+        return {"layout": "bare", "converted": False, "prefix": "",
+                "pairs": info["pairs"]}
+    if not info["convertible"]:
+        raise RuntimeError(f"{path.name}: {info['reason']}")
+    n = _h3_lora_strip_prefix(path, info["prefix"])
+    push(f"[h3:lora] {path.name}: stripped `{info['prefix']}` from {n} keys "
+         f"(ComfyUI repack → bare layout; tensors untouched)")
+    return {"layout": "comfyui", "converted": True, "prefix": info["prefix"],
+            "pairs": info["pairs"]}
+
+
+# Layout probes are cheap but not free, and h3_status() runs on every /status
+# tick. Cache on (path, mtime_ns, size) so an unchanged file is classified
+# once per edit rather than once per poll.
+_H3_LORA_LAYOUT_CACHE: dict[str, dict] = {}
+
+
+def _h3_lora_layout_cached(path: Path) -> dict:
+    try:
+        st = path.stat()
+        key = f"{path}|{st.st_mtime_ns}|{st.st_size}"
+    except OSError as exc:
+        return {"layout": "not_a_lora", "prefix": "", "pairs": 0, "ok": False,
+                "convertible": False, "reason": f"unreadable ({exc})"}
+    hit = _H3_LORA_LAYOUT_CACHE.get(key)
+    if hit is not None:
+        return hit
+    try:
+        info = _h3_lora_layout(path)
+    except Exception as exc:
+        info = {"layout": "not_a_lora", "prefix": "", "pairs": 0, "ok": False,
+                "convertible": False, "reason": str(exc)}
+    # Drop stale entries for the same path (an edited file leaves one behind).
+    for stale in [k for k in _H3_LORA_LAYOUT_CACHE if k.split("|")[0] == str(path)]:
+        _H3_LORA_LAYOUT_CACHE.pop(stale, None)
+    _H3_LORA_LAYOUT_CACHE[key] = info
+    return info
+
+
+def list_h3_user_loras() -> list[dict]:
+    """Scan the H3 LoRA dir and return one entry per .safetensors found.
+
+    Same record shape list_user_loras() returns — the picker renders both from
+    one code path — with three additions the H3 lane needs: `lane` ("h3", the
+    field the picker filters on), and the `layout` / `layout_ok` /
+    `layout_reason` triple so a diffusers-namespace file the user copied in by
+    hand shows up in the list marked unusable, with the reason, instead of
+    silently missing or silently failing 30 s into a render.
+
+    Turbo's own adapter is NOT here — it lives in turbo-lora/ and is driven by
+    the Speed control, not the picker (the same reason the HDR IC-LoRA is
+    hidden from the LTX picker)."""
+    out: list[dict] = []
+    base = _h3_loras_dir()
+    if not base.exists():
+        return out
+    for path in sorted(base.iterdir()):
+        if not path.is_file() or path.suffix.lower() != ".safetensors":
+            continue
+        try:
+            size_bytes = path.stat().st_size
+        except OSError:
+            continue
+        meta = _read_lora_sidecar(path)
+        info = _h3_lora_layout_cached(path)
+        preview_url = meta.get("preview_url")
+        preview_type = meta.get("preview_type")
+        if preview_url and not preview_type:
+            preview_type = ("video" if preview_url.lower().split("?")[0].endswith(".mp4")
+                            else "image")
+        civitai_url = meta.get("civitai_url")
+        if not civitai_url and meta.get("civitai_id"):
+            civitai_url = f"https://civitai.com/models/{meta.get('civitai_id')}"
+        out.append({
+            "id": f"h3:{path.name}",
+            "name": meta["name"],
+            "description": meta["description"],
+            "path": str(path),
+            "filename": path.name,
+            "size_bytes": size_bytes,
+            "lane": "h3",
+            "trigger_words": list(meta.get("trigger_words") or []),
+            "recommended_strength": float(meta.get("recommended_strength") or 1.0),
+            "preview_url": preview_url,
+            "preview_type": preview_type,
+            "base_model": meta.get("base_model") or "MiniMax H3",
+            "kind": meta.get("kind"),
+            # Hard-coded rather than classified: this file was found in the H3
+            # weights tree, which is a stronger statement than any sidecar
+            # string. A hand-dropped file with no metadata still belongs to
+            # exactly one lane.
+            "compatible_modes": ["video:h3"],
+            # ok as it sits on disk, OR convertible with a key rename we do at
+            # render time. Only diffusers / kohya / not-a-LoRA come back False.
+            "layout": info.get("layout"),
+            "layout_ok": bool(info.get("ok") or info.get("convertible")),
+            "layout_reason": ("" if (info.get("ok") or info.get("convertible"))
+                              else info.get("reason") or ""),
+            "civitai_id": meta.get("civitai_id"),
+            "civitai_version_id": meta.get("civitai_version_id"),
+            "civitai_url": civitai_url,
+            "downloaded_at": meta.get("downloaded_at"),
+            "is_curated": False,
+        })
+    return out
+
+
+def h3_loras_status() -> dict:
+    """The H3 LoRA lane's own availability block for /status + the bootstrap.
+
+    Separate from `turbo` because the two answers differ: Turbo is a specific
+    0.8 GB download with a button, this is a directory the user fills from the
+    CivitAI browser. They share one gate — `supported`, whether the installed
+    runner has `--lora` at all — and one hard constraint, the single adapter
+    slot, which is why `max_stack` is reported rather than assumed by the UI."""
+    supported = h3_supports_lora()
+    entries: list[dict] = []
+    try:
+        entries = list_h3_user_loras()
+    except Exception:
+        entries = []
+    usable = [e for e in entries if e.get("layout_ok")]
+    return {
+        "supported": supported,
+        "dir": str(_h3_loras_dir()),
+        "count": len(entries),
+        "usable": len(usable),
+        "max_stack": H3_LORA_MAX_STACK,
+        "slots": list(H3_LORA_SLOTS),
+        "default_slot": H3_LORA_SLOT_DEFAULT,
+        "note": H3_LORA_STACK_NOTE,
+        "base_model": _CIVITAI_VIDEO_FAMILIES["h3"][0],
+    }
+
+
 def h3_supports_chain() -> bool:
     """Whether the INSTALLED runner accepts `--chain-windows` (window chaining).
 
@@ -6110,6 +6631,19 @@ def h3_status() -> dict:
                    "download_gb": H3_TURBO_DOWNLOAD_GB, "repo": H3_TURBO_REPO,
                    "dir": str(_h3_turbo_dir()), "missing": [],
                    "note": H3_TURBO_NOTE, "label": "Turbo"}),
+        # User LoRAs — the CivitAI lane. A separate block from `turbo` for the
+        # same reason turbo is separate from `first_frame`: "you can't pick a
+        # LoRA" has three unrelated causes (H3 absent / runner predates --lora
+        # / nothing installed yet) and the UI owes a different sentence for
+        # each. `supported` is the gate that decides whether the picker is
+        # even offered on this engine.
+        "loras": (h3_loras_status() if available else
+                  {"supported": False, "dir": str(_h3_loras_dir()), "count": 0,
+                   "usable": 0, "max_stack": H3_LORA_MAX_STACK,
+                   "slots": list(H3_LORA_SLOTS),
+                   "default_slot": H3_LORA_SLOT_DEFAULT,
+                   "note": H3_LORA_STACK_NOTE,
+                   "base_model": _CIVITAI_VIDEO_FAMILIES["h3"][0]}),
         "min_ram_gb": H3_MIN_RAM_GB,
         "ram_gb": round(SYSTEM_RAM_GB, 1),
         "root": paths["root"],
@@ -6192,6 +6726,12 @@ def h3_status() -> dict:
 #   excluded_modes  modes it must NOT serve even though they resolve to a
 #                 `modes` entry (`character` submits t2v but stacks LTX LoRAs;
 #                 `i2v_clean_audio` muxes an external track onto LTX video).
+#   lora_tag      the compat tag this engine's LoRA picker filters the library
+#                 by ("video" = LTX, "video:h3" = Hailuo H3). None means the
+#                 engine takes no LoRAs at all and the picker is hidden for it
+#                 — which is what an announced-but-unreleased engine wants, and
+#                 is why the picker's visibility reads this table instead of
+#                 hard-coding `data-ltx-only` on the markup the way it used to.
 #   accent/_dim/_soft  the three stops of the Phosphene wordmark gradient, one
 #                 engine each, so engines are coloured out of the product's own
 #                 identity instead of a new palette. Used as an active-state
@@ -6216,6 +6756,8 @@ ENGINES: tuple[dict, ...] = (
         "excluded_modes": (),
         "serves_label": "every mode",
         "surfaces": ("video",),
+        # LTX fuses as many LoRAs as you stack, from mlx_models/loras/.
+        "lora_tag": "video",
         # LTX's primary strip is #qualityGroup, but its visibility is owned by
         # _applyCharacterQualityStripVisibility (it swaps to the character-only
         # strip when a character is selected). Leaving `strip` empty tells the
@@ -6240,6 +6782,11 @@ ENGINES: tuple[dict, ...] = (
         "excluded_modes": ("character", "i2v_clean_audio"),
         "serves_label": "Text and Image",
         "surfaces": ("video",),
+        # H3 takes ONE adapter through the same `--lora` flag Turbo rides, out
+        # of its own library (see _h3_loras_dir). The picker is additionally
+        # gated on BOOT.h3.loras.supported, because a pack cloned before
+        # `--lora` landed renders every tier fine and can't take one at all.
+        "lora_tag": "video:h3",
         "strip": "h3TierGroup",
         "hint": "h3Hint",
         # H3's first strip IS a quality picker now (canvas presets in the same
@@ -6273,6 +6820,8 @@ ENGINES: tuple[dict, ...] = (
             "excluded_modes": ("character", "i2v_clean_audio"),
             "serves_label": "Text and Image",
             "surfaces": ("video",),
+            # No weights, so no LoRA ecosystem yet — the picker stays hidden.
+            "lora_tag": None,
             "strip": "",
             "hint": "",
             "strip_label": "Flux tier",
@@ -9597,6 +10146,19 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # or a curl must never reach the worker asking for an adapter this install
     # doesn't have).
     _h3_turbo = (f("h3_turbo", "") or "").strip().lower() in ("1", "true", "on", "yes")
+    # Which of the runner's ONE adapter slots this render spends. H3's
+    # `--lora` is a single path (`default=None`, not `action="append"` — see
+    # scripts/generate_staged.py), so a user LoRA and Turbo are mutually
+    # exclusive and SOMETHING has to choose. The panel refuses to choose
+    # silently: "turbo" (the default) keeps Turbo and makes a picked LoRA a
+    # hard error naming the conflict; "user" is the explicit opt-out that
+    # spends the slot on the LoRA and turns Turbo off with a line in the log.
+    # Dropping Turbo without being told to is exactly the silent behaviour
+    # this field exists to prevent.
+    _h3_lora_slot = (f("h3_lora_slot", H3_LORA_SLOT_DEFAULT)
+                     or H3_LORA_SLOT_DEFAULT).strip().lower()
+    if _h3_lora_slot not in H3_LORA_SLOTS:
+        _h3_lora_slot = H3_LORA_SLOT_DEFAULT
     # Per-window prompts for a CHAINED length: a JSON array of strings, one per
     # 5 s window, "" meaning "this window uses the main prompt". Read raw here
     # and normalised below, AFTER the tier fallback has settled — the window
@@ -9666,6 +10228,10 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         # Turbo is an H3 sampler mode and means nothing on the LTX lane; a
         # fallback to LTX above must not leave the flag set on the job.
         _h3_turbo = False
+        # Same for the adapter-slot choice: LTX fuses as many LoRAs as you
+        # stack, so there is no slot to allocate and a leftover "user" here
+        # would only be a confusing field in the sidecar.
+        _h3_lora_slot = H3_LORA_SLOT_DEFAULT
     if _h3_turbo and _h3_steps:
         # The adapter is distilled FOR 4 sigma points. Honouring a Steps pill on
         # top of it would quietly render a configuration nobody validated, so
@@ -9713,6 +10279,12 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # this dict — leaving `h3_turbo` out of here is how the control
             # would look wired, pass validation, and silently render at 9.
             "h3_turbo": _h3_turbo,
+            # Which of H3's ONE adapter slots this render spends: "turbo"
+            # (default) or "user". SAME allowlist trap as every key in this
+            # dict — leave `h3_lora_slot` out and the Turbo-vs-LoRA control
+            # would look wired, post cleanly, and every render would silently
+            # come back on the Turbo branch.
+            "h3_lora_slot": _h3_lora_slot,
             # Per-window prompts for a chained length: one entry per 5 s
             # window, in render order, "" = "use the main prompt for this
             # window". Already clamped to the resolved cell's window count
@@ -9853,6 +10425,19 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # and keeps a stale tab from posting an LTX 8k+1 frame count (121) into a
     # runner that snaps frames to the 17n+5 grid.
     if _engine == "h3":
+        # One adapter slot, and the user asked for it to hold their LoRA:
+        # settle that HERE, before `steps` is stamped, or the queue card (and
+        # the render) would carry Turbo's pinned 4 sigma points on a render
+        # that is not using the 4-step distillation adapter. Announced, never
+        # silent — the whole reason h3_lora_slot is an explicit field.
+        if (_h3_turbo and _h3_lora_slot == "user"
+                and any(_lora_is_h3_lane((e or {}).get("path"))
+                        for e in (job["params"].get("loras") or []))):
+            _h3_turbo = False
+            job["params"]["h3_turbo"] = False
+            push("Turbo off: H3's runner has one `--lora` slot and you chose "
+                 "to spend it on your LoRA. Rendering at this shape's own "
+                 f"{_h3_steps or H3_TIERS[_h3_tier]['steps']} sigma points.")
         _tier_cfg = H3_TIERS[_h3_tier]
         job["params"]["width"] = _tier_cfg["width"]
         job["params"]["height"] = _tier_cfg["height"]
@@ -9973,6 +10558,41 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # Persist the strength too so Load Params can restore the
             # exact slider value (defaults to 1.0 on the picker).
             job["params"].setdefault("character_strength", char_strength)
+
+    # ---- lane scrub: a LoRA never crosses engines --------------------------
+    # The picker is ONE control shared by both video engines, and its hidden
+    # field survives an engine switch. Client-side it re-serialises on every
+    # switch, but a stale tab, a Load-Params replay of an H3 job onto LTX, or a
+    # hand-rolled POST can still carry the other lane's paths. LTX would then
+    # try to fuse an H3 adapter (fails inside the pipeline) and H3 would be
+    # handed an LTX one (matches zero modules — a SILENT no-op, the worse of
+    # the two). Decide it here, once, on the server, by the directory the file
+    # lives in — the same authority list_h3_user_loras() uses.
+    try:
+        _h3_lora_root = _h3_loras_dir().resolve()
+    except OSError:
+        _h3_lora_root = None
+    if _h3_lora_root is not None:
+        def _lora_lane(entry: dict) -> str:
+            try:
+                rp = Path(str((entry or {}).get("path") or "")).resolve()
+            except (OSError, ValueError):
+                return "ltx"
+            try:
+                return "h3" if rp.is_relative_to(_h3_lora_root) else "ltx"
+            except ValueError:
+                return "ltx"
+        _want_lane = "h3" if job["params"].get("engine") == "h3" else "ltx"
+        _all_loras = list(job["params"].get("loras") or [])
+        _kept = [e for e in _all_loras if _lora_lane(e) == _want_lane]
+        if len(_kept) != len(_all_loras):
+            _dropped = [Path(str(e.get("path") or "")).name or "?"
+                        for e in _all_loras if _lora_lane(e) != _want_lane]
+            push(f"Dropped {len(_dropped)} LoRA(s) that belong to the other "
+                 f"video engine ({', '.join(_dropped[:4])}"
+                 f"{'…' if len(_dropped) > 4 else ''}) — LTX and Hailuo H3 "
+                 f"adapters are not interchangeable.")
+            job["params"]["loras"] = _kept
 
     _apply_generation_profile_to_job(job)
 
@@ -11145,11 +11765,107 @@ def run_h3_job_inner(job: dict) -> None:
                          "Phosphene sidebar to update the clone; your weights "
                          "stay.")
 
+    # ---- user LoRA -------------------------------------------------------
+    # Resolved BEFORE Turbo, deliberately: the two compete for the runner's one
+    # `--lora` slot, and Turbo's branch below pins `steps` to 4. Settling the
+    # LoRA first means the Turbo branch can decline to run at all instead of
+    # running and then being unwound, which is how `steps` would end up at 4 on
+    # a render that isn't using the 4-step adapter.
+    #
+    # `loras` is the SAME form field the LTX picker posts — one control, one
+    # wire format. make_job has already scrubbed the other engine's lane out of
+    # it; this re-checks against the directory anyway, because a queued job can
+    # be resumed across a panel restart into a differently-configured H3 root.
+    lora_slot = (str(p.get("h3_lora_slot") or H3_LORA_SLOT_DEFAULT).strip().lower()
+                 or H3_LORA_SLOT_DEFAULT)
+    if lora_slot not in H3_LORA_SLOTS:
+        lora_slot = H3_LORA_SLOT_DEFAULT
+    user_lora: Path | None = None
+    user_lora_strength = 1.0
+    _h3_lora_root = _h3_loras_dir()
+    _picked: list[tuple[Path, float]] = []
+    _foreign: list[str] = []
+    for _entry in (p.get("loras") or []):
+        _raw = str((_entry or {}).get("path") or "").strip()
+        if not _raw:
+            continue
+        _lp = Path(_raw)
+        if not _lora_is_h3_lane(_raw):
+            _foreign.append(_lp.name or _raw)
+            continue
+        try:
+            _rp = _lp.resolve()
+        except OSError:
+            _rp = _lp
+        if not _rp.is_file():
+            raise RuntimeError(
+                f"The LoRA {_lp.name} is no longer on disk (expected under "
+                f"{_h3_lora_root}). Re-install it from the CivitAI browser, or "
+                f"un-pick it and render again.")
+        try:
+            _st = float((_entry or {}).get("strength", 1.0))
+        except (TypeError, ValueError):
+            _st = 1.0
+        _picked.append((_rp, max(-2.0, min(2.0, _st))))
+    if _foreign:
+        # Never silent: an LTX LoRA handed to H3's loader matches zero modules
+        # and renders as though no adapter were attached at all.
+        push(f"[h3] ignoring {len(_foreign)} LoRA(s) from the LTX library "
+             f"({', '.join(_foreign[:4])}{'…' if len(_foreign) > 4 else ''}) — "
+             f"H3 can only load adapters trained for MiniMax H3. Install those "
+             f"from the CivitAI browser with the Hailuo H3 filter on.")
+    if _picked:
+        if not h3_supports_lora():
+            raise RuntimeError(
+                "This Hailuo H3 checkout's runner has no `--lora` support "
+                f"({paths['runner']}), so it can't take a LoRA. Re-run 'Install "
+                "Hailuo H3' from the Phosphene sidebar to update the clone — it "
+                "keeps every weight already on disk.")
+        if len(_picked) > H3_LORA_MAX_STACK:
+            raise RuntimeError(
+                f"H3's runner has {H3_LORA_MAX_STACK} adapter slot — `--lora` "
+                f"takes a single path — and {len(_picked)} LoRAs are picked "
+                f"({', '.join(pp.name for pp, _ in _picked)}). Stacking is an "
+                f"LTX capability; on H3, pick one.")
+        user_lora, user_lora_strength = _picked[0]
+        # Layout gate. Idempotent — a file already in bare layout is inspected
+        # and returned untouched; a ComfyUI repack is renamed in place here if
+        # it wasn't already renamed at install time (hand-copied files never
+        # went through the download path); a diffusers-namespace file raises
+        # with the sentence naming the alpha problem.
+        _layout = _h3_lora_prepare(user_lora)
+        p["h3_lora_path"] = str(user_lora)
+        p["h3_lora_strength"] = user_lora_strength
+        p["h3_lora_layout"] = _layout.get("layout")
+
     # ---- Turbo: the 4-step distillation LoRA -----------------------------
     # make_job already gated this and pinned `steps`, but re-resolve the files
     # HERE: the queue can sit for an hour and a job must not reach the runner
     # with a --lora path that stopped resolving in the meantime.
     turbo = bool(p.get("h3_turbo"))
+    if turbo and user_lora is not None:
+        # ONE slot, two claimants. Both outcomes are stated out loud; neither
+        # is chosen for the user behind their back.
+        if lora_slot == "user":
+            turbo = False
+            p["h3_turbo"] = False
+            # make_job normally settles this before it stamps `steps`, so this
+            # branch only fires for a job queued by an older build or replayed
+            # from a sidecar. Give the step count back: `steps` is 4 right now
+            # because Turbo pinned it, and 4 sigma points without the 4-step
+            # adapter is a visibly under-denoised clip.
+            steps = int(p.get("h3_steps") or tier["steps"])
+            push(f"[h3] Turbo OFF for this render — you chose to spend the "
+                 f"adapter slot on {user_lora.name}. {H3_LORA_STACK_NOTE} "
+                 f"Rendering at this shape's own {steps} sigma points "
+                 f"({steps - 1} forwards).")
+        else:
+            raise RuntimeError(
+                f"Turbo and the LoRA {user_lora.name} both want H3's single "
+                f"adapter slot — its runner's `--lora` takes one path, so they "
+                f"cannot both run. Turn Turbo off, or switch the LoRA control "
+                f"to 'Use my LoRA' to spend the slot on it instead (that drops "
+                f"Turbo and renders at this shape's own step count).")
     turbo_paths: dict = {}
     if turbo:
         if not h3_supports_lora():
@@ -11272,6 +11988,20 @@ def run_h3_job_inner(job: dict) -> None:
         # precomputed modulation cache, so they cost nothing per forward.
         cmd += ["--lora", str(turbo_paths["lora"]),
                 "--lora-adaln", str(turbo_paths["embedder"])]
+    elif user_lora is not None:
+        # The SAME flag Turbo rides — one slot, and this render spent it here.
+        # `PATH:SCALE` is the runner's own spelling (lora.parse_spec), and the
+        # scale is the picker's strength: 1.0 means "as trained" for a
+        # checkpoint that ships alpha == rank, which is the only namespace this
+        # lane accepts (the diffusers/PEFT one, whose alpha is NOT in the file,
+        # is refused upstream in _h3_lora_prepare).
+        #
+        # No `--lora-adaln` here on purpose: that flag applies TURBO's adaLN
+        # modules using the recovered upstream time embedder, and it is
+        # meaningful only for an adapter that HAS adaLN pairs trained against
+        # the 2688-d timestep MLP this pruned checkpoint dropped. A community
+        # LoRA's attention/MLP pairs apply without it.
+        cmd += ["--lora", f"{user_lora}:{user_lora_strength:g}"]
 
     env = os.environ.copy()
     # The runner pipes raw RGB into `ffmpeg` from PATH (minimax_h3_mlx.media);
@@ -11282,6 +12012,8 @@ def run_h3_job_inner(job: dict) -> None:
     push(f"[h3] {tier['label']} · {width}×{height} · {frames}f · "
          f"{steps} sigma points ({steps - 1} forwards) · seed {seed}"
          + (" · Turbo (4-step distill LoRA)" if turbo else "")
+         + (f" · LoRA {user_lora.name} @ {user_lora_strength:g}"
+            if (user_lora is not None and not turbo) else "")
          + (f" · {chain_windows} chained windows of {window_frames}f"
             if chain_windows > 1 else "")
          + (" · per-window prompts" if chain_prompts else "")
@@ -14619,17 +15351,38 @@ class Handler(BaseHTTPRequestHandler):
             # sidecar). The Manual-tab style picker passes this so the
             # Characters picker is the only surface where face+audio LoRAs
             # live — no confusing duplicates in two pickers at once.
+            #
+            # Two LIBRARIES are returned as one list (2026-08-09): the panel's
+            # own mlx_models/loras/ tree and the Hailuo pack's loras/ dir, each
+            # entry tagged `lane`. The browser fetches this endpoint ONCE with
+            # no filter and re-filters client-side on every mode/engine flip,
+            # so both lanes have to be present in that one payload or an engine
+            # switch would need a round-trip to show anything.
             qs = parse_qs(parsed.query)
             mode_filter = (qs.get("mode", [""])[0] or "").strip().lower()
             exclude_characters_raw = (qs.get("exclude_characters", [""])[0] or "").strip().lower()
             exclude_characters = exclude_characters_raw in ("1", "true", "yes", "on")
-            user_loras = list_user_loras()
+            try:
+                h3_user_loras = list_h3_user_loras()
+            except Exception:
+                h3_user_loras = []
+            user_loras = list_user_loras() + h3_user_loras
             if mode_filter:
-                user_loras = [
-                    l for l in user_loras
-                    if mode_filter in (l.get("compatible_modes") or [])
-                    or "unknown" in (l.get("compatible_modes") or [])
-                ]
+                # The lane is checked BEFORE compatible_modes, and the
+                # "unknown" wildcard is deliberately NOT honoured across lanes.
+                # An untagged .safetensors in mlx_models/loras/ classifies as
+                # ["unknown"], which is permissive by design — but permissive
+                # must not mean "offer it to an engine that cannot load it".
+                # The directory a file was found in is the authority here.
+                if mode_filter == "video:h3":
+                    user_loras = [l for l in user_loras if l.get("lane") == "h3"]
+                else:
+                    user_loras = [
+                        l for l in user_loras
+                        if l.get("lane") != "h3"
+                        and (mode_filter in (l.get("compatible_modes") or [])
+                             or "unknown" in (l.get("compatible_modes") or []))
+                    ]
             if exclude_characters:
                 blocked_names = _character_lora_basenames()
                 user_loras = [
@@ -14645,6 +15398,15 @@ class Handler(BaseHTTPRequestHandler):
                 "user": user_loras,
                 "curated": curated,
                 "loras_dir": str(_safe_loras_dir()),
+                # The H3 lane's directory + its gate. `h3_lora_supported` is
+                # whether the INSTALLED runner takes `--lora` at all — an older
+                # H3 pack renders every tier fine and can't take an adapter, so
+                # the picker must not be offered on that install. Reported here
+                # (not just in /status) so the CivitAI modal can name the right
+                # install path without a second round-trip.
+                "h3_loras_dir": str(_h3_loras_dir()),
+                "h3_lora_supported": h3_supports_lora(),
+                "h3_lora_max_stack": H3_LORA_MAX_STACK,
                 # Echo back so the JS picker can verify the server filtered
                 # by the mode it asked for (vs back-compat unfiltered).
                 "mode_filter": mode_filter or None,
@@ -14976,9 +15738,11 @@ class Handler(BaseHTTPRequestHandler):
             context = (qs.get("context", ["video"])[0] or "video").lower()
             if context not in _CIVITAI_BASE_MODELS_BY_CONTEXT:
                 context = "video"
-            # Optional `family` narrows the image context to one engine
-            # family (e.g. "qwen" or "hidream"). Empty / "all" leaves the
-            # full image list active. Ignored when context != "image".
+            # Optional `family` narrows a context to one engine family —
+            # "ltx" / "h3" on video, "qwen" / "hidream" on image. Empty /
+            # "all" leaves the whole context list active. An unknown value
+            # is ignored by _civitai_search rather than erroring, so a stale
+            # tab degrades to "All" instead of to a 400.
             family = (qs.get("family", [""])[0] or "").lower()
             try:
                 results = _civitai_search(query=query, nsfw=nsfw,
@@ -14987,10 +15751,13 @@ class Handler(BaseHTTPRequestHandler):
                 results["context"] = context
                 results["family"] = family or "all"
                 # Echo the family list so the client can render pills
-                # without hardcoding the catalog. Only meaningful for
-                # context=image.
-                if context == "image":
-                    results["available_families"] = list(_CIVITAI_IMAGE_FAMILIES.keys())
+                # without hardcoding the catalog. Every context that HAS
+                # families gets them — video grew a pair (ltx / h3) when the
+                # H3 engine learned to take LoRAs, and the client renders
+                # both surfaces from this one echo.
+                _fams = _CIVITAI_FAMILIES_BY_CONTEXT.get(context) or {}
+                if _fams:
+                    results["available_families"] = list(_fams.keys())
                 self._json(results)
             except Exception as exc:
                 self._json({"error": f"civitai search failed: {exc}",
@@ -26030,6 +26797,15 @@ HTML = r"""<!doctype html>
         <input type="hidden" name="h3_upscale" id="h3_upscale" value="fit_720p">
         <input type="hidden" name="h3_steps" id="h3_steps" value="auto">
         <input type="hidden" name="h3_turbo" id="h3_turbo" value="0">
+        <!-- Which of H3's ONE adapter slots this render spends. Its runner's
+             `--lora` takes a single path (default=None, not append), so Turbo
+             and a picked LoRA cannot both run and something has to choose.
+             "turbo" (default) keeps Turbo and makes a picked LoRA a hard,
+             named error; "user" is the explicit opt-out. In the make_job
+             allowlist — a field that isn't listed there silently no-ops on
+             /queue/add, which here would mean every render quietly coming back
+             on the Turbo branch with the control looking wired. -->
+        <input type="hidden" name="h3_lora_slot" id="h3_lora_slot" value="turbo">
         <!-- Per-window prompts for a chained length, posted as ONE field: a
              JSON array of strings, one entry per 5 s window, in render order.
              One field rather than h3_chain_prompt_1..N because the window count
@@ -26261,6 +27037,31 @@ HTML = r"""<!doctype html>
               <div class="h3-turbo-note" id="h3TurboNote" hidden></div>
             </div>
 
+            <!-- Adapter slot. Appears ONLY when the conflict is real — Turbo
+                 selected AND a LoRA picked — because H3's runner has exactly
+                 one `--lora` and there is nothing to decide until both want
+                 it. Rendered by renderH3LoraSlot() from BOOT.h3.loras so the
+                 sentence explaining the constraint comes from Python, next to
+                 the constant that encodes it. The alternative (silently
+                 preferring one) is the failure this control exists to
+                 prevent: a render that quietly ignored the LoRA you picked,
+                 or quietly dropped the Turbo you asked for. -->
+            <div class="cz-control" id="h3LoraSlotRow" data-h3-only hidden>
+              <div class="cz-label">Adapter
+                <span class="cz-label-hint">one slot · Turbo or your LoRA</span>
+              </div>
+              <div class="pill-group cols-2" id="h3LoraSlotGroup">
+                <button type="button" class="pill-btn active" data-h3-lora-slot="turbo"
+                        title="Spend the slot on Turbo. Your picked LoRA won't render — the job stops and says so rather than silently dropping it.">
+                  <span>Turbo</span>
+                </button>
+                <button type="button" class="pill-btn" data-h3-lora-slot="user" id="h3LoraSlotUserPill">
+                  <span>My LoRA</span><span class="sub" id="h3LoraSlotUserSub"></span>
+                </button>
+              </div>
+              <div class="h3-turbo-note" id="h3LoraSlotNote"></div>
+            </div>
+
             <!-- H3 sampler depth. Every cell bakes 9 steps (8 forwards per
                  window) — the validated speed/quality point; the official
                  reference recipe runs 20. Four honest pills beat an unbounded
@@ -26368,7 +27169,13 @@ HTML = r"""<!doctype html>
            it easy to forget. Default open so first-time users see what's
            inside without hunting for the disclosure triangle. -->
       <div class="form-divider"></div>
-      <div id="loraPickerVideoSlot" data-ltx-only>
+      <!-- NOT `data-ltx-only` any more (2026-08-09): H3 takes LoRAs too, out
+           of its own library, so the picker is shared and its visibility is
+           decided by _syncLoraPickerForEngine() from the ENGINES table's
+           `lora_tag` plus the H3 runner probe. A CSS fold rule can express
+           "one engine" but not "any engine whose installed pack has --lora",
+           which is the actual condition. -->
+      <div id="loraPickerVideoSlot">
         <details id="lorasDetails" open class="loras-section">
           <summary class="loras-summary">
             <span class="loras-chevron" aria-hidden="true"><svg class="ph"><use href="#ph-caret-down-bold"/></svg></span>
@@ -33974,6 +34781,9 @@ function setH3Turbo(on) {
     if (s) s.value = t.steps || 4;
   }
   _h3SyncStepsEnabled();
+  // Turbo is one half of the single-adapter-slot conflict, so the Adapter row
+  // appears / disappears with it.
+  if (typeof renderH3LoraSlot === 'function') { try { renderH3LoraSlot(); } catch (e) {} }
   try { localStorage.setItem('phos_h3_turbo', v); } catch (e) {}
   // Turbo roughly halves every cell, so the chips have to re-price — a strip
   // still advertising the 9-step wall clock while Turbo is lit is the same lie
@@ -34020,6 +34830,12 @@ async function h3TurboClick() {
 
 document.querySelectorAll('#h3TurboGroup [data-h3-turbo]').forEach(b => {
   b.onclick = () => (b.dataset.h3Turbo === '1') ? h3TurboClick() : setH3Turbo(false);
+});
+
+// Adapter-slot pills. Bound at parse time like the Turbo / Steps groups —
+// the row itself is hidden until Turbo and a LoRA actually collide.
+document.querySelectorAll('#h3LoraSlotGroup [data-h3-lora-slot]').forEach(b => {
+  b.onclick = () => setH3LoraSlot(b.dataset.h3LoraSlot);
 });
 
 // The switcher earns its place only when there is a real choice to make: at
@@ -34937,6 +35753,12 @@ function setEngine(engine, opts) {
     try { updatePromptPlaceholder(); } catch (e) {}
   }
   try { _syncEnginePromptTools(); } catch (e) {}
+  // The LoRA picker is SHARED by the video engines and each has its own
+  // library, so an engine switch re-points it, re-filters it and re-serializes
+  // the hidden field (the lane guard). Last, after the surface swap, so it
+  // reads the engine this call actually settled on rather than the one that
+  // was requested — a gate may have bounced it back to the built-in.
+  try { _syncLoraPickerForEngine(); } catch (e) {}
   return target;
 }
 
@@ -39288,7 +40110,14 @@ function _currentLoraModeFilter() {
   // works.
   const mode = (currentMode || document.getElementById('mode')?.value || 't2v');
   if (mode !== 'image') {
-    // All video modes share the LTX lane.
+    // Video modes are no longer one lane: LTX and Hailuo H3 have separate
+    // libraries in separate directories, and neither can load the other's
+    // adapters. The tag comes off the ENGINES table (`lora_tag`) so a third
+    // video engine is one registry entry, not another branch here.
+    try {
+      const e = (typeof engineById === 'function') ? engineById(currentEngine()) : null;
+      if (e && e.lora_tag) return e.lora_tag;
+    } catch (_) { /* fall through to the built-in lane */ }
     return 'video';
   }
   // Image Studio: read the engine override + map to compat tag.
@@ -39325,6 +40154,7 @@ function _currentLoraModeFilter() {
 function _loraFilterLabel(tag) {
   switch (tag) {
     case 'video':         return 'LTX-Video LoRAs (active video mode)';
+    case 'video:h3':      return 'Hailuo H3 LoRAs (MiniMax H3 base — separate library)';
     case 'image':         return 'image LoRAs (any mflux family — auto engine)';
     case 'image:qwen':    return 'Qwen-Image / Qwen-Image-Edit LoRAs';
     case 'image:ideogram': return 'Ideogram 4 LoRAs (community formats — none validated yet)';
@@ -39338,12 +40168,132 @@ function _loraFilterLabel(tag) {
   }
 }
 
+// Which LoRA library directory the picker is currently pointed at. Filled by
+// refreshLoras() from /loras — one fetch carries both, so flipping engine
+// re-labels the empty state without a round-trip.
+let _lorasDirs = { ltx: 'mlx_models/loras/', h3: '' };
+// Whether the INSTALLED H3 pack's runner takes `--lora` at all. An older
+// checkout renders every tier and cannot take an adapter, and offering the
+// picker there would be a lie the user only discovers 30 s into a render.
+let _h3LoraSupported = false;
+
+// Show / hide the shared LoRA picker for the ACTIVE engine, and re-point its
+// "drop files here" line at that engine's directory.
+//
+// This used to be a CSS fold (`data-ltx-only` on #loraPickerVideoSlot). A fold
+// rule can say "one engine"; it cannot say "any engine whose lora_tag is set
+// AND, if that engine is H3, whose installed pack has --lora" — which is the
+// real condition. So the markup lost its attribute and the decision moved
+// here, reading the same ENGINES table the rest of the engine surface does.
+function _syncLoraPickerForEngine() {
+  const slot = document.getElementById('loraPickerVideoSlot');
+  if (!slot) return;
+  let e = null;
+  try { e = (typeof engineById === 'function') ? engineById(currentEngine()) : null; }
+  catch (_) { e = null; }
+  const tag = e ? e.lora_tag : 'video';
+  let show = !!tag;
+  if (show && e && e.id === 'h3') {
+    // BOOT.h3.loras.supported is refreshed on every /status tick, so updating
+    // an old pack unlocks the picker without a panel restart — the same
+    // contract Turbo's download already has.
+    show = !!((H3 && H3.loras && H3.loras.supported) || _h3LoraSupported);
+  }
+  slot.hidden = !show;
+  slot.style.display = show ? '' : 'none';
+  const dirEl = document.getElementById('lorasDir');
+  if (dirEl) {
+    dirEl.textContent = (tag === 'video:h3')
+      ? (_lorasDirs.h3 || 'the Hailuo H3 pack’s loras/ folder')
+      : (_lorasDirs.ltx || 'mlx_models/loras/');
+  }
+  if (typeof renderLorasList === 'function') { try { renderLorasList(); } catch (_) {} }
+  // Re-serialize: the lane guard in _serializeLoras is what keeps the other
+  // engine's chips off the wire, and it has to re-run when the lane changes.
+  if (typeof _serializeLoras === 'function') { try { _serializeLoras(); } catch (_) {} }
+  if (typeof renderH3LoraSlot === 'function') { try { renderH3LoraSlot(); } catch (_) {} }
+}
+
+// The H3-lane LoRA (at most one) currently picked, as a picker row — or null.
+function _h3ActiveUserLora() {
+  if (!Array.isArray(_activeLoras)) return null;
+  for (const a of _activeLoras) {
+    const u = Array.isArray(_knownUserLoras)
+      ? _knownUserLoras.find(x => x.path === a.path) : null;
+    if (u && u.lane === 'h3') return Object.assign({}, u, { strength: a.strength });
+  }
+  return null;
+}
+
+// Adapter-slot control. Only rendered when the conflict is REAL — Turbo
+// selected AND an H3 LoRA picked — because H3's runner has one `--lora` and
+// there is nothing to choose until both want it. The copy comes from
+// BOOT.h3.loras.note so the sentence lives next to the constant that encodes
+// the constraint.
+function renderH3LoraSlot() {
+  const row = document.getElementById('h3LoraSlotRow');
+  if (!row) return;
+  const lora = _h3ActiveUserLora();
+  const turboOn = (document.getElementById('h3_turbo') || {}).value === '1';
+  const onH3 = (typeof currentEngine === 'function') && currentEngine() === 'h3';
+  const conflict = !!(onH3 && lora && turboOn);
+  row.hidden = !conflict;
+  if (!conflict) {
+    // No conflict = no choice to remember. Reset so a later render can't
+    // inherit a stale "user" from a LoRA the user has since un-picked.
+    const inp = document.getElementById('h3_lora_slot');
+    if (inp) inp.value = 'turbo';
+    document.querySelectorAll('#h3LoraSlotGroup .pill-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.h3LoraSlot === 'turbo'));
+    return;
+  }
+  const sub = document.getElementById('h3LoraSlotUserSub');
+  if (sub) sub.textContent = lora.name || lora.filename || '';
+  const note = document.getElementById('h3LoraSlotNote');
+  if (note) {
+    note.textContent = ((H3 && H3.loras && H3.loras.note) ||
+      "H3's runner has one adapter slot, so a LoRA and Turbo can't both run.")
+      + ' Choosing your LoRA turns Turbo off and renders at this shape’s own step count.';
+  }
+  const cur = (document.getElementById('h3_lora_slot') || {}).value || 'turbo';
+  document.querySelectorAll('#h3LoraSlotGroup .pill-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.h3LoraSlot === cur));
+}
+
+function setH3LoraSlot(slot) {
+  const v = (slot === 'user') ? 'user' : 'turbo';
+  const inp = document.getElementById('h3_lora_slot');
+  if (inp) inp.value = v;
+  document.querySelectorAll('#h3LoraSlotGroup .pill-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.h3LoraSlot === v));
+  renderH3LoraSlot();
+}
+
 function _serializeLoras() {
   // What the helper actually needs is path + strength. Keep the rest in
   // the in-memory list for UI rendering, drop it on the wire. Summary
   // count is updated by renderLorasList() which has fuller state — we
   // don't touch it here to avoid two functions stomping each other.
-  const slim = _activeLoras.map(l => ({ path: l.path, strength: l.strength }));
+  //
+  // Lane guard (2026-08-09): _activeLoras SURVIVES an engine switch on
+  // purpose — flipping LTX → H3 → LTX must not silently unpick the user's
+  // chips. But the hidden field is what gets POSTed, so anything from the
+  // other video engine's library has to be withheld from THIS submit or an
+  // LTX render would be handed an H3 adapter (and vice versa). The server
+  // scrubs the same way in make_job; this copy keeps the UI's own summary and
+  // the wire in agreement instead of relying on a correction it can't see.
+  const _tag = (typeof _currentLoraModeFilter === 'function')
+    ? _currentLoraModeFilter() : '';
+  const _laneOf = (p) => {
+    const u = Array.isArray(_knownUserLoras)
+      ? _knownUserLoras.find(x => x.path === p) : null;
+    return (u && u.lane) || 'ltx';
+  };
+  const _inLane = (l) => (_tag === 'video:h3')
+    ? _laneOf(l.path) === 'h3'
+    : _laneOf(l.path) !== 'h3';
+  const slim = _activeLoras.filter(_inLane)
+    .map(l => ({ path: l.path, strength: l.strength }));
   document.getElementById('lorasJson').value = JSON.stringify(slim);
   // Train-Character LoRAs are trained against the dev transformer (HQ
   // path) — Quick/Standard run the distilled model at 8 steps, which is
@@ -39352,6 +40302,9 @@ function _serializeLoras() {
   // output. Disable those chips when any trained LoRA is attached so
   // the wrong-path landing becomes visible.
   try { updateQualityChipsForLora(); } catch (_) {}
+  // Picking (or un-picking) an H3 LoRA is the other half of the
+  // single-adapter-slot conflict, so the Adapter row follows the selection.
+  if (typeof renderH3LoraSlot === 'function') { try { renderH3LoraSlot(); } catch (_) {} }
 }
 
 function updateQualityChipsForLora() {
@@ -39489,11 +40442,23 @@ async function refreshLoras() {
   } catch (e) {
     return;
   }
+  // One list, BOTH video libraries, each row carrying `lane`. The client
+  // filters per engine (renderLorasList) so an engine switch costs no
+  // round-trip — the same reason this fetch has never sent a mode filter.
   _knownUserLoras = data.user || [];
-  // Update displayed loras dir
-  if (data.loras_dir) {
+  if (data.loras_dir) _lorasDirs.ltx = data.loras_dir;
+  if (data.h3_loras_dir) _lorasDirs.h3 = data.h3_loras_dir;
+  _h3LoraSupported = !!data.h3_lora_supported;
+  // Update displayed loras dir — whichever library the ACTIVE engine reads.
+  {
     const dirEl = document.getElementById('lorasDir');
-    if (dirEl) dirEl.textContent = data.loras_dir;
+    const tag = (typeof _currentLoraModeFilter === 'function')
+      ? _currentLoraModeFilter() : 'video';
+    if (dirEl) {
+      dirEl.textContent = (tag === 'video:h3')
+        ? (_lorasDirs.h3 || 'the Hailuo H3 pack’s loras/ folder')
+        : (_lorasDirs.ltx || 'mlx_models/loras/');
+    }
   }
   // Backfill compatible_modes on any active LoRA whose entry we now
   // have full metadata for — addLoraToActive() may have stored a sparse
@@ -39512,6 +40477,10 @@ async function refreshLoras() {
     knownPaths.has(l.path) || l.path.includes('/'));   // keep HF ids (no dir slash)
   renderLorasList();
   _serializeLoras();
+  // The picker's own visibility depends on the H3 gate we just refreshed.
+  if (typeof _syncLoraPickerForEngine === 'function') {
+    try { _syncLoraPickerForEngine(); } catch (_) {}
+  }
   // Refill the Ingredients-mode character dropdown from the same library
   // (kind=train_character). Runs here so a newly-trained character appears
   // the moment /loras is re-fetched after training.
@@ -39545,6 +40514,14 @@ function renderLorasList() {
       filename: ul.filename,
       civitai_url: ul.civitai_url,
       compatible_modes: ul.compatible_modes || ['unknown'],
+      // Which engine DIRECTORY this file came from. Checked before
+      // compatible_modes in the filter below, because 'unknown' is
+      // deliberately permissive and must not be permissive ACROSS engines.
+      lane: ul.lane || 'ltx',
+      // H3 lane only: 'bare' / 'comfyui' load, 'diffusers' / 'kohya' don't.
+      layout: ul.layout || null,
+      layout_ok: (ul.layout_ok === undefined) ? true : !!ul.layout_ok,
+      layout_reason: ul.layout_reason || '',
       active: !!active,
       strength: active ? active.strength : (ul.recommended_strength || 1.0),
       // 'user' = downloaded/installed (CivitAI or manual);
@@ -39564,6 +40541,10 @@ function renderLorasList() {
       filename: null,
       civitai_url: null,
       compatible_modes: a.compatible_modes || ['unknown'],
+      lane: a.lane || 'ltx',
+      layout: null,
+      layout_ok: true,
+      layout_reason: '',
       active: true,
       strength: a.strength,
       kind: 'remote',
@@ -39626,9 +40607,18 @@ function renderLorasList() {
         if (tags.includes('unknown') && !_looksVideoOnly(r)) return true;
         return false;
       }
-      // Video lane stays permissive (video + unknown both match)
-      // since LTX is the only video family — there's no risk of
-      // family leakage on the video side.
+      // ---- Video lanes: LTX and Hailuo H3, by DIRECTORY -----------------
+      // 2026-08-09: the video side stopped being one family the moment H3
+      // learned to take LoRAs, and the two are not interchangeable in
+      // either direction — an LTX adapter handed to H3's loader matches
+      // zero modules (silent no-op), an H3 one handed to LTX fails inside
+      // the fuser. The 'unknown' escape hatch above is what makes this a
+      // lane check rather than a tag check: a sidecar-less .safetensors
+      // dropped into mlx_models/loras/ classifies as 'unknown' and would
+      // otherwise surface in the H3 picker, which is the exact
+      // cross-gallery leakage the image split was built to stop.
+      if (modeTag === 'video:h3') return r.lane === 'h3';
+      if (r.lane === 'h3') return false;
       return tags.includes(modeTag) || tags.includes('unknown');
     };
     rows = allRows.filter(r => {
@@ -39711,6 +40701,15 @@ function renderLorasList() {
           <div style="margin-bottom:4px;color:var(--fg);"><strong>No video LoRAs in your library.</strong></div>
           <div>Install an LTX-Video LoRA via the <strong>Browse CivitAI</strong> button above (filter base model to LTX 2.3), or train one in the <strong>Train Character</strong> tab.</div>
         </div>`;
+    } else if (modeTag === 'video:h3') {
+      // Its own empty state, not the LTX one: the two libraries are separate
+      // directories and the CivitAI filter to reach for is a different pill.
+      wrap.innerHTML = `
+        <div class="hint" style="padding:14px 8px;text-align:center;line-height:1.6;">
+          <div style="margin-bottom:4px;color:var(--fg);"><strong>No Hailuo H3 LoRAs in your library.</strong></div>
+          <div>H3 has its own library — your LTX LoRAs can't load here, and H3's can't load on LTX.</div>
+          <div style="margin-top:6px;">Install one via <strong>Browse CivitAI</strong> above (the <strong>Hailuo H3</strong> pill), and it lands in <code>${escapeHtml(_lorasDirs.h3 || 'the H3 pack’s loras/ folder')}</code>.</div>
+        </div>`;
     } else {
       wrap.innerHTML = `<div class="hint" style="padding:8px 0;">No LoRAs available.</div>`;
     }
@@ -39746,6 +40745,13 @@ function loraRowHtml(r, modeTag) {
   }
   if (familyMismatch) {
     familyBadges.push(`<span class="badge" style="background:rgba(232,179,65,0.15);color:var(--warn,#e8b341)" title="This LoRA was trained for a different family (${tags.join(', ')}) — it will be passed to mflux but probably won't influence the output. Switch the Engine dropdown to a matching family, or remove this LoRA."><svg class="ph" aria-hidden="true"><use href="#ph-warning-fill"/></svg></span>`);
+  }
+  // H3 lane: a file whose KEY LAYOUT the runner can't read (diffusers /
+  // kohya). Shown rather than hidden, with the reason on the badge, because
+  // "my LoRA vanished" is a worse bug report than "my LoRA says why it can't
+  // run" — and the reason is the actionable half (it names the conversion).
+  if (r.layout_ok === false) {
+    familyBadges.push(`<span class="badge" style="background:rgba(248,81,73,0.15);color:var(--danger,#f85149)" title="${escapeHtml(r.layout_reason || 'This LoRA is in a key layout the H3 runner cannot read.')}"><svg class="ph" aria-hidden="true"><use href="#ph-warning-fill"/></svg></span>`);
   }
   // Trigger summary line under the name (when not expanded). Truncated.
   const trigs = r.trigger_words || [];
@@ -40537,7 +41543,18 @@ function _civitaiContextForCurrentWorkflow() {
   return 'video';
 }
 
-function _civitaiContextMeta(ctx) {
+// The video context's family pill IS the lane selector — the two video
+// engines cannot load each other's adapters — so it is preselected from the
+// engine the user is actually on rather than defaulting to "All". Net effect
+// for an LTX user: the modal opens showing exactly what it always showed.
+function _civitaiFamilyForCurrentEngine() {
+  if (_civitaiContext !== 'video') return '';
+  try {
+    return (currentEngine() === 'h3') ? 'h3' : 'ltx';
+  } catch (_) { return 'ltx'; }
+}
+
+function _civitaiContextMeta(ctx, fam) {
   if (ctx === 'image') {
     return {
       title: 'Browse CivitAI for image LoRAs',
@@ -40545,31 +41562,51 @@ function _civitaiContextMeta(ctx) {
       empty: 'No image LoRAs match',
     };
   }
+  if (fam === 'h3') {
+    return {
+      title: 'Browse CivitAI for Hailuo H3 LoRAs',
+      hint: 'MiniMax H3.',
+      empty: 'No MiniMax H3 LoRAs match',
+    };
+  }
+  if (fam === 'ltx') {
+    return {
+      title: 'Browse CivitAI for LTX 2.3 LoRAs',
+      hint: 'LTX-Video 2.3.',
+      empty: 'No LTX 2.3 LoRAs match',
+    };
+  }
   return {
-    title: 'Browse CivitAI for LTX 2.3 LoRAs',
-    hint: 'LTX-Video 2.3.',
-    empty: 'No LTX 2.3 LoRAs match',
+    title: 'Browse CivitAI for video LoRAs',
+    hint: 'LTX-Video 2.3 and MiniMax H3.',
+    empty: 'No video LoRAs match',
   };
 }
 
 function openCivitaiModal(context) {
   // Pick context from the active workflow if not explicitly passed.
   _civitaiContext = context || _civitaiContextForCurrentWorkflow();
-  const meta = _civitaiContextMeta(_civitaiContext);
+  // Family BEFORE the title: on video the title names the engine's family.
+  _civitaiFamily = _civitaiFamilyForCurrentEngine();
+  const meta = _civitaiContextMeta(_civitaiContext, _civitaiFamily);
   const titleEl = document.getElementById('civitaiModalTitle');
   if (titleEl) titleEl.textContent = meta.title;
   document.getElementById('civitaiModal').style.display = 'flex';
-  // Pull /loras to populate the dir text and the auth-banner state.
+  // Pull /loras to populate the dir text and the auth-banner state. The dir
+  // shown is the one this family's downloads will actually land in — the
+  // server routes by the item's base model, so browsing H3 while on H3 has to
+  // name the H3 library or the line would be a lie.
   fetch('/loras').then(r => r.json()).then(d => {
-    const dirEl = document.getElementById('civitaiTargetDir');
-    if (dirEl && d.loras_dir) dirEl.textContent = d.loras_dir;
+    if (d.loras_dir) _lorasDirs.ltx = d.loras_dir;
+    if (d.h3_loras_dir) _lorasDirs.h3 = d.h3_loras_dir;
+    _h3LoraSupported = !!d.h3_lora_supported;
+    _civitaiSyncTargetDir();
     renderCivitaiAuthBanner(!!d.civitai_auth);
   }).catch(() => { renderCivitaiAuthBanner(false); });
   document.getElementById('civitaiQuery').value = '';
   _civitaiCursor = '';
-  // Reset family on every modal open so users always land on "All".
-  _civitaiFamily = '';
-  // Hide family row by default; render fills it + shows it for image context.
+  // Hide the family row by default; the first search response fills it and
+  // shows it for every context that HAS families (image, and video since H3).
   const famRow = document.getElementById('civitaiFamilyRow');
   if (famRow) famRow.style.display = 'none';
   // Pull current Spicy mode state so the "Show NSFW" toggle hides when off.
@@ -40593,6 +41630,8 @@ function civitaiRenderFamilyPills(available, active) {
   const labels = {
     qwen:    'Qwen-Image',
     hidream: 'HiDream',
+    ltx:     'LTX-2.3',
+    h3:      'Hailuo H3',
   };
   const all = ['all', ...available];
   row.style.display = 'flex';
@@ -40606,9 +41645,30 @@ function civitaiRenderFamilyPills(available, active) {
   }).join('');
 }
 
+// Point the "LoRAs land in …" line at the directory the CURRENT family's
+// downloads will actually be written to. The server routes by the item's own
+// base model, so on the video surface this tracks the family pill.
+function _civitaiSyncTargetDir() {
+  const dirEl = document.getElementById('civitaiTargetDir');
+  if (!dirEl) return;
+  const ltx = _lorasDirs.ltx || 'mlx_models/loras/';
+  const h3 = _lorasDirs.h3 || 'the Hailuo H3 pack’s loras/ folder';
+  if (_civitaiContext !== 'video') { dirEl.textContent = ltx; return; }
+  if (_civitaiFamily === 'h3') { dirEl.textContent = h3; return; }
+  if (_civitaiFamily === 'ltx') { dirEl.textContent = ltx; return; }
+  // "All" spans both video engines and the server routes each download by its
+  // OWN base model, so naming one directory here would be a coin flip. Name
+  // both, and say what decides.
+  dirEl.textContent = `${ltx} · MiniMax H3 → ${h3}`;
+}
+
 // Click handler for a family pill — set state + re-search.
 function civitaiSetFamily(family) {
   _civitaiFamily = (family === 'all') ? '' : family;
+  const _m = _civitaiContextMeta(_civitaiContext, _civitaiFamily);
+  const _t = document.getElementById('civitaiModalTitle');
+  if (_t) _t.textContent = _m.title;
+  _civitaiSyncTargetDir();
   // Optimistically toggle the active class so the click feels instant
   // (the re-render after the fetch will reaffirm it).
   const row = document.getElementById('civitaiFamilyRow');
@@ -40751,7 +41811,7 @@ async function civitaiSearch() {
     _civitaiCursor = data.next_cursor || '';
     if (data.has_more) loadMore.style.display = '';
     if ((data.items || []).length === 0) {
-      const meta = _civitaiContextMeta(_civitaiContext);
+      const meta = _civitaiContextMeta(_civitaiContext, _civitaiFamily);
       grid.innerHTML = `<div class="hint">${meta.empty} "${escapeHtml(q || '')}"${document.getElementById('civitaiNsfw').checked ? '' : ' (try Show NSFW for more)'}.</div>`;
     }
   } catch (e) {
@@ -40871,10 +41931,32 @@ async function civitaiInstall(btn, item) {
       return;
     }
     btn.textContent = data.skipped ? 'Already installed ✓' : 'Installed ✓';
+    // The server routes by the item's OWN base model, so a MiniMax H3 LoRA
+    // lands in the H3 library even if it was found while the browser showed
+    // "All". Auto-enable only when that library is the one the active engine
+    // reads — attaching an H3 adapter to an LTX render would fail inside the
+    // fuser, and attaching an LTX one to H3 would match zero modules and
+    // render as though nothing were attached at all.
+    const lane = data.lane || 'ltx';
+    let activeTag = 'video';
+    try {
+      activeTag = (typeof _currentLoraModeFilter === 'function')
+        ? _currentLoraModeFilter() : 'video';
+    } catch (_) {}
+    const laneMatches = (lane === 'h3') ? (activeTag === 'video:h3')
+                                        : (activeTag !== 'video:h3');
     const status = document.getElementById('civitaiStatus');
-    status.textContent = data.skipped
-      ? `Already in ${data.path} — auto-enabled below.`
-      : `Saved to ${data.path}. Auto-enabled below.`;
+    const where = data.skipped ? `Already in ${data.path}` : `Saved to ${data.path}`;
+    status.textContent = where + (
+      laneMatches
+        ? ' — auto-enabled below.'
+        : (lane === 'h3'
+            ? ' — it is a Hailuo H3 LoRA, so switch the engine to Hailuo H3 to use it.'
+            : ' — it is an LTX LoRA, so switch the engine to LTX-2.3 to use it.'))
+      + (data.converted
+          ? ' Converted from the ComfyUI key layout on install (a key rename;'
+            + ' the tensors are untouched).'
+          : '');
     status.className = 'civitai-status-line ok';
     // Refresh the local picker so the new LoRA appears, then auto-enable.
     // Auto-enable applies on BOTH the fresh-download AND the
@@ -40885,12 +41967,15 @@ async function civitaiInstall(btn, item) {
     // looking like a no-op even though the file was sitting right
     // there in the picker.
     await refreshLoras();
-    addLoraToActive({
-      path: data.path,
-      name: data.name || item.name,
-      strength: item.recommended_strength || 1.0,
-      trigger_words: item.trigger_words || [],
-    });
+    if (laneMatches) {
+      addLoraToActive({
+        path: data.path,
+        name: data.name || item.name,
+        strength: item.recommended_strength || 1.0,
+        trigger_words: item.trigger_words || [],
+        lane: lane,
+      });
+    }
     // Open the LoRAs disclosure so the user sees the entry without
     // hunting for it after the modal closes.
     const det = document.getElementById('lorasDetails');
