@@ -5690,9 +5690,20 @@ def h3_paths() -> dict:
             continue
         models_root = root
         dit = cand_dit
-        cand_compact = root / "ddalcu-q8"
+        # LTX_H3_COMPACT_DIR picks an alternate conditioning-encoder dir under the same
+        # models root (e.g. "heretic-q8", an abliterated encoder re-quantized to the
+        # ddalcu layout). Dev/testing override; default stays the shipped ddalcu-q8.
+        compact_dirname = os.environ.get("LTX_H3_COMPACT_DIR", "ddalcu-q8")
+        cand_compact = root / compact_dirname
         if all((cand_compact / f).is_file() for f in H3_COMPACT_FILES):
             compact_root = cand_compact
+        elif compact_dirname != "ddalcu-q8":
+            # explicit override that isn't usable: fall back loudly, not silently
+            print(f"[h3] LTX_H3_COMPACT_DIR={compact_dirname} incomplete under {root}; "
+                  f"falling back to ddalcu-q8", flush=True)
+            cand_compact = root / "ddalcu-q8"
+            if all((cand_compact / f).is_file() for f in H3_COMPACT_FILES):
+                compact_root = cand_compact
         cand_cfg = root.joinpath("upstream-meta", *H3_TEXT_CONFIG_REL)
         if cand_cfg.is_file():
             text_config = cand_cfg
