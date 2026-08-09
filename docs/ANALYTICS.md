@@ -66,7 +66,7 @@ that matters to you, turn analytics off — or self-host the endpoint (below).
 
 ## Events
 
-Five event types. That's the whole list.
+Six event types. That's the whole list.
 
 ### `app_boot`
 

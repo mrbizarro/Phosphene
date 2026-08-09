@@ -6927,10 +6927,18 @@ def _engine_css() -> str:
 # more pack_state_change at the same moment, and one event per finished job.
 # There are NO heartbeats and NO background timers in this module.
 
-# Empty string = analytics disabled at the source. This constant stays ""
-# in the public tree; the maintainer supplies the real key at runtime via
-# Settings or PHOSPHENE_ANALYTICS_KEY so it is never committed.
-ANALYTICS_KEY_DEFAULT = ""
+# The PostHog PROJECT (ingestion) key. Committed on purpose, and it is safe to:
+# a phc_ project key is WRITE-ONLY — it can send events, it cannot read a single
+# one back, list users, or mutate the project. PostHog documents these as
+# client-side keys meant to ship in public web/app bundles. Phosphene is
+# distributed AS ITS SOURCE (users git-clone via Pinokio), so a key that "stays
+# empty in the public tree" could never reach the fleet — committing it is the
+# only way anonymous fleet counts work at all. The earlier stance here treated a
+# client key like a secret; it isn't. Reading the fleet still requires the
+# separate PERSONAL key (analytics_query_key), which is NOT committed.
+# Empty string would disable analytics at the source (no socket opened);
+# PHOSPHENE_ANALYTICS_KEY still overrides at runtime.
+ANALYTICS_KEY_DEFAULT = "phc_shvL6mr1NB8fmcCqGUtAbpr8d4TgA2ebEIxwoLxeezn"
 # PostHog ingestion host (capture). Override for a self-hosted receiver.
 ANALYTICS_HOST_DEFAULT = "https://us.i.posthog.com"
 # PostHog app host (HogQL query API — different host from ingestion).
@@ -7347,6 +7355,18 @@ def _analytics_boot() -> None:
             return
         _analytics_disclose_once()
         packs = _analytics_pack_state()
+        # app_installed: fired exactly once, the first boot this install ever
+        # reports. Gives a clean "new installs over time" counter and an
+        # install→version funnel, instead of reverse-engineering it from unique
+        # install-ids. The flag is persisted, so a re-boot never re-counts; a
+        # fresh install (new UUID) reports its own app_installed once.
+        if not bool(get_settings().get("analytics_install_reported")):
+            _analytics_capture("app_installed", {
+                "version": _read_local_version() or "unknown",
+                "chip_family": _analytics_chip_family(),
+                "ram_gb": int(round(SYSTEM_RAM_GB)),
+            })
+            _settings_set_internal(analytics_install_reported=True)
         _analytics_capture("app_boot", {
             "version": _read_local_version() or "unknown",
             "os_version": _analytics_os_version(),
