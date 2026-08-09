@@ -27150,7 +27150,7 @@ HTML = r"""<!doctype html>
           <div class="mini-fields">
             <div class="mf-cell" data-ltx-only>
               <span class="mf-label">Duration (s)</span>
-              <input id="duration" value="5" type="number" min="1" max="20" step="1">
+              <input id="duration" value="5" type="number" min="1" max="20" step="any">
             </div>
             <div class="mf-cell" data-ltx-only>
               <span class="mf-label">Frames <span class="mf-hint">8k+1</span></span>
