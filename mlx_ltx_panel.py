@@ -6495,6 +6495,13 @@ def h3_tae_checkpoint() -> Path | None:
     return None
 
 
+def h3_supports_stage_a() -> bool:
+    """Whether the INSTALLED runner can cache Stage-A latents (`--save-stage-a`)
+    — the input a later hires-refine pass needs to improve THIS take instead of
+    rolling a new one. Probed like every other capability."""
+    return _h3_runner_has_flag("--save-stage-a")
+
+
 def h3_tae_ready() -> bool:
     """Runner flag AND weight both present — the only state where TAE is offered."""
     return h3_supports_tae_draft() and h3_tae_checkpoint() is not None
@@ -12074,6 +12081,16 @@ def run_h3_job_inner(job: dict) -> None:
         if _tae is not None:
             cmd += ["--draft-decode", "tae", "--tae-checkpoint", str(_tae)]
             tae_used = True
+    # Cache the draft's clean Stage-A latents beside the clip. This is what a
+    # LATER hires-refine pass consumes to sharpen THIS take at a higher canvas
+    # — the owner's actual expectation of "Finish", which today re-renders a
+    # different take (same seed on a different canvas is a different noise
+    # tensor). Runner refuses the flag on chained renders, so gate to one
+    # window; the cache is a few hundred MB and rides the output's lifecycle.
+    stage_a_path = None
+    if tier.get("draft") and chain_windows == 1 and h3_supports_stage_a():
+        stage_a_path = out_path.with_suffix(".stage_a")
+        cmd += ["--save-stage-a", str(stage_a_path)]
     if turbo:
         # `--lora-adaln` carries the recovered time embedder, which lets the
         # runner apply the adapter's 51 adaLN modules too. They fold into the
@@ -12374,6 +12391,13 @@ def run_h3_job_inner(job: dict) -> None:
         },
         "command": "hailuo_h3",
         "engine": "h3",
+        # Where this draft's clean Stage-A latents live, if the render cached
+        # them — the input a hires-refine pass needs to sharpen THIS take at a
+        # higher canvas instead of re-rolling a new one. null on non-drafts,
+        # chained renders, and runners without --save-stage-a.
+        "stage_a_cache": (str(stage_a_path)
+                          if (stage_a_path is not None and stage_a_path.exists())
+                          else None),
         "started": job.get("started_at"),
         "elapsed_sec": elapsed,
         "video_duration_sec": round(max(0.0, frames / H3_FPS), 3),
