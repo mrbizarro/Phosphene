@@ -6471,6 +6471,35 @@ def h3_supports_chain_prompts() -> bool:
     return _h3_runner_has_flag("--chain-prompts")
 
 
+def h3_supports_tae_draft() -> bool:
+    """Whether the INSTALLED runner accepts `--draft-decode` (TAE fast decode).
+
+    Same discipline as --chain-windows / --chain-prompts: probe, never assume.
+    A pack cloned before the draft work renders every tier correctly and simply
+    has no fast path, so the control is withheld rather than dying on an
+    argparse error 30 s into a render."""
+    return _h3_runner_has_flag("--draft-decode")
+
+
+def h3_tae_checkpoint() -> Path | None:
+    """The TAE weight, if it is on disk. ~23 MB, sits beside the other H3 models.
+
+    Returned as a path rather than a bool because the runner needs it passed
+    explicitly (`--tae-checkpoint`); `--draft-decode tae` without it is an
+    argparse error, so both halves are checked together in h3_tae_ready().
+    """
+    for root in _h3_model_roots():
+        cand = root / "tae" / "taeh3.safetensors"
+        if cand.is_file() and cand.stat().st_size > 1_000_000:
+            return cand
+    return None
+
+
+def h3_tae_ready() -> bool:
+    """Runner flag AND weight both present — the only state where TAE is offered."""
+    return h3_supports_tae_draft() and h3_tae_checkpoint() is not None
+
+
 def h3_normalize_chain_prompts(raw, windows: int) -> list[str]:
     """Whatever the form (or a curl) posted → exactly one entry per window.
 
@@ -12014,6 +12043,24 @@ def run_h3_job_inner(job: dict) -> None:
             cmd += ["--chain-prompts", str(chain_prompts_path)]
     if first_frame is not None:
         cmd += ["--first-frame", str(first_frame)]
+    # ---- Fast draft decode (TAE) --------------------------------------------
+    # H3's video decoder is a 36-layer ViT and it is the single largest FIXED
+    # cost in a render: 88 s of a 501 s clip, 77% of everything that is not
+    # denoising. madebyollin's TAE replaces it for DRAFTS only and takes a
+    # 640x384 5 s draft from ~5 min to ~66 s end to end.
+    #
+    # Gated three ways, deliberately: the tier must be a Draft (the quality
+    # whose own blurb already says faces and fine detail resolve at Standard
+    # and High), the installed runner must carry the flag, and the weight must
+    # be on disk. Any one missing and the render takes the untouched full-VAE
+    # path — which is also the ONLY path a non-Draft tier can take, so no
+    # delivery render can silently pick up a draft decoder.
+    tae_used = False
+    if tier.get("draft") and h3_supports_tae_draft():
+        _tae = h3_tae_checkpoint()
+        if _tae is not None:
+            cmd += ["--draft-decode", "tae", "--tae-checkpoint", str(_tae)]
+            tae_used = True
     if turbo:
         # `--lora-adaln` carries the recovered time embedder, which lets the
         # runner apply the adapter's 51 adaLN modules too. They fold into the
@@ -12046,6 +12093,7 @@ def run_h3_job_inner(job: dict) -> None:
          + (" · Turbo (4-step distill LoRA)" if turbo else "")
          + (f" · LoRA {user_lora.name} @ {user_lora_strength:g}"
             if (user_lora is not None and not turbo) else "")
+         + (" · fast draft decode (TAE)" if tae_used else "")
          + (f" · {chain_windows} chained windows of {window_frames}f"
             if chain_windows > 1 else "")
          + (" · per-window prompts" if chain_prompts else "")

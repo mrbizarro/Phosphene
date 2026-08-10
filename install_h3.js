@@ -197,6 +197,29 @@ module.exports = {
       }
     },
 
+    // ---- TAE: the fast draft decoder (~23 MB) ------------------------------
+    // H3's video decoder is a 36-layer ViT and it is the biggest FIXED cost in
+    // a render — 88 s of a 501 s clip, 77% of everything that isn't denoising.
+    // madebyollin's TAE replaces it on DRAFT tiers only and takes a 640x384 5 s
+    // draft from ~5 min to ~66 s. 23 MB against a 75 GB pack, so it is not
+    // worth making optional; the panel offers the fast path only when this file
+    // AND the runner flag are both present, and every delivery tier keeps the
+    // untouched full VAE regardless.
+    {
+      method: "shell.run",
+      params: {
+        path: "minimax-h3-mlx",
+        env: {
+          HF_HOME: "{{cwd}}/cache/HF_HOME",
+          HF_XET_HIGH_PERFORMANCE: "1"
+        },
+        message: [
+          "mkdir -p '{{cwd}}/mlx_models/hailuo-h3/models/tae'",
+          ".venv/bin/python -c \"from huggingface_hub import hf_hub_download; import shutil; p=hf_hub_download('madebyollin/taeh3','taeh3.safetensors'); shutil.copy(p, '{{cwd}}/mlx_models/hailuo-h3/models/tae/taeh3.safetensors'); print('TAE draft decoder ready')\""
+        ]
+      }
+    },
+
     {
       method: "notify",
       params: {
