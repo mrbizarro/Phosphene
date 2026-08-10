@@ -597,6 +597,15 @@ def _validate_settings_patch(patch: dict) -> tuple[dict, str | None]:
             return {}, f"unknown memory_policy: {policy}"
         out["memory_policy"] = policy
 
+    # ---- H3 DiT precision --------------------------------------------------
+    # auto (RAM decides — the default), q8 (force the low-RAM pack: ~15 GiB
+    # back for the OS on any machine), bf16 (force max quality where it fits).
+    if "h3_dit" in patch:
+        v = str(patch["h3_dit"]).strip().lower()
+        if v not in ("auto", "bf16", "q8"):
+            return {}, f"unknown h3_dit: {v} (auto | bf16 | q8)"
+        out["h3_dit"] = v
+
     # ---- Anonymous usage analytics -------------------------------------
     # Additive only: three user-settable fields. `analytics_install_id`,
     # `analytics_last_packs` and `analytics_disclosed` are deliberately NOT
@@ -4968,6 +4977,12 @@ H3_MODELS = Path(os.environ.get("LTX_H3_MODELS", str(ROOT / "mlx_models" / "hail
 # 64 GB machines report ~63.x GiB after firmware reservations, so the floor is
 # 60, not 64. Below this the staged runner swaps and a 3 s clip takes hours.
 H3_MIN_RAM_GB = 60.0
+# With the Q8 DiT (8-bit core + 8-bit AdaLN, the recipe quantize.py's own table
+# calls measured-safe) the render peak drops from 42.8 to 27.3 GiB measured at
+# 1024x576/124f — which puts H3 in reach of 48 GB Macs. 46 leaves the same
+# ~4 GB guard band under the marketing number that 60-under-64 does.
+H3_MIN_RAM_GB_Q8 = 46.0
+H3_DIT_Q8_DIRNAME = "h3-dit-q8"
 H3_DIT_FILENAME = "MiniMax-H3-FL2VA-pruned_bf16.safetensors"
 H3_COMPACT_FILES = ("text_encoder.safetensors", "video_vae.safetensors",
                     "audio_vae.safetensors")
@@ -5868,6 +5883,9 @@ def h3_paths() -> dict:
         "runner": runner,
         "python": python,
         "dit": dit,
+        # bf16 master path stays canonical in `dit`; the render-time swap to
+        # the Q8 pack happens in the dispatch via h3_dit_choice(), so /status
+        # can always show BOTH what exists and what will be used.
         "compact_root": compact_root,
         "text_config": text_config,
         "missing": missing,
@@ -5887,6 +5905,39 @@ def h3_available() -> bool:
     return not h3_paths()["missing"]
 
 
+def _h3_q8_dit_dir() -> Path | None:
+    """The quantized DiT pack, if present: config + quant recipe + all shards."""
+    for root in _h3_model_roots():
+        d = root / H3_DIT_Q8_DIRNAME
+        if (d / "config.json").is_file() and (d / "quant_config.json").is_file()                 and any(d.glob("model-*.safetensors")):
+            return d
+    return None
+
+
+def h3_dit_choice() -> tuple[str, Path | None]:
+    """Which DiT this Mac should render with: ("bf16"|"q8", path).
+
+    The system decides from RAM, the same signal every other capability tier
+    uses — a 64 GB Mac keeps the bf16 master (max quality, its peak fits), a
+    sub-60 GB Mac gets the Q8 pack (27.3 vs 42.8 GiB measured peak, +3% wall,
+    faces held in the 2026-08-10 A/B). `h3_dit` in Settings overrides both
+    ways: "q8" lets a 64 GB machine reclaim ~15 GiB for the rest of the OS
+    (the mic-dies / video-stalls complaint), "bf16" forces max quality where
+    it fits. An override that names a pack that is not on disk falls back
+    loudly in /status rather than silently."""
+    pref = str(get_settings().get("h3_dit") or "auto").strip().lower()
+    q8 = _h3_q8_dit_dir()
+    if pref == "q8" and q8 is not None:
+        return "q8", q8
+    if pref == "bf16":
+        return "bf16", None
+    if pref == "q8" and q8 is None:
+        pref = "auto"      # fall through, surfaced via /status
+    if SYSTEM_RAM_GB < H3_MIN_RAM_GB and q8 is not None:
+        return "q8", q8
+    return "bf16", None
+
+
 def h3_capable() -> bool:
     """True when this Mac has the unified memory H3 needs (~40 GiB peak).
 
@@ -5896,7 +5947,12 @@ def h3_capable() -> bool:
     """
     if os.environ.get("LTX_H3_FORCE_CAPABLE", "").strip() in ("1", "true", "yes"):
         return True
-    return SYSTEM_RAM_GB >= H3_MIN_RAM_GB
+    if SYSTEM_RAM_GB >= H3_MIN_RAM_GB:
+        return True
+    # Reduced-RAM lane: the Q8 DiT pack halves the render peak (27.3 GiB
+    # measured), so a 48 GB-class Mac is genuinely capable once that pack
+    # exists on disk. Without the pack the old gate stands.
+    return SYSTEM_RAM_GB >= H3_MIN_RAM_GB_Q8 and _h3_q8_dit_dir() is not None
 
 
 _H3_FLAG_CACHE: dict[str, bool] = {}
@@ -6693,6 +6749,11 @@ def h3_status() -> dict:
                    "note": H3_LORA_STACK_NOTE,
                    "base_model": _CIVITAI_VIDEO_FAMILIES["h3"][0]}),
         "min_ram_gb": H3_MIN_RAM_GB,
+        "min_ram_gb_q8": H3_MIN_RAM_GB_Q8,
+        "dit_choice": (lambda _c: {"kind": _c[0],
+                                   "q8_pack": str(_c[1]) if _c[1] else None,
+                                   "q8_available": _h3_q8_dit_dir() is not None,
+                                   "pref": str(get_settings().get("h3_dit") or "auto")})(h3_dit_choice()),
         "ram_gb": round(SYSTEM_RAM_GB, 1),
         "root": paths["root"],
         "models": paths["models"],
@@ -12038,8 +12099,10 @@ def run_h3_job_inner(job: dict) -> None:
     # else about the argv is identical.
     if chain_prompts_path is None:
         cmd.append(prompt)
+    _dit_kind, _dit_q8 = h3_dit_choice()
+    _dit_path = _dit_q8 if (_dit_kind == "q8" and _dit_q8 is not None) else paths["dit"]
     cmd += [
-        "--dit", str(paths["dit"]),
+        "--dit", str(_dit_path),
         "--compact-root", str(paths["compact_root"]),
         "--text-config", str(paths["text_config"]),
         "-o", str(out_path),
@@ -12120,6 +12183,7 @@ def run_h3_job_inner(job: dict) -> None:
 
     push(f"[h3] {tier['label']} · {width}×{height} · {frames}f · "
          f"{steps} sigma points ({steps - 1} forwards) · seed {seed}"
+         + (" · Q8 DiT (low-RAM)" if _dit_kind == "q8" else "")
          + (" · Turbo (4-step distill LoRA)" if turbo else "")
          + (f" · LoRA {user_lora.name} @ {user_lora_strength:g}"
             if (user_lora is not None and not turbo) else "")
