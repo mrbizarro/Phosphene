@@ -8536,6 +8536,7 @@ def list_outputs(
         # read is cheap, but tolerate a missing/corrupt sidecar by leaving
         # elapsed_sec null and letting the UI fall back to the file mtime.
         elapsed_sec = None
+        clip_sec = None
         # Which engine rendered this, and (H3 only) at which tier. Both come
         # out of the sidecar read we are ALREADY doing for elapsed_sec, so
         # they cost nothing — and they let the stage pane decide synchronously
@@ -8567,6 +8568,17 @@ def list_outputs(
                 _tier = h3_resolve_tier(_sc_params.get("h3_tier"))
                 if _tier:
                     h3_tier = _tier
+                # Clip LENGTH, derived — frames/frame_rate are already in the
+                # sidecar params for both engines, so the card can lead with
+                # what the file IS (a 10 s clip) instead of only how long it
+                # took to make. No ffprobe: 719 files, one stat pass.
+                try:
+                    _fr = float(_sc_params.get("frames") or 0)
+                    _fps = float(_sc_params.get("frame_rate") or 24.0)
+                    if _fr > 0 and _fps > 0:
+                        clip_sec = round(_fr / _fps, 2)
+                except Exception:
+                    pass
             except Exception:
                 pass
         # Y1.039 cache-bust — append the file's mtime as a version param so
@@ -8589,6 +8601,7 @@ def list_outputs(
             "mtime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mt)),
             "size_mb": p.stat().st_size / 1024 / 1024,
             "elapsed_sec": elapsed_sec,
+            "clip_sec": clip_sec,
             "url": url,
             "has_sidecar": has_sidecar,
             # Sidecar-derived, cheap (see the read above). `engine` is "h3" on
@@ -37667,7 +37680,17 @@ function animateFromPhoto(payload) {
 // pre-date the elapsed_sec field, or outputs whose sidecar got
 // deleted) so the slot is never empty.
 function _outputDurationLabel(o) {
+  // Lead with what the file IS (its length), then how long it took, labeled.
+  // "1 h 20 m" alone on a 10-second clip read as a broken duration
+  // (Mr Bizarro 2026-08-10: "preview is not accurate") — same confusion as
+  // the 2026-05-21 mtime incident, opposite direction. Numbers get names.
+  const clip = (o && typeof o.clip_sec === 'number' && o.clip_sec > 0)
+    ? (o.clip_sec >= 60 ? `${Math.floor(o.clip_sec / 60)}m ${Math.round(o.clip_sec % 60)}s clip`
+                        : `${Math.round(o.clip_sec)}s clip`)
+    : null;
   const s = (o && typeof o.elapsed_sec === 'number') ? o.elapsed_sec : null;
+  if (clip && s != null) return `${clip} · ${_fmtRenderTime(s)}`;
+  if (clip) return clip;
   if (s == null) {
     // No render-elapsed in sidecar — show a relative timestamp instead
     // of HH:MM, which looked like a render duration and was confusing
@@ -37677,9 +37700,13 @@ function _outputDurationLabel(o) {
     return (o && o.mtime && typeof _relTimeFromMtime === 'function')
       ? _relTimeFromMtime(o.mtime) : '—';
   }
-  if (s < 60)    return `${Math.round(s)} s`;
-  if (s < 3600)  return `${Math.floor(s / 60)} m ${Math.round(s % 60)} s`;
-  return `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} m`;
+  return _fmtRenderTime(s);
+}
+
+function _fmtRenderTime(s) {
+  if (s < 60)    return `rendered ${Math.round(s)} s`;
+  if (s < 3600)  return `rendered ${Math.floor(s / 60)} m ${Math.round(s % 60)} s`;
+  return `rendered ${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} m`;
 }
 
 function renderCarousel() {
