@@ -5470,23 +5470,35 @@ def _h3_lengths() -> dict[str, dict]:
             "note": H3_TIER_CHAIN_NOTE,
             "offered": True,
         },
-        # The pre-chaining path, kept reachable for A/B work and NOT offered by
-        # default: it costs ~2.1× the chained length for the same delivered clip.
-        # Restricted to the two smaller canvases because it is the one shape
-        # where memory is NOT flat — a single 243f pass is 25k packed rows at
-        # 768×448 (42.6 GiB peak, measured) and would be 42.5k at 1024×576,
-        # which does not fit in 64 GB. Encoded as data so the UI can grey the
-        # cell with the reason rather than letting it queue and OOM.
+        # A REAL 10 s clip: one pass, one window, no seam, no chain drift, and no
+        # repeated prompt. Requested as the #1 wish by @Wizard_1981 ("echte 10
+        # und 15 Sekunden Videos") after the chained 10 s was reported as
+        # "repeats after 5 seconds".
+        #
+        # This was gated off on a PROJECTION that it "would be 42.5k rows at
+        # 1024×576, which does not fit in 64 GB". That projection is wrong, and
+        # measurement retired it: seven single-window 243f renders on a 64 GB
+        # M4 Max, peaks 47.0 GiB at 1024×576 and 53.5 GiB at 1344×768 — it fits
+        # at BOTH, with headroom. (AURELIUS round 2, metrics JSON per clip:
+        # 28_BOX_JOY 1024×576 47.0; 01_AVRELIVS/23_THE_BOX/31_THE_GATE/
+        # 32_STREET_WIDE/34_GATE_THE_WAIT 1344×768 53.5.)
+        #
+        # The old "~2.1× slower" line was measured against the 15-forward dense
+        # default; with Turbo the same single pass is what the AURELIUS batch
+        # rendered all night. 15 s single-window (362f) is NOT enabled — it is
+        # ~1.5× these rows and has never been measured here. Chain 15 s until it is.
         "10s_dense": {
-            "key": "10s_dense", "label": "10s dense", "order": 4, "seconds": 10,
+            "key": "10s_dense", "label": "10s single pass", "order": 4, "seconds": 10,
             "frames": 243, "window_frames": 243, "windows": 1,
             "steps": 16,
-            "blurb": "One dense pass at 15 forwards — the pre-chaining path. "
-                     "Kept for A/B only; the chained 10s is ~2.1× faster.",
-            "qualities": ("preview", "draft", "standard"),
+            "blurb": "A real 10 seconds in ONE pass — no seam, no chained "
+                     "repeat, no drift between halves. Slower than the chained "
+                     "10s; this is the one to pick when the clip has to hold "
+                     "together as a single shot.",
+            # Measured to fit on every canvas up to Native (53.5 GiB peak at
+            # 1344×768); no longer restricted to the small ones.
             "dense": True,
-            "offered": os.environ.get("LTX_H3_DENSE_10S", "").strip()
-                       in ("1", "true", "yes"),
+            "offered": True,
         },
     }
     for l in out.values():
