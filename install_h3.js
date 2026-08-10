@@ -32,7 +32,12 @@
 // runner for the flag and keeps Image mode on LTX when it's absent, so an
 // older checkout degrades to Text-only instead of failing mid-render. Bump
 // this pin when the first-frame work is published.
-const H3_BRANCH = "codex/h3-engine"
+// v2 (2026-08-10): --lora (single adapter slot), TAE draft decode, native
+// single-window 10s/15s drafts, Stage-A latent caching, the streaming Q8
+// quantizer for 48 GB Macs, and the LoRA-on-quantized logical-dims fix.
+// Published as a NEW branch: the histories diverged, and force-moving a
+// branch users' installs already track is how updates break mid-clone.
+const H3_BRANCH = "codex/h3-engine-v2"
 
 module.exports = {
   requires: { bundle: "ai" },
