@@ -20,11 +20,9 @@ const fs = require("fs")
 const os = require("os")
 const path = require("path")
 
-// Hailuo H3 (optional second video engine) needs ~40 GiB resident at peak, so
-// the menu entry only appears on 64 GB+ Macs. A 64 GB machine reports ~63.x GB
-// after firmware reservations, hence the 60 GB floor — the same number
-// h3_capable() uses in mlx_ltx_panel.py. Keep them in sync.
-const H3_MIN_BYTES = 60 * 1000 * 1000 * 1000
+// Hailuo H3's reduced-RAM Q8 engine supports 48 GB-class Macs. Use the same
+// effective floor as install_h3.js and H3_MIN_RAM_GB_Q8 in mlx_ltx_panel.py.
+const H3_MIN_BYTES = 46 * 1000 * 1000 * 1000
 
 function h3Capable() {
   try {
@@ -329,7 +327,7 @@ module.exports = {
     }
     if (!h3_ready && h3Capable()) {
       // Second VIDEO engine — joint picture + dialogue + sound. Opt-in only:
-      // ~75 GB, 64 GB+ Macs, MiniMax Community License with territory
+      // ~75 GB, 48 GB+ Macs, MiniMax Community License with territory
       // restrictions. Hidden entirely on machines that can't run it, so it
       // never reads as a missing piece of the base install.
       baseMenu.push(h3_repair
