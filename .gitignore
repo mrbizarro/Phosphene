@@ -53,7 +53,30 @@ mlx_models/
 # Third-party — installed alongside, not part of this repo
 # =============================================================================
 ltx-2-mlx/
+# The optional Hailuo H3 pack: install_h3.js clones minimax-h3-mlx INTO the
+# app directory (it has to — the panel resolves the runner relative to ROOT,
+# and mlx_models/hailuo-h3 is fs.link-mapped from here). It is a separate git
+# repo of its own, so to THIS repo it is just a permanently-untracked folder.
+# Un-ignored it made `git status --porcelain` never empty, which the panel
+# read as "local changes uncommitted" and used to suppress the whole update
+# check — every H3 user lost the update pill (#52, @Morac2). Anchored with a
+# leading slash: only the clone at the repo root, never a same-named dir
+# nested inside a vendored tree.
+/minimax-h3-mlx/
 .venv/
+
+# =============================================================================
+# Pinokio runtime dirs — created next to the app, never ours to commit
+# =============================================================================
+# ENVIRONMENT points HF_HOME / TORCH_HOME / GRADIO_TEMP_DIR at ./cache/*, and
+# install_h3.js passes HF_HOME={{cwd}}/cache/HF_HOME explicitly, so installing
+# the H3 pack always leaves content there. `logs/` is the panel's own run log
+# dir (*.log alone doesn't cover the directory once it holds anything else).
+# Both were only ever invisible to the maintainer because his two clones carry
+# them in .git/info/exclude — users never had that, so they hit the same
+# permanently-dirty status as the H3 clone above (#52).
+/cache/
+/logs/
 
 # =============================================================================
 # Legacy experimentation files (Comfy workflows, etc.) — not part of the panel

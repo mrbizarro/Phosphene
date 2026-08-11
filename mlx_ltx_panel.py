@@ -2823,8 +2823,24 @@ def _detect_local_install_state() -> None:
     detect runs after every Update."""
     sha = _git_capture(["rev-parse", "HEAD"])
     branch = _git_capture(["rev-parse", "--abbrev-ref", "HEAD"]) or "(unknown)"
-    # `git status --porcelain` empty = clean tree.
-    porcelain = _git_capture(["status", "--porcelain"])
+    # `git status --porcelain -uno` empty = no MODIFIED TRACKED files.
+    #
+    # -uno (untracked-files=no) is load-bearing, not a tidy-up. Plain
+    # --porcelain also lists `??` untracked paths, and an install grows
+    # those by design: the optional H3 pack clones minimax-h3-mlx/ into
+    # this directory, Pinokio fills cache/ and logs/. That made the tree
+    # permanently "dirty" for every H3 user, which suppressed the update
+    # check outright — @Morac2 reported the pill stuck on "Update check
+    # is paused: local changes uncommitted" with nothing but `?? minimax-
+    # h3-mlx/` in his status (#52). .gitignore now covers those three
+    # paths, but only for users who already got the new .gitignore, which
+    # they can't without updating. -uno is what actually fixes it, and it
+    # is the honest question anyway: untracked files are exactly the ones
+    # a fast-forward pull (and the reset --hard fallback) leave alone. The
+    # one case where an untracked file DOES matter — an incoming commit
+    # adding a file at the same path — git refuses on its own, and that
+    # error is surfaced verbatim by the /version/pull handler.
+    porcelain = _git_capture(["status", "--porcelain", "-uno"])
     dirty = bool(porcelain and porcelain.strip())
     local_version = _read_local_version()
     # 2026-05-21 — capture HEAD commit date so the dev pill can show
@@ -18362,16 +18378,20 @@ class Handler(BaseHTTPRequestHandler):
                     ),
                 }, 409)
                 return
-            # `git status --porcelain` is empty iff the working tree is
-            # clean. The UI's clean-check uses the same probe.
-            dirty = (_git_capture(["status", "--porcelain"]) or "").strip()
+            # `git status --porcelain -uno` is empty iff no TRACKED file is
+            # modified. Same probe (and same -uno reasoning) as
+            # _detect_local_install_state — see the long note there: the
+            # installers legitimately leave untracked dirs in this tree
+            # (minimax-h3-mlx/, cache/, logs/) and refusing to pull because
+            # of them is what left every H3 user unable to update (#52).
+            dirty = (_git_capture(["status", "--porcelain", "-uno"]) or "").strip()
             if dirty:
                 self._json({
                     "ok": False,
                     "error": (
                         "refusing to pull: local working tree has "
-                        "uncommitted changes. Commit, stash, or discard "
-                        "them, then click Update again."
+                        "uncommitted changes to tracked files. Commit, "
+                        "stash, or discard them, then click Update again."
                     ),
                     "dirty_files": dirty.splitlines()[:20],
                 }, 409)
