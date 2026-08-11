@@ -11846,6 +11846,62 @@ def run_train_job_inner(job: dict) -> None:
     push(f"[train.audio] done: {audio_lora_path} (elapsed {audio_elapsed}s)")
 
 
+def _h3_fit_first_frame(src: Path, width: int, height: int, job_id: str) -> Path:
+    """Cover-crop `src` onto the H3 canvas and return the path to use.
+
+    Why the panel does this instead of the runner: upstream's
+    `prepare_keyframe_image(image, height, width, stretch=index == 0)`
+    HARD-STRETCHES the FIRST keyframe onto the canvas — `image.resize((width,
+    height))`, aspect thrown away — because upstream treats keyframe 0 as the
+    geometry anchor. A *second* keyframe is cover-cropped instead. So a 4:3
+    photo into a 16:9 canvas comes back visibly widened, which is the
+    distortion @Morac2 opened #53 with, and no combination of panel settings
+    could avoid it: the panel only ever sends keyframe 0.
+
+    The bypass is in the same function, one line above the stretch:
+
+        if image.size == (width, height):
+            return image
+
+    An image that already IS the canvas is returned untouched, with no
+    resampling pass at all. So pre-fitting here removes the stretch entirely
+    without touching the engine, and costs the render nothing — it replaces
+    upstream's resize with ours rather than adding a second one.
+
+    The arithmetic below is a deliberate line-for-line port of upstream's own
+    non-stretch branch (`packing.py`): max-scale so the image covers the
+    canvas, LANCZOS, centre crop with floor division. Faithfulness is the
+    point — the panel is standing in for the runner's cover-crop, so it should
+    produce what a second keyframe would have produced, not a lookalike.
+    `ImageOps.fit` is close but rounds and centres differently.
+
+    Best-effort by construction: any failure returns the ORIGINAL path, so the
+    worst case is the stretch we have today rather than a render that dies on
+    a reference image."""
+    try:
+        from PIL import Image
+        with Image.open(src) as im:
+            im = im.convert("RGB")
+            if im.size == (width, height):
+                return src          # runner's own early-return handles it
+            scale = max(width / im.size[0], height / im.size[1])
+            resized_size = (max(width, round(im.size[0] * scale)),
+                            max(height, round(im.size[1] * scale)))
+            left = max(0, (resized_size[0] - width) // 2)
+            top = max(0, (resized_size[1] - height) // 2)
+            fitted = im.resize(resized_size, Image.Resampling.LANCZOS).crop(
+                (left, top, left + width, top + height))
+            UPLOADS.mkdir(parents=True, exist_ok=True)
+            out = UPLOADS / f".h3_{job_id}_firstframe_{width}x{height}.png"
+            fitted.save(out, format="PNG")
+        return out
+    except Exception as exc:                     # noqa: BLE001 - never fatal
+        push(f"[h3] warn: couldn't pre-fit the reference to {width}x{height} "
+             f"({exc}); passing it through — the runner will stretch it onto "
+             f"the canvas.")
+        return src
+
+
 def run_h3_job_inner(job: dict) -> None:
     """Render one job on the Hailuo H3 engine (optional subprocess pack).
 
@@ -12096,7 +12152,15 @@ def run_h3_job_inner(job: dict) -> None:
             raise RuntimeError(
                 "This Hailuo H3 checkout has no `--first-frame` support "
                 f"({paths['runner']}). Update the H3 pack, or use Text mode.")
-        first_frame = Path(src)
+        # Pre-fit to the canvas so upstream's first-keyframe STRETCH never
+        # runs (#53). See _h3_fit_first_frame for the mechanism; it returns
+        # the original path unchanged when the image is already the canvas
+        # size or when anything goes wrong.
+        first_frame = _h3_fit_first_frame(Path(src), width, height, job["id"])
+        if str(first_frame) != src:
+            push(f"[h3] reference cover-cropped to {width}x{height} before "
+                 f"conditioning (keeps its proportions — the runner would "
+                 f"stretch the first keyframe onto the canvas).")
 
     # Seed: the panel keeps "-1" = random. H3's runner has no random mode, so
     # resolve it here and record what we used (matches the LTX seed_used
