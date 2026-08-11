@@ -2,7 +2,10 @@
 
 A tiny, stdlib-only pipeline that snapshots GitHub repo metrics into a local
 JSONL on the maintainer's Mac and serves a dashboard through the Phosphene
-panel itself. Nothing public, no GitHub Pages, no telemetry, no cloud.
+panel itself. Nothing public, no GitHub Pages, no cloud — this pipeline only
+reads GitHub's API and uploads nothing. (Not to be confused with the panel's
+anonymous usage analytics, which does send: see `docs/ANALYTICS.md`. The
+dashboard's *Usage* section displays that data; it is not what collects it.)
 
 **Open the dashboard:** the Phosphene panel must be running, then visit
 **<http://127.0.0.1:8199/stats>**.

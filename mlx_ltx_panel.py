@@ -3235,8 +3235,10 @@ def get_version_state() -> dict:
 # Runs the stdlib-only fetcher script as a subprocess once per 24h, appending
 # a JSON line to state/stats-data.jsonl. Dashboard at /stats reads this file.
 # 127.0.0.1-only by design (state/ is gitignored, file lives on the user's
-# Mac only). Skipped silently if no GitHub token is resolvable — no telemetry
-# is the floor, this is opt-in via "have a token configured".
+# Mac only). Skipped silently if no GitHub token is resolvable — this fetcher
+# is opt-in via "have a token configured". It only READS GitHub's API and
+# sends nothing anywhere; the panel's outbound usage analytics is a separate
+# module entirely (see "Anonymous usage analytics" / docs/ANALYTICS.md).
 # ---------------------------------------------------------------------------
 
 _STATS_POLL_INTERVAL_SEC = 24 * 60 * 60  # daily
