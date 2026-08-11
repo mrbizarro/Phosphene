@@ -36,7 +36,7 @@ Key differences from the standard A2V path:
 
 ## Overview
 
-Phosphene is a local generative-media panel for Apple Silicon. It runs [LTX-Video 2.3](https://github.com/Lightricks/LTX-Video) (MLX port) for joint audio-and-video synthesis, [Qwen-Image-Edit-2509](https://huggingface.co/Qwen/Qwen-Image-Edit-2509) (with a Lightning 4-step fast tier) for stills, and ships an in-panel LoRA training pipeline for character identity (face + optional voice from a single dataset). Everything runs on-device. No cloud, no API keys, no telemetry.
+Phosphene is a local generative-media panel for Apple Silicon. It runs [LTX-Video 2.3](https://github.com/Lightricks/LTX-Video) (MLX port) for joint audio-and-video synthesis, [Qwen-Image-Edit-2509](https://huggingface.co/Qwen/Qwen-Image-Edit-2509) (with a Lightning 4-step fast tier) for stills, and ships an in-panel LoRA training pipeline for character identity (face + optional voice from a single dataset). Everything runs on-device: no cloud, no API keys, and no prompt, image, video or filename ever leaves your Mac. It does send anonymous usage counts (version, hardware class, render stats) — every field is listed in [docs/ANALYTICS.md](docs/ANALYTICS.md), and one click in Settings turns it off.
 
 3.0 introduces in-panel character training (face + voice LoRA from one dataset), the Audio-to-Video workflow, the Image Studio tab, hardware capability tiering, and an agentic prompt enhancer driven by the same local Gemma 3 12B used for auto-captioning.
 
@@ -273,4 +273,8 @@ Phosphene is free and open source.
 
 ## Network note
 
-Phosphene runs locally. No telemetry. A clean production install checks GitHub every 30 minutes for an update badge, and only touches Hugging Face or CivitAI when you download models or LoRAs. Disable the update check with `PHOSPHENE_DISABLE_VERSION_CHECK=1`. The panel binds to `127.0.0.1` with no auth. It's not designed for LAN exposure or tunneling.
+Phosphene renders locally — no prompt, model input or output is ever uploaded. A clean production install makes three kinds of outbound request, and no others: it checks GitHub every 30 minutes for an update badge (disable with `PHOSPHENE_DISABLE_VERSION_CHECK=1`); it touches Hugging Face or CivitAI when you download models or LoRAs; and it sends anonymous usage counts — one event per panel start and one per finished render, carrying the panel version, a hardware class such as `M4 Max / 64 GB`, and render stats like engine, tier and a bucketed duration. Never content of any kind.
+
+That last one is **on by default and the build ships a working key**, so a fresh clone does report. Every event and field is specified in [docs/ANALYTICS.md](docs/ANALYTICS.md), mirrored in plain text to `state/usage-log.jsonl` so you can read exactly what was sent, and switched off in one click in Settings → *Anonymous usage analytics* (or with `PHOSPHENE_ANALYTICS_DISABLED=1`).
+
+The panel binds to `127.0.0.1` with no auth. It's not designed for LAN exposure or tunneling.
