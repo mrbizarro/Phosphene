@@ -18,6 +18,7 @@ character names.
 | **What identifies you** | One random UUID, generated on your Mac, tied to nothing |
 | **How often** | Once ever when the install is new, once per panel start, plus once per finished render. No heartbeats |
 | **Where it goes** | PostHog (`us.i.posthog.com`), or a self-hosted endpoint you choose |
+| **Location** | None sent, and every event tells the receiver not to derive one from your IP — [details](#location) |
 | **How to turn it off** | Settings → *Anonymous usage analytics* → **Turn off**, or `PHOSPHENE_ANALYTICS_DISABLED=1` |
 | **Default** | ON, and the shipped build carries a working key — see below |
 | **What you can inspect** | `state/usage-log.jsonl` — a plain-text copy of everything the panel sends |
@@ -83,10 +84,40 @@ key (or the file) and this install becomes a brand-new anonymous install with
 no way to correlate it to the old one. The panel shows you the exact value in
 Settings.
 
-**One caveat, stated plainly:** like any HTTP request, the ping arrives at
-PostHog from your IP address, and PostHog derives a coarse country from it by
-default. The panel neither adds location data nor suppresses that default. If
-that matters to you, turn analytics off — or self-host the endpoint (below).
+---
+
+## Location
+
+The panel sends no location field of any kind — no country, no city, no region,
+no timezone, no coordinates, no locale. It never has.
+
+That on its own is not the whole promise, because a receiver can *derive* a
+location from where a request came from, and PostHog does that by default. So
+every event now also carries two instructions telling it not to:
+
+| Property | Value | What it does |
+|---|---|---|
+| `$geoip_disable` | `true` | PostHog's GeoIP step returns immediately instead of deriving country, city, subdivision, timezone and the city's coordinates |
+| `$ip` | `"0.0.0.0"` | PostHog copies the connecting address into the event's `$ip` property only when the event didn't bring its own. Bringing one keeps the real address off the stored event |
+
+**What that does not do, said plainly:** the request still arrives over TCP from
+a real address, and nothing inside a request body can change that — that is how
+HTTP works, for this panel and for every other program on your Mac. What the
+two flags control is what the receiver is instructed to *derive* from that
+address and *store* on the event. Discarding it at the edge as well is a
+setting on the receiving project, not something this source tree can promise
+you, so this page does not.
+
+If you want the connection itself gone: turn analytics off, or point
+`PHOSPHENE_ANALYTICS_HOST` at a receiver you run (below).
+
+**A note on `0.0.0.0`, since it looks arbitrary.** The obvious spelling —
+sending `$ip: null` — does nothing at all: PostHog's ingest fills the property
+in when the event's value is *falsy*, so a null is silently replaced by your
+real address. It has to be a non-empty string. `127.0.0.1` would be the natural
+choice and is the wrong one: PostHog rewrites loopback and `192.168.*` to a real
+address in Sweden as a local-development convenience, which would invent a
+location the day the disable flag ever went missing.
 
 ---
 
@@ -348,12 +379,14 @@ passes through, so a future engine is counted for free.
 python3 scripts/test_analytics_dryrun.py
 ```
 
-38 tests covering: the shipped key is a write-only `phc_` project key and is
+43 tests covering: the shipped key is a write-only `phc_` project key and is
 really the one that goes on the wire, the toggle and the env kill-switch each
 produce zero sockets *and* zero log lines, the exact field set of every event,
 every event name the panel can fire is documented on this page, prompt/path
 non-leakage (including a prompt quoted inside an exception), forbidden-key
-dropping, bucketing, log rotation and the local aggregates.
+dropping, the geo-disable and `$ip` flags riding on *every* event type and
+being un-overridable by a call site, bucketing, log rotation and the local
+aggregates.
 
 To watch it live, tail the local log while you render:
 
