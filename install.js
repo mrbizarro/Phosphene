@@ -174,70 +174,45 @@ module.exports = {
     // already recover this venv — reset.js deletes ltx-2-mlx/ wholesale —
     // but a user should never need Reset for it; env/ holds no user data.)
     //
-    // One joined multi-line message (the mflux-step idiom below), so the
-    // whole if/else runs as a single shell compound.
+    // Keep each shell payload small. Pinokio 8.0.40 can spin at 100% CPU
+    // before dispatching a large multi-line payload, leaving the UI at a
+    // blank PINOKIO_SHELL prompt. Independent diagnostics remain separate;
+    // only commands that share shell state are grouped together.
+    {
+      method: "shell.run",
+      params: {
+        path: "ltx-2-mlx",
+        message: "MACOS_VER=$(sw_vers -productVersion 2>/dev/null); MACOS_MAJOR=${MACOS_VER%%.*}; if echo \"$MACOS_MAJOR\" | grep -qE '^[0-9]+$' && [ \"$MACOS_MAJOR\" -lt 14 ]; then echo \"Phosphene needs macOS 14 or newer; detected $MACOS_VER\"; exit 1; fi; echo \"macOS preflight OK (detected $MACOS_VER, needs >= 14)\""
+      }
+    },
     {
       method: "shell.run",
       params: {
         path: "ltx-2-mlx",
         message: [
-          "echo '=== LTX venv check ==='",
-          "if env/bin/python3.11 -c 'import sys' >/dev/null 2>&1; then",
-          "echo 'venv healthy - reusing it'",
-          "else",
-          "echo 'venv missing or broken (wrong Python or dangling interpreter) - rebuilding, no models are re-downloaded'",
-          // v2.0.3: log the toolchain BEFORE creating the venv so the
-          // install log self-documents which Python uv landed on. A user
-          // (KTDS) hit a silent "ModuleNotFoundError: ltx_pipelines_mlx"
-          // after a green install — the most likely cause was uv falling
-          // back to a Python that couldn't install mlx wheels, and we
-          // had no log evidence to confirm. These echoes change nothing
-          // operationally; they just leave a trail.
           "echo '=== install diagnostics: venv create ==='",
-          // SHIP-BLOCKER GUARD (2026-07-23, from @hottboytank's Pinokio report):
-          // mlx 0.31.1 publishes NO macOS-13 wheel — its builds start at
-          // macosx_14_0_arm64. On Ventura the mlx step dies deep inside uv's
-          // resolver ("No solution found ... no wheels with a matching platform
-          // tag"), ltx_core_mlx never installs, and the user only sees a cryptic
-          // ModuleNotFoundError at the very end — under an auto-generated title
-          // about python3.11 that points at completely the wrong thing.
-          // Fail fast, up front, with the actual fix.
-          // FAIL-OPEN BY DESIGN: only block when we positively identify a
-          // macOS major < 14. If sw_vers is missing, unparseable, or non-numeric
-          // for any reason, we PROCEED — a preflight that can't read the version
-          // must never be the thing that bricks an otherwise-fine install.
-          // Pinokio 8.0.x wedges its shell on very long single lines (#50: 764
-          // chars hangs, ~373 passes — bisected by @Morac2). Every line below
-          // stays well under that; they run in ONE shell invocation joined by
-          // \n, so the if/else and variables still span lines.
-          [
-            "MACOS_VER=$(sw_vers -productVersion 2>/dev/null)",
-            "MACOS_MAJOR=$(echo \"$MACOS_VER\" | cut -d. -f1)",
-            "if echo \"$MACOS_MAJOR\" | grep -qE '^[0-9]+$' && [ \"$MACOS_MAJOR\" -lt 14 ]; then",
-            "  echo '=================================================================='",
-            "  echo \"PHOSPHENE CANNOT INSTALL ON macOS $MACOS_VER\"",
-            "  echo 'Phosphene needs macOS 14 (Sonoma) or newer.'",
-            "  echo 'Why: mlx 0.31.1 ships no macOS 13 build, so the engine cannot install'",
-            "  echo 'and every generation would fail.'",
-            "  echo 'Fix: System Settings > General > Software Update -> macOS 14 or 15,'",
-            "  echo 'then reinstall Phosphene.'",
-            "  echo '=================================================================='",
-            "  exit 1",
-            "else",
-            "  echo \"macOS preflight OK (detected '$MACOS_VER', needs >= 14)\"",
-            "fi",
-          ].join("\n"),
           "which uv && uv --version || echo 'uv NOT FOUND'",
           "which python3.11 && python3.11 --version || echo 'system python3.11 NOT FOUND (uv will try to fetch)'",
           "uname -a",
-          "echo '=== /diagnostics ==='",
-          "rm -rf env",
-          "uv venv --python 3.11 --seed env",
-          "echo '=== venv created ==='",
+          "echo '=== /diagnostics ==='"
+        ]
+      }
+    },
+    {
+      method: "shell.run",
+      params: {
+        path: "ltx-2-mlx",
+        message: "if env/bin/python3.11 -c 'import sys' >/dev/null 2>&1; then echo 'venv healthy - reusing it'; else echo 'venv missing or broken - rebuilding'; rm -rf env; uv venv --python 3.11 --seed env; fi"
+      }
+    },
+    {
+      method: "shell.run",
+      params: {
+        path: "ltx-2-mlx",
+        message: [
           "ls -la env/bin/python* 2>&1 || echo 'venv create FAILED'",
-          "env/bin/python --version || echo 'venv python NOT executable'",
-          "fi"
-        ].join("\n")
+          "env/bin/python --version || echo 'venv python NOT executable'"
+        ]
       }
     },
 
