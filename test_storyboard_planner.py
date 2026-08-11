@@ -316,6 +316,35 @@ class TestCoercion(unittest.TestCase):
         spec, _ = P.coerce_spec(raw, **dict(self.kw, n_shots=2))
         self.assertEqual([s["face"] for s in spec["shots"]], ["medium", "none"])
 
+    def test_face_none_cannot_switch_off_the_law_when_a_person_is_present(self):
+        """The escape that shipped a silhouette: the model labelled a wide shot containing a
+        woman `face: "none"`, which disabled the scrub."""
+        raw = {"title": "t", "shots": [
+            _shot(1, face="none",
+                  description=("Live-action, cinematic, a wide shot from the rooftop showing "
+                               "the woman standing beside the neon sign, silhouetted against "
+                               "the vibrant lights of the market below."),
+                  settle="the market glows below and she stands silhouetted against the lights"),
+            _shot(2, face="none", description="Live-action, cinematic, an empty rooftop.")]}
+        spec, warns = P.coerce_spec(raw, **dict(self.kw, n_shots=2))
+        self.assertEqual(spec["shots"][0]["face"], "medium")
+        self.assertEqual(spec["shots"][1]["face"], "none")   # genuinely no person: honoured
+        body = spec["shots"][0]["prompt"].replace(P._FACE_LAW_MEDIUM, " ")
+        self.assertNotIn("silhouetted", body)
+        self.assertTrue(any("said no face" in w for w in warns), warns)
+
+    def test_person_silhouette_regex_catches_the_forms_that_shipped(self):
+        for blocking in ("silhouetted against the vibrant lights of the market below",
+                         "and she stands silhouetted against the lights",
+                         "He's silhouetted against the bright light of the lens",
+                         "her silhouette framed against the backdrop of the city lights",
+                         "they stood silhouetted in the doorway"):
+            self.assertTrue(P._PERSON_SILHOUETTE_RE.search(blocking), blocking)
+        for fine in ("the dune line behind him is a clean dark silhouette against a pale sky",
+                     "the lighthouse stands silhouetted against the night sky",
+                     "the crane is a hard silhouette on the skyline"):
+            self.assertFalse(P._PERSON_SILHOUETTE_RE.search(fine), fine)
+
     def test_hidden_faces_are_refused_unless_the_brief_asked(self):
         raw = {"title": "t", "shots": [_shot(1, face="hidden",
                                              description="A woman on a rooftop.")]}

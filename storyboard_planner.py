@@ -810,13 +810,20 @@ _FACE_BLOCK_RE = re.compile(
     r"|\bconceal(?:s|ed|ing)\b"
     r"|\bwe (?:do not|don't|never) see\b", re.IGNORECASE)
 
-# Ambiguous on its own — "the dune line behind him is a clean dark silhouette" is good
-# cinematography about a landscape. Only the forms that bind the silhouette to a PERSON are
-# treated as blocking.
+# Ambiguous on its own — "the dune line behind him is a clean dark silhouette" and "the
+# lighthouse stands silhouetted against the night sky" are good cinematography about things
+# that have no face. Only the forms that bind the silhouette to a PERSON are blocking.
+#
+# The window is `[\w'\s]{0,20}?` — word characters, apostrophes and spaces only, so it
+# reaches across "he's" and "she stands" but is stopped by any comma or full stop. An
+# earlier `\W{0,8}` version was simply wrong: it required NON-word characters, so it matched
+# neither "she stands silhouetted" nor "He's silhouetted", and both shipped.
+_SIL_SUBJECT = (r"(?:he|she|they|man|woman|boy|girl|child|boxer|keeper|violinist|figure|"
+                r"person|player|worker|dancer|singer|fighter)")
 _PERSON_SILHOUETTE_RE = re.compile(
-    r"^\s*silhouett"                                  # participial, inherits the subject
+    r"^\s*silhouett"                                   # participial, inherits the subject
     r"|\b(?:his|her|their)\s+silhouette\b"
-    r"|\b(?:he|she|they)\b\W{0,8}silhouett", re.IGNORECASE)
+    r"|\b" + _SIL_SUBJECT + r"\b[\w'\s]{0,20}?\bsilhouett", re.IGNORECASE)
 
 # The brief has to ask for a hidden face out loud before the planner will allow one.
 _WANTS_HIDDEN_RE = re.compile(
@@ -825,17 +832,26 @@ _WANTS_HIDDEN_RE = re.compile(
     r"\bwithout showing (?:the |their |his |her )?face", re.IGNORECASE)
 
 
-def _face_level(raw: Any, desc: str) -> str:
-    """Normalise the model's `face` choice; default from whether a person is on screen."""
+def _face_level(raw: Any, desc: str) -> Tuple[str, bool]:
+    """Normalise the model's `face` choice. Returns (level, was_overridden).
+
+    `none` is the one value the model can use to switch the whole face law off, so it is the
+    one value that is checked against the prose. Observed: a wide shot whose description read
+    "showing the woman standing beside the neon sign, silhouetted against the vibrant lights"
+    was labelled `face: "none"`, which disabled the scrub and shipped the silhouette. If
+    there is a person in the description there is a face to protect, whatever the label says.
+    """
     k = str(raw or "").strip().lower().replace(" ", "_").replace("-", "_")
     aliases = {"closeup": "close", "close_up": "close", "tight": "close", "face": "close",
                "visible": "medium", "mid": "medium", "wide": "medium", "full": "medium",
                "no_face": "none", "nobody": "none", "n/a": "none", "": "",
                "obscured": "hidden", "silhouette": "hidden", "back": "hidden"}
     k = aliases.get(k, k)
-    if k in _FACE_LAWS:
-        return k
-    return "medium" if _has_person(desc) else "none"
+    if k not in _FACE_LAWS:
+        return ("medium" if _has_person(desc) else "none"), False
+    if k == "none" and _has_person(desc):
+        return "medium", True
+    return k, False
 
 
 def _scrub_face_blocking(text: str) -> Tuple[str, List[str]]:
@@ -1231,7 +1247,11 @@ def coerce_spec(
             warnings.append("shot %d described the camera instead of an end state" % (idx + 1))
 
         # --- the face law ---------------------------------------------------------------
-        face = _face_level(s.get("face") or s.get("face_visible") or s.get("framing"), desc)
+        face, face_forced = _face_level(
+            s.get("face") or s.get("face_visible") or s.get("framing"), desc)
+        if face_forced:
+            warnings.append("shot %d said no face, but a person is on screen — the face law "
+                            "was applied anyway" % (idx + 1))
         if face == "hidden" and not allow_hidden_faces:
             face = "medium"
             warnings.append("shot %d asked to hide the face; the brief did not ask for that, "

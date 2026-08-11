@@ -10516,6 +10516,14 @@ def _sb_plan_thread(board_id: str, brief: dict, previous: dict | None) -> None:
         board["planner"]["stage"] = "repair" if int(meta.get("attempts") or 1) > 1 else "check"
 
         board["title"] = result.get("title") or board.get("title") or "Untitled film"
+        # What each shot had BEFORE the plan replaced it. A re-rolled shot is a
+        # brand-new dict, so its previous take has to be read from here — off
+        # the new dict it is always None.
+        _prev_out = {}
+        for _s in (board.get("shots") or []):
+            if isinstance(_s, dict) and _s.get("n") is not None:
+                _prev_out[_s["n"]] = (_s.get("draft_output") or _s.get("final_output")
+                                      or _s.get("stale_output"))
         board["shots"] = result.get("shots") or []
         # A rewritten shot must go back to being UN-RENDERED. Without this it
         # kept `status: "done"` with no output, and since shooting_order() and
@@ -10528,7 +10536,7 @@ def _sb_plan_thread(board_id: str, brief: dict, previous: dict | None) -> None:
             for _s in board["shots"]:
                 if not isinstance(_s, dict) or _s.get("n") != _n:
                     continue
-                _old = _s.get("draft_output") or _s.get("final_output")
+                _old = _prev_out.get(_n)
                 if _old:
                     _s["stale_output"] = _old
                 _s["status"] = "pending"
