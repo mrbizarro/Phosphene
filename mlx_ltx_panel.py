@@ -339,6 +339,9 @@ _SETTINGS_LOCK = threading.Lock()
 STORYBOARD_SHOT_CHOICES = (6, 12, 24, 36)
 STORYBOARD_DRAFT_QUALITIES = ("quick", "balanced", "standard")
 STORYBOARD_FINAL_QUALITIES = ("balanced", "standard", "high")
+# The film-level engine choice. See storyboard.ENGINE_MODES for what each means
+# and why it is a PLANNING input rather than a post-hoc filter.
+STORYBOARD_ENGINE_MODES = ("auto", "h3", "ltx")
 
 
 def _settings_defaults() -> dict:
@@ -409,6 +412,7 @@ def _settings_defaults() -> dict:
         "storyboard_shots": 12,
         "storyboard_draft_quality": "quick",
         "storyboard_final_quality": "standard",
+        "storyboard_engine": "auto",
     }
 
 
@@ -670,7 +674,8 @@ def _validate_settings_patch(patch: dict) -> tuple[dict, str | None]:
             return {}, f"storyboard_shots must be one of: {list(STORYBOARD_SHOT_CHOICES)}"
         out["storyboard_shots"] = n
     for _skey, _allowed in (("storyboard_draft_quality", STORYBOARD_DRAFT_QUALITIES),
-                            ("storyboard_final_quality", STORYBOARD_FINAL_QUALITIES)):
+                            ("storyboard_final_quality", STORYBOARD_FINAL_QUALITIES),
+                            ("storyboard_engine", STORYBOARD_ENGINE_MODES)):
         if _skey in patch:
             q = str(patch[_skey]).strip().lower()
             if q not in _allowed:
@@ -10142,33 +10147,37 @@ def _sb_normalize(board: dict) -> dict:
     """
     known = set(_sb_known_character_ids())
     h3_ok = _sb_h3_available()
+    mode = (board.get("engine_mode") or storyboard.DEFAULT_ENGINE_MODE).strip().lower()
+    if mode not in storyboard.ENGINE_MODES:
+        mode = storyboard.DEFAULT_ENGINE_MODE
+    board["engine_mode"] = mode
     shots = [s for s in (board.get("shots") or []) if isinstance(s, dict)]
     for i, s in enumerate(shots, start=1):
         s["n"] = i
-        mode = s.get("mode")
-        if mode not in storyboard.VALID_MODES:
-            mode = "text"
+        smode = s.get("mode")
+        if smode not in storyboard.VALID_MODES:
+            smode = "text"
         cid = (s.get("character_id") or "").strip() or None
         if cid and known and cid not in known:
             # Keep the id — the validator's job is to say so, not ours — but do
             # not pretend the pair is coherent.
             pass
         if cid:
-            mode = "character" if mode in ("text", "character") else mode
+            smode = "character" if smode in ("text", "character") else smode
             trig = (s.get("trigger") or cid).strip()
             s["trigger"] = trig
             s["prompt"] = storyboard.ensure_trigger(s.get("prompt") or "", trig)
-            s["engine"] = "ltx"        # H3 stacks no LoRAs
         else:
             s.pop("character_id", None)
             s.pop("trigger", None)
-            if mode == "character":
-                mode = "text"
-            eng = (s.get("engine") or "").strip().lower()
-            if eng not in storyboard.VALID_ENGINES:
-                eng = "h3" if h3_ok else "ltx"
-            s["engine"] = eng if h3_ok else "ltx"
-        s["mode"] = mode
+            if smode == "character":
+                smode = "text"
+            if (s.get("engine") or "").strip().lower() not in storyboard.VALID_ENGINES:
+                s["engine"] = "h3" if h3_ok else "ltx"
+        # ONE decision point for what actually renders — the film's engine mode,
+        # the cast rule and the "is the pack even here" rule, in that order.
+        s["engine"] = storyboard.resolve_engine(s, engine_mode=mode, h3_available=h3_ok)
+        s["mode"] = smode
         if not isinstance(s.get("refs"), list):
             s["refs"] = []
         try:
@@ -10205,14 +10214,17 @@ def _sb_payload(board: dict) -> dict:
     # board on disk keeps what the planner wrote, so installing the pack later
     # restores the intent without a re-plan.
     h3_ok = _sb_h3_available()
+    emode = board.get("engine_mode") or storyboard.DEFAULT_ENGINE_MODE
     costed = board
-    if not h3_ok and any(storyboard.shot_engine(s) == "h3"
-                         for s in (board.get("shots") or []) if isinstance(s, dict)):
+    if any(storyboard.shot_engine(s)
+           != storyboard.resolve_engine(s, engine_mode=emode, h3_available=h3_ok)
+           for s in (board.get("shots") or []) if isinstance(s, dict)):
         import copy as _copy
         costed = _copy.deepcopy(board)
         for s in costed.get("shots") or []:
             if isinstance(s, dict):
-                s["engine"] = "ltx"
+                s["engine"] = storyboard.resolve_engine(
+                    s, engine_mode=emode, h3_available=h3_ok)
     est = storyboard.estimate(costed, pass_name=pass_name, h3_cost=_sb_h3_cost)
     per_shot = storyboard.per_shot_estimate(costed, pass_name=pass_name,
                                             h3_cost=_sb_h3_cost)
@@ -10231,6 +10243,7 @@ def _sb_payload(board: dict) -> dict:
         "rendering": rendering,
         "planning": planning,
         "h3_available": h3_ok,
+        "engine_mode": board.get("engine_mode") or storyboard.DEFAULT_ENGINE_MODE,
         "characters": [
             {"id": c.get("id"), "trigger": c.get("trigger") or c.get("id"),
              "name": c.get("name") or c.get("id"),
@@ -10310,12 +10323,14 @@ def storyboard_status() -> dict:
         "engine_note": STORYBOARD_ENGINE_NOTE,
         "engine_note_no_h3": STORYBOARD_ENGINE_NOTE_NO_H3,
         "shot_choices": list(STORYBOARD_SHOT_CHOICES),
+        "engine_modes": list(STORYBOARD_ENGINE_MODES),
         "draft_qualities": list(STORYBOARD_DRAFT_QUALITIES),
         "final_qualities": list(STORYBOARD_FINAL_QUALITIES),
         "defaults": {
             "shots": s.get("storyboard_shots", 12),
             "draft_quality": s.get("storyboard_draft_quality", "quick"),
             "final_quality": s.get("storyboard_final_quality", "standard"),
+            "engine": s.get("storyboard_engine", "auto"),
         },
         "boards": _sb_all_summaries(),
     }
@@ -10416,7 +10431,11 @@ def _sb_plan_thread(board_id: str, brief: dict, previous: dict | None) -> None:
             must_include=brief.get("must") or None,
             feedback=brief.get("feedback") or None,
             previous=previous,
-            engine=("ltx" if not _sb_h3_available() else "auto"),
+            # The film's own choice, and it is a PLANNING input: the planner
+            # writes H3's three-field dialect or LTX prose depending on it, so
+            # this cannot be applied after the fact. With no H3 pack installed
+            # there is only one answer it could honestly give.
+            engine=(brief.get("engine_mode") or "auto") if _sb_h3_available() else "ltx",
             board_id=board_id,
             known_character_ids=_sb_known_character_ids(),
             max_dim=_sb_max_dim(),
@@ -10549,7 +10568,8 @@ def _sb_render_thread(board_id: str, pass_name: str, only: list | None) -> None:
                 form = storyboard.shot_to_job(
                     shot, policy,
                     board_id=board_id, board_title=board.get("title") or "",
-                    h3_available=h3_ok)
+                    h3_available=h3_ok,
+                    engine_mode=board.get("engine_mode") or "auto")
                 # make_job reads a form: every value is a string (or a list of
                 # them). Normalise here so a bool/int never reaches f().
                 job_form = {k: ("" if v is None else str(v)) for k, v in form.items()}
@@ -17330,8 +17350,23 @@ class Handler(BaseHTTPRequestHandler):
                 if shots_n not in STORYBOARD_SHOT_CHOICES:
                     shots_n = 12
                 must = [x.strip() for x in (f("must", "") or "").splitlines() if x.strip()]
+                emode = (f("engine", "") or board.get("engine_mode")
+                         or get_settings().get("storyboard_engine", "auto")).strip().lower()
+                if emode not in storyboard.ENGINE_MODES:
+                    emode = storyboard.DEFAULT_ENGINE_MODE
+                # An H3-only film cannot carry a trained character: H3 has no
+                # LoRA path, so the trigger would do nothing and a stranger's
+                # face would render. Refuse the pair here rather than plan a
+                # film that can't keep its promise.
                 cid = f("character_id", "")
+                if emode == "h3" and cid:
+                    self._json({"ok": False,
+                                "error": "Hailuo H3 can't load a trained character. "
+                                         "Pick Auto to keep them (their shots render on "
+                                         "LTX-2.3), or clear the cast."}, 400)
+                    return
                 chars = [c for c in (list_characters() or []) if c.get("id") == cid] if cid else []
+                board["engine_mode"] = emode
                 board["concept"] = concept
                 board["style"] = f("style", "")
                 board["must"] = must
@@ -17355,7 +17390,8 @@ class Handler(BaseHTTPRequestHandler):
                     target=_sb_plan_thread, daemon=True, name=f"phos-sb-plan-{bid}",
                     args=(bid, {"concept": concept, "n_shots": shots_n,
                                 "style": board["style"], "characters": chars,
-                                "must": must, "feedback": notes or None},
+                                "must": must, "feedback": notes or None,
+                                "engine_mode": emode},
                           previous if notes else None))
                 with _SB_LOCK:
                     _SB_PLANNERS[bid]["thread"] = th
@@ -17584,7 +17620,8 @@ class Handler(BaseHTTPRequestHandler):
                                 "style": board.get("style") or "",
                                 "characters": chars,
                                 "must": board.get("must") or [],
-                                "feedback": "\n".join(notes)},
+                                "feedback": "\n".join(notes),
+                                "engine_mode": board.get("engine_mode") or "auto"},
                           previous))
                 with _SB_LOCK:
                     _SB_PLANNERS[bid]["thread"] = th
@@ -21762,6 +21799,34 @@ HTML = r"""<!doctype html>
     }
     .sb-enginenote[hidden] { display: none !important; }
     .sb-enginenote b { color: var(--text); font-weight: 600; }
+    /* The film-level engine picker. .pill-group.cols-3 of .pill-btn — the same
+       segmented grammar #qualityGroup and #sbDraftQuality use — with the
+       engine's own glyph and accent from the ENGINES registry, so an active
+       Hailuo pill is the same pink as its chip and its header segment. */
+    #sbEngineGroup .pill-btn, #sbReplanEngineGroup .pill-btn {
+      gap: 3px; padding: 8px 6px;
+    }
+    #sbEngineGroup .pill-btn .eng-mark .ph,
+    #sbReplanEngineGroup .pill-btn .eng-mark .ph { width: 13px; height: 13px; }
+    #sbEngineGroup .pill-btn.active, #sbReplanEngineGroup .pill-btn.active {
+      color: var(--eng-accent, var(--accent-bright));
+      border-color: var(--eng-soft, var(--accent));
+      background: var(--eng-dim, var(--accent-dim));
+    }
+    /* Not installed is not dead — it is the install, exactly as the High
+       quality chip's .needs-install state reads. */
+    #sbEngineGroup .pill-btn.needs-install,
+    #sbReplanEngineGroup .pill-btn.needs-install {
+      opacity: 1; border-style: dashed;
+    }
+    #sbEngineGroup .pill-btn:disabled,
+    #sbReplanEngineGroup .pill-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .sb-enginepick-note {
+      font-size: 11px; line-height: 1.5; color: var(--muted);
+      padding: 4px 2px 0;
+    }
+    .sb-enginepick-note:empty { display: none; }
+    .sb-enginepick-note b { color: var(--text); font-weight: 600; }
     .sb-chip-pass { cursor: pointer; }
     .sb-chip-pass:hover { color: var(--text); border-color: var(--border-strong); }
     .sb-shot-est {
@@ -30683,6 +30748,16 @@ HTML = r"""<!doctype html>
         </div>
       </div>
 
+      <!-- The film-level engine. It is a PLANNING input, not a label: the two
+           engines want prompts written differently, so this is asked before the
+           plan exists and changing it means re-planning (the Re-plan modal
+           carries the same control). Per-shot override stays cut for v1. -->
+      <div class="cz-control" id="sbEngineRow">
+        <div class="cz-label">Engine <span class="cz-label-hint">who renders the shots</span></div>
+        <div class="pill-group cols-3" id="sbEngineGroup"></div>
+        <div class="sb-enginepick-note" id="sbEnginePickNote"></div>
+      </div>
+
       <div class="cz-control" id="sbStyleRow">
         <div class="cz-label">Look <span class="cz-label-hint">goes on every shot</span></div>
         <input type="text" id="sbStyle" class="sb-input"
@@ -31811,6 +31886,15 @@ Third prompt."></textarea>
     <div class="hint">The concept and the look stay. Say what was wrong and the planner writes a new shot list. This replaces every shot — clips already rendered stay in your gallery.</div>
     <textarea class="batch" id="sbReplanNotes" rows="4"
       placeholder="Too much walking. Start inside the gym. Fewer wide shots."></textarea>
+    <!-- Same control as the brief. This is where changing the engine on an
+         EXISTING film belongs, because the change is a re-plan: an H3 shot and
+         an LTX shot are written in different dialects, so a flip has to rewrite
+         the prompts, not relabel them. -->
+    <div class="cz-control" style="margin-top:12px">
+      <div class="cz-label">Engine <span class="cz-label-hint">who renders the shots</span></div>
+      <div class="pill-group cols-3" id="sbReplanEngineGroup"></div>
+      <div class="sb-enginepick-note" id="sbReplanEngineNote"></div>
+    </div>
     <div class="hint" style="margin-top:6px">Loads the planner again (~1 min). Nothing renders while it does.</div>
     <div class="modal-actions">
       <button class="small" onclick="sbCloseReplan()">Cancel</button>
@@ -45235,6 +45319,8 @@ function sbInit() {
   } catch (e) {}
   const d = SB_BOOT.defaults || {};
   sbSetShots(d.shots || 12, false);
+  _sbEngineMode = d.engine || 'auto';
+  sbRenderEnginePicker();
   if (typeof refreshManualCharacters === 'function') {
     Promise.resolve(refreshManualCharacters()).then(sbRenderCast).catch(() => sbRenderCast());
   } else { sbRenderCast(); }
@@ -45368,7 +45454,111 @@ function sbRenderCast() {
               ${avatar}<span class="chars-avatar-name">${escapeHtml(name)}</span></button>`;
   }).join('');
 }
-function sbPickCast(id) { _sbCastId = (_sbCastId === id) ? '' : id; sbRenderCast(); }
+function sbPickCast(id) {
+  _sbCastId = (_sbCastId === id) ? '' : id;
+  // Casting under an H3-only film is a promise the engine can't keep, so the
+  // pair snaps back to Auto rather than being quietly ignored at plan time.
+  if (_sbCastId && _sbEngineMode === 'h3') {
+    sbSetEngineMode('auto');
+    phosToast('Auto: Hailuo H3 can’t load a trained character, so their shots go to LTX-2.3.',
+              {duration: 6000});
+  }
+  sbRenderCast();
+  sbRenderEnginePicker();
+}
+
+// ---- the film-level engine -------------------------------------------------
+// The owner's question, verbatim: "I don't get why I cannot select in the
+// storyboard if I'm going to send to LTX or to Hailuo." So he can. Three
+// options, once per film, asked BEFORE the plan exists — because the planner
+// writes H3's three-field dialect or LTX prose depending on the answer, and a
+// prompt written for one engine is not a prompt for the other. Changing it on
+// an existing film is therefore a re-plan, and the Re-plan modal carries the
+// same control.
+let _sbEngineMode = 'auto';
+const SB_ENGINE_OPTS = [
+  { key: 'auto', label: 'Auto',      sub: 'per shot' },
+  { key: 'h3',   label: 'Hailuo H3', sub: 'voice + sound', engine: 'h3' },
+  { key: 'ltx',  label: 'LTX-2.3',   sub: 'characters',    engine: 'ltx' },
+];
+
+function sbH3Installed() {
+  const p = (window._ENGINE_PROBES || {}).h3 || {};
+  return { capable: !!p.capable, available: !!p.available };
+}
+
+function sbEnginePickerHtml(active) {
+  const h3 = sbH3Installed();
+  return SB_ENGINE_OPTS.map(o => {
+    const e = o.engine ? (ENGINES || []).find(x => x.id === o.engine) : null;
+    const blocked = (o.key === 'h3') && !h3.available;
+    const offer = blocked && h3.capable;
+    const cls = 'pill-btn' + (o.key === active ? ' active' : '')
+              + (offer ? ' needs-install' : '');
+    const style = e ? `--eng-accent:${escapeHtml(e.accent)};--eng-dim:${escapeHtml(e.accent_dim)};--eng-soft:${escapeHtml(e.accent_soft)}` : '';
+    const title = o.key === 'auto'
+        ? 'The plan decides per shot: a shot with one of your trained characters goes to LTX-2.3, everything else to Hailuo H3.'
+      : offer ? 'Hailuo H3 isn’t installed yet — install it from the Phosphene sidebar in Pinokio.'
+      : blocked ? 'This Mac can’t run Hailuo H3.'
+      : o.key === 'h3' ? 'Every shot on Hailuo H3 — it renders dialogue, voices and sound with the picture. No trained characters.'
+      : 'Every shot on LTX-2.3 — the built-in engine, and the only one that loads a trained character.';
+    const glyph = e ? `<span class="eng-mark"><svg class="ph" aria-hidden="true"><use href="#${escapeHtml(e.mark)}"/></svg></span>` : '';
+    return `<button type="button" class="${cls}" data-sb-engine="${o.key}" style="${style}"
+        ${blocked && !offer ? 'disabled' : ''} title="${escapeHtml(title)}">
+      ${glyph}${escapeHtml(o.label)}<span class="sub">${escapeHtml(o.sub)}</span></button>`;
+  }).join('');
+}
+
+function sbEnginePickerNote(active) {
+  const h3 = sbH3Installed();
+  if (!h3.available) {
+    return h3.capable
+      ? 'Hailuo H3 isn’t installed — <b>Install Hailuo H3</b> in the Phosphene sidebar in Pinokio, and this film can use it. Until then every shot renders on LTX-2.3.'
+      : 'This Mac can’t run Hailuo H3, so every shot renders on LTX-2.3.';
+  }
+  if (active === 'h3') return 'Every shot on Hailuo H3 — dialogue, voices and sound rendered with the picture. <b>A trained character can’t come along</b>: H3 loads no LoRAs.';
+  if (active === 'ltx') return 'Every shot on LTX-2.3 — every mode, and the only engine that loads a trained character.';
+  return 'A shot with one of your trained characters goes to <b>LTX-2.3</b>; every other shot goes to <b>Hailuo H3</b>.';
+}
+
+function sbRenderEnginePicker() {
+  const g = sbEl('sbEngineGroup');
+  if (g) g.innerHTML = sbEnginePickerHtml(_sbEngineMode);
+  const n = sbEl('sbEnginePickNote');
+  if (n) n.innerHTML = sbEnginePickerNote(_sbEngineMode);
+}
+
+function sbSetEngineMode(key, persist) {
+  const h3 = sbH3Installed();
+  if (key === 'h3' && !h3.available) {
+    // Not installed is not dead — the click IS the install, same as the High
+    // quality chip's needs-install state.
+    // The registry names the install affordance (ENGINES[h3].install_card), so
+    // this opens the SAME card the header switcher opens.
+    const card = ((ENGINES || []).find(x => x.id === 'h3') || {}).install_card;
+    if (h3.capable && card && typeof window[card] === 'function') { try { window[card](); } catch (e) {} }
+    else if (h3.capable) phosToast('Install Hailuo H3 from the Phosphene sidebar in Pinokio.', {duration: 6000});
+    return;
+  }
+  if (key === 'h3' && _sbCastId) {
+    _sbCastId = '';
+    sbRenderCast();
+    phosToast('Cast cleared — Hailuo H3 can’t load a trained character.', {duration: 6000});
+  }
+  _sbEngineMode = key;
+  sbRenderEnginePicker();
+  if (persist !== false) sbSaveSetting('storyboard_engine', key);
+}
+
+// The Re-plan modal's copy of the control. Separate value so opening the modal
+// and cancelling can't change the brief.
+let _sbReplanEngineMode = 'auto';
+function sbRenderReplanEnginePicker() {
+  const g = sbEl('sbReplanEngineGroup');
+  if (g) g.innerHTML = sbEnginePickerHtml(_sbReplanEngineMode);
+  const n = sbEl('sbReplanEngineNote');
+  if (n) n.innerHTML = sbEnginePickerNote(_sbReplanEngineMode);
+}
 
 // ---- plan ------------------------------------------------------------------
 async function sbPlan() {
@@ -45381,6 +45571,7 @@ async function sbPlan() {
   fd.set('shots', String(sbShotsValue()));
   fd.set('style', (sbEl('sbStyle') || {}).value || '');
   fd.set('must', (sbEl('sbMust') || {}).value || '');
+  fd.set('engine', _sbEngineMode);
   if (_sbCastId) fd.set('character_id', _sbCastId);
   let r;
   try {
@@ -45437,7 +45628,11 @@ function sbSetPlanningStage(stage) {
   });
 }
 
-function sbOpenReplan() { sbEl('sbReplanModal').classList.add('show'); }
+function sbOpenReplan() {
+  _sbReplanEngineMode = ((SB.payload || {}).engine_mode) || 'auto';
+  sbRenderReplanEnginePicker();
+  sbEl('sbReplanModal').classList.add('show');
+}
 function sbCloseReplan() { sbEl('sbReplanModal').classList.remove('show'); }
 async function sbReplan() {
   const notes = (sbEl('sbReplanNotes') || {}).value || '';
@@ -45450,8 +45645,11 @@ async function sbReplan() {
   fd.set('shots', String(b.shots_target || (b.shots || []).length || 12));
   fd.set('must', (b.must || []).join('\n'));
   fd.set('notes', notes);
+  fd.set('engine', _sbReplanEngineMode);
   const cast = (b.cast || [])[0];
-  if (cast && cast.id) fd.set('character_id', cast.id);
+  // An H3-only film carries no cast — the server refuses the pair, so don't
+  // send one it would have to reject.
+  if (cast && cast.id && _sbReplanEngineMode !== 'h3') fd.set('character_id', cast.id);
   let r;
   try { r = await (await fetch('/storyboard/plan', { method: 'POST', body: fd })).json(); }
   catch (e) { r = { ok: false, error: String(e) }; }
@@ -45659,11 +45857,21 @@ function sbRenderPlan(r) {
   // the ? carries the Python-owned paragraph; the chips on the cards carry the
   // per-shot answer.
   const mix = est.engine_mix || {};
-  let engText = SB_BOOT.engine_note || '';
-  if (!r.h3_available) engText = SB_BOOT.engine_note_no_h3 || engText;
-  else if (mix.h3 && mix.ltx) engText = `${engText} <b>${mix.h3} on Hailuo H3, ${mix.ltx} on LTX-2.3.</b>`;
-  else if (mix.h3) engText = `${engText} <b>All ${mix.h3} on Hailuo H3.</b>`;
-  else if (mix.ltx) engText = `${engText} <b>All ${mix.ltx} on LTX-2.3.</b>`;
+  const mode = r.engine_mode || 'auto';
+  let engText;
+  if (!r.h3_available) {
+    engText = SB_BOOT.engine_note_no_h3 || '';
+  } else if (mode === 'h3') {
+    engText = 'You set this film to <b>Hailuo H3</b> — every shot.';
+  } else if (mode === 'ltx') {
+    engText = 'You set this film to <b>LTX-2.3</b> — every shot.';
+  } else {
+    engText = SB_BOOT.engine_note || '';
+    if (mix.h3 && mix.ltx) engText += ` <b>${mix.h3} on Hailuo H3, ${mix.ltx} on LTX-2.3.</b>`;
+    else if (mix.h3) engText += ` <b>All ${mix.h3} on Hailuo H3.</b>`;
+    else if (mix.ltx) engText += ` <b>All ${mix.ltx} on LTX-2.3.</b>`;
+  }
+  if (r.h3_available && mode !== 'auto') engText += ' Change it in Re-plan.';
   sbEl('sbEngineNoteText').innerHTML = engText;
 
   // --- run bar / action bar ---
@@ -46271,6 +46479,16 @@ function sbPollHook(s) {
 document.addEventListener('click', (ev) => {
   const chip = ev.target.closest && ev.target.closest('#sbLengthGroup .q-chip');
   if (chip) { sbSetShots(Number(chip.dataset.sbShots)); return; }
+  const eng = ev.target.closest && ev.target.closest('#sbEngineGroup [data-sb-engine]');
+  if (eng) { sbSetEngineMode(eng.dataset.sbEngine); return; }
+  const reng = ev.target.closest && ev.target.closest('#sbReplanEngineGroup [data-sb-engine]');
+  if (reng) {
+    const h3 = sbH3Installed();
+    if (reng.dataset.sbEngine === 'h3' && !h3.available) { sbSetEngineMode('h3'); return; }
+    _sbReplanEngineMode = reng.dataset.sbEngine;
+    sbRenderReplanEnginePicker();
+    return;
+  }
   const q = ev.target.closest && ev.target.closest('#sbDraftQuality .pill-btn, #sbFinalQuality .pill-btn');
   if (q) {
     const board = ((SB.payload || {}).board);

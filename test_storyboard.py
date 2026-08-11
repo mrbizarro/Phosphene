@@ -119,6 +119,43 @@ class ShotToJob(unittest.TestCase):
         self.assertEqual(sb.shot_to_job(_shot(4), self.POLICY)["seed"], 1004)
 
 
+class FilmLevelEngine(unittest.TestCase):
+    """The film's own engine choice — the owner asked for it by name."""
+
+    POLICY = {"quality": "quick", "width": 640, "height": 480, "frames": 49}
+
+    def test_auto_keeps_what_the_plan_wrote(self):
+        self.assertEqual(sb.resolve_engine(_shot(1, engine="h3"), engine_mode="auto"), "h3")
+        self.assertEqual(sb.resolve_engine(_shot(1, engine="ltx"), engine_mode="auto"), "ltx")
+
+    def test_forcing_h3_moves_an_ltx_shot(self):
+        self.assertEqual(sb.resolve_engine(_shot(1, engine="ltx"), engine_mode="h3"), "h3")
+
+    def test_forcing_ltx_moves_an_h3_shot(self):
+        self.assertEqual(sb.resolve_engine(_shot(1, engine="h3"), engine_mode="ltx"), "ltx")
+
+    def test_a_cast_shot_beats_the_film_setting(self):
+        # H3 stacks no LoRAs; forcing a cast shot onto it renders a stranger.
+        cast = _shot(1, engine="h3", mode="character", character_id="c", trigger="c")
+        self.assertEqual(sb.resolve_engine(cast, engine_mode="h3"), "ltx")
+
+    def test_a_missing_pack_beats_everything(self):
+        self.assertEqual(
+            sb.resolve_engine(_shot(1, engine="h3"), engine_mode="h3", h3_available=False),
+            "ltx")
+
+    def test_shot_to_job_honours_the_film_setting(self):
+        j = sb.shot_to_job(_shot(1, engine="ltx"), self.POLICY, engine_mode="h3")
+        self.assertEqual(j["engine"], "h3")
+        self.assertIn("h3_length", j)
+        j = sb.shot_to_job(_shot(1, engine="h3"), self.POLICY, engine_mode="ltx")
+        self.assertEqual(j["engine"], "ltx")
+        self.assertNotIn("h3_length", j)
+
+    def test_unknown_mode_falls_back_to_auto(self):
+        self.assertEqual(sb.resolve_engine(_shot(1, engine="h3"), engine_mode="nonsense"), "h3")
+
+
 class Bucketing(unittest.TestCase):
     def test_engine_is_part_of_the_bucket(self):
         self.assertNotEqual(sb.bucket_key(_shot(1, engine="h3")),

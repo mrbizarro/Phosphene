@@ -122,6 +122,40 @@ _PANEL_MODE = {
 VALID_ENGINES = ("ltx", "h3")
 DEFAULT_ENGINE = "ltx"
 
+# The FILM-level engine choice, which the user makes once in the brief.
+#   "auto" — the plan decides per shot: a cast shot goes to LTX (that is where
+#            character LoRAs load), everything else to H3.
+#   "h3"   — every shot on Hailuo H3. The planner writes the whole film in H3's
+#            three-field dialect. A trained character cannot come along: H3
+#            stacks no LoRAs, so a cast shot would render a stranger.
+#   "ltx"  — every shot on LTX-2.3. The planner drops the H3 dialect entirely.
+# It is a PLANNING input, not a post-hoc filter: the two engines want prompts
+# written differently (`_assemble_h3_prompt` vs `_assemble_ltx_prompt`), so
+# changing it on an existing film means re-planning, not re-labelling.
+ENGINE_MODES = ("auto", "h3", "ltx")
+DEFAULT_ENGINE_MODE = "auto"
+
+
+def resolve_engine(shot: dict, *, engine_mode: str = DEFAULT_ENGINE_MODE,
+                   h3_available: bool = True) -> str:
+    """The engine this shot will ACTUALLY render on. One function, every caller.
+
+    Precedence, strongest first:
+      1. no H3 pack on this machine -> LTX, always;
+      2. the shot is cast -> LTX, always (H3 stacks no LoRAs, so a cast shot on
+         H3 renders a stranger — the exact failure `ensure_trigger` exists for);
+      3. the film's engine mode, when it is not "auto";
+      4. what the plan wrote on the shot.
+    """
+    if not h3_available:
+        return "ltx"
+    if shot.get("character_id"):
+        return "ltx"
+    mode = (engine_mode or DEFAULT_ENGINE_MODE).strip().lower()
+    if mode in ("h3", "ltx"):
+        return mode
+    return shot_engine(shot)
+
 # LTX renders at 24 fps and the sampler requires frames % 8 == 1.
 LTX_FPS = 24
 
@@ -604,7 +638,8 @@ def ensure_trigger(prompt: str, trigger: str) -> str:
 
 def shot_to_job(shot: dict, policy_pass: dict, *,
                 board_id: str = "", board_title: str = "",
-                h3_available: bool = True) -> dict:
+                h3_available: bool = True,
+                engine_mode: str = DEFAULT_ENGINE_MODE) -> dict:
     """Translate one storyboard shot into the panel's ORDINARY job form fields.
 
     Deliberately produces the same shape a human clicking Generate would produce, so shots
@@ -625,12 +660,9 @@ def shot_to_job(shot: dict, policy_pass: dict, *,
     # The engine. Without this the job dict has no `engine` key, make_job falls back to
     # ENGINE_DEFAULT ("ltx"), and every H3 shot the planner wrote renders silently on a
     # different model — different aspect, no audio, none of it flagged anywhere.
-    engine = shot_engine(shot)
-    # Character shots are LTX by construction (H3 stacks no LoRAs), and an install with no H3
-    # pack renders everything on LTX. Decide it HERE, once, rather than enqueueing a job for an
-    # engine that isn't there and letting make_job's fallback discover it.
-    if shot.get("character_id") or not h3_available:
-        engine = "ltx"
+    # resolve_engine() is the single place that decides, so the chip on the card, the estimate,
+    # the scheduling bucket and this job dict can never disagree about what will run.
+    engine = resolve_engine(shot, engine_mode=engine_mode, h3_available=h3_available)
 
     job = {
         # The panel has ONE backend mode for text and character alike; see _PANEL_MODE.
