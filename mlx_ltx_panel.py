@@ -9900,6 +9900,30 @@ def _validate_character_quality(form: dict[str, list[str]] | dict[str, str]) -> 
     return None
 
 
+def _safe_float(raw, default: float = 0.0, *,
+                minimum: float | None = None,
+                maximum: float | None = None) -> float:
+    """Parse a form value as a float without ever raising.
+
+    make_job's existing float fields do `float(f(name, "1.0") or 1.0)`, which
+    is fine for the ones backed by range sliders — a slider cannot emit
+    "abc". Free-form number inputs can, and /queue/add is a plain POST that
+    anything may call, so a typo should land on the default rather than
+    turning the submit into a 500. Optional clamps keep out-of-range values
+    from reaching a pipeline that would silently swallow them."""
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return default
+    if val != val or val in (float("inf"), float("-inf")):   # NaN / inf
+        return default
+    if minimum is not None:
+        val = max(minimum, val)
+    if maximum is not None:
+        val = min(maximum, val)
+    return val
+
+
 def make_job(form: dict[str, list[str]] | dict[str, str], *,
              override_prompt: str | None = None) -> dict:
     def f(name: str, default: str = "") -> str:
@@ -10568,6 +10592,22 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # explicitly to "full" or "off" via this form field.
             "stage2_image_conditioning": f("stage2_image_conditioning", "") or "",
             "audio_conditioning_scale": float(f("audio_conditioning_scale", "1.0") or 1.0),
+            # Where in the source file A2V starts reading. Both pipelines
+            # (a2vid_two_stage / a2vid_distilled) have taken this since they
+            # landed, and mlx_warm_helper forwards it on both actions — the
+            # panel was the only layer that never put a value on the job, so
+            # it fell through to 0.0 and every A2V render used the first N
+            # seconds of the file no matter what (#46, @blackest). This
+            # allowlist entry is load-bearing: a form field that isn't named
+            # here silently no-ops on /queue/add, which is exactly the class
+            # of bug this file warns about repeatedly.
+            #
+            # Parsed defensively, unlike its float siblings above: those are
+            # all backed by range sliders that can only emit numbers, while
+            # this one is a free-form number input (and /queue/add is a public
+            # POST). A stray non-numeric value should start the clip at 0,
+            # not 500 the submit.
+            "audio_start_time": _safe_float(f("audio_start_time", "0"), 0.0, minimum=0.0),
         },
         "command": None,
         "raw_path": None,
@@ -13435,18 +13475,30 @@ def run_job_inner(job: dict) -> None:
             "stage1_steps": int(p.get("stage1_steps", default_stage1)),
             "stage2_steps": int(p.get("stage2_steps", default_stage2)),
             "audio_conditioning_scale": float(p.get("audio_conditioning_scale", 1.0)),
+            # Offset into the source audio. The helper reads this key on both
+            # the Q8 and the Q4-distilled action and hands it to
+            # load_audio(start_time=…); it defaulted to 0.0 here only because
+            # the key was absent (#46).
+            "audio_start_time": max(0.0, float(p.get("audio_start_time", 0.0) or 0.0)),
         }
         if uses_q8:
             a2v_params["cfg_scale"] = float(p.get("cfg_scale", 3.0))
             a2v_params["stg_scale"] = float(p.get("stg_scale", 1.0))
             a2v_params["loras"] = a2v_loras
         job_spec = {"action": action, "id": job["id"], "params": a2v_params}
+        # Only mention the offset when it is actually non-zero — a "start=0.00s"
+        # on every line would be noise, but when it IS set the log is the only
+        # place a user can confirm the panel honoured it.
+        _start_note = ""
+        if a2v_params["audio_start_time"]:
+            _start_note = " start=%.2fs" % a2v_params["audio_start_time"]
         push(
             f"Run A2V ({'Q8' if uses_q8 else 'Q4-distilled'}) via helper: "
             f"id={job['id']} {width}x{height} {frames}f · "
             f"audio={Path(audio_src).name}"
             f"{' image=' + Path(ref_image_path).name if ref_image_path else ''}"
             f" scale={a2v_params['audio_conditioning_scale']}"
+            f"{_start_note}"
         )
         result = HELPER.run(job_spec)
         if "seed_used" in result:
@@ -28751,14 +28803,36 @@ HTML = r"""<!doctype html>
               <span class="mf-label">Seed</span>
               <input type="number" id="audioStudioSeed" value="-1" placeholder="-1 = random">
             </div>
+            <!-- Start offset into the source file. The pipelines and the render
+                 helper have always taken this; the panel had no control for it,
+                 so every A2V render used the first N seconds of the file and the
+                 only workaround was trimming the audio beforehand (#46). -->
+            <div class="mf-cell">
+              <span class="mf-label">Audio start</span>
+              <input type="number" id="audioStudioStart" value="0" min="0" step="0.5"
+                     title="Seconds into the audio file where the clip starts reading. 0 = from the beginning.">
+            </div>
+          </div>
+          <div class="hint" style="margin-top:4px">
+            Audio start is an offset into the file you loaded — set it to 30 to drive the clip from 0:30 onward.
           </div>
           <div class="mf-cell" style="margin-top:8px">
             <span class="mf-label">Duration</span>
             <div class="range-strip">
               <input type="range" id="audioStudioDuration" min="1" max="30" step="1" value="7"
-                     oninput="document.getElementById('audioStudioDurationVal').textContent=this.value + ' s'">
+                     oninput="audioStudioDurationChanged(this.value)">
               <span id="audioStudioDurationVal" class="range-val">7 s</span>
             </div>
+            <!-- Length warning. Deliberately a warning and NOT a hard cap: the
+                 evidence for where A2V gives out is two independent field
+                 reports converging on ~257 frames (#46 — @blackest hit it here
+                 and on a separate MLX pipeline), not a measurement made here,
+                 and the diagnostic that would tell us whether it is a length
+                 ceiling at all is still outstanding. Silently deleting 11-30 s
+                 from the slider would be asserting a number nobody has measured.
+                 Showing the frame count and the reported wall lets the user
+                 decide with the same information the maintainer has. -->
+            <div class="hint" id="audioStudioDurationWarn" style="margin-top:4px; display:none"></div>
           </div>
           <div class="mf-cell" style="margin-top:8px">
             <span class="mf-label">Audio conditioning strength</span>
@@ -32229,6 +32303,46 @@ function audioStudioRenderSlots() {
   }
 }
 
+// Duration slider readout + length warning.
+//
+// The frame arithmetic here is the same one the submit path uses (24 fps,
+// rounded up to the 8k+1 grid), so the number shown is the number the model
+// is actually asked for — not a rounded-down approximation of it.
+//
+// This warns rather than blocks on purpose. What is known about where A2V
+// gives out is two independent field reports converging on ~257 frames
+// (#46): @blackest saw anatomy break around 337f and the picture go white
+// by 433f here, and hit the same wall at 257f on a different MLX pipeline.
+// Nobody has measured it in this repo, and the question that decides whether
+// it is a length ceiling at all — does the AUDIO survive past the point the
+// picture dies — is still unanswered. So the slider keeps its range and the
+// panel stops being silent about the risk. 241f (10 s) is the last 8k+1 stop
+// under 257.
+function _a2vFramesForSeconds(sec) {
+  const target = Math.max(1, Math.round(sec * 24));
+  return ((target - 1 + 7) >> 3 << 3) + 1;   // round up to 8k+1
+}
+function audioStudioDurationChanged(val) {
+  const sec = parseInt(val || '7', 10);
+  const out = document.getElementById('audioStudioDurationVal');
+  if (out) out.textContent = sec + ' s';
+  const warn = document.getElementById('audioStudioDurationWarn');
+  if (!warn) return;
+  const frames = _a2vFramesForSeconds(sec);
+  if (frames > 257) {
+    warn.style.display = '';
+    warn.innerHTML = '<b>' + frames + ' frames</b> — past the ~257-frame point '
+      + 'where Audio → Video has been reported to lose structural coherence '
+      + '(two independent reports, <a href="https://github.com/mrbizarro/Phosphene/issues/46" '
+      + 'target="_blank" rel="noopener">#46</a> — not a limit measured here). '
+      + '10 s = 241 frames is the last stop under it. Longer still renders; '
+      + 'expect anatomy to drift and the picture to wash out toward the end.';
+  } else {
+    warn.style.display = 'none';
+    warn.textContent = '';
+  }
+}
+
 async function audioStudioEnhancePrompt() {
   const ta = document.getElementById('audioStudioPrompt');
   const original = ta.value.trim();
@@ -32266,10 +32380,13 @@ async function audioStudioGenerate() {
   const h = Math.max(32, Math.round(parseInt(document.getElementById('audioStudioHeight').value || '576', 10) / 32) * 32);
   // Duration from slider → frames at 8k+1 cadence the model expects.
   const dur = parseInt(document.getElementById('audioStudioDuration').value || '7', 10);
-  const targetFrames = Math.max(1, Math.round(dur * 24));
-  const frames = ((targetFrames - 1 + 7) >> 3 << 3) + 1;  // round up to 8k+1
+  const frames = _a2vFramesForSeconds(dur);
   const seed = parseInt(document.getElementById('audioStudioSeed').value || '-1', 10);
   const audioConditioningScale = parseFloat(document.getElementById('audioConditioningScale').value || '1.0');
+  // Offset into the source file. Clamped at 0 here as well as server-side —
+  // a negative start would be silently swallowed by load_audio.
+  const audioStartEl = document.getElementById('audioStudioStart');
+  const audioStart = Math.max(0, parseFloat((audioStartEl && audioStartEl.value) || '0') || 0);
 
   AUDIO_STUDIO.busy = true;
   if (btn) btn.disabled = true;
@@ -32290,6 +32407,7 @@ async function audioStudioGenerate() {
     fd.set('frames', String(frames));
     fd.set('seed', String(seed));
     fd.set('audio_conditioning_scale', String(audioConditioningScale));
+    fd.set('audio_start_time', String(audioStart));
     fd.set('quality', 'high');  // A2V is always pipeline-class (Q8 dev or Q4 distilled)
     // No accel, no enhance — A2V uses A2VidPipelineTwoStage's own walks.
     fd.set('accel', 'off');
