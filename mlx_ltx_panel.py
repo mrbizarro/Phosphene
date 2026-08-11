@@ -7522,6 +7522,27 @@ ANALYTICS_API_HOST_DEFAULT = "https://us.posthog.com"
 ANALYTICS_TIMEOUT_SEC = 2.0
 ANALYTICS_STR_MAX = 120
 
+# The value we put in the event's own $ip property so PostHog never writes the
+# connecting address there. It has to be a TRUTHY string: PostHog's ingest fills
+# properties.$ip from the socket only when the event didn't carry one
+# (`if (!properties['$ip'] && event.ip)`), so `None` — the obvious spelling — is
+# falsy and gets silently replaced by the real address. 0.0.0.0 is also chosen
+# over the more natural 127.0.0.1: the GeoIP transformation rewrites loopback
+# and 192.168.* to a real Swedish address for local-dev convenience, which would
+# manufacture a location if the disable flag below were ever dropped.
+ANALYTICS_IP_PLACEHOLDER = "0.0.0.0"
+
+# Instructions to the receiver, attached to every event next to our own
+# properties. They are spread LAST in _analytics_post so no call site can
+# override them, and the dry-run suite asserts this exact set on every event
+# the panel can fire — a new $-prefixed key cannot appear without a test
+# turning red. See _analytics_post for what each one does and does not buy.
+_ANALYTICS_RECEIVER_DIRECTIVES = {
+    "$process_person_profile": False,
+    "$geoip_disable": True,
+    "$ip": ANALYTICS_IP_PLACEHOLDER,
+}
+
 # Local mirror. Written for every captured event whether or not a PostHog
 # key is configured, so /stats always has a "this machine" view and so
 # there is an auditable record of what the panel would transmit. Lives in
@@ -7841,11 +7862,31 @@ def _usage_log_append(record: dict) -> None:
 def _analytics_post(payload: dict) -> None:
     """Single-event POST to the PostHog capture API. Never raises.
 
-    `$process_person_profile: false` tells PostHog not to build a person
-    record for the install id — we want counts, not people. The IP the
-    request arrives from is whatever the backend sees; PostHog derives a
-    coarse country from it by default and we neither add to nor suppress
-    that (documented in docs/ANALYTICS.md)."""
+    Every event carries _ANALYTICS_RECEIVER_DIRECTIVES — three instructions
+    to the receiver, verified against PostHog's ingest source rather than
+    assumed:
+
+      $process_person_profile: False
+          Don't build a person record for the install id. We want counts,
+          not people.
+      $geoip_disable: True
+          PostHog's GeoIP transformation returns immediately instead of
+          deriving country, city, subdivision, timezone and the city's
+          coordinates. Its first statement is literally
+          `if (event.properties?.$geoip_disable or empty(...$ip))`, and this
+          is the same property posthog-python sets for disable_geoip=True.
+      $ip: ANALYTICS_IP_PLACEHOLDER
+          Ingest copies the connecting address into properties.$ip only when
+          the event didn't bring its own, so sending one is the only way to
+          keep the real address off the stored event. It must be truthy —
+          see ANALYTICS_IP_PLACEHOLDER for why `None` silently does nothing.
+
+    What this does NOT do, and what docs/ANALYTICS.md is careful not to
+    claim: the request still arrives over TCP from a real address, and no
+    field inside a request body can change that. What the panel controls is
+    what the receiver is instructed to derive from it and store on the
+    event. Discarding it at the edge as well is a project-side setting, not
+    something this code can assert."""
     key = _analytics_key()
     if not key:
         return  # only reachable if a fork blanks the shipped key; the guard
@@ -7857,7 +7898,7 @@ def _analytics_post(payload: dict) -> None:
         "timestamp": payload["utc"],
         "properties": {
             **payload["props"],
-            "$process_person_profile": False,
+            **_ANALYTICS_RECEIVER_DIRECTIVES,   # last: not overridable
         },
     }).encode("utf-8")
     req = urllib.request.Request(
