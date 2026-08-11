@@ -1,0 +1,32 @@
+# Build-backend constraints for the vendored ltx-2-mlx wheels.
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# `packages/ltx-{core,pipelines,trainer}*/pyproject.toml` all declare
+#   readme = "../../README.md"
+# i.e. a path OUTSIDE the package directory (they share the repo-root README).
+# hatchling accepted that for years. **hatchling 1.32.0 made it a hard error:**
+#
+#   ValueError: Readme path must be within the project directory: ../../README.md
+#   error: metadata-generation-failed
+#
+# Both installer paths build those three packages from source, and both create
+# an isolated build env that resolves the build backend fresh from PyPI — so
+# from the day 1.32.0 landed, EVERY fresh install (install.js, `uv pip install`)
+# and EVERY Update click (update.js, `./env/bin/pip install`) fails at that
+# step, on every pinned tag. It is not a pin-bump regression; it is a moving
+# third-party dependency breaking a frozen source tree.
+#
+# HOW IT IS WIRED
+# ---------------
+#   install.js  →  uv pip install --build-constraints ../pip-build-constraints.txt ...
+#   update.js   →  PIP_CONSTRAINT=../pip-build-constraints.txt ./env/bin/pip install ...
+#
+# Both are relative to the `ltx-2-mlx` working directory those steps run in.
+#
+# WHEN TO REMOVE IT
+# -----------------
+# When a pinned upstream tag stops pointing `readme` outside the package dir
+# (or hatchling relaxes the rule). Until then this stays: dropping it silently
+# re-breaks install AND update for everyone.
+hatchling<1.32

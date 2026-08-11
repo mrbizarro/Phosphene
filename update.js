@@ -100,11 +100,23 @@ module.exports = {
     // trainer subprocess fails at `import yaml` without pyyaml, which
     // is a transitive dep of ltx-trainer-mlx — installing the local
     // package brings it cleanly.
+    //
+    // PIP_CONSTRAINT pins the wheel BUILD backend (hatchling<1.32). All
+    // three upstream pyprojects declare `readme = "../../README.md"` — a
+    // path outside the package dir — which hatchling 1.32.0 turned into a
+    // hard error ("Readme path must be within the project directory" →
+    // metadata-generation-failed). pip builds in an isolated env that pulls
+    // the newest backend from PyPI, so from the day 1.32.0 shipped EVERY
+    // Update click died here, on every pinned tag — a moving third-party
+    // dependency breaking a frozen source tree, not a pin regression.
+    // pip applies a constraints file to build requirements too, which is
+    // what makes this work. install.js carries the uv equivalent
+    // (--build-constraints). See pip-build-constraints.txt.
     {
       method: "shell.run",
       params: {
         path: "ltx-2-mlx",
-        message: "./env/bin/pip install --force-reinstall --no-deps ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer"
+        message: "PIP_CONSTRAINT=../pip-build-constraints.txt ./env/bin/pip install --force-reinstall --no-deps ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer"
       }
     },
     // 3.0: pyyaml + pydantic + tqdm + rich are ltx-trainer-mlx's

@@ -290,7 +290,17 @@ module.exports = {
           // the venv, the trainer subprocess fails at `import yaml` because
           // pyyaml is a transitive dep of ltx-trainer (declared in its
           // pyproject). Codex pre-ship review 2026-05-18 caught this.
-          "uv pip install --python env/bin/python ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer",
+          //
+          // `--build-constraints ../pip-build-constraints.txt` pins the wheel
+          // BUILD backend (hatchling<1.32). Upstream's three pyprojects all
+          // declare `readme = "../../README.md"` — a path outside the package
+          // dir — which hatchling 1.32.0 turned into a hard error
+          // ("Readme path must be within the project directory" →
+          // metadata-generation-failed). uv resolves the build backend fresh
+          // from PyPI into an isolated env, so from the day 1.32.0 shipped
+          // this step failed for every NEW install on every pinned tag. See
+          // pip-build-constraints.txt; update.js carries the pip equivalent.
+          "uv pip install --python env/bin/python --build-constraints ../pip-build-constraints.txt ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer",
           // Auto-caption (Gemma 3 12B via mlx-vlm) needs the mlx-vlm
           // package. Pinned to 0.4.4 — caption_with_gemma.py's import
           // surface (load, generate, prompt_utils.apply_chat_template)
