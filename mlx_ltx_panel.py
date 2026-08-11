@@ -288,7 +288,22 @@ _MIN_FILE_BYTES = int(_REQUIRED.get("min_size_bytes", 1024))
 #                 disagree the way they did in June. `path` is the resolved
 #                 on-disk directory (honouring the same env overrides the old
 #                 constants did). `serves_cap_tiers` is which feature tiers may
-#                 load this pack.
+#                 load this pack. `verify_source` is where /models/verify-deep
+#                 gets the expected SHA-256 for this pack (see below).
+#
+# verify_source — "hf-api" | "manifest"
+#   "hf-api"   the pack lives on HuggingFace and its LFS metadata carries the
+#              published sha256. This is how every 2.3 pack has always been
+#              verified and it is the default for anything not registered.
+#   "manifest" the pack is mirrored somewhere with no checksum API of its own
+#              — GitHub releases, the lane the 2.5 packs take because their
+#              upstream is gated and we publish our own quantisation. The
+#              expected hashes travel WITH the weights in
+#              `phosphene_quant_manifest.json`, which scripts/quantize_ltx.py
+#              already emits (deterministically — that is what makes a
+#              published manifest meaningful). Without this a mirrored pack
+#              would report every file "unverified", which is exactly the
+#              blind spot the mosaic lived in for two weeks.
 #
 # The two path constants above (Q4_LOCAL_PATH / Q8_LOCAL_PATH) remain the
 # INPUTS to the 2.3 entry rather than being replaced by it, so every existing
@@ -309,6 +324,7 @@ MODEL_VERSIONS: tuple[dict, ...] = (
                 "path": Q4_LOCAL_PATH,
                 "hf_repo_id": "dgrauet/ltx-2.3-mlx-q4",
                 "serves_cap_tiers": ("q4", "q8"),
+                "verify_source": "hf-api",
             },
             {
                 "quant": "q8",
@@ -317,6 +333,7 @@ MODEL_VERSIONS: tuple[dict, ...] = (
                 "path": Q8_LOCAL_PATH,
                 "hf_repo_id": MODEL_ID_HQ,
                 "serves_cap_tiers": ("q8",),
+                "verify_source": "hf-api",
             },
         ),
     },
@@ -4112,6 +4129,67 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+# The sidecar our own quantiser writes next to the weights it produces
+# (scripts/quantize_ltx.py). Shape: {"files": {"<name>": {"sha256", "bytes"}}}.
+PACK_MANIFEST_NAME = "phosphene_quant_manifest.json"
+
+
+def _manifest_meta(base: Path) -> dict:
+    """filename -> {"sha256", "size"} read from a pack's own manifest.
+
+    The second source of truth for /models/verify-deep. HuggingFace publishes
+    an LFS sha256 per file, which is where every expected hash has come from
+    so far — but a pack mirrored through GitHub releases (the lane the 2.5
+    packs take, because their upstream is gated and we publish our own
+    quantisation) has no such API. Its hashes ride along in the pack instead.
+
+    Returns {} on anything unexpected. The caller reads a missing entry as
+    'unverifiable', never as corrupt, so a malformed or absent manifest can
+    never trigger a spurious multi-GB re-download."""
+    try:
+        with open(base / PACK_MANIFEST_NAME, "r") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    files = data.get("files")
+    if not isinstance(files, dict):
+        return {}
+    out: dict = {}
+    for name, entry in files.items():
+        if not isinstance(entry, dict):
+            continue
+        sha = entry.get("sha256") or ""
+        size = int(entry.get("bytes") or entry.get("size") or 0)
+        if sha or size:
+            out[name] = {"sha256": sha, "size": size}
+    return out
+
+
+def _pack_verify_source(repo_key: str | None) -> str:
+    """Where the expected SHAs for this repo come from — "hf-api" (default,
+    and what every 2.3 pack plus gemma and the IC-LoRAs use) or "manifest"."""
+    quant = _quant_for_repo_key(repo_key)
+    if not quant:
+        return "hf-api"
+    pack = version_pack(quant) or {}
+    return pack.get("verify_source") or "hf-api"
+
+
+def _expected_meta(repo_key: str | None, repo_id: str, base: Path) -> dict:
+    """filename -> {"sha256", "size"} for one installed repo, from whichever
+    source its registry entry declares.
+
+    A "hf-api" pack additionally falls back to a manifest if one is sitting in
+    the directory and the network lookup came back empty. That fallback is
+    inert for every 2.3 pack — dgrauet's repos carry no manifest — and turns
+    "unverified because the network blinked" into a real answer where we do
+    ship one."""
+    if _pack_verify_source(repo_key) == "manifest":
+        return _manifest_meta(base)
+    meta = _upstream_meta(repo_id) if repo_id else {}
+    return meta or _manifest_meta(base)
+
+
 def _deep_verify_thread() -> None:
     """Hash every installed weight + compare to upstream. Result mirrors
     _model_integrity's shape ({ok, bad:[{repo,file,reason}], checked}) so the
@@ -4127,7 +4205,13 @@ def _deep_verify_thread() -> None:
             repo_def = defs.get(r["key"], {})
             repo_id = repo_def.get("repo_id", "")
             base = Path(r.get("location") or (ROOT / r["local_dir"]))
-            up = {k: v["sha256"] for k, v in _upstream_meta(repo_id).items() if v.get("sha256")}
+            # Expected hashes come from whichever source the registry
+            # declares for this pack: HuggingFace LFS metadata (every 2.3
+            # pack, unchanged) or the pack's own manifest (a mirrored pack
+            # with no checksum API, which is how the 2.5 packs ship).
+            up = {k: v["sha256"]
+                  for k, v in _expected_meta(r["key"], repo_id, base).items()
+                  if v.get("sha256")}
             for fname in repo_def.get("files", []):
                 if not fname.endswith(".safetensors"):
                     continue
@@ -4165,10 +4249,11 @@ def _deep_verify_thread() -> None:
         exp_meta: dict = {}
         for r in _repos():
             repo_id = r.get("repo_id", "")
-            base = Q8_LOCAL_PATH if r.get("key") == "q8" else (ROOT / r["local_dir"])
-            if not repo_id or not any(_placed_size(base / f) for f in r.get("files", [])):
+            _q = _quant_for_repo_key(r.get("key"))
+            base = pack_path(_q) if _q else (ROOT / r["local_dir"])
+            if not any(_placed_size(base / f) for f in r.get("files", [])):
                 continue                # not installed here — don't ask upstream
-            for fname, m in _upstream_meta(repo_id).items():
+            for fname, m in _expected_meta(r.get("key"), repo_id, base).items():
                 exp_meta[(r["key"], fname)] = m
         already = {(b["repo"], b["file"]) for b in result["bad"]}
         for p in _placement_errors(expected=exp_meta, hasher=_sha256_file):
