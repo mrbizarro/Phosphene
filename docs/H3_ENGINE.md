@@ -2,9 +2,16 @@
 
 MiniMax-H3 (FL2VA) takes one prompt and returns **picture, dialogue and sound
 generated together**. It ships as an **optional pack**, not part of the base
-install: ~75 GB of weights, a 64 GB+ Mac, and a licence with territory
-restrictions. LTX-2.3 stays the default engine and is completely untouched by
-any of this.
+install: ~75 GB of weights, a 48 GB+ Mac, and a licence with territory
+restrictions. On 48 GB-class Macs, the installer builds the reduced-RAM Q8 DiT
+pack automatically. LTX-2.3 stays the default engine and is completely
+untouched by any of this.
+
+## Install from Pinokio
+
+Stop Phosphene first—the launcher hides optional installers while the panel is
+running. In the Phosphene **Run** menu, click **Install Hailuo H3 (optional,
+~75 GB)**. The install is resumable if interrupted.
 
 ---
 
