@@ -269,6 +269,17 @@ class TestCoercion(unittest.TestCase):
         self.assertIn("holds a static shot", spec["shots"][1]["prompt"])   # unknown -> static
         self.assertIn("pushes in with small amplitude", spec["shots"][2]["prompt"])  # alias
 
+    def test_stored_camera_is_the_key_that_actually_rendered(self):
+        # Observed: the model answered the `face` enum in the `camera` slot, and the shot
+        # card then read `cam=medium` while the prompt said "holds a static shot".
+        raw = {"title": "t", "shots": [_shot(1, camera="medium"), _shot(2, camera="dolly_in")]}
+        spec, warns = P.coerce_spec(raw, **dict(self.kw, n_shots=2))
+        self.assertEqual([s["camera"] for s in spec["shots"]], ["static", "push_in"])
+        self.assertIn("holds a static shot", spec["shots"][0]["prompt"])
+        self.assertTrue(any("not one of" in w for w in warns), warns)
+        for s in spec["shots"]:
+            self.assertIn(s["camera"], P.CAMERA_KEYS)
+
     def test_a_camera_sentence_the_model_wrote_is_not_duplicated(self):
         raw = {"title": "t", "shots": [_shot(
             1, camera="push_in",

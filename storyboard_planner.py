@@ -398,10 +398,14 @@ Each shot object has exactly these nine keys and no others:
   "character_id" a cast id from CAST below, or null
   "duration_s"   3, 5 or 10
   "camera"       ONE of: static, push_in, pull_back, handheld, orbit, pan, tilt_up, tracking
-  "face"         ONE of: close, medium, none.
+  "face"         ONE of: close, medium, none. This is about WHO IS PRESENT, not about how
+                 important the face is to you.
                    close  - a face is the subject of the shot and fills much of the frame
-                   medium - a person is on screen and their face must stay readable
-                   none   - there is no person in this shot at all
+                   medium - a person is on screen anywhere at all - near, far, small, in the
+                            background, in a wide shot, only their hands. Their face must
+                            stay readable. When in doubt this is the answer.
+                   none   - there is NO PERSON of any kind in this shot: an object, a
+                            landscape, a machine, a graphic. Nobody. Not one.
                  There is no fourth option. See L11.
   "description"  the visual + action + dialogue paragraph, 70-140 words. It does NOT contain
                  a camera sentence and does NOT describe how the shot ends - those are the
@@ -913,8 +917,14 @@ def _typography_strings(text: str) -> List[str]:
     return out
 
 
-def _camera_sentence(key: Any) -> str:
-    k = str(key or "").strip().lower().replace(" ", "_").replace("-", "_")
+def _camera_key(raw: Any) -> Tuple[str, bool]:
+    """Canonical camera key + whether the input had to be forced.
+
+    The stored `camera` field must be the key that was actually rendered, not whatever the
+    model typed — a shot card reading `cam=medium` (observed: the model confused the `face`
+    enum with this one) while the prompt says "holds a static shot" is a lie to the user.
+    """
+    k = str(raw or "").strip().lower().replace(" ", "_").replace("-", "_")
     aliases = {"locked": "static", "locked_off": "static", "tripod": "static", "none": "static",
                "push": "push_in", "zoom_in": "push_in", "dolly_in": "push_in",
                "pull": "pull_back", "pull_out": "pull_back", "zoom_out": "pull_back",
@@ -922,7 +932,13 @@ def _camera_sentence(key: Any) -> str:
                "shake": "handheld", "arc": "orbit", "slow_orbit": "orbit", "orbit_slow": "orbit",
                "slow_pan": "pan", "tilt": "tilt_up", "track": "tracking", "truck": "tracking"}
     k = aliases.get(k, k)
-    return _CAMERA_SENTENCES.get(k, _CAMERA_SENTENCES["static"])
+    if k in _CAMERA_SENTENCES:
+        return k, False
+    return "static", True
+
+
+def _camera_sentence(key: Any) -> str:
+    return _CAMERA_SENTENCES[_camera_key(key)[0]]
 
 
 def _clean_settle(state: str) -> str:
@@ -1240,7 +1256,10 @@ def coerce_spec(
         n = len(shots) + 1
         dur = _snap_duration(s.get("duration_s") or s.get("duration") or s.get("seconds"),
                              eng, duration_s)
-        camera = str(s.get("camera") or s.get("camera_move") or "static").strip()
+        camera, cam_forced = _camera_key(s.get("camera") or s.get("camera_move"))
+        if cam_forced and str(s.get("camera") or "").strip():
+            warnings.append("shot %d asked for camera %r, which is not one of %s — locked off"
+                            % (idx + 1, str(s.get("camera")).strip(), ", ".join(CAMERA_KEYS)))
         settle_raw = str(s.get("settle") or s.get("end_state") or s.get("ending") or "").strip()
         settle = _clean_settle(settle_raw)
         if settle_raw and not settle:
