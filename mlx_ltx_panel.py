@@ -5234,6 +5234,24 @@ STORYBOARD_RAM_HELP = (
     "separate process that exits when it's done, and only then starts rendering. "
     "That is also why the plan is worth reading before you start — nothing "
     "rewrites itself halfway through.")
+# Why a film has two engines in it, on the same Python-owned path. The owner's
+# first reaction to the tab was "it should show different things depending on
+# whether Hailuo or LTX is selected… I see that LTX is selected at the moment,
+# so I don't know" — the surface was letting a single global engine be inferred
+# when there isn't one. There is no engine selection on this tab: the plan
+# assigns one PER SHOT, every card wears it, and this says what decides.
+STORYBOARD_ENGINE_HELP = (
+    "There is no engine switch on a film, because a film doesn't have one "
+    "engine. Each shot gets the engine that can actually render it. A shot cast "
+    "with one of your trained characters goes to LTX-2.3 — that is where "
+    "character LoRAs load, and Hailuo H3 cannot stack one, so a cast shot on H3 "
+    "would render a stranger. Every other shot goes to Hailuo H3, which is the "
+    "engine that renders dialogue, voices and sound together with the picture. "
+    "The chip on each shot card tells you which one it got, and shots are "
+    "rendered grouped by engine so the machine loads each model once instead of "
+    "once per shot.")
+STORYBOARD_ENGINE_NOTE = "The plan picks the engine per shot — the chip on each card says which."
+STORYBOARD_ENGINE_NOTE_NO_H3 = "Hailuo H3 isn't installed, so every shot renders on LTX-2.3."
 # The Draft canvas renders at 0.25 MP. The H3 community's practical floor is
 # ~0.5 MP, and video STRUCTURE resolves in the last denoise step, so at 9 steps a
 # 0.25 MP pass is genuinely noisy: composition, motion and dialogue timing are
@@ -10180,8 +10198,23 @@ def _sb_payload(board: dict) -> dict:
         ref_root=OUTPUT,
         max_dim=_sb_max_dim(),
     )
-    est = storyboard.estimate(board, pass_name=pass_name, h3_cost=_sb_h3_cost)
-    per_shot = storyboard.per_shot_estimate(board, pass_name=pass_name,
+    # Price and bucket the film the way it will ACTUALLY render. With no H3 pack
+    # `shot_to_job` forces every shot to LTX, so estimating off a stored
+    # engine="h3" would put an H3 bucket in the run strip and an H3 price on the
+    # summary for a render that is going to be all LTX. Only ever a copy — the
+    # board on disk keeps what the planner wrote, so installing the pack later
+    # restores the intent without a re-plan.
+    h3_ok = _sb_h3_available()
+    costed = board
+    if not h3_ok and any(storyboard.shot_engine(s) == "h3"
+                         for s in (board.get("shots") or []) if isinstance(s, dict)):
+        import copy as _copy
+        costed = _copy.deepcopy(board)
+        for s in costed.get("shots") or []:
+            if isinstance(s, dict):
+                s["engine"] = "ltx"
+    est = storyboard.estimate(costed, pass_name=pass_name, h3_cost=_sb_h3_cost)
+    per_shot = storyboard.per_shot_estimate(costed, pass_name=pass_name,
                                             h3_cost=_sb_h3_cost)
     with _SB_LOCK:
         rendering = board.get("id") in _SB_RENDERS
@@ -10197,7 +10230,7 @@ def _sb_payload(board: dict) -> dict:
         "planner": board.get("planner") or {"state": "idle"},
         "rendering": rendering,
         "planning": planning,
-        "h3_available": _sb_h3_available(),
+        "h3_available": h3_ok,
         "characters": [
             {"id": c.get("id"), "trigger": c.get("trigger") or c.get("id"),
              "name": c.get("name") or c.get("id"),
@@ -10273,6 +10306,9 @@ def storyboard_status() -> dict:
         "planner_model_name": Path(model).name if model else "",
         "planner_present": present,
         "ram_help": STORYBOARD_RAM_HELP,
+        "engine_help": STORYBOARD_ENGINE_HELP,
+        "engine_note": STORYBOARD_ENGINE_NOTE,
+        "engine_note_no_h3": STORYBOARD_ENGINE_NOTE_NO_H3,
         "shot_choices": list(STORYBOARD_SHOT_CHOICES),
         "draft_qualities": list(STORYBOARD_DRAFT_QUALITIES),
         "final_qualities": list(STORYBOARD_FINAL_QUALITIES),
@@ -10308,6 +10344,27 @@ def _sb_policy_for(draft_quality: str, final_quality: str) -> dict:
 
     return {"draft": cell(draft_quality, "quick"),
             "final": cell(final_quality, "standard")}
+
+
+def _sb_error_kind(err: dict) -> str:
+    """The planner's structured error -> the copy the failure screen shows.
+
+    Note what is NOT here: a "download" kind. The planner runs on the weights
+    /prompt/enhance already loads and fetches nothing, so "the model didn't
+    finish downloading" would be a sentence that can never be true. A child that
+    exits mid-plan is, in practice, jetsam — two MLX processes competing for
+    unified memory, which is the one thing this feature's whole architecture is
+    arranged around — so that maps to the memory copy, not to a shrug.
+    """
+    kind = (err.get("kind") or "").lower()
+    msg = (err.get("message") or "").lower()
+    if kind == "invalid_plan":
+        return "invalid"
+    if any(w in msg for w in ("exited", "closed its output", "died", "memory", "killed")):
+        return "oom"
+    if "timed out" in msg:
+        return "busy"
+    return "other"
 
 
 def _sb_set_planner(board: dict, **kw) -> None:
@@ -10375,11 +10432,15 @@ def _sb_plan_thread(board_id: str, brief: dict, previous: dict | None) -> None:
         meta = (result or {}).get("_planner") or {}
         if storyboard_planner.is_plan_error(result):
             err = result.get("error") or {}
+            # A board whose first plan failed must not sit in the list titled
+            # "Planning…" forever — name it from its own concept so the row
+            # reads as the film the user asked for and Try again is obvious.
+            if not (board.get("shots") or []) and board.get("title") in ("", "Planning…", None):
+                words = (board.get("concept") or "").split()
+                board["title"] = " ".join(words[:6]) or "Untitled film"
             _sb_set_planner(board, state="failed", stage=None,
                             error=err.get("message") or "the planner failed",
-                            error_kind=("invalid" if err.get("kind") == "invalid_plan"
-                                        else "download" if err.get("kind") == "model_unavailable"
-                                        else "other"),
+                            error_kind=_sb_error_kind(err),
                             raw=err.get("raw_excerpt") or None,
                             hint=err.get("hint") or None)
             storyboard.save_storyboard(STATE_DIR, board)
@@ -10540,6 +10601,45 @@ def _sb_render_thread(board_id: str, pass_name: str, only: list | None) -> None:
             board = storyboard.load_storyboard(STATE_DIR, board_id)
             if _sb_reconcile(board):
                 storyboard.save_storyboard(STATE_DIR, board)
+        except Exception:
+            pass
+
+
+def _sb_boot_reconcile() -> None:
+    """Boot hook — no planner survives a panel restart, so no board may claim one.
+
+    The planner lives in a child of THIS process. If the panel was killed (or
+    updated, or crashed) mid-plan, that child died with it — but the board on
+    disk still says `planner.state = "running"`, and the tab would sit on the
+    planning screen forever waiting for a stage that can never advance. Caught
+    live: the owner started a plan seconds before a restart.
+
+    Render state needs no equivalent, and that is the whole point of riding the
+    normal queue: panel_queue.json already re-queues an interrupted job, and
+    _sb_reconcile() re-attaches it to its shot on the next read.
+    """
+    try:
+        rows = storyboard.list_storyboards(STATE_DIR)
+    except Exception:
+        return
+    for r in rows:
+        try:
+            board = storyboard.load_storyboard(STATE_DIR, r["id"])
+        except Exception:
+            continue
+        p = board.get("planner") or {}
+        if p.get("state") != "running":
+            continue
+        if not (board.get("shots") or []) and board.get("title") in ("", "Planning…", None):
+            words = (board.get("concept") or "").split()
+            board["title"] = " ".join(words[:6]) or "Untitled film"
+        _sb_set_planner(board, state="failed", stage=None,
+                        error="the panel restarted while the planner was running",
+                        error_kind="other")
+        try:
+            storyboard.save_storyboard(STATE_DIR, board)
+            push(f"[storyboard] {board.get('title')!r} was mid-plan when the panel "
+                 f"stopped — press Try again when you're ready")
         except Exception:
             pass
 
@@ -21339,6 +21439,567 @@ HTML = r"""<!doctype html>
     body[data-workflow="audio"] #audioSectionTab { display: block; }
 
     /* =========================================================
+       STORYBOARD — the workflow fold + its own surfaces
+       =========================================================
+       Same shape as the audio fold above, plus one extra move: the shot
+       list takes the GALLERY's slot in the stage column and the player
+       stays where it is. That is what makes shared state free — clicking a
+       shot's thumbnail calls the existing selectOutput() and the existing
+       player, Params/Extend/Expand overlay and lightbox all work unchanged.
+
+       Everything below is built from existing tokens. No new colours, no
+       fonts, no libraries — the panel is offline-capable and dark-only. */
+    body[data-workflow="storyboard"] #modelsInline,
+    body[data-workflow="storyboard"] #modeGroup,
+    body[data-workflow="storyboard"] aside.form-pane > h2,
+    body[data-workflow="storyboard"] #genForm,
+    body[data-workflow="storyboard"] #studioSection,
+    body[data-workflow="storyboard"] #trainSection,
+    body[data-workflow="storyboard"] #audioSectionTab { display: none !important; }
+    body[data-workflow="storyboard"] #sbSectionTab { display: block; }
+    /* form-pane children get no padding by default (the sticky-footer pin
+       math depends on it) — match #genForm's. */
+    .form-pane > #sbSectionTab { padding: 0 18px; }
+
+    body[data-workflow="storyboard"] .stage-pane > .carousel-wrap,
+    body[data-workflow="storyboard"] .ideo-stage-bar,
+    body[data-workflow="storyboard"] .ideo-canvas-host { display: none !important; }
+    /* #modelTag names the ONE model the current surface renders on, which is
+       what makes it a lie here: a film picks its engine per shot, so a footer
+       reading "ltx-2.3-mlx-q4" is read as "LTX is selected" — reported by the
+       owner on first contact with this tab. It folds away for exactly the same
+       reason #engineSwitch does (see _currentSurface), and #sbEngineNote below
+       says what actually decides. */
+    body[data-workflow="storyboard"] #modelTag { display: none !important; }
+    body[data-workflow="storyboard"] #sbStage { display: flex; }
+    /* Plan-only phases want the whole column — the same trick the Ideogram
+       layout editor uses, so there is one mechanism for "this surface needs
+       the stage" rather than two. */
+    body[data-workflow="storyboard"].sb-full .stage-pane > .player-surface { display: none; }
+
+    #sbStage {
+      display: none;
+      flex: 1 1 auto;
+      flex-direction: column;
+      /* Never collapse to a sliver: the gallery this replaces is a short
+         horizontal strip and is happy with 130px, a shot list is not. */
+      min-height: 240px;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+    /* .player-surface is width-driven (`width:100%` + aspect-ratio), so in the
+       wide stage column it grows to ~690px and leaves the shot list a sliver.
+       Flip it to height-driven while the list is sharing the column — the SAME
+       idiom .player-surface[data-orient="vertical"] already uses for the same
+       reason, so there is one mechanism here, not two. When the list has the
+       column to itself (body.sb-full) the player is hidden anyway. */
+    body[data-workflow="storyboard"]:not(.sb-full) .stage-pane > .player-surface {
+      width: auto;
+      max-width: 100%;
+      height: min(46vh, calc(100vh - 420px));
+      max-height: min(46vh, calc(100vh - 420px));
+    }
+    /* ---- the brief (left column) ---------------------------------- */
+    .sb-brief { margin-bottom: 12px; }
+    .sb-concept { min-height: 92px; }
+    .sb-input, .sb-textarea {
+      width: 100%; padding: 8px 10px;
+      background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: var(--r-sm); color: var(--text);
+      font-size: 12.5px; font-family: inherit; line-height: 1.5;
+    }
+    .sb-textarea { resize: vertical; min-height: 68px; }
+    .sb-input:focus, .sb-textarea:focus {
+      outline: none; border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+    #sbSectionTab .cz-control { margin-bottom: 14px; }
+    .sb-ramline {
+      font-size: 11.5px; line-height: 1.45; color: var(--muted);
+      margin-bottom: 9px; display: flex; align-items: center; gap: 6px;
+    }
+    .sb-boards { margin: 12px 0 14px; }
+    .sb-boards-head {
+      font-size: 11px; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px;
+    }
+    .sb-boards[hidden] { display: none !important; }
+
+    /* ---- planning -------------------------------------------------- */
+    .sb-planning {
+      flex: 1 1 auto;
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 12px; text-align: center;
+      padding: 40px 20px;
+    }
+    .sb-planning[hidden] { display: none !important; }
+    .sb-planning-mark {
+      width: 54px; height: 44px; position: relative; opacity: 0.75;
+    }
+    .sb-planning-mark i {
+      position: absolute; left: 0; right: 0; height: 12px;
+      border: 1px solid var(--accent); border-radius: 3px;
+      background: var(--accent-dim);
+      animation: sbFrames 1.8s ease-in-out infinite;
+    }
+    .sb-planning-mark i:nth-child(1) { top: 0; animation-delay: 0s; }
+    .sb-planning-mark i:nth-child(2) { top: 16px; animation-delay: 0.25s; }
+    .sb-planning-mark i:nth-child(3) { top: 32px; animation-delay: 0.5s; }
+    @keyframes sbFrames {
+      0%, 100% { opacity: 0.25; transform: translateX(0); }
+      50%      { opacity: 1;    transform: translateX(4px); }
+    }
+    .sb-planning-title { font-size: 15px; font-weight: 600; color: var(--text); }
+    .sb-planning-sub { font-size: 12px; color: var(--muted); }
+    .sb-planning-steps {
+      display: flex; flex-direction: column; gap: 7px;
+      margin-top: 8px; text-align: left;
+    }
+    .sb-step {
+      display: flex; align-items: center; gap: 9px;
+      font-size: 12px; color: var(--muted); opacity: 0.55;
+      transition: opacity var(--t-base), color var(--t-base);
+    }
+    .sb-step[hidden] { display: none !important; }
+    .sb-step-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      border: 1px solid var(--border-strong); flex: 0 0 auto;
+    }
+    .sb-step.is-now { opacity: 1; color: var(--text); }
+    .sb-step.is-now .sb-step-dot {
+      border-color: var(--accent); background: var(--accent);
+      animation: sbPulse 1.2s ease-in-out infinite;
+    }
+    .sb-step.is-done { opacity: 0.9; }
+    .sb-step.is-done .sb-step-dot {
+      border-color: var(--success); background: var(--success);
+    }
+    @keyframes sbPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+    /* ---- empty state ---------------------------------------------- */
+    .sb-empty {
+      flex: 1 1 auto;
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 10px; text-align: center;
+      padding: 36px 24px; max-width: 520px; margin: 0 auto;
+    }
+    .sb-empty[hidden] { display: none !important; }
+    .sb-empty-icon { color: var(--text); opacity: 0.35; }
+    .sb-empty-title { font-size: 16px; font-weight: 600; color: var(--text); }
+    .sb-empty-sub { font-size: 12.5px; line-height: 1.6; color: var(--muted); }
+    .sb-empty-steps {
+      list-style: none; padding: 0; margin: 10px 0 0;
+      display: flex; flex-direction: column; gap: 7px;
+      text-align: left; font-size: 12px; color: var(--muted); line-height: 1.5;
+    }
+    .sb-empty-steps b { color: var(--text); font-weight: 600; }
+
+    /* ---- plan review ----------------------------------------------- */
+    .sb-plan { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+    .sb-plan[hidden] { display: none !important; }
+    .sb-plan-head { position: relative; z-index: 4; }
+    .sb-title {
+      flex: 1 1 auto; min-width: 120px;
+      background: transparent; border: 1px solid transparent;
+      border-radius: var(--r-sm);
+      color: var(--text); font-size: 14px; font-weight: 600;
+      padding: 4px 7px; font-family: inherit;
+    }
+    .sb-title:hover { border-color: var(--border); }
+    .sb-title:focus {
+      outline: none; border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim); background: var(--panel-2);
+    }
+    .sb-plan-status {
+      font-size: 11px; color: var(--muted); white-space: nowrap;
+      font-family: var(--ph-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    }
+    #sbStageToggle {
+      display: inline-flex; gap: 4px; padding: 3px;
+      background: var(--bg-2); border: 1px solid var(--border);
+      border-radius: 10px; flex: 0 0 auto;
+    }
+    #sbStageToggle[hidden] { display: none !important; }
+    #sbStageToggle .smt-btn {
+      appearance: none; border: 0; background: transparent;
+      color: var(--muted); font: inherit; font-size: 12px; font-weight: 600;
+      padding: 4px 12px; border-radius: 7px; cursor: pointer;
+      transition: background var(--t-fast), color var(--t-fast);
+      white-space: nowrap; width: auto;
+    }
+    #sbStageToggle .smt-btn:hover { color: var(--text); }
+    #sbStageToggle .smt-btn.active { background: var(--accent); color: #fff; }
+
+    .sb-summary {
+      position: sticky; top: 0; z-index: 3;
+      display: flex; align-items: stretch; gap: 8px; flex-wrap: wrap;
+      padding: 10px 0 12px;
+      background: linear-gradient(180deg, var(--bg) 0%, var(--bg) 62%,
+                                  rgba(0, 6, 26, 0) 100%);
+    }
+    .sb-sum-cell {
+      flex: 1 1 118px; min-width: 0;
+      display: flex; flex-direction: column; gap: 2px;
+      padding: 8px 10px;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: var(--r-md);
+    }
+    .sb-sum-cell b {
+      font-size: 13px; font-weight: 600; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .sb-sum-cell span { font-size: 10.5px; color: var(--muted); line-height: 1.4; }
+    .sb-sum-cell.is-warn { border-color: rgba(210,153,34,0.45); }
+    .sb-sum-cell.is-warn b { color: var(--warning); }
+    .sb-runstrip { flex: 1 1 100%; display: flex; gap: 4px; }
+    .sb-runstrip[hidden] { display: none !important; }
+    .sb-runseg {
+      display: flex; align-items: center; gap: 7px;
+      padding: 5px 9px; min-width: 0;
+      background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      font-size: 10.5px; color: var(--muted); cursor: default;
+    }
+    .sb-runseg:hover { border-color: var(--border-strong); }
+    .sb-runseg-load {
+      text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700;
+      font-size: 8.5px; color: var(--accent-bright);
+      padding: 1px 5px; border-radius: var(--r-pill);
+      background: var(--accent-dim); flex: 0 0 auto;
+    }
+    .sb-runseg-name {
+      color: var(--text); font-weight: 500;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .sb-runseg-shots {
+      margin-left: auto; flex: 0 0 auto;
+      font-family: var(--ph-font-mono, ui-monospace, Menlo, monospace);
+    }
+    .sb-errors {
+      margin: 0 0 10px; padding: 9px 11px;
+      border: 1px solid rgba(248,81,73,0.35); border-radius: var(--r-md);
+      background: rgba(248,81,73,0.06);
+      font-size: 11.5px; line-height: 1.55; color: var(--text);
+      display: flex; flex-direction: column; gap: 5px;
+    }
+    .sb-errors[hidden] { display: none !important; }
+    .sb-errors b, .sb-shot-err b { color: var(--text); font-weight: 600; }
+
+    .sb-shots { list-style: none; margin: 0; padding: 0 0 8px; }
+    .sb-shot {
+      background: var(--panel);
+      border: 1px solid var(--border-strong);
+      border-left: 2px solid var(--border-strong);
+      border-radius: var(--r-lg);
+      padding: 10px 11px;
+      margin-bottom: 9px;
+      box-shadow: var(--shadow-1);
+      transition: border-color var(--t-base), box-shadow var(--t-base);
+    }
+    .sb-shot:focus-within {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim), var(--shadow-1);
+    }
+    .sb-shot.is-lit { border-color: var(--accent); }
+    .sb-shot.has-error { border-left-color: var(--danger); }
+    .sb-shot.is-dragging { opacity: 0.4; }
+    .sb-shot.is-locked { opacity: 0.92; }
+    .sb-shot.sb-drop-before { box-shadow: 0 -2px 0 0 var(--accent-bright); }
+    .sb-shot.sb-drop-after  { box-shadow: 0  2px 0 0 var(--accent-bright); }
+    .sb-shot-head {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .sb-shot-n {
+      font-family: var(--ph-font-mono, ui-monospace, Menlo, monospace);
+      font-size: 12px; font-weight: 700; color: var(--accent-bright);
+      flex: 0 0 auto;
+    }
+    .sb-seg {
+      display: inline-flex; gap: 2px; padding: 2px;
+      background: var(--bg-2); border: 1px solid var(--border);
+      border-radius: var(--r-sm); flex: 0 0 auto;
+    }
+    .sb-seg-btn {
+      width: auto; appearance: none; border: 0; background: transparent;
+      color: var(--muted); font: inherit; font-size: 11px; font-weight: 600;
+      padding: 3px 9px; border-radius: 5px; cursor: pointer;
+      transition: background var(--t-fast), color var(--t-fast);
+    }
+    .sb-seg-btn:hover { color: var(--text); }
+    .sb-seg-btn.active { background: var(--accent-dim); color: var(--accent-bright); }
+    .sb-select {
+      width: auto; padding: 3px 6px; font-size: 11px;
+      background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: var(--r-sm); color: var(--text); font-family: inherit;
+      max-width: 150px;
+    }
+    .sb-chip {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.07em;
+      text-transform: uppercase; padding: 2px 7px;
+      border-radius: var(--r-pill);
+      border: 1px solid var(--border); color: var(--muted);
+      flex: 0 0 auto; cursor: default;
+    }
+    /* The engine chip is a small .eng-seg: same glyph, same label, same accent
+       variables, rendered from the SAME ENGINES registry row the header
+       switcher is rendered from. No colours are typed here — a third engine
+       lands with one table entry and this chip already knows how to wear it. */
+    .sb-chip-engine {
+      display: inline-flex; align-items: center; gap: 4px;
+      letter-spacing: 0.04em; text-transform: none;
+      color: var(--eng-accent, var(--muted));
+      border-color: var(--eng-soft, var(--border));
+      background: var(--eng-dim, transparent);
+    }
+    .sb-chip-engine .ph { width: 11px; height: 11px; }
+    /* One quiet line saying what decides the engine, in the panel's own
+       help-dot idiom (#h3WinHelpBtn + .h3-winhelp), Python-owned copy. */
+    .sb-enginenote {
+      display: flex; align-items: center; gap: 6px; flex: 1 1 100%;
+      font-size: 11.5px; line-height: 1.45; color: var(--muted);
+      padding: 0 2px;
+    }
+    .sb-enginenote[hidden] { display: none !important; }
+    .sb-enginenote b { color: var(--text); font-weight: 600; }
+    .sb-chip-pass { cursor: pointer; }
+    .sb-chip-pass:hover { color: var(--text); border-color: var(--border-strong); }
+    .sb-shot-est {
+      font-size: 10.5px; color: var(--muted); flex: 0 0 auto;
+      font-family: var(--ph-font-mono, ui-monospace, Menlo, monospace);
+    }
+    .sb-shot-spacer { flex: 1 1 auto; }
+    .sb-icon {
+      width: 22px; height: 22px; padding: 0; flex: 0 0 auto;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: transparent; border: 1px solid transparent;
+      border-radius: var(--r-sm); color: var(--muted);
+      font-size: 11px; cursor: pointer; transition: var(--t-fast);
+    }
+    .sb-icon:hover:not(:disabled) {
+      color: var(--text); border-color: var(--border); background: var(--panel-2);
+    }
+    .sb-icon:disabled { opacity: 0.3; cursor: not-allowed; }
+    /* A pinned seed is a state worth seeing without a number taking a slot in
+       the header row — the die lights, and the number is one click (or one
+       hover) away. */
+    .sb-icon.is-set { color: var(--accent-bright); }
+    .sb-icon-danger:hover:not(:disabled) {
+      color: var(--danger); border-color: rgba(248,81,73,0.4);
+      background: rgba(248,81,73,0.08);
+    }
+    .sb-grip { color: var(--muted); opacity: 0.5; cursor: grab; font-size: 12px; }
+    .sb-shot-prompt {
+      width: 100%; min-height: 62px; resize: vertical;
+      background: var(--bg-2); border: 1px solid var(--border);
+      border-radius: var(--r-sm); color: var(--text);
+      font-family: inherit; font-size: 12.5px; line-height: 1.55;
+      padding: 7px 9px;
+    }
+    .sb-shot-prompt:focus {
+      outline: none; border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+    .sb-shot-prompt[readonly] { opacity: 0.7; cursor: default; }
+    .sb-shot-err {
+      margin-top: 7px; font-size: 11.5px; line-height: 1.5; color: var(--text);
+      display: flex; flex-direction: column; gap: 5px;
+    }
+    .sb-shot-err[hidden] { display: none !important; }
+    .sb-err-row { display: flex; align-items: flex-start; gap: 7px; }
+    .sb-err-dot {
+      width: 6px; height: 6px; border-radius: 50%; margin-top: 6px;
+      background: var(--danger); flex: 0 0 auto;
+    }
+    .sb-err-fix {
+      width: auto; flex: 0 0 auto; margin-left: 4px;
+      padding: 2px 8px; font-size: 10.5px;
+      background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: var(--r-sm); color: var(--text); cursor: pointer;
+    }
+    .sb-err-fix:hover { border-color: var(--accent); color: var(--accent-bright); }
+    .sb-seedwrap { display: inline-flex; align-items: center; gap: 4px; }
+    .sb-seedwrap[hidden] { display: none !important; }
+    .sb-seed {
+      width: 78px; padding: 3px 6px; font-size: 11px;
+      background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: var(--r-sm); color: var(--text);
+      font-family: var(--ph-font-mono, ui-monospace, Menlo, monospace);
+    }
+    .sb-shot-out { margin-top: 9px; }
+    .sb-shot-out[hidden] { display: none !important; }
+    .sb-shot-out .info {
+      display: flex; align-items: baseline; gap: 8px;
+      padding: 6px 8px; font-size: 11px;
+    }
+    .sb-shot-out .info .name {
+      color: var(--text); overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+    }
+    .sb-shot-out .info .sub { color: var(--muted); margin-left: auto; flex: 0 0 auto; }
+    .sb-shot-out.is-stale { opacity: 0.5; }
+    .sb-stale-tag {
+      font-size: 9px; text-transform: uppercase; letter-spacing: 0.07em;
+      color: var(--warning); font-weight: 700;
+    }
+    .sb-grade { display: flex; gap: 4px; padding: 0 8px 7px; }
+    .sb-grade-btn {
+      flex: 1 1 0; width: auto; padding: 5px 4px;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.07em;
+      text-transform: uppercase;
+      background: transparent; border: 1px solid var(--border);
+      border-radius: var(--r-sm); color: var(--muted); cursor: pointer;
+      transition: var(--t-fast);
+    }
+    .sb-grade-btn:hover { color: var(--text); border-color: var(--border-strong); }
+    .sb-grade-btn[data-g="keep"].active {
+      color: var(--success); border-color: rgba(63,185,80,0.5);
+      background: rgba(63,185,80,0.16);
+    }
+    .sb-grade-btn[data-g="reroll"].active {
+      color: var(--warning); border-color: rgba(210,153,34,0.5);
+      background: rgba(210,153,34,0.16);
+    }
+    .sb-grade-btn[data-g="cut"].active {
+      color: var(--danger); border-color: rgba(248,81,73,0.5);
+      background: rgba(248,81,73,0.16);
+    }
+    .sb-note {
+      width: calc(100% - 16px); margin: 0 8px 8px; resize: vertical;
+      background: var(--bg-2); border: 1px solid var(--border);
+      border-radius: var(--r-sm); color: var(--text);
+      font-family: inherit; font-size: 11.5px; padding: 6px 8px;
+    }
+    .sb-note[hidden] { display: none !important; }
+    .sb-addrow { padding: 2px 0 10px; }
+
+    .sb-actionbar {
+      position: sticky; bottom: 0; z-index: 4;
+      display: flex; align-items: center; gap: 9px;
+      padding: 11px 0 12px;
+      border-top: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(0,6,26,0) 0%,
+                                  rgba(0,6,26,0.85) 22%, var(--bg) 50%, var(--bg) 100%);
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    }
+    .sb-actionbar[hidden] { display: none !important; }
+    .sb-actionbar-spacer { flex: 1 1 auto; }
+    .sb-actionbar-note {
+      font-size: 11px; color: var(--muted);
+      font-family: var(--ph-font-mono, ui-monospace, Menlo, monospace);
+    }
+    .sb-actionbar .primary, .sb-actionbar .ghost-btn { width: auto; flex: 0 0 auto; }
+    .sb-actionbar .primary { padding: 8px 16px; font-size: 13px; }
+    #sbTallyText b { color: var(--success); }
+    .sb-export-note {
+      font-size: 11px; line-height: 1.5; color: var(--muted);
+      padding: 0 0 10px;
+    }
+    .sb-export-note[hidden] { display: none !important; }
+
+    /* ---- run bar ---------------------------------------------------- */
+    .sb-runbar {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      margin: 0 0 11px; padding: 9px 0 9px 10px;
+    }
+    .sb-runbar[hidden] { display: none !important; }
+    .sb-runbar-slot {
+      width: 96px; aspect-ratio: 16/9; flex: 0 0 auto;
+      border-radius: var(--r-sm); background: var(--bg-2);
+      border: 1px solid var(--border); overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text);
+    }
+    .sb-runbar-slot img { width: 100%; height: 100%; object-fit: cover; }
+    .sb-runbar-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .sb-runbar-text b { font-size: 13px; color: var(--text); font-weight: 600; }
+    .sb-runbar-text span {
+      font-size: 11px; color: var(--muted);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .sb-runbar-dots {
+      display: flex; gap: 4px; flex-wrap: wrap; flex: 1 1 auto;
+      align-items: center; min-width: 60px;
+    }
+    .sb-dot {
+      width: 8px; height: 8px; border-radius: 50%; padding: 0;
+      border: 1px solid var(--border-strong); background: transparent;
+      cursor: pointer; flex: 0 0 auto;
+    }
+    .sb-dot.is-done { background: var(--success); border-color: var(--success); }
+    .sb-dot.is-running {
+      background: var(--accent); border-color: var(--accent);
+      animation: sbPulse 1.2s ease-in-out infinite;
+    }
+    .sb-dot.is-failed { background: var(--danger); border-color: var(--danger); }
+    .sb-dot.is-cut { opacity: 0.35; }
+    .sb-runbar .qchip { flex: 0 0 auto; }
+    .sb-runbar .sb-danger { color: var(--danger); border-color: rgba(248,81,73,0.4); }
+
+    /* ---- board list -------------------------------------------------- */
+    .sb-boardlist li { grid-template-columns: 1fr auto auto auto; cursor: pointer; }
+    .sb-boardlist li .badge { color: var(--muted); background: rgba(255,255,255,0.05); }
+    .sb-boardlist li.is-live .badge {
+      color: var(--accent-bright); background: var(--accent-dim);
+      border-color: var(--accent);
+    }
+    .sb-badge {
+      color: var(--accent-bright);
+      background: var(--accent-dim);
+      border: 1px solid var(--accent) !important;
+    }
+    /* A queue / Recent row that carries film tags grows ONE column rather than
+       reflowing — .row-list li is a 4-column grid and a fifth child would
+       otherwise wrap onto a second line. The film badge and the engine chip
+       share that one cell (.sb-rowtags), so adding the engine cost no layout.
+       Scoped with :has() so every row without a badge is byte-identical. */
+    .row-list li:has(.sb-rowtags) {
+      grid-template-columns: auto 1fr auto auto auto;
+    }
+    .sb-rowtags { display: inline-flex; align-items: center; gap: 5px; }
+    .sb-rowtags .sb-chip-engine { font-size: 8.5px; padding: 1px 6px; }
+    .sb-rowtags .sb-chip-engine .ph { width: 9px; height: 9px; }
+    .car-card .sb-badge {
+      font-size: 8.5px; letter-spacing: 0.07em; text-transform: uppercase;
+      font-weight: 700; padding: 1px 6px; border-radius: var(--r-pill);
+      cursor: pointer;
+    }
+    /* The High delivery pill can't exist on a Q4 machine — put the rule
+       right beside the one that hides #qualityGroup's, so the two can never
+       disagree about what this Mac can render. */
+    body[data-cap-tier="q4"] #sbFinalQuality [data-q="high"] { display: none !important; }
+
+    /* The panel has no layout breakpoint today. Storyboard adds one, scoped
+       to itself so nothing else can regress. */
+    @media (max-width: 900px) {
+      /* One column, and — the part that matters — the panes stop being
+         independent scroll boxes. main.layout's `minmax(0,1fr)` row would
+         otherwise squeeze the brief into a ~360px scroller with its own sticky
+         footer floating mid-form. Stacked, the PAGE scrolls. */
+      body[data-workflow="storyboard"] main.layout {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto auto auto;
+        height: auto;
+        min-height: 0;
+        overflow: visible;
+      }
+      body[data-workflow="storyboard"] main.layout > aside.form-pane {
+        grid-column: 1; grid-row: 1;
+        max-height: none; overflow: visible;
+      }
+      body[data-workflow="storyboard"] main.layout > .stage-pane {
+        grid-column: 1; grid-row: 2;
+        max-height: none; overflow: visible;
+      }
+      body[data-workflow="storyboard"] main.layout > #bottomPane { grid-column: 1; grid-row: 3; }
+      body[data-workflow="storyboard"] #sbStage { max-height: none; overflow: visible; }
+      body[data-workflow="storyboard"] #sbSectionTab .form-action-footer { position: static; }
+      .sb-shot-head { flex-wrap: wrap; }
+      .sb-summary { flex-direction: column; align-items: stretch; gap: 8px; }
+      .sb-runbar { flex-wrap: wrap; }
+    }
+
+    /* =========================================================
        CAPABILITY TIER (Q4 vs Q8) — Codex C+ recommendation, 2026-05-17
        =========================================================
        On sub-48GB Macs the Q8 dev transformer doesn't fit, so the
@@ -27620,6 +28281,7 @@ HTML = r"""<!doctype html>
 <symbol id="ph-caret-down-bold" viewBox="0 0 256 256"><polyline points="208 96 128 176 48 96" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="24"/></symbol>
 <symbol id="ph-check-bold" viewBox="0 0 256 256"><polyline points="40 144 96 200 224 72" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="24"/></symbol>
 <symbol id="ph-download-simple" viewBox="0 0 256 256"><line x1="128" y1="144" x2="128" y2="32" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><polyline points="216 144 216 208 40 208 40 144" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><polyline points="168 104 128 144 88 104" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
+<symbol id="ph-film-slate" viewBox="0 0 256 256"><path d="M216,112H40a8,8,0,0,0-8,8v88a8,8,0,0,0,8,8H216a8,8,0,0,0,8-8V120A8,8,0,0,0,216,112Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M32,112,50.6,44.7a8,8,0,0,1,9.8-5.6L213.3,80.4a8,8,0,0,1,5.6,9.8L213,112" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="110.1" y1="59.5" x2="83.2" y2="112" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="163.9" y1="74" x2="137" y2="112" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 <symbol id="ph-film-strip" viewBox="0 0 256 256"><rect x="32" y="48" width="192" height="160" rx="8" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="128" y1="48" x2="128" y2="208" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="32" y1="80" x2="224" y2="80" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="32" y1="176" x2="224" y2="176" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="80" y1="48" x2="80" y2="80" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="176" y1="48" x2="176" y2="80" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="80" y1="176" x2="80" y2="208" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="176" y1="176" x2="176" y2="208" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 <symbol id="ph-gear-six" viewBox="0 0 256 256"><circle cx="128" cy="128" r="40" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M130.05,206.11c-1.34,0-2.69,0-4,0L94,224a104.61,104.61,0,0,1-34.11-19.2l-.12-36c-.71-1.12-1.38-2.25-2-3.41L25.9,147.24a99.15,99.15,0,0,1,0-38.46l31.84-18.1c.65-1.15,1.32-2.29,2-3.41l.16-36A104.58,104.58,0,0,1,94,32l32,17.89c1.34,0,2.69,0,4,0L162,32a104.61,104.61,0,0,1,34.11,19.2l.12,36c.71,1.12,1.38,2.25,2,3.41l31.85,18.14a99.15,99.15,0,0,1,0,38.46l-31.84,18.1c-.65,1.15-1.32,2.29-2,3.41l-.16,36A104.58,104.58,0,0,1,162,224Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 <symbol id="ph-image" viewBox="0 0 256 256"><rect x="32" y="48" width="192" height="160" rx="8" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><circle cx="156" cy="100" r="12"/><path d="M147.31,164,173,138.34a8,8,0,0,1,11.31,0L224,178.06" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M32,168.69l54.34-54.35a8,8,0,0,1,11.32,0L191.31,208" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
@@ -27770,6 +28432,12 @@ HTML = r"""<!doctype html>
     <nav class="workflow-tabs" id="workflowTabs">
       <button data-workflow="manual" class="active"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-film-strip"/></svg>Video</button>
       <button data-workflow="studio"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-image"/></svg>Images</button>
+      <!-- Storyboard sits next to the video surfaces; Audio and Train are the
+           two "go elsewhere and come back" tabs. No NEW badge on purpose —
+           with no film in progress the panel must look exactly as it did
+           yesterday, plus one calm word. The count span is filled only while
+           a storyboard render is actually in flight. -->
+      <button data-workflow="storyboard"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-film-slate"/></svg>Storyboard<span class="new-badge sb-live" id="sbTabCount" hidden></span></button>
       <button data-workflow="audio"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-music-notes"/></svg>Audio<span class="new-badge">NEW</span></button>
       <button data-workflow="train"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-user-plus"/></svg>Train Character</button>
     </nav>
@@ -29979,6 +30647,86 @@ HTML = r"""<!doctype html>
 
     </div>
 
+    <!-- ============== STORYBOARD — the brief (own workflow tab) ========
+         One concept in, a film's worth of shots out. Every element here
+         mirrors one that already exists: the concept box is the Video tab's
+         composer, the shot chips are #h3LengthGroup's, the cast picker is
+         the Manual tab's character strip reading the same _manualCharacters
+         array, and the footer is the sticky Generate footer. Nothing new is
+         invented that could have been borrowed. -->
+    <div id="sbSectionTab" style="display:none">
+
+      <!-- Saved boards. Hidden while the list is empty — with no film in
+           progress this tab is a concept box and a button, nothing else. -->
+      <div class="sb-boards" id="sbBoards" hidden>
+        <div class="sb-boards-head">Your storyboards</div>
+        <ul class="row-list sb-boardlist" id="sbBoardListMini"></ul>
+      </div>
+
+      <div class="composer-card sb-brief" id="sbBrief">
+        <textarea class="composer-prompt sb-concept" id="sbConcept" rows="4"
+          oninput="sbConceptInput()"
+          placeholder="A retired boxer walks his old neighbourhood at dawn and remembers a fight he lost."></textarea>
+      </div>
+
+      <div class="cz-control" id="sbLengthRow">
+        <div class="cz-label">Shots <span class="cz-label-hint">how many, roughly</span></div>
+        <div class="quality-strip pill-group cols-4" id="sbLengthGroup">
+          <button type="button" class="q-chip pill-btn" data-sb-shots="6">
+            <span class="ql-name">6</span><span class="q-spec ql-spec sub">a scene</span></button>
+          <button type="button" class="q-chip pill-btn active" data-sb-shots="12">
+            <span class="ql-name">12</span><span class="q-spec ql-spec sub">a short</span></button>
+          <button type="button" class="q-chip pill-btn" data-sb-shots="24">
+            <span class="ql-name">24</span><span class="q-spec ql-spec sub">a film</span></button>
+          <button type="button" class="q-chip pill-btn" data-sb-shots="36">
+            <span class="ql-name">36</span><span class="q-spec ql-spec sub">long</span></button>
+        </div>
+      </div>
+
+      <div class="cz-control" id="sbStyleRow">
+        <div class="cz-label">Look <span class="cz-label-hint">goes on every shot</span></div>
+        <input type="text" id="sbStyle" class="sb-input"
+               placeholder="16mm, cold morning light, handheld, muted greens">
+      </div>
+
+      <div class="cz-control" id="sbCastRow">
+        <div class="cz-label">Who's in it <span class="cz-label-hint">optional</span></div>
+        <div class="chars-strip"><div class="chars-avatar-row" id="sbCharsList"></div></div>
+        <div class="chars-strip-empty" id="sbCharsEmpty" hidden>
+          No trained characters yet —
+          <a href="#" onclick="workflowSwitch('train'); return false;">train one in the Train tab</a>, or
+          <button type="button" class="ghost-btn js-get-sample-char" style="padding:2px 8px;font-size:12px"
+                  onclick="downloadSampleCharacter()">get a sample character (Bizarro)</button>.
+        </div>
+        <div class="chars-q4-note"><b>Q4 fallback:</b> on this machine characters render on the fast (distilled) base — identity comes out <em>approximate</em>. A Q8-capable Mac renders faithful faces.</div>
+      </div>
+
+      <details class="customize-section" id="sbMustSection">
+        <summary class="cz-summary">
+          <span class="cz-chevron"><svg class="ph" aria-hidden="true"><use href="#ph-caret-down"/></svg></span>
+          <span class="cz-title">Shots it must include</span>
+          <span class="cz-meta" id="sbMustMeta">none</span>
+        </summary>
+        <div class="cz-body">
+          <div class="cz-control">
+            <div class="cz-label">One per line</div>
+            <textarea id="sbMust" class="sb-textarea" rows="4" oninput="sbMustInput()"
+              placeholder="close-up on his hands wrapping&#10;the empty gym at the end"></textarea>
+          </div>
+        </div>
+      </details>
+
+      <div class="form-action-footer">
+        <div class="sb-ramline" id="sbRamLine">
+          <span>Planning borrows the memory for about a minute, then gives it back.</span>
+          <button type="button" class="help-dot" id="sbRamHelpBtn" aria-expanded="false"
+                  aria-controls="sbRamHelpNote" title="Why?" onclick="sbToggleRamHelp()">?</button>
+        </div>
+        <div class="h3-winhelp" id="sbRamHelpNote" hidden></div>
+        <button type="button" class="primary" id="sbPlanBtn" onclick="sbPlan()">Plan film</button>
+      </div>
+    </div>
+
     <!-- ============== AUDIO → VIDEO (own workflow tab) ==============
          Routes to the helper's `generate_a2v` action which loads
          A2VidPipelineTwoStage (Q8 dev + distilled LoRA stage 2). The
@@ -30253,6 +31001,19 @@ HTML = r"""<!doctype html>
           </svg>
           <span class="po-act-label">Extend</span>
         </button>
+        <!-- Pull a good accident from the Video tab into a film. Hidden until
+             at least one board exists on disk — nothing about Storyboard shows
+             up in the rest of the panel until there is a film to show it for. -->
+        <button id="sbAddBtn" class="po-act" type="button" onclick="sbAddActiveToBoard()"
+                style="display:none" title="Add this clip to a storyboard as a shot">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M2 4 H14 M2 8 H14 M2 12 H9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <span class="po-act-label">To film</span>
+        </button>
+        <select id="sbAddSelect" class="po-finish-select" style="display:none"
+                title="Which film should this clip join?"
+                onchange="sbAddActiveToBoard(this.value)"></select>
         <button id="animateBtn" class="po-act" type="button"
                 onclick="animateActive()" style="display:none" title="Animate this still as an i2v render">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -30301,6 +31062,155 @@ HTML = r"""<!doctype html>
       <div class="name" id="playerName"></div>
       <div class="actions-bar"></div>
     </div>
+    <!-- ============== STORYBOARD — the stage surface ===================
+         Takes the GALLERY's slot, not the player's. That is deliberate: the
+         player stays exactly where it is, so a shot's thumbnail can call the
+         existing selectOutput() and the whole Params / Extend / Expand /
+         lightbox apparatus keeps working with no storyboard-specific code.
+         Four states live here — board list, empty, planning, plan review —
+         and exactly one is visible at a time. -->
+    <div id="sbStage">
+
+      <!-- Empty: no board open, none on disk. -->
+      <div class="sb-empty" id="sbEmpty" hidden>
+        <div class="sb-empty-icon">
+          <svg width="56" height="56" viewBox="0 0 256 256" aria-hidden="true"><use href="#ph-film-slate"/></svg>
+        </div>
+        <div class="sb-empty-title">One idea in, a film's worth of shots out.</div>
+        <div class="sb-empty-sub">Describe the film on the left and Phosphene writes the shot list — every shot with its own prompt, length and cast. You read it, fix it, then render the lot as cheap drafts overnight.</div>
+        <ul class="sb-empty-steps">
+          <li><b>Plan</b> — a small language model writes the shot list. About a minute.</li>
+          <li><b>Read it</b> — change any prompt, drop a shot, add one. Nothing has rendered yet.</li>
+          <li><b>Draft</b> — every shot small and fast, so you can watch the whole thing before committing.</li>
+          <li><b>Finish</b> — only the shots you keep, at full size, on the same seeds.</li>
+        </ul>
+      </div>
+
+      <!-- Board list: boards exist, none open. -->
+      <div class="sb-plan" id="sbList" hidden>
+        <header class="carousel-head">
+          <h3>Storyboards</h3>
+          <span class="ch-spacer"></span>
+        </header>
+        <ul class="row-list sb-boardlist" id="sbBoardList"></ul>
+      </div>
+
+      <!-- Planning: 30-90 s, and it says what it costs. -->
+      <div class="sb-planning" id="sbPlanning" hidden>
+        <div class="sb-planning-mark" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="sb-planning-title" id="sbPlanningTitle" aria-live="polite">Writing the plan…</div>
+        <div class="sb-planning-sub" id="sbPlanningSub">About a minute. Nothing renders yet.</div>
+        <div class="sb-planning-steps" id="sbPlanningSteps">
+          <div class="sb-step" data-step="load"><span class="sb-step-dot"></span>Loading the planner</div>
+          <div class="sb-step" data-step="write"><span class="sb-step-dot"></span>Writing the plan</div>
+          <div class="sb-step" data-step="check"><span class="sb-step-dot"></span>Checking it</div>
+          <div class="sb-step" data-step="repair" hidden><span class="sb-step-dot"></span>Fixing what didn't validate</div>
+          <div class="sb-step" data-step="unload"><span class="sb-step-dot"></span>Giving the memory back</div>
+        </div>
+        <button type="button" class="ghost-btn" id="sbPlanCancel" onclick="sbCancelPlan()">Cancel</button>
+      </div>
+
+      <!-- Planner failed. Does NOT discard the brief — it is still on the left. -->
+      <div class="sb-empty" id="sbPlanFail" hidden>
+        <div class="sb-empty-title">The planner couldn't write a usable plan.</div>
+        <div class="sb-empty-sub" id="sbPlanFailMsg"></div>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button type="button" class="primary" style="width:auto;padding:8px 16px" onclick="sbPlan()">Try again</button>
+          <button type="button" class="ghost-btn" id="sbPlanFailRaw" onclick="sbShowRaw()" hidden>Show what it returned</button>
+        </div>
+      </div>
+
+      <!-- Plan review — the core screen. Becomes the grading screen once
+           clips exist; it is the same list, not a second one. -->
+      <div class="sb-plan" id="sbPlan" hidden>
+        <header class="carousel-head sb-plan-head">
+          <input class="sb-title" id="sbTitle" value="" spellcheck="false"
+                 onblur="sbTitleSave()" aria-label="Film title">
+          <span class="sb-plan-status" id="sbPlanStatus">Draft plan · not rendered</span>
+          <div class="stage-mode-toggle" id="sbStageToggle" role="group" aria-label="Stage view" hidden>
+            <button type="button" class="smt-btn active" data-sb-stage="list" onclick="sbSetStage('list')">Shot list</button>
+            <button type="button" class="smt-btn" data-sb-stage="player" onclick="sbSetStage('player')">Player</button>
+          </div>
+          <button type="button" class="ghost-btn" onclick="sbBackToList()">All storyboards</button>
+        </header>
+
+        <div class="sb-runbar engine-hint" id="sbRunBar" hidden>
+          <div class="sb-runbar-slot" id="sbRunThumb"></div>
+          <div class="sb-runbar-text">
+            <b id="sbRunTitle">Shot 1</b>
+            <span id="sbRunSub"></span>
+          </div>
+          <div class="sb-runbar-dots" id="sbRunDots"></div>
+          <button type="button" class="qchip" id="sbPauseBtn" onclick="togglePause()"
+                  title="The shot that's rendering finishes. The rest wait.">Pause</button>
+          <button type="button" class="qchip" id="sbStopShotBtn" onclick="sbStopShot()"
+                  title="Stops the shot that's rendering. The rest of the film carries on.">Stop shot</button>
+          <button type="button" class="qchip sb-danger" id="sbStopBtn" onclick="sbStopFilm()">Stop film</button>
+        </div>
+
+        <div class="sb-summary" id="sbSummary">
+          <div class="sb-sum-cell"><b id="sbSumShots">—</b><span id="sbSumRuntime"></span></div>
+          <div class="sb-sum-cell"><b id="sbSumTime">—</b><span id="sbSumTimeSub">drafts, this Mac</span></div>
+          <div class="sb-sum-cell"><b id="sbSumLoads">—</b><span id="sbSumLoadsSub"></span></div>
+          <div class="sb-sum-cell" id="sbSumDiskCell"><b id="sbSumDisk">—</b><span id="sbSumDiskSub">clips land in mlx_outputs/</span></div>
+          <div class="sb-runstrip" id="sbRunStrip" hidden></div>
+          <div class="sb-enginenote" id="sbEngineNote">
+            <span id="sbEngineNoteText"></span>
+            <button type="button" class="help-dot" id="sbEngineHelpBtn" aria-expanded="false"
+                    aria-controls="sbEngineHelpNote" title="Why?" onclick="sbToggleEngineHelp()">?</button>
+          </div>
+          <div class="h3-winhelp" id="sbEngineHelpNote" style="flex:1 1 100%" hidden></div>
+        </div>
+
+        <details class="customize-section" id="sbQualitySection">
+          <summary class="cz-summary">
+            <span class="cz-chevron"><svg class="ph" aria-hidden="true"><use href="#ph-caret-down"/></svg></span>
+            <span class="cz-title">Quality</span>
+            <span class="cz-meta" id="sbQualityMeta"></span>
+          </summary>
+          <div class="cz-body">
+            <div class="cz-control">
+              <div class="cz-label">Draft pass <span class="cz-label-hint">what you watch first</span></div>
+              <div class="pill-group cols-3" id="sbDraftQuality">
+                <button type="button" class="pill-btn active" data-q="quick">Quick<span class="sub">640×480</span></button>
+                <button type="button" class="pill-btn" data-q="balanced">Balanced<span class="sub">768×432</span></button>
+                <button type="button" class="pill-btn" data-q="standard">Standard<span class="sub">1024×576</span></button>
+              </div>
+            </div>
+            <div class="cz-control">
+              <div class="cz-label">Delivery pass <span class="cz-label-hint">what you keep</span></div>
+              <div class="pill-group cols-3" id="sbFinalQuality">
+                <button type="button" class="pill-btn" data-q="balanced">Balanced<span class="sub">1024×576</span></button>
+                <button type="button" class="pill-btn active" data-q="standard">Standard<span class="sub">1024×576</span></button>
+                <button type="button" class="pill-btn" data-q="high" id="sbFinalHigh">High<span class="sub">1024×576 · Q8</span></button>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <div class="sb-errors" id="sbErrors" hidden></div>
+        <ol class="sb-shots" id="sbShots"></ol>
+        <div class="sb-addrow"><button type="button" class="ghost-btn" onclick="sbAddShot()">+ Add a shot</button></div>
+
+        <div class="sb-actionbar" id="sbActionBar">
+          <button type="button" class="ghost-btn" onclick="sbOpenReplan()">Re-plan…</button>
+          <span class="sb-actionbar-spacer"></span>
+          <span class="sb-actionbar-note" id="sbActionNote"></span>
+          <button type="button" class="primary" id="sbRenderBtn" onclick="sbRenderDrafts()">Render all drafts</button>
+        </div>
+
+        <div class="sb-actionbar sb-tally" id="sbTally" hidden title="Focus a shot and press K, R or C">
+          <span id="sbTallyText">nothing graded yet</span>
+          <span class="sb-actionbar-spacer"></span>
+          <button type="button" class="ghost-btn" id="sbExportBtn" onclick="sbExport()" hidden>Export</button>
+          <button type="button" class="ghost-btn" id="sbRewriteBtn" onclick="sbRewrite()" hidden>Rewrite</button>
+          <button type="button" class="ghost-btn" id="sbResumeBtn" onclick="sbRenderRemaining()" hidden>Render remaining</button>
+          <button type="button" class="primary" id="sbFinishBtn" onclick="sbFinish()">Finish keepers</button>
+        </div>
+        <div class="sb-export-note" id="sbExportNote" hidden>Assembling these into a single cut is a script for now — <code>scripts/</code> has the After Effects pass. One-click assembly is not in this version.</div>
+      </div>
+    </div>
+
     <!-- Combined filter + title row. One row, three regions: title +
          count, kind chips (All/Videos/Photos), visible/hidden segmented
          toggle on the right. Replaces the previous two-row stack. -->
@@ -30886,6 +31796,36 @@ Third prompt."></textarea>
     <div class="modal-actions">
       <button class="small" onclick="closeBatch()">Cancel</button>
       <button class="small primary" style="padding:6px 14px" onclick="queueBatch().then(closeBatch)">Queue all</button>
+    </div>
+  </div>
+</div>
+
+<!-- Re-plan. The one storyboard surface that needs a modal, because it needs a
+     text field. Written HERE, at column 0, as a direct child of <body> and
+     present at boot on purpose: the global _phosModalScaffold IIFE registers
+     its observers once at boot, so a modal injected later loses Esc-to-close,
+     the focus trap and the body.modal-open scroll lock. -->
+<div class="modal-bg" id="sbReplanModal" onclick="if(event.target===this)sbCloseReplan()">
+  <div class="modal">
+    <h3>Re-plan this film</h3>
+    <div class="hint">The concept and the look stay. Say what was wrong and the planner writes a new shot list. This replaces every shot — clips already rendered stay in your gallery.</div>
+    <textarea class="batch" id="sbReplanNotes" rows="4"
+      placeholder="Too much walking. Start inside the gym. Fewer wide shots."></textarea>
+    <div class="hint" style="margin-top:6px">Loads the planner again (~1 min). Nothing renders while it does.</div>
+    <div class="modal-actions">
+      <button class="small" onclick="sbCloseReplan()">Cancel</button>
+      <button class="small primary" style="padding:6px 14px" onclick="sbReplan()">Re-plan</button>
+    </div>
+  </div>
+</div>
+
+<!-- The raw planner reply, for a bug report. Never shown by default. -->
+<div class="modal-bg" id="sbRawModal" onclick="if(event.target===this)document.getElementById('sbRawModal').classList.remove('show')">
+  <div class="modal">
+    <h3>What the planner returned</h3>
+    <pre id="sbRawText" style="max-height:50vh;overflow:auto;font-size:11px;white-space:pre-wrap"></pre>
+    <div class="modal-actions">
+      <button class="small" onclick="document.getElementById('sbRawModal').classList.remove('show')">Close</button>
     </div>
   </div>
 </div>
@@ -36008,7 +36948,11 @@ function engineServesMode(e, mode) {
 // offering a choice that changes nothing.
 function _currentSurface() {
   const wf = (document.body.dataset.workflow || 'manual').toLowerCase();
-  return ({ manual: 'video', studio: 'image', audio: 'audio', train: 'train' })[wf] || 'video';
+  // 'storyboard' MUST be in this map. Without it the `|| 'video'` fallback
+  // leaves the engine switcher visible in a tab that has no engine choice to
+  // offer — the film decides per shot, not a global toggle.
+  return ({ manual: 'video', studio: 'image', audio: 'audio', train: 'train',
+            storyboard: 'storyboard' })[wf] || 'video';
 }
 function engineOnSurface(e) {
   return (e.surfaces || ['video']).indexOf(_currentSurface()) !== -1;
@@ -38297,6 +39241,43 @@ async function repairModel(key) {
   } catch (e) { alert('Repair failed: ' + e); }
 }
 
+// Translate a cryptic engine error into actionable user guidance. Extracted
+// from the Now card 2026-08-11 so a storyboard shot's failure reads EXACTLY
+// like a manual one — one if/else, two callers, no way for the two to drift.
+// "helper died mid-job (no event)" is the SIGKILL-by-jetsam signature on
+// memory-pressured Macs: the helper subprocess gets killed by the OS for using
+// too much RAM and we never get an event back. Tell the user how to recover
+// instead of leaving them with the engine wording.
+function friendlyJobError(raw) {
+  raw = raw || 'unknown error';
+  const rawLower = String(raw).toLowerCase();
+  if (rawLower.includes('sigkill')) {
+    return { friendly: 'Helper killed by the OS — out of memory (jetsam).',
+             hint: 'Close memory-heavy apps (Chrome, Slack, iOS Simulator) and try again, ' +
+                   'or switch Quality to Quick (about half the RAM).' };
+  }
+  if (rawLower.includes('sigsegv') || rawLower.includes('sigbus')) {
+    return { friendly: 'Helper crashed at the native level (MLX/Metal fault).',
+             hint: 'Share the crashlog at ~/Library/Logs/DiagnosticReports/python3.11_*.crash ' +
+                   'on github.com/mrbizarro/phosphene/issues so we can fix it.' };
+  }
+  if (rawLower.includes('sigabrt')) {
+    return { friendly: 'Helper hit a C-level assertion and aborted.',
+             hint: 'Share the crashlog at ~/Library/Logs/DiagnosticReports/python3.11_*.crash ' +
+                   'on github.com/mrbizarro/phosphene/issues.' };
+  }
+  if (rawLower.includes('helper exited from') || rawLower.includes('helper pipe closed') ||
+      rawLower.includes('helper died') || rawLower.includes('helper exited')) {
+    return { friendly: 'Helper exited unexpectedly.',
+             hint: 'Check the log for the last "step:*" breadcrumb (tells us which ' +
+                   'phase died). If memory-pressured, close other apps and retry.' };
+  }
+  if (rawLower.includes('q8') || rawLower.includes('keyframe')) {
+    return { friendly: 'This mode needs the Q8 model.', hint: raw };
+  }
+  return { friendly: 'Job failed.', hint: raw };
+}
+
 async function poll() {
   // Reflect HDR-vs-character mutual exclusion every poll cycle. character_id
   // gets set from multiple code paths (manual chip click, load-params,
@@ -38612,33 +39593,7 @@ async function poll() {
       // killed by the OS for using too much RAM and we never get an
       // event back. Tell the user how to recover instead of leaving them
       // with the engine wording.
-      const raw = (last.error || 'unknown error');
-      const rawLower = raw.toLowerCase();
-      let friendly, hint;
-      if (rawLower.includes('sigkill')) {
-        friendly = 'Helper killed by the OS — out of memory (jetsam).';
-        hint = 'Close memory-heavy apps (Chrome, Slack, iOS Simulator) and try again, ' +
-               'or switch Quality to Quick (about half the RAM).';
-      } else if (rawLower.includes('sigsegv') || rawLower.includes('sigbus')) {
-        friendly = 'Helper crashed at the native level (MLX/Metal fault).';
-        hint = 'Share the crashlog at ~/Library/Logs/DiagnosticReports/python3.11_*.crash ' +
-               'on github.com/mrbizarro/phosphene/issues so we can fix it.';
-      } else if (rawLower.includes('sigabrt')) {
-        friendly = 'Helper hit a C-level assertion and aborted.';
-        hint = 'Share the crashlog at ~/Library/Logs/DiagnosticReports/python3.11_*.crash ' +
-               'on github.com/mrbizarro/phosphene/issues.';
-      } else if (rawLower.includes('helper exited from') || rawLower.includes('helper pipe closed') ||
-                 rawLower.includes('helper died') || rawLower.includes('helper exited')) {
-        friendly = 'Helper exited unexpectedly.';
-        hint = 'Check the log for the last "step:*" breadcrumb (tells us which ' +
-               'phase died). If memory-pressured, close other apps and retry.';
-      } else if (rawLower.includes('q8') || rawLower.includes('keyframe')) {
-        friendly = 'This mode needs the Q8 model.';
-        hint = raw;
-      } else {
-        friendly = 'Job failed.';
-        hint = raw;
-      }
+      const { friendly, hint } = friendlyJobError(last.error || 'unknown error');
       nowCard.querySelector('.ttl').innerHTML =
         `<span style="color: var(--danger, #f85149)"><svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-fill"/></svg>${escapeHtml(friendly)}</span>`;
       nowCard.querySelector('.meta').innerHTML =
@@ -38717,10 +39672,22 @@ async function poll() {
       const params = (j.params.mode === 'image')
         ? `image · ${j.params.aspect || '?'} · n=${j.params.n || '?'}`
         : `${j.params.mode} · ${j.params.width}×${j.params.height} · ${j.params.frames}f`;
+      // Which film this job is a shot of. A pure function of immutable params,
+      // so the qSig memoisation above needs no change.
+      const sb = /^sb:([^#]+)#(\d+)$/.exec(j.params.session_tag || '');
+      const sbTotal = sb ? ((SB.boards.find(b => b.id === sb[1]) || {}).shots || '?') : '';
+      // A queued shot wears the film badge AND its engine: a film's jobs are
+      // not all on one engine, and the queue is where you find out what is
+      // about to run. Same chip, same registry row, as the card and the header.
+      const sbBadge = sb
+        ? `<span class="sb-rowtags"><span class="badge sb-badge" title="${escapeHtml(j.params.label || '')}">S${sb[2].padStart(2,'0')}/${sbTotal}</span>`
+          + sbEngineChip(j.params.engine || 'ltx') + `</span>`
+        : '';
       return `
       <li>
         <span class="pos">#${i+1}</span>
         <span class="ttl" title="${escapeHtml(j.params.prompt)}">${escapeHtml(j.params.label || snippet(j.params.prompt, 60))}</span>
+        ${sbBadge}
         <span class="params">${params}</span>
         <button title="Remove" onclick="removeJob('${j.id}')"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
       </li>`;
@@ -38807,10 +39774,19 @@ async function poll() {
                  title="Re-submit this job with the same params"
                  onclick='retryJob(${JSON.stringify(j.id)})'>Retry</button>`
       : '';
+    // Same film badge the queue rows carry, so a shot is identifiable
+    // wherever the bottom pane shows it.
+    const hsb = /^sb:([^#]+)#(\d+)$/.exec((j.params || {}).session_tag || '');
+    const hsbTotal = hsb ? ((SB.boards.find(b => b.id === hsb[1]) || {}).shots || '?') : '';
+    const hsbBadge = hsb
+      ? `<span class="sb-rowtags"><span class="badge sb-badge" title="${escapeHtml(j.params.label || '')}">S${hsb[2].padStart(2,'0')}/${hsbTotal}</span>`
+        + sbEngineChip((j.params || {}).engine || 'ltx') + `</span>`
+      : '';
     return `
     <li class="${j.status}">
       <span class="badge">${j.status}</span>
       <span class="ttl" title="${titleAttr}">${titleHtml}</span>
+      ${hsbBadge}
       <span class="params">${fmtMin(j.elapsed_sec)} · ${j.finished_at ? j.finished_at.slice(11) : ''}</span>
       <span>${actionHtml}</span>
     </li>`;
@@ -38911,6 +39887,11 @@ async function poll() {
       }
     }
   }
+
+  // Storyboard — ONE call, no new timer. It sets the tab count during an
+  // overnight run, gates Plan film on the worker being idle, and decides
+  // whether `To film` exists at all. All three are inert with no boards.
+  if (typeof sbPollHook === 'function') { try { sbPollHook(s); } catch (e) {} }
 }
 
 // Balanced chip subtitle — kept in sync with current mode + frames so the
@@ -39309,7 +40290,8 @@ function renderCarousel() {
       <div class="info">
         <div class="name" title="${escapeHtml(o.name)}">${escapeHtml(o.name)}</div>
         <div class="sub" title="Render time · file size">
-          ${_outputDurationLabel(o)} · ${o.size_mb.toFixed(1)} MB
+          ${o.sb ? `<span class="badge sb-badge" title="Shot ${o.sb.n} of a storyboard — click to open it"
+                 onclick="event.stopPropagation(); sbOpenFromClip('${escapeHtml(o.sb.id)}')">S${String(o.sb.n).padStart(2,'0')}</span> · ` : ''}${_outputDurationLabel(o)} · ${o.size_mb.toFixed(1)} MB
         </div>
       </div>
     </div>`;
@@ -44172,6 +45154,1239 @@ document.querySelectorAll('#modeGroup .pill-btn').forEach(b => b.addEventListene
 // surfaces: the manual generate form, the Characters tab (LoRA pair +
 // prompt + ship), and Train (character LoRA training).
 
+// ============================================================================
+// STORYBOARD
+// ============================================================================
+// One concept in, a film's worth of shots out. Everything here talks to
+// /storyboard/*; nothing here renders, queues, or tracks progress on its own —
+// a shot is an ordinary job and the bottom pane already knows how to show one.
+//
+// The board poller lives here and ONLY runs while the tab is open (2 s, its own
+// timer). poll() at 1.5 s is already doing a lot and this must not ride on it.
+// The single cross-tab cost is one call at the end of poll(): sbPollHook().
+
+let SB = {
+  id: '',                 // the open board, '' = list/empty
+  payload: null,          // the last /storyboard/get reply
+  timer: null,            // the 2 s board poller
+  saveTimer: null,
+  saveInFlight: false,
+  saveAgain: false,
+  stageMode: 'auto',      // 'auto' | 'list' | 'player'
+  boards: [],             // /status.storyboards, refreshed by poll()
+  lastUndo: null,
+};
+const SB_BOOT = (typeof BOOT !== 'undefined' && BOOT.storyboard) ? BOOT.storyboard : {};
+
+// The validator's structured errors, in human. Keyed on `code`, never on the
+// message text — that is the whole reason validate_storyboard_detail() exists.
+// `fix` names an action sbFixError() knows how to run.
+const SB_ERR_COPY = {
+  schema_version:      { html: '<b>This storyboard was written by a different version of Phosphene.</b> Nothing here can be rendered safely. Plan a new one.' },
+  board_id_empty:      { html: '<b>This storyboard file is damaged</b> and can\'t be repaired from the panel.' },
+  no_shots:            { html: '<b>No shots.</b> Re-plan, or add one by hand.', fix: 'add', label: 'Add a shot' },
+  shot_not_object:     { html: (e) => `<b>Shot ${e.n} is unreadable.</b> Delete it and add a new one.`, fix: 'delete', label: 'Delete shot' },
+  shot_number:         { html: (e) => `<b>Shot ${e.n} lost its number.</b>`, fix: 'renumber', label: 'Renumber all shots' },
+  shot_duplicate:      { html: (e) => `<b>Two shots are both numbered ${e.n}.</b>`, fix: 'renumber', label: 'Renumber all shots' },
+  bad_mode:            { html: (e) => `<b>Shot ${e.n} asks for a shot type this build doesn't have.</b> Set it to Text or Character.`, fix: 'text', label: 'Make it Text' },
+  empty_prompt:        { html: (e) => `<b>Shot ${e.n} has no prompt.</b> Write what happens in it.`, fix: 'focus', label: 'Write it' },
+  unknown_character:   { html: (e) => `<b>Shot ${e.n} casts <code>${escapeHtml(e.data.character_id || '')}</code>, who isn't on this Mac.</b> Pick someone installed, or train them first.`, fix: 'pickchar', label: 'Pick someone' },
+  missing_trigger:     { html: (e) => `<b>Shot ${e.n}'s prompt doesn't say <code>${escapeHtml(e.data.trigger || '')}</code>,</b> so the trained face won't load and a stranger renders instead.`, fix: 'trigger', label: 'Put it back' },
+  character_without_id:{ html: (e) => `<b>Shot ${e.n} is a Character shot with nobody cast.</b>`, fix: 'pickchar', label: 'Pick someone' },
+  bad_duration:        { html: (e) => `<b>Shot ${e.n} is ${escapeHtml(String(e.data.duration_s))} seconds long.</b> Pick something between 1 and 60.`, fix: 'dur5', label: 'Make it 5 s' },
+  refs_not_list:       { html: (e) => `<b>Shot ${e.n}'s reference images are damaged.</b>`, fix: 'clearrefs', label: 'Clear them' },
+  ref_missing:         { html: (e) => `<b>Shot ${e.n} wants a reference image that isn't there any more:</b> <code>${escapeHtml(e.data.name || '')}</code>`, fix: 'clearrefs', label: 'Clear them' },
+  remix_needs_ref:     { html: (e) => `<b>Shot ${e.n} is a Remix shot with no reference image.</b>`, fix: 'text', label: 'Make it Text' },
+  over_cap:            { html: (e) => `<b>${e.data.pass_name === 'final' ? 'Delivery' : 'Draft'} is set to ${e.data.width}×${e.data.height}; this Mac caps at ${e.data.max_dim}.</b> It'll shrink to fit unless you lower it.`, fix: 'cap', label: 'Use 1024×576' },
+};
+
+function sbEl(id) { return document.getElementById(id); }
+
+// Wall clock, at the scale a film is measured in. Wraps fmtMin so it never
+// shows seconds when the answer is hours.
+function sbFmtWall(secs) {
+  if (!secs || secs < 0) return '—';
+  if (secs < 90) return `${Math.round(secs)} s`;
+  const m = Math.round(secs / 60);
+  if (m < 90) return `about ${m} m`;
+  const h = Math.floor(m / 60), rem = m % 60;
+  return rem ? `about ${h} h ${rem} m` : `about ${h} h`;
+}
+function sbFmtRuntime(secs) {
+  if (!secs) return '';
+  if (secs <= 90) return `${Math.round(secs)} s of film`;
+  const m = Math.floor(secs / 60), s = Math.round(secs % 60);
+  return `${m} m ${s} s of film`;
+}
+function sbShotEst(secs) {
+  if (!secs) return '';
+  return secs < 90 ? `~${Math.round(secs)} s` : `~${Math.round(secs / 60)} m`;
+}
+
+// ---- tab lifecycle ---------------------------------------------------------
+function sbInit() {
+  const help = sbEl('sbRamHelpNote');
+  if (help && !help.textContent) help.textContent = SB_BOOT.ram_help || '';
+  // Draft restore — a restart must not eat what someone typed.
+  try {
+    const draft = localStorage.getItem('phos_sb_draft');
+    const box = sbEl('sbConcept');
+    if (draft && box && !box.value) box.value = draft;
+  } catch (e) {}
+  const d = SB_BOOT.defaults || {};
+  sbSetShots(d.shots || 12, false);
+  if (typeof refreshManualCharacters === 'function') {
+    Promise.resolve(refreshManualCharacters()).then(sbRenderCast).catch(() => sbRenderCast());
+  } else { sbRenderCast(); }
+  sbConceptInput();
+  sbMustInput();
+  // Restore the last board the user was on, same idiom as phos_workflow.
+  let last = '';
+  try { last = localStorage.getItem('phos_sb_open') || ''; } catch (e) {}
+  sbRefreshBoards().then(() => {
+    if (last && SB.boards.some(b => b.id === last)) sbOpen(last);
+    else if (SB.boards.length) sbShow('list');
+    else sbShow('empty');
+  });
+  if (SB.timer) clearInterval(SB.timer);
+  SB.timer = setInterval(sbTick, 2000);
+}
+
+function sbTeardown() {
+  if (SB.timer) { clearInterval(SB.timer); SB.timer = null; }
+}
+
+async function sbRefreshBoards() {
+  try {
+    const r = await (await fetch('/storyboard/list')).json();
+    SB.boards = r.boards || [];
+  } catch (e) { SB.boards = []; }
+  sbRenderBoardLists();
+  return SB.boards;
+}
+
+async function sbTick() {
+  if (document.body.dataset.workflow !== 'storyboard') return;
+  if (SB.id) await sbLoad(SB.id, true);
+  else await sbRefreshBoards();
+}
+
+// ---- the brief -------------------------------------------------------------
+let _sbDraftTimer = null;
+function sbConceptInput() {
+  const box = sbEl('sbConcept');
+  const btn = sbEl('sbPlanBtn');
+  if (btn) {
+    const empty = !box || !box.value.trim();
+    btn.disabled = empty || btn.dataset.busy === '1';
+    if (empty) btn.title = 'Write a couple of sentences about the film first.';
+    else if (btn.dataset.busy !== '1') btn.title = '';
+  }
+  if (_sbDraftTimer) clearTimeout(_sbDraftTimer);
+  _sbDraftTimer = setTimeout(() => {
+    try { localStorage.setItem('phos_sb_draft', (box && box.value) || ''); } catch (e) {}
+  }, 400);
+}
+
+function sbMustInput() {
+  const box = sbEl('sbMust');
+  const meta = sbEl('sbMustMeta');
+  if (!meta) return;
+  const n = ((box && box.value) || '').split('\n').filter(x => x.trim()).length;
+  meta.textContent = n === 0 ? 'none' : (n === 1 ? '1 shot' : `${n} shots`);
+}
+
+function sbSetShots(n, persist) {
+  document.querySelectorAll('#sbLengthGroup .q-chip').forEach(b =>
+    b.classList.toggle('active', Number(b.dataset.sbShots) === Number(n)));
+  if (persist !== false) sbSaveSetting('storyboard_shots', n);
+}
+function sbShotsValue() {
+  const on = document.querySelector('#sbLengthGroup .q-chip.active');
+  return on ? Number(on.dataset.sbShots) : 12;
+}
+async function sbSaveSetting(key, value) {
+  try {
+    const fd = new URLSearchParams(); fd.set(key, String(value));
+    await fetch('/settings', { method: 'POST', body: fd });
+  } catch (e) {}
+}
+
+function sbToggleRamHelp() {
+  const btn = sbEl('sbRamHelpBtn'), note = sbEl('sbRamHelpNote');
+  if (!btn || !note) return;
+  const open = btn.getAttribute('aria-expanded') === 'true';
+  btn.setAttribute('aria-expanded', open ? 'false' : 'true');
+  note.hidden = open;
+}
+function sbToggleEngineHelp() {
+  const btn = sbEl('sbEngineHelpBtn'), note = sbEl('sbEngineHelpNote');
+  if (!btn || !note) return;
+  const open = btn.getAttribute('aria-expanded') === 'true';
+  btn.setAttribute('aria-expanded', open ? 'false' : 'true');
+  note.hidden = open;
+  if (!note.textContent) note.textContent = SB_BOOT.engine_help || '';
+}
+
+// A small .eng-seg: same glyph, same label, same accent variables, read off the
+// SAME ENGINES registry row the header switcher renders from — so a shot card
+// and the header can never disagree about what an engine looks like.
+function sbEngineChip(id) {
+  const e = (typeof ENGINES !== 'undefined' ? ENGINES : []).find(x => x.id === id)
+         || { id: id, label: (id || 'ltx').toUpperCase(), mark: 'eng-mark-ltx',
+              accent: '', accent_dim: '', accent_soft: '', tagline: '' };
+  const why = id === 'h3'
+    ? 'Renders on Hailuo H3 — video, dialogue and sound together. The optional pack.'
+    : 'Renders on LTX-2.3 — the built-in engine, and the only one that loads a trained character.';
+  return `<span class="sb-chip sb-chip-engine" data-engine="${escapeHtml(e.id)}"
+      style="--eng-accent:${escapeHtml(e.accent)};--eng-dim:${escapeHtml(e.accent_dim)};--eng-soft:${escapeHtml(e.accent_soft)}"
+      title="${escapeHtml(why)}"><span class="eng-mark"><svg class="ph" aria-hidden="true"><use href="#${escapeHtml(e.mark)}"/></svg></span>${escapeHtml(e.label)}</span>`;
+}
+
+// Mirrors _renderManualCharactersList() against the same _manualCharacters
+// array. Single select in v1; click the lit avatar to deselect.
+let _sbCastId = '';
+function sbRenderCast() {
+  const wrap = sbEl('sbCharsList'), empty = sbEl('sbCharsEmpty');
+  if (!wrap) return;
+  const list = (typeof _manualCharacters !== 'undefined' && _manualCharacters) || [];
+  if (!list.length) {
+    wrap.innerHTML = '';
+    if (empty) empty.hidden = false;
+    return;
+  }
+  if (empty) empty.hidden = true;
+  wrap.innerHTML = list.map(c => {
+    const active = c.id === _sbCastId;
+    const name = c.name || c.trigger || c.id;
+    const avatar = c.sample_image_url
+      ? `<img class="chars-avatar-img" src="${escapeHtml(c.sample_image_url)}" alt="">`
+      : `<span class="chars-avatar-ph">${escapeHtml((name || '?').charAt(0).toUpperCase())}</span>`;
+    return `<button type="button" class="chars-avatar-chip ${active ? 'active' : ''}"
+              onclick="sbPickCast(${JSON.stringify(c.id).replace(/"/g, '&quot;')})"
+              title="${escapeHtml(name)}${active ? ' · click to deselect' : ''}">
+              ${avatar}<span class="chars-avatar-name">${escapeHtml(name)}</span></button>`;
+  }).join('');
+}
+function sbPickCast(id) { _sbCastId = (_sbCastId === id) ? '' : id; sbRenderCast(); }
+
+// ---- plan ------------------------------------------------------------------
+async function sbPlan() {
+  const concept = (sbEl('sbConcept') || {}).value || '';
+  if (!concept.trim()) { phosToast('Write a couple of sentences about the film first.'); return; }
+  const btn = sbEl('sbPlanBtn');
+  if (btn) { btn.dataset.busy = '1'; btn.disabled = true; btn.textContent = 'Planning…'; }
+  const fd = new URLSearchParams();
+  fd.set('concept', concept);
+  fd.set('shots', String(sbShotsValue()));
+  fd.set('style', (sbEl('sbStyle') || {}).value || '');
+  fd.set('must', (sbEl('sbMust') || {}).value || '');
+  if (_sbCastId) fd.set('character_id', _sbCastId);
+  let r;
+  try {
+    r = await (await fetch('/storyboard/plan', { method: 'POST', body: fd })).json();
+  } catch (e) { r = { ok: false, error: String(e) }; }
+  if (!r.ok) {
+    sbPlanBtnReset();
+    phosToast(r.error || 'Planning could not start.', { kind: 'danger', duration: 6000 });
+    return;
+  }
+  SB.id = r.id;
+  try { localStorage.setItem('phos_sb_open', SB.id); } catch (e) {}
+  sbShow('planning');
+  sbSetPlanningStage('load');
+  sbLoad(SB.id);
+}
+function sbPlanBtnReset() {
+  const btn = sbEl('sbPlanBtn');
+  if (!btn) return;
+  delete btn.dataset.busy;
+  btn.textContent = 'Plan film';
+  sbConceptInput();
+}
+
+async function sbCancelPlan() {
+  const fd = new URLSearchParams(); fd.set('id', SB.id);
+  try { await fetch('/storyboard/cancel', { method: 'POST', body: fd }); } catch (e) {}
+  phosToast('Planning cancelled.');
+  sbPlanBtnReset();
+  sbLoad(SB.id);
+}
+
+function sbSetPlanningStage(stage) {
+  const map = {
+    load:   ['Loading the planner', 'About a minute. Nothing renders yet.'],
+    write:  ['Writing the plan', 'About a minute. Nothing renders yet.'],
+    check:  ['Checking the plan', 'About a minute. Nothing renders yet.'],
+    repair: ['Fixing the plan', 'It came back slightly malformed. One retry.'],
+    unload: ['Giving the memory back', 'The renderer gets it now.'],
+  };
+  const order = ['load', 'write', 'check', 'repair', 'unload'];
+  const at = order.indexOf(stage);
+  const t = map[stage] || map.load;
+  const ttl = sbEl('sbPlanningTitle'), sub = sbEl('sbPlanningSub');
+  if (ttl) ttl.textContent = t[0];
+  if (sub) sub.textContent = t[1];
+  document.querySelectorAll('#sbPlanningSteps .sb-step').forEach(el => {
+    const i = order.indexOf(el.dataset.step);
+    el.classList.toggle('is-now', i === at);
+    el.classList.toggle('is-done', i >= 0 && at >= 0 && i < at);
+    // The repair row is revealed only when the retry actually fired —
+    // advertising a failure that usually doesn't happen is worse than silence.
+    if (el.dataset.step === 'repair') el.hidden = (stage !== 'repair');
+  });
+}
+
+function sbOpenReplan() { sbEl('sbReplanModal').classList.add('show'); }
+function sbCloseReplan() { sbEl('sbReplanModal').classList.remove('show'); }
+async function sbReplan() {
+  const notes = (sbEl('sbReplanNotes') || {}).value || '';
+  sbCloseReplan();
+  const b = (SB.payload || {}).board || {};
+  const fd = new URLSearchParams();
+  fd.set('id', SB.id);
+  fd.set('concept', b.concept || '');
+  fd.set('style', b.style || '');
+  fd.set('shots', String(b.shots_target || (b.shots || []).length || 12));
+  fd.set('must', (b.must || []).join('\n'));
+  fd.set('notes', notes);
+  const cast = (b.cast || [])[0];
+  if (cast && cast.id) fd.set('character_id', cast.id);
+  let r;
+  try { r = await (await fetch('/storyboard/plan', { method: 'POST', body: fd })).json(); }
+  catch (e) { r = { ok: false, error: String(e) }; }
+  if (!r.ok) { phosToast(r.error || 'Re-plan could not start.', { kind: 'danger', duration: 6000 }); return; }
+  sbShow('planning'); sbSetPlanningStage('load'); sbLoad(SB.id);
+}
+
+function sbShowRaw() {
+  const raw = ((SB.payload || {}).planner || {}).raw || '';
+  sbEl('sbRawText').textContent = raw || '(nothing captured)';
+  sbEl('sbRawModal').classList.add('show');
+}
+
+// ---- board open / load -----------------------------------------------------
+function sbOpen(id) {
+  SB.id = id;
+  try { localStorage.setItem('phos_sb_open', id); } catch (e) {}
+  sbLoad(id);
+}
+function sbBackToList() {
+  SB.id = '';
+  SB.payload = null;
+  try { localStorage.removeItem('phos_sb_open'); } catch (e) {}
+  sbRefreshBoards().then(() => sbShow(SB.boards.length ? 'list' : 'empty'));
+}
+
+async function sbLoad(id, quiet) {
+  let r;
+  try {
+    r = await (await fetch('/storyboard/get?id=' + encodeURIComponent(id))).json();
+  } catch (e) { return; }
+  if (!r || !r.ok) {
+    if (!quiet) phosToast('That storyboard is gone.', { kind: 'danger' });
+    sbBackToList();
+    return;
+  }
+  SB.payload = r;
+  const st = (r.planner || {}).state;
+  if (r.planning || st === 'running') {
+    sbShow('planning');
+    sbSetPlanningStage((r.planner || {}).stage || 'load');
+    return;
+  }
+  if (st === 'failed') {
+    sbPlanBtnReset();
+    sbShow('planfail');
+    sbRenderPlanFail(r.planner || {});
+    return;
+  }
+  sbPlanBtnReset();
+  sbShow('plan');
+  sbRenderPlan(r);
+}
+
+function sbRenderPlanFail(p) {
+  const map = {
+    download: 'The planner model didn\'t finish downloading. Check your connection and try again — it resumes where it stopped.',
+    oom: 'Not enough free memory to load the planner. Close some apps and try again.',
+    invalid: 'It produced something this build can\'t read, twice. Trying again usually works — the model isn\'t deterministic. If it keeps failing, shorten the concept.',
+    busy: 'Something else is using the GPU. Wait for the queue to empty and try again.',
+  };
+  sbEl('sbPlanFailMsg').textContent = map[p.error_kind] || 'Something went wrong while planning. Try again.';
+  sbEl('sbPlanFailRaw').hidden = !p.raw;
+}
+
+// Exactly one of the five stage states is visible at a time, and body.sb-full
+// is on while there is nothing for the player to show — the same trick the
+// Ideogram layout editor uses to take the whole column.
+function sbShow(which) {
+  const states = { empty: 'sbEmpty', list: 'sbList', planning: 'sbPlanning',
+                   planfail: 'sbPlanFail', plan: 'sbPlan' };
+  Object.keys(states).forEach(k => {
+    const el = sbEl(states[k]);
+    if (el) el.hidden = (k !== which);
+  });
+  // The brief's board list is a way BACK to another film while one is open.
+  // While the stage is already showing the list, it would be the same list
+  // twice in one screen — so it folds away.
+  const boards = sbEl('sbBoards');
+  if (boards) boards.hidden = !SB.boards.length || which === 'list' || which === 'empty';
+  sbSyncStage();
+}
+
+function sbHasClip() {
+  const shots = (((SB.payload || {}).board) || {}).shots || [];
+  return shots.some(s => s.draft_output || s.final_output);
+}
+
+function sbSyncStage() {
+  const on = document.body.dataset.workflow === 'storyboard';
+  const hasClip = on && sbHasClip();
+  let full;
+  if (!on) full = false;
+  else if (SB.stageMode === 'list') full = true;
+  else if (SB.stageMode === 'player') full = false;
+  else full = !hasClip;
+  document.body.classList.toggle('sb-full', !!full);
+  const tog = sbEl('sbStageToggle');
+  if (tog) {
+    tog.hidden = !hasClip;
+    tog.querySelectorAll('.smt-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.sbStage === (full ? 'list' : 'player')));
+  }
+}
+function sbSetStage(mode) { SB.stageMode = mode; sbSyncStage(); }
+
+// ---- the plan screen -------------------------------------------------------
+function sbRenderPlan(r) {
+  const b = r.board || {};
+  const est = r.estimate || {};
+  const shots = b.shots || [];
+  const title = sbEl('sbTitle');
+  if (title && document.activeElement !== title) title.value = b.title || '';
+
+  // --- summary ---
+  const done = shots.filter(s => s.status === 'done').length;
+  const failed = shots.filter(s => s.status === 'failed').length;
+  const rendering = !!r.rendering;
+  let status;
+  if (r.pass === 'final') {
+    status = rendering ? `Delivery rendering · ${done} of ${shots.length}`
+                       : `Finished · ${done} shots`;
+  } else if (rendering) {
+    status = `Drafts rendering · ${done} of ${shots.length}`;
+  } else if (done && done + failed >= shots.length) {
+    status = failed ? `Drafts done · ${done} of ${shots.length}, ${failed} failed`
+                    : `Drafts done · ${done} of ${shots.length}`;
+  } else if (done) {
+    // Partway through and NOT running — stopped, or a single shot retried.
+    // "Drafts rendering" here would be a sentence that isn't true.
+    status = `Drafts · ${done} of ${shots.length}`;
+  } else {
+    status = 'Draft plan · not rendered';
+  }
+  sbEl('sbPlanStatus').textContent = status;
+
+  sbEl('sbSumShots').textContent = est.shots === 1 ? '1 shot' : `${est.shots || 0} shots`;
+  sbEl('sbSumRuntime').textContent = sbFmtRuntime(est.runtime_secs);
+  sbEl('sbSumTime').textContent = sbFmtWall(est.total_secs);
+  sbEl('sbSumTimeSub').textContent = (r.pass === 'final' ? 'delivery' : 'drafts') + ', this Mac';
+  const loads = est.pipeline_loads || 0;
+  sbEl('sbSumLoads').textContent = loads === 1 ? '1 model load' : `${loads} model loads`;
+  let loadsSub = loads === 1 ? 'every shot renders back to back' : 'grouped, not in story order';
+  if (est.saved_secs > 0) loadsSub += ` — rendering grouped saves ${sbFmtWall(est.saved_secs).replace('about ', '')}`;
+  sbEl('sbSumLoadsSub').textContent = loadsSub;
+  const freeGb = (r.disk || {}).free_gb;
+  sbEl('sbSumDisk').textContent = (freeGb == null) ? '—' : `${freeGb} GB free`;
+  const tight = (freeGb != null && freeGb < 20);
+  sbEl('sbSumDiskCell').classList.toggle('is-warn', tight);
+  sbEl('sbSumDiskSub').textContent = tight
+    ? 'clips land in mlx_outputs/ — this is tight' : 'clips land in mlx_outputs/';
+
+  // Run strip — one segment per bucket, sized by shot count. A single band
+  // explaining nothing is chrome, so it hides below 4 shots on one bucket.
+  const strip = sbEl('sbRunStrip');
+  const buckets = est.buckets || [];
+  const NAMES = { t2v: 'Text & Character', remix: 'Remix', keyframe: 'Keyframes',
+                  extend: 'Extend', a2v: 'Audio' };
+  if (buckets.length <= 1 && shots.length < 4) {
+    strip.hidden = true;
+  } else {
+    strip.hidden = false;
+    strip.innerHTML = buckets.map(bk => {
+      const ns = bk.shots || [];
+      // "2–6" for [2,4,6] would claim five shots that aren't in this bucket.
+      // A range only when the run really is contiguous; otherwise say which.
+      const contiguous = ns.length > 1 && ns[ns.length - 1] - ns[0] === ns.length - 1;
+      const range = !ns.length ? ''
+        : ns.length === 1 ? `${ns[0]}`
+        : contiguous ? `${ns[0]}–${ns[ns.length - 1]}`
+        : (ns.length > 4 ? `${ns.length} shots` : ns.join(', '));
+      const label = (bk.engine === 'h3' ? 'H3 · ' : '') + (NAMES[bk.kind] || bk.kind);
+      return `<div class="sb-runseg" style="flex-grow:${ns.length}" data-shots="${ns.join(',')}">
+        ${bk.engine === 'h3' ? '' : '<span class="sb-runseg-load" title="One model load, about 90 s">load</span>'}
+        <span class="sb-runseg-name">${escapeHtml(label)}</span>
+        <span class="sb-runseg-shots">${range}</span></div>`;
+    }).join('');
+  }
+
+  // --- quality ---
+  const pol = b.policy || {};
+  const dq = (pol.draft || {}).quality || 'quick';
+  const fq = (pol.final || {}).quality || 'standard';
+  document.querySelectorAll('#sbDraftQuality .pill-btn').forEach(x =>
+    x.classList.toggle('active', x.dataset.q === dq));
+  document.querySelectorAll('#sbFinalQuality .pill-btn').forEach(x =>
+    x.classList.toggle('active', x.dataset.q === fq));
+  sbEl('sbQualityMeta').textContent =
+    `Draft ${(pol.draft || {}).width}×${(pol.draft || {}).height} · ` +
+    `Delivery ${(pol.final || {}).width}×${(pol.final || {}).height}`;
+
+  // --- board-level errors ---
+  const errs = r.errors || [];
+  const boardErrs = errs.filter(e => !e.n);
+  const errBox = sbEl('sbErrors');
+  errBox.hidden = !boardErrs.length;
+  errBox.innerHTML = boardErrs.map(sbErrRow).join('');
+
+  // --- shot cards ---
+  sbEl('sbShots').innerHTML = shots.map(s => sbShotCard(s, r, errs)).join('');
+
+  // --- which engine, and why ---
+  // There is NO engine selection on this tab, and saying so out loud is the
+  // fix for the first thing the owner asked about it. The line states the rule;
+  // the ? carries the Python-owned paragraph; the chips on the cards carry the
+  // per-shot answer.
+  const mix = est.engine_mix || {};
+  let engText = SB_BOOT.engine_note || '';
+  if (!r.h3_available) engText = SB_BOOT.engine_note_no_h3 || engText;
+  else if (mix.h3 && mix.ltx) engText = `${engText} <b>${mix.h3} on Hailuo H3, ${mix.ltx} on LTX-2.3.</b>`;
+  else if (mix.h3) engText = `${engText} <b>All ${mix.h3} on Hailuo H3.</b>`;
+  else if (mix.ltx) engText = `${engText} <b>All ${mix.ltx} on LTX-2.3.</b>`;
+  sbEl('sbEngineNoteText').innerHTML = engText;
+
+  // --- run bar / action bar ---
+  sbRenderRunBar(r);
+  const graded = shots.filter(s => s.grade).length;
+  const anyClip = sbHasClip();
+  sbEl('sbActionBar').hidden = anyClip;
+  sbEl('sbTally').hidden = !anyClip;
+  const btn = sbEl('sbRenderBtn');
+  btn.disabled = errs.length > 0 || rendering;
+  btn.title = errs.length ? `Fix the ${errs.length} problem${errs.length > 1 ? 's' : ''} above first.` : '';
+  sbEl('sbActionNote').textContent =
+    `${est.shots || 0} shot${est.shots === 1 ? '' : 's'} · ${sbFmtWall(est.total_secs)}`;
+  if (anyClip) sbRenderTally(shots, r);
+  sbAutoGrowPrompts();
+  sbSyncStage();
+}
+
+// 3-10 rows, sized to the text. A planner prompt is 70-140 words and a fixed
+// 3-row box hides most of it behind a scrollbar — which matters here, because
+// reading the plan before spending render hours is the entire point.
+function sbAutoGrowPrompts(one) {
+  const els = one ? [one] : document.querySelectorAll('#sbShots .sb-shot-prompt');
+  els.forEach(el => {
+    const line = 19.4;                     // 12.5px * 1.55 line-height
+    el.style.height = 'auto';
+    const want = Math.min(Math.max(el.scrollHeight, line * 3), line * 10 + 16);
+    el.style.height = Math.ceil(want) + 'px';
+  });
+}
+
+function sbErrRow(e) {
+  const copy = SB_ERR_COPY[e.code];
+  const html = !copy ? escapeHtml(e.message)
+             : (typeof copy.html === 'function' ? copy.html(e) : copy.html);
+  const fix = copy && copy.fix
+    ? `<button type="button" class="sb-err-fix" onclick="sbFixError('${copy.fix}',${e.n || 0},'${escapeHtml(e.code)}')">${escapeHtml(copy.label)}</button>`
+    : '';
+  return `<div class="sb-err-row"><span class="sb-err-dot"></span><span>${html}</span>${fix}</div>`;
+}
+
+function sbShotCard(s, r, errs) {
+  const n = s.n;
+  const mine = errs.filter(e => e.n === n);
+  const est = (r.per_shot_est || {})[String(n)];
+  const chars = r.characters || [];
+  const locked = (s.status === 'rendering' || s.status === 'queued' || s.status === 'done');
+  // The chip says what will ACTUALLY render, not what the plan wrote. With no
+  // H3 pack the server forces every shot to LTX at enqueue, so a pink Hailuo
+  // chip on a machine that has no Hailuo would be the UI contradicting itself.
+  const engine = r.h3_available ? (s.engine || 'ltx') : 'ltx';
+  const clip = s.final_output || s.draft_output;
+  const shots = (r.board || {}).shots || [];
+  const isChar = !!s.character_id;
+  const opts = ['<option value="">— nobody —</option>'].concat(chars.map(c =>
+    `<option value="${escapeHtml(c.id)}" ${c.id === s.character_id ? 'selected' : ''}>${escapeHtml(c.name || c.id)}</option>`)).join('');
+  // With no trained characters on this Mac the cast select can only ever say
+  // "nobody", so it isn't shown at all and the Character button says why.
+  const noCast = !chars.length;
+  const durs = [3, 5, 7, 10];
+  if (durs.indexOf(Math.round(s.duration_s)) === -1) durs.push(Math.round(s.duration_s));
+  const durOpts = durs.sort((a, b) => a - b).map(d =>
+    `<option value="${d}" ${Math.round(s.duration_s) === d ? 'selected' : ''}>${d} s</option>`).join('');
+  const passLabel = r.pass === 'final' ? 'Delivery' : 'Draft';
+  const seedSet = (s.seed != null && s.seed !== -1);
+
+  const outBlock = clip ? `
+    <div class="sb-shot-out car-card ${s.grade === 'reroll' && s.status === 'pending' ? 'is-stale' : ''}">
+      <div class="car-thumb-wrap" onclick="sbOpenShotClip(${n})">
+        <video class="car-thumb" preload="metadata" muted playsinline
+               src="/file?path=${encodeURIComponent(clip)}"
+               onmouseenter="this.currentTime=0;this.playbackRate=0.6;this.play().catch(()=>{})"
+               onmouseleave="this.pause();this.currentTime=2.5"></video>
+      </div>
+      <div class="info"><span class="name">${escapeHtml(clip.split('/').pop())}</span>
+        <span class="sub">${s.final_output ? 'delivery' : 'draft'}${s.grade === 'reroll' && s.status === 'pending' ? ' · <span class="sb-stale-tag">old take</span>' : ''}</span></div>
+      <div class="sb-grade" role="group" aria-label="Grade shot ${n}">
+        <button type="button" class="sb-grade-btn ${s.grade === 'keep' ? 'active' : ''}" data-act="grade" data-g="keep" aria-pressed="${s.grade === 'keep'}">KEEP</button>
+        <button type="button" class="sb-grade-btn ${s.grade === 'reroll' ? 'active' : ''}" data-act="grade" data-g="reroll" aria-pressed="${s.grade === 'reroll'}">RE-ROLL</button>
+        <button type="button" class="sb-grade-btn ${s.grade === 'cut' ? 'active' : ''}" data-act="grade" data-g="cut" aria-pressed="${s.grade === 'cut'}">CUT</button>
+      </div>
+      <textarea class="sb-note" rows="2" data-act="note" ${s.grade === 'reroll' ? '' : 'hidden'}
+        placeholder="What should change? (goes back to the planner)">${escapeHtml(s.note || '')}</textarea>
+    </div>` : '';
+
+  const failBlock = (s.status === 'failed') ? (() => {
+    const fe = friendlyJobError(s.error || '');
+    return `<div class="sb-shot-err"><div class="sb-err-row"><span class="sb-err-dot"></span>
+      <span><b>Shot ${n} failed.</b> ${escapeHtml(fe.friendly)} — ${escapeHtml(fe.hint)}</span>
+      <button type="button" class="sb-err-fix" data-act="retry">Retry this shot</button>
+      <button type="button" class="sb-err-fix" data-act="cut">Cut it</button></div></div>`;
+  })() : '';
+
+  return `<li class="sb-shot ${mine.length ? 'has-error' : ''} ${locked ? 'is-locked' : ''}"
+      data-n="${n}" draggable="${locked ? 'false' : 'true'}" tabindex="0">
+    <div class="sb-shot-head">
+      <span class="sb-shot-n">${String(n).padStart(2, '0')}</span>
+      <div class="sb-seg" role="group" aria-label="Shot type">
+        <button type="button" class="sb-seg-btn ${isChar ? '' : 'active'}" data-act="mode" data-mode="text" ${locked ? 'disabled' : ''}>Text</button>
+        <button type="button" class="sb-seg-btn ${isChar ? 'active' : ''}" data-act="mode" data-mode="character"
+                ${locked || noCast ? 'disabled' : ''} ${noCast ? 'title="No trained characters on this Mac yet — train one in the Train tab."' : ''}>Character</button>
+      </div>
+      <select class="sb-select sb-shot-char" data-act="char" aria-label="Who's in this shot" ${locked ? 'disabled' : ''} ${noCast ? 'hidden' : ''}>${opts}</select>
+      <select class="sb-select sb-shot-dur" data-act="dur" aria-label="Length" ${locked ? 'disabled' : ''}>${durOpts}</select>
+      ${sbEngineChip(engine)}
+      <span class="sb-chip sb-chip-pass" data-act="pass" title="Quality is set for the whole film — click to change it">${passLabel}</span>
+      <span class="sb-shot-est">${sbShotEst(est)}</span>
+      <span class="sb-shot-spacer"></span>
+      <span class="sb-seedwrap" hidden>
+        <input type="number" class="sb-seed" data-act="seed" value="${seedSet ? s.seed : ''}"
+               aria-label="Seed for shot ${n}" ${locked ? 'disabled' : ''}></span>
+      <button type="button" class="sb-icon" data-act="up" title="Move up" aria-label="Move shot ${n} up" ${n === 1 || locked ? 'disabled' : ''}>↑</button>
+      <button type="button" class="sb-icon" data-act="down" title="Move down" aria-label="Move shot ${n} down" ${n === shots.length || locked ? 'disabled' : ''}>↓</button>
+      <button type="button" class="sb-icon ${seedSet ? 'is-set' : ''}" data-act="seedtoggle"
+              title="${seedSet ? `Seed ${s.seed} — same number, same roll of the dice. Fix it so the delivery render matches the draft you approved.` : 'Seed — same number, same roll of the dice. Fix it so the delivery render matches the draft you approved.'}"
+              aria-label="Seed for shot ${n}">🎲</button>
+      <button type="button" class="sb-icon sb-icon-danger" data-act="del" title="${locked ? "This one's already rendering." : 'Delete this shot'}" aria-label="Delete shot ${n}" ${locked && s.status !== 'done' ? 'disabled' : ''}>✕</button>
+      <span class="sb-grip" title="Drag to reorder" aria-hidden="true">⠿</span>
+    </div>
+    <textarea class="sb-shot-prompt" rows="3" spellcheck="false" data-act="prompt"
+      ${locked ? 'readonly' : ''} title="${escapeHtml(s.title || '')}">${escapeHtml(s.prompt || '')}</textarea>
+    ${mine.length ? `<div class="sb-shot-err">${mine.map(sbErrRow).join('')}</div>` : ''}
+    ${failBlock}
+    ${outBlock}
+  </li>`;
+}
+
+function sbRenderTally(shots, r) {
+  const keep = shots.filter(s => s.grade === 'keep').length;
+  const rr = shots.filter(s => s.grade === 'reroll').length;
+  const cut = shots.filter(s => s.grade === 'cut').length;
+  const graded = keep + rr + cut;
+  const un = shots.length - graded;
+  sbEl('sbTallyText').innerHTML = graded === 0 ? 'nothing graded yet'
+    : `<b>${keep} keep</b> · ${rr} re-roll · ${cut} cut${un ? ` · ${un} ungraded` : ''}`;
+  // The tally bar REPLACES the action bar the moment a clip exists — which,
+  // after a Stop or a single retry, would leave no way to render the shots
+  // that never got a draft. So it carries that button when there are any.
+  const pending = shots.filter(s => s.status !== 'skipped' && !s.draft_output).length;
+  const resume = sbEl('sbResumeBtn');
+  resume.hidden = !pending || !!(r && r.rendering);
+  resume.textContent = `Render ${pending} remaining`;
+  const rw = sbEl('sbRewriteBtn');
+  rw.hidden = !rr;
+  rw.textContent = rr === 1 ? 'Rewrite 1 shot' : `Rewrite ${rr} shots`;
+  const fin = sbEl('sbFinishBtn');
+  fin.textContent = keep ? `Finish ${keep} keeper${keep === 1 ? '' : 's'}` : 'Finish keepers';
+  fin.disabled = !keep;
+  fin.title = keep ? '' : 'Mark at least one shot KEEP first.';
+  const canExport = shots.some(s => s.final_output);
+  sbEl('sbExportBtn').hidden = !canExport;
+  sbEl('sbExportNote').hidden = !canExport;
+}
+
+// The shots that never got a draft — after a Stop, or when a shot was added by
+// hand to a film that already rendered.
+function sbRenderRemaining() {
+  const shots = (((SB.payload || {}).board) || {}).shots || [];
+  const ns = shots.filter(s => s.status !== 'skipped' && !s.draft_output).map(s => s.n);
+  if (!ns.length) return;
+  const est = (SB.payload || {}).estimate || {};
+  if (!confirm(
+      `Render ${ns.length} draft${ns.length === 1 ? '' : 's'}?\n\n` +
+      `${sbFmtWall(est.total_secs).replace(/^about /, 'About ')} on this Mac. ` +
+      'The shots you already have are untouched.\n\n' +
+      'You can pause or stop after any shot.')) return;
+  sbRenderPass('draft', ns);
+}
+
+function sbRenderRunBar(r) {
+  const bar = sbEl('sbRunBar');
+  const shots = (r.board || {}).shots || [];
+  if (!r.rendering) { bar.hidden = true; return; }
+  bar.hidden = false;
+  const cur = (LAST_STATUS && LAST_STATUS.current) || null;
+  const tag = cur ? _sbTagOf(cur) : null;
+  const active = (tag && tag.id === SB.id) ? shots.find(s => s.n === tag.n) : null;
+  const done = shots.filter(s => s.status === 'done').length;
+  const paused = LAST_STATUS && LAST_STATUS.paused;
+  sbEl('sbRunTitle').textContent = paused
+    ? `Paused · ${done} of ${shots.length} done`
+    : (active ? `Shot ${active.n} of ${shots.length}` : `${done} of ${shots.length} done`);
+  let sub = '';
+  if (active) sub = `S${String(active.n).padStart(2, '0')} · ${snippet(active.prompt, 40)}`;
+  // The remaining time is a SERVER number. /status.eta_sec is the sum of
+  // per-job ETAs and is trustworthy when every queued job is this film's.
+  const q = (LAST_STATUS && LAST_STATUS.queue) || [];
+  const allMine = q.length && q.every(j => { const t = _sbTagOf(j); return t && t.id === SB.id; });
+  if (allMine && LAST_STATUS.eta_sec) sub += ` · ${sbFmtWall(LAST_STATUS.eta_sec)} left`;
+  sbEl('sbRunSub').textContent = sub;
+  sbEl('sbPauseBtn').textContent = paused ? 'Resume' : 'Pause';
+  sbEl('sbRunDots').innerHTML = shots.map(s => {
+    const cls = s.status === 'done' ? 'is-done'
+              : s.status === 'failed' ? 'is-failed'
+              : s.status === 'rendering' ? 'is-running'
+              : s.status === 'skipped' ? 'is-cut' : '';
+    return `<button type="button" class="sb-dot ${cls}" onclick="sbScrollToShot(${s.n})"
+      title="S${String(s.n).padStart(2, '0')} · ${escapeHtml(snippet(s.prompt, 40))}"
+      aria-label="Shot ${s.n}"></button>`;
+  }).join('');
+  // Designed now, empty today: fill from the server's preview_url the day one
+  // exists. No layout shift either way — the box is always the same size.
+  const pv = ((cur || {}).progress || {}).preview_url;
+  sbEl('sbRunThumb').innerHTML = pv
+    ? `<img src="${escapeHtml(pv)}?t=${Date.now()}" alt="">`
+    : `<svg width="26" height="26" viewBox="0 0 256 256" style="opacity:.18" aria-hidden="true"><use href="#ph-film-slate"/></svg>`;
+}
+
+function _sbTagOf(job) {
+  const m = /^sb:([^#]+)#(\d+)$/.exec(((job || {}).params || {}).session_tag || '');
+  return m ? { id: m[1], n: Number(m[2]) } : null;
+}
+function sbScrollToShot(n) {
+  const el = document.querySelector(`.sb-shot[data-n="${n}"]`);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+function sbOpenShotClip(n) {
+  const s = (((SB.payload || {}).board) || {}).shots.find(x => x.n === n);
+  const clip = s && (s.final_output || s.draft_output);
+  if (!clip) return;
+  if (SB.stageMode === 'list') SB.stageMode = 'auto';
+  sbSyncStage();
+  selectOutput(clip);
+}
+
+// ---- editing ---------------------------------------------------------------
+function sbShotById(n) {
+  return (((SB.payload || {}).board) || {}).shots.find(s => s.n === n);
+}
+
+// Every edit patches the board client-side then POSTs it. The server
+// re-validates, re-injects triggers, renumbers and returns a fresh estimate —
+// there is NO client-side validation at all, which is what stops the panel's
+// copy from drifting away from storyboard.py.
+function sbQueueSave(immediate) {
+  if (SB.saveTimer) clearTimeout(SB.saveTimer);
+  SB.saveTimer = setTimeout(sbFlushSave, immediate ? 0 : 600);
+}
+async function sbFlushSave() {
+  if (SB.saveInFlight) { SB.saveAgain = true; return; }
+  const board = ((SB.payload || {}).board);
+  if (!board) return;
+  SB.saveInFlight = true;
+  try {
+    const r = await (await fetch('/storyboard/save', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: SB.id, board: board }),
+    })).json();
+    if (r && r.ok) { SB.payload = r; sbRenderPlan(r); }
+  } catch (e) {
+  } finally {
+    SB.saveInFlight = false;
+    if (SB.saveAgain) { SB.saveAgain = false; sbQueueSave(true); }
+  }
+}
+
+function sbShotAction(n, act, el, ev) {
+  const board = ((SB.payload || {}).board);
+  const s = sbShotById(n);
+  if (!board || !s) return;
+  switch (act) {
+    case 'mode': {
+      const m = el.dataset.mode;
+      if (m === 'character') {
+        // Nobody cast — take the first installed character rather than saving
+        // an incoherent shot. The server injects the trigger on save.
+        if (!s.character_id) {
+          const first = ((SB.payload.characters || [])[0] || {}).id;
+          if (!first) { phosToast('No trained characters on this Mac yet.'); return; }
+          s.character_id = first;
+        }
+        s.mode = 'character';
+      } else {
+        // Text clears the cast but LEAVES THE PROMPT ALONE — deleting someone's
+        // words is never the right default.
+        delete s.character_id; delete s.trigger;
+        s.mode = 'text';
+      }
+      break;
+    }
+    case 'char': {
+      const v = el.value;
+      if (v) { s.character_id = v; s.mode = 'character'; }
+      else { delete s.character_id; delete s.trigger; s.mode = 'text'; }
+      break;
+    }
+    case 'dur': s.duration_s = Number(el.value); break;
+    case 'prompt': s.prompt = el.value; break;
+    case 'seed': s.seed = el.value === '' ? -1 : Number(el.value); break;
+    case 'seedtoggle': {
+      const wrap = el.closest('.sb-shot-head').querySelector('.sb-seedwrap');
+      if (wrap) { wrap.hidden = !wrap.hidden; if (!wrap.hidden) wrap.querySelector('.sb-seed').focus(); }
+      return;
+    }
+    case 'pass':
+      sbEl('sbQualitySection').open = true;
+      sbEl('sbQualitySection').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      phosToast('Quality is set for the whole film.');
+      return;
+    case 'up': case 'down': {
+      const i = board.shots.indexOf(s);
+      const j = act === 'up' ? i - 1 : i + 1;
+      if (j < 0 || j >= board.shots.length) return;
+      board.shots.splice(j, 0, board.shots.splice(i, 1)[0]);
+      board.shots.forEach((x, k) => { x.n = k + 1; });
+      break;
+    }
+    case 'del': {
+      if (s.draft_output || s.final_output) {
+        if (!confirm(`Remove shot ${n} from the film?\n\nThe clip stays in mlx_outputs/.`)) return;
+      } else {
+        SB.lastUndo = { index: board.shots.indexOf(s), shot: JSON.parse(JSON.stringify(s)) };
+        const t = phosToast(`Shot ${n} removed.`, { kind: 'success', duration: 6000 });
+        if (t) {
+          const u = document.createElement('button');
+          u.className = 'phos-toast-undo'; u.textContent = 'Undo';
+          u.style.pointerEvents = 'auto';
+          u.onclick = () => { sbUndoDelete(); t.remove(); };
+          t.appendChild(u);
+        }
+      }
+      board.shots = board.shots.filter(x => x !== s);
+      board.shots.forEach((x, k) => { x.n = k + 1; });
+      break;
+    }
+    case 'grade': {
+      const g = (s.grade === el.dataset.g) ? null : el.dataset.g;
+      sbGrade(n, g, s.note || '');
+      return;
+    }
+    case 'note': s.note = el.value; sbGrade(n, s.grade, el.value); return;
+    case 'retry': sbRenderPass(SB.payload.pass || 'draft', [n]); return;
+    case 'cut': sbGrade(n, 'cut', s.note || ''); return;
+    default: return;
+  }
+  sbRenderPlan(SB.payload);
+  sbQueueSave(act !== 'prompt');
+}
+
+function sbUndoDelete() {
+  const board = ((SB.payload || {}).board);
+  if (!board || !SB.lastUndo) return;
+  board.shots.splice(SB.lastUndo.index, 0, SB.lastUndo.shot);
+  board.shots.forEach((x, k) => { x.n = k + 1; });
+  SB.lastUndo = null;
+  sbRenderPlan(SB.payload);
+  sbQueueSave(true);
+}
+
+function sbAddShot() {
+  const board = ((SB.payload || {}).board);
+  if (!board) return;
+  board.shots.push({ n: board.shots.length + 1, mode: 'text', engine: 'ltx',
+                     prompt: '', duration_s: 5, seed: -1, refs: [], status: 'pending' });
+  sbRenderPlan(SB.payload);
+  sbQueueSave(true);
+  const last = document.querySelector('.sb-shot:last-child .sb-shot-prompt');
+  if (last) last.focus();
+}
+
+function sbTitleSave() {
+  const board = ((SB.payload || {}).board);
+  if (!board) return;
+  board.title = sbEl('sbTitle').value;
+  sbQueueSave(true);
+}
+
+async function sbGrade(n, grade, note) {
+  const fd = new URLSearchParams();
+  fd.set('id', SB.id); fd.set('n', String(n));
+  if (grade) fd.set('grade', grade);
+  fd.set('note', note || '');
+  try {
+    const r = await (await fetch('/storyboard/grade', { method: 'POST', body: fd })).json();
+    if (r && r.ok) { SB.payload = r; sbRenderPlan(r); }
+  } catch (e) {}
+}
+
+function sbFixError(fix, n, code) {
+  const board = ((SB.payload || {}).board);
+  if (!board) return;
+  const s = n ? sbShotById(n) : null;
+  if (fix === 'add') return sbAddShot();
+  if (fix === 'renumber') {
+    board.shots.forEach((x, k) => { x.n = k + 1; });
+  } else if (fix === 'delete' && n) {
+    board.shots.splice(n - 1, 1);
+    board.shots.forEach((x, k) => { x.n = k + 1; });
+  } else if (fix === 'text' && s) {
+    s.mode = 'text'; delete s.character_id; delete s.trigger; s.refs = [];
+  } else if (fix === 'focus' && n) {
+    const el = document.querySelector(`.sb-shot[data-n="${n}"] .sb-shot-prompt`);
+    if (el) el.focus();
+    return;
+  } else if (fix === 'pickchar' && n) {
+    const el = document.querySelector(`.sb-shot[data-n="${n}"] .sb-shot-char`);
+    if (el) { el.focus(); if (el.showPicker) { try { el.showPicker(); } catch (e) {} } }
+    return;
+  } else if (fix === 'trigger' && s) {
+    // The server owns ensure_trigger(); a save with the character still set is
+    // all it takes, and the canonical text comes back in the reply.
+    sbQueueSave(true);
+    return;
+  } else if (fix === 'dur5' && s) {
+    s.duration_s = 5;
+  } else if (fix === 'clearrefs' && s) {
+    s.refs = [];
+  } else if (fix === 'cap') {
+    ['draft', 'final'].forEach(k => {
+      const p = (board.policy || {})[k];
+      if (p && Math.max(p.width, p.height) > 1024) { p.width = 1024; p.height = 576; }
+    });
+  }
+  sbRenderPlan(SB.payload);
+  sbQueueSave(true);
+}
+
+// ---- render ----------------------------------------------------------------
+function sbRenderDrafts() {
+  const est = (SB.payload || {}).estimate || {};
+  const nshots = est.shots || 0;
+  const loads = est.pipeline_loads || 1;
+  if (!confirm(
+      `Render ${nshots} draft${nshots === 1 ? '' : 's'}?\n\n` +
+      `${sbFmtWall(est.total_secs).replace(/^about /, 'About ')} on this Mac. ` +
+      `${loads === 1 ? 'One model load, then every shot back to back.' : `${loads} model loads, grouped.`}\n` +
+      'Clips land in mlx_outputs/ and show up in your gallery like any other render.\n\n' +
+      'You can pause or stop after any shot.')) return;
+  sbRenderPass('draft', null);
+}
+
+async function sbRenderPass(passName, only) {
+  const fd = new URLSearchParams();
+  fd.set('id', SB.id); fd.set('pass', passName);
+  if (only && only.length) fd.set('only', only.join(','));
+  let r;
+  try { r = await (await fetch('/storyboard/render', { method: 'POST', body: fd })).json(); }
+  catch (e) { r = { ok: false, error: String(e) }; }
+  if (!r.ok) {
+    phosToast(r.error || 'Could not start the render.', { kind: 'danger', duration: 6000 });
+    return;
+  }
+  sbLoad(SB.id);
+  poll();
+}
+
+async function sbFinish() {
+  const shots = (((SB.payload || {}).board) || {}).shots || [];
+  const keep = shots.filter(s => s.grade === 'keep').map(s => s.n);
+  if (!keep.length) return;
+  const fd = new URLSearchParams();
+  fd.set('id', SB.id); fd.set('pass', 'final'); fd.set('only', keep.join(','));
+  let est = {};
+  try { est = ((await (await fetch('/storyboard/estimate', { method: 'POST', body: fd })).json()) || {}).estimate || {}; }
+  catch (e) {}
+  const pol = (((SB.payload || {}).board) || {}).policy || {};
+  const f = pol.final || {};
+  if (!confirm(
+      `Finish ${keep.length} shot${keep.length === 1 ? '' : 's'}?\n\n` +
+      `Delivery pass, ${f.width}×${f.height}, ${(f.quality || '').replace(/^./, c => c.toUpperCase())}. ` +
+      `${sbFmtWall(est.total_secs).replace(/^about /, 'About ')} on this Mac.\n` +
+      "Each shot re-renders at its draft's seed, so you get the take you approved — bigger.\n" +
+      'The drafts stay in your gallery.')) return;
+  sbRenderPass('final', keep);
+}
+
+async function sbRewrite() {
+  const shots = (((SB.payload || {}).board) || {}).shots || [];
+  const ns = shots.filter(s => s.grade === 'reroll').map(s => s.n);
+  if (!ns.length) return;
+  if (!confirm(
+      `Rewrite ${ns.length} shot${ns.length === 1 ? '' : 's'}?\n\n` +
+      `The planner loads again (~1 min) and rewrites just ${ns.length === 1 ? 'this one' : 'these'}, using your notes.\n` +
+      'The rest of the film is untouched. Nothing renders while it runs.')) return;
+  const fd = new URLSearchParams();
+  fd.set('id', SB.id); fd.set('ns', ns.join(','));
+  let r;
+  try { r = await (await fetch('/storyboard/replan-shots', { method: 'POST', body: fd })).json(); }
+  catch (e) { r = { ok: false, error: String(e) }; }
+  if (!r.ok) { phosToast(r.error || 'Could not start the rewrite.', { kind: 'danger', duration: 6000 }); return; }
+  sbShow('planning'); sbSetPlanningStage('load'); sbLoad(SB.id);
+}
+
+function sbStopShot() { api('/stop', 'POST').then(poll); }
+
+async function sbStopFilm() {
+  const shots = (((SB.payload || {}).board) || {}).shots || [];
+  const waiting = shots.filter(s => s.status === 'queued').length;
+  if (!confirm('Stop this storyboard?\n\n' +
+      `The shot that's rendering will finish. The ${waiting} shot${waiting === 1 ? '' : 's'} still waiting ${waiting === 1 ? 'is' : 'are'} removed from the queue.\n` +
+      'Everything already rendered stays.')) return;
+  const fd = new URLSearchParams(); fd.set('id', SB.id);
+  try { await fetch('/storyboard/stop', { method: 'POST', body: fd }); } catch (e) {}
+  sbLoad(SB.id); poll();
+}
+
+async function sbExport() {
+  const fd = new URLSearchParams(); fd.set('id', SB.id);
+  let r;
+  try { r = await (await fetch('/storyboard/export', { method: 'POST', body: fd })).json(); }
+  catch (e) { r = { ok: false, error: String(e) }; }
+  if (!r.ok) { phosToast(r.error || 'Export failed.', { kind: 'danger' }); return; }
+  phosToast(`Exported ${r.files.length} clips + a shot list to ${r.dir}`,
+            { kind: 'success', duration: 6000 });
+  const btn = sbEl('sbExportBtn');
+  const prev = btn.textContent;
+  btn.textContent = 'Show in Finder';
+  btn.onclick = () => fetch('/storyboard/reveal', { method: 'POST', body: fd });
+  setTimeout(() => { btn.textContent = prev; btn.onclick = sbExport; }, 10000);
+}
+
+// ---- board lists -----------------------------------------------------------
+function sbBoardChip(b) {
+  if (b.planning) return 'planning';
+  if (b.running) return 'rendering';
+  if (b.failed) return `${b.failed} failed`;
+  if (!b.done) return 'plan only';
+  if (b.done >= b.shots) return 'drafts done';
+  // Partway and idle — stopped, or one shot retried. Saying "rendering" here
+  // would be the chip claiming something the machine isn't doing.
+  return `${b.done} of ${b.shots}`;
+}
+function sbRenderBoardLists() {
+  const rows = SB.boards.map(b => `
+    <li data-id="${escapeHtml(b.id)}" class="${b.running || b.planning ? 'is-live' : ''}"
+        onclick="sbOpen('${escapeHtml(b.id)}')">
+      <span class="ttl">${escapeHtml(b.title || 'Untitled film')}</span>
+      <span class="params">${b.shots} shots · ${b.done} rendered</span>
+      <span class="badge">${escapeHtml(sbBoardChip(b))}</span>
+      <button title="Delete this storyboard" onclick="event.stopPropagation();sbDeleteBoard('${escapeHtml(b.id)}','${escapeHtml((b.title || '').replace(/'/g, ''))}')"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+    </li>`).join('');
+  const full = sbEl('sbBoardList');
+  if (full) full.innerHTML = rows || '<li class="empty-state"><span></span><span>No storyboards yet</span><span></span><span></span></li>';
+  const mini = sbEl('sbBoardListMini');
+  if (mini) mini.innerHTML = rows;
+}
+async function sbDeleteBoard(id, title) {
+  if (!confirm(`Delete "${title || 'this storyboard'}"?\n\nDeletes the plan. The clips it already rendered stay in mlx_outputs/.`)) return;
+  const fd = new URLSearchParams(); fd.set('id', id);
+  const r = await (await fetch('/storyboard/delete', { method: 'POST', body: fd })).json();
+  if (!r.ok) { phosToast(r.error || 'Could not delete.', { kind: 'danger' }); return; }
+  if (SB.id === id) { SB.id = ''; SB.payload = null; try { localStorage.removeItem('phos_sb_open'); } catch (e) {} }
+  await sbRefreshBoards();
+  sbShow(SB.boards.length ? 'list' : 'empty');
+}
+
+// ---- shared state: pull a normal generation INTO a film ---------------------
+async function sbAddActiveToBoard(chosen) {
+  if (!activePath) return;
+  const sel = sbEl('sbAddSelect');
+  if (!chosen && SB.boards.length > 1 && sel && sel.style.display === 'none') {
+    sel.innerHTML = SB.boards.map(b =>
+      `<option value="${escapeHtml(b.id)}">${escapeHtml(b.title || 'Untitled film')}</option>`).join('')
+      + '<option value="new">— new storyboard —</option>';
+    sel.style.display = '';
+    return;
+  }
+  const id = chosen || (SB.boards.length === 1 ? SB.boards[0].id : (SB.boards[0] || {}).id) || 'new';
+  if (sel) sel.style.display = 'none';
+  const fd = new URLSearchParams();
+  fd.set('id', id); fd.set('path', activePath);
+  let r;
+  try { r = await (await fetch('/storyboard/add-shot', { method: 'POST', body: fd })).json(); }
+  catch (e) { r = { ok: false, error: String(e) }; }
+  if (!r.ok) { phosToast(r.error || 'Could not add the clip.', { kind: 'danger' }); return; }
+  phosToast(`Added to "${r.title || 'the film'}" as shot ${r.n}.`, { kind: 'success' });
+  _flashActionDone('sbAddBtn', 'Added');
+  sbRefreshBoards();
+}
+
+// One badge, one click, no new surface: a gallery card that is a shot of a film
+// opens that film.
+function sbOpenFromClip(id) {
+  workflowSwitch('storyboard');
+  setTimeout(() => sbOpen(id), 30);
+}
+
+// ---- the one cross-tab hook, called at the end of poll() -------------------
+function sbPollHook(s) {
+  SB.boards = s.storyboards || [];
+  const live = SB.boards.filter(b => b.running);
+  const count = sbEl('sbTabCount');
+  if (count) {
+    if (live.length) {
+      const b = live[0];
+      count.hidden = false;
+      count.textContent = `${b.done}/${b.shots}`;
+    } else { count.hidden = true; count.textContent = ''; }
+  }
+  const add = sbEl('sbAddBtn');
+  if (add) add.style.display = SB.boards.length ? '' : 'none';
+  // Plan film is blocked while the worker is busy — constraint 1, made visible.
+  const btn = sbEl('sbPlanBtn');
+  if (btn && btn.dataset.busy !== '1') {
+    const busy = !!s.running || !!(s.queue || []).length;
+    const empty = !((sbEl('sbConcept') || {}).value || '').trim();
+    btn.disabled = busy || empty;
+    btn.title = busy ? 'The renderer is using the memory. Planning can start when the queue is empty.'
+              : empty ? 'Write a couple of sentences about the film first.' : '';
+  }
+  if (document.body.dataset.workflow === 'storyboard' && SB.id) sbRenderRunBar(SB.payload || {});
+}
+
+// ---- wiring ----------------------------------------------------------------
+document.addEventListener('click', (ev) => {
+  const chip = ev.target.closest && ev.target.closest('#sbLengthGroup .q-chip');
+  if (chip) { sbSetShots(Number(chip.dataset.sbShots)); return; }
+  const q = ev.target.closest && ev.target.closest('#sbDraftQuality .pill-btn, #sbFinalQuality .pill-btn');
+  if (q) {
+    const board = ((SB.payload || {}).board);
+    if (!board) return;
+    const which = q.closest('#sbDraftQuality') ? 'draft' : 'final';
+    const table = { quick: [640, 480], balanced: [768, 432], standard: [1024, 576], high: [1024, 576] };
+    const dims = table[q.dataset.q] || [1024, 576];
+    board.policy = board.policy || {};
+    board.policy[which] = Object.assign({}, board.policy[which],
+      { quality: q.dataset.q, width: dims[0], height: dims[1] });
+    sbSaveSetting(which === 'draft' ? 'storyboard_draft_quality' : 'storyboard_final_quality', q.dataset.q);
+    sbRenderPlan(SB.payload);
+    sbQueueSave(true);
+    return;
+  }
+  const act = ev.target.closest && ev.target.closest('#sbShots [data-act]');
+  if (act) {
+    const li = act.closest('.sb-shot');
+    if (li) sbShotAction(Number(li.dataset.n), act.dataset.act, act, ev);
+    return;
+  }
+  const seg = ev.target.closest && ev.target.closest('.sb-runseg');
+  if (seg) {
+    const ns = (seg.dataset.shots || '').split(',');
+    document.querySelectorAll('.sb-shot').forEach(el =>
+      el.classList.toggle('is-lit', ns.indexOf(el.dataset.n) !== -1));
+  }
+});
+document.addEventListener('mouseover', (ev) => {
+  const seg = ev.target.closest && ev.target.closest('.sb-runseg');
+  if (!seg) return;
+  const ns = (seg.dataset.shots || '').split(',');
+  document.querySelectorAll('.sb-shot').forEach(el =>
+    el.classList.toggle('is-lit', ns.indexOf(el.dataset.n) !== -1));
+});
+document.addEventListener('mouseout', (ev) => {
+  if (ev.target.closest && ev.target.closest('.sb-runseg'))
+    document.querySelectorAll('.sb-shot.is-lit').forEach(el => el.classList.remove('is-lit'));
+});
+document.addEventListener('change', (ev) => {
+  const el = ev.target.closest && ev.target.closest('#sbShots [data-act]');
+  if (!el) return;
+  const li = el.closest('.sb-shot');
+  if (li) sbShotAction(Number(li.dataset.n), el.dataset.act, el, ev);
+});
+let _sbPromptTimer = null;
+document.addEventListener('input', (ev) => {
+  const el = ev.target.closest && ev.target.closest('#sbShots textarea[data-act="prompt"]');
+  if (!el) return;
+  const li = el.closest('.sb-shot');
+  const s = sbShotById(Number(li.dataset.n));
+  if (!s) return;
+  s.prompt = el.value;
+  sbAutoGrowPrompts(el);
+  if (_sbPromptTimer) clearTimeout(_sbPromptTimer);
+  _sbPromptTimer = setTimeout(() => sbQueueSave(true), 800);
+});
+// Grade keys: K / R / C with a card focused. Surfaced in the tally bar's title,
+// not as visible chrome.
+document.addEventListener('keydown', (ev) => {
+  if (document.body.dataset.workflow !== 'storyboard') return;
+  const li = document.activeElement && document.activeElement.closest
+           && document.activeElement.closest('.sb-shot');
+  if (!li || /^(INPUT|TEXTAREA|SELECT)$/.test((ev.target.tagName || ''))) return;
+  const g = { k: 'keep', r: 'reroll', c: 'cut' }[ev.key.toLowerCase()];
+  if (!g) return;
+  const n = Number(li.dataset.n);
+  const s = sbShotById(n);
+  if (!s || !(s.draft_output || s.final_output)) return;
+  ev.preventDefault();
+  sbGrade(n, s.grade === g ? null : g, s.note || '');
+});
+// Drag to reorder — ~20 lines, no library. The ↑ / ↓ buttons are the primary
+// affordance (keyboard- and touch-reachable); drag is the enhancement.
+let _sbDragN = null;
+document.addEventListener('dragstart', (ev) => {
+  const li = ev.target.closest && ev.target.closest('.sb-shot');
+  if (!li || li.getAttribute('draggable') === 'false') return;
+  _sbDragN = Number(li.dataset.n);
+  li.classList.add('is-dragging');
+  try { ev.dataTransfer.setData('text/plain', String(_sbDragN)); } catch (e) {}
+});
+document.addEventListener('dragover', (ev) => {
+  const li = ev.target.closest && ev.target.closest('.sb-shot');
+  if (!li || _sbDragN == null) return;
+  ev.preventDefault();
+  const r = li.getBoundingClientRect();
+  const after = (ev.clientY - r.top) > r.height / 2;
+  document.querySelectorAll('.sb-shot').forEach(el =>
+    el.classList.remove('sb-drop-before', 'sb-drop-after'));
+  li.classList.add(after ? 'sb-drop-after' : 'sb-drop-before');
+});
+document.addEventListener('drop', (ev) => {
+  const li = ev.target.closest && ev.target.closest('.sb-shot');
+  if (!li || _sbDragN == null) return;
+  ev.preventDefault();
+  const board = ((SB.payload || {}).board);
+  const from = board.shots.findIndex(s => s.n === _sbDragN);
+  let to = board.shots.findIndex(s => s.n === Number(li.dataset.n));
+  const r = li.getBoundingClientRect();
+  if ((ev.clientY - r.top) > r.height / 2) to += 1;
+  if (from < 0 || to < 0) return;
+  const moved = board.shots.splice(from, 1)[0];
+  board.shots.splice(to > from ? to - 1 : to, 0, moved);
+  board.shots.forEach((x, k) => { x.n = k + 1; });
+  sbRenderPlan(SB.payload);
+  sbQueueSave(true);
+});
+document.addEventListener('dragend', () => {
+  _sbDragN = null;
+  document.querySelectorAll('.sb-shot').forEach(el =>
+    el.classList.remove('is-dragging', 'sb-drop-before', 'sb-drop-after'));
+});
+document.getElementById('sbStyle') && document.getElementById('sbStyle')
+  .addEventListener('input', () => {});
+
 function workflowSwitch(name) {
   // 2026-05-17 — Characters is no longer its own top-level tab. The
   // chip strip is integrated into Manual (T2V). If we get a stale
@@ -44184,6 +46399,7 @@ function workflowSwitch(name) {
   const studio = document.getElementById('studioSection');
   const train = document.getElementById('trainSection');
   const audioTab = document.getElementById('audioSectionTab');
+  const sbTab = document.getElementById('sbSectionTab');
   const characters = document.getElementById('charactersSection');  // dead HTML; hide defensively
   // Set body data attribute so CSS can switch the layout per workflow.
   document.body.setAttribute('data-workflow', name);
@@ -44191,8 +46407,22 @@ function workflowSwitch(name) {
   if (studio) studio.classList.remove('show');
   if (train) train.classList.remove('show');
   if (audioTab) audioTab.style.display = 'none';
+  if (sbTab) sbTab.style.display = 'none';
   if (characters) characters.classList.remove('show');
-  if (name === 'studio') {
+  // The board poller is the Storyboard tab's only timer and it stops on exit —
+  // no new polling loop runs while the tab is closed.
+  if (name !== 'storyboard') {
+    if (typeof sbTeardown === 'function') sbTeardown();
+    document.body.classList.remove('sb-full');
+  }
+  if (name === 'storyboard') {
+    // Storyboard is a layer ABOVE the video modes, not one of them: it submits
+    // a brief to a planner and its output is a plan, not a clip. Hence a
+    // workflow tab rather than a 6th chip in #modeGroup.
+    if (manual) manual.style.display = 'none';
+    if (sbTab) sbTab.style.display = 'block';
+    if (typeof sbInit === 'function') sbInit();
+  } else if (name === 'studio') {
     // Studio is its own top-level tab now (was a mode chip inside
     // Manual). The setMode('image') logic still wires up the studio
     // pane + portals the LoRA picker into the studio composer; just
@@ -44243,7 +46473,10 @@ try {
   // 2026-05-17 — Characters tab removed; 'characters' now snaps to
   // 'manual' (workflowSwitch handles the alias). 'studio' is new.
   // 2026-05-18 — 'audio' is the Audio → Video workflow tab.
-  if (saved === 'studio' || saved === 'train' || saved === 'characters' || saved === 'audio') {
+  // 2026-08-11 — 'storyboard' is the plan-a-film workflow tab. It MUST be in
+  // this list or the tab simply never restores across a reload.
+  if (saved === 'studio' || saved === 'train' || saved === 'characters' ||
+      saved === 'audio' || saved === 'storyboard') {
     workflowSwitch(saved);
   }
   // Clear any stale agent-fullscreen flag from the removed chat surface.
@@ -44343,6 +46576,7 @@ if __name__ == "__main__":
     # BEFORE worker_loop starts, or the resumed job races an orphan that is
     # still holding 40 GiB of the same GPU.
     reap_orphan_subprocesses()
+    _sb_boot_reconcile()
     load_hidden()
     load_queue()
     threading.Thread(target=worker_loop, daemon=True).start()
