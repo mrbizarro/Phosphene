@@ -387,6 +387,20 @@ def pack_repo(quant: str, version_id: str | None = None) -> dict | None:
     return None
 
 
+def _quant_for_repo_key(repo_key: str | None,
+                        version_id: str | None = None) -> str | None:
+    """Reverse lookup: which pack of this version does a required_files.json
+    repo key back? None for repos that aren't model packs at all (gemma, the
+    IC-LoRAs). Lets repo-shaped code ask the registry without knowing the
+    version's pack names."""
+    if not repo_key:
+        return None
+    for p in model_version(version_id).get("packs", ()):
+        if p.get("repo_key") == repo_key:
+            return p["quant"]
+    return None
+
+
 def version_cap_tiers(version_id: str | None = None) -> tuple[str, ...]:
     return tuple(model_version(version_id).get("cap_tiers", ("q4",)))
 
@@ -3490,32 +3504,62 @@ def base_missing() -> list[str]:
     return out
 
 
-def q8_missing_files() -> list[str]:
-    """Files missing for the Q8 repo (bare filenames). Honors $LTX_Q8_LOCAL.
+def pack_missing_files(quant: str, version_id: str | None = None) -> list[str]:
+    """Files missing for ONE pack of ONE model version (bare filenames).
 
-    When LTX_Q8_LOCAL is set, it overrides the Q8 repo's local_dir — we
-    re-route the check there. Other overrides (e.g. moving Q4 elsewhere)
-    aren't supported via env var; users with custom layouts should adjust
-    required_files.json directly."""
-    for r in _repos():
-        if r.get("key") == "q8":
-            override = r.copy()
-            override["local_dir"] = str(Q8_LOCAL_PATH.relative_to(ROOT)) \
-                if Q8_LOCAL_PATH.is_relative_to(ROOT) else str(Q8_LOCAL_PATH)
-            # _repo_missing uses ROOT-relative; if Q8_LOCAL_PATH is absolute
-            # outside ROOT, build a temporary repo with absolute base.
-            if Path(override["local_dir"]).is_absolute():
-                missing = []
-                for fname in r.get("files", []):
-                    p = Path(override["local_dir"]) / fname
-                    try:
-                        if not p.exists() or p.stat().st_size < _MIN_FILE_BYTES:
-                            missing.append(fname)
-                    except OSError:
-                        missing.append(fname)
-                return missing
-            return _repo_missing(override)
-    return []
+    This is the anti-mosaic primitive. The file list comes from the pack's
+    `required_files.json` entry (reached through the registry by repo key,
+    never by a literal), and the directory comes from the registry's resolved
+    pack path — so the answer is always about the exact weights the job is
+    going to load, and a second model version cannot inherit the first one's
+    answer.
+
+    Directory resolution keeps the pre-registry behaviour exactly: a pack
+    under ROOT is checked ROOT-relative via `_repo_missing`; a pack an env
+    var moved outside ROOT (LTX_Q8_LOCAL) is checked absolutely. Returns []
+    for a quant this version doesn't ship, which is the honest answer — the
+    caller's job is to notice the pack isn't registered, not to see phantom
+    missing files."""
+    repo = pack_repo(quant, version_id)
+    if not repo:
+        return []
+    base = pack_path(quant, version_id)
+    if base.is_relative_to(ROOT):
+        override = repo.copy()
+        override["local_dir"] = str(base.relative_to(ROOT))
+        return _repo_missing(override)
+    missing = []
+    for fname in repo.get("files", []):
+        p = base / fname
+        try:
+            if not p.exists() or p.stat().st_size < _MIN_FILE_BYTES:
+                missing.append(fname)
+        except OSError:
+            missing.append(fname)
+    return missing
+
+
+def pack_available_anywhere(quant: str, version_id: str | None = None) -> bool:
+    """True if (version, quant) is complete in EITHER its local dir OR the HF
+    cache — the cache-aware form of `pack_missing_files`. Same reasoning as
+    q8_available_anywhere below, generalised to any registered pack."""
+    repo = pack_repo(quant, version_id)
+    if not repo:
+        return False
+    for entry in repo_status_list():
+        if entry.get("key") == repo.get("key"):
+            return bool(entry.get("complete"))
+    return False
+
+
+def q8_missing_files() -> list[str]:
+    """Files missing for the active version's Q8 pack (bare filenames).
+    Honors $LTX_Q8_LOCAL via the registry's pack path.
+
+    Kept as a named function because ~10 job-time gates and /status read it;
+    the logic now lives in `pack_missing_files` so a second model version
+    asks the same question about its OWN pack."""
+    return pack_missing_files("q8")
 
 
 def q8_available_anywhere() -> bool:
@@ -3534,10 +3578,7 @@ def q8_available_anywhere() -> bool:
     cache. This helper is the single source of truth so the FFLF gate
     matches the model browser.
     """
-    for repo in repo_status_list():
-        if repo.get("key") == "q8":
-            return bool(repo.get("complete"))
-    return False
+    return pack_available_anywhere("q8")
 
 
 def repo_status_list() -> list[dict]:
@@ -3558,9 +3599,20 @@ def repo_status_list() -> list[dict]:
     for r in _repos():
         local_dir = r["local_dir"]
         if r.get("key") == "q8":
+            # DISPLAY convention only, deliberately left as a special case:
+            # this string is what /models and the model browser print, and
+            # q8 has printed the absolute path since LTX_Q8_LOCAL existed
+            # while every other repo prints the ROOT-relative one. Making
+            # them agree is a cosmetic change to a shipped surface, not part
+            # of the version seam — the seam is WHICH FILES in WHICH DIR, and
+            # that is registry-driven below.
             local_dir = str(Q8_LOCAL_PATH)
 
-        local_missing = q8_missing_files() if r.get("key") == "q8" else _repo_missing(r)
+        # Completeness is asked of the registry when this repo backs a
+        # registered pack, so the answer is per-(version, pack) and a second
+        # model version gets its own answer instead of inheriting 2.3's.
+        _quant = _quant_for_repo_key(r.get("key"))
+        local_missing = pack_missing_files(_quant) if _quant else _repo_missing(r)
         total = len(r.get("files", []))
         local_present = total - len(local_missing)
 
