@@ -101,11 +101,71 @@ _PIPELINE_BUCKET = {
     "a2v": "a2v",
 }
 
+# Storyboard mode -> the mode string the PANEL'S job form actually speaks.
+#
+# This is load-bearing and it is not cosmetic. `mlx_ltx_panel.py` has exactly one backend
+# video mode for both of v1's shot types: t2v. "Character" is a UI INTENT there, not a mode —
+# the panel's own setMode('character') sets the hidden #mode field to 't2v' and lets
+# `character_id` drive the LoRA stack ("Mode hidden field still 't2v' — backend doesn't know
+# 'character' and doesn't need to"). Posting mode="character" or mode="text" to /queue/add
+# reaches run_job_inner with a mode nothing dispatches on.
+_PANEL_MODE = {
+    "text": "t2v",
+    "character": "t2v",
+    "remix": "t2v",        # remix rides t2v + an IC-LoRA ref; not enqueued in v1 (no refs)
+    "keyframe": "keyframe",
+    "extend": "extend",
+    "a2v": "a2v",
+}
+
+# Engines a shot may name. Anything else falls back to the built-in one.
+VALID_ENGINES = ("ltx", "h3")
+DEFAULT_ENGINE = "ltx"
+
+# LTX renders at 24 fps and the sampler requires frames % 8 == 1.
+LTX_FPS = 24
+
+# H3's duration axis. The panel owns the canonical table (H3_TIERS, built from a quality axis
+# and a length axis); these are the LENGTH keys and the frame count each one delivers, on the
+# 17n+5 grid the runner snaps to. Duplicated here — as data, not as a second cost model — so
+# `shot_to_job()` emits a self-consistent job dict without importing the panel (this module is
+# deliberately pure-stdlib so it unit-tests with no GPU and no weights). make_job re-stamps
+# width/height/frames from the real cell, so the panel is still the authority; a drift here
+# can only make the pre-flight job dict look wrong, never make a render come out wrong.
+H3_LENGTHS = ("3s", "5s", "10s", "15s")
+_H3_LENGTH_SECONDS = {"3s": 3.0, "5s": 5.0, "10s": 10.0, "15s": 15.0}
+_H3_LENGTH_FRAMES = {"3s": 73, "5s": 124, "10s": 243, "15s": 362}
+
+# A pass's quality (the LTX vocabulary the policy speaks) -> H3's canvas axis.
+# quick 640x384 · standard 768x448 · high 1024x576 are the three offered canvases;
+# "native" (1344x768) is deliberately unreachable from a storyboard pass — it is a ~20 min
+# clip with Turbo and ~45 without, which is not a cost any pass-level choice should be able
+# to opt someone into silently.
+_H3_QUALITY_FOR_PASS = {
+    "quick": "draft",
+    "balanced": "standard",
+    "standard": "high",
+    "high": "high",
+}
+
 # Rough per-second-of-video render cost, by quality, in seconds of wall clock. Deliberately
 # pessimistic — the estimate exists to stop someone starting a 6-hour job unaware, not to be
 # a benchmark. Tuned against observed two-stage 1536x896 ~11 min for a 5 s clip.
 _SECS_PER_VIDEO_SEC = {"quick": 24.0, "balanced": 60.0, "standard": 96.0, "high": 132.0}
 _PIPELINE_LOAD_SECS = 90.0
+
+# H3 FALLBACK cost, per second of video, by canvas. The panel passes `h3_cost=` into
+# estimate() and that hook wins every time — it reads H3_TIERS[cell]["eta_min"], which is
+# MEASURED wall clock per cell and is the only number allowed on screen. This table exists so
+# storyboard.py keeps working (and keeps unit-testing) standalone, and it is derived from the
+# same measurements rather than invented:
+#   draft 3s     3.0 min / 3 s  =  60 s per video-second
+#   standard 5s  9.1 min / 5 s  = 109
+#   high 5s     18.8 min / 5 s  = 226   (no Turbo)
+#   native 5s   44.9 min / 5 s  = 538   (no Turbo, never selected by a pass)
+# An H3 clip is a fresh subprocess that loads its own weights, so this per-clip number is
+# END TO END — which is why an H3 bucket adds no separate pipeline-load charge below.
+_H3_SECS_PER_VIDEO_SEC = {"draft": 60.0, "standard": 109.0, "high": 226.0, "native": 538.0}
 
 
 class StoryboardError(Exception):
@@ -190,6 +250,144 @@ def list_storyboards(state_dir: Path) -> list[dict]:
 # Phase 2 — VALIDATE (no models, sub-second, runs BEFORE anything renders)
 # ---------------------------------------------------------------------------
 
+def validate_storyboard_detail(
+    board: dict,
+    *,
+    known_character_ids: Iterable[str] = (),
+    ref_root: Path | None = None,
+    max_dim: int | None = None,
+) -> list[dict]:
+    """Every check `validate_storyboard()` makes, STRUCTURED. Empty list == good to shoot.
+
+    Each entry is::
+
+        {"code": "missing_trigger",         # stable machine name, never translated
+         "n": 3 | None,                     # which shot, when it is about one
+         "field": "prompt" | None,          # which control to focus / flag
+         "message": "<the exact string validate_storyboard() has always returned>",
+         "data": {...}}                     # whatever a fix button needs
+
+    This exists so the UI can render its own human copy per `code` and still put a Fix button
+    beside the right control, WITHOUT regexing English out of `message`. `validate_storyboard()`
+    below is now a formatter over this, so the strings stay byte-identical by construction and
+    the panel's copy can never drift from the check that produced it.
+
+    The whole point of both: a two-hour render must never begin on a plan that cannot succeed.
+    Everything here is cheap string/path/int checking, so it costs ~nothing and can run on
+    every save. Errors read as a fix-list, not a stack trace.
+    """
+    errs: list[dict] = []
+    chars = set(known_character_ids or ())
+
+    def add(code: str, message: str, *, n: int | None = None,
+            field: str | None = None, **data: Any) -> None:
+        errs.append({"code": code, "n": n, "field": field,
+                     "message": message, "data": data})
+
+    if board.get("schema") != SCHEMA_VERSION:
+        add("schema_version",
+            f"schema version {board.get('schema')!r} — this build understands {SCHEMA_VERSION}",
+            got=board.get("schema"), expected=SCHEMA_VERSION)
+    if not str(board.get("id") or "").strip():
+        add("board_id_empty", "storyboard.id is empty")
+
+    shots = board.get("shots")
+    if not isinstance(shots, list) or not shots:
+        add("no_shots", "storyboard has no shots")
+        return errs
+
+    policy = board.get("policy") or {}
+    seen_n: set[int] = set()
+
+    for idx, s in enumerate(shots):
+        # `where` used to be computed from s.get() BEFORE the isinstance check, so a shot that
+        # was a string (exactly the case the next line reports) raised AttributeError instead
+        # of returning the error. Fall back to the positional number for a non-dict.
+        if not isinstance(s, dict):
+            add("shot_not_object", f"shot {idx + 1}: not an object", n=idx + 1)
+            continue
+        num = s.get("n", idx + 1)
+        where = f"shot {num}"
+        n_for_ui = num if isinstance(num, int) else idx + 1
+
+        n = s.get("n")
+        if not isinstance(n, int) or n < 1:
+            add("shot_number", f"{where}: 'n' must be a positive integer",
+                n=n_for_ui, field="n", got=n)
+        elif n in seen_n:
+            add("shot_duplicate", f"{where}: duplicate shot number {n}",
+                n=n_for_ui, field="n", duplicate=n)
+        else:
+            seen_n.add(n)
+
+        mode = s.get("mode")
+        if mode not in VALID_MODES:
+            add("bad_mode",
+                f"{where}: mode {mode!r} is not one of {', '.join(VALID_MODES)}",
+                n=n_for_ui, field="mode", mode=mode, valid=list(VALID_MODES))
+
+        prompt = (s.get("prompt") or "").strip()
+        if not prompt:
+            add("empty_prompt", f"{where}: empty prompt", n=n_for_ui, field="prompt")
+
+        cid = s.get("character_id")
+        if cid:
+            if chars and cid not in chars:
+                add("unknown_character",
+                    f"{where}: character {cid!r} is not installed "
+                    f"(have: {', '.join(sorted(chars)) or 'none'})",
+                    n=n_for_ui, field="character_id",
+                    character_id=cid, have=sorted(chars))
+            # The trigger is injected mechanically, never trusted to the LLM — but if a plan
+            # arrives with a character and the trigger is missing from the prompt, the LoRA
+            # will not fire and the shot silently renders a stranger. Catch it here.
+            trig = (s.get("trigger") or cid or "").strip()
+            if trig and not re.search(rf"\b{re.escape(trig)}\b", prompt):
+                add("missing_trigger",
+                    f"{where}: prompt is missing the character trigger {trig!r}",
+                    n=n_for_ui, field="prompt", trigger=trig)
+        elif mode == "character":
+            add("character_without_id",
+                f"{where}: mode 'character' requires a character_id",
+                n=n_for_ui, field="character_id")
+
+        dur = s.get("duration_s")
+        if not isinstance(dur, (int, float)) or not (0 < float(dur) <= 60):
+            add("bad_duration",
+                f"{where}: duration_s must be between 0 and 60 (got {dur!r})",
+                n=n_for_ui, field="duration_s", duration_s=dur)
+
+        refs = s.get("refs") or []
+        if not isinstance(refs, list):
+            add("refs_not_list", f"{where}: refs must be a list",
+                n=n_for_ui, field="refs")
+        else:
+            for r in refs:
+                rp = Path(r)
+                if ref_root is not None and not rp.is_absolute():
+                    rp = Path(ref_root) / rp
+                if not rp.is_file():
+                    add("ref_missing", f"{where}: reference image not found: {r}",
+                        n=n_for_ui, field="refs", ref=str(r), name=Path(str(r)).name)
+        if mode == "remix" and not refs:
+            add("remix_needs_ref",
+                f"{where}: mode 'remix' needs at least one reference image",
+                n=n_for_ui, field="refs")
+
+    # Resolution legality for the active tier. Q4 machines clamp; a plan that assumes 1536
+    # on a 16 GB Mac would either clamp silently or swap, so surface it now.
+    if max_dim:
+        for key in ("draft", "final"):
+            p = policy.get(key) or {}
+            w, h = p.get("width"), p.get("height")
+            if isinstance(w, int) and isinstance(h, int) and max(w, h) > max_dim:
+                add("over_cap",
+                    f"policy.{key}: {w}x{h} exceeds this machine's {max_dim}px cap — "
+                    f"lower it or the render will clamp",
+                    field=f"policy.{key}", pass_name=key, width=w, height=h, max_dim=max_dim)
+    return errs
+
+
 def validate_storyboard(
     board: dict,
     *,
@@ -199,100 +397,39 @@ def validate_storyboard(
 ) -> list[str]:
     """Return a list of human-readable problems. Empty list == good to shoot.
 
-    The whole point: a two-hour render must never begin on a plan that cannot succeed.
-    Everything here is cheap string/path/int checking, so it costs ~nothing and can run on
-    every save. Errors read as a fix-list, not a stack trace.
+    A formatter over validate_storyboard_detail(): same checks, same order, byte-identical
+    strings. Kept because it is the documented public surface and it reads better at a REPL.
     """
-    errs: list[str] = []
-    chars = set(known_character_ids or ())
-
-    if board.get("schema") != SCHEMA_VERSION:
-        errs.append(
-            f"schema version {board.get('schema')!r} — this build understands {SCHEMA_VERSION}"
-        )
-    if not str(board.get("id") or "").strip():
-        errs.append("storyboard.id is empty")
-
-    shots = board.get("shots")
-    if not isinstance(shots, list) or not shots:
-        errs.append("storyboard has no shots")
-        return errs
-
-    policy = board.get("policy") or {}
-    seen_n: set[int] = set()
-
-    for idx, s in enumerate(shots):
-        where = f"shot {s.get('n', idx + 1)}"
-        if not isinstance(s, dict):
-            errs.append(f"{where}: not an object")
-            continue
-
-        n = s.get("n")
-        if not isinstance(n, int) or n < 1:
-            errs.append(f"{where}: 'n' must be a positive integer")
-        elif n in seen_n:
-            errs.append(f"{where}: duplicate shot number {n}")
-        else:
-            seen_n.add(n)
-
-        mode = s.get("mode")
-        if mode not in VALID_MODES:
-            errs.append(f"{where}: mode {mode!r} is not one of {', '.join(VALID_MODES)}")
-
-        prompt = (s.get("prompt") or "").strip()
-        if not prompt:
-            errs.append(f"{where}: empty prompt")
-
-        cid = s.get("character_id")
-        if cid:
-            if chars and cid not in chars:
-                errs.append(
-                    f"{where}: character {cid!r} is not installed "
-                    f"(have: {', '.join(sorted(chars)) or 'none'})"
-                )
-            # The trigger is injected mechanically, never trusted to the LLM — but if a plan
-            # arrives with a character and the trigger is missing from the prompt, the LoRA
-            # will not fire and the shot silently renders a stranger. Catch it here.
-            trig = (s.get("trigger") or cid or "").strip()
-            if trig and not re.search(rf"\b{re.escape(trig)}\b", prompt):
-                errs.append(f"{where}: prompt is missing the character trigger {trig!r}")
-        elif mode == "character":
-            errs.append(f"{where}: mode 'character' requires a character_id")
-
-        dur = s.get("duration_s")
-        if not isinstance(dur, (int, float)) or not (0 < float(dur) <= 60):
-            errs.append(f"{where}: duration_s must be between 0 and 60 (got {dur!r})")
-
-        refs = s.get("refs") or []
-        if not isinstance(refs, list):
-            errs.append(f"{where}: refs must be a list")
-        else:
-            for r in refs:
-                rp = Path(r)
-                if ref_root is not None and not rp.is_absolute():
-                    rp = Path(ref_root) / rp
-                if not rp.is_file():
-                    errs.append(f"{where}: reference image not found: {r}")
-        if mode == "remix" and not refs:
-            errs.append(f"{where}: mode 'remix' needs at least one reference image")
-
-    # Resolution legality for the active tier. Q4 machines clamp; a plan that assumes 1536
-    # on a 16 GB Mac would either clamp silently or swap, so surface it now.
-    if max_dim:
-        for key in ("draft", "final"):
-            p = policy.get(key) or {}
-            w, h = p.get("width"), p.get("height")
-            if isinstance(w, int) and isinstance(h, int) and max(w, h) > max_dim:
-                errs.append(
-                    f"policy.{key}: {w}x{h} exceeds this machine's {max_dim}px cap — "
-                    f"lower it or the render will clamp"
-                )
-    return errs
+    return [e["message"] for e in validate_storyboard_detail(
+        board,
+        known_character_ids=known_character_ids,
+        ref_root=ref_root,
+        max_dim=max_dim,
+    )]
 
 
 # ---------------------------------------------------------------------------
 # Phase 3 — SHOOT: scheduling
 # ---------------------------------------------------------------------------
+
+def shot_engine(shot: dict) -> str:
+    """The engine a shot renders on, normalised. Unknown / missing -> the built-in one."""
+    e = str(shot.get("engine") or "").strip().lower()
+    return e if e in VALID_ENGINES else DEFAULT_ENGINE
+
+
+def bucket_key(shot: dict) -> tuple[str, str]:
+    """The scheduling bucket: (engine, pipeline kind).
+
+    ENGINE IS PART OF THE KEY, and that is the whole fix. Keying on `mode` alone put an H3
+    `text` shot in the same bucket as an LTX one, so a mixed film interleaved the two — and an
+    H3 job *tears the LTX warm helper down* before it runs (run_h3_job_inner kills it; 40 GiB
+    + the helper's weights does not fit on a 64 GB Mac) and the helper cold-starts again on the
+    next LTX job. Interleaved, that teardown is paid per switch, which INVERTS the exact cost
+    this grouping exists to avoid.
+    """
+    return (shot_engine(shot), _PIPELINE_BUCKET.get(shot.get("mode"), "t2v"))
+
 
 def shooting_order(shots: list[dict]) -> list[dict]:
     """Group shots by pipeline bucket so the warm helper reloads once per KIND, not per shot.
@@ -307,52 +444,142 @@ def shooting_order(shots: list[dict]) -> list[dict]:
     re-sorted by `n` at assembly, so viewing order is unaffected.
     """
     pending = [s for s in shots if s.get("status") not in ("done", "skipped")]
-    bucket_first: dict[str, int] = {}
+    bucket_first: dict[tuple[str, str], int] = {}
     for s in pending:
-        b = _PIPELINE_BUCKET.get(s.get("mode"), "t2v")
+        b = bucket_key(s)
         n = s.get("n") or 0
         if b not in bucket_first or n < bucket_first[b]:
             bucket_first[b] = n
     return sorted(
         pending,
-        key=lambda s: (
-            bucket_first.get(_PIPELINE_BUCKET.get(s.get("mode"), "t2v"), 1 << 30),
-            s.get("n") or 0,
-        ),
+        key=lambda s: (bucket_first.get(bucket_key(s), 1 << 30), s.get("n") or 0),
     )
 
 
-def estimate(board: dict, *, pass_name: str = "final") -> dict:
+def h3_length_for(duration_s: float) -> str:
+    """Snap a duration onto H3's length axis. Ties go to the shorter window."""
+    d = float(duration_s or 0) or 5.0
+    return min(H3_LENGTHS, key=lambda k: (abs(_H3_LENGTH_SECONDS[k] - d), _H3_LENGTH_SECONDS[k]))
+
+
+def h3_quality_for(quality: str) -> str:
+    """A pass's quality -> H3's canvas axis."""
+    return _H3_QUALITY_FOR_PASS.get((quality or "").strip().lower(), "standard")
+
+
+def ltx_frames_for(duration_s: float) -> int:
+    """Seconds -> an LTX frame count on the sampler's `frames % 8 == 1` grid, at 24 fps.
+
+    3 s -> 73 · 5 s -> 121 · 7 s -> 169 · 10 s -> 241, which is exactly the table docs/API.md
+    publishes, so a storyboard shot and a hand-typed generation of the same length produce the
+    same number of frames.
+    """
+    d = float(duration_s or 0)
+    if d <= 0:
+        return 0
+    n = max(1, round(d * LTX_FPS))
+    return max(9, 8 * round((n - 1) / 8) + 1)
+
+
+def shot_render_secs(shot: dict, policy_pass: dict, *, h3_cost=None) -> float:
+    """Wall clock for ONE shot, on the engine it actually renders on.
+
+    `h3_cost(quality_key, length_key) -> seconds | None` is the panel's measured per-cell hook
+    (H3_TIERS[cell]["eta_min"] * 60). When it is absent or returns nothing we fall back to
+    `_H3_SECS_PER_VIDEO_SEC`, which is derived from the same measurements. LTX keeps the
+    per-second table it has always used.
+    """
+    dur = float(shot.get("duration_s") or 0)
+    quality = policy_pass.get("quality", "balanced")
+    if shot_engine(shot) == "h3":
+        lk = h3_length_for(dur)
+        qk = h3_quality_for(quality)
+        if h3_cost is not None:
+            try:
+                got = h3_cost(qk, lk)
+            except Exception:
+                got = None
+            if got:
+                return float(got)
+        return _H3_SECS_PER_VIDEO_SEC.get(qk, 109.0) * _H3_LENGTH_SECONDS[lk]
+    return dur * _SECS_PER_VIDEO_SEC.get(quality, 60.0)
+
+
+def estimate(board: dict, *, pass_name: str = "final", h3_cost=None) -> dict:
     """Wall-clock estimate for a pass, accounting for pipeline reloads.
 
     Deliberately pessimistic. Its job is to let someone see '2 h 40 m' BEFORE committing,
     and to show what grouped scheduling saves versus naive story order.
+
+    ENGINE-AWARE since 2026-08-11. It used to price every shot off the LTX per-second table,
+    which under-reports an H3 shot by roughly 2x (an H3 5 s High clip is ~8.5 min measured
+    against this table's ~5 min, and a Native 5 s is ~20). A number the summary bar prints
+    before someone spends an afternoon has to be honest for the film they actually planned.
+
+    Only LTX buckets are charged a pipeline load: an H3 job is a fresh subprocess that loads
+    its own weights every time, so that cost is already inside its measured per-clip eta.
     """
     shots = [s for s in (board.get("shots") or []) if s.get("status") not in ("done", "skipped")]
     policy = (board.get("policy") or {}).get(pass_name) or {}
-    quality = policy.get("quality", "balanced")
-    per_sec = _SECS_PER_VIDEO_SEC.get(quality, 60.0)
 
-    render = sum(float(s.get("duration_s") or 0) * per_sec for s in shots)
+    render = sum(shot_render_secs(s, policy, h3_cost=h3_cost) for s in shots)
 
-    grouped_loads = len({_PIPELINE_BUCKET.get(s.get("mode"), "t2v") for s in shots})
+    grouped = {bucket_key(s) for s in shots}
+    grouped_loads = len(grouped)
+    grouped_ltx = sum(1 for b in grouped if b[0] != "h3")
+
     naive_loads = 0
+    naive_ltx = 0
     prev = None
     for s in sorted(shots, key=lambda x: x.get("n") or 0):
-        b = _PIPELINE_BUCKET.get(s.get("mode"), "t2v")
+        b = bucket_key(s)
         if b != prev:
             naive_loads += 1
+            if b[0] != "h3":
+                naive_ltx += 1
             prev = b
+
+    engine_mix: dict[str, int] = {}
+    for s in shots:
+        e = shot_engine(s)
+        engine_mix[e] = engine_mix.get(e, 0) + 1
 
     return {
         "pass": pass_name,
         "shots": len(shots),
         "render_secs": round(render),
         "pipeline_loads": grouped_loads,
-        "total_secs": round(render + grouped_loads * _PIPELINE_LOAD_SECS),
-        "naive_total_secs": round(render + naive_loads * _PIPELINE_LOAD_SECS),
-        "saved_secs": round((naive_loads - grouped_loads) * _PIPELINE_LOAD_SECS),
+        "total_secs": round(render + grouped_ltx * _PIPELINE_LOAD_SECS),
+        "naive_total_secs": round(render + naive_ltx * _PIPELINE_LOAD_SECS),
+        "saved_secs": round((naive_ltx - grouped_ltx) * _PIPELINE_LOAD_SECS),
+        # Additive, for the UI: the run strip draws one segment per bucket, and the summary
+        # bar says "Hailuo H3 isn't installed" only when it has to.
+        "engine_mix": engine_mix,
+        "runtime_secs": round(sum(float(s.get("duration_s") or 0) for s in shots)),
+        "buckets": [
+            {"engine": e, "kind": k,
+             "shots": sorted(s.get("n") or 0 for s in shots if bucket_key(s) == (e, k))}
+            for (e, k) in sorted(
+                grouped,
+                key=lambda b: min((s.get("n") or 0) for s in shots if bucket_key(s) == b),
+            )
+        ],
     }
+
+
+def per_shot_estimate(board: dict, *, pass_name: str = "final", h3_cost=None) -> dict:
+    """`{n: seconds}` for every shot in the board, on the same cost model estimate() uses.
+
+    The shot card prints `~2 m` from this. Server-computed on purpose: the per-second constants
+    and the measured H3 cells then live in exactly one place instead of being re-typed in JS.
+    """
+    policy = (board.get("policy") or {}).get(pass_name) or {}
+    out: dict = {}
+    for s in (board.get("shots") or []):
+        if not isinstance(s, dict):
+            continue
+        out[str(s.get("n") or 0)] = round(shot_render_secs(s, policy, h3_cost=h3_cost))
+    return out
 
 
 def ensure_trigger(prompt: str, trigger: str) -> str:
@@ -375,12 +602,18 @@ def ensure_trigger(prompt: str, trigger: str) -> str:
     return f"{t} {p}" if p else t
 
 
-def shot_to_job(shot: dict, policy_pass: dict) -> dict:
+def shot_to_job(shot: dict, policy_pass: dict, *,
+                board_id: str = "", board_title: str = "",
+                h3_available: bool = True) -> dict:
     """Translate one storyboard shot into the panel's ORDINARY job form fields.
 
     Deliberately produces the same shape a human clicking Generate would produce, so shots
     flow through `/queue/add` -> `make_job` -> the normal worker, land in `mlx_outputs/`, and
     show up in the usual gallery with a usual sidecar. No private execution path.
+
+    Every key below is in `make_job`'s allowlist. That is not a style note: a form field
+    make_job does not name is silently dropped on /queue/add — the known trap in this codebase —
+    so a control can look perfectly wired and do nothing at all.
 
     NOTE `enhance: "off"` is not optional — see ensure_trigger() above.
     """
@@ -388,20 +621,72 @@ def shot_to_job(shot: dict, policy_pass: dict) -> dict:
     prompt = shot.get("prompt") or ""
     if trigger:
         prompt = ensure_trigger(prompt, trigger)
+
+    # The engine. Without this the job dict has no `engine` key, make_job falls back to
+    # ENGINE_DEFAULT ("ltx"), and every H3 shot the planner wrote renders silently on a
+    # different model — different aspect, no audio, none of it flagged anywhere.
+    engine = shot_engine(shot)
+    # Character shots are LTX by construction (H3 stacks no LoRAs), and an install with no H3
+    # pack renders everything on LTX. Decide it HERE, once, rather than enqueueing a job for an
+    # engine that isn't there and letting make_job's fallback discover it.
+    if shot.get("character_id") or not h3_available:
+        engine = "ltx"
+
     job = {
-        "mode": shot.get("mode") or "text",
+        # The panel has ONE backend mode for text and character alike; see _PANEL_MODE.
+        "mode": _PANEL_MODE.get(shot.get("mode"), "t2v"),
+        "engine": engine,
         "prompt": prompt,
         "quality": policy_pass.get("quality", "balanced"),
         "width": policy_pass.get("width"),
         "height": policy_pass.get("height"),
         "frames": policy_pass.get("frames"),
-        "enhance": "off",          # never let Gemma touch a planned prompt
-        "auto_open": "off",        # batches must not steal the viewer
+        "enhance": "off",            # never let Gemma touch a planned prompt
+        # `auto_open` was never in make_job's allowlist, so it silently did nothing. The field
+        # that actually exists is `open_when_done`, and it must be off: a 12-shot overnight run
+        # must not pop a QuickTime window per shot.
+        "open_when_done": "off",
     }
+
+    # Duration. Without this every shot rendered at the pass's frame count, so the per-shot
+    # length control was decoration. Each engine gets its OWN grid — LTX snaps to frames%8==1
+    # at 24 fps, H3 renders whole cells off the 17n+5 grid and picks them by length key.
+    duration_s = float(shot.get("duration_s") or 0)
+    if engine == "h3":
+        length = h3_length_for(duration_s) if duration_s > 0 else "5s"
+        job["h3_length"] = length
+        job["h3_quality"] = h3_quality_for(policy_pass.get("quality", "balanced"))
+        # make_job re-stamps geometry from the resolved cell; carrying the cell's own frame
+        # count means the job dict is already self-consistent (and honest in a log or a test)
+        # before it gets there.
+        job["frames"] = _H3_LENGTH_FRAMES[length]
+    elif duration_s > 0:
+        job["frames"] = ltx_frames_for(duration_s)
+
     if shot.get("character_id"):
         job["character_id"] = shot["character_id"]
     if shot.get("seed") is not None:
         job["seed"] = shot["seed"]
+
+    # Queue linkage. `preset_label` is what the queue card, the Now card, the job pill and the
+    # Recent row already print (`j.params.label || snippet(prompt)`), so a storyboard job
+    # identifies itself in the bottom pane with no bottom-pane code at all. `session_tag`
+    # carries the provenance the badge and the gallery group on. Both keys are already in
+    # make_job's allowlist — no allowlist edit, which is the point.
+    n = shot.get("n")
+    if board_id and isinstance(n, int):
+        job["session_tag"] = f"sb:{board_id}#{n}"
+    if isinstance(n, int):
+        title = (board_title or "").strip()
+        job["preset_label"] = f"S{n:02d} · {title}" if title else f"S{n:02d}"
+
+    # `shot["refs"]` is DELIBERATELY not mapped. The four ref-based modes (remix / keyframe /
+    # extend / a2v) each want a different field — image, start_image + end_image,
+    # video_path, ingredient_images_json — and mapping them half-way would enqueue a job that
+    # renders silent t2v from a prompt while looking like it used the reference, which reads
+    # as a model bug rather than a missing feature. v1 plans `text` + `character` only and the
+    # planner is constrained to the same two, so a board that carries refs is hand-written or
+    # from a future version; the validator still checks them and the schema still keeps them.
     return {k: v for k, v in job.items() if v is not None}
 
 

@@ -406,10 +406,18 @@ class TestValidatorContract(unittest.TestCase):
 
     def test_plan_translates_to_panel_jobs(self):
         out, _ = _plan([_plan_json(6)])
-        job = storyboard.shot_to_job(out["shots"][0], out["policy"]["draft"])
+        shot = out["shots"][0]
+        job = storyboard.shot_to_job(shot, out["policy"]["draft"],
+                                     board_id=out["id"], board_title=out["title"])
         self.assertEqual(job["enhance"], "off")
         self.assertTrue(job["prompt"])
-        self.assertIn(job["mode"], storyboard.VALID_MODES)
+        # The PANEL's mode vocabulary, not the storyboard schema's: mlx_ltx_panel has one
+        # backend video mode for both of v1's shot types, and "text"/"character" are not it.
+        self.assertIn(job["mode"], ("t2v", "i2v", "keyframe", "extend", "a2v"))
+        # The engine the planner assigned must survive the translation — this is the seam
+        # that used to send every H3 shot to LTX.
+        self.assertEqual(job["engine"], shot["engine"])
+        self.assertEqual(job["session_tag"], "sb:%s#%d" % (out["id"], shot["n"]))
 
     def test_character_plan_validates_with_known_ids(self):
         raw = json.dumps({"title": "t", "shots": [
