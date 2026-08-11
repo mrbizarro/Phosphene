@@ -56,6 +56,15 @@ import image_engine as agent_image_engine
 # serializer (ideoBuildCaption / ideoSynthDesc / ideoRectToBbox).
 import ideogram_caption
 
+# Storyboard — the layer ABOVE the video modes: one concept in, a film's worth
+# of shots out. `storyboard` is the spine (schema, validation, scheduling,
+# durable state) and is deliberately pure-stdlib and model-free, so it unit-tests
+# with no GPU and no weights. `storyboard_planner` is the brain and spawns a
+# short-lived child that loads a small LLM, writes the plan and dies — it never
+# loads a model in THIS process. Both are 3.9-compatible because the panel is.
+import storyboard
+import storyboard_planner
+
 # --- Paths -------------------------------------------------------------------
 # Everything below is overridable via env vars so the panel can be cloned and
 # run from any directory without source edits. Defaults assume the repo layout:
@@ -323,6 +332,15 @@ SETTINGS_FILE = STATE_DIR / "panel_settings.json"
 _SETTINGS_LOCK = threading.Lock()
 
 
+# ---- Storyboard preferences ------------------------------------------------
+# The shot-count chips the brief offers, and the qualities each pass may take.
+# Kept beside the settings defaults because _validate_settings_patch is the
+# only thing that enforces them and both run before anything else is imported.
+STORYBOARD_SHOT_CHOICES = (6, 12, 24, 36)
+STORYBOARD_DRAFT_QUALITIES = ("quick", "balanced", "standard")
+STORYBOARD_FINAL_QUALITIES = ("balanced", "standard", "high")
+
+
 def _settings_defaults() -> dict:
     preset = OUTPUT_PRESETS[DEFAULT_OUTPUT_PRESET]
     return {
@@ -384,6 +402,13 @@ def _settings_defaults() -> dict:
         "analytics_last_packs": {},
         # Whether the one-line boot disclosure has already been printed.
         "analytics_disclosed": False,
+        # ---- Storyboard --------------------------------------------------
+        # The brief's shot-count chip, and the quality each of the film's two
+        # passes runs at. Same store as every other preference; the Storyboard
+        # tab reads them on entry and writes them back through POST /settings.
+        "storyboard_shots": 12,
+        "storyboard_draft_quality": "quick",
+        "storyboard_final_quality": "standard",
     }
 
 
@@ -631,6 +656,26 @@ def _validate_settings_patch(patch: dict) -> tuple[dict, str | None]:
             if any(c.isspace() for c in val):
                 return {}, f"{_alabel} cannot contain whitespace"
             out[_akey] = val
+
+    # ---- Storyboard defaults ------------------------------------------------
+    # The brief's shot-count chip and the film's two quality passes persist HERE
+    # rather than in a private file, because that is the store every other panel
+    # preference already uses.
+    if "storyboard_shots" in patch:
+        try:
+            n = int(str(patch["storyboard_shots"]).strip())
+        except (TypeError, ValueError):
+            return {}, "storyboard_shots must be a number"
+        if n not in STORYBOARD_SHOT_CHOICES:
+            return {}, f"storyboard_shots must be one of: {list(STORYBOARD_SHOT_CHOICES)}"
+        out["storyboard_shots"] = n
+    for _skey, _allowed in (("storyboard_draft_quality", STORYBOARD_DRAFT_QUALITIES),
+                            ("storyboard_final_quality", STORYBOARD_FINAL_QUALITIES)):
+        if _skey in patch:
+            q = str(patch[_skey]).strip().lower()
+            if q not in _allowed:
+                return {}, f"{_skey} must be one of: {list(_allowed)}"
+            out[_skey] = q
 
     return out, None
 
@@ -5178,6 +5223,17 @@ H3_CHAIN_PROMPT_HELP = (
 # file instead (no separator to collide with a prompt that contains '|||'), but
 # a hand-rolled curl may still post this form and it costs one split to accept.
 H3_CHAIN_PROMPT_SEPARATOR = " ||| "
+# Storyboard's `?` copy, on the same four-hop Python-owned path as
+# H3_CHAIN_PROMPT_HELP above and for the same reason: the sentence explaining a
+# mechanism has to live beside the mechanism or it drifts. It names no model and
+# no size ON PURPOSE — repointing LTX_STORYBOARD_PLANNER at a different planner
+# must not turn this copy into a lie.
+STORYBOARD_RAM_HELP = (
+    "On a Mac the planner and the renderer share one pool of memory, so they "
+    "never run at the same time. Phosphene plans the whole film in one go, in a "
+    "separate process that exits when it's done, and only then starts rendering. "
+    "That is also why the plan is worth reading before you start — nothing "
+    "rewrites itself halfway through.")
 # The Draft canvas renders at 0.25 MP. The H3 community's practical floor is
 # ~0.5 MP, and video STRUCTURE resolves in the last denoise step, so at 9 steps a
 # 0.25 MP pass is genuinely noisy: composition, motion and dialogue timing are
@@ -8628,6 +8684,11 @@ def list_outputs(
         # at …" button would need a /sidecar fetch on every gallery click.
         engine = None
         h3_tier = None
+        # Which film this clip is a shot of, if any — {"id": ..., "n": 3} or None.
+        # Derived from the sidecar read already happening below, so it costs
+        # nothing, and it is what puts an S03 badge on a gallery card. None for
+        # every clip that isn't part of a storyboard, which is most of them.
+        sb_tag = None
         sidecar = p.with_suffix(p.suffix + ".json")
         has_sidecar = sidecar.exists()
         if has_sidecar:
@@ -8652,6 +8713,7 @@ def list_outputs(
                 _tier = h3_resolve_tier(_sc_params.get("h3_tier"))
                 if _tier:
                     h3_tier = _tier
+                sb_tag = _sb_tag_from(_sc_params.get("session_tag"))
                 # Clip LENGTH, derived — frames/frame_rate are already in the
                 # sidecar params for both engines, so the card can lead with
                 # what the file IS (a 10 s clip) instead of only how long it
@@ -8697,6 +8759,10 @@ def list_outputs(
             "h3_tier": h3_tier,
             "h3_quality": (H3_TIERS[h3_tier]["quality"] if h3_tier else None),
             "h3_length": (H3_TIERS[h3_tier]["length"] if h3_tier else None),
+            # Storyboard provenance, or None. One badge on the card, one click
+            # back to the film it belongs to — and invisible for every clip
+            # that isn't part of one.
+            "sb": sb_tag,
             "hidden": is_hidden,
             # 'kind' lets the right-pane viewer + filter chips branch
             # without re-parsing the filename. Mirrors isPhotoOutput() on
@@ -9851,6 +9917,687 @@ def _new_job_id() -> str:
         _JOB_COUNTER += 1
         n = _JOB_COUNTER
     return f"j-{int(time.time()*1000):x}-{n:03d}"
+
+
+# =============================================================================
+# STORYBOARD — the server side
+# =============================================================================
+# One concept in, a film's worth of shots out. A layer ABOVE the video modes,
+# not a second app: a shot is an ORDINARY panel job, so the queue, the worker,
+# the progress machinery, the outputs folder, the sidecars, the player, the
+# gallery and the lightbox are all reused unchanged.
+#
+# THE ONE HARDWARE FACT THAT SHAPES ALL OF IT: `_free_all_but(keep_kind)` holds
+# exactly one pipeline at a time, and a language model occupies the same slot.
+# PLAN and RENDER can therefore never overlap. Everything below is downstream of
+# that — the planner runs in a short-lived child that exits before a single job
+# is enqueued, and the render dispatcher refuses to start while one is planning.
+#
+# Board files live at state/storyboards/<id>/storyboard.json (storyboard.py owns
+# the format), beside panel_queue.json, in a directory /sidecar already serves.
+# -----------------------------------------------------------------------------
+
+# Planner + render bookkeeping, keyed by board id. Guarded by _SB_LOCK, which is
+# ALWAYS taken before LOCK when both are needed (there is exactly one such place,
+# _sb_render_thread, and it takes them in that order every time).
+_SB_LOCK = threading.RLock()
+_SB_PLANNERS: dict = {}          # board_id -> {"session", "thread", "cancelled"}
+_SB_RENDERS: dict = {}           # board_id -> {"thread", "stop", "pass", "queued"}
+_SB_TAG_RX = re.compile(r"^sb:([^#]+)#(\d+)$")
+
+
+def _sb_tag_from(session_tag) -> dict | None:
+    """`"sb:<board>#3"` -> `{"id": "<board>", "n": 3}`. Anything else -> None.
+
+    One parser, used by the gallery badge, the queue badge and the reconciler,
+    so the wire format is stated exactly once.
+    """
+    m = _SB_TAG_RX.match(str(session_tag or "").strip())
+    if not m:
+        return None
+    try:
+        return {"id": m.group(1), "n": int(m.group(2))}
+    except (TypeError, ValueError):
+        return None
+
+
+def _sb_known_character_ids() -> list:
+    try:
+        return [c["id"] for c in list_characters()]
+    except Exception:
+        return []
+
+
+def _sb_h3_available() -> bool:
+    """Can this machine actually render an H3 shot right now?"""
+    try:
+        return bool(h3_capable() and not h3_paths()["missing"])
+    except Exception:
+        return False
+
+
+def _sb_h3_cost(quality_key: str, length_key: str):
+    """The MEASURED wall clock for one H3 cell, in seconds — the hook
+    storyboard.estimate() takes so the cost model lives in exactly one place.
+
+    H3_TIERS carries a per-cell `eta_min` that is measured where a measurement
+    exists (H3_MEASURED_ETA) and derived from the same forward-cost model where
+    it doesn't. Turbo's number is used when Turbo is actually installed, because
+    that is what the render will do.
+    """
+    try:
+        key = h3_compose_tier(quality_key, length_key)
+        if not key:
+            return None
+        cell = H3_TIERS[key]
+        turbo = False
+        try:
+            turbo = bool(h3_turbo_status().get("available"))
+        except Exception:
+            turbo = False
+        minutes = cell.get("turbo_min") if turbo else cell.get("eta_min")
+        return float(minutes) * 60.0 if minutes else None
+    except Exception:
+        return None
+
+
+def _sb_max_dim() -> int:
+    try:
+        return int(tier_max_dim("t2v"))
+    except Exception:
+        return 1024
+
+
+def _sb_disk() -> dict:
+    try:
+        free = shutil.disk_usage(str(OUTPUT)).free
+    except Exception:
+        return {"free_gb": None}
+    return {"free_gb": round(free / (1000 ** 3), 1)}
+
+
+def _sb_job_index() -> dict:
+    """Every job the panel currently knows about, by id. One snapshot, one lock."""
+    idx: dict = {}
+    with LOCK:
+        cur = STATE.get("current")
+        if cur and cur.get("id"):
+            idx[cur["id"]] = {"status": cur.get("status") or "running",
+                              "output_path": cur.get("output_path"),
+                              "error": cur.get("error")}
+        for j in (STATE.get("queue") or []):
+            if j.get("id"):
+                idx[j["id"]] = {"status": j.get("status") or "queued",
+                                "output_path": None, "error": None}
+        for j in (STATE.get("history") or []):
+            if j.get("id") and j["id"] not in idx:
+                idx[j["id"]] = {"status": j.get("status"),
+                                "output_path": j.get("output_path"),
+                                "error": j.get("error")}
+    return idx
+
+
+def _sb_sidecar_seed(path) -> int | None:
+    """The seed a finished clip ACTUALLY used, from its sidecar.
+
+    Written back onto the shot when its seed was -1, so "Finish keepers"
+    re-renders the take that was approved rather than a fresh roll of the dice.
+    With the character LoRA that is the whole continuity mechanism in v1.
+    """
+    try:
+        p = Path(str(path))
+        meta = json.loads((p.parent / (p.name + ".json")).read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    for holder in (meta, meta.get("params") or {}):
+        v = holder.get("seed_used")
+        if isinstance(v, int):
+            return v
+        if isinstance(v, str) and v.strip().lstrip("-").isdigit():
+            return int(v)
+    return None
+
+
+def _sb_reconcile(board: dict) -> bool:
+    """Walk each shot's job id and fold the queue's truth back into the board.
+
+    Returns True when anything changed, so the caller can save once. This is why
+    a panel restart mid-render loses nothing: panel_queue.json already re-queues
+    an interrupted job, and this is what re-attaches it to its shot.
+    """
+    idx = _sb_job_index()
+    changed = False
+    for s in (board.get("shots") or []):
+        if not isinstance(s, dict):
+            continue
+        for key, out_key in (("draft_job_id", "draft_output"),
+                             ("final_job_id", "final_output")):
+            jid = s.get(key)
+            if not jid:
+                continue
+            job = idx.get(jid)
+            if not job:
+                # The job is gone from queue AND history (history is capped).
+                # Leave the shot alone: if it has an output it is done, and if
+                # it doesn't, it is renderable again.
+                continue
+            st = (job.get("status") or "").lower()
+            if st == "done" and job.get("output_path"):
+                if s.get(out_key) != job["output_path"]:
+                    s[out_key] = job["output_path"]
+                    changed = True
+                if s.get("status") != "done":
+                    s["status"] = "done"
+                    s["error"] = None
+                    changed = True
+                if not isinstance(s.get("seed"), int) or s.get("seed") == -1:
+                    seed = _sb_sidecar_seed(job["output_path"])
+                    if isinstance(seed, int):
+                        s["seed"] = seed
+                        changed = True
+            elif st in ("failed", "error", "cancelled"):
+                if s.get("status") != "failed":
+                    s["status"] = "failed"
+                    changed = True
+                if s.get("error") != job.get("error"):
+                    s["error"] = job.get("error")
+                    changed = True
+            elif st == "running":
+                if s.get("status") != "rendering":
+                    s["status"] = "rendering"
+                    changed = True
+            elif st == "queued":
+                if s.get("status") not in ("queued", "done"):
+                    s["status"] = "queued"
+                    changed = True
+    return changed
+
+
+def _sb_normalize(board: dict) -> dict:
+    """Make a board internally consistent before it is validated or saved.
+
+    Renumbers 1..N with no gaps, forces the mode/character pair to agree,
+    re-injects every character trigger mechanically (never trusted to a model —
+    a prompt that lost its trigger renders a stranger), and forces `engine` to
+    LTX for a cast shot or on a machine with no H3 pack, so a plan can never be
+    saved in a state that cannot render.
+    """
+    known = set(_sb_known_character_ids())
+    h3_ok = _sb_h3_available()
+    shots = [s for s in (board.get("shots") or []) if isinstance(s, dict)]
+    for i, s in enumerate(shots, start=1):
+        s["n"] = i
+        mode = s.get("mode")
+        if mode not in storyboard.VALID_MODES:
+            mode = "text"
+        cid = (s.get("character_id") or "").strip() or None
+        if cid and known and cid not in known:
+            # Keep the id — the validator's job is to say so, not ours — but do
+            # not pretend the pair is coherent.
+            pass
+        if cid:
+            mode = "character" if mode in ("text", "character") else mode
+            trig = (s.get("trigger") or cid).strip()
+            s["trigger"] = trig
+            s["prompt"] = storyboard.ensure_trigger(s.get("prompt") or "", trig)
+            s["engine"] = "ltx"        # H3 stacks no LoRAs
+        else:
+            s.pop("character_id", None)
+            s.pop("trigger", None)
+            if mode == "character":
+                mode = "text"
+            eng = (s.get("engine") or "").strip().lower()
+            if eng not in storyboard.VALID_ENGINES:
+                eng = "h3" if h3_ok else "ltx"
+            s["engine"] = eng if h3_ok else "ltx"
+        s["mode"] = mode
+        if not isinstance(s.get("refs"), list):
+            s["refs"] = []
+        try:
+            d = float(s.get("duration_s") or 5.0)
+        except (TypeError, ValueError):
+            d = 5.0
+        s["duration_s"] = max(1.0, min(60.0, d))
+        if s.get("status") not in ("pending", "queued", "rendering", "done",
+                                   "failed", "skipped"):
+            s["status"] = "pending"
+    board["shots"] = shots
+    board["updated_at"] = int(time.time())
+    return board
+
+
+def _sb_payload(board: dict) -> dict:
+    """Everything the plan screen renders from, in one reply.
+
+    The errors are the STRUCTURED form; the UI keys its own human copy off
+    `code` rather than regexing English out of `message`, which is what stops
+    the panel's wording from drifting away from the check that produced it.
+    """
+    pass_name = "final" if _sb_pass_done(board, "draft") else "draft"
+    errors = storyboard.validate_storyboard_detail(
+        board,
+        known_character_ids=_sb_known_character_ids(),
+        ref_root=OUTPUT,
+        max_dim=_sb_max_dim(),
+    )
+    est = storyboard.estimate(board, pass_name=pass_name, h3_cost=_sb_h3_cost)
+    per_shot = storyboard.per_shot_estimate(board, pass_name=pass_name,
+                                            h3_cost=_sb_h3_cost)
+    with _SB_LOCK:
+        rendering = board.get("id") in _SB_RENDERS
+        planning = board.get("id") in _SB_PLANNERS
+    return {
+        "ok": True,
+        "board": board,
+        "errors": errors,
+        "estimate": est,
+        "per_shot_est": per_shot,
+        "pass": pass_name,
+        "disk": _sb_disk(),
+        "planner": board.get("planner") or {"state": "idle"},
+        "rendering": rendering,
+        "planning": planning,
+        "h3_available": _sb_h3_available(),
+        "characters": [
+            {"id": c.get("id"), "trigger": c.get("trigger") or c.get("id"),
+             "name": c.get("name") or c.get("id"),
+             "preview": c.get("preview_url") or c.get("thumb") or None}
+            for c in (list_characters() or [])
+        ],
+    }
+
+
+def _sb_pass_done(board: dict, pass_name: str) -> bool:
+    """Has every renderable shot got a clip from this pass?"""
+    key = "draft_output" if pass_name == "draft" else "final_output"
+    live = [s for s in (board.get("shots") or [])
+            if isinstance(s, dict) and s.get("status") != "skipped"]
+    return bool(live) and all(s.get(key) for s in live)
+
+
+def _sb_board_summary(board: dict) -> dict:
+    shots = [s for s in (board.get("shots") or []) if isinstance(s, dict)]
+    with _SB_LOCK:
+        running = board.get("id") in _SB_RENDERS
+        planning = board.get("id") in _SB_PLANNERS
+    return {
+        "id": board.get("id"),
+        "title": board.get("title") or "",
+        "shots": len(shots),
+        "done": sum(1 for s in shots if s.get("status") == "done"),
+        "failed": sum(1 for s in shots if s.get("status") == "failed"),
+        "running": running,
+        "planning": planning,
+    }
+
+
+def _sb_all_summaries() -> list:
+    """The one-line-per-board payload /status carries.
+
+    It is what drives the queue badge's `S03/12` denominator, the tab count
+    during an overnight run, and whether `To film` is visible at all. Cheap: one
+    read per board file, and boards are few.
+    """
+    out = []
+    try:
+        rows = storyboard.list_storyboards(STATE_DIR)
+    except Exception:
+        return out
+    for r in rows:
+        try:
+            board = storyboard.load_storyboard(STATE_DIR, r["id"])
+        except Exception:
+            continue
+        out.append(_sb_board_summary(board))
+    return out
+
+
+def storyboard_status() -> dict:
+    """Compact Storyboard snapshot for the page bootstrap.
+
+    `planner_present` answers the only question that could make the feature
+    unusable — and it is almost always yes, because the planner runs on the same
+    weights /prompt/enhance already loads. Nothing is ever downloaded.
+    """
+    model = ""
+    present = False
+    try:
+        model = str(storyboard_planner.DEFAULT_MODEL_PATH or "")
+        present = bool(model) and Path(model).is_dir()
+    except Exception:
+        pass
+    s = get_settings()
+    return {
+        "available": True,
+        "planner_model": model,
+        "planner_model_name": Path(model).name if model else "",
+        "planner_present": present,
+        "ram_help": STORYBOARD_RAM_HELP,
+        "shot_choices": list(STORYBOARD_SHOT_CHOICES),
+        "draft_qualities": list(STORYBOARD_DRAFT_QUALITIES),
+        "final_qualities": list(STORYBOARD_FINAL_QUALITIES),
+        "defaults": {
+            "shots": s.get("storyboard_shots", 12),
+            "draft_quality": s.get("storyboard_draft_quality", "quick"),
+            "final_quality": s.get("storyboard_final_quality", "standard"),
+        },
+        "boards": _sb_all_summaries(),
+    }
+
+
+def _sb_policy_for(draft_quality: str, final_quality: str) -> dict:
+    """The board's two passes, in the panel's own geometry vocabulary, clamped
+    to what this Mac can actually render."""
+    cap = _sb_max_dim()
+    table = {
+        "quick":    (640, 480),
+        "balanced": (768, 432),
+        "standard": (1024, 576),
+        "high":     (1024, 576),
+    }
+
+    def cell(q, default):
+        q = (q or default).strip().lower()
+        w, h = table.get(q, table[default])
+        if max(w, h) > cap:
+            scale = cap / float(max(w, h))
+            w = max(64, int(w * scale) // 8 * 8)
+            h = max(64, int(h * scale) // 8 * 8)
+        return {"quality": q, "width": w, "height": h,
+                "frames": storyboard.ltx_frames_for(5)}
+
+    return {"draft": cell(draft_quality, "quick"),
+            "final": cell(final_quality, "standard")}
+
+
+def _sb_set_planner(board: dict, **kw) -> None:
+    p = board.get("planner")
+    if not isinstance(p, dict):
+        p = {"state": "idle", "stage": None, "error": None, "error_kind": None,
+             "raw": None, "warnings": []}
+    p.update(kw)
+    board["planner"] = p
+
+
+def _sb_plan_thread(board_id: str, brief: dict, previous: dict | None) -> None:
+    """Plan a film, then GIVE THE MEMORY BACK — in that order, always.
+
+    `plan_film()` blocks for 20-40 s in a child process. We create the session
+    ourselves so `/storyboard/cancel` can kill that child from another thread,
+    which means WE own releasing it: `plan_film()` only auto-releases sessions it
+    created. Hence the `finally`.
+
+    The stages written onto `board["planner"]["stage"]` are exactly the
+    transitions this layer can actually observe. There is no progress callback
+    inside plan_film(), and inventing finer granularity than the module reports
+    would be a progress bar that lies.
+    """
+    session = None
+    board = None
+    try:
+        board = storyboard.load_storyboard(STATE_DIR, board_id)
+        _sb_set_planner(board, state="running", stage="load", error=None,
+                        error_kind=None, raw=None, warnings=[])
+        storyboard.save_storyboard(STATE_DIR, board)
+
+        session = storyboard_planner.PlannerSession()
+        with _SB_LOCK:
+            entry = _SB_PLANNERS.get(board_id) or {}
+            entry["session"] = session
+            _SB_PLANNERS[board_id] = entry
+
+        board["planner"]["stage"] = "write"
+        storyboard.save_storyboard(STATE_DIR, board)
+        push(f"[storyboard] planning {brief.get('n_shots')} shots — "
+             f"the renderer's memory is borrowed for about a minute")
+
+        result = storyboard_planner.plan_film(
+            brief.get("concept") or "",
+            n_shots=int(brief.get("n_shots") or 12),
+            style=brief.get("style") or "",
+            characters=brief.get("characters") or None,
+            must_include=brief.get("must") or None,
+            feedback=brief.get("feedback") or None,
+            previous=previous,
+            engine=("ltx" if not _sb_h3_available() else "auto"),
+            board_id=board_id,
+            known_character_ids=_sb_known_character_ids(),
+            max_dim=_sb_max_dim(),
+            session=session,
+        )
+
+        with _SB_LOCK:
+            cancelled = (_SB_PLANNERS.get(board_id) or {}).get("cancelled")
+        if cancelled:
+            return
+
+        board = storyboard.load_storyboard(STATE_DIR, board_id)
+        meta = (result or {}).get("_planner") or {}
+        if storyboard_planner.is_plan_error(result):
+            err = result.get("error") or {}
+            _sb_set_planner(board, state="failed", stage=None,
+                            error=err.get("message") or "the planner failed",
+                            error_kind=("invalid" if err.get("kind") == "invalid_plan"
+                                        else "download" if err.get("kind") == "model_unavailable"
+                                        else "other"),
+                            raw=err.get("raw_excerpt") or None,
+                            hint=err.get("hint") or None)
+            storyboard.save_storyboard(STATE_DIR, board)
+            push(f"[storyboard] the planner couldn't write a usable plan: "
+                 f"{err.get('message')}")
+            return
+
+        # `check`, then `repair` only when the module says a retry actually
+        # happened — advertising a failure that usually doesn't occur is worse
+        # than saying nothing.
+        board["planner"]["stage"] = "repair" if int(meta.get("attempts") or 1) > 1 else "check"
+
+        board["title"] = result.get("title") or board.get("title") or "Untitled film"
+        board["shots"] = result.get("shots") or []
+        board["cast"] = result.get("cast") or board.get("cast") or []
+        # The POLICY is the panel's, not the planner's: the user picked the two
+        # passes in the film-level Quality control and a re-plan must not silently
+        # reset them.
+        board.setdefault("policy", result.get("policy") or storyboard.new_storyboard("x", "x")["policy"])
+        _sb_normalize(board)
+        _sb_set_planner(board, state="done", stage="unload", error=None,
+                        warnings=list(meta.get("warnings") or []),
+                        model=meta.get("model"), elapsed_s=meta.get("elapsed_s"),
+                        attempts=meta.get("attempts"),
+                        first_try_clean=meta.get("first_try_clean"))
+        storyboard.save_storyboard(STATE_DIR, board)
+        push(f"[storyboard] plan ready — {len(board['shots'])} shots, "
+             f"{round(float(meta.get('elapsed_s') or 0))}s, memory given back")
+    except Exception as exc:                                     # noqa: BLE001
+        try:
+            if board is None:
+                board = storyboard.load_storyboard(STATE_DIR, board_id)
+            with _SB_LOCK:
+                cancelled = (_SB_PLANNERS.get(board_id) or {}).get("cancelled")
+            _sb_set_planner(board,
+                            state=("cancelled" if cancelled else "failed"),
+                            stage=None, error=str(exc),
+                            error_kind=("busy" if cancelled else "other"))
+            storyboard.save_storyboard(STATE_DIR, board)
+        except Exception:
+            pass
+        if not str(exc).lower().startswith("planner session released"):
+            push(f"[storyboard] planning failed: {exc}")
+    finally:
+        # A caller that supplies a session OWNS releasing it. There is no path
+        # out of this function that leaves a model resident.
+        try:
+            if session is not None:
+                session.release()
+        except Exception:
+            pass
+        with _SB_LOCK:
+            _SB_PLANNERS.pop(board_id, None)
+
+
+def _sb_enqueue(job_form: dict) -> str:
+    """Enqueue one shot exactly the way /queue/add does. No private path."""
+    job = make_job(job_form)
+    with QUEUE_COND:
+        STATE["queue"].append(job)
+        QUEUE_COND.notify_all()
+    persist_queue()
+    return job["id"]
+
+
+def _sb_render_thread(board_id: str, pass_name: str, only: list | None) -> None:
+    """Submit the film ONE BUCKET AT A TIME, then wait for it.
+
+    Not all N jobs at once, and the difference matters: it is what makes editing
+    a shot that hasn't started yet actually take effect, it is what lets `stop`
+    be seen mid-film, and it is what keeps the grouping honest when a later
+    bucket's shots were edited while an earlier one rendered. The panel's own
+    dispatcher still owns execution — /queue/pause keeps working; this thread
+    only waits.
+    """
+    key = "draft_job_id" if pass_name == "draft" else "final_job_id"
+    out_key = "draft_output" if pass_name == "draft" else "final_output"
+    queued_total = 0
+    try:
+        while True:
+            with _SB_LOCK:
+                entry = _SB_RENDERS.get(board_id)
+                if not entry or entry.get("stop"):
+                    return
+            # Re-read from disk every round so edits to not-yet-submitted shots
+            # are honoured.
+            board = storyboard.load_storyboard(STATE_DIR, board_id)
+            _sb_reconcile(board)
+
+            pending = [s for s in storyboard.shooting_order(board.get("shots") or [])
+                       if not s.get(out_key)]
+            if only:
+                pending = [s for s in pending if s.get("n") in only]
+            # A shot already carrying a live job id for this pass is in flight.
+            pending = [s for s in pending
+                       if s.get("status") not in ("queued", "rendering") or not s.get(key)]
+            if not pending:
+                break
+
+            bucket = storyboard.bucket_key(pending[0])
+            batch = [s for s in pending if storyboard.bucket_key(s) == bucket]
+            policy = (board.get("policy") or {}).get(pass_name) or {}
+            h3_ok = _sb_h3_available()
+            ids = []
+            for shot in batch:
+                form = storyboard.shot_to_job(
+                    shot, policy,
+                    board_id=board_id, board_title=board.get("title") or "",
+                    h3_available=h3_ok)
+                # make_job reads a form: every value is a string (or a list of
+                # them). Normalise here so a bool/int never reaches f().
+                job_form = {k: ("" if v is None else str(v)) for k, v in form.items()}
+                try:
+                    jid = _sb_enqueue(job_form)
+                except Exception as exc:                          # noqa: BLE001
+                    push(f"[storyboard] shot {shot.get('n')} could not be queued: {exc}")
+                    shot["status"] = "failed"
+                    shot["error"] = str(exc)
+                    continue
+                shot[key] = jid
+                shot["status"] = "queued"
+                shot["error"] = None
+                ids.append(jid)
+                queued_total += 1
+            storyboard.save_storyboard(STATE_DIR, board)
+            with _SB_LOCK:
+                entry = _SB_RENDERS.get(board_id)
+                if entry is not None:
+                    entry["queued"] = queued_total
+            push(f"[storyboard] queued {len(ids)} shot(s) on "
+                 f"{bucket[0].upper()} — {board.get('title')}")
+
+            # Wait for this bucket to go terminal before submitting the next.
+            while ids:
+                with _SB_LOCK:
+                    entry = _SB_RENDERS.get(board_id)
+                    if not entry or entry.get("stop"):
+                        return
+                idx = _sb_job_index()
+                live = [j for j in ids
+                        if (idx.get(j) or {}).get("status") in ("queued", "running")]
+                if not live:
+                    break
+                time.sleep(5.0)
+
+            try:
+                board = storyboard.load_storyboard(STATE_DIR, board_id)
+                if _sb_reconcile(board):
+                    storyboard.save_storyboard(STATE_DIR, board)
+            except Exception:
+                pass
+    except Exception as exc:                                       # noqa: BLE001
+        push(f"[storyboard] render dispatch stopped: {exc}")
+    finally:
+        with _SB_LOCK:
+            _SB_RENDERS.pop(board_id, None)
+        try:
+            board = storyboard.load_storyboard(STATE_DIR, board_id)
+            if _sb_reconcile(board):
+                storyboard.save_storyboard(STATE_DIR, board)
+        except Exception:
+            pass
+
+
+def _sb_slug(text: str, words: int = 5) -> str:
+    parts = re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).split()
+    return "-".join(parts[:words]) or "shot"
+
+
+def _sb_export(board: dict) -> dict:
+    """A folder and a manifest. No editor, no timeline, no assembly UI.
+
+    Clips are COPIED, never moved — the gallery keeps them.
+    """
+    title = board.get("title") or "storyboard"
+    day = time.strftime("%Y-%m-%d", time.localtime(board.get("created_at") or time.time()))
+    dest = OUTPUT / "storyboards" / f"{day}_{_sb_slug(title, 6)}"
+    dest.mkdir(parents=True, exist_ok=True)
+    rows, cut, files = [], [], []
+    for s in sorted((board.get("shots") or []), key=lambda x: x.get("n") or 0):
+        if not isinstance(s, dict):
+            continue
+        n = s.get("n") or 0
+        if s.get("status") == "skipped":
+            cut.append(f"- **S{n:02d}** — {(s.get('prompt') or '')[:120]}")
+            continue
+        src = s.get("final_output") or s.get("draft_output")
+        if not src or not Path(src).is_file():
+            continue
+        which = "delivery" if s.get("final_output") else "draft"
+        name = f"S{n:02d}_{_sb_slug(s.get('title') or s.get('prompt') or '')}.mp4"
+        try:
+            shutil.copy2(src, dest / name)
+        except Exception as exc:                                   # noqa: BLE001
+            push(f"[storyboard] could not copy shot {n}: {exc}")
+            continue
+        files.append(name)
+        rows.append(f"| {n:02d} | {name} | {s.get('duration_s')} s | "
+                    f"{s.get('seed')} | {which} | "
+                    f"{(s.get('prompt') or '')[:90].replace('|', '/')}… |")
+    delivered = sum(1 for s in (board.get("shots") or [])
+                    if isinstance(s, dict) and s.get("final_output"))
+    runtime = sum(float(s.get("duration_s") or 0) for s in (board.get("shots") or [])
+                  if isinstance(s, dict) and s.get("status") != "skipped")
+    cast = ", ".join(sorted({str(s.get("character_id")) for s in (board.get("shots") or [])
+                             if isinstance(s, dict) and s.get("character_id")})) or "none"
+    md = [f"# {title}", "",
+          f"{len(board.get('shots') or [])} shots planned · {delivered} delivered · "
+          f"{round(runtime)} s", "",
+          f"Rendered with Phosphene {_read_local_version() or 'dev'} · character: {cast}", "",
+          "| # | file | length | seed | pass | prompt |",
+          "|---|---|---|---|---|---|"] + rows
+    if cut:
+        md += ["", "## Cut", ""] + cut
+    (dest / "storyboard.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+    (dest / "storyboard.json").write_text(
+        json.dumps(board, indent=2, ensure_ascii=False), encoding="utf-8")
+    return {"ok": True, "dir": str(dest), "files": files}
 
 
 def _validate_character_quality(form: dict[str, list[str]] | dict[str, str]) -> str | None:
@@ -14941,6 +15688,13 @@ class Handler(BaseHTTPRequestHandler):
             payload["outputs"] = _outs
             payload["outputs_total"] = _outs_total
             payload["hidden_count"] = hidden_count
+            # Storyboards — one line per board. Three jobs, all of them cheap:
+            # the `S03/12` badge on a queue card needs the denominator, the tab
+            # count during an overnight run needs `running`, and `To film` in
+            # the player overlay stays hidden until this list is non-empty
+            # (rule 5 — with no film in progress the panel looks exactly as it
+            # did yesterday).
+            payload["storyboards"] = _sb_all_summaries()
             payload["memory"] = get_memory()
             payload["comfy_pids"] = find_comfy_pids()
             payload["server_now"] = time.time()
@@ -15799,6 +16553,28 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"characters": list_characters()})
             return
 
+        # ---- Storyboard reads ------------------------------------------
+        if parsed.path == "/storyboard/list":
+            self._json({"ok": True, "boards": _sb_all_summaries()})
+            return
+        if parsed.path == "/storyboard/get":
+            bid = (parse_qs(parsed.query).get("id") or [""])[0].strip()
+            try:
+                board = storyboard.load_storyboard(STATE_DIR, bid)
+            except Exception as exc:                                # noqa: BLE001
+                self._json({"ok": False, "error": str(exc)}, 404)
+                return
+            # Reconcile job ids -> shot status BEFORE replying, and save if the
+            # queue told us something the board didn't know. This is what makes
+            # a panel restart mid-render invisible to the user.
+            try:
+                if _sb_reconcile(board):
+                    storyboard.save_storyboard(STATE_DIR, board)
+            except Exception:
+                pass
+            self._json(_sb_payload(board))
+            return
+
         # Progress poll for the one-click sample-character download.
         if parsed.path == "/characters/download-sample/status":
             with _sample_char_lock:
@@ -16394,6 +17170,422 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         self.send_error(404)
+
+    # ---- Storyboard writes ---------------------------------------------
+    # One method rather than fourteen `if path ==` blocks in do_POST, because
+    # every one of them shares the same three opening moves (find the board,
+    # normalise it, reply with the full payload the plan screen repaints from).
+    # Called from do_POST AFTER the body/form parse — the routes below read
+    # both, and /storyboard/save posts JSON rather than a form.
+    def _storyboard_post(self, action: str, body: str, form: dict) -> None:
+        def f(name: str, default: str = "") -> str:
+            v = form.get(name, default)
+            if isinstance(v, list):
+                v = v[0] if v else default
+            return (v or "").strip() or default
+
+        def load(bid: str):
+            return storyboard.load_storyboard(STATE_DIR, bid)
+
+        try:
+            # ---- plan / re-plan -----------------------------------------
+            if action == "plan":
+                concept = f("concept", "")
+                bid = f("id", "")
+                notes = f("notes", "")
+                if not concept and not bid:
+                    self._json({"ok": False,
+                                "error": "Write a couple of sentences about the "
+                                         "film first."}, 400)
+                    return
+                # Constraint 1, enforced server-side: a stale tab must not be
+                # able to start a planner while the renderer holds the memory.
+                with LOCK:
+                    busy = bool(STATE.get("running")) or bool(STATE.get("queue"))
+                if busy:
+                    self._json({"ok": False, "busy": True,
+                                "error": "The renderer is using the memory. "
+                                         "Planning can start when the queue is "
+                                         "empty."}, 409)
+                    return
+                previous = None
+                if bid:
+                    try:
+                        board = load(bid)
+                        previous = {k: board.get(k) for k in
+                                    ("schema", "id", "title", "cast", "policy", "shots")}
+                        concept = concept or board.get("concept") or ""
+                    except Exception:
+                        bid = ""
+                if not bid:
+                    bid = "sb_%s_%s" % (time.strftime("%Y%m%d"),
+                                        hashlib.sha1(
+                                            (concept + str(time.time())).encode()
+                                        ).hexdigest()[:6])
+                    board = storyboard.new_storyboard(bid, "Planning…")
+                try:
+                    shots_n = int(f("shots", "12"))
+                except (TypeError, ValueError):
+                    shots_n = 12
+                if shots_n not in STORYBOARD_SHOT_CHOICES:
+                    shots_n = 12
+                must = [x.strip() for x in (f("must", "") or "").splitlines() if x.strip()]
+                cid = f("character_id", "")
+                chars = [c for c in (list_characters() or []) if c.get("id") == cid] if cid else []
+                board["concept"] = concept
+                board["style"] = f("style", "")
+                board["must"] = must
+                board["shots_target"] = shots_n
+                board["cast"] = [{"id": c.get("id"),
+                                  "trigger": c.get("trigger") or c.get("id")}
+                                 for c in chars]
+                board.setdefault("policy", _sb_policy_for(
+                    get_settings().get("storyboard_draft_quality", "quick"),
+                    get_settings().get("storyboard_final_quality", "standard")))
+                _sb_set_planner(board, state="running", stage="load", error=None)
+                storyboard.save_storyboard(STATE_DIR, board)
+
+                with _SB_LOCK:
+                    if bid in _SB_PLANNERS:
+                        self._json({"ok": False,
+                                    "error": "This film is already being planned."}, 409)
+                        return
+                    _SB_PLANNERS[bid] = {"cancelled": False}
+                th = threading.Thread(
+                    target=_sb_plan_thread, daemon=True, name=f"phos-sb-plan-{bid}",
+                    args=(bid, {"concept": concept, "n_shots": shots_n,
+                                "style": board["style"], "characters": chars,
+                                "must": must, "feedback": notes or None},
+                          previous if notes else None))
+                with _SB_LOCK:
+                    _SB_PLANNERS[bid]["thread"] = th
+                th.start()
+                self._json({"ok": True, "id": bid}, 202)
+                return
+
+            if action == "cancel":
+                bid = f("id", "")
+                with _SB_LOCK:
+                    entry = _SB_PLANNERS.get(bid)
+                    if entry:
+                        entry["cancelled"] = True
+                        sess = entry.get("session")
+                    else:
+                        sess = None
+                # release() from another thread kills the child and makes the
+                # blocked plan_film() call raise into its own finally.
+                if sess is not None:
+                    try:
+                        sess.release()
+                    except Exception:
+                        pass
+                try:
+                    board = load(bid)
+                    _sb_set_planner(board, state="cancelled", stage=None)
+                    storyboard.save_storyboard(STATE_DIR, board)
+                except Exception:
+                    pass
+                self._json({"ok": True})
+                return
+
+            # ---- edit ----------------------------------------------------
+            if action == "save":
+                try:
+                    payload = json.loads(body or "{}")
+                except json.JSONDecodeError as exc:
+                    self._json({"ok": False, "error": f"bad JSON: {exc}"}, 400)
+                    return
+                bid = str(payload.get("id") or "").strip()
+                incoming = payload.get("board")
+                if not isinstance(incoming, dict):
+                    self._json({"ok": False, "error": "no board"}, 400)
+                    return
+                board = load(bid)
+                # Only the fields the plan screen can edit. Everything else on
+                # disk (job ids, outputs, planner metadata) is the server's and
+                # a stale tab must not be able to roll it back.
+                for k in ("title", "concept", "style", "must", "shots_target", "policy"):
+                    if k in incoming:
+                        board[k] = incoming[k]
+                if isinstance(incoming.get("shots"), list):
+                    keep = {"draft_job_id", "final_job_id", "draft_output",
+                            "final_output", "error"}
+                    by_n = {s.get("n"): s for s in (board.get("shots") or [])
+                            if isinstance(s, dict)}
+                    merged = []
+                    for s in incoming["shots"]:
+                        if not isinstance(s, dict):
+                            continue
+                        old = by_n.get(s.get("n")) or {}
+                        for k in keep:
+                            if k in old and k not in s:
+                                s[k] = old[k]
+                        merged.append(s)
+                    board["shots"] = merged
+                _sb_normalize(board)
+                storyboard.save_storyboard(STATE_DIR, board)
+                self._json(_sb_payload(board))
+                return
+
+            if action == "grade":
+                board = load(f("id", ""))
+                try:
+                    n = int(f("n", "0"))
+                except (TypeError, ValueError):
+                    n = 0
+                grade = f("grade", "") or None
+                if grade not in (None, "keep", "reroll", "cut"):
+                    self._json({"ok": False, "error": "bad grade"}, 400)
+                    return
+                for s in (board.get("shots") or []):
+                    if isinstance(s, dict) and s.get("n") == n:
+                        s["grade"] = grade
+                        if "note" in form:
+                            s["note"] = f("note", "")
+                        # CUT is the one verdict that changes scheduling:
+                        # shooting_order() and estimate() already exclude
+                        # "skipped", so no new filtering logic anywhere.
+                        if grade == "cut":
+                            s["status"] = "skipped"
+                        elif s.get("status") == "skipped":
+                            s["status"] = "done" if s.get("draft_output") else "pending"
+                        break
+                board["updated_at"] = int(time.time())
+                storyboard.save_storyboard(STATE_DIR, board)
+                self._json(_sb_payload(board))
+                return
+
+            if action == "estimate":
+                board = load(f("id", ""))
+                pass_name = f("pass", "draft")
+                only = [int(x) for x in (f("only", "") or "").split(",") if x.strip().isdigit()]
+                if only:
+                    import copy as _copy
+                    board = _copy.deepcopy(board)
+                    for s in (board.get("shots") or []):
+                        if isinstance(s, dict) and s.get("n") not in only:
+                            s["status"] = "skipped"
+                    for s in (board.get("shots") or []):
+                        if isinstance(s, dict) and s.get("n") in only:
+                            s["status"] = "pending"
+                self._json({"ok": True,
+                            "estimate": storyboard.estimate(board, pass_name=pass_name,
+                                                            h3_cost=_sb_h3_cost)})
+                return
+
+            # ---- render --------------------------------------------------
+            if action == "render":
+                bid = f("id", "")
+                board = load(bid)
+                pass_name = "final" if f("pass", "draft") == "final" else "draft"
+                only = [int(x) for x in (f("only", "") or "").split(",") if x.strip().isdigit()]
+                errs = storyboard.validate_storyboard_detail(
+                    board, known_character_ids=_sb_known_character_ids(),
+                    ref_root=OUTPUT, max_dim=_sb_max_dim())
+                if errs:
+                    # Never render a plan the validator rejected — that is the
+                    # entire reason the validator exists.
+                    self._json({"ok": False, "errors": errs}, 400)
+                    return
+                with _SB_LOCK:
+                    if bid in _SB_PLANNERS:
+                        self._json({"ok": False,
+                                    "error": "The planner is still running."}, 409)
+                        return
+                    if bid in _SB_RENDERS:
+                        self._json({"ok": False,
+                                    "error": "This film is already rendering."}, 409)
+                        return
+                    _SB_RENDERS[bid] = {"stop": False, "pass": pass_name, "queued": 0}
+                # A final pass re-renders at the draft's seed, which is already
+                # pinned onto the shot by the reconciler.
+                if pass_name == "final":
+                    for s in (board.get("shots") or []):
+                        if isinstance(s, dict) and (not only or s.get("n") in only):
+                            s.pop("final_job_id", None)
+                    storyboard.save_storyboard(STATE_DIR, board)
+                th = threading.Thread(target=_sb_render_thread, daemon=True,
+                                      name=f"phos-sb-render-{bid}",
+                                      args=(bid, pass_name, only or None))
+                with _SB_LOCK:
+                    _SB_RENDERS[bid]["thread"] = th
+                th.start()
+                self._json({"ok": True, "queued": len(only) if only else None}, 202)
+                return
+
+            if action == "stop":
+                bid = f("id", "")
+                with _SB_LOCK:
+                    entry = _SB_RENDERS.get(bid)
+                    if entry:
+                        entry["stop"] = True
+                board = load(bid)
+                # Remove ONLY this board's queued jobs, through the same code
+                # path removeJob(id) uses. Never /queue/clear — another
+                # feature's jobs may be in there.
+                mine = set()
+                for s in (board.get("shots") or []):
+                    if not isinstance(s, dict):
+                        continue
+                    for k in ("draft_job_id", "final_job_id"):
+                        if s.get(k):
+                            mine.add(s[k])
+                removed = 0
+                with QUEUE_COND:
+                    before = len(STATE["queue"])
+                    STATE["queue"] = [j for j in STATE["queue"] if j.get("id") not in mine]
+                    removed = before - len(STATE["queue"])
+                    QUEUE_COND.notify_all()
+                persist_queue()
+                for s in (board.get("shots") or []):
+                    if isinstance(s, dict) and s.get("status") in ("queued",):
+                        s["status"] = "pending"
+                storyboard.save_storyboard(STATE_DIR, board)
+                push(f"[storyboard] stopped — {removed} queued shot(s) removed; "
+                     f"the shot in flight finishes")
+                self._json({"ok": True, "removed": removed})
+                return
+
+            if action == "replan-shots":
+                bid = f("id", "")
+                board = load(bid)
+                ns = [int(x) for x in (f("ns", "") or "").split(",") if x.strip().isdigit()]
+                if not ns:
+                    self._json({"ok": False, "error": "no shots named"}, 400)
+                    return
+                with LOCK:
+                    busy = bool(STATE.get("running")) or bool(STATE.get("queue"))
+                if busy:
+                    self._json({"ok": False, "busy": True,
+                                "error": "The renderer is using the memory. "
+                                         "Planning can start when the queue is "
+                                         "empty."}, 409)
+                    return
+                with _SB_LOCK:
+                    if bid in _SB_PLANNERS:
+                        self._json({"ok": False,
+                                    "error": "This film is already being planned."}, 409)
+                        return
+                    _SB_PLANNERS[bid] = {"cancelled": False}
+                notes = []
+                for s in (board.get("shots") or []):
+                    if isinstance(s, dict) and s.get("n") in ns:
+                        notes.append("shot %d: %s" % (s["n"], (s.get("note") or "").strip()
+                                                      or "the director rejected this shot — "
+                                                         "write a different one"))
+                previous = {k: board.get(k) for k in
+                            ("schema", "id", "title", "cast", "policy", "shots")}
+                chars = [c for c in (list_characters() or [])
+                         if c.get("id") in {x.get("id") for x in (board.get("cast") or [])}]
+                th = threading.Thread(
+                    target=_sb_plan_thread, daemon=True, name=f"phos-sb-reroll-{bid}",
+                    args=(bid, {"concept": board.get("concept") or "",
+                                "n_shots": len(board.get("shots") or []),
+                                "style": board.get("style") or "",
+                                "characters": chars,
+                                "must": board.get("must") or [],
+                                "feedback": "\n".join(notes)},
+                          previous))
+                with _SB_LOCK:
+                    _SB_PLANNERS[bid]["thread"] = th
+                th.start()
+                self._json({"ok": True}, 202)
+                return
+
+            # ---- shared state --------------------------------------------
+            if action == "add-shot":
+                bid = f("id", "")
+                clip = f("path", "")
+                p = Path(clip)
+                if not p.is_file() or OUTPUT.resolve() not in p.resolve().parents:
+                    self._json({"ok": False, "error": "no such clip"}, 400)
+                    return
+                try:
+                    meta = json.loads((p.parent / (p.name + ".json")).read_text(encoding="utf-8"))
+                except Exception:
+                    meta = {}
+                params = meta.get("params") or {}
+                if bid in ("", "new"):
+                    bid = "sb_%s_%s" % (time.strftime("%Y%m%d"),
+                                        hashlib.sha1(str(time.time()).encode()).hexdigest()[:6])
+                    board = storyboard.new_storyboard(bid, "Untitled film")
+                    board["policy"] = _sb_policy_for(
+                        get_settings().get("storyboard_draft_quality", "quick"),
+                        get_settings().get("storyboard_final_quality", "standard"))
+                else:
+                    board = load(bid)
+                cid = params.get("character_id") or ""
+                try:
+                    dur = round(float(params.get("frames") or 121)
+                                / float(params.get("frame_rate") or 24.0), 1)
+                except Exception:
+                    dur = 5.0
+                shot = {
+                    "n": len(board.get("shots") or []) + 1,
+                    "title": p.stem[:60],
+                    "mode": "character" if cid else "text",
+                    "engine": (params.get("engine") or "ltx"),
+                    "prompt": params.get("prompt") or "",
+                    "duration_s": max(1.0, min(60.0, dur)),
+                    "seed": (meta.get("seed_used") if isinstance(meta.get("seed_used"), int)
+                             else params.get("seed_used") if isinstance(params.get("seed_used"), int)
+                             else -1),
+                    "refs": [], "status": "done",
+                    "draft_output": str(p),
+                }
+                if cid:
+                    shot["character_id"] = cid
+                    shot["trigger"] = params.get("trigger") or cid
+                board.setdefault("shots", []).append(shot)
+                _sb_normalize(board)
+                storyboard.save_storyboard(STATE_DIR, board)
+                self._json({"ok": True, "id": bid, "n": shot["n"],
+                            "title": board.get("title") or ""})
+                return
+
+            # ---- export / housekeeping -----------------------------------
+            if action == "export":
+                board = load(f("id", ""))
+                self._json(_sb_export(board))
+                return
+
+            if action == "reveal":
+                board = load(f("id", ""))
+                title = board.get("title") or "storyboard"
+                day = time.strftime("%Y-%m-%d",
+                                    time.localtime(board.get("created_at") or time.time()))
+                d = OUTPUT / "storyboards" / f"{day}_{_sb_slug(title, 6)}"
+                if not d.is_dir():
+                    self._json({"ok": False, "error": "nothing exported yet"}, 404)
+                    return
+                try:
+                    subprocess.Popen(["open", str(d)])
+                except Exception as exc:                            # noqa: BLE001
+                    self._json({"ok": False, "error": str(exc)}, 500)
+                    return
+                self._json({"ok": True})
+                return
+
+            if action == "delete":
+                bid = f("id", "")
+                with _SB_LOCK:
+                    if bid in _SB_RENDERS or bid in _SB_PLANNERS:
+                        self._json({"ok": False,
+                                    "error": "Stop the film first."}, 409)
+                        return
+                d = storyboard.board_dir(STATE_DIR, bid)
+                if d.is_dir() and d.resolve().parent == (STATE_DIR / "storyboards").resolve():
+                    shutil.rmtree(d, ignore_errors=True)
+                # Deletes the plan. The clips it rendered stay in mlx_outputs/.
+                self._json({"ok": True})
+                return
+
+            self._json({"ok": False, "error": f"unknown storyboard action: {action}"}, 404)
+        except storyboard.StoryboardError as exc:
+            self._json({"ok": False, "error": str(exc)}, 404)
+        except Exception as exc:                                    # noqa: BLE001
+            push(f"[storyboard] {action} failed: {exc}")
+            self._json({"ok": False, "error": str(exc)}, 500)
 
     def do_POST(self) -> None:
         if not self._is_local_request():
@@ -17440,6 +18632,14 @@ class Handler(BaseHTTPRequestHandler):
                 QUEUE_COND.notify_all()
             persist_queue()
             self._json({"ok": True, "id": job["id"]})
+            return
+
+        # ====== Storyboard — plan a film, then shoot it ====================
+        # Sits with the /queue/* cluster on purpose: every one of these routes
+        # ends up going through the SAME make_job -> STATE["queue"] contract
+        # above, and none of them has a private execution path.
+        if path.startswith("/storyboard/"):
+            self._storyboard_post(path[len("/storyboard/"):], body, form)
             return
 
         # ====== Characters — thin wrapper around /queue/add ================
@@ -19637,6 +20837,10 @@ def page() -> str:
         # points at this block by name (its `probe` key), rather than the
         # switcher knowing anything about H3 in particular.
         "h3": h3_status(),
+        # Storyboard — planner presence, the RAM copy, the shot/quality choices
+        # and the boards already on disk. In the bootstrap (not just /status) so
+        # the tab renders its real state on first paint instead of flickering.
+        "storyboard": storyboard_status(),
         # The engine registry (see ENGINES). The header switcher, the mode
         # gate, the surface swap and the accent tints are all rendered from
         # this list — adding an engine is one entry there, not a UI rewrite.
