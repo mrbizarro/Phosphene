@@ -21278,25 +21278,72 @@ def _compute_progress(current: dict | None, log_lines: list[str]) -> dict | None
 
 # ---- HTML --------------------------------------------------------------------
 
-def _resolve_cap_tier() -> str:
-    """Capability tier the Manual surface organizes around.
+def _resolve_quant_tier() -> str:
+    """QUANTISATION LEVEL this Mac can run. A statement about RAM, nothing
+    else: "q8" on Comfortable+ (>= 48 GB, the dev transformer fits), "q4"
+    on Compact (< 48 GB).
 
-      "q8" — Comfortable+ machines (>= 48 GB RAM, Q8 weights installable).
-             Manual surface offers character / FFLF / extend / lip-dub.
-             Q4 still available as a per-render compute fallback for
-             plain Text/Image renders.
-      "q4" — Compact tier (< 48 GB). Manual surface only shows what
-             actually works: Text + Image, style LoRAs, HDR, joint audio.
-             Character / FFLF / Extend are hidden entirely because the
-             dev transformer doesn't fit in RAM.
+    This is one half of what the single `cap_tier` string used to mean. It
+    is deliberately model-version-blind — a Mac's memory does not change
+    when a new checkpoint generation ships.
 
     `LTX_FORCE_CAP_TIER=q4|q8` overrides — useful for testing the Q4
     surface on a high-RAM dev machine (Mr Bizarro's M4 Max defaults to q8;
-    `LTX_FORCE_CAP_TIER=q4 ./run.sh` reveals the low-RAM layout)."""
+    `LTX_FORCE_CAP_TIER=q4 ./run.sh` reveals the low-RAM layout). The env
+    var keeps its old name because it is documented, in the notes, and in
+    people's shell history."""
     override = (os.environ.get("LTX_FORCE_CAP_TIER", "") or "").strip().lower()
     if override in ("q4", "q8"):
         return override
     return "q8" if SYSTEM_CAPS.get("allows_q8") else "q4"
+
+
+def _resolve_cap_tier(version_id: str | None = None) -> str:
+    """FEATURE TIER the Manual surface organizes around — the other half.
+
+      "q8" — Manual surface offers character / FFLF / extend / lip-dub.
+             Q4 still available as a per-render compute fallback for
+             plain Text/Image renders.
+      "q4" — Manual surface only shows what actually works: Text + Image,
+             style LoRAs, HDR, joint audio. Character / FFLF / Extend are
+             hidden entirely.
+
+    WHY THE SPLIT: the one string used to answer both questions, and the
+    two answers were only ever the same because there was exactly one model
+    version and it shipped both quantisations. The moment a version ships
+    q4 weights only (which is exactly how LTX-2.5 lands -- distilled q4
+    first, q8 in a second wave), a 128 GB Mac still resolves "q8" from RAM
+    and the panel offers Extend, Keyframe and High against weights that do
+    not exist. That is a job-time RuntimeError at best and a wrong-base
+    render at worst.
+
+    So the feature tier is now the machine's quant tier CLAMPED to what the
+    active model version declares it can serve (registry `cap_tiers`). For
+    LTX-2.3, which declares both, the clamp is a no-op and this returns
+    exactly what it always did.
+
+    Note this is the OFFER, not the guarantee: a version can declare a q8
+    surface while that pack is still downloading. Presence stays the job of
+    q8_missing_files() / pack_missing_files(), which every gate already
+    calls -- one asks "can this generation do it at all", the other asks
+    "are the bytes here"."""
+    quant = _resolve_quant_tier()
+    tiers = version_cap_tiers(version_id)
+    if quant in tiers:
+        return quant
+    # The version can't serve this machine's quant tier. Fold DOWN to the
+    # richest surface it can serve that this Mac can still run — never up,
+    # or a Compact machine gets offered a q8-only generation it has no RAM
+    # for. `order` is poorest → richest.
+    order = ("q4", "q8")
+    reachable = [t for t in order
+                 if t in tiers and order.index(t) <= order.index(quant)]
+    if reachable:
+        return reachable[-1]
+    # Nothing this version ships is runnable here. Report the machine's own
+    # tier so the surface is at least honest about the hardware; the pack
+    # gates refuse the job with the real reason.
+    return quant
 
 
 def page() -> str:
