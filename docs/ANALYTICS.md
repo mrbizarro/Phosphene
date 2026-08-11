@@ -16,16 +16,37 @@ character names.
 | | |
 |---|---|
 | **What identifies you** | One random UUID, generated on your Mac, tied to nothing |
-| **How often** | Once per panel start, plus once per finished render. No heartbeats |
+| **How often** | Once ever when the install is new, once per panel start, plus once per finished render. No heartbeats |
 | **Where it goes** | PostHog (`us.i.posthog.com`), or a self-hosted endpoint you choose |
-| **How to turn it off** | Settings → *Anonymous usage analytics* → **Turn off** |
-| **Default** | ON |
-| **What you can inspect** | `state/usage-log.jsonl` — a plain-text copy of everything the panel would send |
+| **How to turn it off** | Settings → *Anonymous usage analytics* → **Turn off**, or `PHOSPHENE_ANALYTICS_DISABLED=1` |
+| **Default** | ON, and the shipped build carries a working key — see below |
+| **What you can inspect** | `state/usage-log.jsonl` — a plain-text copy of everything the panel sends |
 | **Effect on renders** | None. Background thread, 2 s timeout, all failures ignored |
 
-If no PostHog project key is configured, **the panel opens no network
-connection at all** and only writes the local log. The public repo ships with
-no key, so a fresh clone sends nothing until its owner configures one.
+**The build you install ships a project key.** Phosphene is distributed as
+source — you `git clone` it through Pinokio — so a key left empty in the
+repository would never reach anyone and these counts would not exist. What is
+committed, in `mlx_ltx_panel.py` as `ANALYTICS_KEY_DEFAULT`, is a PostHog
+**project key** (`phc_…`): write-only and client-side by design. It can send
+events. It cannot read one back, list anything, or change the project. Reading
+the data needs a separate *personal* key, which is **not** in this repository.
+Shipping a client key in the source is what PostHog documents these keys for —
+so the thing worth checking is not that a key exists, it's what the panel does
+with it, which is the rest of this page.
+
+**A fresh clone therefore does send.** Clone it, run it, and it sends exactly
+the events listed below and nothing else. The first time it ever runs, it says
+so — one line, in the panel log, before you have read anything:
+
+> `Phosphene sends anonymous usage counts (version, hardware class, render
+> stats, error signatures - never your prompts or media). Disable in Settings.`
+
+**Turning it off is the toggle, not the key.** Settings → *Anonymous usage
+analytics* → **Turn off** stops the network calls *and* the local log;
+`PHOSPHENE_ANALYTICS_DISABLED=1` does the same and beats the setting. Emptying
+the project-key field does **not** silence the panel: that field is an override
+for forks and self-hosters, and an empty override falls back to the shipped
+key. Use the toggle.
 
 ---
 
@@ -33,7 +54,8 @@ no key, so a fresh clone sends nothing until its owner configures one.
 
 **Settings → Anonymous usage analytics → Turn off.** One click; no confirm
 step. Turning it off stops the network calls *and* stops writing the local
-log.
+log — `_analytics_capture()` returns before it builds a payload, so there is
+nothing left to send or mirror.
 
 Before the panel has ever written a settings file — or if you'd rather set it
 in your environment — use:
@@ -43,6 +65,10 @@ PHOSPHENE_ANALYTICS_DISABLED=1
 ```
 
 That env var wins over the setting, always.
+
+**Clearing the project key is not an off switch.** It is an override field: an
+empty override resolves back to the key this build ships with. The two things
+above are the off switches, and they are the only two.
 
 ---
 
@@ -66,7 +92,31 @@ that matters to you, turn analytics off — or self-host the endpoint (below).
 
 ## Events
 
-Six event types. That's the whole list.
+Five events. That's the whole list. (A sixth is described at the end because
+people expect it — it is documented as the thing we deliberately don't send.)
+
+### `app_installed`
+
+Once per install, **ever** — fired on the first boot that an install id
+reports, immediately before its first `app_boot`.
+
+| Field | Type | Example | Notes |
+|---|---|---|---|
+| `version` | string | `"3.7.0"` | Which release a new install actually landed on |
+| `chip_family` | string | `"M4 Max"` | Same hardware *class* as on `app_boot` |
+| `ram_gb` | int | `64` | Unified memory, rounded to whole GB |
+
+**Why it exists:** it is the denominator. Without it, "new installs over time"
+has to be reverse-engineered from first-sightings of unique install ids, which
+is both fiddly and worse for you — it is the shape of question that tempts
+someone to start profiling ids. One counter answers it instead.
+
+**Once-ever, and how:** a boolean `analytics_install_reported` is written to
+`state/panel_settings.json` the moment the event is captured, and it is checked
+before every subsequent boot. Rebooting the panel never re-counts. Deleting
+your install id (or the settings file) makes a genuinely new install, which
+reports its own `app_installed` once — that is the same "no way to correlate it
+to the old one" property described above, not a loophole in it.
 
 ### `app_boot`
 
@@ -172,8 +222,9 @@ code path that reads a rendered file for analytics purposes.
 
 ## The local log
 
-Every captured event is also appended to **`state/usage-log.jsonl`**, whether
-or not a PostHog key is configured. One JSON object per line:
+Every captured event is appended to **`state/usage-log.jsonl`** *before* the
+network is touched, and independently of whether the send then succeeds. One
+JSON object per line:
 
 ```json
 {"event":"render_completed","props":{"engine":"ltx","mode":"t2v","tier":"standard","duration_bucket":"2-5m","resolution":"1216x704","frames":121},"install_id":"…","ts":1754400000.0,"at":"2026-08-05 17:40:00","utc":"2026-08-05T14:40:00Z"}
@@ -181,7 +232,8 @@ or not a PostHog key is configured. One JSON object per line:
 
 Two reasons it exists: it's the "this machine" data source for the Usage
 section of the stats dashboard, and it means you never have to take this
-document's word for anything — you can read exactly what the panel would send.
+document's word for anything — you can read exactly what the panel sent, line
+for line, after the fact.
 
 The file is capped at **5 MB**; at the cap the oldest half is dropped. It's
 gitignored (both via `state/` and by basename) and never leaves your Mac.
@@ -190,21 +242,26 @@ gitignored (both via `state/` and by basename) and never leaves your Mac.
 
 ## Owner setup — activating this
 
-Both keys are pasted in **Settings → Anonymous usage analytics → Maintainer /
-self-hosting keys**. Neither is committed; both live in
-`state/panel_settings.json` (mode `0600`).
+Both key fields live in **Settings → Anonymous usage analytics → Maintainer /
+self-hosting keys**, and are stored in `state/panel_settings.json` (mode
+`0600`). One of the two keys is committed and one must never be — that
+asymmetry is the whole design.
 
-### 1. Turn the pings on — PostHog **Project API key**
+### 1. The capture key — PostHog **Project API key** (shipped)
 
-PostHog → *Project settings* → *Project API key* (starts `phc_…`). This key is
-write-only and safe to hold on disk.
+PostHog → *Project settings* → *Project API key* (starts `phc_…`). Write-only:
+it can send events and do nothing else, which is why it is safe to hold on disk
+and safe to commit. **Phosphene's own project key is already in the source** as
+`ANALYTICS_KEY_DEFAULT`, and it is what a stock install reports with.
 
-Paste it into **PostHog project key (capture)**. Until this is set,
-`ANALYTICS_KEY_DEFAULT` is `""` and the panel opens **no socket at all**.
+Paste a different one into **PostHog project key (capture)** to point a fork at
+its own project. That field *overrides* the shipped key; clearing it falls back
+to the shipped key rather than switching capture off. To send nothing, use the
+toggle or `PHOSPHENE_ANALYTICS_DISABLED=1`.
 
 Env override: `PHOSPHENE_ANALYTICS_KEY`.
 
-### 2. Turn the fleet dashboard on — PostHog **Personal API key**
+### 2. The read key — PostHog **Personal API key** (never committed)
 
 PostHog → *Personal settings* → *Personal API keys* → create one with **read**
 scope on the project (starts `phx_…`).
@@ -256,11 +313,19 @@ data with a visible warning.
 **Why default ON.** An opt-in version of this shipped on 2026-05-21 and was
 reverted the next day (`da1d6f5`). It was off by default, which meant it would
 have told us nothing even if it had stayed. The trade this version makes
-instead: default ON, but a far smaller payload, a visible one-line disclosure
-in the boot log the first time it runs, a one-click off switch, a readable
-local copy of every event, and — crucially — **inert in the public tree**, so
-anyone who clones the repo and never configures a key is unaffected either
-way.
+instead: default ON *with a key that really ships*, paid for by a far smaller
+payload, a one-line disclosure in the boot log the first time it runs, a
+one-click off switch that stops the local log too, and a plain-text copy on
+your own disk of every event that leaves.
+
+**A correction, recorded rather than quietly fixed.** Until 2026-08-12 this
+page said the public repo shipped no key and that a fresh clone sent nothing.
+That stopped being true on 2026-08-09 (`acfbdc7`), when the project key was
+committed on purpose — and the page kept saying it for three days. Nothing
+extra was ever collected; the page was simply wrong about the default, which
+for a page whose entire job is being checkable is the worse kind of wrong.
+Adding an event or a field is a documentation change first: if `ANALYTICS.md`
+and the dry-run suite aren't in the same commit, the commit is incomplete.
 
 **Why it can't break a render.** `_analytics_capture()` builds the payload,
 starts a daemon thread and returns. Delivery has a 2-second timeout and a bare
@@ -283,10 +348,12 @@ passes through, so a future engine is counted for free.
 python3 scripts/test_analytics_dryrun.py
 ```
 
-35 tests covering: inert-without-a-key, nothing-written-when-disabled, the
-exact field set of every event, prompt/path non-leakage (including a prompt
-quoted inside an exception), forbidden-key dropping, bucketing, log rotation
-and the local aggregates.
+38 tests covering: the shipped key is a write-only `phc_` project key and is
+really the one that goes on the wire, the toggle and the env kill-switch each
+produce zero sockets *and* zero log lines, the exact field set of every event,
+every event name the panel can fire is documented on this page, prompt/path
+non-leakage (including a prompt quoted inside an exception), forbidden-key
+dropping, bucketing, log rotation and the local aggregates.
 
 To watch it live, tail the local log while you render:
 
