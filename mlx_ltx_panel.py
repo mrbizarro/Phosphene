@@ -3552,6 +3552,80 @@ def pack_available_anywhere(quant: str, version_id: str | None = None) -> bool:
     return False
 
 
+def base_model_dir(version_id: str | None = None) -> str:
+    """Model directory for a version's BASE (distilled) pipeline, as a job
+    spec wants it.
+
+    For the ACTIVE version this resolves to MODEL_ID — which is either the
+    registry's q4 pack path or whatever LTX_MODEL was pointed at — so the
+    helper loads exactly what it loads today, including HF-repo-id and
+    custom-path installs. For any OTHER registered version it is that
+    version's own q4 pack path, because LTX_MODEL only ever described the
+    active one. Stating this PER JOB rather than leaning on the helper's
+    spawn-time singleton is the seam a second version needs."""
+    if (version_id or ACTIVE_MODEL_VERSION) == ACTIVE_MODEL_VERSION:
+        return str(MODEL_ID)
+    return str(pack_path("q4", version_id))
+
+
+def ltx_model_dir(quant: str, version_id: str | None = None) -> str:
+    """Pack directory for a job spec, with the fallback the IC-LoRA / HDR
+    sites hand-rolled four times: if the pack directory isn't on disk, hand
+    the helper the models root and let its own resolution take over rather
+    than naming a path that doesn't exist."""
+    p = pack_path(quant, version_id)
+    return str(p) if p.is_dir() else str(MODELS_DIR)
+
+
+def _canonical_layout() -> bool:
+    """True when this panel is driving the canonical Pinokio model layout.
+
+    False for the two shapes we must never second-guess: LTX_MODEL set to a
+    bare HF repo id (weights resolve through the HF cache) and LTX_MODEL
+    pointed at a directory the user assembled themselves. We have no
+    manifest for either, so completeness claims about them would be lies."""
+    return str(MODEL_ID).startswith("/") and str(MODEL_ID) == str(pack_path("q4"))
+
+
+def ltx_pack_preflight(quant: str, feature: str,
+                       version_id: str | None = None) -> None:
+    """Refuse a render whose weights are incomplete, and NAME the file.
+
+    This is the June-2026 lesson turned into four lines of control flow. One
+    1 GB spatial upscaler fell out of a `download_include` allowlist; the
+    pack still had every other file, the loader still built the module, and
+    it built it from random initialisation. Output was a rainbow mosaic with
+    no error anywhere -- two weeks and three wrong theories (Metal watchdog,
+    corrupt download, an MLX 4-bit kernel bug) before anyone looked at the
+    file list. A second model version multiplies that surface by the number
+    of packs, so every pack a job is about to load gets asked first.
+
+    Conservative by construction -- it can only fire where we have ground
+    truth: the canonical layout, a registered pack, and the files absent
+    from BOTH the pack directory and the HF cache. Anything else returns
+    silently and the job proceeds exactly as it did before."""
+    if not _canonical_layout():
+        return
+    repo = pack_repo(quant, version_id)
+    if not repo:
+        return
+    if pack_available_anywhere(quant, version_id):
+        return
+    missing = pack_missing_files(quant, version_id)
+    if not missing:
+        return
+    ver = model_version(version_id)
+    shown = ", ".join(missing[:3]) + (" …" if len(missing) > 3 else "")
+    raise RuntimeError(
+        f"{feature} can't run: the {ver['label']} {quant.upper()} model is "
+        f"incomplete. Missing {len(missing)} file(s) in "
+        f"{pack_path(quant, version_id)}: {shown}. "
+        f"Rendering anyway produces garbled 'mosaic' output rather than an "
+        f"error, which is why this stops here. Use the Repair banner in "
+        f"Settings → Model files, or re-download {repo['repo_id']}."
+    )
+
+
 def q8_missing_files() -> list[str]:
     """Files missing for the active version's Q8 pack (bare filenames).
     Honors $LTX_Q8_LOCAL via the registry's pack path.
@@ -13966,7 +14040,7 @@ def run_job_inner(job: dict) -> None:
                 # Y1.036: explicit model_dir → Q8. Helper's get_pipe("extend")
                 # caches per-model-dir so this rebuilds the pipe only when
                 # the dir actually flips.
-                "model_dir": str(Q8_LOCAL_PATH),
+                "model_dir": str(pack_path("q8")),
                 "prompt": p["prompt"],
                 "negative_prompt": p.get("negative_prompt", ""),
                 "video_path": src,
@@ -13994,7 +14068,7 @@ def run_job_inner(job: dict) -> None:
             # the panel's nominal MODEL_ID (which tracks the Q4 distilled
             # used by T2V/I2V/Standard). Record the actual path so the
             # /info modal and historical analyzers don't misreport.
-            "fps": FPS, "model": str(Q8_LOCAL_PATH), "queue_id": job["id"],
+            "fps": FPS, "model": str(pack_path("q8")), "queue_id": job["id"],
             "helper_elapsed_sec": result.get("elapsed_sec"),
             "output_codec": output_codec_settings(),
             # Lineage for issue #48. `extend_picked` is what the user chose in
@@ -14096,9 +14170,8 @@ def run_job_inner(job: dict) -> None:
         # Force the Q4 distilled folder — same rule HDR / Colorize / Ingredients
         # use. The Union-Control IC-LoRA was trained against the distilled
         # checkpoint.
-        control_model_dir = (str(MODELS_DIR / "ltx-2.3-mlx-q4")
-                             if (MODELS_DIR / "ltx-2.3-mlx-q4").is_dir()
-                             else str(MODELS_DIR))
+        control_model_dir = ltx_model_dir("q4")
+        ltx_pack_preflight("q4", "Control")
         job_spec = {
             "action": "generate_restore",
             "id": job["id"],
@@ -14202,9 +14275,8 @@ def run_job_inner(job: dict) -> None:
         job["raw_path"] = str(final_out)
         # Force the Q4 distilled folder — same rule HDR uses. The Colorize
         # IC-LoRA was trained against transformer-distilled.safetensors.
-        restore_model_dir = (str(MODELS_DIR / "ltx-2.3-mlx-q4")
-                             if (MODELS_DIR / "ltx-2.3-mlx-q4").is_dir()
-                             else str(MODELS_DIR))
+        restore_model_dir = ltx_model_dir("q4")
+        ltx_pack_preflight("q4", "Restore")
         job_spec = {
             "action": "generate_restore",
             "id": job["id"],
@@ -14379,9 +14451,8 @@ def run_job_inner(job: dict) -> None:
         job["raw_path"] = str(final_out)
         # Force Q4 distilled — the Ingredients LoRA was trained against
         # transformer-distilled.safetensors (same rule HDR / Colorize use).
-        ing_model_dir = (str(MODELS_DIR / "ltx-2.3-mlx-q4")
-                         if (MODELS_DIR / "ltx-2.3-mlx-q4").is_dir()
-                         else str(MODELS_DIR))
+        ing_model_dir = ltx_model_dir("q4")
+        ltx_pack_preflight("q4", "Ingredients")
         # IC reference STRENGTH — the composition lever. This is the second
         # element of each video_conditioning tuple, and it sets how clean the
         # reference latent is held during denoise (VideoConditionByReferenceLatent
@@ -14593,7 +14664,7 @@ def run_job_inner(job: dict) -> None:
             "action": "generate_keyframe",
             "id": job["id"],
             "params": {
-                "model_dir": str(Q8_LOCAL_PATH),
+                "model_dir": str(pack_path("q8")),
                 "prompt": p["prompt"],
                 "negative_prompt": p.get("negative_prompt", ""),
                 "output_path": str(out_path),
@@ -14659,14 +14730,15 @@ def run_job_inner(job: dict) -> None:
                 uses_q8 = False
         if uses_q8:
             action = "generate_a2v"
-            model_dir = str(Q8_LOCAL_PATH)
+            model_dir = str(pack_path("q8"))
             default_stage1 = 20
             default_stage2 = 3
         else:
             action = "generate_a2v_distilled"
-            model_dir = str(Q4_LOCAL_PATH)
+            model_dir = str(pack_path("q4"))
             default_stage1 = 8
             default_stage2 = 3
+        ltx_pack_preflight("q8" if uses_q8 else "q4", "Audio to Video")
         audio_src = (p.get("audio") or "").strip()
         if not audio_src or not Path(audio_src).exists():
             raise RuntimeError(f"audio file not found: {audio_src}")
@@ -14940,6 +15012,7 @@ def run_job_inner(job: dict) -> None:
             "path": CURATED_LORAS["hdr"]["repo_id"],
             "strength": float(CURATED_LORAS["hdr"]["default_strength"]),
         }]
+        ltx_pack_preflight("q4", "HDR")
         job_spec = {
             "action": "generate_hdr",
             "id": job["id"],
@@ -14947,9 +15020,7 @@ def run_job_inner(job: dict) -> None:
                 # Force distilled folder. The Q4 dir holds
                 # transformer-distilled.safetensors which is what the
                 # IC-LoRA was trained against.
-                "model_dir": str(MODELS_DIR / "ltx-2.3-mlx-q4")
-                              if (MODELS_DIR / "ltx-2.3-mlx-q4").is_dir()
-                              else str(MODELS_DIR),
+                "model_dir": ltx_model_dir("q4"),
                 "prompt": p["prompt"],
                 "negative_prompt": p.get("negative_prompt", ""),
                 "output_path": str(raw_out),
@@ -15022,7 +15093,7 @@ def run_job_inner(job: dict) -> None:
             "action": "generate_hq",
             "id": job["id"],
             "params": {
-                "model_dir": str(Q8_LOCAL_PATH),
+                "model_dir": str(pack_path("q8")),
                 "prompt": p["prompt"],
                 "negative_prompt": p.get("negative_prompt", ""),
                 "output_path": str(raw_out),
@@ -15100,10 +15171,19 @@ def run_job_inner(job: dict) -> None:
                 "path": CURATED_LORAS["hdr"]["repo_id"],
                 "strength": float(CURATED_LORAS["hdr"]["default_strength"]),
             })
+        ltx_pack_preflight("q4", "This render")
         job_spec = {
             "action": "generate",
             "id": job["id"],
             "params": {
+                # The base render finally states WHICH weights it wants
+                # instead of inheriting whatever LTX_MODEL the helper was
+                # spawned with. base_model_dir() resolves to MODEL_ID for the
+                # active version, so this is the same directory the helper
+                # already loads -- the point is that a second model version
+                # becomes a different string here rather than a different
+                # helper process.
+                "model_dir": base_model_dir(),
                 "mode": mode,
                 "prompt": p["prompt"],
                 "negative_prompt": p.get("negative_prompt", ""),
@@ -16218,7 +16298,7 @@ class Handler(BaseHTTPRequestHandler):
             _q8_available = q8_available_anywhere()
             payload["q8_available"] = _q8_available
             payload["q8_missing"] = [] if _q8_available else _q8_missing
-            payload["q8_path"] = str(Q8_LOCAL_PATH)
+            payload["q8_path"] = str(pack_path("q8"))
             payload["base_available"] = not _base_missing
             payload["base_missing"] = _base_missing
             # Repo-level counts for the header pill — granular view that
