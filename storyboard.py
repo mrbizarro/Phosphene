@@ -169,6 +169,9 @@ LTX_FPS = 24
 H3_LENGTHS = ("3s", "5s", "10s", "15s")
 _H3_LENGTH_SECONDS = {"3s": 3.0, "5s": 5.0, "10s": 10.0, "15s": 15.0}
 _H3_LENGTH_FRAMES = {"3s": 73, "5s": 124, "10s": 243, "15s": 362}
+# How many chained 5 s windows each length renders as. Anything past 5 s is
+# N windows stitched by the runner, and every window is asked for a prompt.
+_H3_LENGTH_WINDOWS = {"3s": 1, "5s": 1, "10s": 2, "15s": 3}
 
 # A pass's quality (the LTX vocabulary the policy speaks) -> H3's canvas axis.
 # quick 640x384 · standard 768x448 · high 1024x576 are the three offered canvases;
@@ -515,6 +518,50 @@ def ltx_frames_for(duration_s: float) -> int:
     return max(9, 8 * round((n - 1) / 8) + 1)
 
 
+def h3_chain_prompts_for(shot: dict) -> list[str]:
+    """Per-window prompts for a chained H3 shot. `[]` when it isn't chained.
+
+    A 10 s clip renders as two 5-second windows and a 15 s as three, and by
+    default EVERY window is asked for the same prompt — so a one-off action
+    ("he raises his arm", a line of dialogue) happens once per window and the
+    clip reads as a repeat. That is the artifact `H3_CHAIN_PROMPT_HELP` in the
+    panel describes, and it is the single most-reported thing about long H3
+    clips.
+
+    The planner writes ONE description per shot, so there is no second beat to
+    hand window 2 — but there IS a `settle`: the state the shot is required to
+    end in (law L3, and the field exists because the model skipped the law when
+    it was only written as a rule). So the first window plays the shot, and
+    every later window is told to hold that settled state and start nothing new.
+    That is the honest reading of a 10 s shot whose action was written for one
+    window, and it is strictly better than saying it twice.
+
+    Window 1 is `""` — the panel's own contract for "use the main prompt" — so
+    the shot's real prompt is never duplicated into the array.
+    """
+    if shot_engine(shot) != "h3":
+        return []
+    windows = _H3_LENGTH_WINDOWS.get(h3_length_for(shot.get("duration_s") or 0), 1)
+    if windows <= 1:
+        return []
+    settle = (shot.get("settle") or "").strip().rstrip(".")
+    if not settle:
+        # Nothing honest to say about how it should continue — leave the array
+        # empty, which is exactly today's behaviour, rather than inventing one.
+        return []
+    sound = (shot.get("soundscape") or "").strip()
+    tail = ("integrated_multimodal_description: The shot continues without a cut, "
+            "exactly where it left off. The camera holds completely still, the "
+            "frame never moves - no pan, no push-in, no reframing. Nothing new "
+            f"begins and no action restarts: {settle}, and that settled state is "
+            "simply held for the whole window. Every face holds the exact angle "
+            "to the lens it has at the start. No text appears at any point.")
+    if sound:
+        tail += "\n\noverall_soundscape: " + sound
+    tail += "\n\nnon_diegetic_music: N/A"
+    return [""] + [tail] * (windows - 1)
+
+
 def shot_render_secs(shot: dict, policy_pass: dict, *, h3_cost=None) -> float:
     """Wall clock for ONE shot, on the engine it actually renders on.
 
@@ -639,7 +686,8 @@ def ensure_trigger(prompt: str, trigger: str) -> str:
 def shot_to_job(shot: dict, policy_pass: dict, *,
                 board_id: str = "", board_title: str = "",
                 h3_available: bool = True,
-                engine_mode: str = DEFAULT_ENGINE_MODE) -> dict:
+                engine_mode: str = DEFAULT_ENGINE_MODE,
+                h3_chain_prompts: bool = False) -> dict:
     """Translate one storyboard shot into the panel's ORDINARY job form fields.
 
     Deliberately produces the same shape a human clicking Generate would produce, so shots
@@ -688,6 +736,13 @@ def shot_to_job(shot: dict, policy_pass: dict, *,
         length = h3_length_for(duration_s) if duration_s > 0 else "5s"
         job["h3_length"] = length
         job["h3_quality"] = h3_quality_for(policy_pass.get("quality", "balanced"))
+        # Per-window prompts, when the installed runner supports the flag. The
+        # caller passes that capability in rather than this module probing for
+        # it — storyboard.py stays model-free and panel-free.
+        if h3_chain_prompts:
+            chain = h3_chain_prompts_for(shot)
+            if chain:
+                job["h3_chain_prompts"] = json.dumps(chain)
         # make_job re-stamps geometry from the resolved cell; carrying the cell's own frame
         # count means the job dict is already self-consistent (and honest in a log or a test)
         # before it gets there.

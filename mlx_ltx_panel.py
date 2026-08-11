@@ -5239,22 +5239,23 @@ STORYBOARD_RAM_HELP = (
     "separate process that exits when it's done, and only then starts rendering. "
     "That is also why the plan is worth reading before you start — nothing "
     "rewrites itself halfway through.")
-# Why a film has two engines in it, on the same Python-owned path. The owner's
-# first reaction to the tab was "it should show different things depending on
-# whether Hailuo or LTX is selected… I see that LTX is selected at the moment,
-# so I don't know" — the surface was letting a single global engine be inferred
-# when there isn't one. There is no engine selection on this tab: the plan
-# assigns one PER SHOT, every card wears it, and this says what decides.
+# What decides a shot's engine, on the same Python-owned path. This used to open
+# "There is no engine switch on a film" — written before the film-level control
+# existed, and then printed by the `?` sitting a few centimetres to its right.
+# It describes the control that is actually there now.
 STORYBOARD_ENGINE_HELP = (
-    "There is no engine switch on a film, because a film doesn't have one "
-    "engine. Each shot gets the engine that can actually render it. A shot cast "
-    "with one of your trained characters goes to LTX-2.3 — that is where "
-    "character LoRAs load, and Hailuo H3 cannot stack one, so a cast shot on H3 "
-    "would render a stranger. Every other shot goes to Hailuo H3, which is the "
-    "engine that renders dialogue, voices and sound together with the picture. "
-    "The chip on each shot card tells you which one it got, and shots are "
-    "rendered grouped by engine so the machine loads each model once instead of "
-    "once per shot.")
+    "You choose this once for the whole film, in the brief. On Auto each shot "
+    "gets the engine that can actually render it: a shot cast with one of your "
+    "trained characters goes to LTX-2.3 — that is where character LoRAs load, "
+    "and Hailuo H3 cannot stack one, so a cast shot on H3 would render a "
+    "stranger — and every other shot goes to Hailuo H3, which renders dialogue, "
+    "voices and sound together with the picture. Pick an engine by name and the "
+    "whole film goes there, except that a cast shot always stays on LTX-2.3. "
+    "The chip on each card tells you which one that shot got. Changing the "
+    "choice on a film that is already planned means re-planning it, because the "
+    "two engines want their prompts written differently — that is why the same "
+    "control is in the Re-plan box. Shots are rendered grouped by engine, so "
+    "each model loads once instead of once per shot.")
 STORYBOARD_ENGINE_NOTE = "The plan picks the engine per shot — the chip on each card says which."
 STORYBOARD_ENGINE_NOTE_NO_H3 = "Hailuo H3 isn't installed, so every shot renders on LTX-2.3."
 # The Draft canvas renders at 0.25 MP. The H3 community's practical floor is
@@ -10361,6 +10362,48 @@ def _sb_policy_for(draft_quality: str, final_quality: str) -> dict:
             "final": cell(final_quality, "standard")}
 
 
+def _sb_claim_planner(board_id: str):
+    """Take the ONE planner slot, or say why it can't be taken.
+
+    Global on purpose. `_free_all_but(keep_kind)` holds exactly one pipeline and
+    a language model occupies that same slot, so two planners is not "slower",
+    it is two 7.7 GB children at once (15.1 GB measured) — and on a 48 GB Mac,
+    which is H3's own floor, an OOM. The guard used to be per board, so two
+    different films could plan simultaneously and a third could start rendering
+    underneath them. Returns None on success, else the sentence to show.
+    """
+    with _SB_LOCK:
+        if _SB_PLANNERS:
+            return ("Another film is already being planned. The planner and the "
+                    "renderer share one pool of memory, so they take turns.")
+        if _SB_RENDERS:
+            return ("The renderer is using the memory. Planning can start when "
+                    "the queue is empty.")
+        _SB_PLANNERS[board_id] = {"cancelled": False}
+    return None
+
+
+def _sb_release_planner(*board_ids) -> None:
+    """Hand the planner slot back. Used on every early return AFTER a claim."""
+    with _SB_LOCK:
+        for bid in board_ids:
+            _SB_PLANNERS.pop(bid, None)
+
+
+def _sb_release_stranded_claim(action: str) -> None:
+    """A raise between claiming the planner slot and starting its thread would
+    strand the slot for the life of the process — nothing could ever plan again.
+    Only the two routes that claim it can strand it, and a claim with no live
+    thread is by definition stranded."""
+    if action not in ("plan", "replan-shots"):
+        return
+    with _SB_LOCK:
+        for bid, entry in list(_SB_PLANNERS.items()):
+            th = entry.get("thread")
+            if th is None or not th.is_alive():
+                _SB_PLANNERS.pop(bid, None)
+
+
 def _sb_error_kind(err: dict) -> str:
     """The planner's structured error -> the copy the failure screen shows.
 
@@ -10532,6 +10575,7 @@ def _sb_plan_thread(board_id: str, brief: dict, previous: dict | None) -> None:
             pass
         with _SB_LOCK:
             _SB_PLANNERS.pop(board_id, None)
+            _SB_PLANNERS.pop("-pending-", None)
 
 
 def _sb_enqueue(job_form: dict) -> str:
@@ -10582,13 +10626,21 @@ def _sb_render_thread(board_id: str, pass_name: str, only: list | None) -> None:
             batch = [s for s in pending if storyboard.bucket_key(s) == bucket]
             policy = (board.get("policy") or {}).get(pass_name) or {}
             h3_ok = _sb_h3_available()
+            # Does THIS install's runner take `--chain-prompts`? A pack cloned
+            # before that flag landed renders 10 s fine and cannot be told what
+            # each window should do, so asking would be an argparse failure.
+            try:
+                chain_ok = bool(h3_ok and h3_supports_chain_prompts())
+            except Exception:
+                chain_ok = False
             ids = []
             for shot in batch:
                 form = storyboard.shot_to_job(
                     shot, policy,
                     board_id=board_id, board_title=board.get("title") or "",
                     h3_available=h3_ok,
-                    engine_mode=board.get("engine_mode") or "auto")
+                    engine_mode=board.get("engine_mode") or "auto",
+                    h3_chain_prompts=chain_ok)
                 # make_job reads a form: every value is a string (or a list of
                 # them). Normalise here so a bool/int never reaches f().
                 job_form = {k: ("" if v is None else str(v)) for k, v in form.items()}
@@ -10640,6 +10692,8 @@ def _sb_render_thread(board_id: str, pass_name: str, only: list | None) -> None:
             board = storyboard.load_storyboard(STATE_DIR, board_id)
             if _sb_reconcile(board):
                 storyboard.save_storyboard(STATE_DIR, board)
+            # Delivered shots don't need their draft's Stage-A cache any more.
+            _sb_sweep_stage_a(board)
         except Exception:
             pass
 
@@ -10681,6 +10735,45 @@ def _sb_boot_reconcile() -> None:
                  f"stopped — press Try again when you're ready")
         except Exception:
             pass
+
+
+def _sb_sweep_stage_a(board: dict) -> int:
+    """Drop the Stage-A latent caches a film no longer has a use for.
+
+    Every H3 DRAFT drops a `<clip>.stage_a.npz` beside its output — **8.5 MB a
+    shot**, ~300 MB across a 36-shot film, on a disk the summary bar is already
+    calling tight. It exists so a later hires-refine pass can sharpen THAT take
+    rather than re-rolling it, and nothing in the panel consumes it yet.
+
+    So the rule is decided by whether the draft can still be refined:
+      * CUT (`status: "skipped"`)      -> it never will be. Delete.
+      * DELIVERED (`final_output` set) -> it already has its finished version.
+        Delete.
+      * anything else                  -> the draft is still awaiting a verdict.
+        KEEP, which is the whole window a future finish-from-cache would use.
+
+    Never touches a clip, and never touches a cache belonging to another film.
+    """
+    freed = 0
+    for s in (board.get("shots") or []):
+        if not isinstance(s, dict):
+            continue
+        draft = s.get("draft_output")
+        if not draft:
+            continue
+        if not (s.get("status") == "skipped" or s.get("final_output")):
+            continue
+        try:
+            cache = Path(draft).with_suffix(".stage_a.npz")
+            if cache.is_file() and cache.parent.resolve() == OUTPUT.resolve():
+                cache.unlink()
+                freed += 1
+        except OSError:
+            continue
+    if freed:
+        push(f"[storyboard] released {freed} Stage-A cache file(s) — "
+             f"about {freed * 8.5:.0f} MB")
+    return freed
 
 
 def _sb_slug(text: str, words: int = 5) -> str:
@@ -17347,6 +17440,13 @@ class Handler(BaseHTTPRequestHandler):
                                          "Planning can start when the queue is "
                                          "empty."}, 409)
                     return
+                # Take the ONE planner slot first. Everything below writes to
+                # disk, and a refusal after that leaves a dead "Planning…" board
+                # claiming state=running forever.
+                err = _sb_claim_planner(bid or "-pending-")
+                if err:
+                    self._json({"ok": False, "busy": True, "error": err}, 409)
+                    return
                 previous = None
                 if bid:
                     try:
@@ -17379,6 +17479,7 @@ class Handler(BaseHTTPRequestHandler):
                 # film that can't keep its promise.
                 cid = f("character_id", "")
                 if emode == "h3" and cid:
+                    _sb_release_planner(bid, "-pending-")
                     self._json({"ok": False,
                                 "error": "Hailuo H3 can't load a trained character. "
                                          "Pick Auto to keep them (their shots render on "
@@ -17398,13 +17499,12 @@ class Handler(BaseHTTPRequestHandler):
                     get_settings().get("storyboard_final_quality", "standard")))
                 _sb_set_planner(board, state="running", stage="load", error=None)
                 storyboard.save_storyboard(STATE_DIR, board)
-
+                # The slot was claimed under a placeholder before the id existed
+                # (a brand-new board mints its id above); move it onto the real
+                # one now that nothing else can fail.
                 with _SB_LOCK:
-                    if bid in _SB_PLANNERS:
-                        self._json({"ok": False,
-                                    "error": "This film is already being planned."}, 409)
-                        return
-                    _SB_PLANNERS[bid] = {"cancelled": False}
+                    _SB_PLANNERS.pop("-pending-", None)
+                    _SB_PLANNERS.setdefault(bid, {"cancelled": False})
                 th = threading.Thread(
                     target=_sb_plan_thread, daemon=True, name=f"phos-sb-plan-{bid}",
                     args=(bid, {"concept": concept, "n_shots": shots_n,
@@ -17470,6 +17570,14 @@ class Handler(BaseHTTPRequestHandler):
                     if k in incoming:
                         board[k] = incoming[k]
                 if isinstance(incoming.get("shots"), list):
+                    bad = [i for i, x in enumerate(incoming["shots"])
+                           if not isinstance(x, dict)]
+                    if bad:
+                        # Silently dropping these turned 6 shots into 5 with a
+                        # 200. Refuse instead of quietly editing the film.
+                        self._json({"ok": False,
+                                    "error": f"shots {bad} are not objects"}, 400)
+                        return
                     keep = {"draft_job_id", "final_job_id", "draft_output",
                             "final_output", "error"}
                     by_n = {s.get("n"): s for s in (board.get("shots") or [])
@@ -17514,6 +17622,8 @@ class Handler(BaseHTTPRequestHandler):
                         break
                 board["updated_at"] = int(time.time())
                 storyboard.save_storyboard(STATE_DIR, board)
+                # A CUT draft will never be refined — let its Stage-A cache go.
+                _sb_sweep_stage_a(board)
                 self._json(_sb_payload(board))
                 return
 
@@ -17550,13 +17660,29 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"ok": False, "errors": errs}, 400)
                     return
                 with _SB_LOCK:
-                    if bid in _SB_PLANNERS:
-                        self._json({"ok": False,
-                                    "error": "The planner is still running."}, 409)
+                    # GLOBAL, not per board: the planner and the renderer share
+                    # one pool of memory, so ANY plan in flight blocks a render,
+                    # not just this film's. The other direction is checked in
+                    # _sb_claim_planner().
+                    if _SB_PLANNERS:
+                        self._json({"ok": False, "busy": True,
+                                    "error": "A film is still being planned. "
+                                             "Rendering can start when it's "
+                                             "finished."}, 409)
                         return
-                    if bid in _SB_RENDERS:
+                    _live = _SB_RENDERS.get(bid)
+                    if _live and not _live.get("stop"):
                         self._json({"ok": False,
                                     "error": "This film is already rendering."}, 409)
+                        return
+                    if _live:
+                        # Stopped, but the dispatch thread hasn't woken from its
+                        # 5 s wait to release the slot yet. Saying "already
+                        # rendering" here is a sentence about a thread, not
+                        # about the film.
+                        self._json({"ok": False,
+                                    "error": "Still stopping the previous run — "
+                                             "try again in a moment."}, 409)
                         return
                     _SB_RENDERS[bid] = {"stop": False, "pass": pass_name, "queued": 0}
                 # A final pass re-renders at the draft's seed, which is already
@@ -17623,12 +17749,10 @@ class Handler(BaseHTTPRequestHandler):
                                          "Planning can start when the queue is "
                                          "empty."}, 409)
                     return
-                with _SB_LOCK:
-                    if bid in _SB_PLANNERS:
-                        self._json({"ok": False,
-                                    "error": "This film is already being planned."}, 409)
-                        return
-                    _SB_PLANNERS[bid] = {"cancelled": False}
+                err = _sb_claim_planner(bid)
+                if err:
+                    self._json({"ok": False, "busy": True, "error": err}, 409)
+                    return
                 notes = []
                 for s in (board.get("shots") or []):
                     if isinstance(s, dict) and s.get("n") in ns:
@@ -17746,8 +17870,10 @@ class Handler(BaseHTTPRequestHandler):
 
             self._json({"ok": False, "error": f"unknown storyboard action: {action}"}, 404)
         except storyboard.StoryboardError as exc:
+            _sb_release_stranded_claim(action)
             self._json({"ok": False, "error": str(exc)}, 404)
         except Exception as exc:                                    # noqa: BLE001
+            _sb_release_stranded_claim(action)
             push(f"[storyboard] {action} failed: {exc}")
             self._json({"ok": False, "error": str(exc)}, 500)
 
@@ -41104,6 +41230,13 @@ async function loadParams() {
   // Say it out loud. This whole function ran silently before — the form
   // changed somewhere off-screen and the click read as a dead button.
   _flashActionDone('loadParamsBtn', 'Loaded');
+  // On the Storyboard surface the Video form isn't on screen at all, so the
+  // flash happens somewhere the user can't see and the click reads as dead.
+  // Take them to the form that just changed.
+  if (document.body.dataset.workflow === 'storyboard') {
+    phosToast('Loaded into the Video form.', { kind: 'success' });
+    if (typeof workflowSwitch === 'function') workflowSwitch('manual');
+  }
 }
 
 // Momentary "it worked" state on an action button. The panel has no toast
@@ -45284,6 +45417,7 @@ let SB = {
   saveInFlight: false,
   saveAgain: false,
   stageMode: 'auto',      // 'auto' | 'list' | 'player'
+  primed: false,          // brief defaults are read from BOOT once, not per entry
   boards: [],             // /status.storyboards, refreshed by poll()
   lastUndo: null,
 };
@@ -45344,9 +45478,18 @@ function sbInit() {
     const box = sbEl('sbConcept');
     if (draft && box && !box.value) box.value = draft;
   } catch (e) {}
-  const d = SB_BOOT.defaults || {};
-  sbSetShots(d.shots || 12, false);
-  _sbEngineMode = d.engine || 'auto';
+  // Defaults are read from the bootstrap ONCE. sbInit() runs on every tab entry,
+  // and SB_BOOT was captured at page load — re-applying it on re-entry silently
+  // reset Shots and Engine to stale values while disk held the real ones, and
+  // the UI is what sbPlan() submits. After the first entry the in-session choice
+  // IS the truth.
+  if (!SB.primed) {
+    const d = SB_BOOT.defaults || {};
+    _sbShots = Number(d.shots) || 12;
+    _sbEngineMode = d.engine || 'auto';
+    SB.primed = true;
+  }
+  sbSetShots(_sbShots, false);
   sbRenderEnginePicker();
   if (typeof refreshManualCharacters === 'function') {
     Promise.resolve(refreshManualCharacters()).then(sbRenderCast).catch(() => sbRenderCast());
@@ -45448,14 +45591,16 @@ function sbMustInput() {
   meta.textContent = n === 0 ? 'none' : (n === 1 ? '1 shot' : `${n} shots`);
 }
 
+let _sbShots = 12;
 function sbSetShots(n, persist) {
+  _sbShots = Number(n) || 12;
   document.querySelectorAll('#sbLengthGroup .q-chip').forEach(b =>
-    b.classList.toggle('active', Number(b.dataset.sbShots) === Number(n)));
-  if (persist !== false) sbSaveSetting('storyboard_shots', n);
+    b.classList.toggle('active', Number(b.dataset.sbShots) === _sbShots));
+  if (persist !== false) sbSaveSetting('storyboard_shots', _sbShots);
 }
 function sbShotsValue() {
   const on = document.querySelector('#sbLengthGroup .q-chip.active');
-  return on ? Number(on.dataset.sbShots) : 12;
+  return on ? Number(on.dataset.sbShots) : _sbShots;
 }
 async function sbSaveSetting(key, value) {
   try {
@@ -45796,6 +45941,15 @@ async function sbLoad(id, quiet) {
   sbPlanBtnReset();
   sbShow('plan');
   sbRenderPlan(r);
+  // The player keeps whatever was last selected globally, so opening a film
+  // showed an unrelated Video-tab render under the film's own title. Put the
+  // film's newest clip up — but only when the current one isn't already one of
+  // this film's, so it never yanks a shot the user just clicked.
+  const mine = (r.board.shots || [])
+    .map(x => x.final_output || x.draft_output).filter(Boolean);
+  if (mine.length && mine.indexOf(activePath) === -1) {
+    try { selectOutput(mine[mine.length - 1]); } catch (e) {}
+  }
 }
 
 function sbRenderPlanFail(p) {
@@ -46375,7 +46529,12 @@ function sbUndoDelete() {
 function sbAddShot() {
   const board = ((SB.payload || {}).board);
   if (!board) return;
-  board.shots.push({ n: board.shots.length + 1, mode: 'text', engine: 'ltx',
+  // Follow the film's own rule rather than hardcoding LTX: in an Auto film on a
+  // machine with the H3 pack, an uncast shot belongs on H3 like every other
+  // uncast shot — otherwise the card contradicts the note printed above it.
+  const em = (SB.payload || {}).engine_mode || 'auto';
+  const eng = !((SB.payload || {}).h3_available) ? 'ltx' : (em === 'ltx' ? 'ltx' : 'h3');
+  board.shots.push({ n: board.shots.length + 1, mode: 'text', engine: eng,
                      prompt: '', duration_s: 5, seed: -1, refs: [], status: 'pending' });
   sbRenderPlan(SB.payload);
   sbQueueSave(true);

@@ -21,6 +21,7 @@ Two layers, deliberately separated:
 from __future__ import annotations
 
 import copy
+import re
 import json
 import os
 import sys
@@ -291,6 +292,102 @@ class TestCoercion(unittest.TestCase):
         self.assertIn("holds the exact angle to the lens", spec["shots"][0]["prompt"])
         self.assertNotIn("holds the exact angle to the lens", spec["shots"][1]["prompt"])
 
+    # --- the face law -------------------------------------------------------------
+    # Faces are the quality metric. A live plan wrote "his face obscured by the angle" and
+    # the render put the head half out of frame; a sweep of 56 shots found 5 face-hiding
+    # phrases, mostly "silhouetted against the ..." on the final shot.
+
+    def test_face_level_renders_the_right_law(self):
+        raw = {"title": "t", "shots": [
+            _shot(1, face="close", description="A close-up of a boxer's face."),
+            _shot(2, face="medium", description="A woman at a workbench."),
+            _shot(3, face="none", description="An empty steel dumpster.")]}
+        spec, _ = P.coerce_spec(raw, **dict(self.kw, n_shots=3))
+        self.assertIn("The face fills much of the frame", spec["shots"][0]["prompt"])
+        self.assertIn("holds the exact angle to the lens", spec["shots"][1]["prompt"])
+        self.assertNotIn("fills much of the frame", spec["shots"][1]["prompt"])
+        self.assertNotIn("holds the exact angle", spec["shots"][2]["prompt"])
+        self.assertEqual([s["face"] for s in spec["shots"]], ["close", "medium", "none"])
+
+    def test_face_level_defaults_from_whether_a_person_is_on_screen(self):
+        raw = {"title": "t", "shots": [
+            _shot(1, face=None, description="Live-action, cinematic, a woman on a step."),
+            _shot(2, face=None, description="Live-action, cinematic, an empty dumpster.")]}
+        spec, _ = P.coerce_spec(raw, **dict(self.kw, n_shots=2))
+        self.assertEqual([s["face"] for s in spec["shots"]], ["medium", "none"])
+
+    def test_hidden_faces_are_refused_unless_the_brief_asked(self):
+        raw = {"title": "t", "shots": [_shot(1, face="hidden",
+                                             description="A woman on a rooftop.")]}
+        spec, warns = P.coerce_spec(raw, **dict(self.kw, n_shots=1))
+        self.assertEqual(spec["shots"][0]["face"], "medium")
+        self.assertIn("holds the exact angle", spec["shots"][0]["prompt"])
+        self.assertTrue(any("kept visible" in w for w in warns), warns)
+
+    def test_hidden_faces_are_allowed_when_the_brief_asked(self):
+        raw = {"title": "t", "shots": [_shot(1, face="hidden",
+                                             description="A woman on a rooftop.")]}
+        spec, warns = P.coerce_spec(raw, allow_hidden_faces=True, **dict(self.kw, n_shots=1))
+        self.assertEqual(spec["shots"][0]["face"], "hidden")
+        self.assertNotIn("holds the exact angle", spec["shots"][0]["prompt"])
+        self.assertEqual([w for w in warns if "kept visible" in w], [])
+
+    def test_face_blocking_prose_is_scrubbed_out(self):
+        # Every one of these is verbatim from a real plan, or the reported defect.
+        raw = {"title": "t", "shots": [
+            _shot(1, description=("Live-action, cinematic, a close-up of a boxer on a stool, "
+                                  "his face obscured by the angle, sweat on his shoulders. "
+                                  "He breathes out slowly.")),
+            _shot(2, description=("Live-action, cinematic, a wide shot of the keeper at the "
+                                  "window. He stands very still."),
+                  settle=("he is standing at the window, silhouetted against the setting "
+                          "sun, watching the light sweep out")),
+            _shot(3, description=("Live-action, cinematic, a medium shot of a woman on a "
+                                  "rooftop, her silhouette framed against the city lights. "
+                                  "She sets down her tools.")),
+            _shot(4, description=("Live-action, cinematic, a violinist seen from behind, "
+                                  "her bow arm rising. She draws one long note."))]}
+        spec, warns = P.coerce_spec(raw, **dict(self.kw, n_shots=4))
+        joined = " ".join(s["prompt"] for s in spec["shots"])
+        for banned in ("obscured", "silhouetted against", "her silhouette", "seen from behind"):
+            self.assertNotIn(banned, joined, "%r survived the scrub" % banned)
+        # The rest of each direction survives — this is a clause scrub, not a shot delete.
+        self.assertEqual(len(spec["shots"]), 4)
+        self.assertIn("sweat on his shoulders", spec["shots"][0]["prompt"])
+        self.assertIn("watching the light sweep out", spec["shots"][1]["prompt"])
+        self.assertIn("She sets down her tools", spec["shots"][2]["prompt"])
+        self.assertIn("her bow arm rising", spec["shots"][3]["prompt"])
+        self.assertEqual(len([w for w in warns if "face-hiding framing" in w]), 4, warns)
+
+    def test_scrub_leaves_legitimate_non_person_silhouettes_alone(self):
+        # From the C1 exemplar: a landscape silhouette is good cinematography, not a
+        # hidden face. Same for a face half in shadow.
+        desc = ("Live-action, cinematic, a medium close-up of a man on a dune ridge. Hard "
+                "low sun rakes from camera left, carving one bright edge down his cheekbone "
+                "while the other side of his face falls into open shadow; the dune line "
+                "behind him is a clean dark silhouette against a pale sky.")
+        out, removed = P._scrub_face_blocking(desc)
+        self.assertEqual(removed, [])
+        self.assertIn("clean dark silhouette against a pale sky", out)
+        self.assertIn("falls into open shadow", out)
+
+    def test_scrub_does_not_fire_on_ordinary_behind(self):
+        desc = "A daughter stands behind her mother, the crowd close behind him."
+        out, removed = P._scrub_face_blocking(desc)
+        self.assertEqual(removed, [])
+        self.assertEqual(out, desc)
+
+    def test_brief_detection_for_hidden_faces(self):
+        for yes in ("a film told entirely in silhouette",
+                    "we only ever see her from behind",
+                    "a faceless narrator",
+                    "shot without showing his face"):
+            self.assertTrue(P._WANTS_HIDDEN_RE.search(yes), yes)
+        for no in ("a boxer between rounds, close on the face",
+                   "a lighthouse keeper on his last night",
+                   "the dune line behind him is a dark shape"):
+            self.assertFalse(P._WANTS_HIDDEN_RE.search(no), no)
+
     def test_curly_punctuation_is_normalised_out_of_the_prompt(self):
         raw = {"title": "t", "shots": [_shot(
             1, description="A key — he says “you’ve got it”…",
@@ -538,6 +635,30 @@ class TestPromptContent(unittest.TestCase):
         sys_p = P._build_system_prompt("auto", False)
         for key in P.CAMERA_KEYS:
             self.assertIn(key, sys_p, "camera %r is legal but never offered to the model" % key)
+
+    def test_face_law_is_in_the_prompt_and_hidden_is_not_offered_by_default(self):
+        sys_p = P._build_system_prompt("auto", False)
+        self.assertIn("L11 THE FACE IS THE WHOLE POINT", sys_p)
+        self.assertIn('"face"         ONE of: close, medium, none.', sys_p)
+        self.assertIn("There is no fourth option", sys_p)
+        self.assertNotIn('you may use "hidden"', sys_p)
+        relaxed = P._build_system_prompt("auto", False, allow_hidden=True)
+        self.assertIn('you may use "hidden"', relaxed)
+
+    def test_no_exemplar_teaches_the_model_to_hide_a_face(self):
+        """The audit that caught it: the box exemplar used to say 'he tips his face up to
+        the sky' and hold it there in the settle — a face aimed away from the lens, taught
+        by example. The LTX exemplar sent the eyes off-camera on a talking head."""
+        sys_p = P._build_system_prompt("auto", True)
+        # Strip L11 itself, which necessarily quotes the phrases it forbids.
+        body = sys_p.split("L11 THE FACE IS THE WHOLE POINT")[0]
+        for phrase in ("tips his face up", "tipped up", "off-camera", "obscur",
+                       "from behind", "seen from behind", "back to the camera"):
+            self.assertNotIn(phrase, body, "exemplars still teach %r" % phrase)
+        self.assertEqual(P._FACE_BLOCK_RE.findall(body), [])
+        # Every exemplar declares a face level.
+        self.assertEqual(re.findall(r'"face": "(\w+)"', sys_p),
+                         ["close", "medium", "close", "none", "close"])
 
     def test_ltx_example_appears_only_when_there_is_a_cast(self):
         self.assertNotIn("letterbox", P._build_system_prompt("auto", False))

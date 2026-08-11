@@ -286,6 +286,7 @@ camera sentence or an ending clause: those are the "camera" and "settle" keys.
   "character_id": null,
   "duration_s": 5,
   "camera": "handheld",
+  "face": "close",
   "description": "Live-action, cinematic, a close two-shot in a bright kitchen: a woman with a freshly buzzed head sits still while her teenage daughter stands behind her running hair clippers over her scalp, warm window light across both faces. Photoreal, heavy 35mm film grain. Played quietly and underplayed throughout: the daughter draws one more slow clipper pass and a small tuft of hair falls away, the mother's eyes shine wet and she blinks once and keeps very still, and she reaches up and closes her hand over her daughter's hand on her shoulder, and the smallest smile arrives at the corner of her mouth.",
   "settle": "that small smile is simply held, both of them still, hands joined on the shoulder",
   "soundscape": "The steady buzz of hair clippers, one soft unsteady breath, a dripping kitchen tap, and the hum of a fridge. Nobody speaks and no voice is heard at any point.",
@@ -298,8 +299,9 @@ camera sentence or an ending clause: those are the "camera" and "settle" keys.
   "character_id": null,
   "duration_s": 5,
   "camera": "static",
-  "description": "Live-action, cinematic, a wide shot at dusk of a man in an open-collared shirt beside a battered steel dumpster in an empty back street, a cardboard office box in his arms with a small potted plant balanced on top. Photoreal, heavy 35mm film grain. Blue dusk light. Everything happens at natural real-time speed, never in slow motion. He heaves the box up and away from his chest in one fast decisive movement and it drops hard into the dumpster with the plant tumbling in after it and a puff of dust rising, then his shoulders drop as the weight leaves him and he tips his face up to the sky and lets out one long exhale.",
-  "settle": "he is standing empty-handed with his shoulders down and his face still tipped up",
+  "face": "medium",
+  "description": "Live-action, cinematic, a medium-wide shot at dusk of a man in an open-collared shirt beside a battered steel dumpster in an empty back street, a cardboard office box in his arms with a small potted plant balanced on top. Photoreal, heavy 35mm film grain. Blue dusk light. Everything happens at natural real-time speed, never in slow motion. He heaves the box up and away from his chest in one fast decisive movement and it drops hard into the dumpster with the plant tumbling in after it and a puff of dust rising, then his shoulders drop as the weight leaves him and he lets out one long exhale, his face staying square to the lens the whole time.",
+  "settle": "he is standing empty-handed with his shoulders down and his face still to the lens",
   "soundscape": "Quiet back-street evening ambience with distant traffic, the hollow bang of cardboard hitting steel, a clatter of a plant pot, and one long relieved exhale.",
   "music": "N/A"
 }
@@ -310,6 +312,7 @@ camera sentence or an ending clause: those are the "camera" and "settle" keys.
   "character_id": null,
   "duration_s": 5,
   "camera": "push_in",
+  "face": "close",
   "description": "Live-action, cinematic, a medium close-up of a man in a dark curly fur hat and heavy fur coat on an open dune ridge. He faces the camera squarely and holds eye contact for the entire duration as the wind lifts the fur at his collar. Hard low sun rakes from camera left at the end of the day, carving one bright warm edge down his cheekbone while the other side of his face falls into open shadow; the dune line behind him is a clean dark silhouette against a pale sky. The man, with a warm, measured, slightly gravelled voice (S1), says: <d>[English] They said this was impossible.</d> Exactly as his voice stops, his jaw ceases speaking motion and his mouth settles into a closed steady half-smile.",
   "settle": "his eyes stay on the lens and nothing but the fur at his collar moves",
   "soundscape": "A steady desert wind moves across open sand for the full duration, with the dry rustle of fur at his collar and one soft gust that rises and falls.",
@@ -322,6 +325,7 @@ camera sentence or an ending clause: those are the "camera" and "settle" keys.
   "character_id": null,
   "duration_s": 5,
   "camera": "push_in",
+  "face": "none",
   "description": "Live-action, cinematic, an extreme macro of a warm glass cup under a polished steel spout, filling with espresso. A hard raking key light from camera left picks out the rim of the glass against a matte black background. Two dark streams meet and braid as they fall, the liquid climbing the glass while a dense hazelnut crema builds on the surface and settles into a smooth unbroken layer, one bead of condensation sliding down the outside of the glass.",
   "settle": "the crema lies flat and unbroken and the surface is completely still",
   "soundscape": "The low hiss of a pump, the fine trickle of liquid into glass, and a quiet kitchen room tone underneath.",
@@ -342,8 +346,9 @@ the trigger is attached afterwards.
   "character_id": "bizarrotrn",
   "duration_s": 10,
   "camera": "handheld",
+  "face": "close",
   "description": "A weary man in a soft grey jacket sits in a sterile interview room, medium close-up, fluorescent overhead light, shallow depth of field. He breathes in, looks down at his hands, then up at the lens and holds there. He says quietly and clearly: 'I stopped leaving the chair.'",
-  "settle": "he is still, jaw set, eyes drifting just off-camera",
+  "settle": "he is still, jaw set, both eyes back on the lens",
   "soundscape": "Room tone, a fluorescent hum, one unsteady breath, clear dialogue.",
   "music": "N/A"
 }
@@ -356,7 +361,8 @@ fingers gripping objects, and never ask for on-screen text.
 """
 
 
-def _build_system_prompt(engine_hint: str, has_characters: bool) -> str:
+def _build_system_prompt(engine_hint: str, has_characters: bool,
+                         allow_hidden: bool = False) -> str:
     dialect = """\
 THE TARGET DIALECT
 
@@ -461,6 +467,11 @@ WRITE WHAT A LENS COULD SEE. "A testament to human ingenuity", "a symbol of hope
 that feels lived-in", "his face etched with solitude" are unrenderable - they instruct
 nothing. Replace each with the visible fact underneath it.
 """)
+    if allow_hidden:
+        parts.append(
+            "FACES: this brief explicitly asked for hidden or obscured faces, so L11 is "
+            "relaxed for the shots where the brief wants it - you may use \"hidden\" as a\n"
+            "\"face\" value on those shots. Every other shot still keeps its face readable.\n")
     return "\n".join(parts)
 
 
@@ -564,6 +575,7 @@ def _shot_to_model_view(shot: Dict[str, Any]) -> Dict[str, Any]:
         "character_id": shot.get("character_id"),
         "duration_s": shot.get("duration_s"),
         "camera": shot.get("camera", "static"),
+        "face": shot.get("face", "medium"),
         "description": shot.get("description", ""),
         "settle": shot.get("settle", ""),
         "soundscape": shot.get("soundscape", ""),
@@ -1617,7 +1629,7 @@ def plan_film(
     budget = int(max_tokens) if max_tokens else min(
         8192, max(1200, 380 * (1 if fb_mode == "shot" else n_shots) + 500))
 
-    system = _build_system_prompt(engine, bool(cast))
+    system = _build_system_prompt(engine, bool(cast), allow_hidden)
     if fb_mode == "shot":
         user = _build_shot_feedback_prompt(previous, fb_shot, fb_note)
     elif fb_mode == "film":

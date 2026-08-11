@@ -156,6 +156,53 @@ class FilmLevelEngine(unittest.TestCase):
         self.assertEqual(sb.resolve_engine(_shot(1, engine="h3"), engine_mode="nonsense"), "h3")
 
 
+class H3ChainPrompts(unittest.TestCase):
+    """A 10 s H3 clip is two 5 s windows; both were being asked for the same
+    prompt, so the one-off action happened twice."""
+
+    POLICY = {"quality": "quick", "width": 640, "height": 480, "frames": 49}
+
+    def _shot10(self, **kw):
+        s = _shot(1, engine="h3", duration_s=10,
+                  settle="he stands empty-handed with his shoulders down",
+                  soundscape="Wind across open sand, and one long exhale.")
+        s.update(kw)
+        return s
+
+    def test_single_window_shapes_get_nothing(self):
+        for d in (3, 5):
+            self.assertEqual(sb.h3_chain_prompts_for(self._shot10(duration_s=d)), [])
+
+    def test_ltx_gets_nothing(self):
+        self.assertEqual(sb.h3_chain_prompts_for(self._shot10(engine="ltx")), [])
+
+    def test_ten_seconds_gets_two_entries_first_blank(self):
+        got = sb.h3_chain_prompts_for(self._shot10())
+        self.assertEqual(len(got), 2)
+        self.assertEqual(got[0], "")          # "" == use the main prompt
+        self.assertTrue(got[1].startswith("integrated_multimodal_description:"))
+
+    def test_fifteen_seconds_gets_three(self):
+        self.assertEqual(len(sb.h3_chain_prompts_for(self._shot10(duration_s=15))), 3)
+
+    def test_the_continuation_holds_the_settled_state(self):
+        tail = sb.h3_chain_prompts_for(self._shot10())[1]
+        self.assertIn("he stands empty-handed with his shoulders down", tail)
+        self.assertIn("without a cut", tail)
+        self.assertIn("overall_soundscape:", tail)
+        self.assertIn("non_diegetic_music:", tail)
+
+    def test_no_settle_means_no_invention(self):
+        # Nothing honest to say about how it continues -> today's behaviour.
+        self.assertEqual(sb.h3_chain_prompts_for(self._shot10(settle="")), [])
+
+    def test_shot_to_job_only_sends_it_when_the_runner_supports_it(self):
+        s = self._shot10()
+        self.assertNotIn("h3_chain_prompts", sb.shot_to_job(s, self.POLICY))
+        j = sb.shot_to_job(s, self.POLICY, h3_chain_prompts=True)
+        self.assertEqual(len(json.loads(j["h3_chain_prompts"])), 2)
+
+
 class Bucketing(unittest.TestCase):
     def test_engine_is_part_of_the_bucket(self):
         self.assertNotEqual(sb.bucket_key(_shot(1, engine="h3")),
