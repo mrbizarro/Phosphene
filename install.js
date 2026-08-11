@@ -106,19 +106,37 @@ module.exports = {
       next: null
     },
 
-    // ---- ltx-2-mlx version: PIN to v0.14.8 (2026-06-01 catch-up). dgrauet asked on 2026-05-12
-    //      to lock onto a tag because he's about to push breaking changes
+    // ---- ltx-2-mlx version: PIN to v0.14.19 (2026-08-11 catch-up). dgrauet asked on
+    //      2026-05-12 to lock onto a tag because he pushes breaking changes
     //      upstream to sync with the official Lightricks repo. Without a
     //      tag pin, every fresh install (and every Update) would pull the
     //      next breaking push and Phosphene would fail to start.
     //
-    //      v0.14.8 is the pinned tag against which the current panel +
-    //      helper + patch_ltx_codec.py were validated (2026-06-01 catch-up
-    //      from v0.14.0). The bump pulled dgrauet's native fixes —
-    //      `_pre_denoise_flush` (the Metal-watchdog fix that resolves the
-    //      I2V "mosaic" on memory-pressured Macs, #17), budget-aware VAE
-    //      decode tiling, and first-class `frame_rate` — which let us DROP
-    //      6 of our 7 runtime patches (only the lossless-codec patch remains).
+    //      v0.14.19 is the pinned tag against which the current panel +
+    //      helper + patch_ltx_codec.py are validated (2026-08-11 catch-up
+    //      from v0.14.8, 11 releases). What it brings, in the order it
+    //      matters to us:
+    //        - 0.14.11 — the AV cross-attention gate is finally read FROM the
+    //          checkpoint (`av_ca_timestep_scale_multiplier` 1000, not the
+    //          dataclass default 1). Audio/dialogue weighting changes for
+    //          every render, toward upstream parity. This also lands
+    //          `LTXModelConfig.from_checkpoint_dir()` — a metadata-driven
+    //          config path we need for any second model generation.
+    //        - 0.14.15 — `frame_rate` forwarded at the A2V/lipdub call sites
+    //          (our `_install_a2v_frame_rate_patch` shim is now inert there),
+    //          and muxed video is no longer truncated to the shortest stream.
+    //        - 0.14.16 — quantized transformers load at ANY group_size, not
+    //          just 64; ic-lora dev mode fuses the distilled LoRA correctly.
+    //        - 0.14.19 — macOS GPU-watchdog kills are explained instead of
+    //          dying cryptically; the DiT is freed before VAE decode in
+    //          low-memory mode; the Gemma encoder stops widening a stricter
+    //          cache limit.
+    //      Weight layout is UNCHANGED by this bump. 0.14.13+ prefers a
+    //      versioned `transformer-distilled-*.safetensors` when one exists
+    //      and falls back to the unversioned name — our shipped model dirs
+    //      have no `-1.1` files (update.js trims them), so resolution is
+    //      byte-identical to v0.14.8. No re-download, no manifest change.
+    //
     //      STAY PINNED here: do not auto-track upstream main. Tag-bumps are a
     //      deliberate decision — read his release notes, smoke-test the full
     //      modality matrix on dev, bump `_LTX_EXPECTED_VERSION` in
@@ -132,7 +150,7 @@ module.exports = {
         path: "ltx-2-mlx",
         message: [
           "git fetch --tags origin",
-          "git checkout v0.14.8",
+          "git checkout v0.14.19",
           "git rev-parse --short HEAD"
         ]
       }

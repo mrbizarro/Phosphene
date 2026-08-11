@@ -604,8 +604,16 @@ def _install_a2v_frame_rate_patch() -> None:
     because their explicit kwarg overrides the default.
 
     Why a wrapper instead of editing the vendored file: the ltx-2-mlx
-    checkout is pinned to v0.14.8 and any direct edit gets clobbered on
+    checkout is pinned to a tag and any direct edit gets clobbered on
     re-clone. The patch is idempotent so repeated helper boots are safe.
+
+    As of the v0.14.19 pin this shim is INERT on the paths it was written
+    for — upstream 0.14.15 (#56) forwards ``frame_rate`` from the A2V and
+    lipdub call sites. It stays as a belt-and-braces default because
+    ``frame_rate`` is still keyword-only *required* on
+    ``combined_image_conditionings``, so any future caller that forgets it
+    would again die mid-render rather than degrade. Do not read its
+    presence as evidence the upstream bug is still live.
     """
     global _A2V_FRAME_RATE_PATCH_INSTALLED
     if _A2V_FRAME_RATE_PATCH_INSTALLED:
@@ -1799,7 +1807,7 @@ def configure_acceleration(mode: str) -> str:
 # the pin Phosphene's patches are written against, and makes ANY skew loud +
 # visible in the ready event (so every remote bug report carries it) instead
 # of letting it surface as an un-triageable TypeError mid-render.
-_LTX_EXPECTED_VERSION = "0.14.8"
+_LTX_EXPECTED_VERSION = "0.14.19"
 
 
 def _detect_ltx_version() -> dict:
@@ -2868,7 +2876,7 @@ for line in sys.__stdin__:
                     "does not accept it — it would silently run two-stage and "
                     "produce a static copy of the reference sheet. Upgrade/repair "
                     "the ltx-2-mlx pipeline (need a build with skip_stage_2; "
-                    "v0.14.8+ has it)."
+                    "v0.14.8+ has it; the current pin is v0.14.19)."
                 )
             out_path = pipe.generate_and_save(**kwargs)
             # Drop the pipeline aggressively — restore jobs are rare and the

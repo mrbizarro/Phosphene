@@ -52,24 +52,31 @@ module.exports = {
         ].join("\n")
       }
     },
-    // ltx-2-mlx is PINNED to v0.14.8 (2026-06-01 catch-up from v0.14.0;
+    // ltx-2-mlx is PINNED to v0.14.19 (2026-08-11 catch-up from v0.14.8;
     // dgrauet's original tag-pin request 2026-05-12 — he pushes breaking
     // changes upstream to sync with the official Lightricks repo). Update
     // no longer tracks main; it fetches tags and re-checks-out the pinned
     // tag so a previously-installed user converges to a known-good state,
     // never to a moving HEAD. The ltx-package re-install step below then
-    // force-copies the v0.14.8 source into site-packages (non-editable),
-    // so an existing user's runtime actually moves to 0.14.8 — a bare
+    // force-copies the v0.14.19 source into site-packages (non-editable),
+    // so an existing user's runtime actually moves to 0.14.19 — a bare
     // checkout alone would leave the old copy installed. To bump the pin:
     // edit BOTH install.js and update.js to the new tag, bump
     // _LTX_EXPECTED_VERSION in mlx_warm_helper.py, smoke-test on dev, push.
+    //
+    // The v0.14.19 bump needs NO model re-download. See install.js for the
+    // per-release notes; the one weight-adjacent change is that 0.14.13+
+    // prefers a versioned `transformer-distilled-*.safetensors` when one
+    // exists and falls back to the unversioned name — and the trim step at
+    // the bottom of this file removes the `-1.1` variants, so resolution
+    // lands on exactly the files v0.14.8 loaded.
     {
       method: "shell.run",
       params: {
         path: "ltx-2-mlx",
         message: [
           "git fetch --tags origin",
-          "git checkout v0.14.8",
+          "git checkout v0.14.19",
           "git rev-parse --short HEAD"
         ]
       }

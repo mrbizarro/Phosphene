@@ -3,7 +3,10 @@
 
 History: through ltx-2-mlx **v0.14.0** this script carried SEVEN patches,
 working around upstream gaps. As of the **v0.14.8** pin (2026-06-01 catch-up)
-dgrauet has absorbed all but one of them upstream, so they were DROPPED:
+dgrauet has absorbed all but one of them upstream, so they were DROPPED
+(and the **v0.14.19** pin, 2026-08-11, keeps exactly this shape — the
+`decode_and_stream` ffmpeg line moved from 482 to 487 but its text is
+character-identical, so the patch applies unchanged):
 
   - I2V OOM / pre-denoise / base-load memory frees (old Patches 2,3,4)
         → native `low_memory` path. v0.14.8 frees generation components via
@@ -28,7 +31,7 @@ dgrauet has absorbed all but one of them upstream, so they were DROPPED:
 The helper already calls the new API defensively (`hasattr` guard on
 `generate`/`generate_from_image`, `inspect.signature` probing, and
 `_filter_unsupported_kwargs`), so nothing depends on the dropped patches.
-Re-implementing them against v0.14.8 would only re-introduce divergence — the
+Re-implementing them against the pinned tag would only re-introduce divergence — the
 whole point of the catch-up was to let pinned-upstream own this behaviour.
 
 What REMAINS is the one preference upstream doesn't share:
@@ -173,7 +176,7 @@ def apply_patch(target: Path, old: str, new: str, marker: str, label: str,
 
 
 def main() -> int:
-    print("Applying LTX23MLX codec patch (ltx-2-mlx v0.14.8 — only the codec edit remains):")
+    print("Applying LTX23MLX codec patch (ltx-2-mlx v0.14.19 — only the codec edit remains):")
 
     # `upgrade_marker="+faststart"` lets us upgrade installs where the
     # earlier version of this patch was applied (LTX_OUTPUT_PIX_FMT marker

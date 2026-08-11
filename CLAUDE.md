@@ -197,9 +197,15 @@ These are not arbitrary — every pin is a paid lesson:
 | `mlx==0.31.1` | mlx 0.31.2 introduced a numerical regression that attenuates LTX 2.3 vocoder output by ~22 dB. Verified: same model + same prompt + same seed → -42 dB peak on 0.31.2 vs -9 dB peak on 0.31.1. |
 | `mlx-lm==0.31.1` `mlx-metal==0.31.1` | Same release line, kept consistent with mlx. |
 | `huggingface-hub>=1.0` | `hf` CLI replaced `huggingface-cli`; older Pinokio bundles ship < 1.0. |
-| `ltx-2-mlx` PINNED to **`v0.14.8`** (commit `d2ad8e9`) | install.js + update.js do `git checkout v0.14.8` (2026-06-01 catch-up from v0.14.0). **STAY PINNED** — this is NOT "main HEAD". v0.14.8 is the tag the panel + helper + patch_ltx_codec.py were validated against (full modality matrix smoke-tested on dev). The bump pulled dgrauet's native `_pre_denoise_flush` (the Metal-watchdog fix that resolves the I2V "mosaic" on memory-pressured Macs, #17), budget-aware VAE decode tiling, and first-class `frame_rate` — which let us drop 6 of 7 runtime patches (codec-only now). Bumping the pin further is a deliberate, tested operation — read the release notes, bump `_LTX_EXPECTED_VERSION` in mlx_warm_helper.py, smoke-test the matrix on dev, then bump BOTH install.js and update.js in one commit. The historic `dcd639e (0.1.0)` detour broke the Extend `cfg_scale` API; do not revisit. |
+| `ltx-2-mlx` PINNED to **`v0.14.19`** (commit `1192051`) | install.js + update.js do `git checkout v0.14.19` (2026-08-11 catch-up from v0.14.8, itself a 2026-06-01 catch-up from v0.14.0). **STAY PINNED** — this is NOT "main HEAD". v0.14.19 is the tag the panel + helper + patch_ltx_codec.py are validated against. The v0.14.8 bump had pulled dgrauet's native `_pre_denoise_flush` (the Metal-watchdog fix for the I2V "mosaic" on memory-pressured Macs, #17), budget-aware VAE decode tiling and first-class `frame_rate`, which cut us from 7 runtime patches to 1 (codec-only). The v0.14.19 bump keeps that shape and adds: checkpoint-read `av_ca_timestep_scale_multiplier` (0.14.11 — **audio/dialogue weighting changes on every render**, toward upstream parity, plus `LTXModelConfig.from_checkpoint_dir()`), `frame_rate` forwarded at the A2V/lipdub call sites and no more shortest-stream mux truncation (0.14.15), quantized transformers at any `group_size` (0.14.16), and GPU-watchdog explanation + DiT-freed-before-VAE-decode + a Gemma cache-limit fix (0.14.19). **No model re-download**: 0.14.13+ prefers a versioned `transformer-distilled-*.safetensors` and falls back to the unversioned name, and update.js trims the `-1.1` variants, so file resolution is identical to v0.14.8. Bumping the pin further is a deliberate, tested operation — read the release notes, bump `_LTX_EXPECTED_VERSION` in mlx_warm_helper.py, smoke-test the matrix on dev, then bump BOTH install.js and update.js in one commit. The historic `dcd639e (0.1.0)` detour broke the Extend `cfg_scale` API; do not revisit. |
+| `hatchling<1.32` (build-time only, `pip-build-constraints.txt`) | Not a runtime dep — the **wheel build backend** for the three vendored `ltx-*` packages. All three declare `readme = "../../README.md"`, which hatchling 1.32.0 turned into a hard error, so both installer paths (uv in install.js, pip in update.js) died at `metadata-generation-failed` on *every* pinned tag from the day 1.32 shipped. Wired as `--build-constraints` (uv) / `PIP_CONSTRAINT=` (pip). Remove only when a pinned upstream tag stops pointing `readme` outside the package dir. |
 
 When changing a version, document the test that proved the new pin is OK.
+The v0.14.19 pin was proved by: 607 passed / 22 skipped on the vendored
+`tests/` suite; `patch_ltx_codec.py` → `applied` with the installed tree
+diverging from the tag in exactly one file and one hunk (the ffmpeg line);
+and a real T2V draft render on a throwaway instance (isolated state +
+output dirs, GPU lock held) producing video **and** audio.
 
 ## 5. The patch system (`patch_ltx_codec.py`)
 
@@ -210,7 +216,10 @@ broken pipeline). Each patch has an `OLD` text it expects to find and a
 
 As of the **v0.14.8** pin (2026-06-01 catch-up) only ONE patch remains —
 upstream absorbed the other six natively, so we dropped them and cut our
-divergence from 7 patches to 1 (the whole reason for the catch-up):
+divergence from 7 patches to 1 (the whole reason for the catch-up). The
+**v0.14.19** pin (2026-08-11) re-validated that: the `decode_and_stream`
+ffmpeg line moved 482 → 487 but its text is character-identical, so the
+patch applied with no edit to `PATCH_CODEC_OLD`:
 
 1. **Codec (`yuv444p crf 0` + `+faststart`)** — required.
    Patches `ltx_core_mlx/model/video_vae/video_vae.py`. Default ffmpeg
@@ -238,8 +247,8 @@ divergence from 7 patches to 1 (the whole reason for the catch-up):
 The helper calls the new API defensively (`hasattr` guard on
 `generate`/`generate_from_image`, `inspect.signature` probing, and
 `_filter_unsupported_kwargs`), so nothing depends on the dropped patches.
-Re-implementing any of them against v0.14.8 would only re-introduce the
-divergence the catch-up removed.
+Re-implementing any of them against the pinned tag would only re-introduce
+the divergence the catch-up removed.
 
 The "upgrade" path in `apply_patch()` lets old patched installs receive
 new patch versions without a venv rebuild — used when we added
