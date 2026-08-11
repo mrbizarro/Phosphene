@@ -10474,6 +10474,25 @@ def _sb_plan_thread(board_id: str, brief: dict, previous: dict | None) -> None:
 
         board["title"] = result.get("title") or board.get("title") or "Untitled film"
         board["shots"] = result.get("shots") or []
+        # A rewritten shot must go back to being UN-RENDERED. Without this it
+        # kept `status: "done"` with no output, and since shooting_order() and
+        # estimate() both exclude "done" the film skipped it forever — the user
+        # asked for a rewrite precisely because they wanted it rendered again.
+        # The old clip is kept on `stale_output` so the card can show it under
+        # the "old take" wash until the new one lands (design spec 8.3); the
+        # file itself is never deleted.
+        for _n in (brief.get("reroll_ns") or []):
+            for _s in board["shots"]:
+                if not isinstance(_s, dict) or _s.get("n") != _n:
+                    continue
+                _old = _s.get("draft_output") or _s.get("final_output")
+                if _old:
+                    _s["stale_output"] = _old
+                _s["status"] = "pending"
+                _s["grade"] = None
+                for _k in ("draft_output", "final_output",
+                           "draft_job_id", "final_job_id", "error"):
+                    _s.pop(_k, None)
         board["cast"] = result.get("cast") or board.get("cast") or []
         # The POLICY is the panel's, not the planner's: the user picked the two
         # passes in the film-level Quality control and a re-plan must not silently
@@ -10655,7 +10674,7 @@ def _sb_boot_reconcile() -> None:
             board["title"] = " ".join(words[:6]) or "Untitled film"
         _sb_set_planner(board, state="failed", stage=None,
                         error="the panel restarted while the planner was running",
-                        error_kind="other")
+                        error_kind="restarted")
         try:
             storyboard.save_storyboard(STATE_DIR, board)
             push(f"[storyboard] {board.get('title')!r} was mid-plan when the panel "
@@ -17417,6 +17436,13 @@ class Handler(BaseHTTPRequestHandler):
                         pass
                 try:
                     board = load(bid)
+                    # Same rename the failed path does: a cancelled board must
+                    # not sit in the list called "Planning…" forever, where it
+                    # is indistinguishable from one that really is planning.
+                    if (not (board.get("shots") or [])
+                            and board.get("title") in ("", "Planning…", None)):
+                        _w = (board.get("concept") or "").split()
+                        board["title"] = " ".join(_w[:6]) or "Untitled film"
                     _sb_set_planner(board, state="cancelled", stage=None)
                     storyboard.save_storyboard(STATE_DIR, board)
                 except Exception:
@@ -17621,7 +17647,8 @@ class Handler(BaseHTTPRequestHandler):
                                 "characters": chars,
                                 "must": board.get("must") or [],
                                 "feedback": "\n".join(notes),
-                                "engine_mode": board.get("engine_mode") or "auto"},
+                                "engine_mode": board.get("engine_mode") or "auto",
+                                "reroll_ns": ns},
                           previous))
                 with _SB_LOCK:
                     _SB_PLANNERS[bid]["thread"] = th
@@ -31190,7 +31217,7 @@ HTML = r"""<!doctype html>
         <div class="sb-empty-title">The planner couldn't write a usable plan.</div>
         <div class="sb-empty-sub" id="sbPlanFailMsg"></div>
         <div style="display:flex;gap:8px;margin-top:6px">
-          <button type="button" class="primary" style="width:auto;padding:8px 16px" onclick="sbPlan()">Try again</button>
+          <button type="button" class="primary" style="width:auto;padding:8px 16px" onclick="sbTryAgain()">Try again</button>
           <button type="button" class="ghost-btn" id="sbPlanFailRaw" onclick="sbShowRaw()" hidden>Show what it returned</button>
         </div>
       </div>
@@ -45351,8 +45378,47 @@ async function sbRefreshBoards() {
   return SB.boards;
 }
 
+// ---- the editing guard -----------------------------------------------------
+// The shot list is innerHTML-rebuilt on every repaint, and the board poller
+// repaints every 2 s. Without these two guards, typing into a prompt loses
+// focus and then loses the text: the tick lands INSIDE the 800 ms save debounce,
+// replaces the textarea with the server's copy, and the debounce then writes the
+// reverted value back to disk. Measured 5/5 by the validator, and "change any
+// prompt" is one of the four promises printed on the empty state.
+//
+// Two different questions, deliberately:
+//   sbTypingInShots() — is the user mid-word? Blocks the DOM rebuild only. A
+//     click on ↑ / a select / a grade button must still repaint, and by then the
+//     focused element is a button or a closed select, not a text field.
+//   sbHoldingShots()  — is the card busy at all (text OR an open select menu)?
+//     Blocks the POLL, so nothing is fetched-and-repainted under an open menu
+//     and no server copy can clobber an edit that hasn't been saved yet.
+function sbTypingInShots() {
+  const a = document.activeElement;
+  if (!a || !a.closest || !a.closest('#sbShots')) return false;
+  const t = (a.tagName || '').toUpperCase();
+  return t === 'TEXTAREA' || (t === 'INPUT' && a.type !== 'button');
+}
+function sbHoldingShots() {
+  const a = document.activeElement;
+  if (a && a.closest && a.closest('#sbShots')) {
+    const t = (a.tagName || '').toUpperCase();
+    if (t === 'TEXTAREA' || t === 'SELECT' || t === 'INPUT') return true;
+  }
+  // An edit typed but not yet flushed is exactly as unsafe to overwrite.
+  return !!SB.saveTimer || SB.saveInFlight;
+}
+
 async function sbTick() {
   if (document.body.dataset.workflow !== 'storyboard') return;
+  // The global poll skips hidden tabs; this one should too.
+  if (document.hidden) return;
+  if (sbHoldingShots()) {
+    // Don't fetch over someone's typing. The run bar is the one thing that
+    // moves on its own, and it lives outside #sbShots, so keep it live.
+    if (SB.id && SB.payload) { try { sbRenderRunBar(SB.payload); } catch (e) {} }
+    return;
+  }
   if (SB.id) await sbLoad(SB.id, true);
   else await sbRefreshBoards();
 }
@@ -45657,6 +45723,30 @@ async function sbReplan() {
   sbShow('planning'); sbSetPlanningStage('load'); sbLoad(SB.id);
 }
 
+// Try again re-plans THIS board from the brief the board itself stores. It used
+// to call sbPlan(), which sends no id and reads the left-hand form — so a failed
+// "deep-sea welder" board plus an unrelated concept still sitting in the brief
+// produced a second, different film and left the failed one as a dead row.
+async function sbTryAgain() {
+  const b = ((SB.payload || {}).board) || {};
+  if (!SB.id) return sbPlan();
+  const emode = b.engine_mode || 'auto';
+  const fd = new URLSearchParams();
+  fd.set('id', SB.id);
+  fd.set('concept', b.concept || '');
+  fd.set('shots', String(b.shots_target || (b.shots || []).length || 12));
+  fd.set('style', b.style || '');
+  fd.set('must', (b.must || []).join('\n'));
+  fd.set('engine', emode);
+  const cast = (b.cast || [])[0];
+  if (cast && cast.id && emode !== 'h3') fd.set('character_id', cast.id);
+  let r;
+  try { r = await (await fetch('/storyboard/plan', { method: 'POST', body: fd })).json(); }
+  catch (e) { r = { ok: false, error: String(e) }; }
+  if (!r.ok) { phosToast(r.error || 'Planning could not start.', { kind: 'danger', duration: 6000 }); return; }
+  sbShow('planning'); sbSetPlanningStage('load'); sbLoad(SB.id);
+}
+
 function sbShowRaw() {
   const raw = ((SB.payload || {}).planner || {}).raw || '';
   sbEl('sbRawText').textContent = raw || '(nothing captured)';
@@ -45686,6 +45776,10 @@ async function sbLoad(id, quiet) {
     sbBackToList();
     return;
   }
+  if (SB.payload && SB.payload.board && r.board && sbTypingInShots()) {
+    // A refresh that lands mid-word keeps what is on screen.
+    sbAdoptLiveEdits(r);
+  }
   SB.payload = r;
   const st = (r.planner || {}).state;
   if (r.planning || st === 'running') {
@@ -45710,8 +45804,18 @@ function sbRenderPlanFail(p) {
     oom: 'Not enough free memory to load the planner. Close some apps and try again.',
     invalid: 'It produced something this build can\'t read, twice. Trying again usually works — the model isn\'t deterministic. If it keeps failing, shorten the concept.',
     busy: 'Something else is using the GPU. Wait for the queue to empty and try again.',
+    // The planner never got to finish, so "it couldn't write a usable plan"
+    // would be untrue. The heal path writes this kind at boot.
+    restarted: 'The panel restarted while the planner was running, so the plan never finished. Nothing was lost — press Try again.',
   };
-  sbEl('sbPlanFailMsg').textContent = map[p.error_kind] || 'Something went wrong while planning. Try again.';
+  // An unmapped kind falls back to what the server actually said rather than to
+  // a shrug: the sentence was written, it just had nowhere to appear.
+  sbEl('sbPlanFailMsg').textContent = map[p.error_kind]
+    || (p.error ? ('Something went wrong while planning: ' + p.error + '. Try again.')
+                : 'Something went wrong while planning. Try again.');
+  const ttl = document.querySelector('#sbPlanFail .sb-empty-title');
+  if (ttl) ttl.textContent = (p.error_kind === 'restarted')
+    ? 'The plan didn\'t finish.' : 'The planner couldn\'t write a usable plan.';
   sbEl('sbPlanFailRaw').hidden = !p.raw;
 }
 
@@ -45849,7 +45953,12 @@ function sbRenderPlan(r) {
   errBox.innerHTML = boardErrs.map(sbErrRow).join('');
 
   // --- shot cards ---
-  sbEl('sbShots').innerHTML = shots.map(s => sbShotCard(s, r, errs)).join('');
+  // Rebuilding the list under a cursor is what makes editing impossible, so a
+  // repaint that arrives mid-word repaints everything EXCEPT the cards. The
+  // next repaint after blur (<=2 s) brings the server's copy in.
+  if (!sbTypingInShots()) {
+    sbEl('sbShots').innerHTML = shots.map(s => sbShotCard(s, r, errs)).join('');
+  }
 
   // --- which engine, and why ---
   // There is NO engine selection on this tab, and saying so out loud is the
@@ -45886,7 +45995,7 @@ function sbRenderPlan(r) {
   sbEl('sbActionNote').textContent =
     `${est.shots || 0} shot${est.shots === 1 ? '' : 's'} · ${sbFmtWall(est.total_secs)}`;
   if (anyClip) sbRenderTally(shots, r);
-  sbAutoGrowPrompts();
+  if (!sbTypingInShots()) sbAutoGrowPrompts();
   sbSyncStage();
 }
 
@@ -45924,6 +46033,11 @@ function sbShotCard(s, r, errs) {
   // chip on a machine that has no Hailuo would be the UI contradicting itself.
   const engine = r.h3_available ? (s.engine || 'ltx') : 'ltx';
   const clip = s.final_output || s.draft_output;
+  // A shot whose prompt was just rewritten has no clip of its own yet, but the
+  // take it replaced is still on disk. Show it under the "old take" wash so the
+  // card isn't suddenly blank — and NOT gradeable, because it is not the shot
+  // the plan now describes.
+  const stale = !clip ? (s.stale_output || '') : '';
   const shots = (r.board || {}).shots || [];
   const isChar = !!s.character_id;
   const opts = ['<option value="">— nobody —</option>'].concat(chars.map(c =>
@@ -45938,8 +46052,16 @@ function sbShotCard(s, r, errs) {
   const passLabel = r.pass === 'final' ? 'Delivery' : 'Draft';
   const seedSet = (s.seed != null && s.seed !== -1);
 
-  const outBlock = clip ? `
-    <div class="sb-shot-out car-card ${s.grade === 'reroll' && s.status === 'pending' ? 'is-stale' : ''}">
+  const outBlock = stale ? `
+    <div class="sb-shot-out car-card is-stale">
+      <div class="car-thumb-wrap" onclick="selectOutput('${escapeHtml(stale)}')">
+        <video class="car-thumb" preload="metadata" muted playsinline
+               src="/file?path=${encodeURIComponent(stale)}"></video>
+      </div>
+      <div class="info"><span class="name">${escapeHtml(stale.split('/').pop())}</span>
+        <span class="sub"><span class="sb-stale-tag">old take</span> · rewritten, not rendered yet</span></div>
+    </div>` : clip ? `
+    <div class="sb-shot-out car-card">
       <div class="car-thumb-wrap" onclick="sbOpenShotClip(${n})">
         <video class="car-thumb" preload="metadata" muted playsinline
                src="/file?path=${encodeURIComponent(clip)}"
@@ -45947,7 +46069,7 @@ function sbShotCard(s, r, errs) {
                onmouseleave="this.pause();this.currentTime=2.5"></video>
       </div>
       <div class="info"><span class="name">${escapeHtml(clip.split('/').pop())}</span>
-        <span class="sub">${s.final_output ? 'delivery' : 'draft'}${s.grade === 'reroll' && s.status === 'pending' ? ' · <span class="sb-stale-tag">old take</span>' : ''}</span></div>
+        <span class="sub">${s.final_output ? 'delivery' : 'draft'}</span></div>
       <div class="sb-grade" role="group" aria-label="Grade shot ${n}">
         <button type="button" class="sb-grade-btn ${s.grade === 'keep' ? 'active' : ''}" data-act="grade" data-g="keep" aria-pressed="${s.grade === 'keep'}">KEEP</button>
         <button type="button" class="sb-grade-btn ${s.grade === 'reroll' ? 'active' : ''}" data-act="grade" data-g="reroll" aria-pressed="${s.grade === 'reroll'}">RE-ROLL</button>
@@ -46108,8 +46230,33 @@ function sbShotById(n) {
 // copy from drifting away from storyboard.py.
 function sbQueueSave(immediate) {
   if (SB.saveTimer) clearTimeout(SB.saveTimer);
-  SB.saveTimer = setTimeout(sbFlushSave, immediate ? 0 : 600);
+  SB.saveTimer = setTimeout(() => { SB.saveTimer = null; sbFlushSave(); },
+                            immediate ? 0 : 600);
 }
+
+// While a save is in flight the user can keep typing, and the reply carries the
+// board as it was when we SENT it. Replacing SB.payload with that reply would
+// silently roll those keystrokes back — the same class of bug as the tick
+// clobbering the textarea. So: whatever is in a focused editor right now is the
+// truth, and it is re-applied over the reply (and re-saved).
+function sbAdoptLiveEdits(payload) {
+  let dirty = false;
+  document.querySelectorAll('#sbShots .sb-shot').forEach(li => {
+    const n = Number(li.dataset.n);
+    const shot = (payload.board.shots || []).find(x => x.n === n);
+    if (!shot) return;
+    const box = li.querySelector('textarea[data-act="prompt"]');
+    if (box && document.activeElement === box && box.value !== shot.prompt) {
+      shot.prompt = box.value; dirty = true;
+    }
+    const note = li.querySelector('textarea[data-act="note"]');
+    if (note && document.activeElement === note && note.value !== (shot.note || '')) {
+      shot.note = note.value; dirty = true;
+    }
+  });
+  return dirty;
+}
+
 async function sbFlushSave() {
   if (SB.saveInFlight) { SB.saveAgain = true; return; }
   const board = ((SB.payload || {}).board);
@@ -46120,7 +46267,11 @@ async function sbFlushSave() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: SB.id, board: board }),
     })).json();
-    if (r && r.ok) { SB.payload = r; sbRenderPlan(r); }
+    if (r && r.ok) {
+      SB.payload = r;
+      if (sbAdoptLiveEdits(r)) SB.saveAgain = true;
+      sbRenderPlan(r);
+    }
   } catch (e) {
   } finally {
     SB.saveInFlight = false;
@@ -46534,6 +46685,17 @@ document.addEventListener('change', (ev) => {
   const li = el.closest('.sb-shot');
   if (li) sbShotAction(Number(li.dataset.n), el.dataset.act, el, ev);
 });
+// Leaving a card is the moment the guard lifts — repaint straight away rather
+// than leaving the user looking at a stale card for up to 2 s.
+document.addEventListener('focusout', (ev) => {
+  if (!ev.target.closest || !ev.target.closest('#sbShots')) return;
+  setTimeout(() => {
+    if (sbTypingInShots() || !SB.payload) return;
+    if (document.body.dataset.workflow !== 'storyboard') return;
+    try { sbRenderPlan(SB.payload); } catch (e) {}
+  }, 60);
+});
+
 let _sbPromptTimer = null;
 document.addEventListener('input', (ev) => {
   const el = ev.target.closest && ev.target.closest('#sbShots textarea[data-act="prompt"]');

@@ -264,6 +264,16 @@ L9  ON-SCREEN TEXT: only if the brief asks for it, and then type the exact words
     point."
 L10 CONVERT MOOD INTO BEHAVIOUR. Not "she is devastated" but "her eyes shine wet and she
     blinks once and keeps very still".
+L11 THE FACE IS THE WHOLE POINT. A shot is judged on whether the face reads. If a person is
+    on screen their face is IN the frame, whole, lit and turned to the lens - every time.
+    NEVER write, and never imply, any of these unless the brief asked for it in so many
+    words: "his face obscured", "seen from behind", "her back to the camera", "head out of
+    frame", "cropped at the chin", "silhouetted against the light", "in silhouette", "his
+    face hidden by his hands", "we never see her face". The temptation is strongest on the
+    last shot of a film, where a silhouette feels like an ending - it is not, it is a shot
+    with no face in it. End on the face instead.
+    A face may be dark, wet, bruised, half in shadow or lit from one side. It may not be
+    turned away, blocked, cut off by the frame edge, or reduced to an outline.
 """
 
 _H3_EXAMPLES = """\
@@ -375,13 +385,18 @@ outside the JSON. The object has exactly two keys:
   "shots": [ <one object per shot, in story order> ]
 }
 
-Each shot object has exactly these eight keys and no others:
+Each shot object has exactly these nine keys and no others:
 
   "n"            integer, 1-based, in order
   "title"        2-5 words naming the beat
   "character_id" a cast id from CAST below, or null
   "duration_s"   3, 5 or 10
   "camera"       ONE of: static, push_in, pull_back, handheld, orbit, pan, tilt_up, tracking
+  "face"         ONE of: close, medium, none.
+                   close  - a face is the subject of the shot and fills much of the frame
+                   medium - a person is on screen and their face must stay readable
+                   none   - there is no person in this shot at all
+                 There is no fourth option. See L11.
   "description"  the visual + action + dialogue paragraph, 70-140 words. It does NOT contain
                  a camera sentence and does NOT describe how the shot ends - those are the
                  "camera" and "settle" keys, and the program writes their sentences for you.
@@ -734,15 +749,109 @@ _CAMERA_SENTENCES = {
 }
 CAMERA_KEYS = tuple(_CAMERA_SENTENCES)
 
-# Turning breaks identity (H3 guide 7.2 / AURELIUS law 2). Appended only when the shot
-# actually contains a person — the clause is noise in a shot of a coffee machine.
-_FACE_HELD = ("Every face holds the exact angle to the lens it has at the start: heads stay "
-              "square, shoulders do not pivot, and nobody rotates towards or away from the "
-              "camera at any point.")
+# --- the face law ----------------------------------------------------------------------
+# Faces are the quality metric for this project: a plan is judged on whether the face reads.
+# Two failures were measured, so both are structural rather than advisory.
+#
+#   1. The model volunteers face-hiding framing, most often on the LAST shot of a film where
+#      it reaches for something poetic — "silhouetted against the setting sun", "her
+#      silhouette framed against the city lights", "his face obscured by the angle" (the last
+#      one rendered a head half out of frame). Base rate before this law: 5 of 56 shots.
+#   2. Turning breaks identity (H3 guide 7.2 / AURELIUS law 2).
+#
+# So `face` is a closed choice — close / medium / none / hidden — and Python writes the
+# sentence, exactly as with `camera` and `settle`. `hidden` is refused unless the brief asked
+# for it in so many words. Unambiguous blocking phrases are additionally scrubbed out of the
+# prose, because the model writes them regardless of what it chose.
+
+_FACE_LAW_CLOSE = (
+    "The face fills much of the frame, and every face holds the exact angle to the lens it "
+    "has at the start: heads stay square, shoulders do not pivot, and nobody rotates towards "
+    "or away from the camera at any point. The face stays completely inside the frame for "
+    "the entire duration with both eyes open and clearly readable, and is never cropped by "
+    "the frame edge, never thrown into silhouette, and never covered by a hand, a prop or "
+    "another person.")
+_FACE_LAW_MEDIUM = (
+    "Every face holds the exact angle to the lens it has at the start: heads stay square, "
+    "shoulders do not pivot, and nobody rotates towards or away from the camera at any "
+    "point. Each face stays completely inside the frame for the entire duration and is "
+    "never cropped by the frame edge, never thrown into silhouette, and never covered by a "
+    "hand, a prop or another person.")
+_FACE_LAWS = {"close": _FACE_LAW_CLOSE, "medium": _FACE_LAW_MEDIUM, "none": "", "hidden": ""}
+FACE_KEYS = ("close", "medium", "none", "hidden")
+
 _PERSON_RE = re.compile(
     r"\b(man|woman|men|women|boy|girl|child|children|person|people|face|faces|keeper|"
     r"worker|he|she|his|her|him|hers|they|their|figure|hands?|crowd|speaker|"
     r"[a-z]+er's|[a-z]+man)\b", re.IGNORECASE)
+
+# Unambiguous. These never describe anything but a face the viewer cannot read.
+_FACE_BLOCK_RE = re.compile(
+    r"\bobscur\w*"
+    r"|\bfrom behind\b"
+    r"|\bback to (?:the )?(?:camera|lens)\b"
+    r"|\b(?:facing|turned|turning|looking) away from (?:the )?(?:camera|lens)\b"
+    r"|\bout of (?:the )?frame\b"
+    r"|\bcropped (?:out|off|at)\b"
+    r"|\b(?:face|features|eyes) (?:is|are|were|stays?) (?:hidden|concealed|covered)\b"
+    r"|\bhidden (?:by|behind|in) \w+"
+    r"|\bconceal(?:s|ed|ing)\b"
+    r"|\bwe (?:do not|don't|never) see\b", re.IGNORECASE)
+
+# Ambiguous on its own — "the dune line behind him is a clean dark silhouette" is good
+# cinematography about a landscape. Only the forms that bind the silhouette to a PERSON are
+# treated as blocking.
+_PERSON_SILHOUETTE_RE = re.compile(
+    r"^\s*silhouett"                                  # participial, inherits the subject
+    r"|\b(?:his|her|their)\s+silhouette\b"
+    r"|\b(?:he|she|they)\b\W{0,8}silhouett", re.IGNORECASE)
+
+# The brief has to ask for a hidden face out loud before the planner will allow one.
+_WANTS_HIDDEN_RE = re.compile(
+    r"\bsilhouette|\bfrom behind\b|\bback to (?:the )?camera\b|\bfaceless\b|\bno faces?\b|"
+    r"\bhidden face|\bface(?:s)? (?:hidden|obscured)|\banonymous\b|\bunidentified\b|"
+    r"\bwithout showing (?:the |their |his |her )?face", re.IGNORECASE)
+
+
+def _face_level(raw: Any, desc: str) -> str:
+    """Normalise the model's `face` choice; default from whether a person is on screen."""
+    k = str(raw or "").strip().lower().replace(" ", "_").replace("-", "_")
+    aliases = {"closeup": "close", "close_up": "close", "tight": "close", "face": "close",
+               "visible": "medium", "mid": "medium", "wide": "medium", "full": "medium",
+               "no_face": "none", "nobody": "none", "n/a": "none", "": "",
+               "obscured": "hidden", "silhouette": "hidden", "back": "hidden"}
+    k = aliases.get(k, k)
+    if k in _FACE_LAWS:
+        return k
+    return "medium" if _has_person(desc) else "none"
+
+
+def _scrub_face_blocking(text: str) -> Tuple[str, List[str]]:
+    """Remove clauses that hide the face. Returns (text, removed clauses).
+
+    Clause-level, like _clean_settle: sentences are split on `.` and clauses on `,`/`;`, and
+    only the offending clause is dropped, so the rest of the direction survives. If every
+    clause of a sentence is blocking, the sentence goes.
+    """
+    removed: List[str] = []
+    out_sentences: List[str] = []
+    for sentence in re.split(r"(?<=[.!?])\s+", text or ""):
+        if not sentence.strip():
+            continue
+        clauses = re.split(r"(?<=[,;])\s+", sentence)
+        keep = []
+        for c in clauses:
+            if _FACE_BLOCK_RE.search(c) or _PERSON_SILHOUETTE_RE.search(c):
+                removed.append(c.strip().rstrip(",;"))
+                continue
+            keep.append(c)
+        if keep:
+            joined = " ".join(keep).strip()
+            joined = re.sub(r"[,;]\s*([.!?])", r"\1", joined).strip().rstrip(",;")
+            if joined and joined[-1] not in ".!?":
+                joined += "."
+            out_sentences.append(joined)
+    return " ".join(out_sentences).strip(), removed
 
 _NO_TEXT = "No text appears at any point."
 
@@ -951,8 +1060,8 @@ def _stable_seed(concept: str) -> int:
     return int(h, 16) % 2147483647
 
 
-def _compose_body(desc: str, camera: Any, settle: str) -> str:
-    """description + the camera law + the settle law, in the order the exemplars use.
+def _compose_body(desc: str, camera: Any, settle: str, face: str = "") -> str:
+    """description + the camera law + the face law + the settle law, in exemplar order.
 
     If the model already wrote a camera sentence or an end-state clause of its own, that is
     honoured rather than duplicated — a prompt with two camera instructions is worse than a
@@ -963,8 +1072,9 @@ def _compose_body(desc: str, camera: Any, settle: str) -> str:
         body += "."
     if "the camera" not in body.lower():
         body += " " + _camera_sentence(camera)
-    if _has_person(body) and "holds the exact angle" not in body:
-        body += " " + _FACE_HELD
+    law = _FACE_LAWS.get(face or "", "")
+    if law and "holds the exact angle" not in body:
+        body += " " + law
     if "completely finished before the shot ends" not in body.lower():
         s = _settle_sentence(_plain_punctuation(settle or ""))
         if s:
@@ -975,10 +1085,10 @@ def _compose_body(desc: str, camera: Any, settle: str) -> str:
 
 
 def _assemble_h3_prompt(desc: str, sound: str, music: str,
-                        camera: Any = "static", settle: str = "") -> str:
+                        camera: Any = "static", settle: str = "", face: str = "") -> str:
     """The official three-field form. `[Shot 1]` carries no timestamp — every storyboard
     shot is one continuous take, so there is never a `[Shot 2]` inside a single prompt."""
-    body = _fix_unbalanced_d(_compose_body(desc, camera, settle))
+    body = _fix_unbalanced_d(_compose_body(desc, camera, settle, face))
     sound = _plain_punctuation((sound or "").strip()) or "N/A"
     music = _plain_punctuation((music or "").strip()) or "N/A"
     return (
@@ -989,10 +1099,10 @@ def _assemble_h3_prompt(desc: str, sound: str, music: str,
 
 
 def _assemble_ltx_prompt(desc: str, sound: str, style: str,
-                         camera: Any = "static", settle: str = "") -> str:
+                         camera: Any = "static", settle: str = "", face: str = "") -> str:
     """LTX 2.3 prose: one paragraph, master style suffix verbatim, one trailing `Audio:`
     line (the shape mlx_warm_helper's enhance addendum says LTX was trained on)."""
-    body = _strip_h3_markup(_compose_body(desc, camera, settle)).rstrip()
+    body = _strip_h3_markup(_compose_body(desc, camera, settle, face)).rstrip()
     if body and body[-1] not in ".!?":
         body += "."
     st = _plain_punctuation((style or "").strip().rstrip("."))
@@ -1039,6 +1149,7 @@ def coerce_spec(
     seed_base: Optional[int] = None,
     max_dim: Optional[int] = None,
     created_at: Optional[int] = None,
+    allow_hidden_faces: bool = False,
     storyboard_mod: Any = None,
 ) -> Tuple[Dict[str, Any], List[str]]:
     """Turn whatever the model returned into a schema-correct storyboard.
@@ -1106,15 +1217,31 @@ def coerce_spec(
         settle = _clean_settle(settle_raw)
         if settle_raw and not settle:
             warnings.append("shot %d described the camera instead of an end state" % (idx + 1))
+
+        # --- the face law ---------------------------------------------------------------
+        face = _face_level(s.get("face") or s.get("face_visible") or s.get("framing"), desc)
+        if face == "hidden" and not allow_hidden_faces:
+            face = "medium"
+            warnings.append("shot %d asked to hide the face; the brief did not ask for that, "
+                            "so the face is kept visible" % (idx + 1))
+        if face in ("close", "medium"):
+            desc, cut_d = _scrub_face_blocking(desc)
+            settle, cut_s = _scrub_face_blocking(settle)
+            settle = settle.rstrip(".")
+            for c in (cut_d + cut_s):
+                warnings.append("shot %d: removed face-hiding framing %r" % (idx + 1, c[:70]))
+            if not desc.strip():
+                warnings.append("shot %d was entirely face-hiding and was dropped" % (idx + 1))
+                continue
         if _TEXT_KEYWORD_RE.search(desc) and not _DQ_RE.search(desc):
             warnings.append("shot %d names on-screen text but does not put it in double "
                             "quotes — H3 renders described strings as letter-shaped noise"
                             % (idx + 1))
 
         if eng == "h3":
-            prompt = _assemble_h3_prompt(desc, sound, music, camera, settle)
+            prompt = _assemble_h3_prompt(desc, sound, music, camera, settle, face)
         else:
-            prompt = _assemble_ltx_prompt(desc, sound, style, camera, settle)
+            prompt = _assemble_ltx_prompt(desc, sound, style, camera, settle, face)
 
         shot: Dict[str, Any] = {
             "n": n,
@@ -1131,6 +1258,7 @@ def coerce_spec(
             # edit one field without parsing it back out of the finished string.
             "description": desc,
             "camera": camera,
+            "face": face,
             "settle": settle,
             "soundscape": sound,
             "music": music,
@@ -1147,7 +1275,7 @@ def coerce_spec(
                 # would be illegal (grammar rule 5). Put it inside the description instead.
                 shot["prompt"] = _assemble_h3_prompt(
                     "%s The on-screen subject is %s." % (desc, char["trigger"]),
-                    sound, music, camera, settle)
+                    sound, music, camera, settle, face)
         shots.append(shot)
 
     if len(shots) != n_shots:
@@ -1406,6 +1534,7 @@ def plan_film(
     engine: str = "auto",
     tier: str = "draft",
     duration_s: float = 5.0,
+    allow_hidden_faces: Optional[bool] = None,
     board_id: Optional[str] = None,
     known_character_ids: Optional[Iterable[str]] = None,
     ref_root: Optional[Any] = None,
@@ -1442,6 +1571,12 @@ def plan_film(
                      carried across by reference, so the rest of the plan is byte-stable.
       engine         "auto" (default) | "h3" | "ltx". Auto = H3 unless the shot is cast.
       tier           per-shot tier, default "draft" — plans are for reviewing, not shipping.
+      allow_hidden_faces
+                     None (default) auto-detects from the brief: a face may only be hidden
+                     if the concept, style or must_include asked for it in so many words
+                     ("silhouette", "from behind", "faceless", ...). Otherwise every shot
+                     with a person carries the face law and face-hiding framing is scrubbed
+                     out of the prose. Pass True/False to override the detection.
       max_dim        this machine's resolution cap; the policy is clamped to it so the
                      validator's tier check cannot fire.
       session        an already-open PlannerSession to borrow. If given it is NOT released
@@ -1465,6 +1600,15 @@ def plan_film(
         previous = feedback.get("previous") if isinstance(feedback, dict) else None
     if fb_mode != "none" and not isinstance(previous, dict):
         raise PlannerError("feedback needs the plan it refers to — pass previous=<spec>")
+
+    # A hidden face is opt-in, and the brief is the only thing that may opt in. Detection
+    # reads the concept, the style and the must-includes — not the model's output, which is
+    # exactly the thing being guarded against.
+    if allow_hidden_faces is None:
+        brief_text = " ".join([concept or "", style or ""] + must)
+        allow_hidden = bool(_WANTS_HIDDEN_RE.search(brief_text))
+    else:
+        allow_hidden = bool(allow_hidden_faces)
 
     validate, sb = _load_validator()
     seed_base = int(seed) if seed is not None else _stable_seed(concept)
@@ -1492,7 +1636,8 @@ def plan_film(
             style=style, cast=cast, board_id=board_id, engine=engine, tier=tier,
             duration_s=duration_s, seed_base=seed_base, max_dim=max_dim,
             known_ids=known_ids, ref_root=ref_root, temperature=temperature,
-            budget=budget, model_path=model_path, t_start=t_start)
+            budget=budget, model_path=model_path, t_start=t_start,
+            allow_hidden_faces=allow_hidden)
     finally:
         # The model is gone before this function returns, on every path including an
         # exception. Peak RSS is only final once the child has been reaped, so the
@@ -1507,7 +1652,7 @@ def plan_film(
 def _plan_with_session(sess, *, system, user, fb_mode, fb_shot, previous, validate, sb,
                        concept, n_shots, style, cast, board_id, engine, tier, duration_s,
                        seed_base, max_dim, known_ids, ref_root, temperature, budget,
-                       model_path, t_start) -> Dict[str, Any]:
+                       model_path, t_start, allow_hidden_faces) -> Dict[str, Any]:
     """The generate -> extract -> coerce -> validate -> ONE repair loop.
 
     Split out of plan_film() so the `finally:` that releases the model is three lines with
@@ -1520,7 +1665,8 @@ def _plan_with_session(sess, *, system, user, fb_mode, fb_shot, previous, valida
         return _coerce_for_mode(
             obj, fb_mode, fb_shot, previous, concept=concept, n_shots=n_shots, style=style,
             cast=cast, board_id=board_id, engine=engine, tier=tier, duration_s=duration_s,
-            seed_base=seed_base, max_dim=max_dim, sb=sb)
+            seed_base=seed_base, max_dim=max_dim, sb=sb,
+            allow_hidden_faces=allow_hidden_faces)
 
     def check(spec):
         return list(validate(spec, known_character_ids=known_ids,
@@ -1626,13 +1772,14 @@ def _engine_mix(spec: Dict[str, Any]) -> Dict[str, int]:
 
 
 def _coerce_for_mode(obj, fb_mode, fb_shot, previous, *, concept, n_shots, style, cast,
-                     board_id, engine, tier, duration_s, seed_base, max_dim, sb):
+                     board_id, engine, tier, duration_s, seed_base, max_dim, sb,
+                     allow_hidden_faces=False):
     """Coerce a fresh plan, or splice one re-rolled shot into an existing plan."""
     if fb_mode != "shot":
         return coerce_spec(obj, concept=concept, n_shots=n_shots, style=style, cast=cast,
                            board_id=board_id, engine=engine, tier=tier,
                            duration_s=duration_s, seed_base=seed_base, max_dim=max_dim,
-                           storyboard_mod=sb)
+                           allow_hidden_faces=allow_hidden_faces, storyboard_mod=sb)
 
     # Per-shot re-roll: coerce the single returned shot, then splice. Every other shot
     # object is carried across by reference, so the untouched part of the plan is
@@ -1640,7 +1787,7 @@ def _coerce_for_mode(obj, fb_mode, fb_shot, previous, *, concept, n_shots, style
     one, warnings = coerce_spec(obj, concept=concept, n_shots=1, style=style, cast=cast,
                                 board_id=previous.get("id"), engine=engine, tier=tier,
                                 duration_s=duration_s, seed_base=seed_base, max_dim=max_dim,
-                                storyboard_mod=sb)
+                                allow_hidden_faces=allow_hidden_faces, storyboard_mod=sb)
     new_shots = one.get("shots") or []
     spec = copy.copy(previous)
     spec["shots"] = list(previous.get("shots") or [])
