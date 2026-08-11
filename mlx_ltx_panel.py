@@ -9164,7 +9164,14 @@ class WarmHelper:
                 return
             env = os.environ.copy()
             env["PATH"] = f"{FFMPEG_BIN}:{env.get('PATH', '')}"
-            env["LTX_MODEL"] = MODEL_ID
+            env["LTX_MODEL"] = base_model_dir()
+            # The Q8 pack directory, stated rather than string-derived. The
+            # helper's _upscaler_dir() otherwise guesses it by swapping the
+            # trailing folder name of LTX_MODEL for the literal
+            # "ltx-2.3-mlx-q8" — a guess that is wrong for any second model
+            # version and for anyone who moved the pack with LTX_Q8_LOCAL.
+            # Same value as the guess on a default install.
+            env["LTX_Q8_LOCAL"] = str(pack_path("q8"))
             env["LTX_GEMMA"] = str(GEMMA)
             env["LTX_IDLE_TIMEOUT"] = str(HELPER_IDLE_TIMEOUT)
             env["LTX_LOW_MEMORY"] = HELPER_LOW_MEMORY

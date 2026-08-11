@@ -847,6 +847,11 @@ def _attach_loras(pipe, loras: list[dict] | None) -> None:
 
 
 _extend_model_dir: str | None = None
+# The base pipelines cache their model_dir the same way Extend does, so a
+# job that names a different model version rebuilds instead of silently
+# rendering on the previous one's weights.
+_t2v_model_dir: str | None = None
+_i2v_model_dir: str | None = None
 
 
 def get_pipe(kind: str, loras: list[dict] | None = None,
@@ -862,10 +867,26 @@ def get_pipe(kind: str, loras: list[dict] | None = None,
     carried a copy of `transformer-dev.safetensors` (download bloat) so Extend
     silently loaded from there; the Y1.024 download filter pruned the dupe and
     exposed that Extend is structurally Q8-class. Cached alongside the LoRA
-    fingerprint so a model_dir flip rebuilds the pipe."""
+    fingerprint so a model_dir flip rebuilds the pipe.
+
+    2026-08-11 — `model_dir` now applies to T2V and I2V too. It used to be
+    Extend-only, which meant the BASE render was pinned to whatever
+    LTX_MODEL this helper process was spawned with: a module-level
+    singleton, chosen once, unreachable per job. That is fine while there
+    is exactly one LTX generation on disk and fatal the moment there are
+    two — the panel would have had to kill and respawn the helper to
+    switch versions, mid-queue, with the weights still resident. Passing
+    None keeps the old behaviour exactly (fall back to MODEL_ID), which is
+    what every caller that has not been taught about versions still does.
+
+    The helper stays version-AGNOSTIC on purpose: it takes a directory,
+    never a version id. Which generation a directory holds is the
+    checkpoint's business (2.5 makes the vendored config metadata-driven),
+    and the panel's registry is the thing that knows which directory to
+    name."""
     global _t2v_pipe, _i2v_pipe, _extend_pipe
     global _t2v_lora_key, _i2v_lora_key, _extend_lora_key
-    global _extend_model_dir
+    global _extend_model_dir, _t2v_model_dir, _i2v_model_dir
     try:
         from ltx_core_mlx.utils.memory import aggressive_cleanup as _ac
     except Exception:
@@ -909,20 +930,25 @@ def get_pipe(kind: str, loras: list[dict] | None = None,
         # one-pipeline-at-a-time policy keeps memory bounded.
         release_pipelines(keep_kind=kind)
         if kind == "i2v":
-            if _i2v_pipe is None or _i2v_lora_key != fp:
-                if _i2v_pipe is not None and _i2v_lora_key != fp:
+            i2v_dir = model_dir or MODEL_ID
+            if (_i2v_pipe is None or _i2v_lora_key != fp
+                    or _i2v_model_dir != i2v_dir):
+                if _i2v_pipe is not None:
+                    why = ("LoRA set changed" if _i2v_lora_key != fp
+                           else "model_dir changed")
                     emit({"event": "log",
-                          "line": f"LoRA set changed; reloading I2V pipeline."})
+                          "line": f"{why}; reloading I2V pipeline."})
                     _i2v_pipe = None
                     _ac()
                 emit({"event": "log",
                       "line": "Loading I2V pipeline (first job is the slow one)..."})
                 pipe = ImageToVideoPipeline(
-                    model_dir=MODEL_ID, gemma_model_id=GEMMA_PATH, low_memory=LOW_MEMORY,
+                    model_dir=i2v_dir, gemma_model_id=GEMMA_PATH, low_memory=LOW_MEMORY,
                 )
                 _attach_loras(pipe, loras)
                 _i2v_pipe = pipe
                 _i2v_lora_key = fp
+                _i2v_model_dir = i2v_dir
             return _i2v_pipe
         if kind == "extend":
             ext_dir = model_dir or MODEL_ID
@@ -946,20 +972,25 @@ def get_pipe(kind: str, loras: list[dict] | None = None,
                 _extend_model_dir = ext_dir
             return _extend_pipe
         # t2v
-        if _t2v_pipe is None or _t2v_lora_key != fp:
-            if _t2v_pipe is not None and _t2v_lora_key != fp:
+        t2v_dir = model_dir or MODEL_ID
+        if (_t2v_pipe is None or _t2v_lora_key != fp
+                or _t2v_model_dir != t2v_dir):
+            if _t2v_pipe is not None:
+                why = ("LoRA set changed" if _t2v_lora_key != fp
+                       else "model_dir changed")
                 emit({"event": "log",
-                      "line": f"LoRA set changed; reloading T2V pipeline."})
+                      "line": f"{why}; reloading T2V pipeline."})
                 _t2v_pipe = None
                 _ac()
             emit({"event": "log",
                   "line": "Loading T2V pipeline (first job is the slow one)..."})
             pipe = TextToVideoPipeline(
-                model_dir=MODEL_ID, gemma_model_id=GEMMA_PATH, low_memory=LOW_MEMORY,
+                model_dir=t2v_dir, gemma_model_id=GEMMA_PATH, low_memory=LOW_MEMORY,
             )
             _attach_loras(pipe, loras)
             _t2v_pipe = pipe
             _t2v_lora_key = fp
+            _t2v_model_dir = t2v_dir
         return _t2v_pipe
 
 
@@ -1974,7 +2005,10 @@ for line in sys.__stdin__:
             else:
                 emit({"event": "log",
                       "line": f"step:get_pipe kind={('i2v' if needs_image else 't2v')}"})
-            pipe = get_pipe("i2v" if needs_image else "t2v", loras=loras)
+            # The panel names the pack on the job spec now; None keeps the
+            # pre-2026-08 behaviour (this helper's spawn-time LTX_MODEL).
+            pipe = get_pipe("i2v" if needs_image else "t2v", loras=loras,
+                            model_dir=p.get("model_dir"))
             emit({"event": "log", "line": "step:get_pipe done"})
             _log_memory_pressure()
             accel_mode = configure_acceleration(p.get("accel", "off"))
