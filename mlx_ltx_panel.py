@@ -248,6 +248,153 @@ _REQUIRED = _load_required_files()
 _MIN_FILE_BYTES = int(_REQUIRED.get("min_size_bytes", 1024))
 
 
+# ---- model-version registry --------------------------------------------------
+# ONE entry per LTX generation. Everything that needs to know "which weights,
+# in which folder, complete or not, and what can this generation actually do"
+# reads THIS table — job dispatch, the download/completeness checks, and the
+# env the warm helper is spawned with. Registering LTX-2.5 is meant to be one
+# entry here plus its `required_files.json` repos, not a scavenger hunt.
+#
+# WHY this exists (the June-2026 mosaic, in one paragraph): the panel was built
+# around exactly one model version. `MODEL_ID` was a module-level singleton
+# resolved at import; the Q8 folder was reached by a bare `Q8_LOCAL_PATH`
+# constant at eight job-spec sites; the Q4 folder was reached at four more by
+# the *string literal* "ltx-2.3-mlx-q4"; and "is it installed" was a q8-keyed
+# special case inside `repo_status_list()`. A single 1 GB upscaler dropped out
+# of one `download_include` list produced a randomly-initialised module and two
+# weeks of rainbow-grid renders across three wrong theories. A second version
+# multiplies every one of those surfaces, so they are funnelled through here
+# first.
+#
+# Field contract per version:
+#   id            stable key. Wire format — goes in sidecars and env, so it
+#                 may never be renamed once a render has carried it.
+#   label         what a human sees ("LTX-2.3"). Mirrors the ENGINES label.
+#   engine_id     which entry in ENGINES serves this version.
+#   config_key    the vendored ltx-2-mlx model-config generation key. 2.5
+#                 makes the vendored lib metadata-driven; this is the value
+#                 handed to it (and the thing to grep for when a checkpoint
+#                 loads with the wrong hyperparameters).
+#   default       exactly one version carries True.
+#   cap_tiers     which FEATURE tiers this version can serve. This is the
+#                 generalisation of the old binary `cap_tier`: a version that
+#                 ships q4 weights only declares ("q4",) and the whole Q8
+#                 surface (FFLF / Extend / High) folds away for it, on ANY
+#                 machine, without a second CSS system.
+#   packs         one per quantisation. `repo_key` points into
+#                 required_files.json — deliberately a REFERENCE, not a copy:
+#                 that file stays the single source of truth for the file list
+#                 AND the `download_include` allowlist, so the two can never
+#                 disagree the way they did in June. `path` is the resolved
+#                 on-disk directory (honouring the same env overrides the old
+#                 constants did). `serves_cap_tiers` is which feature tiers may
+#                 load this pack.
+#
+# The two path constants above (Q4_LOCAL_PATH / Q8_LOCAL_PATH) remain the
+# INPUTS to the 2.3 entry rather than being replaced by it, so every existing
+# env override (LTX_MODEL, LTX_Q8_LOCAL) keeps working byte-for-byte.
+MODEL_VERSIONS: tuple[dict, ...] = (
+    {
+        "id": "ltx23",
+        "label": "LTX-2.3",
+        "engine_id": "ltx",
+        "config_key": "ltx-2.3",
+        "default": True,
+        "cap_tiers": ("q4", "q8"),
+        "packs": (
+            {
+                "quant": "q4",
+                "role": "base",
+                "repo_key": "q4",
+                "path": Q4_LOCAL_PATH,
+                "hf_repo_id": "dgrauet/ltx-2.3-mlx-q4",
+                "serves_cap_tiers": ("q4", "q8"),
+            },
+            {
+                "quant": "q8",
+                "role": "hq",
+                "repo_key": "q8",
+                "path": Q8_LOCAL_PATH,
+                "hf_repo_id": MODEL_ID_HQ,
+                "serves_cap_tiers": ("q8",),
+            },
+        ),
+    },
+)
+
+# Which version this panel is driving. Env override exists so a 2.5 pack can
+# be exercised side-by-side before it becomes the default; an unknown value
+# falls back to the registry default rather than taking the panel down.
+_MODEL_VERSION_ENV = (os.environ.get("LTX_MODEL_VERSION", "") or "").strip()
+
+
+def default_model_version_id() -> str:
+    for v in MODEL_VERSIONS:
+        if v.get("default"):
+            return v["id"]
+    return MODEL_VERSIONS[0]["id"]
+
+
+def model_version(version_id: str | None = None) -> dict:
+    """The registry entry for `version_id` (None → the active version)."""
+    wanted = version_id or ACTIVE_MODEL_VERSION
+    for v in MODEL_VERSIONS:
+        if v["id"] == wanted:
+            return v
+    for v in MODEL_VERSIONS:
+        if v.get("default"):
+            return v
+    return MODEL_VERSIONS[0]
+
+
+ACTIVE_MODEL_VERSION = (
+    _MODEL_VERSION_ENV
+    if any(v["id"] == _MODEL_VERSION_ENV for v in MODEL_VERSIONS)
+    else default_model_version_id()
+)
+if _MODEL_VERSION_ENV and _MODEL_VERSION_ENV != ACTIVE_MODEL_VERSION:
+    sys.stderr.write(
+        f"WARN: LTX_MODEL_VERSION={_MODEL_VERSION_ENV!r} is not a registered "
+        f"model version; falling back to {ACTIVE_MODEL_VERSION!r}. Known: "
+        f"{', '.join(v['id'] for v in MODEL_VERSIONS)}\n"
+    )
+
+
+def version_pack(quant: str, version_id: str | None = None) -> dict | None:
+    """The pack entry for one quantisation of one version, or None."""
+    for p in model_version(version_id).get("packs", ()):
+        if p["quant"] == quant:
+            return p
+    return None
+
+
+def pack_path(quant: str, version_id: str | None = None) -> Path:
+    """On-disk directory for (version, quant). Falls back to the models root
+    so a caller that asks for a pack this version doesn't ship still gets a
+    path it can report rather than a None it will crash on."""
+    pack = version_pack(quant, version_id)
+    return Path(pack["path"]) if pack else MODELS_DIR
+
+
+def pack_repo(quant: str, version_id: str | None = None) -> dict | None:
+    """The required_files.json repo entry backing (version, quant)."""
+    pack = version_pack(quant, version_id)
+    if not pack:
+        return None
+    for r in _REQUIRED.get("repos", []):
+        if r.get("key") == pack["repo_key"]:
+            return r
+    return None
+
+
+def version_cap_tiers(version_id: str | None = None) -> tuple[str, ...]:
+    return tuple(model_version(version_id).get("cap_tiers", ("q4",)))
+
+
+def version_quants(version_id: str | None = None) -> tuple[str, ...]:
+    return tuple(p["quant"] for p in model_version(version_id).get("packs", ()))
+
+
 # ---- panel settings: user-controllable preferences -------------------------
 # Persisted to panel_settings.json so the user's choice survives restarts.
 # Read at startup, exposed via /settings GET, mutated via /settings POST.
