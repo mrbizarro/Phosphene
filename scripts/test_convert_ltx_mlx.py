@@ -1,0 +1,420 @@
+#!/usr/bin/env python3
+"""Tests for scripts/convert_ltx_mlx.py — the PyTorch/Comfy → MLX pack converter.
+
+Everything here runs on synthetic safetensors at tiny dims, built from the
+2.5-style key names taken from the merged ComfyUI implementation (commit
+57ce8e1a) and from the real 2.3 MLX pack headers. No 42 GB checkpoint, no
+gated download, no GPU.
+
+That is not a compromise. The converter's whole job is naming and layout, and
+naming and layout are exactly what a 4-tensor file can prove. What it cannot
+prove is covered honestly in the port note: that the vendor's real key set
+contains no key our Route table has never seen. The unmapped-keys abort is
+what turns that unknown into a loud failure instead of a silent one.
+
+Run:  ./ltx-2-mlx/env/bin/python -m pytest scripts/test_convert_ltx_mlx.py -q
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import struct
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from convert_ltx_mlx import (  # noqa: E402
+    DEFAULT_ROUTES,
+    ComponentPlan,
+    PlannedTensor,
+    UnmappedKeys,
+    convert,
+    plan_conversion,
+    read_header,
+    rename_key,
+    route_key,
+    tensor_nbytes,
+    write_component,
+)
+
+
+# --------------------------------------------------------------------------
+# Minimal safetensors writer — deliberately independent of the converter's
+# own writer, so a bug in one cannot hide a bug in the other.
+# --------------------------------------------------------------------------
+
+
+def write_safetensors(path: Path, tensors: dict, metadata: dict | None = None) -> Path:
+    """`tensors`: {key: (dtype, shape, bytes)}."""
+    header = {}
+    cursor = 0
+    blob = bytearray()
+    for key, (dtype, shape, payload) in tensors.items():
+        header[key] = {"dtype": dtype, "shape": list(shape), "data_offsets": [cursor, cursor + len(payload)]}
+        blob += payload
+        cursor += len(payload)
+    if metadata:
+        header["__metadata__"] = metadata
+    raw = json.dumps(header, separators=(",", ":")).encode()
+    raw += b" " * ((-len(raw)) % 8)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "wb") as fh:
+        fh.write(struct.pack("<Q", len(raw)))
+        fh.write(raw)
+        fh.write(bytes(blob))
+    return path
+
+
+def bf16(n: int, fill: int = 0xAB) -> bytes:
+    return bytes([fill]) * (n * 2)
+
+
+def comfy_dit_tensors(num_blocks: int = 2) -> dict:
+    """A miniature monolithic DiT in ComfyUI single-file key layout."""
+    t = {
+        "model.diffusion_model.patchify_proj.weight": ("BF16", [8, 4], bf16(32)),
+        "model.diffusion_model.patchify_proj.bias": ("BF16", [8], bf16(8)),
+        "model.diffusion_model.proj_out.weight": ("BF16", [4, 8], bf16(32)),
+        "model.diffusion_model.scale_shift_table": ("F32", [2, 8], b"\x01" * (2 * 8 * 4)),
+        "model.diffusion_model.adaln_single.linear.weight": ("BF16", [72, 8], bf16(576)),
+        "model.diffusion_model.adaln_single.emb.timestep_embedder.linear_1.weight": ("BF16", [8, 4], bf16(32)),
+        "model.diffusion_model.adaln_single.emb.timestep_embedder.linear_2.weight": ("BF16", [8, 8], bf16(64)),
+        # 2.5: no keyframes marker unless the checkpoint ships it
+        "model.diffusion_model.keyframes_abs_pos_embedding": ("BF16", [1, 8], bf16(8)),
+    }
+    for i in range(num_blocks):
+        p = f"model.diffusion_model.transformer_blocks.{i}."
+        t[p + "attn1.to_q.weight"] = ("BF16", [8, 8], bf16(64))
+        t[p + "attn1.to_out.0.weight"] = ("BF16", [8, 8], bf16(64))
+        t[p + "attn1.q_norm.weight"] = ("BF16", [8], bf16(8))
+        # LTX-2.5: ff carries NO bias — only the two weights
+        t[p + "ff.net.0.proj.weight"] = ("BF16", [32, 8], bf16(256))
+        t[p + "ff.net.2.weight"] = ("BF16", [8, 32], bf16(256))
+        t[p + "audio_ff.net.0.proj.weight"] = ("BF16", [16, 4], bf16(64))
+        t[p + "audio_ff.net.2.weight"] = ("BF16", [4, 16], bf16(64))
+        t[p + "scale_shift_table"] = ("F32", [9, 8], b"\x02" * (9 * 8 * 4))
+    return t
+
+
+class TestHeaderPrimitives:
+    def test_round_trips_a_header(self, tmp_path):
+        path = write_safetensors(tmp_path / "x.safetensors", {"a": ("BF16", [2, 3], bf16(6))})
+        header, offset = read_header(path)
+        assert header["a"]["shape"] == [2, 3]
+        assert offset % 8 == 0
+
+    def test_nbytes_matches_dtype_and_shape(self):
+        assert tensor_nbytes({"dtype": "BF16", "shape": [4, 8]}) == 64
+        assert tensor_nbytes({"dtype": "F32", "shape": [2, 8]}) == 64
+        assert tensor_nbytes({"dtype": "U32", "shape": [4096, 512]}) == 4096 * 512 * 4
+
+    def test_unknown_dtype_raises(self):
+        with pytest.raises(ValueError, match="unknown safetensors dtype"):
+            tensor_nbytes({"dtype": "F4_MADEUP", "shape": [1]})
+
+    def test_metadata_survives_the_read(self, tmp_path):
+        path = write_safetensors(
+            tmp_path / "m.safetensors",
+            {"a": ("BF16", [1], bf16(1))},
+            metadata={"model_version": "2.5", "config": '{"transformer":{"ff_bias":false}}'},
+        )
+        header, _ = read_header(path)
+        assert header["__metadata__"]["model_version"] == "2.5"
+
+
+class TestRenaming:
+    """Rules mirror LTXV_LORA_COMFY_RENAMING_MAP in the vendored loader."""
+
+    @pytest.mark.parametrize(
+        ("src", "want"),
+        [
+            ("transformer.transformer_blocks.0.attn1.to_out.0.weight", "transformer.transformer_blocks.0.attn1.to_out.weight"),
+            ("transformer.transformer_blocks.0.ff.net.0.proj.weight", "transformer.transformer_blocks.0.ff.proj_in.weight"),
+            ("transformer.transformer_blocks.0.ff.net.2.weight", "transformer.transformer_blocks.0.ff.proj_out.weight"),
+            ("transformer.transformer_blocks.0.audio_ff.net.0.proj.weight", "transformer.transformer_blocks.0.audio_ff.proj_in.weight"),
+            ("transformer.adaln_single.emb.timestep_embedder.linear_1.weight", "transformer.adaln_single.emb.timestep_embedder.linear1.weight"),
+            ("transformer.patchify_proj.weight", "transformer.patchify_proj.weight"),
+        ],
+    )
+    def test_rules(self, src, want):
+        assert rename_key(src) == want
+
+    def test_renaming_is_idempotent(self):
+        """Running the table twice must not corrupt an already-renamed key."""
+        once = rename_key("transformer.transformer_blocks.0.ff.net.0.proj.weight")
+        assert rename_key(once) == once
+
+
+class TestRouting:
+    def test_longest_prefix_wins(self):
+        """duration_head must not be swallowed by model.diffusion_model."""
+        route = route_key("model.diffusion_model.duration_head.mlp_out.bias", DEFAULT_ROUTES)
+        assert route.stem == "duration_head"
+        assert route.target_prefix == "duration_head."
+
+    def test_connector_subtrees_land_in_one_file(self):
+        video = route_key("model.diffusion_model.video_embeddings_connector.x", DEFAULT_ROUTES)
+        audio = route_key("model.diffusion_model.audio_embeddings_connector.x", DEFAULT_ROUTES)
+        assert video.stem == audio.stem == "connector"
+        assert video.target_prefix.startswith("connector.")
+
+    def test_dit_falls_through_to_transformer(self):
+        route = route_key("model.diffusion_model.transformer_blocks.0.attn1.to_q.weight", DEFAULT_ROUTES)
+        assert route.stem == "transformer"
+
+    def test_unknown_prefix_returns_none(self):
+        assert route_key("some.vendor.module.weight", DEFAULT_ROUTES) is None
+
+
+class TestPlanning:
+    def test_plans_a_monolithic_dit(self, tmp_path):
+        path = write_safetensors(tmp_path / "dit.safetensors", comfy_dit_tensors())
+        plans, unmapped, _ = plan_conversion([path])
+        assert unmapped == []
+        assert set(plans) == {"transformer"}
+        assert all(t.target_key.startswith("transformer.") for t in plans["transformer"].tensors)
+
+    def test_renames_are_applied_in_the_plan(self, tmp_path):
+        path = write_safetensors(tmp_path / "dit.safetensors", comfy_dit_tensors(num_blocks=1))
+        plans, _, _ = plan_conversion([path])
+        keys = {t.target_key for t in plans["transformer"].tensors}
+        assert "transformer.transformer_blocks.0.ff.proj_in.weight" in keys
+        assert "transformer.transformer_blocks.0.attn1.to_out.weight" in keys
+        assert not any(".net." in k or ".to_out.0." in k for k in keys)
+
+    def test_the_keyframe_marker_survives(self, tmp_path):
+        """A 2.5-only tensor must not be quietly dropped."""
+        path = write_safetensors(tmp_path / "dit.safetensors", comfy_dit_tensors())
+        plans, _, _ = plan_conversion([path])
+        keys = {t.target_key for t in plans["transformer"].tensors}
+        assert "transformer.keyframes_abs_pos_embedding" in keys
+
+    def test_multiple_inputs_merge_into_one_pack(self, tmp_path):
+        dit = write_safetensors(tmp_path / "dit.safetensors", comfy_dit_tensors(num_blocks=1))
+        vae = write_safetensors(
+            tmp_path / "vae.safetensors",
+            {
+                "encoder.conv_in.weight": ("BF16", [4, 4], bf16(16)),
+                "decoder.conv_out.weight": ("BF16", [4, 4], bf16(16)),
+            },
+        )
+        head = write_safetensors(
+            tmp_path / "head.safetensors", {"duration_head.mlp_out.bias": ("BF16", [1], bf16(1))}
+        )
+        plans, unmapped, _ = plan_conversion([dit, vae, head])
+        assert unmapped == []
+        assert set(plans) == {"transformer", "vae_encoder", "vae_decoder", "duration_head"}
+
+    def test_unmapped_keys_abort_by_default(self, tmp_path):
+        path = write_safetensors(
+            tmp_path / "odd.safetensors",
+            {"brand.new.module.weight": ("BF16", [2, 2], bf16(4))},
+        )
+        with pytest.raises(UnmappedKeys, match="matched no output component"):
+            plan_conversion([path])
+
+    def test_the_abort_message_names_the_mosaic(self, tmp_path):
+        """Whoever hits this must understand why it is not a warning."""
+        path = write_safetensors(tmp_path / "odd.safetensors", {"x.y.z": ("BF16", [1], bf16(1))})
+        with pytest.raises(UnmappedKeys) as excinfo:
+            plan_conversion([path])
+        assert "mosaic" in str(excinfo.value)
+        assert "--allow-unmapped" in str(excinfo.value)
+
+    def test_allow_unmapped_reports_instead_of_raising(self, tmp_path):
+        path = write_safetensors(
+            tmp_path / "odd.safetensors",
+            {
+                "brand.new.module.weight": ("BF16", [2, 2], bf16(4)),
+                "model.diffusion_model.proj_out.weight": ("BF16", [2, 2], bf16(4)),
+            },
+        )
+        plans, unmapped, _ = plan_conversion([path], allow_unmapped=True)
+        assert len(unmapped) == 1
+        assert "brand.new.module.weight" in unmapped[0]
+        assert set(plans) == {"transformer"}
+
+    def test_a_self_inconsistent_header_is_refused(self, tmp_path):
+        """Offsets that disagree with dtype*shape mean a corrupt download."""
+        path = tmp_path / "bad.safetensors"
+        # Routable key, so the run reaches the consistency check rather than
+        # tripping the unmapped-keys abort first.
+        header = {"transformer.w": {"dtype": "BF16", "shape": [4, 4], "data_offsets": [0, 8]}}  # needs 32
+        raw = json.dumps(header).encode()
+        raw += b" " * ((-len(raw)) % 8)
+        with open(path, "wb") as fh:
+            fh.write(struct.pack("<Q", len(raw)))
+            fh.write(raw)
+            fh.write(b"\x00" * 8)
+        with pytest.raises(ValueError, match="self-inconsistent"):
+            plan_conversion([path])
+
+
+class TestWriting:
+    def test_bytes_survive_the_round_trip(self, tmp_path):
+        payload = bytes(range(256)) * 4
+        src = write_safetensors(tmp_path / "src.safetensors", {"transformer.w": ("BF16", [8, 64], payload)})
+        plans, _, _ = plan_conversion([src])
+        out, digest, size = write_component(plans["transformer"], tmp_path / "pack")
+
+        header, offset = read_header(out)
+        assert list(header) == ["transformer.w"]
+        begin, end = header["transformer.w"]["data_offsets"]
+        with open(out, "rb") as fh:
+            fh.seek(offset + begin)
+            assert fh.read(end - begin) == payload
+        assert len(digest) == 64
+        assert size == out.stat().st_size
+
+    def test_no_partial_file_is_left_behind_on_failure(self, tmp_path):
+        out_dir = tmp_path / "pack"
+        out_dir.mkdir()
+        missing = tmp_path / "gone.safetensors"
+        plan = ComponentPlan(
+            stem="transformer",
+            tensors=[PlannedTensor("transformer.w", "w", missing, 0, 16, "BF16", [8])],
+        )
+        with pytest.raises(Exception):
+            write_component(plan, out_dir)
+        assert list(out_dir.iterdir()) == [], "a failed write must leave nothing behind"
+
+    def test_colliding_target_keys_are_refused(self, tmp_path):
+        src = tmp_path / "s.safetensors"
+        write_safetensors(src, {"transformer.w": ("BF16", [1], bf16(1))})
+        plan = ComponentPlan(
+            stem="transformer",
+            tensors=[
+                PlannedTensor("transformer.w", "a", src, 0, 2, "BF16", [1]),
+                PlannedTensor("transformer.w", "b", src, 0, 2, "BF16", [1]),
+            ],
+        )
+        with pytest.raises(ValueError, match="collide"):
+            write_component(plan, tmp_path / "pack")
+
+    def test_data_blob_is_eight_byte_aligned(self, tmp_path):
+        src = write_safetensors(tmp_path / "s.safetensors", {"transformer.a": ("BF16", [3], bf16(3))})
+        plans, _, _ = plan_conversion([src])
+        out, _, _ = write_component(plans["transformer"], tmp_path / "pack")
+        _, offset = read_header(out)
+        assert offset % 8 == 0
+
+
+class TestEndToEnd:
+    def test_converts_a_monolith_into_a_pack(self, tmp_path):
+        src = write_safetensors(
+            tmp_path / "ltx-2.5-distilled.safetensors",
+            comfy_dit_tensors(num_blocks=2)
+            | {
+                "model.diffusion_model.duration_head.mlp_out.bias": ("BF16", [1], bf16(1)),
+                "encoder.conv_in.weight": ("BF16", [4, 4], bf16(16)),
+                "decoder.conv_out.weight": ("BF16", [4, 4], bf16(16)),
+            },
+            metadata={
+                "model_version": "2.5",
+                "config": json.dumps(
+                    {
+                        "model_version": "2.5",
+                        "transformer": {"ff_bias": False, "use_prompt_adaln_single": False, "num_layers": 2},
+                    }
+                ),
+            },
+        )
+        out_dir = tmp_path / "ltx-2.5-mlx-bf16"
+        report = convert([src], out_dir, transformer_stem="transformer-distilled")
+
+        names = {p.name for p in out_dir.iterdir()}
+        assert "transformer-distilled.safetensors" in names
+        assert "duration_head.safetensors" in names
+        assert {"config.json", "embedded_config.json", "split_model.json", "manifest.json"} <= names
+
+        manifest = json.loads((out_dir / "manifest.json").read_text())
+        assert len(manifest["files"]) == len(report["files"])
+        for entry in manifest["files"]:
+            path = out_dir / entry["file"]
+            assert path.stat().st_size == entry["bytes"]
+            assert len(entry["sha256"]) == 64
+
+    def test_metadata_rides_on_the_transformer_and_becomes_config_json(self, tmp_path):
+        config = {"model_version": "2.5", "transformer": {"ff_bias": False}}
+        src = write_safetensors(
+            tmp_path / "dit.safetensors",
+            comfy_dit_tensors(num_blocks=1),
+            metadata={"model_version": "2.5", "config": json.dumps(config)},
+        )
+        out_dir = tmp_path / "pack"
+        convert([src], out_dir, transformer_stem="transformer-distilled")
+
+        header, _ = read_header(out_dir / "transformer-distilled.safetensors")
+        assert header["__metadata__"]["model_version"] == "2.5"
+
+        on_disk = json.loads((out_dir / "config.json").read_text())
+        assert on_disk["transformer"]["ff_bias"] is False
+
+    def test_the_vendored_config_reader_accepts_the_result(self, tmp_path):
+        """The real proof: our pack is readable by the code that will load it.
+
+        Needs an ``ltx_core_mlx`` that carries the 2.5 config work (the
+        ``feat/ltx-2.5`` branch of the fork). The app's vendored checkout is
+        pinned to a released tag and does not, so this skips there rather than
+        failing — the converter is not what is missing in that case.
+        """
+        pytest.importorskip("mlx.core")
+        port_src = Path(
+            os.environ.get(
+                "LTX25_PORT_SRC",
+                Path.home() / "AI/projects/phosphene/ltx25-port/ltx-2-mlx/packages/ltx-core-mlx/src",
+            )
+        )
+        if port_src.exists():
+            sys.path.insert(0, str(port_src))
+        from ltx_core_mlx.model.transformer.model import LTXModelConfig
+
+        if not hasattr(LTXModelConfig(), "ff_bias"):
+            pytest.skip(
+                "the importable ltx_core_mlx predates the 2.5 config work; "
+                "set LTX25_PORT_SRC to a checkout of feat/ltx-2.5 to run this"
+            )
+
+        config = {
+            "model_version": "2.5",
+            "transformer": {
+                "ff_bias": False,
+                "audio_ff_bias": False,
+                "use_prompt_adaln_single": False,
+                "num_layers": 2,
+            },
+        }
+        src = write_safetensors(
+            tmp_path / "dit.safetensors",
+            comfy_dit_tensors(num_blocks=1),
+            metadata={"model_version": "2.5", "config": json.dumps(config)},
+        )
+        out_dir = tmp_path / "pack"
+        convert([src], out_dir, transformer_stem="transformer-distilled")
+
+        from_dir = LTXModelConfig.from_checkpoint_dir(out_dir)
+        assert from_dir.ff_bias is False
+        assert from_dir.use_prompt_adaln_single is False
+        assert from_dir.num_layers == 2
+
+        from_file = LTXModelConfig.from_checkpoint_file(out_dir / "transformer-distilled.safetensors")
+        assert from_file is not None
+        assert from_file.model_version == (2, 5)
+
+    def test_dry_run_writes_nothing(self, tmp_path):
+        src = write_safetensors(tmp_path / "dit.safetensors", comfy_dit_tensors(num_blocks=1))
+        out_dir = tmp_path / "pack"
+        report = convert([src], out_dir, dry_run=True)
+        assert report["total_bytes"] > 0
+        assert not out_dir.exists()
+
+    def test_total_bytes_equals_the_sum_of_sources(self, tmp_path):
+        tensors = comfy_dit_tensors(num_blocks=2)
+        expected = sum(len(payload) for _, _, payload in tensors.values())
+        src = write_safetensors(tmp_path / "dit.safetensors", tensors)
+        report = convert([src], tmp_path / "pack", dry_run=True)
+        assert report["total_bytes"] == expected
