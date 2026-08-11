@@ -557,8 +557,9 @@ def _settings_defaults() -> dict:
         # ---- Anonymous usage analytics -----------------------------------
         # Full contract in the "Anonymous usage analytics" section further
         # down this file, and the event-by-event schema in docs/ANALYTICS.md.
-        # Short version: counts only, never content, and completely inert
-        # until a PostHog key is configured.
+        # Short version: counts only, never content, ON by default, and the
+        # build ships a working project key — so this toggle, not the key
+        # field below, is the off switch.
         #
         # Default ON. This is a change of posture from the 2026-05 opt-in
         # experiment that was reverted (da1d6f5) — that one was OFF by
@@ -571,9 +572,10 @@ def _settings_defaults() -> dict:
         # Random UUID4, generated on first use and never derived from
         # anything about the machine. The only identifier we send.
         "analytics_install_id": "",
-        # PostHog PROJECT key (write-only, safe to hold on disk). Empty =
-        # analytics opens no sockets at all. Maintainer pastes this in
-        # Settings to switch the fleet on; PHOSPHENE_ANALYTICS_KEY overrides.
+        # PostHog PROJECT key (write-only, safe to hold on disk). This is an
+        # OVERRIDE of the shipped ANALYTICS_KEY_DEFAULT, not the on switch:
+        # empty means "no override" and capture falls back to the shipped
+        # key. A fork pastes its own here; PHOSPHENE_ANALYTICS_KEY beats both.
         "analytics_key": "",
         # PostHog PERSONAL API key (read-only, maintainer-only). Powers the
         # fleet view on /stats/usage. Never used for capture.
@@ -831,8 +833,10 @@ def _validate_settings_patch(patch: dict) -> tuple[dict, str | None]:
                            ("analytics_query_key", "PostHog personal API key")):
         if _akey in patch:
             val = str(patch[_akey]).strip()
-            # Empty is legal and meaningful: it clears the key and (for
-            # analytics_key) returns the panel to fully-inert.
+            # Empty is legal: it clears the override. For analytics_key that
+            # restores the SHIPPED default key (it does not stop sending —
+            # the analytics_enabled toggle does); for analytics_query_key it
+            # genuinely turns the fleet view off, since nothing ships there.
             if val and not (8 <= len(val) <= 256):
                 return {}, f"{_alabel} length looks wrong (expected 8-256 chars)"
             if any(c.isspace() for c in val):
@@ -7467,11 +7471,16 @@ def _engine_css() -> str:
 # "not going to be well accepted in the open source world." What ships now
 # is deliberately a different animal, and the differences are the point:
 #
-#   * INERT BY DEFAULT IN THE PUBLIC TREE. ANALYTICS_KEY_DEFAULT is "" and
-#     an empty key is a hard no-op — no socket is ever opened. The panel
-#     starts pinging only after the maintainer pastes a PostHog project key
-#     into Settings (or sets PHOSPHENE_ANALYTICS_KEY). A fork that never
-#     pastes a key never sends anything, forever, with no code change.
+#   * IT SHIPS A KEY, AND SAYS SO. ANALYTICS_KEY_DEFAULT carries the live
+#     phc_ project key (since acfbdc7), so a stock install reports out of
+#     the box. That is deliberate: Phosphene is distributed AS SOURCE, so a
+#     key that stayed empty in the tree could never reach anyone and the
+#     fleet counts would not exist. A phc_ key is WRITE-ONLY — it cannot
+#     read an event back. The off switch is the Settings toggle (or
+#     PHOSPHENE_ANALYTICS_DISABLED=1), NOT clearing the key field: an empty
+#     `analytics_key` setting resolves back to this default. Read
+#     docs/ANALYTICS.md before changing any of that; the doc and this
+#     module are meant to be diffable by a suspicious user.
 #   * IT NEVER SEES CONTENT. No prompts, no filenames, no paths, no media,
 #     no LoRA/character names, no seeds. The event list in docs/ANALYTICS.md
 #     is the WHOLE schema. _analytics_clean_props() drops known-dangerous
@@ -7499,8 +7508,9 @@ def _engine_css() -> str:
 # only way anonymous fleet counts work at all. The earlier stance here treated a
 # client key like a secret; it isn't. Reading the fleet still requires the
 # separate PERSONAL key (analytics_query_key), which is NOT committed.
-# Empty string would disable analytics at the source (no socket opened);
-# PHOSPHENE_ANALYTICS_KEY still overrides at runtime.
+# Blanking this constant is the only way to make a build that never opens a
+# socket — the per-user off switch is the analytics_enabled toggle, not an
+# empty key field. PHOSPHENE_ANALYTICS_KEY still overrides at runtime.
 ANALYTICS_KEY_DEFAULT = "phc_shvL6mr1NB8fmcCqGUtAbpr8d4TgA2ebEIxwoLxeezn"
 # PostHog ingestion host (capture). Override for a self-hosted receiver.
 ANALYTICS_HOST_DEFAULT = "https://us.i.posthog.com"
@@ -7569,9 +7579,11 @@ def _analytics_enabled() -> bool:
     for users who want it off before the panel ever writes a settings file
     — PHOSPHENE_ANALYTICS_DISABLED=1 wins over everything.
 
-    Note this is independent of whether a key is configured: with the
-    toggle ON and no key, capture still writes the local mirror (which
-    never leaves the Mac) but opens no socket."""
+    This is the ONLY off switch, and the one docs/ANALYTICS.md points users
+    at. It is independent of the key: because a working project key ships
+    in ANALYTICS_KEY_DEFAULT, returning False here is what stops a stock
+    install from sending — and it stops the local mirror too, since capture
+    returns before it builds a payload."""
     if _optional_bool_env("PHOSPHENE_ANALYTICS_DISABLED") is True:
         return False
     return bool(get_settings().get("analytics_enabled", True))
@@ -7581,8 +7593,15 @@ def _analytics_key() -> str:
     """Resolve the PostHog PROJECT key used for capture, in priority order:
        1. PHOSPHENE_ANALYTICS_KEY env var (maintainer / CI override)
        2. `analytics_key` in panel_settings.json (Settings modal)
-       3. ANALYTICS_KEY_DEFAULT — "" in the public tree
-    Empty result means "never open a socket"."""
+       3. ANALYTICS_KEY_DEFAULT — the live phc_ key this build ships with
+
+    NOTE the fallback: an EMPTY setting is not an off switch, it just means
+    "no override", so a user who clears the Settings field is still
+    reporting under the shipped key. Turning analytics off is
+    _analytics_enabled() — the toggle or PHOSPHENE_ANALYTICS_DISABLED.
+    docs/ANALYTICS.md says this in the same words; keep them in step. An
+    empty RESULT (only reachable if a fork blanks the constant) means
+    "never open a socket"."""
     env = (os.environ.get("PHOSPHENE_ANALYTICS_KEY") or "").strip()
     if env:
         return env
@@ -7827,7 +7846,8 @@ def _analytics_post(payload: dict) -> None:
     that (documented in docs/ANALYTICS.md)."""
     key = _analytics_key()
     if not key:
-        return  # no key => inert, and this is the only guard that matters
+        return  # only reachable if a fork blanks the shipped key; the guard
+                # users actually rely on is _analytics_enabled(), upstream
     body = json.dumps({
         "api_key": key,
         "event": payload["event"],
@@ -32166,10 +32186,14 @@ HTML = r"""<!doctype html>
           Maintainer / self-hosting keys
         </summary>
         <div class="hint" style="margin:8px 0">
-          Without a project key this panel opens no network connection at
-          all — analytics is inert and only the local log is written. Point
-          <code>PHOSPHENE_ANALYTICS_HOST</code> at your own receiver to
-          self-host.
+          This build ships Phosphene's own project key, which is why the
+          counts above are sent by default. It is a write-only
+          <code>phc_</code> key — it can send events, it can't read any
+          back. Pasting your own key here <b>overrides</b> it; clearing
+          this field falls back to the shipped key rather than switching
+          sending off, so use the <b>Turn off</b> button above for that.
+          Point <code>PHOSPHENE_ANALYTICS_HOST</code> at your own receiver
+          to self-host. Full schema: <code>docs/ANALYTICS.md</code>.
         </div>
         <div class="token-row">
           <div class="token-label">
@@ -32187,7 +32211,8 @@ HTML = r"""<!doctype html>
                     onclick="clearAnalyticsKey('analytics_key')" style="display:none">clear</button>
           </div>
           <div class="hint">
-            Write-only project key. Pasting one turns the pings on.
+            Write-only project key. Pasting one redirects the pings to your
+            own PostHog project.
           </div>
         </div>
         <div class="token-row">
@@ -47557,8 +47582,10 @@ if __name__ == "__main__":
     # Anonymous usage analytics — one app_boot event plus any optional-pack
     # transitions since the last boot, then nothing until a job finishes.
     # Deliberately here in __main__ and not at import time, so `import
-    # mlx_ltx_panel` from a script or a test never emits anything. Inert
-    # unless a PostHog key is configured; see the analytics section above.
+    # mlx_ltx_panel` from a script or a test never emits anything. A stock
+    # install DOES report (the project key ships); the Settings toggle and
+    # PHOSPHENE_ANALYTICS_DISABLED are the off switches. See the analytics
+    # section above and docs/ANALYTICS.md.
     _analytics_boot()
     # Pre-flight: bind in a try/except so a busy port surfaces an actionable
     # one-liner instead of a 6-frame Python traceback. The bare OSError
