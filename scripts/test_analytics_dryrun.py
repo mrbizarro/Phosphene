@@ -450,10 +450,21 @@ class TestEventSchemas(AnalyticsTestCase):
         self.configure(analytics_key="phc_fake_key_for_tests")
 
     def props_of(self, event: str) -> dict:
+        """This event's own properties, with the receiver directives removed.
+
+        The $-prefixed keys are instructions to PostHog, not part of an
+        event's schema — they are asserted as a set, on every event, in
+        TestReceiverDirectives. Anything else beginning with $ is a key
+        nobody declared, so fail on it here rather than let it ride along
+        into the next schema that gets written."""
         for body in self.spy.bodies:
             if body["event"] == event:
                 p = dict(body["properties"])
-                p.pop("$process_person_profile", None)
+                for k in P._ANALYTICS_RECEIVER_DIRECTIVES:
+                    p.pop(k, None)
+                stray = sorted(k for k in p if k.startswith("$"))
+                self.assertEqual(stray, [], f"undeclared receiver key(s) on "
+                                            f"{event}: {stray}")
                 return p
         self.fail(f"no {event} event was captured")
 
@@ -610,7 +621,120 @@ class TestDocumentationParity(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------
-# 5. Local aggregation + the /stats/usage payload
+# 5. Receiver directives — the things every event tells PostHog NOT to do
+# --------------------------------------------------------------------------
+
+class TestReceiverDirectives(AnalyticsTestCase):
+    """The panel sends no location field. It also has to stop the receiver
+    deriving one, which is a different promise and needs its own guard.
+
+    Three $-prefixed keys ride on every payload: no person profile, no GeoIP
+    enrichment, and an $ip the panel supplies itself so the connecting
+    address is never written onto the stored event. All three are attached
+    centrally in _analytics_post — which is exactly why this fires EVERY
+    event type rather than a representative one. A refactor that built a
+    payload anywhere else would drop all three at once, silently, and
+    nothing else in this suite would notice."""
+
+    def setUp(self):
+        super().setUp()
+        self.configure(analytics_key="phc_fake_key_for_tests",
+                       analytics_install_reported=False)
+
+    def fire_every_event(self) -> dict[str, dict]:
+        """One of each event the panel can emit → {event: properties}."""
+        packs = dict(P._analytics_pack_state())
+        self.configure(analytics_last_packs=dict(packs, h3=not packs["h3"]))
+        P._analytics_boot()      # app_installed + app_boot + pack_state_change
+        P._analytics_render_event({
+            "status": "done", "elapsed_sec": 120.0,
+            "params": {"mode": "t2v", "engine": "ltx", "quality": "standard",
+                       "width": 1216, "height": 704, "frames": 121}})
+        P._analytics_render_event({
+            "status": "failed", "error": "OOM during VAE decode",
+            "elapsed_sec": 30.0,
+            "params": {"mode": "i2v", "engine": "h3", "h3_tier": "hq_5s"}})
+        drain()
+        seen = {b["event"]: b["properties"] for b in self.spy.bodies}
+        # Coverage, read off the source rather than trusted: if someone adds a
+        # sixth event type, this test must be taught to fire it instead of
+        # quietly checking five out of six.
+        src = (REPO / "mlx_ltx_panel.py").read_text(encoding="utf-8")
+        firable = set(re.findall(r'_analytics_capture\(\s*"([a-z_]+)"', src))
+        self.assertEqual(sorted(firable - set(seen)), [],
+                         "an event type exists that this test never fires, so "
+                         "its payload goes unchecked — add it above")
+        return seen
+
+    def test_every_event_carries_every_receiver_directive(self):
+        for event, props in self.fire_every_event().items():
+            self.assertEqual(
+                {k: props.get(k) for k in P._ANALYTICS_RECEIVER_DIRECTIVES},
+                dict(P._ANALYTICS_RECEIVER_DIRECTIVES),
+                f"{event} reached the wire without the directives intact")
+            self.assertIs(props["$geoip_disable"], True,
+                          f"{event} would be geolocated by the receiver")
+            self.assertIs(props["$process_person_profile"], False,
+                          f"{event} would build a person profile")
+
+    def test_no_location_property_is_sent_or_invited(self):
+        """We add no location field, and $geoip_disable is the only $geoip_*
+        key that may appear — everything else in that namespace is something
+        the receiver would have derived."""
+        for event, props in self.fire_every_event().items():
+            geo = sorted(k for k in props
+                         if k.startswith("$geoip_") and k != "$geoip_disable")
+            self.assertEqual(geo, [], f"{event} carried location data: {geo}")
+        raw = self.spy.raw().lower()
+        for word in ("country", "city", "latitude", "longitude", "timezone",
+                     "time_zone", "subdivision", "locale", "continent"):
+            self.assertNotIn(word, raw, f"a payload mentions {word!r}")
+
+    def test_the_ip_placeholder_is_truthy_and_not_a_spoof_trigger(self):
+        """Both ways of writing this so that it does nothing.
+
+        PostHog's ingest fills properties.$ip from the socket only when the
+        event did not bring one — `if (!properties['$ip'] && event.ip)`. Any
+        falsy value (None, "", 0) is therefore not suppression, it is the
+        default with extra steps, and the real address lands on the event
+        anyway. Separately, the GeoIP transformation rewrites 127.0.0.1 and
+        192.168.* to a real address in Sweden as a local-dev convenience, so
+        a loopback placeholder would manufacture a location the day the
+        disable flag got dropped. Hence: truthy, and neither of those."""
+        ip = P.ANALYTICS_IP_PLACEHOLDER
+        self.assertIsInstance(ip, str)
+        self.assertTrue(ip, "a falsy $ip is silently replaced by the real one")
+        self.assertNotEqual(ip, "127.0.0.1")
+        self.assertFalse(ip.startswith("192.168."))
+        P._analytics_capture("app_boot", {"version": "3.7.0"})
+        drain()
+        self.assertEqual(self.spy.bodies[0]["properties"]["$ip"], ip,
+                         "the placeholder never reached the wire")
+
+    def test_a_call_site_cannot_override_a_directive(self):
+        """The directives are spread last for this reason. A props dict is
+        built from job params in places this module does not own."""
+        P._analytics_capture("app_boot", {"$geoip_disable": False,
+                                          "$ip": "203.0.113.7",
+                                          "$process_person_profile": True})
+        drain()
+        props = self.spy.bodies[0]["properties"]
+        self.assertIs(props["$geoip_disable"], True)
+        self.assertIs(props["$process_person_profile"], False)
+        self.assertEqual(props["$ip"], P.ANALYTICS_IP_PLACEHOLDER)
+
+    def test_the_local_mirror_records_only_our_own_properties(self):
+        """The directives are transport, not data: state/usage-log.jsonl is
+        the user's readable copy of what the panel MEANT, and padding it with
+        receiver plumbing would make the page harder to check, not easier."""
+        P._analytics_capture("app_boot", {"version": "3.7.0"})
+        drain()
+        props = self.log_lines()[0]["props"]
+        self.assertEqual(sorted(k for k in props if k.startswith("$")), [])
+
+
+# --------------------------------------------------------------------------
+# 6. Local aggregation + the /stats/usage payload
 # --------------------------------------------------------------------------
 
 class TestUsageReport(AnalyticsTestCase):
