@@ -302,7 +302,16 @@ def test_the_shipped_registry_mirrors_are_well_formed():
     root = Path(__file__).resolve().parents[1]
     reg = json.loads((root / "required_files.json").read_text())
     mirrored = [r for r in reg["repos"] if r.get("mirror")]
-    assert mirrored, "the 2.5 packs must declare a mirror or a fresh install has no weights"
+    # This asserted `mirrored` was non-empty. A tree may legitimately declare
+    # no mirrored pack — public v3.8.0 does, because the 2.5 entries are
+    # curated out of a release until their mirror is published, and the 2.3
+    # lane comes from HuggingFace. The assertion turned that correct state
+    # into a red test. What must never happen is a mirror block the fetcher
+    # cannot act on, so this asserts the SHAPE of whatever is declared rather
+    # than that something is. (dev declares three today: q4_25, q8_25,
+    # gemma4_25 — and `test_a_pack_with_no_mirror_yet_is_not_advertised_as_
+    # fetchable` is what guards the other direction, a pack whose files exist
+    # with no lane behind them.)
     for repo in mirrored:
         m = repo["mirror"]
         assert m["kind"] == "github-release"
