@@ -118,22 +118,37 @@ module.exports = {
     // is a transitive dep of ltx-trainer-mlx — installing the local
     // package brings it cleanly.
     //
-    // PIP_CONSTRAINT pins the wheel BUILD backend (hatchling<1.32). All
-    // three upstream pyprojects declare `readme = "../../README.md"` — a
+    // `--build-constraints` pins the wheel BUILD backend (hatchling<1.32).
+    // All three upstream pyprojects declare `readme = "../../README.md"` — a
     // path outside the package dir — which hatchling 1.32.0 turned into a
     // hard error ("Readme path must be within the project directory" →
-    // metadata-generation-failed). pip builds in an isolated env that pulls
-    // the newest backend from PyPI, so from the day 1.32.0 shipped EVERY
-    // Update click died here, on every pinned tag — a moving third-party
-    // dependency breaking a frozen source tree, not a pin regression.
-    // pip applies a constraints file to build requirements too, which is
-    // what makes this work. install.js carries the uv equivalent
-    // (--build-constraints). See pip-build-constraints.txt.
+    // metadata-generation-failed). The build runs in an isolated env that
+    // pulls the newest backend from PyPI, so from the day 1.32.0 shipped
+    // EVERY Update click died here, on every pinned tag — a moving
+    // third-party dependency breaking a frozen source tree, not a pin
+    // regression. See pip-build-constraints.txt.
+    //
+    // THIS STEP USES uv, NOT pip, AND THAT IS THE FIX. The obvious spelling
+    // is `PIP_CONSTRAINT=... ./env/bin/pip install ...`, which is what the
+    // pip docs used to recommend. It does not work on current pip: when pip
+    // installs build dependencies it now spawns that sub-install with
+    // `_PIP_IN_BUILD_IGNORE_CONSTRAINTS=1`, deliberately ignoring the
+    // environment constraint (verified against pip 26.1 and 26.2.1 — the
+    // build env resolved hatchling 1.32.0 and the install failed with the
+    // readme error anyway, with the file at both a relative and an absolute
+    // path). pip's supported spelling is the newer `--build-constraint`
+    // flag, but that flag does not exist on older pips, and this step runs
+    // on installs whose venv was seeded years apart — passing it would turn
+    // a working Update into "no such option" for them. uv takes the
+    // constraint on every version we ship with, needs no pip at all, and is
+    // already assumed present by the uv steps further down this file. It is
+    // also now literally the same mechanism install.js uses, which is the
+    // point: one lane, one failure mode.
     {
       method: "shell.run",
       params: {
         path: "ltx-2-mlx",
-        message: "PIP_CONSTRAINT=../pip-build-constraints.txt ./env/bin/pip install --force-reinstall --no-deps ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer"
+        message: "uv pip install --python env/bin/python --reinstall --no-deps --build-constraints ../pip-build-constraints.txt ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer"
       }
     },
     // 3.0: pyyaml + pydantic + tqdm + rich are ltx-trainer-mlx's

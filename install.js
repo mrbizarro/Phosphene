@@ -351,7 +351,9 @@ module.exports = {
           // metadata-generation-failed). uv resolves the build backend fresh
           // from PyPI into an isolated env, so from the day 1.32.0 shipped
           // this step failed for every NEW install on every pinned tag. See
-          // pip-build-constraints.txt; update.js carries the pip equivalent.
+          // pip-build-constraints.txt; update.js runs the same uv command
+          // (it used to spell it `PIP_CONSTRAINT=`, which modern pip ignores
+          // by design — one lane now, one failure mode).
           "uv pip install --python env/bin/python --build-constraints ../pip-build-constraints.txt ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer",
           // Auto-caption (Gemma 3 12B via mlx-vlm) needs the mlx-vlm
           // package. Pinned to 0.4.4 — caption_with_gemma.py's import
