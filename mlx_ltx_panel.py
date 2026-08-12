@@ -46919,8 +46919,12 @@ function sbRenderPlan(r) {
   const rendering = !!r.rendering;
   let status;
   if (r.pass === 'final') {
-    status = rendering ? `Delivery rendering · ${done} of ${shots.length}`
-                       : `Finished · ${done} shots`;
+    // "Delivery rendering · 4 of 4" is a sentence about a thread that hasn't
+    // released its slot yet, not about the film. Once every shot has its
+    // delivery clip the film is finished, whatever the dispatcher is doing.
+    status = (rendering && done < shots.length)
+      ? `Delivery rendering · ${done} of ${shots.length}`
+      : `Finished · ${done} shot${done === 1 ? '' : 's'}`;
   } else if (rendering) {
     status = `Drafts rendering · ${done} of ${shots.length}`;
   } else if (done && done + failed >= shots.length) {
@@ -46935,10 +46939,19 @@ function sbRenderPlan(r) {
   }
   sbEl('sbPlanStatus').textContent = status;
 
-  sbEl('sbSumShots').textContent = est.shots === 1 ? '1 shot' : `${est.shots || 0} shots`;
-  sbEl('sbSumRuntime').textContent = sbFmtRuntime(est.runtime_secs);
-  sbEl('sbSumTime').textContent = sbFmtWall(est.total_secs);
-  sbEl('sbSumTimeSub').textContent = (r.pass === 'final' ? 'delivery' : 'drafts') + ', this Mac';
+  // The first two cells describe the work THIS PASS still has to do. With none
+  // left they were reading "0 shots" and "—", which says nothing about the film
+  // you are looking at — so at zero they switch to describing the film itself.
+  const nothingLeft = !est.shots;
+  const runtimeAll = shots.reduce((a, s) => a + (Number(s.duration_s) || 0), 0);
+  sbEl('sbSumShots').textContent = nothingLeft
+    ? (shots.length === 1 ? '1 shot' : `${shots.length} shots`)
+    : (est.shots === 1 ? '1 shot' : `${est.shots} shots`);
+  sbEl('sbSumRuntime').textContent = sbFmtRuntime(nothingLeft ? runtimeAll : est.runtime_secs);
+  sbEl('sbSumTime').textContent = nothingLeft ? 'all rendered' : sbFmtWall(est.total_secs);
+  sbEl('sbSumTimeSub').textContent = nothingLeft
+    ? 'nothing left to render'
+    : (r.pass === 'final' ? 'delivery' : 'drafts') + ', this Mac';
   const loads = est.pipeline_loads || 0;
   sbEl('sbSumLoads').textContent = loads === 1 ? '1 model load' : `${loads} model loads`;
   let loadsSub = loads === 1 ? 'every shot renders back to back' : 'grouped, not in story order';
