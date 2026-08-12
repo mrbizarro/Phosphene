@@ -71,7 +71,7 @@ module.exports = {
     // the bottom of this file removes the `-1.1` variants, so resolution
     // lands on exactly the files v0.14.8 loaded.
     // 2026-08-12: the pin is a FORK BUILD — mrbizarro/ltx-2-mlx
-    // `feat/ltx-2.5` @ 871694d (v0.14.19 + the LTX-2.5 port). An existing
+    // `feat/ltx-2.5` @ e6be9d6 (v0.14.19 + the LTX-2.5 port). An existing
     // install has only dgrauet as `origin`, so Update adds the fork remote
     // before it can check the SHA out. Both steps are idempotent: the remote
     // is added only when absent, and re-checking-out the same SHA is a no-op.
@@ -86,7 +86,7 @@ module.exports = {
           "git fetch --tags origin",
           "git remote get-url fork > /dev/null 2>&1 || git remote add fork https://github.com/mrbizarro/ltx-2-mlx.git",
           "git fetch fork feat/ltx-2.5",
-          "git checkout 871694ddaa09c1598d663a49005a2f91ae6b4ed2",
+          "git checkout e6be9d61848b712516469fd9d44d20d18716a8bc",
           "git rev-parse --short HEAD"
         ]
       }

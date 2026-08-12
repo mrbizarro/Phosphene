@@ -374,7 +374,7 @@ MODEL_VERSIONS: tuple[dict, ...] = (
         # LTX_MODEL_VERSION=ltx25.
         #
         # 2026-08-12: this now RENDERS through the panel. The vendored
-        # ltx-2-mlx pin moved from v0.14.19 to the fork build 871694d, which
+        # ltx-2-mlx pin moved from v0.14.19 to the fork build e6be9d6, which
         # is where keyframes_abs_pos_embedding, the Gemma 4 tower and the
         # ancestral sampler live. Proven end to end on an isolated test
         # instance: 2.5 q4 pack + Gemma 4 encoder, real face-forward prompt

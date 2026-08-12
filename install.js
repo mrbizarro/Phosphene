@@ -145,7 +145,7 @@ module.exports = {
     //      Idempotent — works on a fresh clone (already on the cloned
     //      branch's tip) AND on a re-install where the clone exists.
     //      2026-08-12 — THE PIN IS NOW A FORK BUILD, NOT AN UPSTREAM TAG.
-    //      Vendored: mrbizarro/ltx-2-mlx `feat/ltx-2.5` @ 871694d, which is
+    //      Vendored: mrbizarro/ltx-2-mlx `feat/ltx-2.5` @ e6be9d6, which is
     //      v0.14.19 (1192051) plus the LTX-2.5 port — keyframe pos-emb, the
     //      vendored Gemma 4 tower, the Euler-ancestral sampler, the duration
     //      head. dgrauet has no 2.5 branch; if he ports it we drop ours and
@@ -157,10 +157,21 @@ module.exports = {
     //
     //      Every 2.5 flag defaults to its 2.3 value, so an unversioned
     //      checkpoint builds exactly what it built before — proven here by
-    //      802/22 on the vendored suite, a byte-identical job-dict capture
-    //      across 18 form shapes, and a real 2.3 draft render.
+    //      876/22 on the vendored suite, a byte-identical job-dict capture
+    //      across 18 form shapes, and THREE real 2.3 draft renders whose mp4s
+    //      are sha256-identical to the one recorded before any of this work
+    //      (notes/ltx25_sampler_ab/, arms A / A2 / E — the last of which
+    //      renders out of the INSTALLED packages with no PYTHONPATH override,
+    //      i.e. the thing a user actually runs).
     //
-    //      The packages report `0.14.19+ltx25.1`, and `_LTX_EXPECTED_VERSION`
+    //      What this pin CHANGES, and only on 2.5: the Euler-ancestral sampler
+    //      is finally reached (it had zero callers, so every prior 2.5 render
+    //      used the 2.3 Euler step), and stage 2 starts at the vendor's 0.85
+    //      instead of 2.3's 0.909375. Both are keyed off the checkpoint's own
+    //      model_version, which is why 2.3 can be byte-stable across a change
+    //      this large.
+    //
+    //      The packages report `0.14.19+ltx25.2`, and `_LTX_EXPECTED_VERSION`
     //      in mlx_warm_helper.py must equal that string. The local segment is
     //      the ONLY thing distinguishing this tree from upstream v0.14.19 at
     //      runtime — the release segment is deliberately unchanged. Move the
@@ -173,7 +184,7 @@ module.exports = {
           "git fetch --tags origin",
           "git remote get-url fork > /dev/null 2>&1 || git remote add fork https://github.com/mrbizarro/ltx-2-mlx.git",
           "git fetch fork feat/ltx-2.5",
-          "git checkout 871694ddaa09c1598d663a49005a2f91ae6b4ed2",
+          "git checkout e6be9d61848b712516469fd9d44d20d18716a8bc",
           "git rev-parse --short HEAD"
         ]
       }

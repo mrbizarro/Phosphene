@@ -136,7 +136,7 @@ git clone https://github.com/dgrauet/ltx-2-mlx.git ltx-2-mlx
 cd ltx-2-mlx
 git remote add fork https://github.com/mrbizarro/ltx-2-mlx.git
 git fetch fork feat/ltx-2.5
-git checkout 871694ddaa09c1598d663a49005a2f91ae6b4ed2
+git checkout e6be9d61848b712516469fd9d44d20d18716a8bc
 cd ..
 
 # 2. Create the Python 3.11 venv inside ltx-2-mlx (uv-managed).
@@ -185,7 +185,7 @@ HF_HUB_ENABLE_HF_TRANSFER=1 ./ltx-2-mlx/env/bin/hf download \
 ./ltx-2-mlx/env/bin/python3.11 mlx_ltx_panel.py
 ```
 
-About the version pins: `mlx 0.31.2` attenuates the LTX vocoder by 22 dB. Stay on 0.31.1. `ltx-2-mlx` is pinned to the fork build `871694d` (`mrbizarro/ltx-2-mlx`, branch `feat/ltx-2.5`) — v0.14.19 plus the LTX-2.5 port, because upstream has no 2.5 branch. We track a known-good commit, never upstream `main`; the installed packages report `0.14.19+ltx25.1` and `_LTX_EXPECTED_VERSION` must match that string exactly. `mflux 0.17.5` is the version `patch_mflux_fbcache.py` is line-targeted against. `hatchling<1.32` (in `pip-build-constraints.txt`) is a *build-time* pin: 1.32 rejects the `readme = "../../README.md"` that all three upstream packages declare, which fails the wheel build on every tag.
+About the version pins: `mlx 0.31.2` attenuates the LTX vocoder by 22 dB. Stay on 0.31.1. `ltx-2-mlx` is pinned to the fork build `e6be9d6` (`mrbizarro/ltx-2-mlx`, branch `feat/ltx-2.5`) — v0.14.19 plus the LTX-2.5 port, because upstream has no 2.5 branch. We track a known-good commit, never upstream `main`; the installed packages report `0.14.19+ltx25.2` and `_LTX_EXPECTED_VERSION` must match that string exactly. `mflux 0.17.5` is the version `patch_mflux_fbcache.py` is line-targeted against. `hatchling<1.32` (in `pip-build-constraints.txt`) is a *build-time* pin: 1.32 rejects the `readme = "../../README.md"` that all three upstream packages declare, which fails the wheel build on every tag.
 
 ## Interface
 
