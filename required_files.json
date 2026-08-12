@@ -166,6 +166,40 @@
       ]
     },
     {
+      "_comment": "LTX-2.5 Q8 — the HQ tier, same relationship to q4_25 that the 2.3 q8 pack has to the 2.3 q4 pack. Built 2026-08-12 by scripts/quantize_ltx.py --bits 8 from the same MLX-layout bf16 transformer the q4 pack came from; 20,595,260,317 B against the 2.3 q8 pack's 20,597,189,549 B, and every byte of the -1,929,232 B difference is 2.5's 96 absent FFN biases (-1,966,080), its one extra keyframe embedding (+8,192) and header growth (+28,656). The eight non-transformer components are sha256-identical to the q4 pack's copies — verified file by file — because quantisation touches only transformer.transformer_blocks.*, exactly as in 2.3. Same GitHub-release mirror lane as q4_25, so verify_source is 'manifest' and phosphene_quant_manifest.json is a required file.",
+      "key": "q8_25",
+      "kind": "optional",
+      "name": "LTX 2.5 - Q8 (HQ model, distilled)",
+      "blurb": "Optional, preview. The higher-fidelity LTX-2.5 tier. Needs a 64 GB Mac.",
+      "repo_id": "mrbizarro/ltx-2.5-mlx-q8",
+      "local_dir": "mlx_models/ltx-2.5-mlx-q8",
+      "size_gb": 30,
+      "files": [
+        "transformer-distilled.safetensors",
+        "connector.safetensors",
+        "vae_decoder.safetensors",
+        "vae_encoder.safetensors",
+        "audio_vae.safetensors",
+        "vocoder.safetensors",
+        "spatial_upscaler_x2_v1_1.safetensors",
+        "temporal_upscaler_x2_v1_0.safetensors",
+        "duration_head.safetensors",
+        "phosphene_quant_manifest.json"
+      ],
+      "download_include": [
+        "*.json",
+        "transformer-distilled.safetensors",
+        "connector.safetensors",
+        "vae_decoder.safetensors",
+        "vae_encoder.safetensors",
+        "audio_vae.safetensors",
+        "vocoder.safetensors",
+        "spatial_upscaler_x2_v1_1.safetensors",
+        "temporal_upscaler_x2_v1_0.safetensors",
+        "duration_head.safetensors"
+      ]
+    },
+    {
       "_comment": "LTX-2.5's text encoder is NOT the stock Gemma 3 the 2.3 pack uses: it is a custom Gemma 4 12B fine-tune declaring model_type gemma4_unified, and the DiT's dual text projection was moved out of connector.safetensors and into it (we route that back into the connector at conversion time). Falling back to Gemma 3 would load, run, and quietly encode wrongly, so the loader refuses instead.",
       "key": "gemma4_25",
       "kind": "optional",

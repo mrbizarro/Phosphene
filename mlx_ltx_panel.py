@@ -350,15 +350,20 @@ MODEL_VERSIONS: tuple[dict, ...] = (
         # the completeness checks and the manifest verify lane are wired and
         # reviewable — not so the panel can serve it.
         #
-        # q4-only at launch, so the whole Q8 surface (Extend / Keyframe / High
-        # / A2V) folds away on every machine automatically. Add "q8" the day a
-        # q8 pack ships; nothing else needs touching.
+        # Both tiers ship now. The q8 pack was built 2026-08-12 and cleared the
+        # same gates the q4 pack did — 20,595,260,317 B against the 2.3 q8
+        # pack's 20,597,189,549 B (−0.0094 %), 1632 modules, 7355 tensors,
+        # group_size 64, loader round-trip detecting bits=8 — and the whole
+        # −1,929,232 B delta is accounted for to the byte by 2.5's 96 absent
+        # FFN biases, its one extra keyframe embedding and the header growth.
+        # So `cap_tiers` gains "q8" here, which is precisely the one-line
+        # change this comment used to promise.
         "id": "ltx25",
         "label": "LTX-2.5",
         "engine_id": "ltx",
         "config_key": "ltx-2.5",
         "default": False,
-        "cap_tiers": ("q4",),
+        "cap_tiers": ("q4", "q8"),
         "packs": (
             {
                 "quant": "q4",
@@ -366,9 +371,32 @@ MODEL_VERSIONS: tuple[dict, ...] = (
                 "repo_key": "q4_25",
                 "path": MODELS_DIR / "ltx-2.5-mlx-q4",
                 "hf_repo_id": "mrbizarro/ltx-2.5-mlx-q4",
-                "serves_cap_tiers": ("q4",),
+                "serves_cap_tiers": ("q4", "q8"),
                 # GitHub-release mirror: no checksum API, so expected hashes
                 # come from phosphene_quant_manifest.json inside the pack.
+                "verify_source": "manifest",
+            },
+            {
+                # Same shape as 2.3's hq pack. Every non-transformer component
+                # in it is sha256-identical to the q4 pack's copy (both are
+                # verbatim copies of the same bf16 source, and that identity
+                # was verified file by file before the bf16 tree was deleted),
+                # which is the 2.3 policy: quantisation touches the DiT blocks
+                # and nothing else.
+                #
+                # The text encoder is deliberately NOT doubled here. 2.3 serves
+                # both tiers from one 4-bit Gemma 3, and 2.5 serves both from
+                # the one 4-bit Gemma 4 that `gemma4_25` already lists. An
+                # 8-bit Gemma 4 pack exists locally and is proven to load, but
+                # registering it would add ~12.7 GB to a q8 install for a
+                # quality delta nobody has looked at yet — that is the owner's
+                # call, not a side effect of shipping the DiT.
+                "quant": "q8",
+                "role": "hq",
+                "repo_key": "q8_25",
+                "path": MODELS_DIR / "ltx-2.5-mlx-q8",
+                "hf_repo_id": "mrbizarro/ltx-2.5-mlx-q8",
+                "serves_cap_tiers": ("q8",),
                 "verify_source": "manifest",
             },
         ),
