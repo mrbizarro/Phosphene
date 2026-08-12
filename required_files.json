@@ -173,18 +173,16 @@
       ]
     },
     {
-      "_comment": "LTX-2.5 Q8 — the HQ tier, same relationship to q4_25 that the 2.3 q8 pack has to the 2.3 q4 pack. Built 2026-08-12 by scripts/quantize_ltx.py --bits 8 from the same MLX-layout bf16 transformer the q4 pack came from; 20,595,260,317 B against the 2.3 q8 pack's 20,597,189,549 B, and every byte of the -1,929,232 B difference is 2.5's 96 absent FFN biases (-1,966,080), its one extra keyframe embedding (+8,192) and header growth (+28,656). The eight non-transformer components are sha256-identical to the q4 pack's copies — verified file by file — because quantisation touches only transformer.transformer_blocks.*, exactly as in 2.3. Same GitHub-release mirror lane as q4_25, so verify_source is 'manifest' and phosphene_quant_manifest.json is a required file. 2026-08-12, second pass: transformer-dev.safetensors and ltx-2.5-22b-distilled-lora-450.safetensors were added, which is what turns this from \"a q8 pack\" into \"the dev-transformer FEATURE surface\" — High, Extend, Keyframe and A2V all load transformer-dev by name, and the first three of those also load the distilled LoRA. Both files exist upstream in the 2.5 release; the earlier note that 2.5 had no High tier (ltx25_ab_lora.md 2A.1) was true of the eight files that had been staged, not of the release. The number in the LoRA filename is its alpha/rank (2.3 ships 384, 2.5 ships 450), so the name is NOT interchangeable between generations and the panel names it per generation via MODEL_VERSIONS[...]['hq_weights']. Listing both here is what makes the Extend / Keyframe / High gates refuse with a named missing file instead of crashing mid-render.",
+      "_comment": "LTX-2.5 Q8 - the HQ tier, same relationship to q4_25 that the 2.3 q8 pack has to the 2.3 q4 pack. Built 2026-08-12 by scripts/quantize_ltx.py --bits 8 from the same MLX-layout bf16 transformer the q4 pack came from; 20,595,260,317 B against the 2.3 q8 pack's 20,597,189,549 B, and every byte of the -1,929,232 B difference is 2.5's 96 absent FFN biases (-1,966,080), its one extra keyframe embedding (+8,192) and header growth (+28,656). The eight non-transformer components are sha256-identical to the q4 pack's copies - verified file by file - because quantisation touches only transformer.transformer_blocks.*, exactly as in 2.3. Same GitHub-release mirror lane as q4_25, so verify_source is 'manifest' and phosphene_quant_manifest.json is a required file. 2026-08-12 THIRD PASS, THE SPLIT: transformer-dev.safetensors and ltx-2.5-22b-distilled-lora-450.safetensors were briefly listed HERE (e870061) and now live in the hq_25 add-on entry below. They are not part of this pack - they are a separate, later build (the dev transformer is 42 GB upstream and was still downloading), and listing them here made a pack that is COMPLETE ON DISK both unpublishable and un-installable. The gate e870061 bought by listing them is NOT lost: the panel asks hq_surface_missing(), which unions this pack with the add-on, so High / Extend / Keyframe / A2V still refuse by name. Only the owning download unit changed.",
       "key": "q8_25",
       "kind": "optional",
       "name": "LTX 2.5 - Q8 (HQ model, distilled)",
-      "blurb": "Optional. The higher-fidelity LTX-2.5 tier, and the only one that can run High, Extend and Keyframe. Needs a 64 GB Mac.",
+      "blurb": "Optional. The higher-fidelity LTX-2.5 tier. Needs a 64 GB Mac. High, Extend and Keyframe additionally need the HQ add-on.",
       "repo_id": "mrbizarro/ltx-2.5-mlx-q8",
       "local_dir": "mlx_models/ltx-2.5-mlx-q8",
-      "size_gb": 58,
+      "size_gb": 30,
       "files": [
         "transformer-distilled.safetensors",
-        "transformer-dev.safetensors",
-        "ltx-2.5-22b-distilled-lora-450.safetensors",
         "connector.safetensors",
         "vae_decoder.safetensors",
         "vae_encoder.safetensors",
@@ -198,8 +196,6 @@
       "download_include": [
         "*.json",
         "transformer-distilled.safetensors",
-        "transformer-dev.safetensors",
-        "ltx-2.5-22b-distilled-lora-450.safetensors",
         "connector.safetensors",
         "vae_decoder.safetensors",
         "vae_encoder.safetensors",
@@ -208,6 +204,30 @@
         "spatial_upscaler_x2_v1_1.safetensors",
         "temporal_upscaler_x2_v1_0.safetensors",
         "duration_head.safetensors"
+      ],
+      "mirror": {
+        "kind": "github-release",
+        "release_repo": "mrbizarro/Phosphene",
+        "tag": "weights-ltx25-v1",
+        "manifest_asset": "q8_25__phosphene_release_manifest.json"
+      }
+    },
+    {
+      "_comment": "LTX-2.5 HQ add-on - the two-stage HQ FEATURE surface, not a model pack. High, Extend, Keyframe and A2V reach past model_dir and load these two files BY NAME; the panel names them per generation via MODEL_VERSIONS[...]['hq_weights'], because the number in the LoRA filename is its alpha/rank (2.3 ships 384, 2.5 ships 450) and the names are NOT interchangeable between generations. WHY A SEPARATE ENTRY AND NOT PART OF q8_25: it is a separate build that finishes later, and a download unit has to be publishable the moment its bytes exist. Folding these into q8_25 held a complete 20.6 GB pack hostage to a 42 GB download. WHY local_dir IS THE q8 DIRECTORY: these files are loaded out of the q8 pack BY NAME, so they must land beside it. Two entries, one directory, deliberately - the entry is a download unit, not a directory. NO mirror BLOCK YET, DELIBERATELY: the files do not exist on disk. A mirror block pointing at assets that are not published is exactly the June-2026 failure - a file in files[] with no download lane behind it. The block goes in the SAME commit that the assets go live, and scripts/publish_pack_release.py refuses to cut a release from an incomplete pack anyway.",
+      "key": "hq_25",
+      "kind": "optional",
+      "name": "LTX 2.5 - HQ add-on (dev transformer + distilled LoRA)",
+      "blurb": "Optional. Unlocks High quality, Extend and Keyframe on LTX-2.5. Needs the Q8 pack too.",
+      "repo_id": "mrbizarro/ltx-2.5-mlx-hq",
+      "local_dir": "mlx_models/ltx-2.5-mlx-q8",
+      "size_gb": 28,
+      "files": [
+        "transformer-dev.safetensors",
+        "ltx-2.5-22b-distilled-lora-450.safetensors"
+      ],
+      "download_include": [
+        "transformer-dev.safetensors",
+        "ltx-2.5-22b-distilled-lora-450.safetensors"
       ]
     },
     {

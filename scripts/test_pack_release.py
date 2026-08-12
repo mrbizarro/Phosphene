@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import os
 import shutil
 import sys
@@ -310,6 +311,69 @@ def test_the_shipped_registry_mirrors_are_well_formed():
         assert m["tag"]
         # Every mandatory file has to be fetchable through this lane.
         assert repo.get("files"), f"{repo['key']} declares no required files"
+
+
+def _registry():
+    root = Path(__file__).resolve().parents[1]
+    return root, json.loads((root / "required_files.json").read_text())
+
+
+def test_the_hq_addon_is_its_own_download_unit_in_the_q8_directory():
+    """The split: q8_25 is the pack, hq_25 is the two files loaded out of it.
+
+    They share a directory on purpose -- the HQ weights are loaded from the q8
+    pack BY NAME -- but they are separate download units, because they are
+    separate builds and a unit has to be publishable the moment its bytes
+    exist. Folding them together held a complete 20.6 GB pack hostage to a
+    42 GB download.
+    """
+    _, reg = _registry()
+    q8 = next(r for r in reg["repos"] if r["key"] == "q8_25")
+    hq = next(r for r in reg["repos"] if r["key"] == "hq_25")
+    assert hq["local_dir"] == q8["local_dir"], "the add-on must land in the q8 pack"
+    overlap = set(q8["files"]) & set(hq["files"])
+    assert not overlap, f"a file must belong to exactly one download unit: {overlap}"
+    for f in ("transformer-dev.safetensors", "ltx-2.5-22b-distilled-lora-450.safetensors"):
+        assert f in hq["files"], f
+        assert f not in q8["files"], f"{f} must not hold the q8 pack hostage"
+
+
+def test_the_addon_file_names_match_the_names_the_loader_asks_for():
+    """The drift that would be invisible until a render.
+
+    `hq_weights` in mlx_ltx_panel.py names the two files the pipeline loads;
+    required_files.json names the two files the installer fetches. Rename one
+    and not the other and the download succeeds, the pack reports complete, and
+    High fails at load time with a file that was never asked for. Read out of
+    the panel SOURCE rather than by importing it, the way the analytics
+    coverage guard does.
+    """
+    root, reg = _registry()
+    src = (root / "mlx_ltx_panel.py").read_text()
+    block = re.search(r'"config_key":\s*"ltx-2\.5".*?"hq_weights":\s*\{(.*?)\}', src, re.S)
+    assert block, "could not find the 2.5 hq_weights block"
+    declared = set(re.findall(r'"([^"]+\.safetensors)"', block.group(1)))
+    assert declared, "2.5 declares no hq_weights"
+    hq = next(r for r in reg["repos"] if r["key"] == "hq_25")
+    assert declared == set(hq["files"]), (
+        f"panel loads {sorted(declared)}, installer fetches {sorted(hq['files'])}")
+
+
+def test_a_pack_with_no_mirror_yet_is_not_advertised_as_fetchable():
+    """hq_25 must not claim a mirror until its assets are published.
+
+    A file in files[] with no download lane behind it is the June-2026 failure
+    verbatim: the pack reports incomplete on arrival and nothing can fix it.
+    When the dev build lands, the mirror block and the assets go live in the
+    SAME commit -- so this test is expected to be UPDATED then, not deleted.
+    """
+    root, reg = _registry()
+    hq = next(r for r in reg["repos"] if r["key"] == "hq_25")
+    on_disk = all((root / hq["local_dir"] / f).exists() for f in hq["files"])
+    if hq.get("mirror"):
+        assert on_disk, "a mirror block was added before the files existed"
+    else:
+        assert not on_disk, "the files exist -- publish them and add the mirror block"
 
 
 if __name__ == "__main__":

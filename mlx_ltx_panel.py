@@ -433,6 +433,16 @@ MODEL_VERSIONS: tuple[dict, ...] = (
             "dev_transformer": "transformer-dev.safetensors",
             "distilled_lora": "ltx-2.5-22b-distilled-lora-450.safetensors",
         },
+        # ...and WHERE those two files come from as a download. They are a
+        # separate, later build from the rest of the q8 pack (the dev
+        # transformer is 42 GB upstream), so they are their own download unit
+        # -- `hq_25` in required_files.json -- that lands INSIDE the q8 pack
+        # directory, because that is where they are loaded from by name.
+        #
+        # 2.3 declares no add-on and must not: it ships both files inside its
+        # own q8 repo, so `hq_addon_missing()` returns [] for it and every gate
+        # below behaves byte-for-byte as it did before the split.
+        "hq_addon_repo_key": "hq_25",
         "cap_tiers": ("q4", "q8"),
         "packs": (
             {
@@ -3804,6 +3814,57 @@ def hq_weights(version_id: str | None = None) -> dict:
     every generation that does not override it."""
     names = model_version(version_id).get("hq_weights") or {}
     return {k: str(names.get(k) or v) for k, v in _HQ_WEIGHTS_FALLBACK.items()}
+
+
+def hq_addon_missing(version_id: str | None = None) -> list[str]:
+    """Missing files of this version's HQ ADD-ON pack (bare filenames).
+
+    Returns [] for a version that declares no add-on -- which is 2.3, and which
+    is why the split is inert for it: 2.3 ships its dev transformer and
+    distilled LoRA inside its own q8 repo, so `pack_missing_files("q8")` already
+    accounts for them and this adds nothing.
+
+    Checked against the Q8 PACK PATH, not the registry's `local_dir`, so
+    `LTX_Q8_LOCAL` keeps working: the add-on has no directory of its own, it
+    lands in the q8 pack beside the weights it is loaded with.
+    """
+    key = model_version(version_id).get("hq_addon_repo_key")
+    if not key:
+        return []
+    repo = next((r for r in _repos() if r.get("key") == key), None)
+    if not repo:
+        return []
+    base = pack_path("q8", version_id)
+    missing = []
+    for fname in repo.get("files", []):
+        fpath = base / fname
+        try:
+            if not fpath.exists() or fpath.stat().st_size < _MIN_FILE_BYTES:
+                missing.append(fname)
+        except OSError:
+            missing.append(fname)
+    return missing
+
+
+def hq_surface_missing(version_id: str | None = None) -> list[str]:
+    """Everything the two-stage HQ surface needs and doesn't have.
+
+    High, Extend, Keyframe and A2V do not just point at the q8 pack -- they
+    reach inside it and load two more files by name. Before the packs were
+    split those two were listed in the q8 repo entry, so asking
+    `q8_missing_files()` answered both questions at once; splitting them into
+    their own download unit would have silently made every one of those gates
+    wave through to a FileNotFoundError mid-render, which is the exact bug
+    e870061 was written to end.
+
+    So the gates ask THIS instead, and it is the union. Same names, same
+    refusals, one more place they can come from.
+    """
+    missing = pack_missing_files("q8", version_id)
+    for fname in hq_addon_missing(version_id):
+        if fname not in missing:
+            missing.append(fname)
+    return missing
 
 
 def ltx_model_dir(quant: str, version_id: str | None = None) -> str:
@@ -14370,7 +14431,7 @@ def run_job_inner(job: dict) -> None:
         # Y1.024 download filter pruned the dupe and exposed that Extend is
         # structurally Q8-class. Gate it the same way Keyframe does and route
         # the helper to the Q8 dir.
-        ext_missing = q8_missing_files()
+        ext_missing = hq_surface_missing()
         if ext_missing:
             raise RuntimeError(
                 f"Extend requires the full Q8 model at {pack_path('q8')}. "
@@ -14975,7 +15036,7 @@ def run_job_inner(job: dict) -> None:
         # "directory exists and non-empty" check let half-downloaded Q8
         # installs through, only to crash later mid-render with a
         # `load_safetensors` error referencing a specific missing file.
-        kf_missing = q8_missing_files()
+        kf_missing = hq_surface_missing()
         if kf_missing:
             raise RuntimeError(
                 f"Keyframe mode requires the full Q8 model at {pack_path('q8')}. "
@@ -15140,7 +15201,7 @@ def run_job_inner(job: dict) -> None:
     if mode == "a2v":
         uses_q8 = SYSTEM_CAPS["allows_q8"]
         if uses_q8:
-            a2v_missing = q8_missing_files()
+            a2v_missing = hq_surface_missing()
             if a2v_missing:
                 push(f"Q8 not available ({len(a2v_missing)} file(s) missing) "
                      f"— falling back to Q4 distilled A2V pipeline")
@@ -15491,7 +15552,7 @@ def run_job_inner(job: dict) -> None:
         # Route to TwoStageHQPipeline (Q8 dev model + res_2s sampler + CFG anchor + TeaCache).
         # Defaults from ltx-2-mlx CLAUDE.md LTX_2_3_PARAMS.
         # Same completeness check as keyframe — see comment there.
-        hq_missing = q8_missing_files()
+        hq_missing = hq_surface_missing()
         if hq_missing:
             raise RuntimeError(
                 f"High quality requires the full Q8 model at {pack_path('q8')}. "
@@ -16729,9 +16790,20 @@ class Handler(BaseHTTPRequestHandler):
             # we zero it out when Q8 is reachable via cache so the UI
             # doesn't show a spurious "missing files" warning alongside
             # an enabled FFLF button.
-            _q8_available = q8_available_anywhere()
+            # The UI reads q8_available to enable High / Extend / Keyframe /
+            # FFLF. Those need the HQ add-on as well as the pack, so a pack-only
+            # answer would light the pill up and let the job fail at load time
+            # -- the same wave-through e870061 closed, moved to the UI layer.
+            # For 2.3 `hq_addon_missing()` is [] and this is byte-for-byte the
+            # old expression.
+            _hq_addon_missing = hq_addon_missing()
+            _q8_available = q8_available_anywhere() and not _hq_addon_missing
             payload["q8_available"] = _q8_available
             payload["q8_missing"] = [] if _q8_available else _q8_missing
+            # Reported separately so the Models page can say WHICH download is
+            # the one standing between the user and the High tier.
+            payload["hq_addon_missing"] = _hq_addon_missing
+            payload["hq_surface_missing"] = hq_surface_missing()
             payload["q8_path"] = str(pack_path("q8"))
             payload["base_available"] = not _base_missing
             payload["base_missing"] = _base_missing
