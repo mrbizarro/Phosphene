@@ -213,7 +213,7 @@
       }
     },
     {
-      "_comment": "LTX-2.5 HQ add-on - the two-stage HQ FEATURE surface, not a model pack. High, Extend, Keyframe and A2V reach past model_dir and load these two files BY NAME; the panel names them per generation via MODEL_VERSIONS[...]['hq_weights'], because the number in the LoRA filename is its alpha/rank (2.3 ships 384, 2.5 ships 450) and the names are NOT interchangeable between generations. WHY A SEPARATE ENTRY AND NOT PART OF q8_25: it is a separate build that finishes later, and a download unit has to be publishable the moment its bytes exist. Folding these into q8_25 held a complete 20.6 GB pack hostage to a 42 GB download. WHY local_dir IS THE q8 DIRECTORY: these files are loaded out of the q8 pack BY NAME, so they must land beside it. Two entries, one directory, deliberately - the entry is a download unit, not a directory. NO mirror BLOCK YET, DELIBERATELY: the files do not exist on disk. A mirror block pointing at assets that are not published is exactly the June-2026 failure - a file in files[] with no download lane behind it. The block goes in the SAME commit that the assets go live, and scripts/publish_pack_release.py refuses to cut a release from an incomplete pack anyway.",
+      "_comment": "LTX-2.5 HQ add-on - the two-stage HQ FEATURE surface, not a model pack. High, Extend, Keyframe and A2V reach past model_dir and load these two files BY NAME; the panel names them per generation via MODEL_VERSIONS[...]['hq_weights'], because the number in the LoRA filename is its alpha/rank (2.3 ships 384, 2.5 ships 450) and the names are NOT interchangeable between generations. WHY A SEPARATE ENTRY AND NOT PART OF q8_25: it is a separate build that finishes later, and a download unit has to be publishable the moment its bytes exist. Folding these into q8_25 held a complete 20.6 GB pack hostage to a 42 GB download. WHY local_dir IS THE q8 DIRECTORY: these files are loaded out of the q8 pack BY NAME, so they must land beside it. Two entries, one directory, deliberately - the entry is a download unit, not a directory. MIRROR BLOCK LANDED 2026-08-12, in the same commit as the assets - the rule this entry was written to demonstrate. The dev transformer (20,595,256,595 B, ltx-dit q8) and the LoRA (8,899,889,568 B, verbatim bf16) are published to weights-ltx25-v1 and both carry sha256 rows in the in-pack phosphene_quant_manifest.json, so deep-verify (verify_source 'manifest') can check them. publish_scope 'files' keeps this add-on from claiming the q8 pack's sidecars.",
       "key": "hq_25",
       "kind": "optional",
       "name": "LTX 2.5 - HQ add-on (dev transformer + distilled LoRA)",
@@ -221,6 +221,13 @@
       "repo_id": "mrbizarro/ltx-2.5-mlx-hq",
       "local_dir": "mlx_models/ltx-2.5-mlx-q8",
       "size_gb": 28,
+      "publish_scope": "files",
+      "mirror": {
+        "kind": "github-release",
+        "release_repo": "mrbizarro/Phosphene",
+        "tag": "weights-ltx25-v1",
+        "manifest_asset": "hq_25__phosphene_release_manifest.json"
+      },
       "files": [
         "transformer-dev.safetensors",
         "ltx-2.5-22b-distilled-lora-450.safetensors"

@@ -368,6 +368,56 @@ def test_the_addon_file_names_match_the_names_the_loader_asks_for():
         f"panel loads {sorted(declared)}, installer fetches {sorted(hq['files'])}")
 
 
+def test_an_addon_publishes_only_its_own_files_not_its_hosts_directory(tmp_path, monkeypatch):
+    """Two entries, one directory -- the guest must not claim the host's files.
+
+    Caught in production, mid-publish: the HQ add-on's weights landed in the q8
+    pack directory and the q8 run, which publishes "the directory", started
+    uploading 29 GB of add-on under a `q8_25__` prefix. That would have put the
+    add-on inside the q8 manifest and forced every q8 install to download
+    weights it did not ask for -- the exact coupling the split removed.
+
+    Both directions are asserted: the host excludes the guest's declared files,
+    and the guest (`publish_scope: "files"`) publishes ONLY what it declares, so
+    it cannot sweep up the sidecar JSON the host owns.
+    """
+    root = tmp_path / "app"
+    root.mkdir()
+    pack = _write_pack(root)
+    (pack / "addon.safetensors").write_bytes(b"\xAA" * 300)
+    reg = json.loads((root / "required_files.json").read_text())
+    host = reg["repos"][0]
+    reg["repos"].append({
+        "key": "addon", "kind": "optional", "name": "Add-on",
+        "repo_id": "nobody/addon", "local_dir": host["local_dir"],
+        "size_gb": 1, "publish_scope": "files",
+        "files": ["addon.safetensors"],
+        "mirror": dict(host["mirror"],
+                       manifest_asset="addon__phosphene_release_manifest.json"),
+    })
+    (root / "required_files.json").write_text(json.dumps(reg))
+    registry = publisher.load_registry(root)
+
+    host_files = publisher.pack_files(pack, host, registry)
+    assert "addon.safetensors" not in host_files, "the host published the guest's file"
+    assert "config.json" in host_files, "the host must still pick up its own sidecars"
+
+    guest = next(r for r in registry["repos"] if r["key"] == "addon")
+    guest_files = publisher.pack_files(pack, guest, registry)
+    assert guest_files == ["addon.safetensors"], guest_files
+    assert "config.json" not in guest_files, "the guest claimed its host's sidecar"
+
+
+def test_small_assets_are_always_reuploaded_even_when_the_size_matches():
+    """GitHub publishes no checksum for an asset, so resume can only compare
+    size -- and a file whose content changed without its size changing would be
+    skipped. Not hypothetical: the in-pack quant manifest was rewritten by
+    another agent between two publishes. Anything small is re-uploaded rather
+    than trusted."""
+    assert publisher.ALWAYS_REUPLOAD_MAX_BYTES >= (1 << 20), "too small to cover sidecars"
+    assert publisher.ALWAYS_REUPLOAD_MAX_BYTES < publisher.SHARD_BYTES, "would defeat resume"
+
+
 def test_a_pack_with_no_mirror_yet_is_not_advertised_as_fetchable():
     """hq_25 must not claim a mirror until its assets are published.
 

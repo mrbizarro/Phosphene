@@ -79,6 +79,18 @@ SCHEMA = "phosphene-release-manifest/1"
 SHARD_BYTES = 1_900_000_000
 CHUNK = 1 << 22
 
+# Resume skips an asset whose byte count already matches, which is the only
+# thing GitHub's asset API can tell us -- it publishes no checksum. That leaves
+# one hole: a file whose CONTENT changed but whose size did not. It is not
+# hypothetical for the small ones -- `phosphene_quant_manifest.json` was
+# rewritten by a second agent between one publish and the next -- so anything
+# at or under this size is always re-uploaded. `--clobber` makes that a no-op
+# when the bytes really are the same, and at these sizes it costs nothing.
+# Big shards keep the size-based skip; a shard that changed content without
+# changing size would still be caught loudly, by the sha256 in the manifest
+# failing on the fetcher's side rather than silently installing.
+ALWAYS_REUPLOAD_MAX_BYTES = 16 << 20
+
 LICENSE_ASSET = "LICENSE-LTX-2.x-Community-License.md"
 NOTICE_ASSET = "NOTICE.md"
 
@@ -98,30 +110,74 @@ def utc_now() -> str:
 # --------------------------------------------------------------------------- #
 # Registry + pack contents
 # --------------------------------------------------------------------------- #
+def load_registry(root: Path) -> dict:
+    return json.loads((root / REQUIRED_FILES).read_text())
+
+
 def load_repo_entry(repo_key: str, root: Path) -> dict:
-    data = json.loads((root / REQUIRED_FILES).read_text())
-    for repo in data.get("repos", []):
+    for repo in load_registry(root).get("repos", []):
         if repo.get("key") == repo_key:
             return repo
     raise SystemExit(f"unknown repo key {repo_key!r}")
 
 
-def pack_files(pack_dir: Path) -> list[str]:
-    """Every regular file in the pack, sorted -- the pack *as built*.
+def files_owned_elsewhere(repo: dict, registry: dict) -> set[str]:
+    """Files in this pack's DIRECTORY that belong to a different download unit.
+
+    Two registry entries can share one ``local_dir`` on purpose: the LTX-2.5 HQ
+    add-on (``hq_25``) is a separate, later build whose files are loaded out of
+    the q8 pack BY NAME, so they have to land beside it. That makes "the
+    directory" the wrong definition of "the pack" -- publishing it would put the
+    29 GB add-on inside the q8 manifest and force every q8 install to download
+    weights it did not ask for, which is exactly the coupling the split removed.
+
+    Caught the hard way: the add-on landed in the q8 directory mid-publish and
+    the q8 run started uploading it under a ``q8_25__`` prefix.
+    """
+    mine = repo.get("key")
+    here = repo.get("local_dir")
+    owned: set[str] = set()
+    for other in registry.get("repos", []):
+        if other.get("key") == mine or other.get("local_dir") != here:
+            continue
+        owned.update(other.get("files") or [])
+    return owned
+
+
+def pack_files(pack_dir: Path, repo: dict, registry: dict) -> list[str]:
+    """The files of THIS download unit, sorted.
 
     Not just ``required_files.json``'s mandatory list: the loader also reads
     sidecar JSON (``split_model.json``, the upscaler configs, the quantiser's
     own manifest) that the mandatory list deliberately does not enumerate, and
     the ``download_include`` allowlist pulls with ``*.json`` for exactly that
-    reason. Publishing the directory keeps the mirror a faithful copy.
+    reason. So it is the directory -- minus anything another entry owns.
     """
-    out = []
+    # An ADD-ON declares `publish_scope: "files"`: it owns exactly the files it
+    # lists and nothing else. Directory-minus-foreign is the right rule for the
+    # pack that owns the directory (it has to pick up sidecar JSON nobody
+    # enumerates), and the wrong one for a guest -- a guest would sweep up its
+    # host's sidecars and claim them in its own manifest.
+    if repo.get("publish_scope") == "files":
+        declared = list(repo.get("files") or [])
+        log(f"[publish] {repo.get('key')} is an add-on: publishing exactly its "
+            f"{len(declared)} declared file(s), not the directory")
+        return sorted(declared)
+
+    foreign = files_owned_elsewhere(repo, registry)
+    out, skipped = [], []
     for p in sorted(pack_dir.iterdir()):
         if not p.is_file() or p.name.startswith("."):
             continue
         if p.name in SKIP_NAMES or p.name.endswith(SKIP_SUFFIXES):
             continue
+        if p.name in foreign:
+            skipped.append(p.name)
+            continue
         out.append(p.name)
+    if skipped:
+        log(f"[publish] excluding {len(skipped)} file(s) owned by another download "
+            f"unit in the same directory: {', '.join(skipped)}")
     return out
 
 
@@ -212,7 +268,7 @@ def publish_file(src: Path, prefix: str, staging: Path, *, release_repo: str,
         name = asset_name(prefix, src.name, None)
         digest = sha256_file(src)
         shards.append({"asset": name, "bytes": size, "sha256": digest})
-        if upload and existing.get(name) != size:
+        if upload and (existing.get(name) != size or size <= ALWAYS_REUPLOAD_MAX_BYTES):
             link = staging / name
             link.unlink(missing_ok=True)
             try:
@@ -330,7 +386,7 @@ def publish(repo_key: str, root: Path, *, tag: str | None, release_repo: str | N
     staging = staging_root / mirror["tag"]
     staging.mkdir(parents=True, exist_ok=True)
 
-    names = pack_files(pack_dir)
+    names = pack_files(pack_dir, repo, load_registry(root))
     total = sum((pack_dir / n).stat().st_size for n in names)
     log(f"[publish] {repo_key}: {len(names)} file(s), {total / 1e9:.2f} GB from {pack_dir}")
 
@@ -379,7 +435,7 @@ def publish(repo_key: str, root: Path, *, tag: str | None, release_repo: str | N
         digest = sha256_file(src)
         files[asset] = {"bytes": size, "sha256": digest,
                         "shards": [{"asset": asset, "bytes": size, "sha256": digest}]}
-        if upload and existing.get(asset) != size:
+        if upload and (existing.get(asset) != size or size <= ALWAYS_REUPLOAD_MAX_BYTES):
             staged = staging / asset
             staged.unlink(missing_ok=True)
             shutil.copy2(src, staged)
