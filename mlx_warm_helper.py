@@ -266,6 +266,7 @@ _hq_model_dir = None     # remember which model the HQ pipe was built against
 _a2v_pipe = None         # A2VidPipelineTwoStage (Q8 dev + distilled LoRA stage 2)
 _a2v_model_dir = None    # which model the A2V pipe was built against
 _a2v_lora_key: tuple | None = None  # LoRA fingerprint for current A2V cache
+_a2v_weight_key: tuple[str, str] | None = None  # (dev_transformer, distilled_lora) names
 _a2v_distilled_pipe = None   # A2VidDistilledPipeline (Q4 distilled, no CFG)
 _a2v_distilled_model_dir = None
 _pipe_lock = threading.Lock()
@@ -392,6 +393,10 @@ def release_pipelines(keep_kind=None):
 _t2v_lora_key: tuple | None = None
 _i2v_lora_key: tuple | None = None
 _extend_lora_key: tuple | None = None
+# Dev-transformer filename the cached Extend pipe was built with. Named per
+# generation by the panel; same string for 2.3 and 2.5 today, in the cache key
+# so a future rename cannot be served by a stale pipe.
+_extend_dev_name: str | None = None
 
 
 def _lora_fingerprint(loras: list[dict] | None) -> tuple:
@@ -855,7 +860,8 @@ _i2v_model_dir: str | None = None
 
 
 def get_pipe(kind: str, loras: list[dict] | None = None,
-             model_dir: str | None = None):
+             model_dir: str | None = None,
+             dev_transformer: str | None = None):
     """kind in {'t2v','i2v','extend'}; loras is an optional list of
     {path, strength} dicts. When the requested LoRA set differs from
     the cached pipeline's, the pipeline is rebuilt — LoRA fusion is a
@@ -887,6 +893,7 @@ def get_pipe(kind: str, loras: list[dict] | None = None,
     global _t2v_pipe, _i2v_pipe, _extend_pipe
     global _t2v_lora_key, _i2v_lora_key, _extend_lora_key
     global _extend_model_dir, _t2v_model_dir, _i2v_model_dir
+    global _extend_dev_name
     try:
         from ltx_core_mlx.utils.memory import aggressive_cleanup as _ac
     except Exception:
@@ -952,9 +959,14 @@ def get_pipe(kind: str, loras: list[dict] | None = None,
             return _i2v_pipe
         if kind == "extend":
             ext_dir = model_dir or MODEL_ID
+            # Named by the panel per generation; None keeps RetakePipeline's
+            # own default, which is the same string today. Part of the cache
+            # key for the same reason model_dir is.
+            ext_dev = dev_transformer or "transformer-dev.safetensors"
             if (_extend_pipe is None
                     or _extend_lora_key != fp
-                    or _extend_model_dir != ext_dir):
+                    or _extend_model_dir != ext_dir
+                    or _extend_dev_name != ext_dev):
                 if _extend_pipe is not None:
                     why = "LoRA set changed" if _extend_lora_key != fp else "model_dir changed"
                     emit({"event": "log",
@@ -965,11 +977,13 @@ def get_pipe(kind: str, loras: list[dict] | None = None,
                       "line": f"Loading Extend pipeline (heavier — uses dev transformer at {ext_dir})..."})
                 pipe = ExtendPipeline(
                     model_dir=ext_dir, gemma_model_id=GEMMA_PATH, low_memory=LOW_MEMORY,
+                    dev_transformer=ext_dev,
                 )
                 _attach_loras(pipe, loras)
                 _extend_pipe = pipe
                 _extend_lora_key = fp
                 _extend_model_dir = ext_dir
+                _extend_dev_name = ext_dev
             return _extend_pipe
         # t2v
         t2v_dir = model_dir or MODEL_ID
@@ -995,9 +1009,16 @@ def get_pipe(kind: str, loras: list[dict] | None = None,
 
 
 _hq_lora_key: str | None = None
+# (dev_transformer, distilled_lora) the cached HQ pipe was built with. A
+# generation switch changes the distilled LoRA filename, and a pipe reused
+# across that switch would refine stage 2 with the previous generation's LoRA
+# — which fuses, renders, and is wrong with nothing to attribute it to.
+_hq_weight_key: tuple[str | None, str | None] | None = None
 
 
-def get_hq_pipe(model_dir: str, loras: list[dict] | None = None):
+def get_hq_pipe(model_dir: str, loras: list[dict] | None = None,
+                dev_transformer: str | None = None,
+                distilled_lora: str | None = None):
     """Returns the TwoStageHQPipeline lazily — Q8 model, res_2s sampler, CFG anchor.
 
     Same class handles both T2V (image=None) and I2V via the `image` kwarg of
@@ -1011,8 +1032,20 @@ def get_hq_pipe(model_dir: str, loras: list[dict] | None = None):
     silently dropped LoRAs (fixed) but the result is still wrong because the
     deltas were learned against dev neuron states, not distilled. Routing
     LoRA renders to HQ is the only way to get a faithful character replay.
+
+    2026-08-12 — `dev_transformer` / `distilled_lora` are the panel's per-job
+    names for the two files this pipeline loads out of `model_dir`. Passing
+    None keeps the vendored class's own defaults, which are the 2.3 filenames;
+    that is the byte-identical legacy behaviour for any caller that has not
+    been taught about generations. The panel now always names them, because
+    2.5's distilled LoRA is `...-450` where 2.3's is `...-384` and the vendored
+    default would send the loader looking for a file the pack does not hold.
+
+    Cached alongside model_dir and the LoRA fingerprint: a filename flip is a
+    different pipeline, and a pipeline reused across a generation switch would
+    quietly refine with the wrong LoRA.
     """
-    global _hq_pipe, _hq_model_dir, _hq_lora_key
+    global _hq_pipe, _hq_model_dir, _hq_lora_key, _hq_weight_key
     # Upstream `ltx-2-mlx` refactor 2026-05-09 (commits d6cc3d1, 493aec2,
     # 32280b9 — `refactor!: rename pipeline classes to match upstream
     # verbatim`) renamed TwoStageHQPipeline → TI2VidTwoStagesHQPipeline.
@@ -1037,23 +1070,40 @@ def get_hq_pipe(model_dir: str, loras: list[dict] | None = None):
         from ltx_core_mlx.utils.memory import aggressive_cleanup as _ac
     except Exception:
         _ac = lambda: None
+    weight_key = (dev_transformer, distilled_lora)
     with _pipe_lock:
         release_pipelines(keep_kind="hq")
         if (_hq_pipe is None
                 or _hq_model_dir != model_dir
-                or _hq_lora_key != fp):
+                or _hq_lora_key != fp
+                or _hq_weight_key != weight_key):
             if _hq_pipe is not None:
-                why = "LoRA set changed" if _hq_lora_key != fp else "model_dir changed"
+                if _hq_lora_key != fp:
+                    why = "LoRA set changed"
+                elif _hq_weight_key != weight_key:
+                    why = "HQ weight filenames changed"
+                else:
+                    why = "model_dir changed"
                 emit({"event": "log", "line": f"{why}; reloading HQ pipeline."})
                 _hq_pipe = None
                 _ac()
             emit({"event": "log", "line": f"Loading HQ pipeline (Q8 dev model — {model_dir})..."})
+            # Only pass what the caller named: an explicit None would override
+            # the vendored default with nothing, and `distilled_lora=None`
+            # makes _fuse_distilled_lora resolve the stem of None.
+            hq_kwargs = {}
+            if dev_transformer:
+                hq_kwargs["dev_transformer"] = dev_transformer
+            if distilled_lora:
+                hq_kwargs["distilled_lora"] = distilled_lora
             _hq_pipe = TwoStageHQPipeline(
                 model_dir=model_dir, gemma_model_id=GEMMA_PATH, low_memory=LOW_MEMORY,
+                **hq_kwargs,
             )
             _attach_loras(_hq_pipe, loras)
             _hq_model_dir = model_dir
             _hq_lora_key = fp
+            _hq_weight_key = weight_key
         return _hq_pipe
 
 
@@ -1061,17 +1111,24 @@ def get_hq_pipe(model_dir: str, loras: list[dict] | None = None):
 # interpolates between. Uses Q8 dev transformer + distilled LoRA stage 2.
 _kf_pipe = None
 _kf_model_dir = None
+_kf_weight_key: tuple[str, str] | None = None
 
 
-def get_kf_pipe(model_dir: str):
+def get_kf_pipe(model_dir: str, dev_transformer: str | None = None,
+                distilled_lora: str | None = None):
     """Returns the KeyframeInterpolationPipeline lazily.
 
     Keyframe REQUIRES explicit dev_transformer + distilled_lora at init time.
     The distilled-only path "hallucinates unrelated content during
-    interpolation" — pipeline raises if you skip these. Names match the files
-    inside dgrauet/ltx-2.3-mlx-q8.
+    interpolation" — pipeline raises if you skip these.
+
+    The names used to be the two literals from dgrauet/ltx-2.3-mlx-q8, written
+    here. They now come from the panel per job, because the distilled LoRA's
+    filename carries its alpha/rank and that number changes with the
+    generation (2.3: 384, 2.5: 450). The literals remain as the fallback so a
+    caller that does not name them behaves exactly as before.
     """
-    global _kf_pipe, _kf_model_dir
+    global _kf_pipe, _kf_model_dir, _kf_weight_key
     from ltx_pipelines_mlx.keyframe_interpolation import KeyframeInterpolationPipeline
 
     # Install the same runtime patches that get_pipe / get_hq_pipe / get_a2v_pipe
@@ -1084,19 +1141,23 @@ def get_kf_pipe(model_dir: str):
     _install_video_decoder_patch()
     _install_a2v_frame_rate_patch()
 
+    dev_name = dev_transformer or "transformer-dev.safetensors"
+    lora_name = distilled_lora or "ltx-2.3-22b-distilled-lora-384.safetensors"
+    weight_key = (dev_name, lora_name)
     with _pipe_lock:
         release_pipelines(keep_kind="keyframe")
-        if _kf_pipe is None or _kf_model_dir != model_dir:
+        if _kf_pipe is None or _kf_model_dir != model_dir or _kf_weight_key != weight_key:
             emit({"event": "log", "line": f"Loading Keyframe pipeline (Q8 dev model — {model_dir})..."})
             _kf_pipe = KeyframeInterpolationPipeline(
                 model_dir=model_dir,
                 gemma_model_id=GEMMA_PATH,
                 low_memory=LOW_MEMORY,
-                dev_transformer="transformer-dev.safetensors",
-                distilled_lora="ltx-2.3-22b-distilled-lora-384.safetensors",
+                dev_transformer=dev_name,
+                distilled_lora=lora_name,
                 distilled_lora_strength=1.0,
             )
             _kf_model_dir = model_dir
+            _kf_weight_key = weight_key
         return _kf_pipe
 
 
@@ -1108,16 +1169,22 @@ def get_kf_pipe(model_dir: str):
 # "Image + Audio" (audio + still + prompt → audio-driven video that opens on
 # the reference frame). The upstream pipeline writes the original audio (not
 # VAE-decoded) onto the final mp4, so no panel-side mux is needed.
-def get_a2v_pipe(model_dir: str, loras: list[dict] | None = None):
+def get_a2v_pipe(model_dir: str, loras: list[dict] | None = None,
+                 dev_transformer: str | None = None,
+                 distilled_lora: str | None = None):
     """Returns A2VidPipelineTwoStage lazily.
 
     A2V REQUIRES dev_transformer + distilled_lora at init time (same pattern
-    as Keyframe). The pipeline inherits from TI2VidTwoStagesPipeline so LoRA
-    fusion goes through the same `_pending_loras` hook the patched load()
-    consumes. Cached on (model_dir, lora_fingerprint) so a LoRA swap or a
-    model-dir flip rebuilds; otherwise reuses.
+    as Keyframe), and like Keyframe those names now come from the panel per
+    job — the distilled LoRA's filename carries its alpha/rank, which changes
+    with the generation. The 2.3 literals remain as the fallback.
+
+    The pipeline inherits from TI2VidTwoStagesPipeline so LoRA fusion goes
+    through the same `_pending_loras` hook the patched load() consumes. Cached
+    on (model_dir, lora_fingerprint, weight filenames) so a LoRA swap, a
+    model-dir flip or a generation switch rebuilds; otherwise reuses.
     """
-    global _a2v_pipe, _a2v_model_dir, _a2v_lora_key
+    global _a2v_pipe, _a2v_model_dir, _a2v_lora_key, _a2v_weight_key
     from ltx_pipelines_mlx.a2vid_two_stage import A2VidPipelineTwoStage
 
     _install_lora_fusion_patches()
@@ -1129,13 +1196,22 @@ def get_a2v_pipe(model_dir: str, loras: list[dict] | None = None):
         from ltx_core_mlx.utils.memory import aggressive_cleanup as _ac
     except Exception:
         _ac = lambda: None
+    dev_name = dev_transformer or "transformer-dev.safetensors"
+    lora_name = distilled_lora or "ltx-2.3-22b-distilled-lora-384.safetensors"
+    weight_key = (dev_name, lora_name)
     with _pipe_lock:
         release_pipelines(keep_kind="a2v")
         if (_a2v_pipe is None
                 or _a2v_model_dir != model_dir
-                or _a2v_lora_key != fp):
+                or _a2v_lora_key != fp
+                or _a2v_weight_key != weight_key):
             if _a2v_pipe is not None:
-                why = "LoRA set changed" if _a2v_lora_key != fp else "model_dir changed"
+                if _a2v_lora_key != fp:
+                    why = "LoRA set changed"
+                elif _a2v_weight_key != weight_key:
+                    why = "HQ weight filenames changed"
+                else:
+                    why = "model_dir changed"
                 emit({"event": "log", "line": f"{why}; reloading A2V pipeline."})
                 _a2v_pipe = None
                 _ac()
@@ -1145,13 +1221,14 @@ def get_a2v_pipe(model_dir: str, loras: list[dict] | None = None):
                 model_dir=model_dir,
                 gemma_model_id=GEMMA_PATH,
                 low_memory=LOW_MEMORY,
-                dev_transformer="transformer-dev.safetensors",
-                distilled_lora="ltx-2.3-22b-distilled-lora-384.safetensors",
+                dev_transformer=dev_name,
+                distilled_lora=lora_name,
                 distilled_lora_strength=1.0,
             )
             _attach_loras(_a2v_pipe, loras)
             _a2v_model_dir = model_dir
             _a2v_lora_key = fp
+            _a2v_weight_key = weight_key
         return _a2v_pipe
 
 
@@ -2188,7 +2265,8 @@ for line in sys.__stdin__:
             # passes the resolved Q8 path via params.model_dir; falling back
             # to the helper's MODEL_ID is the legacy behavior.
             ext_model_dir = p.get("model_dir")
-            pipe = get_pipe("extend", loras=loras, model_dir=ext_model_dir)
+            pipe = get_pipe("extend", loras=loras, model_dir=ext_model_dir,
+                            dev_transformer=p.get("dev_transformer"))
             video_path = p["video_path"]
             if not os.path.exists(video_path):
                 raise RuntimeError(f"source video not found: {video_path}")
@@ -2293,7 +2371,9 @@ for line in sys.__stdin__:
             if hq_loras:
                 emit({"event": "log",
                       "line": f"step:get_pipe kind=hq loras={len(hq_loras)}"})
-            pipe = get_hq_pipe(model_dir, loras=hq_loras)
+            pipe = get_hq_pipe(model_dir, loras=hq_loras,
+                               dev_transformer=p.get("dev_transformer"),
+                               distilled_lora=p.get("distilled_lora"))
             # Y1.037: short-clip VAE-streaming opt-out (HQ T2V/I2V path).
             _apply_vae_streaming_decision(int(p["frames"]))
             kwargs = dict(
@@ -2482,7 +2562,9 @@ for line in sys.__stdin__:
                 kf_indices = [0, num_frames - 1]
                 kf_mode_label = "FFLF"
 
-            pipe = get_kf_pipe(model_dir)
+            pipe = get_kf_pipe(model_dir,
+                               dev_transformer=p.get("dev_transformer"),
+                               distilled_lora=p.get("distilled_lora"))
             # Y1.037: short-clip VAE-streaming opt-out (Keyframe path).
             _apply_vae_streaming_decision(num_frames)
             kwargs = dict(
@@ -2552,7 +2634,9 @@ for line in sys.__stdin__:
                 raise RuntimeError(f"audio file not found: {audio_path}")
             num_frames = int(p["frames"])
             loras = p.get("loras") or []
-            pipe = get_a2v_pipe(model_dir, loras=loras)
+            pipe = get_a2v_pipe(model_dir, loras=loras,
+                                dev_transformer=p.get("dev_transformer"),
+                                distilled_lora=p.get("distilled_lora"))
             _apply_vae_streaming_decision(num_frames)
             kwargs = dict(
                 prompt=p["prompt"],

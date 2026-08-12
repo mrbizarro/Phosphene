@@ -326,6 +326,28 @@ MODEL_VERSIONS: tuple[dict, ...] = (
         # named here: the alternative is a module-level constant that
         # silently describes whichever generation happened to be first.
         "text_encoder": {"repo_key": "gemma", "path": GEMMA},
+        # The two files the dev-transformer feature surface (High / Extend /
+        # Keyframe / A2V) loads BY NAME out of the hq pack.
+        #
+        # `dev_transformer` is generation-invariant only because WE choose it:
+        # scripts/convert_ltx_mlx.py's --transformer-stem names the output, and
+        # we name both generations' dev file the same thing. It is stated here
+        # anyway so a generation that renames it has one place to say so.
+        #
+        # `distilled_lora` is NOT invariant, and that is the whole reason this
+        # block exists. The number in the filename is the LoRA's alpha/rank
+        # (2.3's file declares lora_alpha == lora_rank == 384; 2.5's declares
+        # 450), so the name changes with the generation. Until now the panel
+        # never passed it and the vendored TI2VidTwoStagesPipeline's own
+        # default — the literal 2.3 string — supplied it. That default is an
+        # upstream constant we do not control, aimed at a file a 2.5 pack does
+        # not contain, and the failure is a FileNotFoundError mid-render, after
+        # the user has waited for Gemma. Naming it per generation here is the
+        # same seam `model_dir` already is.
+        "hq_weights": {
+            "dev_transformer": "transformer-dev.safetensors",
+            "distilled_lora": "ltx-2.3-22b-distilled-lora-384.safetensors",
+        },
         "packs": (
             {
                 "quant": "q4",
@@ -393,6 +415,24 @@ MODEL_VERSIONS: tuple[dict, ...] = (
         # happily in 44 s.
         "text_encoder": {"repo_key": "gemma4_25",
                          "path": MODELS_DIR / "gemma4-12b-ltx25-q4"},
+        # See the 2.3 entry for why this is named per generation. 2.5's
+        # distilled LoRA carries alpha/rank 450 where 2.3's carries 384, and
+        # the vendored pipeline resolves the file by this exact stem — so a
+        # 2.5 pack holding a file named after 2.3 would be a lie the loader
+        # believes, and a 2.5 pack relying on the vendored default would not
+        # be found at all.
+        #
+        # 2026-08-12: both files now exist in the 2.5 q8 pack. Lightricks
+        # shipped BOTH two-stage HQ components with 2.5 —
+        # ltx-2.5-22b-dev-transformer-bf16 and
+        # ltx-2.5-22b-distilled-lora-450-bf16 — which REFUTES the earlier
+        # finding (ltx25_ab_lora.md §2A.1) that 2.5 had no High tier. That
+        # finding was true of the eight files weights day happened to stage,
+        # not of the release.
+        "hq_weights": {
+            "dev_transformer": "transformer-dev.safetensors",
+            "distilled_lora": "ltx-2.5-22b-distilled-lora-450.safetensors",
+        },
         "cap_tiers": ("q4", "q8"),
         "packs": (
             {
@@ -3741,6 +3781,29 @@ def text_encoder_missing_files(version_id: str | None = None) -> list[str]:
         return []
     base = Path(text_encoder_dir(version_id))
     return [f for f in (repo.get("files") or []) if not (base / f).exists()]
+
+
+_HQ_WEIGHTS_FALLBACK = {
+    "dev_transformer": "transformer-dev.safetensors",
+    "distilled_lora": "ltx-2.3-22b-distilled-lora-384.safetensors",
+}
+
+
+def hq_weights(version_id: str | None = None) -> dict:
+    """The dev transformer + distilled LoRA FILENAMES a version's two-stage HQ
+    surface loads out of its hq pack.
+
+    High, Extend, Keyframe and A2V all reach past `model_dir` and name a file
+    inside it. `model_dir` alone is therefore not the whole seam: point a job
+    at the 2.5 pack while the filename still says 2.3 and the loader looks for
+    something that is not there.
+
+    The fallback is the 2.3 pair rather than an empty dict on purpose — an
+    unknown or malformed registry entry must behave exactly like the code did
+    before this function existed, which is what makes adding it a no-op for
+    every generation that does not override it."""
+    names = model_version(version_id).get("hq_weights") or {}
+    return {k: str(names.get(k) or v) for k, v in _HQ_WEIGHTS_FALLBACK.items()}
 
 
 def ltx_model_dir(quant: str, version_id: str | None = None) -> str:
@@ -14277,7 +14340,7 @@ def run_job_inner(job: dict) -> None:
         ext_missing = q8_missing_files()
         if ext_missing:
             raise RuntimeError(
-                f"Extend requires the full Q8 model at {Q8_LOCAL_PATH}. "
+                f"Extend requires the full Q8 model at {pack_path('q8')}. "
                 f"Missing {len(ext_missing)} file(s): {', '.join(ext_missing[:3])}"
                 f"{' …' if len(ext_missing) > 3 else ''}. "
                 f"Click \"Download Q8\" in Pinokio to install it (~37 GB)."
@@ -14352,6 +14415,10 @@ def run_job_inner(job: dict) -> None:
                 # caches per-model-dir so this rebuilds the pipe only when
                 # the dir actually flips.
                 "model_dir": str(pack_path("q8")),
+                # Naming the dev transformer per generation rather than
+                # inheriting the vendored RetakePipeline default. Same string
+                # today for both generations; stated so it cannot drift.
+                "dev_transformer": hq_weights()["dev_transformer"],
                 "prompt": p["prompt"],
                 "negative_prompt": p.get("negative_prompt", ""),
                 "video_path": src,
@@ -14878,10 +14945,11 @@ def run_job_inner(job: dict) -> None:
         kf_missing = q8_missing_files()
         if kf_missing:
             raise RuntimeError(
-                f"Keyframe mode requires the full Q8 model at {Q8_LOCAL_PATH}. "
+                f"Keyframe mode requires the full Q8 model at {pack_path('q8')}. "
                 f"Missing {len(kf_missing)} file(s): {', '.join(kf_missing[:3])}"
                 f"{' …' if len(kf_missing) > 3 else ''}. "
-                f"Run: hf download {MODEL_ID_HQ} --local-dir {Q8_LOCAL_PATH}"
+                f"Run: hf download {(pack_repo('q8') or {}).get('repo_id', MODEL_ID_HQ)} "
+                f"--local-dir {pack_path('q8')}"
             )
         # Multi-keyframe path: agent submits a JSON-encoded list of
         # {image_path, frame_index} pairs. Layer 1 of the SDK shipped the
@@ -14976,6 +15044,11 @@ def run_job_inner(job: dict) -> None:
             "id": job["id"],
             "params": {
                 "model_dir": str(pack_path("q8")),
+                # Keyframe REQUIRES both by name — the pipeline raises without
+                # them, and the distilled-only path hallucinates unrelated
+                # content mid-interpolation. Per generation: see hq_weights().
+                "dev_transformer": hq_weights()["dev_transformer"],
+                "distilled_lora": hq_weights()["distilled_lora"],
                 "prompt": p["prompt"],
                 "negative_prompt": p.get("negative_prompt", ""),
                 "output_path": str(out_path),
@@ -15095,6 +15168,11 @@ def run_job_inner(job: dict) -> None:
             })
         a2v_params = {
             "model_dir": model_dir,
+            # Only the Q8 branch builds A2VidPipelineTwoStage and reads these;
+            # the Q4 distilled branch ignores them, which is why they can be
+            # set unconditionally. Per generation: see hq_weights().
+            "dev_transformer": hq_weights()["dev_transformer"],
+            "distilled_lora": hq_weights()["distilled_lora"],
             "prompt": p["prompt"],
             "negative_prompt": p.get("negative_prompt", ""),
             "output_path": str(out_path),
@@ -15383,10 +15461,11 @@ def run_job_inner(job: dict) -> None:
         hq_missing = q8_missing_files()
         if hq_missing:
             raise RuntimeError(
-                f"High quality requires the full Q8 model at {Q8_LOCAL_PATH}. "
+                f"High quality requires the full Q8 model at {pack_path('q8')}. "
                 f"Missing {len(hq_missing)} file(s): {', '.join(hq_missing[:3])}"
                 f"{' …' if len(hq_missing) > 3 else ''}. "
-                f"Run: hf download {MODEL_ID_HQ} --local-dir {Q8_LOCAL_PATH}"
+                f"Run: hf download {(pack_repo('q8') or {}).get('repo_id', MODEL_ID_HQ)} "
+                f"--local-dir {pack_path('q8')}"
             )
         # HQ is the only inference path that runs the dev transformer with
         # CFG and the full sigma schedule — which is exactly what character
@@ -15405,6 +15484,13 @@ def run_job_inner(job: dict) -> None:
             "id": job["id"],
             "params": {
                 "model_dir": str(pack_path("q8")),
+                # High is the two-stage HQ pipeline: dev transformer + CFG at
+                # half res, then a refine pass driven by the distilled LoRA.
+                # Until now neither filename was passed and the vendored
+                # class's 2.3-named defaults supplied both. Per generation:
+                # see hq_weights().
+                "dev_transformer": hq_weights()["dev_transformer"],
+                "distilled_lora": hq_weights()["distilled_lora"],
                 "prompt": p["prompt"],
                 "negative_prompt": p.get("negative_prompt", ""),
                 "output_path": str(raw_out),

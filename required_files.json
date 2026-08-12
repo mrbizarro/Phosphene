@@ -166,16 +166,18 @@
       ]
     },
     {
-      "_comment": "LTX-2.5 Q8 — the HQ tier, same relationship to q4_25 that the 2.3 q8 pack has to the 2.3 q4 pack. Built 2026-08-12 by scripts/quantize_ltx.py --bits 8 from the same MLX-layout bf16 transformer the q4 pack came from; 20,595,260,317 B against the 2.3 q8 pack's 20,597,189,549 B, and every byte of the -1,929,232 B difference is 2.5's 96 absent FFN biases (-1,966,080), its one extra keyframe embedding (+8,192) and header growth (+28,656). The eight non-transformer components are sha256-identical to the q4 pack's copies — verified file by file — because quantisation touches only transformer.transformer_blocks.*, exactly as in 2.3. Same GitHub-release mirror lane as q4_25, so verify_source is 'manifest' and phosphene_quant_manifest.json is a required file.",
+      "_comment": "LTX-2.5 Q8 — the HQ tier, same relationship to q4_25 that the 2.3 q8 pack has to the 2.3 q4 pack. Built 2026-08-12 by scripts/quantize_ltx.py --bits 8 from the same MLX-layout bf16 transformer the q4 pack came from; 20,595,260,317 B against the 2.3 q8 pack's 20,597,189,549 B, and every byte of the -1,929,232 B difference is 2.5's 96 absent FFN biases (-1,966,080), its one extra keyframe embedding (+8,192) and header growth (+28,656). The eight non-transformer components are sha256-identical to the q4 pack's copies — verified file by file — because quantisation touches only transformer.transformer_blocks.*, exactly as in 2.3. Same GitHub-release mirror lane as q4_25, so verify_source is 'manifest' and phosphene_quant_manifest.json is a required file. 2026-08-12, second pass: transformer-dev.safetensors and ltx-2.5-22b-distilled-lora-450.safetensors were added, which is what turns this from \"a q8 pack\" into \"the dev-transformer FEATURE surface\" — High, Extend, Keyframe and A2V all load transformer-dev by name, and the first three of those also load the distilled LoRA. Both files exist upstream in the 2.5 release; the earlier note that 2.5 had no High tier (ltx25_ab_lora.md 2A.1) was true of the eight files that had been staged, not of the release. The number in the LoRA filename is its alpha/rank (2.3 ships 384, 2.5 ships 450), so the name is NOT interchangeable between generations and the panel names it per generation via MODEL_VERSIONS[...]['hq_weights']. Listing both here is what makes the Extend / Keyframe / High gates refuse with a named missing file instead of crashing mid-render.",
       "key": "q8_25",
       "kind": "optional",
       "name": "LTX 2.5 - Q8 (HQ model, distilled)",
-      "blurb": "Optional, preview. The higher-fidelity LTX-2.5 tier. Needs a 64 GB Mac.",
+      "blurb": "Optional. The higher-fidelity LTX-2.5 tier, and the only one that can run High, Extend and Keyframe. Needs a 64 GB Mac.",
       "repo_id": "mrbizarro/ltx-2.5-mlx-q8",
       "local_dir": "mlx_models/ltx-2.5-mlx-q8",
-      "size_gb": 30,
+      "size_gb": 58,
       "files": [
         "transformer-distilled.safetensors",
+        "transformer-dev.safetensors",
+        "ltx-2.5-22b-distilled-lora-450.safetensors",
         "connector.safetensors",
         "vae_decoder.safetensors",
         "vae_encoder.safetensors",
@@ -189,6 +191,8 @@
       "download_include": [
         "*.json",
         "transformer-distilled.safetensors",
+        "transformer-dev.safetensors",
+        "ltx-2.5-22b-distilled-lora-450.safetensors",
         "connector.safetensors",
         "vae_decoder.safetensors",
         "vae_encoder.safetensors",
