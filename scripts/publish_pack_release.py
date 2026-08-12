@@ -200,6 +200,11 @@ def publish_file(src: Path, prefix: str, staging: Path, *, release_repo: str,
     the same stream. Shards are written, uploaded and deleted one at a time.
     """
     size = src.stat().st_size
+    if size == 0:
+        # A zero-byte file in a pack is the exact corruption the panel's
+        # integrity scan exists to catch (min_size_bytes). Publishing one would
+        # mirror the corruption to every user, so refuse loudly instead.
+        raise SystemExit(f"{src.name} is zero bytes — refusing to publish a corrupt pack")
     file_h = hashlib.sha256()
     shards: list[dict] = []
 
