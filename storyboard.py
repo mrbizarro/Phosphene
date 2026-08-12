@@ -135,6 +135,48 @@ DEFAULT_ENGINE = "ltx"
 ENGINE_MODES = ("auto", "h3", "ltx")
 DEFAULT_ENGINE_MODE = "auto"
 
+# A film is shot TWICE: a cheap draft pass you watch, then a delivery pass of
+# only the shots you kept. Which pass a shot has already been through is a
+# property of that PASS, and the board records it as the pass's own output key —
+# never as the shot's single `status`, which only ever describes the most recent
+# thing that happened to it.
+#
+# That distinction is load-bearing and it was once got wrong: the scheduler
+# filtered on `status not in ("done", "skipped")` while the reconciler set
+# `status = "done"` the moment the DRAFT landed, so by the time the delivery
+# pass asked for work every shot looked finished. `/storyboard/render pass=final`
+# answered 202 and enqueued nothing, for every film, forever.
+PASS_NAMES = ("draft", "final")
+_PASS_OUTPUT_KEY = {"draft": "draft_output", "final": "final_output"}
+_PASS_JOB_KEY = {"draft": "draft_job_id", "final": "final_job_id"}
+
+
+def pass_output_key(pass_name: str = "draft") -> str:
+    """The board field holding this pass's rendered clip."""
+    return _PASS_OUTPUT_KEY.get((pass_name or "draft").strip().lower(), "draft_output")
+
+
+def pass_job_key(pass_name: str = "draft") -> str:
+    """The board field holding this pass's job id."""
+    return _PASS_JOB_KEY.get((pass_name or "draft").strip().lower(), "draft_job_id")
+
+
+def shot_pass_done(shot: dict, pass_name: str = "draft") -> bool:
+    """Has THIS shot already been through THIS pass? The only correct test."""
+    return bool(shot.get(pass_output_key(pass_name)))
+
+
+def shots_pending(shots: Iterable[dict], pass_name: str = "draft") -> list[dict]:
+    """Shots this pass still has to render, in board order.
+
+    A cut shot is out of every pass. Everything else is in until it has that
+    pass's own output — a finished draft does NOT excuse a shot from delivery.
+    """
+    return [s for s in (shots or [])
+            if isinstance(s, dict)
+            and s.get("status") != "skipped"
+            and not shot_pass_done(s, pass_name)]
+
 
 def resolve_engine(shot: dict, *, engine_mode: str = DEFAULT_ENGINE_MODE,
                    h3_available: bool = True) -> str:
@@ -468,7 +510,7 @@ def bucket_key(shot: dict) -> tuple[str, str]:
     return (shot_engine(shot), _PIPELINE_BUCKET.get(shot.get("mode"), "t2v"))
 
 
-def shooting_order(shots: list[dict]) -> list[dict]:
+def shooting_order(shots: list[dict], pass_name: str = "draft") -> list[dict]:
     """Group shots by pipeline bucket so the warm helper reloads once per KIND, not per shot.
 
     This is the single biggest wall-clock win on Apple Silicon and it exists purely because
@@ -479,8 +521,11 @@ def shooting_order(shots: list[dict]) -> list[dict]:
     Order within a bucket, and the order of buckets, is by first appearance in the story, so
     output stays deterministic and a resumed run reproduces the same sequence. Clips are
     re-sorted by `n` at assembly, so viewing order is unaffected.
+
+    `pass_name` decides what "still to shoot" MEANS — see shots_pending(). Calling this
+    without it schedules the draft pass, which is what every pre-existing caller wanted.
     """
-    pending = [s for s in shots if s.get("status") not in ("done", "skipped")]
+    pending = shots_pending(shots, pass_name)
     bucket_first: dict[tuple[str, str], int] = {}
     for s in pending:
         b = bucket_key(s)
@@ -600,7 +645,7 @@ def estimate(board: dict, *, pass_name: str = "final", h3_cost=None) -> dict:
     Only LTX buckets are charged a pipeline load: an H3 job is a fresh subprocess that loads
     its own weights every time, so that cost is already inside its measured per-clip eta.
     """
-    shots = [s for s in (board.get("shots") or []) if s.get("status") not in ("done", "skipped")]
+    shots = shots_pending(board.get("shots") or [], pass_name)
     policy = (board.get("policy") or {}).get(pass_name) or {}
 
     render = sum(shot_render_secs(s, policy, h3_cost=h3_cost) for s in shots)

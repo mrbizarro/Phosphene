@@ -659,6 +659,11 @@ _SETTINGS_LOCK = threading.Lock()
 # Kept beside the settings defaults because _validate_settings_patch is the
 # only thing that enforces them and both run before anything else is imported.
 STORYBOARD_SHOT_CHOICES = (6, 12, 24, 36)
+# The chips above are what the brief OFFERS. This is what the feature ACCEPTS —
+# any count in the band the planner's token budget can actually serve. They are
+# different questions, and conflating them is how a brief asking for 4 shots
+# silently became a 12-shot film.
+STORYBOARD_MAX_SHOTS = 48
 STORYBOARD_DRAFT_QUALITIES = ("quick", "balanced", "standard")
 STORYBOARD_FINAL_QUALITIES = ("balanced", "standard", "high")
 # The film-level engine choice. See storyboard.ENGINE_MODES for what each means
@@ -996,8 +1001,8 @@ def _validate_settings_patch(patch: dict) -> tuple[dict, str | None]:
             n = int(str(patch["storyboard_shots"]).strip())
         except (TypeError, ValueError):
             return {}, "storyboard_shots must be a number"
-        if n not in STORYBOARD_SHOT_CHOICES:
-            return {}, f"storyboard_shots must be one of: {list(STORYBOARD_SHOT_CHOICES)}"
+        if not (1 <= n <= STORYBOARD_MAX_SHOTS):
+            return {}, f"storyboard_shots must be between 1 and {STORYBOARD_MAX_SHOTS}"
         out["storyboard_shots"] = n
     for _skey, _allowed in (("storyboard_draft_quality", STORYBOARD_DRAFT_QUALITIES),
                             ("storyboard_final_quality", STORYBOARD_FINAL_QUALITIES),
@@ -10875,6 +10880,18 @@ def _sb_reconcile(board: dict) -> bool:
                 if s.get("status") not in ("queued", "done"):
                     s["status"] = "queued"
                     changed = True
+        # `status` is the shot's MOST RECENT state, not a record of which passes
+        # it has been through — the OUTPUTS are that record, and they are what
+        # the scheduler reads. But the UI reads `status`, so a shot waiting on
+        # its delivery render must not keep showing "done" from its draft.
+        fj = s.get("final_job_id")
+        if fj and not s.get("final_output"):
+            fst = ((idx.get(fj) or {}).get("status") or "").lower()
+            if fst in ("queued", "running"):
+                want = "rendering" if fst == "running" else "queued"
+                if s.get("status") != want:
+                    s["status"] = want
+                    changed = True
     return changed
 
 
@@ -11361,8 +11378,11 @@ def _sb_render_thread(board_id: str, pass_name: str, only: list | None) -> None:
             board = storyboard.load_storyboard(STATE_DIR, board_id)
             _sb_reconcile(board)
 
-            pending = [s for s in storyboard.shooting_order(board.get("shots") or [])
-                       if not s.get(out_key)]
+            # PASS-AWARE. Without the pass name this scheduled the draft pass no
+            # matter what was asked for, and since the reconciler marks a shot
+            # "done" when its DRAFT lands, the delivery pass found nothing to do
+            # and answered 202 with an empty queue — every film, every time.
+            pending = storyboard.shooting_order(board.get("shots") or [], pass_name)
             if only:
                 pending = [s for s in pending if s.get("n") in only]
             # A shot already carrying a live job id for this pass is in flight.
@@ -18255,12 +18275,29 @@ class Handler(BaseHTTPRequestHandler):
                                             (concept + str(time.time())).encode()
                                         ).hexdigest()[:6])
                     board = storyboard.new_storyboard(bid, "Planning…")
-                try:
-                    shots_n = int(f("shots", "12"))
-                except (TypeError, ValueError):
-                    shots_n = 12
-                if shots_n not in STORYBOARD_SHOT_CHOICES:
-                    shots_n = 12
+                # Offer the number or refuse it — never quietly render a
+                # different film. A brief that asked for 4 shots used to come
+                # back as a 12-shot board with no message anywhere. The four
+                # chips are what the UI OFFERS; they were never meant to be the
+                # only counts the API accepts.
+                _raw_shots = f("shots", "")
+                if _raw_shots:
+                    try:
+                        shots_n = int(str(_raw_shots).strip())
+                    except (TypeError, ValueError):
+                        _sb_release_planner(bid, "-pending-")
+                        self._json({"ok": False,
+                                    "error": f"shots must be a whole number "
+                                             f"(got {_raw_shots!r})."}, 400)
+                        return
+                    if not (1 <= shots_n <= STORYBOARD_MAX_SHOTS):
+                        _sb_release_planner(bid, "-pending-")
+                        self._json({"ok": False,
+                                    "error": f"shots must be between 1 and "
+                                             f"{STORYBOARD_MAX_SHOTS} (got {shots_n})."}, 400)
+                        return
+                else:
+                    shots_n = int(get_settings().get("storyboard_shots", 12) or 12)
                 must = [x.strip() for x in (f("must", "") or "").splitlines() if x.strip()]
                 emode = (f("engine", "") or board.get("engine_mode")
                          or get_settings().get("storyboard_engine", "auto")).strip().lower()
@@ -46874,7 +46911,10 @@ function sbRenderPlan(r) {
   if (title && document.activeElement !== title) title.value = b.title || '';
 
   // --- summary ---
-  const done = shots.filter(s => s.status === 'done').length;
+  // Per PASS, not per `status`: during delivery, `status === 'done'` still
+  // reads true from the draft that already landed.
+  const outKey = r.pass === 'final' ? 'final_output' : 'draft_output';
+  const done = shots.filter(s => s[outKey]).length;
   const failed = shots.filter(s => s.status === 'failed').length;
   const rendering = !!r.rendering;
   let status;
@@ -47176,7 +47216,8 @@ function sbRenderRunBar(r) {
   const cur = (LAST_STATUS && LAST_STATUS.current) || null;
   const tag = cur ? _sbTagOf(cur) : null;
   const active = (tag && tag.id === SB.id) ? shots.find(s => s.n === tag.n) : null;
-  const done = shots.filter(s => s.status === 'done').length;
+  const outKey = (r.pass === 'final') ? 'final_output' : 'draft_output';
+  const done = shots.filter(s => s[outKey]).length;
   const paused = LAST_STATUS && LAST_STATUS.paused;
   sbEl('sbRunTitle').textContent = paused
     ? `Paused · ${done} of ${shots.length} done`
@@ -47191,7 +47232,7 @@ function sbRenderRunBar(r) {
   sbEl('sbRunSub').textContent = sub;
   sbEl('sbPauseBtn').textContent = paused ? 'Resume' : 'Pause';
   sbEl('sbRunDots').innerHTML = shots.map(s => {
-    const cls = s.status === 'done' ? 'is-done'
+    const cls = s[outKey] ? 'is-done'
               : s.status === 'failed' ? 'is-failed'
               : s.status === 'rendering' ? 'is-running'
               : s.status === 'skipped' ? 'is-cut' : '';

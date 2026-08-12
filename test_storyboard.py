@@ -222,9 +222,70 @@ class Bucketing(unittest.TestCase):
         self.assertEqual(est["pipeline_loads"], 1)
         self.assertEqual([s["n"] for s in sb.shooting_order(shots)], list(range(1, 13)))
 
-    def test_done_and_skipped_are_excluded(self):
-        shots = [_shot(1, status="done"), _shot(2, status="skipped"), _shot(3)]
-        self.assertEqual([s["n"] for s in sb.shooting_order(shots)], [3])
+    def test_rendered_and_cut_are_excluded(self):
+        # "Rendered" means THIS PASS produced a clip — not that `status` happens
+        # to read "done". A shot whose status says done but which has no output
+        # for this pass still has to be shot.
+        shots = [_shot(1, status="done", draft_output="/tmp/s1.mp4"),
+                 _shot(2, status="skipped"),
+                 _shot(3),
+                 _shot(4, status="done")]          # done, but nothing to show for it
+        self.assertEqual([s["n"] for s in sb.shooting_order(shots)], [3, 4])
+
+
+class TwoPasses(unittest.TestCase):
+    """Draft then delivery. The release-blocker lived here: the scheduler asked
+    the shot's single `status` field whether it was finished, and the reconciler
+    set that field to "done" the moment the DRAFT landed — so the delivery pass
+    saw an empty film and enqueued nothing, for every board, forever."""
+
+    def _drafted(self):
+        """A film whose draft pass has completed, exactly as reconcile leaves it."""
+        return [_shot(n, status="done", draft_output=f"/tmp/s{n}.mp4",
+                      draft_job_id=f"j-{n}") for n in (1, 2, 3)]
+
+    def test_the_draft_pass_is_finished(self):
+        self.assertEqual(sb.shooting_order(self._drafted(), "draft"), [])
+
+    def test_the_delivery_pass_still_has_every_shot(self):
+        got = sb.shooting_order(self._drafted(), "final")
+        self.assertEqual([s["n"] for s in got], [1, 2, 3])
+
+    def test_delivery_drops_a_shot_once_it_has_delivered(self):
+        shots = self._drafted()
+        shots[1]["final_output"] = "/tmp/s2_final.mp4"
+        self.assertEqual([s["n"] for s in sb.shooting_order(shots, "final")], [1, 3])
+
+    def test_cut_shots_are_out_of_both_passes(self):
+        shots = self._drafted()
+        shots[0]["status"] = "skipped"
+        self.assertEqual([s["n"] for s in sb.shooting_order(shots, "final")], [2, 3])
+        self.assertEqual(sb.shooting_order(shots, "draft"), [])
+
+    def test_the_delivery_estimate_is_not_zero(self):
+        board = _board(self._drafted())
+        self.assertEqual(sb.estimate(board, pass_name="draft")["shots"], 0)
+        self.assertEqual(sb.estimate(board, pass_name="final")["shots"], 3)
+        self.assertGreater(sb.estimate(board, pass_name="final")["total_secs"], 0)
+
+    def test_delivery_jobs_carry_the_delivery_policy(self):
+        board = _board(self._drafted())
+        policy = board["policy"]["final"]
+        j = sb.shot_to_job(sb.shooting_order(board["shots"], "final")[0], policy)
+        self.assertEqual(j["quality"], "balanced")
+        self.assertEqual((j["width"], j["height"]), (1024, 576))
+
+    def test_pass_helpers(self):
+        s = {"draft_output": "/tmp/a.mp4"}
+        self.assertTrue(sb.shot_pass_done(s, "draft"))
+        self.assertFalse(sb.shot_pass_done(s, "final"))
+        self.assertEqual(sb.pass_output_key("final"), "final_output")
+        self.assertEqual(sb.pass_job_key("final"), "final_job_id")
+        # An unknown pass name must not silently mean "final".
+        self.assertEqual(sb.pass_output_key("nonsense"), "draft_output")
+
+    def test_default_pass_is_draft_for_every_old_caller(self):
+        self.assertEqual([s["n"] for s in sb.shooting_order(self._drafted())], [])
 
 
 class Estimate(unittest.TestCase):
