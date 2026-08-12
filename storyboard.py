@@ -41,6 +41,13 @@ Consequences, which are the whole architecture:
 
 PLANNER MODEL: Qwen3.5, NOT Gemma  (decided 2026-07-24)
 --------------------------------------------------------
+WHAT ACTUALLY SHIPS IS GEMMA. Read this section as the decision record it is, not as a
+description of the running system: `storyboard_planner.py` plans on
+`mlx_models/gemma-3-12b-it-4bit` — the weights the panel already downloads for
+`/prompt/enhance` — so the Storyboard tab costs a user zero new bytes. Qwen3.5 remains the
+target and is a one-line switch (`LTX_STORYBOARD_PLANNER`); the reasoning below is why.
+See the MODEL section at the top of `storyboard_planner.py` for the shipped arrangement.
+
 Gemma 3 stays for `/prompt/enhance` — different task, already tuned, already loaded. But
 planning is 100% structured output, and this project already documented that "Gemma 3 has no
 native tool_calls". Gemma 4 has no clean official mlx-community 4-bit build (third-party /

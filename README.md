@@ -32,7 +32,7 @@ Key differences from the standard A2V path:
 
 </p>
 
-> **Current release: v3.0.6.** Latest on the v3.0 line — character training, Audio-to-Video, the Image Studio tab, hardware capability tiering, and a run of stabilization fixes since launch.
+> **Current release: v3.8.0.** Storyboard — describe a film in a sentence, get a shot list you can edit before anything renders. Also fixes the install failure that had been breaking every fresh install and every Update since hatchling 1.32.0 shipped. Full notes on the [releases page](https://github.com/mrbizarro/phosphene/releases).
 
 ## Overview
 
