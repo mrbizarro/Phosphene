@@ -32,7 +32,9 @@ from convert_ltx_mlx import (  # noqa: E402
     ComponentPlan,
     PlannedTensor,
     UnmappedKeys,
+    apply_leaf_map,
     convert,
+    parse_input_spec,
     plan_conversion,
     read_header,
     rename_key,
@@ -149,25 +151,122 @@ class TestRenaming:
         assert rename_key(once) == once
 
 
+def only(routes):
+    """A key that must route to exactly one component."""
+    assert len(routes) == 1, f"expected a single route, got {[r.stem for r in routes]}"
+    return routes[0]
+
+
 class TestRouting:
     def test_longest_prefix_wins(self):
         """duration_head must not be swallowed by model.diffusion_model."""
-        route = route_key("model.diffusion_model.duration_head.mlp_out.bias", DEFAULT_ROUTES)
+        route = only(route_key("model.diffusion_model.duration_head.mlp_out.bias", DEFAULT_ROUTES))
         assert route.stem == "duration_head"
         assert route.target_prefix == "duration_head."
 
     def test_connector_subtrees_land_in_one_file(self):
-        video = route_key("model.diffusion_model.video_embeddings_connector.x", DEFAULT_ROUTES)
-        audio = route_key("model.diffusion_model.audio_embeddings_connector.x", DEFAULT_ROUTES)
+        video = only(route_key("model.diffusion_model.video_embeddings_connector.x", DEFAULT_ROUTES))
+        audio = only(route_key("model.diffusion_model.audio_embeddings_connector.x", DEFAULT_ROUTES))
         assert video.stem == audio.stem == "connector"
         assert video.target_prefix.startswith("connector.")
 
     def test_dit_falls_through_to_transformer(self):
-        route = route_key("model.diffusion_model.transformer_blocks.0.attn1.to_q.weight", DEFAULT_ROUTES)
+        route = only(route_key("model.diffusion_model.transformer_blocks.0.attn1.to_q.weight", DEFAULT_ROUTES))
         assert route.stem == "transformer"
 
-    def test_unknown_prefix_returns_none(self):
-        assert route_key("some.vendor.module.weight", DEFAULT_ROUTES) is None
+    def test_unknown_prefix_returns_no_route(self):
+        assert route_key("some.vendor.module.weight", DEFAULT_ROUTES) == []
+
+
+class TestRealLTX25Shapes:
+    """Pinned against the key sets of the actual Lightricks 2.5 release.
+
+    Every assertion here failed against the route table as first written. Each
+    one is a way the pack would have loaded and rendered wrongly rather than
+    erroring — which is why they are tests and not a changelog line.
+    """
+
+    def test_connector_keeps_its_pytorch_spelling(self):
+        """The vendored ConnectorAttention builds ``to_out.0`` and ``ff.net.*``.
+
+        The DiT renames are correct for DiT blocks and wrong here. Applying them
+        to the connector yields a file whose keys no shipped module claims.
+        """
+        route = only(
+            route_key("model.diffusion_model.video_embeddings_connector.transformer_1d_blocks.0.attn1.to_out.0.weight", DEFAULT_ROUTES)
+        )
+        assert route.rename is False
+        suffix = "transformer_1d_blocks.0.attn1.to_out.0.weight"
+        assert route.target_prefix + suffix == (
+            "connector.video_embeddings_connector.transformer_1d_blocks.0.attn1.to_out.0.weight"
+        )
+
+    def test_dit_blocks_still_get_renamed(self):
+        route = only(route_key("model.diffusion_model.transformer_blocks.0.ff.net.0.proj.weight", DEFAULT_ROUTES))
+        assert route.rename is True
+
+    def test_video_vae_statistics_fan_out_to_both_halves(self):
+        """One shipped copy; the encoder and decoder spell the leaves differently."""
+        routes = route_key("per_channel_statistics.mean-of-means", DEFAULT_ROUTES)
+        assert {r.stem for r in routes} == {"vae_encoder", "vae_decoder"}
+        produced = {
+            apply_leaf_map(r.target_prefix + "mean-of-means", r.leaf_map) for r in routes
+        }
+        assert produced == {
+            "vae_encoder.per_channel_statistics._mean_of_means",
+            "vae_decoder.per_channel_statistics.mean",
+        }
+
+    def test_audio_vae_statistics_get_the_underscore_spelling(self):
+        route = only(route_key("audio_vae.per_channel_statistics.std-of-means", DEFAULT_ROUTES))
+        assert route.stem == "audio_vae"
+        assert (
+            apply_leaf_map(route.target_prefix + "std-of-means", route.leaf_map)
+            == "audio_vae.per_channel_statistics._std_of_means"
+        )
+
+    def test_vocoder_doubled_segment_is_collapsed(self):
+        """2.5 nests the base vocoder one level deeper than 2.3."""
+        base = only(route_key("vocoder.vocoder.resblocks.0.convs1.0.bias", DEFAULT_ROUTES))
+        assert base.target_prefix + "resblocks.0.convs1.0.bias" == "vocoder.resblocks.0.convs1.0.bias"
+
+    def test_vocoder_siblings_pass_through_unchanged(self):
+        """bwe_generator and mel_stft are already at the right depth."""
+        for tail in ("bwe_generator.conv_pre.bias", "mel_stft.window"):
+            route = only(route_key(f"vocoder.{tail}", DEFAULT_ROUTES))
+            assert route.target_prefix + tail == f"vocoder.{tail}"
+
+    def test_upscalers_need_an_explicit_stem(self, tmp_path):
+        """Spatial and temporal upscalers ship byte-identical key sets.
+
+        Nothing in the key says which is which, so an unpinned run must refuse
+        rather than guess — and a pinned run must land the whole file.
+        """
+        bare = {
+            "final_conv.bias": ("BF16", [4], bf16(4)),
+            "res_blocks.0.norm1.weight": ("BF16", [4], bf16(4)),
+        }
+        path = write_safetensors(tmp_path / "spatial.safetensors", bare)
+        _, unmapped, _ = plan_conversion([path], allow_unmapped=True)
+        assert len(unmapped) == 2
+
+        plans, unmapped, _ = plan_conversion([(path, "spatial_upscaler_x2_v1_1")])
+        assert unmapped == []
+        assert {t.target_key for t in plans["spatial_upscaler_x2_v1_1"].tensors} == {
+            "spatial_upscaler_x2_v1_1.final_conv.bias",
+            "spatial_upscaler_x2_v1_1.res_blocks.0.norm1.weight",
+        }
+
+    def test_explicit_stem_does_not_rename(self, tmp_path):
+        """A pinned file is copied verbatim; DiT rules must not reach into it."""
+        path = write_safetensors(
+            tmp_path / "u.safetensors",
+            {"res_blocks.0.ff.net.2.weight": ("BF16", [4], bf16(4))},
+        )
+        plans, _, _ = plan_conversion([(path, "temporal_upscaler_x2_v1_0")])
+        assert {t.target_key for t in plans["temporal_upscaler_x2_v1_0"].tensors} == {
+            "temporal_upscaler_x2_v1_0.res_blocks.0.ff.net.2.weight"
+        }
 
 
 class TestPlanning:
@@ -418,3 +517,70 @@ class TestEndToEnd:
         src = write_safetensors(tmp_path / "dit.safetensors", tensors)
         report = convert([src], tmp_path / "pack", dry_run=True)
         assert report["total_bytes"] == expected
+
+
+class TestConvLayout:
+    """MLX puts input channels last; PyTorch puts them second.
+
+    Derived by diffing every shared key of the converted 2.5 pack against the
+    shipped 2.3 pack (ground truth for MLX layout): 768 tensors differ, and
+    exactly four permutations explain all of them with no exceptions. Before
+    this, the VAE encoder failed to load with
+    "Expected shape (128, 3, 3, 3, 48) but received shape (128, 48, 3, 3, 3)".
+    """
+
+    @pytest.mark.parametrize(
+        ("key", "shape", "want"),
+        [
+            ("vae_encoder.conv_in.conv.weight", [128, 48, 3, 3, 3], (0, 2, 3, 4, 1)),
+            ("audio_vae.decoder.conv_in.conv.weight", [512, 8, 3, 3], (0, 2, 3, 1)),
+            # A resampler kernel, not a weight — and it needs Conv1d layout
+            # just the same. 402 of these were left unpermuted by an
+            # earlier ``*.weight``-only predicate.
+            ("vocoder.act_post.downsample.lowpass.filter", [1, 1, 12], (0, 2, 1)),
+            ("vocoder.resblocks.0.convs1.0.weight", [512, 512, 3], (0, 2, 1)),
+            ("vocoder.ups.0.weight", [1536, 768, 11], (1, 2, 0)),
+            ("vocoder.bwe_generator.ups.0.weight", [512, 256, 12], (1, 2, 0)),
+            ("vocoder.mel_stft.mel_basis", [64, 513], None),
+            ("transformer.transformer_blocks.0.attn1.to_q.weight", [4096, 4096], None),
+            ("transformer.scale_shift_table", [2, 4096], None),
+            ("vae_encoder.conv_in.conv.bias", [128], None),
+        ],
+    )
+    def test_permutation_rule(self, key, shape, want):
+        from convert_ltx_mlx import conv_permutation
+
+        assert conv_permutation(key, shape) == want
+
+    def test_rank_decides_not_the_suffix(self):
+        """Non-``.weight`` tensors of conv rank are permuted; rank 1/2 never are."""
+        from convert_ltx_mlx import conv_permutation
+
+        assert conv_permutation("vocoder.r.0.upsample.filter", [1, 1, 12]) == (0, 2, 1)
+        assert conv_permutation("vocoder.ups.0.bias", [1536]) is None
+        assert conv_permutation("vocoder.mel_stft.mel_basis", [64, 513]) is None
+
+    def test_permutation_preserves_bytes_and_reorders_axes(self):
+        import numpy as np
+
+        from convert_ltx_mlx import permute_bytes, permuted_shape
+
+        shape, perm = [2, 3, 4], (0, 2, 1)
+        src = np.arange(24, dtype=np.uint16)
+        out = permute_bytes(src.tobytes(), shape, perm, 2)
+        assert len(out) == len(src.tobytes())
+        assert permuted_shape(shape, perm) == [2, 4, 3]
+        expect = src.reshape(shape).transpose(perm)
+        assert np.array_equal(np.frombuffer(out, dtype=np.uint16).reshape(2, 4, 3), expect)
+
+    def test_conv_weight_lands_permuted_in_the_written_file(self, tmp_path):
+        """End to end: plan -> write -> header carries the MLX shape."""
+        src = write_safetensors(
+            tmp_path / "vae.safetensors",
+            {"encoder.conv_in.conv.weight": ("BF16", [4, 2, 3, 3, 3], bf16(4 * 2 * 27))},
+        )
+        plans, unmapped, _ = plan_conversion([src])
+        assert unmapped == []
+        write_component(plans["vae_encoder"], tmp_path / "out")
+        header, _ = read_header(tmp_path / "out" / "vae_encoder.safetensors")
+        assert header["vae_encoder.conv_in.conv.weight"]["shape"] == [4, 3, 3, 3, 2]

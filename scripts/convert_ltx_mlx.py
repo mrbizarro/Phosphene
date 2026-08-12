@@ -51,20 +51,23 @@ paired with ``--i-know-what-im-dropping``.
 
 Usage
 -----
-    # monolithic 2.5 release -> MLX pack
+    # the whole 2.5 pack in ONE run — every input is planned together, so a
+    # component fed by two files (the connector: blocks from the DiT, text
+    # projection from the encoder) is written once, complete.
     python3 scripts/convert_ltx_mlx.py \\
-        --input  ~/dl/ltx-2.5-22b-distilled-transformer-bf16.safetensors \\
-        --output mlx_models/ltx-2.5-mlx-bf16
-
-    # add the separately-shipped components
-    python3 scripts/convert_ltx_mlx.py \\
+        --input ~/dl/ltx-2.5-22b-distilled-transformer-bf16.safetensors \\
         --input ~/dl/ltx-2.5-video-vae-conv-bf16.safetensors \\
         --input ~/dl/ltx-2.5-audio-vae-bf16.safetensors \\
         --input ~/dl/ltx-2.5-duration-head-bf16.safetensors \\
-        --output mlx_models/ltx-2.5-mlx-bf16 --merge
+        --input ~/dl/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors=spatial_upscaler_x2_v1_1 \\
+        --output mlx_models/ltx-2.5-mlx-bf16 \\
+        --transformer-stem transformer-distilled
 
     # see the routing decision without writing anything
     python3 scripts/convert_ltx_mlx.py --input X.safetensors --output OUT --dry-run
+
+Run it in one invocation, not several: separate runs would each rewrite
+``connector.safetensors`` from scratch and the last one would win.
 """
 
 from __future__ import annotations
@@ -136,34 +139,158 @@ RENAME_RULES: tuple[tuple[str, str], ...] = (
     (".linear_2.", ".linear2."),
 )
 
-# Source-key prefixes that identify a component, longest first so the more
-# specific prefix always wins. Each maps to (output stem, output key prefix).
+# Per-channel latent statistics are spelled three different ways by three
+# different consumers, and the SAME two source tensors feed all of them. The
+# video VAE ships one copy that both the encoder and the decoder need, under
+# leaf names that differ between the two. Getting this wrong does not raise —
+# it denormalises latents with random stats and yields plausible-looking mush.
+_STATS_ENCODER = (("mean-of-means", "_mean_of_means"), ("std-of-means", "_std_of_means"))
+_STATS_DECODER = (("mean-of-means", "mean"), ("std-of-means", "std"))
+
+
+# Source-key prefixes that identify a component. Longest prefix wins; when
+# several routes share that longest prefix, ALL of them fire — that is how one
+# source tensor fans out into two components.
 @dataclass(frozen=True)
 class Route:
     source_prefix: str
     stem: str
     target_prefix: str
+    rename: bool = True
+    """Apply RENAME_RULES. False for components whose on-disk contract keeps the
+    PyTorch spelling — the embeddings connector is the one that matters: its
+    attention output stays list-wrapped (``to_out.0.*``) and its feed-forward
+    stays ``ff.net.0.proj`` / ``ff.net.2``, because the vendored
+    ``ConnectorAttention`` builds exactly those names. Renaming them the way the
+    DiT blocks are renamed produces a connector that cannot load."""
+    leaf_map: tuple[tuple[str, str], ...] = ()
+    """Exact trailing-segment substitutions applied after prefixing."""
 
 
 DEFAULT_ROUTES: tuple[Route, ...] = (
     Route("model.diffusion_model.duration_head.", "duration_head", "duration_head."),
     Route("duration_head.", "duration_head", "duration_head."),
-    Route("model.diffusion_model.video_embeddings_connector.", "connector", "connector.video_embeddings_connector."),
-    Route("model.diffusion_model.audio_embeddings_connector.", "connector", "connector.audio_embeddings_connector."),
-    Route("text_embedding_projection.", "connector", "connector.text_embedding_projection."),
-    Route("connector.", "connector", "connector."),
+    # The 2.5 DiT packs both connectors in-file; 2.3 shipped them as a separate
+    # connector.safetensors. Either way they land in connector.safetensors, and
+    # neither is subject to the DiT rename rules.
+    Route(
+        "model.diffusion_model.video_embeddings_connector.",
+        "connector",
+        "connector.video_embeddings_connector.",
+        rename=False,
+    ),
+    Route(
+        "model.diffusion_model.audio_embeddings_connector.",
+        "connector",
+        "connector.audio_embeddings_connector.",
+        rename=False,
+    ),
+    # 2.5 relocated the dual text projection out of the connector and into the
+    # text-encoder file. Our pack layout still wants it beside the connector,
+    # because that is where GemmaFeatureExtractor looks for it.
+    Route("text_embedding_projection.", "connector", "connector.text_embedding_projection.", rename=False),
+    Route("connector.", "connector", "connector.", rename=False),
     Route("vae.encoder.", "vae_encoder", "vae_encoder."),
     Route("vae.decoder.", "vae_decoder", "vae_decoder."),
     Route("vae_encoder.", "vae_encoder", "vae_encoder."),
     Route("vae_decoder.", "vae_decoder", "vae_decoder."),
+    # One source copy, two destinations, different leaf names in each.
+    Route(
+        "per_channel_statistics.",
+        "vae_encoder",
+        "vae_encoder.per_channel_statistics.",
+        leaf_map=_STATS_ENCODER,
+    ),
+    Route(
+        "per_channel_statistics.",
+        "vae_decoder",
+        "vae_decoder.per_channel_statistics.",
+        leaf_map=_STATS_DECODER,
+    ),
     Route("encoder.", "vae_encoder", "vae_encoder."),
     Route("decoder.", "vae_decoder", "vae_decoder."),
+    Route(
+        "audio_vae.per_channel_statistics.",
+        "audio_vae",
+        "audio_vae.per_channel_statistics.",
+        leaf_map=_STATS_ENCODER,
+    ),
     Route("audio_vae.", "audio_vae", "audio_vae."),
+    # 2.5 nests the base vocoder one level deeper than 2.3 did; bwe_generator
+    # and mel_stft sit at the top level in both. Collapse only the doubled
+    # segment, and let the shorter route carry the other two through.
+    Route("vocoder.vocoder.", "vocoder", "vocoder."),
     Route("vocoder.", "vocoder", "vocoder."),
     Route("model.diffusion_model.", "transformer", "transformer."),
     Route("diffusion_model.", "transformer", "transformer."),
     Route("transformer.", "transformer", "transformer."),
 )
+
+
+# ---------------------------------------------------------------------------
+# Convolution layout
+#
+# MLX puts the input-channel axis LAST; PyTorch puts it second. Every LTX
+# release before 2.5 reached us already permuted, because `mlx-forge` did it
+# during conversion — which is why the vendored package says flatly that all
+# weights must be in MLX format on disk and that a PyTorch-format tensor is a
+# converter bug, not something to work around at load time. 2.5 is the first
+# checkpoint we convert ourselves, so the permutation has to live here.
+#
+# The DiT and the connector are pure Linear (rank <= 2) and are untouched;
+# every affected tensor is in the VAEs, the vocoder and the upscalers. The
+# table below is not inferred from module names — it was derived by diffing
+# every shared key of the freshly converted 2.5 pack against the shipped 2.3
+# pack, which is ground truth for MLX layout. All 768 differing tensors are
+# explained by exactly four permutations, with no exceptions and no leftovers.
+# ---------------------------------------------------------------------------
+
+CONV_PERMUTATIONS: dict[int, tuple[int, ...]] = {
+    3: (0, 2, 1),        # Conv1d          (O, I, K)       -> (O, K, I)
+    4: (0, 2, 3, 1),     # Conv2d          (O, I, H, W)    -> (O, H, W, I)
+    5: (0, 2, 3, 4, 1),  # Conv3d          (O, I, D, H, W) -> (O, D, H, W, I)
+}
+
+#: ConvTranspose1d stores (I, O, K) and needs (O, K, I) — a different rank-3
+#: permutation from Conv1d's. In the LTX vocoder these are exactly the
+#: upsampling stacks: 11 tensors, all ``*.ups.<n>.weight``, and no Conv1d
+#: weight anywhere in the pack matches that pattern.
+CONV_TRANSPOSE_1D_PERM: tuple[int, ...] = (1, 2, 0)
+_CONV_TRANSPOSE_MARKER = ".ups."
+
+
+def conv_permutation(key: str, shape: list) -> tuple[int, ...] | None:
+    """The axis permutation this tensor needs, or ``None`` to copy verbatim.
+
+    Rank alone decides. Restricting this to ``*.weight`` looks safer and is
+    wrong: the vocoder's anti-aliasing resamplers carry their kernels as
+    ``*.filter`` buffers, 402 of them, in the very same channel layout as a
+    Conv1d weight. In the 2.3 pack — ground truth — **every** tensor of rank 3,
+    4 or 5 is permuted and none is left alone, so a name-based predicate can
+    only ever be a way to miss some.
+    """
+    if len(shape) not in CONV_PERMUTATIONS:
+        return None
+    if len(shape) == 3 and _CONV_TRANSPOSE_MARKER in key:
+        return CONV_TRANSPOSE_1D_PERM
+    return CONV_PERMUTATIONS[len(shape)]
+
+
+def permuted_shape(shape: list, perm: tuple[int, ...]) -> list:
+    return [shape[i] for i in perm]
+
+
+def permute_bytes(raw: bytes, shape: list, perm: tuple[int, ...], itemsize: int) -> bytes:
+    """Reorder axes without interpreting the element type.
+
+    Views the payload as raw bytes with a trailing element axis, so bf16 —
+    which numpy has no native dtype for — permutes exactly like anything else.
+    A permutation moves numbers; it never changes one.
+    """
+    import numpy as np
+
+    arr = np.frombuffer(raw, dtype=np.uint8).reshape(*shape, itemsize)
+    return np.ascontiguousarray(arr.transpose(*perm, len(shape))).tobytes()
 
 
 def rename_key(key: str) -> str:
@@ -172,14 +299,31 @@ def rename_key(key: str) -> str:
     return key
 
 
-def route_key(key: str, routes: tuple[Route, ...]) -> Route | None:
-    """Longest-prefix match. Returns ``None`` when nothing claims the key."""
-    best: Route | None = None
+def apply_leaf_map(key: str, leaf_map: tuple[tuple[str, str], ...]) -> str:
+    for old, new in leaf_map:
+        if key.endswith(old):
+            return key[: -len(old)] + new
+    return key
+
+
+def route_key(key: str, routes: tuple[Route, ...]) -> list[Route]:
+    """Longest-prefix match, returning EVERY route that ties for longest.
+
+    Returns an empty list when nothing claims the key. Ties are meaningful:
+    two routes sharing a source prefix duplicate one source tensor into two
+    output components (the video VAE's per-channel statistics need exactly
+    that, under a different leaf name in each).
+    """
+    best = -1
+    winners: list[Route] = []
     for route in routes:
         if key.startswith(route.source_prefix):
-            if best is None or len(route.source_prefix) > len(best.source_prefix):
-                best = route
-    return best
+            length = len(route.source_prefix)
+            if length > best:
+                best, winners = length, [route]
+            elif length == best:
+                winners.append(route)
+    return winners
 
 
 # ---------------------------------------------------------------------------
@@ -196,10 +340,17 @@ class PlannedTensor:
     source_end: int
     dtype: str
     shape: list
+    permute: tuple = ()
+    """Axis permutation from the source's layout to MLX's. Empty = verbatim."""
 
     @property
     def nbytes(self) -> int:
+        # A permutation reorders bytes; it never adds or removes any.
         return self.source_end - self.source_begin
+
+    @property
+    def target_shape(self) -> list:
+        return permuted_shape(self.shape, self.permute) if self.permute else self.shape
 
 
 @dataclass
@@ -218,7 +369,7 @@ class UnmappedKeys(RuntimeError):
 
 
 def plan_conversion(
-    inputs: list[Path],
+    inputs: list[Path] | list[tuple[Path, str | None]],
     routes: tuple[Route, ...] = DEFAULT_ROUTES,
     *,
     transformer_stem: str = "transformer",
@@ -226,13 +377,31 @@ def plan_conversion(
 ) -> tuple[dict[str, ComponentPlan], list[str], dict]:
     """Decide every output byte before reading a single weight.
 
+    Each input is either a path (routed by key prefix) or a ``(path, stem)``
+    pair. An explicit stem is a **fallback for keys the route table does not
+    claim**, not an override: routed keys still go where the table says.
+
+    That fallback is what makes two otherwise-impossible files convertible.
+    The latent upscalers ship bare, unprefixed keys (``final_conv.*``,
+    ``res_blocks.*``) that are byte-identical between the spatial and the
+    temporal file — nothing in the key can say which component it is, only the
+    filename can. And the text encoder ships the DiT's text projection
+    (``text_embedding_projection.*``, which belongs in the connector) sitting
+    beside a 26 GB Gemma tower (which does not belong in this pack at all);
+    because the fallback yields to the route table, one pass puts each where it
+    goes.
+
     Returns ``(plans_by_stem, unmapped_source_keys, source_metadata)``.
     """
     plans: dict[str, ComponentPlan] = {}
     unmapped: list[str] = []
     merged_metadata: dict = {}
 
-    for path in inputs:
+    normalised: list[tuple[Path, str | None]] = [
+        item if isinstance(item, tuple) else (item, None) for item in inputs
+    ]
+
+    for path, forced_stem in normalised:
         header, data_offset = read_header(path)
         metadata = header.get("__metadata__") or {}
         for key, value in metadata.items():
@@ -241,35 +410,55 @@ def plan_conversion(
         for key, entry in header.items():
             if key == "__metadata__":
                 continue
-            route = route_key(key, routes)
-            if route is None:
+            matches = route_key(key, routes)
+            if not matches and forced_stem:
+                # Verbatim: a file pinned by name has told us nothing about its
+                # module structure, so applying the DiT's rename table would be
+                # a guess. Verified correct for the upscalers, whose 2.5 keys
+                # are identical to the 2.3 pack's once the stem prefix is added.
+                matches = [Route("", forced_stem, f"{forced_stem}.", rename=False)]
+            if not matches:
                 unmapped.append(f"{path.name}::{key}")
                 continue
 
-            stem = transformer_stem if route.stem == "transformer" else route.stem
-            suffix = key[len(route.source_prefix) :]
-            target_key = rename_key(route.target_prefix + suffix)
-
-            begin, end = entry["data_offsets"]
-            plan = plans.setdefault(stem, ComponentPlan(stem=stem))
-            plan.tensors.append(
-                PlannedTensor(
-                    target_key=target_key,
-                    source_key=key,
-                    source_path=path,
-                    source_begin=data_offset + begin,
-                    source_end=data_offset + end,
-                    dtype=entry["dtype"],
-                    shape=list(entry["shape"]),
-                )
-            )
             expected = tensor_nbytes(entry)
+            begin, end = entry["data_offsets"]
             actual = end - begin
             if expected != actual:
                 raise ValueError(
                     f"{path.name}::{key} header is self-inconsistent: "
                     f"{entry['dtype']}{entry['shape']} needs {expected} bytes, "
                     f"offsets span {actual}. Refusing to convert a corrupt file."
+                )
+
+            for route in matches:
+                stem = transformer_stem if route.stem == "transformer" else route.stem
+                suffix = key[len(route.source_prefix) :]
+                target_key = route.target_prefix + suffix
+                if route.rename:
+                    target_key = rename_key(target_key)
+                target_key = apply_leaf_map(target_key, route.leaf_map)
+
+                plan = plans.setdefault(stem, ComponentPlan(stem=stem))
+                if not plan.metadata and metadata:
+                    # Which file a component came from decides its config. The
+                    # upscalers each carry their own and they are NOT the same
+                    # shape as each other, so a single merged blob cannot serve
+                    # them: the spatial one is mid_channels 1024, the temporal
+                    # 512, and building either at the other's width fails to
+                    # load with a shape error that names no cause.
+                    plan.metadata = dict(metadata)
+                plan.tensors.append(
+                    PlannedTensor(
+                        target_key=target_key,
+                        source_key=key,
+                        source_path=path,
+                        source_begin=data_offset + begin,
+                        source_end=data_offset + end,
+                        dtype=entry["dtype"],
+                        shape=list(entry["shape"]),
+                        permute=conv_permutation(target_key, list(entry["shape"])) or (),
+                    )
                 )
 
     if unmapped and not allow_unmapped:
@@ -330,7 +519,7 @@ def write_component(
     for tensor in plan.tensors:
         header[tensor.target_key] = {
             "dtype": tensor.dtype,
-            "shape": tensor.shape,
+            "shape": tensor.target_shape,
             "data_offsets": [cursor, cursor + tensor.nbytes],
         }
         cursor += tensor.nbytes
@@ -368,6 +557,27 @@ def write_component(
                 for tensor in plan.tensors:
                     fh = handles[tensor.source_path]
                     fh.seek(tensor.source_begin)
+                    if tensor.permute:
+                        # Bounded: the largest permuted tensor in the 2.5 pack
+                        # is the spatial upscaler's 75 MB Conv2d. Still one
+                        # tensor resident, never one checkpoint.
+                        raw = fh.read(tensor.nbytes)
+                        if len(raw) != tensor.nbytes:
+                            raise IOError(
+                                f"{tensor.source_path.name}: truncated reading {tensor.source_key}"
+                            )
+                        itemsize = DTYPE_SIZES[tensor.dtype]
+                        buf = permute_bytes(raw, tensor.shape, tensor.permute, itemsize)
+                        if len(buf) != tensor.nbytes:
+                            raise IOError(
+                                f"{tensor.target_key}: permutation changed the byte count "
+                                f"({len(buf)} vs {tensor.nbytes})"
+                            )
+                        out.write(buf)
+                        digest.update(buf)
+                        written += len(buf)
+                        del raw, buf
+                        continue
                     remaining = tensor.nbytes
                     while remaining:
                         chunk = fh.read(min(chunk_size, remaining))
@@ -409,21 +619,47 @@ def write_json_sidecars(out_dir: Path, metadata: dict, plans: dict[str, Componen
     pack readable by code that predates header-config support.
     """
     written: list[Path] = []
-    config = {}
-    raw = metadata.get("config")
-    if raw:
+
+    def parse(raw):
+        if not raw:
+            return {}
         try:
-            config = json.loads(raw) if isinstance(raw, str) else dict(raw)
+            return json.loads(raw) if isinstance(raw, str) else dict(raw)
         except (json.JSONDecodeError, TypeError):
-            config = {}
+            return {}
+
+    config = parse(metadata.get("config"))
     if "model_version" in metadata and "model_version" not in config:
         config["model_version"] = metadata["model_version"]
 
+    # embedded_config.json is the UNION of every component's own config, keyed
+    # by the section names the components already use ("transformer", "vae",
+    # "audio_vae", "vocoder", "scheduler") — the same shape the 2.3 pack ships.
+    # 2.5 splits that blob across the component files; reassembling it here is
+    # what keeps a 2.5 pack readable by the ordinary config path.
+    embedded = dict(config)
+    for plan in plans.values():
+        for key, value in parse(plan.metadata.get("config")).items():
+            embedded.setdefault(key, value)
+
     if config:
-        for name in ("config.json", "embedded_config.json"):
-            path = out_dir / name
-            path.write_text(json.dumps(config, indent=2))
-            written.append(path)
+        (out_dir / "config.json").write_text(json.dumps(config, indent=2))
+        written.append(out_dir / "config.json")
+    if embedded:
+        (out_dir / "embedded_config.json").write_text(json.dumps(embedded, indent=2))
+        written.append(out_dir / "embedded_config.json")
+
+    # Per-component sidecar for anything the pipeline builds from a
+    # "<stem>_config.json" beside the weights. Today that is the latent
+    # upscalers, and the file itself says so via _class_name — so this keys off
+    # the checkpoint's own declaration rather than off a filename convention.
+    for stem, plan in sorted(plans.items()):
+        own = parse(plan.metadata.get("config"))
+        if own.get("_class_name") != "LatentUpsampler":
+            continue
+        path = out_dir / f"{stem}_config.json"
+        path.write_text(json.dumps({"config": own}, indent=2))
+        written.append(path)
 
     split = {
         "components": sorted(plans),
@@ -464,21 +700,51 @@ def human(n: int) -> str:
     return f"{n}"
 
 
+def parse_input_spec(raw: str) -> tuple[Path, str | None]:
+    """``PATH`` or ``PATH=STEM``.
+
+    The stem form pins a whole file to one output component. Split on the last
+    ``=`` only when the right-hand side looks like a stem rather than part of a
+    path, so a directory containing ``=`` still works.
+    """
+    if "=" in raw:
+        head, _, tail = raw.rpartition("=")
+        if head and tail and "/" not in tail and not tail.endswith(".safetensors"):
+            return Path(head), tail
+    return Path(raw), None
+
+
 def convert(
-    inputs: list[Path],
+    inputs: list[tuple[Path, str | None]],
     out_dir: Path,
     *,
     transformer_stem: str = "transformer",
     allow_unmapped: bool = False,
     dry_run: bool = False,
+    skip_stems: tuple[str, ...] = (),
 ) -> dict:
     plans, unmapped, metadata = plan_conversion(
         inputs, transformer_stem=transformer_stem, allow_unmapped=allow_unmapped
     )
 
+    # A skipped stem is PLANNED and reported, then not written — for components
+    # another tool owns. That is categorically different from --allow-unmapped:
+    # the keys are still accounted for by name, so nothing can go missing
+    # unnoticed. It exists because the text encoder's Gemma tower travels in the
+    # same file as the connector's text projection but belongs in its own pack.
+    skipped = {stem: plans.pop(stem) for stem in skip_stems if stem in plans}
+
     total = sum(plan.nbytes for plan in plans.values())
     report = {
-        "components": {stem: {"tensors": len(p.tensors), "bytes": p.nbytes} for stem, p in sorted(plans.items())},
+        "components": {
+            stem: {
+                "tensors": len(p.tensors),
+                "bytes": p.nbytes,
+                "permuted": sum(1 for t in p.tensors if t.permute),
+            }
+            for stem, p in sorted(plans.items())
+        },
+        "skipped": {stem: {"tensors": len(p.tensors), "bytes": p.nbytes} for stem, p in sorted(skipped.items())},
         "total_bytes": total,
         "unmapped": unmapped,
         "metadata_keys": sorted(metadata),
@@ -513,7 +779,14 @@ def convert(
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--input", action="append", required=True, type=Path, help="source safetensors (repeatable)")
+    parser.add_argument(
+        "--input",
+        action="append",
+        required=True,
+        help="source safetensors, repeatable. Use PATH=STEM to pin a whole file "
+        "to one output component (needed for the latent upscalers, whose keys "
+        "carry no component name).",
+    )
     parser.add_argument("--output", required=True, type=Path, help="destination pack directory")
     parser.add_argument(
         "--transformer-stem",
@@ -522,6 +795,14 @@ def main(argv=None) -> int:
         "use transformer-dev for the full/trainable checkpoint)",
     )
     parser.add_argument("--dry-run", action="store_true", help="plan and report, write nothing")
+    parser.add_argument(
+        "--skip-stem",
+        action="append",
+        default=[],
+        help="plan and report this component but do not write it (repeatable). "
+        "For components another tool owns — unlike --allow-unmapped, the keys "
+        "are still named in the report, so nothing vanishes unnoticed.",
+    )
     parser.add_argument("--allow-unmapped", action="store_true", help="do not abort on unroutable keys")
     parser.add_argument(
         "--i-know-what-im-dropping",
@@ -530,7 +811,8 @@ def main(argv=None) -> int:
     )
     args = parser.parse_args(argv)
 
-    for path in args.input:
+    specs = [parse_input_spec(raw) for raw in args.input]
+    for path, _ in specs:
         if not path.exists():
             print(f"error: {path} does not exist", file=sys.stderr)
             return 2
@@ -546,11 +828,12 @@ def main(argv=None) -> int:
 
     try:
         report = convert(
-            args.input,
+            specs,
             args.output,
             transformer_stem=args.transformer_stem,
             allow_unmapped=args.allow_unmapped,
             dry_run=args.dry_run,
+            skip_stems=tuple(args.skip_stem),
         )
     except UnmappedKeys as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -558,8 +841,11 @@ def main(argv=None) -> int:
 
     print()
     for stem, info in report["components"].items():
-        print(f"{stem:24s} {info['tensors']:6d} tensors  {human(info['bytes'])}")
-    print(f"{'TOTAL':24s} {'':6s}          {human(report['total_bytes'])}")
+        perm = f"  ({info['permuted']} conv-permuted)" if info.get("permuted") else ""
+        print(f"{stem:34s} {info['tensors']:6d} tensors  {human(info['bytes'])}{perm}")
+    print(f"{'TOTAL':34s} {'':6s}          {human(report['total_bytes'])}")
+    for stem, info in report.get("skipped", {}).items():
+        print(f"{'(skipped) ' + stem:34s} {info['tensors']:6d} tensors  {human(info['bytes'])}")
     if report["unmapped"]:
         print(f"\nWARNING: {len(report['unmapped'])} unmapped source tensors were dropped.", file=sys.stderr)
     if args.dry_run:
