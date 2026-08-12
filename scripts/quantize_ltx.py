@@ -657,6 +657,32 @@ def add_vendored_to_path() -> None:
             sys.path.insert(0, p)
 
 
+def _pack_config(out_path: Path) -> Any:
+    """The written pack's own architecture, or ``None`` if it declares none.
+
+    Prefers the safetensors header (LTX-2.5 carries ``__metadata__["config"]``
+    with the weights) and falls back to the sibling ``config.json`` /
+    ``embedded_config.json`` that 2.3-era packs use. Returning ``None`` keeps
+    the pre-2.5 behaviour — hardcoded defaults — for a checkpoint that says
+    nothing about itself.
+    """
+    from ltx_core_mlx.model.transformer.model import LTXModelConfig
+
+    for reader, arg in (
+        (getattr(LTXModelConfig, "from_checkpoint_file", None), out_path),
+        (getattr(LTXModelConfig, "from_checkpoint_dir", None), out_path.parent),
+    ):
+        if reader is None:
+            continue
+        try:
+            cfg = reader(arg)
+        except Exception:
+            continue
+        if cfg is not None:
+            return cfg
+    return None
+
+
 def verify_load_ltx_dit(out_path: Path, config: Any = None) -> dict:
     """Full round-trip through the VENDORED loader.
 
@@ -668,10 +694,17 @@ def verify_load_ltx_dit(out_path: Path, config: Any = None) -> dict:
     production shape.
     """
     add_vendored_to_path()
-    from ltx_core_mlx.model.transformer.model import LTXModel
+    from ltx_core_mlx.model.transformer.model import LTXModel, LTXModelConfig
     from ltx_core_mlx.utils.weights import _detect_quantization_bits, apply_quantization, load_split_safetensors
 
     weights = load_split_safetensors(out_path, prefix="transformer.")
+    if config is None:
+        # Build the reference model from the CHECKPOINT's architecture, not
+        # from the dataclass defaults. The defaults are LTX-2.3's, and the
+        # generation-varying flags are exactly the ones that decide which
+        # parameters exist — so defaulting here would fail a correct 2.5 pack
+        # and, worse, would pass a 2.5 pack that had silently lost them.
+        config = _pack_config(out_path)
     dit = LTXModel(config) if config is not None else LTXModel()
     detected = _detect_quantization_bits(weights)
     apply_quantization(dit, weights)
@@ -681,7 +714,23 @@ def verify_load_ltx_dit(out_path: Path, config: Any = None) -> dict:
 
 
 def _vendored_src(pkg: str) -> Path:
-    return Path(__file__).resolve().parents[1] / "ltx-2-mlx" / "packages" / pkg / "src"
+    """Where to import the LTX packages from.
+
+    Defaults to the app's own checkout, which is pinned to a released tag and
+    must stay that way — ``install.js`` and ``update.js`` both ``git checkout``
+    it, and the live panel runs out of that venv.
+
+    ``LTX_MLX_SRC`` points this at a different working tree. That is not a
+    convenience: a checkpoint generation newer than the pinned tag cannot be
+    round-tripped against the pinned tag at all. LTX-2.5 ships
+    ``keyframes_abs_pos_embedding``, which a v0.14.19 ``LTXModel`` does not
+    build, so the verification would report a "parameter not in model" error
+    that says nothing about the pack — the pack is fine, the reference model is
+    simply older than the weights.
+    """
+    override = os.environ.get("LTX_MLX_SRC")
+    root = Path(override).expanduser() if override else Path(__file__).resolve().parents[1] / "ltx-2-mlx"
+    return root / "packages" / pkg / "src"
 
 
 # --------------------------------------------------------------------------- #
