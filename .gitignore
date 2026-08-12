@@ -52,6 +52,16 @@ mlx_models/
 # =============================================================================
 # Third-party — installed alongside, not part of this repo
 # =============================================================================
+# A TRAILING SLASH MATCHES DIRECTORIES ONLY, NEVER SYMLINKS. That is not
+# theoretical here: Pinokio's `fs.link` step creates mlx_models / mlx_outputs /
+# panel_uploads / state as symlinks into its virtual drive, which is exactly why
+# every one of those carries a bare form as well as a slashed one below. The
+# vendored trees had only the slashed form, and it bit during the v3.8.0 release
+# build — a symlinked `ltx-2-mlx` pointing at the real install got STAGED into
+# the release commit and had to be caught by hand before the push. A vendored
+# checkout is ours to ignore whether it arrived as a real directory, a symlink,
+# or an fs.link mapping, so each entry is spelled both ways.
+ltx-2-mlx
 ltx-2-mlx/
 # The optional Hailuo H3 pack: install_h3.js clones minimax-h3-mlx INTO the
 # app directory (it has to — the panel resolves the runner relative to ROOT,
@@ -62,7 +72,9 @@ ltx-2-mlx/
 # check — every H3 user lost the update pill (#52, @Morac2). Anchored with a
 # leading slash: only the clone at the repo root, never a same-named dir
 # nested inside a vendored tree.
+/minimax-h3-mlx
 /minimax-h3-mlx/
+.venv
 .venv/
 
 # =============================================================================
@@ -75,7 +87,11 @@ ltx-2-mlx/
 # Both were only ever invisible to the maintainer because his two clones carry
 # them in .git/info/exclude — users never had that, so they hit the same
 # permanently-dirty status as the H3 clone above (#52).
+# Both spelled twice for the symlink reason documented in the third-party
+# section above — a symlinked `cache` or `logs` is the #52 shape all over again.
+/cache
 /cache/
+/logs
 /logs/
 
 # =============================================================================
