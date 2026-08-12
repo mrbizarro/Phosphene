@@ -1,13 +1,11 @@
 {
   "_comment": "Single source of truth for what counts as a complete install. Read by pinokio.js (sidebar menu), mlx_ltx_panel.py (/status, /models, run-time job validation), and consumed indirectly by install.js + download_q8.js (whose `hf download` calls land files at the local_dir paths listed below). When the upstream model layout changes, edit ONE file.",
-
-  "_download_include_comment": "Y1.024 — `download_include` is the list of patterns passed as `--include` flags to `hf download`. Without it `hf download` grabs every file in the repo, which on dgrauet's LTX repos means duplicate transformer variants (transformer-distilled.safetensors AND transformer-distilled-1.1.safetensors AND transformer-dev.safetensors), duplicate distilled LoRAs (-384 and -384-1.1), the temporal upscaler we don't wire, and the x1.5 spatial upscaler we don't use — turning a declared 25 GB Q8 download into 82 GB on disk (and a 25 GB Q4 into 56 GB). With `download_include` we pull only what the panel actually loads. Pattern syntax: huggingface_hub fnmatch globs — bare filenames and wildcards both work. We pass `*.json` to keep all sidecar configs (split_model.json etc.) which are tiny and required at runtime.",
-
+  "_download_include_comment": "Y1.024 \u2014 `download_include` is the list of patterns passed as `--include` flags to `hf download`. Without it `hf download` grabs every file in the repo, which on dgrauet's LTX repos means duplicate transformer variants (transformer-distilled.safetensors AND transformer-distilled-1.1.safetensors AND transformer-dev.safetensors), duplicate distilled LoRAs (-384 and -384-1.1), the temporal upscaler we don't wire, and the x1.5 spatial upscaler we don't use \u2014 turning a declared 25 GB Q8 download into 82 GB on disk (and a 25 GB Q4 into 56 GB). With `download_include` we pull only what the panel actually loads. Pattern syntax: huggingface_hub fnmatch globs \u2014 bare filenames and wildcards both work. We pass `*.json` to keep all sidecar configs (split_model.json etc.) which are tiny and required at runtime.",
   "repos": [
     {
       "key": "q4",
       "kind": "base",
-      "name": "LTX 2.3 — Q4 (base model, distilled)",
+      "name": "LTX 2.3 \u2014 Q4 (base model, distilled)",
       "blurb": "Required. Drives Quick / Balanced / Standard renders.",
       "repo_id": "dgrauet/ltx-2.3-mlx-q4",
       "local_dir": "mlx_models/ltx-2.3-mlx-q4",
@@ -50,7 +48,7 @@
     {
       "key": "q8",
       "kind": "optional",
-      "name": "LTX 2.3 — Q8 (high-quality + FFLF)",
+      "name": "LTX 2.3 \u2014 Q8 (high-quality + FFLF)",
       "blurb": "Optional. Unlocks High quality and keyframe (FFLF) interpolation.",
       "repo_id": "dgrauet/ltx-2.3-mlx-q8",
       "local_dir": "mlx_models/ltx-2.3-mlx-q8",
@@ -81,7 +79,7 @@
       "key": "ic_colorize",
       "kind": "optional",
       "name": "Colorize IC-LoRA (community)",
-      "blurb": "Optional. Powers the Colorize restore mode — adds natural color to a B&W source clip. Un-gated community weights (no HF token).",
+      "blurb": "Optional. Powers the Colorize restore mode \u2014 adds natural color to a B&W source clip. Un-gated community weights (no HF token).",
       "repo_id": "DoctorDiffusion/LTX-2.3-IC-LoRA-Colorizer",
       "local_dir": "mlx_models/loras/ic",
       "size_gb": 1,
@@ -96,11 +94,11 @@
       ]
     },
     {
-      "_comment": "Ingredients (flagship multi-reference) IC-LoRA. BYTE-IDENTICAL to the gated official Lightricks/LTX-2.3-22b-IC-LoRA-Ingredients (same 1308778338-byte size, sha256 515e4e139001ac6282357a5b35372e42e98b3affd5fcc886a52242abeed19559), mirrored un-gated. WARNING: DeepBeepMeep/LTX-2 is a ~708 GB mega-repo (71 safetensors) — the download_include here pulls ONLY the one ingredients file (1.3 GB), and the worker fallback uses hf_hub_download for the exact filename, NEVER a bare snapshot_download of the whole repo.",
+      "_comment": "Ingredients (flagship multi-reference) IC-LoRA. BYTE-IDENTICAL to the gated official Lightricks/LTX-2.3-22b-IC-LoRA-Ingredients (same 1308778338-byte size, sha256 515e4e139001ac6282357a5b35372e42e98b3affd5fcc886a52242abeed19559), mirrored un-gated. WARNING: DeepBeepMeep/LTX-2 is a ~708 GB mega-repo (71 safetensors) \u2014 the download_include here pulls ONLY the one ingredients file (1.3 GB), and the worker fallback uses hf_hub_download for the exact filename, NEVER a bare snapshot_download of the whole repo.",
       "key": "ic_ingredients",
       "kind": "optional",
       "name": "Ingredients IC-LoRA",
-      "blurb": "Optional. Powers the Ingredients mode — composes 2-8 reference images (face + prop + location) into one new video. Un-gated mirror of the official weight (no HF token).",
+      "blurb": "Optional. Powers the Ingredients mode \u2014 composes 2-8 reference images (face + prop + location) into one new video. Un-gated mirror of the official weight (no HF token).",
       "repo_id": "DeepBeepMeep/LTX-2",
       "local_dir": "mlx_models/loras/ic",
       "size_gb": 2,
@@ -115,11 +113,11 @@
       ]
     },
     {
-      "_comment": "Control (Union) IC-LoRA — drives a render's motion/structure/composition from a control video. This is the OFFICIAL Lightricks weight and it is UN-GATED + public (gated:false, single 654465352-byte safetensors), so it downloads token-less exactly like the community Colorizer — NO mrbizarro mirror, NO HF token, NO mega-repo workaround. reference_downscale_factor=2 (the IC encoder halves the control clip; handled in iclora_utils).",
+      "_comment": "Control (Union) IC-LoRA \u2014 drives a render's motion/structure/composition from a control video. This is the OFFICIAL Lightricks weight and it is UN-GATED + public (gated:false, single 654465352-byte safetensors), so it downloads token-less exactly like the community Colorizer \u2014 NO mrbizarro mirror, NO HF token, NO mega-repo workaround. reference_downscale_factor=2 (the IC encoder halves the control clip; handled in iclora_utils).",
       "key": "ic_union_control",
       "kind": "optional",
       "name": "Control IC-LoRA (Union, official)",
-      "blurb": "Optional. Powers the Control mode — drives motion/structure/composition from a control video. Official un-gated Lightricks weight (no HF token).",
+      "blurb": "Optional. Powers the Control mode \u2014 drives motion/structure/composition from a control video. Official un-gated Lightricks weight (no HF token).",
       "repo_id": "Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control",
       "local_dir": "mlx_models/loras/ic",
       "size_gb": 1,
@@ -132,11 +130,66 @@
       "download_include": [
         "ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors"
       ]
+    },
+    {
+      "_comment": "LTX-2.5 Q4. Built by us (scripts/convert_ltx_mlx.py -> scripts/quantize_ltx.py) from the official Lightricks bf16 release, not by dgrauet. Mirrored through a GitHub release rather than HuggingFace, so deep-verify reads sha256 from the in-pack phosphene_quant_manifest.json (verify_source 'manifest') instead of the HF checksum API \u2014 which is why that manifest is listed as a required file. temporal_upscaler and duration_head ship because 2.5 has them and they are tiny; the x1.5 spatial upscaler does not exist for 2.5.",
+      "key": "q4_25",
+      "kind": "optional",
+      "name": "LTX 2.5 - Q4 (base model, distilled)",
+      "blurb": "Optional, preview. LTX-2.5 generation: native multishot and a duration head.",
+      "repo_id": "mrbizarro/ltx-2.5-mlx-q4",
+      "local_dir": "mlx_models/ltx-2.5-mlx-q4",
+      "size_gb": 21,
+      "files": [
+        "transformer-distilled.safetensors",
+        "connector.safetensors",
+        "vae_decoder.safetensors",
+        "vae_encoder.safetensors",
+        "audio_vae.safetensors",
+        "vocoder.safetensors",
+        "spatial_upscaler_x2_v1_1.safetensors",
+        "temporal_upscaler_x2_v1_0.safetensors",
+        "duration_head.safetensors",
+        "phosphene_quant_manifest.json"
+      ],
+      "download_include": [
+        "*.json",
+        "transformer-distilled.safetensors",
+        "connector.safetensors",
+        "vae_decoder.safetensors",
+        "vae_encoder.safetensors",
+        "audio_vae.safetensors",
+        "vocoder.safetensors",
+        "spatial_upscaler_x2_v1_1.safetensors",
+        "temporal_upscaler_x2_v1_0.safetensors",
+        "duration_head.safetensors"
+      ]
+    },
+    {
+      "_comment": "LTX-2.5's text encoder is NOT the stock Gemma 3 the 2.3 pack uses: it is a custom Gemma 4 12B fine-tune declaring model_type gemma4_unified, and the DiT's dual text projection was moved out of connector.safetensors and into it (we route that back into the connector at conversion time). Falling back to Gemma 3 would load, run, and quietly encode wrongly, so the loader refuses instead.",
+      "key": "gemma4_25",
+      "kind": "optional",
+      "name": "Gemma 4 12B (4-bit text encoder, LTX-2.5)",
+      "blurb": "Optional, preview. Required alongside the LTX 2.5 pack; it will not use the Gemma 3 encoder.",
+      "repo_id": "mrbizarro/gemma4-12b-ltx25-q4",
+      "local_dir": "mlx_models/gemma4-12b-ltx25-q4",
+      "size_gb": 7,
+      "files": [
+        "config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "model.safetensors.index.json",
+        "model-00001-of-00001.safetensors"
+      ],
+      "download_include": [
+        "*.json",
+        "*.jinja",
+        "model-*.safetensors"
+      ]
     }
   ],
-
   "env": {
-    "_comment": "Marker that the venv exists. SHIP-BLOCKER history: we used to point at `bin/python3.11` but uv creates that as a symlink chain (python3.11 -> python -> ~/pinokio/cache/.../uv/python/.../python3.11). Pinokio's info.exists() check returned false on that chain, so the menu rendered Install instead of Start even after a complete install — confirmed by cocktailpeanut. Use `pyvenv.cfg` instead: it's a tiny ASCII file uv writes to every venv root, never a symlink, never moves. `bin/activate` is the same kind of plain file; we keep it as a secondary check. The bin/python3.11 entries stay last as a final fallback for older installs.",
+    "_comment": "Marker that the venv exists. SHIP-BLOCKER history: we used to point at `bin/python3.11` but uv creates that as a symlink chain (python3.11 -> python -> ~/pinokio/cache/.../uv/python/.../python3.11). Pinokio's info.exists() check returned false on that chain, so the menu rendered Install instead of Start even after a complete install \u2014 confirmed by cocktailpeanut. Use `pyvenv.cfg` instead: it's a tiny ASCII file uv writes to every venv root, never a symlink, never moves. `bin/activate` is the same kind of plain file; we keep it as a secondary check. The bin/python3.11 entries stay last as a final fallback for older installs.",
     "marker_paths": [
       "ltx-2-mlx/env/pyvenv.cfg",
       "ltx-2-mlx/.venv/pyvenv.cfg",
@@ -146,6 +199,5 @@
       "ltx-2-mlx/.venv/bin/python3.11"
     ]
   },
-
   "min_size_bytes": 1024
 }

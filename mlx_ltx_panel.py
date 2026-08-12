@@ -337,6 +337,42 @@ MODEL_VERSIONS: tuple[dict, ...] = (
             },
         ),
     },
+    {
+        # LTX-2.5. Registered but NOT default, and deliberately inert until
+        # selected with LTX_MODEL_VERSION=ltx25.
+        #
+        # It cannot render through this panel yet, and the reason is worth
+        # stating rather than discovering: the vendored ltx-2-mlx checkout is
+        # pinned to v0.14.19, which predates 2.5 and does not build
+        # keyframes_abs_pos_embedding, the Gemma 4 tower, or the ancestral
+        # sampler. The 2.5 code lives on feat/ltx-2.5 in the fork. Until the
+        # pin moves to a 2.5-capable tag, this entry exists so the file lists,
+        # the completeness checks and the manifest verify lane are wired and
+        # reviewable — not so the panel can serve it.
+        #
+        # q4-only at launch, so the whole Q8 surface (Extend / Keyframe / High
+        # / A2V) folds away on every machine automatically. Add "q8" the day a
+        # q8 pack ships; nothing else needs touching.
+        "id": "ltx25",
+        "label": "LTX-2.5",
+        "engine_id": "ltx",
+        "config_key": "ltx-2.5",
+        "default": False,
+        "cap_tiers": ("q4",),
+        "packs": (
+            {
+                "quant": "q4",
+                "role": "base",
+                "repo_key": "q4_25",
+                "path": MODELS_DIR / "ltx-2.5-mlx-q4",
+                "hf_repo_id": "mrbizarro/ltx-2.5-mlx-q4",
+                "serves_cap_tiers": ("q4",),
+                # GitHub-release mirror: no checksum API, so expected hashes
+                # come from phosphene_quant_manifest.json inside the pack.
+                "verify_source": "manifest",
+            },
+        ),
+    },
 )
 
 # Which version this panel is driving. Env override exists so a 2.5 pack can
