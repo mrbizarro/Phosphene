@@ -11643,8 +11643,8 @@ def _validate_character_quality(form: dict[str, list[str]] | dict[str, str]) -> 
         except Exception:
             continue
         if (meta.get("kind") or "") == "train_character":
-            log_push(f"[character] raw train_character LoRA {p.name!r} at quality={quality!r} "
-                     f"on Q4 base — identity match may be imperfect")
+            push(f"[character] raw train_character LoRA {p.name!r} at quality={quality!r} "
+                 f"on Q4 base — identity match may be imperfect")
     return None
 
 
