@@ -314,8 +314,18 @@ MODEL_VERSIONS: tuple[dict, ...] = (
         "label": "LTX-2.3",
         "engine_id": "ltx",
         "config_key": "ltx-2.3",
-        "default": True,
+        # No longer the default (2026-08-12 — 2.5 is the standard), but still
+        # fully installed and selectable with LTX_MODEL_VERSION=ltx23. Existing
+        # workflows must not break, and the character LoRAs are trained against
+        # this generation until they are retrained.
+        "default": False,
         "cap_tiers": ("q4", "q8"),
+        # The text encoder is part of the generation, not of the install.
+        # 2.3 conditions on stock Gemma 3; 2.5 conditions on its own Gemma 4
+        # fine-tune. Naming it here for the same reason the DiT packs are
+        # named here: the alternative is a module-level constant that
+        # silently describes whichever generation happened to be first.
+        "text_encoder": {"repo_key": "gemma", "path": GEMMA},
         "packs": (
             {
                 "quant": "q4",
@@ -338,17 +348,26 @@ MODEL_VERSIONS: tuple[dict, ...] = (
         ),
     },
     {
-        # LTX-2.5. Registered but NOT default, and deliberately inert until
-        # selected with LTX_MODEL_VERSION=ltx25.
+        # LTX-2.5. Registered but NOT default: selected with
+        # LTX_MODEL_VERSION=ltx25.
         #
-        # It cannot render through this panel yet, and the reason is worth
-        # stating rather than discovering: the vendored ltx-2-mlx checkout is
-        # pinned to v0.14.19, which predates 2.5 and does not build
-        # keyframes_abs_pos_embedding, the Gemma 4 tower, or the ancestral
-        # sampler. The 2.5 code lives on feat/ltx-2.5 in the fork. Until the
-        # pin moves to a 2.5-capable tag, this entry exists so the file lists,
-        # the completeness checks and the manifest verify lane are wired and
-        # reviewable — not so the panel can serve it.
+        # 2026-08-12: this now RENDERS through the panel. The vendored
+        # ltx-2-mlx pin moved from v0.14.19 to the fork build 871694d, which
+        # is where keyframes_abs_pos_embedding, the Gemma 4 tower and the
+        # ancestral sampler live. Proven end to end on an isolated test
+        # instance: 2.5 q4 pack + Gemma 4 encoder, real face-forward prompt
+        # through the normal Video-tab form, video and audio both intact.
+        #
+        # It is also now the DEFAULT generation — 2.5 is the standard, 2.3
+        # stays installed and selectable rather than being retired.
+        #
+        # SHIPPING GATE, not satisfied yet: `q4_25` / `q8_25` / `gemma4_25`
+        # name mrbizarro HF repos that DO NOT EXIST PUBLICLY. Our HF token is
+        # read-only and the mirror is still open work. On a machine that
+        # already has the packs (this one) the default lane is correct; on a
+        # FRESH install it has no weights, because install.js hardcodes its
+        # download steps and none of them fetch 2.5. Publish the packs and add
+        # those steps BEFORE this default reaches users.
         #
         # Both tiers ship now. The q8 pack was built 2026-08-12 and cleared the
         # same gates the q4 pack did — 20,595,260,317 B against the 2.3 q8
@@ -362,7 +381,18 @@ MODEL_VERSIONS: tuple[dict, ...] = (
         "label": "LTX-2.5",
         "engine_id": "ltx",
         "config_key": "ltx-2.5",
-        "default": False,
+        "default": True,
+        # NOT optional and NOT interchangeable with 2.3's. 2.5 conditions on a
+        # Gemma 4 12B fine-tune (`gemma4_unified`); the vendored tower refuses
+        # to build it from anything else. The trap is that Gemma 3 12B does
+        # not fail loudly here: 3840 x (48 + 1) = 188160 is the projection
+        # width BOTH towers produce, so a 2.5 DiT fed Gemma 3 hidden states
+        # loads, runs, and returns plausible garbage with no shape ever
+        # disagreeing. Verified the hard way — the first 2.5 render through
+        # this panel was conditioned on gemma-3-12b-it-4bit and completed
+        # happily in 44 s.
+        "text_encoder": {"repo_key": "gemma4_25",
+                         "path": MODELS_DIR / "gemma4-12b-ltx25-q4"},
         "cap_tiers": ("q4", "q8"),
         "packs": (
             {
@@ -3643,16 +3673,74 @@ def base_model_dir(version_id: str | None = None) -> str:
     """Model directory for a version's BASE (distilled) pipeline, as a job
     spec wants it.
 
-    For the ACTIVE version this resolves to MODEL_ID — which is either the
-    registry's q4 pack path or whatever LTX_MODEL was pointed at — so the
-    helper loads exactly what it loads today, including HF-repo-id and
-    custom-path installs. For any OTHER registered version it is that
-    version's own q4 pack path, because LTX_MODEL only ever described the
-    active one. Stating this PER JOB rather than leaning on the helper's
-    spawn-time singleton is the seam a second version needs."""
-    if (version_id or ACTIVE_MODEL_VERSION) == ACTIVE_MODEL_VERSION:
+    Every version resolves to its own registry q4 pack, with ONE exception:
+    the version whose q4 pack is literally `Q4_LOCAL_PATH` gets `MODEL_ID`
+    instead. That is not a special case for "the default" — it is a special
+    case for **2.3 specifically**, because `MODEL_ID` is the env-aware
+    spelling of that one install: `LTX_MODEL` overrides it, and it degrades
+    to the bare HF repo id `dgrauet/ltx-2.3-mlx-q4` when the directory is
+    absent. Those two shapes have to keep working byte-for-byte.
+
+    KEYING THIS OFF PACK IDENTITY RATHER THAN DEFAULT-NESS IS LOAD-BEARING.
+    Two earlier spellings both broke, in mirror image:
+
+      `== ACTIVE_MODEL_VERSION` — read correctly only while ltx23 was the
+      sole generation and so always both default and active. The day
+      LTX_MODEL_VERSION=ltx25 made a second version active, 2.5 asked for its
+      base pipeline and was handed MODEL_ID — the 2.3 pack — and rendered 2.3
+      weights under 2.5 code, silently, at full speed. Caught by reading the
+      helper's `ready` line, not by any test.
+
+      `== default_model_version_id()` — correct until 2.5 BECAME the default,
+      at which point it hands the 2.5 generation the 2.3 pack again.
+
+    A pack's own path cannot drift out from under it, so this spelling
+    survives the default moving in either direction."""
+    wanted = version_id or ACTIVE_MODEL_VERSION
+    pack = version_pack("q4", wanted)
+    if pack is not None and Path(pack["path"]) == Q4_LOCAL_PATH:
         return str(MODEL_ID)
-    return str(pack_path("q4", version_id))
+    return str(pack_path("q4", wanted))
+
+
+def text_encoder_dir(version_id: str | None = None) -> str:
+    """Text-encoder directory for a version, as the helper's env wants it.
+
+    Each version names its own encoder in the registry, and 2.3's entry names
+    the `GEMMA` constant itself — so `LTX_GEMMA_PATH` and every existing
+    install layout are honoured byte-for-byte without a branch here. Like
+    base_model_dir(), this deliberately does NOT ask which version is the
+    default; that answer changes, and the encoder a generation needs does not.
+
+    This exists because the conditioning half of the pipeline had no seam at
+    all. `MODEL_VERSIONS` described which DiT weights a generation loads while
+    the encoder stayed a module-level constant pointing at Gemma 3, so
+    selecting 2.5 moved the transformer and left the text tower behind — and
+    the mismatch is silent (see the ltx25 entry's note on 188160)."""
+    te = model_version(version_id).get("text_encoder") or {}
+    return str(te.get("path") or GEMMA)
+
+
+def text_encoder_missing_files(version_id: str | None = None) -> list[str]:
+    """Anti-mosaic primitive for the encoder, mirroring pack_missing_files().
+
+    An encoder that is half-downloaded fails the same way a half-downloaded
+    DiT does: it loads what is there, leaves the rest at whatever the module
+    constructor produced, and renders something that looks like a bad model
+    rather than a missing file."""
+    te = model_version(version_id).get("text_encoder") or {}
+    key = te.get("repo_key")
+    if not key:
+        return []
+    repo = None
+    for r in _REQUIRED.get("repos", []):
+        if r.get("key") == key:
+            repo = r
+            break
+    if not repo:
+        return []
+    base = Path(text_encoder_dir(version_id))
+    return [f for f in (repo.get("files") or []) if not (base / f).exists()]
 
 
 def ltx_model_dir(quant: str, version_id: str | None = None) -> str:
@@ -9384,7 +9472,11 @@ class WarmHelper:
             # version and for anyone who moved the pack with LTX_Q8_LOCAL.
             # Same value as the guess on a default install.
             env["LTX_Q8_LOCAL"] = str(pack_path("q8"))
-            env["LTX_GEMMA"] = str(GEMMA)
+            # Version-aware, for the same reason LTX_MODEL is. This was
+            # `str(GEMMA)` — a constant naming Gemma 3 — so selecting LTX-2.5
+            # moved the transformer and silently left the text tower on 2.3's
+            # encoder. It renders; it just renders wrong (ltx25 entry, above).
+            env["LTX_GEMMA"] = text_encoder_dir()
             env["LTX_IDLE_TIMEOUT"] = str(HELPER_IDLE_TIMEOUT)
             env["LTX_LOW_MEMORY"] = HELPER_LOW_MEMORY
             env["LTX_ENABLE_MODEL_UPSCALE"] = "1" if MODEL_UPSCALE_ENABLED else "0"
@@ -15577,7 +15669,11 @@ def run_job_inner(job: dict) -> None:
         "started": job.get("started_at"),
         "elapsed_sec": round(time.time() - job["started_ts"], 2) if job.get("started_ts") else None,
         "video_duration_sec": video_duration(frames),
-        "fps": FPS, "model": MODEL_ID, "queue_id": job["id"],
+        # The sidecar is the clip's provenance — the one durable record of
+        # which weights made it. MODEL_ID names the DEFAULT install, so on a
+        # non-default version this recorded 2.3's pack for a 2.5 render. The
+        # job spec already resolves the right directory; report that.
+        "fps": FPS, "model": base_model_dir(), "queue_id": job["id"],
         "helper_elapsed_sec": result.get("elapsed_sec"),
         "output_codec": output_codec_settings(),
         "memory_policy": memory_plan,
@@ -21651,7 +21747,10 @@ def page() -> str:
         "presets": PRESETS, "aspects": ASPECTS,
         "default_image": str(REFERENCE),
         "default_audio": str(AUDIO_DEFAULT),
-        "fps": FPS, "model": MODEL_ID,
+        # Same fix as the sidecar: the model chip should name the generation
+        # actually loaded. Identical bytes for the default version, so a 2.3
+        # user's page.html is unchanged.
+        "fps": FPS, "model": base_model_dir(),
         "profile": PROFILE,
         "model_upscale_enabled": MODEL_UPSCALE_ENABLED,
         "pipersr_upscale_enabled": PIPERSR_UPSCALE_ENABLED,

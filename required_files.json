@@ -134,9 +134,9 @@
     {
       "_comment": "LTX-2.5 Q4. Built by us (scripts/convert_ltx_mlx.py -> scripts/quantize_ltx.py) from the official Lightricks bf16 release, not by dgrauet. Mirrored through a GitHub release rather than HuggingFace, so deep-verify reads sha256 from the in-pack phosphene_quant_manifest.json (verify_source 'manifest') instead of the HF checksum API \u2014 which is why that manifest is listed as a required file. temporal_upscaler and duration_head ship because 2.5 has them and they are tiny; the x1.5 spatial upscaler does not exist for 2.5.",
       "key": "q4_25",
-      "kind": "optional",
+      "kind": "base",
       "name": "LTX 2.5 - Q4 (base model, distilled)",
-      "blurb": "Optional, preview. LTX-2.5 generation: native multishot and a duration head.",
+      "blurb": "The default generation. LTX-2.5: native multishot and a duration head.",
       "repo_id": "mrbizarro/ltx-2.5-mlx-q4",
       "local_dir": "mlx_models/ltx-2.5-mlx-q4",
       "size_gb": 21,
@@ -202,9 +202,9 @@
     {
       "_comment": "LTX-2.5's text encoder is NOT the stock Gemma 3 the 2.3 pack uses: it is a custom Gemma 4 12B fine-tune declaring model_type gemma4_unified, and the DiT's dual text projection was moved out of connector.safetensors and into it (we route that back into the connector at conversion time). Falling back to Gemma 3 would load, run, and quietly encode wrongly, so the loader refuses instead.",
       "key": "gemma4_25",
-      "kind": "optional",
+      "kind": "base",
       "name": "Gemma 4 12B (4-bit text encoder, LTX-2.5)",
-      "blurb": "Optional, preview. Required alongside the LTX 2.5 pack; it will not use the Gemma 3 encoder.",
+      "blurb": "The default generation's text encoder. LTX-2.5 conditions on this and cannot use the Gemma 3 encoder — the mismatch is silent, not an error.",
       "repo_id": "mrbizarro/gemma4-12b-ltx25-q4",
       "local_dir": "mlx_models/gemma4-12b-ltx25-q4",
       "size_gb": 7,
