@@ -70,13 +70,23 @@ module.exports = {
     // exists and falls back to the unversioned name — and the trim step at
     // the bottom of this file removes the `-1.1` variants, so resolution
     // lands on exactly the files v0.14.8 loaded.
+    // 2026-08-12: the pin is a FORK BUILD — mrbizarro/ltx-2-mlx
+    // `feat/ltx-2.5` @ 871694d (v0.14.19 + the LTX-2.5 port). An existing
+    // install has only dgrauet as `origin`, so Update adds the fork remote
+    // before it can check the SHA out. Both steps are idempotent: the remote
+    // is added only when absent, and re-checking-out the same SHA is a no-op.
+    // The ltx-package re-install step below is what actually moves the
+    // runtime — a bare checkout leaves the old copy in site-packages.
+    // See install.js for why this is a SHA and not a tag.
     {
       method: "shell.run",
       params: {
         path: "ltx-2-mlx",
         message: [
           "git fetch --tags origin",
-          "git checkout v0.14.19",
+          "git remote get-url fork > /dev/null 2>&1 || git remote add fork https://github.com/mrbizarro/ltx-2-mlx.git",
+          "git fetch fork feat/ltx-2.5",
+          "git checkout 871694ddaa09c1598d663a49005a2f91ae6b4ed2",
           "git rev-parse --short HEAD"
         ]
       }

@@ -1838,7 +1838,19 @@ def configure_acceleration(mode: str) -> str:
 # the pin Phosphene's patches are written against, and makes ANY skew loud +
 # visible in the ready event (so every remote bug report carries it) instead
 # of letting it surface as an un-triageable TypeError mid-render.
-_LTX_EXPECTED_VERSION = "0.14.19"
+#
+# 2026-08-12: this is a FORK BUILD, not an upstream tag. The vendored checkout
+# is mrbizarro/ltx-2-mlx `feat/ltx-2.5` at 871694d — v0.14.19 plus the LTX-2.5
+# port (keyframe pos-emb, Gemma 4 tower, ancestral sampler). The release
+# segment stays 0.14.19 because that is genuinely what it branches from; the
+# `+ltx25.1` local segment is what makes the two distinguishable.
+#
+# That local segment exists FOR this gate. The fork originally carried the bare
+# string "0.14.19", so a 2.5 runtime reported `match: true` against the 2.3 pin
+# — a skew gate blind to the one skew that mattered. Bumping the pin here
+# without bumping the packages (or the reverse) puts it back into permanent
+# SKEW warnings, so the two move together or not at all.
+_LTX_EXPECTED_VERSION = "0.14.19+ltx25.1"
 
 
 def _detect_ltx_version() -> dict:

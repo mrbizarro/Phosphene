@@ -144,13 +144,36 @@ module.exports = {
     //
     //      Idempotent — works on a fresh clone (already on the cloned
     //      branch's tip) AND on a re-install where the clone exists.
+    //      2026-08-12 — THE PIN IS NOW A FORK BUILD, NOT AN UPSTREAM TAG.
+    //      Vendored: mrbizarro/ltx-2-mlx `feat/ltx-2.5` @ 871694d, which is
+    //      v0.14.19 (1192051) plus the LTX-2.5 port — keyframe pos-emb, the
+    //      vendored Gemma 4 tower, the Euler-ancestral sampler, the duration
+    //      head. dgrauet has no 2.5 branch; if he ports it we drop ours and
+    //      go back to a tag.
+    //
+    //      This is what lets LTX-2.5 render THROUGH the panel. v0.14.19 could
+    //      register the 2.5 packs but never load them: it does not build
+    //      keyframes_abs_pos_embedding and cannot construct a Gemma 4 tower.
+    //
+    //      Every 2.5 flag defaults to its 2.3 value, so an unversioned
+    //      checkpoint builds exactly what it built before — proven here by
+    //      802/22 on the vendored suite, a byte-identical job-dict capture
+    //      across 18 form shapes, and a real 2.3 draft render.
+    //
+    //      The packages report `0.14.19+ltx25.1`, and `_LTX_EXPECTED_VERSION`
+    //      in mlx_warm_helper.py must equal that string. The local segment is
+    //      the ONLY thing distinguishing this tree from upstream v0.14.19 at
+    //      runtime — the release segment is deliberately unchanged. Move the
+    //      two together.
     {
       method: "shell.run",
       params: {
         path: "ltx-2-mlx",
         message: [
           "git fetch --tags origin",
-          "git checkout v0.14.19",
+          "git remote get-url fork > /dev/null 2>&1 || git remote add fork https://github.com/mrbizarro/ltx-2-mlx.git",
+          "git fetch fork feat/ltx-2.5",
+          "git checkout 871694ddaa09c1598d663a49005a2f91ae6b4ed2",
           "git rev-parse --short HEAD"
         ]
       }
