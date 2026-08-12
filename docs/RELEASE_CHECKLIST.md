@@ -43,6 +43,44 @@ mosaic was a missing `spatial_upscaler_x2_v1_1.safetensors` in the Q4 download �
 if you touch `required_files.json` / `install.js` / `update.js` model lists,
 re-confirm a fresh Q4 install pulls it.
 
+## 3b. Weight mirror — the packs GitHub carries, not HuggingFace
+
+Only applies to packs whose `required_files.json` entry has a `mirror` block
+(the LTX-2.5 ones). They are quantised by us and published as release assets, so
+unlike an `hf download` repo **nothing publishes them but us** — and a pack that
+is not published is a fresh install with no weights, silently, only for new
+users. That is exactly how LTX-2.5 shipped as the default generation with no
+download step behind it.
+
+If you touched a mirrored pack's contents, its file list, or its `tag`:
+
+```
+python3 scripts/publish_pack_release.py --repo-key <key> --dry-run   # rehearse
+python3 scripts/publish_pack_release.py --repo-key <key> \
+    --tag <tag> --release-repo mrbizarro/Phosphene --target <PUBLIC-MAIN-SHA> \
+    --license LICENSES/LTX-2.x-Community-License.md \
+    --notice  LICENSES/NOTICE-ltx25-weights.md
+```
+
+**The tag goes on a PUBLIC `main` commit, never a dev/beta one** — check with
+`gh api repos/mrbizarro/Phosphene/commits/main --jq .sha` first. The publisher
+refuses a pack missing anything `required_files.json` calls mandatory; do not
+work around that refusal, it is the guard against shipping a pack the panel
+reports incomplete on arrival.
+
+Then prove it from zero, into an **empty** directory, against the real release:
+
+```
+ltx-2-mlx/env/bin/python3.11 scripts/fetch_pack_release.py \
+    --repo-key <key> --dest /tmp/from-zero/<pack>
+ltx-2-mlx/env/bin/python3.11 scripts/fetch_pack_release.py \
+    --repo-key <key> --dest /tmp/from-zero/<pack> --check-only
+```
+
+Exit 0 on both. For a DiT pack, finish with a real loader round-trip on the
+reassembled transformer (`verify_load_ltx_dit` in `scripts/quantize_ltx.py`) —
+sha256 proves the bytes arrived, only the loader proves they are a model.
+
 ## 4. Version + compile
 
 ```
