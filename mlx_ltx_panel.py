@@ -4557,40 +4557,73 @@ def _download_thread(repo: dict) -> None:
     download in a 3-attempt retry loop with exponential backoff. hf is
     resumable, so retries pick up from where the previous attempt
     stopped. User cancellations (DOWNLOAD["active"] flipping to False)
-    break the loop early."""
+    break the loop early.
+
+    2026-08-12 - TWO LANES, ONE RETRY LOOP. A pack whose registry entry carries
+    a `mirror` block is not on HuggingFace at all: the LTX-2.5 packs are our own
+    quantisation of a gated upstream, our HF token is read-only, and they are
+    published as GitHub release assets instead (the lane the sample-character
+    LoRA already takes). For those we spawn `scripts/fetch_pack_release.py`
+    instead of `hf`. Only the COMMAND differs -- the retry/backoff, the
+    line-streaming into the panel log, the single download slot and
+    cancel-by-killing-the-process-group are all shared, because the alternative
+    is a second downloader that drifts from this one."""
     repo_id = repo["repo_id"]
     target = ROOT / repo["local_dir"]
     target.mkdir(parents=True, exist_ok=True)
-    cmd = [str(HF_BIN), "download", repo_id, "--local-dir", str(target)]
-    # Y1.024 — apply --include filter when the repo entry declares one. Without
-    # it `hf download` grabs every file in the upstream repo. dgrauet's LTX
-    # repos host duplicate transformer variants (-distilled, -distilled-1.1,
-    # -dev), duplicate distilled LoRAs, and unused upscalers — turning a
-    # declared 25 GB Q8 into 82 GB on disk and a 25 GB Q4 into 56 GB.
-    # `download_include` is the explicit allowlist of patterns we ship to
-    # the user; everything else stays on the Hub. See required_files.json
-    # for the comment block on this.
-    include_patterns = repo.get("download_include") or []
-    for pat in include_patterns:
-        cmd.extend(["--include", pat])
-    if include_patterns:
-        push(f"[hf] filtering {repo_id} download to {len(include_patterns)} pattern(s) — only the files the panel actually loads.")
-    push(f"[hf] {repo_id} → {target} (~{repo.get('size_gb','?')} GB) — resumable")
-
-    # Build the env once. HF_HUB_ENABLE_HF_TRANSFER=1 turns on the Rust
-    # downloader; if hf_transfer isn't installed the hf CLI logs a warning
-    # and falls back to the Python downloader (slower but still works).
-    # HF_TOKEN unlocks faster throughput for users who configured a token
-    # in Settings — anonymous HF is throttled hard.
+    mirror = repo.get("mirror") or {}
+    is_release_mirror = mirror.get("kind") == "github-release"
     env = os.environ.copy()
-    env["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
-    hf_token = _active_hf_token()
-    if hf_token:
-        env["HF_TOKEN"] = hf_token
-        env["HUGGING_FACE_HUB_TOKEN"] = hf_token
-        push(f"[hf] using authenticated download (HF token configured) — ~10× faster than anonymous.")
+
+    if is_release_mirror:
+        # sys.executable, not HF_BIN: the fetcher is stdlib-only and runs under
+        # the panel's own interpreter. No hf, no token, no Hub. It shards, it
+        # resumes, and it refuses to rename a file into place until the
+        # reassembled sha256 matches the published manifest.
+        dl_tag = "mirror"
+        cmd = [sys.executable, str(ROOT / "scripts" / "fetch_pack_release.py"),
+               "--repo-key", str(repo.get("key") or ""), "--root", str(ROOT)]
+        push(f"[mirror] {repo.get('key')} → {target} (~{repo.get('size_gb','?')} GB) "
+             f"from the {mirror.get('release_repo')} release "
+             f"{mirror.get('tag')} — sharded, sha256-verified, resumable")
     else:
-        push(f"[hf] no HF token configured — downloads run on the throttled anonymous tier. Set one in Settings → Hugging Face token for ~10× faster downloads.")
+        dl_tag = "hf"
+        cmd = [str(HF_BIN), "download", repo_id, "--local-dir", str(target)]
+        # Y1.024 - apply --include filter when the repo entry declares one.
+        # Without it `hf download` grabs every file in the upstream repo.
+        # dgrauet's LTX repos host duplicate transformer variants (-distilled,
+        # -distilled-1.1, -dev), duplicate distilled LoRAs, and unused
+        # upscalers - turning a declared 25 GB Q8 into 82 GB on disk and a
+        # 25 GB Q4 into 56 GB. `download_include` is the explicit allowlist of
+        # patterns we ship to the user; everything else stays on the Hub. See
+        # required_files.json for the comment block on this.
+        include_patterns = repo.get("download_include") or []
+        for pat in include_patterns:
+            cmd.extend(["--include", pat])
+        if include_patterns:
+            push(f"[hf] filtering {repo_id} download to {len(include_patterns)} pattern(s) — only the files the panel actually loads.")
+        push(f"[hf] {repo_id} → {target} (~{repo.get('size_gb','?')} GB) — resumable")
+
+        # HF_HUB_ENABLE_HF_TRANSFER=1 turns on the Rust downloader; if
+        # hf_transfer isn't installed the hf CLI logs a warning and falls back
+        # to the Python downloader (slower but still works). HF_TOKEN unlocks
+        # faster throughput for users who configured a token in Settings -
+        # anonymous HF is throttled hard. Neither applies to the mirror lane,
+        # which is why they live inside this branch.
+        env["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+        hf_token = _active_hf_token()
+        if hf_token:
+            env["HF_TOKEN"] = hf_token
+            env["HUGGING_FACE_HUB_TOKEN"] = hf_token
+            push(f"[hf] using authenticated download (HF token configured) — ~10× faster than anonymous.")
+        else:
+            push(f"[hf] no HF token configured — downloads run on the throttled anonymous tier. Set one in Settings → Hugging Face token for ~10× faster downloads.")
+
+    # What to call this download in the log. A mirrored pack has no meaningful
+    # `repo_id` (it names an HF repo that does not exist), so it is identified
+    # by registry key + release tag instead.
+    dl_label = (f"{repo.get('key')} ({mirror.get('tag')})"
+                if is_release_mirror else repo_id)
 
     max_attempts = 3
     backoff_sec = 5
@@ -4598,10 +4631,10 @@ def _download_thread(repo: dict) -> None:
         for attempt in range(1, max_attempts + 1):
             with DOWNLOAD_LOCK:
                 if not DOWNLOAD["active"]:
-                    push(f"[hf] {repo_id} cancelled before attempt {attempt}.")
+                    push(f"[{dl_tag}] {dl_label} cancelled before attempt {attempt}.")
                     break
             if attempt > 1:
-                push(f"[hf] {repo_id} attempt {attempt}/{max_attempts} — resuming from where the previous attempt stopped.")
+                push(f"[{dl_tag}] {dl_label} attempt {attempt}/{max_attempts} — resuming from where the previous attempt stopped.")
             try:
                 proc = subprocess.Popen(
                     cmd,
@@ -4613,7 +4646,7 @@ def _download_thread(repo: dict) -> None:
                     start_new_session=True,
                 )
             except Exception as exc:
-                push(f"[hf] failed to spawn hf: {exc}")
+                push(f"[{dl_tag}] failed to spawn the downloader: {exc}")
                 break
             with DOWNLOAD_LOCK:
                 DOWNLOAD["proc"] = proc
@@ -4635,22 +4668,22 @@ def _download_thread(repo: dict) -> None:
                     if line:
                         with DOWNLOAD_LOCK:
                             DOWNLOAD["last_line"] = line[:200]
-                        push(f"[hf:{repo['key']}] {line[:300]}")
+                        push(f"[{dl_tag}:{repo['key']}] {line[:300]}")
                 else:
                     buf += ch
             if buf.strip():
-                push(f"[hf:{repo['key']}] {buf.strip()[:300]}")
+                push(f"[{dl_tag}:{repo['key']}] {buf.strip()[:300]}")
             rc = proc.wait()
             if rc == 0:
-                push(f"[hf] {repo_id} downloaded successfully.")
+                push(f"[{dl_tag}] {dl_label} downloaded successfully.")
                 break
             with DOWNLOAD_LOCK:
                 still_active = DOWNLOAD["active"]
             if not still_active:
-                push(f"[hf] {repo_id} cancelled (exit {rc}).")
+                push(f"[{dl_tag}] {dl_label} cancelled (exit {rc}).")
                 break
             if attempt < max_attempts:
-                push(f"[hf] {repo_id} attempt {attempt} failed (exit {rc}). Retrying in {backoff_sec}s — hf will resume from the last completed file.")
+                push(f"[{dl_tag}] {dl_label} attempt {attempt} failed (exit {rc}). Retrying in {backoff_sec}s — the downloader resumes from where it stopped.")
                 # Sleep in 1-second slices so a cancel during backoff is responsive.
                 for _ in range(backoff_sec):
                     time.sleep(1)
@@ -4659,9 +4692,9 @@ def _download_thread(repo: dict) -> None:
                             break
                 backoff_sec = min(backoff_sec * 2, 60)   # 5 → 10 → 20s cap by attempt 3
             else:
-                push(f"[hf] {repo_id} FAILED after {max_attempts} attempts (last exit {rc}). Click Download again to keep retrying — hf will resume.")
+                push(f"[{dl_tag}] {dl_label} FAILED after {max_attempts} attempts (last exit {rc}). Click Download again to keep retrying — it resumes.")
     except Exception as exc:
-        push(f"[hf] {repo_id} crashed: {exc}")
+        push(f"[{dl_tag}] {dl_label} crashed: {exc}")
     finally:
         with DOWNLOAD_LOCK:
             DOWNLOAD["active"] = False
@@ -21135,7 +21168,10 @@ class Handler(BaseHTTPRequestHandler):
             if not repo:
                 self._json({"error": f"unknown repo key: {key!r}. Valid keys: "
                                      f"{[r['key'] for r in _repos()]}"}, 400); return
-            if HF_BIN is None:
+            # A GitHub-release-mirrored pack does not go through `hf` at all
+            # (scripts/fetch_pack_release.py is stdlib-only), so a missing hf
+            # binary must not block the one lane that never needed it.
+            if HF_BIN is None and (repo.get("mirror") or {}).get("kind") != "github-release":
                 self._json({"error": "hf binary not found. Reinstall Phosphene "
                                      "or install huggingface_hub>=1.0 in the venv."}, 500); return
             with DOWNLOAD_LOCK:
@@ -21203,7 +21239,7 @@ class Handler(BaseHTTPRequestHandler):
             if not bad:
                 self._json({"ok": True, "nothing_to_repair": True,
                             "note": f"no corrupt files detected for {key!r}"}); return
-            if HF_BIN is None:
+            if HF_BIN is None and (repo.get("mirror") or {}).get("kind") != "github-release":
                 self._json({"error": "hf binary not found. Reinstall Phosphene."}, 500); return
             target = Q8_LOCAL_PATH if key == "q8" else (ROOT / repo["local_dir"])
             deleted = []
@@ -45630,8 +45666,8 @@ async function refreshModelsModal({ silent = false } = {}) {
   const repos = data.repos || [];
   const active = data.active_download;
   hint.innerHTML = data.hf_available
-    ? `Each row shows what's on disk. Click <b>Download</b> to fetch missing files via <code>hf download</code>; progress streams to the log at the bottom of the page.`
-    : `<span style="color:var(--warning,#d29922)"><svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-fill"/></svg><code>hf</code> not found</span> — this Pinokio install doesn't have <code>huggingface_hub&gt;=1.0</code> in the venv. Run Update from Pinokio, then come back.`;
+    ? `Each row shows what's on disk. Click <b>Download</b> to fetch the missing files; progress streams to the log at the bottom of the page. Everything is resumable and checksum-verified.`
+    : `<span style="color:var(--warning,#d29922)"><svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-fill"/></svg><code>hf</code> not found</span> — this Pinokio install doesn't have <code>huggingface_hub&gt;=1.0</code> in the venv. Run Update from Pinokio, then come back. The LTX-2.5 rows do not need it — they download from a GitHub release.`;
   const rows = repos.map(r => {
     let cls, icon, statusText, btnHtml;
     if (active && active.key === r.key) {
