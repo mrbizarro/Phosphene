@@ -584,3 +584,86 @@ class TestConvLayout:
         write_component(plans["vae_encoder"], tmp_path / "out")
         header, _ = read_header(tmp_path / "out" / "vae_encoder.safetensors")
         assert header["vae_encoder.conv_in.conv.weight"]["shape"] == [4, 3, 3, 3, 2]
+
+
+class TestDiffusionVideoVAE:
+    """LTX-2.5 ships two video VAEs whose decoders share the ``decoder.`` prefix.
+
+    Routing the diffusion one with the default table would write transformer
+    weights into ``vae_decoder.safetensors`` — the filename the conv decoder
+    loads. These pin that the file's own header decides, the way ComfyUI decides.
+    """
+
+    def diffusion_tensors(self) -> dict:
+        return {
+            # The marker key, and enough of the module tree to show the shape.
+            "decoder.conv_in.weight": ("BF16", [8, 4], bf16(32)),
+            "decoder.conv_in_x_t.weight": ("BF16", [8, 12], bf16(96)),
+            "decoder.det_stages.0.0.attn.qkv.weight": ("BF16", [24, 8], bf16(192)),
+            "decoder.diff_blocks.0.scale_shift_table": ("BF16", [7, 8], bf16(56)),
+            "decoder.type_emb": ("BF16", [4], bf16(4)),
+            "encoder.conv_in.conv.weight": ("BF16", [4, 2, 3, 3, 3], bf16(4 * 2 * 27)),
+            "per_channel_statistics.mean-of-means": ("F32", [4], b"\0" * 16),
+            "per_channel_statistics.std-of-means": ("F32", [4], b"\0" * 16),
+        }
+
+    def conv_tensors(self) -> dict:
+        return {
+            "decoder.conv_in.conv.weight": ("BF16", [8, 4, 3, 3, 3], bf16(8 * 4 * 27)),
+            "per_channel_statistics.mean-of-means": ("F32", [4], b"\0" * 16),
+            "per_channel_statistics.std-of-means": ("F32", [4], b"\0" * 16),
+        }
+
+    def test_the_marker_key_alone_re_points_the_decoder(self, tmp_path):
+        src = write_safetensors(tmp_path / "diff_vae.safetensors", self.diffusion_tensors())
+        plans, unmapped, _ = plan_conversion([src])
+        assert unmapped == []
+        assert "vae_decoder" not in plans, "diffusion decoder must not claim the conv decoder's filename"
+        assert set(plans) == {"vae_decoder_diffusion", "vae_encoder"}
+
+    def test_decoder_keys_keep_the_decoder_level_the_module_tree_has(self, tmp_path):
+        src = write_safetensors(tmp_path / "diff_vae.safetensors", self.diffusion_tensors())
+        plans, _, _ = plan_conversion([src])
+        keys = {t.target_key for t in plans["vae_decoder_diffusion"].tensors}
+        assert "vae_decoder_diffusion.decoder.conv_in.weight" in keys
+        assert "vae_decoder_diffusion.decoder.conv_in_x_t.weight" in keys
+        # The wrapper owns the statistics, so those sit one level up.
+        assert "vae_decoder_diffusion.per_channel_statistics.mean" in keys
+        assert "vae_decoder_diffusion.per_channel_statistics.std" in keys
+
+    def test_type_emb_is_routed_not_dropped(self, tmp_path):
+        """Neither reference implementation reads ``decoder.type_emb``; ComfyUI loads
+        non-strictly and drops it silently. Carrying it is what lets our loader stay
+        strict — and a dropped tensor is the failure mode this converter exists to
+        prevent."""
+        src = write_safetensors(tmp_path / "diff_vae.safetensors", self.diffusion_tensors())
+        plans, unmapped, _ = plan_conversion([src])
+        assert unmapped == []
+        keys = {t.target_key for t in plans["vae_decoder_diffusion"].tensors}
+        assert "vae_decoder_diffusion.decoder.type_emb" in keys
+
+    def test_the_conv_video_vae_is_untouched_by_any_of_this(self, tmp_path):
+        src = write_safetensors(tmp_path / "conv_vae.safetensors", self.conv_tensors())
+        plans, unmapped, _ = plan_conversion([src])
+        assert unmapped == []
+        # The statistics fan out to the encoder too, as they always have.
+        assert set(plans) == {"vae_decoder", "vae_encoder"}
+        keys = {t.target_key for t in plans["vae_decoder"].tensors}
+        assert "vae_decoder.conv_in.conv.weight" in keys
+        assert "vae_decoder.per_channel_statistics.mean" in keys
+
+    def test_both_video_vaes_in_one_run_do_not_collide(self, tmp_path):
+        """They carry the same encoder and the same statistics; only the decoders
+        differ. One pass over both must yield three components, not a conflict."""
+        a = write_safetensors(tmp_path / "diff_vae.safetensors", self.diffusion_tensors())
+        b = write_safetensors(tmp_path / "conv_vae.safetensors", self.conv_tensors())
+        plans, unmapped, _ = plan_conversion([a, b])
+        assert unmapped == []
+        assert set(plans) == {"vae_decoder_diffusion", "vae_decoder", "vae_encoder"}
+
+    def test_the_decoder_carries_no_conv_and_so_no_permutation(self, tmp_path):
+        """Every tensor in this decoder is rank 1 or 2 — it is Linear all the way
+        down. If a permutation ever fires here, something is misrouted."""
+        src = write_safetensors(tmp_path / "diff_vae.safetensors", self.diffusion_tensors())
+        plans, _, _ = plan_conversion([src])
+        assert all(t.permute == () for t in plans["vae_decoder_diffusion"].tensors)

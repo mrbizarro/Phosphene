@@ -228,6 +228,66 @@ DEFAULT_ROUTES: tuple[Route, ...] = (
 
 
 # ---------------------------------------------------------------------------
+# The OTHER video VAE
+#
+# LTX-2.5 ships two video VAEs, and they differ only in the decoder half:
+#
+#   ltx-2.5-video-vae-conv-bf16.safetensors   170 tensors, legacy conv decoder
+#   ltx-2.5-video-vae-bf16.safetensors        396 tensors, NA diffusion decoder
+#
+# Both carry the SAME conv encoder and the SAME per-channel statistics, and both
+# spell their decoder ``decoder.*``. Routing the second one with the default table
+# would therefore produce a ``vae_decoder.safetensors`` full of transformer weights
+# under a filename the conv decoder loads — a shape error at best, and at worst a
+# silently wrong pack. So the decoder half of a diffusion VAE file goes to its own
+# stem, and the file is identified the way the vendor identifies it: by one key.
+# ---------------------------------------------------------------------------
+
+DIFFUSION_DECODER_STEM = "vae_decoder_diffusion"
+
+#: ComfyUI's own detection rule (``comfy/sd.py`` at the LTX-2.5 merge): the presence
+#: of this key is what selects ``CausalDiffusionVAE`` over the conv ``VideoVAE``.
+DIFFUSION_DECODER_MARKER = "decoder.conv_in_x_t.weight"
+
+
+def is_diffusion_vae_header(header: dict) -> bool:
+    return any(k == DIFFUSION_DECODER_MARKER or k.endswith("." + DIFFUSION_DECODER_MARKER) for k in header)
+
+
+def diffusion_vae_routes(routes: tuple[Route, ...]) -> tuple[Route, ...]:
+    """Re-point every decoder-bound route in ``routes`` at the diffusion stem.
+
+    The encoder routes are left exactly as they are: the encoder in this file is the
+    same conv encoder the conv VAE file carries, so it converts to the same bytes and
+    the pack ends up with one ``vae_encoder.safetensors`` either way.
+    """
+    swapped: list[Route] = []
+    for route in routes:
+        if route.stem != "vae_decoder":
+            swapped.append(route)
+            continue
+        # The conv decoder is the whole component, so its keys sit at the file root
+        # (``vae_decoder.conv_in.*``). The diffusion decoder is a *decoder inside a
+        # VAE wrapper* that also owns the per-channel statistics, so its keys keep the
+        # ``decoder.`` level the checkpoint spells. Matching the module tree here is
+        # what lets the loader run ``strict=True`` with no rename table at all.
+        if route.target_prefix == "vae_decoder.":
+            target = f"{DIFFUSION_DECODER_STEM}.decoder."
+        else:
+            target = route.target_prefix.replace("vae_decoder.", f"{DIFFUSION_DECODER_STEM}.", 1)
+        swapped.append(
+            Route(
+                source_prefix=route.source_prefix,
+                stem=DIFFUSION_DECODER_STEM,
+                target_prefix=target,
+                rename=route.rename,
+                leaf_map=route.leaf_map,
+            )
+        )
+    return tuple(swapped)
+
+
+# ---------------------------------------------------------------------------
 # Convolution layout
 #
 # MLX puts the input-channel axis LAST; PyTorch puts it second. Every LTX
@@ -407,10 +467,15 @@ def plan_conversion(
         for key, value in metadata.items():
             merged_metadata.setdefault(key, value)
 
+        # Per-file: the diffusion video VAE re-points its decoder half at its own
+        # stem. Decided from the file's own header, not from a flag, so the two video
+        # VAE files cannot be converted into each other's filename by mistake.
+        file_routes = diffusion_vae_routes(routes) if is_diffusion_vae_header(header) else routes
+
         for key, entry in header.items():
             if key == "__metadata__":
                 continue
-            matches = route_key(key, routes)
+            matches = route_key(key, file_routes)
             if not matches and forced_stem:
                 # Verbatim: a file pinned by name has told us nothing about its
                 # module structure, so applying the DiT's rename table would be
