@@ -133,6 +133,7 @@
     },
     {
       "_comment": "LTX-2.5 Q4. Built by us (scripts/convert_ltx_mlx.py -> scripts/quantize_ltx.py) from the official Lightricks bf16 release, not by dgrauet. Mirrored through a GitHub release rather than HuggingFace, so deep-verify reads sha256 from the in-pack phosphene_quant_manifest.json (verify_source 'manifest') instead of the HF checksum API \u2014 which is why that manifest is listed as a required file. temporal_upscaler and duration_head ship because 2.5 has them and they are tiny; the x1.5 spatial upscaler does not exist for 2.5.",
+      "_mirror_comment": "PUBLISHED 2026-08-12. `repo_id` names a HuggingFace repo that DOES NOT EXIST and never will \u2014 our HF token is read-only and this pack is our own quantisation of a gated upstream. It is kept only as the pack's stable identity string (the panel shows it, and `_expected_meta` never calls the HF API for a verify_source 'manifest' pack). The bytes come from the `mirror` block: GitHub release assets, sharded at 1.9 GB because the cap is 2 GiB, fetched + reassembled + sha256-verified by scripts/fetch_pack_release.py. `download_include` is inert on this lane (the release manifest is the allowlist) and is kept only so the entry stays shaped like every other.",
       "key": "q4_25",
       "kind": "base",
       "name": "LTX 2.5 - Q4 (base model, distilled)",
@@ -140,6 +141,12 @@
       "repo_id": "mrbizarro/ltx-2.5-mlx-q4",
       "local_dir": "mlx_models/ltx-2.5-mlx-q4",
       "size_gb": 21,
+      "mirror": {
+        "kind": "github-release",
+        "release_repo": "mrbizarro/Phosphene",
+        "tag": "weights-ltx25-v1",
+        "manifest_asset": "q4_25__phosphene_release_manifest.json"
+      },
       "files": [
         "transformer-distilled.safetensors",
         "connector.safetensors",
@@ -212,6 +219,12 @@
       "repo_id": "mrbizarro/gemma4-12b-ltx25-q4",
       "local_dir": "mlx_models/gemma4-12b-ltx25-q4",
       "size_gb": 7,
+      "mirror": {
+        "kind": "github-release",
+        "release_repo": "mrbizarro/Phosphene",
+        "tag": "weights-ltx25-v1",
+        "manifest_asset": "gemma4_25__phosphene_release_manifest.json"
+      },
       "files": [
         "config.json",
         "tokenizer.json",

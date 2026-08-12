@@ -491,6 +491,60 @@ module.exports = {
       }
     },
 
+    // ---- Download LTX-2.5, the DEFAULT generation (~28 GB) ----------------
+    // SHIP-BLOCKER, closed 2026-08-12. LTX-2.5 became the default generation
+    // while nothing in this file downloaded it: `q4_25` and `gemma4_25` name
+    // `mrbizarro/...` HuggingFace repos that DO NOT EXIST (our HF token is
+    // read-only, and these packs are our own quantisation of a gated upstream).
+    // On the machine that built them the default lane worked; on a FRESH
+    // INSTALL there were no weights at all for the generation the panel boots
+    // into. That is what these two steps fix.
+    //
+    // Not `hf download`: the packs are mirrored as assets on a release of the
+    // public repo, the same lane the sample-character LoRA takes. Files over
+    // GitHub's 2 GiB asset cap are published as 1.9 GB shards;
+    // scripts/fetch_pack_release.py downloads them, checks each shard's
+    // sha256, reassembles, and only renames a file into place once the
+    // whole-file sha256 matches the published manifest. It is resumable and
+    // idempotent, so Resume Install re-runs it for the price of a read pass
+    // and re-downloads only what is actually missing.
+    //
+    // Both packs are REQUIRED, not optional. 2.5 conditions on its own Gemma 4
+    // fine-tune and cannot use the Gemma 3 encoder above — the mismatch does
+    // not raise, it silently encodes wrongly — so the two are fetched together
+    // and the install stops if either fails, instead of marching on to a panel
+    // that cannot render.
+    //
+    // Every line stays far under Pinokio 8.0.x's ~350-char shell-line ceiling
+    // (#50); the if/else runs as ONE shell compound joined by \n.
+    {
+      method: "notify",
+      params: {
+        html: "<b>Downloading the LTX-2.5 model (~28 GB)…</b><br>This is the default video model plus its text encoder. Resumable — if it's interrupted, click Install again and it picks up where it stopped."
+      }
+    },
+    {
+      method: "shell.run",
+      params: {
+        message: [
+          "PY=./ltx-2-mlx/env/bin/python3.11",
+          "if $PY scripts/fetch_pack_release.py --repo-key q4_25 --repo-key gemma4_25; then",
+          "  echo 'LTX-2.5 weights ready (verified against the published manifest).'",
+          "else",
+          "  echo '=================================================================='",
+          "  echo 'PHOSPHENE COULD NOT DOWNLOAD THE LTX-2.5 WEIGHTS'",
+          "  echo 'These are the default model - the panel cannot generate without them.'",
+          "  echo 'This is almost always a network problem (no connection, a VPN or'",
+          "  echo 'proxy, or GitHub blocked) or a full disk: the two packs need 28 GB.'",
+          "  echo 'Fix that, then click Install again - nothing already downloaded is'",
+          "  echo 'downloaded twice.'",
+          "  echo '=================================================================='",
+          "  exit 1",
+          "fi"
+        ].join("\n")
+      }
+    },
+
     // ---- Image-engine pack (mflux: Ideogram 4 + Qwen-Edit) ----------------
     // 2026-06-13: Ideogram 4 + the visual text-placement editor are headline
     // features now, so the mflux image-engine runner ships by default instead

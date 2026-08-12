@@ -326,6 +326,33 @@ module.exports = {
       }
     },
 
+    // ---- LTX-2.5, the default generation (~28 GB) ------------------------
+    // Self-heal existing installs onto the generation the panel now boots
+    // into. Anyone who installed before 2026-08-12 has 2.3 weights and no 2.5
+    // ones, and 2.5 is the default — so without this step an Update leaves
+    // them on a default lane with nothing behind it.
+    //
+    // Mirrored as GitHub release assets, not on HuggingFace (our own
+    // quantisation of a gated upstream, read-only HF token), so this is
+    // scripts/fetch_pack_release.py rather than `hf download`. It verifies
+    // every file it already has and re-downloads only what is missing, which
+    // makes the steady-state cost of this step a read pass.
+    //
+    // BEST-EFFORT, unlike install.js: an Update must never be bricked by a
+    // network hiccup, and the Models page's Download button now drives this
+    // exact same fetcher, so the user has a one-click retry.
+    {
+      method: "shell.run",
+      params: {
+        message: [
+          "echo 'Ensuring the LTX-2.5 weights are present (default generation)…'",
+          "./ltx-2-mlx/env/bin/python3.11 scripts/fetch_pack_release.py \\",
+          "  --repo-key q4_25 --repo-key gemma4_25 \\",
+          "|| echo 'WARN: LTX-2.5 weight fetch failed — open the panel, go to Models, and click Download for the LTX 2.5 rows to retry. It resumes.'"
+        ].join("\n")
+      }
+    },
+
     // ---- Colorize IC-LoRA (restore mode, ~0.3 GB, un-gated) --------------
     // Self-heal existing installs onto the Colorize restore feature. UN-GATED
     // community weights (no HF token). BEST-EFFORT — a network hiccup must not
