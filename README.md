@@ -1,22 +1,3 @@
-## About this fork
-
-This fork adds audio-to-video mode for low memory pipeline.
-
-Adds A2V Distilled Pipeline (a2vid_distilled.py) in phosphene root for
-Q4-distilled audio-to-video generation. No ltx-2-mlx modifications
-required — imports from stock ltx-pipelines-mlx package.
-
-Key differences from the standard A2V path:
-- a2vid_distilled.py lives in phosphene root (not inside ltx-2-mlx)
-- mlx_warm_helper.py imports from the local a2vid_distilled module
-- Distilled path (generate_a2v_distilled) passes audio_conditioning_scale
-  (built into a2vid_distilled.py)
-- Non-distilled path (generate_a2v) omits audio_conditioning_scale
-  (upstream A2VidPipelineTwoStage does not accept it)
-- patch_ltx_codec.py is unchanged (codec patch only)
-
-
-
 <p align="center">
   <img src="assets/phosphene_banner.png" alt="Phosphene" width="100%">
 </p>
@@ -104,12 +85,14 @@ Apple Silicon only. MLX is Apple-only by design.
 
 | RAM | Tier | What runs |
 |---|---|---|
-| Under 48 GB | Compact (Q4 surface) | Text and image-to-video at smaller sizes. Image tab works. Character, FFLF, Extend, and HQ are hidden. They need Q8. |
+| Under 48 GB | Compact (Q4 surface) | Text and image-to-video at smaller sizes. Image tab works. FFLF, Extend and High are hidden — they need more memory than this tier has. |
 | 48 to 79 GB | Comfortable (Q8 surface) | The canonical tier, built on M4 Max 64 GB. Everything works. FFLF and Extend capped at 768 px long side. |
 | 80 to 119 GB | Roomy | Most modes at full size. FFLF and Extend up to 1024 px. |
 | 120 GB+ | Studio | No size limits. |
 
 Working-memory footprint is non-negotiable: standard 1280×704 generation peaks at roughly 22 GiB resident, and HQ with the Q8 dev transformer at roughly 38 GiB. Tier is detected once at boot from RAM and exposed to the UI via `body[data-cap-tier="q4|q8"]`. Set `LTX_FORCE_CAP_TIER=q4` to preview the Compact surface from a higher-tier machine.
+
+**RAM is not the only gate, and on LTX-2.5 it is not the interesting one.** The table above answers "what can this Mac's memory serve". Whether trained **characters** render faithfully, and whether the **High** tier exists at all, are questions about which weight packs are on disk — a 64 GB Mac holding only the base pack is Comfortable-tier and still cannot do either. The panel tracks that separately (`body[data-q8-pack]`), and every surface that offers a download says which pack and how big.
 
 ## Install
 
@@ -120,9 +103,13 @@ Working-memory footprint is non-negotiable: standard 1280×704 generation peaks 
 3. Click **Install**.
 4. Click **Start** -> **Open Panel** -> http://127.0.0.1:8198.
 
-Pinokio handles the hardware gate, the upstream `dgrauet/ltx-2-mlx` clone, the uv-managed Python 3.11 venv, the runtime patches, and the filtered model download (~28 GB: Q4 plus the Gemma encoder).
+Pinokio handles the hardware gate, the vendored `ltx-2-mlx` clone at its pinned tag, the uv-managed Python 3.11 venv, the runtime patches, and the model download.
 
-For the Q8 HQ tier (required for Character, FFLF, Extend), click **Download Q8** in the panel sidebar after first launch. About 37 GB, one time.
+**What a fresh install fetches (~57 GB):** LTX-2.5's engine (20.74 GB) and its Gemma 4 text encoder (6.73 GB) — the generation the panel renders with — plus the 22 MB live-preview decoder; LTX-2.3's engine (~20 GB) and Gemma 3 (~6 GB), which the **Train tab** still trains against and which the Colorize / Restore / Ingredients / HDR control LoRAs are built for; and those three IC-LoRAs (~4 GB). Every step is resumable.
+
+If you never train a character and never use those four modes, LTX-2.3 is reclaimable in one click: **Settings → Storage**.
+
+For trained characters and voices, install the **LTX-2.5 Q8 weights** (30.02 GB) from **Settings → Models**. The **High** tier additionally needs the **High add-on** (29.50 GB), which installs into the same folder.
 
 If you have a Hugging Face token, paste it under **Settings** in the panel. Downloads run roughly 10x faster, and the same token unlocks the gated LoRAs (HDR and Lightricks Control).
 
@@ -135,8 +122,8 @@ cd phosphene
 git clone https://github.com/dgrauet/ltx-2-mlx.git ltx-2-mlx
 cd ltx-2-mlx
 git remote add fork https://github.com/mrbizarro/ltx-2-mlx.git
-git fetch fork feat/ltx-2.5
-git checkout e6be9d61848b712516469fd9d44d20d18716a8bc
+git fetch fork +refs/tags/v0.14.19+ltx25.3:refs/tags/v0.14.19+ltx25.3
+git checkout v0.14.19+ltx25.3
 cd ..
 
 # 2. Create the Python 3.11 venv inside ltx-2-mlx (uv-managed).
@@ -190,7 +177,7 @@ cd ..
 ./ltx-2-mlx/env/bin/python3.11 mlx_ltx_panel.py
 ```
 
-About the version pins: `mlx 0.31.2` attenuates the LTX vocoder by 22 dB. Stay on 0.31.1. `ltx-2-mlx` is pinned to the fork build `e6be9d6` (`mrbizarro/ltx-2-mlx`, branch `feat/ltx-2.5`) — v0.14.19 plus the LTX-2.5 port, because upstream has no 2.5 branch. We track a known-good commit, never upstream `main`; the installed packages report `0.14.19+ltx25.2` and `_LTX_EXPECTED_VERSION` must match that string exactly. `mflux 0.17.5` is the version `patch_mflux_fbcache.py` is line-targeted against. `hatchling<1.32` (in `pip-build-constraints.txt`) is a *build-time* pin: 1.32 rejects the `readme = "../../README.md"` that all three upstream packages declare, which fails the wheel build on every tag.
+About the version pins: `mlx 0.31.2` attenuates the LTX vocoder by 22 dB. Stay on 0.31.1. `ltx-2-mlx` is pinned to the fork **tag** `v0.14.19+ltx25.3` (`mrbizarro/ltx-2-mlx`, commit `7cada57`) — v0.14.19 plus the LTX-2.5 port, because upstream has no 2.5 branch. A tag, not a bare SHA: a force-push upstream would strand every install with an un-fetchable pin and a dead Update button. The installed packages report `0.14.19+ltx25.3` and `_LTX_EXPECTED_VERSION` must match that string exactly, or every render logs a VERSION SKEW warning. `scripts/pinokio/ltx_checkout.sh` holds the pin and `node scripts/check_ltx_pin.js` enforces the agreement. `mflux 0.17.5` is the version `patch_mflux_fbcache.py` is line-targeted against. `hatchling<1.32` (in `pip-build-constraints.txt`) is a *build-time* pin: 1.32 rejects the `readme = "../../README.md"` that all three upstream packages declare, which fails the wheel build on every tag.
 
 ## Interface
 

@@ -423,6 +423,12 @@ module.exports = {
     // 56 GB tree; the panel only needs ~20 GB. Keep this list in sync with
     // required_files.json → repos[q4].download_include.
     {
+      method: "notify",
+      params: {
+        html: "<b>Downloading LTX-2.3 (~26 GB)…</b><br>The previous generation, and it is not dead weight: <b>Train Character</b> trains against it, and the Colorize, Restore, Ingredients and HDR modes load 2.3 control LoRAs. Nothing renders on it by default.<br><br>Don't need those? <b>Settings → Storage</b> frees it in one click after install."
+      }
+    },
+    {
       method: "shell.run",
       params: {
         venv: "env",
@@ -493,7 +499,7 @@ module.exports = {
     {
       method: "notify",
       params: {
-        html: "<b>Downloading LTX-2.5 (~27 GB)…</b><br>The engine and its text encoder. Resumable — if this stops, run Install again and it picks up where it left off."
+        html: "<b>Downloading LTX-2.5 (~27 GB)…</b><br>The engine and its text encoder — this is what the panel renders with. Resumable: if this stops, run Install again and it picks up where it left off.<br><br>A full install is <b>~57 GB</b>, because LTX-2.3 comes too (next step, ~26 GB) — the Train tab trains against it and the Colorize / Restore / Ingredients / HDR LoRAs are built for it. If you need neither, Settings → Storage reclaims it in one click."
       }
     },
     {
