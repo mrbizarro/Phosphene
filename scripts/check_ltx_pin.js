@@ -162,6 +162,17 @@ if (/git reset --hard/.test(updCode) && !/git diff --quiet/.test(updCode)) {
   ok("reset --hard is guarded by a clean-worktree check")
 }
 
+// 4. …and a clean-worktree check is NOT enough, because `git diff --quiet`
+//    ignores untracked files. The most common non-divergence merge failure is
+//    an untracked path that a newly tracked upstream path would overwrite: it
+//    passes both diff checks, and reset --hard then DELETES the user's file.
+//    Divergence must be proven positively before any reset.
+if (/git reset --hard/.test(updCode) && !/rev-list --count/.test(updCode)) {
+  fail("update.js resets without PROVING history divergence. `git diff --quiet` ignores untracked files, so an untracked obstruction reads as 'tracked-clean merge failure' and reset --hard deletes it. Count the local-only commits (`git rev-list --count $U..HEAD`) and reset only when that is > 0.")
+} else {
+  ok("reset --hard requires proven divergence, so an untracked obstruction cannot be deleted")
+}
+
 console.log("")
 console.log(failures.length ? `RESULT: FAIL (${failures.length})` : "RESULT: PASS")
 process.exit(failures.length ? 1 : 0)

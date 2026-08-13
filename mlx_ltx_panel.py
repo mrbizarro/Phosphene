@@ -33152,14 +33152,14 @@ HTML = r"""<!doctype html>
             </div>
           </div>
 
-          <!-- Character LoRA strength. Default 0.8 — slightly under 1.0
-               because the workshop/copper-pipe/gas-lamp prompt content
-               triggers mesh/sparkle artifacts in the BASE LTX-2.3 model
-               (confirmed via base-only-no-LoRA test 2026-05-17, see
-               lora-lab/STATE.md). At 0.8 the identity still locks and
-               the artifact-prone prompt regions render cleaner. Slider
-               exposed so users can dial up to 1.0 for max identity, or
-               down to 0.5 when a prompt triggers the base-model basin. -->
+          <!-- Character LoRA strength. THE `value` BELOW IS A PLACEHOLDER: the
+               control is painted from window.CHARACTERS.charStrength by
+               charactersSyncStrengthControls() on init and on every compose
+               open. It used to be a hardcoded 0.8 — a 2.3-era correction for
+               mesh/sparkle artifacts in the BASE model — and when the state
+               default moved to 1.0 to match the server, the markup did not,
+               so an untouched form DISPLAYED 0.80 and SUBMITTED 1.0. Never
+               hardcode a value here again; change the state default. -->
           <div class="characters-strength-row">
             <label for="charactersStrength" class="characters-strength-label">
               Character LoRA strength
@@ -38055,6 +38055,7 @@ async function charactersInit() {
   if (!window.CHARACTERS.initialised) {
     window.CHARACTERS.initialised = true;
     charactersRenderChips();
+    charactersSyncStrengthControls();   // the slider shows what we will submit
     charactersBackToGrid();   // ensure grid state visible
   }
   await charactersLoadList();
@@ -38157,6 +38158,9 @@ function charactersOpenCompose(id) {
   const c = (window.CHARACTERS.list || []).find(x => x.id === id);
   if (!c) return;
   window.CHARACTERS.selected = c;
+  // Every entry to the compose view repaints the strength control from state,
+  // so a value restored by Load Params is on screen before the user can submit.
+  charactersSyncStrengthControls();
 
   // Toggle states.
   const grid = document.getElementById('charactersGridState');
@@ -38303,6 +38307,26 @@ function charactersUpdateStrengthDisplay(val) {
   if (out) out.textContent = v.toFixed(2);
 }
 
+// THE CONTROL IS RENDERED FROM THE STATE, NEVER THE OTHER WAY AROUND.
+// The slider's `value` was hardcoded in the markup, so when the state default
+// moved to 1.0 the two silently disagreed: an untouched form DISPLAYED 0.80 and
+// SUBMITTED 1.0. The user reads one number and gets another, and no amount of
+// care in the submit path can fix a control that was never told what it holds.
+// Called on every entry to the compose view and after Load Params.
+function charactersSyncStrengthControls() {
+  const v = Number(window.CHARACTERS.charStrength ?? 1.0);
+  const slider = document.getElementById('charactersStrength');
+  if (slider) {
+    // The markup's min/max must not silently clamp the state either.
+    const lo = parseFloat(slider.min), hi = parseFloat(slider.max);
+    if (isFinite(lo) && v < lo) slider.min = String(v);
+    if (isFinite(hi) && v > hi) slider.max = String(v);
+    slider.value = String(v);
+  }
+  const out = document.getElementById('charactersStrengthValue');
+  if (out) out.textContent = v.toFixed(2);
+}
+
 async function charactersGenerate() {
   const c = window.CHARACTERS.selected;
   if (!c) return;
@@ -38400,6 +38424,36 @@ function charactersEscapeAttr(s) { return charactersEscapeHtml(s); }
 //      sidecar values. Re-render chips to update .active classes.
 //   5. Repopulate the prompt textarea with prompt_body verbatim and
 //      refresh the preview.
+// ONE RESTORER, BOTH LOAD PATHS. Load Params has two: the Manual path, and
+// this Characters branch, which returns early and therefore never reached the
+// Manual path's strength restoration at all — so a character clip reloaded
+// with BOTH strengths silently back at their defaults. The external review
+// found the Manual half fixed and this half untouched, which is exactly what a
+// second copy of a rule buys you. There is one copy now.
+function _restoreCharacterStrengths(p) {
+  const put = (value, inputId) => {
+    if (typeof value === 'undefined' || value === null) return;
+    const num = parseFloat(value);
+    if (Number.isNaN(num)) return;
+    const inp = document.getElementById(inputId);
+    if (inp) inp.value = num;
+  };
+  put(p.character_strength, 'characterStrength');
+  put(p.character_voice_strength, 'characterVoiceStrength');
+  if (typeof _renderCharsAppliedNote === 'function') _renderCharsAppliedNote();
+  // The Characters-tab state and its visible slider follow the same numbers,
+  // so a clip reopened there shows what it will re-submit.
+  if (window.CHARACTERS) {
+    const f = parseFloat(p.character_strength);
+    const v = parseFloat(p.character_voice_strength);
+    if (!Number.isNaN(f)) window.CHARACTERS.charStrength = f;
+    if (!Number.isNaN(v)) window.CHARACTERS.voiceStrength = v;
+    if (typeof charactersSyncStrengthControls === 'function') {
+      charactersSyncStrengthControls();
+    }
+  }
+}
+
 async function charactersLoadParams(p) {
   // 2026-05-17 — Characters is no longer its own workflow tab. Load Params
   // on a Characters-origin sidecar restores EVERYTHING into the Manual
@@ -38487,6 +38541,9 @@ async function charactersLoadParams(p) {
   const hInp = document.getElementById('height');
   if (wInp && sidecarW > 0) wInp.value = sidecarW;
   if (hInp && sidecarH > 0) hInp.value = sidecarH;
+
+  // Both strengths — this branch returns before the Manual path's restoration.
+  _restoreCharacterStrengths(p);
 
   // Restore frames + duration. Frames is the source of truth for the
   // render; the duration field is metadata that drives the UI estimate.
@@ -44522,16 +44579,7 @@ async function loadParams() {
     // to reload. The hidden inputs are the source the strip re-renders from,
     // so setting them and re-rendering restores both sliders and the value the
     // next submit will send.
-    const _restoreStrength = (value, inputId) => {
-      if (typeof value === 'undefined' || value === null) return;
-      const num = parseFloat(value);
-      if (Number.isNaN(num)) return;
-      const inp = document.getElementById(inputId);
-      if (inp) inp.value = num;
-    };
-    _restoreStrength(p.character_strength, 'characterStrength');
-    _restoreStrength(p.character_voice_strength, 'characterVoiceStrength');
-    if (typeof _renderCharsAppliedNote === 'function') _renderCharsAppliedNote();
+    _restoreCharacterStrengths(p);
     // Strip the character's face/audio LoRA paths out of the loras list
     // so the picker doesn't show duplicate state. The backend will
     // re-expand on the next submit. We can't read list_characters() from

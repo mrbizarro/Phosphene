@@ -98,17 +98,32 @@ module.exports = {
         ].join("\n")
       }
     },
-    // Converge. ff-only first; a reset is reached only when the fetched
-    // upstream is genuinely NOT a descendant of HEAD, and never over local
-    // edits to tracked files.
+    // Converge. A reset is reached ONLY on proven history divergence.
+    //
+    // v4.0.1 second pass — THE UNTRACKED-FILE DELETION PATH. The previous
+    // version classified every merge failure that left tracked files clean as
+    // "divergence" and reset. But `git diff --quiet` IGNORES UNTRACKED FILES,
+    // so the most common non-divergence failure — an untracked path that a
+    // newly tracked upstream path would overwrite — passed both checks, and
+    // `git reset --hard` then deleted the user's file as the "obstruction".
+    // A user who dropped a note or a config beside the app lost it to an
+    // update that had no local commits to reconcile in the first place.
+    //
+    // Divergence is now PROVEN, not inferred from what else failed:
+    // `git rev-list --count $U..HEAD` is the number of commits this clone has
+    // that upstream does not. Zero means the history did not diverge, whatever
+    // made the merge fail — so we stop and print git's own error, which names
+    // the obstructing paths. Nothing is deleted on that path, ever.
     {
       method: "shell.run",
       params: {
         message: [
           "U=$(git rev-parse --abbrev-ref --symbolic-full-name @{u})",
-          "git merge --ff-only \"$U\" && exec git rev-parse --short HEAD",
-          "git diff --quiet && git diff --cached --quiet || { echo 'FATAL: local edits to tracked files - not resetting. Stash them, then Update.'; exit 1; }",
-          "echo \"history diverged from $U - resetting\"",
+          "M=$(git merge --ff-only \"$U\" 2>&1) && exec git rev-parse --short HEAD",
+          "A=$(git rev-list --count \"$U\"..HEAD)",
+          "[ \"$A\" -gt 0 ] || { echo \"$M\"; echo 'FATAL: blocked above; history has NOT diverged. Nothing deleted.'; exit 1; }",
+          "git diff --quiet && git diff --cached --quiet || { echo 'FATAL: local edits to tracked files'; exit 1; }",
+          "echo \"diverged: $A commit(s) - resetting\"",
           "git reset --hard \"$U\" || exit 1",
           "git rev-parse --short HEAD"
         ].join("\n")
