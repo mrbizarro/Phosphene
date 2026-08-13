@@ -23376,7 +23376,27 @@ def _preview_progress(current: dict | None, remaining: float | None,
     prev = {
         # Cache-busted server-side: the file is rewritten in place, atomically,
         # and a browser that caches it would show the first estimate forever.
-        "url": f"/file?path={quote(str(latest))}&t={int((d / 'status.json').stat().st_mtime)}",
+        # /image, NOT /file — and this one word was the whole of BLOCK-1.
+        #
+        # `latest` lives under STATE_DIR (state/live/<job>/preview_latest.png).
+        # /file serves OUTPUT only and 404s on anything else; /image already
+        # admits OUTPUT, UPLOADS and STATE_DIR, and already does thumbnail
+        # resizing, which is exactly what a 96 px card wants. So every render
+        # published a correct preview, wrote a correct <img src>, and the
+        # browser drew a broken-image glyph.
+        #
+        # The alternative — widening /file's roots to STATE_DIR — was refused:
+        # /file is the VIDEO endpoint with Range support, and handing it the
+        # whole state directory to serve makes settings, queue and stats files
+        # fetchable to buy nothing the narrow fix does not already give.
+        #
+        # Everything behind this line was right (the lane rule, the meaningful
+        # gate, saves_sec, the PNGs on disk). The spec itself wrote
+        # "/file?path=…" into the §4.2 contract, so the implementation matched
+        # the spec and the review matched the contract, and neither loaded the
+        # image. The same URL feeds the storyboard's #sbRunThumb via the
+        # preview_url alias below, so both consumers were broken by one word.
+        "url": f"/image?path={quote(str(latest))}&t={int((d / 'status.json').stat().st_mtime)}",
         "estimate": published,
         "total": max(1, int(st.get("total_forwards") or 0) // every),
         "meaningful": meaningful,
