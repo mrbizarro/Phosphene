@@ -83,7 +83,11 @@ function repoComplete(installRoot, repo, minBytes) {
 module.exports = {
   version: "7.0",
   title: "Phosphene",
-  description: "[MAC ONLY] Local generative video panel for Apple Silicon. Joint audio+video via LTX 2.3 (MLX). T2V, I2V, FFLF, Extend. Lossless h264. Hardware-tier feature gating. Free, open source.",
+  // The Pinokio store listing. It still said "via LTX 2.3 (MLX)" three weeks after 2.5
+  // became the generation a fresh install renders with — the first sentence a prospective
+  // user reads, naming the wrong engine, while a confused existing user hunting a "why
+  // does it keep asking for LTX 2.3" answer finds it confirming their suspicion.
+  description: "[MAC ONLY] Local generative video panel for Apple Silicon. Joint audio+video via LTX-2.5 (MLX), with Hailuo H3 as a second engine. T2V, I2V, FFLF, Extend, trained characters. Lossless h264. Hardware-tier feature gating. Free, open source.",
   icon: "icon.png",
   menu: async (kernel, info) => {
     // Resolve the install root. cocktailpeanut diagnosed that `info.path` is
