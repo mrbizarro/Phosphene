@@ -170,7 +170,8 @@ Present while a job runs.
     "abortable": true,    // meaningful && the runner published an abort sentinel
     "saves_sec": 182      // remaining_sec at the moment it became abortable
   },
-  "preview_url": "/file?path=…"   // top-level alias, present only once meaningful
+  "preview_url": "/image?path=…"  // top-level alias of preview.url, same /image
+                                  // form, present only once meaningful
 }
 ```
 
