@@ -21040,12 +21040,34 @@ class Handler(BaseHTTPRequestHandler):
             # in the form still wins — this endpoint stays a thin wrapper — but
             # a caller that says nothing gets the graded path for the generation
             # actually installed.
+            # TWO SEPARATE QUESTIONS, and conflating them is what kept this
+            # tab on the wrong pipeline.
+            #
+            #   SIZE     which canvas — the tab's two chips, Q8 Draft (704x384)
+            #            and Q8 Pro (1024x576).
+            #   PIPELINE which schedule runs — and that is NOT the user's
+            #            choice, it is the generation's: ltx25 -> balanced
+            #            (q8 + distilled, the recipe every graded 2.5 character
+            #            clip ran), ltx23 -> high (its LoRAs are dev-trained and
+            #            distilled inference barely locks identity).
+            #
+            # `quality` used to mean both at once, so picking the small canvas
+            # also picked a pipeline, and the only two tokens on offer were
+            # 2.3's. A caller that names a real pipeline quality still wins —
+            # this endpoint stays a thin wrapper — but the chips no longer have
+            # to lie to ask for a size.
             _char_default = character_render_quality()
-            quality = (form.get("quality", [_char_default])[0]
-                       or _char_default).strip().lower()
-            if quality not in _CHARACTER_QUALITY_RESOLUTION:
-                self._json({"error": "quality must be draft, balanced or high"}, 400); return
-            width, height = _CHARACTER_QUALITY_RESOLUTION[quality]
+            _q_raw = (form.get("quality", [""])[0] or "").strip().lower()
+            _SIZE_TOKENS = {"draft": (704, 384), "pro": (1024, 576)}
+            if _q_raw in _SIZE_TOKENS:
+                width, height = _SIZE_TOKENS[_q_raw]
+                quality = _char_default
+            else:
+                quality = _q_raw or _char_default
+                if quality not in _CHARACTER_QUALITY_RESOLUTION:
+                    self._json({"error": "quality must be draft, pro, balanced "
+                                         "or high"}, 400); return
+                width, height = _CHARACTER_QUALITY_RESOLUTION[quality]
 
             seed = (form.get("seed", ["-1"])[0] or "-1").strip()
             try:
@@ -37711,7 +37733,8 @@ window.CHARACTERS = {
   list: [],            // [{id, name, trigger, pronoun, subject_noun, sample_image_url, ...}]
   selected: null,      // currently-composing character (object from list)
   duration: '7s',      // 5s | 7s | 10s | 15s
-  quality: 'high',     // draft | high
+  quality: 'pro',      // SIZE token: draft | pro. The PIPELINE is the
+                       // generation's answer, resolved server-side (§5.6).
   // Character LoRA strength (applied to both face_lora and audio_lora).
   // Default 0.8 reduces over-trained baked artifacts at small identity cost.
   charStrength: 0.8,
@@ -37744,10 +37767,28 @@ const CHARACTERS_FRAMING = [
 const CHARACTERS_DURATION = (((BOOT.ltx || {}).lengths) || [])
   .filter(l => l.offered !== false)
   .map(l => [l.key, l.label, `${l.seconds} seconds — ${l.blurb}`]);
-const CHARACTERS_QUALITY = [
-  ['draft',    'Draft',    'Draft — 736x416, Q8 + Turbo, ~3:30 wall, lower detail'],
-  ['high',     'High',     'High — 1024x576, Q8 two-stage + Turbo, ~6:00 wall, best identity'],
-];
+// DERIVED from BOOT.ltx.character — the same server-resolved table the
+// composer's character strip renders, so the two surfaces cannot disagree
+// about what a character render is.
+//
+// It used to be a hardcoded pair, `draft` / `high`, carrying 2.3-era wall times
+// and "Turbo". Two problems at once: there was no way for the tab to ASK for
+// the graded 2.5 path (q8 + distilled), and `high` on 2.5 meant the two-stage
+// HQ pipeline plus the 29.5 GB add-on — so the tab was offering the only two
+// choices that were wrong.
+//
+// The values are now SIZE tokens. Which pipeline runs is the generation's
+// answer, resolved server-side (§5.6); the chips pick a canvas, not a schedule.
+const CHARACTERS_QUALITY = (() => {
+  const c = ((BOOT.ltx || {}).character) || {};
+  if (!c.draft || !c.pro) {
+    return [['pro', 'Q8 Pro', 'Q8 Pro — the recipe the character LoRAs were graded on']];
+  }
+  return [
+    ['draft', 'Q8 Draft', `Q8 Draft — ${c.draft.width}×${c.draft.height}, ${c.draft.tier}`],
+    ['pro',   'Q8 Pro',   `Q8 Pro — ${c.pro.width}×${c.pro.height}, ${c.pro.tier}`],
+  ];
+})();
 // Look-up by value → full descriptive text (the third tuple slot).
 const CHARACTERS_FRAMING_TEXT = Object.fromEntries(
   CHARACTERS_FRAMING.map(([v, , full]) => [v, full])
@@ -38305,7 +38346,14 @@ async function charactersLoadParams(p) {
     window.CHARACTERS.duration = p.duration;
   }
   if (typeof p.quality_choice === 'string' && p.quality_choice) {
-    window.CHARACTERS.quality = p.quality_choice;
+    // Legacy sidecars carry a PIPELINE token where the chips now carry a SIZE
+    // token. Map it to the equivalent canvas rather than replaying it: a clip
+    // recorded as `high` on 2.5 would otherwise re-request the two-stage HQ
+    // path and its 29.5 GB add-on — the exact route this tab was moved off.
+    // Both mean 1024x576, so the canvas the user sees is unchanged.
+    const _legacySize = { high: 'pro', balanced: 'pro', standard: 'pro',
+                          quick: 'draft', draft: 'draft', pro: 'pro' };
+    window.CHARACTERS.quality = _legacySize[p.quality_choice] || 'pro';
   }
   charactersRenderChips();
   // Prompt textarea. The verbatim prompt from the sidecar is the
