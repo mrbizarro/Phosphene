@@ -422,35 +422,6 @@ module.exports = {
     // upscalers we don't use. Without filters `hf download` grabs the full
     // 56 GB tree; the panel only needs ~20 GB. Keep this list in sync with
     // required_files.json → repos[q4].download_include.
-    {
-      method: "notify",
-      params: {
-        html: "<b>Downloading LTX-2.3 (~26 GB)…</b><br>The previous generation, and it is not dead weight: <b>Train Character</b> trains against it, and the Colorize, Restore, Ingredients and HDR modes load 2.3 control LoRAs. Nothing renders on it by default.<br><br>Don't need those? <b>Settings → Storage</b> frees it in one click after install."
-      }
-    },
-    {
-      method: "shell.run",
-      params: {
-        venv: "env",
-        path: "ltx-2-mlx",
-        // Y1.022: HF_HUB_ENABLE_HF_TRANSFER=1 enables the Rust accelerator,
-        // ~5-10× faster on 20 GB. Falls back gracefully if hf_transfer
-        // isn't yet on disk (warning + plain Python downloader).
-        env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
-        message: [
-          // Short lines over shell continuations — Pinokio 8.0.x hangs on very
-          // long single lines (#50); still one hf invocation.
-          [
-            "hf download dgrauet/ltx-2.3-mlx-q4 --local-dir ../mlx_models/ltx-2.3-mlx-q4 \\",
-            "  --include '*.json' --include 'transformer-distilled.safetensors' \\",
-            "  --include 'connector.safetensors' \\",
-            "  --include 'vae_decoder.safetensors' --include 'vae_encoder.safetensors' \\",
-            "  --include 'audio_vae.safetensors' --include 'vocoder.safetensors' \\",
-            "  --include 'spatial_upscaler_x2_v1_1.safetensors'",
-          ].join("\n")
-        ]
-      }
-    },
 
     // ---- (no transformer.safetensors symlink needed on HEAD — 0.2.0 reads
     //      split_model.json to resolve transformer-distilled.safetensors.
@@ -499,7 +470,7 @@ module.exports = {
     {
       method: "notify",
       params: {
-        html: "<b>Downloading LTX-2.5 (~27 GB)…</b><br>The engine and its text encoder — this is what the panel renders with. Resumable: if this stops, run Install again and it picks up where it left off.<br><br>A full install is <b>~57 GB</b>, because LTX-2.3 comes too (next step, ~26 GB) — the Train tab trains against it and the Colorize / Restore / Ingredients / HDR LoRAs are built for it. If you need neither, Settings → Storage reclaims it in one click."
+        html: "<b>Downloading LTX-2.5 (~27 GB)…</b><br>The engine and its text encoder — this is what the panel renders with. Resumable: if this stops, run Install again and it picks up where it left off.<br><br>A full install is about <b>37 GB</b>: this, the Gemma 3 language model that Enhance and the Storyboard planner run on, and three small control LoRAs. <b>LTX-2.3 is no longer downloaded</b> — it is only needed to TRAIN a character, and the panel offers it in Settings → Models the moment you want it."
       }
     },
     {

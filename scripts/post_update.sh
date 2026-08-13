@@ -171,9 +171,18 @@ echo 'Installing/refreshing the mflux image-engine pack (Ideogram 4 + Qwen-Edit)
 # The Q4 spatial upscaler — the mosaic fix (#23). The Y1.024 download allowlist
 # dropped it, so affected Q4 installs ran a RANDOMLY-INITIALISED upsampler and
 # produced the rainbow-grid garbage. ~1 GB, resumable, skipped when present.
-echo 'Ensuring the Q4 spatial upscaler is present (mosaic fix)…'
-"$HF" download dgrauet/ltx-2.3-mlx-q4 --local-dir "$ROOT/mlx_models/ltx-2.3-mlx-q4" --include 'spatial_upscaler_x2_v1_1.safetensors' \
-  || echo 'WARN: spatial upscaler fetch failed — open the panel and click Repair to retry (fixes the mosaic).'
+# ONLY for an install that already HAS the 2.3 pack. From v4.0 a fresh install
+# fetches 2.5 only and LTX-2.3 is an in-panel offer, so running this
+# unconditionally would create a 2.3 directory holding exactly one 1 GB file —
+# which the Models modal would then report "partial" and Storage would offer to
+# reclaim. A self-heal must not conjure the thing it heals.
+if [ -d "$ROOT/mlx_models/ltx-2.3-mlx-q4" ]; then
+  echo 'Ensuring the Q4 spatial upscaler is present (mosaic fix)…'
+  "$HF" download dgrauet/ltx-2.3-mlx-q4 --local-dir "$ROOT/mlx_models/ltx-2.3-mlx-q4" --include 'spatial_upscaler_x2_v1_1.safetensors' \
+    || echo 'WARN: spatial upscaler fetch failed — open the panel and click Repair to retry (fixes the mosaic).'
+else
+  echo 'LTX-2.3 is not installed — skipping its spatial-upscaler self-heal (install it from Settings → Models if you want to train a character).'
+fi
 
 # LTX-2.5, the DEFAULT generation (~28 GB). Anyone who installed before
 # 2026-08-12 has 2.3 weights only, and 2.5 is what the panel boots into — so

@@ -2160,6 +2160,27 @@ def _train_required_models() -> list[dict]:
 
     items = [
         {
+            # THE ASSUMPTION THAT EXPIRED. This function's own docstring says
+            # "the rest of the Q4 stack (vae, audio, etc.) are already required
+            # for inference so they should already be present" — true right up
+            # until v4.0, when a fresh install stopped fetching LTX-2.3 at all.
+            # The trainer runs against 2.3 and needs its VAE, audio VAE and
+            # vocoder; without this row the Train tab would have looked ready
+            # and failed at load time on a pack nobody told the user about.
+            "key": "ltx23_base",
+            "label": "LTX-2.3 base pack (training runs against 2.3)",
+            "blurb": "The trainer runs against LTX-2.3, not 2.5 — it needs 2.3's "
+                     "VAE, audio VAE and vocoder. Your clips still render on "
+                     "LTX-2.5; this is training-only. A fresh v4.0 install does "
+                     "not download it, so it is fetched when you want to train.",
+            "repo_id": "dgrauet/ltx-2.3-mlx-q4",
+            "filename": "vae_decoder.safetensors",
+            "local_dir": str(q4_local_dir),
+            "size_gb": 20.48,
+            "ready": _file_present(q4_local_dir, "dgrauet/ltx-2.3-mlx-q4",
+                                   "vae_decoder.safetensors"),
+        },
+        {
             "key": "ltx_dev_transformer",
             "label": "LTX-2.3 dev transformer (training-only, full precision)",
             "blurb": "Required for training. Standard inference uses the distilled "
@@ -10457,6 +10478,7 @@ def list_outputs(
         # whether a clip is a finishable H3 draft. Without them the "Finish
         # at …" button would need a /sidecar fetch on every gallery click.
         engine = None
+        model = None          # which weights made this clip (sidecar-derived)
         h3_tier = None
         # Which film this clip is a shot of, if any — {"id": ..., "n": 3} or None.
         # Derived from the sidecar read already happening below, so it costs
@@ -10479,6 +10501,16 @@ def list_outputs(
                 _eng = meta.get("engine") or _sc_params.get("engine")
                 if isinstance(_eng, str) and _eng:
                     engine = _eng
+                # WHICH WEIGHTS MADE THIS CLIP. The sidecar has always known —
+                # the LTX path records its job spec's model_dir and the H3 path
+                # records its DiT — but the credit under the player was a
+                # one-shot read of BOOT.model at page load, so it printed the
+                # active LTX pack under an H3 render and under every clip ever
+                # made on another generation. A clip that predates the field
+                # simply has no `model` here and the credit falls back.
+                _mdl = meta.get("model") or _sc_params.get("model")
+                if isinstance(_mdl, str) and _mdl:
+                    model = _mdl
                 # RESOLVED here, not raw: a clip rendered before the two-axis
                 # refactor carries `hq_5s` / `wide_5s` / `long_10s`, and the
                 # panel's Finish affordance looks the key up in the CURRENT
@@ -10530,6 +10562,10 @@ def list_outputs(
             # the RESOLVED cell key, so the two axes below are just its halves
             # and the browser can gate on quality without splitting a string.
             "engine": engine,
+            # Which weights made this clip. The credit under the player reads
+            # it; None for a clip that predates the field, and the client falls
+            # back to BOOT.model silently.
+            "model": model,
             "h3_tier": h3_tier,
             "h3_quality": (H3_TIERS[h3_tier]["quality"] if h3_tier else None),
             "h3_length": (H3_TIERS[h3_tier]["length"] if h3_tier else None),
@@ -21523,6 +21559,28 @@ class Handler(BaseHTTPRequestHandler):
         # `download` block for progress (existing infra).
         if path == "/train/install":
             key = (form.get("key", [""])[0] or "").strip()
+            # The 2.3 base pack goes through the ORDINARY download lane — the
+            # same singleton, the same progress tail, the same Resume and the
+            # same deep-verify every other pack uses. A second downloader for
+            # the trainer's benefit is exactly the improvisation this campaign
+            # removes.
+            if key == "ltx23_base":
+                repo = next((r for r in _repos() if r.get("key") == "q4"), None)
+                if not repo:
+                    self._json({"error": "LTX-2.3 is not a registered pack"}, 400); return
+                with DOWNLOAD_LOCK:
+                    if DOWNLOAD["active"]:
+                        self._json({"error": f"another download is in progress: "
+                                             f"{DOWNLOAD['repo_id']}. Wait for it to "
+                                             f"finish (or click Cancel)."}, 409); return
+                    DOWNLOAD["active"] = True
+                    DOWNLOAD["key"] = "q4"
+                    DOWNLOAD["repo_id"] = repo["repo_id"]
+                    DOWNLOAD["started_ts"] = time.time()
+                    DOWNLOAD["last_line"] = "starting…"
+                threading.Thread(target=_download_thread, args=(repo,), daemon=True).start()
+                self._json({"ok": True, "key": "q4", "repo_id": repo["repo_id"]}, 202)
+                return
             if key != "ltx_dev_transformer":
                 self._json({"error": f"unknown install key {key!r}"}, 400); return
             result = _train_install_dev_transformer(push)
@@ -34991,14 +35049,36 @@ function _autoMainOutputsFilterForMode(mode) {
 // Model tag in the bottom-pane nav links to dgrauet's repo. Strip an
 // absolute filesystem path back to the HF repo id form for display
 // (the panel sets LTX_MODEL to a local path in Pinokio installs).
-(function () {
-  const m = String(BOOT.model || '');
+// THE CREDIT NAMES THE WEIGHTS THAT MADE THE CLIP YOU ARE LOOKING AT.
+//
+// It used to be a one-shot read of BOOT.model at page load, so it printed the
+// active LTX pack under an H3 render, and under every clip ever made on another
+// generation. The sidecar has always known which model ran; list_outputs now
+// carries it, so the credit follows the SELECTION rather than the process.
+//
+// A clip that predates the field has no `model` and falls back to BOOT.model
+// silently — the old behaviour, for the only case where it was ever right.
+function _modelCreditLabel(raw) {
+  const m = String(raw || '');
+  if (!m) return '';
   let label = m;
   const idx = m.indexOf('mlx_models/');
   if (idx >= 0) label = m.slice(idx + 'mlx_models/'.length);
   if (label.startsWith('/')) label = label.split('/').slice(-2).join('/');
-  document.getElementById('modelTag').textContent = label;
-})();
+  return label;
+}
+function updateModelCredit(path) {
+  const el = document.getElementById('modelTag');
+  if (!el) return;
+  let raw = '';
+  try {
+    const p = path || (typeof activePath !== 'undefined' ? activePath : '');
+    const entry = (typeof currentOutputs !== 'undefined' && currentOutputs || []).find(o => o && o.path === p);
+    if (entry && entry.model) raw = entry.model;
+  } catch (e) {}
+  el.textContent = _modelCreditLabel(raw || BOOT.model);
+}
+updateModelCredit();
 // `audio` is still a free-text input (advanced section); `image` is now a
 // picker — leave the picker empty by default and let the user pick or
 // drop. Pre-filling examples/reference.png surprised users into rendering
@@ -42887,6 +42967,7 @@ async function poll() {
   // Outputs / carousel
   if (JSON.stringify(currentOutputs) !== JSON.stringify(s.outputs)) {
     currentOutputs = s.outputs;
+    if (typeof updateModelCredit === 'function') { try { updateModelCredit(); } catch (e) {} }
     renderCarousel();
     // Pick the first FILTERED entry as the default selection so the
     // viewer agrees with what the gallery is showing — without this,
@@ -43508,6 +43589,8 @@ function findOutputByPath(path) {
 }
 function selectOutput(path) {
   activePath = path;
+  // The credit names the weights that made THIS clip.
+  if (typeof updateModelCredit === 'function') { try { updateModelCredit(path); } catch (e) {} }
   // If the Ideogram editor canvas is holding the stage, a USER click on an
   // output means they want to see the render — flip the stage to Result.
   // Gate on isTrusted so the boot-time auto-select of the newest output (and

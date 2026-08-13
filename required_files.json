@@ -3,13 +3,14 @@
   "_download_include_comment": "Y1.024 \u2014 `download_include` is the list of patterns passed as `--include` flags to `hf download`. Without it `hf download` grabs every file in the repo, which on dgrauet's LTX repos means duplicate transformer variants (transformer-distilled.safetensors AND transformer-distilled-1.1.safetensors AND transformer-dev.safetensors), duplicate distilled LoRAs (-384 and -384-1.1), the temporal upscaler we don't wire, and the x1.5 spatial upscaler we don't use \u2014 turning a declared 25 GB Q8 download into 82 GB on disk (and a 25 GB Q4 into 56 GB). With `download_include` we pull only what the panel actually loads. Pattern syntax: huggingface_hub fnmatch globs \u2014 bare filenames and wildcards both work. We pass `*.json` to keep all sidecar configs (split_model.json etc.) which are tiny and required at runtime.",
   "repos": [
     {
+      "_v40_comment": "kind flipped base -> optional in v4.0. `base` means an install WITHOUT it reads INCOMPLETE, so a fresh 2.5-only install showed the red 'Base models needed before you can render' block and Pinokio offered Resume Install — for a pack nothing renders with. From v4.0 a fresh install fetches 2.5 only and this is a normal in-panel offer, downloaded when the user wants to TRAIN a character. Existing installs that already hold it see no behaviour change: the files are there, the row reads Ready, and Storage still offers to reclaim it.",
       "key": "q4",
-      "kind": "base",
-      "name": "LTX 2.3 \u2014 Q4 (base model, distilled)",
-      "blurb": "The previous generation's engine. Kept because the Train tab still trains against LTX-2.3, and the Colorize / Restore / Ingredients / HDR control LoRAs are 2.3 files.",
+      "kind": "optional",
+      "name": "LTX-2.3 (previous generation)",
+      "blurb": "Needed to TRAIN a character - the trainer runs against LTX-2.3, not 2.5. Nothing renders on it; your clips come from LTX-2.5 either way.",
       "repo_id": "dgrauet/ltx-2.3-mlx-q4",
       "local_dir": "mlx_models/ltx-2.3-mlx-q4",
-      "size_gb": 20,
+      "size_gb": 20.48,
       "files": [
         "transformer-distilled.safetensors",
         "connector.safetensors",
