@@ -101,7 +101,14 @@ module.exports = {
     // --- per-repo completeness from the unified manifest ---
     const repos = required.repos || []
     const baseRepos = repos.filter(r => r.kind === "base")
-    const q8Repo    = repos.find(r => r.key === "q8")
+    // THE PACK THE BUTTON ACTUALLY INSTALLS. This read `key === "q8"` —
+    // LTX-2.3's pack — while the menu entry it gates dispatches
+    // download_q8.js -> q8_weights.sh -> `--repo-key q8_25`, i.e. LTX-2.5's.
+    // The gate and the action were about different packs, so after a
+    // successful 30 GB install the menu kept offering the download forever.
+    // Resolved by mirror-block presence rather than a hardcoded key so a third
+    // generation does not reopen it: the 2.5-era packs are the mirrored ones.
+    const q8Repo    = repos.find(r => r.key === "q8_25") || repos.find(r => r.key === "q8")
 
     const base_ready = baseRepos.length > 0 && baseRepos.every(r => repoComplete(installRoot, r, minBytes))
     const q8_ready   = q8Repo ? repoComplete(installRoot, q8Repo, minBytes) : false
@@ -245,7 +252,7 @@ module.exports = {
     if (running.install)    return [{ default: true, icon: "fa-solid fa-plug",     text: "Installing",                   href: "install.js" }]
     if (running.update)     return [{ default: true, icon: "fa-solid fa-rotate",   text: "Updating",                     href: "update.js" }]
     if (running.reset)      return [{ default: true, icon: "fa-solid fa-eraser",   text: "Resetting",                    href: "reset.js" }]
-    if (running.q8download) return [{ default: true, icon: "fa-solid fa-download", text: "Downloading Q8 (~37 GB)",      href: "download_q8.js" }]
+    if (running.q8download) return [{ default: true, icon: "fa-solid fa-download", text: "Downloading Q8 weights (~30 GB)", href: "download_q8.js" }]
     if (running.sharp)      return [{ default: true, icon: "fa-solid fa-wand-magic-sparkles", text: "Installing Sharp upscaler", href: "install_sharp.js" }]
     if (running.qwen)       return [{ default: true, icon: "fa-solid fa-images", text: "Installing Qwen-Image-Edit (multi-ref)", href: "install_qwen.js" }]
     if (running.h3)         return [{ default: true, icon: "fa-solid fa-comments", text: "Installing Hailuo H3 (~75 GB)", href: "install_h3.js" }]
@@ -314,7 +321,10 @@ module.exports = {
       { icon: "fa-solid fa-image", text: "Uploads", href: "panel_uploads?fs=true" },
     ]
     if (!q8_ready) {
-      baseMenu.push({ icon: "fa-solid fa-download", text: "Download Q8 (~37 GB) — High quality + FFLF", href: "download_q8.js" })
+      // ~30 GB and what it actually buys on 2.5: trained characters and voices.
+      // High additionally needs the separate 29.5 GB add-on, which is offered
+      // in Settings -> Models rather than here — one menu entry, one download.
+      baseMenu.push({ icon: "fa-solid fa-download", text: "Download Q8 weights (~30 GB) — trained characters + voices", href: "download_q8.js" })
     }
     if (!sharp_ready) {
       baseMenu.push({ icon: "fa-solid fa-wand-magic-sparkles", text: "Install Sharp upscaler (PiperSR, optional)", href: "install_sharp.js" })
