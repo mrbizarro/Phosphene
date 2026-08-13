@@ -21126,7 +21126,9 @@ class Handler(BaseHTTPRequestHandler):
         # This endpoint now does ONLY:
         #   1. look up the character → resolve face + (optional) audio LoRA
         #   2. map duration string → frames (5s/7s/10s)
-        #   3. map quality string → width/height (draft = 736x416, else 1024x576)
+        #   3. map the SIZE token → width/height (draft = 704x384, pro = 1024x576;
+        #      704x384 because both old sizes were off the 64-grid the two-stage
+        #      lane snaps to, so the chip advertised a canvas it never delivered)
         #   4. take the user's prompt verbatim — no prefix, no suffix, no
         #      negative-prompt injection, no framing word
         #   5. build the same form payload /queue/add accepts and call
@@ -37925,7 +37927,11 @@ function trainUpdateAdvancedFields() {
 // enhance=false, video_skip=1+audio_skip=1) are applied server-side per
 // docs/API.md. The UI collects prompt (trigger pre-filled) + duration +
 // quality. Quality maps server-side to resolution + recipe:
-//   draft → 736x416, ~3:30 wall;  high → 1024x576, ~6:00 wall.
+//   draft → 704x384;  pro → 1024x576. Both render on the generation's own
+//   character recipe (2.5: q8 + distilled), resolved server-side — the chips
+//   carry a SIZE, never a pipeline. The wall times that used to sit here were
+//   2.3-era and the canvas was the retired 736x416; measured 2.5 numbers live
+//   in LTX_MEASURED_ETA, which is where the UI reads them from.
 
 window.CHARACTERS = {
   list: [],            // [{id, name, trigger, pronoun, subject_noun, sample_image_url, ...}]

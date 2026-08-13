@@ -197,6 +197,22 @@ class PlannerError(Exception):
 # The validator we must satisfy — imported, never reimplemented
 # --------------------------------------------------------------------------------------
 
+def _storyboard_module():
+    """storyboard.py, or None if it cannot be imported.
+
+    Same import path `_load_validator()` uses, but non-fatal: default_policy()
+    is called from contexts that must not raise just because the schema module
+    is unavailable, and it carries its own fallback literal.
+    """
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    try:
+        import storyboard  # type: ignore
+        return storyboard
+    except Exception:
+        return None
+
+
 def _load_validator():
     """Return (validate_fn, storyboard_module).
 
@@ -1578,10 +1594,20 @@ def default_policy(max_dim: Optional[int] = None) -> Dict[str, Any]:
     validate_storyboard() rejects a policy whose longest edge exceeds `max_dim`, so the
     clamp happens here rather than being discovered at validation time.
     """
-    policy = {
-        "draft": {"quality": "quick", "width": 640, "height": 480, "frames": 49},
-        "final": {"quality": "balanced", "width": 1024, "height": 576, "frames": 121},
-    }
+    # IMPORTED, NOT RESTATED. This held its own copy and the two had drifted:
+    # storyboard.py said Draft 640x448 — what a Quick render actually delivers,
+    # ffprobe-verified — and this said 640x480, a canvas the panel's own engine
+    # registry lists as never delivered. The docstring above claimed both were
+    # "the same shape". The main panel path masked it by keeping the board's
+    # existing policy, so only a direct planner consumer would ever have been
+    # handed the fictional geometry.
+    _sb = _storyboard_module()
+    policy = (_sb.default_policy() if _sb is not None and hasattr(_sb, "default_policy")
+              else {
+                  "draft": {"quality": "quick", "width": 640, "height": 448, "frames": 49},
+                  "final": {"quality": "balanced", "width": 1024, "height": 576,
+                            "frames": 121},
+              })
     if max_dim:
         for key in ("draft", "final"):
             p = policy[key]

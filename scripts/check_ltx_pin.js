@@ -128,10 +128,38 @@ for (const [re, what] of banned) {
 }
 if (thin) ok("update.js is thin — no installs, patches, downloads or trims")
 
-if (!/git pull --ff-only \|\|/.test(updateSrc)) {
-  fail("update.js's ff-only pull is not the bare form. `git pull --ff-only $UPSTREAM` passes \"origin/main\" as the REPOSITORY argument and has never once succeeded — every update silently took the reset --hard fallback (notes/update_path_sequencing.md §5).")
+// ---- the update is transactional -------------------------------------------
+// This used to assert one string: that the ff-only pull was the BARE form,
+// because `git pull --ff-only $UPSTREAM` passes "origin/main" as the REPOSITORY
+// argument and had never once succeeded (notes/update_path_sequencing.md §5).
+// v4.0.1 replaced the pull with an explicit fetch + merge so the fetch result
+// can be checked, which made that assertion obsolete while the property it was
+// protecting got MORE important. So the gate now checks the property.
+const updCode = updateSrc.split("\n").filter((l) => !/^\s*\/\//.test(l)).join("\n")
+
+// 1. The original bug must never come back in either form.
+if (/git pull --ff-only \s*\$/.test(updCode)) {
+  fail("update.js passes $UPSTREAM to `git pull --ff-only`, which git reads as a REPOSITORY argument. That form has never once succeeded — every update silently took the reset --hard fallback (notes/update_path_sequencing.md §5).")
 } else {
-  ok("the ff-only pull uses the bare form")
+  ok("no `git pull --ff-only $UPSTREAM` — the form that never worked")
+}
+
+// 2. A failed fetch must stop the update. The whole class of "Update reported
+//    success while staying on stale code" hangs off this one guard: $UPSTREAM is
+//    the LOCAL tracking ref, so resetting to it after a failed fetch is a no-op
+//    that exits 0 and lets post_update run against the old tree.
+if (!/git fetch[^\n]*\|\|[^\n]*exit 1/.test(updCode)) {
+  fail("update.js does not make a failed `git fetch` fatal. Without it a network or auth failure becomes: failed fetch -> failed pull -> 'successful' reset onto the stale tracking ref -> post_update against old code -> Update reports success.")
+} else {
+  ok("a failed fetch aborts the update")
+}
+
+// 3. reset --hard must never be reachable without a clean-tree check, or the
+//    updater answers "you have local edits" by destroying them.
+if (/git reset --hard/.test(updCode) && !/git diff --quiet/.test(updCode)) {
+  fail("update.js can `git reset --hard` without first proving the worktree is clean — dirty-worktree and genuine non-fast-forward must not share one blunt fallback.")
+} else {
+  ok("reset --hard is guarded by a clean-worktree check")
 }
 
 console.log("")

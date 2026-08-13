@@ -273,8 +273,15 @@ module.exports = {
           // '__module__'": the Gemma text-encoder load silently no-ops ("done in
           // 0.0s") → downstream "Model not loaded. Call load() first." Known-good:
           // 5.7.0 (our validated build) and 5.12.x. Cap it on the SAME resolve as
-          // mlx-lm so the constraint sticks (uv downgrades an already-installed
-          // 5.13.0 on the next Update). Diagnosed by @saved-j + @xandreau.
+          // mlx-lm so the constraint sticks. Diagnosed by @saved-j + @xandreau.
+          //
+          // The Update path enforces this too — scripts/post_update.sh step 2b,
+          // a `require` (fatal) step. That sentence used to live here as "uv
+          // downgrades an already-installed 5.13.0 on the next Update" and was
+          // simply false for a month: nothing in the update path constrained
+          // transformers at all, so an existing 5.13.0 survived every Update and
+          // the install stayed unable to generate anything. A promise about
+          // another file now names the step that keeps it.
           "uv pip install --python env/bin/python 'mlx==0.31.1' 'mlx-lm==0.31.1' 'mlx-metal==0.31.1' 'transformers>=5.0.0,<5.13.0'",
           // Y3 — Train Character ships in 3.0. Without ltx-trainer-mlx in
           // the venv, the trainer subprocess fails at `import yaml` because

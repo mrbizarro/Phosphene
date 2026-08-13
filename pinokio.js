@@ -141,10 +141,20 @@ module.exports = {
     // `mflux-generate-qwen-edit` binary didn't land (mflux <0.17.5).
     const qwen_ready =
       info.exists("ltx-2-mlx/env/bin/mflux-generate-qwen-edit")
-    // Hailuo H3 readiness — the engine's own venv AND the pruned bf16 DiT (the
-    // one 41 GB file; if that landed, the small siblings did too). Weights live
-    // under mlx_models/ so they survive Reset like every other model. Both
-    // download layouts are accepted, matching _h3_model_roots() in the panel.
+    // Hailuo H3 readiness — the engine's own venv, its runner, and EVERY weight
+    // component the panel requires.
+    //
+    // The old note here said "the one 41 GB file; if that landed, the small
+    // siblings did too". That assumption is what Medium 6 was: a partial install
+    // where the DiT arrived and a compact Q8 component did not looked ready from
+    // this side and refused to run from the panel's, and because the menu thought
+    // it was fine it hid the Install/Repair entry that would have fixed it. The
+    // components are declared once in required_files.json and checked here, so
+    // the assumption is gone rather than reworded.
+    //
+    // Weights live under mlx_models/ so they survive Reset like every other
+    // model, and both download layouts are accepted (capabilities.h3.model_roots
+    // mirrors _h3_model_roots() in the panel).
     //
     // Probed with Node's own fs, NOT info.exists() — deliberately, and this is
     // the whole fix. `uv venv` builds the venv interpreter as a symlink chain
