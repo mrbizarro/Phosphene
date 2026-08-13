@@ -7327,6 +7327,26 @@ def live_preview_enabled() -> bool:
     return str(get_settings().get("live_preview", "on")).lower() != "off"
 
 
+def live_preview_state() -> dict:
+    """WHY there is no preview, not just that there isn't one.
+
+    Two very different absences were indistinguishable to the client, and both
+    rendered as nothing at all: the user switched it off (fine, they know), or the
+    22 MB decoder is missing (they have no idea, and a feature the release
+    announced is silently not happening). An install that predates v4.0 and updates
+    without the decoder step is exactly the second case.
+
+    `reason` is what the UI is allowed to say out loud.
+    """
+    if not TAE_CHECKPOINT.is_file():
+        return {"on": False, "reason": "missing_decoder",
+                "note": "Live preview is off because its 22 MB decoder isn't "
+                        "installed — Settings → Models → Live-preview decoder."}
+    if str(get_settings().get("live_preview", "on")).lower() == "off":
+        return {"on": False, "reason": "off", "note": ""}
+    return {"on": True, "reason": None, "note": ""}
+
+
 def live_preview_dir(job_id: str) -> Path:
     """Per-job scratch for the preview contract: status.json, the PNGs and the
     ABORT sentinel. Per JOB, not per panel, so a stale sentinel from a previous
@@ -7501,6 +7521,9 @@ def ltx_tiers_payload() -> dict:
             "q8_character": LTX_Q8_CHARACTER_HELP,
             "preview": LTX_PREVIEW_HELP,
         },
+        # Why the preview is absent, so the Now card can say it instead of
+        # showing nothing and letting the user conclude the feature is broken.
+        "preview_state": live_preview_state(),
         # The character strip's two chips, and the PIPELINE they submit —
         # resolved per generation so the markup never owns that rule.
         "character": character_strip_payload(),
@@ -28511,6 +28534,13 @@ HTML = r"""<!doctype html>
       animation: nowThumbPulse 2.4s ease-in-out infinite;
     }
     @keyframes nowThumbPulse { 0%,100% { opacity:.10 } 50% { opacity:.26 } }
+    /* The one-line "your decoder is missing" note. Informational, not alarming:
+       the render is fine, only the preview of it is absent. */
+    .now-preview-missing {
+      font-size: 11.5px; color: var(--muted);
+      padding: 6px 2px 0; line-height: 1.45;
+    }
+    .now-preview-missing a { color: var(--accent-bright); }
     /* ABORTING — frozen on the last frame it managed to show. */
     .now-thumb.is-aborting img { opacity: .55; }
     /* Failure-card action row — Retry + Close on the failed Now card.
@@ -47493,6 +47523,26 @@ function renderNowPreview(s, prog) {
   const actions = document.getElementById('nowCardActions');
   if (!box) return;
   const prev = prog && prog.preview;
+  // A MISSING DECODER MUST SAY SO. Without this, a render on an install whose
+  // 22 MB decoder never arrived looks identical to one where the user switched
+  // the preview off: nothing appears, and a feature the release announced simply
+  // does not happen. Only the missing-decoder case speaks — "off" was the user's
+  // own choice and needs no announcement.
+  const pstate = ((BOOT.ltx || {}).preview_state) || {};
+  const missingDecoder = s.running && !prev && pstate.reason === 'missing_decoder';
+  let miss = document.getElementById('nowPreviewMissing');
+  if (missingDecoder) {
+    if (!miss) {
+      miss = document.createElement('div');
+      miss.id = 'nowPreviewMissing';
+      miss.className = 'now-preview-missing';
+      box.parentNode.insertBefore(miss, box.nextSibling);
+    }
+    miss.innerHTML = escapeHtml(pstate.note || '') +
+      ' <a href="#" onclick="event.preventDefault();openModelsModal()">Install it</a>';
+  } else if (miss) {
+    miss.remove();
+  }
   if (!s.running || !prev) {
     box.hidden = true;
     box.className = 'now-thumb';
