@@ -40497,7 +40497,8 @@ function _engineTooltip(e, st, modeOk) {
   if (!e.builtin && !st.available) {
     return st.repairable
       ? name + ' — needs repair; your weights are still on disk. Click for the one-click fix.'
-      : name + " — isn't installed. Click to see how (" + (e.install_size || '') + ').';
+      : name + ' — available to install (' + (e.install_size || '')
+        + '). Click to see what it does.';
   }
   if (!modeOk) {
     return name + ' — renders ' + (e.serves_label || 'other modes')
@@ -48669,7 +48670,7 @@ async function refreshModelsModal({ silent = false } = {}) {
         : '<svg class="ph" aria-hidden="true"><use href="#ph-x-circle"/></svg>';
       const statusText = ready
         ? `Ready · engine picker unlocked · ${escapeHtml(h3.root || '')}`
-        : 'Not installed · install from the Pinokio sidebar';
+        : 'Available to install · one click in the Pinokio sidebar';
       const btn = ready
         ? `<button class="ghost" disabled>Installed</button>`
         : `<button onclick="openH3InstallCard()">How to install</button>`;
@@ -48677,8 +48678,8 @@ async function refreshModelsModal({ silent = false } = {}) {
         <li class="${cls}">
           <span class="icon">${icon}</span>
           <div class="meta">
-            <span class="ttl">Hailuo H3 (MiniMax-H3 FL2VA) · <span style="color:var(--muted)">optional</span></span>
-            <span class="sub">Second video engine — joint video + dialogue + sound</span>
+            <span class="ttl">Hailuo H3 (MiniMax-H3 FL2VA) · <span style="color:var(--muted)">second video engine</span></span>
+            <span class="sub">A peer of LTX — one prompt in, video + synced dialogue + sound out</span>
             <span class="sub">${statusText} · ${escapeHtml(h3.size_note || '')}</span>
           </div>
           ${btn}
@@ -49361,8 +49362,8 @@ function sbEngineChip(id) {
          || { id: id, label: (id || 'ltx').toUpperCase(), mark: 'eng-mark-ltx',
               accent: '', accent_dim: '', accent_soft: '', tagline: '' };
   const why = id === 'h3'
-    ? 'Renders on Hailuo H3 — video, dialogue and sound together. The optional pack.'
-    : 'Renders on LTX — the built-in engine, and the only one that loads a trained character.';
+    ? 'Renders on Hailuo H3 — video, dialogue and sound together. A 75 GB install.'
+    : 'Renders on LTX — ships with the panel, and the only engine that loads a trained character.';
   return `<span class="sb-chip sb-chip-engine" data-engine="${escapeHtml(e.id)}"
       style="--eng-accent:${escapeHtml(e.accent)};--eng-dim:${escapeHtml(e.accent_dim)};--eng-soft:${escapeHtml(e.accent_soft)}"
       title="${escapeHtml(why)}"><span class="eng-mark"><svg class="ph" aria-hidden="true"><use href="#${escapeHtml(e.mark)}"/></svg></span>${escapeHtml(e.label)}</span>`;
