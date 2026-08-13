@@ -105,9 +105,9 @@ Working-memory footprint is non-negotiable: standard 1280×704 generation peaks 
 
 Pinokio handles the hardware gate, the vendored `ltx-2-mlx` clone at its pinned tag, the uv-managed Python 3.11 venv, the runtime patches, and the model download.
 
-**What a fresh install fetches (~57 GB):** LTX-2.5's engine (20.74 GB) and its Gemma 4 text encoder (6.73 GB) — the generation the panel renders with — plus the 22 MB live-preview decoder; LTX-2.3's engine (~20 GB) and Gemma 3 (~6 GB), which the **Train tab** still trains against and which the Colorize / Restore / Ingredients / HDR control LoRAs are built for; and those three IC-LoRAs (~4 GB). Every step is resumable.
+**What a fresh install fetches (~37 GB):** LTX-2.5's engine (20.74 GB) and its Gemma 4 text encoder (6.73 GB) — the generation the panel renders with — plus the 22 MB live-preview decoder; Gemma 3 (~6 GB), which is what **Enhance** and the **Storyboard planner** run on; and three control LoRAs (~4 GB) for the Colorize, Restore, Ingredients and HDR modes. Every step is resumable.
 
-If you never train a character and never use those four modes, LTX-2.3 is reclaimable in one click: **Settings → Storage**.
+**LTX-2.3 is not downloaded.** It is needed only to *train* a character — the trainer runs against 2.3, not 2.5 — so the panel offers it (~20 GB, plus the ~21 GB full-precision dev transformer) the moment you open the **Train Character** tab, and in **Settings → Models** any time. Everything else, including all four control-LoRA modes, renders on LTX-2.5.
 
 For trained characters and voices, install the **LTX-2.5 Q8 weights** (30.02 GB) from **Settings → Models**. The **High** tier additionally needs the **High add-on** (29.50 GB), which installs into the same folder.
 

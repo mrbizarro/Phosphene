@@ -4220,15 +4220,21 @@ def _dir_size_bytes(base: Path) -> int:
 # the IC-LoRA registry names ltx-2.3-* files, so removing 2.3 really does turn
 # off Train and the four control-LoRA modes.
 STORAGE_KEEP_IF = {
-    # 2.3's keep-if clause, and it is TRUE ONLY OF 2.3 — the trainer really does
-    # train against it and the four control-LoRA modes really are 2.3 files.
+    # 2.3's keep-if clause. TRAIN CHARACTER IS THE WHOLE LIST, and the earlier
+    # version of this sentence was wrong in a way that cost the user 20 GB: it
+    # also named Colorize, Restore, Ingredients and HDR. Those four resolve
+    # `ltx_model_dir("q4")`, which is the ACTIVE generation's base — they run on
+    # 2.5 — and their control LoRAs are separate ~4 GB files in
+    # mlx_models/loras/ic that the installer fetches regardless. Removing the
+    # 2.3 pack does not touch them. Only the trainer genuinely needs it.
     # It used to be printed for whichever generation was inactive, so a user
     # pinned back with LTX_MODEL_VERSION=ltx23 was shown a row offering to
     # delete 80 GB of 2.5 with a sentence arguing that keeping 2.3 matters.
     # Keyed per generation now; see _storage_generation_note().
-    "ltx23": ("Keep it if you train characters — the Train tab still "
-              "trains against LTX-2.3 — or if you use Colorize, Restore, "
-              "Ingredients or HDR, whose control LoRAs are LTX-2.3 files."),
+    "ltx23": ("Keep it only if you train characters — the Train tab trains "
+              "against LTX-2.3. Nothing else needs it: your renders, and the "
+              "Colorize, Restore, Ingredients and HDR modes, all run on "
+              "LTX-2.5."),
     "hq_addon": ("Removing this turns off the High tier, Extend and Keyframes "
                  "until you fetch it again."),
     "q8": ("Removing this means trained characters render approximate faces "
@@ -28353,7 +28359,16 @@ HTML = r"""<!doctype html>
        A fixed 16:9 box, always the same size once a render starts, so the
        thumbnail's ARRIVAL causes no reflow. The card becomes a two-column
        flex only while the box is shown. */
-    .now-card { display: flex; gap: 12px; align-items: flex-start; }
+    /* POSITION:RELATIVE UNCONDITIONALLY. `.now-card-actions` is
+       position:absolute, and only `.failed` / `.stopped` established a
+       containing block — because that row had only ever been populated after a
+       job ended. v4.0 is the first release to put a button there WHILE a job
+       runs, and a running card is plain `.now-card`, so Stop early resolved
+       against the initial containing block and rendered in the page header,
+       870 px from the thumbnail it refers to. It snapped into place only once
+       the job stopped and `.stopped` supplied the relative — i.e. exactly when
+       it was no longer needed. */
+    .now-card { display: flex; gap: 12px; align-items: flex-start; position: relative; }
     .now-card > .now-body { flex: 1; min-width: 0; }
     .now-thumb {
       flex: 0 0 auto;
@@ -38368,9 +38383,10 @@ async function trainCheckPreflight() {
           `).join('')}
         </div>
         <div class="train-preflight-foot">
-          Phosphene's default install ships only the inference model. The dev
-          transformer is needed for training and is downloaded on demand to
-          keep the base install lean.
+          Phosphene installs only what it renders with. Training runs against
+          LTX-2.3 and needs its own weights, so they are downloaded on demand
+          rather than shipped to everyone. Each download is resumable, and
+          nothing above is needed to render.
         </div>
       </div>
     `;
@@ -40563,12 +40579,19 @@ function ltxCellEta(cell) {
 function ltxCellNeedsInstall(cell) {
   if (!cell || cell.pack !== 'q8') return false;
   const s = window.__phosLastStatus || {};
+  // UNKNOWN IS NOT MISSING. Before the first /status lands there is no pack
+  // answer at all, and `!undefined` is `true` — so the chip was born claiming
+  // weights were absent on a machine that has them, and clicking it opened a
+  // download for a 30 GB pack the user already owned. A tier is only an install
+  // OFFER once we have actually been told something is missing; until then it
+  // is an ordinary chip. Being briefly wrong in the harmless direction beats
+  // being confidently wrong in the expensive one.
+  if (s.q8_available === undefined && s.q8_pack_available === undefined) return false;
+  const packOk = (s.q8_pack_available !== undefined) ? s.q8_pack_available : s.q8_available;
   if (cell.pipeline === 'hq') {
     // High needs the pack AND the add-on.
-    const packOk = (s.q8_pack_available !== undefined) ? s.q8_pack_available : s.q8_available;
     return !(packOk && (s.hq_addon_missing || []).length === 0);
   }
-  const packOk = (s.q8_pack_available !== undefined) ? s.q8_pack_available : s.q8_available;
   return !packOk;
 }
 // What the chip says instead of an ETA, and it names the download that is
@@ -40577,7 +40600,15 @@ function ltxCellInstallLabel(cell) {
   const s = window.__phosLastStatus || {};
   const P = ((BOOT.ltx || {}).packs) || {};
   const packOk = (s.q8_pack_available !== undefined) ? s.q8_pack_available : s.q8_available;
-  const want = (cell && cell.pipeline === 'hq' && packOk) ? P.hq_addon : P.q8;
+  // NAME THE DOWNLOAD THAT IS MISSING, not the family it belongs to. With the
+  // 30 GB pack present and only the 29.5 GB add-on absent, offering "Q8
+  // weights" is the exact conflation `q8_pack_available` was introduced to
+  // kill — telling a user to re-buy what they already have.
+  const addonMissing = (s.hq_addon_missing || []).length > 0;
+  // The pack comes first: without it the add-on has nowhere to land. Once it is
+  // present, High's only remaining gap is the add-on.
+  let want = P.q8;
+  if (cell && cell.pipeline === 'hq' && packOk && addonMissing) want = P.hq_addon;
   if (!want) return 'install needed';
   const short = String(want.name || '').replace(/^LTX-2\.5\s*/, '');
   return `Install ${short} · ${want.size}`;
@@ -42423,6 +42454,17 @@ async function poll() {
     return;
   }
   LAST_STATUS = s;
+  // PUBLISHED HERE, AT THE TOP, and that position is the fix for R2-B1.
+  // It used to be assigned ~230 lines further down — AFTER the block that
+  // repaints the tier strips. So the one repaint that fires (the first poll,
+  // when the pack signature changes from undefined) read `{}` and re-rendered
+  // the chips from a status that had not arrived yet; every later poll saw an
+  // unchanged signature and never repainted again. The High chip was born an
+  // install offer on a fully-equipped machine and stayed one until the user
+  // happened to click another quality chip.
+  //
+  // Anything derived from /status has to be able to see /status.
+  window.__phosLastStatus = s;
 
   // Corrupt/partial-weight banner (mosaic self-heal).
   try { renderIntegrityBanner(mergeIntegrity(s.model_integrity, s.deep_verify)); } catch (_) {}
@@ -42637,8 +42679,6 @@ async function poll() {
   // will actually get when they hit Generate. Re-evaluated on every poll
   // and on mode/frames change (see the listener wired at DOMContentLoaded
   // below this function).
-  window.__phosLastStatus = s;
-
   // Keyframe (FFLF) and Extend both require Q8 — server enforces it (see
   // run_job_inner). The UI was previously silently downgrading the user to
   // Standard when they picked keyframe with Q8 missing, then the server
@@ -44916,10 +44956,16 @@ function updateModelsCard(s) {
     card.style.display = '';
     card.classList.add('state-warn', 'dismissible');
     icon.innerHTML = '<svg class="ph" aria-hidden="true"><use href="#ph-download-simple"/></svg>';
-    const reason = currentMode === 'keyframe' ? 'FFLF needs the Q8 model'
-                : currentMode === 'extend'    ? 'Extend needs the Q8 model'
-                                              : 'High quality needs the Q8 model';
-    title.textContent = reason;
+    // The title has to name the SAME download the body and the button do.
+    // "High quality needs the Q8 model" over a button reading "Download
+    // LTX-2.5 High add-on" is one card telling two stories.
+    const P0 = ((BOOT.ltx || {}).packs) || {};
+    const q8PackOk0 = (s.q8_pack_available !== undefined) ? s.q8_pack_available : q8Ok;
+    const wantName = ((q8PackOk0 && P0.hq_addon) ? P0.hq_addon : P0.q8 || {}).name || 'the Q8 model';
+    const feature = currentMode === 'keyframe' ? 'Keyframes'
+                  : currentMode === 'extend'   ? 'Extend'
+                                               : 'High quality';
+    title.textContent = `${feature} needs ${wantName}`;
     // REGISTRY-DRIVEN. This card offered `startDownload('q8')` — 2.3's pack —
     // and advertised 37 GB, on a build where High needs 2.5's 30.02 GB Q8 pack
     // PLUS a separate 29.50 GB add-on. The button worked, which made it worse
