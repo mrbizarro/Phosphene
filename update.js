@@ -67,15 +67,49 @@ module.exports = {
     // The bare form uses the configured upstream and fast-forwards correctly;
     // the reset --hard fallback is kept, and now only fires when it is true.
     // Measured in notes/update_path_sequencing.md §5.
+    // v4.0.1 FIX — THE UPDATE IS TRANSACTIONAL NOW, AND IT WAS NOT.
+    //
+    // The old block ignored the fetch result and sent EVERY pull failure to
+    // `git reset --hard $UPSTREAM`. `$UPSTREAM` is the LOCAL tracking ref, so
+    // when the fetch was the thing that failed the reset landed on the stale
+    // ref that was already checked out — a no-op that exits 0. The sequence a
+    // user offline (or behind an auth failure) actually got was:
+    //
+    //     failed fetch → failed pull → "successful" reset onto old code →
+    //     successful rev-parse → post_update runs against the old tree →
+    //     Update reports success and nothing has changed.
+    //
+    // The same fallback also could not tell a dirty worktree from genuine
+    // divergent history, so it answered "you have local edits" by destroying
+    // them.
+    //
+    // Split into two steps, both short enough for the dispatch gate, and the
+    // ordering is the guarantee: NOTHING moves the tree until a fetch has
+    // provably succeeded, and reset only ever runs against a ref that fetch
+    // just refreshed.
     {
       method: "shell.run",
       params: {
         message: [
-          "REMOTE=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null | cut -d/ -f1)",
-          "UPSTREAM=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null)",
-          "echo \"updating branch: $(git rev-parse --abbrev-ref HEAD) (upstream: $UPSTREAM)\"",
-          "git fetch $REMOTE",
-          "git pull --ff-only || (echo 'not a fast-forward; resetting to upstream' && git reset --hard $UPSTREAM)",
+          "U=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null)",
+          "[ -n \"$U\" ] || { echo 'FATAL: no upstream configured'; exit 1; }",
+          "echo \"updating $(git rev-parse --abbrev-ref HEAD) from $U\"",
+          "git fetch \"${U%%/*}\" || { echo 'FATAL: fetch failed (offline?) - nothing changed, re-run Update'; exit 1; }"
+        ].join("\n")
+      }
+    },
+    // Converge. ff-only first; a reset is reached only when the fetched
+    // upstream is genuinely NOT a descendant of HEAD, and never over local
+    // edits to tracked files.
+    {
+      method: "shell.run",
+      params: {
+        message: [
+          "U=$(git rev-parse --abbrev-ref --symbolic-full-name @{u})",
+          "git merge --ff-only \"$U\" && exec git rev-parse --short HEAD",
+          "git diff --quiet && git diff --cached --quiet || { echo 'FATAL: local edits to tracked files - not resetting. Stash them, then Update.'; exit 1; }",
+          "echo \"history diverged from $U - resetting\"",
+          "git reset --hard \"$U\" || exit 1",
           "git rev-parse --short HEAD"
         ].join("\n")
       }
