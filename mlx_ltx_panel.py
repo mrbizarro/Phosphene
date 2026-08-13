@@ -3772,9 +3772,38 @@ def base_missing() -> list[str]:
     for r in _repos():
         if r.get("kind") != "base":
             continue
-        for fname in _repo_missing(r):
+        for fname in _repo_effective_missing(r):
             out.append(f"{r['local_dir']}/{fname}")
     return out
+
+
+def _repo_effective_missing(repo: dict) -> list[str]:
+    """THE answer to "what is this repo missing" — the one /models already gives.
+
+    There were two answers and they disagreed on a live install: /models reported all 11
+    repos complete and model_integrity ok/42, while /status reported a base file missing,
+    so the panel showed "Base models needed before you can render (1 files left)" over a
+    perfectly working install and never stopped.
+
+    The gap was not staleness, it was two different questions. repo_status_list() resolves
+    each repo through the REGISTRY when it backs a registered pack (so a pack an env var
+    moved, or one that shares a directory with another, is checked where it actually
+    lives) and falls back to the HF CACHE when the local dir is short (what manual and dev
+    installs use). base_missing() did neither: it walked ROOT/local_dir and believed it.
+
+    Now both call this, so the blocker card and the Models modal cannot contradict each
+    other again — the card is a rendering of the modal's answer, not a second opinion.
+    """
+    quant = _quant_for_repo_key(repo.get("key"))
+    local_missing = pack_missing_files(quant) if quant else _repo_missing(repo)
+    if not local_missing:
+        return []
+    total = len(repo.get("files", []))
+    cache_missing = _repo_missing_in_cache(repo)
+    if cache_missing is not None:
+        if (total - len(cache_missing)) > (total - len(local_missing)):
+            return cache_missing
+    return local_missing
 
 
 def pack_missing_files(quant: str, version_id: str | None = None) -> list[str]:
@@ -4113,6 +4142,9 @@ def repo_status_list() -> list[dict]:
         # model version gets its own answer instead of inheriting 2.3's.
         _quant = _quant_for_repo_key(r.get("key"))
         local_missing = pack_missing_files(_quant) if _quant else _repo_missing(r)
+        # NOTE: _repo_effective_missing() above collapses this same local+cache choice
+        # into one call for /status. This loop keeps the expanded form because it also
+        # needs `where`/`location`/`present` for the row — same rule, more outputs.
         total = len(r.get("files", []))
         local_present = total - len(local_missing)
 

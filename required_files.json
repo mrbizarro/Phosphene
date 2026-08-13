@@ -269,8 +269,9 @@
     {
       "_comment": "The tiny decoder behind LIVE PREVIEW. 22.4 MiB, MIT, ungated, from github.com/madebyollin/taehv (taeltx2_3.safetensors, 23,531,296 B, sha256 f0773b4e…be246 — verified byte count and hash before publishing). It turns the x0 estimate the denoise loop ALREADY HOLDS into a thumbnail, so nothing is recomputed and a render with the preview on is byte-identical to the same render with it off.",
       "_mirror_comment": "Mirrored onto the SAME release as the 2.5 packs rather than fetched from raw.githubusercontent at render time, so it rides the ordinary lane: files[] + download_include[], one manifest format, sha256-verified and resumable by scripts/fetch_pack_release.py, and no new fetch-lane code. `repo_id` names the upstream for attribution; the bytes come from the mirror block.",
+      "_kind_comment": "NOT `base`, and marking it base cost a user their panel. `kind: base` is the gate for CAN THIS MACHINE RENDER AT ALL: pinokio.js hides Start behind it and the panel raises the red 'Base models needed before you can render' block over everything. A missing 22 MB PREVIEW decoder is none of those things - the renderer never loads it, live_preview_enabled() returns False and every render proceeds normally. Marked base, its absence reported a working install as unable to render, permanently, as '(1 files left)', with no way to clear it but a download the user had no idea they needed. Both fetch lanes name it explicitly (--repo-key tae in scripts/pinokio/ltx25_weights.sh and scripts/post_update.sh), so `optional` costs nothing on install or update; it only stops the panel lying about what is broken.",
       "key": "tae",
-      "kind": "base",
+      "kind": "optional",
       "name": "Live-preview decoder",
       "blurb": "22 MB. Draws the shot as it forms, so a wrong take can be stopped in seconds instead of minutes.",
       "repo_id": "madebyollin/taehv",
