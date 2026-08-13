@@ -203,105 +203,27 @@ module.exports = {
     },
 
     // ---- Force Python 3.11 venv (SHIP-BLOCKER fix) ------------------------
-    // Pinokio's `venv: "env"` shortcut creates a venv using whatever python
-    // is on `conda activate base` — on machines where conda's base env is
-    // Python 3.10 (the current macOS bundle reality), that venv has no
-    // python3.11 and the MLX packages refuse to install:
-    //   "ltx-core-mlx==0.2.0 depends on Python>=3.11"
+    // Pinokio's `venv: "env"` shortcut creates a venv using whatever python is
+    // on `conda activate base` — on machines where conda's base env is Python
+    // 3.10 (the current macOS bundle reality), that venv has no python3.11 and
+    // the MLX packages refuse to install ("ltx-core-mlx depends on
+    // Python>=3.11"). Worse, that error doesn't abort the install — Pinokio
+    // happily downloads 35 GB of weights into a broken venv. So we create the
+    // venv with `uv venv --python 3.11` before any pip step.
     //
-    // Worse, that error doesn't abort the install — Pinokio happily moves on
-    // to download 35 GB of weights into a broken venv. So we explicitly
-    // create the venv with `uv venv --python 3.11` before any pip step.
-    //
-    // SELF-HEALING, and deliberately NOT gated on `when: !exists(...)` —
-    // the same latent bug fixed for Hailuo H3 in v3.4.0's "installed other
-    // packs and H3 vanished" regression (install_h3.js, 3c9bdf6). `uv venv`
-    // creates the interpreter as a symlink chain into Pinokio's SHARED
-    // managed Python (verified — this venv has the identical chain):
-    //     env/bin/python3.11 -> python
-    //     env/bin/python     -> <pinokio>/cache/XDG_DATA_HOME/uv/python/
-    //                           cpython-3.11-macos-aarch64-none/bin/python3.11
-    // That target is Pinokio's, not ours. Any other pack install — or any
-    // other Pinokio app — that makes uv re-resolve, bump or prune the
-    // managed interpreter leaves the chain DANGLING while env/ still
-    // exists. A path-existence guard cannot handle that state: depending on
-    // whether the check stats the link or its target, a dangling chain
-    // reads as either present (rebuild silently skipped → a broken venv
-    // that re-running Install can never fix) or absent. So we ask the only
-    // question that matters — does the interpreter RUN? — inside the
-    // shell, and rebuild only when it doesn't. python3.11 specifically
-    // (not python): a legacy conda-3.10 venv (the failure mode above) has
-    // a working `python` but no `python3.11`, so probing python3.11 keeps
-    // that rebuild path too — and it is the exact interpreter every later
-    // step invokes. Healthy installs pay ~50 ms; broken ones rebuild in
-    // ~5 min with zero re-downloads. (Unlike H3, Reset+Install could
-    // already recover this venv — reset.js deletes ltx-2-mlx/ wholesale —
-    // but a user should never need Reset for it; env/ holds no user data.)
-    //
-    // One joined multi-line message (the mflux-step idiom below), so the
-    // whole if/else runs as a single shell compound.
+    // 3.8.3 — THIS IS THE STEP THAT HUNG PINOKIO (#56, and #50 reopened).
+    // It was a "\n"-joined STRING, which kernel/shells.js launch() dispatches
+    // as ONE write to the pty: 1,417 chars, the exact number @davidaircloud
+    // measured on 3.8.0. Its source lines were all under 110 chars, so v3.6.2's
+    // per-line rule reported it clean — the rule was right, the measurement was
+    // wrong. The body (self-healing venv probe, macOS preflight, diagnostics,
+    // rebuild) now lives in scripts/pinokio/ltx_venv.sh with its full
+    // rationale. Gate: scripts/check_pinokio_scripts.js.
     {
       method: "shell.run",
       params: {
         path: "ltx-2-mlx",
-        message: [
-          "echo '=== LTX venv check ==='",
-          "if env/bin/python3.11 -c 'import sys' >/dev/null 2>&1; then",
-          "echo 'venv healthy - reusing it'",
-          "else",
-          "echo 'venv missing or broken (wrong Python or dangling interpreter) - rebuilding, no models are re-downloaded'",
-          // v2.0.3: log the toolchain BEFORE creating the venv so the
-          // install log self-documents which Python uv landed on. A user
-          // (KTDS) hit a silent "ModuleNotFoundError: ltx_pipelines_mlx"
-          // after a green install — the most likely cause was uv falling
-          // back to a Python that couldn't install mlx wheels, and we
-          // had no log evidence to confirm. These echoes change nothing
-          // operationally; they just leave a trail.
-          "echo '=== install diagnostics: venv create ==='",
-          // SHIP-BLOCKER GUARD (2026-07-23, from @hottboytank's Pinokio report):
-          // mlx 0.31.1 publishes NO macOS-13 wheel — its builds start at
-          // macosx_14_0_arm64. On Ventura the mlx step dies deep inside uv's
-          // resolver ("No solution found ... no wheels with a matching platform
-          // tag"), ltx_core_mlx never installs, and the user only sees a cryptic
-          // ModuleNotFoundError at the very end — under an auto-generated title
-          // about python3.11 that points at completely the wrong thing.
-          // Fail fast, up front, with the actual fix.
-          // FAIL-OPEN BY DESIGN: only block when we positively identify a
-          // macOS major < 14. If sw_vers is missing, unparseable, or non-numeric
-          // for any reason, we PROCEED — a preflight that can't read the version
-          // must never be the thing that bricks an otherwise-fine install.
-          // Pinokio 8.0.x wedges its shell on very long single lines (#50: 764
-          // chars hangs, ~373 passes — bisected by @Morac2). Every line below
-          // stays well under that; they run in ONE shell invocation joined by
-          // \n, so the if/else and variables still span lines.
-          [
-            "MACOS_VER=$(sw_vers -productVersion 2>/dev/null)",
-            "MACOS_MAJOR=$(echo \"$MACOS_VER\" | cut -d. -f1)",
-            "if echo \"$MACOS_MAJOR\" | grep -qE '^[0-9]+$' && [ \"$MACOS_MAJOR\" -lt 14 ]; then",
-            "  echo '=================================================================='",
-            "  echo \"PHOSPHENE CANNOT INSTALL ON macOS $MACOS_VER\"",
-            "  echo 'Phosphene needs macOS 14 (Sonoma) or newer.'",
-            "  echo 'Why: mlx 0.31.1 ships no macOS 13 build, so the engine cannot install'",
-            "  echo 'and every generation would fail.'",
-            "  echo 'Fix: System Settings > General > Software Update -> macOS 14 or 15,'",
-            "  echo 'then reinstall Phosphene.'",
-            "  echo '=================================================================='",
-            "  exit 1",
-            "else",
-            "  echo \"macOS preflight OK (detected '$MACOS_VER', needs >= 14)\"",
-            "fi",
-          ].join("\n"),
-          "which uv && uv --version || echo 'uv NOT FOUND'",
-          "which python3.11 && python3.11 --version || echo 'system python3.11 NOT FOUND (uv will try to fetch)'",
-          "uname -a",
-          "echo '=== /diagnostics ==='",
-          "rm -rf env",
-          "uv venv --python 3.11 --seed env",
-          "echo '=== venv created ==='",
-          "ls -la env/bin/python* 2>&1 || echo 'venv create FAILED'",
-          "env/bin/python --version || echo 'venv python NOT executable'",
-          "fi"
-        ].join("\n")
+        message: "bash ../scripts/pinokio/ltx_venv.sh"
       }
     },
 
@@ -540,8 +462,9 @@ module.exports = {
     // and the install stops if either fails, instead of marching on to a panel
     // that cannot render.
     //
-    // Every line stays far under Pinokio 8.0.x's ~350-char shell-line ceiling
-    // (#50); the if/else runs as ONE shell compound joined by \n.
+    // 3.8.3: body moved to scripts/pinokio/ltx25_weights.sh. It was a
+    // "\n"-joined string — ONE 748-char dispatch, not the short lines the old
+    // note here claimed, because that is not what Pinokio writes to the pty.
     {
       method: "notify",
       params: {
@@ -551,22 +474,7 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        message: [
-          "PY=./ltx-2-mlx/env/bin/python3.11",
-          "if $PY scripts/fetch_pack_release.py --repo-key q4_25 --repo-key gemma4_25; then",
-          "  echo 'LTX-2.5 weights ready (verified against the published manifest).'",
-          "else",
-          "  echo '=================================================================='",
-          "  echo 'PHOSPHENE COULD NOT DOWNLOAD THE LTX-2.5 WEIGHTS'",
-          "  echo 'These are the default model - the panel cannot generate without them.'",
-          "  echo 'This is almost always a network problem (no connection, a VPN or'",
-          "  echo 'proxy, or GitHub blocked) or a full disk: the two packs need 28 GB.'",
-          "  echo 'Fix that, then click Install again - nothing already downloaded is'",
-          "  echo 'downloaded twice.'",
-          "  echo '=================================================================='",
-          "  exit 1",
-          "fi"
-        ].join("\n")
+        message: "bash scripts/pinokio/ltx25_weights.sh"
       }
     },
 
@@ -582,23 +490,14 @@ module.exports = {
     // one-click "Reinstall image engines" path if it didn't land. Two-step
     // (with-deps then --no-deps) mirrors install_qwen.js so transitive deps
     // resolve, then the version is locked + the FBCache patch applied.
+    //
+    // 3.8.3: body moved to scripts/pinokio/mflux_pack.sh (529-char dispatch).
+    // update.js keeps its own near-identical copy inline at 498 — under the
+    // ceiling, and deliberately left alone rather than merged here in a hotfix.
     {
       method: "shell.run",
       params: {
-        message: [
-          "echo 'Installing the mflux image-engine pack (Ideogram 4 + Qwen-Edit)…' && \\",
-          // uv, NOT plain pip: mlx-vlm is installed --no-deps (to dodge its
-          // PIL>=10/av pins), which leaves its declared extras unsatisfied. Plain
-          // `pip install` then dumps a scary "ERROR: pip's dependency resolver…"
-          // block about mlx-vlm on EVERY later install — verified, and it made
-          // cocktailpeanut's update look broken. uv installs the same packages
-          // with zero such noise (same reason the base deps above use uv).
-          "( uv pip install --python ./ltx-2-mlx/env/bin/python 'mflux==0.18.0' && \\",
-          "  uv pip install --python ./ltx-2-mlx/env/bin/python --reinstall --no-deps 'mflux==0.18.0' && \\",
-          "  uv pip install --python ./ltx-2-mlx/env/bin/python 'mlx-teacache==0.4.1' && \\",
-          "  ./ltx-2-mlx/env/bin/python3.11 patch_mflux_fbcache.py ) \\",
-          "|| echo 'WARN: mflux image-engine install hit an error — video still works; use the Reinstall image engines action to retry image generation.'"
-        ].join("\n")
+        message: "bash scripts/pinokio/mflux_pack.sh"
       }
     },
 
