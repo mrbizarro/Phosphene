@@ -293,6 +293,27 @@ module.exports = {
           // (it used to spell it `PIP_CONSTRAINT=`, which modern pip ignores
           // by design — one lane now, one failure mode).
           "uv pip install --python env/bin/python --build-constraints ../pip-build-constraints.txt ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer",
+          // v4.0 — THE SECOND PASS IS THE POINT, and it closes a trap that has
+          // shipped since the workspace landed. `ltx-2-mlx` is a uv WORKSPACE:
+          // the line above (with deps, without --reinstall) links its members
+          // EDITABLE. site-packages gets `_editable_impl_ltx_core_mlx.pth`
+          // instead of a copy, so `import ltx_core_mlx` resolves to
+          // `packages/ltx-core-mlx/src/...` — the GIT-TRACKED source. The codec
+          // patch further down then finds no ltx_core_mlx directory in
+          // site-packages and patches the tracked file, which is why a
+          // PERFECTLY SUCCESSFUL install ended with
+          //     M packages/ltx-core-mlx/src/.../video_vae.py
+          // every single time — and why the v3.8.0 pin move hit "your local
+          // changes would be overwritten by checkout" for the whole fleet.
+          //
+          // v3.8.1 made the pin move survive that (reset --hard first) and
+          // v3.8.1's own notes filed this as the follow-up: cure the cause, so
+          // a FRESH install no longer starts dirty. `--reinstall --no-deps`
+          // replaces the .pth links with real copies and re-resolves nothing;
+          // it is the exact command update.js has run for many releases, so
+          // the end state is one every install already converges to on its
+          // first Update. One lane, one runtime shape.
+          "uv pip install --python env/bin/python --reinstall --no-deps --build-constraints ../pip-build-constraints.txt ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer",
           // Auto-caption (Gemma 3 12B via mlx-vlm) needs the mlx-vlm
           // package. Pinned to 0.4.4 — caption_with_gemma.py's import
           // surface (load, generate, prompt_utils.apply_chat_template)
