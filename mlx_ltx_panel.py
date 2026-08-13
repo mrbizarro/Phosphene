@@ -31920,11 +31920,13 @@ HTML = r"""<!doctype html>
           <div class="mini-fields">
             <div class="mf-cell">
               <span class="mf-label">Width</span>
-              <input type="number" id="audioStudioWidth" value="1024" min="256" max="1920" step="32">
+              <input type="number" id="audioStudioWidth" value="1024" min="256" max="1920" step="32"
+                     oninput="audioStudioDurationChanged()">
             </div>
             <div class="mf-cell">
               <span class="mf-label">Height</span>
-              <input type="number" id="audioStudioHeight" value="576" min="256" max="1920" step="32">
+              <input type="number" id="audioStudioHeight" value="576" min="256" max="1920" step="32"
+                     oninput="audioStudioDurationChanged()">
             </div>
             <div class="mf-cell">
               <span class="mf-label">Seed</span>
@@ -35642,34 +35644,63 @@ function audioStudioRenderSlots() {
 // rounded up to the 8k+1 grid), so the number shown is the number the model
 // is actually asked for — not a rounded-down approximation of it.
 //
-// This warns rather than blocks on purpose. What is known about where A2V
-// gives out is two independent field reports converging on ~257 frames
-// (#46): @blackest saw anatomy break around 337f and the picture go white
-// by 433f here, and hit the same wall at 257f on a different MLX pipeline.
-// Nobody has measured it in this repo, and the question that decides whether
-// it is a length ceiling at all — does the AUDIO survive past the point the
-// picture dies — is still unanswered. So the slider keeps its range and the
-// panel stops being silent about the risk. 241f (10 s) is the last 8k+1 stop
-// under 257.
+// This warns rather than blocks on purpose, and as of 3.8.3 it warns on the
+// right quantity.
+//
+// It used to fire on FRAME COUNT alone, past ~257. @blackest then answered the
+// two questions that were open in #46, and both answers moved the target:
+//
+//   1. The AUDIO survives. "I am certain it continues right to the end of the
+//      20 seconds" — so this is the picture running out of coherence, not the
+//      joint sequence failing.
+//   2. It is not a frame cap. Same 20 s request, same machine (M2 Max 96 GB):
+//        640x480   481 frames   fine, all 20 s
+//        1024x576  481 asked    picture dies at frame ~454
+//        1280x720  481 asked    white out by 481
+//      "I think its not so much a frame cap but a limit on how many frames at
+//      x size can be generated."
+//
+// So the budget is frames x AREA, and the old warning was simply wrong in the
+// case that matters most: it shouted at a 640x480 20 s render that works.
+//
+// A2V_PIXEL_BUDGET is the largest configuration anyone has reported working —
+// 640x480 x 481 = 147.7 Mpx — rounded to 150. It is a field observation from
+// one machine, not a measurement made here, and the copy says so. Anything
+// derived from it (the max frames for the chosen canvas) is presented as
+// guidance, never as a cap: the slider keeps its full range.
+const A2V_PIXEL_BUDGET = 150e6;
 function _a2vFramesForSeconds(sec) {
   const target = Math.max(1, Math.round(sec * 24));
   return ((target - 1 + 7) >> 3 << 3) + 1;   // round up to 8k+1
 }
 function audioStudioDurationChanged(val) {
-  const sec = parseInt(val || '7', 10);
+  const slider = document.getElementById('audioStudioDuration');
+  // Called with no argument from the Width/Height inputs, so the canvas and
+  // the length always warn against each other rather than in isolation.
+  const sec = parseInt((val !== undefined && val !== null ? val
+                        : (slider ? slider.value : '7')) || '7', 10);
   const out = document.getElementById('audioStudioDurationVal');
   if (out) out.textContent = sec + ' s';
   const warn = document.getElementById('audioStudioDurationWarn');
   if (!warn) return;
   const frames = _a2vFramesForSeconds(sec);
-  if (frames > 257) {
+  const w = parseInt((document.getElementById('audioStudioWidth') || {}).value || '1024', 10);
+  const h = parseInt((document.getElementById('audioStudioHeight') || {}).value || '576', 10);
+  const area = (w > 0 && h > 0) ? w * h : 1024 * 576;
+  if (frames * area > A2V_PIXEL_BUDGET) {
+    // The longest length that fits this canvas, on the 8k+1 grid, in seconds.
+    const maxFrames = Math.max(9, ((Math.floor(A2V_PIXEL_BUDGET / area) - 1) >> 3) * 8 + 1);
+    const maxSec = Math.max(1, Math.floor((maxFrames - 1) / 24));
     warn.style.display = '';
-    warn.innerHTML = '<b>' + frames + ' frames</b> — past the ~257-frame point '
-      + 'where Audio → Video has been reported to lose structural coherence '
-      + '(two independent reports, <a href="https://github.com/mrbizarro/Phosphene/issues/46" '
-      + 'target="_blank" rel="noopener">#46</a> — not a limit measured here). '
-      + '10 s = 241 frames is the last stop under it. Longer still renders; '
-      + 'expect anatomy to drift and the picture to wash out toward the end.';
+    warn.innerHTML = '<b>' + frames + ' frames at ' + w + '\u00d7' + h + '</b> — bigger than any '
+      + 'Audio \u2192 Video render that has been reported holding together. What gives out is the '
+      + 'picture, not the sound: the audio plays to the end while anatomy drifts and the frame '
+      + 'washes out. It is <b>frames \u00d7 canvas</b>, not length alone \u2014 640\u00d7480 has been '
+      + 'reported fine at the full 20 s, while 1024\u00d7576 died around frame 454 on the same machine '
+      + '(<a href="https://github.com/mrbizarro/Phosphene/issues/46" target="_blank" rel="noopener">#46</a> '
+      + '\u2014 field reports, not a limit measured here). '
+      + 'At this canvas, about <b>' + maxSec + ' s</b> (' + maxFrames + ' frames) is the last stop under it; '
+      + 'a smaller canvas buys length. Longer still renders.';
   } else {
     warn.style.display = 'none';
     warn.textContent = '';
