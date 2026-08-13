@@ -264,6 +264,31 @@
         "*.jinja",
         "model-*.safetensors"
       ]
+    },
+    {
+      "_comment": "The tiny decoder behind LIVE PREVIEW. 22.4 MiB, MIT, ungated, from github.com/madebyollin/taehv (taeltx2_3.safetensors, 23,531,296 B, sha256 f0773b4e…be246 — verified byte count and hash before publishing). It turns the x0 estimate the denoise loop ALREADY HOLDS into a thumbnail, so nothing is recomputed and a render with the preview on is byte-identical to the same render with it off.",
+      "_mirror_comment": "Mirrored onto the SAME release as the 2.5 packs rather than fetched from raw.githubusercontent at render time, so it rides the ordinary lane: files[] + download_include[], one manifest format, sha256-verified and resumable by scripts/fetch_pack_release.py, and no new fetch-lane code. `repo_id` names the upstream for attribution; the bytes come from the mirror block.",
+      "key": "tae",
+      "kind": "base",
+      "name": "Live-preview decoder",
+      "blurb": "22 MB. Draws the shot as it forms, so a wrong take can be stopped in seconds instead of minutes.",
+      "repo_id": "madebyollin/taehv",
+      "local_dir": "mlx_models/tae",
+      "size_gb": 0.02,
+      "mirror": {
+        "kind": "github-release",
+        "release_repo": "mrbizarro/Phosphene",
+        "tag": "weights-ltx25-v1",
+        "manifest_asset": "tae__phosphene_release_manifest.json"
+      },
+      "files": [
+        "taeltx2_3.safetensors",
+        "LICENSE-taehv"
+      ],
+      "download_include": [
+        "taeltx2_3.safetensors",
+        "LICENSE-taehv"
+      ]
     }
   ],
   "env": {

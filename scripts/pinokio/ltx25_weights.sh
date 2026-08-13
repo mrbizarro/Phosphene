@@ -23,7 +23,10 @@
 # STOPS if either fails rather than marching on to a panel that cannot render.
 
 PY=./ltx-2-mlx/env/bin/python3.11
-if $PY scripts/fetch_pack_release.py --repo-key q4_25 --repo-key gemma4_25; then
+# `tae` rides along: 22 MB, and it is what makes the live preview work. It is
+# a `kind: base` row, so an install without it reads INCOMPLETE — fetching it
+# here is what keeps that true rather than aspirational.
+if $PY scripts/fetch_pack_release.py --repo-key q4_25 --repo-key gemma4_25 --repo-key tae; then
   echo 'LTX-2.5 weights ready (verified against the published manifest).'
 else
   echo '=================================================================='

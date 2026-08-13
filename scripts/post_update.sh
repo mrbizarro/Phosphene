@@ -182,7 +182,7 @@ echo 'Ensuring the Q4 spatial upscaler is present (mosaic fix)…'
 # read-only HF token), hence the fetcher rather than `hf download`. It verifies
 # what it already has, so the steady state is a read pass.
 echo 'Ensuring the LTX-2.5 weights are present (default generation)…'
-"$PY" "$ROOT/scripts/fetch_pack_release.py" --repo-key q4_25 --repo-key gemma4_25 \
+"$PY" "$ROOT/scripts/fetch_pack_release.py" --repo-key q4_25 --repo-key gemma4_25 --repo-key tae \
   || echo 'WARN: LTX-2.5 weight fetch failed — open the panel, go to Models, and click Download for the LTX 2.5 rows to retry. It resumes.'
 
 # The three IC-LoRAs the optional modes need. Colorize + Control are un-gated
