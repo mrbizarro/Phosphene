@@ -3106,12 +3106,32 @@ def list_styles() -> list[dict]:
 # correspond to 5s / 7s / 10s / 15s at 24 fps. 15s pushes the helper
 # past its usual sweet spot but works fine — Mr Bizarro measured 9.5min for
 # 10s/241f on Q8 HQ, so 15s/361f extrapolates to ~14min.
-_CHARACTER_DURATION_FRAMES = {
-    "5s": 121,
-    "7s": 169,
-    "10s": 241,
-    "15s": 361,
-}
+def _character_duration_frames() -> dict[str, int]:
+    """The Characters tab's duration axis — DERIVED from LTX_LENGTHS.
+
+    This was a fourth hardcoded vocabulary for one concept (`{5s:121, 7s:169,
+    10s:241, 15s:361}`), sitting beside the storyboard card's `[3,5,7,10]`, the
+    Manual strip's free numeric field and H3's own table. It was honest — the
+    tab is LTX-only and those frame counts are right on the 8k+1 grid — but four
+    tables mean four things to keep in step, and the 7-second lie is what
+    happens when one of them drifts.
+
+    NOTE the shape change it implies: 15s LEAVES and 3s/20s ARRIVE, because the
+    axis is now the one the engine actually publishes. 15 s was never on LTX's
+    8k+1 axis as a named rung anyway — 361 frames is 15.0 s at 24 fps and
+    renders fine, so any sidecar carrying it still resolves through the
+    compatibility entry below."""
+    out = {l["key"]: int(l["frames"]) for l in LTX_LENGTHS.values()}
+    # Every value this endpoint has ever accepted keeps resolving. 15s is the
+    # one the shipped chip row offered and clips exist at it.
+    out.setdefault("15s", 361)
+    return out
+
+
+# Bound AFTER LTX_LENGTHS exists — see the assignment beside the tier table.
+# Declared here as an empty dict so the name is defined for any import-time
+# reader, and filled in one place rather than being re-derived per request.
+_CHARACTER_DURATION_FRAMES: dict[str, int] = {}
 
 # Quality-to-resolution map for the Characters tab. Nothing else.
 # 2026-05-16 — Mr Bizarro's call: stop translating the user's request through
@@ -6836,6 +6856,10 @@ LTX_QUALITIES: dict[str, dict] = _ltx_qualities()
 LTX_LENGTHS: dict[str, dict] = _ltx_lengths()
 LTX_QUALITY_DEFAULT = "balanced"
 LTX_LENGTH_DEFAULT = "5s"
+# The Characters tab's duration axis, derived from the table above rather than
+# typed a fourth time. Bound here because that is the first point at which
+# LTX_LENGTHS exists; the function and the argument live at its declaration.
+_CHARACTER_DURATION_FRAMES.update(_character_duration_frames())
 
 
 def _build_ltx_tiers() -> dict[str, dict]:
@@ -36599,12 +36623,13 @@ const CHARACTERS_FRAMING = [
   ['MS',  'MS',  'medium shot'],
   ['LS',  'LS',  'long shot'],
 ];
-const CHARACTERS_DURATION = [
-  ['5s',  '5s',  '5 seconds'],
-  ['7s',  '7s',  '7 seconds'],
-  ['10s', '10s', '10 seconds'],
-  ['15s', '15s', '15 seconds — slower (~14min)'],
-];
+// DERIVED from the engine's own length table, not typed. This was the fourth
+// independent duration vocabulary in the panel (after the storyboard card's
+// [3,5,7,10], the Manual strip and H3's table), and four tables for one concept
+// is how the 7-second lie happened. The blurb is the table's own.
+const CHARACTERS_DURATION = (((BOOT.ltx || {}).lengths) || [])
+  .filter(l => l.offered !== false)
+  .map(l => [l.key, l.label, `${l.seconds} seconds — ${l.blurb}`]);
 const CHARACTERS_QUALITY = [
   ['draft',    'Draft',    'Draft — 736x416, Q8 + Turbo, ~3:30 wall, lower detail'],
   ['high',     'High',     'High — 1024x576, Q8 two-stage + Turbo, ~6:00 wall, best identity'],
@@ -47644,7 +47669,31 @@ function sbRenderReplanEnginePicker() {
   const g = sbEl('sbReplanEngineGroup');
   if (g) g.innerHTML = sbEnginePickerHtml(_sbReplanEngineMode);
   const n = sbEl('sbReplanEngineNote');
-  if (n) n.innerHTML = sbEnginePickerNote(_sbReplanEngineMode);
+  if (n) n.innerHTML = sbEnginePickerNote(_sbReplanEngineMode) + sbEngineSnapWarning(_sbReplanEngineMode);
+}
+
+// Flipping a film's engine RE-SNAPS every shot, because H3 and LTX do not share
+// a length axis: H3 renders in 3, 5, 10 or 15-second beats and LTX in 3, 5, 7,
+// 10. A 7 s shot moving to H3 becomes 5 s. That is a real change to the plan,
+// so it is announced rather than discovered — the same class of silence the
+// 7-second lie was, one level up. Counted against the shots that are actually
+// on the board, so it says "two shots" only when two shots really move.
+function sbEngineSnapWarning(mode) {
+  const shots = ((SB.board || {}).shots) || [];
+  if (!shots.length) return '';
+  const target = (mode === 'h3') ? 'h3' : (mode === 'ltx' ? 'ltx' : '');
+  if (!target) return '';                       // 'auto' changes nothing by itself
+  const lens = ((target === 'h3' ? (BOOT.h3 || {}).lengths : (BOOT.ltx || {}).lengths) || [])
+    .filter(l => l.offered !== false).map(l => Number(l.seconds));
+  if (!lens.length) return '';
+  const moving = shots.filter(s => lens.indexOf(Math.round(s.duration_s)) === -1).length;
+  if (!moving) return '';
+  const beats = lens.slice(0, -1).join(', ') + ' or ' + lens[lens.length - 1];
+  const eng = (target === 'h3') ? 'Hailuo H3' : 'LTX';
+  const n = (moving === 1) ? 'One shot' : `${moving} shots`;
+  return `<div class="sb-enginepick-note" style="margin-top:4px">`
+       + escapeHtml(`${eng} renders in ${beats}-second beats. ${n} will move to the nearest one.`)
+       + `</div>`;
 }
 
 // ---- plan ------------------------------------------------------------------
@@ -48091,10 +48140,41 @@ function sbShotCard(s, r, errs) {
   // With no trained characters on this Mac the cast select can only ever say
   // "nobody", so it isn't shown at all and the Character button says why.
   const noCast = !chars.length;
-  const durs = [3, 5, 7, 10];
-  if (durs.indexOf(Math.round(s.duration_s)) === -1) durs.push(Math.round(s.duration_s));
-  const durOpts = durs.sort((a, b) => a - b).map(d =>
-    `<option value="${d}" ${Math.round(s.duration_s) === d ? 'selected' : ''}>${d} s</option>`).join('');
+  // THE 7-SECOND LIE, and what it actually was.
+  //
+  // This menu was `[3, 5, 7, 10]` for both engines. A shot set to 7 s whose
+  // engine is h3 reaches storyboard.h3_length_for(7.0), which snaps to the
+  // nearest of {3,5,10,15} with ties to the shorter — |5-7| beats |10-7| — so
+  // it rendered 5s, 124 frames, about 5.2 seconds. The select still read "7 s".
+  // estimate() priced it at 5 s too, so nothing anywhere disagreed and the user
+  // had no way to find out except by watching the clip. It generalised: any
+  // planner-written duration was pushed into the menu, so an 8 s H3 shot
+  // silently became 10 s. And in the other direction H3's 15 s was UNREACHABLE
+  // from a menu that stopped at 10.
+  //
+  // The menu is now the engine's own table — the same one the Manual strips,
+  // the Characters tab and every estimate read. An H3 shot offers 3/5/10/15 and
+  // has no 7; an LTX shot offers 3/5/7/10 (and 20s, which the table itself
+  // restricts to Quick). One duration vocabulary per engine, server-owned.
+  const _lenTable = (engine === 'h3' ? (BOOT.h3 || {}).lengths : (BOOT.ltx || {}).lengths) || [];
+  const _lens = _lenTable.filter(l => l.offered !== false);
+  const _cur = Math.round(s.duration_s);
+  let durOpts = _lens.map(l =>
+    `<option value="${l.seconds}" ${_cur === Number(l.seconds) ? 'selected' : ''}>${escapeHtml(l.label)}</option>`).join('');
+  // A board carrying an OFF-AXIS duration keeps round-tripping — a hand-edited
+  // board, or one planned before this table existed, must not silently lose its
+  // value. But on the H3 lane the extra option says what it will ACTUALLY do,
+  // because that is the whole bug: it is the snap that was invisible.
+  if (_lens.length && !_lens.some(l => Number(l.seconds) === _cur)) {
+    let label = `${_cur} s`;
+    if (engine === 'h3') {
+      const near = _lens.reduce((a, b) =>
+        (Math.abs(b.seconds - _cur) < Math.abs(a.seconds - _cur)
+          || (Math.abs(b.seconds - _cur) === Math.abs(a.seconds - _cur) && b.seconds < a.seconds)) ? b : a);
+      label = `${_cur} s · nearest ${near.label}`;
+    }
+    durOpts += `<option value="${_cur}" selected>${escapeHtml(label)}</option>`;
+  }
   const passLabel = r.pass === 'final' ? 'Delivery' : 'Draft';
   const seedSet = (s.seed != null && s.seed !== -1);
 
