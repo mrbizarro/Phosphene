@@ -5964,7 +5964,7 @@ STORYBOARD_ENGINE_HELP = (
     "control is in the Re-plan box. Shots are rendered grouped by engine, so "
     "each model loads once instead of once per shot.")
 STORYBOARD_ENGINE_NOTE = "The plan picks the engine per shot — the chip on each card says which."
-STORYBOARD_ENGINE_NOTE_NO_H3 = "Hailuo H3 isn't installed, so every shot renders on LTX-2.3."
+STORYBOARD_ENGINE_NOTE_NO_H3 = "Hailuo H3 isn't installed, so every shot renders on LTX."
 # The Draft canvas renders at 0.25 MP. The H3 community's practical floor is
 # ~0.5 MP, and video STRUCTURE resolves in the last denoise step, so at 9 steps a
 # 0.25 MP pass is genuinely noisy: composition, motion and dialogue timing are
@@ -7655,9 +7655,25 @@ ENGINE_DEFAULT = "ltx"
 ENGINES: tuple[dict, ...] = (
     {
         "id": "ltx",
-        "label": "LTX-2.3",
+        # The switcher answers "which model family renders this", not "which
+        # build". Its segments differ in CAPABILITY — LTX takes LoRAs,
+        # characters, i2v, keyframes and extend; H3 generates joint
+        # dialogue+sound and stacks no character LoRA. 2.3 and 2.5 differ in
+        # none of that: same LoRA files (1152/1152 modules fuse on both), same
+        # modes, same form. A third segment reading "LTX-2.3 | LTX-2.5 | Hailuo
+        # H3" would tell the user those three are peers, and two of them are the
+        # same engine. So the family name is the label and the GENERATION gets
+        # its own line — see `generation_from` below.
+        "label": "LTX",
         "sublabel": "built in",
         "tagline": "every mode, LoRAs, characters",
+        # Rendered as the chip's generation line and nowhere else. Read from the
+        # ACTIVE version so a user pinned back with LTX_MODEL_VERSION=ltx23 sees
+        # the truth rather than a constant. This is the one field in the table
+        # that is DERIVED rather than declared, and it is derived because the
+        # answer changes: a static "2.5" here is the same bug as the static
+        # "LTX-2.3" it replaces, one generation later.
+        "generation_from": "model_version",   # -> model_version()["label"] minus "LTX-"
         "mark": "eng-mark-ltx",
         "accent": "#5EEAFF",
         "accent_dim": "rgba(94,234,255,0.13)",
@@ -7777,6 +7793,16 @@ def engines_payload() -> list[dict]:
         d["modes"] = list(e["modes"]) if e.get("modes") else None
         d["excluded_modes"] = list(e.get("excluded_modes") or ())
         d["surfaces"] = list(e.get("surfaces") or ("video",))
+        # `generation_from` is the one derived field in the table. Resolve it
+        # HERE, once, so the client never computes a version string — it only
+        # prints one. "model_version" means "the label of the generation this
+        # process is actually serving, minus the family prefix the chip already
+        # shows": LTX-2.5 -> 2.5, and LTX-2.3 -> 2.3 for a pinned-back user.
+        if e.get("generation_from") == "model_version":
+            _lbl = str(model_version().get("label") or "")
+            _gen = _lbl.replace("LTX-", "").strip()
+            if _gen and _gen != _lbl.strip():
+                d["generation"] = _gen
         out.append(d)
     return out
 
@@ -28710,6 +28736,14 @@ HTML = r"""<!doctype html>
       background: rgba(140, 160, 220, 0.08);
       border: 1px solid var(--ph-border-soft);
     }
+    /* The generation line. The label answers "which engine"; this answers
+       "which build", muted, in the same span slot as the badge beside it. It
+       is derived from the ACTIVE model version, so it reads 2.5 here and 2.3
+       for a user pinned back with LTX_MODEL_VERSION=ltx23. */
+    body > header .eng-seg-gen {
+      font-size: 10px; font-weight: 600; letter-spacing: .3px;
+      color: var(--muted); margin-left: 5px; font-family: var(--ph-font-mono);
+    }
     /* An offer (download / repair) is worth the engine's own colour; a plain
        constraint ("text · image", "soon") is not. */
     body > header .eng-badge.offer {
@@ -28724,6 +28758,7 @@ HTML = r"""<!doctype html>
     @media (max-width: 1500px) {
       body > header .eng-seg { padding: 0 4px; gap: 0; }
       body > header .eng-seg .eng-seg-name { display: none; }
+      body > header .eng-seg .eng-seg-gen { display: none; }
       body > header .eng-badge { display: none; }
     }
 
@@ -38633,6 +38668,7 @@ function renderEngineSwitch() {
         title="${escapeHtml(_engineTooltip(e, st, modeOk))}">
       <span class="eng-mark"><svg class="ph" aria-hidden="true"><use href="#${escapeHtml(e.mark)}"/></svg></span>
       <span class="eng-seg-name">${escapeHtml(e.label)}</span>${
+      e.generation ? `<span class="eng-seg-gen">${escapeHtml(e.generation)}</span>` : ''}${
       badge ? `<span class="eng-badge${badgeClass}">${escapeHtml(badge)}</span>` : ''}
     </button>`;
   }).join('');
@@ -46582,7 +46618,7 @@ function sbEngineChip(id) {
               accent: '', accent_dim: '', accent_soft: '', tagline: '' };
   const why = id === 'h3'
     ? 'Renders on Hailuo H3 — video, dialogue and sound together. The optional pack.'
-    : 'Renders on LTX-2.3 — the built-in engine, and the only one that loads a trained character.';
+    : 'Renders on LTX — the built-in engine, and the only one that loads a trained character.';
   return `<span class="sb-chip sb-chip-engine" data-engine="${escapeHtml(e.id)}"
       style="--eng-accent:${escapeHtml(e.accent)};--eng-dim:${escapeHtml(e.accent_dim)};--eng-soft:${escapeHtml(e.accent_soft)}"
       title="${escapeHtml(why)}"><span class="eng-mark"><svg class="ph" aria-hidden="true"><use href="#${escapeHtml(e.mark)}"/></svg></span>${escapeHtml(e.label)}</span>`;
@@ -46672,8 +46708,8 @@ function sbEnginePickerNote(active) {
   const h3 = sbH3Installed();
   if (!h3.available) {
     return h3.capable
-      ? 'Hailuo H3 isn’t installed — <b>Install Hailuo H3</b> in the Phosphene sidebar in Pinokio, and this film can use it. Until then every shot renders on LTX-2.3.'
-      : 'This Mac can’t run Hailuo H3, so every shot renders on LTX-2.3.';
+      ? 'Hailuo H3 isn’t installed — <b>Install Hailuo H3</b> in the Phosphene sidebar in Pinokio, and this film can use it. Until then every shot renders on LTX.'
+      : 'This Mac can’t run Hailuo H3, so every shot renders on LTX.';
   }
   if (active === 'h3') return 'Every shot on Hailuo H3 — dialogue, voices and sound rendered with the picture. <b>A trained character can’t come along</b>: H3 loads no LoRAs.';
   if (active === 'ltx') return 'Every shot on LTX-2.3 — every mode, and the only engine that loads a trained character.';
