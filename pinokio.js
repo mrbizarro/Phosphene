@@ -104,7 +104,21 @@ module.exports = {
 
     // --- per-repo completeness from the unified manifest ---
     const repos = required.repos || []
-    const baseRepos = repos.filter(r => r.kind === "base")
+    // WHAT HIDES START IS "CAN THIS RENDER", NOT "IS EVERY base ROW COMPLETE".
+    // `kind: "base"` had come to mean two different things — fetched on a fresh
+    // install, AND the panel cannot render without it — and Gemma 3 is the first
+    // but not the second: it is LTX-2.3's encoder and the Enhance/planner model,
+    // and the active 2.5 generation renders with Gemma 4 instead. Marked base, a
+    // half-downloaded planner model made Pinokio declare the base renderer
+    // incomplete and hide Start on an install that renders perfectly. The
+    // preview decoder had the identical bug one commit earlier; this closes the
+    // class by asking the capability instead of the label.
+    const caps = required.capabilities || {}
+    const capRender = caps.render || {}
+    const renderKeys = ((capRender.repos_by_version || {})[capRender.default_version] || [])
+    const baseRepos = renderKeys.length
+      ? renderKeys.map(k => repos.find(r => r.key === k)).filter(Boolean)
+      : repos.filter(r => r.kind === "base")
     // THE PACK THE BUTTON ACTUALLY INSTALLS. This read `key === "q8"` —
     // LTX-2.3's pack — while the menu entry it gates dispatches
     // download_q8.js -> q8_weights.sh -> `--repo-key q8_25`, i.e. LTX-2.5's.
@@ -155,16 +169,22 @@ module.exports = {
     const h3Resolves = (rel) => {
       try { return fs.existsSync(path.join(installRoot, rel)) } catch (e) { return false }
     }
-    const h3_venv =
-      h3Resolves("minimax-h3-mlx/.venv/bin/python3.11") ||
-      h3Resolves("minimax-h3-mlx/.venv/bin/python")
-    const h3_runner = h3Resolves("minimax-h3-mlx/scripts/generate_staged.py")
+    // DECLARED, NOT RE-DERIVED. This used to call H3 ready on venv + runner +
+    // the one big DiT, while the panel additionally required every compact Q8
+    // component and the upstream text config — so a partial install hid the
+    // Install/Repair entry here while the panel refused to run H3, and the user
+    // had no route to the fix. Both sides now read the same component list from
+    // required_files.json → capabilities.h3.
+    const capH3 = ((required.capabilities || {}).h3) || {}
+    const h3_venv = (capH3.venv_any || []).some(h3Resolves)
+    const h3_runner = (capH3.paths || []).every(h3Resolves)
     // The weights are the expensive thing (~75 GB) and they live under
     // mlx_models/, a completely different tree from the clone — so they
-    // routinely survive whatever broke the engine.
-    const h3_weights =
-      h3Resolves("mlx_models/hailuo-h3/models/deepbeep-pruned-bf16/MiniMax-H3-FL2VA-pruned_bf16.safetensors") ||
-      h3Resolves("mlx_models/hailuo-h3/deepbeep-pruned-bf16/MiniMax-H3-FL2VA-pruned_bf16.safetensors")
+    // routinely survive whatever broke the engine. `model_roots` are
+    // ALTERNATIVES (either download layout is valid); every entry in `models`
+    // is required beneath whichever root carried the DiT.
+    const h3_weights = (capH3.model_roots || []).some(root =>
+      (capH3.models || []).every(rel => h3Resolves(root + "/" + rel)))
     const h3_ready = h3_venv && h3_runner && h3_weights
     // Weights on disk but the code/venv gone → a REPAIR, not a 75 GB install.
     // install_h3.js is idempotent and skips every intact weight, so the same

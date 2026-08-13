@@ -3768,13 +3768,67 @@ def base_missing() -> list[str]:
     the panel doesn't false-positive against a working manual install."""
     if not str(MODEL_ID).startswith("/"):
         return []
-    out = []
-    for r in _repos():
-        if r.get("kind") != "base":
+    return capability_missing("render")
+
+
+def _capabilities() -> dict:
+    return _REQUIRED.get("capabilities") or {}
+
+
+def capability_repo_keys(name: str, version_id: str | None = None) -> list[str]:
+    """Which repos a capability needs, for the ACTIVE generation.
+
+    `render` is declared per version because which packs render is exactly what a
+    generation IS: on ltx25 that is q4_25 + gemma4_25, and Gemma 3 is not in the list.
+    """
+    cap = _capabilities().get(name) or {}
+    by_version = cap.get("repos_by_version")
+    if by_version:
+        vid = version_id or ACTIVE_MODEL_VERSION
+        keys = by_version.get(vid)
+        if keys is None:
+            keys = by_version.get(cap.get("default_version") or "") or []
+        return list(keys)
+    return list(cap.get("repos") or [])
+
+
+def capability_missing(name: str, version_id: str | None = None) -> list[str]:
+    """Files this capability is missing, as `<local_dir>/<file>` — [] when it works.
+
+    ONE QUESTION PER CAPABILITY. `kind: "base"` had come to mean both "fetched on a
+    fresh install" and "the panel cannot render without it", and those are different
+    questions with different answers: Gemma 3 is fetched on every install and the active
+    2.5 generation does not render with it, so a half-downloaded planner model was
+    reporting the RENDERER incomplete and hiding Start. The preview decoder had the same
+    bug one commit earlier. Asking per capability is what stops the next one.
+    """
+    by_key = {r.get("key"): r for r in _repos()}
+    out: list[str] = []
+    for key in capability_repo_keys(name, version_id):
+        repo = by_key.get(key)
+        if not repo:
             continue
-        for fname in _repo_effective_missing(r):
-            out.append(f"{r['local_dir']}/{fname}")
+        for fname in _repo_effective_missing(repo):
+            out.append(f"{repo['local_dir']}/{fname}")
     return out
+
+
+def capability_state(name: str, version_id: str | None = None) -> dict:
+    """{ok, blocking, label, missing[]} — what the UI renders and the gate reads."""
+    cap = _capabilities().get(name) or {}
+    missing = capability_missing(name, version_id)
+    return {
+        "ok": not missing,
+        "blocking": bool(cap.get("blocking")),
+        "label": cap.get("label") or name,
+        "engines": list(cap.get("engines") or []),
+        "missing": missing,
+    }
+
+
+def capabilities_state(version_id: str | None = None) -> dict:
+    return {name: capability_state(name, version_id)
+            for name in _capabilities() if not name.startswith("_")}
 
 
 def _repo_effective_missing(repo: dict) -> list[str]:
@@ -7556,6 +7610,11 @@ def ltx_tiers_payload() -> dict:
         # Why the preview is absent, so the Now card can say it instead of
         # showing nothing and letting the user conclude the feature is broken.
         "preview_state": live_preview_state(),
+        # Per-capability readiness, from required_files.json → capabilities.
+        # The client reads THIS rather than re-deriving what needs what: the
+        # notice above uses `live_preview.engines` to know which jobs it is
+        # even about, and `blocking` is the only thing allowed to hard-block.
+        "capabilities": capabilities_state(),
         # The character strip's two chips, and the PIPELINE they submit —
         # resolved per generation so the markup never owns that rule.
         "character": character_strip_payload(),
@@ -47561,7 +47620,19 @@ function renderNowPreview(s, prog) {
   // does not happen. Only the missing-decoder case speaks — "off" was the user's
   // own choice and needs no announcement.
   const pstate = ((BOOT.ltx || {}).preview_state) || {};
-  const missingDecoder = s.running && !prev && pstate.reason === 'missing_decoder';
+  // SCOPED TO THE JOB IT IS ABOUT. renderNowPreview() runs for EVERY active job,
+  // so this condition — "something is running, there is no preview, the decoder
+  // is missing" — announced an LTX live-preview failure over H3 renders, image
+  // jobs and training runs, complete with an Install link for a decoder those
+  // jobs would never have used. The capability declares which engines it serves
+  // (required_files.json → capabilities.live_preview.engines) and the running
+  // job says which engine it is, so the notice only appears where it is true.
+  const capEngines = (((BOOT.ltx || {}).capabilities || {}).live_preview || {}).engines || ['ltx'];
+  const jobEngine = (((s.current || {}).params || {}).engine || 'ltx').toLowerCase();
+  const jobMode = (((s.current || {}).params || {}).mode || '').toLowerCase();
+  const previewServesThisJob = capEngines.indexOf(jobEngine) !== -1 && jobMode !== 'train';
+  const missingDecoder = s.running && !prev && previewServesThisJob
+                      && pstate.reason === 'missing_decoder';
   let miss = document.getElementById('nowPreviewMissing');
   if (missingDecoder) {
     if (!miss) {
