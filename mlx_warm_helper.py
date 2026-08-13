@@ -1016,6 +1016,70 @@ _hq_lora_key: str | None = None
 _hq_weight_key: tuple[str | None, str | None] | None = None
 
 
+def _checkpoint_generation(model_dir: str) -> tuple[int, ...]:
+    """The generation of the checkpoint in ``model_dir``, e.g. ``(2, 5)``.
+
+    Returns the empty tuple when it cannot be read, which every
+    generation-keyed default in the vendored library treats as "older than
+    anything" and therefore answers with the legacy value. A pack whose
+    config we cannot parse must render exactly as it did before.
+
+    Reads `config.json` / `embedded_config.json` — the sidecars the quantiser
+    writes next to the weights — and parses with the LIBRARY's own
+    ``parse_model_version``, so the panel cannot disagree with the pipeline
+    about what "2.5" means. Costs one small JSON read, no weights.
+    """
+    try:
+        from ltx_core_mlx.model.transformer.model import parse_model_version
+    except Exception:  # noqa: BLE001 — older library: no generations exist
+        return ()
+    import json as _json
+    from pathlib import Path as _Path
+    base = _Path(str(model_dir))
+    for name in ("config.json", "embedded_config.json"):
+        try:
+            raw = _json.loads((base / name).read_text())
+        except Exception:  # noqa: BLE001 — absent/unreadable/not JSON
+            continue
+        version = raw.get("model_version")
+        if version is None:
+            version = (raw.get("transformer") or {}).get("model_version")
+        if version is None:
+            continue
+        try:
+            return tuple(parse_model_version(str(version)))
+        except Exception:  # noqa: BLE001
+            continue
+    return ()
+
+
+def _hq_modality_scale(model_dir: str) -> float:
+    """The HQ path's default ``modality_scale`` for this checkpoint.
+
+    The detail-guidance slider (STG) has to hand the pipeline EXPLICIT guider
+    params to make `stg_blocks=[28]` bite, and those params carry every other
+    field too. Hardcoding `modality_scale=3.0` there meant the slider changed
+    TWO things at once on LTX-2.5: the pipeline's own default became 1.0 in
+    the v4.0 pin (isolated-modality guidance off — an owner-graded output
+    change worth −60.7 s), but any render with detail guidance above 0 would
+    silently re-enable the dead pass and pay for it again.
+
+    So the value is asked of the library rather than restated here: the panel
+    and `TI2VidTwoStagesHQPipeline` resolve it through the SAME function, and
+    a future generation cannot make the two disagree. On a library that
+    predates the keying — any older pin — the import fails and 3.0 comes back,
+    which is byte-identical to what shipped before.
+    """
+    try:
+        from ltx_pipelines_mlx.ti2vid_two_stages_hq import resolve_modality_scale
+    except Exception:  # noqa: BLE001 — pre-25b9b8e library: 3.0 was the only value
+        return 3.0
+    try:
+        return float(resolve_modality_scale(_checkpoint_generation(model_dir)))
+    except Exception:  # noqa: BLE001 — never let this block a render
+        return 3.0
+
+
 def get_hq_pipe(model_dir: str, loras: list[dict] | None = None,
                 dev_transformer: str | None = None,
                 distilled_lora: str | None = None):
@@ -2433,25 +2497,34 @@ for line in sys.__stdin__:
             # other defaults verbatim (cfg/rescale/modality) so STG is the only
             # thing that changes. At stg_scale<=0 we pass nothing → the pipeline
             # builds its own [] params → byte-identical to the pre-slider path.
+            #
+            # `modality_scale` is the one field that is NOT a constant: it is
+            # generation-keyed, and `_hq_modality_scale` asks the library for
+            # the same answer the pipeline's own default would compute. 2.3
+            # still gets 3.0; 2.5 gets 1.0, so the slider changes STG and
+            # nothing else. Hardcoding 3.0 here made the slider silently
+            # re-enable the isolated-modality pass on 2.5 — the one the v4.0
+            # pin removed by default.
             _stg = float(kwargs.get("stg_scale", 0.0))
             if _stg > 0.0:
                 try:
                     from ltx_core_mlx.components.guiders import MultiModalGuiderParams
+                    _modality = _hq_modality_scale(model_dir)
                     kwargs["video_guider_params"] = MultiModalGuiderParams(
                         cfg_scale=float(kwargs.get("cfg_scale", 3.0)),
                         stg_scale=_stg,
                         rescale_scale=0.45,
-                        modality_scale=3.0,
+                        modality_scale=_modality,
                         stg_blocks=[28],
                     )
                     kwargs["audio_guider_params"] = MultiModalGuiderParams(
                         cfg_scale=7.0,
                         stg_scale=_stg,
                         rescale_scale=1.0,
-                        modality_scale=3.0,
+                        modality_scale=_modality,
                         stg_blocks=[28],
                     )
-                    emit({"event": "log", "line": f"STG detail guidance ON — stg_scale={_stg:g}, stg_blocks=[28]"})
+                    emit({"event": "log", "line": f"STG detail guidance ON — stg_scale={_stg:g}, stg_blocks=[28], modality_scale={_modality:g}"})
                 except Exception as _stg_exc:
                     # Never let STG wiring block a render — fall back to the
                     # plain (STG-off) HQ path if the import/shape ever drifts.
