@@ -364,27 +364,45 @@ eq("2.3 q8 verifies against hf-api", p._pack_verify_source("q8"), "hf-api")
 eq("2.5 q4 verifies against its manifest", p._pack_verify_source("q4_25"), "manifest")
 eq("2.5 q8 verifies against its manifest", p._pack_verify_source("q8_25"), "manifest")
 
-# DEFECT-2. Those four answers are right, and two of them are right by accident.
-# `_pack_verify_source(repo_key)` resolves `_quant_for_repo_key(repo_key)` and
-# then `version_pack(quant)` with NO version_id — i.e. through whichever
-# generation is DEFAULT. With 2.5 default, the 2.3 repo key "q4" is not a pack
-# key of the default version at all, so the lookup returns None and falls
-# through to the "hf-api" default. Correct answer, wrong reason. Flip the
-# default to 2.3 and "q4_25" becomes the unrecognised one, and the 2.5 pack is
-# sent to a HuggingFace repo that does not exist — which today still works only
-# because `_expected_meta` falls back to the manifest when the network answer
-# is empty. It is one silent step from "verified" meaning "not checked".
+# DEFECT-2, FIXED (v4.0 step 1). Those four answers used to be right with two of
+# them right by accident: `_pack_verify_source(repo_key)` resolved
+# `version_pack(quant)` with NO version_id — i.e. through whichever generation
+# was DEFAULT — so the OTHER generation's repo key was not recognised as a pack
+# at all and fell through to the "hf-api" default. Flipping the default to 2.3
+# sent the 2.5 packs to a HuggingFace repo that does not exist and never will,
+# surviving only on `_expected_meta`'s empty-answer fallback to the manifest:
+# one silent step from "verified" meaning "not checked".
 #
-# NOT FIXED HERE (panel lane). The fix is to thread version_id through
-# `_pack_verify_source` / `_expected_meta`, or to key verify_source off the
-# repo entry in required_files.json instead of the version registry.
-known_defect(
-    "DEFECT-2", "_pack_verify_source() is version-blind",
-    (p._quant_for_repo_key("q4"), p._quant_for_repo_key("q4_25")), (None, "q4"),
-    "both should resolve to 'q4' against their OWN generation; today the "
-    "non-default generation's repo key is simply not recognised, and only "
-    "_expected_meta's empty-answer fallback keeps deep-verify honest",
-)
+# The fix is `pack_for_repo_key()`, which searches every registered generation,
+# because where a pack's checksums live is a property of the PACK. The assertion
+# that matters is therefore the one that used to be impossible: the answers must
+# not depend on which generation is active. Both directions, both generations.
+eq("2.5 q4's verify source is a property of the pack, not of the session",
+   p.pack_for_repo_key("q4_25")["quant"], "q4")
+eq("2.3 q4 resolves to a pack too, from a 2.5-default process",
+   p.pack_for_repo_key("q4")["quant"], "q4")
+eq("2.3 q8 resolves to a pack", p.pack_for_repo_key("q8")["quant"], "q8")
+eq("2.5 q8 resolves to a pack", p.pack_for_repo_key("q8_25")["quant"], "q8")
+eq("a non-pack repo key is still not a pack", p.pack_for_repo_key("gemma"), None)
+eq("the HQ add-on is a FEATURE surface, not a pack", p.pack_for_repo_key("hq_25"), None)
+# The property under test, stated as itself: swing ACTIVE_MODEL_VERSION across
+# both generations and every verify source must be unchanged. This is the
+# assertion the known_defect marker stood in for, and it is red on the old code.
+_saved_active = p.ACTIVE_MODEL_VERSION
+try:
+    _seen = {}
+    for _vid in ("ltx25", "ltx23"):
+        p.ACTIVE_MODEL_VERSION = _vid
+        _seen[_vid] = {k: p._pack_verify_source(k)
+                       for k in ("q4", "q8", "q4_25", "q8_25", "gemma", "ic_colorize")}
+    eq("verify sources do not move when the active generation does",
+       _seen["ltx25"], _seen["ltx23"])
+    eq("...and they are the right answers, from either generation",
+       _seen["ltx23"],
+       {"q4": "hf-api", "q8": "hf-api", "q4_25": "manifest", "q8_25": "manifest",
+        "gemma": "hf-api", "ic_colorize": "hf-api"})
+finally:
+    p.ACTIVE_MODEL_VERSION = _saved_active
 eq("an unknown repo defaults to hf-api", p._pack_verify_source("ic_colorize"), "hf-api")
 eq("None defaults to hf-api", p._pack_verify_source(None), "hf-api")
 eq("the 2.5 q4 pack really does carry a manifest",

@@ -562,6 +562,34 @@ def _quant_for_repo_key(repo_key: str | None,
     return None
 
 
+def pack_for_repo_key(repo_key: str | None) -> dict | None:
+    """The pack entry backing this required_files.json repo key, searched
+    across EVERY registered generation rather than only the active one.
+
+    A repo key names exactly one pack in the whole registry (`q4` is 2.3's,
+    `q4_25` is 2.5's), so this reverse lookup has a version-free answer — and
+    every property that belongs to the PACK rather than to the current session
+    must be read through here.
+
+    DEFECT-2, and why the version-scoped lookup was wrong: `_pack_verify_source`
+    resolved `version_pack(quant)` against the ACTIVE version, so the non-active
+    generation's packs were not recognised as packs at all and fell through to
+    the "hf-api" default. With 2.5 active the four answers happened to be right
+    and two of them were right by accident; flip the default back to 2.3 with
+    LTX_MODEL_VERSION=ltx23 and the 2.5 packs get sent to a HuggingFace repo
+    that does not exist and never will, surviving only on `_expected_meta`'s
+    empty-answer fallback to the manifest. That is one silent step from
+    "verified" meaning "not checked" — the June-mosaic blind spot, restored by
+    an env var."""
+    if not repo_key:
+        return None
+    for v in MODEL_VERSIONS:
+        for p in v.get("packs", ()):
+            if p.get("repo_key") == repo_key:
+                return p
+    return None
+
+
 def version_cap_tiers(version_id: str | None = None) -> tuple[str, ...]:
     return tuple(model_version(version_id).get("cap_tiers", ("q4",)))
 
@@ -4454,11 +4482,12 @@ def _manifest_meta(base: Path) -> dict:
 
 def _pack_verify_source(repo_key: str | None) -> str:
     """Where the expected SHAs for this repo come from — "hf-api" (default,
-    and what every 2.3 pack plus gemma and the IC-LoRAs use) or "manifest"."""
-    quant = _quant_for_repo_key(repo_key)
-    if not quant:
-        return "hf-api"
-    pack = version_pack(quant) or {}
+    and what every 2.3 pack plus gemma and the IC-LoRAs use) or "manifest".
+
+    Keyed off the PACK, across every generation (`pack_for_repo_key`), because
+    where a pack's checksums live is a property of the pack, not of whichever
+    generation happens to be active in this process."""
+    pack = pack_for_repo_key(repo_key) or {}
     return pack.get("verify_source") or "hf-api"
 
 
