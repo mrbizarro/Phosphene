@@ -4112,6 +4112,146 @@ def repo_status_list() -> list[dict]:
     return out
 
 
+def _dir_size_bytes(base: Path) -> int:
+    """Sum of every regular file under `base`. 0 when it isn't there."""
+    total = 0
+    try:
+        for p in base.rglob("*"):
+            try:
+                if p.is_file() and not p.is_symlink():
+                    total += p.stat().st_size
+            except OSError:
+                continue
+    except OSError:
+        return 0
+    return total
+
+
+# NOTE: the size formatter for this section is `_fmt_gb`, which already existed
+# further down this file. This block deliberately does NOT define a second one —
+# a duplicate was written here first and was silently shadowed by the existing
+# definition (later binding wins at module level), which is the same
+# "two definitions of one thing" class the tier tables and the subtitle writers
+# were. One formatter, and it is decimal GB (n / 1e9).
+#
+# THE UNIT IS LOAD-BEARING. The Models modal prints `size_gb` from
+# required_files.json, which is decimal GB (~30.02 GB for a pack `du -h` calls
+# 28G). Storage sits directly under it in the same dialog, so if one section
+# used binary GiB the two would disagree by 7 % about the same folder and it
+# would read as a bug. Never mix in `du -h`.
+
+
+# What a pack is worth keeping FOR. Computed from things the panel already
+# knows, not typed per row: the trainer preflight hardcodes 2.3's q8 + q4, and
+# the IC-LoRA registry names ltx-2.3-* files, so removing 2.3 really does turn
+# off Train and the four control-LoRA modes.
+STORAGE_KEEP_IF = {
+    "generation": ("Keep it if you train characters — the Train tab still "
+                   "trains against LTX-2.3 — or if you use Colorize, Restore, "
+                   "Ingredients or HDR, whose control LoRAs are LTX-2.3 files."),
+    "hq_addon": ("Removing this turns off the High tier, Extend and Keyframes "
+                 "until you fetch it again."),
+    "q8": ("Removing this means trained characters render approximate faces "
+           "and voices."),
+}
+
+
+def storage_rows() -> list[dict]:
+    """What can be reclaimed on this disk, and what deliberately cannot.
+
+    A row exists for every registered pack whose version is NOT the active one,
+    plus the two generation-scoped extras. SIZES COME FROM WALKING THE ACTUAL
+    DIRECTORY, not from required_files.json's `size_gb`: the honest number is
+    what is on THIS disk, a partial pack must not claim a full one's footprint,
+    and the planning note's own inventory was already 3 GB out on 2.3's q4 half.
+    Measuring the row is the whole argument."""
+    rows: list[dict] = []
+    active = ACTIVE_MODEL_VERSION
+    seen_dirs: set[str] = set()
+
+    for v in MODEL_VERSIONS:
+        if v["id"] == active:
+            continue
+        dirs, nbytes = [], 0
+        for pack in v.get("packs", ()):
+            p = Path(pack["path"])
+            if str(p) in seen_dirs or not p.is_dir():
+                continue
+            seen_dirs.add(str(p))
+            dirs.append(p)
+            nbytes += _dir_size_bytes(p)
+        if not dirs:
+            continue
+        rows.append({
+            "key": f"version:{v['id']}",
+            "name": f"{v['label']} · previous generation",
+            "paths": [str(d.relative_to(ROOT)) if d.is_relative_to(ROOT) else str(d)
+                      for d in dirs],
+            "bytes": nbytes,
+            "size": _fmt_gb(nbytes),
+            "note": STORAGE_KEEP_IF["generation"],
+            "removable": True,
+        })
+
+    # The High add-on has NO DIRECTORY OF ITS OWN — its local_dir IS the q8
+    # pack's — so it sizes itself from the two filenames hq_weights() names and
+    # removing it deletes exactly those two. Getting this wrong deletes the q8
+    # pack, which is why it is a separate branch and not a directory walk.
+    addon_key = model_version().get("hq_addon_repo_key")
+    if addon_key and not hq_addon_missing():
+        base = pack_path("q8")
+        files = [base / n for n in hq_weights().values()]
+        nbytes = sum(f.stat().st_size for f in files if f.is_file())
+        if nbytes:
+            rows.append({
+                "key": addon_key,
+                "name": f"{model_version()['label']} High add-on",
+                "paths": [str(f.relative_to(ROOT)) if f.is_relative_to(ROOT) else str(f)
+                          for f in files],
+                "bytes": nbytes,
+                "size": _fmt_gb(nbytes),
+                "note": STORAGE_KEEP_IF["hq_addon"],
+                "removable": True,
+            })
+
+    # Gemma 3 is NEVER offered. It is 2.3's text encoder AND the prompt enhancer
+    # AND the storyboard planner, so removing it silently breaks Enhance and
+    # Storyboard on every generation. Stating why something CANNOT go is part of
+    # this section's job — a user hunting 7 GB should find the answer here
+    # rather than delete it and file a bug.
+    gemma3 = next((r for r in _repos() if r.get("key") == "gemma"), None)
+    if gemma3:
+        base = ROOT / gemma3["local_dir"]
+        nbytes = _dir_size_bytes(base)
+        if nbytes:
+            rows.append({
+                "key": "gemma",
+                "name": "Gemma 3 12B",
+                "paths": [gemma3["local_dir"]],
+                "bytes": nbytes,
+                "size": _fmt_gb(nbytes),
+                "note": "Kept — this is also what Enhance and the Storyboard "
+                        "planner run on.",
+                "removable": False,
+            })
+    return rows
+
+
+def storage_payload() -> dict:
+    rows = storage_rows()
+    reclaimable = sum(r["bytes"] for r in rows if r["removable"])
+    try:
+        free = shutil.disk_usage(OUTPUT).free
+    except OSError:
+        free = 0
+    return {
+        "rows": rows,
+        "reclaimable": reclaimable,
+        "reclaimable_label": _fmt_gb(reclaimable),
+        "free_label": _fmt_gb(free),
+    }
+
+
 def _repo_host_key(repo: dict) -> str | None:
     """The repo key whose directory this one installs INTO, when that is a
     different repo. None for every repo that owns its own directory.
@@ -17941,6 +18081,13 @@ class Handler(BaseHTTPRequestHandler):
                 )
             self._json(payload)
             return
+        if parsed.path == "/storage":
+            # What can be reclaimed on this disk. Walks the real directories, so
+            # it is deliberately NOT part of /status (which polls every 1.5 s).
+            # The Settings modal asks for it on open, which is the only moment
+            # anyone looks.
+            self._json(storage_payload())
+            return
         if parsed.path == "/settings":
             # Return current panel settings + the preset table so the UI
             # can render preset pills with labels and blurbs without
@@ -21899,6 +22046,87 @@ class Handler(BaseHTTPRequestHandler):
                 DOWNLOAD["last_line"] = "starting…"
             threading.Thread(target=_download_thread, args=(repo,), daemon=True).start()
             self._json({"ok": True, "key": key, "repo_id": repo["repo_id"]}); return
+
+        if path == "/models/remove":
+            # POST { repo_key } — free the space a retired pack is holding.
+            #
+            # It REFUSES THREE THINGS, server-side, and says which. This is the
+            # one endpoint in the panel that deletes multi-GB weights, so the
+            # refusals are here rather than in the UI that calls it: a stale
+            # tab, a replayed request or a curl must hit the same wall the
+            # button does.
+            #
+            # And it NEVER TAKES A PATH FROM THE CLIENT. Every branch resolves
+            # its own paths out of the registry from a key, so the worst a
+            # malicious caller can do is delete a pack the registry names —
+            # which is exactly what the button does.
+            key = (form.get("repo_key", [""])[0] or "").strip()
+
+            # (2) a download in flight is using that folder.
+            with DOWNLOAD_LOCK:
+                busy_key = DOWNLOAD.get("key") if DOWNLOAD["active"] else None
+
+            targets: list[Path] = []
+            label = ""
+            if key.startswith("version:"):
+                vid = key.split(":", 1)[1]
+                ver = next((v for v in MODEL_VERSIONS if v["id"] == vid), None)
+                if not ver:
+                    self._json({"error": f"unknown model version: {vid!r}"}, 400); return
+                # (1) never the model this build renders with.
+                if vid == ACTIVE_MODEL_VERSION:
+                    self._json({"error": "That's the model this build renders with."}, 400); return
+                for pack in ver.get("packs", ()):
+                    if busy_key and _quant_for_repo_key(busy_key, vid) == pack["quant"]:
+                        self._json({"error": "A download is using that folder — "
+                                             "cancel it first."}, 409); return
+                    p = Path(pack["path"])
+                    if p.is_dir():
+                        targets.append(p)
+                label = f"{ver['label']}"
+            else:
+                repo = next((r for r in _repos() if r.get("key") == key), None)
+                # (3) not registered.
+                if not repo:
+                    self._json({"error": f"unknown repo key: {key!r}"}, 400); return
+                if busy_key == key:
+                    self._json({"error": "A download is using that folder — "
+                                         "cancel it first."}, 409); return
+                addon_key = model_version().get("hq_addon_repo_key")
+                if key == addon_key:
+                    # The add-on has no directory of its own: delete exactly the
+                    # two files it consists of, BY NAME. A directory walk here
+                    # would delete the q8 pack.
+                    base = pack_path("q8")
+                    targets = [base / n for n in hq_weights().values()]
+                    label = f"{model_version()['label']} High add-on"
+                else:
+                    _q = _quant_for_repo_key(key)
+                    if _q and _q in version_quants():
+                        self._json({"error": "That's the model this build renders with."}, 400); return
+                    if key == "gemma":
+                        self._json({"error": "Gemma 3 is also what Enhance and the "
+                                             "Storyboard planner run on."}, 400); return
+                    p = ROOT / repo["local_dir"]
+                    if p.is_dir():
+                        targets.append(p)
+                    label = repo.get("name") or key
+
+            freed = 0
+            for t in targets:
+                try:
+                    if t.is_dir():
+                        freed += _dir_size_bytes(t)
+                        shutil.rmtree(t)
+                    elif t.is_file():
+                        freed += t.stat().st_size
+                        t.unlink()
+                except OSError as exc:
+                    push(f"[storage] could not remove {t}: {exc}")
+                    self._json({"error": f"could not remove {t.name}: {exc}"}, 500); return
+            push(f"[storage] removed {label} — {_fmt_gb(freed)} freed")
+            self._json({"ok": True, "freed": freed, "freed_label": _fmt_gb(freed),
+                        "label": label}); return
 
         if path == "/models/cancel":
             # Best-effort kill — the next status poll will see active=False.
@@ -33190,6 +33418,26 @@ HTML = r"""<!doctype html>
       </div>
     </div>
 
+    <!-- Storage. Directly after its only disk-facing sibling on purpose: one
+         section says WHAT IS INSTALLED, the next says WHAT CAN GO.
+
+         It renders NOTHING — including its own <h3> — when there is nothing to
+         reclaim, so a single-generation install never sees it. That is rule 5:
+         a user who never opens a pack sees no new chrome at all.
+
+         .models-list / .models-foot are reused wholesale, so a Storage row and
+         a Models row look like siblings because they are. -->
+    <div class="settings-section" id="settingsStorageSection" style="display:none">
+      <h3>Storage</h3>
+      <div class="hint" style="margin-bottom:8px">
+        Model files this build no longer renders with. Removing one frees the space
+        immediately; re-installing it later is a fresh download of the size shown.
+        Nothing here is deleted without asking.
+      </div>
+      <ul class="models-list" id="storageList"></ul>
+      <div class="models-foot" id="storageFoot"></div>
+    </div>
+
     <div class="settings-section">
       <h3>API tokens</h3>
       <div class="hint" style="margin-bottom:8px">
@@ -44165,11 +44413,79 @@ async function submitBugReport() {
 // duplicated in JS.
 let _settingsCache = null;
 
+// Storage. Refreshed on modal OPEN, never on a timer — it walks real
+// directories, and the only moment anyone looks at it is when the dialog opens.
+async function refreshStorageSection() {
+  const sec = document.getElementById('settingsStorageSection');
+  const list = document.getElementById('storageList');
+  const foot = document.getElementById('storageFoot');
+  if (!sec || !list || !foot) return;
+  let d;
+  try { d = await api('/storage'); } catch (e) { sec.style.display = 'none'; return; }
+  const rows = d.rows || [];
+  // Rule 5: nothing to reclaim -> the section and its <h3> are both absent. A
+  // single-generation install never sees it.
+  if (!rows.length) { sec.style.display = 'none'; return; }
+  sec.style.display = '';
+  list.innerHTML = rows.map(r => {
+    const icon = r.removable
+      ? '<svg class="ph" aria-hidden="true"><use href="#ph-check-bold"/></svg>'
+      : '<svg class="ph" aria-hidden="true"><use href="#ph-warning-fill"/></svg>';
+    const btn = r.removable
+      ? `<button class="ghost" onclick="removeStoragePack('${escapeHtml(r.key)}')">Remove</button>`
+      : '';
+    return `
+      <li class="${r.removable ? 'ready' : 'partial'}">
+        <span class="icon">${icon}</span>
+        <div class="meta">
+          <span class="ttl">${escapeHtml(r.name)}<span style="float:right">${escapeHtml(r.size)}</span></span>
+          <span class="sub">${escapeHtml((r.paths || []).join(' + '))}</span>
+          <span class="sub">${escapeHtml(r.note)}</span>
+        </div>
+        ${btn}
+      </li>`;
+  }).join('');
+  foot.innerHTML = escapeHtml(
+      `${d.reclaimable_label} reclaimable · ${d.free_label} free on this disk`)
+    + `<br>Removing a pack never touches <code>mlx_outputs/</code> — your clips stay where they are.`;
+}
+
+// Native confirm(), the house rule, and it names the size AND the consequence.
+// No modal: this dialog is a .models-modal with no focus trap (see the spec's
+// §11-D), and stacking a custom confirm inside it would be a worse experience
+// than the browser's own.
+async function removeStoragePack(key) {
+  let d;
+  try { d = await api('/storage'); } catch (e) { return; }
+  const row = (d.rows || []).find(r => r.key === key);
+  if (!row) return;
+  const consequence = row.note ? row.note + '\n' : '';
+  if (!confirm(`Remove ${row.name}?\n\n`
+      + `Frees ${row.size} from mlx_models/.\n`
+      + consequence
+      + `Nothing you have already rendered is affected.`)) return;
+  let res;
+  try {
+    res = await api('/models/remove', { method: 'POST',
+      body: new URLSearchParams({ repo_key: key }) });
+  } catch (e) {
+    phosToast(String((e && e.message) || e), { kind: 'danger', duration: 6000 });
+    return;
+  }
+  phosToast(`Removed ${res.label} — ${res.freed_label} free.`,
+            { kind: 'success', duration: 6000 });
+  refreshStorageSection();
+  if (document.getElementById('modelsModal').style.display !== 'none') {
+    refreshModelsModal({ silent: true });
+  }
+}
+
 async function openSettingsModal() {
   const modal = document.getElementById('settingsModal');
   modal.style.display = 'flex';
   document.getElementById('settingsStatus').textContent = '';
   document.getElementById('settingsStatus').className = 'settings-status';
+  refreshStorageSection();
   try {
     const r = await fetch('/settings');
     _settingsCache = await r.json();
