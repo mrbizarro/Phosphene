@@ -261,28 +261,31 @@ eq("the registry is restored", [v["id"] for v in p.MODEL_VERSIONS], ["ltx23", "l
 # =============================================================================
 # 7. Job-time preflight — the anti-mosaic refusal
 # =============================================================================
-# DEFECT-1. `_canonical_layout()` reads
-#     str(MODEL_ID).startswith("/") and str(MODEL_ID) == str(pack_path("q4"))
-# and `pack_path("q4")` with no version_id resolves the DEFAULT generation. That
-# was an identity while ltx23 was the only entry. Since 2.5 became the default
-# (f1d2139, 2026-08-12) it compares the 2.3 install path against the 2.5 pack
-# path, which are never equal — so it is FALSE on every stock install, and
-# `ltx_pack_preflight()` (its only caller) returns at line 1 and refuses
-# nothing. The June-2026 mosaic guard is switched off in the field.
+# DEFECT-1, FIXED (v4.0 step 7). `_canonical_layout()` compared MODEL_ID against
+# `pack_path("q4")` with NO version_id — the DEFAULT generation. That was an
+# identity while ltx23 was the only entry; from f1d2139 (2026-08-12) it compared
+# the 2.3 install path against the 2.5 pack path, which are never equal, so it
+# was False on every stock install. It is the SOLE gate on
+# `ltx_pack_preflight()`, so the June-2026 mosaic guard was switched off in the
+# field: an incomplete pack rendered a rainbow mosaic instead of naming the file.
 #
-# NOT FIXED HERE: mlx_ltx_panel.py belongs to the panel lane in the v4.0 split.
-# The fix is one line — compare against the 2.3 pack explicitly, which is what
-# the expression meant before a second generation existed:
-#     str(MODEL_ID) == str(pack_path("q4", "ltx23"))
-# and then make the preflight ask per version. Handed over in
-# notes/v40_foundation.md.
-known_defect(
-    "DEFECT-1", "_canonical_layout() on a stock 2.5-default install",
-    p._canonical_layout(), False,
-    "True — it compares MODEL_ID (the 2.3 install) against pack_path('q4'), "
-    "which now resolves the 2.5 pack, so ltx_pack_preflight() is dead code "
-    "and an incomplete pack renders mosaic instead of refusing",
-)
+# It now compares within a version, against ANY registered generation's own q4
+# pack, which is what the expression meant before a second generation existed.
+eq("the canonical layout is recognised on a stock install",
+   p._canonical_layout(), True)
+# And the property that made it rot: the answer must not depend on which
+# generation is active. It is a question about THIS install's layout.
+_saved_active_cl = p.ACTIVE_MODEL_VERSION
+try:
+    _seen_cl = {}
+    for _vid in ("ltx25", "ltx23"):
+        p.ACTIVE_MODEL_VERSION = _vid
+        _seen_cl[_vid] = p._canonical_layout()
+    eq("the layout check does not move with the active generation",
+       _seen_cl["ltx25"], _seen_cl["ltx23"])
+    eq("...and it is True from either", _seen_cl["ltx23"], True)
+finally:
+    p.ACTIVE_MODEL_VERSION = _saved_active_cl
 
 # The refusal itself still works when it is reached — proven by driving it with
 # the layout check forced, so the day DEFECT-1 is fixed the machinery is known

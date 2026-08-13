@@ -3915,8 +3915,26 @@ def _canonical_layout() -> bool:
     False for the two shapes we must never second-guess: LTX_MODEL set to a
     bare HF repo id (weights resolve through the HF cache) and LTX_MODEL
     pointed at a directory the user assembled themselves. We have no
-    manifest for either, so completeness claims about them would be lies."""
-    return str(MODEL_ID).startswith("/") and str(MODEL_ID) == str(pack_path("q4"))
+    manifest for either, so completeness claims about them would be lies.
+
+    DEFECT-1, and it had been live since 2.5 became the default. This compared
+    MODEL_ID against `pack_path("q4")` with no version_id — i.e. against
+    whichever generation is ACTIVE. That was an identity while ltx23 was the
+    only entry; from the day a second generation landed it compared the 2.3
+    install path against the 2.5 pack path, which are never equal, so it was
+    False on every stock install. It is the SOLE gate on ltx_pack_preflight(),
+    so that function returned at line 1 and refused nothing: an incomplete pack
+    rendered the June-2026 rainbow mosaic instead of naming the missing file —
+    the exact two-week failure the preflight was written to end.
+
+    The question it is asking is "is MODEL_ID the pack we installed, wherever
+    it came from", and MODEL_ID is defaulted from Q4_LOCAL_PATH — a 2.3 path.
+    So it must be compared WITHIN a version, against any generation's own q4
+    pack, rather than against whatever happens to be default today."""
+    mid = str(MODEL_ID)
+    if not mid.startswith("/"):
+        return False
+    return any(mid == str(pack_path("q4", v["id"])) for v in MODEL_VERSIONS)
 
 
 def ltx_pack_preflight(quant: str, feature: str,
@@ -41086,6 +41104,21 @@ function friendlyJobError(raw) {
              hint: 'Check the log for the last "step:*" breadcrumb (tells us which ' +
                    'phase died). If memory-pressured, close other apps and retry.' };
   }
+  // Layer 2. Layer 1 (applyPackIncompleteGate) should have stopped this before
+  // the render started; this fires when it could not — a file removed while the
+  // job sat in the queue, or a surface that reaches make_job without the form.
+  // The RuntimeError text itself is deliberately unchanged upstream: it is what
+  // the log carries and what a bug report quotes. This translates it, it does
+  // not replace it.
+  if (/model is\s+incomplete\. Missing/i.test(raw)) {
+    const m = /Missing \d+ file\(s\) in [^:]+: ([^.]+)\./.exec(raw);
+    return {
+      friendly: 'Stopped before rendering — the model weights are incomplete.',
+      hint: (m ? 'Missing: ' + m[1].trim() + '. ' : '')
+          + 'Rendering with a file missing produces garbled "mosaic" video rather '
+          + 'than an error, so Phosphene stops instead. Settings → Models → Resume.',
+    };
+  }
   if (rawLower.includes('q8') || rawLower.includes('keyframe')) {
     return { friendly: 'This mode needs the Q8 model.', hint: raw };
   }
@@ -41233,6 +41266,10 @@ async function poll() {
   // Hailuo H3 install state — refreshes the engine pill in place when the
   // pack lands (or disappears), same live-unlock contract Q8 already has.
   if (typeof updateH3Availability === 'function') updateH3Availability(s);
+  // The pack-incomplete gate, BEFORE the render rather than 30 s into it.
+  if (typeof applyPackIncompleteGate === 'function') {
+    try { applyPackIncompleteGate(s); } catch (e) {}
+  }
 
   // Queue pill + tab badge. Animate the bottom-pane Queue badge with
   // a brief scale-up "pop" when the count goes up — draws the eye to
@@ -41703,6 +41740,71 @@ async function poll() {
   // overnight run, gates Plan film on the worker being idle, and decides
   // whether `To film` exists at all. All three are inert with no boards.
   if (typeof sbPollHook === 'function') { try { sbPollHook(s); } catch (e) {} }
+}
+
+// ---- Layer 1 of the pack-incomplete story, and the one that matters ---------
+//
+// `ltx_pack_preflight()` already refuses a render whose weights are incomplete
+// and names the file. It is the right refusal in the wrong PLACE: it raises
+// mid-render, after Gemma has loaded and the user has watched a progress bar
+// for half a minute. (Worse, on dev it had been dead code since 2.5 became the
+// default — see DEFECT-1 — so the actual behaviour was the June-2026 rainbow
+// mosaic with no error at all.)
+//
+// /status already carries q8_missing, hq_addon_missing and base_missing. So the
+// same question the server asks at job time is asked here every poll, against
+// the tier the form is actually pointing at, and the answer disables Generate
+// with the filenames in the note instead of spending the user's minute first.
+//
+// Scoped to the SELECTED tier on purpose. A T2V user on Balanced is not nagged
+// about weights High would need — the existing #engineRowNote contract is "the
+// one-line reason a gate fired", not a standing inventory.
+function applyPackIncompleteGate(s) {
+  const note = document.getElementById('engineRowNote');
+  const genBtn = document.getElementById('genBtn');
+  if (!note || !genBtn) return;
+  // H3 has its own install card and its own gates; this is the LTX lane.
+  const engine = document.body.dataset.engine || 'ltx';
+  const clear = () => {
+    if (genBtn.dataset.packBlocked === '1') {
+      genBtn.disabled = false;
+      genBtn.removeAttribute('title');
+      delete genBtn.dataset.packBlocked;
+    }
+    if (note.dataset.packNote === '1') {
+      note.hidden = true; note.innerHTML = '';
+      delete note.dataset.packNote;
+    }
+  };
+  if (engine !== 'ltx') { clear(); return; }
+  const cell = (typeof ltxCurrentCell === 'function') ? ltxCurrentCell() : null;
+  // The cell knows its pack. Falling back to the raw quality field keeps this
+  // correct before the table has rendered, and on any surface that sets
+  // #quality directly.
+  const pack = (cell && cell.pack)
+    || (((document.getElementById('quality') || {}).value === 'high') ? 'q8' : 'q4');
+  // Only the q8 lane can be half-installed in a way the user can act on: an
+  // incomplete BASE pack is already a hard block in the models card above, and
+  // duplicating it here would give the same fact two voices.
+  if (pack !== 'q8') { clear(); return; }
+  const missing = [].concat(s.q8_missing || [], s.hq_addon_missing || []);
+  if (!missing.length) { clear(); return; }
+  // A pack with NOTHING installed is an install offer, not an incomplete
+  // download — the High chip's .needs-install state and the Models modal
+  // already say so, and "finish the download" would be the wrong verb.
+  if (!s.q8_available && missing.length > 6) { clear(); return; }
+  const label = (cell && cell.quality_label) || 'This tier';
+  const dir = (s.q8_path || 'the Q8 pack');
+  const shown = missing.slice(0, 3).join(', ') + (missing.length > 3 ? ' …' : '');
+  note.innerHTML = escapeHtml(
+      `${label} needs ${missing.length} more file(s) in ${dir} — ${shown}. `
+      + `Finish the download first.`)
+    + ` <a href="#" onclick="openModelsModal();return false;">Finish the download →</a>`;
+  note.hidden = false;
+  note.dataset.packNote = '1';
+  genBtn.disabled = true;
+  genBtn.title = "The weights this tier needs aren't all there yet.";
+  genBtn.dataset.packBlocked = '1';
 }
 
 // DELETED in v4.0: window.refreshBalancedSubtitle.
