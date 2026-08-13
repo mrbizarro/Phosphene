@@ -287,12 +287,19 @@ L12 A CAST CHARACTER'S APPEARANCE IS FIXED, AND YOU CANNOT SEE IT. A cast charac
       WRONG  "bizarrotrn Bizarro, a tall bearded man in his fifties, leans over ..."
       RIGHT  "bizarrotrn Bizarro, the unit's commander in a muddy field uniform, leans
               over the map table and traces the river with one finger"
-    EVERY OTHER CHARACTER in the film may be described however the concept requires -
-    species, age, build, all of it. The law is about cast characters only.
-    WHEN THE PREMISE FIGHTS THIS - "everyone in this film is an animal", "all the
-    characters are robots" - the cast character is the EXCEPTION and you simply do not say
-    what they are. Give them the role, the uniform and the action, and let the trained face
-    answer the question. Never write a sentence explaining why they look different.
+    THIS LAW APPLIES TO CAST CHARACTERS AND TO NOBODY ELSE, and getting that wrong in the
+    other direction ruins the film just as fast. EVERY OTHER CHARACTER **MUST** be
+    described the way the concept asks - species, age, build, all of it. If the brief says
+    the soldiers are humanoid animals, then the soldiers ARE humanoid animals, on screen,
+    in the words, in as many shots as they appear: badgers, wolves, a boar sergeant. A
+    plan that quietly turns them all into ordinary humans has thrown away the premise and
+    is WRONG, even though every cast character in it is lawful.
+    WHEN THE PREMISE COVERS EVERYONE - "all the characters are animals", "everyone is a
+    robot" - the cast character is the ONE EXCEPTION, and the exception is SILENCE, not
+    conversion. Do not say what they are. Do not turn the rest of the cast human to match
+    them. Do not write a sentence explaining why they look different. Give the cast
+    character a role, a uniform and an action, describe everyone else exactly as the
+    premise demands, and let the trained face answer the only question you left open.
 L13 NEVER WRITE SPEECH THE VIEWER CANNOT HEAR. A shot is either SPOKEN or SILENT, and you
     must choose one on purpose.
       SPOKEN  the exact words are in the shot, in the dialogue form: <d>[English] Move out,
@@ -551,9 +558,12 @@ def _build_user_prompt(
             "  THE LINE ABOVE IS EVERYTHING YOU KNOW ABOUT HOW THEY LOOK, and it is all you",
             "  are allowed to imply. Their face is a trained model you cannot see. Give them",
             "  a role, wardrobe, action and emotion - never a species, creature type, face,",
-            "  hair, eyes, build or age. Every OTHER character in the film may be described",
-            "  freely, including as animals or creatures if the concept asks for that; the",
-            "  cast character is simply the one you do not describe.",
+            "  hair, eyes, build or age.",
+            "  EVERYONE ELSE IN THE FILM IS DESCRIBED NORMALLY, and if the concept gives the",
+            "  world a premise - humanoid animals, robots, a period, a species - that premise",
+            "  applies to them in full and must be visible in the shots they appear in. The",
+            "  cast character is the ONE you leave undescribed; they are not a reason to make",
+            "  the rest of the film plain.",
             "  Any shot without a listed character sets \"character_id\": null.",
         ]
     else:
@@ -2203,9 +2213,9 @@ def _plan_with_session(sess, *, system, user, fb_mode, fb_shot, previous, valida
     # Skipped on a per-shot re-roll: the caller is already editing one shot by hand, and
     # re-planning a re-plan from inside itself is how a 25 s call becomes a 4-minute one.
     if fb_mode != "shot":
-        def _replan_one(n, note):
+        def _replan_one(current, n, note):
             resp3 = sess.generate(
-                system, _build_shot_feedback_prompt(spec, n, note),
+                system, _build_shot_feedback_prompt(current, n, note),
                 max_tokens=min(budget, 1400),
                 temperature=max(0.0, temperature * 0.6),
                 seed=(seed_base + 7 + n) % 100000)
@@ -2214,7 +2224,7 @@ def _plan_with_session(sess, *, system, user, fb_mode, fb_shot, previous, valida
             if obj3 is None:
                 return None
             fixed, warn3 = _coerce_for_mode(
-                obj3, "shot", n, spec, concept=concept, n_shots=n_shots, style=style,
+                obj3, "shot", n, current, concept=concept, n_shots=n_shots, style=style,
                 cast=cast, board_id=board_id, engine=engine, tier=tier,
                 duration_s=duration_s, seed_base=seed_base, max_dim=max_dim, sb=sb,
                 allow_hidden_faces=allow_hidden_faces)
@@ -2225,6 +2235,12 @@ def _plan_with_session(sess, *, system, user, fb_mode, fb_shot, previous, valida
             warnings.extend(w for w in warn3 if "law" not in w.lower())
             return fixed
         spec = _enforce_laws(spec, cast, warnings, replan=_replan_one, style=style, sb=sb)
+        # The premise check runs LAST and only when the brief named creatures: the
+        # appearance law is what puts it at risk, so it is checked after that law has
+        # finished rewriting shots.
+        spec = _enforce_premise(
+            spec, cast, warnings, replan=_replan_one,
+            premise=_premise_species(" ".join([concept or "", style or ""])))
 
     spec["_planner"] = dict(
         meta,
@@ -2276,6 +2292,45 @@ def _scan_laws(spec: Dict[str, Any],
     return out
 
 
+def _premise_species(brief: str) -> List[str]:
+    """Species/creature words the BRIEF itself asked for. The film's premise, in the
+    user's own words — never inferred, never the model's."""
+    return sorted({m.group(0).lower() for m in _SPECIES_RE.finditer(brief or "")})
+
+
+def _premise_lost(spec: Dict[str, Any], cast: Sequence[Dict[str, str]],
+                  premise: Sequence[str]) -> bool:
+    """Did the appearance law eat the film's own premise?
+
+    THE OVER-CORRECTION, measured. Told never to give the cast character a species, the
+    planner generalised it to never mentioning species AT ALL: the owner's "main
+    characters are humanoid animals" film came back with zero animal words across twelve
+    shots — every soldier on both sides quietly turned into an ordinary human, which is a
+    different film. Each shot was individually lawful, and the plan was wrong.
+
+    So the check is on the shots the law does NOT govern. If the brief named creatures and
+    not one uncast shot shows them, the premise is gone.
+    """
+    if not premise:
+        return False
+    cast_ids = {c["id"] for c in cast}
+    for s in spec.get("shots") or ():
+        if not isinstance(s, dict) or s.get("character_id") in cast_ids:
+            continue
+        if _SPECIES_RE.search(s.get("description") or ""):
+            return False
+    return True
+
+
+def _premise_note(premise: Sequence[str]) -> str:
+    return ("This shot lost the film's premise. The brief asked for %s, and not one shot "
+            "that is free to show them does. Re-write this shot so the characters in it "
+            "are visibly what the concept says they are — the rule about not describing a "
+            "trained cast character applies ONLY to that one character, never to anyone "
+            "else, and it is not a reason to make the rest of the film plain."
+            % ", ".join(premise[:4]))
+
+
 def _law_note(reasons: Sequence[str]) -> str:
     return ("This shot breaks a hard law of the format. Fix ONLY this, keep everything else "
             "word for word:\n" + "\n".join("  - %s" % r for r in reasons))
@@ -2310,12 +2365,54 @@ def _reassemble_prompt(shot: Dict[str, Any], style: str,
     return prompt
 
 
+def _enforce_premise(spec, cast, warnings, *, replan, premise) -> Dict[str, Any]:
+    """One re-plan to put the film's own premise back, if the appearance law ate it.
+
+    Bounded to a SINGLE uncast shot: one example is enough to re-anchor the world, and
+    this runs after every other pass, so it must not turn a 40 s plan into a 4 minute one.
+    """
+    if not _premise_lost(spec, cast, premise):
+        return spec
+    warnings.append("the plan lost the brief's premise (%s) — no uncast shot shows them"
+                    % ", ".join(premise[:4]))
+    cast_ids = {c["id"] for c in cast}
+    target = next((s for s in (spec.get("shots") or ())
+                   if isinstance(s, dict) and s.get("character_id") not in cast_ids), None)
+    if target is None:
+        warnings.append("every shot is cast, so there is nowhere to restate the premise")
+        return spec
+    n = int(target.get("n") or 0)
+    try:
+        candidate = replan(spec, n, _premise_note(premise))
+    except PlannerError as exc:
+        warnings.append("premise re-plan failed (%s)" % exc)
+        return spec
+    if candidate is None:
+        return spec
+    if _premise_lost(candidate, cast, premise):
+        # Not neutralised mechanically: writing a badger into someone's film is authorship,
+        # not repair, and a wrong guess is worse than the omission. The warning stands and
+        # the user can re-roll the shot themselves.
+        warnings.append("shot %d was re-planned and the premise is still missing — say it "
+                        "again in the concept, or re-roll a shot" % n)
+    else:
+        warnings.append("shot %d: re-planned and the premise is back" % n)
+    return candidate
+
+
 def _enforce_laws(spec, cast, warnings, *, replan, style, sb) -> Dict[str, Any]:
     """L12/L13: one targeted re-plan per offending shot, then a mechanical fallback.
 
-    `replan(n, note) -> spec | None` re-rolls ONE shot through the existing per-shot
-    machinery, which carries every other shot across by reference — so a film whose shot 4
-    was fixed is byte-identical everywhere else.
+    `replan(current, n, note) -> spec | None` re-rolls ONE shot through the existing
+    per-shot machinery, which carries every other shot across by reference — so a film
+    whose shot 4 was fixed is byte-identical everywhere else.
+
+    THE CURRENT SPEC IS AN ARGUMENT, and that is not decoration. It was a closure over the
+    caller's `spec` for one draft, which meant every re-plan spliced its fix into the
+    ORIGINAL plan: fix shot 1, then fix shot 2 against the unfixed plan, and shot 1's fix
+    is gone. A live 4-shot film reported "shot 1: re-planned and now obeys", the same for
+    2 and 3, and then failed the final scan on all three — three model calls spent to
+    change nothing. Threading it through is what makes the fixes accumulate.
 
     The fallback is not optional. A law that is only enforced when the model cooperates is
     a suggestion, and L12 exists because the model demonstrably does not cooperate.
@@ -2327,7 +2424,7 @@ def _enforce_laws(spec, cast, warnings, *, replan, style, sb) -> Dict[str, Any]:
                     "pass" % len(offenders))
     for n, reasons in offenders:
         try:
-            candidate = replan(n, _law_note(reasons))
+            candidate = replan(spec, n, _law_note(reasons))
         except PlannerError as exc:
             candidate = None
             warnings.append("shot %d: law re-plan failed (%s)" % (n, exc))

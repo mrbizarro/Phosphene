@@ -1017,6 +1017,89 @@ class TestLawEnforcement(unittest.TestCase):
         self.assertFalse(P.is_plan_error(spec), spec)
         self.assertEqual(len(stub.calls), 1, "a clean plan must not trigger a re-plan")
 
+    def test_fixes_for_several_shots_all_survive(self):
+        """The bug a live 4-shot film found and the single-offender tests could not.
+
+        `replan` closed over the caller's spec, so every re-roll spliced its fix into the
+        ORIGINAL plan: shot 1 fixed, shot 2 fixed against the unfixed plan, shot 1's fix
+        gone. The film reported "re-planned and now obeys" three times and then failed the
+        final scan on all three — three model calls spent to change nothing.
+        """
+        bad = json.dumps({"title": "Night Crossing", "shots": [
+            _shot(1, description=self.BAD, character_id="bizarrotrn"),
+            _shot(2, description=self.BAD.replace("brass compass", "field radio"),
+                  character_id="bizarrotrn"),
+            _shot(3, description="Live-action, cinematic, rain beads on a folded map."),
+        ]})
+        def fixed(n, extra):
+            return json.dumps({"title": "Night Crossing", "shots": [
+                _shot(n, description=self.GOOD.replace("brass compass", extra),
+                      character_id="bizarrotrn")]})
+        spec, stub = _plan([bad, fixed(1, "brass compass"), fixed(2, "field radio")],
+                           n_shots=3, characters=self.CAST, engine="ltx")
+        self.assertFalse(P.is_plan_error(spec), spec)
+        self.assertEqual(len(stub.calls), 3, "one plan + one re-plan per offending shot")
+        for s in spec["shots"]:
+            self.assertFalse(
+                P._appearance_violations(s.get("description", ""), "bizarrotrn", "Bizarro"),
+                "shot %s kept its violation: %r" % (s.get("n"), s.get("description", "")[:80]))
+        # and each fix is the one that shot was given, not the last one to arrive
+        self.assertIn("brass compass", spec["shots"][0]["description"])
+        self.assertIn("field radio", spec["shots"][1]["description"])
+
+    def test_the_law_must_not_eat_the_films_premise(self):
+        """The over-correction, measured live on the owner's film.
+
+        Told never to give the CAST character a species, the planner generalised it to
+        never mentioning species at all: twelve shots, zero animal words, every soldier on
+        both sides quietly an ordinary human. Each shot was individually lawful and the
+        film was wrong. The law is scoped to one character; the premise belongs to
+        everyone else.
+        """
+        concept = ("ww2 scene but main characters are humanoid animals, bizarrotrn is the "
+                   "boss of the team. the bad guys are natzi animals as well.")
+        self.assertTrue(P._premise_species(concept), "the brief plainly names creatures")
+        plain = json.dumps({"title": "Operation Wildfire", "shots": [
+            _shot(1, description=self.GOOD, character_id="bizarrotrn"),
+            _shot(2, description="Live-action, cinematic, two soldiers in muddy allied "
+                                 "uniforms drag a crate through the rain."),
+        ]})
+        withanimals = json.dumps({"title": "Operation Wildfire", "shots": [
+            _shot(2, description="Live-action, cinematic, two humanoid wolves in muddy "
+                                 "allied uniforms drag a crate through the rain.")]})
+        spec, stub = _plan([plain, withanimals], n_shots=2, concept=concept,
+                           characters=self.CAST, engine="ltx")
+        self.assertFalse(P.is_plan_error(spec), spec)
+        # the uncast shot carries the premise again...
+        self.assertTrue(P._SPECIES_RE.search(spec["shots"][1]["description"]),
+                        spec["shots"][1]["description"])
+        # ...while the cast character is still undescribed
+        self.assertFalse(P._appearance_violations(spec["shots"][0]["description"],
+                                                  "bizarrotrn", "Bizarro"))
+        self.assertIn("premise", stub.calls[-1]["user"].lower())
+
+    def test_a_film_that_kept_its_premise_costs_no_extra_call(self):
+        concept = "ww2 scene but the soldiers are humanoid animals"
+        ok = json.dumps({"title": "Operation Wildfire", "shots": [
+            _shot(1, description=self.GOOD, character_id="bizarrotrn"),
+            _shot(2, description="Live-action, cinematic, a humanoid badger sergeant in a "
+                                 "nazi greatcoat sneers across the table."),
+        ]})
+        spec, stub = _plan([ok], n_shots=2, concept=concept, characters=self.CAST,
+                           engine="ltx")
+        self.assertFalse(P.is_plan_error(spec), spec)
+        self.assertEqual(len(stub.calls), 1)
+
+    def test_a_film_with_no_creature_premise_is_never_premise_checked(self):
+        ok = json.dumps({"title": "The Key", "shots": [
+            _shot(1, description=self.GOOD, character_id="bizarrotrn"),
+            _shot(2, description="Live-action, cinematic, rain beads on a brass key."),
+        ]})
+        spec, stub = _plan([ok], n_shots=2, concept="a lost brass key finds its door",
+                           characters=self.CAST, engine="ltx")
+        self.assertFalse(P.is_plan_error(spec), spec)
+        self.assertEqual(len(stub.calls), 1, "an ordinary film must not pay for this check")
+
     def test_one_shot_breaking_both_laws_is_re_planned_once(self):
         both = (self.BAD.rstrip(".") + ", and he explains the mission, his voice low.")
         spec, stub = _plan([self._film(both), self._film(both)], n_shots=2,
