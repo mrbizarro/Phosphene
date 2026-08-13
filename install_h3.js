@@ -86,13 +86,46 @@ module.exports = {
 
     // Pin to the branch on every run, so Resume Install after a partial clone
     // lands on the same code the panel was validated against.
+    //
+    // v4.0 — TWO BUGS OF THE SAME CLASS AS THE LTX LANE, both filed in the
+    // v3.8.1 hotfix notes (§9.3) and the 2026-08-13 sweep (§8.6) and fixed here.
+    //
+    // 1. THE FETCH NEVER ADVANCED ANYTHING. `git fetch origin <branch>` writes
+    //    FETCH_HEAD and updates `refs/remotes/origin/<branch>`; the following
+    //    `git checkout <branch>` resolves the LOCAL branch, which the clone
+    //    created once and which nothing has moved since. So every H3 user has
+    //    been pinned to whatever the branch tip was on the day they first
+    //    installed, and re-running the installer could never bring them
+    //    forward. `--force -B <branch> FETCH_HEAD` makes the local branch point
+    //    at what was actually fetched, which is what "pin to the branch on
+    //    every run" always claimed to do.
+    //
+    // 2. A DIRTY TREE BLOCKED THE CHECKOUT, silently, the same way it killed
+    //    the LTX pin move for the whole fleet on 3.8.0. Nothing of ours patches
+    //    this tree today, which is exactly why it is worth guarding now rather
+    //    than after the first user reports it: `minimax-h3-mlx/` is
+    //    app-managed, its weights live outside it in ../mlx_models/hailuo-h3,
+    //    and its venv is ignored, so reset --hard costs nothing and cannot
+    //    touch user content. Same guard shape, same reasoning, one class.
+    //    The guard tests `minimax_h3_mlx/` — the package directory, verified
+    //    present at the branch tip; this repo has no root pyproject.toml, so
+    //    the LTX lane's marker would have been wrong here.
+    //
+    // CONSEQUENCE, STATED RATHER THAN BURIED: an existing H3 user who re-runs
+    // the installer now MOVES FORWARD to the branch tip instead of staying on
+    // their install-day snapshot. That is what the step always said it did.
+    // It is safe because the panel PROBES the installed runner for its
+    // capabilities (`h3_supports_chain()`, `h3_supports_chain_prompts()`)
+    // rather than assuming them, so a runner that gains or loses a flag is
+    // handled by the UI instead of dying in argparse 30 s into a render.
     {
       method: "shell.run",
       params: {
         path: "minimax-h3-mlx",
         message: [
-          "git fetch origin " + H3_BRANCH,
-          "git checkout " + H3_BRANCH,
+          "git fetch --force origin " + H3_BRANCH,
+          "if [ -d minimax_h3_mlx ]; then git reset --hard HEAD; else echo 'WARN: not the H3 tree - skipping reset'; fi",
+          "git checkout --force -B " + H3_BRANCH + " FETCH_HEAD",
           "git rev-parse --short HEAD"
         ]
       }
