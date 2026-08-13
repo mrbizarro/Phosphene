@@ -70,3 +70,15 @@ Anything bigger belongs here, behind one short `bash …` line.
   arguments. Never inline a SHA in this directory.
 - `{{cwd}}` is substituted by Pinokio in the *message*, so anything path-shaped
   must be passed in as an argument rather than written here.
+
+## What is here
+
+| file | dispatched by | what it does |
+|---|---|---|
+| `ltx_checkout.sh` | `install.js`, `scripts/post_update.sh` | the vendored engine pin move — the ONE implementation, and the pin literal itself (its header argues the exception to the rule above) |
+| `ltx_venv.sh` | `install.js` | the venv build that dispatched 1,417 chars and hung Pinokio 8.0.x |
+| `ltx25_weights.sh` | `install.js` | LTX-2.5 base + Gemma 4 encoder (27.47 GB), the default generation. Fatal on failure: a panel that boots into a generation with no weights cannot render |
+| `q8_weights.sh` | `download_q8.js` | the optional LTX-2.5 Q8 pack (30.02 GB) — what trained characters and voices need. NOT the High add-on, which is a separate 29.5 GB click |
+| `mflux_pack.sh` | `install_qwen.js` | the image-engine pack (Ideogram 4 + Qwen-Edit) |
+| `h3_preflight.sh` | `install_h3.js` | Hailuo H3 disk/RAM preflight |
+| `h3_build_q8.sh` | `install_h3.js` | the H3 q8 DiT build |

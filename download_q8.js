@@ -1,55 +1,35 @@
 module.exports = {
-  // On-demand Q8 download for the High quality tier.
-  // ~37 GB, resumable. The panel auto-detects when it lands and unlocks
-  // the High pill in the Quality picker.
+  // On-demand Q8 download — the optional pack trained characters and voices
+  // need. The panel auto-detects when it lands and unlocks the surfaces that
+  // depend on it.
   //
-  // Y1.024: this used to be advertised as ~25 GB but actually pulled
-  // ~82 GB — dgrauet's Q8 repo hosts THREE transformer variants
-  // (transformer-dev, transformer-distilled, transformer-distilled-1.1),
-  // TWO distilled-LoRA variants (-384 and -384-1.1), the x1.5 spatial
-  // upscaler we don't wire, and the temporal upscaler we don't wire.
-  // `hf download` with no filter grabs all of them. Reported by
-  // @ContentForAll as "download stalls past 50 GB" — there was no stall;
-  // the bundle really was ~82 GB and we were lying about the size.
-  // The --include allowlist below pulls only the 8 files the panel
-  // loads at runtime; total ~37 GB. Keep in sync with
-  // required_files.json → repos[q8].download_include.
+  // v4.0: this fetched dgrauet/ltx-2.3-mlx-q8 and advertised "~37 GB". Both
+  // were 2.3 facts, and 2.5 is the generation the panel serves now. The body
+  // moved to scripts/pinokio/q8_weights.sh (see its header for why the LANE had
+  // to move with the copy, and why the 2.5 packs come from a GitHub release
+  // rather than `hf download`).
+  //
+  // The size claim is the measured one: required_files.json → q8_25 is
+  // 30.02 GB. The High add-on is a SEPARATE 29.50 GB download and is not
+  // fetched here — it is one more click in Settings → Models, and folding it in
+  // would hold a complete pack hostage to twice the wait.
   run: [
     {
       method: "notify",
       params: {
-        html: "<b>Downloading Q8 model (~37 GB)…</b><br>This is the High quality tier (Q8 two-stage HQ + TeaCache and FFLF keyframing). Resumable if interrupted."
+        html: "<b>Downloading the LTX-2.5 Q8 weights (~30 GB)…</b><br>8-bit weights instead of 4-bit. This is what trained characters and voices need — on the base pack most of a trained face is lost before the first frame. Resumable if interrupted."
       }
     },
     {
       method: "shell.run",
       params: {
-        venv: "ltx-2-mlx/env",
-        // Y1.022: HF_HUB_ENABLE_HF_TRANSFER=1 turns on the Rust downloader
-        // (~5-10× faster on the 37 GB Q8 bundle). hf_transfer is added by
-        // install.js / update.js. Falls back to plain Python downloader
-        // with a warning if the package isn't on disk for any reason.
-        env: { HF_HUB_ENABLE_HF_TRANSFER: "1" },
-        message: [
-          // One command over shell line-continuations: Pinokio 8.0.x hangs on
-          // very long single lines (#50), and trailing backslashes keep this a
-          // single hf invocation.
-          [
-            "hf download dgrauet/ltx-2.3-mlx-q8 --local-dir mlx_models/ltx-2.3-mlx-q8 \\",
-            "  --include '*.json' --include 'transformer-dev.safetensors' \\",
-            "  --include 'connector.safetensors' \\",
-            "  --include 'ltx-2.3-22b-distilled-lora-384.safetensors' \\",
-            "  --include 'vae_decoder.safetensors' --include 'vae_encoder.safetensors' \\",
-            "  --include 'audio_vae.safetensors' --include 'vocoder.safetensors' \\",
-            "  --include 'spatial_upscaler_x2_v1_1.safetensors'",
-          ].join("\n")
-        ]
+        message: "bash scripts/pinokio/q8_weights.sh"
       }
     },
     {
       method: "notify",
       params: {
-        html: "<b>Q8 ready.</b><br>The High quality option will unlock automatically in the panel within a few seconds. FFLF keyframing also requires Q8 and is now usable."
+        html: "<b>Q8 ready.</b><br>Characters and voices now render at full strength. The High tier needs one more download — the High add-on (~29.5 GB) — in Settings → Models."
       }
     }
   ]
