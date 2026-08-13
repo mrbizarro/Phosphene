@@ -513,6 +513,14 @@ and each is cheap enough that "I forgot" is not a reason.
 | `./ltx-2-mlx/env/bin/python3.11 scripts/assert_registry.py` | `MODEL_VERSIONS`, `required_files.json`, pack paths, the text-encoder seam, deep-verify sources | a generation that resolves another generation's weights or text encoder — the two bugs that shipped silently on 2026-08-12, neither of which raised anything |
 | `./ltx-2-mlx/env/bin/python3.11 scripts/assert_schedules.py` | `make_job`, any `*_steps` default, a new render mode, a pin move | a job dict that asks a checkpoint to PAD a fixed sigma table — the class that let Colorize/Restore/Ingredients/Control/HDR burn 218 s and die on "cannot thin a 9-point schedule (8 steps) up to 10 steps" |
 | `./ltx-2-mlx/env/bin/python3.11 patch_ltx_codec.py` | the vendored pin, any package reinstall | a bypassed codec patch — v3.8.1 shipped silent 4:2:0 for a whole release because this ran eleven steps too late and never executed |
+| `./ltx-2-mlx/env/bin/python3.11 test_character_roundtrip.py` | character defaults, the Characters submit, Load Params, `_CHARACTER_QUALITY_RESOLUTION` | a job the panel can render but cannot reload — the two surfaces disagreeing on the strength pair, a Draft render reopening as Pro because Load Params never learned the new canvas, or a voice strength that is submitted and then silently dropped on restore |
+
+**Why that last one is a different kind of gate.** Every other row is
+structural — dispatch length, step ordering, pin text, schema — and not one of
+them could have caught the Character contract drifting, because the defect only
+exists in the *round trip*: payload → sidecar → Load Params → payload. An
+external review found three of those at once in v4.0. If you add a field that a
+sidecar records, add it to `CARRIED` in that file.
 
 **The codec rule, stated correctly.** It has been passed around as *"`grep -rn
 libx264` in the vendored tree must return exactly one hit"*, and read literally
