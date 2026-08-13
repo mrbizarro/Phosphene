@@ -67,6 +67,20 @@ duplicating 75 GB.
 | `LTX_H3_DENSE_10S` | unset | re-adds the pre-chaining dense 10 s tier (36 min) for A/B work |
 | `LTX_H3_WIDE_DRAFT` | unset | adds an experimental **512×288 16:9 draft** (~2 min). Off because 0.15 MP is below anything this campaign has measured — see Tiers. |
 
+**Set them in `ENVIRONMENT`, not in your shell.** An `export` in a terminal reaches
+only a panel launched from that same terminal, and it is gone the moment Pinokio
+restarts the app — which is exactly how a working H3 install "loses" its engine
+after a restart, with the weights still on disk and the panel reporting the pack
+missing. The `ENVIRONMENT` file at the install root is read on every launch, so
+lines there survive restarts and updates:
+
+```
+LTX_H3_ROOT=/path/to/minimax-h3-mlx
+LTX_H3_MODELS=/path/to/models
+```
+
+The `export` form shown further down is for one-off CLI runs, not for the panel.
+
 ### Model layout — both shapes work
 
 `h3_paths()` tries two roots in order, so no post-download move is ever needed:
