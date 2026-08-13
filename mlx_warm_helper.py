@@ -2414,6 +2414,24 @@ for line in sys.__stdin__:
             # that supervisor, and it gets a distinct event rather than a red
             # card: nothing was saved, but nothing went wrong either.
             if type(exc).__name__ == "LivePreviewAborted":
+                # DROP THE WARM PIPELINE. The abort raises from BETWEEN two
+                # forwards, so the pipeline is left mid-generate: latents,
+                # scheduler position and the monitor's own state all belong to
+                # a render that will never finish. The helper's whole point is
+                # that it keeps that object alive for the next job — so the
+                # next job inherited the wreckage and died instantly with an
+                # empty error, and every job after it did too. Stop early
+                # bricked the render lane until the panel was restarted.
+                #
+                # Found by rendering AFTER a stop rather than stopping and
+                # walking away, which is the thing a user does and a curl test
+                # does not. The next job pays one pipeline reload (~7 s) and
+                # everything downstream is clean.
+                try:
+                    with _pipe_lock:
+                        release_pipelines(None)
+                except Exception:
+                    pass
                 emit({"event": "stopped", "id": job_id, "reason": str(exc),
                       "exit_code": 75})
             else:
