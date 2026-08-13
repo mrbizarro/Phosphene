@@ -6044,10 +6044,10 @@ H3_LOAD_SEC = 40.5
 H3_DECODE_SEC_PER_PX_FRAME = 90.5 / float(H3_REF_W * H3_REF_H * H3_REF_FRAMES)
 # Past this, an estimate stops being "how long until I can look at it" and starts
 # being "queue it and walk away". Same threshold the old 15 s / dense tiers used.
-H3_ETA_BATCH_MIN = 25.0
+ETA_BATCH_MIN = 25.0
 # Past THIS, minutes stop being readable. Native × 15 s is 136 minutes and
 # "~136 min" is a number nobody parses at a glance; "~2h 16m" is.
-H3_ETA_HOURS_MIN = 60.0
+ETA_HOURS_MIN = 60.0
 
 
 def _h3_aspect(w: int, h: int) -> str:
@@ -6117,12 +6117,12 @@ def h3_estimate_minutes(w: int, h: int, window_frames: int, windows: int,
     return (windows * max(0, int(forwards)) * per_fwd + windows * fixed) / 60.0
 
 
-def _h3_fmt_eta(minutes: float) -> str:
+def _fmt_eta(minutes: float) -> str:
     """"~9 min", "~38 min · batch", "~2h 16m · batch". No decimals: the model is
     good to a few percent and "~18.4 min" would claim precision it doesn't
     have."""
-    tail = " · batch" if minutes >= H3_ETA_BATCH_MIN else ""
-    if minutes >= H3_ETA_HOURS_MIN:
+    tail = " · batch" if minutes >= ETA_BATCH_MIN else ""
+    if minutes >= ETA_HOURS_MIN:
         hrs = int(minutes // 60)
         mins = int(round(minutes - hrs * 60))
         if mins == 60:
@@ -6357,11 +6357,11 @@ def _build_h3_tiers() -> dict[str, dict]:
                                             H3_TURBO_FORWARDS)
             # Turbo removes forwards; it can never make a shape slower.
             turbo_min = min(eta_min, turbo_min)
-            eta, eta_measured = _h3_fmt_eta(eta_min), False
+            eta, eta_measured = _fmt_eta(eta_min), False
             hit = H3_MEASURED_ETA.get((q["key"], ln["key"], False))
             if hit:
                 eta_min, eta, eta_measured = hit[0], hit[1], True
-            turbo_eta, turbo_measured = _h3_fmt_eta(turbo_min), False
+            turbo_eta, turbo_measured = _fmt_eta(turbo_min), False
             hit = H3_MEASURED_ETA.get((q["key"], ln["key"], True))
             if hit:
                 turbo_min, turbo_eta, turbo_measured = hit[0], hit[1], True
@@ -6531,6 +6531,375 @@ def h3_fallback_tier(key: str) -> str:
         if cand and h3_cell_gate(cand)[0]:
             return cand["key"]
     return H3_TIER_DEFAULT
+
+
+# =============================================================================
+# LTX tiers — the SAME two-axis grammar H3 already ships, generalised
+# =============================================================================
+#
+# H3 got quality × length, per-cell measured ETAs, an honest `notes` list and an
+# `unavailable` state because the owner said: "somebody may want to run the HQ
+# 5s version for 10s, and it's now not possible from the UI." LTX had one axis
+# and a free numeric Duration field beside a `Frames · 8k+1` box, and its two
+# per-chip subtitles were written by two hand-rolled updaters printing numbers
+# no measurement on 2.5 supported.
+#
+# This is the same table, not a similar one: same dict shape, same key set, same
+# `offered` semantics, same measured-overrides-modelled rule, same `_fmt_eta`.
+#
+# THE COST MODEL. LTX's distilled lane is TWO STAGES and they are not the same
+# price: stage 1 denoises a HALF-RESOLUTION latent, stage 2 the full one. A
+# model that averaged them would misprice every cell whose stage split differs
+# from the one it was fitted at, so the two stages are priced separately and the
+# per-forward cost is a power law in packed rows — H3's shape, LTX's geometry.
+#
+# An LTX latent cell is 32×32 px (four times H3's 16×16) and the temporal VAE
+# puts frames on the 8k+1 grid, so packed rows = (w/32)·(h/32)·((f−1)/8+1).
+LTX_LATENT_CELL = 32
+
+# The two anchors, both measured on THIS machine on 2026-08-13, both GPU locks
+# held, MLX 0.31.1, M4 Max 64 GB, engine v0.14.19+ltx25.3:
+#
+#   1024×576×121, q8, distilled 8+3   171.2 s total − 26.2 s fixed = 145.0 s
+#     (notes/ltx25_voice/armB_voice14.log — the gate-11a arm)
+#   640×448×49,  q4, distilled 8+2     39.31 s total − 13.0 s fixed =  26.3 s
+#     (the step-0 confirmation render through the panel, job j-19ffa750b91-001)
+#
+# Fitting A and the exponent to those two and then pricing a cell NEITHER of
+# them is gives 142.8 s for balanced/5s/q8 at 8+2, against the 139.4 s the
+# campaign measured for exactly that cell: 2.4 % out, on a cross-validation the
+# fit never saw. That is the whole claim this model makes — good to a few
+# percent, which is why `_fmt_eta` prints no decimals.
+LTX_FWD_COEFF = 4.357242e-03
+LTX_FWD_EXPONENT = 0.9620
+# Load + text-encode, measured as the sum of the four load phases the render log
+# prints (Gemma 3.8 + encode 3.2 + transformer 3.8 + decoders 0.1). Does not
+# scale with the canvas.
+LTX_LOAD_SEC = 10.9
+# VAE decode + audio + mux, 15.3 s at 1024×576×121, linear in pixel-frames.
+LTX_DECODE_SEC_PER_PX_FRAME = 15.3 / float(1024 * 576 * 121)
+
+
+def _ltx_latent_frames(frames: int) -> int:
+    """Latent frames behind a delivered frame count on the 8k+1 grid at 24 fps.
+    73 → 10, 121 → 16, 169 → 22, 241 → 31, 481 → 61."""
+    return max(1, (max(1, int(frames)) - 1) // 8 + 1)
+
+
+def _ltx_packed_rows(w: int, h: int, frames: int) -> int:
+    """Latent cells the DiT attends over for this shape."""
+    return max(
+        1,
+        (int(w) // LTX_LATENT_CELL) * (int(h) // LTX_LATENT_CELL)
+        * _ltx_latent_frames(frames),
+    )
+
+
+def _ltx_forward_seconds(rows: int) -> float:
+    """Seconds for ONE denoise forward at this sequence length."""
+    return LTX_FWD_COEFF * max(1, int(rows)) ** LTX_FWD_EXPONENT
+
+
+def _ltx_half(v: int) -> int:
+    """Stage 1's axis: half, floored onto the 32-px latent grid."""
+    return max(LTX_LATENT_CELL, (int(v) // 2) // LTX_LATENT_CELL * LTX_LATENT_CELL)
+
+
+def ltx_estimate_minutes(w: int, h: int, frames: int,
+                         stage1_steps: int, stage2_steps: int,
+                         stage2_evals: int = 1) -> float:
+    """Wall clock, in minutes, for an LTX render of this exact shape.
+
+    `stage2_evals` is 2 on the res_2s HQ path, which evaluates the denoiser
+    twice per stage-2 step (an anchor and a substep) — the same reason its live
+    preview publishes every 2nd estimate. Every LTX estimate in the panel comes
+    from this one function."""
+    s1 = _ltx_packed_rows(_ltx_half(w), _ltx_half(h), frames)
+    s2 = _ltx_packed_rows(w, h, frames)
+    denoise = (max(0, int(stage1_steps)) * _ltx_forward_seconds(s1)
+               + max(0, int(stage2_steps)) * max(1, int(stage2_evals))
+               * _ltx_forward_seconds(s2))
+    fixed = LTX_LOAD_SEC + LTX_DECODE_SEC_PER_PX_FRAME * int(w) * int(h) * int(frames)
+    return (denoise + fixed) / 60.0
+
+
+# END-TO-END WALL CLOCKS actually observed, keyed
+# (version, quality, length, quant). H3 keys its third element on `turbo`
+# because that changes the forward count; LTX keys on `quant` because the pack
+# decides which pipeline runs. A cell is only "measured" when the GEOMETRY
+# MATCHES EXACTLY — same canvas, same frame count, same schedule. Everything
+# else prints from the model above with `eta_measured: False`, and says so.
+#
+# THREE HONEST ROWS BEAT TWENTY INVENTED ONES. In particular Quick and Standard
+# have no measurement at their OWN geometry: the only draft-tier number in the
+# campaign is 768×448×49 at 50.1 s, a different canvas AND a different frame
+# count from Quick's 640×480×73. Keying it as Quick's would be exactly the
+# mistake this table exists to prevent. It is a good seed for the model, not a
+# measurement.
+LTX_MEASURED_ETA: dict[tuple[str, str, str, str], tuple[float, str]] = {
+    # LTX-2.5, q8, distilled 8+2 — the schedule shipped on codex/ltx25-sched
+    # (dfee6cf). The confirmation render is byte-identical (sha256 b831a821…)
+    # to the arm the owner graded, so this is the clip he passed, timed.
+    ("ltx25", "balanced", "5s", "q8"): (2.32, "~2 min"),   # 139.4 s
+    # LTX-2.5, q8 + HQ add-on, two-stage HQ, modality 1.0 (25b9b8e,
+    # owner-passed). Confirmation render, env_overrides {}.
+    ("ltx25", "high",     "5s", "q8"): (4.14, "~4 min"),   # 248.5 s
+    # LTX-2.3, q8, two-stage HQ, modality 3.0 — the SFT value 2.3 keeps.
+    ("ltx23", "high",     "5s", "q8"): (5.08, "~5 min"),   # 304.5 s
+}
+
+# The four tier notes. Python constants on the same four-hop path
+# H3_CHAIN_PROMPT_HELP takes (constant → bootstrap key → lazy textContent fill),
+# so they cannot drift from the mechanism and are one edit from a translator.
+LTX_TIER_HIGH_NOTE = (
+    "High runs a second, larger pass over the first one — sharper detail and "
+    "steadier motion, for roughly twice the wait. It needs the Q8 weights and "
+    "the High add-on."
+)
+LTX_TIER_Q4_CHARACTER_NOTE = (
+    "Trained characters need the Q8 weights. On the base pack most of the "
+    "trained face is lost before the first frame, and a stranger renders."
+)
+LTX_TIER_LONG_NOTE = (
+    "Past about ten seconds the picture can start to come apart at the tail "
+    "while the sound keeps going. Smaller canvases hold together longer."
+)
+LTX_TIER_STANDARD_NOTE = (
+    "More pixels, same denoising schedule as Balanced — bigger, not more "
+    "detailed."
+)
+
+# The distilled lane's shipped schedule on 2.5 (8 stage-1 steps, 2 stage-2).
+# The HQ lane keeps its explicit stage2_steps=3: the adopted 8+2 default is a
+# DRAFT-lane verdict and retuning HQ stage 2 is ungraded and out of scope.
+LTX_DISTILLED_STAGE1 = 8
+LTX_DISTILLED_STAGE2 = 2
+LTX_HQ_STAGE1 = 8
+LTX_HQ_STAGE2 = 3
+
+
+def _ltx_qualities() -> dict[str, dict]:
+    """The CANVAS axis.
+
+    Keys are UNCHANGED from the shipped data-quality values
+    (quick/balanced/standard/high) so every sidecar ever written, every Load
+    Params round-trip and every issue thread quoting a tier name still resolves.
+    This is the H3_TIER_ALIASES lesson applied BEFORE it costs us.
+
+    `preview_every` / `preview_meaningful_at` are the live-preview lane rules,
+    carried here because they differ per PIPELINE and a client counting
+    estimates would have to know which schedule is running. The server decides;
+    the client renders."""
+    out: dict[str, dict] = {
+        "quick": {
+            "key": "quick", "label": "Quick", "order": 0,
+            "width": 640, "height": 480,
+            "pack": "q4", "pipeline": "distilled",
+            "stage1": LTX_DISTILLED_STAGE1, "stage2": LTX_DISTILLED_STAGE2,
+            "stage2_evals": 1,
+            "preview_every": 1, "preview_meaningful_at": 6,
+            "blurb": "The fastest look at the shot.",
+            "offered": True,
+        },
+        "balanced": {
+            "key": "balanced", "label": "Balanced", "order": 1,
+            "width": 1024, "height": 576,
+            "pack": "q4", "pipeline": "distilled",
+            "stage1": LTX_DISTILLED_STAGE1, "stage2": LTX_DISTILLED_STAGE2,
+            "stage2_evals": 1,
+            "preview_every": 1, "preview_meaningful_at": 6,
+            "blurb": "16:9 at the size most things are watched.",
+            "offered": True,
+        },
+        "standard": {
+            "key": "standard", "label": "Standard", "order": 2,
+            "width": 1280, "height": 704,
+            "pack": "q4", "pipeline": "distilled",
+            "stage1": LTX_DISTILLED_STAGE1, "stage2": LTX_DISTILLED_STAGE2,
+            "stage2_evals": 1,
+            "preview_every": 1, "preview_meaningful_at": 6,
+            "blurb": "The largest canvas the distilled lane serves.",
+            "note": LTX_TIER_STANDARD_NOTE,
+            "offered": True,
+        },
+        "high": {
+            "key": "high", "label": "High", "order": 3,
+            "width": 1024, "height": 576,
+            # The two-stage HQ path: dev transformer + CFG + the distilled LoRA,
+            # res_2s. It needs the Q8 weights AND the High add-on, which is why
+            # its chip carries `.needs-install` until both are on disk.
+            "pack": "q8", "pipeline": "hq",
+            "stage1": LTX_HQ_STAGE1, "stage2": LTX_HQ_STAGE2,
+            # res_2s evaluates the denoiser twice per stage-2 step.
+            "stage2_evals": 2,
+            # The odd ANCHOR estimates come back patchy until ~8; the even
+            # SUBSTEP ones are clean from the start. `every 2` selects exactly
+            # the clean ones and halves the cost.
+            "preview_every": 2, "preview_meaningful_at": 2,
+            "blurb": "A second, larger pass over the first.",
+            "note": LTX_TIER_HIGH_NOTE,
+            # Offered when this GENERATION can serve q8 at all. Whether the
+            # pack is on disk is a separate, runtime question — that one is the
+            # `.needs-install` state, and both must be able to be true.
+            "offered": "q8" in version_cap_tiers(),
+        },
+    }
+    for q in out.values():
+        q.setdefault("note", "")
+        q["aspect"] = _h3_aspect(q["width"], q["height"])
+        q["canvas"] = f"{q['width']}×{q['height']}"
+    return out
+
+
+def _ltx_lengths() -> dict[str, dict]:
+    """The DURATION axis.
+
+    Frames land on the 8k+1 grid at 24 fps — the table docs/API.md already
+    publishes and the one storyboard.ltx_frames_for() already computes. 20 s is
+    the ceiling because it is the longest render anyone has confirmed holding
+    together (issue #46, @blackest, 640×480 × 481f)."""
+    out: dict[str, dict] = {
+        "3s": {"key": "3s", "label": "3s", "order": 0, "seconds": 3,
+               "frames": 73, "blurb": "One short beat.", "offered": True},
+        "5s": {"key": "5s", "label": "5s", "order": 1, "seconds": 5,
+               "frames": 121, "blurb": "The default — one full beat.",
+               "offered": True},
+        "7s": {"key": "7s", "label": "7s", "order": 2, "seconds": 7,
+               "frames": 169, "blurb": "A beat with room to land.",
+               "offered": True},
+        "10s": {"key": "10s", "label": "10s", "order": 3, "seconds": 10,
+                "frames": 241,
+                "blurb": "Long for one shot. Motion drifts at the tail.",
+                "note": LTX_TIER_LONG_NOTE, "offered": True},
+        # Offered on Quick ONLY, because that is exactly what the field report
+        # says: 640×480 fine at 481 frames, 1024×576 dies around frame 454,
+        # 1280×720 white by 481. Same per-quality restriction mechanism
+        # _h3_lengths() already has — restricted to nothing = available on
+        # every canvas.
+        "20s": {"key": "20s", "label": "20s", "order": 4, "seconds": 20,
+                "frames": 481,
+                "blurb": "The longest anyone has confirmed holding together, "
+                         "and only at Quick.",
+                "note": LTX_TIER_LONG_NOTE,
+                "qualities": ("quick",), "offered": True},
+    }
+    for l in out.values():
+        l.setdefault("note", "")
+        l.setdefault("qualities", ())
+    return out
+
+
+LTX_QUALITIES: dict[str, dict] = _ltx_qualities()
+LTX_LENGTHS: dict[str, dict] = _ltx_lengths()
+LTX_QUALITY_DEFAULT = "balanced"
+LTX_LENGTH_DEFAULT = "5s"
+
+
+def _build_ltx_tiers() -> dict[str, dict]:
+    """Every (quality × length) cell, keyed `<quality>_<length>`.
+
+    EVERY combination is built, including the ones a canvas does not offer —
+    `offered` decides what the UI lists, and a cell that stops being offered
+    must still resolve so a sidecar written while it was replays correctly."""
+    tiers: dict[str, dict] = {}
+    version_id = ACTIVE_MODEL_VERSION
+    for q in LTX_QUALITIES.values():
+        for ln in LTX_LENGTHS.values():
+            key = f"{q['key']}_{ln['key']}"
+            w, h = int(q["width"]), int(q["height"])
+            frames = int(ln["frames"])
+            eta_min = ltx_estimate_minutes(
+                w, h, frames, int(q["stage1"]), int(q["stage2"]),
+                int(q.get("stage2_evals") or 1))
+            eta, eta_measured = _fmt_eta(eta_min), False
+            hit = LTX_MEASURED_ETA.get(
+                (version_id, q["key"], ln["key"], q["pack"]))
+            if hit:
+                eta_min, eta, eta_measured = hit[0], hit[1], True
+            allowed = ln.get("qualities") or ()
+            restricted = bool(allowed) and q["key"] not in allowed
+            notes = [n for n in (q["note"], ln["note"]) if n]
+            tiers[key] = {
+                "key": key,
+                "label": f"{q['label']} · {ln['label']}",
+                "quality": q["key"], "quality_label": q["label"],
+                "length": ln["key"], "length_label": ln["label"],
+                "width": w, "height": h, "frames": frames,
+                "seconds": int(ln["seconds"]),
+                "aspect": q["aspect"],
+                "spec": f"{w}×{h} · {frames}f",
+                "pack": q["pack"], "pipeline": q["pipeline"],
+                "stage1_steps": int(q["stage1"]),
+                "stage2_steps": int(q["stage2"]),
+                "preview_every": int(q["preview_every"]),
+                "preview_meaningful_at": int(q["preview_meaningful_at"]),
+                "eta": eta, "eta_min": round(eta_min, 2),
+                "eta_measured": eta_measured,
+                "blurb": f"{q['blurb']} {ln['blurb']}".strip(),
+                "notes": notes,
+                "note": " ".join(notes),
+                "offered": bool(q["offered"] and ln["offered"] and not restricted),
+                # A cell a canvas does not serve renders `.unavailable` with a
+                # reason, which is the H3 mechanism and needs no new UI.
+                "unavailable_reason": (
+                    f"{ln['label']} is only offered at Quick — at "
+                    f"{w}×{h} a {frames}-frame render comes apart before the "
+                    f"end. Smaller canvases hold together longer."
+                    if restricted else ""),
+            }
+    return tiers
+
+
+LTX_TIERS: dict[str, dict] = _build_ltx_tiers()
+
+
+def ltx_measured_eta(quality: str, length: str, quant: str,
+                     version_id: str | None = None) -> tuple[float, str] | None:
+    """The measured wall clock for this exact (version, quality, length, pack),
+    or None when nobody has timed it.
+
+    Exists because the PACK is not always the one the quality chip implies. The
+    Quick / Balanced / Standard chips run the distilled lane on the BASE pack,
+    so `("ltx25", "balanced", "5s", "q8")` is not their number — but the
+    character lane submits balanced AT q8 (§5.6), and that is the 139.4 s row.
+    One table, asked the right question by each caller, instead of a second
+    table for characters."""
+    return LTX_MEASURED_ETA.get(
+        ((version_id or ACTIVE_MODEL_VERSION), quality, length, quant))
+
+
+def ltx_compose_tier(quality: str | None, length: str | None) -> str | None:
+    """The two axes → the cell key, or None if either axis is unknown."""
+    q = (quality or "").strip().lower()
+    ln = (length or "").strip().lower()
+    if not q or not ln:
+        return None
+    key = f"{q}_{ln}"
+    return key if key in LTX_TIERS else None
+
+
+def ltx_tiers_payload() -> dict:
+    """The LTX table as the page sees it.
+
+    Deliberately the SAME field names and the same shapes H3 publishes
+    (`tiers` a flat cell list, `qualities` / `lengths` the two axes,
+    `default_quality` / `default_length`), because the client renderer is one
+    generalised function serving both engines. A second shape here would mean a
+    second renderer, which is the fork this whole area exists to avoid."""
+    return {
+        "tiers": [dict(t) for t in sorted(
+            LTX_TIERS.values(),
+            key=lambda t: (LTX_QUALITIES[t["quality"]]["order"],
+                           LTX_LENGTHS[t["length"]]["order"]))],
+        "qualities": [dict(q) for q in sorted(
+            LTX_QUALITIES.values(), key=lambda x: x["order"]) if q["offered"]],
+        "lengths": [dict(l) for l in sorted(
+            LTX_LENGTHS.values(), key=lambda x: x["order"]) if l["offered"]],
+        "default_quality": LTX_QUALITY_DEFAULT,
+        "default_length": LTX_LENGTH_DEFAULT,
+    }
+
+
 # Post-render export targets for an H3 clip. Most tiers write 768×448 (12:7),
 # which is neither 720p nor 1080p, so the panel applies the SAME ffmpeg recipe
 # LTX renders get: lanczos fit inside the canvas, pad the remainder, re-encode
@@ -22065,6 +22434,12 @@ def page() -> str:
         # points at this block by name (its `probe` key), rather than the
         # switcher knowing anything about H3 in particular.
         "h3": h3_status(),
+        # LTX's own (quality × length) table, in the SAME shape as `h3` above so
+        # the two strips are rendered by one generalised function rather than
+        # two that drift. Every LTX estimate the page prints is a lookup into
+        # this — the browser never computes a canvas, a frame count or a wall
+        # clock of its own.
+        "ltx": ltx_tiers_payload(),
         # Storyboard — planner presence, the RAM copy, the shot/quality choices
         # and the boards already on disk. In the bootstrap (not just /status) so
         # the tab renders its real state on first paint instead of flickering.
