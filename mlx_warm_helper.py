@@ -1454,6 +1454,42 @@ def _free_pipe_for_decode(pipe):
             pass
 
 
+def _build_live_preview(kwargs: dict):
+    """A LivePreviewMonitor for this job, or None when the preview is off.
+
+    THE LANE RULES ARE THE PANEL'S, NOT OURS. `live_preview_every` arrives in
+    the job spec because the right value differs per PIPELINE — 1 on the
+    distilled lane, 2 on res_2s, which evaluates the denoiser twice per stage-2
+    step and whose odd anchor estimates come back patchy — and a client counting
+    estimates would have to know which schedule is running. We take the number
+    and use it.
+
+    Never fatal. A missing checkpoint, an unreadable directory or a library
+    without the module means the render proceeds with no preview: this is a
+    monitor, and a monitor must not be able to stop the thing it watches."""
+    d = kwargs.get("live_preview_dir")
+    tae = kwargs.get("live_preview_tae")
+    if not d or not tae:
+        return None
+    try:
+        from ltx_pipelines_mlx.live_preview import LivePreviewMonitor
+    except Exception as exc:                          # noqa: BLE001
+        emit({"event": "log",
+              "line": f"live preview unavailable in this engine build ({exc}) — "
+                      f"rendering without it."})
+        return None
+    try:
+        return LivePreviewMonitor(
+            Path(d), Path(tae),
+            output=Path(kwargs["output_path"]),
+            every=max(1, int(kwargs.get("live_preview_every") or 1)),
+        )
+    except Exception as exc:                          # noqa: BLE001
+        emit({"event": "log",
+              "line": f"live preview could not start ({exc}) — rendering without it."})
+        return None
+
+
 def _generate_latents(pipe, *, needs_image: bool, kwargs: dict):
     # On second+ runs the video/audio decoders (~2.5 GB combined) remain
     # resident from the previous job's decode phase.  During the
@@ -1542,6 +1578,11 @@ def _generate_latents(pipe, *, needs_image: bool, kwargs: dict):
             )
             if "frame_rate" in sig.parameters:
                 call_kwargs["frame_rate"] = kwargs.get("frame_rate", 24.0)
+            # Only when the installed pipeline actually takes it — the panel
+            # must never die in argparse-equivalent 30 s into a render because
+            # an older engine build does not have the parameter.
+            if "live_preview" in sig.parameters and kwargs.get("_live_preview") is not None:
+                call_kwargs["live_preview"] = kwargs["_live_preview"]
             return pipe.generate(**call_kwargs)
         except TypeError:
             # New DistilledPipeline.generate inherits from the two-stage
@@ -1555,7 +1596,7 @@ def _generate_latents(pipe, *, needs_image: bool, kwargs: dict):
         emit({"event": "log",
               "line": "[t2v-two-stage] PHOSPHENE_T2V_TWO_STAGE=1 — routing T2V Standard through generate_two_stage (half-res → 2× upsample → Stage-2 refine)."})
     # Unified new-API fallback (post-refactor packages).
-    return pipe.generate_two_stage(
+    _two_stage_kwargs = dict(
         prompt=kwargs["prompt"],
         image=kwargs.get("image") if needs_image else None,
         height=kwargs["height"],
@@ -1569,6 +1610,14 @@ def _generate_latents(pipe, *, needs_image: bool, kwargs: dict):
         frame_rate=kwargs.get("frame_rate", 24.0),
         num_steps=kwargs.get("num_steps"),
     )
+    if kwargs.get("_live_preview") is not None:
+        try:
+            import inspect as _inspect
+            if "live_preview" in _inspect.signature(pipe.generate_two_stage).parameters:
+                _two_stage_kwargs["live_preview"] = kwargs["_live_preview"]
+        except (TypeError, ValueError):
+            pass
+    return pipe.generate_two_stage(**_two_stage_kwargs)
 
 
 # ---- LTX 2.3 spatial latent upscaler (Y1.021+) ------------------------------
@@ -2233,6 +2282,19 @@ for line in sys.__stdin__:
             # generate() so it propagates through the whole chain (the patched
             # decode_and_stream reads os.environ at decode call time).
             _apply_vae_streaming_decision(kwargs["num_frames"])
+            # LIVE PREVIEW. Read-only: the thumbnail is a decode of the x0
+            # estimate the denoise loop ALREADY HOLDS, so nothing is
+            # recomputed, no scheduler is re-entered and no tensor the
+            # denoiser owns is written. A render with it on is byte-identical
+            # to the same render with it off — proven by hash, not asserted.
+            for _k in ("live_preview_dir", "live_preview_tae", "live_preview_every"):
+                if p.get(_k) is not None:
+                    kwargs[_k] = p[_k]
+            kwargs["_live_preview"] = _build_live_preview(kwargs)
+            if kwargs["_live_preview"] is not None:
+                emit({"event": "log",
+                      "line": f"live preview on — every {kwargs.get('live_preview_every', 1)} "
+                              f"estimate(s) → {p.get('live_preview_dir')}"})
             if needs_image:
                 src_image = p.get("image")
                 if src_image:
@@ -2345,7 +2407,18 @@ for line in sys.__stdin__:
                 pass
         except Exception as exc:
             _last_activity = time.time()
-            emit({"event": "error", "id": job_id, "error": str(exc), "trace": traceback.format_exc()})
+            # A USER STOP IS NOT A FAILURE. The abort sentinel raises
+            # LivePreviewAborted between forwards, and the CLI turns that into
+            # exit 75 precisely so a supervisor can tell "the user stopped this"
+            # apart from "this crashed" without parsing anything. The panel is
+            # that supervisor, and it gets a distinct event rather than a red
+            # card: nothing was saved, but nothing went wrong either.
+            if type(exc).__name__ == "LivePreviewAborted":
+                emit({"event": "stopped", "id": job_id, "reason": str(exc),
+                      "exit_code": 75})
+            else:
+                emit({"event": "error", "id": job_id, "error": str(exc),
+                      "trace": traceback.format_exc()})
         finally:
             try:
                 configure_acceleration("off")

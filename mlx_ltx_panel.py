@@ -747,6 +747,10 @@ def _settings_defaults() -> dict:
         # Memory/speed policy. Defaults to Auto so 5 s clips keep the fast
         # full-decode path while long/high-pressure renders stay protected.
         "memory_policy": DEFAULT_MEMORY_POLICY,
+        # Live preview. On by default: it costs ~0.2 % of the render,
+        # never changes the result, and it is what makes Stop early
+        # possible at all.
+        "live_preview": "on",
         # ---- Anonymous usage analytics -----------------------------------
         # Full contract in the "Anonymous usage analytics" section further
         # down this file, and the event-by-event schema in docs/ANALYTICS.md.
@@ -999,6 +1003,15 @@ def _validate_settings_patch(patch: dict) -> tuple[dict, str | None]:
             return {}, f"unknown memory_policy: {policy}"
         out["memory_policy"] = policy
 
+    if "live_preview" in patch:
+        # Two states, and anything unrecognised is refused rather than
+        # silently coerced — a settings field that accepts junk and means
+        # "on" is how a user ends up with a setting they did not choose.
+        lp = str(patch["live_preview"]).strip().lower()
+        if lp not in ("on", "off"):
+            return {}, f"live_preview must be on or off, got: {lp}"
+        out["live_preview"] = lp
+
     # ---- H3 DiT precision --------------------------------------------------
     # auto (RAM decides — the default), q8 (force the low-RAM pack: ~15 GiB
     # back for the OS on any machine), bf16 (force max quality where it fits).
@@ -1115,6 +1128,7 @@ def get_settings_public() -> dict:
         "models_card_dismissed": bool(s.get("models_card_dismissed", False)),
         "spicy_mode": bool(s.get("spicy_mode", False)),
         "memory_policy": s.get("memory_policy", DEFAULT_MEMORY_POLICY),
+        "live_preview": str(s.get("live_preview", "on")),
         # Analytics. Same has_X-boolean treatment as the other secrets —
         # the keys themselves never come back over the wire. The install id
         # DOES come back: it's a random UUID with no meaning off this
@@ -7128,6 +7142,44 @@ def _build_ltx_tiers() -> dict[str, dict]:
 LTX_TIERS: dict[str, dict] = _build_ltx_tiers()
 
 
+TAE_CHECKPOINT = MODELS_DIR / "tae" / "taeltx2_3.safetensors"
+
+
+def live_preview_enabled() -> bool:
+    """Is the live preview on? Off when the user turned it off, or when the
+    22 MB decoder is not on disk (an install that predates it, mid-download)."""
+    if not TAE_CHECKPOINT.is_file():
+        return False
+    return str(get_settings().get("live_preview", "on")).lower() != "off"
+
+
+def live_preview_dir(job_id: str) -> Path:
+    """Per-job scratch for the preview contract: status.json, the PNGs and the
+    ABORT sentinel. Per JOB, not per panel, so a stale sentinel from a previous
+    render can never reach this one."""
+    return STATE_DIR / "live" / _safe_job_id(job_id)
+
+
+def _live_preview_params(job: dict, p: dict) -> dict:
+    """The three job-spec keys that turn the preview on, or {}.
+
+    `live_preview_every` is THE LANE RULE and it is decided here, server-side,
+    because it differs per pipeline: 1 on the distilled lane; 2 on res_2s,
+    which evaluates the denoiser twice per stage-2 step and whose odd ANCHOR
+    estimates come back patchy until ~8 while the even SUBSTEP ones are clean
+    from the start. `every 2` selects exactly the clean ones and halves the
+    cost. A client counting estimates would have to know which schedule is
+    running, so it never gets the chance."""
+    if not live_preview_enabled():
+        return {}
+    cell = LTX_QUALITIES.get(p.get("quality") or "", {})
+    return {
+        "live_preview_dir": str(live_preview_dir(job["id"])),
+        "live_preview_tae": str(TAE_CHECKPOINT),
+        "live_preview_every": int(cell.get("preview_every") or 1),
+    }
+
+
 def character_render_quality(version_id: str | None = None) -> str:
     """Which pipeline a TRAINED CHARACTER renders on, per generation.
 
@@ -10356,6 +10408,16 @@ def load_queue() -> None:
 
 # ---- warm helper -------------------------------------------------------------
 
+class JobStopped(Exception):
+    """The user stopped this render on purpose.
+
+    A separate type from RuntimeError because the difference is the whole
+    point: exit 75 exists so a supervisor can tell "the user stopped this"
+    apart from "this crashed" without parsing a message, and a stopped take
+    must not land in the UI wearing a failure's red card. Nothing was saved —
+    the clip was never finished — but nothing went wrong."""
+
+
 class WarmHelper:
     def __init__(self):
         self.proc: subprocess.Popen | None = None
@@ -10785,7 +10847,11 @@ class WarmHelper:
                     raise RuntimeError(f"helper stdin closed: {exc}")
             log_hook, panic_check = self._build_post_decode_panic(job_spec)
             ev = self._read_until(
-                ["done", "error", "exit"],
+                # "stopped" is a TERMINAL event like the other three. Without it
+                # here the reader logged the helper's stop generically and then
+                # kept waiting for an event that was never coming, so a
+                # deliberate Stop early surfaced as whatever timed out first.
+                ["done", "error", "exit", "stopped"],
                 log_hook=log_hook,
                 panic_check=panic_check,
             )
@@ -10866,6 +10932,13 @@ class WarmHelper:
                 "which phase died, and the crashlog at "
                 "~/Library/Logs/DiagnosticReports/python3.11_*.crash if any."
             )
+        if ev.get("event") == "stopped":
+            # A USER STOP, not a failure. Exit 75 is the runner's own way of
+            # saying so, and the panel is the supervisor it was written for.
+            # A distinct exception type so run_job_inner can mark the job
+            # `stopped` instead of `failed` — nothing was saved, but nothing
+            # went wrong.
+            raise JobStopped(ev.get("reason") or "stopped early")
         if ev.get("event") == "error":
             raise RuntimeError(ev.get("error", "helper error"))
         if ev.get("event") == "exit":
@@ -16533,6 +16606,12 @@ def run_job_inner(job: dict) -> None:
                 # helper process.
                 "model_dir": (str(pack_path("q8")) if _char_pack == "q8"
                               else base_model_dir()),
+                # Live preview. The panel owns the LANE RULE (how often an
+                # estimate is worth publishing) because it differs per pipeline
+                # and only the server knows which schedule is running; the
+                # helper takes the number. All three keys absent = off, which
+                # is exactly what the Settings toggle produces.
+                **_live_preview_params(job, p),
                 "mode": mode,
                 "prompt": p["prompt"],
                 "negative_prompt": p.get("negative_prompt", ""),
@@ -16774,6 +16853,15 @@ def worker_loop() -> None:
             with _GPU_LOCK:
                 run_job_inner(job)
             job["status"] = "done"
+        except JobStopped as stop:
+            # EXIT 75 IS A CANCEL, NOT A FAILURE. The user looked at the live
+            # preview, saw the wrong shot and stopped it. Nothing was saved —
+            # the clip was never finished — but nothing went wrong, and a red
+            # card here would be the panel calling the user's decision an
+            # error.
+            job["status"] = "stopped"
+            job["stopped_reason"] = str(stop)
+            push(f"Stopped early: {stop}")
         except Exception as exc:
             if job.get("cancel_requested"):
                 job["status"] = "cancelled"
@@ -22140,7 +22228,12 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
 
-        if path == "/stop":
+        if path == "/stop" and qs.get("mode", [""])[0] != "early":
+            # The HARD stop: kill the helper. Unchanged, and still what the
+            # Stop button does. `?mode=early` is handled further down and is a
+            # different thing entirely — it asks the render to stop itself at
+            # the next forward boundary, which is why it needs its own branch
+            # rather than a flag inside this one.
             stop_current_job()
             self._json({"ok": True}); return
 
@@ -22181,6 +22274,37 @@ class Handler(BaseHTTPRequestHandler):
                 DOWNLOAD["last_line"] = "starting…"
             threading.Thread(target=_download_thread, args=(repo,), daemon=True).start()
             self._json({"ok": True, "key": key, "repo_id": repo["repo_id"]}); return
+
+        if path == "/stop" and qs.get("mode", [""])[0] == "early":
+            # STOP EARLY — distinct from the hard /stop below, which kills the
+            # helper. This one touches the ABORT sentinel the runner checks
+            # between forwards; it stops cleanly at the next boundary and
+            # exits 75.
+            #
+            # The two must not be the same button: a kill leaves a half-written
+            # process to reap and reports as a cancellation of unknown shape,
+            # while this is the render agreeing to stop.
+            #
+            # A FILE, not a signal, and that is the runner's design: a sentinel
+            # works across a UI, a shell, an ssh session and a supervisor
+            # without any of them holding the process handle. It also means
+            # this endpoint cannot half-kill a render — the worst case is a
+            # file nobody reads.
+            with LOCK:
+                cur = STATE.get("current")
+                job_id = (cur or {}).get("id")
+            if not job_id:
+                self._json({"error": "nothing is rendering"}, 404); return
+            d = live_preview_dir(job_id)
+            if not d.is_dir():
+                self._json({"error": "this render has no live preview to stop "
+                                     "through — use Cancel."}, 409); return
+            try:
+                (d / "ABORT").touch()
+            except OSError as exc:
+                self._json({"error": f"could not write the stop sentinel: {exc}"}, 500); return
+            push("Stop early requested — finishing the current step, then stopping.")
+            self._json({"ok": True, "id": job_id}); return
 
         if path == "/models/remove":
             # POST { repo_key } — free the space a retired pack is holding.
@@ -22866,6 +22990,59 @@ def _compute_progress(current: dict | None, log_lines: list[str]) -> dict | None
         "remaining_sec": round(remaining, 1) if remaining is not None else None,
         "denoise_step": signals["denoise_step"],
         "denoise_total": signals["denoise_total"],
+        **_preview_progress(current, remaining),
+    }
+
+
+def _preview_progress(current: dict | None, remaining: float | None) -> dict:
+    """The live preview's half of `current.progress`, or {}.
+
+    THE `meaningful` GATE IS DECIDED HERE, SERVER-SIDE, and that is the whole
+    design. The rule differs per lane — estimate 6 of 8 on the distilled
+    schedule, where DISTILLED_SIGMAS puts five of nine points at >= 0.975 and
+    the first estimates are still essentially noise; estimate 2 on res_2s,
+    whose even substep estimates are clean from the start — so a client
+    counting estimates would have to know which schedule is running. It never
+    has to: it renders what this says.
+
+    Why it matters beyond tidiness: the abort affordance must NOT appear before
+    the preview means something. A Stop-early button over a noise field is a
+    trap — the user aborts a take that was going to be fine."""
+    if not current:
+        return {}
+    d = live_preview_dir(current.get("id") or "")
+    try:
+        st = json.loads((d / "status.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    latest = d / "preview_latest.png"
+    if not latest.is_file():
+        return {}
+    q = (current.get("params") or {}).get("quality") or ""
+    cell = LTX_QUALITIES.get(q, {})
+    need = int(cell.get("preview_meaningful_at") or 1)
+    every = max(1, int(cell.get("preview_every") or 1))
+    # `forward` counts denoiser evaluations; the PUBLISHED series is every Nth.
+    published = int(st.get("forward") or 0) // every
+    meaningful = published >= need
+    prev = {
+        # Cache-busted server-side: the file is rewritten in place, atomically,
+        # and a browser that caches it would show the first estimate forever.
+        "url": f"/file?path={quote(str(latest))}&t={int((d / 'status.json').stat().st_mtime)}",
+        "estimate": published,
+        "total": max(1, int(st.get("total_forwards") or 0) // every),
+        "meaningful": meaningful,
+        # Abortable only once the picture means something AND the runner has
+        # published somewhere to put the sentinel.
+        "abortable": bool(meaningful and d.is_dir()),
+        "saves_sec": round(remaining, 1) if remaining is not None else None,
+    }
+    return {
+        "preview": prev,
+        # Top-level alias, because the storyboard spec already designed
+        # #sbRunThumb against exactly this key. One line keeps a shipped
+        # surface working with no edit.
+        "preview_url": prev["url"] if meaningful else None,
     }
 
 
@@ -27869,12 +28046,55 @@ HTML = r"""<!doctype html>
       opacity: 1;
       position: relative;
     }
+    /* STOPPED sits directly beside FAILED so the two can never disagree about
+       the card's geometry — but it is --muted, not --danger. The user stopped
+       this on purpose; nothing was saved, and nothing went wrong. */
+    .now-card.stopped {
+      border-color: var(--border-strong);
+      background: rgba(140,160,220,0.05);
+      opacity: 1;
+      position: relative;
+    }
     /* Reserve room on the right of the title/meta so the action row
        (Retry + Close) doesn't overlap the text it sits next to. */
     .now-card.failed .ttl,
-    .now-card.failed .meta {
+    .now-card.failed .meta,
+    .now-card.stopped .ttl,
+    .now-card.stopped .meta {
       padding-right: 140px;
     }
+    /* ---- the live-preview slot -------------------------------------------
+       A fixed 16:9 box, always the same size once a render starts, so the
+       thumbnail's ARRIVAL causes no reflow. The card becomes a two-column
+       flex only while the box is shown. */
+    .now-card { display: flex; gap: 12px; align-items: flex-start; }
+    .now-card > .now-body { flex: 1; min-width: 0; }
+    .now-thumb {
+      flex: 0 0 auto;
+      width: 96px; aspect-ratio: 16 / 9;
+      border-radius: var(--r-sm);
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      overflow: hidden;
+      position: relative;
+    }
+    .now-thumb[hidden] { display: none; }
+    .now-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    /* WARMING — the estimates so far are still essentially noise, so there is
+       nothing worth showing and nothing worth judging. A placeholder that
+       breathes, flattened by the global prefers-reduced-motion rule. */
+    .now-thumb.is-warming::after {
+      content: "";
+      position: absolute; inset: 0;
+      background: currentColor;
+      opacity: .18;
+      -webkit-mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 5h16v14H4z" fill="none" stroke="black" stroke-width="1.6"/><path d="M4 9h16M4 15h16M8 5v14M16 5v14" stroke="black" stroke-width="1.2"/></svg>') center/60% no-repeat;
+      mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 5h16v14H4z" fill="none" stroke="black" stroke-width="1.6"/><path d="M4 9h16M4 15h16M8 5v14M16 5v14" stroke="black" stroke-width="1.2"/></svg>') center/60% no-repeat;
+      animation: nowThumbPulse 2.4s ease-in-out infinite;
+    }
+    @keyframes nowThumbPulse { 0%,100% { opacity:.10 } 50% { opacity:.26 } }
+    /* ABORTING — frozen on the last frame it managed to show. */
+    .now-thumb.is-aborting img { opacity: .55; }
     /* Failure-card action row — Retry + Close on the failed Now card.
        Lives in its own sibling element of .ttl so poll()'s rewrites
        don't replace the buttons mid-click. Pinned to the top-right of
@@ -33556,6 +33776,19 @@ HTML = r"""<!doctype html>
         <select id="settingsMemoryPolicy" style="flex:1"></select>
       </div>
       <div class="hint" id="settingsMemoryPolicyHint" style="margin-top:6px"></div>
+      <!-- A speed/behaviour setting, so it belongs in this section rather than
+           in one of its own. -->
+      <div class="settings-row" style="margin-top:10px">
+        <label>Live preview</label>
+        <select id="settingsLivePreview" style="flex:1">
+          <option value="on">On — show the shot as it forms</option>
+          <option value="off">Off</option>
+        </select>
+      </div>
+      <div class="hint" style="margin-top:6px">
+        Costs about 0.2 % of the render and never changes the result. Turning it
+        off also removes the Stop-early button.
+      </div>
     </div>
 
     <div class="settings-section">
@@ -33950,14 +34183,21 @@ HTML = r"""<!doctype html>
   </nav>
   <div class="bottom-body">
     <div class="tab-content show" id="tab-now">
+      <!-- The live-preview slot is a FIXED 16:9 box that is present from the
+           moment a render starts, so the arrival of a thumbnail causes NO
+           layout shift — the storyboard spec's rule, carried over verbatim.
+           It is display:none while idle and reserves its own space otherwise. -->
       <div class="now-card idle" id="nowCard">
-        <div class="ttl">Idle</div>
-        <div class="progress-bar"><div class="fill" id="progressFill" style="width:0%"></div></div>
-        <div class="meta" id="nowDetail">No job running</div>
-        <!-- Action row populated on the failed state with Retry + Close.
-             Lives outside .ttl so poll()'s innerHTML rewrites don't
-             clobber the buttons mid-click. Hidden when empty. -->
-        <div class="now-card-actions" id="nowCardActions"></div>
+        <div class="now-thumb" id="nowThumb" hidden aria-hidden="true"></div>
+        <div class="now-body">
+          <div class="ttl">Idle</div>
+          <div class="progress-bar"><div class="fill" id="progressFill" style="width:0%"></div></div>
+          <div class="meta" id="nowDetail">No job running</div>
+          <!-- Action row populated on the failed state with Retry + Close.
+               Lives outside .ttl so poll()'s innerHTML rewrites don't
+               clobber the buttons mid-click. Hidden when empty. -->
+          <div class="now-card-actions" id="nowCardActions"></div>
+        </div>
       </div>
     </div>
     <div class="tab-content" id="tab-queue">
@@ -42043,7 +42283,9 @@ async function poll() {
     nowCard.querySelector('.meta').innerHTML = phaseLabel
       ? `${baseMeta}<br><span style="color:var(--muted)">${escapeHtml(phaseLabel)}</span>`
       : baseMeta;
+    renderNowPreview(s, prog);
   } else {
+    renderNowPreview(s, null);
     // Idle state. If the LAST history entry was a failure (helper crash,
     // OOM, etc.) surface it loud-and-clear here — otherwise users like
     // cocktailpeanut just see "Idle" and assume "the panel did nothing."
@@ -42092,9 +42334,31 @@ async function poll() {
           `title="Dismiss this failure" aria-label="Dismiss this failure">` +
           `<svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>`;
       }
+    } else if (last && last.status === 'stopped' && !s.queue.length
+               && last.id !== window._dismissedFailureId) {
+      // STOPPED EARLY — a sibling of the failed card, muted rather than red.
+      // The user looked at the preview, saw the wrong shot and stopped it;
+      // calling that an error would be the panel second-guessing a decision it
+      // exists to enable.
+      nowCard.classList.remove('idle', 'failed');
+      nowCard.classList.add('stopped');
+      nowCard.querySelector('.ttl').textContent = 'Stopped early';
+      nowCard.querySelector('.meta').innerHTML =
+        `<span style="color: var(--muted)">${escapeHtml(snippet(last.params.label || last.params.prompt, 80))}</span>` +
+        `<br><span style="color: var(--text)">Nothing was saved.</span>`;
+      if (actionsEl) {
+        actionsEl.dataset.jobId = String(last.id);
+        actionsEl.innerHTML =
+          `<button type="button" class="now-card-retry" data-action="retry" ` +
+          `title="Run this again with the same params">` +
+          `<svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise"/></svg>` +
+          `<span>Try again</span></button>` +
+          `<button type="button" class="now-card-dismiss" data-action="dismiss" ` +
+          `title="Dismiss" aria-label="Dismiss"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>`;
+      }
     } else {
       nowCard.classList.add('idle');
-      nowCard.classList.remove('failed');
+      nowCard.classList.remove('failed', 'stopped');
       nowCard.querySelector('.ttl').textContent = s.paused ? 'Paused' : 'Idle';
       nowCard.querySelector('.meta').textContent = s.paused
         ? 'Worker paused — current job (if any) finishes, queue waits for resume.'
@@ -44727,6 +44991,10 @@ async function openSettingsModal() {
     }
     memSelect.value = cur.memory_policy || 'auto';
     memSelect.onchange = renderMemoryPolicyHint;
+  }
+  const lpSelect = document.getElementById('settingsLivePreview');
+  if (lpSelect) {
+    lpSelect.value = (cur.live_preview === 'off') ? 'off' : 'on';
     renderMemoryPolicyHint();
   }
 
@@ -45123,6 +45391,7 @@ async function applySettings() {
     fd.set('output_crf', document.getElementById('settingsCrfNum').value);
   }
   fd.set('memory_policy', document.getElementById('settingsMemoryPolicy')?.value || 'auto');
+  fd.set('live_preview', document.getElementById('settingsLivePreview')?.value || 'on');
   // Tokens — only send a key when the input has a value. Empty input
   // means "leave as-is" (clearing is explicit via the Clear button).
   // This protects against accidentally wiping a saved key by clicking
@@ -46396,6 +46665,94 @@ function renderCharacterStrip() {
     const spec = btn.querySelector('.q-spec');
     if (spec) spec.textContent = `${c.width}×${c.height}`;
   });
+}
+
+// ---- The live preview, in the Now card --------------------------------------
+//
+// Four states, and the transitions between them are what the copy is for:
+//
+//   warming          a pulsing film-frame glyph. The first estimates are still
+//                    essentially noise and there is nothing worth judging, so
+//                    there is deliberately NO Stop-early button yet — a stop
+//                    over a noise field is a trap that aborts a good take.
+//   first-meaningful the live image, and Stop early appears with what it saves.
+//   aborting         frozen on the last frame, the button disabled.
+//   aborted          the card takes over (see the `stopped` branch in poll()).
+//
+// `meaningful` is the SERVER's call — see _preview_progress(). The client
+// renders it; it never counts estimates.
+function renderNowPreview(s, prog) {
+  const box = document.getElementById('nowThumb');
+  const actions = document.getElementById('nowCardActions');
+  if (!box) return;
+  const prev = prog && prog.preview;
+  if (!s.running || !prev) {
+    box.hidden = true;
+    box.className = 'now-thumb';
+    box.innerHTML = '';
+    if (actions && actions.dataset.stopEarly === '1') {
+      actions.innerHTML = ''; delete actions.dataset.stopEarly;
+    }
+    return;
+  }
+  box.hidden = false;
+  const stopping = window._stopEarlyRequested === s.current.id;
+  if (!prev.meaningful) {
+    box.className = 'now-thumb is-warming';
+    box.innerHTML = '';
+  } else {
+    box.className = 'now-thumb' + (stopping ? ' is-aborting' : '');
+    // Replace the src in place rather than the node, so the browser does not
+    // flash white between estimates.
+    let img = box.querySelector('img');
+    if (!img) { img = document.createElement('img'); img.alt = ''; box.appendChild(img); }
+    if (img.getAttribute('src') !== prev.url) img.setAttribute('src', prev.url);
+  }
+  // The second line of #nowDetail, and the button, both follow `meaningful`.
+  const meta = document.querySelector('#nowCard .meta');
+  if (meta) {
+    const saves = (prev.saves_sec != null && prev.saves_sec > 0)
+      ? ` — saves about ${fmtMin(prev.saves_sec)}` : '';   // absent -> drop the sentence
+    const line = stopping
+      ? 'Finishing the current step, then stopping.'
+      : (prev.meaningful
+          ? `This is the shot it's making. Stop now if it's wrong${saves}.`
+          : 'Finding the shot…');
+    meta.innerHTML += `<br><span style="color:var(--muted)">${escapeHtml(line)}</span>`;
+  }
+  if (actions && prev.abortable) {
+    if (stopping) {
+      actions.dataset.stopEarly = '1';
+      actions.innerHTML = `<button type="button" class="qchip" disabled>Stopping…</button>`;
+    } else if (actions.dataset.stopEarly !== '1' || !actions.querySelector('[data-action="stop-early"]')) {
+      actions.dataset.stopEarly = '1';
+      actions.innerHTML =
+        `<button type="button" class="qchip" data-action="stop-early" ` +
+        `title="Stops this render now. Nothing is saved — the clip was never finished.">Stop early</button>`;
+    }
+  }
+}
+
+// The house rule: native confirm() for anything destructive, and it says what
+// is lost. The minutes come from the server's own remaining estimate; when it
+// has none, the sentence is DROPPED rather than guessed.
+async function stopEarly() {
+  const s = window.__phosLastStatus || {};
+  const cur = s.current;
+  if (!cur) return;
+  const prev = ((cur.progress || {}).preview) || {};
+  const saves = (prev.saves_sec != null && prev.saves_sec > 0)
+    ? `About ${fmtMin(prev.saves_sec)} of work is dropped. ` : '';
+  if (!confirm('Stop this render?\n\n' +
+      "The shot you're looking at is a preview — it was never finished, so nothing is saved.\n" +
+      saves + 'The queue carries on with the next job.')) return;
+  window._stopEarlyRequested = cur.id;
+  try {
+    await api('/stop?mode=early', { method: 'POST' });
+  } catch (e) {
+    window._stopEarlyRequested = null;
+    phosToast(String((e && e.message) || e), { kind: 'danger', duration: 6000 });
+  }
 }
 
 // ---- No voice, defaulted rather than guessed --------------------------------
@@ -47875,10 +48232,14 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) poll
 // click that landed mid-rewrite could be lost. A single delegated
 // listener on document survives every rewrite + costs nothing.
 document.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-action="retry"], [data-action="dismiss"]');
+  const btn = e.target.closest('[data-action="retry"], [data-action="dismiss"], [data-action="stop-early"]');
   if (!btn) return;
   e.stopPropagation();
   e.preventDefault();
+  // A third delegated action in the same row, for the same reason the other
+  // two are delegated: poll() rewrites this element every 1.5 s, and an inline
+  // handler would be lost to that race mid-click.
+  if (btn.dataset.action === 'stop-early') { stopEarly(); return; }
   const actions = btn.closest('.now-card-actions');
   const id = actions ? actions.dataset.jobId : '';
   if (!id) return;
