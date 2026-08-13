@@ -6839,6 +6839,12 @@ def _build_ltx_tiers() -> dict[str, dict]:
                 "notes": notes,
                 "note": " ".join(notes),
                 "offered": bool(q["offered"] and ln["offered"] and not restricted),
+                # `available` is the field the shared chip factory reads for the
+                # `.unavailable` state — the same key H3's cells carry, so one
+                # renderer serves both without learning a second vocabulary.
+                # For LTX the two coincide today: a cell is unavailable exactly
+                # when its canvas does not serve that length.
+                "available": not restricted,
                 # A cell a canvas does not serve renders `.unavailable` with a
                 # reason, which is the H3 mechanism and needs no new UI.
                 "unavailable_reason": (
@@ -30065,6 +30071,12 @@ HTML = r"""<!doctype html>
       <input type="hidden" name="preset_label" id="preset_label" value="">
       <input type="hidden" name="mode" id="mode" value="t2v">
       <input type="hidden" name="quality" id="quality" value="balanced">
+      <!-- The DURATION axis's own field. It is a LABEL for the shape, not the
+           shape itself: #duration and #frames remain what the render reads, and
+           _ltxApplyShape writes all three together. A cell key here means "the
+           user picked this rung"; empty means a custom duration, which lights
+           no chip and prints itself in #ltxLengthMeta. -->
+      <input type="hidden" name="ltx_length" id="ltx_length" value="5s">
       <input type="hidden" name="accel" id="accel" value="off">
       <input type="hidden" name="temporal_mode" id="temporal_mode" value="native">
       <input type="hidden" name="upscale" id="upscale" value="fit_720p">
@@ -30575,28 +30587,38 @@ HTML = r"""<!doctype html>
                inference uses transformer-distilled.safetensors and the
                identity barely locks). Forcing quality=high here means
                the user can't accidentally ship a Q4 character render. -->
-          <div class="quality-strip pill-group" id="qualityGroup" data-ltx-only>
-            <button type="button" class="q-chip pill-btn pill-quality" data-quality="quick">
-              <span class="ql-name">Quick</span>
-              <span class="q-spec ql-spec sub">640×480</span>
-              <span class="ql-tier" hidden>Q4 · any Mac</span>
-            </button>
-            <button type="button" class="q-chip pill-btn pill-quality active" data-quality="balanced">
-              <span class="ql-name">Balanced</span>
-              <span class="q-spec ql-spec sub">1024×576</span>
-              <span class="ql-tier" id="balancedSub">Q4 · 5 min</span>
-            </button>
-            <button type="button" class="q-chip pill-btn pill-quality" data-quality="standard">
-              <span class="ql-name">Standard</span>
-              <span class="q-spec ql-spec sub">1280×704</span>
-              <span class="ql-tier" hidden>Q4 · standard tier+</span>
-            </button>
-            <button type="button" class="q-chip pill-btn pill-quality disabled" data-quality="high" id="qualityHigh">
-              <span class="ql-name">High</span>
-              <span class="q-spec ql-spec sub" id="highSpec">1024×576</span>
-              <span class="ql-tier" id="highSub">Q8 not installed</span>
-            </button>
+          <!-- LTX's CANVAS axis. Rendered by renderTierAxes('ltx') from
+               BOOT.ltx.qualities / .lengths / .tiers, exactly as H3's two
+               strips are, so the server-side table is the single source of
+               truth for geometry and every estimate.
+
+               These four chips used to be static markup carrying hand-written
+               subtitles ("Q4 · 5 min", "Q8 Pro · 7 min") kept up to date by two
+               separate JS updaters — numbers no measurement on 2.5 supported.
+               The table fills the third slot now, the way H3's already did, and
+               both updaters are deleted.
+
+               `data-quality` is UNCHANGED: five surfaces read it (the click
+               handler, setQuality's active toggle, applyTierTimes, the
+               trained-LoRA compatibility gate, the character-strip swap). -->
+          <div class="quality-strip pill-group" id="qualityGroup" data-ltx-only></div>
+          <!-- LTX's DURATION axis — the same second row H3 grew, for the same
+               reason: a canvas and a length are independent choices and one
+               strip cannot express both. Duration used to be a free numeric
+               field whose value one lane silently rounded away. The field
+               itself is not deleted (power users have shipped work with it);
+               it lives in Customize and a value off the axis lights no chip. -->
+          <div class="ltx-axes" id="ltxAxes" data-ltx-only>
+            <div class="qs-label h3-axis-label">
+              <span class="qs-name">Length</span>
+              <span class="qs-meta" id="ltxLengthMeta"></span>
+            </div>
+            <div class="quality-strip pill-group" id="ltxLengthGroup"></div>
           </div>
+          <!-- The selected cell's honest notes, joined — the mirror of
+               #h3TierNote. Empty and hidden when the combination has nothing
+               to warn about, which is most of them. -->
+          <div class="engine-hint" id="ltxTierNote" hidden></div>
           <!-- Character-only quality strip — revealed by selectManualCharacter
                when a character is selected. Both buttons submit quality=high
                (the only inference path that matches dev-trained character
@@ -33417,20 +33439,20 @@ window.PHOSPHENE_CAP_TIER = (BOOT.cap_tier || 'q8');
 // of the optimistic baseline. Runs once on boot, plus when the tier modal
 // reports new info (rare — tier is fixed for a given Mac).
 function applyTierTimes() {
-  const qt = (BOOT.quality_times || {});
-  document.querySelectorAll('#qualityGroup .pill-quality').forEach(btn => {
-    const key = btn.dataset.quality;
-    const time = qt[key];
-    const spec = btn.querySelector('.ql-spec');
-    if (!spec) return;
-    const dimsMatch = spec.textContent.match(/^([0-9]+×[0-9]+(\s+→\s+[0-9p]+)?)/);
-    const dims = dimsMatch ? dimsMatch[1] : '';
-    if (time && dims) {
-      spec.textContent = `${dims} · ${time}`;
-    } else if (time) {
-      spec.textContent = time;
-    }
-  });
+  // NO-OP for the LTX strip since v4.0, deliberately, and kept as a named
+  // function because the tier modal still calls it.
+  //
+  // This was the THIRD writer of the LTX chips' subtitles, and it wrote a
+  // per-hardware-tier estimate into the .ql-spec slot that now carries the
+  // canvas and the frame count. Two writers for one span is how a chip ends up
+  // claiming "1024×576 · about 8 min" for a render the table prices at ~2 min.
+  //
+  // The tier-aware estimate is not lost: BOOT.quality_times is a RAM-tier
+  // figure, and the tier table's own model is anchored on renders measured on
+  // this class of machine. When a per-tier coefficient is wanted it belongs in
+  // ltx_estimate_minutes(), server-side, where one number serves the chip, the
+  // Length meta and the queue card at once.
+  return;
 }
 
 // Keyframe mode toggle — 2-frame FFLF, or any 3–8-anchor long shot.
@@ -38283,6 +38305,12 @@ function setQuality(q) {
     try { setH3Tier((document.getElementById('h3_tier') || {}).value); } catch (_) {}
     if (typeof setUpscale === 'function') { try { setUpscale('off'); } catch (_) {} }
   }
+  // Repaint the LTX strips LAST, after every field this function owns is
+  // settled, so the chips print the shape that is now actually in the form.
+  // Both axes are repainted because moving the canvas re-prices every length.
+  if (typeof renderTierAxes === 'function') {
+    try { renderTierAxes('ltx'); } catch (_) {}
+  }
 }
 function setAccel(a) {
   const allowed = document.getElementById('quality').value !== 'high' && currentMode !== 'extend' && currentMode !== 'keyframe';
@@ -39099,60 +39127,246 @@ function engineSegClick(id) {
 // is live on both axes at once and changing either one re-prices the other. The
 // numbers are the server's: a chip looks up a cell, it never computes a canvas
 // or a duration of its own.
-function _h3ChipHtml(kind, item, cell, active) {
+// Per-engine differences, and ONLY the differences. Everything else about a
+// tier chip — the classes, the three spans, the unavailable state, the title
+// rules — is shared, because it was already right for H3 and re-deriving it for
+// LTX is how two strips start disagreeing about what "unavailable" looks like.
+//
+// The engine argument is DEFAULTED to 'h3' throughout this section on purpose:
+// every existing H3 call site then stays byte-identical, which is the property
+// the refactor is checked against (560 chips, diffed before and after).
+const TIER_ENGINES = {
+  h3: {
+    boot: () => H3,
+    // H3's canvases are several different aspect ratios, so the ratio is the
+    // fact worth printing beside the canvas.
+    qualitySpec: (item, cell) => `${item.canvas} · ${item.aspect}`,
+    lengthSpec: (item, cell) => (cell
+      ? `${cell.frames}f` + (cell.chain_windows > 1 ? ` · ${cell.chain_windows}×5s` : '')
+      : `${item.frames}f`),
+    eta: (cell) => h3CellEta(cell),
+    cellFor: (q, l) => h3CellFor(q, l),
+    currentQuality: () => h3CurrentQuality(),
+    currentLength: () => h3CurrentLength(),
+    setQuality: (k) => setH3Quality(k),
+    setLength: (k) => setH3Length(k),
+    qStripId: 'h3QualityGroup', lStripId: 'h3LengthGroup',
+    metaId: 'h3LengthMeta', noteId: '',
+    qAttr: 'h3-quality', lAttr: 'h3-length',
+  },
+  ltx: {
+    boot: () => (BOOT.ltx || {}),
+    // LTX is 16:9 or 4:3 and the user picked the canvas by name; what changes
+    // under them as they move the Length axis is the FRAME COUNT, so that is
+    // what the quality chip prints. It is the current cell's frames, never a
+    // fixed number — a chip that said "73f" while rendering 121 would be the
+    // same class of lie as the engine label this release is fixing.
+    qualitySpec: (item, cell) => `${item.canvas} · ${cell ? cell.frames : '—'}f`,
+    lengthSpec: (item, cell) => (cell ? `${cell.frames}f` : `${item.frames}f`),
+    eta: (cell) => ltxCellEta(cell),
+    cellFor: (q, l) => ltxCellFor(q, l),
+    currentQuality: () => ltxCurrentQuality(),
+    currentLength: () => ltxCurrentLength(),
+    setQuality: (k) => setLtxQuality(k),
+    setLength: (k) => setLtxLength(k),
+    qStripId: 'qualityGroup', lStripId: 'ltxLengthGroup',
+    metaId: 'ltxLengthMeta', noteId: 'ltxTierNote',
+    // The CANVAS chips keep the SHIPPED `data-quality` attribute rather than
+    // taking an engine-prefixed one. Five surfaces already read it — the click
+    // handler, setQuality's active toggle, applyTierTimes, the trained-LoRA
+    // compatibility gate and the character-strip swap — and renaming it to
+    // match a naming scheme would have broken all five for tidiness. H3's
+    // chips are new markup and have no such history, so they keep theirs.
+    qAttr: 'quality', lAttr: 'ltx-length',
+    // A duration that is not on the axis is not an error and is not hidden —
+    // power users have shipped work with the raw Frames field. It lights no
+    // chip and says what it is: `custom · 337f · 14 s`.
+    customMeta: () => {
+      const f = parseInt((document.getElementById('frames') || {}).value, 10);
+      if (!Number.isFinite(f)) return '';
+      const secs = Math.round(((f - 1) / 24) * 10) / 10;
+      return `custom · ${f}f · ${secs} s`;
+    },
+  },
+};
+
+function _tierChipHtml(engine, kind, item, cell, active) {
+  const E = TIER_ENGINES[engine] || TIER_ENGINES.h3;
   const ok = !cell ? false : (cell.available !== false);
   const cls = 'q-chip pill-btn pill-quality'
     + (active ? ' active' : '') + (ok ? '' : ' unavailable');
-  const spec = (kind === 'quality')
-    ? `${item.canvas} · ${item.aspect}`
-    : (cell ? `${cell.frames}f` + (cell.chain_windows > 1 ? ` · ${cell.chain_windows}×5s` : '')
-            : `${item.frames}f`);
-  const foot = ok ? h3CellEta(cell) : 'unavailable';
+  const spec = (kind === 'quality') ? E.qualitySpec(item, cell)
+                                    : E.lengthSpec(item, cell);
+  const foot = ok ? E.eta(cell) : 'unavailable';
   const title = ok
     ? ((cell && cell.blurb) || item.blurb || '')
     : (cell && cell.unavailable_reason) || 'Not available on this install.';
+  const attr = (kind === 'quality') ? (E.qAttr || `${engine}-quality`)
+                                    : (E.lAttr || `${engine}-length`);
   return `
-    <button type="button" class="${cls}" data-h3-${kind}="${escapeHtml(item.key)}"
+    <button type="button" class="${cls}" data-${attr}="${escapeHtml(item.key)}"
             ${ok ? '' : 'aria-disabled="true"'} title="${escapeHtml(title)}">
       <span class="ql-name">${escapeHtml(item.label)}</span>
       <span class="q-spec ql-spec sub">${escapeHtml(spec)}</span>
       <span class="ql-tier">${escapeHtml(foot)}</span>
     </button>`;
 }
+// The shipped name, kept as a one-line shim so every H3 call site is unchanged.
+function _h3ChipHtml(kind, item, cell, active) {
+  return _tierChipHtml('h3', kind, item, cell, active);
+}
 
-function renderH3Axes() {
-  const qStrip = document.getElementById('h3QualityGroup');
-  const lStrip = document.getElementById('h3LengthGroup');
+function renderTierAxes(engine) {
+  engine = engine || 'h3';
+  const E = TIER_ENGINES[engine] || TIER_ENGINES.h3;
+  const B = E.boot() || {};
+  const qStrip = document.getElementById(E.qStripId);
+  const lStrip = document.getElementById(E.lStripId);
   if (!qStrip || !lStrip) return;
-  const qualities = H3.qualities || [];
-  const lengths = H3.lengths || [];
-  const curQ = h3CurrentQuality();
-  const curL = h3CurrentLength();
+  const qualities = B.qualities || [];
+  const lengths = B.lengths || [];
+  const curQ = E.currentQuality();
+  const curL = E.currentLength();
 
   qStrip.style.gridTemplateColumns = `repeat(${Math.max(1, qualities.length)}, 1fr)`;
   qStrip.innerHTML = qualities.map(q =>
-    _h3ChipHtml('quality', q, h3CellFor(q.key, curL), q.key === curQ)).join('');
+    _tierChipHtml(engine, 'quality', q, E.cellFor(q.key, curL), q.key === curQ)).join('');
   // Past four lengths (the lab dense pass turns a fifth on) the chips would
   // squeeze; wrap to three per row and let the strip grow a line instead.
   lStrip.style.gridTemplateColumns =
     `repeat(${lengths.length > 4 ? 3 : Math.max(1, lengths.length)}, 1fr)`;
   lStrip.innerHTML = lengths.map(l =>
-    _h3ChipHtml('length', l, h3CellFor(curQ, l.key), l.key === curL)).join('');
+    _tierChipHtml(engine, 'length', l, E.cellFor(curQ, l.key), l.key === curL)).join('');
 
-  qStrip.querySelectorAll('[data-h3-quality]').forEach(b => {
-    b.onclick = () => setH3Quality(b.dataset.h3Quality);
+  const qAttr = E.qAttr || `${engine}-quality`;
+  const lAttr = E.lAttr || `${engine}-length`;
+  qStrip.querySelectorAll(`[data-${qAttr}]`).forEach(b => {
+    b.onclick = () => E.setQuality(b.getAttribute(`data-${qAttr}`));
   });
-  lStrip.querySelectorAll('[data-h3-length]').forEach(b => {
-    b.onclick = () => setH3Length(b.dataset.h3Length);
+  lStrip.querySelectorAll(`[data-${lAttr}]`).forEach(b => {
+    b.onclick = () => E.setLength(b.getAttribute(`data-${lAttr}`));
   });
   // The right-hand meta on the Length label: the combination, in one line.
-  const meta = document.getElementById('h3LengthMeta');
-  const cell = h3CellFor(curQ, curL);
+  const meta = E.metaId ? document.getElementById(E.metaId) : null;
+  const cell = E.cellFor(curQ, curL);
   if (meta) {
-    meta.textContent = cell
-      ? `${cell.width}×${cell.height} · ${cell.frames}f · ${h3CellEta(cell)}`
-      : '';
+    // A synthesised custom cell (length '') gets the custom line, which is the
+    // one that can state the DURATION a raw frame count works out to — the
+    // number the user actually wanted to know when they typed it.
+    const custom = !cell || cell.length === '';
+    meta.textContent = custom
+      ? (E.customMeta ? E.customMeta() : '')
+      : `${cell.width}×${cell.height} · ${cell.frames}f · ${E.eta(cell)}`;
   }
+  // The selected cell's honest notes, joined. H3 has no note element and
+  // passes noteId '' — the lookup is skipped rather than guarded downstream.
+  const note = E.noteId ? document.getElementById(E.noteId) : null;
+  if (note) {
+    const txt = (cell && cell.note) || '';
+    note.textContent = txt;
+    note.hidden = !txt;
+  }
+}
+// The shipped name, kept so every H3 call site is unchanged.
+function renderH3Axes() { return renderTierAxes('h3'); }
+
+// ---- LTX's side of the shared axis machinery --------------------------------
+// The mirror of h3CellFor / h3CurrentQuality / h3CellEta, and nothing more. The
+// LTX form already owns #quality (the shipped hidden select every mode reads),
+// so the CANVAS axis writes the field that already exists rather than a second
+// one — a new hidden input here would be a second definition of "what will
+// render", which is the bug class this release keeps closing.
+function ltxCellFor(quality, length) {
+  const cell = ((BOOT.ltx || {}).tiers || [])
+    .find(t => t.quality === quality && t.length === length) || null;
+  if (cell || length !== '') return cell;
+  // CUSTOM DURATION. The canvas is still perfectly available — only the length
+  // is off the axis — so the quality chips must not go grey and claim
+  // otherwise. Synthesise a cell that carries the real canvas and the real
+  // frame count, and leave the eta as the word `custom` rather than inventing
+  // a number: pricing an arbitrary shape in the browser would be the second
+  // cost model this whole table exists to avoid.
+  const q = ((BOOT.ltx || {}).qualities || []).find(x => x.key === quality);
+  if (!q) return null;
+  const f = parseInt((document.getElementById('frames') || {}).value, 10);
+  if (!Number.isFinite(f)) return null;
+  return {
+    quality: q.key, quality_label: q.label, length: '', length_label: 'custom',
+    width: q.width, height: q.height, frames: f,
+    pack: q.pack, pipeline: q.pipeline,
+    eta: 'custom', eta_measured: false, available: true, note: '',
+    blurb: q.blurb || '',
+  };
+}
+function ltxCurrentQuality() {
+  const v = (document.getElementById('quality') || {}).value;
+  return v || (BOOT.ltx || {}).default_quality || 'balanced';
+}
+// DERIVED FROM #frames, not from the hidden field, and that direction matters.
+// #frames is what actually renders; the chip is a label on top of it. Reading
+// the label would let the two disagree the moment somebody types 337 into
+// Customize — the chip would still show 5s while a 14-second clip rendered,
+// which is precisely the 7-second lie this release exists to fix, relocated.
+// An off-axis frame count matches no rung, lights no chip, and prints itself.
+function ltxCurrentLength() {
+  const f = parseInt((document.getElementById('frames') || {}).value, 10);
+  const lens = (BOOT.ltx || {}).lengths || [];
+  const hit = lens.find(l => Number(l.frames) === f);
+  if (hit) return hit.key;
+  if (Number.isFinite(f)) return '';        // custom — no chip is active
+  return (document.getElementById('ltx_length') || {}).value
+      || (BOOT.ltx || {}).default_length || '5s';
+}
+function ltxCurrentCell() {
+  return ltxCellFor(ltxCurrentQuality(), ltxCurrentLength());
+}
+// The eta STRING for a cell. The server's own string wins whenever the state is
+// one the server priced, because that is where a MEASURED wall clock lives —
+// and where it is NOT measured the string is still the server's model, so the
+// browser never carries a second cost model. The only case it recomputes is a
+// custom duration, which by definition has no cell.
+function ltxCellEta(cell) {
+  if (!cell) return '';
+  if (cell.eta === 'custom') return 'custom';
+  const tail = (cell.pack === 'q8' && cell.pipeline === 'hq') ? ' · Q8 HQ' : '';
+  return (cell.eta || '') + tail;
+}
+// Set the CANVAS. Length is untouched — the whole point of the two axes.
+function setLtxQuality(key) {
+  const q = ((BOOT.ltx || {}).qualities || []).find(x => x.key === key);
+  if (!q) return;
+  _ltxApplyShape(q.key, ltxCurrentLength());
+}
+// Set the DURATION. Canvas is untouched.
+function setLtxLength(key) {
+  const l = ((BOOT.ltx || {}).lengths || []).find(x => x.key === key);
+  if (!l) return;
+  _ltxApplyShape(ltxCurrentQuality(), l.key);
+}
+// The ONE place the form's LTX shape is written — the mirror of _h3ApplyShape.
+// Every other caller (the strips, Load Params, a restored state) routes through
+// here, so there is exactly one definition of what the form now says it will
+// render, and #duration / #frames stay in agreement with the chips instead of
+// drifting from them.
+function _ltxApplyShape(qKey, lKey) {
+  const cell = ltxCellFor(qKey, lKey);
+  if (!cell) return;
+  // A cell this canvas does not serve is REFUSED, not silently redirected: the
+  // chip is already greyed with the reason in its title, so a click that
+  // quietly rendered something else would be worse than a click that does
+  // nothing.
+  if (cell.available === false) return;
+  const setv = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+  // The DURATION half is ours. The CANVAS half is setQuality()'s — it has
+  // owned #quality, #width, #height, the aspect row and the upscale default
+  // since long before this table existed, and a second writer here would be a
+  // second definition of "what will render". So we hand it the key and let it
+  // do its job; it calls back into renderTierAxes('ltx') when it is done.
+  setv('ltx_length', cell.length);
+  setv('duration', cell.seconds);
+  setv('frames', cell.frames);
+  if (typeof setQuality === 'function') setQuality(cell.quality);
+  else renderTierAxes('ltx');
 }
 
 // Set the CANVAS. Length is untouched — that is the entire point of the
@@ -39867,6 +40081,10 @@ function setEngine(engine, opts) {
     if (typeof setUpscale === 'function' && typeof QUALITY_PRESETS === 'object') {
       const _qp = QUALITY_PRESETS[(document.getElementById('quality') || {}).value];
       if (_qp) { try { setUpscale(_qp.upscale || 'off'); } catch (e) {} }
+    }
+    // LTX's own two strips, the mirror of the renderH3Axes() call above.
+    if (typeof renderTierAxes === 'function') {
+      try { renderTierAxes('ltx'); } catch (e) {}
     }
     if (typeof _applyCharacterQualityStripVisibility === 'function') {
       // Restore whichever LTX strip the current selection calls for.
@@ -41056,29 +41274,29 @@ async function poll() {
 
   document.getElementById('pauseBtn').textContent = s.paused ? 'Resume queue' : 'Pause queue';
 
-  // Q8 / High enable. Subtitle shows what pipeline this chip uses; goes
-  // visible permanently (no more `hidden` attribute on the span) so users
-  // can see at a glance which engine drives each tier.
-  const highBtn = document.getElementById('qualityHigh');
-  const highSub = document.getElementById('highSub');
-  if (s.q8_available) {
-    highBtn.classList.remove('disabled', 'needs-install');
-    highSub.textContent = 'Q8 Pro · 7 min';
-  } else {
-    // Disabled-but-actionable: a click on the High pill now opens the
-    // Models modal so the user can install Q8 in one move instead of
-    // hunting for the download. CSS .needs-install gives the pill an
-    // accent-tinted look + download arrow in the subtitle so it reads
-    // as a CTA, not a dead button.
-    highBtn.classList.add('disabled', 'needs-install');
-    const missing = (s.q8_missing || []).length;
-    if (missing > 0 && missing < 6) {
-      highSub.textContent = `Q8 downloading · ${missing} left`;
-      highBtn.classList.remove('needs-install');   // mid-download, no need for the CTA hint
+  // Q8 / High enable.
+  //
+  // This block used to WRITE the chip's subtitle as well — "Q8 Pro · 7 min",
+  // "Install Q8 (37 GB)" — one of two hand-rolled updaters printing numbers
+  // that no measurement on 2.5 supports (the 2.5 Q8 pack is 30.02 GB and the
+  // High add-on is a separate 29.50 GB). The tier table fills every chip's
+  // third slot now, the way H3's already did, so what is left here is the
+  // STATE: is the pack on disk, and is the chip therefore an install CTA.
+  const highBtn = document.querySelector('#qualityGroup [data-quality="high"]');
+  if (highBtn) {
+    if (s.q8_available) {
+      highBtn.classList.remove('disabled', 'needs-install');
     } else {
-      highSub.textContent = 'Install Q8 (37 GB)';
+      // Disabled-but-actionable: a click on the High pill opens the Models
+      // modal so the user can install in one move instead of hunting for the
+      // download. .needs-install gives it the dashed border + download glyph
+      // so it reads as a CTA, not a dead button.
+      const missing = (s.q8_missing || []).length;
+      const midDownload = missing > 0 && missing < 6;
+      highBtn.classList.add('disabled');
+      highBtn.classList.toggle('needs-install', !midDownload);
+      if (document.getElementById('quality').value === 'high') setQuality('standard');
     }
-    if (document.getElementById('quality').value === 'high') setQuality('standard');
   }
 
   // Balanced subtitle: on the "standard" (48–79 GB) tier with Q8 installed,
@@ -41090,9 +41308,6 @@ async function poll() {
   // and on mode/frames change (see the listener wired at DOMContentLoaded
   // below this function).
   window.__phosLastStatus = s;
-  if (typeof window.refreshBalancedSubtitle === 'function') {
-    window.refreshBalancedSubtitle(s);
-  }
 
   // Keyframe (FFLF) and Extend both require Q8 — server enforces it (see
   // run_job_inner). The UI was previously silently downgrading the user to
@@ -41490,47 +41705,17 @@ async function poll() {
   if (typeof sbPollHook === 'function') { try { sbPollHook(s); } catch (e) {} }
 }
 
-// Balanced chip subtitle — kept in sync with current mode + frames so the
-// label tells the truth about which pipeline a click on Balanced will run.
-// Mirrors the server-side `balanced_q8_fast` rule in run_job_inner: Q8 Fast
-// only on standard tier with Q8 installed, mode ∈ {t2v, a2v}, frames ≤ 121.
-window.refreshBalancedSubtitle = function(state) {
-  const sub = document.getElementById('balancedSub');
-  if (!sub) return;
-  const s = state || (window.__phosLastStatus || {});
-  const tierKey = (s.tier && (s.tier.key || s.tier.tier)) || '';
-  const q8Capable = !!s.q8_available && tierKey === 'standard';
-  if (!q8Capable) {
-    sub.textContent = 'Q4 · 5 min';
-    return;
-  }
-  const framesEl = document.getElementById('frames');
-  const frames = parseInt((framesEl && framesEl.value) || '121', 10);
-  const mode = (typeof currentMode !== 'undefined') ? currentMode : 't2v';
-  // T2V only — see Q8_FAST_OK_MODES on the server side.
-  // I2V/a2v Q8 Fast caused identity drift on real content; reverted until
-  // plan C (upscaled half-ref) or low_ram block streaming lands.
-  const eligible = mode === 't2v' && frames <= 121;
-  sub.textContent = eligible
-    ? 'Q8 Fast · 6 min'
-    : 'Q4 fallback';
-};
-document.addEventListener('DOMContentLoaded', function() {
-  const framesEl = document.getElementById('frames');
-  if (framesEl && !framesEl.__balancedSubWired) {
-    framesEl.addEventListener('input', () => window.refreshBalancedSubtitle());
-    framesEl.__balancedSubWired = true;
-  }
-  // Wrap setMode() if it exists, so mode flips also re-evaluate the label.
-  if (typeof setMode === 'function' && !setMode.__balancedSubWired) {
-    const _orig = setMode;
-    window.setMode = function(m) {
-      _orig(m);
-      window.refreshBalancedSubtitle();
-    };
-    window.setMode.__balancedSubWired = true;
-  }
-});
+// DELETED in v4.0: window.refreshBalancedSubtitle.
+//
+// It wrote the Balanced chip's third slot ("Q4 · 5 min" / "Q8 Fast · 6 min" /
+// "Q4 fallback") from a rule it re-derived in JS, and it wired itself to
+// #frames input and wrapped setMode() to stay current. Every number in it was
+// a 2.3 figure that no measurement on 2.5 supports, and the wrapper made
+// setMode a function two files had opinions about.
+//
+// The tier table fills that slot now, for all four chips, from a cost model
+// anchored on measured renders — the same mechanism H3's chips have always
+// used. One writer, one source of truth, and re-pricing is a Python edit.
 
 // Recent-tab type filter (All / Videos / Photos). Stored on window so
 // the value survives across renders without polluting the existing
