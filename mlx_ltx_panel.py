@@ -37933,9 +37933,16 @@ window.CHARACTERS = {
   duration: '7s',      // 5s | 7s | 10s | 15s
   quality: 'pro',      // SIZE token: draft | pro. The PIPELINE is the
                        // generation's answer, resolved server-side (§5.6).
-  // Character LoRA strength (applied to both face_lora and audio_lora).
-  // Default 0.8 reduces over-trained baked artifacts at small identity cost.
-  charStrength: 0.8,
+  // ONE CHARACTER, ONE PAIR OF STRENGTHS, WHICHEVER SURFACE LAUNCHED IT.
+  // These were 0.8 and "applied to both face_lora and audio_lora" — a 2.3-era
+  // correction for over-baked quirks at 5000 steps, and a comment that stopped
+  // being true when the server split the two files. The server has defaulted
+  // face 1.0 / voice 1.0 since; this surface kept sending 0.8 and never sent a
+  // voice value at all, so the same character rendered face 0.8 / voice 1.0
+  // here and face 1.0 / voice 1.0 from the Manual tab. Same numbers on both
+  // lanes or the surfaces disagree again.
+  charStrength: 1.0,
+  voiceStrength: 1.0,
   // Reference audio for i2v_clean_audio mode (character lip-syncs to
   // this clip). Image-to-video deliberately omitted on the Characters
   // surface per Mr Bizarro 2026-05-16.
@@ -38314,7 +38321,11 @@ async function charactersGenerate() {
   fd.set('quality',  window.CHARACTERS.quality);
   // Character LoRA strength — passed through so the backend can apply
   // it to both face_lora and audio_lora at job-build time.
-  fd.set('character_strength', String(window.CHARACTERS.charStrength || 0.8));
+  // BOTH strengths, always. Sending only the face left the voice to the
+  // server's default, which meant this surface could not express the pair it
+  // was showing and a sidecar could never round-trip it.
+  fd.set('character_strength', String(window.CHARACTERS.charStrength ?? 1.0));
+  fd.set('character_voice_strength', String(window.CHARACTERS.voiceStrength ?? 1.0));
   // Reference audio (i2v_clean_audio mode) — optional.
   if (window.CHARACTERS.audioPath) fd.set('audio', window.CHARACTERS.audioPath);
   // Extra LoRAs come from the portaled #lorasDetails picker — read
@@ -38432,10 +38443,16 @@ async function charactersLoadParams(p) {
   // quality strip's click handler sets quality=high + the right w/h
   // already; calling _setCharacterQuality bypasses setQuality() so our
   // exact dims survive.
+  // 704×384 IS THE DRAFT CANVAS. This recognised only the retired 736×416, so
+  // every Draft render made since the size moved reopened as Pro — Load Params
+  // silently changing the shot's geometry, which is the one thing it exists not
+  // to do. Both are listed because sidecars written before the move are still
+  // on disk and must still round-trip.
   const sidecarW = parseInt(p.width || '0', 10);
   const sidecarH = parseInt(p.height || '0', 10);
-  const isDraft = (sidecarW === 736 && sidecarH === 416)
-                || (sidecarW === 416 && sidecarH === 736);  // vertical draft
+  const _draftPairs = [[704, 384], [736, 416]];   // current, then legacy
+  const isDraft = _draftPairs.some(([w, h]) =>
+    (sidecarW === w && sidecarH === h) || (sidecarW === h && sidecarH === w));
   const charQualityGroup = document.getElementById('qualityGroupCharacter');
   if (charQualityGroup) {
     const sel = isDraft ? '[data-char-quality="draft"]' : '[data-char-quality="pro"]';
@@ -38525,45 +38542,13 @@ async function charactersLoadParams(p) {
   const formPane = document.querySelector('aside.form-pane');
   if (formPane) formPane.scrollTop = 0;
   // Done — early-exit before the old dead-UI code that followed.
-  return;
-
-  // -------- DEAD CODE BELOW (kept temporarily to avoid bigger diff) --------
-  // The block below targeted the now-unreachable Characters tab UI.
-  // Replaced by the Manual-tab restoration above; left in place so the
-  // diff stays narrow while we validate the new path. Will prune in a
-  // follow-up.
-  // eslint-disable-next-line no-unreachable
-  if (typeof charactersInit === 'function') {
-    await charactersInit();
-  }
-  if (!Array.isArray(window.CHARACTERS.list) || window.CHARACTERS.list.length === 0) {
-    throw new Error('character list empty after init');
-  }
-  charactersOpenCompose(p.character_id);
-  if (typeof p.duration === 'string' && p.duration) {
-    window.CHARACTERS.duration = p.duration;
-  }
-  if (typeof p.quality_choice === 'string' && p.quality_choice) {
-    // Legacy sidecars carry a PIPELINE token where the chips now carry a SIZE
-    // token. Map it to the equivalent canvas rather than replaying it: a clip
-    // recorded as `high` on 2.5 would otherwise re-request the two-stage HQ
-    // path and its 29.5 GB add-on — the exact route this tab was moved off.
-    // Both mean 1024x576, so the canvas the user sees is unchanged.
-    const _legacySize = { high: 'pro', balanced: 'pro', standard: 'pro',
-                          quick: 'draft', draft: 'draft', pro: 'pro' };
-    window.CHARACTERS.quality = _legacySize[p.quality_choice] || 'pro';
-  }
-  charactersRenderChips();
-  // Prompt textarea. The verbatim prompt from the sidecar is the
-  // source of truth; we don't try to re-derive a "body" from it.
-  // Older sidecars used prompt_body; newer sidecars store the full
-  // prompt — fall back to the full prompt if prompt_body is empty.
-  const taOld = document.getElementById('charactersPrompt');
-  if (taOld) {
-    taOld.value = (typeof p.prompt_body === 'string' && p.prompt_body)
-      ? p.prompt_body
-      : (typeof p.prompt === 'string' ? p.prompt : '');
-  }
+  // The Manual tab IS the character surface now, and the restoration above is
+  // the whole of it. What used to follow this point was 37 lines targeting the
+  // retired Characters-tab UI, unreachable behind a `return;` and labelled
+  // "DEAD CODE BELOW (kept temporarily to avoid bigger diff)". It outlived the
+  // follow-up that was meant to prune it and became actively dangerous: it held
+  // NEWER-looking quality-mapping logic than the live path above, so the next
+  // reader had two plausible implementations and only one that runs. Deleted.
 }
 
 
@@ -44524,21 +44509,23 @@ async function loadParams() {
         }
       } catch (_) {}
     })();
-    // Also restore character_strength if recorded (defaults to 1.0).
-    if (typeof p.character_strength !== 'undefined') {
-      const sval = parseFloat(p.character_strength);
-      if (!Number.isNaN(sval)) {
-        const sInp = document.getElementById('characterStrength');
-        if (sInp) sInp.value = sval;
-        const row = document.getElementById('charsStrengthRow');
-        if (row) {
-          const range = row.querySelector('input[type="range"]');
-          const num = row.querySelector('input[type="number"]');
-          if (range) range.value = sval;
-          if (num) num.value = sval.toFixed(2);
-        }
-      }
-    }
+    // BOTH strengths, because the character has two and the sidecar records
+    // two. Only the face was restored here, so a clip rendered with a
+    // deliberately hotter or colder voice reopened with the voice silently
+    // back at its default — Load Params quietly changing the render it claims
+    // to reload. The hidden inputs are the source the strip re-renders from,
+    // so setting them and re-rendering restores both sliders and the value the
+    // next submit will send.
+    const _restoreStrength = (value, inputId) => {
+      if (typeof value === 'undefined' || value === null) return;
+      const num = parseFloat(value);
+      if (Number.isNaN(num)) return;
+      const inp = document.getElementById(inputId);
+      if (inp) inp.value = num;
+    };
+    _restoreStrength(p.character_strength, 'characterStrength');
+    _restoreStrength(p.character_voice_strength, 'characterVoiceStrength');
+    if (typeof _renderCharsAppliedNote === 'function') _renderCharsAppliedNote();
     // Strip the character's face/audio LoRA paths out of the loras list
     // so the picker doesn't show duplicate state. The backend will
     // re-expand on the next submit. We can't read list_characters() from
