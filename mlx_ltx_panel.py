@@ -24105,6 +24105,9 @@ HTML = r"""<!doctype html>
        layout editor uses, so there is one mechanism for "this surface needs
        the stage" rather than two. */
     body[data-workflow="storyboard"].sb-full .stage-pane > .player-surface { display: none; }
+    /* The close control is a storyboard affordance only — see the button's own comment. */
+    #sbCollapsePlayerBtn { display: none; }
+    body[data-workflow="storyboard"] #sbCollapsePlayerBtn { display: inline-flex; }
 
     #sbStage {
       display: none;
@@ -33895,6 +33898,22 @@ HTML = r"""<!doctype html>
             <path d="M5 3 L13 8 L5 13 Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" fill="none"/>
           </svg>
           <span class="po-act-label">Animate</span>
+        </button>
+        <!-- STORYBOARD ONLY. The shot list is the storyboard tab's primary surface and
+             the player is a guest on it, so the guest carries the way out — reported by
+             cocktailpeanut: "i can't seem to find a way to hide this preview video and
+             it's just blocking everything". The Shot list / Player toggle below the
+             player already did this, but nobody looks under the thing they want gone;
+             the control belongs ON it. CSS keeps this hidden everywhere else, because on
+             the Video and Images tabs the player IS the primary surface and a close there
+             would orphan the tab. -->
+        <button id="sbCollapsePlayerBtn" class="po-act po-act-sbclose" type="button"
+                onclick="sbSetStage('list')" title="Hide the preview and show the shot list (Esc)">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M4 4 L12 12 M12 4 L4 12" stroke="currentColor" stroke-width="1.5"
+                  stroke-linecap="round"/>
+          </svg>
+          <span class="po-act-label">Hide preview</span>
         </button>
         <button id="expandBtn" class="po-act" type="button"
                 onclick="openExpandLightbox()" title="Expand to fullscreen (Esc to close)">
@@ -49145,7 +49164,12 @@ let SB = {
   saveTimer: null,
   saveInFlight: false,
   saveAgain: false,
-  stageMode: 'auto',      // 'auto' | 'list' | 'player'
+  // 'auto' (the list) | 'list' | 'player'. Restored from the session so a reload does
+  // not re-dock a preview the user closed two minutes ago.
+  stageMode: (function () {
+    try { return sessionStorage.getItem('phos.sb.stageMode') || 'auto'; }
+    catch (e) { return 'auto'; }
+  })(),
   primed: false,          // brief defaults are read from BOOT once, not per entry
   boards: [],             // /status.storyboards, refreshed by poll()
   lastUndo: null,
@@ -49756,7 +49780,17 @@ function sbSyncStage() {
   if (!on) full = false;
   else if (SB.stageMode === 'list') full = true;
   else if (SB.stageMode === 'player') full = false;
-  else full = !hasClip;
+  // AUTO NO LONGER MEANS "the moment a clip exists, take half the column".
+  //
+  // It used to read `full = !hasClip`, so the instant the first draft landed the player
+  // docked itself over the work — 414 px of a 812 px column, measured, with twelve shots
+  // left sharing the remainder. Nobody asked for it: the user was reading the shot list
+  // and a render finished. That is the whole of the report.
+  //
+  // Auto now stays on the list, and the player appears when the user ASKS for a clip
+  // (sbOpenShotClip, the per-shot thumbnail). The clip is never hidden — the thumbnail on
+  // each shot card is the affordance, and it was already there.
+  else full = true;
   document.body.classList.toggle('sb-full', !!full);
   const tog = sbEl('sbStageToggle');
   if (tog) {
@@ -49765,7 +49799,28 @@ function sbSyncStage() {
       b.classList.toggle('active', b.dataset.sbStage === (full ? 'list' : 'player')));
   }
 }
-function sbSetStage(mode) { SB.stageMode = mode; sbSyncStage(); }
+function sbSetStage(mode) {
+  SB.stageMode = mode;
+  // Session-scoped, so a reload mid-film does not re-dock a player the user closed.
+  // sessionStorage, not localStorage: this is a working preference for this sitting, not
+  // a setting the user should have to find and undo next week.
+  try { sessionStorage.setItem('phos.sb.stageMode', mode); } catch (e) {}
+  sbSyncStage();
+}
+
+// Esc collapses the docked preview, matching the lightbox's own Esc. Deliberately narrow:
+// only on the storyboard tab, only when the player is actually docked, and only when the
+// lightbox is closed (its Esc wins) and the user is not typing in a shot's textarea.
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Escape') return;
+  if (document.body.dataset.workflow !== 'storyboard') return;
+  if (document.body.classList.contains('sb-full')) return;
+  const lb = document.getElementById('expandLightbox');
+  if (lb && getComputedStyle(lb).display !== 'none') return;
+  const t = document.activeElement;
+  if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+  sbSetStage('list');
+});
 
 // ---- the plan screen -------------------------------------------------------
 function sbRenderPlan(r) {
@@ -50186,8 +50241,10 @@ function sbOpenShotClip(n) {
   const s = (((SB.payload || {}).board) || {}).shots.find(x => x.n === n);
   const clip = s && (s.final_output || s.draft_output);
   if (!clip) return;
-  if (SB.stageMode === 'list') SB.stageMode = 'auto';
-  sbSyncStage();
+  // Opening a clip IS the request for the player, so it says so outright rather than
+  // dropping back to 'auto' and hoping auto agrees. Since auto now means "stay on the
+  // list", the old line would have opened a clip into a hidden player.
+  sbSetStage('player');
   selectOutput(clip);
 }
 
