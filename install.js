@@ -493,7 +493,7 @@ module.exports = {
     {
       method: "notify",
       params: {
-        html: "<b>Downloading the LTX-2.5 model (~28 GB)…</b><br>This is the default video model plus its text encoder. Resumable — if it's interrupted, click Install again and it picks up where it stopped."
+        html: "<b>Downloading LTX-2.5 (~27 GB)…</b><br>The engine and its text encoder. Resumable — if this stops, run Install again and it picks up where it left off."
       }
     },
     {
