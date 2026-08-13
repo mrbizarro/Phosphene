@@ -4091,8 +4091,54 @@ def repo_status_list() -> list[dict]:
             "present_files": present,
             "missing_files": missing,
             "complete": not missing,
+            # Does this row's download need the `hf` binary?
+            #
+            # The 2.3 packs come from HuggingFace via `hf download`; the 2.5
+            # packs come from a GitHub release, fetched by scripts/
+            # fetch_pack_release.py, which needs nothing but stdlib. The modal
+            # used to gate EVERY row's button on hf_available, so an install
+            # without `hf` could not start the download it is perfectly capable
+            # of doing — and the modal's own header already told the user the
+            # LTX-2.5 rows do not need it. Derived from the registry's `mirror`
+            # block rather than a key list in JS, so a future mirrored pack is
+            # right by construction.
+            "needs_hf": not bool(r.get("mirror")),
+            # A guest pack: `local_dir` is another repo's directory and the
+            # files are loaded from there BY NAME. Downloading one into an
+            # absent host produces a folder holding two files and nothing else,
+            # so the UI states the dependency instead of enforcing it silently.
+            "host_key": _repo_host_key(r),
         })
     return out
+
+
+def _repo_host_key(repo: dict) -> str | None:
+    """The repo key whose directory this one installs INTO, when that is a
+    different repo. None for every repo that owns its own directory.
+
+    The HQ add-on is the only such entry today: its `local_dir` IS the q8
+    pack's directory, which is correct (it loads from there by name) and is why
+    it is a separate download unit rather than part of that pack."""
+    key = repo.get("key")
+    # ONLY a declared GUEST has a host. `publish_scope: "files"` is exactly the
+    # flag that says "I am a set of files landing in someone else's folder, and
+    # I must not claim that folder's sidecars" — so it is the right predicate.
+    #
+    # Sharing a directory is NOT sufficient, and assuming it was is a bug this
+    # function had for one revision: the three IC-LoRAs all live in
+    # mlx_models/loras/ic and would have named each other as hosts, so an
+    # incomplete Colorize would have put "Needs Q8" on the Ingredients row.
+    if not key or not repo.get("publish_scope"):
+        return None
+    mine = str(repo.get("local_dir") or "")
+    if not mine:
+        return None
+    for other in _repos():
+        if other.get("key") == key or other.get("publish_scope"):
+            continue
+        if str(other.get("local_dir") or "") == mine:
+            return other.get("key")
+    return None
 
 
 # ---- Model integrity (corrupt/partial-weight detection) ----------------------
@@ -46790,8 +46836,20 @@ async function refreshModelsModal({ silent = false } = {}) {
   hint.innerHTML = data.hf_available
     ? `Each row shows what's on disk. Click <b>Download</b> to fetch the missing files; progress streams to the log at the bottom of the page. Everything is resumable and checksum-verified.`
     : `<span style="color:var(--warning,#d29922)"><svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-fill"/></svg><code>hf</code> not found</span> — this Pinokio install doesn't have <code>huggingface_hub&gt;=1.0</code> in the venv. Run Update from Pinokio, then come back. The LTX-2.5 rows do not need it — they download from a GitHub release.`;
+  // A row whose HOST pack is missing cannot usefully be downloaded: the add-on
+  // lands INSIDE that pack's directory and loads from there by name, so
+  // fetching it alone produces a folder holding two files and nothing else. The
+  // dependency is STATED, not enforced silently.
+  const completeByKey = {};
+  repos.forEach(r => { completeByKey[r.key] = !!r.complete; });
   const rows = repos.map(r => {
     let cls, icon, statusText, btnHtml;
+    // Per ROW, not per install. The 2.5 packs download from a GitHub release
+    // and need no `hf` at all — gating them on it disabled a button that would
+    // have worked, on the exact install the modal's own header tells to go
+    // ahead. `needs_hf` is derived from the registry's mirror block.
+    const hfOk = (data.hf_available ?? true) || (r.needs_hf === false);
+    const hostMissing = r.host_key && !completeByKey[r.host_key];
     if (active && active.key === r.key) {
       cls = 'downloading';
       icon = '<svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise-bold"/></svg>';
@@ -46812,13 +46870,17 @@ async function refreshModelsModal({ silent = false } = {}) {
       cls = 'partial'; icon = '<svg class="ph" aria-hidden="true"><use href="#ph-download-simple"/></svg>';
       const left = r.total_files - r.present_files;
       statusText = `Partial · ${r.present_files}/${r.total_files} files · ${left} missing — resume to finish`;
-      btnHtml = data.hf_available
+      btnHtml = hostMissing
+        ? `<button disabled title="Install the Q8 weights first — the add-on lives inside that folder.">Needs Q8</button>`
+        : hfOk
         ? `<button onclick="startDownload('${escapeHtml(r.key)}')" ${active ? 'disabled' : ''}>Resume</button>`
         : `<button disabled>Resume</button>`;
     } else {
       cls = 'missing'; icon = '<svg class="ph" aria-hidden="true"><use href="#ph-x-circle"/></svg>';
       statusText = `Not installed · ~${r.size_gb || '?'} GB`;
-      btnHtml = data.hf_available
+      btnHtml = hostMissing
+        ? `<button disabled title="Install the Q8 weights first — the add-on lives inside that folder.">Needs Q8</button>`
+        : hfOk
         ? `<button onclick="startDownload('${escapeHtml(r.key)}')" ${active ? 'disabled' : ''}>Download</button>`
         : `<button disabled>Download</button>`;
     }
