@@ -3170,7 +3170,9 @@ _CHARACTER_DURATION_FRAMES: dict[str, int] = {}
 # things the tab adds are the LoRA stack lookup and the duration→frames
 # / quality→resolution mappings.
 _CHARACTER_QUALITY_RESOLUTION = {
-    "draft":    (736, 416),    # ~3:30 wall for 7s, Q8 HQ, lower per-frame detail
+    # 704x384, not 736x416: both were off the 64-grid the two-stage lane snaps
+    # to, so this chip advertised a canvas it never delivered either.
+    "draft":    (704, 384),    # ~3:30 wall for 7s, Q8, lower per-frame detail
     "balanced": (1024, 576),   # reserved for a real fast-but-quality-equal tier
     "high":     (1024, 576),   # locked production recipe
 }
@@ -4073,14 +4075,17 @@ def repo_status_list() -> list[dict]:
     for r in _repos():
         local_dir = r["local_dir"]
         if r.get("key") == "q8":
-            # DISPLAY convention only, deliberately left as a special case:
-            # this string is what /models and the model browser print, and
-            # q8 has printed the absolute path since LTX_Q8_LOCAL existed
-            # while every other repo prints the ROOT-relative one. Making
-            # them agree is a cosmetic change to a shipped surface, not part
-            # of the version seam — the seam is WHICH FILES in WHICH DIR, and
-            # that is registry-driven below.
+            # This row printed an ABSOLUTE path while all nine of its siblings
+            # printed a ROOT-relative one — a leftover from when LTX_Q8_LOCAL
+            # was the only way to move a pack. Relative when it is inside the
+            # app (the normal case), absolute only when the env var really has
+            # pointed it somewhere else, which is the one time the full path is
+            # the information.
             local_dir = str(Q8_LOCAL_PATH)
+            try:
+                local_dir = str(Q8_LOCAL_PATH.relative_to(ROOT))
+            except ValueError:
+                pass
 
         # Completeness is asked of the registry when this repo backs a
         # registered pack, so the answer is per-(version, pack) and a second
@@ -4133,6 +4138,24 @@ def repo_status_list() -> list[dict]:
             # block rather than a key list in JS, so a future mirrored pack is
             # right by construction.
             "needs_hf": not bool(r.get("mirror")),
+            # WHICH GENERATION owns this row, and whether that is the one this
+            # build renders with. Without it the modal called 2.3's base packs
+            # "required" on a 2.5 install, with capability copy ("Drives
+            # Quick / Balanced / Standard renders") that is simply false now —
+            # and the footer's "Required: N/M" counted them, so §7.1's stated
+            # first-visit contract was unreachable by construction.
+            #
+            # None = generation-neutral (the IC-LoRAs, the tiny decoder): those
+            # are required or optional on their own terms, not a generation's.
+            "generation": _repo_generation(r.get("key")),
+            # `gemma` is 2.3's text encoder AND the prompt enhancer AND the
+            # storyboard planner, on every generation — so it is genuinely in
+            # use no matter which one renders, and badging it "previous
+            # generation" would be as wrong as Storage offering to delete it.
+            # Storage already carves out the same exception, for the same
+            # reason; the two surfaces agree because the reason is the same one.
+            "active": (r.get("key") == "gemma"
+                       or _repo_generation(r.get("key")) in (None, ACTIVE_MODEL_VERSION)),
             # A guest pack: `local_dir` is another repo's directory and the
             # files are loaded from there BY NAME. Downloading one into an
             # absent host produces a folder holding two files and nothing else,
@@ -4176,14 +4199,43 @@ def _dir_size_bytes(base: Path) -> int:
 # the IC-LoRA registry names ltx-2.3-* files, so removing 2.3 really does turn
 # off Train and the four control-LoRA modes.
 STORAGE_KEEP_IF = {
-    "generation": ("Keep it if you train characters — the Train tab still "
-                   "trains against LTX-2.3 — or if you use Colorize, Restore, "
-                   "Ingredients or HDR, whose control LoRAs are LTX-2.3 files."),
+    # 2.3's keep-if clause, and it is TRUE ONLY OF 2.3 — the trainer really does
+    # train against it and the four control-LoRA modes really are 2.3 files.
+    # It used to be printed for whichever generation was inactive, so a user
+    # pinned back with LTX_MODEL_VERSION=ltx23 was shown a row offering to
+    # delete 80 GB of 2.5 with a sentence arguing that keeping 2.3 matters.
+    # Keyed per generation now; see _storage_generation_note().
+    "ltx23": ("Keep it if you train characters — the Train tab still "
+              "trains against LTX-2.3 — or if you use Colorize, Restore, "
+              "Ingredients or HDR, whose control LoRAs are LTX-2.3 files."),
     "hq_addon": ("Removing this turns off the High tier, Extend and Keyframes "
                  "until you fetch it again."),
     "q8": ("Removing this means trained characters render approximate faces "
            "and voices."),
 }
+
+
+def _storage_generation_note(vid: str) -> str:
+    """Why keeping THIS generation might matter, or the honest default.
+
+    A generation the product does not currently render with is still not
+    interchangeable with any other: 2.3 carries the trainer and the control
+    LoRAs, and 2.5 is what a user who unsets an env var will boot into with no
+    weights. Saying "previous generation" about the newer one, under 2.3's
+    keep-if sentence, was the shape of that bug."""
+    if vid in STORAGE_KEEP_IF:
+        return STORAGE_KEEP_IF[vid]
+    ver = next((v for v in MODEL_VERSIONS if v["id"] == vid), None)
+    label = (ver or {}).get("label", vid)
+    if ver is not None and ver.get("default"):
+        # The registry default: unset LTX_MODEL_VERSION and this is what boots.
+        return (f"Keep it unless you are sure. {label} is what this build boots "
+                f"into by default — it is only inactive because "
+                f"LTX_MODEL_VERSION is set, and removing it leaves that default "
+                f"lane with no weights.")
+    return (f"{label} is not the generation this build is rendering with right "
+            f"now. Removing it frees the space; re-installing it later is a "
+            f"fresh download.")
 
 
 def storage_rows() -> list[dict]:
@@ -4212,15 +4264,26 @@ def storage_rows() -> list[dict]:
             nbytes += _dir_size_bytes(p)
         if not dirs:
             continue
+        # "previous" is only true of a generation that came BEFORE the active
+        # one. Pinned back to 2.3, calling 2.5 "previous generation" inverted
+        # the product's own story and invited the user to delete the default.
+        _order = [x["id"] for x in MODEL_VERSIONS]
+        _is_older = (_order.index(v["id"]) < _order.index(active)
+                     if active in _order and v["id"] in _order else True)
+        _suffix = "previous generation" if _is_older else "not the active generation"
         rows.append({
             "key": f"version:{v['id']}",
-            "name": f"{v['label']} · previous generation",
+            "name": f"{v['label']} · {_suffix}",
             "paths": [str(d.relative_to(ROOT)) if d.is_relative_to(ROOT) else str(d)
                       for d in dirs],
             "bytes": nbytes,
             "size": _fmt_gb(nbytes),
-            "note": STORAGE_KEEP_IF["generation"],
-            "removable": True,
+            "note": _storage_generation_note(v["id"]),
+            # A generation that is only inactive because an env var says so is
+            # NOT safe to offer for deletion: unset the var and the panel boots
+            # into it with nothing on disk. The registry default is protected;
+            # everything else is the user's to reclaim.
+            "removable": not bool(v.get("default")),
         })
 
     # The High add-on has NO DIRECTORY OF ITS OWN — its local_dir IS the q8
@@ -4241,6 +4304,32 @@ def storage_rows() -> list[dict]:
                 "bytes": nbytes,
                 "size": _fmt_gb(nbytes),
                 "note": STORAGE_KEEP_IF["hq_addon"],
+                "removable": True,
+            })
+
+    # The ACTIVE generation's Q8 weights. Specified in §6.3 and missed in the
+    # first pass — and it is the largest single reclaimable item for anyone who
+    # does not use trained characters. Sized by walking the directory MINUS the
+    # add-on's two files, which are their own row above: counting them twice
+    # would advertise ~60 GB of reclaimable space where ~30 GB exists.
+    q8_dir = pack_path("q8")
+    if q8_dir.is_dir() and str(q8_dir) not in seen_dirs and not q8_missing_files():
+        addon_names = set(hq_weights().values()) if addon_key else set()
+        nbytes = 0
+        for f in q8_dir.rglob("*"):
+            try:
+                if f.is_file() and not f.is_symlink() and f.name not in addon_names:
+                    nbytes += f.stat().st_size
+            except OSError:
+                continue
+        if nbytes:
+            rows.append({
+                "key": (version_pack("q8") or {}).get("repo_key") or "q8",
+                "name": f"{model_version()['label']} Q8 weights",
+                "paths": [str(q8_dir.relative_to(ROOT)) if q8_dir.is_relative_to(ROOT) else str(q8_dir)],
+                "bytes": nbytes,
+                "size": _fmt_gb(nbytes),
+                "note": STORAGE_KEEP_IF["q8"],
                 "removable": True,
             })
 
@@ -4280,6 +4369,25 @@ def storage_payload() -> dict:
         "reclaimable_label": _fmt_gb(reclaimable),
         "free_label": _fmt_gb(free),
     }
+
+
+def _repo_generation(repo_key: str | None) -> str | None:
+    """Which model generation owns this repo, or None if it belongs to none.
+
+    A pack, a text encoder or an HQ add-on belongs to exactly one generation.
+    The IC-LoRAs and the tiny decoder belong to none — they are required or
+    optional on their own terms, and calling them "previous generation" would
+    be as wrong as calling 2.3's base "required" on a 2.5 build."""
+    if not repo_key:
+        return None
+    for v in MODEL_VERSIONS:
+        if any(p.get("repo_key") == repo_key for p in v.get("packs", ())):
+            return v["id"]
+        if (v.get("text_encoder") or {}).get("repo_key") == repo_key:
+            return v["id"]
+        if v.get("hq_addon_repo_key") == repo_key:
+            return v["id"]
+    return None
 
 
 def _repo_host_key(repo: dict) -> str | None:
@@ -6208,6 +6316,22 @@ LTX_VOICE_STRENGTH_HELP = (
 # 2026-08-13 — q4 168.7 s vs q8 171.2 s, a 1.5 % difference that is inside the
 # run-to-run noise of a single render. The coordinator flagged this sentence as
 # unverified; it is now the one claim here with a same-geometry pair behind it.
+# WHAT THE THUMBNAIL IS, AND — the part that matters — WHAT IT IS NOT.
+#
+# §4.1 makes this a CONSTRAINT rather than a nicety: the preview is a
+# composition monitor, not a face monitor. The tiny decoder is soft by design
+# and the thumbnail is pooled to half at the Stage-2 grid. Faces are this
+# project's metric, so a soft 96-px decode sitting next to a progress bar with
+# nothing telling anyone not to judge a face from it is exactly how the feature
+# starts costing quality decisions instead of saving time.
+LTX_PREVIEW_HELP = (
+    "This is a rough, fast decode of what the model has decided so far — the "
+    "framing, the light, roughly where everything is. It is deliberately soft: "
+    "judge the shot from it, never the face. Faces only resolve in the finished "
+    "render. It costs a fraction of the render time, and the clip you get is "
+    "byte-for-byte the clip you would have got with it switched off."
+)
+
 LTX_Q8_CHARACTER_HELP = (
     "Trained characters need the Q8 weights. The 4-bit base pack rounds most of "
     "a trained delta away before the first frame — about nineteen twentieths of "
@@ -6232,11 +6356,11 @@ STORYBOARD_RAM_HELP = (
 STORYBOARD_ENGINE_HELP = (
     "You choose this once for the whole film, in the brief. On Auto each shot "
     "gets the engine that can actually render it: a shot cast with one of your "
-    "trained characters goes to LTX-2.3 — that is where character LoRAs load, "
+    "trained characters goes to LTX — that is where character LoRAs load, "
     "and Hailuo H3 cannot stack one, so a cast shot on H3 would render a "
     "stranger — and every other shot goes to Hailuo H3, which renders dialogue, "
     "voices and sound together with the picture. Pick an engine by name and the "
-    "whole film goes there, except that a cast shot always stays on LTX-2.3. "
+    "whole film goes there, except that a cast shot always stays on LTX. "
     "The chip on each card tells you which one that shot got. Changing the "
     "choice on a film that is already planned means re-planning it, because the "
     "two engines want their prompts written differently — that is why the same "
@@ -6930,11 +7054,23 @@ LTX_MEASURED_ETA: dict[tuple[str, str, str, str], tuple[float, str]] = {
 # The four tier notes. Python constants on the same four-hop path
 # H3_CHAIN_PROMPT_HELP takes (constant → bootstrap key → lazy textContent fill),
 # so they cannot drift from the mechanism and are one edit from a translator.
-LTX_TIER_HIGH_NOTE = (
+# The first sentence is generation-invariant; what High NEEDS is not. 2.3 ships
+# its dev transformer and distilled LoRA inside its own q8 repo and has no
+# add-on at all, so a pinned-back user was told to fetch something that does not
+# exist for them.
+_LTX_TIER_HIGH_NOTE_BASE = (
     "High runs a second, larger pass over the first one — sharper detail and "
-    "steadier motion, for roughly twice the wait. It needs the Q8 weights and "
-    "the High add-on."
+    "steadier motion, for roughly twice the wait."
 )
+
+
+def ltx_tier_high_note(version_id: str | None = None) -> str:
+    if model_version(version_id).get("hq_addon_repo_key"):
+        return _LTX_TIER_HIGH_NOTE_BASE + " It needs the Q8 weights and the High add-on."
+    return _LTX_TIER_HIGH_NOTE_BASE + " It needs the Q8 weights."
+
+
+LTX_TIER_HIGH_NOTE = ltx_tier_high_note()
 LTX_TIER_Q4_CHARACTER_NOTE = (
     "Trained characters need the Q8 weights. On the base pack most of the "
     "trained face is lost before the first frame, and a stranger renders."
@@ -6971,8 +7107,16 @@ def _ltx_qualities() -> dict[str, dict]:
     the client renders."""
     out: dict[str, dict] = {
         "quick": {
+            # 640x448, NOT 640x480. The two-stage distilled lane snaps output
+            # dimensions to multiples of 64 (`snap_output_dimensions`), and 480
+            # is not one — so a chip advertising 640x480 was describing a render
+            # that ffprobe reports as 640x448, on the draft tier most people
+            # live in and the only tier where 20s is allowed. The label is the
+            # thing that was wrong, so the label is what changed: no render
+            # behaviour moves, and the ETA model is now fed the geometry that
+            # actually runs.
             "key": "quick", "label": "Quick", "order": 0,
-            "width": 640, "height": 480,
+            "width": 640, "height": 448,
             "pack": "q4", "pipeline": "distilled",
             "stage1": LTX_DISTILLED_STAGE1, "stage2": LTX_DISTILLED_STAGE2,
             "stage2_evals": 1,
@@ -7180,6 +7324,49 @@ def _live_preview_params(job: dict, p: dict) -> dict:
     }
 
 
+def pack_offers(version_id: str | None = None) -> dict:
+    """What the install CTAs should OFFER, for the generation actually active.
+
+    Every surface that says "download the Q8 pack" used to name the key `q8`
+    and the number `37 GB`, both of which are 2.3 facts hardcoded in 2.3's
+    era. v4.0 fixed exactly one of those call sites (download_q8.js) and left
+    the panel's own biggest install card selling 37 GB of the retired
+    generation on a 2.5 build — a button that WORKS, spends the user's evening,
+    and leaves them exactly as unable to render High as before.
+
+    So the keys and the sizes come from the registry, per version, and the
+    string a CTA prints is derived from the same row the download uses. A third
+    generation gets this right without anyone editing a button.
+
+    Sizes are `required_files.json`'s decimal GB — the same number the Models
+    modal prints for the same pack, so the two cannot disagree."""
+    ver = model_version(version_id)
+
+    def row(repo_key: str | None) -> dict | None:
+        if not repo_key:
+            return None
+        r = next((x for x in _repos() if x.get("key") == repo_key), None)
+        if not r:
+            return None
+        gb = r.get("size_gb")
+        return {"key": repo_key, "name": r.get("name") or repo_key,
+                "size_gb": gb,
+                "size": (f"{gb:g} GB" if isinstance(gb, (int, float)) else "?"),
+                # Same registry-derived answer the Models modal uses, so a CTA
+                # cannot disable a download the modal would happily start.
+                "needs_hf": not bool(r.get("mirror"))}
+
+    base_key = (version_pack("q4", ver["id"]) or {}).get("repo_key")
+    q8_key = (version_pack("q8", ver["id"]) or {}).get("repo_key")
+    enc_key = (ver.get("text_encoder") or {}).get("repo_key")
+    return {
+        "base": row(base_key),
+        "encoder": row(enc_key),
+        "q8": row(q8_key),
+        "hq_addon": row(ver.get("hq_addon_repo_key")),
+    }
+
+
 def character_render_quality(version_id: str | None = None) -> str:
     """Which pipeline a TRAINED CHARACTER renders on, per generation.
 
@@ -7215,15 +7402,15 @@ def character_strip_payload() -> dict:
                              LTX_QUALITIES[q]["stage1"], LTX_QUALITIES[q]["stage2"],
                              LTX_QUALITIES[q].get("stage2_evals") or 1))
     draft_eta = _fmt_eta(
-        ltx_estimate_minutes(736, 416, 121,
+        ltx_estimate_minutes(704, 384, 121,
                              LTX_QUALITIES[q]["stage1"], LTX_QUALITIES[q]["stage2"],
                              LTX_QUALITIES[q].get("stage2_evals") or 1))
     label = "Q8" if q != "high" else "Q8 HQ"
     return {
         "quality": q,
-        "draft": {"width": 736, "height": 416,
+        "draft": {"width": 704, "height": 384,
                   "tier": f"{label} · {draft_eta} / 5s",
-                  "title": f"Q8 at 736×416 — faster, slightly less per-frame detail."},
+                  "title": f"Q8 at 704×384 — faster, slightly less per-frame detail."},
         "pro": {"width": 1024, "height": 576,
                 "tier": f"{label} · {pro_eta} / 5s · best identity",
                 "title": "Q8 at 1024×576 — the recipe the character LoRAs were "
@@ -7282,10 +7469,15 @@ def ltx_tiers_payload() -> dict:
         "help": {
             "voice_strength": LTX_VOICE_STRENGTH_HELP,
             "q8_character": LTX_Q8_CHARACTER_HELP,
+            "preview": LTX_PREVIEW_HELP,
         },
         # The character strip's two chips, and the PIPELINE they submit —
         # resolved per generation so the markup never owns that rule.
         "character": character_strip_payload(),
+        # What the install CTAs offer, keyed and sized from the registry for the
+        # ACTIVE generation. Every button that spends a user's bandwidth reads
+        # this instead of naming a pack.
+        "packs": pack_offers(),
     }
 
 
@@ -8556,7 +8748,10 @@ def engines_payload() -> list[dict]:
         # prints one. "model_version" means "the label of the generation this
         # process is actually serving, minus the family prefix the chip already
         # shows": LTX-2.5 -> 2.5, and LTX-2.3 -> 2.3 for a pinned-back user.
-        if e.get("generation_from") == "model_version":
+        if d.pop("generation_from", None) == "model_version":
+            # popped, not read: `generation_from` is an instruction to the
+            # server, and the client only ever needs the ANSWER. Shipping both
+            # invites a second implementation in JS.
             _lbl = str(model_version().get("label") or "")
             _gen = _lbl.replace("LTX-", "").strip()
             if _gen and _gen != _lbl.strip():
@@ -11941,7 +12136,7 @@ def _sb_policy_for(draft_quality: str, final_quality: str) -> dict:
     to what this Mac can actually render."""
     cap = _sb_max_dim()
     table = {
-        "quick":    (640, 480),
+        "quick":    (640, 448),
         "balanced": (768, 432),
         "standard": (1024, 576),
         "high":     (1024, 576),
@@ -15333,7 +15528,9 @@ def run_job_inner(job: dict) -> None:
                 f"Extend requires the full Q8 model at {pack_path('q8')}. "
                 f"Missing {len(ext_missing)} file(s): {', '.join(ext_missing[:3])}"
                 f"{' …' if len(ext_missing) > 3 else ''}. "
-                f"Click \"Download Q8\" in Pinokio to install it (~37 GB)."
+                f"Install it from Settings \u2192 Models "
+                f"({(pack_repo('q8') or {}).get('name', 'the Q8 pack')}, "
+                f"~{(pack_repo('q8') or {}).get('size_gb', '?')} GB)."
             )
         src = p["video_path"]
         if not src or not Path(src).exists():
@@ -19268,7 +19465,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"ok": False,
                                 "error": "Hailuo H3 can't load a trained character. "
                                          "Pick Auto to keep them (their shots render on "
-                                         "LTX-2.3), or clear the cast."}, 400)
+                                         "LTX), or clear the cast."}, 400)
                     return
                 chars = [c for c in (list_characters() or []) if c.get("id") == cid] if cid else []
                 board["engine_mode"] = emode
@@ -22339,9 +22536,18 @@ class Handler(BaseHTTPRequestHandler):
                 ver = next((v for v in MODEL_VERSIONS if v["id"] == vid), None)
                 if not ver:
                     self._json({"error": f"unknown model version: {vid!r}"}, 400); return
-                # (1) never the model this build renders with.
+                # (1) never the model this build renders with — and never the
+                # REGISTRY DEFAULT either. Pinned back with
+                # LTX_MODEL_VERSION=ltx23, `active` is ltx23, so this check
+                # alone would have happily deleted 80 GB of 2.5: the generation
+                # the product ships with, that the very next unset of that env
+                # var boots into with no weights at all.
                 if vid == ACTIVE_MODEL_VERSION:
                     self._json({"error": "That's the model this build renders with."}, 400); return
+                if (next((v for v in MODEL_VERSIONS if v["id"] == vid), {}) or {}).get("default"):
+                    self._json({"error": "That's the generation this build boots "
+                                         "into by default — it is only inactive "
+                                         "because LTX_MODEL_VERSION is set."}, 400); return
                 for pack in ver.get("packs", ()):
                     if busy_key and _quant_for_repo_key(busy_key, vid) == pack["quant"]:
                         self._json({"error": "A download is using that folder — "
@@ -22373,8 +22579,18 @@ class Handler(BaseHTTPRequestHandler):
                     if key == "gemma":
                         self._json({"error": "Gemma 3 is also what Enhance and the "
                                              "Storyboard planner run on."}, 400); return
+                    # A directory SHARED by several repos must never be
+                    # rmtree'd by key: the three IC-LoRAs all resolve
+                    # mlx_models/loras/ic, so removing one would take all
+                    # three. When the directory is shared, delete exactly this
+                    # repo's own declared files — the same rule the HQ add-on
+                    # branch above follows, and for the same reason.
                     p = ROOT / repo["local_dir"]
-                    if p.is_dir():
+                    shared = sum(1 for o in _repos()
+                                 if str(o.get("local_dir")) == str(repo.get("local_dir"))) > 1
+                    if shared:
+                        targets = [p / f for f in (repo.get("files") or [])]
+                    elif p.is_dir():
                         targets.append(p)
                     label = repo.get("name") or key
 
@@ -22997,11 +23213,12 @@ def _compute_progress(current: dict | None, log_lines: list[str]) -> dict | None
         "remaining_sec": round(remaining, 1) if remaining is not None else None,
         "denoise_step": signals["denoise_step"],
         "denoise_total": signals["denoise_total"],
-        **_preview_progress(current, remaining),
+        **_preview_progress(current, remaining, phase),
     }
 
 
-def _preview_progress(current: dict | None, remaining: float | None) -> dict:
+def _preview_progress(current: dict | None, remaining: float | None,
+                      phase: str = "denoise") -> dict:
     """The live preview's half of `current.progress`, or {}.
 
     THE `meaningful` GATE IS DECIDED HERE, SERVER-SIDE, and that is the whole
@@ -23041,7 +23258,11 @@ def _preview_progress(current: dict | None, remaining: float | None) -> dict:
         "meaningful": meaningful,
         # Abortable only once the picture means something AND the runner has
         # published somewhere to put the sentinel.
-        "abortable": bool(meaningful and d.is_dir()),
+        # Only while there is still denoising to abort. The sentinel is checked
+        # BETWEEN FORWARDS, so once the loop has handed off to VAE decode and
+        # mux there is nothing left to stop — and offering to save 30 s four
+        # seconds from the end is an offer the render cannot honour.
+        "abortable": bool(meaningful and d.is_dir() and phase == "denoise"),
         "saves_sec": round(remaining, 1) if remaining is not None else None,
     }
     return {
@@ -30621,12 +30842,17 @@ HTML = r"""<!doctype html>
     .h3-winhelp[hidden] { display: none !important; }
   </style>
 </head>
-<!-- data-cap-tier is set at request time by page() based on SYSTEM_CAPS.allows_q8
-     (or the LTX_FORCE_CAP_TIER env override). CSS rules
-     `body[data-cap-tier="q4"]` and `body[data-cap-tier="q8"]` switch which
-     intents are visible: q4 hides FFLF / Extend / Character (Q8-only pipeline
-     paths); q8 surfaces all five intents. window.PHOSPHENE_CAP_TIER mirrors
-     this for any runtime JS branches. -->
+<!-- data-cap-tier is set at request time by page() from _resolve_cap_tier() —
+     the FEATURE tier: this Mac's RAM, folded down to what the active
+     generation can serve (or the LTX_FORCE_CAP_TIER env override). CSS rules
+     `body[data-cap-tier="q4|q8"]` switch which intents are visible.
+     window.PHOSPHENE_CAP_TIER mirrors it for runtime JS branches.
+
+     IT DOES NOT ANSWER "are the weights on disk" — that is `data-q8-pack`,
+     written every poll from /status. On 2.5 the two diverge for the first
+     time: a 64 GB Mac holding only the base pack resolves cap_tier=q8 and
+     still cannot render a trained character. Both must be able to be true;
+     see §11-E of the v4.0 spec. -->
 <!-- data-engine is stamped in the markup, not left for setEngine() to add on
      boot: the per-engine fold rules (`body:not([data-engine="ltx"])
      [data-ltx-only]`) match a body with NO attribute, so every LTX-only
@@ -31467,9 +31693,9 @@ HTML = r"""<!doctype html>
                that rule is how they drift. "~2 min" on Q8 Pro is the MEASURED
                139.4 s row, not a typed number. -->
           <div class="quality-strip pill-group" id="qualityGroupCharacter" hidden data-ltx-only>
-            <button type="button" class="q-chip pill-btn pill-quality char-quality" data-char-quality="draft" data-width="736" data-height="416">
+            <button type="button" class="q-chip pill-btn pill-quality char-quality" data-char-quality="draft" data-width="704" data-height="384">
               <span class="ql-name">Q8 Draft</span>
-              <span class="q-spec ql-spec sub">736×416</span>
+              <span class="q-spec ql-spec sub">704×384</span>
               <span class="ql-tier"></span>
             </button>
             <button type="button" class="q-chip pill-btn pill-quality char-quality active" data-char-quality="pro" data-width="1024" data-height="576">
@@ -31713,14 +31939,6 @@ HTML = r"""<!doctype html>
 
         <div class="mode-only show" id="quickMetricsRow">
           <div class="mini-fields">
-            <div class="mf-cell" data-ltx-only>
-              <span class="mf-label">Duration (s)</span>
-              <input id="duration" value="5" type="number" min="1" max="20" step="any">
-            </div>
-            <div class="mf-cell" data-ltx-only>
-              <span class="mf-label">Frames <span class="mf-hint">8k+1</span></span>
-              <input name="frames" id="frames" value="121" type="number" min="1" title="Must be 8k+1 (e.g., 121, 161, 201). Duration auto-syncs.">
-            </div>
             <div class="mf-cell">
               <span class="mf-label">Seed <span class="mf-hint">-1 = random</span></span>
               <input name="seed" id="seed" value="-1" title="-1 picks a fresh random seed per render. Any integer locks the seed for repeatable output.">
@@ -31914,6 +32132,26 @@ HTML = r"""<!doctype html>
               <div class="row">
                 <div><input name="width" id="width" value="1024" type="number" min="32" step="32" aria-label="Width"></div>
                 <div><input name="height" id="height" value="576" type="number" min="32" step="32" aria-label="Height"></div>
+              </div>
+            </div>
+
+            <!-- Duration / Frames — the power-user override, MOVED HERE in
+                 v4.0 (spec §2.2). It used to sit in the primary form ~60 px
+                 under the Length chips, which meant the panel showed a
+                 5-second, ~2-minute shape while the form would render 337
+                 frames: the release's own headline bug, two rows below the
+                 control that fixed it.
+
+                 NOT deleted — power users have shipped work with the raw
+                 Frames box, and removing a control people use is not polish.
+                 It lives with every other override, and a value off the axis
+                 lights no chip and prints `custom · 337f · 14 s` in the Length
+                 meta. -->
+            <div id="durationRow" class="cz-control" data-ltx-only>
+              <div class="cz-label">Duration <span class="cz-label-hint">seconds, and the frames it lands on</span></div>
+              <div class="row">
+                <div><input id="duration" value="5" type="number" min="1" max="20" step="any" aria-label="Duration in seconds"></div>
+                <div><input name="frames" id="frames" value="121" type="number" min="1" aria-label="Frames" title="Must be 8k+1 (e.g., 121, 161, 201). Duration auto-syncs."></div>
               </div>
             </div>
 
@@ -33580,7 +33818,7 @@ HTML = r"""<!doctype html>
             <div class="cz-control">
               <div class="cz-label">Draft pass <span class="cz-label-hint">what you watch first</span></div>
               <div class="pill-group cols-3" id="sbDraftQuality">
-                <button type="button" class="pill-btn active" data-q="quick">Quick<span class="sub">640×480</span></button>
+                <button type="button" class="pill-btn active" data-q="quick">Quick<span class="sub">640×448</span></button>
                 <button type="button" class="pill-btn" data-q="balanced">Balanced<span class="sub">768×432</span></button>
                 <button type="button" class="pill-btn" data-q="standard">Standard<span class="sub">1024×576</span></button>
               </div>
@@ -33793,8 +34031,10 @@ HTML = r"""<!doctype html>
         </select>
       </div>
       <div class="hint" style="margin-top:6px">
-        Costs about 0.2 % of the render and never changes the result. Turning it
-        off also removes the Stop-early button.
+        Never changes the result — the clip is byte-for-byte the same either way.
+        Costs a fraction of the render: about 0.2 % on High, a few per cent on a
+        short draft, where the render is short enough for the decode to show.
+        Turning it off also removes the Stop-early button.
       </div>
     </div>
 
@@ -33826,9 +34066,10 @@ HTML = r"""<!doctype html>
     <div class="settings-section" id="settingsStorageSection" style="display:none">
       <h3>Storage</h3>
       <div class="hint" style="margin-bottom:8px">
-        Model files this build no longer renders with. Removing one frees the space
-        immediately; re-installing it later is a fresh download of the size shown.
-        Nothing here is deleted without asking.
+        Weights on this disk that this build does not render with by default —
+        and, where one is listed, what you would lose by removing it. Removing
+        frees the space immediately; re-installing later is a fresh download of
+        the size shown. Nothing here is deleted without asking.
       </div>
       <ul class="models-list" id="storageList"></ul>
       <div class="models-foot" id="storageFoot"></div>
@@ -33930,7 +34171,8 @@ HTML = r"""<!doctype html>
       <div class="hint" style="margin-bottom:10px">
         Sends anonymous counts so bugs in the field get noticed: panel
         version, hardware class (e.g. <em>M4 Max, 64 GB</em>), which
-        optional packs are installed, and for each render the engine,
+        model generation you render with, which optional packs are
+        installed, and for each render the engine,
         tier, resolution, frame count and a coarse duration bucket —
         plus the first line of the error when one fails.
         <b>Never your prompts, filenames, paths, images or video.</b>
@@ -39131,7 +39373,7 @@ async function trainDeleteLora(loraPath) {
 // pixel count. The richer label is preserved in the sidecar so the
 // info modal can show "Quick" / "Standard" / "High" verbatim.
 const QUALITY_PRESETS = {
-  quick:    { w: 640,  h: 480, upscale: 'off' },        // 4:3, fastest sanity check
+  quick:    { w: 640,  h: 448, upscale: 'off' },        // 10:7, fastest sanity check. 448 not 480: the two-stage lane snaps to multiples of 64, so 480 was never delivered.
   balanced: { w: 1024, h: 576, upscale: 'fit_720p' },   // exact 16:9 → 1280×720
   standard: { w: 1280, h: 704, upscale: 'off' },        // LTX-wide canonical render
   // High = Q8 quality at 1024×576. Lab finding 2026-05-09: at 1024×576
@@ -39295,7 +39537,7 @@ function updateCustomizeSummary() {
   const upscale = document.getElementById('upscale').value || 'off';
   const parts = [];
   // Aspect (Quick is fixed 4:3, no choice; Standard/High show landscape/vertical).
-  if (q === 'quick') parts.push('4:3 · 640×480');
+  if (q === 'quick') parts.push('10:7 · 640×448');
   else parts.push(aspect === 'vertical' ? '9:16' : '16:9');
   // Flag custom dims if they don't match the preset.
   const preset = QUALITY_PRESETS[q] || QUALITY_PRESETS['standard'];
@@ -39415,7 +39657,7 @@ function engineById(id) {
 }
 function defaultEngine() {
   return engineById(ENGINE_DEFAULT) || ENGINES[0]
-      || { id: 'ltx', label: 'LTX-2.3', builtin: true, strip_label: 'Quality' };
+      || { id: 'ltx', label: 'LTX', builtin: true, strip_label: 'Quality' };
 }
 
 // An engine's live capability block. `probe` names the bootstrap key that
@@ -39960,7 +40202,12 @@ function renderEngineSwitch() {
 // 75 GB of weights on disk that the engine "isn't installed" is the v3.4.0
 // regression report, verbatim.
 function _engineTooltip(e, st, modeOk) {
-  const name = e.label + ' · ' + (e.sublabel || '');
+  // The generation belongs in the TITLE too: the compact breakpoint
+  // (<=1500 px — a 14" MBP window) hides .eng-seg-name and .eng-seg-gen, so on
+  // a laptop the release's headline fix had no surface at all and #modelTag was
+  // the only thing naming the build.
+  const name = e.label + (e.generation ? ' ' + e.generation : '')
+             + ' · ' + (e.sublabel || '');
   if (st.announced) return name + ' — ' + (e.tagline || 'not released yet');
   if (!e.builtin && !st.capable) {
     return name + ' — needs ' + (st.min_ram_gb || 64) + ' GB unified memory';
@@ -40039,6 +40286,11 @@ const TIER_ENGINES = {
     qualitySpec: (item, cell) => `${item.canvas} · ${cell ? cell.frames : '—'}f`,
     lengthSpec: (item, cell) => (cell ? `${cell.frames}f` : `${item.frames}f`),
     eta: (cell) => ltxCellEta(cell),
+    // A cell whose weights are not on disk is an INSTALL OFFER, not a choice.
+    // `offered` is the RAM question and is resolved at import time; this is the
+    // pack question and it can only be answered at runtime, so it lives here.
+    needsInstall: (cell) => ltxCellNeedsInstall(cell),
+    installLabel: (cell) => ltxCellInstallLabel(cell),
     cellFor: (q, l) => ltxCellFor(q, l),
     currentQuality: () => ltxCurrentQuality(),
     currentLength: () => ltxCurrentLength(),
@@ -40068,11 +40320,19 @@ const TIER_ENGINES = {
 function _tierChipHtml(engine, kind, item, cell, active) {
   const E = TIER_ENGINES[engine] || TIER_ENGINES.h3;
   const ok = !cell ? false : (cell.available !== false);
+  // NEEDS-INSTALL is a third state, distinct from unavailable: the cell is
+  // renderable on this Mac, the weights just aren't here yet. It reads as a
+  // CTA (dashed + download glyph via .needs-install) and its third slot names
+  // the download instead of an ETA the user cannot have yet.
+  const needsInstall = ok && E.needsInstall ? !!E.needsInstall(cell) : false;
   const cls = 'q-chip pill-btn pill-quality'
-    + (active ? ' active' : '') + (ok ? '' : ' unavailable');
+    + (active ? ' active' : '') + (ok ? '' : ' unavailable')
+    + (needsInstall ? ' needs-install' : '');
   const spec = (kind === 'quality') ? E.qualitySpec(item, cell)
                                     : E.lengthSpec(item, cell);
-  const foot = ok ? E.eta(cell) : 'unavailable';
+  const foot = !ok ? 'unavailable'
+             : needsInstall ? E.installLabel(cell)
+             : E.eta(cell);
   const title = ok
     ? ((cell && cell.blurb) || item.blurb || '')
     : (cell && cell.unavailable_reason) || 'Not available on this install.';
@@ -40116,7 +40376,18 @@ function renderTierAxes(engine) {
   const qAttr = E.qAttr || `${engine}-quality`;
   const lAttr = E.lAttr || `${engine}-length`;
   qStrip.querySelectorAll(`[data-${qAttr}]`).forEach(b => {
-    b.onclick = () => E.setQuality(b.getAttribute(`data-${qAttr}`));
+    b.onclick = () => {
+      // A needs-install chip is a DOWNLOAD BUTTON, not a tier choice. Binding
+      // setQuality directly here bypassed the shipped .needs-install routing:
+      // clicking High selected a tier the machine could not render, the
+      // pre-render block explained why for ~1.5 s, and the next poll silently
+      // moved the form to a bigger, slower canvas nobody asked for.
+      if (b.classList.contains('needs-install')) {
+        if (typeof openModelsModal === 'function') openModelsModal();
+        return;
+      }
+      E.setQuality(b.getAttribute(`data-${qAttr}`));
+    };
   });
   lStrip.querySelectorAll(`[data-${lAttr}]`).forEach(b => {
     b.onclick = () => E.setLength(b.getAttribute(`data-${lAttr}`));
@@ -40205,6 +40476,31 @@ function ltxCellEta(cell) {
   if (cell.eta === 'custom') return 'custom';
   const tail = (cell.pack === 'q8' && cell.pipeline === 'hq') ? ' · Q8 HQ' : '';
   return (cell.eta || '') + tail;
+}
+// Are this cell's weights on disk? A RUNTIME question — the tier table is built
+// at import time and cannot know. `offered` answers "can this Mac's RAM serve
+// this tier"; both must be able to be true (§11-E).
+function ltxCellNeedsInstall(cell) {
+  if (!cell || cell.pack !== 'q8') return false;
+  const s = window.__phosLastStatus || {};
+  if (cell.pipeline === 'hq') {
+    // High needs the pack AND the add-on.
+    const packOk = (s.q8_pack_available !== undefined) ? s.q8_pack_available : s.q8_available;
+    return !(packOk && (s.hq_addon_missing || []).length === 0);
+  }
+  const packOk = (s.q8_pack_available !== undefined) ? s.q8_pack_available : s.q8_available;
+  return !packOk;
+}
+// What the chip says instead of an ETA, and it names the download that is
+// actually missing rather than a fixed string.
+function ltxCellInstallLabel(cell) {
+  const s = window.__phosLastStatus || {};
+  const P = ((BOOT.ltx || {}).packs) || {};
+  const packOk = (s.q8_pack_available !== undefined) ? s.q8_pack_available : s.q8_available;
+  const want = (cell && cell.pipeline === 'hq' && packOk) ? P.hq_addon : P.q8;
+  if (!want) return 'install needed';
+  const short = String(want.name || '').replace(/^LTX-2\.5\s*/, '');
+  return `Install ${short} · ${want.size}`;
 }
 // Set the CANVAS. Length is untouched — the whole point of the two axes.
 function setLtxQuality(key) {
@@ -41396,15 +41692,25 @@ function updateDerived() {
 
 ['width','height','frames','duration'].forEach(id => {
   const el = document.getElementById(id);
+  // THE OTHER DIRECTION OF THE 7-SECOND LIE. The chips write these fields
+  // correctly; these fields never repainted the chips. Type 14 into Duration
+  // and the Length strip kept showing `5s` / `121f` / `~2 min` over a form
+  // that would render 337 frames — the exact defect ltxCurrentLength()'s own
+  // comment predicts, arriving from the side nobody wired.
+  const repaintTiers = () => {
+    if (typeof renderTierAxes === 'function') {
+      try { renderTierAxes('ltx'); } catch (e) {}
+    }
+  };
   if (id === 'duration') {
-    el.addEventListener('input', e => { document.getElementById('frames').value = durationToFrames(parseFloat(e.target.value) || 0); updateDerived(); });
+    el.addEventListener('input', e => { document.getElementById('frames').value = durationToFrames(parseFloat(e.target.value) || 0); updateDerived(); repaintTiers(); });
   } else if (id === 'frames') {
-    el.addEventListener('input', e => { document.getElementById('duration').value = framesToDuration(parseInt(e.target.value) || 0); updateDerived(); });
-    el.addEventListener('blur', () => { snapFramesTo8kPlus1(); updateDerived(); });
+    el.addEventListener('input', e => { document.getElementById('duration').value = framesToDuration(parseInt(e.target.value) || 0); updateDerived(); repaintTiers(); });
+    el.addEventListener('blur', () => { snapFramesTo8kPlus1(); updateDerived(); repaintTiers(); });
   } else {
     // width / height: also refresh the Customize summary so "custom" flags
     // appear/disappear as the user types away from the preset values.
-    el.addEventListener('input', () => { updateCustomizeSummary(); updateDerived(); });
+    el.addEventListener('input', () => { updateCustomizeSummary(); updateDerived(); repaintTiers(); });
   }
 });
 document.getElementById('keyframe_mid_seconds')?.addEventListener('input', () => {
@@ -41741,13 +42047,36 @@ function _thumbUrl(url, w) {
 }
 
 async function api(path, method = 'GET', body = null) {
+  // The second argument is a METHOD STRING, not a fetch options object — and
+  // that is a genuinely surprising signature, because everything else in the
+  // browser takes `{method, body}`. Both of v4.0's new actions (Stop early,
+  // Storage → Remove) were written against the shape everyone expects, and
+  // `fetch(path, {method: {method:'POST'}})` THROWS before the request leaves
+  // the page: "'[object Object]' is not a valid HTTP method." Two headline
+  // features were dead in the UI while both servers behaved perfectly, because
+  // each was proved with curl instead of with the button.
+  //
+  // So the helper now accepts either shape. This is not politeness towards a
+  // typo: the options-object form is the conventional one, and a helper that
+  // silently throws on it will keep collecting this bug forever.
+  if (method && typeof method === 'object') {
+    body = (method.body != null) ? method.body : body;
+    method = method.method || 'GET';
+  }
   const opts = { method };
   if (body) {
     opts.body = body instanceof FormData ? new URLSearchParams(body) : body;
     opts.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
   }
   const r = await fetch(path, opts);
-  if (!r.ok && r.status !== 409) throw new Error(`${path}: ${r.status}`);
+  if (!r.ok && r.status !== 409) {
+    // Prefer the SERVER'S sentence. /models/remove's three refusals are
+    // carefully written ("That's the model this build renders with.") and
+    // throwing a bare status turned every one of them into "…: 400".
+    let msg = '';
+    try { msg = ((await r.json()) || {}).error || ''; } catch (e) {}
+    throw new Error(msg || `${path}: ${r.status}`);
+  }
   return r.status === 409 ? { error: 'busy' } : r.json().catch(() => ({}));
 }
 
@@ -41863,8 +42192,13 @@ function renderDeepVerifyStatus(deep) {
       + ' — see the red banner up top.</span>';
   } else {
     const uv = (r.unverified || []).length;
+    // §3.5: "unverifiable" is not a failure, and the user deserves to know WHY
+    // some files cannot be checked rather than being left to assume the worst.
+    // An absent or malformed manifest reports unverified and stays ok,
+    // precisely so it never triggers a spurious multi-GB re-download.
     st.innerHTML = '<span style="color:#5bbf7b">✓ all ' + r.checked + ' file(s) match upstream'
-      + (uv ? ' (' + uv + ' unverifiable)' : '') + '.</span>';
+      + (uv ? ' (' + uv + ' unverifiable — the LTX-2.5 packs carry their own '
+            + 'checksum list; an older copy may not have one)' : '') + '.</span>';
   }
 }
 
@@ -42192,20 +42526,26 @@ async function poll() {
     b.classList.toggle('needs-install', !q8PackOk);
   });
 
-  const highBtn = document.querySelector('#qualityGroup [data-quality="high"]');
-  if (highBtn) {
-    if (s.q8_available) {
-      highBtn.classList.remove('disabled', 'needs-install');
-    } else {
-      // Disabled-but-actionable: a click on the High pill opens the Models
-      // modal so the user can install in one move instead of hunting for the
-      // download. .needs-install gives it the dashed border + download glyph
-      // so it reads as a CTA, not a dead button.
-      const missing = (s.q8_missing || []).length;
-      const midDownload = missing > 0 && missing < 6;
-      highBtn.classList.add('disabled');
-      highBtn.classList.toggle('needs-install', !midDownload);
-      if (document.getElementById('quality').value === 'high') setQuality('standard');
+  // The High chip's install state is rendered by renderTierAxes now
+  // (ltxCellNeedsInstall / ltxCellInstallLabel), so the chip's third slot
+  // names the download instead of an ETA the user cannot have yet, and a click
+  // opens the Models modal instead of selecting a tier that cannot render.
+  //
+  // THE SILENT BOUNCE IS GONE. This block used to `setQuality('standard')`
+  // whenever Q8 was absent and High was selected — so clicking High moved the
+  // form, by itself, to a BIGGER and SLOWER canvas the user never asked for,
+  // one and a half seconds after showing them the explanation. The pre-render
+  // gate (applyPackIncompleteGate) already disables Generate and names the
+  // missing file; the user keeps the tier they chose and is told why it cannot
+  // run, which is the honest version of the same information.
+  //
+  // Repaint so the chips follow pack state as a download lands or a file goes
+  // missing, without a reload.
+  if (typeof renderTierAxes === 'function' && document.body.dataset.engine !== 'h3') {
+    const packSig = `${s.q8_available}|${(s.q8_missing || []).length}|${(s.hq_addon_missing || []).length}`;
+    if (window._lastPackSig !== packSig) {
+      window._lastPackSig = packSig;
+      try { renderTierAxes('ltx'); } catch (e) {}
     }
   }
 
@@ -42233,7 +42573,14 @@ async function poll() {
     const left = (s.q8_missing || []).length;
     genBtn.title = left > 0 && left < 6
       ? `${modeName} needs Q8 — ${left} file(s) still downloading.`
-      : `${modeName} needs the Q8 model. Click "Download Q8 (~37 GB)" in Pinokio.`;
+      : (() => {
+          // Registry-driven: the pack this generation actually needs, at the
+          // size the registry actually records. "37 GB" was 2.3's number.
+          const P = ((BOOT.ltx || {}).packs) || {};
+          const w = P.q8;
+          return w ? `${modeName} needs ${w.name} (~${w.size}) — install it from Settings → Models.`
+                   : `${modeName} needs the Q8 weights — install them from Settings → Models.`;
+        })();
     genBtn.textContent = 'Generate · Q8 required';
   } else if (genBtn.disabled && genBtn.textContent.startsWith('Generate · Q8')) {
     // Restore — only do so if WE were the ones who disabled it, otherwise
@@ -42691,7 +43038,9 @@ function applyPackIncompleteGate(s) {
   // already say so, and "finish the download" would be the wrong verb.
   if (!s.q8_available && missing.length > 6) { clear(); return; }
   const label = (cell && cell.quality_label) || 'This tier';
-  const dir = (s.q8_path || 'the Q8 pack');
+  // Relative, as §3.6's verbatim has it: an absolute path is this machine's
+  // detail, and the note has to fit on one line beside the Generate button.
+  const dir = String(s.q8_path || 'the Q8 pack').replace(/^.*?(?=mlx_models\/)/, '');
   const shown = missing.slice(0, 3).join(', ') + (missing.length > 3 ? ' …' : '');
   note.innerHTML = escapeHtml(
       `${label} needs ${missing.length} more file(s) in ${dir} — ${shown}. `
@@ -44447,11 +44796,21 @@ function updateModelsCard(s) {
     icon.innerHTML = '<svg class="ph" aria-hidden="true"><use href="#ph-warning-fill"/></svg>';
     title.textContent = 'Base models needed before you can render';
     const missing = (s.base_missing || []).length;
-    sub.innerHTML = `Q4 (~20 GB) and Gemma (~6 GB) are required. Click below — downloads resume if interrupted.${
+    // REGISTRY-DRIVEN, for the ACTIVE generation. `base_missing` is already
+    // version-scoped, so offering `q4` here downloaded 2.3's base to fix a
+    // broken 2.5 install: 20 GB spent, still broken.
+    const P = ((BOOT.ltx || {}).packs) || {};
+    const pBase = P.base, pEnc = P.encoder;
+    sub.innerHTML = `${escapeHtml(pBase ? pBase.name : 'The base model')} (~${escapeHtml(pBase ? pBase.size : '?')})`
+      + ` and ${escapeHtml(pEnc ? pEnc.name : 'its text encoder')} (~${escapeHtml(pEnc ? pEnc.size : '?')})`
+      + ` are required. Click below — downloads resume if interrupted.${
       missing ? ` <span style="color:var(--muted)">(${missing} files left)</span>` : ''
     }`;
-    actions.innerHTML = (s.hf_available ?? true)
-      ? `<button onclick="startDownload('q4')">Download Q4 (20 GB)</button>`
+    // A mirrored pack does not need `hf` at all — the same per-row question the
+    // Models modal already asks, answered from the same registry field.
+    const baseNeedsHf = pBase ? (pBase.needs_hf !== false) : true;
+    actions.innerHTML = ((s.hf_available ?? true) || !baseNeedsHf)
+      ? `<button onclick="startDownload('${escapeHtml(pBase ? pBase.key : 'q4')}')">Download ${escapeHtml(pBase ? pBase.name : 'base')} (${escapeHtml(pBase ? pBase.size : '?')})</button>`
       : `<button disabled title="hf binary not found — reinstall via Pinokio">hf missing</button>`;
     return;
   }
@@ -44478,12 +44837,28 @@ function updateModelsCard(s) {
                 : currentMode === 'extend'    ? 'Extend needs the Q8 model'
                                               : 'High quality needs the Q8 model';
     title.textContent = reason;
-    const missing = (s.q8_missing || []).length;
-    sub.innerHTML = `Q8 (~37 GB) is a separate one-time download. Resumable.${
-      missing && missing < 8 ? ` <span style="color:var(--muted)">(${missing} files left — partial install detected)</span>` : ''
-    }`;
-    actions.innerHTML = (s.hf_available ?? true)
-      ? `<button onclick="startDownload('q8')">Download Q8 (37 GB)</button>`
+    // REGISTRY-DRIVEN. This card offered `startDownload('q8')` — 2.3's pack —
+    // and advertised 37 GB, on a build where High needs 2.5's 30.02 GB Q8 pack
+    // PLUS a separate 29.50 GB add-on. The button worked, which made it worse
+    // than a broken one.
+    const P = ((BOOT.ltx || {}).packs) || {};
+    const pQ8 = P.q8, pHq = P.hq_addon;
+    // High/Extend/Keyframe need the add-on too, when this generation has one.
+    // Offer the pack that is actually missing rather than the one whose name
+    // used to be hardcoded here.
+    const q8PackOk = (s.q8_pack_available !== undefined) ? s.q8_pack_available : q8Ok;
+    const want = (q8PackOk && pHq) ? pHq : pQ8;
+    if (!want) { card.style.display = 'none'; return; }
+    const missing = ((q8PackOk ? s.hq_addon_missing : s.q8_pack_missing) || []).length;
+    sub.innerHTML = escapeHtml(
+        `${want.name} (~${want.size}) is a separate one-time download. Resumable.`)
+      + (pHq && !q8PackOk
+          ? ` <span style="color:var(--muted)">The High tier additionally needs the ${escapeHtml(pHq.name)} (~${escapeHtml(pHq.size)}).</span>` : '')
+      + (missing && missing < 8
+          ? ` <span style="color:var(--muted)">(${missing} files left — partial install detected)</span>` : '');
+    const wantNeedsHf = (want.needs_hf !== false);
+    actions.innerHTML = ((s.hf_available ?? true) || !wantNeedsHf)
+      ? `<button onclick="startDownload('${escapeHtml(want.key)}')">Download ${escapeHtml(want.name)} (${escapeHtml(want.size)})</button>`
       : `<button disabled>hf missing</button>`;
     return;
   }
@@ -44664,7 +45039,7 @@ function openTierModal() {
         time: tt.i2v_standard,
       },
       {
-        title: 'Quick (640×480)',
+        title: 'Quick (640×448)',
         desc: 'Smaller preview to scout prompts and seeds before a full-size render.',
         on: true,
         size: 'Always smaller than Standard',
@@ -44909,8 +45284,8 @@ async function removeStoragePack(key) {
       + `Nothing you have already rendered is affected.`)) return;
   let res;
   try {
-    res = await api('/models/remove', { method: 'POST',
-      body: new URLSearchParams({ repo_key: key }) });
+    res = await api('/models/remove', 'POST',
+      new URLSearchParams({ repo_key: key }));
   } catch (e) {
     phosToast(String((e && e.message) || e), { kind: 'danger', duration: 6000 });
     return;
@@ -46697,6 +47072,10 @@ function renderNowPreview(s, prog) {
     box.hidden = true;
     box.className = 'now-thumb';
     box.innerHTML = '';
+    const oldDot = document.querySelector('.now-thumb-help');
+    if (oldDot) oldDot.remove();
+    const oldNote = document.getElementById('nowThumbHelpNote');
+    if (oldNote) oldNote.remove();
     if (actions && actions.dataset.stopEarly === '1') {
       actions.innerHTML = ''; delete actions.dataset.stopEarly;
     }
@@ -46704,6 +47083,25 @@ function renderNowPreview(s, prog) {
   }
   box.hidden = false;
   const stopping = window._stopEarlyRequested === s.current.id;
+  // The copy constraint, on the element it constrains. §4.1: "The UI must never
+  // invite a face judgement from it." Rendered once per render rather than per
+  // poll so the button does not flicker under the 1.5 s cadence.
+  if (!box.parentNode.querySelector('.now-thumb-help')) {
+    const dot = document.createElement('button');
+    dot.type = 'button';
+    dot.className = 'help-dot now-thumb-help';
+    dot.title = 'What am I looking at?';
+    dot.setAttribute('aria-expanded', 'false');
+    dot.setAttribute('aria-controls', 'nowThumbHelpNote');
+    dot.textContent = '?';
+    dot.onclick = toggleNowThumbHelp;
+    box.parentNode.insertBefore(dot, box.nextSibling);
+    const note = document.createElement('div');
+    note.className = 'h3-winhelp';
+    note.id = 'nowThumbHelpNote';
+    note.hidden = true;
+    box.parentNode.appendChild(note);
+  }
   if (!prev.meaningful) {
     box.className = 'now-thumb is-warming';
     box.innerHTML = '';
@@ -46740,6 +47138,20 @@ function renderNowPreview(s, prog) {
   }
 }
 
+// Fills lazily from the Python-owned constant, the same four-hop path the voice
+// help takes.
+function toggleNowThumbHelp() {
+  const note = document.getElementById('nowThumbHelpNote');
+  const btn = document.querySelector('.now-thumb-help');
+  if (!note || !btn) return;
+  if (!note.textContent) {
+    note.textContent = ((BOOT.ltx || {}).help || {}).preview || '';
+  }
+  const open = note.hidden;
+  note.hidden = !open;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
 // The house rule: native confirm() for anything destructive, and it says what
 // is lost. The minutes come from the server's own remaining estimate; when it
 // has none, the sentence is DROPPED rather than guessed.
@@ -46755,7 +47167,7 @@ async function stopEarly() {
       saves + 'The queue carries on with the next job.')) return;
   window._stopEarlyRequested = cur.id;
   try {
-    await api('/stop?mode=early', { method: 'POST' });
+    await api('/stop?mode=early', 'POST');
   } catch (e) {
     window._stopEarlyRequested = null;
     phosToast(String((e && e.message) || e), { kind: 'danger', duration: 6000 });
@@ -47336,7 +47748,7 @@ function civitaiRenderFamilyPills(available, active) {
   const labels = {
     qwen:    'Qwen-Image',
     hidream: 'HiDream',
-    ltx:     'LTX-2.3',
+    ltx:     'LTX',
     h3:      'Hailuo H3',
   };
   const all = ['all', ...available];
@@ -47658,7 +48070,7 @@ async function civitaiInstall(btn, item) {
         ? ' — auto-enabled below.'
         : (lane === 'h3'
             ? ' — it is a Hailuo H3 LoRA, so switch the engine to Hailuo H3 to use it.'
-            : ' — it is an LTX LoRA, so switch the engine to LTX-2.3 to use it.'))
+            : ' — it is an LTX LoRA, so switch the engine to LTX to use it.'))
       + (data.converted
           ? ' Converted from the ComfyUI key layout on install (a key rename;'
             + ' the tensors are untouched).'
@@ -47816,7 +48228,12 @@ async function refreshModelsModal({ silent = false } = {}) {
         ? `<button onclick="startDownload('${escapeHtml(r.key)}')" ${active ? 'disabled' : ''}>Download</button>`
         : `<button disabled>Download</button>`;
     }
-    const kindBadge = r.kind === 'optional'
+    // "required" means required BY THIS BUILD. A base pack from the retired
+    // generation is neither required nor optional — it is previous, and saying
+    // so is the difference between an inventory and a claim.
+    const kindBadge = (r.active === false)
+      ? `<span style="color:var(--muted)">previous generation</span>`
+      : r.kind === 'optional'
       ? `<span style="color:var(--muted)">optional</span>`
       : `<span style="color:var(--success,#3fb950)">required</span>`;
     return `
@@ -47864,12 +48281,17 @@ async function refreshModelsModal({ silent = false } = {}) {
   }
   list.innerHTML = (rows + h3Row) || `<li class="empty-state">No model manifest found — required_files.json is missing or unreadable.</li>`;
   // Footer summarises required vs optional counts.
-  const reqRepos = repos.filter(r => r.kind !== 'optional');
-  const optRepos = repos.filter(r => r.kind === 'optional');
+  // Count only what THIS BUILD needs. 2.3's two base rows were inside
+  // "Required: N/M ready", which made §7.1's first-visit contract
+  // ("Required: 2/2 ready") unreachable on any machine that also has 2.3.
+  const reqRepos = repos.filter(r => r.kind !== 'optional' && r.active !== false);
+  const optRepos = repos.filter(r => r.kind === 'optional' && r.active !== false);
+  const prevRepos = repos.filter(r => r.active === false);
   const reqReady = reqRepos.filter(r => r.complete).length;
   const optReady = optRepos.filter(r => r.complete).length;
   foot.innerHTML = `
-    <div>Required: ${reqReady}/${reqRepos.length} ready &nbsp;·&nbsp; Optional: ${optReady}/${optRepos.length} ready</div>
+    <div>Required: ${reqReady}/${reqRepos.length} ready &nbsp;·&nbsp; Optional: ${optReady}/${optRepos.length} ready${
+      prevRepos.length ? ` &nbsp;·&nbsp; <span style="color:var(--muted)">${prevRepos.length} from a previous generation (Settings → Storage)</span>` : ''}</div>
     <div style="margin-top:4px">Tip: downloads resume on retry — closing this dialog mid-download keeps it running in the background.</div>`;
 }
 async function startDownload(key) {
@@ -48571,7 +48993,7 @@ function sbPickCast(id) {
   // pair snaps back to Auto rather than being quietly ignored at plan time.
   if (_sbCastId && _sbEngineMode === 'h3') {
     sbSetEngineMode('auto');
-    phosToast('Auto: Hailuo H3 can’t load a trained character, so their shots go to LTX-2.3.',
+    phosToast('Auto: Hailuo H3 can’t load a trained character, so their shots go to LTX.',
               {duration: 6000});
   }
   sbRenderCast();
@@ -48590,7 +49012,7 @@ let _sbEngineMode = 'auto';
 const SB_ENGINE_OPTS = [
   { key: 'auto', label: 'Auto',      sub: 'per shot' },
   { key: 'h3',   label: 'Hailuo H3', sub: 'voice + sound', engine: 'h3' },
-  { key: 'ltx',  label: 'LTX-2.3',   sub: 'characters',    engine: 'ltx' },
+  { key: 'ltx',  label: 'LTX',       sub: 'characters',    engine: 'ltx' },
 ];
 
 function sbH3Installed() {
@@ -48608,11 +49030,11 @@ function sbEnginePickerHtml(active) {
               + (offer ? ' needs-install' : '');
     const style = e ? `--eng-accent:${escapeHtml(e.accent)};--eng-dim:${escapeHtml(e.accent_dim)};--eng-soft:${escapeHtml(e.accent_soft)}` : '';
     const title = o.key === 'auto'
-        ? 'The plan decides per shot: a shot with one of your trained characters goes to LTX-2.3, everything else to Hailuo H3.'
+        ? 'The plan decides per shot: a shot with one of your trained characters goes to LTX, everything else to Hailuo H3.'
       : offer ? 'Hailuo H3 isn’t installed yet — install it from the Phosphene sidebar in Pinokio.'
       : blocked ? 'This Mac can’t run Hailuo H3.'
       : o.key === 'h3' ? 'Every shot on Hailuo H3 — it renders dialogue, voices and sound with the picture. No trained characters.'
-      : 'Every shot on LTX-2.3 — the built-in engine, and the only one that loads a trained character.';
+      : 'Every shot on LTX — the built-in engine, and the only one that loads a trained character.';
     const glyph = e ? `<span class="eng-mark"><svg class="ph" aria-hidden="true"><use href="#${escapeHtml(e.mark)}"/></svg></span>` : '';
     return `<button type="button" class="${cls}" data-sb-engine="${o.key}" style="${style}"
         ${blocked && !offer ? 'disabled' : ''} title="${escapeHtml(title)}">
@@ -48628,8 +49050,8 @@ function sbEnginePickerNote(active) {
       : 'This Mac can’t run Hailuo H3, so every shot renders on LTX.';
   }
   if (active === 'h3') return 'Every shot on Hailuo H3 — dialogue, voices and sound rendered with the picture. <b>A trained character can’t come along</b>: H3 loads no LoRAs.';
-  if (active === 'ltx') return 'Every shot on LTX-2.3 — every mode, and the only engine that loads a trained character.';
-  return 'A shot with one of your trained characters goes to <b>LTX-2.3</b>; every other shot goes to <b>Hailuo H3</b>.';
+  if (active === 'ltx') return 'Every shot on LTX — every mode, and the only engine that loads a trained character.';
+  return 'A shot with one of your trained characters goes to <b>LTX</b>; every other shot goes to <b>Hailuo H3</b>.';
 }
 
 function sbRenderEnginePicker() {
@@ -49067,12 +49489,12 @@ function sbRenderPlan(r) {
   } else if (mode === 'h3') {
     engText = 'You set this film to <b>Hailuo H3</b> — every shot.';
   } else if (mode === 'ltx') {
-    engText = 'You set this film to <b>LTX-2.3</b> — every shot.';
+    engText = 'You set this film to <b>LTX</b> — every shot.';
   } else {
     engText = SB_BOOT.engine_note || '';
-    if (mix.h3 && mix.ltx) engText += ` <b>${mix.h3} on Hailuo H3, ${mix.ltx} on LTX-2.3.</b>`;
+    if (mix.h3 && mix.ltx) engText += ` <b>${mix.h3} on Hailuo H3, ${mix.ltx} on LTX.</b>`;
     else if (mix.h3) engText += ` <b>All ${mix.h3} on Hailuo H3.</b>`;
-    else if (mix.ltx) engText += ` <b>All ${mix.ltx} on LTX-2.3.</b>`;
+    else if (mix.ltx) engText += ` <b>All ${mix.ltx} on LTX.</b>`;
   }
   if (r.h3_available && mode !== 'auto') engText += ' Change it in Re-plan.';
   sbEl('sbEngineNoteText').innerHTML = engText;
@@ -49156,7 +49578,21 @@ function sbShotCard(s, r, errs) {
   // has no 7; an LTX shot offers 3/5/7/10 (and 20s, which the table itself
   // restricts to Quick). One duration vocabulary per engine, server-owned.
   const _lenTable = (engine === 'h3' ? (BOOT.h3 || {}).lengths : (BOOT.ltx || {}).lengths) || [];
-  const _lens = _lenTable.filter(l => l.offered !== false);
+  // `offered` is the GLOBAL flag; a length can also be restricted to certain
+  // canvases, and 20s is — it holds together at 640x448 and comes apart around
+  // frame 454 at 1024x576. Filtering on `offered` alone put 20s on every LTX
+  // shot, and shot_to_job then enqueued {quality: balanced, frames: 481}: the
+  // exact cell the Manual strip greys out with a reason. The per-quality gate
+  // is the same one the tier table already carries, asked here too.
+  const _sbQual = (engine === 'h3')
+    ? null
+    : (((r.board || {}).policy || {})[r.pass === 'final' ? 'final' : 'draft'] || {}).quality
+      || ((BOOT.ltx || {}).default_quality);
+  const _lens = _lenTable.filter(l => {
+    if (l.offered === false) return false;
+    const allowed = l.qualities || [];
+    return !(allowed.length && _sbQual && allowed.indexOf(_sbQual) === -1);
+  });
   const _cur = Math.round(s.duration_s);
   let durOpts = _lens.map(l =>
     `<option value="${l.seconds}" ${_cur === Number(l.seconds) ? 'selected' : ''}>${escapeHtml(l.label)}</option>`).join('');
@@ -49779,7 +50215,7 @@ document.addEventListener('click', (ev) => {
     const board = ((SB.payload || {}).board);
     if (!board) return;
     const which = q.closest('#sbDraftQuality') ? 'draft' : 'final';
-    const table = { quick: [640, 480], balanced: [768, 432], standard: [1024, 576], high: [1024, 576] };
+    const table = { quick: [640, 448], balanced: [768, 432], standard: [1024, 576], high: [1024, 576] };
     const dims = table[q.dataset.q] || [1024, 576];
     board.policy = board.policy || {};
     board.policy[which] = Object.assign({}, board.policy[which],

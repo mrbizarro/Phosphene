@@ -864,7 +864,7 @@ def new_storyboard(board_id: str, title: str, *, shots: list[dict] | None = None
         "created_at": int(time.time()),
         "cast": cast or [],
         "policy": policy or {
-            "draft": {"quality": "quick", "width": 640, "height": 480, "frames": 49},
+            "draft": {"quality": "quick", "width": 640, "height": 448, "frames": 49},
             "final": {"quality": "balanced", "width": 1024, "height": 576, "frames": 121},
         },
         "shots": shots or [],
