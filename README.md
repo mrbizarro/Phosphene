@@ -17,7 +17,7 @@
 
 ## Overview
 
-Phosphene is a local generative-media panel for Apple Silicon. It runs [LTX-Video 2.5](https://github.com/Lightricks/LTX-Video) (MLX port) for joint audio-and-video synthesis, [Qwen-Image-Edit-2509](https://huggingface.co/Qwen/Qwen-Image-Edit-2509) (with a Lightning 4-step fast tier) for stills, and ships an in-panel LoRA training pipeline for character identity (face + optional voice from a single dataset). Everything runs on-device: no cloud, no API keys, and no prompt, image, video or filename ever leaves your Mac. It does send anonymous usage counts (version, hardware class, render stats) — every field is listed in [docs/ANALYTICS.md](docs/ANALYTICS.md), and one click in Settings turns it off.
+Phosphene is a local generative-media panel for Apple Silicon. It runs **two video engines as peers** — [LTX-Video 2.5](https://github.com/Lightricks/LTX-Video) (MLX port) and [Hailuo H3](https://github.com/MiniMax-AI) (MiniMax-H3 FL2VA) — both doing joint audio-and-video synthesis, plus [Qwen-Image-Edit-2509](https://huggingface.co/Qwen/Qwen-Image-Edit-2509) (with a Lightning 4-step fast tier) for stills, and an in-panel LoRA training pipeline for character identity (face + voice from a single dataset). Everything runs on-device: no cloud, no API keys, and no prompt, image, video or filename ever leaves your Mac. It does send anonymous usage counts (version, hardware class, render stats) — every field is listed in [docs/ANALYTICS.md](docs/ANALYTICS.md), and one click in Settings turns it off.
 
 3.0 introduces in-panel character training (face + voice LoRA from one dataset), the Audio-to-Video workflow, the Image Studio tab, hardware capability tiering, and an agentic prompt enhancer driven by the same local Gemma 3 12B used for auto-captioning.
 
@@ -33,11 +33,24 @@ The interface adapts to the machine it runs on. Under 48 GB of unified memory, t
 
 Text-to-video, image-to-video, and audio-to-video, all delivered as MP4 with joint audio (lip-sync, footsteps, ambience) in a single diffusion pass. Output is 1280×720 after the built-in 2× upscale. Character mode renders against the Q8 dev transformer with a fused character LoRA; the server-side validator refuses Q4 + character to prevent silent identity drift. First/last-frame keyframing and clip extension are available on the Q8 surface, with TeaCache wired through both.
 
+**Two engines, one switcher.** A segmented control in the header picks which engine renders the shot, and the form below re-prices itself for whichever one is selected:
+
+| | [**LTX-Video 2.5**](https://github.com/Lightricks/LTX-Video) | [**Hailuo H3**](https://github.com/MiniMax-AI) (MiniMax-H3 FL2VA) |
+|---|---|---|
+| **How you get it** | The base install (27.5 GB) | One click in the Pinokio sidebar (75 GB) |
+| **Modes** | Text, image, keyframes, extend, audio-to-video, character | Text and image |
+| **Character LoRAs** | Yes — trained in-panel, face + voice | Not yet |
+| **Memory** | Every tier in the table above; the surface adapts | 64 GB class, or 48 GB with the Q8 DiT pack on disk |
+| **Best at** | Breadth: every workflow the panel offers, plus your own trained faces | Dialogue: joint video + spoken lines + sound, from one prompt |
+| **Weights licence** | [LTX-2.x Community License](LICENSES/LTX-2.x-Community-License.md) (Lightricks) | MiniMax Community License — territory restrictions apply |
+
+Neither engine is a fallback for the other. If only one is installed, the other appears in the switcher as an offer with its size on it — one click explains what it does and where to get it, and nothing about your existing renders changes when it lands.
+
 ### Image Studio
 <img width="1920" height="843" alt="image" src="https://github.com/user-attachments/assets/8e2f52de-b34c-44cf-9283-df30c4079607" />
 
 
-Qwen-Image-Edit (Lightning 4-step) is the default image engine. It handles instruction edits ("change the white jacket to red") and multi-subject composition with up to three reference images, generating four candidates per shot in seconds with the Lightning LoRA baked in. It's an optional one-click install (the panel falls back to a lighter mflux model if Qwen isn't installed). Results drop cards into a unified gallery, each with an Animate button that pre-fills the I2V form with the source still.
+Qwen-Image-Edit (Lightning 4-step) is the default image engine. It handles instruction edits ("change the white jacket to red") and multi-subject composition with up to three reference images, generating four candidates per shot in seconds with the Lightning LoRA baked in. It's a one-click install; until it lands the panel renders stills on a lighter mflux model. Results drop cards into a unified gallery, each with an Animate button that pre-fills the I2V form with the source still.
 
 ### Train Character
 
