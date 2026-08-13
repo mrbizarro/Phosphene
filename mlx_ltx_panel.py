@@ -6333,9 +6333,12 @@ LTX_VOICE_STRENGTH_HELP = (
     "they both land at nearly full strength. The face file was trained on still "
     "images, so the marks it leaves on the audio side carry no voice — but they "
     "are still there, and at equal strength they are louder than the voice "
-    "file's. Running the voice a little hotter than the face is what makes it "
-    "win. 1.4 is the first setting with real headroom; 1.2 is about even. Below "
-    "1.0 the voice is mostly the face file's noise.")
+    "file's. That is why the voice gets its own number instead of sharing the "
+    "face's. 1.0 is where it sits, and it is the setting that won the listening "
+    "test: a hotter voice was graded side by side against it and came out worse. "
+    "Raising it is here if you want it, but go in small steps, and only when a "
+    "particular voice is being drowned rather than as a general improvement. "
+    "Below 1.0 the voice is mostly the face file's noise.")
 # Why a trained character needs the Q8 pack.
 #
 # "Same render time either way" is MEASURED, not assumed: 1024x576x121,
@@ -13578,16 +13581,17 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         # never mattered; at q8 ~90 % of both survives, which is why fixing the
         # face is what surfaced the voice.
         #
-        # So running the voice a little hotter than the face is what makes it
-        # win. Parity is 1.2; 1.4 is the first setting with real headroom, and
-        # it is independently where current community guidance for 2.5 puts
-        # "balanced".
+        # That is the MEASUREMENT, and it argued for running the voice hotter:
+        # parity is 1.2, and 1.4 was the first rung with real headroom — also
+        # where community guidance for 2.5 puts "balanced".
         #
-        # THE DEFAULT IS 1.0 ANYWAY, and that is a listening decision, not a
-        # measurement one. 1.0/1.0 is the pair every graded clip was rendered
-        # at and passed on; the hotter rungs are real and reachable — the split
-        # control ships, the help text explains the mechanism — but a default
-        # nobody has listened to is not a default. Raise it when an ear says so.
+        # THE EAR DISAGREED, and the ear is the authority here. 1.0 and 1.4
+        # were rendered as a graded pair and the owner rejected 1.4: "candidate
+        # seems less good". So the default is 1.0 — the pair every graded clip
+        # was rendered at and passed on — and it is not provisional. The split
+        # control still ships and the ladder is still reachable; what changed is
+        # that the panel no longer recommends climbing it. An SNR argument is a
+        # reason to give the voice its own number, not a reason to turn it up.
         #
         # THE ALLOWLIST TRAP: make_job builds params from named reads, and a
         # field nobody reads here is dropped with no error — the render
@@ -21093,11 +21097,11 @@ class Handler(BaseHTTPRequestHandler):
             # on 2.5 q8 the graded recipe is the face at 1.0.
             #
             # The voice takes its own number for the reason spelled out in
-            # make_job: the face file's audio-branch deltas are noise, they are
-            # louder than the voice file's signal at equal strength, and running
-            # the voice hotter is what makes it win. It still DEFAULTS to 1.0 —
-            # the graded pair — because the hotter rungs have not been listened
-            # to. Same default on both lanes or the two surfaces disagree again.
+            # make_job: the face file's audio-branch deltas are noise and are
+            # louder than the voice file's signal at equal strength. It defaults
+            # to 1.0 — the graded pair, and the arm that won the listening test
+            # against a hotter one. Same default on both lanes or the two
+            # surfaces disagree again.
             try:
                 char_strength = float(
                     (form.get("character_strength", ["1.0"])[0] or "1.0"))
@@ -31385,10 +31389,11 @@ HTML = r"""<!doctype html>
       <input type="hidden" name="character_strength" id="characterStrength" value="1.0">
       <!-- The VOICE half of a character's strength. A character is two trained
            files and the face file's audio-branch deltas are noise that is
-           louder than the voice file's signal at equal strength — so running
-           the voice hotter is what makes it win, and the split control below is
-           how you do it. The DEFAULT is the graded pair, 1.0/1.0; the hotter
-           rungs are an ear's decision, not the shipped starting point.
+           louder than the voice file's signal at equal strength — which is why
+           the voice gets its own number, not why it should be turned up. The
+           default is the graded pair, 1.0/1.0, and it beat a hotter arm on the
+           owner's ear. The split control below is still there if a particular
+           voice is being drowned.
            MUST be in make_job's named reads or it silently no-ops. -->
       <input type="hidden" name="character_voice_strength" id="characterVoiceStrength" value="1.0">
 
@@ -47320,7 +47325,7 @@ function _renderCharsAppliedNote() {
                oninput="setCharStrength('voice', this.value)">
         <output id="charVoiceOut">${voi.toFixed(1)}</output>
         <button type="button" class="help-dot" id="charVoiceHelpBtn" aria-expanded="false"
-                aria-controls="charVoiceHelpNote" title="Why run the voice hotter?"
+                aria-controls="charVoiceHelpNote" title="Why the voice has its own number"
                 onclick="toggleCharVoiceHelp()">?</button>
       </div>
       <div class="h3-winhelp" id="charVoiceHelpNote" hidden></div>

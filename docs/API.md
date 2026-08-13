@@ -34,7 +34,7 @@ Add a job to the panel's queue. Returns immediately; the helper renders it async
 | `frames` | int | Must satisfy `frames % 8 == 1`. 121 = 5s, 169 = 7s, 241 = 10s. |
 | `frame_rate` | float | Default `24`. LTX is trained at 24 fps; deviation degrades quality. |
 | `character_strength` | float | Default `1.0`. The FACE LoRA's strength, 0–2. |
-| `character_voice_strength` | float | Default `1.0`. The VOICE LoRA's strength, 0–2, applied to `<trigger>.audio.safetensors` only. It is a separate number from the face because the face file's audio-branch deltas are noise and are louder than the voice file's signal at equal strength — so running the voice hotter (1.2 is parity, 1.4 is the first setting with real headroom) is what makes it win. The default stays at the graded `1.0`; the hotter rungs are yours to reach for. |
+| `character_voice_strength` | float | Default `1.0`. The VOICE LoRA's strength, 0–2, applied to `<trigger>.audio.safetensors` only. It is a separate number from the face because the face file's audio-branch deltas are noise and are louder than the voice file's signal at equal strength. The measurement argues for running it hotter (1.2 is parity, 1.4 has real headroom); a graded A/B said otherwise, and `1.0` won. Raise it in small steps only when a specific voice is being drowned. |
 | `seed` | int or `-1` | `-1` = random. |
 | `quality` | `quick` \| `balanced` \| `standard` \| `high` | **For character LoRA work, use `high`.** `balanced` silently routes >121f clips to the Q4 distilled transformer where current LoRAs lose identity. |
 | `stage1_steps`, `stage2_steps` | int | HQ two-stage pipeline. Validated defaults: `10` / `3`. |
@@ -161,7 +161,10 @@ Present while a job runs.
   "pct": 41, "phase": "denoise", "phase_label": "Denoising · step 5 / 10",
   "elapsed_sec": 62, "remaining_sec": 84, "eta_sec": 146,
   "preview": {
-    "url": "/file?path=…/live/preview_latest.png&t=1786…",  // cache-busted server-side
+    "url": "/image?path=…/live/preview_latest.png&t=1786…",  // cache-busted server-side
+                          // /image, NOT /file: the preview lives under STATE_DIR and
+                          // /file serves OUTPUT only. Writing /file here is what shipped
+                          // a correct preview to a broken-image glyph in every client.
     "estimate": 4, "total": 12,
     "meaningful": true,   // THE gate — the server decides, the client renders
     "abortable": true,    // meaningful && the runner published an abort sentinel
