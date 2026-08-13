@@ -32,7 +32,7 @@ Add a job to the panel's queue. Returns immediately; the helper renders it async
 | `negative_prompt` | string | Optional. Usually empty. |
 | `width`, `height` | int | Both divisible by 32. |
 | `frames` | int | Must satisfy `frames % 8 == 1`. 121 = 5s, 169 = 7s, 241 = 10s. |
-| `frame_rate` | float | Default `24`. LTX-2.3 was trained at 24 fps; deviation degrades quality. |
+| `frame_rate` | float | Default `24`. LTX is trained at 24 fps; deviation degrades quality. |
 | `seed` | int or `-1` | `-1` = random. |
 | `quality` | `quick` \| `balanced` \| `standard` \| `high` | **For character LoRA work, use `high`.** `balanced` silently routes >121f clips to the Q4 distilled transformer where current LoRAs lose identity. |
 | `stage1_steps`, `stage2_steps` | int | HQ two-stage pipeline. Validated defaults: `10` / `3`. |
@@ -372,7 +372,7 @@ Every completed clip writes a sidecar at `<output>.mp4.json` alongside the MP4. 
   "elapsed_sec": 426.13,
   "video_duration_sec": 7.0,
   "fps": 24,
-  "model": "dgrauet/ltx-2.3-mlx-q4",
+  "model": "mlx_models/ltx-2.5-mlx-q4",
   "queue_id": "j-<...>",
   "helper_elapsed_sec": 425.5,
   "output_codec": { "preset": "standard", "pix_fmt": "yuv420p", "crf": "18" },

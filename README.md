@@ -36,7 +36,7 @@ Key differences from the standard A2V path:
 
 ## Overview
 
-Phosphene is a local generative-media panel for Apple Silicon. It runs [LTX-Video 2.3](https://github.com/Lightricks/LTX-Video) (MLX port) for joint audio-and-video synthesis, [Qwen-Image-Edit-2509](https://huggingface.co/Qwen/Qwen-Image-Edit-2509) (with a Lightning 4-step fast tier) for stills, and ships an in-panel LoRA training pipeline for character identity (face + optional voice from a single dataset). Everything runs on-device: no cloud, no API keys, and no prompt, image, video or filename ever leaves your Mac. It does send anonymous usage counts (version, hardware class, render stats) — every field is listed in [docs/ANALYTICS.md](docs/ANALYTICS.md), and one click in Settings turns it off.
+Phosphene is a local generative-media panel for Apple Silicon. It runs [LTX-Video 2.5](https://github.com/Lightricks/LTX-Video) (MLX port) for joint audio-and-video synthesis, [Qwen-Image-Edit-2509](https://huggingface.co/Qwen/Qwen-Image-Edit-2509) (with a Lightning 4-step fast tier) for stills, and ships an in-panel LoRA training pipeline for character identity (face + optional voice from a single dataset). Everything runs on-device: no cloud, no API keys, and no prompt, image, video or filename ever leaves your Mac. It does send anonymous usage counts (version, hardware class, render stats) — every field is listed in [docs/ANALYTICS.md](docs/ANALYTICS.md), and one click in Settings turns it off.
 
 3.0 introduces in-panel character training (face + voice LoRA from one dataset), the Audio-to-Video workflow, the Image Studio tab, hardware capability tiering, and an agentic prompt enhancer driven by the same local Gemma 3 12B used for auto-captioning.
 
@@ -77,7 +77,7 @@ New workflow tab in 3.0. WAV or MP3 in, MP4 out — the audio drives motion in t
 
 ### LoRAs
 
-Drop `.safetensors` into `mlx_models/loras/` for immediate use, or browse and install LTX 2.3 LoRAs from CivitAI inside the panel (per-row rename, download, companion-aware delete). Character bundles live alongside style LoRAs and are filtered out of the regular picker so they don't show up twice.
+Drop `.safetensors` into `mlx_models/loras/` for immediate use, or browse and install LTX LoRAs from CivitAI inside the panel (per-row rename, download, companion-aware delete). Character bundles live alongside style LoRAs and are filtered out of the regular picker so they don't show up twice.
 
 ### HTTP API
 
@@ -165,11 +165,16 @@ cd ..
 # 4. Apply the runtime patches (idempotent, fail loud on upstream drift).
 ./ltx-2-mlx/env/bin/python3.11 patch_ltx_codec.py
 
-# 5. Download the Q4 LTX weights + the Gemma 3 4-bit encoder (~28 GB total).
-HF_HUB_ENABLE_HF_TRANSFER=1 ./ltx-2-mlx/env/bin/hf download \
-  dgrauet/ltx-2.3-mlx-q4 --local-dir mlx_models/ltx-2.3-mlx-q4
-HF_HUB_ENABLE_HF_TRANSFER=1 ./ltx-2-mlx/env/bin/hf download \
-  mlx-community/gemma-3-12b-it-4bit --local-dir mlx_models/gemma-3-12b-it-4bit
+# 5. Download LTX-2.5 — the base install: the engine (20.74 GB), its Gemma 4
+#    text encoder (6.73 GB) and the 22 MB live-preview decoder. 27.5 GB total,
+#    resumable and sha256-verified. NOT `hf download`: these are our own
+#    quantisation of a gated upstream, mirrored as GitHub release assets.
+./ltx-2-mlx/env/bin/python3.11 scripts/fetch_pack_release.py \
+  --repo-key q4_25 --repo-key gemma4_25 --repo-key tae
+
+# 5b. (Optional) The Q8 weights (30.02 GB) — what trained characters and
+#     voices need. The High tier additionally needs the High add-on (29.50 GB).
+./ltx-2-mlx/env/bin/python3.11 scripts/fetch_pack_release.py --repo-key q8_25
 
 # 6. (Optional) Image tab — install mflux + apply the FBCache patch.
 ./ltx-2-mlx/env/bin/pip install 'mflux==0.17.5'
@@ -245,11 +250,11 @@ Behavioral changes worth noting in 3.0:
 
 ## License and credits
 
-Panel: MIT, see [LICENSE](LICENSE). LTX-Video 2.3 weights: Lightricks' license. MLX: Apache 2.0. Gemma 3 12B: Google's terms. PiperSR: AGPL-3.0.
+Panel: MIT, see [LICENSE](LICENSE). LTX-Video 2.5 weights: Lightricks' license. MLX: Apache 2.0. Gemma 3 12B: Google's terms. PiperSR: AGPL-3.0.
 
 Phosphene depends on the following projects:
 
-- [Lightricks](https://github.com/Lightricks/LTX-Video) — LTX 2.3 and the joint audio + video architecture
+- [Lightricks](https://github.com/Lightricks/LTX-Video) — LTX 2.5 and the joint audio + video architecture
 - [@dgrauet](https://github.com/dgrauet/ltx-2-mlx) — MLX port of LTX-Video; the foundation everything else builds on
 - [Apple ML team](https://github.com/ml-explore/mlx) — MLX
 - [HiDream-ai](https://huggingface.co/HiDream-ai/HiDream-O1-Image-Dev) — HiDream-O1 weights and reference implementation

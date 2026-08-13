@@ -9125,7 +9125,14 @@ def _analytics_boot() -> None:
             "os_version": _analytics_os_version(),
             "chip_family": _analytics_chip_family(),
             "ram_gb": int(round(SYSTEM_RAM_GB)),
+            # `cap_tier` keeps reporting the FEATURE tier, unchanged, so the
+            # existing series stays comparable across the 2.5 cutover — a field
+            # that quietly changes meaning is worse than a missing one.
             "cap_tier": _resolve_cap_tier(),
+            # The generation this install actually serves, as a NEW field rather
+            # than a redefinition of an old one. Without it every 2.5 number
+            # since 2026-08-12 is indistinguishable from a 2.3 number.
+            "model_version": ACTIVE_MODEL_VERSION,
             "packs": packs,
             "h3_chain_supported": bool(packs["h3"] and h3_supports_chain()),
         })

@@ -3,7 +3,7 @@
 MiniMax-H3 (FL2VA) takes one prompt and returns **picture, dialogue and sound
 generated together**. It ships as an **optional pack**, not part of the base
 install: ~75 GB of weights, a 64 GB+ Mac, and a licence with territory
-restrictions. LTX-2.3 stays the default engine and is completely untouched by
+restrictions. LTX stays the default engine and is completely untouched by
 any of this.
 
 ---

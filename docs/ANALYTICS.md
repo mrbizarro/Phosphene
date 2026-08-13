@@ -159,7 +159,8 @@ Once per panel start.
 | `os_version` | string | `"26.4"` | macOS major.minor. Patch level deliberately dropped |
 | `chip_family` | string | `"M4 Max"` | Parsed from the CPU brand string. A hardware *class*, identical across every machine of that model. `"unknown"` or `"non-apple-silicon"` when unparseable |
 | `ram_gb` | int | `64` | Unified memory, rounded to whole GB |
-| `cap_tier` | string | `"q8"` | `q4` or `q8` — which capability surface the UI is showing |
+| `cap_tier` | string | `"q8"` | `q4` or `q8` — which capability surface the UI is showing. A statement about this Mac's RAM folded down to what the generation can serve, NOT about which weights are on disk |
+| `model_version` | string | `"ltx25"` | Which LTX generation this install serves (`ltx23` / `ltx25`). Added in v4.0 as a NEW field rather than by redefining `cap_tier`, so the existing capability series stays comparable across the 2.5 cutover |
 | `packs` | object | `{"h3":true,"sharp":false,"q8":true,"qwen":false}` | Booleans only: is each optional pack installed |
 | `h3_chain_supported` | bool | `false` | Whether the installed H3 runner supports window chaining (10 s / 15 s tiers) |
 

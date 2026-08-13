@@ -474,12 +474,15 @@ class TestEventSchemas(AnalyticsTestCase):
         p = self.props_of("app_boot")
         self.assertEqual(set(p), {
             "version", "os_version", "chip_family", "ram_gb", "cap_tier",
-            "packs", "h3_chain_supported"})
+            "model_version", "packs", "h3_chain_supported"})
         self.assertEqual(set(p["packs"]), {"h3", "sharp", "q8", "qwen"})
         for v in p["packs"].values():
             self.assertIsInstance(v, bool)
         self.assertIsInstance(p["ram_gb"], int)
         self.assertIn(p["cap_tier"], ("q4", "q8"))
+        # A NEW field, not a redefinition of cap_tier: the capability
+        # series has to stay comparable across the 2.5 cutover.
+        self.assertIn(p["model_version"], ("ltx23", "ltx25"))
         # os_version is major.minor only — no patch level.
         self.assertLessEqual(len(p["os_version"].split(".")), 2)
 
