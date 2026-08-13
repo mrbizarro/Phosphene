@@ -5953,6 +5953,31 @@ H3_CHAIN_PROMPT_HELP = (
 # file instead (no separator to collide with a prompt that contains '|||'), but
 # a hand-rolled curl may still post this form and it costs one split to accept.
 H3_CHAIN_PROMPT_SEPARATOR = " ||| "
+# Why the voice runs hotter than the face. Same four-hop Python-owned path as
+# H3_CHAIN_PROMPT_HELP (constant -> bootstrap key -> lazy textContent fill), for
+# the same reason: the sentence explaining a mechanism lives beside the
+# mechanism or it drifts from it.
+LTX_VOICE_STRENGTH_HELP = (
+    "The face and the voice are two separate trained files, and on a q8 pack "
+    "they both land at nearly full strength. The face file was trained on still "
+    "images, so the marks it leaves on the audio side carry no voice — but they "
+    "are still there, and at equal strength they are louder than the voice "
+    "file's. Running the voice a little hotter than the face is what makes it "
+    "win. 1.4 is the first setting with real headroom; 1.2 is about even. Below "
+    "1.0 the voice is mostly the face file's noise.")
+# Why a trained character needs the Q8 pack.
+#
+# "Same render time either way" is MEASURED, not assumed: 1024x576x121,
+# distilled 8+3, the same two LoRAs fused, seed 411774, both GPU locks held,
+# 2026-08-13 — q4 168.7 s vs q8 171.2 s, a 1.5 % difference that is inside the
+# run-to-run noise of a single render. The coordinator flagged this sentence as
+# unverified; it is now the one claim here with a same-geometry pair behind it.
+LTX_Q8_CHARACTER_HELP = (
+    "Trained characters need the Q8 weights. The 4-bit base pack rounds most of "
+    "a trained delta away before the first frame — about nineteen twentieths of "
+    "it — so the trigger word still changes the picture and the face is not the "
+    "face you trained. Same render time either way; Q8 is a bigger download and "
+    "holds more in memory.")
 # Storyboard's `?` copy, on the same four-hop Python-owned path as
 # H3_CHAIN_PROMPT_HELP above and for the same reason: the sentence explaining a
 # mechanism has to live beside the mechanism or it drifts. It names no model and
@@ -6921,6 +6946,14 @@ def ltx_tiers_payload() -> dict:
             LTX_LENGTHS.values(), key=lambda x: x["order"]) if l["offered"]],
         "default_quality": LTX_QUALITY_DEFAULT,
         "default_length": LTX_LENGTH_DEFAULT,
+        # The `?` copy the LTX help-dots fill from, on the same four-hop
+        # Python-owned path H3's chain-prompt help takes. It rides the LTX
+        # bootstrap block rather than a top-level one so everything the LTX
+        # surface reads arrives together.
+        "help": {
+            "voice_strength": LTX_VOICE_STRENGTH_HELP,
+            "q8_character": LTX_Q8_CHARACTER_HELP,
+        },
     }
 
 
@@ -12907,6 +12940,35 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         except (TypeError, ValueError):
             char_strength = 1.0
         char_strength = max(0.0, min(2.0, char_strength))
+        # THE VOICE IS A SEPARATE FILE AND IT NEEDS A SEPARATE NUMBER.
+        #
+        # A character is two trained LoRAs: <trigger>.safetensors (1152 modules,
+        # 384 of them on the audio branch) and <trigger>.audio.safetensors (576,
+        # all audio). They OVERLAP on 384 modules, and on those the face file's
+        # audio deltas are NOISE — it was trained on 42 still images with
+        # generate_audio false, so whatever the optimiser did to those
+        # parameters encodes no voice at all. Measured, the noise is LOUDER than
+        # the signal: median ||D|| 1.45 against the voice file's 1.10, an SNR of
+        # 0.81x at equal strength. At q4 both were erased (~95 %) and the ratio
+        # never mattered; at q8 ~90 % of both survives, which is why fixing the
+        # face is what surfaced the voice.
+        #
+        # So running the voice a little hotter than the face is what makes it
+        # win. Parity is 1.2; 1.4 is the first setting with real headroom, and
+        # it is independently where current community guidance for 2.5 puts
+        # "balanced". Hence the default below.
+        #
+        # THE ALLOWLIST TRAP: make_job builds params from named reads, and a
+        # field nobody reads here is dropped with no error — the render
+        # succeeds and the voice silently runs at the face's strength. That has
+        # bitten this project before (image params, 2026-05). The assertion that
+        # this key reaches params is part of the same commit.
+        try:
+            char_voice_strength = float(
+                f("character_voice_strength", "1.4") or "1.4")
+        except (TypeError, ValueError):
+            char_voice_strength = 1.4
+        char_voice_strength = max(0.0, min(2.0, char_voice_strength))
         # Per-render voice opt-out (2026-05-18). When the user flips the
         # "No voice" toggle in composer-tools, drop the character's
         # audio LoRA from the stack for THIS render — face still locks,
@@ -12932,7 +12994,8 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                 additions.append({"path": face_p, "strength": char_strength})
                 existing_paths.add(face_p)
             if audio_p and audio_p not in existing_paths and not no_voice:
-                additions.append({"path": audio_p, "strength": char_strength})
+                additions.append({"path": audio_p,
+                                  "strength": char_voice_strength})
                 existing_paths.add(audio_p)
             elif audio_p and no_voice:
                 job["params"]["no_voice"] = True
@@ -12949,9 +13012,14 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # later restore the picker selection.
             if "character_id" not in job["params"]:
                 job["params"]["character_id"] = _character_id
-            # Persist the strength too so Load Params can restore the
-            # exact slider value (defaults to 1.0 on the picker).
+            # Persist BOTH strengths so Load Params restores the exact sliders
+            # and the sidecar records what actually rendered. The voice value is
+            # stamped even when it equals the default: a clip's sidecar saying
+            # 1.4 is how a future listener knows which rung of the ladder they
+            # are hearing.
             job["params"].setdefault("character_strength", char_strength)
+            job["params"].setdefault("character_voice_strength",
+                                     char_voice_strength)
 
     # ---- lane scrub: a LoRA never crosses engines --------------------------
     # The picker is ONE control shared by both video engines, and its hidden
@@ -20263,16 +20331,33 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 self._json({"error": "seed must be an integer"}, 400); return
 
-            # Character LoRA strength (applied to BOTH face + audio LoRAs).
-            # Default 0.8: Aria/Bizarro/Mr Bizarro v2 LoRAs were trained to 5000
-            # steps (vs Lightricks-recommended 2000), so they over-bake
-            # training-time visual quirks at strength 1.0. Dropping to 0.8
-            # noticeably reduces sparkles/mesh without hurting identity.
+            # Character LoRA strengths — face and voice, separately.
+            #
+            # ONE CHARACTER, ONE MEANING OF "STRENGTH", WHICHEVER TAB YOU ARE ON.
+            # This lane read `character_strength` with a default of 0.8 and
+            # applied that one number to BOTH files, while the Manual tab's
+            # picker defaulted to 1.0 — so the same character rendered
+            # differently depending on which surface launched it, and neither
+            # number was written down anywhere the other could see. The 0.8 was
+            # a 2.3-era correction for over-baked visual quirks at 5000 steps;
+            # on 2.5 q8 the graded recipe is the face at 1.0.
+            #
+            # The voice takes its own default (1.4) for the reason spelled out
+            # in make_job: the face file's audio-branch deltas are noise, they
+            # are louder than the voice file's signal at equal strength, and
+            # running the voice hotter is what makes it win.
             try:
-                char_strength = float((form.get("character_strength", ["0.8"])[0] or "0.8"))
+                char_strength = float(
+                    (form.get("character_strength", ["1.0"])[0] or "1.0"))
             except (TypeError, ValueError):
-                char_strength = 0.8
+                char_strength = 1.0
             char_strength = max(0.0, min(2.0, char_strength))
+            try:
+                char_voice_strength = float(
+                    (form.get("character_voice_strength", ["1.4"])[0] or "1.4"))
+            except (TypeError, ValueError):
+                char_voice_strength = 1.4
+            char_voice_strength = max(0.0, min(2.0, char_voice_strength))
 
             # LoRA stack: face always, audio when the character has one.
             # Extra LoRAs (style LoRAs like cinematronx, etc.) can be
@@ -20281,7 +20366,8 @@ class Handler(BaseHTTPRequestHandler):
             # to prevent footguns.
             lora_stack = [{"path": char["face_lora_path"], "strength": char_strength}]
             if char.get("audio_lora_path"):
-                lora_stack.append({"path": char["audio_lora_path"], "strength": char_strength})
+                lora_stack.append({"path": char["audio_lora_path"],
+                                   "strength": char_voice_strength})
             extra_loras_raw = (form.get("extra_loras", [""])[0] or "").strip()
             if extra_loras_raw:
                 try:
@@ -28167,6 +28253,49 @@ HTML = r"""<!doctype html>
       min-width: 28px; text-align: right;
     }
 
+    /* `split` — a TEXT affordance, not a chevron, because it sits inside a
+       one-line control where a rotating glyph would read as decoration. Same
+       aria-expanded contract as .help-dot. */
+    .chars-strip-active .chars-split-toggle {
+      background: transparent;
+      border: 1px solid var(--ph-border-soft);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 10px; font-family: var(--ph-font-mono);
+      color: var(--muted); cursor: pointer;
+      white-space: nowrap;
+    }
+    .chars-strip-active .chars-split-toggle:hover {
+      color: var(--text); border-color: var(--ph-border-strong);
+    }
+    .chars-strip-active .chars-split-toggle[aria-expanded="true"] {
+      color: var(--accent-bright); border-color: var(--accent);
+    }
+    /* The disclosure. Full width under the one-line row, so the two sliders
+       line up with each other rather than with the name beside them. */
+    .chars-strip-active .chars-split {
+      flex-basis: 100%;
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px solid var(--ph-border-soft);
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .chars-strip-active .chars-split-line {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 10px; color: var(--muted);
+    }
+    .chars-strip-active .chars-split-line > span:first-child {
+      min-width: 34px;
+    }
+    .chars-strip-active .chars-split-line input[type="range"] {
+      width: 140px; accent-color: var(--accent);
+    }
+    .chars-strip-active .chars-split-line output {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px; color: var(--text);
+      min-width: 28px; text-align: right;
+    }
+
     .chars-strip-empty {
       font-size: 11px; color: var(--muted);
       padding: 4px 2px;
@@ -30167,6 +30296,12 @@ HTML = r"""<!doctype html>
       </div>
       <input type="hidden" name="character_id" id="characterIdInput" value="">
       <input type="hidden" name="character_strength" id="characterStrength" value="1.0">
+      <!-- The VOICE half of a character's strength. A character is two trained
+           files and the face file's audio-branch deltas are noise that is
+           louder than the voice file's signal at equal strength — so the voice
+           runs hotter by default. 1.4 is the first setting with real headroom.
+           MUST be in make_job's named reads or it silently no-ops. -->
+      <input type="hidden" name="character_voice_strength" id="characterVoiceStrength" value="1.4">
 
       <!-- ============== COMPOSER CARD ==============
            Hero element of the form. Carries the reference picker(s)
@@ -45635,16 +45770,111 @@ function _renderCharsAppliedNote() {
     ? ` · <em title="No audio LoRA on disk — face only">silent</em>`
     : '';
   const cur = parseFloat(document.getElementById('characterStrength')?.value || '1.0');
+  const voi = parseFloat(document.getElementById('characterVoiceStrength')?.value || '1.4');
+  const hasVoice = !!c.audio_lora_path;
+  // ONE slider stays the default surface; the split lives one disclosure down.
+  // A character is two files, but the panel is not asking anyone to think about
+  // two numbers before they have a reason to. `split` is a text affordance, not
+  // a chevron — it sits inside a one-line control — and its label carries the
+  // pair once they differ, so a non-default voice is visible without opening it.
+  const splitLabel = (Math.abs(voi - cur) > 0.001)
+    ? `split · ${cur.toFixed(1)} / ${voi.toFixed(1)}`
+    : 'split';
   note.innerHTML = `
     <span><strong>${name}</strong>${triggerCode}${silentBadge}</span>
     <span class="chars-inline-strength">
       <span>strength</span>
       <input type="range" min="0" max="2" step="0.05" value="${cur.toFixed(2)}"
-             oninput="this.nextElementSibling.value = parseFloat(this.value).toFixed(1); document.getElementById('characterStrength').value = this.value">
-      <output>${cur.toFixed(1)}</output>
+             oninput="setCharStrength('face', this.value)">
+      <output id="charFaceOut">${cur.toFixed(1)}</output>
+      ${hasVoice ? `<button type="button" class="chars-split-toggle" id="charSplitBtn"
+              aria-expanded="false" aria-controls="charSplitRow"
+              title="Set the face and the voice separately"
+              onclick="toggleCharSplit()">${escapeHtml(splitLabel)}</button>` : ''}
     </span>
+    ${hasVoice ? `
+    <div class="chars-split" id="charSplitRow" hidden>
+      <div class="chars-split-line">
+        <span>face</span>
+        <input type="range" min="0" max="2" step="0.05" value="${cur.toFixed(2)}"
+               oninput="setCharStrength('face', this.value)">
+        <output id="charFaceSplitOut">${cur.toFixed(1)}</output>
+      </div>
+      <div class="chars-split-line">
+        <span>voice</span>
+        <input type="range" min="0" max="2" step="0.05" value="${voi.toFixed(2)}"
+               oninput="setCharStrength('voice', this.value)">
+        <output id="charVoiceOut">${voi.toFixed(1)}</output>
+        <button type="button" class="help-dot" id="charVoiceHelpBtn" aria-expanded="false"
+                aria-controls="charVoiceHelpNote" title="Why 1.4?"
+                onclick="toggleCharVoiceHelp()">?</button>
+      </div>
+      <div class="h3-winhelp" id="charVoiceHelpNote" hidden></div>
+    </div>` : ''}
   `;
   note.hidden = false;
+}
+
+// ---- The two halves of a character's strength -------------------------------
+// One writer for both hidden fields, so the collapsed slider, the two split
+// sliders and every `output` beside them can never disagree about what will
+// render.
+//
+// COLLAPSED BEHAVIOUR, and it is deliberate: moving the single slider moves the
+// FACE only. The voice keeps its own value and does not track. A user who never
+// opens the disclosure gets face 1.0 / voice 1.4 — the pair the ladder was
+// rendered at — and dragging "strength" changes the thing that word means to
+// them (how much like the trained person it looks), not the audio.
+function setCharStrength(which, value) {
+  const v = Math.max(0, Math.min(2, parseFloat(value)));
+  if (!Number.isFinite(v)) return;
+  const id = (which === 'voice') ? 'characterVoiceStrength' : 'characterStrength';
+  const el = document.getElementById(id);
+  if (el) el.value = v.toFixed(2);
+  // Every visible control for this half, wherever it is on screen.
+  const sel = (which === 'voice')
+    ? ['#charVoiceOut']
+    : ['#charFaceOut', '#charFaceSplitOut'];
+  sel.forEach(s => { const o = document.querySelector(s); if (o) o.value = v.toFixed(1); });
+  document.querySelectorAll('.chars-inline-strength input[type="range"]').forEach(r => {
+    if (which === 'face' && parseFloat(r.value) !== v) r.value = v.toFixed(2);
+  });
+  const row = document.getElementById('charSplitRow');
+  if (row) {
+    const lines = row.querySelectorAll('.chars-split-line input[type="range"]');
+    const idx = (which === 'voice') ? 1 : 0;
+    if (lines[idx] && parseFloat(lines[idx].value) !== v) lines[idx].value = v.toFixed(2);
+  }
+  // The toggle's own label carries the pair once they differ, so a non-default
+  // voice is legible without opening the disclosure.
+  const btn = document.getElementById('charSplitBtn');
+  if (btn) {
+    const f = parseFloat((document.getElementById('characterStrength') || {}).value || '1.0');
+    const s = parseFloat((document.getElementById('characterVoiceStrength') || {}).value || '1.4');
+    btn.textContent = (Math.abs(s - f) > 0.001)
+      ? `split · ${f.toFixed(1)} / ${s.toFixed(1)}` : 'split';
+  }
+}
+function toggleCharSplit() {
+  const row = document.getElementById('charSplitRow');
+  const btn = document.getElementById('charSplitBtn');
+  if (!row || !btn) return;
+  const open = row.hidden;
+  row.hidden = !open;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+// The doctrine, filled lazily from the Python-owned string so the sentence
+// explaining the mechanism ships with the mechanism.
+function toggleCharVoiceHelp() {
+  const note = document.getElementById('charVoiceHelpNote');
+  const btn = document.getElementById('charVoiceHelpBtn');
+  if (!note || !btn) return;
+  if (!note.textContent) {
+    note.textContent = ((BOOT.ltx || {}).help || {}).voice_strength || '';
+  }
+  const open = note.hidden;
+  note.hidden = !open;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
 }
 
 // ============== Manage characters modal (2026-05-18) ==============
