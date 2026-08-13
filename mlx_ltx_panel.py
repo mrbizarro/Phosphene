@@ -23703,6 +23703,10 @@ HTML = r"""<!doctype html>
     .sb-enginepick-note b { color: var(--text); font-weight: 600; }
     .sb-chip-pass { cursor: pointer; }
     .sb-chip-pass:hover { color: var(--text); border-color: var(--border-strong); }
+    /* Read-only, and it appears ONLY on shots that speak. There is no "silent"
+       chip: silence is the honest default and a chip for it would be noise on
+       every other card. */
+    .sb-chip-voice { cursor: default; }
     .sb-shot-est {
       font-size: 10.5px; color: var(--muted); flex: 0 0 auto;
       font-family: var(--ph-font-mono, ui-monospace, Menlo, monospace);
@@ -30935,9 +30939,10 @@ HTML = r"""<!doctype html>
                on H3 the toggle could only ever be a no-op. -->
           <label class="toggle-pill" id="noVoicePill" hidden data-ltx-only
                  title="Skip the character's voice LoRA for this render. The face still locks, but audio stays ambient — no speech, no gibberish.">
-            <input type="checkbox" id="noVoice" name="no_voice">
+            <input type="checkbox" id="noVoice" name="no_voice"
+                   onchange="markNoVoiceTouched()">
             <span class="toggle-dot"></span>
-            <span>No voice</span>
+            <span id="noVoiceLabel">No voice</span>
           </label>
         </div>
       </div>
@@ -46147,6 +46152,10 @@ function _renderCharsAppliedNote() {
     if (voicePill.hidden) {
       const cb = document.getElementById('noVoice');
       if (cb) cb.checked = false;
+    } else if (typeof refreshNoVoiceAuto === 'function') {
+      // Casting a character with a voice is the moment the default becomes
+      // meaningful, so evaluate it here as well as on prompt input.
+      refreshNoVoiceAuto();
     }
   }
   const name = escapeHtml(c.name || c.trigger || c.id);
@@ -46201,6 +46210,57 @@ function _renderCharsAppliedNote() {
   `;
   note.hidden = false;
 }
+
+// ---- No voice, defaulted rather than guessed --------------------------------
+//
+// The storyboard lane DERIVES this exactly, from the planner's <d> tags. The
+// Manual tab cannot: a typed prompt has no markup, and a panel that claimed to
+// know whether you meant someone to speak would be wrong often enough to be
+// worse than useless. So it does the one honest thing available — it sets a
+// default and SAYS IT DID.
+//
+// NO TRI-STATE. A checkbox that is checked is checked; the ` · auto` suffix
+// says who checked it, and one click removes the suffix permanently for the
+// session. That is the whole disclosure.
+const SPEECH = /(^|\s)says\b|<d>|["“](?=[^"”]{3,})/i;
+let _noVoiceTouched = false;
+function markNoVoiceTouched() {
+  _noVoiceTouched = true;
+  const lbl = document.getElementById('noVoiceLabel');
+  if (lbl) lbl.textContent = 'No voice';
+  const pill = document.getElementById('noVoicePill');
+  if (pill) pill.title = "Skip the character's voice LoRA for this render. The face still locks, but audio stays ambient — no speech, no gibberish.";
+}
+function refreshNoVoiceAuto() {
+  // Only while the pill is untouched THIS SESSION. Once the user has an
+  // opinion, their choice is frozen and the prompt stops moving it.
+  if (_noVoiceTouched) return;
+  const cb = document.getElementById('noVoice');
+  const pill = document.getElementById('noVoicePill');
+  const lbl = document.getElementById('noVoiceLabel');
+  if (!cb || !pill || !lbl || pill.hidden) return;
+  const prompt = (document.getElementById('prompt') || {}).value || '';
+  const hasSpeech = SPEECH.test(prompt);
+  cb.checked = !hasSpeech;
+  lbl.textContent = hasSpeech ? 'No voice' : 'No voice · auto';
+  pill.title = "Skip the character's voice LoRA for this render. The face still locks, but audio stays ambient — no speech, no gibberish."
+    + (hasSpeech ? '' : '\nSet on its own because there are no spoken lines in the prompt — click to override.');
+}
+(function wireNoVoiceAuto() {
+  const attach = () => {
+    const p = document.getElementById('prompt');
+    if (!p || p.__noVoiceWired) return;
+    let t = null;
+    p.addEventListener('input', () => {
+      clearTimeout(t);
+      t = setTimeout(refreshNoVoiceAuto, 500);
+    });
+    p.__noVoiceWired = true;
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', attach);
+  } else { attach(); }
+})();
 
 // ---- The two halves of a character's strength -------------------------------
 // One writer for both hidden fields, so the collapsed slider, the two split
@@ -48603,6 +48663,9 @@ function sbShotCard(s, r, errs) {
       <select class="sb-select sb-shot-char" data-act="char" aria-label="Who's in this shot" ${locked ? 'disabled' : ''} ${noCast ? 'hidden' : ''}>${opts}</select>
       <select class="sb-select sb-shot-dur" data-act="dur" aria-label="Length" ${locked ? 'disabled' : ''}>${durOpts}</select>
       ${sbEngineChip(engine)}
+      ${isChar && /<d>\s*(?!<\/\s*d\s*>)\S/i.test(s.prompt || '')
+        ? `<span class="sb-chip sb-chip-voice" title="This shot has spoken lines, so the character's voice loads.">voice</span>`
+        : ''}
       <span class="sb-chip sb-chip-pass" data-act="pass" title="Quality is set for the whole film — click to change it">${passLabel}</span>
       <span class="sb-shot-est">${sbShotEst(est)}</span>
       <span class="sb-shot-spacer"></span>
