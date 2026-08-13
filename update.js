@@ -140,7 +140,22 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        message: "./ltx-2-mlx/env/bin/pip install --force-reinstall --no-deps 'mlx==0.31.1' 'mlx-lm==0.31.1' 'mlx-metal==0.31.1'"
+        // 3.8.2: uv, not the venv's pip. Every plain-pip step in this file is
+        // now a uv step, for one reason: mlx-vlm is deliberately installed
+        // --no-deps, so its metadata is permanently unsatisfiable, and pip
+        // runs a dependency-consistency pass after ANY install that actually
+        // changes something. That pass prints
+        //   ERROR: pip's dependency resolver does not currently take into
+        //   account all the packages that are installed...
+        // even when the install succeeded and pip exits 0 (measured). The
+        // mflux step below already switched to uv for exactly this noise —
+        // "this is what made cocktailpeanut's update look broken even though
+        // mflux installed fine". On the owner's v3.8.1 run it was worse than
+        // cosmetic: the Pinokio run ENDED at the certifi step that emitted
+        // that block (session log: last `step: 7` of 18) and every remaining
+        // step was skipped in silence. uv does the same installs and emits
+        // none of it. One lane, one failure mode.
+        message: "uv pip install --python ./ltx-2-mlx/env/bin/python --reinstall --no-deps 'mlx==0.31.1' 'mlx-lm==0.31.1' 'mlx-metal==0.31.1'"
       }
     },
     // Re-install ltx-core-mlx + ltx-pipelines-mlx + ltx-trainer-mlx from
@@ -191,6 +206,33 @@ module.exports = {
         message: "uv pip install --python env/bin/python --reinstall --no-deps --build-constraints ../pip-build-constraints.txt ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer"
       }
     },
+    // ---- Re-apply the codec patch — HERE, not at the bottom (3.8.2) --------
+    //
+    // This step used to sit eleven steps down, after litellm / smolagents /
+    // mflux / the IC-LoRA fetches. On the owner's own machine the v3.8.1 run
+    // executed steps 0-7 and STOPPED — Pinokio's own session log records
+    // `step: 7` as the last one, the `certifi` step, whose plain-pip output
+    // carried pip's "ERROR: pip's dependency resolver does not currently take
+    // into account..." block (a side effect of mlx-vlm being installed
+    // --no-deps). Everything after it, including this patch, silently never
+    // ran, and the update still presented as finished. Corroborated on that
+    // install: no smolagents, no mflux, no mlx-teacache, and an UNPATCHED
+    // video_vae.py in site-packages — i.e. every render encoded 4:2:0.
+    //
+    // So: the patch runs IMMEDIATELY after the reinstall that replaces
+    // site-packages, before a single optional package step can end the run.
+    // Ordering is the fix; the pip->uv conversion below removes the trigger;
+    // and patch_ltx_codec.py now verifies its own work and exits non-zero
+    // with a banner if the file the runtime imports lacks the patch. Three
+    // independent lines of defence, because the failure is invisible: an
+    // unpatched install renders perfectly happily, just with blocky faces.
+    //
+    // It MUST stay after the uv reinstall above — that step overwrites
+    // site-packages, so a patch applied before it would be thrown away.
+    {
+      method: "shell.run",
+      params: { message: "./ltx-2-mlx/env/bin/python3.11 patch_ltx_codec.py" }
+    },
     // 3.0: pyyaml + pydantic + tqdm + rich are ltx-trainer-mlx's
     // transitive deps. We just installed ltx-trainer with --no-deps so
     // those weren't resolved. Install them explicitly (idempotent — pip
@@ -199,7 +241,7 @@ module.exports = {
       method: "shell.run",
       params: {
         path: "ltx-2-mlx",
-        message: "./env/bin/pip install 'pyyaml>=6.0' 'pydantic>=2.0' 'tqdm>=4.65' 'rich>=13.0'"
+        message: "uv pip install --python env/bin/python 'pyyaml>=6.0' 'pydantic>=2.0' 'tqdm>=4.65' 'rich>=13.0'"
       }
     },
     // 3.0: auto-caption (Gemma 3 12B via mlx-vlm) needs mlx-vlm 0.4.4.
@@ -211,7 +253,7 @@ module.exports = {
       method: "shell.run",
       params: {
         path: "ltx-2-mlx",
-        message: "./env/bin/pip install --no-deps 'mlx-vlm==0.4.4'"
+        message: "uv pip install --python env/bin/python --no-deps 'mlx-vlm==0.4.4'"
       }
     },
     // Y1.022: hf_transfer is HuggingFace's Rust accelerator — 5-10× faster
@@ -224,7 +266,7 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        message: "./ltx-2-mlx/env/bin/pip install --upgrade 'hf_transfer>=0.1.6'"
+        message: "uv pip install --python ./ltx-2-mlx/env/bin/python --upgrade 'hf_transfer>=0.1.6'"
       }
     },
     // 2026-05-31 review fix (E3): ensure certifi is present on every update.
@@ -234,7 +276,7 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        message: "./ltx-2-mlx/env/bin/pip install --upgrade certifi"
+        message: "uv pip install --python ./ltx-2-mlx/env/bin/python --upgrade certifi"
       }
     },
     // litellm: replaces the stdlib urllib chat client in agent/engine.py
@@ -247,7 +289,7 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        message: "./ltx-2-mlx/env/bin/pip install --upgrade 'litellm>=1.83.14'"
+        message: "uv pip install --python ./ltx-2-mlx/env/bin/python --upgrade 'litellm>=1.83.14'"
       }
     },
     // smolagents: powers the optional CodeAgent runtime in
@@ -320,16 +362,13 @@ module.exports = {
         ].join("\n")
       }
     },
-    // Re-apply patches. Codec patch is required; I2V OOM patch is a no-op
-    // on dcd639e (older I2V structure) and reports drift gracefully now.
-    // mflux FBCache patch is idempotent (skips when its marker is already
-    // present); installs the cache path the first time and stays put.
-    // Pin to the venv's python3.11 to match install.js — `python3` on
-    // Pinokio hosts isn't guaranteed to be 3.11 (or even present on PATH).
-    {
-      method: "shell.run",
-      params: { message: "./ltx-2-mlx/env/bin/python3.11 patch_ltx_codec.py" }
-    },
+    // The mflux FBCache patch stays HERE — it has to, because it patches
+    // mflux, which is installed by the step directly above. (The codec patch
+    // that used to sit alongside it moved up to run right after the ltx
+    // package reinstall; see the 3.8.2 note there for why.) Idempotent —
+    // skips when its marker is already present. Pin to the venv's python3.11
+    // to match install.js: `python3` on Pinokio hosts isn't guaranteed to be
+    // 3.11, or even present on PATH.
     {
       method: "shell.run",
       params: { message: "./ltx-2-mlx/env/bin/python3.11 patch_mflux_fbcache.py" }

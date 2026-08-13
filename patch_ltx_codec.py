@@ -53,6 +53,20 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+# 3.8.2: the fallback list. It is now genuinely a FALLBACK — see _find.
+#
+# The old code used ONLY this list, resolved against the process CWD, and that
+# was two bugs in one. It guessed at a layout (hardcoded `python3.11`, hardcoded
+# venv directory names) instead of asking the interpreter that will actually do
+# the importing, and because the paths were relative to CWD the same install
+# reported "MISSING — target file not found" when the script was run from
+# anywhere but the app root — which is exactly what happened when the owner ran
+# it by hand on a machine whose file was sitting right there.
+#
+# Anchored on the script's own directory now, not the CWD, so even the fallback
+# works from any working directory.
+_HERE = Path(__file__).resolve().parent
+
 VENV_ROOTS = [
     "ltx-2-mlx/env/lib/python3.11/site-packages",      # Pinokio
     "ltx-2-mlx/.venv/lib/python3.11/site-packages",    # manual
@@ -60,13 +74,63 @@ VENV_ROOTS = [
     "ltx-2-mlx/packages/ltx-pipelines-mlx/src",        # editable (ltx-pipelines)
 ]
 
+# Which packages own which sub-paths, for the import-based resolution below.
+_PKG_OF = {
+    "ltx_core_mlx": "ltx_core_mlx",
+    "ltx_pipelines_mlx": "ltx_pipelines_mlx",
+}
+
+
+def _find_by_import(rel: str) -> Path | None:
+    """Resolve `rel` through the RUNNING interpreter's own import machinery.
+
+    This is the authoritative answer to "which file will the panel import?",
+    which is the only file worth patching. Run under the venv's python
+    (install.js / update.js both invoke `ltx-2-mlx/env/bin/python3.11`) it
+    lands on that venv's copy — site-packages when the packages are installed
+    normally, the vendored source when they are installed editable. Either way
+    it is the file the runtime loads, with no assumptions about directory
+    names, python minor version, or working directory.
+
+    `find_spec` on a TOP-LEVEL package does not execute it, so this stays
+    cheap and cannot be broken by an import-time failure deeper in the tree.
+    """
+    import importlib.util
+
+    top = rel.split("/", 1)[0]
+    pkg = _PKG_OF.get(top)
+    if pkg is None:
+        return None
+    try:
+        spec = importlib.util.find_spec(pkg)
+    except Exception:
+        return None
+    if spec is None or not spec.origin:
+        return None
+    # spec.origin is <pkg>/__init__.py; its parent is the package root, which
+    # is what `rel` is relative to (minus the leading package name).
+    root = Path(spec.origin).resolve().parent.parent
+    p = root / rel
+    return p if p.exists() else None
+
 
 def _find(rel: str) -> Path | None:
-    """Resolve a package-relative path under the first venv root that contains it."""
+    """Resolve a package-relative path: ask the interpreter first, then guess.
+
+    Order matters. The import-based answer is the file the runtime actually
+    loads; the path list is a last resort for the case where the packages are
+    not importable at all (a half-finished install), kept so the script still
+    has something to say instead of silently doing nothing.
+    """
+    p = _find_by_import(rel)
+    if p is not None:
+        print(f"  [resolve] via import: {p}")
+        return p
     for root in VENV_ROOTS:
-        p = Path(root) / rel
-        if p.exists():
-            return p
+        cand = _HERE / root / rel
+        if cand.exists():
+            print(f"  [resolve] via path fallback: {cand}")
+            return cand
     return None
 
 
@@ -175,6 +239,21 @@ def apply_patch(target: Path, old: str, new: str, marker: str, label: str,
     return OUTCOME_APPLIED
 
 
+def _shout(*lines: str) -> None:
+    """Print a failure the Pinokio console cannot be skim-read past.
+
+    The old single-line stderr message scrolled off inside a wall of pip
+    output. A patch that did not apply means every clip is encoded 4:2:0;
+    that deserves a banner.
+    """
+    bar = "!" * 72
+    print(f"\n{bar}", file=sys.stderr)
+    print("!! PHOSPHENE: CODEC PATCH FAILURE", file=sys.stderr)
+    for line in lines:
+        print(f"!! {line}", file=sys.stderr)
+    print(f"{bar}\n", file=sys.stderr)
+
+
 def main() -> int:
     print("Applying LTX23MLX codec patch (ltx-2-mlx e6be9d6 / 0.14.19+ltx25.2 — only the codec edit remains):")
 
@@ -193,21 +272,43 @@ def main() -> int:
     )
 
     if outcome in (OUTCOME_MISSING, OUTCOME_DRIFT):
-        print(
-            f"\nERROR: codec patch failed to apply ({outcome}).\n"
-            "This exits non-zero so install.js / update.js fail loud rather than\n"
-            "silently ship a 4:2:0 yuv420p install (visible block artifacts on\n"
-            "faces/skin). If a pin-bump restructured decode_and_stream's ffmpeg\n"
-            "line, update PATCH_CODEC_OLD in patch_ltx_codec.py to match the new\n"
-            "upstream text, then re-run.",
-            file=sys.stderr,
+        _shout(
+            f"codec patch failed to apply ({outcome}).",
+            "Without it every render is encoded 4:2:0 yuv420p — visible blocky",
+            "artifacts on faces and skin. This exits non-zero so install.js /",
+            "update.js fail loud instead of shipping it silently.",
+            "If a pin-bump restructured decode_and_stream's ffmpeg line, update",
+            "PATCH_CODEC_OLD in patch_ltx_codec.py to match, then re-run.",
         )
         return 2
 
+    # 3.8.2: VERIFY, do not trust the outcome code.
+    #
+    # v3.8.1 shipped an entire fleet of unpatched installs while every log line
+    # anyone looked at said the update had finished. The patch step never ran at
+    # all (the Pinokio run truncated several steps earlier), and nothing
+    # downstream ever asked the only question that matters: does the file the
+    # runtime imports actually carry the patch? Ask it here, out of the same
+    # interpreter that resolved the target, and fail loud when the answer is no.
+    verify = _find("ltx_core_mlx/model/video_vae/video_vae.py")
+    if verify is None or not verify.exists():
+        _shout("codec patch verification could not find the target after patching.")
+        return 3
+    vtext = verify.read_text()
+    missing = [m for m in ("LTX_OUTPUT_PIX_FMT", "+faststart") if m not in vtext]
+    if missing:
+        _shout(
+            f"codec patch VERIFICATION FAILED — missing {', '.join(missing)}",
+            f"in {verify}",
+            "The runtime would encode 4:2:0 yuv420p (blocky faces). Not shipping",
+            "this silently.",
+        )
+        return 4
+
     if outcome == OUTCOME_APPLIED:
-        print("Done — codec patch applied.")
+        print(f"Done — codec patch applied and verified in {verify}")
     else:
-        print("Codec patch already applied (no change).")
+        print(f"Codec patch already applied and verified in {verify}")
     return 0
 
 
