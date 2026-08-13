@@ -1078,6 +1078,93 @@ class TestLawEnforcement(unittest.TestCase):
                                                   "bizarrotrn", "Bizarro"))
         self.assertIn("premise", stub.calls[-1]["user"].lower())
 
+    def test_the_premise_needs_its_OWN_terms_not_any_species(self):
+        """A robot is not a fox.
+
+        `_premise_lost()` accepted ANY species word, so a brief asking for a fox
+        was considered preserved by a shot containing a robot — the check passed
+        while the film had quietly become a different film. Found by the external
+        review, which also noted the old test codified the same weak condition by
+        asserting only that some _SPECIES_RE matched.
+        """
+        premise = P._premise_species("a lone fox mechanic repairs a lunar rover")
+        self.assertEqual(premise, ["fox"])
+        robot = {"shots": [{"n": 1, "character_id": None,
+                            "description": "A hulking robot welds a strut in the bay."}]}
+        foxes = {"shots": [{"n": 1, "character_id": None,
+                            "description": "Two foxes in overalls weld a strut."}]}
+        self.assertTrue(P._premise_lost(robot, [], premise),
+                        "a robot must not satisfy a brief that asked for a fox")
+        self.assertFalse(P._premise_lost(foxes, [], premise))
+
+    def test_irregular_plurals_still_match(self):
+        premise = P._premise_species("the soldiers are humanoid wolves")
+        self.assertIn("wolves", premise)
+        one = {"shots": [{"n": 1, "character_id": None,
+                          "description": "A wolf sharpens his bayonet."}]}
+        self.assertFalse(P._premise_lost(one, [], premise),
+                         "'wolf' must satisfy a brief that said 'wolves'")
+
+    def test_a_premise_repair_that_breaks_a_law_is_rejected(self):
+        """The review's probe: a returned shot containing 'explains the mission'
+        with no dialogue tags, accepted, under a warning claiming the premise was
+        back. The premise is the lesser law — a film that keeps its animals but
+        babbles is worse than one that lost them."""
+        concept = "ww2 scene but the soldiers are humanoid wolves"
+        plain = json.dumps({"title": "Op", "shots": [
+            _shot(1, description=self.GOOD, character_id="bizarrotrn"),
+            _shot(2, description="Live-action, cinematic, two soldiers drag a crate."),
+        ]})
+        # The premise comes back, but so does an unwritten speech act.
+        unlawful = json.dumps({"title": "Op", "shots": [
+            _shot(2, description="Live-action, cinematic, two humanoid wolves drag a "
+                                 "crate. The sergeant explains the mission to them.")]})
+        spec, _ = _plan([plain, unlawful], n_shots=2, concept=concept,
+                        characters=self.CAST, engine="ltx")
+        self.assertFalse(P.is_plan_error(spec), spec)
+        shot2 = spec["shots"][1]
+        # Whatever survived, it must be LAWFUL — either neutralised or rejected.
+        self.assertFalse(P._speech_violations(shot2.get("description", ""),
+                                              shot2.get("soundscape", "")),
+                         "an unlawful repair was shipped: %r" % shot2.get("description"))
+        # And the warning must record what actually happened. "the premise is
+        # back" is honest ONLY once the shot is lawful — which is the whole
+        # point: the claim and the state have to match.
+        warns = " ".join((spec.get("_planner") or {}).get("warnings") or [])
+        self.assertTrue(
+            ("needed silencing to stay lawful" in warns) or ("REJECTED" in warns),
+            "the unlawful repair was accepted silently: %s" % warns)
+
+    def test_the_final_scan_runs_after_the_last_mutation(self):
+        # The structural hole: each pass validated only its own condition, so the
+        # LAST repair could undo an earlier guarantee with nothing left to look.
+        self.assertTrue(hasattr(P, "_assert_final_invariants"))
+        spec = {"shots": [{"n": 1, "character_id": "bizarrotrn",
+                           "engine": "ltx", "camera": "static", "face": "medium",
+                           "settle": "he is still", "music": "N/A",
+                           "soundscape": "Rain on canvas.",
+                           "description": "bizarrotrn Bizarro, a grizzled badger, "
+                                          "explains the mission to the unit."}]}
+        warnings = []
+        out = P._assert_final_invariants(spec, self.CAST, warnings, style="", sb=None)
+        s = out["shots"][0]
+        self.assertFalse(P._appearance_violations(s["description"], "bizarrotrn", "Bizarro"))
+        self.assertFalse(P._speech_violations(s["description"], s["soundscape"]))
+        self.assertTrue(any("final invariant" in w for w in warnings), warnings)
+
+    def test_an_unrepairable_plan_says_so_out_loud(self):
+        spec = {"shots": [{"n": 1, "character_id": None, "engine": "ltx",
+                           "camera": "static", "face": "medium", "settle": "still",
+                           "music": "N/A", "soundscape": "Wind.",
+                           "description": "A radio voice reads the coordinates aloud."}]}
+        warnings = []
+        P._assert_final_invariants(spec, self.CAST, warnings, style="", sb=None)
+        joined = " ".join(warnings)
+        if P._speech_violations(spec["shots"][0]["description"],
+                                spec["shots"][0]["soundscape"]):
+            self.assertIn("UNREPAIRED", joined,
+                          "a plan shipped with a known violation must say so")
+
     def test_a_film_that_kept_its_premise_costs_no_extra_call(self):
         concept = "ww2 scene but the soldiers are humanoid animals"
         ok = json.dumps({"title": "Operation Wildfire", "shots": [

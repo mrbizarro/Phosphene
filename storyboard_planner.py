@@ -2239,8 +2239,13 @@ def _plan_with_session(sess, *, system, user, fb_mode, fb_shot, previous, valida
         # appearance law is what puts it at risk, so it is checked after that law has
         # finished rewriting shots.
         spec = _enforce_premise(
-            spec, cast, warnings, replan=_replan_one,
+            spec, cast, warnings, replan=_replan_one, style=style, sb=sb,
             premise=_premise_species(" ".join([concept or "", style or ""])))
+        # ---- THE FINAL INVARIANT SCAN ------------------------------------
+        # After the LAST mutation, whichever pass made it. Every pass before
+        # this validated only the condition it owned, so the last repair could
+        # silently undo an earlier guarantee and nothing looked.
+        spec = _assert_final_invariants(spec, cast, warnings, style=style, sb=sb)
 
     spec["_planner"] = dict(
         meta,
@@ -2298,6 +2303,33 @@ def _premise_species(brief: str) -> List[str]:
     return sorted({m.group(0).lower() for m in _SPECIES_RE.finditer(brief or "")})
 
 
+# Irregular plurals the species table lists in both forms. A brief that says
+# "wolves" is satisfied by a shot that says "wolf", and vice versa.
+_SPECIES_FORMS = {
+    "wolf": "wolves", "wolves": "wolf", "mouse": "mice", "mice": "mouse",
+    "goose": "geese", "geese": "goose", "ox": "oxen", "oxen": "ox",
+    "sheep": "sheep", "deer": "deer", "fish": "fish",
+}
+
+
+def _premise_term_re(term: str) -> Any:
+    """`fox` -> matches fox/foxes; `wolf` -> matches wolf/wolves."""
+    forms = {term, _SPECIES_FORMS.get(term, "")} - {""}
+    alts = sorted({re.escape(f) for f in forms})
+    return re.compile(r"\b(?:%s)(?:e?s)?\b" % "|".join(alts), re.IGNORECASE)
+
+
+def _premise_terms_present(text: str, premise: Sequence[str]) -> bool:
+    """Does `text` show the premise's OWN creatures?
+
+    It used to be enough for ANY species word to appear anywhere, so a brief
+    asking for a fox was considered preserved by a shot containing a robot —
+    the check passed while the film had quietly become a different film. The
+    premise is the user's words; only the user's words can satisfy it.
+    """
+    return any(_premise_term_re(t).search(text or "") for t in premise)
+
+
 def _premise_lost(spec: Dict[str, Any], cast: Sequence[Dict[str, str]],
                   premise: Sequence[str]) -> bool:
     """Did the appearance law eat the film's own premise?
@@ -2317,7 +2349,7 @@ def _premise_lost(spec: Dict[str, Any], cast: Sequence[Dict[str, str]],
     for s in spec.get("shots") or ():
         if not isinstance(s, dict) or s.get("character_id") in cast_ids:
             continue
-        if _SPECIES_RE.search(s.get("description") or ""):
+        if _premise_terms_present(s.get("description") or "", premise):
             return False
     return True
 
@@ -2365,7 +2397,55 @@ def _reassemble_prompt(shot: Dict[str, Any], style: str,
     return prompt
 
 
-def _enforce_premise(spec, cast, warnings, *, replan, premise) -> Dict[str, Any]:
+def _assert_final_invariants(spec, cast, warnings, *, style, sb) -> Dict[str, Any]:
+    """The last word: every law, over the whole plan, after the last mutation.
+
+    THE PASSES WERE NOT COMPOSABLE. Each one validated only the condition it
+    owned — the law pass checked laws, the premise pass checked the premise —
+    so the final repair could undo an earlier guarantee and nothing ever looked
+    again. That is a structural hole, not a bug in any one pass: it reopens
+    every time a new pass is added at the end.
+
+    This runs after all of them, mechanically neutralises anything still
+    standing, and — the part that matters — reports honestly when it cannot. A
+    plan that reaches a user with a known violation must say so; the previous
+    behaviour was to ship it under a warning claiming the repair had worked.
+    """
+    remaining = _scan_laws(spec, cast)
+    if not remaining:
+        return spec
+    by_id = {c["id"]: c for c in cast}
+    for n, _reasons in remaining:
+        for s in spec.get("shots") or ():
+            if not isinstance(s, dict) or int(s.get("n") or 0) != n:
+                continue
+            touched = False
+            char = by_id.get(s.get("character_id"))
+            if char:
+                fixed, cuts = _neutralise_appearance(
+                    s.get("description") or "", char["trigger"], char.get("name", ""),
+                    char.get("subject_noun", ""))
+                if cuts:
+                    s["description"] = fixed
+                    touched = True
+            d0, s0 = s.get("description") or "", s.get("soundscape") or ""
+            d2, s2, _ = _neutralise_speech(d0, s0)
+            if (d2, s2) != (d0, s0):
+                s["description"], s["soundscape"] = d2, s2
+                touched = True
+            if touched:
+                s["prompt"] = _reassemble_prompt(s, style, cast, sb)
+                warnings.append("shot %d: final invariant pass had to repair it" % n)
+    still = _scan_laws(spec, cast)
+    if still:
+        warnings.append(
+            "PLAN SHIPPED WITH %d UNREPAIRED SHOT(S): %s. This is a defect, not a "
+            "style note - re-roll those shots or re-word the concept."
+            % (len(still), ", ".join(str(n) for n, _ in still)))
+    return spec
+
+
+def _enforce_premise(spec, cast, warnings, *, replan, premise, style, sb) -> Dict[str, Any]:
     """One re-plan to put the film's own premise back, if the appearance law ate it.
 
     Bounded to a SINGLE uncast shot: one example is enough to re-anchor the world, and
@@ -2389,6 +2469,29 @@ def _enforce_premise(spec, cast, warnings, *, replan, premise) -> Dict[str, Any]
         return spec
     if candidate is None:
         return spec
+    # A REPAIR THAT BREAKS A LAW IS NOT A REPAIR. The replan helper validates
+    # schema only, so a shot that came back with the premise restored could also
+    # come back describing speech it never writes — and it was accepted, under a
+    # warning that said "the premise is back". Measured by the external review:
+    # a returned shot containing "explains the mission" with no dialogue tags.
+    #
+    # The premise is the LESSER law: a film that keeps its animals but babbles is
+    # worse than one that lost its animals, and the animals can be asked for
+    # again in the concept. Neutralise first; if it still violates, REJECT.
+    broke = dict(_scan_laws(candidate, cast))
+    if n in broke:
+        for s_ in candidate.get("shots") or ():
+            if isinstance(s_, dict) and int(s_.get("n") or 0) == n:
+                d0, s0 = s_.get("description") or "", s_.get("soundscape") or ""
+                d2, s2, _ = _neutralise_speech(d0, s0)
+                if (d2, s2) != (d0, s0):
+                    s_["description"], s_["soundscape"] = d2, s2
+                    s_["prompt"] = _reassemble_prompt(s_, style, cast, sb)
+        if n in dict(_scan_laws(candidate, cast)):
+            warnings.append("shot %d: the premise re-plan broke a hard law and was "
+                            "REJECTED - the film keeps its previous shot %d" % (n, n))
+            return spec
+        warnings.append("shot %d: the premise re-plan needed silencing to stay lawful" % n)
     if _premise_lost(candidate, cast, premise):
         # Not neutralised mechanically: writing a badger into someone's film is authorship,
         # not repair, and a wrong guess is worse than the omission. The warning stands and
