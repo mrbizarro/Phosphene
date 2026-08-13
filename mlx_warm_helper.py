@@ -1981,22 +1981,29 @@ def configure_acceleration(mode: str) -> str:
 # of letting it surface as an un-triageable TypeError mid-render.
 #
 # 2026-08-12: this is a FORK BUILD, not an upstream tag. The vendored checkout
-# is mrbizarro/ltx-2-mlx `feat/ltx-2.5` at e6be9d6 — v0.14.19 plus the LTX-2.5
-# port (keyframe pos-emb, Gemma 4 tower, ancestral sampler). The release
-# segment stays 0.14.19 because that is genuinely what it branches from; the
-# `+ltx25.N` local segment is what makes the two distinguishable.
+# is mrbizarro/ltx-2-mlx at the immutable tag `v0.14.19+ltx25.3` — v0.14.19 plus
+# the LTX-2.5 port (keyframe pos-emb, Gemma 4 tower, ancestral sampler). The
+# release segment stays 0.14.19 because that is genuinely what it branches from;
+# the `+ltx25.N` local segment is what makes the two distinguishable.
 #
 # The N moves whenever the fork changes what a render COMPUTES, not merely when
-# the SHA moves. `.2` is the ancestral sampler actually being reached on 2.5
-# plus the vendor's stage-2 first sigma (0.85, not 2.3's 0.909375) — both of
-# which change output on 2.5 and neither of which touches 2.3.
+# the SHA moves. `.2` was the ancestral sampler actually being reached on 2.5
+# plus the vendor's stage-2 first sigma (0.85, not 2.3's 0.909375). `.3` is the
+# v4.0 pin: isolated-modality guidance off by default on the 2.5 HQ path, the
+# distilled lane refining in 2 steps, and a step count thinning the checkpoint's
+# table instead of truncating it. All three change output on 2.5; none touches
+# 2.3.
+#
+# The TAG is the pin, not the SHA. A branch tip moves and a SHA on a rebased
+# branch stops being fetchable; a tag is the only form of this reference that
+# cannot rot under an existing install. install.js / update.js fetch the tag.
 #
 # That local segment exists FOR this gate. The fork originally carried the bare
 # string "0.14.19", so a 2.5 runtime reported `match: true` against the 2.3 pin
 # — a skew gate blind to the one skew that mattered. Bumping the pin here
 # without bumping the packages (or the reverse) puts it back into permanent
 # SKEW warnings, so the two move together or not at all.
-_LTX_EXPECTED_VERSION = "0.14.19+ltx25.2"
+_LTX_EXPECTED_VERSION = "0.14.19+ltx25.3"
 
 
 def _detect_ltx_version() -> dict:

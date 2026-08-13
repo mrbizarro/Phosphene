@@ -176,29 +176,33 @@ module.exports = {
     //      the ONLY thing distinguishing this tree from upstream v0.14.19 at
     //      runtime — the release segment is deliberately unchanged. Move the
     //      two together.
+    //      2026-08-13 (v4.0) — THE PIN IS A TAG, AND IT NO LONGER LIVES IN A
+    //      LAUNCHER SCRIPT. Both lanes now call the one implementation in
+    //      `scripts/pinokio/ltx_checkout.sh`, which holds the literal:
+    //
+    //          v0.14.19+ltx25.3   on mrbizarro/ltx-2-mlx
+    //
+    //      Two reasons, both structural. (1) A SHA on a branch is not a pin:
+    //      v3.8.x fetched `feat/ltx-2.5` and checked out a SHA that the branch
+    //      head had ALREADY moved past, so one rebase upstream would have
+    //      stranded every existing install with an un-fetchable pin and a dead
+    //      Update button. (2) A pin written in `update.js` can only ever move
+    //      ONE CLICK LATE — Pinokio loads that file before our own step pulls
+    //      the repo — so it has to live in the post-pull tree. install.js has
+    //      no such constraint but shares the file anyway: before v4.0 the two
+    //      lanes carried byte-identical copies of this block, and a duplicated
+    //      fix is a fix that half-lands.
+    //
+    //      The packages report `0.14.19+ltx25.3`, and `_LTX_EXPECTED_VERSION`
+    //      in mlx_warm_helper.py must equal that string. The local segment is
+    //      the ONLY thing distinguishing this tree from upstream v0.14.19 at
+    //      runtime — the release segment is deliberately unchanged. Move the
+    //      two together. `node scripts/check_ltx_pin.js` is the gate that keeps
+    //      this comment, the shell script and the helper constant in agreement.
     {
       method: "shell.run",
       params: {
-        path: "ltx-2-mlx",
-        message: [
-          "git fetch --tags origin",
-          "git remote get-url fork > /dev/null 2>&1 || git remote add fork https://github.com/mrbizarro/ltx-2-mlx.git",
-          "git fetch fork feat/ltx-2.5",
-          // 3.8.1 HOTFIX — the same guard as update.js, and it matters here
-          // too. ltx-2-mlx is a uv workspace, so the package step below links
-          // its members EDITABLE; patch_ltx_codec.py (further down this file)
-          // therefore lands on the git-tracked source instead of
-          // site-packages, and every successful install leaves this tree with
-          // a modified video_vae.py. "Click Install again" — the recovery we
-          // tell people to take — then aborts right here with "Your local
-          // changes ... would be overwritten by checkout", and no retry can
-          // clear it. The tree is app-managed: nothing user-owned lives in it,
-          // and reset --hard leaves the ignored env/ venv alone. See update.js
-          // for the full rationale.
-          "if [ -f packages/ltx-core-mlx/pyproject.toml ]; then echo 'vendored tree is app-managed; discarding local edits before the pin move:'; git status --porcelain | head -20; git reset --hard HEAD; else echo 'WARN: not the vendored ltx-2-mlx tree - skipping reset'; fi",
-          "git checkout e6be9d61848b712516469fd9d44d20d18716a8bc",
-          "git rev-parse --short HEAD"
-        ]
+        message: "bash scripts/pinokio/ltx_checkout.sh"
       }
     },
 
