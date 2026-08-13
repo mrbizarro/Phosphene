@@ -29356,6 +29356,12 @@ HTML = r"""<!doctype html>
       min-width: 28px; text-align: right;
     }
 
+    /* A Storage row that is KEPT on purpose: informational, never a warning.
+       It used to reuse `.partial`, which paints an amber border and a warning
+       glyph — trouble signalling on a healthy file. */
+    .models-list li.kept { border-color: var(--border); }
+    .models-list li.kept .icon { color: var(--muted); }
+
     .chars-strip-empty {
       font-size: 11px; color: var(--muted);
       padding: 4px 2px;
@@ -45513,17 +45519,31 @@ async function refreshStorageSection() {
   const rows = d.rows || [];
   // Rule 5: nothing to reclaim -> the section and its <h3> are both absent. A
   // single-generation install never sees it.
-  if (!rows.length) { sec.style.display = 'none'; return; }
+  // GATED ON WHAT CAN ACTUALLY BE RECLAIMED, not on row count. Rule 5 says a
+  // single-generation install never sees this section — and it didn't, on the
+  // box §7c was proved on, which happened to hold q8 + the add-on. On a genuine
+  // fresh install /storage returns exactly ONE row: Gemma 3, removable false,
+  // 0 GB reclaimable — and `rows.length` is 1, so the whole section rendered,
+  // <h3> and all, to say that nothing can be freed. A "kept, and here is why"
+  // row earns its place BESIDE something actionable; on its own it is a section
+  // about nothing.
+  const actionable = rows.filter(r => r.removable && (r.bytes || 0) > 0);
+  if (!actionable.length) { sec.style.display = 'none'; return; }
   sec.style.display = '';
   list.innerHTML = rows.map(r => {
+    // A KEPT FILE IS NOT A PROBLEM. `partial` painted an amber border and
+    // #ph-warning-fill on a perfectly healthy Gemma 3, under a heading about
+    // weights this build does not render with — three signals of trouble on a
+    // file that is working exactly as intended. A lock reads as "deliberate";
+    // a warning triangle reads as "you have a problem".
     const icon = r.removable
       ? '<svg class="ph" aria-hidden="true"><use href="#ph-check-bold"/></svg>'
-      : '<svg class="ph" aria-hidden="true"><use href="#ph-warning-fill"/></svg>';
+      : '<svg class="ph" aria-hidden="true"><use href="#ph-info"/></svg>';
     const btn = r.removable
       ? `<button class="ghost" onclick="removeStoragePack('${escapeHtml(r.key)}')">Remove</button>`
       : '';
     return `
-      <li class="${r.removable ? 'ready' : 'partial'}">
+      <li class="${r.removable ? 'ready' : 'kept'}">
         <span class="icon">${icon}</span>
         <div class="meta">
           <span class="ttl">${escapeHtml(r.name)}<span style="float:right">${escapeHtml(r.size)}</span></span>
