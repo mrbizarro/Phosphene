@@ -511,6 +511,23 @@ and each is cheap enough that "I forgot" is not a reason.
 | `node scripts/check_ltx_pin.js` | the vendored pin, `update.js`, `install.js`, `_LTX_EXPECTED_VERSION` | a pin that is a bare SHA, a pin that disagrees with the version the runtime reports, a second checkout implementation, or anything in `update.js` that belongs post-pull |
 | `node scripts/check_post_update.js` | `scripts/post_update.sh` | the codec patch running before the reinstall or after anything optional, and a load-bearing step that cannot fail the Update |
 | `./ltx-2-mlx/env/bin/python3.11 scripts/assert_registry.py` | `MODEL_VERSIONS`, `required_files.json`, pack paths, the text-encoder seam, deep-verify sources | a generation that resolves another generation's weights or text encoder — the two bugs that shipped silently on 2026-08-12, neither of which raised anything |
+| `./ltx-2-mlx/env/bin/python3.11 patch_ltx_codec.py` | the vendored pin, any package reinstall | a bypassed codec patch — v3.8.1 shipped silent 4:2:0 for a whole release because this ran eleven steps too late and never executed |
+
+**The codec rule, stated correctly.** It has been passed around as *"`grep -rn
+libx264` in the vendored tree must return exactly one hit"*, and read literally
+that is false — repo-wide the grep is 8 (the trainer's `video_utils` and
+`slice_clips`, `media_io`, `video_vae`). What the rule actually asserts:
+
+> `grep -rn --include="*.py" libx264 ltx-2-mlx/packages/ltx-core-mlx` returns
+> **exactly one** hit — the UNPATCHED source at `video_vae.py:487` — while the
+> installed copy in `ltx-2-mlx/env/lib/python3.11/site-packages/` is patched.
+> `patch_ltx_codec.py` resolves its target through the INTERPRETER and verifies
+> its own work, so its own exit code is the real gate; the grep is the
+> human-readable cross-check that the source tree was left clean.
+
+A second hit in `ltx-core-mlx` means the patch was applied to the git-tracked
+source instead of site-packages — the editable-install failure that made every
+v3.8.0 pin move fail.
 
 `assert_registry.py` also **pins known defects**: it asserts the current
 *wrong* value, prints a `DEFECT` banner every run, and turns RED when

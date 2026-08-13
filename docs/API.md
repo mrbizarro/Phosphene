@@ -33,6 +33,8 @@ Add a job to the panel's queue. Returns immediately; the helper renders it async
 | `width`, `height` | int | Both divisible by 32. |
 | `frames` | int | Must satisfy `frames % 8 == 1`. 121 = 5s, 169 = 7s, 241 = 10s. |
 | `frame_rate` | float | Default `24`. LTX is trained at 24 fps; deviation degrades quality. |
+| `character_strength` | float | Default `1.0`. The FACE LoRA's strength, 0–2. |
+| `character_voice_strength` | float | Default `1.4`. The VOICE LoRA's strength, 0–2, applied to `<trigger>.audio.safetensors` only. It runs hotter than the face by default because the face file's audio-branch deltas are noise and are louder than the voice file's signal at equal strength. |
 | `seed` | int or `-1` | `-1` = random. |
 | `quality` | `quick` \| `balanced` \| `standard` \| `high` | **For character LoRA work, use `high`.** `balanced` silently routes >121f clips to the Q4 distilled transformer where current LoRAs lose identity. |
 | `stage1_steps`, `stage2_steps` | int | HQ two-stage pipeline. Validated defaults: `10` / `3`. |
@@ -146,7 +148,34 @@ Field semantics:
 - `history` — completed/failed jobs. Each entry has `status`, `elapsed_sec`, `output_path`, `raw_path` (native pre-upscale), `error`.
 - `log` — rolling buffer of helper stdout lines (last ~50 jobs).
 
-**Polling loop:** GET `/status` every 15–30s. A job is terminal when its `status` is one of `done`, `failed`, `cancelled`, `error`. Until then it's `queued` or `running`.
+**Polling loop:** GET `/status` every 15–30s. A job is terminal when its `status` is one of `done`, `failed`, `cancelled`, `stopped`, `error`. Until then it's `queued` or `running`.
+
+`stopped` means the user stopped the render on purpose (see `POST /stop?mode=early`). It is **not** a failure: nothing was saved because the clip was never finished, but nothing went wrong. `stopped_reason` carries the runner's own sentence.
+
+#### `current.progress`
+
+Present while a job runs.
+
+```jsonc
+{
+  "pct": 41, "phase": "denoise", "phase_label": "Denoising · step 5 / 10",
+  "elapsed_sec": 62, "remaining_sec": 84, "eta_sec": 146,
+  "preview": {
+    "url": "/file?path=…/live/preview_latest.png&t=1786…",  // cache-busted server-side
+    "estimate": 4, "total": 12,
+    "meaningful": true,   // THE gate — the server decides, the client renders
+    "abortable": true,    // meaningful && the runner published an abort sentinel
+    "saves_sec": 182      // remaining_sec at the moment it became abortable
+  },
+  "preview_url": "/file?path=…"   // top-level alias, present only once meaningful
+}
+```
+
+`preview` is absent unless the live preview is on (Settings → Memory / speed) and the tiny decoder is installed. **`meaningful` is computed server-side and must not be re-derived**: the rule differs per pipeline — estimate 6 of 8 on the distilled schedule, whose first estimates are still essentially noise; estimate 2 on the two-stage HQ path, which evaluates the denoiser twice per stage-2 step. A client counting estimates would have to know which schedule is running.
+
+#### `POST /stop?mode=early`
+
+Asks the running render to stop at the next forward boundary by touching an `ABORT` sentinel. The runner exits **75** — a distinct code meaning "the user stopped this", not a crash — and the job resolves `status: "stopped"` with no output file. Returns `404` when nothing is rendering and `409` when the render has no live preview to stop through (use the hard `POST /stop`, which kills the helper).
 
 **Encoding caveat:** the log buffer can contain literal control characters from prompts with embedded newlines. Strip them before JSON-parsing:
 
