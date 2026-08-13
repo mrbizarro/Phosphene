@@ -238,7 +238,17 @@ module.exports = {
     {
       method: "notify",
       params: {
-        html: "<b>Hailuo H3 ready.</b><br>Open the panel — the Video tab now has an <b>Engine</b> row: LTX-2.3 | Hailuo H3. H3 serves Text and Image, and generates dialogue + sound from the same prompt, so write them into it."
+        // 3.8.3: this used to say "the Video tab now has an Engine row". The
+        // engine control has been the switcher in the TOP RIGHT of the header
+        // since the engine table landed — there is no Engine row in the Video
+        // tab any more, and #58 ("[bug] Engine Picker not showing") is a user
+        // who installed H3 successfully and then went looking in the place this
+        // sentence sent him. Say where the control actually is, and name the
+        // one thing that can still hide it: the switcher only appears when
+        // there is more than one engine this Mac can render with, and on a
+        // 48 GB-class Mac that means the reduced-RAM Q8 pack built by the step
+        // above must be on disk.
+        html: "<b>Hailuo H3 ready.</b><br>Open the panel — the engine switcher is in the <b>top right of the header</b>, next to the memory and models pills: <b>LTX-2.3 | Hailuo H3</b>. (Not in the Video tab.) Restart the panel if it was already running. H3 serves Text and Image, and generates dialogue + sound from the same prompt, so write them into it."
       }
     }
   ]

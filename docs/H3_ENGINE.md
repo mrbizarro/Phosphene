@@ -326,9 +326,14 @@ restart. `GET /status` → `.h3` tells you what resolved:
 
 ## Troubleshooting
 
+> **Where the control is.** The engine switcher lives in the **top right of the
+> header**, beside the memory / models pills — not in the Video tab. The
+> "Engine row" that older copy pointed at has not existed since the engine
+> table landed (#58 is a user who installed H3 fine and went looking there).
+
 | Symptom | Cause |
 |---|---|
-| Engine row not visible at all | `h3.capable` false — under the 60 GB floor (a 64 GB Mac reports ~63.x after firmware reservations) |
+| Engine switcher not visible at all | `h3.capable` false, so H3 isn't renderable and there is only one engine left to choose between — the switcher and its divider both hide. Either under the 46 GB floor, or a 48 GB-class Mac whose reduced-RAM **Q8 DiT pack is not on disk**: `h3_capable()` requires `_h3_q8_dit_dir()` below 60 GB. Check `dit_choice.q8_available` in `/status`. |
 | H3 pill dashed, "not installed" | `h3.missing` lists exactly which component didn't resolve |
 | Image mode snaps back to LTX | `h3.first_frame` false — the installed runner has no `--first-frame` |
 | `ffmpeg not found on PATH` | the runner pipes raw RGB into `ffmpeg`; the panel prepends `FFMPEG_BIN` to the subprocess PATH, so this means the bundled binary is missing |
