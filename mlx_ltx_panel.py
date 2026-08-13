@@ -21152,10 +21152,23 @@ class Handler(BaseHTTPRequestHandler):
                 "frames": [str(frames)],
                 "frame_rate": ["24"],
                 "seed": [str(seed_int)],
-                "quality": ["high"],
+                # THE RESOLVED quality, not a hardcoded "high". This line was
+                # missed by the commit that added character_render_quality(),
+                # so the Characters TAB kept doing exactly the two things that
+                # function's docstring says it exists to prevent: routing 2.5
+                # characters onto the two-stage HQ path nobody has graded them
+                # on (~246 s instead of ~139 s), and demanding the 29.5 GB High
+                # add-on for a result the q8 pack already delivers. The main
+                # form was fixed; this lane was not, so the same character
+                # rendered differently depending on which tab launched it —
+                # the exact split the strength unification closed earlier.
+                #
+                # `quality` above is character_render_quality() unless the
+                # caller asked for something explicitly: ltx25 -> balanced
+                # (q8 + distilled, the graded recipe), ltx23 -> high.
+                # make_job's character branch then routes the PACK to q8.
+                "quality": [quality],
                 "temporal_mode": ["native"],
-                "stage1_steps": [_val("stage1_steps", "10")],
-                "stage2_steps": [_val("stage2_steps", "3")],
                 # HQ TeaCache default — 1.8 is the empirical sweet spot for
                 # character mode (see make_job comment). Reverted from 1.0
                 # after the 2026-05-20 chartest v3 diagnostic confirmed 1.0
@@ -21179,6 +21192,17 @@ class Handler(BaseHTTPRequestHandler):
                 job_form["audio"] = [audio_path]
 
             # Minimal Characters-origin metadata for Load Params restoration.
+            # Schedule step counts ride only when the CALLER sent them — the
+            # same rule make_job now follows. This form used to hardcode
+            # stage1_steps=10, re-introducing the pad-request landmine that
+            # cost Colorize/Restore 218 s per failed render: inert on the HQ
+            # lane (which computes its schedule) but a live hazard the moment a
+            # character routes to a thinning lane. On 2.3 nothing changes —
+            # generate_hq's own default is the same 10.
+            for _k in ("stage1_steps", "stage2_steps"):
+                _v = form.get(_k, [""])[0]
+                if _v:
+                    job_form[_k] = [_v]
             job_form["character_id"] = [cid]
             job_form["source"] = ["characters"]
             job_form["duration"] = [duration]
@@ -44704,8 +44728,21 @@ document.getElementById('genForm').addEventListener('submit', async e => {
   if ((fd.get('engine') || 'ltx') === 'h3') {
     fd.set('negative_prompt', '');   // guidance-distilled: no unconditional branch
     fd.set('character_id', '');      // character LoRAs are an LTX construct
-    fd.set('loras', '');             // ditto — the H3 runner stacks nothing
     fd.set('no_voice', '');          // only ever meant "skip the character's voice LoRA"
+    // `loras` IS NOT SCRUBBED, and the line that used to scrub it said "the H3
+    // runner stacks nothing" — true when it was written, false since the H3
+    // LoRA import shipped in 3.7.0. H3 takes ONE adapter from its own family
+    // through the same `--lora` flag Turbo rides, the picker offers exactly
+    // that family (it filters on the engine's own `lora_tag`, "video:h3"), and
+    // `h3_lora_slot` exists for the sole purpose of deciding whether that slot
+    // spends on Turbo or on the user's pick. Blanking the field here made the
+    // whole picker a control that renders, accepts a selection, and posts
+    // nothing — the silent-no-op class this release keeps closing.
+    //
+    // Cross-lane safety is the SERVER's job and it already does it: make_job
+    // filters the stack by the directory each file lives in and logs
+    // "Dropped N LoRA(s) that belong to the other video engine". That is
+    // strictly better than blanking here, because the user is told why.
   }
 
   // Disable the Generate button while we POST to /queue/add so a fast
