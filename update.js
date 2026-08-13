@@ -86,6 +86,46 @@ module.exports = {
           "git fetch --tags origin",
           "git remote get-url fork > /dev/null 2>&1 || git remote add fork https://github.com/mrbizarro/ltx-2-mlx.git",
           "git fetch fork feat/ltx-2.5",
+          // 3.8.1 HOTFIX — DISCARD LOCAL EDITS BEFORE THE PIN MOVE.
+          //
+          // This checkout is the most fragile line in the updater, and on
+          // 3.8.0 it failed for real users with
+          //   error: Your local changes to the following files would be
+          //   overwritten by checkout:
+          //     packages/ltx-core-mlx/src/ltx_core_mlx/model/video_vae/video_vae.py
+          // No retry could clear it — nothing in the flow ever un-dirties the
+          // file, so the Update button was dead for good.
+          //
+          // WHY EVERY INSTALL IS DIRTY. ltx-2-mlx is a uv WORKSPACE, and
+          // install.js installs its members WITH deps and WITHOUT --reinstall,
+          // so uv links them EDITABLE: site-packages gets
+          // `_editable_impl_ltx_core_mlx.pth`, not a copy. patch_ltx_codec.py
+          // then resolves through VENV_ROOTS, finds no ltx_core_mlx directory
+          // in site-packages, and falls through to `packages/ltx-core-mlx/src`
+          // — the GIT-TRACKED source. So a perfectly successful install ends
+          // with a modified tracked file, every single time. (An install that
+          // DIED at the package step lands in the same place for a different
+          // reason: nothing in site-packages at all.) The v0.14.8 -> 871694d
+          // diff rewrites the very ffmpeg lines that patch edits, so git
+          // refuses to move the pin. Same class, not the same SHA: ANY
+          // modified tracked file that differs across a pin move blocks it.
+          //
+          // WHY reset --hard AND NOT `git checkout -- <file>`. This tree is
+          // APP-MANAGED end to end: models live in ../mlx_models, the build
+          // constraints in ../pip-build-constraints.txt, and on a real install
+          // the only non-tracked thing inside it is the ignored env/ venv —
+          // which reset --hard does not touch, so the multi-GB venv survives.
+          // A surgical per-file revert would only fix today's filename.
+          //
+          // SAFE BECAUSE OF WHAT FOLLOWS. The uv step below reinstalls the
+          // three packages with --reinstall --no-deps, which REPLACES the
+          // editable .pth links with real copies in site-packages; the codec
+          // patch further down then re-applies there, so the runtime imports a
+          // patched video_vae.py and this tree stays clean for the NEXT pin
+          // move. Proven end to end, from a real v0.14.8 editable install.
+          // The guard stops reset --hard ever firing in a shell that did not
+          // land in the vendored tree.
+          "if [ -f packages/ltx-core-mlx/pyproject.toml ]; then echo 'vendored tree is app-managed; discarding local edits before the pin move:'; git status --porcelain | head -20; git reset --hard HEAD; else echo 'WARN: not the vendored ltx-2-mlx tree - skipping reset'; fi",
           "git checkout e6be9d61848b712516469fd9d44d20d18716a8bc",
           "git rev-parse --short HEAD"
         ]
