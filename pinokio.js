@@ -344,7 +344,10 @@ module.exports = {
       // never reads as a missing piece of the base install.
       baseMenu.push(h3_repair
         ? { icon: "fa-solid fa-screwdriver-wrench", text: "Repair Hailuo H3 (weights kept — no re-download)", href: "install_h3.js" }
-        : { icon: "fa-solid fa-comments", text: "Install Hailuo H3 (optional, ~75 GB)", href: "install_h3.js" })
+        // ENGINES ARE PEERS: "optional" told a user that half the panel's
+        // video capability was a side dish. The entry names what it IS.
+        // The panel's install card quotes this string verbatim -- change both.
+        : { icon: "fa-solid fa-comments", text: "Install Hailuo H3 (second video engine, ~75 GB)", href: "install_h3.js" })
     }
     baseMenu.push(
       { icon: "fa-solid fa-rotate", text: "Update", href: "update.js" },

@@ -45,7 +45,7 @@ module.exports = {
     {
       method: "notify",
       params: {
-        html: "<b>Installing Hailuo H3 (optional, ~75 GB).</b><br>A second video engine that generates picture, dialogue and sound together. Needs a 64 GB+ Apple Silicon Mac. MiniMax Community License — territory restrictions apply. Resumable if interrupted."
+        html: "<b>Installing Hailuo H3 (second video engine, ~75 GB).</b><br>Generates picture, dialogue and sound together, and sits beside LTX in the engine switcher. Needs a 64 GB+ Apple Silicon Mac. MiniMax Community License — territory restrictions apply. Resumable if interrupted."
       }
     },
 
