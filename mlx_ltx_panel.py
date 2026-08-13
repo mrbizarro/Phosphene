@@ -13581,7 +13581,13 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         # So running the voice a little hotter than the face is what makes it
         # win. Parity is 1.2; 1.4 is the first setting with real headroom, and
         # it is independently where current community guidance for 2.5 puts
-        # "balanced". Hence the default below.
+        # "balanced".
+        #
+        # THE DEFAULT IS 1.0 ANYWAY, and that is a listening decision, not a
+        # measurement one. 1.0/1.0 is the pair every graded clip was rendered
+        # at and passed on; the hotter rungs are real and reachable — the split
+        # control ships, the help text explains the mechanism — but a default
+        # nobody has listened to is not a default. Raise it when an ear says so.
         #
         # THE ALLOWLIST TRAP: make_job builds params from named reads, and a
         # field nobody reads here is dropped with no error — the render
@@ -13590,9 +13596,9 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         # this key reaches params is part of the same commit.
         try:
             char_voice_strength = float(
-                f("character_voice_strength", "1.4") or "1.4")
+                f("character_voice_strength", "1.0") or "1.0")
         except (TypeError, ValueError):
-            char_voice_strength = 1.4
+            char_voice_strength = 1.0
         char_voice_strength = max(0.0, min(2.0, char_voice_strength))
         # Per-render voice opt-out (2026-05-18). When the user flips the
         # "No voice" toggle in composer-tools, drop the character's
@@ -13639,9 +13645,9 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                 job["params"]["character_id"] = _character_id
             # Persist BOTH strengths so Load Params restores the exact sliders
             # and the sidecar records what actually rendered. The voice value is
-            # stamped even when it equals the default: a clip's sidecar saying
-            # 1.4 is how a future listener knows which rung of the ladder they
-            # are hearing.
+            # stamped even when it equals the default: the number in a clip's
+            # sidecar is how a future listener knows which rung of the ladder
+            # they are hearing.
             job["params"].setdefault("character_strength", char_strength)
             job["params"].setdefault("character_voice_strength",
                                      char_voice_strength)
@@ -21086,10 +21092,12 @@ class Handler(BaseHTTPRequestHandler):
             # a 2.3-era correction for over-baked visual quirks at 5000 steps;
             # on 2.5 q8 the graded recipe is the face at 1.0.
             #
-            # The voice takes its own default (1.4) for the reason spelled out
-            # in make_job: the face file's audio-branch deltas are noise, they
-            # are louder than the voice file's signal at equal strength, and
-            # running the voice hotter is what makes it win.
+            # The voice takes its own number for the reason spelled out in
+            # make_job: the face file's audio-branch deltas are noise, they are
+            # louder than the voice file's signal at equal strength, and running
+            # the voice hotter is what makes it win. It still DEFAULTS to 1.0 —
+            # the graded pair — because the hotter rungs have not been listened
+            # to. Same default on both lanes or the two surfaces disagree again.
             try:
                 char_strength = float(
                     (form.get("character_strength", ["1.0"])[0] or "1.0"))
@@ -21098,9 +21106,9 @@ class Handler(BaseHTTPRequestHandler):
             char_strength = max(0.0, min(2.0, char_strength))
             try:
                 char_voice_strength = float(
-                    (form.get("character_voice_strength", ["1.4"])[0] or "1.4"))
+                    (form.get("character_voice_strength", ["1.0"])[0] or "1.0"))
             except (TypeError, ValueError):
-                char_voice_strength = 1.4
+                char_voice_strength = 1.0
             char_voice_strength = max(0.0, min(2.0, char_voice_strength))
 
             # LoRA stack: face always, audio when the character has one.
@@ -31377,10 +31385,12 @@ HTML = r"""<!doctype html>
       <input type="hidden" name="character_strength" id="characterStrength" value="1.0">
       <!-- The VOICE half of a character's strength. A character is two trained
            files and the face file's audio-branch deltas are noise that is
-           louder than the voice file's signal at equal strength — so the voice
-           runs hotter by default. 1.4 is the first setting with real headroom.
+           louder than the voice file's signal at equal strength — so running
+           the voice hotter is what makes it win, and the split control below is
+           how you do it. The DEFAULT is the graded pair, 1.0/1.0; the hotter
+           rungs are an ear's decision, not the shipped starting point.
            MUST be in make_job's named reads or it silently no-ops. -->
-      <input type="hidden" name="character_voice_strength" id="characterVoiceStrength" value="1.4">
+      <input type="hidden" name="character_voice_strength" id="characterVoiceStrength" value="1.0">
 
       <!-- ============== COMPOSER CARD ==============
            Hero element of the form. Carries the reference picker(s)
@@ -47274,7 +47284,7 @@ function _renderCharsAppliedNote() {
     ? ` · <em title="No audio LoRA on disk — face only">silent</em>`
     : '';
   const cur = parseFloat(document.getElementById('characterStrength')?.value || '1.0');
-  const voi = parseFloat(document.getElementById('characterVoiceStrength')?.value || '1.4');
+  const voi = parseFloat(document.getElementById('characterVoiceStrength')?.value || '1.0');
   const hasVoice = !!c.audio_lora_path;
   // ONE slider stays the default surface; the split lives one disclosure down.
   // A character is two files, but the panel is not asking anyone to think about
@@ -47310,7 +47320,7 @@ function _renderCharsAppliedNote() {
                oninput="setCharStrength('voice', this.value)">
         <output id="charVoiceOut">${voi.toFixed(1)}</output>
         <button type="button" class="help-dot" id="charVoiceHelpBtn" aria-expanded="false"
-                aria-controls="charVoiceHelpNote" title="Why 1.4?"
+                aria-controls="charVoiceHelpNote" title="Why run the voice hotter?"
                 onclick="toggleCharVoiceHelp()">?</button>
       </div>
       <div class="h3-winhelp" id="charVoiceHelpNote" hidden></div>
@@ -47522,9 +47532,10 @@ function refreshNoVoiceAuto() {
 //
 // COLLAPSED BEHAVIOUR, and it is deliberate: moving the single slider moves the
 // FACE only. The voice keeps its own value and does not track. A user who never
-// opens the disclosure gets face 1.0 / voice 1.4 — the pair the ladder was
-// rendered at — and dragging "strength" changes the thing that word means to
-// them (how much like the trained person it looks), not the audio.
+// opens the disclosure gets face 1.0 / voice 1.0 — the graded pair — and
+// dragging "strength" changes the thing that word means to them (how much like
+// the trained person it looks), not the audio. The hotter voice is one
+// disclosure away, and the label carries the pair the moment they differ.
 function setCharStrength(which, value) {
   const v = Math.max(0, Math.min(2, parseFloat(value)));
   if (!Number.isFinite(v)) return;
@@ -47550,7 +47561,7 @@ function setCharStrength(which, value) {
   const btn = document.getElementById('charSplitBtn');
   if (btn) {
     const f = parseFloat((document.getElementById('characterStrength') || {}).value || '1.0');
-    const s = parseFloat((document.getElementById('characterVoiceStrength') || {}).value || '1.4');
+    const s = parseFloat((document.getElementById('characterVoiceStrength') || {}).value || '1.0');
     btn.textContent = (Math.abs(s - f) > 0.001)
       ? `split · ${f.toFixed(1)} / ${s.toFixed(1)}` : 'split';
   }

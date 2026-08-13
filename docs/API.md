@@ -34,7 +34,7 @@ Add a job to the panel's queue. Returns immediately; the helper renders it async
 | `frames` | int | Must satisfy `frames % 8 == 1`. 121 = 5s, 169 = 7s, 241 = 10s. |
 | `frame_rate` | float | Default `24`. LTX is trained at 24 fps; deviation degrades quality. |
 | `character_strength` | float | Default `1.0`. The FACE LoRA's strength, 0–2. |
-| `character_voice_strength` | float | Default `1.4`. The VOICE LoRA's strength, 0–2, applied to `<trigger>.audio.safetensors` only. It runs hotter than the face by default because the face file's audio-branch deltas are noise and are louder than the voice file's signal at equal strength. |
+| `character_voice_strength` | float | Default `1.0`. The VOICE LoRA's strength, 0–2, applied to `<trigger>.audio.safetensors` only. It is a separate number from the face because the face file's audio-branch deltas are noise and are louder than the voice file's signal at equal strength — so running the voice hotter (1.2 is parity, 1.4 is the first setting with real headroom) is what makes it win. The default stays at the graded `1.0`; the hotter rungs are yours to reach for. |
 | `seed` | int or `-1` | `-1` = random. |
 | `quality` | `quick` \| `balanced` \| `standard` \| `high` | **For character LoRA work, use `high`.** `balanced` silently routes >121f clips to the Q4 distilled transformer where current LoRAs lose identity. |
 | `stage1_steps`, `stage2_steps` | int | HQ two-stage pipeline. Validated defaults: `10` / `3`. |
