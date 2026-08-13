@@ -717,9 +717,43 @@ def _install_lora_fusion_patches() -> None:
     if not classes:
         return  # very old install — nothing to patch
 
-    from ltx_core_mlx.model.transformer.model import LTXModel
+    from ltx_core_mlx.model.transformer.model import LTXModel, LTXModelConfig
     from ltx_core_mlx.utils.memory import aggressive_cleanup
     from ltx_core_mlx.utils.weights import apply_quantization, load_split_safetensors
+
+    def _new_dit(tx_path):
+        """An LTXModel shaped by the PACK'S OWN CONFIG, exactly as the library
+        builds it (`_base.py`: LTXModel(LTXModelConfig.from_checkpoint_dir(...))).
+
+        This used to be a bare `LTXModel()`, i.e. LTXModelConfig's DEFAULTS. On
+        2.3 that was harmless because every default matched. On 2.5 it is not:
+        the packs set `use_keyframes_abs_pos_embedding: true` and their
+        checkpoints carry `transformer.keyframes_abs_pos_embedding`, while the
+        default is False — so the model was built WITHOUT that parameter and
+        load_weights refused the checkpoint with
+
+            Received 1 parameters not in model: keyframes_abs_pos_embedding.
+
+        Every LTX-2.5 render with a LoRA attached died there, which is every
+        character render on the distilled path. It went unnoticed because the
+        panel had been routing Balanced characters to the HQ pipeline (a 2.3
+        speed optimisation, now version-gated), and that path builds its DiT
+        somewhere else.
+
+        Ask the pack, never assume: a future generation that adds another
+        config-gated parameter is then right by construction rather than one
+        more line here."""
+        try:
+            return LTXModel(LTXModelConfig.from_checkpoint_dir(Path(tx_path).parent))
+        except Exception as exc:                      # noqa: BLE001
+            # Degrade to the previous behaviour rather than failing the render:
+            # an older library without from_checkpoint_dir, or a pack with no
+            # readable config, is exactly the 2.3 case this used to serve.
+            emit({"event": "log",
+                  "line": f"WARN: could not read the transformer config next to "
+                          f"{os.path.basename(str(tx_path))} ({exc}); building "
+                          f"the DiT from defaults."})
+            return LTXModel()
 
     distilled_cls = next(
         (c for c in classes if c.__name__ == "DistilledPipeline"), None
@@ -764,7 +798,7 @@ def _install_lora_fusion_patches() -> None:
                               f"{os.path.basename(str(tx_path))}..."})
                 weights = load_split_safetensors(tx_path, prefix="transformer.")
                 weights = self._fuse_pending_loras(weights, pending)
-                self.dit = LTXModel()
+                self.dit = _new_dit(tx_path)
                 apply_quantization(self.dit, weights)
                 self.dit.load_weights(list(weights.items()))
                 aggressive_cleanup()
@@ -803,7 +837,7 @@ def _install_lora_fusion_patches() -> None:
                               f"{os.path.basename(str(tx_path))}..."})
                 weights = load_split_safetensors(tx_path, prefix="transformer.")
                 weights = self._fuse_pending_loras(weights, pending)
-                dit = LTXModel()
+                dit = _new_dit(tx_path)
                 apply_quantization(dit, weights)
                 dit.load_weights(list(weights.items()))
                 aggressive_cleanup()

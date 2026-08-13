@@ -314,6 +314,11 @@ MODEL_VERSIONS: tuple[dict, ...] = (
         "label": "LTX-2.3",
         "engine_id": "ltx",
         "config_key": "ltx-2.3",
+        # Characters render on the two-stage HQ path here: 2.3's character LoRAs
+        # are dev-trained and distilled inference barely locks identity. Stated
+        # rather than defaulted, so the two generations' answers sit side by
+        # side and neither is an accident. See character_render_quality().
+        "character_quality": "high",
         # No longer the default (2026-08-12 — 2.5 is the standard), but still
         # fully installed and selectable with LTX_MODEL_VERSION=ltx23. Existing
         # workflows must not break, and the character LoRAs are trained against
@@ -404,6 +409,17 @@ MODEL_VERSIONS: tuple[dict, ...] = (
         "engine_id": "ltx",
         "config_key": "ltx-2.5",
         "default": True,
+        # Which pipeline a TRAINED CHARACTER renders on. On 2.3 this is "high",
+        # because its character LoRAs are dev-trained and distilled inference
+        # barely locks identity. On 2.5 the reasoning INVERTS: the recipe the
+        # owner graded — "insane quality", voice PASS by ear — is q8 + the
+        # DISTILLED pipeline at 1024x576x121, and every graded 2.5 character
+        # clip in the campaign ran that path. Forcing "high" would route
+        # characters onto a pipeline nobody has graded them on AND charge a
+        # 29.5 GB add-on for a result the q8 pack already delivers, in 139 s
+        # instead of 246 s. It lives in the registry so the two generations do
+        # not each own a copy of the rule and the markup never decides it.
+        "character_quality": "balanced",
         # NOT optional and NOT interchangeable with 2.3's. 2.5 conditions on a
         # Gemma 4 12B fine-tune (`gemma4_unified`); the vendored tower refuses
         # to build it from anything else. The trap is that Gemma 3 12B does
@@ -7112,6 +7128,57 @@ def _build_ltx_tiers() -> dict[str, dict]:
 LTX_TIERS: dict[str, dict] = _build_ltx_tiers()
 
 
+def character_render_quality(version_id: str | None = None) -> str:
+    """Which pipeline a TRAINED CHARACTER renders on, per generation.
+
+    Resolved here, server-side, so the two generations do not each own a copy of
+    the rule — the markup must never decide this.
+
+    2.3 -> "high". Its character LoRAs are dev-trained and distilled inference
+    barely locks identity, so the character strip forces the two-stage HQ path.
+    That reasoning is real and it is why the strip exists.
+
+    2.5 -> "balanced". On 2.5 the reasoning INVERTS. The recipe the owner graded
+    — "insane quality", voice PASS by ear — is q8 + the DISTILLED pipeline at
+    1024x576x121 with the face LoRA at 1.0, and every graded 2.5 character clip
+    in the campaign ran that path. Forcing `high` there would (a) route
+    characters onto a pipeline nobody has graded them on and (b) require a
+    29.5 GB add-on for a result the 30 GB q8 pack already delivers, in 139 s
+    instead of 246 s. Two mistakes, so: the graded path is the default.
+    """
+    return str(model_version(version_id).get("character_quality") or "high")
+
+
+def character_strip_payload() -> dict:
+    """The two character chips, priced from the same table everything else uses.
+
+    "~2 min" here is not typed: it is the MEASURED 139.4 s row for
+    (ltx25, balanced, 5s, q8) — the character lane really does submit balanced
+    at q8, which is exactly why ltx_measured_eta takes a quant."""
+    q = character_render_quality()
+    pack = "q8"
+    hit = ltx_measured_eta(q, "5s", pack)
+    pro_eta = hit[1] if hit else _fmt_eta(
+        ltx_estimate_minutes(1024, 576, 121,
+                             LTX_QUALITIES[q]["stage1"], LTX_QUALITIES[q]["stage2"],
+                             LTX_QUALITIES[q].get("stage2_evals") or 1))
+    draft_eta = _fmt_eta(
+        ltx_estimate_minutes(736, 416, 121,
+                             LTX_QUALITIES[q]["stage1"], LTX_QUALITIES[q]["stage2"],
+                             LTX_QUALITIES[q].get("stage2_evals") or 1))
+    label = "Q8" if q != "high" else "Q8 HQ"
+    return {
+        "quality": q,
+        "draft": {"width": 736, "height": 416,
+                  "tier": f"{label} · {draft_eta} / 5s",
+                  "title": f"Q8 at 736×416 — faster, slightly less per-frame detail."},
+        "pro": {"width": 1024, "height": 576,
+                "tier": f"{label} · {pro_eta} / 5s · best identity",
+                "title": "Q8 at 1024×576 — the recipe the character LoRAs were "
+                         "graded on."},
+    }
+
+
 def ltx_measured_eta(quality: str, length: str, quant: str,
                      version_id: str | None = None) -> tuple[float, str] | None:
     """The measured wall clock for this exact (version, quality, length, pack),
@@ -7164,6 +7231,9 @@ def ltx_tiers_payload() -> dict:
             "voice_strength": LTX_VOICE_STRENGTH_HELP,
             "q8_character": LTX_Q8_CHARACTER_HELP,
         },
+        # The character strip's two chips, and the PIPELINE they submit —
+        # resolved per generation so the markup never owns that rule.
+        "character": character_strip_payload(),
     }
 
 
@@ -16104,8 +16174,25 @@ def run_job_inner(job: dict) -> None:
     # distilled + lanczos path that has worked since yesterday.
     Q8_FAST_OK_MODES = ("t2v",)
     Q8_FAST_FRAMES_LIMIT = 121
+    # 2.3 ONLY, and this gate is the substance of the v4.0 character routing.
+    #
+    # Every number above — stage1=10, teacache 1.0, "~6 min", the eye-checks —
+    # was measured on 2.3's two-stage HQ pipeline. On 2.5 this silently
+    # rerouted quality=balanced onto `high`, which means:
+    #   * a CHARACTER render, whose graded 2.5 recipe is q8 + DISTILLED, landed
+    #     on the two-stage HQ path nobody has graded 2.5 characters on; and
+    #   * it then demanded the 29.5 GB HQ add-on, so on a machine with the full
+    #     q8 pack and no add-on it did not render at all — "High quality
+    #     requires the full Q8 model", for a job the user asked to run on
+    #     Balanced.
+    # Found exactly that way: the step-13 proof render failed on a stock 2.5
+    # install with the add-on withheld.
+    #
+    # 2.3 keeps the routing unchanged. When someone measures the equivalent on
+    # 2.5's pipeline it can come back, per generation, with its own numbers.
     balanced_q8_fast = (
         quality == "balanced"
+        and ACTIVE_MODEL_VERSION == "ltx23"
         and SYSTEM_TIER == "standard"
         and SYSTEM_CAPS.get("allows_q8", False)
         and not q8_missing_files()
@@ -16408,7 +16495,31 @@ def run_job_inner(job: dict) -> None:
                 "path": CURATED_LORAS["hdr"]["repo_id"],
                 "strength": float(CURATED_LORAS["hdr"]["default_strength"]),
             })
-        ltx_pack_preflight("q4", "This render")
+        # CHARACTERS RENDER ON THE Q8 WEIGHTS, ON THE DISTILLED PIPELINE.
+        #
+        # This is the `pack=q8` half of the 2.5 character recipe, and without it
+        # the other half is worse than useless: routing a character to
+        # `quality=balanced` puts it on the DISTILLED pipeline (right) reading
+        # the Q4 pack (wrong), and fusing a rank-32 character LoRA into int4
+        # weights destroys most of the delta — the helper's own instrument
+        # measured 867 % of the delta destroyed on this exact pack + LoRA, and
+        # the render then died outright on a parameter mismatch. A trigger word
+        # that changes the picture into a stranger is the failure this whole
+        # area exists to end.
+        #
+        # So: same pipeline, different weights. The q8 pack ships its own
+        # `transformer-distilled.safetensors`, which is exactly what makes
+        # "q8 + distilled" a thing that can be asked for — and it is the recipe
+        # every graded 2.5 character clip ran. Resolved from the registry, so
+        # 2.3 (whose characters go to `high` and never reach this branch) is
+        # untouched.
+        _char_pack = "q4"
+        if p.get("character_id") and character_render_quality() != "high":
+            _char_pack = "q8"
+            push(f"[character] {model_version()['label']} characters render on "
+                 f"the Q8 weights with the distilled pipeline — the recipe they "
+                 f"were graded on.")
+        ltx_pack_preflight(_char_pack, "This render")
         job_spec = {
             "action": "generate",
             "id": job["id"],
@@ -16420,7 +16531,8 @@ def run_job_inner(job: dict) -> None:
                 # already loads -- the point is that a second model version
                 # becomes a different string here rather than a different
                 # helper process.
-                "model_dir": base_model_dir(),
+                "model_dir": (str(pack_path("q8")) if _char_pack == "q8"
+                              else base_model_dir()),
                 "mode": mode,
                 "prompt": p["prompt"],
                 "negative_prompt": p.get("negative_prompt", ""),
@@ -16598,8 +16710,10 @@ def run_job_inner(job: dict) -> None:
         # The sidecar is the clip's provenance — the one durable record of
         # which weights made it. MODEL_ID names the DEFAULT install, so on a
         # non-default version this recorded 2.3's pack for a 2.5 render. The
-        # job spec already resolves the right directory; report that.
-        "fps": FPS, "model": base_model_dir(), "queue_id": job["id"],
+        # job spec already resolves the right directory; report THAT, not a
+        # re-derivation — a character render routes to the q8 pack, and a
+        # sidecar that said q4 for it would be provenance that is simply wrong.
+        "fps": FPS, "model": job_spec["params"]["model_dir"], "queue_id": job["id"],
         "helper_elapsed_sec": result.get("elapsed_sec"),
         "output_codec": output_codec_settings(),
         "memory_policy": memory_plan,
@@ -17546,6 +17660,19 @@ class Handler(BaseHTTPRequestHandler):
             _q8_available = q8_available_anywhere() and not _hq_addon_missing
             payload["q8_available"] = _q8_available
             payload["q8_missing"] = [] if _q8_available else _q8_missing
+            # THE Q8 WEIGHTS PACK, on its own — distinct from `q8_available`
+            # above, which folds in the HQ add-on because High / Extend /
+            # Keyframe genuinely need both.
+            #
+            # Characters need the PACK and not the add-on: on 2.5 they render on
+            # q8 + distilled, which is the recipe every graded 2.5 character
+            # clip ran. Reading `q8_available` for them would tell a user who
+            # has the full 30 GB pack that they must "Install Q8 (30 GB)"
+            # because a DIFFERENT 29.5 GB download is absent — the pack they
+            # already have, demanded again, to run a path that does not use the
+            # missing file. One conflated boolean, two very different questions.
+            payload["q8_pack_available"] = q8_available_anywhere()
+            payload["q8_pack_missing"] = _q8_missing
             # Reported separately so the Models page can say WHICH download is
             # the one standing between the user and the High tier.
             payload["hq_addon_missing"] = _hq_addon_missing
@@ -20537,7 +20664,15 @@ class Handler(BaseHTTPRequestHandler):
                             f"{sorted(_CHARACTER_DURATION_FRAMES)}"}, 400); return
             frames = _CHARACTER_DURATION_FRAMES[duration]
 
-            quality = (form.get("quality", ["high"])[0] or "high").strip().lower()
+            # The DEFAULT is resolved per generation, not hardcoded: 2.3 renders
+            # characters on the two-stage HQ path, 2.5 on q8 + distilled (the
+            # recipe every graded 2.5 character clip ran). An explicit `quality`
+            # in the form still wins — this endpoint stays a thin wrapper — but
+            # a caller that says nothing gets the graded path for the generation
+            # actually installed.
+            _char_default = character_render_quality()
+            quality = (form.get("quality", [_char_default])[0]
+                       or _char_default).strip().lower()
             if quality not in _CHARACTER_QUALITY_RESOLUTION:
                 self._json({"error": "quality must be draft, balanced or high"}, 400); return
             width, height = _CHARACTER_QUALITY_RESOLUTION[quality]
@@ -28608,14 +28743,22 @@ HTML = r"""<!doctype html>
        Q8-capable machines never see it; shown only when the page renders in
        the Q4 tier (16 GB / Q4 fallback), where a character fuses into the
        distilled base and identity comes out approximate vs. faithful on Q8. */
+    /* SCOPED ON PACK PRESENCE, not on cap-tier, and the difference now matters.
+       `cap_tier` is the FEATURE tier — "how much RAM does this Mac have, folded
+       down to what this generation can serve". It does NOT answer "are the
+       weights on disk", and on 2.5 those two diverge for the first time: a
+       64 GB Mac holding only q4_25 resolves cap_tier=q8, so a note warning
+       about approximate identity would NOT have shown while the Q8 chips
+       offered weights that are not there. #qualityGroup's own `high` hide rule
+       stays on cap-tier because that one really is the feature question. */
     .chars-q4-note { display: none; }
-    body[data-cap-tier="q4"] .chars-q4-note {
+    body[data-q8-pack="missing"] .chars-q4-note {
       display: block;
       font-size: 11px; line-height: 1.5;
       color: var(--muted);
       padding: 4px 2px 2px;
     }
-    body[data-cap-tier="q4"] .chars-q4-note b { color: var(--text); font-weight: 600; }
+    body[data-q8-pack="missing"] .chars-q4-note b { color: var(--text); font-weight: 600; }
 
     /* Manage characters modal — list view with rename + delete per row. */
     .chars-manage-list {
@@ -30573,7 +30716,7 @@ HTML = r"""<!doctype html>
                   title="Rescan mlx_models/characters/ for new bundles"
                   onclick="refreshManualCharacters()"><svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise-bold"/></svg></button>
         </div>
-        <div class="chars-q4-note"><b>Q4 fallback:</b> on this machine characters render on the fast (distilled) base — identity comes out <em>approximate</em>. A Q8-capable Mac renders faithful faces.</div>
+        <div class="chars-q4-note"><b>Trained characters need the Q8 weights.</b> Right now this Mac has the base pack, so the trained face comes out approximate. <a href="#" onclick="openModelsModal();return false;">Install Q8 (30 GB) →</a></div>
         <!-- One-liner that surfaces under the strip when a character is
              active. Shows trigger word + a tiny strength control inline.
              charsSummaryMeta stays as a hidden carrier for legacy JS
@@ -31088,16 +31231,24 @@ HTML = r"""<!doctype html>
                active, switching to H3 left this strip lit BESIDE the H3 tier
                strip — two primary strips, both claiming to set the render. The
                fold rule settles it declaratively, whatever the JS believes. -->
+          <!-- The two chips' PIPELINE and their ETAs are filled by
+               renderCharacterStrip() from BOOT.ltx.character, which the server
+               resolves per generation. The markup carries geometry and nothing
+               else, deliberately: 2.3 renders characters on the two-stage HQ
+               path and 2.5 on q8 + distilled (the exact recipe every graded 2.5
+               character clip ran), and two generations each carrying a copy of
+               that rule is how they drift. "~2 min" on Q8 Pro is the MEASURED
+               139.4 s row, not a typed number. -->
           <div class="quality-strip pill-group" id="qualityGroupCharacter" hidden data-ltx-only>
-            <button type="button" class="q-chip pill-btn pill-quality char-quality" data-char-quality="draft" data-width="736" data-height="416" title="Q8 HQ at 736×416 — faster, slightly less per-frame detail.">
+            <button type="button" class="q-chip pill-btn pill-quality char-quality" data-char-quality="draft" data-width="736" data-height="416">
               <span class="ql-name">Q8 Draft</span>
               <span class="q-spec ql-spec sub">736×416</span>
-              <span class="ql-tier">Q8 HQ · ~3 min / 5s</span>
+              <span class="ql-tier"></span>
             </button>
-            <button type="button" class="q-chip pill-btn pill-quality char-quality active" data-char-quality="pro" data-width="1024" data-height="576" title="Q8 HQ at 1024×576 — locked production recipe, best identity.">
+            <button type="button" class="q-chip pill-btn pill-quality char-quality active" data-char-quality="pro" data-width="1024" data-height="576">
               <span class="ql-name">Q8 Pro</span>
               <span class="q-spec ql-spec sub">1024×576</span>
-              <span class="ql-tier">Q8 HQ · ~5 min / 5s · best identity</span>
+              <span class="ql-tier"></span>
             </button>
           </div>
           <!-- Hailuo H3 render shape — TWO INDEPENDENT AXES, not one fixed tier
@@ -32726,7 +32877,7 @@ HTML = r"""<!doctype html>
           <button type="button" class="ghost-btn js-get-sample-char" style="padding:2px 8px;font-size:12px"
                   onclick="downloadSampleCharacter()">get a sample character (Bizarro)</button>.
         </div>
-        <div class="chars-q4-note"><b>Q4 fallback:</b> on this machine characters render on the fast (distilled) base — identity comes out <em>approximate</em>. A Q8-capable Mac renders faithful faces.</div>
+        <div class="chars-q4-note"><b>Trained characters need the Q8 weights.</b> Right now this Mac has the base pack, so the trained face comes out approximate. <a href="#" onclick="openModelsModal();return false;">Install Q8 (30 GB) →</a></div>
       </div>
 
       <details class="customize-section" id="sbMustSection">
@@ -41778,6 +41929,22 @@ async function poll() {
   // High add-on is a separate 29.50 GB). The tier table fills every chip's
   // third slot now, the way H3's already did, so what is left here is the
   // STATE: is the pack on disk, and is the chip therefore an install CTA.
+  // PACK PRESENCE, as distinct from cap-tier. `data-cap-tier` answers "what can
+  // this Mac's RAM serve"; this answers "are the weights on disk". On 2.5 those
+  // two diverge for the first time — a 64 GB Mac holding only q4_25 resolves
+  // cap_tier=q8 — so every surface that used to key off cap-tier to mean "no
+  // Q8" has to read this instead. Both must be able to be true.
+  // Reads q8_PACK_available, NOT q8_available: characters render on q8 +
+  // distilled and do not touch the HQ add-on, so a user with the full 30 GB
+  // pack and no add-on must not be told to install the pack they already have.
+  const q8PackOk = (s.q8_pack_available !== undefined) ? s.q8_pack_available : s.q8_available;
+  document.body.dataset.q8Pack = q8PackOk ? 'ready' : 'missing';
+  // The character chips name Q8 weights, so with no pack on disk they are an
+  // install CTA rather than a dead choice — the same contract the High chip has.
+  document.querySelectorAll('#qualityGroupCharacter .char-quality').forEach(b => {
+    b.classList.toggle('needs-install', !q8PackOk);
+  });
+
   const highBtn = document.querySelector('#qualityGroup [data-quality="high"]');
   if (highBtn) {
     if (s.q8_available) {
@@ -46211,6 +46378,26 @@ function _renderCharsAppliedNote() {
   note.hidden = false;
 }
 
+// The character strip's two chips, filled from the server-resolved table. Runs
+// once at boot and again whenever pack presence changes, because the chips are
+// an install CTA when the weights they name are not on disk.
+function renderCharacterStrip() {
+  const cfg = ((BOOT.ltx || {}).character) || {};
+  const group = document.getElementById('qualityGroupCharacter');
+  if (!group || !cfg.pro) return;
+  [['draft', cfg.draft], ['pro', cfg.pro]].forEach(([key, c]) => {
+    if (!c) return;
+    const btn = group.querySelector(`[data-char-quality="${key}"]`);
+    if (!btn) return;
+    btn.title = c.title || '';
+    btn.dataset.tooltipDefault = c.title || '';
+    const tier = btn.querySelector('.ql-tier');
+    if (tier) tier.textContent = c.tier || '';
+    const spec = btn.querySelector('.q-spec');
+    if (spec) spec.textContent = `${c.width}×${c.height}`;
+  });
+}
+
 // ---- No voice, defaulted rather than guessed --------------------------------
 //
 // The storyboard lane DERIVES this exactly, from the planner's <d> tags. The
@@ -46554,7 +46741,12 @@ function _setCharacterQuality(btn) {
   const aspect = document.getElementById('aspect');
   const w = parseInt(btn.dataset.width || '1024', 10);
   const h = parseInt(btn.dataset.height || '576', 10);
-  if (qInp) qInp.value = 'high';
+  // RESOLVED SERVER-SIDE, never decided here. On 2.3 this is 'high' (its
+  // character LoRAs are dev-trained and distilled inference barely locks
+  // identity); on 2.5 it is 'balanced', because q8 + distilled is the exact
+  // path every graded 2.5 character clip ran. The markup must not own that
+  // rule — two generations each carrying a copy is how they drift.
+  if (qInp) qInp.value = ((BOOT.ltx || {}).character || {}).quality || 'high';
   // Honor the orientation chip — swap w/h for vertical renders.
   const vertical = aspect && aspect.value === 'vertical';
   if (wInp) wInp.value = vertical ? h : w;
@@ -47702,7 +47894,8 @@ poll();
 setMode('t2v');
 setAspect('landscape');         // sets aspect first so the default preset orients correctly
 setQuality('balanced');         // bundles quality + dims; respects current aspect
-applyTierTimes();               // rewrite Quality pill subtitles to match this Mac
+applyTierTimes();               // no-op for LTX since v4.0 — the tier table owns those subtitles
+renderCharacterStrip();         // the two character chips, priced per generation
 // Engine picker — re-apply the last-used engine after the boot sequence above
 // has settled the mode. setEngine() re-runs every gate (capable / installed /
 // mode), so a stale localStorage value from a machine that has since lost the
