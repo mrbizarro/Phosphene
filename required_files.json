@@ -30,17 +30,31 @@
     "characters": {
       "label": "Trained characters and voices",
       "blocking": false,
-      "repos": [
-        "q8_25"
-      ]
+      "_comment": "Per generation, for the same reason render is: on 2.3 a trained character renders on ITS q8 pack, not 2.5's. Hardcoding q8_25 told a user pinned back with LTX_MODEL_VERSION=ltx23 to download a pack their generation does not use.",
+      "default_version": "ltx25",
+      "repos_by_version": {
+        "ltx25": [
+          "q8_25"
+        ],
+        "ltx23": [
+          "q8"
+        ]
+      }
     },
     "high_tier": {
       "label": "High tier, FFLF and Extend",
       "blocking": false,
-      "repos": [
-        "q8_25",
-        "hq_25"
-      ]
+      "_comment": "2.3 ships its dev transformer and distilled LoRA INSIDE its own q8 repo and has no add-on at all, so the 2.5 add-on must not be demanded there.",
+      "default_version": "ltx25",
+      "repos_by_version": {
+        "ltx25": [
+          "q8_25",
+          "hq_25"
+        ],
+        "ltx23": [
+          "q8"
+        ]
+      }
     },
     "live_preview": {
       "label": "Live preview",
@@ -62,8 +76,7 @@
       ],
       "venv_any": [
         "minimax-h3-mlx/.venv/bin/python3.11",
-        "minimax-h3-mlx/.venv/bin/python",
-        "minimax-h3-mlx/.venv/bin/activate"
+        "minimax-h3-mlx/.venv/bin/python"
       ],
       "model_roots": [
         "mlx_models/hailuo-h3/models",
@@ -75,7 +88,8 @@
         "ddalcu-q8/video_vae.safetensors",
         "ddalcu-q8/audio_vae.safetensors",
         "upstream-meta/FL2VA/text_encoder/config.json"
-      ]
+      ],
+      "_venv_comment": "INTERPRETERS ONLY. `bin/activate` was listed here and Pinokio accepted it, so a broken venv read as ready on one side and not the other. uv creates bin/python as a symlink chain into a shared managed interpreter, and installing another pack can move it -- leaving activate in place beside a dangling python. That is the v3.4.0 'installed other packs and Hailuo H3 vanished' report. Both consumers resolve the symlink (fs.existsSync / Path.exists both follow), so a dangling chain is false."
     }
   },
   "repos": [

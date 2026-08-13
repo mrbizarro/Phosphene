@@ -1601,13 +1601,18 @@ def default_policy(max_dim: Optional[int] = None) -> Dict[str, Any]:
     # "the same shape". The main panel path masked it by keeping the board's
     # existing policy, so only a direct planner consumer would ever have been
     # handed the fictional geometry.
+    # NO FALLBACK LITERAL. A second copy of the numbers was kept here "in case
+    # the import fails", and a spare copy of a value that has already drifted
+    # once is not insurance, it is the next drift waiting. storyboard.py is a
+    # hard dependency of this module — coerce_spec() already calls into it for
+    # the schema — so if it cannot be imported the honest outcome is the error,
+    # not a policy nobody will ever notice is stale.
     _sb = _storyboard_module()
-    policy = (_sb.default_policy() if _sb is not None and hasattr(_sb, "default_policy")
-              else {
-                  "draft": {"quality": "quick", "width": 640, "height": 448, "frames": 49},
-                  "final": {"quality": "balanced", "width": 1024, "height": 576,
-                            "frames": 121},
-              })
+    if _sb is None or not hasattr(_sb, "default_policy"):
+        raise PlannerError(
+            "cannot import storyboard.default_policy() — the planner takes the "
+            "render policy from storyboard.py and has no copy of its own")
+    policy = _sb.default_policy()
     if max_dim:
         for key in ("draft", "final"):
             p = policy[key]
@@ -2238,6 +2243,7 @@ def _plan_with_session(sess, *, system, user, fb_mode, fb_shot, previous, valida
     # and a plan that fails the validator has a bigger problem than a species adjective.
     # Skipped on a per-shot re-roll: the caller is already editing one shot by hand, and
     # re-planning a re-plan from inside itself is how a 25 s call becomes a 4-minute one.
+    _degraded: List[str] = []
     if fb_mode != "shot":
         def _replan_one(current, n, note):
             resp3 = sess.generate(
@@ -2264,18 +2270,29 @@ def _plan_with_session(sess, *, system, user, fb_mode, fb_shot, previous, valida
         # The premise check runs LAST and only when the brief named creatures: the
         # appearance law is what puts it at risk, so it is checked after that law has
         # finished rewriting shots.
+        _premise = _premise_species(" ".join([concept or "", style or ""]))
         spec = _enforce_premise(
             spec, cast, warnings, replan=_replan_one, style=style, sb=sb,
-            premise=_premise_species(" ".join([concept or "", style or ""])))
+            premise=_premise)
         # ---- THE FINAL INVARIANT SCAN ------------------------------------
         # After the LAST mutation, whichever pass made it. Every pass before
         # this validated only the condition it owned, so the last repair could
         # silently undo an earlier guarantee and nothing looked.
-        spec = _assert_final_invariants(spec, cast, warnings, style=style, sb=sb)
+        spec, _degraded = _assert_final_invariants(
+            spec, cast, warnings, style=style, sb=sb, premise=_premise)
 
+    # A DEGRADED PLAN DOES NOT GET TO SAY ok=True. The final pass reports what it
+    # could not repair — an unlawful shot, or a premise the film never showed —
+    # and stamping success over that is how a known defect reaches a user with a
+    # green tick on it. `ok` here is the PLANNER's metadata, not the top-level
+    # error flag `is_plan_error()` reads, so a degraded plan is still a usable
+    # storyboard the caller can render; it is simply no longer described as
+    # clean, and `degraded_reasons` says why in the words the UI already shows.
     spec["_planner"] = dict(
         meta,
-        ok=True,
+        ok=not _degraded,
+        degraded=bool(_degraded),
+        degraded_reasons=list(_degraded),
         warnings=warnings,
         first_try_errors=first_try,
         first_try_clean=first_try_clean,
@@ -2356,6 +2373,40 @@ def _premise_terms_present(text: str, premise: Sequence[str]) -> bool:
     return any(_premise_term_re(t).search(text or "") for t in premise)
 
 
+def _premise_missing_terms(spec: Dict[str, Any], cast: Sequence[Dict[str, str]],
+                           premise: Sequence[str]) -> List[str]:
+    """Which of the brief's OWN creatures never made it onto the screen.
+
+    ALL THE TERMS, NOT ANY OF THEM. "the crew are a fox and a badger" was
+    counted as preserved by a film containing only the fox — half the premise
+    silently dropped and the check said fine. Every term the brief names has to
+    appear somewhere the law does not govern.
+
+    THE PRESENCE BUDGET. Requiring all of them unconditionally would be its own
+    lie: a brief naming five species cannot show five in a two-shot film, and
+    the format's own COMPOSITION LIMITS forbid crowding a shot with subjects to
+    make a checker happy. So the requirement is capped by the number of uncast
+    shots — the places a creature can legitimately appear. With room for two,
+    two distinct terms are required; with room for one, one is enough.
+    """
+    if not premise:
+        return []
+    cast_ids = {c["id"] for c in cast}
+    uncast = [s for s in (spec.get("shots") or ())
+              if isinstance(s, dict) and s.get("character_id") not in cast_ids]
+    if not uncast:
+        return []
+    seen, unseen = [], []
+    for term in premise:
+        rx = _premise_term_re(term)
+        (seen if any(rx.search(s.get("description") or "") for s in uncast)
+         else unseen).append(term)
+    budget = min(len(premise), len(uncast))
+    if len(seen) >= budget:
+        return []
+    return unseen
+
+
 def _premise_lost(spec: Dict[str, Any], cast: Sequence[Dict[str, str]],
                   premise: Sequence[str]) -> bool:
     """Did the appearance law eat the film's own premise?
@@ -2369,15 +2420,7 @@ def _premise_lost(spec: Dict[str, Any], cast: Sequence[Dict[str, str]],
     So the check is on the shots the law does NOT govern. If the brief named creatures and
     not one uncast shot shows them, the premise is gone.
     """
-    if not premise:
-        return False
-    cast_ids = {c["id"] for c in cast}
-    for s in spec.get("shots") or ():
-        if not isinstance(s, dict) or s.get("character_id") in cast_ids:
-            continue
-        if _premise_terms_present(s.get("description") or "", premise):
-            return False
-    return True
+    return bool(_premise_missing_terms(spec, cast, premise))
 
 
 def _premise_note(premise: Sequence[str]) -> str:
@@ -2423,7 +2466,7 @@ def _reassemble_prompt(shot: Dict[str, Any], style: str,
     return prompt
 
 
-def _assert_final_invariants(spec, cast, warnings, *, style, sb) -> Dict[str, Any]:
+def _assert_final_invariants(spec, cast, warnings, *, style, sb, premise=()):
     """The last word: every law, over the whole plan, after the last mutation.
 
     THE PASSES WERE NOT COMPOSABLE. Each one validated only the condition it
@@ -2439,7 +2482,14 @@ def _assert_final_invariants(spec, cast, warnings, *, style, sb) -> Dict[str, An
     """
     remaining = _scan_laws(spec, cast)
     if not remaining:
-        return spec
+        missing = _premise_missing_terms(spec, cast, premise)
+        if missing:
+            msg = ("PLAN LOST PART OF ITS PREMISE: no shot shows %s. The concept "
+                   "asked for it and the film does not have it."
+                   % ", ".join(missing[:4]))
+            warnings.append(msg)
+            return spec, [msg]
+        return spec, []
     by_id = {c["id"]: c for c in cast}
     for n, _reasons in remaining:
         for s in spec.get("shots") or ():
@@ -2463,12 +2513,24 @@ def _assert_final_invariants(spec, cast, warnings, *, style, sb) -> Dict[str, An
                 s["prompt"] = _reassemble_prompt(s, style, cast, sb)
                 warnings.append("shot %d: final invariant pass had to repair it" % n)
     still = _scan_laws(spec, cast)
+    degraded: List[str] = []
     if still:
-        warnings.append(
-            "PLAN SHIPPED WITH %d UNREPAIRED SHOT(S): %s. This is a defect, not a "
-            "style note - re-roll those shots or re-word the concept."
-            % (len(still), ", ".join(str(n) for n, _ in still)))
-    return spec
+        msg = ("PLAN SHIPPED WITH %d UNREPAIRED SHOT(S): %s. This is a defect, not a "
+               "style note - re-roll those shots or re-word the concept."
+               % (len(still), ", ".join(str(n) for n, _ in still)))
+        warnings.append(msg)
+        degraded.append(msg)
+    # THE PREMISE IS AN INVARIANT TOO. This pass checked L12/L13 and stopped,
+    # so a premise repair that failed was still the last word on the plan and
+    # nothing downstream ever re-asked. Now it is asked here, after everything.
+    missing = _premise_missing_terms(spec, cast, premise)
+    if missing:
+        msg = ("PLAN LOST PART OF ITS PREMISE: no shot shows %s. The concept asked "
+               "for it and the film does not have it."
+               % ", ".join(missing[:4]))
+        warnings.append(msg)
+        degraded.append(msg)
+    return spec, degraded
 
 
 def _enforce_premise(spec, cast, warnings, *, replan, premise, style, sb) -> Dict[str, Any]:

@@ -115,7 +115,25 @@ module.exports = {
     // class by asking the capability instead of the label.
     const caps = required.capabilities || {}
     const capRender = caps.render || {}
-    const renderKeys = ((capRender.repos_by_version || {})[capRender.default_version] || [])
+    // THE ACTIVE GENERATION, where it is knowable. A user pinned back with
+    // LTX_MODEL_VERSION=ltx23 renders on 2.3's packs, and evaluating the
+    // manifest's default here told them their install was incomplete for a
+    // generation they are not using. The panel resolves this from its own
+    // process env; Pinokio's menu runs elsewhere, so it reads the same override
+    // from the ENVIRONMENT file the launcher sources — which is exactly where
+    // docs/H3_ENGINE.md tells users to put persistent overrides. Falls back to
+    // the manifest default when nothing has been pinned, which is the norm.
+    let activeVersion = capRender.default_version
+    try {
+      const envPath = path.join(installRoot, "ENVIRONMENT")
+      if (fs.existsSync(envPath)) {
+        const m = fs.readFileSync(envPath, "utf8")
+          .split("\n").filter(l => !/^\s*#/.test(l))
+          .join("\n").match(/^\s*LTX_MODEL_VERSION\s*=\s*(\S+)\s*$/m)
+        if (m && (capRender.repos_by_version || {})[m[1]]) activeVersion = m[1]
+      }
+    } catch (e) { /* unreadable ENVIRONMENT: keep the manifest default */ }
+    const renderKeys = ((capRender.repos_by_version || {})[activeVersion] || [])
     const baseRepos = renderKeys.length
       ? renderKeys.map(k => repos.find(r => r.key === k)).filter(Boolean)
       : repos.filter(r => r.kind === "base")

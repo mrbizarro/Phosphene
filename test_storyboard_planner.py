@@ -1146,7 +1146,8 @@ class TestLawEnforcement(unittest.TestCase):
                            "description": "bizarrotrn Bizarro, a grizzled badger, "
                                           "explains the mission to the unit."}]}
         warnings = []
-        out = P._assert_final_invariants(spec, self.CAST, warnings, style="", sb=None)
+        out, degraded = P._assert_final_invariants(
+            spec, self.CAST, warnings, style="", sb=None)
         s = out["shots"][0]
         self.assertFalse(P._appearance_violations(s["description"], "bizarrotrn", "Bizarro"))
         self.assertFalse(P._speech_violations(s["description"], s["soundscape"]))
@@ -1158,12 +1159,83 @@ class TestLawEnforcement(unittest.TestCase):
                            "music": "N/A", "soundscape": "Wind.",
                            "description": "A radio voice reads the coordinates aloud."}]}
         warnings = []
-        P._assert_final_invariants(spec, self.CAST, warnings, style="", sb=None)
+        _out, _deg = P._assert_final_invariants(
+            spec, self.CAST, warnings, style="", sb=None)
         joined = " ".join(warnings)
         if P._speech_violations(spec["shots"][0]["description"],
                                 spec["shots"][0]["soundscape"]):
             self.assertIn("UNREPAIRED", joined,
                           "a plan shipped with a known violation must say so")
+
+    def test_multi_term_premise_needs_ALL_its_terms(self):
+        """Codex's probe: "a fox and badger premise is considered preserved when
+        only one appears". Half the premise silently dropped, check said fine."""
+        premise = P._premise_species("a heist film where the crew are a fox and a badger")
+        self.assertEqual(premise, ["badger", "fox"])
+        two_shots = lambda a, b: {"shots": [
+            {"n": 1, "character_id": None, "description": a},
+            {"n": 2, "character_id": None, "description": b}]}
+        only_fox = two_shots("A fox in a tuxedo cracks the safe.", "Rain on the car.")
+        self.assertTrue(P._premise_lost(only_fox, [], premise),
+                        "half a premise is not a preserved premise")
+        self.assertEqual(P._premise_missing_terms(only_fox, [], premise), ["badger"])
+        both = two_shots("A fox cracks the safe.", "A badger keeps watch.")
+        self.assertFalse(P._premise_lost(both, [], premise))
+
+    def test_the_presence_budget_does_not_demand_the_impossible(self):
+        """A brief naming five species cannot show five in a one-shot film, and
+        the format's own composition limits forbid crowding a shot to satisfy a
+        checker. The requirement is capped by the number of uncast shots."""
+        premise = P._premise_species("the crew are a fox and a badger")
+        one_shot = {"shots": [{"n": 1, "character_id": None,
+                               "description": "A fox cracks the safe."}]}
+        self.assertFalse(P._premise_lost(one_shot, [], premise),
+                         "with room for one creature, one is enough")
+
+    def test_the_final_pass_checks_the_premise_too(self):
+        # It checked L12/L13 and stopped, so a failed premise repair was the last
+        # word on the plan and nothing downstream ever re-asked.
+        premise = ["wolves"]
+        spec = {"shots": [{"n": 1, "character_id": None, "engine": "ltx",
+                           "camera": "static", "face": "medium", "settle": "still",
+                           "music": "N/A", "soundscape": "Wind.",
+                           "description": "Two soldiers drag a crate through mud."}]}
+        warnings = []
+        _out, degraded = P._assert_final_invariants(
+            spec, self.CAST, warnings, style="", sb=None, premise=premise)
+        self.assertTrue(degraded, "a lost premise must degrade the plan")
+        self.assertIn("LOST PART OF ITS PREMISE", " ".join(degraded))
+
+    def test_a_degraded_plan_does_not_claim_ok(self):
+        """A failed premise repair must not stamp _planner.ok=True."""
+        concept = "ww2 scene but the soldiers are humanoid wolves"
+        # Both the plan and its repair omit the premise entirely.
+        plain = json.dumps({"title": "Op", "shots": [
+            _shot(1, description=self.GOOD, character_id="bizarrotrn"),
+            _shot(2, description="Live-action, cinematic, two soldiers drag a crate."),
+        ]})
+        still_plain = json.dumps({"title": "Op", "shots": [
+            _shot(2, description="Live-action, cinematic, two soldiers lift a crate.")]})
+        spec, _ = _plan([plain, still_plain], n_shots=2, concept=concept,
+                        characters=self.CAST, engine="ltx")
+        self.assertFalse(P.is_plan_error(spec), "still a usable storyboard")
+        blk = spec["_planner"]
+        self.assertFalse(blk["ok"], "a degraded plan must not report ok=True")
+        self.assertTrue(blk["degraded"])
+        self.assertTrue(blk["degraded_reasons"])
+        self.assertIn("PREMISE", " ".join(blk["degraded_reasons"]).upper())
+
+    def test_a_clean_plan_still_reports_ok(self):
+        ok = json.dumps({"title": "Op", "shots": [
+            _shot(1, description=self.GOOD, character_id="bizarrotrn"),
+            _shot(2, description="Live-action, cinematic, a humanoid wolf lifts a crate."),
+        ]})
+        spec, _ = _plan([ok], n_shots=2, concept="soldiers are humanoid wolves",
+                        characters=self.CAST, engine="ltx")
+        blk = spec["_planner"]
+        self.assertTrue(blk["ok"])
+        self.assertFalse(blk["degraded"])
+        self.assertEqual(blk["degraded_reasons"], [])
 
     def test_a_film_that_kept_its_premise_costs_no_extra_call(self):
         concept = "ww2 scene but the soldiers are humanoid animals"

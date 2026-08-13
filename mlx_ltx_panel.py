@@ -3810,7 +3810,49 @@ def capability_missing(name: str, version_id: str | None = None) -> list[str]:
             continue
         for fname in _repo_effective_missing(repo):
             out.append(f"{repo['local_dir']}/{fname}")
+
+    # PATHS, VENVS AND MODEL TREES COUNT TOO. This evaluated `repos` only and
+    # silently returned [] for anything declared with the other three keys — so
+    # the H3 capability reported ok:true on a machine where h3_paths() correctly
+    # said not_installed. A capability that answers "fine" for a component set it
+    # never looked at is worse than no capability, because the whole point of the
+    # declaration was to stop two consumers disagreeing.
+    cap = _capabilities().get(name) or {}
+    for rel in cap.get("paths") or ():
+        if not (ROOT / rel).exists():
+            out.append(rel)
+    venv_any = cap.get("venv_any") or ()
+    if venv_any and not any(_venv_python_resolves(ROOT / rel) for rel in venv_any):
+        out.append(venv_any[0] + " (no resolvable interpreter)")
+    roots, models = cap.get("model_roots") or (), cap.get("models") or ()
+    if models:
+        for root in roots or ("",):
+            base = ROOT / root if root else ROOT
+            missing = [m for m in models if not (base / m).is_file()]
+            if not missing:
+                break
+        else:
+            missing = []
+            for m in models:
+                if not any((ROOT / r / m).is_file() for r in (roots or ("",))):
+                    missing.append(m)
+        out.extend(missing)
     return out
+
+
+def _venv_python_resolves(path: Path) -> bool:
+    """A venv entry counts only when it is an interpreter that still resolves.
+
+    `bin/activate` existing proves nothing: uv creates bin/python as a symlink
+    chain into a shared managed interpreter, and installing another pack can
+    move it — leaving activate in place beside a dangling python. That is the
+    v3.4.0 "installed other packs and Hailuo H3 vanished" report. `.exists()`
+    follows symlinks, so a broken chain is definitively false.
+    """
+    try:
+        return path.exists() and path.name != "activate"
+    except OSError:
+        return False
 
 
 def capability_state(name: str, version_id: str | None = None) -> dict:
@@ -47669,9 +47711,27 @@ function renderNowPreview(s, prog) {
   // (required_files.json → capabilities.live_preview.engines) and the running
   // job says which engine it is, so the notice only appears where it is true.
   const capEngines = (((BOOT.ltx || {}).capabilities || {}).live_preview || {}).engines || ['ltx'];
-  const jobEngine = (((s.current || {}).params || {}).engine || 'ltx').toLowerCase();
-  const jobMode = (((s.current || {}).params || {}).mode || '').toLowerCase();
-  const previewServesThisJob = capEngines.indexOf(jobEngine) !== -1 && jobMode !== 'train';
+  const _p = ((s.current || {}).params) || {};
+  // A POSITIVE MATCH, never a default. `engine || 'ltx'` meant every job that
+  // does not carry the field — image jobs never do, it is a video field —
+  // counted as LTX and got an LTX live-preview failure notice with an Install
+  // link for a decoder they would never use. Missing now means "not LTX".
+  const jobEngine = String(_p.engine || '').toLowerCase();
+  const jobMode = String(_p.mode || '').toLowerCase();
+  // And only the modes that actually run the preview lane. Image and training
+  // jobs are not video renders; `preview_every` on the quality cell is the
+  // server's own answer for the LTX paths (HQ tiers that never call
+  // _live_preview_params say so here) — when the table is absent we do not
+  // guess, we stay quiet.
+  const _qs = ((BOOT.ltx || {}).qualities) || [];
+  const _cell = Array.isArray(_qs)
+    ? _qs.find(c => c && c.key === String(_p.quality || ''))
+    : _qs[String(_p.quality || '')];
+  const laneRuns = _cell ? Number(_cell.preview_every || 0) > 0 : false;
+  const previewServesThisJob =
+        jobEngine !== '' && capEngines.indexOf(jobEngine) !== -1
+     && jobMode !== 'train' && jobMode !== 'image'
+     && laneRuns;
   const missingDecoder = s.running && !prev && previewServesThisJob
                       && pstate.reason === 'missing_decoder';
   let miss = document.getElementById('nowPreviewMissing');
