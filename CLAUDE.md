@@ -445,6 +445,51 @@ that already pulled 0.31.2 can recover by clicking Update.
   click Stop + Start in Pinokio, or `pkill -f mlx_ltx_panel.py`
   and click Start.
 
+### The GPU lock — BOTH of them, and staleness is a TIMESTAMP
+
+This machine runs several agents at once and one 40 GiB render. Two of
+them do not fit. Every render, benchmark or experiment that touches the
+GPU takes **both** locks for its whole duration and releases both after:
+
+| lock | shape | who introduced it |
+|---|---|---|
+| `~/AI/projects/hailuo-mlx/.gpu_lock` | a **directory** (`mkdir` = atomic acquire, `rmdir` = release) | the H3 tree |
+| `/tmp/phosphene_gpu.lock` | a **file** (`set -o noclobber` + `>` = atomic create-or-fail) | the Phosphene agents |
+
+**A lock only one party reads is not a lock.** Both exist, both are
+live, and an agent that honours one of them will happily start a second
+render next to an agent honouring the other. That is not hypothetical:
+on 2026-08-05 two ~40 GiB jobs overlapped and the OS killed the panel
+*and* its child mid-test.
+
+Acquire in that order (directory first, then file; release in reverse),
+so two agents racing cannot each hold one and deadlock. `gpu_lock.sh` in
+the LTX-2.5 port working tree is the reference implementation.
+
+**Staleness is decided by the lock's TIMESTAMP, never by a PID.**
+Write the owner string into the file for humans to read, but do not
+parse a pid out of it and do not ask whether that pid is alive:
+
+- pids are recycled, so "that pid exists" is not "that render is
+  running" — the crash-reap work already learned this the hard way and
+  matches on the process **cmdline**, not the number alone;
+- the holder may be a *different container of work* than the process
+  that wrote the file (a driver script that spawns the render), so the
+  writer can legitimately be gone while the GPU is still busy;
+- and a pid check invites the failure it is meant to prevent: an agent
+  that concludes "stale" and steals the lock starts the second render.
+
+Use an age threshold longer than any render this repo can produce
+(the longest measured is a 15 s H3 chain at ~27 min, so **60 minutes**
+is the floor), announce that you are overriding, and say so in the
+session record. If in doubt, **wait** — a blocked agent costs minutes,
+a collided render costs the machine.
+
+**Never touch `:8199`.** It is the owner's daemon. Do not kill it, do
+not restart it, do not queue to it. Test instances go on **:8240+**
+with isolated `LTX_STATE_DIR` / `LTX_OUTPUT_DIR` / `LTX_UPLOADS_DIR`,
+and are killed by the PID you saved when you started them.
+
 ### Disk consolidation
 - Old `~/Documents/Codex/...` dev folder was deleted.
   Don't recreate. The Pinokio install is canonical.
@@ -454,6 +499,23 @@ that already pulled 0.31.2 can recover by clicking Update.
   symlinks.
 
 ## 8. Test workflow
+
+### The gates — run these before pushing anything they cover
+
+Each exists because the thing it guards broke in the field at least once,
+and each is cheap enough that "I forgot" is not a reason.
+
+| gate | run it when you touch | what it refuses |
+|---|---|---|
+| `node scripts/check_pinokio_scripts.js` | any launcher `.js` | a single dispatch over 500 chars — Pinokio 8.0.x wedges at 764 and at 1,417 |
+| `node scripts/check_ltx_pin.js` | the vendored pin, `update.js`, `install.js`, `_LTX_EXPECTED_VERSION` | a pin that is a bare SHA, a pin that disagrees with the version the runtime reports, a second checkout implementation, or anything in `update.js` that belongs post-pull |
+| `node scripts/check_post_update.js` | `scripts/post_update.sh` | the codec patch running before the reinstall or after anything optional, and a load-bearing step that cannot fail the Update |
+| `./ltx-2-mlx/env/bin/python3.11 scripts/assert_registry.py` | `MODEL_VERSIONS`, `required_files.json`, pack paths, the text-encoder seam, deep-verify sources | a generation that resolves another generation's weights or text encoder — the two bugs that shipped silently on 2026-08-12, neither of which raised anything |
+
+`assert_registry.py` also **pins known defects**: it asserts the current
+*wrong* value, prints a `DEFECT` banner every run, and turns RED when
+somebody fixes it, so a fix cannot land without the marker being removed.
+A pinned defect is not a pass — read the banners.
 
 For HTML/UI/JS changes:
 1. Edit `mlx_ltx_panel.py`
