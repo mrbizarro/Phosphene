@@ -1114,6 +1114,60 @@ def _hq_modality_scale(model_dir: str) -> float:
         return 3.0
 
 
+def _thin_table_caps(model_dir: str) -> tuple[int, int] | None:
+    """(stage1, stage2) step ceilings for the FIXED tables this checkpoint
+    thins, or None when they cannot be read."""
+    try:
+        from ltx_pipelines_mlx.scheduler import distilled_presets_for
+    except Exception:  # noqa: BLE001 — older library: leave requests alone
+        return None
+    try:
+        vendor = (distilled_presets_for(_checkpoint_generation(model_dir)) or {}).get("vendor")
+        if not vendor:
+            return None
+        return (max(1, len(vendor.stage1) - 1), max(1, len(vendor.stage2) - 1))
+    except Exception:  # noqa: BLE001 — never block a render on a probe
+        return None
+
+
+def _thin_cap(model_dir: str, key: str, want: int) -> int:
+    """Clamp a step count to what THIS checkpoint's fixed table can serve.
+
+    A step count on a thinning lane means "give me N of the checkpoint's own
+    steps" — it thins a fixed table. Asking for more than the table holds is
+    asking it to PAD, which is a different operation with a different answer,
+    so `thin_sigmas` refuses it. Correctly: a padded schedule is not a longer
+    render, it is a made-up one.
+
+    The panel must therefore never ask, and this is the belt behind that.
+    It clamps the RESOLVED value — after a lane's own `p.get(key, default)` —
+    because the value that broke Colorize came from a default, not from the
+    form. An earlier version of this guard only inspected incoming params and
+    sailed straight past HDR's own `stage1_steps=10`.
+
+    Clamping rather than raising is deliberate: the user asked for a finer
+    schedule than the checkpoint can serve, and its finest with a log line is a
+    better answer than a dead render four minutes in.
+
+    Only ever called from the lanes that thin a FIXED table (ICLoraPipeline:
+    Colorize / Restore / Ingredients / Control / HDR). The CFG-dev lanes
+    (`generate_hq` res_2s, `generate_keyframe`) COMPUTE a schedule of whatever
+    length they are asked for, and their 10 and 20 are graded values — clamping
+    those would silently change owner-approved output.
+    """
+    caps = _thin_table_caps(model_dir)
+    if not caps:
+        return want
+    cap = caps[0] if key.startswith("stage1") else caps[1]
+    if want > cap:
+        emit({"event": "log",
+              "line": f"{key}={want} exceeds what this checkpoint's schedule "
+                      f"holds ({cap} steps); using {cap}. A step count thins "
+                      f"the checkpoint's own table — it cannot pad it."})
+        return cap
+    return want
+
+
 def get_hq_pipe(model_dir: str, loras: list[dict] | None = None,
                 dev_transformer: str | None = None,
                 distilled_lora: str | None = None):
@@ -2210,6 +2264,13 @@ for line in sys.__stdin__:
     _last_activity = time.time()
     action = msg.get("action")
 
+    # ONE CHOKE POINT for schedule step counts, before any action reads them.
+    # Every generate_* lane resolves its own stage1/stage2 defaults, and any of
+    # them can be handed an explicit value by the form, by Load Params, or by a
+    # sidecar replayed from another generation. Clamping here — once, against
+    # the pack this job actually names — means no lane can ask a checkpoint to
+    # pad a table it does not have, and a lane added tomorrow is covered
+    # without anyone remembering to add it.
     if action == "exit":
         emit({"event": "exit", "reason": "shutdown"})
         os._exit(0)
@@ -3072,8 +3133,10 @@ for line in sys.__stdin__:
                 num_frames=num_frames,
                 frame_rate=float(p.get("frame_rate", 24.0)),
                 seed=seed,
-                stage1_steps=int(p.get("stage1_steps", 10)),
-                stage2_steps=int(p.get("stage2_steps", 3)),
+                stage1_steps=_thin_cap(model_dir, "stage1_steps",
+                                       int(p.get("stage1_steps", 8))),
+                stage2_steps=_thin_cap(model_dir, "stage2_steps",
+                                       int(p.get("stage2_steps", 3))),
             )
             kwargs = _filter_unsupported_kwargs(pipe.generate_and_save, kwargs)
             out_path = pipe.generate_and_save(**kwargs)
@@ -3190,8 +3253,13 @@ for line in sys.__stdin__:
                 num_frames=num_frames,
                 frame_rate=float(p.get("frame_rate", 24.0)),
                 seed=seed,
-                stage1_steps=int(p.get("stage1_steps", 8)),
-                stage2_steps=int(p.get("stage2_steps", 3)),
+                # Clamped to this checkpoint's fixed table — ICLoraPipeline THINS
+                # it, so the table's own length is the ceiling and an over-ask is a
+                # pad request the sampler refuses after the model has loaded.
+                stage1_steps=_thin_cap(model_dir, "stage1_steps",
+                                       int(p.get("stage1_steps", 8))),
+                stage2_steps=_thin_cap(model_dir, "stage2_steps",
+                                       int(p.get("stage2_steps", 3))),
             )
             # Ingredients (multi-reference) reuses this same action but runs the
             # public Space's single-stage recipe — skip_stage_2=True, generated

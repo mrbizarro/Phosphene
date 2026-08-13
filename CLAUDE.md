@@ -511,6 +511,7 @@ and each is cheap enough that "I forgot" is not a reason.
 | `node scripts/check_ltx_pin.js` | the vendored pin, `update.js`, `install.js`, `_LTX_EXPECTED_VERSION` | a pin that is a bare SHA, a pin that disagrees with the version the runtime reports, a second checkout implementation, or anything in `update.js` that belongs post-pull |
 | `node scripts/check_post_update.js` | `scripts/post_update.sh` | the codec patch running before the reinstall or after anything optional, and a load-bearing step that cannot fail the Update |
 | `./ltx-2-mlx/env/bin/python3.11 scripts/assert_registry.py` | `MODEL_VERSIONS`, `required_files.json`, pack paths, the text-encoder seam, deep-verify sources | a generation that resolves another generation's weights or text encoder — the two bugs that shipped silently on 2026-08-12, neither of which raised anything |
+| `./ltx-2-mlx/env/bin/python3.11 scripts/assert_schedules.py` | `make_job`, any `*_steps` default, a new render mode, a pin move | a job dict that asks a checkpoint to PAD a fixed sigma table — the class that let Colorize/Restore/Ingredients/Control/HDR burn 218 s and die on "cannot thin a 9-point schedule (8 steps) up to 10 steps" |
 | `./ltx-2-mlx/env/bin/python3.11 patch_ltx_codec.py` | the vendored pin, any package reinstall | a bypassed codec patch — v3.8.1 shipped silent 4:2:0 for a whole release because this ran eleven steps too late and never executed |
 
 **The codec rule, stated correctly.** It has been passed around as *"`grep -rn

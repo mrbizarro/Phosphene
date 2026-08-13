@@ -13385,8 +13385,9 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # user signed off on at the time. Power users can dial back
             # to stage1=15 / teacache=1.0 for the conservative Max via
             # the advanced fields.
-            "stage1_steps": max(1, int(f("stage1_steps", "10") or 10)),
-            "stage2_steps": max(0, int(f("stage2_steps", "3") or 3)),
+            # stage1_steps / stage2_steps are NOT stamped here — see the
+            # conditional block after this dict, and `stg_scale` above for the
+            # same pattern and the same reason.
             # HQ TeaCache default — 1.8 is the empirically-measured sweet
             # spot for character mode. The upstream calibration constant
             # (LTX2_HQ_TEACACHE_THRESH) claims 1.0 is optimal, but that
@@ -13502,6 +13503,33 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             job["params"]["stg_scale"] = max(0.0, min(4.0, float(_stg_raw)))
         except (TypeError, ValueError):
             pass
+    # SCHEDULE STEP COUNTS — same rule as stg_scale above, and it took a
+    # 218-second failure to notice they did not follow it.
+    #
+    # These were stamped UNCONDITIONALLY at the HQ lane's tuning values
+    # (stage1=10, stage2=3) on every job, from a form field that does not
+    # exist — so the value was always 10. Every other lane's own considered
+    # default was dead code behind it: `generate_restore` reads
+    # p.get("stage1_steps", 8) and never once saw 8.
+    #
+    # On 2.3 that was invisible: its distilled table is long enough to thin to
+    # 10. On 2.5 the table is a fixed 9 points / 8 steps, and a step count is a
+    # request to THIN the checkpoint's own table — so asking for 10 is asking
+    # it to pad, which the sampler correctly refuses. Colorize and Restore
+    # therefore loaded models, ran stage work for 218 s, and died on
+    # "cannot thin a 9-point schedule (8 steps) up to 10 steps".
+    #
+    # So: stamp only what the user actually sent. Each dispatch keeps its own
+    # default, an explicit value still reaches the engine, and the clamp in
+    # mlx_warm_helper._clamp_stage_steps() makes even an explicit value
+    # impossible to turn into a pad request on whichever pack is loaded.
+    for _sk, _lo in (("stage1_steps", 1), ("stage2_steps", 0)):
+        _raw = f(_sk, "")
+        if _raw != "":
+            try:
+                job["params"][_sk] = max(_lo, int(_raw))
+            except (TypeError, ValueError):
+                pass
     # Attach Characters-origin metadata only when the form actually carried
     # it. Keeps the params shape unchanged for every other entry point.
     if _source == "characters" and _character_id:
@@ -16672,7 +16700,15 @@ def run_job_inner(job: dict) -> None:
                 # 'generate' action uses. ICLoraPipeline runs Stage 1
                 # with the LoRA fused, Stage 2 reloads a clean
                 # transformer (matches the Lightricks reference).
-                "stage1_steps": int(p.get("stage1_steps", 10)),
+                #
+                # 8, NOT 10. ICLoraPipeline THINS a fixed 9-point table
+                # (`thin_sigmas(DISTILLED_SIGMAS, n)`), so 8 steps is its
+                # ceiling and 10 is a pad request the sampler refuses — after
+                # the model has loaded. This default was 10 and was invisible
+                # only because make_job's unconditional stamp overwrote it with
+                # the same wrong number. Removing the stamp exposed it, which
+                # is the honest outcome: the lane's own default was wrong too.
+                "stage1_steps": int(p.get("stage1_steps", 8)),
                 "stage2_steps": int(p.get("stage2_steps", 3)),
             },
         }
