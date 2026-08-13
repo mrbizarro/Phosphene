@@ -30365,6 +30365,39 @@ HTML = r"""<!doctype html>
       border-color: var(--eng-soft, var(--accent));
       background: var(--eng-dim, var(--accent-dim));
     }
+    /* The repeat-click nudge. Pulses the SEGMENT, in the engine's own accent,
+       because the badge beside it is display:none under 1500px — see the
+       media query below. */
+    @keyframes eng-offer-nudge {
+      0%   { box-shadow: 0 0 0 0 var(--eng-soft, var(--accent)); }
+      45%  { box-shadow: 0 0 0 5px transparent; }
+      100% { box-shadow: 0 0 0 0 transparent; }
+    }
+    body > header .eng-seg.offer-nudge {
+      animation: eng-offer-nudge 600ms ease-out 2;
+      background: var(--eng-dim, var(--accent-dim));
+    }
+    /* An inline action inside a toast — the way back to the full install card
+       after the toast has replaced it. */
+    .phos-toast-action {
+      color: var(--accent-bright); margin-left: 8px;
+      font-weight: 600; white-space: nowrap;
+    }
+    /* The troubleshooting disclosure inside the install card. Closed by
+       default — the paths are for the 1% of installs that half-land. */
+    .h3-diag { margin: 0; }
+    .h3-diag > summary {
+      cursor: pointer; font-size: 12px; color: var(--muted);
+      list-style: none; user-select: none;
+    }
+    .h3-diag > summary::-webkit-details-marker { display: none; }
+    .h3-diag > summary::before { content: '▸ '; }
+    .h3-diag[open] > summary::before { content: '▾ '; }
+    .h3-diag > p {
+      margin: 6px 0 0; font-size: 11.5px; color: var(--muted);
+      font-family: var(--ph-font-mono); word-break: break-all;
+    }
+
     /* Narrow windows: the header is flex-wrap:nowrap + overflow:hidden, and
        the status pills already fill it on a laptop. Drop the segment labels
        before anything gets clipped — the marks and the active tint still
@@ -34510,7 +34543,11 @@ HTML = r"""<!doctype html>
      onclick="if(event.target===this) closeH3InstallCard()">
   <div class="models-card">
     <div class="models-head">
-      <h2 id="h3InstallTitle">Hailuo H3 · optional engine</h2>
+      <!-- ENGINES ARE PEERS. This read "Hailuo H3 · optional engine", which
+           told a user that half the panel's video capability was a side dish.
+           A missing engine is an OFFER — the title names the engine and its
+           price, and the body says what it does. -->
+      <h2 id="h3InstallTitle">Hailuo H3 · 75 GB</h2>
       <button class="ghost-btn" onclick="closeH3InstallCard()">Close</button>
     </div>
     <div class="models-hint" id="h3InstallBody"></div>
@@ -40480,7 +40517,10 @@ function engineSegClick(id) {
   if (st.announced) return;
   if (!e.builtin && st.capable && !st.available) {
     const fn = e.install_card && window[e.install_card];
-    if (typeof fn === 'function') fn();
+    // 'chip' tells the card this click came from the switcher, where a repeat
+    // click means "yes, I know" rather than "explain it again". The explicit
+    // buttons elsewhere pass nothing and always get the full card.
+    if (typeof fn === 'function') fn('chip');
     return;
   }
   if (!e.builtin && !st.capable) return;
@@ -41624,8 +41664,20 @@ function updateH3Availability(s) {
 // Install card — H3 is a Pinokio-script install (clone + venv + ~75 GB of
 // weights), not an in-panel `hf download`, so the panel explains the one
 // sidebar click rather than pretending it can do it itself. Same shape the
-// Sharp/Qwen optional packs use.
-function openH3InstallCard() {
+// Sharp/Qwen packs use.
+//
+// SHOWN ONCE, THEN GET OUT OF THE WAY. Session-scoped: the first click on the
+// H3 segment earns the full explainer; every click after that gets the nudge
+// below instead. A modal that re-pops identically on every click stops being
+// an explanation and becomes a wall — and the one thing a user who just read
+// it wants to do is click the engine again.
+//
+// `source` is 'chip' from the engine switcher and undefined from the explicit
+// "How to install" / "How to repair" buttons in the Models list, which must
+// ALWAYS open the card: the user asked for it by name there.
+let _h3CardSeen = false;
+function openH3InstallCard(source) {
+  if (source === 'chip' && _h3CardSeen) { _h3NudgeEngineOffer(); return; }
   const m = document.getElementById('h3InstallModal');
   const body = document.getElementById('h3InstallBody');
   if (body) {
@@ -41655,10 +41707,12 @@ function openH3InstallCard() {
         no restart.
       </p>` : `
       <p style="margin:0 0 10px">
-        <b>Hailuo H3</b> is a second video engine: one prompt in, video
-        <em>and</em> synced dialogue <em>and</em> sound out. It runs fully
-        locally, alongside LTX — installing it changes nothing about your
-        existing renders.
+        <b>Hailuo H3 is Phosphene's second video engine</b>, a peer of LTX
+        rather than an add-on to it: one prompt in, video <em>and</em> synced
+        dialogue <em>and</em> sound out, in a single pass. It runs fully
+        locally and sits beside LTX in the engine switcher — installing it
+        changes nothing about your existing renders, and either engine can
+        drive any render you start.
       </p>
       <p style="margin:0 0 10px;color:var(--muted)">
         ${escapeHtml(H3.size_note || '')}
@@ -41666,18 +41720,64 @@ function openH3InstallCard() {
       <p style="margin:0 0 10px">
         Install it from Pinokio, not from here: open the <b>Phosphene</b> entry
         in the Pinokio sidebar and click
-        <b>“Install Hailuo H3 (optional, ~75 GB)”</b>. The panel picks it up
-        within a couple of seconds — no restart.
+        <b>“Install Hailuo H3 (second video engine, ~75 GB)”</b>. The panel
+        picks it up within a couple of seconds — no restart.
       </p>`;
+    // THE DIAGNOSTIC DUMP GOES BEHIND A DISCLOSURE. `missing` is a list of raw
+    // absolute paths — indispensable when an install half-lands, and pure
+    // noise the other 99% of the time. Printing it under a two-sentence pitch
+    // made the offer read like an error report. Kept verbatim, folded shut.
     body.innerHTML = intro + `
-      ${missing.length ? `<p style="margin:0;color:var(--muted);font-size:12px">
-        Currently missing: ${escapeHtml(missing.join('; '))}</p>` : ''}`;
+      ${missing.length ? `<details class="h3-diag">
+        <summary>Details for troubleshooting</summary>
+        <p>Currently missing: ${escapeHtml(missing.join('; '))}</p>
+      </details>` : ''}`;
   }
   if (m) m.style.display = 'flex';
+  _h3CardSeen = true;
 }
 function closeH3InstallCard() {
   const m = document.getElementById('h3InstallModal');
   if (m) m.style.display = 'none';
+}
+
+// The lighter affordance, for every click after the first. Two jobs:
+//
+//   1. POINT AT THE OFFER. Pulse the H3 segment itself, not only its badge —
+//      the badge is `display:none` under 1500 px (the header runs out of room
+//      on a laptop long before the desktop does), so a badge-only highlight
+//      would be an invisible answer to a click on exactly the machines most
+//      likely to be running this.
+//   2. LEAVE A DOOR OPEN. The nudge carries its own link back to the full
+//      explainer, so dismissing the modal once never costs the user the
+//      explanation permanently.
+//
+// Rides the panel's own phosToast rather than a second notification surface —
+// the storyboard's engine picker already answers this exact situation with one
+// (sbSetEngineMode), and two toasts that look different for the same event is
+// how a UI starts feeling assembled rather than designed. The reopen link is
+// appended to the element phosToast hands back.
+function _h3NudgeEngineOffer() {
+  const seg = document.querySelector('.eng-seg[data-engine="h3"]');
+  if (seg) {
+    seg.classList.remove('offer-nudge');
+    void seg.offsetWidth;            // restart the animation on a repeat click
+    seg.classList.add('offer-nudge');
+    setTimeout(() => seg.classList.remove('offer-nudge'), 1200);
+  }
+  // ONE LINE, and it has to FIT one: .phos-toast-msg is nowrap + ellipsis
+  // inside a 480px cap, so a sentence that runs long is not a long toast, it
+  // is a truncated one — "…install it from the Phosphene entry i…" was the
+  // first draft, and it clipped exactly where the instruction lived.
+  const el = phosToast('Hailuo H3 · 75 GB — install from the Pinokio sidebar.',
+                       { icon: 'ph-info', duration: 5000 });
+  if (!el) return;
+  const a = document.createElement('a');
+  a.href = '#';
+  a.className = 'phos-toast-action';
+  a.textContent = 'What it is';
+  a.onclick = (ev) => { ev.preventDefault(); el.remove(); openH3InstallCard(); };
+  el.appendChild(a);
 }
 
 // Prompt enhancement via Gemma — wraps the upstream CLI's `enhance`
