@@ -223,6 +223,29 @@ module.exports = {
       }
     },
 
+    // ---- Turbo v1.0 release asset (publication TODO; no fetch yet) ---------
+    // LightX2V publishes the Apache-2.0 source, but the H3 runner cannot load
+    // that diffusers-layout file directly: its alpha/rank scale lives outside
+    // the checkpoint. A raw download would therefore be a successful install
+    // followed by coloured noise at `--lora ...:1.0`, which is worse than a
+    // loud missing-asset state.
+    //
+    // TODO(release asset): repack and publish EXACTLY:
+    //   target: lightx2v_v1.0_768p_ourlayout.safetensors
+    //   source repo: lightx2v/Minimax-h3-Turbo (Apache-2.0)
+    //   source file: minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors
+    //   source SHA-256:
+    //     1bdabc2e9fce20b1db563b96bcf6e46adcad4c1964f423676436bf266cc7416c
+    //   release-asset SHA-256: REQUIRED BEFORE WIRING (record the digest of
+    //     the finished `lightx2v_v1.0_768p_ourlayout.safetensors` here)
+    //
+    // Once published, add a digest-checked release fetch into:
+    //   {{cwd}}/mlx_models/hailuo-h3/models/turbo-lora/
+    // Do not substitute the raw v0.1 file
+    // `minimax_h3_fl2v_turbo_4step_v0.1.safetensors`. The ONLY accepted v0.1
+    // fallback is the already alpha-folded release name
+    // `lightx2v_v0.1_ourlayout_alpha8.safetensors`.
+
     // ---- TAE: the fast draft decoder (~23 MB) ------------------------------
     // H3's video decoder is a 36-layer ViT and it is the biggest FIXED cost in
     // a render — 88 s of a 501 s clip, 77% of everything that isn't denoising.

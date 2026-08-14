@@ -2323,152 +2323,37 @@ def _train_install_dev_transformer(push_log) -> dict:
 
 
 def _h3_install_turbo(push_log) -> dict:
-    """Fetch the two files the H3 Turbo mode needs, ~804 MB total.
+    """Refuse an unpinned Turbo repack download rather than install raw weights.
 
-    Same shape and the same single download slot as
-    _train_install_dev_transformer, but TWO steps in sequence, because the
-    files come from two different places:
-
-      1. the adapter, 744 MB, a plain `hf download --include` from the
-         Apache-2.0 LoRA repo;
-      2. `upstream_time_embedder.safetensors`, ~60 MB, which is not a
-         published file at all. It is four tensors read out of a 66 GB
-         MiniMaxAI shard by HTTP range request — safetensors puts every
-         tensor's byte offsets in a JSON header at the front of the file, so
-         the pack's own scripts/fetch_time_embedder.py asks for exactly those
-         ranges. No 66 GB download, and nothing here redistributes weights.
-
-    Step 2 needs the H3 pack's venv (it imports huggingface_hub + safetensors)
-    and a runner new enough to carry the script, both of which are checked
-    before anything starts, so a stale pack fails in one second with a sentence
-    rather than after a 744 MB download.
-
-    Returns {"ok": True, "started": True, ...} or {"ok": False, "error": ...}.
+    LightX2V publishes the Apache-2.0 source adapter, but the H3 runner needs
+    the panel's repacked layout. The v1.0 release asset and its output SHA-256
+    have not been published yet, so there is deliberately no URL to execute.
+    install_h3.js carries the exact source/target publication TODO. Once that
+    asset exists, this endpoint can use the ordinary guarded release fetch.
     """
-    import subprocess
-    if DOWNLOAD["active"]:
-        return {"ok": False,
-                "error": f"another download is already active "
-                         f"({DOWNLOAD.get('repo_id', '?')})."}
-
     paths = h3_paths()
     if paths["missing"]:
         return {"ok": False,
                 "error": "Turbo is an add-on to the Hailuo H3 pack, and H3 "
                          "isn't fully installed yet: "
                          + "; ".join(paths["missing"])}
-    fetcher = H3_ROOT / "scripts" / "fetch_time_embedder.py"
-    if not fetcher.is_file() or not h3_supports_lora():
+    if not h3_supports_lora():
         return {"ok": False,
                 "error": "This Hailuo H3 checkout predates Turbo (no --lora "
                          "support in its runner). Re-run 'Install Hailuo H3' "
                          "from the Phosphene sidebar in Pinokio to update the "
                          "clone — it keeps every weight already on disk."}
-
-    hf_bin = HF_BIN if HF_BIN is not None else _resolve_hf()
-    if hf_bin is None:
-        return {"ok": False, "error": "hf CLI not found on PATH."}
-
     target = _h3_turbo_dir()
-    try:
-        target.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        return {"ok": False, "error": f"can't create {target}: {exc}"}
-
-    env = dict(os.environ)
-    hf_token = _active_hf_token()
-    if hf_token:
-        env["HF_TOKEN"] = hf_token
-        env["HUGGING_FACE_HUB_TOKEN"] = hf_token
-    # Step 2 pulls one small index JSON through the hub cache. Left to itself
-    # that lands in ~/.cache/huggingface on a machine whose every other model
-    # lives under the Pinokio tree, so pin it inside the H3 models dir when the
-    # environment hasn't already said where the cache goes.
-    env.setdefault("HF_HOME", str(H3_MODELS / "hf_home"))
-    env["PYTHONUNBUFFERED"] = "1"
-
-    lora_cmd = [str(hf_bin), "download", H3_TURBO_REPO,
-                "--include", H3_TURBO_LORA_FILE,
-                "--local-dir", str(target)]
-    embed_cmd = [str(paths["python"]), str(fetcher),
-                 "--out", str(target / H3_TURBO_EMBEDDER_FILE)]
-
-    with DOWNLOAD_LOCK:
-        DOWNLOAD["active"] = True
-        DOWNLOAD["key"] = "h3_turbo"
-        DOWNLOAD["repo_id"] = H3_TURBO_REPO
-        DOWNLOAD["started_ts"] = time.time()
-        DOWNLOAD["last_line"] = ""
-
-    def _stream(cmd: list[str], tag: str) -> int:
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1, env=env, start_new_session=True)
-        with DOWNLOAD_LOCK:
-            DOWNLOAD["proc"] = proc
-            try:
-                DOWNLOAD["pgid"] = os.getpgid(proc.pid)
-            except ProcessLookupError:
-                DOWNLOAD["pgid"] = None
-        buf = ""
-        assert proc.stdout is not None
-        while True:
-            ch = proc.stdout.read(1)
-            if not ch:
-                break
-            # `hf` draws its progress bar with \r, so both are line breaks here.
-            if ch in ("\n", "\r"):
-                line, buf = buf.strip(), ""
-                if line:
-                    with DOWNLOAD_LOCK:
-                        DOWNLOAD["last_line"] = line[:200]
-                    push_log(f"[{tag}] {line[:300]}")
-            else:
-                buf += ch
-        return proc.wait()
-
-    def _runner():
-        try:
-            push_log(f"[h3:turbo] downloading the 4-step adapter "
-                     f"({H3_TURBO_REPO} / {H3_TURBO_LORA_FILE}, 744 MB) → "
-                     f"{target}")
-            rc = _stream(lora_cmd, "hf:turbo")
-            if rc != 0:
-                push_log(f"[h3:turbo] adapter download exited with code {rc} — "
-                         f"stopping before the time embedder.")
-                return
-            push_log("[h3:turbo] adapter done. Recovering the upstream time "
-                     "embedder (~60 MB read out of a 66 GB release by HTTP "
-                     "range — not a 66 GB download).")
-            rc = _stream(embed_cmd, "h3:embedder")
-            if rc != 0:
-                push_log(f"[h3:turbo] time-embedder fetch exited with code {rc}. "
-                         f"The adapter is on disk; Turbo stays off until this "
-                         f"step succeeds.")
-                return
-            status = h3_turbo_status()
-            if status["available"]:
-                push_log("[h3:turbo] Turbo is ready — the H3 surface offers it "
-                         "on the next page load.")
-            else:
-                push_log(f"[h3:turbo] finished, but the files still don't check "
-                         f"out: {'; '.join(status['missing']) or status['reason']}")
-        except Exception as exc:
-            push_log(f"[h3:turbo] install crashed: {exc}")
-        finally:
-            with DOWNLOAD_LOCK:
-                DOWNLOAD["active"] = False
-                DOWNLOAD["key"] = None
-                DOWNLOAD["repo_id"] = None
-                DOWNLOAD["started_ts"] = None
-                DOWNLOAD["last_line"] = ""
-                DOWNLOAD["proc"] = None
-                DOWNLOAD["pgid"] = None
-
-    threading.Thread(target=_runner, daemon=True, name="h3-turbo-download").start()
-    return {"ok": True, "started": True, "repo_id": H3_TURBO_REPO,
-            "files": [H3_TURBO_LORA_FILE, H3_TURBO_EMBEDDER_FILE],
-            "dir": str(target), "size_gb": H3_TURBO_DOWNLOAD_GB}
+    message = (
+        "Automatic H3 Turbo install is paused until the runner-layout release "
+        f"asset {H3_TURBO_LORA_FILE} is published with a pinned SHA-256. "
+        f"Upstream source: {H3_TURBO_REPO}/{H3_TURBO_SOURCE_FILE} "
+        f"(SHA-256 {H3_TURBO_SOURCE_SHA256}). Do not substitute "
+        f"{H3_TURBO_RAW_V01_FILE}: raw v0.1 renders coloured noise at scale "
+        f"1.0. Expected the repack under {target}."
+    )
+    push_log(f"[h3:turbo] {message}")
+    return {"ok": False, "error": message, "dir": str(target)}
 
 
 # Compatibility taxonomy for LoRAs across the panel's two render lanes
@@ -5663,6 +5548,11 @@ _CIVITAI_BASE_MODELS_BY_CONTEXT = {
     "image": [bm for bms in _CIVITAI_IMAGE_FAMILIES.values() for bm in bms],
 }
 
+def spicy_mode_enabled() -> bool:
+    """Return the single server-side authorization predicate for NSFW UI/data."""
+    return bool(get_settings().get("spicy_mode", False))
+
+
 def _civitai_search(query: str = "", nsfw: bool = False,
                     cursor: str = "", limit: int = 20,
                     context: str = "video", family: str = "") -> dict:
@@ -5681,7 +5571,7 @@ def _civitai_search(query: str = "", nsfw: bool = False,
     # hasn't enabled Spicy mode in Settings, force nsfw=False regardless
     # of what the client sent. This keeps NSFW results out of casual /
     # kid-accessible installs even if someone fiddles the client param.
-    spicy_on = bool(get_settings().get("spicy_mode", False))
+    spicy_on = spicy_mode_enabled()
     if not spicy_on:
         nsfw = False
     # CivitAI's /models endpoint uses cursor-style pagination
@@ -6461,38 +6351,36 @@ H3_TEXT_CONFIG_REL = ("FL2VA", "text_encoder", "config.json")
 # H3 runs at 24 fps like LTX, on a 17n+5 frame grid (the runner snaps up).
 H3_FPS = 24.0
 
-# ---- Turbo: the 4-step distillation LoRA -------------------------------------
-# larryvrh/MiniMax-H3-Turbo-Lora (Apache-2.0) distils H3's sampler down to 4
-# sigma points = 3 forwards, against the 9 points / 8 forwards every tier bakes.
-# It is a SPEED MODE, not a tier and not a quality preset: same model, same
-# geometry, same prompt — fewer denoise passes.
-#
-# Two files, ~804 MB together, neither of them redistributed by Phosphene:
-#   the adapter          744 MB   from the LoRA repo (Apache-2.0)
-#   upstream_time_embedder.safetensors ~60 MB, recovered by the H3 pack's own
-#     scripts/fetch_time_embedder.py — an HTTP-RANGE read of four tensors out of
-#     a 66 GB MiniMaxAI release, not a 66 GB download. Needed because the pruned
-#     checkpoint dropped the 2688-d timestep MLP that the adapter's 51 adaLN
-#     modules consume; without it those 51 are skipped (the render still works,
-#     it is just missing a ~1e-4 correction to the modulation).
-H3_TURBO_REPO = "larryvrh/MiniMax-H3-Turbo-Lora"
-# The EMA checkpoint-500 file specifically. The non-EMA sibling is sharper but
-# over-etches speculars and runs the audio to -0.3 dB with no headroom; the
-# preview (pre-ckpt500) file is visibly softer. Third-party ComfyUI conversions
-# are bit-exact subsets that DROP the 51 adaLN pairs this runner can apply, so
-# they are strictly less than the original here.
-H3_TURBO_LORA_FILE = "minimax_h3_turbo_4step_ema_ckpt500.safetensors"
-H3_TURBO_EMBEDDER_FILE = "upstream_time_embedder.safetensors"
+# ---- Turbo: the LightX2V 4-step distillation LoRA ----------------------------
+# The runner needs the panel's bare/alpha-folded layout, not either raw
+# LightX2V file. In particular, raw v0.1 carries alpha/rank=8/128 outside the
+# tensor file; handing it to --lora at scale 1.0 applies a 16x oversized delta
+# and renders coloured noise. Keep the allowlist exact so a convenient glob can
+# never silently select that file.
+H3_TURBO_REPO = "lightx2v/Minimax-h3-Turbo"
+H3_TURBO_LORA_FILE = "lightx2v_v1.0_768p_ourlayout.safetensors"
+H3_TURBO_FALLBACK_LORA_FILE = "lightx2v_v0.1_ourlayout_alpha8.safetensors"
+H3_TURBO_RAW_V01_FILE = "minimax_h3_fl2v_turbo_4step_v0.1.safetensors"
+H3_TURBO_LORA_CANDIDATES = (
+    (H3_TURBO_LORA_FILE, "v1.0", False),
+    (H3_TURBO_FALLBACK_LORA_FILE, "v0.1", True),
+)
+# Exact upstream source for the v1.0 repack. Automatic installation remains
+# disabled until the runner-layout repack is published as a Phosphene release
+# asset with its own pinned digest; install_h3.js carries the publication TODO.
+H3_TURBO_SOURCE_FILE = "minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors"
+H3_TURBO_SOURCE_SHA256 = (
+    "1bdabc2e9fce20b1db563b96bcf6e46adcad4c1964f423676436bf266cc7416c"
+)
 H3_TURBO_DIRNAME = "turbo-lora"
 # Sigma POINTS, matching --steps. 4 points = 3 forwards = what the adapter was
 # distilled for; it is visibly softer at fewer and gains nothing at more.
 H3_TURBO_STEPS = 4
-H3_TURBO_DOWNLOAD_GB = 0.8
+H3_TURBO_DOWNLOAD_GB = 1.4
 # Size floors for the "is it really there" probe. An interrupted fetch leaves a
 # short file that loads far enough to fail 30 s into a render, which is exactly
 # the failure mode the H3-vanish lesson says to catch at status time instead.
 H3_TURBO_LORA_MIN_BYTES = 600 * 1024 * 1024
-H3_TURBO_EMBEDDER_MIN_BYTES = 40 * 1024 * 1024
 # Forwards Turbo runs, whatever shape the render asks for. Turbo ALWAYS runs 3
 # forwards, so the saving depends entirely on how many forwards the render would
 # otherwise have run — and on the fixed cost (staged loads, prompt + adaLN cache,
@@ -6506,8 +6394,8 @@ H3_TURBO_EMBEDDER_MIN_BYTES = 40 * 1024 * 1024
 # canvas × length combination the two axes can produce.
 H3_TURBO_FORWARDS = H3_TURBO_STEPS - 1
 # One line, no marketing. It is a step-distillation adapter; say so.
-H3_TURBO_NOTE = ("Turbo is a 4-step distillation LoRA — fewer denoise passes, "
-                 "same model. Slightly harder contrast than the 9-step default.")
+H3_TURBO_NOTE = ("Turbo uses the LightX2V v1.0 768p 4-step adapter — fewer "
+                 "denoise passes over the same H3 model.")
 
 # ============================================================================
 # H3 RENDER SHAPE — two independent axes, priced by one measured cost model
@@ -6886,8 +6774,13 @@ H3_MEASURED_ETA: dict[tuple[str, str, bool], tuple[float, str]] = {
     ("standard", "10s",       False): (17.1, "~17 min"),
     ("standard", "15s",       False): (26.6, "~27 min · batch"),
     ("standard", "10s_dense", False): (36.2, "~36 min · batch"),
-    # TURBO IS NOW MEASURED AT BOTH TOP CANVASES, which is why the derivation
-    # below only ever has to fill in the cheap half of the table:
+    # These Turbo measurements belong to the RETIRED ckpt500-EMA adapter and
+    # remain documented in docs/STATE.md as historical evidence. Do not put
+    # them in this active table: LightX2V v1.0 passed visual review, but has no
+    # end-to-end wall-clock receipt yet, so its displayed time stays derived
+    # from the measured per-forward/fixed-cost model.
+    #
+    # Historical ckpt500-EMA timings:
     #   1024×576 — 3 forwards at 128.0/127.4/123.9 s + 131 s fixed = 8.5 min
     #     (codex/opt_out/wide169/w169.log, ckpt500-EMA adapter, 22,923 packed
     #     rows, 42.71 GiB denoise peak). The model derives 8.5 for the same cell
@@ -6900,9 +6793,7 @@ H3_MEASURED_ETA: dict[tuple[str, str, bool], tuple[float, str]] = {
     #     Note the Turbo forwards are slightly SLOWER per forward than the
     #     9-step ones (331 vs 315 s) — small enough to ignore in the model,
     #     large enough that the measurement is the number we print.
-    ("high",     "5s",        True):  (8.5,  "~8-9 min"),
     ("high",     "5s",        False): (18.8, "~19 min"),
-    ("native",   "5s",        True):  (19.9, "~20 min"),
     ("native",   "5s",        False): (44.85, "~45 min · batch"),
 }
 
@@ -8325,18 +8216,18 @@ def h3_supports_first_frame() -> bool:
 
 
 def h3_supports_lora() -> bool:
-    """Whether the INSTALLED runner accepts `--lora` / `--lora-adaln`.
+    """Whether the INSTALLED runner accepts the shared `--lora PATH:SCALE`.
 
     LoRA support landed on codex/h3-engine after Turbo's weights became
     downloadable, so a pack cloned before that renders every tier fine and has
     no way to take the adapter. Same probe, same reason, as --first-frame and
     --chain-windows: hide what the pack can't do rather than dying on an
     argparse error 30 s into a render."""
-    return _h3_runner_has_flag("--lora-adaln")
+    return _h3_runner_has_flag("--lora")
 
 
 def _h3_turbo_dir() -> Path:
-    """Where Turbo's two files live: alongside the other weight components.
+    """Where Turbo's adapter lives: alongside the other weight components.
 
     Follows whichever of the two supported model layouts actually holds the
     DiT, so Turbo lands next to `deepbeep-pruned-bf16` / `ddalcu-q8` rather
@@ -8363,24 +8254,51 @@ def _h3_real_file(path: Path, min_bytes: int) -> bool:
 
 
 def h3_turbo_paths() -> dict:
-    """Resolve Turbo's two files. Never raises; reports what is missing."""
+    """Prefer the v1.0 repack, then the safe alpha-folded v0.1 fallback.
+
+    Deliberately resolve an exact allowlist rather than globbing. The upstream
+    raw v0.1 filename can coexist in this directory, but must never reach the
+    runner at scale 1.0 because its external alpha/rank factor is not folded.
+    """
     directory = _h3_turbo_dir()
-    lora = directory / H3_TURBO_LORA_FILE
-    embedder = directory / H3_TURBO_EMBEDDER_FILE
-    lora_ok = _h3_real_file(lora, H3_TURBO_LORA_MIN_BYTES)
-    embedder_ok = _h3_real_file(embedder, H3_TURBO_EMBEDDER_MIN_BYTES)
-    missing: list[str] = []
-    if not lora_ok:
-        missing.append(f"adapter ({H3_TURBO_LORA_FILE})")
-    if not embedder_ok:
-        missing.append(f"time embedder ({H3_TURBO_EMBEDDER_FILE})")
+    lora = None
+    version = None
+    fallback = False
+    for filename, candidate_version, candidate_fallback in H3_TURBO_LORA_CANDIDATES:
+        candidate = directory / filename
+        if _h3_real_file(candidate, H3_TURBO_LORA_MIN_BYTES):
+            lora = candidate
+            version = candidate_version
+            fallback = candidate_fallback
+            break
+    missing = [] if lora is not None else [
+        "adapter ("
+        + H3_TURBO_LORA_FILE
+        + "; safe fallback "
+        + H3_TURBO_FALLBACK_LORA_FILE
+        + ")"
+    ]
     return {
         "dir": directory,
-        "lora": lora if lora_ok else None,
-        "embedder": embedder if embedder_ok else None,
+        "lora": lora,
+        "version": version,
+        "fallback": fallback,
         "missing": missing,
-        "files_ok": not missing,
+        "files_ok": lora is not None,
     }
+
+
+def h3_turbo_lora_spec(paths: dict | None = None) -> str:
+    """Return the runner's required PATH:SCALE spelling for Turbo."""
+    resolved = paths or h3_turbo_paths()
+    if not resolved.get("files_ok") or resolved.get("lora") is None:
+        raise RuntimeError("H3 Turbo adapter is not available")
+    return f"{resolved['lora']}:1.0"
+
+
+def h3_turbo_argv(paths: dict | None = None) -> list[str]:
+    """The exact runner argv fragment, kept executable as a contract test."""
+    return ["--lora", h3_turbo_lora_spec(paths)]
 
 
 def h3_turbo_status() -> dict:
@@ -8388,8 +8306,8 @@ def h3_turbo_status() -> dict:
 
     Three separable answers, because the UI needs three different sentences:
       supported   — the installed runner has --lora at all (else: update pack)
-      downloaded  — both weight files are really on disk
-      available   — both, so the control can actually be offered
+      downloaded  — one accepted repack is really on disk
+      available   — runner support plus a repack, so Turbo can be offered
     """
     supported = h3_supports_lora()
     paths = h3_turbo_paths()
@@ -8408,6 +8326,13 @@ def h3_turbo_status() -> dict:
         "steps": H3_TURBO_STEPS,
         "download_gb": H3_TURBO_DOWNLOAD_GB,
         "repo": H3_TURBO_REPO,
+        "adapter": str(paths["lora"]) if paths["lora"] else None,
+        "adapter_version": paths["version"],
+        "fallback": paths["fallback"],
+        # Fail closed until the repack is a real, digest-pinned release asset.
+        "install_available": False,
+        "install_note": (f"{H3_TURBO_LORA_FILE} release asset pending; raw "
+                         f"{H3_TURBO_RAW_V01_FILE} is not compatible."),
         "dir": str(paths["dir"]),
         "missing": paths["missing"],
         "note": H3_TURBO_NOTE,
@@ -8897,7 +8822,7 @@ def h3_loras_status() -> dict:
     """The H3 LoRA lane's own availability block for /status + the bootstrap.
 
     Separate from `turbo` because the two answers differ: Turbo is a specific
-    0.8 GB download with a button, this is a directory the user fills from the
+    release adapter, this is a directory the user fills from the
     CivitAI browser. They share one gate — `supported`, whether the installed
     runner has `--lora` at all — and one hard constraint, the single adapter
     slot, which is why `max_stack` is reported rather than assumed by the UI."""
@@ -8938,7 +8863,7 @@ def h3_supports_chain_prompts() -> bool:
     Landed on codex/h3-engine AFTER chaining itself ("Give every window in a
     chain its own prompt"), so a pack cloned in between renders 10 s / 15 s
     perfectly well and simply cannot be told what each window should do. Same
-    probe, same reason, as --first-frame / --lora-adaln / --chain-windows: hide
+    probe, same reason, as --first-frame / --lora / --chain-windows: hide
     the control rather than dying on an argparse error 30 s into a render, and
     keep the honest warning on the cell for that user."""
     return _h3_runner_has_flag("--chain-prompts")
@@ -9144,12 +9069,15 @@ def h3_status() -> dict:
         "chain_prompt_help": H3_CHAIN_PROMPT_HELP,
         # Turbo — the 4-step distill LoRA. A separate block rather than a bare
         # flag because "off" has three causes the UI must not conflate: H3
-        # itself isn't there, the runner predates --lora, or the 0.8 GB simply
-        # hasn't been downloaded yet (the only one that is a button).
+        # itself isn't there, the runner predates --lora, or neither accepted
+        # repack is on disk.
         "turbo": (h3_turbo_status() if available else
                   {"available": False, "supported": False, "downloaded": False,
                    "reason": "h3_" + paths["reason"], "steps": H3_TURBO_STEPS,
                    "download_gb": H3_TURBO_DOWNLOAD_GB, "repo": H3_TURBO_REPO,
+                   "adapter": None, "adapter_version": None, "fallback": False,
+                   "install_available": False,
+                   "install_note": f"{H3_TURBO_LORA_FILE} release asset pending",
                    "dir": str(_h3_turbo_dir()), "missing": [],
                    "note": H3_TURBO_NOTE, "label": "Turbo"}),
         # User LoRAs — the CivitAI lane. A separate block from `turbo` for the
@@ -15781,7 +15709,7 @@ def run_h3_job_inner(job: dict) -> None:
         p["h3_lora_layout"] = _layout.get("layout")
 
     # ---- Turbo: the 4-step distillation LoRA -----------------------------
-    # make_job already gated this and pinned `steps`, but re-resolve the files
+    # make_job already gated this and pinned `steps`, but re-resolve the adapter
     # HERE: the queue can sit for an hour and a job must not reach the runner
     # with a --lora path that stopped resolving in the meantime.
     turbo = bool(p.get("h3_turbo"))
@@ -15819,10 +15747,11 @@ def run_h3_job_inner(job: dict) -> None:
         turbo_paths = h3_turbo_paths()
         if not turbo_paths["files_ok"]:
             raise RuntimeError(
-                "Turbo's files aren't on disk: "
+                "Turbo's adapter isn't on disk: "
                 + "; ".join(turbo_paths["missing"])
                 + f". Expected under {turbo_paths['dir']} — turn Turbo off, or "
-                  "click its download button (~0.8 GB).")
+                  f"install {H3_TURBO_LORA_FILE} (or the safe folded v0.1 "
+                  f"fallback) under {turbo_paths['dir']}.")
         steps = H3_TURBO_STEPS
 
     # First-frame conditioning (Image mode). The flag landed on the runner
@@ -15963,11 +15892,10 @@ def run_h3_job_inner(job: dict) -> None:
         stage_a_path = out_path.with_suffix(".stage_a")
         cmd += ["--save-stage-a", str(stage_a_path)]
     if turbo:
-        # `--lora-adaln` carries the recovered time embedder, which lets the
-        # runner apply the adapter's 51 adaLN modules too. They fold into the
-        # precomputed modulation cache, so they cost nothing per forward.
-        cmd += ["--lora", str(turbo_paths["lora"]),
-                "--lora-adaln", str(turbo_paths["embedder"])]
+        # LightX2V's runner-ready repack has its training scale folded in. The
+        # CLI still requires PATH:SCALE; 1.0 means "as repacked". Never pass
+        # the raw v0.1 file here — its missing alpha/rank fold renders noise.
+        cmd += h3_turbo_argv(turbo_paths)
     elif user_lora is not None:
         # The SAME flag Turbo rides — one slot, and this render spent it here.
         # `PATH:SCALE` is the runner's own spelling (lora.parse_spec), and the
@@ -15975,12 +15903,6 @@ def run_h3_job_inner(job: dict) -> None:
         # checkpoint that ships alpha == rank, which is the only namespace this
         # lane accepts (the diffusers/PEFT one, whose alpha is NOT in the file,
         # is refused upstream in _h3_lora_prepare).
-        #
-        # No `--lora-adaln` here on purpose: that flag applies TURBO's adaLN
-        # modules using the recovered upstream time embedder, and it is
-        # meaningful only for an adapter that HAS adaLN pairs trained against
-        # the 2688-d timestep MLP this pruned checkpoint dropped. A community
-        # LoRA's attention/MLP pairs apply without it.
         cmd += ["--lora", f"{user_lora}:{user_lora_strength:g}"]
 
     env = os.environ.copy()
@@ -16291,15 +16213,14 @@ def run_h3_job_inner(job: dict) -> None:
             "peak_gib": max([v.get("peak_gib") or 0 for v in phases.values()] or [0]),
             "first_frame": str(first_frame) if first_frame else None,
             "turbo": ({"lora": str(turbo_paths["lora"]),
-                       "adaln": str(turbo_paths["embedder"]),
+                       "adapter_version": turbo_paths["version"],
+                       "fallback": turbo_paths["fallback"],
+                       "scale": 1.0,
                        "steps": steps,
                        "repo": H3_TURBO_REPO,
-                       # The runner's own report: how many of the 259 modules
-                       # actually landed, and how big the adaLN correction was.
+                       # The runner's own report: how many modules landed.
                        "applied": (metrics.get("lora")
-                                   or metrics.get("w1_lora")),
-                       "adaln_applied": (metrics.get("lora_adaln")
-                                         or metrics.get("w1_lora_adaln"))}
+                                   or metrics.get("w1_lora"))}
                       if turbo else None),
             "chain_windows": chain_windows,
             "window_frames": window_frames,
@@ -22557,10 +22478,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(result, 202)
             return
 
-        # ====== Hailuo H3 Turbo — fetch the 4-step adapter on demand.
-        # ~804 MB in two steps (see _h3_install_turbo). 202 + poll /status's
-        # `download` block, same contract as /train/install; the Turbo control
-        # stays hidden until h3.turbo.available flips.
+        # ====== Hailuo H3 Turbo — install the runner-layout adapter on demand.
+        # This currently fails closed with the exact publication requirement;
+        # _h3_install_turbo must not fetch a raw LightX2V file as a substitute.
         if path == "/h3/turbo/install":
             result = _h3_install_turbo(push)
             if not result.get("ok"):
@@ -24781,6 +24701,10 @@ HTML = r"""<!doctype html>
       user-select: none; transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
       white-space: nowrap;
     }
+    /* Settings is the only NSFW gate. Keep spicy-only controls fail-closed
+       even before settings have loaded; .toggle-pill's display rule would
+       otherwise override the browser's default [hidden] stylesheet. */
+    [data-spicy-only][hidden] { display: none !important; }
     .toggle-pill:hover { border-color: var(--accent); color: var(--text); }
     .toggle-pill input[type="checkbox"] {
       position: absolute; opacity: 0; pointer-events: none; width: 0; height: 0;
@@ -27695,10 +27619,10 @@ HTML = r"""<!doctype html>
        showed at the same time). */
     __ENGINE_RULES__
     [data-h3-only][hidden] { display: none !important; }
-    /* Turbo offered but its 0.8 GB isn't downloaded. Same visual grammar as
+    /* Turbo offered but its adapter isn't installed. Same visual grammar as
        .eng-seg.needs-install in the header — dashed + dimmed reads "real
        control, not ready yet" — but WITHOUT .pill-btn.disabled, because this
-       one is clickable: the click is what starts the download. */
+       one stays clickable so it can explain the pending release asset. */
     .pill-btn.needs-download { opacity: .62; border-style: dashed; }
     .pill-btn.needs-download:hover { opacity: .9; }
     /* The honest one-liner under the Speed control. Shown only while Turbo is
@@ -32965,10 +32889,10 @@ HTML = r"""<!doctype html>
                  sampler is pinned at 4. Rendered by renderH3Turbo() from
                  BOOT.h3.turbo, so Python stays the single source of truth for
                  availability, size and copy — including the tooltip's
-                 measured-vs-derived distinction — the two top canvases have
-                 been rendered with the adapter end to end at 5 s (High 8.5 min,
-                 Native 19.9 min) and say so; everything else says out loud that
-                 its figure is derived from geometry. The whole control
+                 measured-vs-derived distinction. LightX2V v1.0 has a visual
+                 approval but no end-to-end timing receipt yet, so every Turbo
+                 figure honestly stays derived from the measured cost model.
+                 The whole control
                  hides when the installed pack's runner has no --lora. -->
             <div class="cz-control" id="h3TurboRow" data-h3-only hidden>
               <div class="cz-label">Speed
@@ -35121,7 +35045,7 @@ HTML = r"""<!doctype html>
       <input type="text" id="civitaiQuery" placeholder="Search by name, style, creator…"
              oninput="if(this._t) clearTimeout(this._t); this._t = setTimeout(civitaiSearch, 350)"
              onkeydown="if(event.key==='Enter'){ event.preventDefault(); civitaiSearch(); }">
-      <label class="toggle-pill" id="civitaiNsfwPill">
+      <label class="toggle-pill" id="civitaiNsfwPill" data-spicy-only hidden>
         <input type="checkbox" id="civitaiNsfw">
         <span class="toggle-dot"></span>
         <span>Show NSFW</span>
@@ -41161,7 +41085,7 @@ document.querySelectorAll('#h3StepsGroup [data-h3-steps]').forEach(b => {
 // Three states, and the UI has to say which one it is in:
 //   runner has no --lora  → the whole row is hidden (an old pack never learns
 //                           Turbo exists, exactly like chained tiers)
-//   supported, not downloaded → dashed pill; clicking starts the 0.8 GB fetch
+//   supported, not installed  → dashed pill; click explains/fetches the asset
 //   available             → a normal pill, and picking it pins steps at 4
 function h3TurboState() {
   return (H3 && H3.turbo) || { available: false, supported: false, downloaded: false };
@@ -41171,9 +41095,9 @@ function h3TurboState() {
 // from that tier's own GEOMETRY — Turbo runs 3 forwards whatever the tier bakes
 // and the fixed per-window cost doesn't shrink, so there is no single ratio
 // that could be right for every tier (it is 0.45 on an 8-forward one and 0.59
-// on a 6-forward one). One tier — Wide 5s — has been rendered with the adapter
-// end to end and carries `turbo_measured`; the tooltip below distinguishes that
-// from the derived ones rather than presenting both as the same kind of number.
+// on a 6-forward one). The retired adapter has end-to-end measurements in the
+// changelog, but LightX2V v1.0 does not yet; its active cells remain derived
+// rather than inheriting a measurement from different weights.
 // The pill's SECOND line, in the same grammar every other .pill-btn in
 // Customize uses (name on top, one spec line under it): the cost of turning it
 // on, or the cost of getting it at all.
@@ -41233,7 +41157,8 @@ function h3SpeedSub(which) {
     return eta || 'this shape as tuned';
   }
   const t = h3TurboState();
-  if (!t.downloaded) return (t.download_gb || 0.8) + ' GB download';
+  if (!t.downloaded && !t.install_available) return 'adapter asset pending';
+  if (!t.downloaded) return (t.download_gb || 1.4) + ' GB download';
   const eta = cell && cell.turbo_eta ? _h3EtaPlain(cell.turbo_eta) : '';
   return eta || '4-step adapter';
 }
@@ -41267,8 +41192,10 @@ function renderH3Turbo() {
       + ', over the same fixed load/decode time. Not measured at this canvas.';
   pill.title = t.downloaded
     ? (t.note || '') + basis
-    : 'Downloads the 4-step adapter + the recovered time embedder (~'
-      + (t.download_gb || 0.8) + ' GB) into the H3 pack. Nothing is bundled with Phosphene.';
+    : (t.install_available
+      ? 'Downloads the LightX2V v1.0 runner-layout adapter (~'
+        + (t.download_gb || 1.4) + ' GB) into the H3 pack.'
+      : (t.install_note || 'The runner-layout adapter release asset is pending.'));
   // The pack could have gone away (or arrived) since boot without a reload.
   if (!t.available && (document.getElementById('h3_turbo') || {}).value === '1') {
     setH3Turbo(false);
@@ -41343,11 +41270,17 @@ async function h3TurboClick() {
     }
     return;
   }
-  const gb = t.download_gb || 0.8;
+  if (!t.install_available) {
+    if (typeof phosToast === 'function') {
+      phosToast(t.install_note || 'The H3 Turbo runner-layout adapter release asset is pending.',
+                { kind: 'danger' });
+    }
+    return;
+  }
+  const gb = t.download_gb || 1.4;
   if (!confirm('Download the H3 Turbo adapter?\n\n'
-             + '~' + gb + ' GB in two files, into the H3 pack’s models folder.\n'
-             + 'The adapter is Apache-2.0; the time embedder is read out of the '
-             + 'upstream release by byte range, not downloaded whole.\n\n'
+             + '~' + gb + ' GB, into the H3 pack’s models folder.\n'
+             + 'The LightX2V source adapter is Apache-2.0.\n\n'
              + 'Progress streams to the log at the bottom of the page.')) return;
   try {
     const r = await fetch('/h3/turbo/install', { method: 'POST' });
@@ -41355,7 +41288,7 @@ async function h3TurboClick() {
     if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
     if (typeof phosToast === 'function') {
       phosToast('Turbo download started — watch the log. The pill turns on by '
-                + 'itself when both files land.', { kind: 'ok' });
+                + 'itself when the adapter lands.', { kind: 'ok' });
     }
   } catch (e) {
     if (typeof phosToast === 'function') {
@@ -42621,9 +42554,8 @@ function updateH3Availability(s) {
                // card even when `available` itself hasn't moved yet.
                || (next.repairable !== H3.repairable)
                || (next.reason !== H3.reason)
-               // Turbo's 0.8 GB is downloaded from inside the panel, so this is
-               // what turns the dashed pill into a live one the moment both
-               // files land — no reload, which is what its toast promises.
+               // Turbo's release adapter may arrive from inside the panel, so
+               // this turns the dashed pill live as soon as it lands.
                || (((next.turbo || {}).available) !== ((H3.turbo || {}).available))
                || (((next.turbo || {}).supported) !== ((H3.turbo || {}).supported))
                || ((next.tiers || []).length !== (H3.tiers || []).length);
@@ -47041,17 +46973,21 @@ async function _persistSpicyMode(target) {
     const r = await fetch('/settings', { method: 'POST', body: fd });
     const j = await r.json();
     if (j.error) throw new Error(j.error);
-    if (_settingsCache && _settingsCache.settings) {
-      _settingsCache.settings.spicy_mode = !!target;
-    }
-    renderSpicyState(!!target);
+    // Use the value acknowledged by the server as the shared UI source of
+    // truth. This prevents the Settings panel and render form from briefly
+    // disagreeing if validation/coercion changes server-side.
+    if (!_settingsCache) _settingsCache = {};
+    _settingsCache.settings = (j && j.settings) || Object.assign(
+      {}, _settingsCache.settings || {}, { spicy_mode: !!target }
+    );
+    renderSpicyState(spicyModeEnabled());
     if (status) {
       status.textContent = target ? 'Spicy mode ON · NSFW LoRAs unlocked' : 'Spicy mode OFF · NSFW LoRAs hidden';
       status.className = 'settings-status ok';
     }
     // Refresh the CivitAI panel so the "Show NSFW" toggle appears /
     // disappears immediately without a full page reload.
-    if (typeof refreshCivitaiAccessUI === 'function') refreshCivitaiAccessUI();
+    if (typeof renderSpicyAccess === 'function') renderSpicyAccess();
   } catch (e) {
     if (status) {
       status.textContent = 'Could not change Spicy mode: ' + (e.message || e);
@@ -49244,7 +49180,7 @@ function _civitaiContextMeta(ctx, fam) {
   };
 }
 
-function openCivitaiModal(context) {
+async function openCivitaiModal(context) {
   // Pick context from the active workflow if not explicitly passed.
   _civitaiContext = context || _civitaiContextForCurrentWorkflow();
   // Family BEFORE the title: on video the title names the engine's family.
@@ -49252,6 +49188,9 @@ function openCivitaiModal(context) {
   const meta = _civitaiContextMeta(_civitaiContext, _civitaiFamily);
   const titleEl = document.getElementById('civitaiModalTitle');
   if (titleEl) titleEl.textContent = meta.title;
+  // Static markup is hidden, and this synchronous pass keeps it fail-closed
+  // while the authoritative Settings response is in flight.
+  renderSpicyAccess();
   document.getElementById('civitaiModal').style.display = 'flex';
   // Pull /loras to populate the dir text and the auth-banner state. The dir
   // shown is the one this family's downloads will actually land in — the
@@ -49270,9 +49209,10 @@ function openCivitaiModal(context) {
   // shows it for every context that HAS families (image, and video since H3).
   const famRow = document.getElementById('civitaiFamilyRow');
   if (famRow) famRow.style.display = 'none';
-  // Pull current Spicy mode state so the "Show NSFW" toggle hides when off.
-  refreshCivitaiAccessUI();
-  civitaiSearch();
+  // Resolve the gate before searching so a stale checked box can never add
+  // nsfw=true while Settings is still loading.
+  await refreshCivitaiAccessUI();
+  await civitaiSearch();
 }
 
 // Render the family-filter pill row when the response carries
@@ -49341,20 +49281,45 @@ function civitaiSetFamily(family) {
   civitaiSearch();
 }
 
-// Hide / show the "Show NSFW" toggle in the CivitAI browser based on the
-// Spicy mode setting. Called on modal open and after toggleSpicyMode flips
-// the value, so the UI tracks the gate without a page reload.
+// One UI predicate serves both LTX and H3. The active engine only changes the
+// LoRA family; it never changes whether NSFW controls/data are authorized.
+function spicyModeEnabled() {
+  return !!(_settingsCache && _settingsCache.settings &&
+            _settingsCache.settings.spicy_mode === true);
+}
+
+function renderSpicyAccess() {
+  const enabled = spicyModeEnabled();
+  document.querySelectorAll('[data-spicy-only]').forEach(el => {
+    el.hidden = !enabled;
+  });
+  const cb = document.getElementById('civitaiNsfw');
+  if (!enabled && cb) cb.checked = false;
+  return enabled;
+}
+
+function civitaiNsfwRequested() {
+  const cb = document.getElementById('civitaiNsfw');
+  return spicyModeEnabled() && !!(cb && cb.checked);
+}
+
+// Refresh the shared Settings cache, then render from the one predicate.
+// Any fetch/shape failure explicitly records OFF instead of trusting stale
+// state from an earlier session.
 async function refreshCivitaiAccessUI() {
-  let spicy = false;
   try {
     const r = await fetch('/settings');
     const j = await r.json();
-    spicy = !!(j && j.settings && j.settings.spicy_mode);
-  } catch (_) { /* default off */ }
-  const pill = document.getElementById('civitaiNsfwPill');
-  const cb = document.getElementById('civitaiNsfw');
-  if (pill) pill.style.display = spicy ? '' : 'none';
-  if (!spicy && cb) cb.checked = false;  // force off when spicy mode is off
+    if (!r.ok || !j || !j.settings) throw new Error('invalid settings response');
+    if (!_settingsCache) _settingsCache = {};
+    _settingsCache.settings = j.settings;
+  } catch (_) {
+    if (!_settingsCache) _settingsCache = {};
+    _settingsCache.settings = Object.assign(
+      {}, _settingsCache.settings || {}, { spicy_mode: false }
+    );
+  }
+  return renderSpicyAccess();
 }
 
 // Render the inline API-key banner at the top of the CivitAI browser.
@@ -49452,7 +49417,7 @@ async function civitaiSearch() {
     const params = new URLSearchParams();
     const q = document.getElementById('civitaiQuery').value.trim();
     if (q) params.set('query', q);
-    if (document.getElementById('civitaiNsfw').checked) params.set('nsfw', 'true');
+    if (civitaiNsfwRequested()) params.set('nsfw', 'true');
     params.set('limit', '24');
     params.set('context', _civitaiContext);
     if (_civitaiFamily) params.set('family', _civitaiFamily);
@@ -49473,7 +49438,7 @@ async function civitaiSearch() {
     if (data.has_more) loadMore.style.display = '';
     if ((data.items || []).length === 0) {
       const meta = _civitaiContextMeta(_civitaiContext, _civitaiFamily);
-      grid.innerHTML = `<div class="hint">${meta.empty} "${escapeHtml(q || '')}"${document.getElementById('civitaiNsfw').checked ? '' : ' (try Show NSFW for more)'}.</div>`;
+      grid.innerHTML = `<div class="hint">${meta.empty} "${escapeHtml(q || '')}"${civitaiNsfwRequested() ? '' : ' (try Show NSFW for more)'}.</div>`;
     }
   } catch (e) {
     status.textContent = 'Network error: ' + (e.message || e);
@@ -49493,7 +49458,7 @@ async function civitaiLoadMore() {
     const params = new URLSearchParams();
     const q = document.getElementById('civitaiQuery').value.trim();
     if (q) params.set('query', q);
-    if (document.getElementById('civitaiNsfw').checked) params.set('nsfw', 'true');
+    if (civitaiNsfwRequested()) params.set('nsfw', 'true');
     params.set('limit', '24');
     params.set('cursor', _civitaiCursor);
     params.set('context', _civitaiContext);

@@ -129,15 +129,18 @@ axes (the runner errors otherwise), so exact 16:9 means width `512k`, height
 M4 Max): 22,923 packed rows, 126.0 s/step, 90.5 s VAE decode, 10.71 GiB decode
 peak, **18.8 min**; the same probe put 768×448 at 9.1 min against this table's
 ~8 min, hence the ~17-19 band. Denoise stayed at 37.6 GiB — identical to
-768×448, because the DiT weights dominate. **On Turbo the same canvas is also
-measured: 8.5 min** (3 forwards at 128.0 / 127.4 / 123.9 s + 131 s of fixed
-load/decode, `codex/opt_out/wide169/w169.log`) — which is why `turbo_eta` is now
+768×448, because the DiT weights dominate. **The retired ckpt500-EMA Turbo
+adapter measured 8.5 min on the same canvas** (3 forwards at 128.0 / 127.4 /
+123.9 s + 131 s of fixed load/decode,
+`codex/opt_out/wide169/w169.log`) — which is why `turbo_eta` is
 derived per tier from forward counts rather than from a flat ratio (Turbo always
-runs 3 forwards and the fixed cost never shrinks, so the real ratio is 0.45 on an
-8-forward tier and 0.59 on a 6-forward one). Against 768×448 at the same seed and
-forwards it resolves individual eyebrow hairs, forehead pores, eyelashes and fur
-strands where the smaller canvas has smears — **and** 1080p delivery drops from a
-2.41× enlargement to 1.875× with no bars.
+runs 3 forwards and the fixed cost never shrinks, so the observed ratio was
+0.45 on an 8-forward tier and 0.59 on a 6-forward one). LightX2V v1.0 has not
+yet received an end-to-end timing run, so the active UI marks its estimates as
+derived rather than claiming the retired adapter's wall clock. Against 768×448
+at the same seed and forwards, the historical run resolves individual eyebrow hairs, forehead pores,
+eyelashes and fur strands where the smaller canvas has smears — **and** 1080p
+delivery drops from a 2.41× enlargement to 1.875× with no bars.
 
 Each tier's `aspect` is derived from its own width/height (`_h3_aspect`) and
 appended to the `spec` string the chip prints, so the advertised ratio can never
@@ -153,6 +156,31 @@ is inside the window where 8 forwards was proven.
 
 Geometry rules the runner enforces: width and height must be multiples of 32,
 and frame counts snap up to the `17n+5` grid.
+
+### Turbo adapter resolution (2026-08-14)
+
+Turbo uses the runner's `--lora PATH:SCALE` interface at scale `1.0`. The panel
+resolves an exact ordered allowlist under `turbo-lora/`:
+
+1. `lightx2v_v1.0_768p_ourlayout.safetensors` — the default.
+2. `lightx2v_v0.1_ourlayout_alpha8.safetensors` — compatibility fallback only
+   when v1.0 is absent.
+
+The raw upstream v0.1 file,
+`minimax_h3_fl2v_turbo_4step_v0.1.safetensors`, is never accepted. Its
+alpha/rank factor is external to the checkpoint; loading it at scale 1.0
+renders coloured noise. Resolution therefore uses explicit filenames, not a
+glob.
+
+The Apache-2.0 v1.0 source is
+[`lightx2v/Minimax-h3-Turbo`](https://huggingface.co/lightx2v/Minimax-h3-Turbo)'s
+`minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors`
+(SHA-256
+`1bdabc2e9fce20b1db563b96bcf6e46adcad4c1964f423676436bf266cc7416c`).
+It still needs the runner-layout repack. `install_h3.js` deliberately contains
+no raw-file fetch: it records the exact release-asset publication TODO and must
+gain a digest-checked fetch only after the repacked asset and its output digest
+exist.
 
 ### Chained windows (v3.4.1)
 
