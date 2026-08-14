@@ -27,10 +27,21 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MLX="$ROOT/ltx-2-mlx"
-PY="$MLX/.venv/bin/python3.11"
 
-if [[ ! -x "$PY" ]]; then
-  echo "ERR: venv python3.11 not found at $PY" >&2
+# THE VENV IS `env/`, NOT `.venv/`. start.js has always launched the panel with
+# `venv: "ltx-2-mlx/env"` and points LTX_HELPER_PYTHON at
+# `ltx-2-mlx/env/bin/python3.11`, so every Pinokio install on earth has `env/`
+# and no `.venv/` at all. This launcher asked for `.venv` only, which means the
+# documented local-dev path has been dead on every install — it printed "run
+# the install first" at someone who had a perfectly good one. `env` is checked
+# first because it is what the installer actually creates; `.venv` stays as a
+# fallback so a hand-rolled uv venv still works.
+for _cand in "$MLX/env/bin/python3.11" "$MLX/.venv/bin/python3.11"; do
+  if [[ -x "$_cand" ]]; then PY="$_cand"; break; fi
+done
+
+if [[ -z "${PY:-}" ]]; then
+  echo "ERR: venv python3.11 not found at $MLX/env/bin/python3.11 (or .venv/)" >&2
   echo "     Run the install (uv venv + uv pip install ...) first, or use Pinokio." >&2
   exit 1
 fi
