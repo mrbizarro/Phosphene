@@ -45961,11 +45961,11 @@ document.getElementById('genForm').addEventListener('submit', async e => {
       //
       //   1. It only looked at _activeLoras — the user-LoRA picker. A CAST
       //      CHARACTER's stack is expanded server-side from character_id and
-      //      never appears there, so casting elontrn and writing "elontrn"
-      //      warned that elontrn was not attached while it was about to be
-      //      fused first in the stack.
+      //      never appears there, so casting bizarrotrn and writing
+      //      "bizarrotrn" warned that bizarrotrn was not attached while it was
+      //      about to be fused first in the stack.
       //   2. It matched attached-ness by PATH. A library holding two entries
-      //      for one trigger — the bundle copy and an "elontrn (high)" variant
+      //      for one trigger — the bundle copy and a "bizarrotrn (high)" variant
       //      — flagged the one the user had NOT toggled even though the trigger
       //      was already covered by the one they had.
       //
