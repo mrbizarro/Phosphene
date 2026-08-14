@@ -709,7 +709,12 @@ STORYBOARD_SHOT_CHOICES = (6, 12, 24, 36)
 # silently became a 12-shot film.
 STORYBOARD_MAX_SHOTS = 48
 STORYBOARD_DRAFT_QUALITIES = ("quick", "balanced", "standard")
-STORYBOARD_FINAL_QUALITIES = ("balanced", "standard", "high")
+# The final pass offers every LTX tier except the draft-only floor. Listed here
+# rather than derived because this constant is read at import time, before the
+# registry builder exists — but it is asserted against the registry by
+# scripts/assert_registry.py, so a new tier cannot be added to one and forgotten
+# in the other. That assertion is the thing that makes the literal safe.
+STORYBOARD_FINAL_QUALITIES = ("balanced", "standard", "high", "high_720p")
 # The film-level engine choice. See storyboard.ENGINE_MODES for what each means
 # and why it is a PLANNING input rather than a post-hoc filter.
 STORYBOARD_ENGINE_MODES = ("auto", "h3", "ltx")
@@ -7215,15 +7220,43 @@ LTX_LATENT_CELL = 32
 # held, MLX 0.31.1, M4 Max 64 GB, engine v0.14.19+ltx25.3:
 #
 #   1024×576×121, q8, distilled 8+3   171.2 s total − 26.2 s fixed = 145.0 s
-#     (notes/ltx25_voice/armB_voice14.log — the gate-11a arm)
+#     (the voice-ladder arm, rendered through the panel)
 #   640×448×49,  q4, distilled 8+2     39.31 s total − 13.0 s fixed =  26.3 s
 #     (the step-0 confirmation render through the panel, job j-19ffa750b91-001)
 #
 # Fitting A and the exponent to those two and then pricing a cell NEITHER of
-# them is gives 142.8 s for balanced/5s/q8 at 8+2, against the 139.4 s the
+# them is gave 142.8 s for balanced/5s/q8 at 8+2, against the 139.4 s the
 # campaign measured for exactly that cell: 2.4 % out, on a cross-validation the
-# fit never saw. That is the whole claim this model makes — good to a few
-# percent, which is why `_fmt_eta` prints no decimals.
+# fit never saw.
+#
+# THAT CROSS-VALIDATION NO LONGER HOLDS, AND THIS COMMENT USED TO CLAIM IT DID.
+# Both anchors above were reduced by a FIXED cost of 26.2 s and 13.0 s — which
+# is `LTX_LOAD_SEC = 10.9` plus each geometry's decode. `LTX_LOAD_SEC` was
+# later re-measured at 31.0 s through the real panel path and raised, WITHOUT
+# refitting the two coefficients that were derived against 10.9. At 31.0 the
+# same cell prices at 162.9 s, not 142.8 s. The second anchor is now
+# self-refuting outright: a 640×448×49 render TOTALLED 39.31 s, which cannot
+# contain 31.0 s of fixed cost.
+#
+# Refitting was attempted and REFUSED, because the three measured bench rows
+# are not fittable by this functional form: Quick (640×448) and Balanced
+# (1024×576) came in 0.7 s apart (161.8 vs 162.5) despite 2.3× the packed rows.
+# No power law in packed rows reproduces that, and the best least-squares fit
+# lands −19 % on Quick and +13 % on Balanced while making the small-canvas
+# anchor 138 % hot. A fit that bad is worse than an honest fallback, because it
+# would look like a measurement.
+#
+# SO: what this model is actually for has changed. Every tier a user is offered
+# is now priced by a MEASURED row or by the length-anchoring branch in
+# `_build_ltx_tiers` (which scales a quality's measured 5s row by the model's
+# own ratio, cancelling the mis-specified fixed term to first order). The raw
+# model is the fallback for cells with neither — `high` at every length, and
+# all of 2.3 — and it runs hot at small canvases. Those cells report
+# `eta_measured: false`, which is the honest label for a number this shaky.
+# Fixing the model properly needs anchors that separate the fixed cost from the
+# per-forward cost (the same geometry timed warm and cold), which nobody has
+# measured. Do not re-derive the coefficients from these two anchors again
+# without also re-deriving the fixed cost they assume.
 LTX_FWD_COEFF = 4.357242e-03
 LTX_FWD_EXPONENT = 0.9620
 # Fixed cost per render, re-measured 2026-08-14 through the REAL panel path
@@ -7301,31 +7334,44 @@ def ltx_estimate_minutes(w: int, h: int, frames: int,
 # mistake this table exists to prevent. It is a good seed for the model, not a
 # measurement.
 LTX_MEASURED_ETA: dict[tuple[str, str, str, str], tuple[float, str]] = {
-    # LTX-2.5, q8 + HQ add-on, 1280×704 @ 10+3, CFG 3.0, TeaCache 1.8, conv
-    # decoder — the High-tier lab's pinned control (notes/hq704_tier_lab.md,
-    # 2026-08-14): 408.19 s end to end, GPU locks held, panel idle. The
-    # same-day panel render on the older ltx25.1 runtime measured 491 s, and
-    # "~7 min" is the lab's own recommended honest label — it covers the
-    # panel-path overhead the harness number doesn't. The previous row here
-    # (248.5 s, "~4 min") was measured at 1024×576 @ 8+3 — a recipe the lane
-    # never actually ran (the HQ dispatch setdefaults stage1=10, Characters
-    # resolved High to 1280×704), which is exactly the owner-reported
-    # "says 4 min, takes 8" drift. Geometry rule enforced the hard way.
-    ("ltx25", "high",     "5s", "q8"): (6.8, "~7 min"),    # 408.2 s + overhead
+    # LTX-2.5, q8 + HQ add-on, 1280×704 × 121 @ 10+3 — the owner's own render,
+    # 491.03 s end to end through the panel with a character stack on it
+    # (mlx_outputs/bizarrotrn_bizarro_stands_on_a_windswept.mp4.json). This row
+    # belongs to high_720p and ONLY to high_720p: it was measured at 1280×704,
+    # so keying it to `high` (1024×576) is precisely the geometry lie the
+    # comment above forbids — and doing that is what produced the owner-reported
+    # "says ~4 min, takes ~8". The rule is the same either way: the key that
+    # owns the measurement is the key whose canvas was measured.
+    ("ltx25", "high_720p", "5s", "q8"): (8.18, "~8 min"),  # 491.0 s, panel path
+    # `high` (1024×576) has NO measured row. The 248.5 s number it used to carry
+    # was taken at 8+3 and the lane has always run 10+3, so it was never this
+    # tier's price; the model prices it now and the chip says `eta_measured:
+    # false`, which is the honest state until someone times the real thing.
     # The three distilled 5s cells, 2026-08-14 three-arm bench through the
     # REAL panel path: isolated dev panel, /run submissions, helper restarted
     # before each arm so every render pays the load, GPU locks held, M4 Max
     # 64 GB. These are what a user actually waits, spawn to gallery. Note
     # Quick ≈ Balanced at 5 s: per-forward and decode floors dominate at
     # 640×448 (measured 123 s denoise vs 58 s modelled), which is exactly why
-    # these are measured rather than trusted to the power law. The previous
-    # balanced row (139.4 s) was keyed "q8" — the balanced cell looks up with
-    # its actual pack "q4", so that row never matched and the chip always
-    # printed the model. The old ltx23 high row (304.5 s) died with the
-    # 1024×576 geometry it was measured at.
+    # these are measured rather than trusted to the power law.
     ("ltx25", "quick",    "5s", "q4"): (2.70, "~3 min"),   # 161.8 s bench
     ("ltx25", "balanced", "5s", "q4"): (2.71, "~3 min"),   # 162.5 s bench
     ("ltx25", "standard", "5s", "q4"): (3.84, "~4 min"),   # 230.1 s bench
+    # THE PACK IS PART OF THE KEY, SO BOTH PACKS CAN BE MEASURED.
+    #
+    # The row above and the row below are the SAME canvas and the SAME
+    # schedule on DIFFERENT weights, and both were timed. A session read the
+    # q8 row's failure to match the Balanced CHIP (which looks up with its own
+    # pack, "q4") as evidence the row was mis-keyed, and re-keyed it — deleting
+    # the only measurement the CHARACTER lane had. But nothing was mis-keyed:
+    # `ltx_measured_eta` takes a quant precisely because the character lane
+    # submits balanced AT q8, which is what this row prices. Re-keying it moved
+    # the character strip's "~2 min" — a real 139.4 s render — onto the model,
+    # which printed "~3 min" for a render that takes two.
+    #
+    # If a lookup does not match, the question is which caller is asking, not
+    # which row is wrong.
+    ("ltx25", "balanced", "5s", "q8"): (2.32, "~2 min"),   # 139.4 s, character lane
 }
 
 # The four tier notes. Python constants on the same four-hop path
@@ -7337,8 +7383,16 @@ LTX_MEASURED_ETA: dict[tuple[str, str, str, str], tuple[float, str]] = {
 # exist for them.
 _LTX_TIER_HIGH_NOTE_BASE = (
     "High runs a second, larger pass over the first one — sharper detail and "
-    "steadier motion, for roughly twice the wait. Peaks near 50 GB, so it "
-    "wants a 64 GB Mac."
+    "steadier motion, for roughly twice the wait."
+)
+# The 49.70 GiB peak belongs to the 720p canvas it was measured on, not to
+# High — attaching it here told every High user they needed a 64 GB Mac for a
+# render that has never peaked near that.
+_LTX_TIER_HIGH_720P_NOTE_BASE = (
+    "The same second pass as High, run at 1280×704 — the most detail this "
+    "engine produces, and the canvas that exports to 720p with no scaling at "
+    "all. Measured peak 49.7 GB, so it wants a 64 GB Mac, and it takes about "
+    "twice as long as High."
 )
 
 
@@ -7349,6 +7403,18 @@ def ltx_tier_high_note(version_id: str | None = None) -> str:
 
 
 LTX_TIER_HIGH_NOTE = ltx_tier_high_note()
+
+
+def ltx_tier_high_720p_note(version_id: str | None = None) -> str:
+    """Same pack sentence as High — the 720p tier loads exactly the same
+    weights, so it must not describe a different install requirement."""
+    if model_version(version_id).get("hq_addon_repo_key"):
+        return (_LTX_TIER_HIGH_720P_NOTE_BASE
+                + " It needs the Q8 weights and the High add-on.")
+    return _LTX_TIER_HIGH_720P_NOTE_BASE + " It needs the Q8 weights."
+
+
+LTX_TIER_HIGH_720P_NOTE = ltx_tier_high_720p_note()
 LTX_TIER_Q4_CHARACTER_NOTE = (
     "Trained characters need the Q8 weights. On the base pack most of the "
     "trained face is lost before the first frame, and a stranger renders."
@@ -7367,9 +7433,9 @@ LTX_TIER_STANDARD_NOTE = (
 # DRAFT-lane verdict and retuning HQ stage 2 is ungraded and out of scope.
 LTX_DISTILLED_STAGE1 = 8
 LTX_DISTILLED_STAGE2 = 2
-# 10+3, per the 1280×704 High-tier lab (notes/hq704_tier_lab.md, 2026-08-14):
-# the 10+2 tail candidate saved 60.18 s but failed the owner's lip-sync ear
-# (OWNER-LIPSYNC-FAIL), so 10+3 ships. 10 also matches what the HQ dispatch
+# 10+3, from the 1280×704 High-tier lab (2026-08-14): the 10+2 tail candidate
+# saved 60.18 s of a 408 s render but the owner judged its lip-sync worse than
+# 10+3's, so 10+3 ships. 10 also matches what the HQ dispatch
 # was already setdefault-ing ("Q8 Fast knobs: stage1=10"), so the chip stops
 # describing a schedule the lane never actually ran — the drift behind
 # "High says ~4 min but takes ~8".
@@ -7431,15 +7497,25 @@ def _ltx_qualities() -> dict[str, dict]:
         },
         "high": {
             "key": "high", "label": "High", "order": 3,
-            # 1280×704, the codex ship recommendation from the High-tier lab
-            # (notes/hq704_tier_lab.md, 2026-08-14: "Offer 1280×704 High on
-            # 64 GB machines: yes, using 10+3 / CFG 3.0 / TeaCache 1.8 / the
-            # convolutional decoder"). This is also the canvas the Characters
-            # lane already resolved High to, and 2.3's classic HQ canvas — the
-            # 1024×576 value here was a 2.5-era draft that made the chip price
-            # a render the lane didn't run. Measured peak 49.70 GiB, which is
-            # why the note below keeps the 64 GB requirement explicit.
-            "width": 1280, "height": 704,
+            # 1024×576 — WHAT THIS TIER HAS ALWAYS RENDERED, AND WHAT THE
+            # DESIGN SPEC PINS IT AT. A session moved this cell to 1280×704 on
+            # the theory that the chip "priced a recipe no lane runs". Half
+            # true: the HQ dispatch has always setdefault-ed stage1=10 (fixed
+            # below), but the CANVAS was never in doubt — public v4.0.1 ships
+            # 1024×576 here, and the spec's tier table states the rule out
+            # loud: the keys are "UNCHANGED from the shipped data-quality
+            # values … so every sidecar ever written, every Load Params
+            # round-trip and every issue thread quoting a tier name still
+            # resolves."
+            #
+            # Redefining a shipped key silently doubles the cost of a tier for
+            # every existing user — same chip, same name, ~4 min becomes ~8 —
+            # and re-points every sidecar ever written at a canvas it was not
+            # rendered on. The 720p canvas is worth having, so it is its OWN
+            # key below: additive, opt-in, and priced from its own measurement.
+            # `scripts/assert_registry.py` now pins all five canvases so this
+            # cannot recur.
+            "width": 1024, "height": 576,
             # The two-stage HQ path: dev transformer + CFG + the distilled LoRA,
             # res_2s. It needs the Q8 weights AND the High add-on, which is why
             # its chip carries `.needs-install` until both are on disk.
@@ -7458,12 +7534,49 @@ def _ltx_qualities() -> dict[str, dict]:
             # `.needs-install` state, and both must be able to be true.
             "offered": "q8" in version_cap_tiers(),
         },
+        # ---- High · 720p — the headline of v4.0.2 -------------------------
+        # ADDITIVE. The four shipped keys keep their canvases and their prices;
+        # this is a fifth the user opts into, so nobody's existing chip changes
+        # meaning under them. Same two-stage HQ lane as High, same packs, same
+        # preview rule — only the canvas moves, which is the whole point: 1280×704
+        # is where the HQ pipeline stops being a bigger 1024×576 and starts
+        # resolving detail that canvas cannot hold.
+        #
+        # PRICED FROM THE RENDER THAT PRODUCED IT, not from the model: the owner's
+        # own 1280×704 × 121-frame clip took 491.03 s end to end
+        # (mlx_outputs/bizarrotrn_bizarro_stands_on_a_windswept.mp4.json, q8 +
+        # character stack). That is the ONLY geometry this tier claims a measured
+        # number for — every other length is modelled and says so.
+        "high_720p": {
+            "key": "high_720p", "label": "High · 720p", "order": 4,
+            "width": 1280, "height": 704,
+            "pack": "q8", "pipeline": "hq",
+            "stage1": LTX_HQ_STAGE1, "stage2": LTX_HQ_STAGE2,
+            "stage2_evals": 2,
+            "preview_every": 2, "preview_meaningful_at": 2,
+            "blurb": "The HQ pass at 720p — the most detail this engine makes.",
+            "note": LTX_TIER_HIGH_720P_NOTE,
+            "offered": "q8" in version_cap_tiers(),
+        },
     }
     for q in out.values():
         q.setdefault("note", "")
         q["aspect"] = _h3_aspect(q["width"], q["height"])
         q["canvas"] = f"{q['width']}×{q['height']}"
     return out
+
+
+def ltx_quality_uses_hq(quality: str | None) -> bool:
+    """Does this quality run the two-stage HQ lane?
+
+    ASK THE REGISTRY, NOT THE NAME. Five call sites decided the HQ lane, the
+    Q8 requirement and the accel lock by comparing the quality string to the
+    literal "high" — so adding ANY second HQ tier silently routed it to the
+    distilled lane with a q4 pack. The cell already declares `pipeline`; that
+    is the answer, and it stays right for a sixth tier nobody has thought of.
+    """
+    cell = LTX_QUALITIES.get(str(quality or ""))
+    return bool(cell and cell.get("pipeline") == "hq")
 
 
 def _ltx_lengths() -> dict[str, dict]:
@@ -7756,7 +7869,7 @@ def character_strip_payload() -> dict:
         ltx_estimate_minutes(704, 384, 121,
                              LTX_QUALITIES[q]["stage1"], LTX_QUALITIES[q]["stage2"],
                              LTX_QUALITIES[q].get("stage2_evals") or 1))
-    label = "Q8" if q != "high" else "Q8 HQ"
+    label = "Q8 HQ" if ltx_quality_uses_hq(q) else "Q8"
     return {
         "quality": q,
         "draft": {"width": 704, "height": 384,
@@ -10156,9 +10269,11 @@ def _apply_generation_profile_to_job(job: dict) -> None:
         return
 
     # Q4 one-stage jobs are the common fast path and support Long Clip Boost.
-    # Q8 High has a different sampler and does not support the 12->24 fps path,
-    # so leave High alone rather than silently changing requested quality.
-    if quality != "high":
+    # The two-stage HQ lane has a different sampler and does not support the
+    # 12->24 fps path, so leave it alone rather than silently changing the
+    # requested quality. Asked of the registry, not of the name: a second HQ
+    # tier is still an HQ tier.
+    if not ltx_quality_uses_hq(quality):
         max_dim = int(profile.get("max_dim") or 0)
         new_w, new_h = _scale_dims_to_max(width, height, max_dim)
         if (new_w, new_h) != (width, height):
@@ -13393,23 +13508,15 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     if not prompt:
         prompt = "A cinematic atmospheric scene"
     quality = f("quality", "balanced")
-    if quality == "quick":
-        default_w, default_h = 640, 480
-    elif quality == "standard":
-        default_w, default_h = 1280, 704
-    elif quality == "high":
-        # 2026-05-09 lab finding: Q8 two-stage HQ at 1024×576 produces
-        # "outstanding" quality (user verdict on a 5-prompt sweep
-        # including a freckles-and-eyes close-up stress test) at ~7:48
-        # wall, vs ~11:51 at 1280×704. The smaller resolution still
-        # hits the model's wheelhouse for close subjects, and Q8's
-        # per-token detail capacity is the quality differentiator —
-        # not raw pixel count. Power users can still pick 1280×704
-        # explicitly via the aspect chip; this just sets a saner
-        # default that gets the 7-min experience by default.
-        default_w, default_h = 1024, 576
-    else:
-        default_w, default_h = 1024, 576
+    # THE CANVAS COMES FROM THE CELL. This was a per-quality if/elif of literal
+    # sizes that had to be edited in lockstep with the registry — and once two
+    # tiers shared the HQ pipeline, the `uses_hq` branch handed BOTH of them
+    # 1024×576, so High · 720p resolved its own canvas to High's. The registry
+    # already states every tier's width and height; reading it is what makes a
+    # sixth tier a data change instead of a code change.
+    _qcell = LTX_QUALITIES.get(quality) or {}
+    default_w = int(_qcell.get("width") or 1024)
+    default_h = int(_qcell.get("height") or 576)
     upscale = f("upscale", "fit_720p" if quality == "balanced" else "off")
     requested_upscale_method = (f("upscale_method", "lanczos") or "lanczos").strip().lower()
     if requested_upscale_method == "model":
@@ -15937,7 +16044,7 @@ def run_job_inner(job: dict) -> None:
     quality = p.get("quality", "standard")
     if p.get("accel") not in ("off", "boost", "turbo"):
         p["accel"] = "off"
-    if quality == "high" or mode in ("extend", "keyframe", "a2v", "restore", "ingredients", "control"):
+    if ltx_quality_uses_hq(quality) or mode in ("extend", "keyframe", "a2v", "restore", "ingredients", "control"):
         p["accel"] = "off"
 
     # Guard: Q4 distilled hardcoded 9-sigma schedule needs the full walk to
@@ -15946,9 +16053,9 @@ def run_job_inner(job: dict) -> None:
     # Block before the user wastes 7+ minutes producing static.
     # Modes that don't use the distilled `steps` field skip this check:
     #   - extend / keyframe use stage1_steps + stage2_steps via two-stage path
-    #   - high quality uses two-stage HQ with its own schedule
+    #   - every HQ-pipeline quality uses two-stage HQ with its own schedule
     #   - a2v uses A2VidPipelineTwoStage's stage1/stage2 walks
-    if mode not in ("extend", "keyframe", "a2v", "restore", "ingredients", "control") and quality != "high" and int(p.get("steps", 8)) < 8:
+    if mode not in ("extend", "keyframe", "a2v", "restore", "ingredients", "control") and not ltx_quality_uses_hq(quality) and int(p.get("steps", 8)) < 8:
         raise RuntimeError(
             f"steps={p.get('steps')} is below the 8-step minimum for the Q4 distilled "
             "schedule. Fewer steps truncates the sigma walk and leaves >70% noise in "
@@ -16959,7 +17066,7 @@ def run_job_inner(job: dict) -> None:
     temporal_mode = (p.get("temporal_mode") or "native").strip().lower()
     if temporal_mode not in ("native", "fps12_interp24"):
         temporal_mode = "native"
-    temporal_supported = mode in ("t2v", "i2v") and quality != "high"
+    temporal_supported = mode in ("t2v", "i2v") and not ltx_quality_uses_hq(quality)
     if temporal_mode != "native" and not temporal_supported:
         push("Long Clip Boost is only available for Q4 Text/Image renders; using native 24fps.")
         temporal_mode = "native"
@@ -17001,7 +17108,7 @@ def run_job_inner(job: dict) -> None:
 
     pad_w, pad_h, pad_filter = compute_pad(width, height)
     suffix = f"{pad_w}x{pad_h}" if mode == "i2v_clean_audio" and pad_filter else f"{width}x{height}"
-    tag = f"{mode}_hq" if quality == "high" else mode
+    tag = f"{mode}_hq" if ltx_quality_uses_hq(quality) else mode
     # Only `i2v_clean_audio` runs a panel-side mux (raw → final). For T2V / I2V /
     # HQ the upstream-patched encode writes the lossless yuv444p crf 0 + AAC
     # file directly, so the "raw" is the final — keeping the `_raw` suffix in
@@ -17115,7 +17222,7 @@ def run_job_inner(job: dict) -> None:
         job["output_path"] = str(raw_out)
         return
 
-    if quality == "high":
+    if ltx_quality_uses_hq(quality):
         if not SYSTEM_CAPS["allows_q8"]:
             raise RuntimeError(
                 f"High quality (Q8 two-stage) isn't supported on the "
@@ -23619,7 +23726,7 @@ def _phase_weights(params: dict) -> dict[str, int]:
     upscale_method = params.get("upscale_method", "lanczos")
     quality = params.get("quality", "standard")
     has_post = (upscale != "off" and upscale_method == "pipersr")
-    if quality == "high":
+    if ltx_quality_uses_hq(quality):
         setup, denoise, decode = 2, 86, 12
     elif quality == "quick":
         setup, denoise, decode = 4, 75, 21
@@ -25033,7 +25140,10 @@ HTML = r"""<!doctype html>
     /* The High delivery pill can't exist on a Q4 machine — put the rule
        right beside the one that hides #qualityGroup's, so the two can never
        disagree about what this Mac can render. */
-    body[data-cap-tier="q4"] #sbFinalQuality [data-q="high"] { display: none !important; }
+    /* Every q8-pack tier hides on a q4-only machine, not just the one named
+       "high" — sbRenderFinalQualities stamps data-pack so this stays true for
+       any tier the registry grows. */
+    body[data-cap-tier="q4"] #sbFinalQuality [data-pack="q8"] { display: none !important; }
 
     /* The panel has no layout breakpoint today. Storyboard adds one, scoped
        to itself so nothing else can regress. */
@@ -34482,11 +34592,11 @@ HTML = r"""<!doctype html>
             </div>
             <div class="cz-control">
               <div class="cz-label">Delivery pass <span class="cz-label-hint">what you keep</span></div>
-              <div class="pill-group cols-3" id="sbFinalQuality">
-                <button type="button" class="pill-btn" data-q="balanced">Balanced<span class="sub">1024×576</span></button>
-                <button type="button" class="pill-btn active" data-q="standard">Standard<span class="sub">1024×576</span></button>
-                <button type="button" class="pill-btn" data-q="high" id="sbFinalHigh">High<span class="sub">1024×576 · Q8</span></button>
-              </div>
+              <!-- Rendered from the registry by sbRenderFinalQualities(): three
+                   hand-written buttons meant two of them printed 1024×576 for
+                   canvases that are not 1024×576 (Standard is 1280×704), and a
+                   fifth tier could never appear here at all. -->
+              <div class="pill-group cols-3" id="sbFinalQuality"></div>
             </div>
           </div>
         </details>
@@ -40124,7 +40234,7 @@ async function trainDeleteLora(loraPath) {
 
 // Quality presets (Y1.013) — each one bundles the backend quality value
 // (which selects the model + sampler) with the canonical dimensions.
-// Backend still routes only on `quality == 'high'` vs anything else, so
+// Backend routes on the cell's `pipeline`, not the key name, so
   // 'quick', 'balanced', and 'standard' all run Q4 distilled — they differ in
 // pixel count. The richer label is preserved in the sidecar so the
 // info modal can show "Quick" / "Standard" / "High" verbatim.
@@ -40185,8 +40295,20 @@ function setQuality(q) {
     try { renderTierAxes('ltx'); } catch (_) {}
   }
 }
+// Does the selected quality run the two-stage HQ lane? Reads the SAME registry
+// cell the server does (BOOT.ltx.qualities[].pipeline) instead of comparing to
+// the literal 'high' — which is what made these gates blind to a second HQ tier
+// and would have offered accel/interpolation on High · 720p, where the backend
+// refuses them.
+function _qualityUsesHq(q) {
+  const cells = ((BOOT.ltx || {}).qualities) || [];
+  const cell = Array.isArray(cells)
+    ? cells.find(c => c && c.key === String(q || ''))
+    : cells[String(q || '')];
+  return !!(cell && cell.pipeline === 'hq');
+}
 function setAccel(a) {
-  const allowed = document.getElementById('quality').value !== 'high' && currentMode !== 'extend' && currentMode !== 'keyframe';
+  const allowed = !_qualityUsesHq(document.getElementById('quality').value) && currentMode !== 'extend' && currentMode !== 'keyframe';
   const v = allowed ? a : 'off';
   document.getElementById('accel').value = v;
   document.querySelectorAll('#accelGroup .pill-btn').forEach(b => b.classList.toggle('active', b.dataset.accel === v));
@@ -40196,7 +40318,7 @@ function setAccel(a) {
 function temporalModeAllowed() {
   const q = document.getElementById('quality').value;
   const mode = document.getElementById('mode').value;
-  return q !== 'high' && currentMode !== 'extend' && currentMode !== 'keyframe' && (mode === 't2v' || mode === 'i2v');
+  return !_qualityUsesHq(q) && currentMode !== 'extend' && currentMode !== 'keyframe' && (mode === 't2v' || mode === 'i2v');
 }
 function setTemporalMode(t) {
   const allowed = temporalModeAllowed();
@@ -40228,7 +40350,7 @@ function setUpscaleMethod(m) {
   updateDerived();
 }
 function updateAccelAvailability() {
-  const allowed = document.getElementById('quality').value !== 'high' && currentMode !== 'extend' && currentMode !== 'keyframe';
+  const allowed = !_qualityUsesHq(document.getElementById('quality').value) && currentMode !== 'extend' && currentMode !== 'keyframe';
   document.querySelectorAll('#accelGroup .pill-btn').forEach(b => {
     const disabled = !allowed && b.dataset.accel !== 'off';
     b.classList.toggle('disabled', disabled);
@@ -42360,10 +42482,10 @@ function applyAspect(key) {
 // dimensions are now owned by setQuality / applyAspect.
 function applyQuality() {
   const q = document.getElementById('quality').value;
-  if (q === 'high') {
+  if (_qualityUsesHq(q)) {
     document.getElementById('steps').value = 18;
   } else {
-    document.getElementById('steps').value = 8;       // quick + balanced + standard
+    document.getElementById('steps').value = 8;       // every distilled canvas
   }
   updateCustomizeSummary();
   updateDerived();
@@ -43891,7 +44013,7 @@ function applyPackIncompleteGate(s) {
   // correct before the table has rendered, and on any surface that sets
   // #quality directly.
   const pack = (cell && cell.pack)
-    || (((document.getElementById('quality') || {}).value === 'high') ? 'q8' : 'q4');
+    || (_qualityUsesHq((document.getElementById('quality') || {}).value) ? 'q8' : 'q4');
   // Only the q8 lane can be half-installed in a way the user can act on: an
   // incomplete BASE pack is already a hard block in the models card above, and
   // duplicating it here would give the same fact two voices.
@@ -45579,7 +45701,7 @@ document.getElementById('genForm').addEventListener('submit', async e => {
     {
       const _q = (fd.get('quality') || '').toString();
       const _stgEl = document.getElementById('stgScale');
-      if (_q === 'high' && _stgEl) {
+      if (_qualityUsesHq(_q) && _stgEl) {
         fd.set('stg_scale', _stgEl.value || '0');
       } else {
         fd.delete('stg_scale');
@@ -45700,7 +45822,7 @@ function updateModelsCard(s) {
   // ship it after the Y1.024 download trim, so surface the same CTA here.
   const needsQ8 = (currentMode === 'keyframe')
                 || (currentMode === 'extend')
-                || (document.getElementById('quality').value === 'high');
+                || _qualityUsesHq(document.getElementById('quality').value);
   if (needsQ8 && !q8Ok && tier.allows_q8 !== false) {
     if (dismissed) { card.style.display = 'none'; return; }
     card.style.display = '';
@@ -48551,7 +48673,7 @@ function _applyHqSpeedRowVisibility() {
   const row = document.getElementById('hqSpeedRow');
   if (!row) return;
   const q = document.getElementById('quality')?.value || '';
-  row.hidden = (q !== 'high');
+  row.hidden = !_qualityUsesHq(q);
 }
 
 // Show the STG "detail guidance" slider only when quality=high (Q8 HQ).
@@ -48565,7 +48687,7 @@ function _applyStgRowVisibility() {
   const row = document.getElementById('stgRow');
   if (!row) return;
   const q = document.getElementById('quality')?.value || '';
-  row.hidden = (q !== 'high');
+  row.hidden = !_qualityUsesHq(q);
 }
 
 // Wire the char-quality chip clicks once at boot. Idempotent — the
@@ -49740,7 +49862,33 @@ function sbShotEst(secs) {
 }
 
 // ---- tab lifecycle ---------------------------------------------------------
+// The delivery-pass chips, from the registry. Three static buttons carried
+// hardcoded canvases (two of them wrong — Standard is 1280×704) and could never
+// show a tier the registry grew. Filtered to the server's own final_qualities
+// list, labelled and sized from the cell, and stamped with the pack so the
+// q4-tier CSS gate hides every q8 tier rather than the one called "high".
+function sbRenderFinalQualities() {
+  const box = sbEl('sbFinalQuality');
+  if (!box) return;
+  const cells = ((BOOT.ltx || {}).qualities) || [];
+  const allowed = (SB_BOOT.final_qualities || []).slice();
+  const list = (Array.isArray(cells) ? cells : Object.values(cells))
+    .filter(c => c && allowed.indexOf(c.key) !== -1);
+  if (!list.length) return;
+  // The ACTIVE chip is applied later from the board's own policy
+  // (sbRenderPlan), so this only needs a sane pre-board default.
+  const current = (SB_BOOT.defaults || {}).final_quality || 'standard';
+  box.innerHTML = list.map(c => {
+    const on = c.key === current;
+    const sub = `${c.canvas}${c.pack === 'q8' ? ' · Q8' : ''}`;
+    return `<button type="button" class="pill-btn${on ? ' active' : ''}" `
+         + `data-q="${escapeHtml(c.key)}" data-pack="${escapeHtml(c.pack || '')}">`
+         + `${escapeHtml(c.label)}<span class="sub">${escapeHtml(sub)}</span></button>`;
+  }).join('');
+}
+
 function sbInit() {
+  sbRenderFinalQualities();
   const help = sbEl('sbRamHelpNote');
   if (help && !help.textContent) help.textContent = SB_BOOT.ram_help || '';
   // Draft restore — a restart must not eat what someone typed.

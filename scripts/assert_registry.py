@@ -481,6 +481,84 @@ with tempfile.TemporaryDirectory() as td:
 eq("the verify source is restored", p._pack_verify_source("q4_25"), "manifest")
 
 # =============================================================================
+# THE QUALITY REGISTRY — canvases, pipelines, and the two literals that must
+# track it.
+#
+# This block exists because of a real, shipped regression. A session moved the
+# `high` cell from 1024×576 to 1280×704 on the reasoning that the chip "priced
+# a recipe no lane runs" — which silently DOUBLED the cost of a tier that was
+# already public under that name. Every sidecar, every Load Params round-trip
+# and every issue thread quoting "High" changed meaning under the user, and
+# nothing raised, because no gate had an opinion about what a shipped key
+# renders. Now one does: THE CANVAS OF A SHIPPED KEY IS PART OF ITS CONTRACT.
+#
+# A new canvas is a NEW KEY (see `high_720p`), never a redefinition.
+_SHIPPED_CANVASES = {
+    "quick":     (640, 448),
+    "balanced":  (1024, 576),
+    "standard":  (1280, 704),
+    "high":      (1024, 576),
+    "high_720p": (1280, 704),
+}
+for _k, _wh in _SHIPPED_CANVASES.items():
+    eq(f"{_k} keeps its shipped canvas",
+       (p.LTX_QUALITIES[_k]["width"], p.LTX_QUALITIES[_k]["height"]), _wh)
+eq("no quality key has been added or dropped without updating this gate",
+   sorted(p.LTX_QUALITIES), sorted(_SHIPPED_CANVASES))
+
+# `ltx_quality_uses_hq` is the ONE answer to "does this run the two-stage HQ
+# lane". Five call sites used to compare against the literal "high", which is
+# what made them blind to a second HQ tier. The predicate must agree with the
+# cell it reads, for every key — including keys nobody has invented yet.
+for _k, _cell in p.LTX_QUALITIES.items():
+    eq(f"uses_hq({_k}) agrees with the cell's own pipeline",
+       p.ltx_quality_uses_hq(_k), _cell["pipeline"] == "hq")
+eq("an unknown quality is not an HQ quality", p.ltx_quality_uses_hq("nonesuch"), False)
+eq("None is not an HQ quality", p.ltx_quality_uses_hq(None), False)
+
+# Every HQ tier needs the q8 pack. If a future HQ cell ships on q4 it will be
+# routed to weights that do not contain the dev transformer it loads.
+for _k, _cell in p.LTX_QUALITIES.items():
+    if _cell["pipeline"] == "hq":
+        eq(f"the HQ tier {_k} requires the q8 pack", _cell["pack"], "q8")
+
+# STORYBOARD_FINAL_QUALITIES is a module-level LITERAL, read at import time
+# before the registry builder exists — so it cannot be derived. This assertion
+# is the thing that makes the literal safe: a tier added to one and forgotten
+# in the other fails here instead of vanishing from the delivery-pass chips.
+for _k in p.STORYBOARD_FINAL_QUALITIES:
+    eq(f"storyboard final quality {_k} is a real registry key",
+       _k in p.LTX_QUALITIES, True)
+eq("the storyboard's final pass offers every tier except the draft-only floor",
+   sorted(p.STORYBOARD_FINAL_QUALITIES),
+   sorted(k for k in p.LTX_QUALITIES if k != "quick"))
+
+# A measured ETA row may only name a quality the registry actually has, or it
+# silently never fires and the chip quietly prints a modelled number forever.
+for _key in p.LTX_MEASURED_ETA:
+    eq(f"measured ETA row {_key} names a real quality",
+       _key[1] in p.LTX_QUALITIES, True)
+    eq(f"measured ETA row {_key} names a real length",
+       _key[2] in p.LTX_LENGTHS, True)
+
+# The 720p tier's measurement belongs to the geometry it was taken at, and to
+# NOTHING else: 1280×704 × 121 frames. Any other length must print modelled.
+eq("high_720p at 5s is the measured row",
+   p.LTX_TIERS["high_720p_5s"]["eta_measured"], True)
+eq("...and it is measured at the canvas it was timed on",
+   (p.LTX_TIERS["high_720p_5s"]["width"],
+    p.LTX_TIERS["high_720p_5s"]["height"],
+    p.LTX_TIERS["high_720p_5s"]["frames"]), (1280, 704, 121))
+for _ln in p.LTX_LENGTHS:
+    if _ln != "5s":
+        eq(f"high_720p at {_ln} is modelled, not measured",
+           p.LTX_TIERS[f"high_720p_{_ln}"]["eta_measured"], False)
+# `high` lost its measured row when the 491 s number went to the tier whose
+# canvas actually produced it. It must NOT quietly inherit one again.
+eq("high claims no measurement it did not earn",
+   any(p.LTX_TIERS[f"high_{_ln}"]["eta_measured"] for _ln in p.LTX_LENGTHS), False)
+
+# =============================================================================
 print()
 for f in _failures:
     print("FAIL  " + f)
