@@ -142,7 +142,7 @@ if (!/ltx23\).*SIZE_GB=37/.test(q8Shell)
 
 // ---- 6. update.js stays THIN -----------------------------------------------
 // It is read BEFORE the pull, so anything it does itself can only be fixed one
-// click late. notes/update_path_sequencing.md §10.
+// click late. See the header of `scripts/post_update.sh`.
 // Optional path makes the behavioural gate mutation-testable:
 //   node scripts/check_ltx_pin.js /tmp/previous-update.js
 // Round 4 proved that a gate which can only inspect the current file can pass
@@ -173,7 +173,8 @@ if (thin) ok("update.js is thin — no installs, patches, downloads or trims")
 // ---- the update is transactional -------------------------------------------
 // This used to assert one string: that the ff-only pull was the BARE form,
 // because `git pull --ff-only $UPSTREAM` passes "origin/main" as the REPOSITORY
-// argument and had never once succeeded (notes/update_path_sequencing.md §5).
+// argument and had never once succeeded — measured against the real update
+// path, not reasoned about.
 // v4.0.1 replaced the pull with an explicit fetch + merge so the fetch result
 // can be checked, which made that assertion obsolete while the property it was
 // protecting got MORE important. So the gate now checks the property.
@@ -181,7 +182,7 @@ const updCode = updateSrc.split("\n").filter((l) => !/^\s*\/\//.test(l)).join("\
 
 // 1. The original bug must never come back in either form.
 if (/git pull --ff-only \s*\$/.test(updCode)) {
-  fail("update.js passes $UPSTREAM to `git pull --ff-only`, which git reads as a REPOSITORY argument. That form has never once succeeded — every update silently took the reset --hard fallback (notes/update_path_sequencing.md §5).")
+  fail("update.js passes $UPSTREAM to `git pull --ff-only`, which git reads as a REPOSITORY argument. That form has never once succeeded — every update silently took the reset --hard fallback.")
 } else {
   ok("no `git pull --ff-only $UPSTREAM` — the form that never worked")
 }
@@ -229,11 +230,24 @@ function probe(scenario) {
   git(up, ["init", "-q", "."])
   git(up, ["config", "user.email", "a@b"]); git(up, ["config", "user.name", "t"])
   fs.writeFileSync(path.join(up, "f.txt"), "v1\n")
-  git(up, ["add", "f.txt"]); git(up, ["commit", "-qm", "v1"])
+  // update.js's pre-pull steps dispatch `bash scripts/pinokio/*.sh`, so the
+  // fixture has to be a tree that CARRIES them — they ship in the same commit
+  // as update.js, which is the whole reason a pre-pull step is allowed to call
+  // them. Committed in the base revision so every scenario's clone has them
+  // tracked and identical on both sides (they never appear in the diff).
+  const pinokioSrc = path.join(root, "scripts", "pinokio")
+  fs.mkdirSync(path.join(up, "scripts", "pinokio"), { recursive: true })
+  for (const f of fs.readdirSync(pinokioSrc)) {
+    if (!f.endsWith(".sh")) continue
+    fs.copyFileSync(path.join(pinokioSrc, f),
+                    path.join(up, "scripts", "pinokio", f))
+  }
+  git(up, ["add", "f.txt", "scripts"]); git(up, ["commit", "-qm", "v1"])
   git(work, ["clone", "-q", up, clone])
   git(clone, ["config", "user.email", "a@b"]); git(clone, ["config", "user.name", "t"])
 
   let protectedPath = "notes.txt"
+  let arrivalPath = null      // an upstream path that MUST land (non-blocking)
   if (scenario === "mixed" || scenario === "obstruction_only") {
     fs.writeFileSync(path.join(up, "notes.txt"), "upstream\n")
     git(up, ["add", "notes.txt"]); git(up, ["commit", "-qm", "add notes"])
@@ -266,6 +280,36 @@ function probe(scenario) {
     fs.writeFileSync(path.join(clone, "ignored.txt"), "MINE\n")
     protectedPath = "ignored.txt"
     git(clone, ["commit", "-q", "--allow-empty", "-m", "local"])
+  } else if (scenario === "dir_contains_nothing_conflicting"
+             || scenario === "ignored_dir_contains_nothing_conflicting"
+             || scenario === "deep_dir_contains_nothing_conflicting") {
+    // THE FLEET-WIDE FALSE REFUSAL. Upstream adds a tracked file INSIDE a
+    // directory the user already has untracked (or ignored). git writes it
+    // without complaint — measured, `ff-only` returns 0 and both files
+    // coexist — so the guard must not block, must not reset, must keep the
+    // user's file, and the new file must actually arrive.
+    const deep = scenario === "deep_dir_contains_nothing_conflicting"
+    const dir = deep ? "notes/sub" : "notes"
+    fs.mkdirSync(path.join(up, dir), { recursive: true })
+    fs.writeFileSync(path.join(up, dir, "new.md"), "upstream\n")
+    git(up, ["add", `${dir}/new.md`]); git(up, ["commit", "-qm", "add in dir"])
+    fs.mkdirSync(path.join(clone, dir), { recursive: true })
+    fs.writeFileSync(path.join(clone, dir, "mine.md"), "MINE\n")
+    protectedPath = `${dir}/mine.md`
+    arrivalPath = `${dir}/new.md`
+    if (scenario === "ignored_dir_contains_nothing_conflicting") {
+      fs.appendFileSync(path.join(clone, ".git", "info", "exclude"),
+                        "\nnotes/\n")
+    }
+  } else if (scenario === "emptydir_does_not_block_file") {
+    // An EMPTY directory where upstream now tracks a FILE: git removes it and
+    // writes the file (measured). No user data can be lost, so blocking here
+    // is pure refusal with nothing protected.
+    fs.writeFileSync(path.join(up, "scratch"), "upstream\n")
+    git(up, ["add", "scratch"]); git(up, ["commit", "-qm", "add file"])
+    fs.mkdirSync(path.join(clone, "scratch"))
+    protectedPath = "f.txt"
+    arrivalPath = "scratch"
   } else if (scenario === "divergence_only") {
     fs.writeFileSync(path.join(up, "f.txt"), "v2\n")
     git(up, ["commit", "-qam", "v2"])
@@ -293,9 +337,13 @@ function probe(scenario) {
   const protectedValue = fs.existsSync(path.join(clone, protectedPath))
     && fs.statSync(path.join(clone, protectedPath)).isFile()
     ? fs.readFileSync(path.join(clone, protectedPath), "utf8").trim() : null
+  const arrived = arrivalPath
+    ? fs.existsSync(path.join(clone, arrivalPath))
+      && fs.statSync(path.join(clone, arrivalPath)).isFile()
+    : null
   fs.rmSync(work, { recursive: true, force: true })
   return { reset: /RESET_CALLED/.test(outText), code: r.status,
-           protectedValue, protectedPath, out: outText }
+           protectedValue, protectedPath, arrived, arrivalPath, out: outText }
 }
 
 let probesRan = false
@@ -333,6 +381,36 @@ if (probesRan) {
       fail(`${label}: reset=${result.reset}, ${result.protectedPath}=${JSON.stringify(result.protectedValue)}`)
     } else {
       ok(`${label}: no reset, file intact`)
+    }
+  }
+
+  // ---- the guard must not REFUSE what git accepts ---------------------------
+  // The mirror image of the destruction bug, and the more expensive one: the
+  // guard flagged any ancestor that merely EXISTED, so an untracked directory
+  // — logs/, cache/, __pycache__/, mlx_models/, a folder the user dropped in
+  // the app dir — read as an obstruction the moment a release added a tracked
+  // file inside it. Nobody could update, including to the fix. Each row here
+  // was measured against real `git merge --ff-only` before it was asserted.
+  for (const [scenario, label, keep] of [
+    ["dir_contains_nothing_conflicting",
+     "untracked DIRECTORY holding nothing that conflicts", "MINE"],
+    ["ignored_dir_contains_nothing_conflicting",
+     "IGNORED directory holding nothing that conflicts", "MINE"],
+    ["deep_dir_contains_nothing_conflicting",
+     "nested untracked directories holding nothing that conflicts", "MINE"],
+    ["emptydir_does_not_block_file",
+     "EMPTY directory where upstream now tracks a file", "v1"],
+  ]) {
+    const r = probe(scenario)
+    if (r.code !== 0 || r.reset || r.arrived !== true || r.protectedValue !== keep) {
+      fail(`${label}: git accepts this worktree but update.js did not ` +
+        `(exit=${r.code}, reset=${r.reset}, ${r.arrivalPath} arrived=${r.arrived}` +
+        `, ${r.protectedPath}=${JSON.stringify(r.protectedValue)}). A release ` +
+        `adding a tracked file under a folder users commonly have untracked ` +
+        `or ignored is then a fleet-wide update REFUSAL — including the ` +
+        `release that would fix it.\n      ${r.out.trim().split("\n").slice(0, 3).join(" | ")}`)
+    } else {
+      ok(`${label}: update proceeds, ${r.arrivalPath} lands, nothing lost`)
     }
   }
 

@@ -23,7 +23,8 @@
 // it lives in `scripts/pinokio/ltx_checkout.sh` and not here: a pin held in
 // this file would move one click late on every single bump, forever.
 //
-// Full analysis: notes/update_path_sequencing.md §1 and §10.
+// Full analysis of the sequencing is in the header of
+// `scripts/post_update.sh`, which exists because of it.
 //
 // RULES FOR EDITING THIS FILE
 // ---------------------------
@@ -31,9 +32,16 @@
 //     scripts/post_update.sh.
 //   - Assume the copy on the user's disk is ANY historical version. A change
 //     here gets the scrutiny of a schema migration.
-//   - Every dispatch stays under 500 chars — `node scripts/check_pinokio_scripts.js`.
-//     Step 1 CANNOT be moved into a .sh: it runs before the pull, so it may
-//     only reference files that already exist in the user's current tree.
+//   - Every dispatch stays under 500 chars — `node scripts/check_pinokio_scripts.js`
+//     — and under 350 in this file, which is the width @Morac2 actually
+//     bisected as safe (#50). The ceiling is 500 only because six shipped
+//     dispatches sit above 350; nothing here needs to.
+//   - Everything before the pull may only reference files that ALREADY exist
+//     in the user's current tree. That does not mean "inline it": the
+//     obstruction guard and the converge step are `scripts/pinokio/*.sh`,
+//     which ship in the same commit as this file and are therefore exactly as
+//     current as this file is. Step 1 stays inline because it is what
+//     establishes the upstream ref the other two depend on.
 //
 // Note: fs.link is only declared in install.js, not here. Running it on every
 // Update would migrate existing model folders into the drive without a Reset,
@@ -66,7 +74,7 @@ module.exports = {
     // it is alarming noise and it meant we had no real ff-only guard at all.
     // The bare form uses the configured upstream and fast-forwards correctly;
     // the reset --hard fallback is kept, and now only fires when it is true.
-    // Measured in notes/update_path_sequencing.md §5.
+    // Measured against the real update path, not reasoned about.
     // v4.0.1 FIX — THE UPDATE IS TRANSACTIONAL NOW, AND IT WAS NOT.
     //
     // The old block ignored the fetch result and sent EVERY pull failure to
@@ -133,28 +141,47 @@ module.exports = {
     // collisions, including ignored files, without enumerating a multi-GB
     // ignored cache. A path already present in HEAD is tracked and belongs to
     // the tracked-dirty/divergence checks below, not this obstruction set.
+    //
+    // v4.0.2 — A DIRECTORY IS NOT AN OBSTRUCTION, and treating it as one was a
+    // fleet-wide REFUSAL TO UPDATE. The walk tested only `[ -e ]`, so it
+    // stopped at the first ancestor that existed and flagged it without asking
+    // what it was. git cannot create a directory where a FILE sits — a real
+    // obstruction — but it writes a new file into an existing untracked
+    // directory without complaint. So a release adding `notes/new.md` to a
+    // clone with an untracked `notes/` aborted with
+    // "OBSTRUCTIONS=[notes -> notes/new.md]" while `git merge --ff-only @{u}`
+    // on that same clone succeeded and both files coexisted. Any release
+    // adding a tracked file under a folder users commonly have untracked or
+    // ignored (logs/, cache/, __pycache__/, mlx_models/, ltx-2-mlx/,
+    // minimax-h3-mlx/, anything they dropped in the app dir) would have
+    // refused to install itself, fleet-wide, including the fix for it.
+    //
+    // BOTH STEPS NOW LIVE IN scripts/pinokio/. They were 455 and 484 chars —
+    // the two largest dispatches in the repo, both above the ~350 @Morac2
+    // bisected as safe (#50) even though both sat under the 500 ceiling
+    // `scripts/check_pinokio_scripts.js` enforces. As one-line `bash` calls
+    // they are ~250, and the guard's rule is finally legible enough to argue
+    // with: it is stated as a table of measured `git merge --ff-only`
+    // outcomes in that file's header.
+    //
+    // These are the ONLY steps here that may not be delegated to
+    // post_update.sh — they run BEFORE the pull. Reading them from
+    // scripts/pinokio/ is therefore exactly as one-click-late as update.js
+    // itself, no worse: the two land in the same commit, so a tree carrying
+    // this update.js carries these scripts. If one is missing the tree is
+    // damaged, and the guard MUST NOT be skipped — the destructive step below
+    // is what it protects — so the step aborts with a repair instruction
+    // instead of proceeding without it.
     {
       method: "shell.run",
       params: {
-        message: [
-          "O=$(git diff --name-only --diff-filter=ADRT HEAD '@{u}'|while IFS= read -r f;do git cat-file -e \"@{u}:$f\" 2>/dev/null||continue;git cat-file -e \"HEAD:$f\" 2>/dev/null&&continue;p=$f;while :;do if [ -e \"$p\" ]||[ -L \"$p\" ];then git cat-file -e \"HEAD:$p\" 2>/dev/null||echo \"$p -> $f\";break;fi;[ \"${p%/*}\" != \"$p\" ]||break;p=${p%/*};done;done)",
-          "[ -z \"$O\" ]||{ echo \"$O\";echo 'FATAL: untracked/ignored paths obstruct Update. Move them; nothing deleted.';exit 1;}"
-        ].join("\n")
+        message: "if [ -f scripts/pinokio/update_obstruction_guard.sh ]; then bash scripts/pinokio/update_obstruction_guard.sh; else echo 'FATAL: scripts/pinokio/update_obstruction_guard.sh missing - repair with: git checkout -- scripts/pinokio'; exit 1; fi"
       }
     },
     {
       method: "shell.run",
       params: {
-        message: [
-          "U=$(git rev-parse --abbrev-ref --symbolic-full-name @{u})",
-          "M=$(git merge --ff-only \"$U\" 2>&1) && exec git rev-parse --short HEAD",
-          "A=$(git rev-list --count \"$U\"..HEAD)",
-          "[ \"$A\" -gt 0 ] || { echo \"$M\"; echo 'FATAL: blocked above; history has NOT diverged. Nothing deleted.'; exit 1; }",
-          "git diff --quiet && git diff --cached --quiet || { echo 'FATAL: local edits to tracked files'; exit 1; }",
-          "echo \"diverged: $A commit(s) - resetting\"",
-          "git reset --hard \"$U\" || exit 1",
-          "git rev-parse --short HEAD"
-        ].join("\n")
+        message: "if [ -f scripts/pinokio/update_converge.sh ]; then bash scripts/pinokio/update_converge.sh; else echo 'FATAL: scripts/pinokio/update_converge.sh missing - repair with: git checkout -- scripts/pinokio'; exit 1; fi"
       }
     },
     // ---- 2. Everything else, from the tree we just pulled ------------------
