@@ -750,6 +750,10 @@ def _install_lora_fusion_patches() -> None:
                 return _native_load_transformer(self, transformer_path)
 
             def _guarded_native_attach(self, dit, lora_paths):
+                # Lazy import, matching the rest of this file: mlx.core is not
+                # importable at module scope in every environment the helper
+                # is parsed in, and this closure is the only scope that uses it.
+                import mlx.core as mx
                 from lora_compat import (
                     LoraCompatibilityError,
                     validate_runtime_application,
