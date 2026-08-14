@@ -7739,6 +7739,30 @@ def live_preview_state() -> dict:
                         "installed — Settings → Models → Live-preview decoder."}
     if str(get_settings().get("live_preview", "on")).lower() == "off":
         return {"on": False, "reason": "off", "note": ""}
+    # THE THIRD ABSENCE: the decoder is installed, the setting is on, and the
+    # INSTALLED ENGINE simply cannot do it.
+    #
+    # This is the one that actually shipped. An install whose vendored engine
+    # lagged behind the panel — the 3.8→4.0 update path re-pinned the engine
+    # from its own stale copy of the updater and skipped post_update entirely —
+    # has no `ltx_pipelines_mlx.live_preview` module at all. The monitor is the
+    # ONLY thing that creates `state/live`, so nothing was ever written there:
+    # not an empty directory, no directory. Meanwhile this function returned
+    # {"on": True} and the panel promised a preview on every render. Zero
+    # frames, zero errors, and a feature the release announced silently absent.
+    #
+    # `is False` and NOT a falsy test: `ready_info` is {} until the helper has
+    # booted once, and "we haven't asked yet" must not render as "your engine is
+    # broken". Unknown stays optimistic; only a definite no speaks up.
+    if HELPER.ready_info.get("live_preview_supported") is False:
+        _have = HELPER.ready_info.get("ltx_version") or "an older build"
+        _want = HELPER.ready_info.get("ltx_version_expected") or "a newer build"
+        return {"on": False, "reason": "stale_engine",
+                "note": f"Live preview needs engine {_want}; this install is "
+                        f"running {_have}. Click Update — and if the first "
+                        f"click only moves the panel, click it once more: an "
+                        f"update started by an old version updates itself "
+                        f"first."}
     return {"on": True, "reason": None, "note": ""}
 
 
@@ -11227,6 +11251,11 @@ class WarmHelper:
                     "ltx_version", "ltx_version_expected", "ltx_version_match",
                     "model", "gemma", "low_memory",
                     "mlx_version", "mlx_metal_version", "chip", "macos",
+                    # THIS ALLOWLIST IS THE SEAM. A key the helper emits and
+                    # this tuple does not name is dropped here, silently, and
+                    # every downstream reader sees None — which is exactly how
+                    # a capability the helper knew about never reached the UI.
+                    "live_preview_supported",
                 )
             }
             _vtag = ""
@@ -48257,18 +48286,46 @@ function renderNowPreview(s, prog) {
         jobEngine !== '' && capEngines.indexOf(jobEngine) !== -1
      && jobMode !== 'train' && jobMode !== 'image'
      && laneRuns;
-  const missingDecoder = s.running && !prev && previewServesThisJob
-                      && pstate.reason === 'missing_decoder';
+  // A REASON SWITCH, not a decoder special-case. There are two silent absences
+  // now, and they need DIFFERENT actions: a missing decoder is a download, a
+  // stale engine is an Update. Sending someone whose engine predates the
+  // feature to the Models modal would have them install a 22 MB decoder they
+  // already have and watch nothing change.
+  //
+  // `off` is still not in this table on purpose — that absence was the user's
+  // own choice and needs no announcement.
+  // A REASON TABLE, not a decoder special-case. There are two silent absences
+  // now and they need DIFFERENT actions: a missing decoder is a download, a
+  // stale engine is an Update. Sending someone whose engine predates the
+  // feature to the Models modal would have them install a 22 MB decoder they
+  // already have and watch nothing change.
+  //
+  // A reason MAY have no CTA. `stale_engine` deliberately has none: the Update
+  // button lives in the Pinokio sidebar, not in this page, so every link the
+  // panel could offer is a dead end — and a dead-end link reads as "we handled
+  // it" when nothing has been handled. The note carries the instruction.
+  //
+  // `off` is absent on purpose: that absence was the user's own choice.
+  const PREVIEW_ABSENCE_CTA = {
+    missing_decoder: { label: 'Install it', run: 'openModelsModal()' },
+    stale_engine: null,
+  };
+  const speaks = s.running && !prev && previewServesThisJob
+              && Object.prototype.hasOwnProperty.call(PREVIEW_ABSENCE_CTA,
+                                                      pstate.reason);
   let miss = document.getElementById('nowPreviewMissing');
-  if (missingDecoder) {
+  if (speaks) {
     if (!miss) {
       miss = document.createElement('div');
       miss.id = 'nowPreviewMissing';
       miss.className = 'now-preview-missing';
       box.parentNode.insertBefore(miss, box.nextSibling);
     }
-    miss.innerHTML = escapeHtml(pstate.note || '') +
-      ' <a href="#" onclick="event.preventDefault();openModelsModal()">Install it</a>';
+    const cta = PREVIEW_ABSENCE_CTA[pstate.reason];
+    miss.innerHTML = escapeHtml(pstate.note || '') + (cta
+      ? ` <a href="#" onclick="event.preventDefault();${cta.run}">`
+        + escapeHtml(cta.label) + '</a>'
+      : '');
   } else if (miss) {
     miss.remove();
   }

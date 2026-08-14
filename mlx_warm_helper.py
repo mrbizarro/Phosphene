@@ -17,6 +17,7 @@ Auto-exits after LTX_IDLE_TIMEOUT seconds idle.
 """
 from __future__ import annotations
 
+import importlib.util
 import io
 import json
 import math
@@ -2233,6 +2234,20 @@ emit({"event": "log",
                f"chip={_RUNTIME_ENV.get('chip')} | "
                f"macOS={_RUNTIME_ENV.get('macos')} ({_RUNTIME_ENV.get('arch')})")})
 
+def _live_preview_supported() -> bool:
+    """Does the INSTALLED engine carry the live-preview module?
+
+    `find_spec` on a submodule imports the PARENT package, which can raise
+    anything at all on a half-installed or mismatched engine — and this probe
+    runs on the ready path, where an exception would take the whole helper down
+    over a monitor. Any failure means "cannot preview", which is the answer the
+    user needs anyway."""
+    try:
+        return importlib.util.find_spec("ltx_pipelines_mlx.live_preview") is not None
+    except Exception:                                 # noqa: BLE001
+        return False
+
+
 # ---- ready -------------------------------------------------------------------
 emit({
     "event": "ready",
@@ -2243,6 +2258,19 @@ emit({
     "ltx_version": _LTX_VERSION_INFO["version"],
     "ltx_version_expected": _LTX_EXPECTED_VERSION,
     "ltx_version_match": _LTX_VERSION_INFO["match"],
+    # CAN THIS ENGINE PREVIEW AT ALL? Probed as a CAPABILITY (does the module
+    # import?), never inferred from the version string — a re-pin, a fork or a
+    # hand-built venv must be able to answer this truthfully without anyone
+    # updating a version table.
+    #
+    # This exists because the answer was previously discoverable only at render
+    # time, in a log line nobody reads: an install whose vendored engine lagged
+    # behind the panel simply never created `state/live`, while the panel went
+    # on reporting live preview as ON. Zero frames, zero errors, zero
+    # explanation. The panel can only tell the user the truth if the helper
+    # tells the panel.
+    "live_preview_supported": (
+        importlib.util.find_spec("ltx_pipelines_mlx.live_preview") is not None),
     "mlx_version": _RUNTIME_ENV.get("mlx"),
     "mlx_metal_version": _RUNTIME_ENV.get("mlx_metal"),
     "chip": _RUNTIME_ENV.get("chip"),
