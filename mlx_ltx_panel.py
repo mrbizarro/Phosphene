@@ -49555,8 +49555,17 @@ function _renderLiveStageFrame(s, preview) {
   if (chip) chip.hidden = true;
   document.getElementById('playerOverlayTop').style.display = 'none';
   document.getElementById('playerOverlayActions').style.display = 'none';
-  surface.removeAttribute('data-orient');
-  surface.style.setProperty('--media-aspect', '16 / 9');
+  // The stage takes the RENDER'S OWN shape, not a hardcoded 16:9 — the job's
+  // geometry is known before the first frame exists, so a vertical take gets
+  // the tall portrait stage from the warming state on, exactly the shape the
+  // finished clip will claim (same data-orient/--media-aspect idiom the
+  // metadata-load path uses; owner-reported: vertical previews rendered as a
+  // small strip inside a landscape box).
+  const _lw = parseInt((cur.params || {}).width, 10) || 16;
+  const _lh = parseInt((cur.params || {}).height, 10) || 9;
+  surface.style.setProperty('--media-aspect', `${_lw} / ${_lh}`);
+  if (_lh > _lw) surface.setAttribute('data-orient', 'vertical');
+  else surface.removeAttribute('data-orient');
   wrap.classList.remove('empty');
   wrap.classList.add('live-stage');
   wrap.dataset.liveJobId = String(cur.id);

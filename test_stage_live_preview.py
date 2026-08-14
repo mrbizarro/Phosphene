@@ -171,6 +171,32 @@ out.liveStage = {
   stopHidden:els.liveStageStop.hidden,
 };
 
+// The stage takes the RENDER'S OWN shape (owner-reported: vertical previews
+// showed as a small strip inside a hardcoded 16:9 box). A portrait job flips
+// data-orient and sets its true aspect; a landscape job clears the flag; a
+// job with no recorded dims falls back to 16/9 instead of guessing.
+const vertStatus = {running:true,current:{id:'vert',params:{engine:'ltx',mode:'t2v',quality:'balanced',width:576,height:1024}}};
+renderLiveStage(vertStatus, normalizeLivePreview(vertStatus, {preview:{
+  url:'/image?vert=1',estimate:6,total:8,meaningful:true,abortable:true,
+}}));
+out.vertStage = {
+  aspect: surface.style['--media-aspect'] || '',
+  orient: surface.getAttribute('data-orient'),
+};
+const wideStatus = {running:true,current:{id:'wide',params:{engine:'ltx',mode:'t2v',quality:'balanced',width:1024,height:576}}};
+renderLiveStage(wideStatus, normalizeLivePreview(wideStatus, {preview:{
+  url:'/image?wide=1',estimate:6,total:8,meaningful:true,abortable:true,
+}}));
+out.wideStage = {
+  aspect: surface.style['--media-aspect'] || '',
+  orient: surface.getAttribute('data-orient'),
+};
+out.dimlessStage = (() => {
+  renderLiveStage(ltxLiveStatus, ltxLive);
+  return { aspect: surface.style['--media-aspect'] || '',
+           orient: surface.getAttribute('data-orient') };
+})();
+
 // The user is actively watching a clip: a new render may advertise itself but
 // must not replace the video node.
 _liveStageOwnsPlayer = false; _liveStageForcedJobId = null;
@@ -272,6 +298,21 @@ class StageLivePreviewContract(unittest.TestCase):
         self.assertFalse(stage["overlayHidden"])
         self.assertEqual(stage["title"], "forming take · step 6/8")
         self.assertFalse(stage["stopHidden"])
+
+    def test_stage_takes_the_renders_own_shape(self) -> None:
+        # Owner-reported: a vertical render previewed as a small strip inside
+        # a hardcoded 16:9 stage. The stage now reads the job's own geometry.
+        vert = self.result["vertStage"]
+        self.assertEqual(vert["aspect"], "576 / 1024")
+        self.assertEqual(vert["orient"], "vertical")
+        wide = self.result["wideStage"]
+        self.assertEqual(wide["aspect"], "1024 / 576")
+        self.assertIsNone(wide["orient"])
+
+    def test_dimless_job_falls_back_to_landscape_stage(self) -> None:
+        dimless = self.result["dimlessStage"]
+        self.assertEqual(dimless["aspect"], "16 / 9")
+        self.assertIsNone(dimless["orient"])
 
     def test_playing_clip_is_not_stolen(self) -> None:
         held = self.result["held"]
