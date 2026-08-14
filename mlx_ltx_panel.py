@@ -8477,6 +8477,91 @@ def _safetensors_header(path: Path) -> tuple[dict, int]:
     return header, 8 + n
 
 
+def _h3_lora_effective_alpha(path: Path, header: dict,
+                             buf_start: int) -> tuple[float | None, str]:
+    """The adapter's effective scale (alpha/rank), or None when it declares none.
+
+    THE H3 LOADER APPLIES `B @ A` AND NOTHING ELSE. PEFT applies
+    `B @ A * (alpha / rank)`, and that scalar is a TRAINING-CONFIG value that
+    most exporters do not put in the file — which is why the diffusers branch
+    below refuses outright. But some repacks DO ship it, as one tiny `.alpha`
+    scalar per module, and those files sail through the checks above: they have
+    real `lora_A` / `lora_B` pairs, so `not a_names` is False and the kohya
+    refusal never fires. The alphas are then silently dropped and the adapter
+    runs at whatever `alpha/rank` happened to be — 16x hot in the case that
+    actually bit us, which renders as coloured noise.
+
+    The values are F32 scalars, so this reads a handful of BYTES, not tensors:
+    the header already gives every offset, and rank is `lora_A`'s first
+    dimension. Returns (effective_scale, evidence) or (None, "") when the file
+    declares no alpha at all — which is the common, already-handled case.
+    """
+    _WIDTH = {"F64": 8, "F32": 4, "F16": 2, "BF16": 2, "I64": 8, "I32": 4}
+    alpha_keys = [k for k in header
+                  if k != "__metadata__" and k.endswith(".alpha")]
+    # An exporter may also state it once, in the metadata blob.
+    meta = header.get("__metadata__") or {}
+    meta_alpha = None
+    if isinstance(meta, dict) and meta.get("alpha") is not None:
+        try:
+            meta_alpha = float(str(meta["alpha"]))
+        except (TypeError, ValueError):
+            meta_alpha = None
+    if not alpha_keys and meta_alpha is None:
+        return None, ""
+
+    def _rank_for(module: str) -> int | None:
+        ent = header.get(module + _H3_LORA_A_SUFFIX) or {}
+        shape = ent.get("shape") or []
+        # lora_A is [rank, in_features]; rank is the first dim.
+        return int(shape[0]) if shape else None
+
+    ratios: list[float] = []
+    with path.open("rb") as fh:
+        for k in sorted(alpha_keys):
+            ent = header.get(k) or {}
+            dt = str(ent.get("dtype") or "")
+            off = ent.get("data_offsets") or []
+            w = _WIDTH.get(dt)
+            if not w or len(off) != 2 or (off[1] - off[0]) != w:
+                continue                      # not a scalar we can read cheaply
+            fh.seek(buf_start + int(off[0]))
+            raw = fh.read(w)
+            if len(raw) != w:
+                continue
+            try:
+                if dt == "F32":
+                    val = struct.unpack("<f", raw)[0]
+                elif dt == "F64":
+                    val = struct.unpack("<d", raw)[0]
+                elif dt == "F16":
+                    val = struct.unpack("<e", raw)[0]
+                elif dt == "BF16":
+                    # bf16 is the top 16 bits of an f32.
+                    val = struct.unpack("<f", b"\x00\x00" + raw)[0]
+                else:
+                    val = float(int.from_bytes(raw, "little", signed=True))
+            except (struct.error, ValueError):
+                continue
+            rank = _rank_for(k[: -len(".alpha")])
+            if rank:
+                ratios.append(float(val) / float(rank))
+    if not ratios and meta_alpha is not None:
+        # One declared alpha and no per-module scalars: pair it with any rank.
+        for k in header:
+            if k.endswith(_H3_LORA_A_SUFFIX):
+                shape = (header[k].get("shape") or [])
+                if shape:
+                    ratios.append(meta_alpha / float(shape[0]))
+                break
+    if not ratios:
+        return None, ""
+    lo, hi = min(ratios), max(ratios)
+    ev = (f"{len(ratios)} module(s), alpha/rank "
+          + (f"{lo:.4g}" if abs(hi - lo) < 1e-6 else f"{lo:.4g}–{hi:.4g}"))
+    return (hi if abs(hi - lo) < 1e-6 else max(ratios, key=lambda r: abs(r - 1.0))), ev
+
+
 def _h3_lora_layout(path: Path) -> dict:
     """Classify a .safetensors as an H3 adapter, from its header alone.
 
