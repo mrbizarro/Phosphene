@@ -6671,6 +6671,13 @@ LTX_PREVIEW_HELP = (
     "byte-for-byte the clip you would have got with it switched off."
 )
 
+# Only the shared T2V/I2V helper dispatch installs the live-preview callback.
+# Special pipelines (Extend, Keyframe, A2V, HDR, Restore, Ingredients and
+# Control) return through their own job specs and publish no preview today.
+# Keep that fact server-owned so the stage never invents a warming promise for
+# a lane that cannot fulfil it.
+LTX_LIVE_PREVIEW_MODES = frozenset(("t2v", "i2v", "i2v_clean_audio"))
+
 LTX_Q8_CHARACTER_HELP = (
     "Trained characters need the Q8 weights. The 4-bit base pack rounds most of "
     "a trained delta away before the first frame — about nineteen twentieths of "
@@ -7802,6 +7809,15 @@ def live_preview_enabled() -> bool:
     22 MB decoder is not on disk (an install that predates it, mid-download)."""
     if not TAE_CHECKPOINT.is_file():
         return False
+    return live_preview_setting_on()
+
+
+def live_preview_setting_on() -> bool:
+    """The user's engine-neutral preference, without a decoder assumption.
+
+    ``live_preview_enabled`` also checks LTX's TAE file. H3 has a different
+    decoder and must not be disabled merely because the LTX one is absent.
+    """
     return str(get_settings().get("live_preview", "on")).lower() != "off"
 
 
@@ -7866,7 +7882,8 @@ def _live_preview_params(job: dict, p: dict) -> dict:
     from the start. `every 2` selects exactly the clean ones and halves the
     cost. A client counting estimates would have to know which schedule is
     running, so it never gets the chance."""
-    if not live_preview_enabled():
+    if ((p.get("mode") or "").strip().lower() not in LTX_LIVE_PREVIEW_MODES
+            or not live_preview_enabled()):
         return {}
     cell = LTX_QUALITIES.get(p.get("quality") or "", {})
     return {
@@ -8045,6 +8062,10 @@ def ltx_tiers_payload() -> dict:
         # Why the preview is absent, so the Now card can say it instead of
         # showing nothing and letting the user conclude the feature is broken.
         "preview_state": live_preview_state(),
+        # The stage may show a calm warming state before status.json exists,
+        # but only for job specs that actually install the preview callback.
+        # H3 remains payload-driven because its runner owns a separate schema.
+        "preview_modes": sorted(LTX_LIVE_PREVIEW_MODES),
         # Per-capability readiness, from required_files.json → capabilities.
         # The client reads THIS rather than re-deriving what needs what: the
         # notice above uses `live_preview.engines` to know which jobs it is
@@ -8954,6 +8975,17 @@ def h3_supports_tae_draft() -> bool:
     return _h3_runner_has_flag("--draft-decode")
 
 
+def h3_supports_live_preview() -> bool:
+    """Whether this optional runner publishes ``h3-live-preview/1``.
+
+    The live-preview branch landed after the installed H3 v2 line. Probe both
+    required flags so an older pack keeps rendering byte-for-byte as before
+    instead of receiving argv it cannot parse.
+    """
+    return (_h3_runner_has_flag("--live-preview")
+            and _h3_runner_has_flag("--live-preview-dir"))
+
+
 def h3_tae_checkpoint() -> Path | None:
     """The TAE weight, if it is on disk. ~23 MB, sits beside the other H3 models.
 
@@ -8978,6 +9010,12 @@ def h3_supports_stage_a() -> bool:
 def h3_tae_ready() -> bool:
     """Runner flag AND weight both present — the only state where TAE is offered."""
     return h3_supports_tae_draft() and h3_tae_checkpoint() is not None
+
+
+def h3_live_preview_ready() -> bool:
+    """All three facts needed to offer H3's live preview on a render."""
+    return (live_preview_setting_on() and h3_supports_live_preview()
+            and h3_tae_checkpoint() is not None)
 
 
 def h3_normalize_chain_prompts(raw, windows: int) -> list[str]:
@@ -9142,6 +9180,17 @@ def h3_status() -> dict:
         # The `?` copy for that control, so the sentence explaining the
         # mechanic lives next to the mechanic.
         "chain_prompt_help": H3_CHAIN_PROMPT_HELP,
+        # H3 publishes its own versioned file schema rather than LTX's helper
+        # event shape. `on` is the only fact the browser needs to promise a
+        # warming stage before the first status file arrives; older optional
+        # packs remain false and therefore change nothing.
+        "live_preview": {
+            "on": bool(available and h3_live_preview_ready()),
+            "supported": bool(available and h3_supports_live_preview()),
+            "schema": "h3-live-preview/1",
+            "meaningful_at": 1,
+            "help": LTX_PREVIEW_HELP,
+        },
         # Turbo — the 4-step distill LoRA. A separate block rather than a bare
         # flag because "off" has three causes the UI must not conflate: H3
         # itself isn't there, the runner predates --lora, or the 0.8 GB simply
@@ -15947,11 +15996,24 @@ def run_h3_job_inner(job: dict) -> None:
     # path — which is also the ONLY path a non-Draft tier can take, so no
     # delivery render can silently pick up a draft decoder.
     tae_used = False
+    _tae = None
     if tier.get("draft") and h3_supports_tae_draft():
         _tae = h3_tae_checkpoint()
         if _tae is not None:
             cmd += ["--draft-decode", "tae", "--tae-checkpoint", str(_tae)]
             tae_used = True
+    # Live preview is an optional capability of newer H3 runners. It has its
+    # own `h3-live-preview/1` status schema, but writes into the same per-job
+    # state directory the panel's cooperative Stop endpoint already owns.
+    # Probe, never assume: the public v2 pack predates these flags and must
+    # continue down the exact argv path it used before this feature.
+    h3_preview_on = h3_live_preview_ready()
+    if h3_preview_on:
+        _tae = _tae or h3_tae_checkpoint()
+        cmd += ["--live-preview", "tae",
+                "--live-preview-dir", str(live_preview_dir(job["id"]))]
+        if not tae_used:
+            cmd += ["--tae-checkpoint", str(_tae)]
     # Cache the draft's clean Stage-A latents beside the clip. This is what a
     # LATER hires-refine pass consumes to sharpen THIS take at a higher canvas
     # — the owner's actual expectation of "Finish", which today re-renders a
@@ -15996,6 +16058,7 @@ def run_h3_job_inner(job: dict) -> None:
          + (f" · LoRA {user_lora.name} @ {user_lora_strength:g}"
             if (user_lora is not None and not turbo) else "")
          + (" · fast draft decode (TAE)" if tae_used else "")
+         + (" · live preview" if h3_preview_on else "")
          + (f" · {chain_windows} chained windows of {window_frames}f"
             if chain_windows > 1 else "")
          + (" · per-window prompts" if chain_prompts else "")
@@ -16144,6 +16207,11 @@ def run_h3_job_inner(job: dict) -> None:
             STATE["pid"] = None
             STATE["h3_pgid"] = None
         _proc_guard_clear("h3")
+        if rc == 75:
+            # H3's file-sentinel contract uses the same dedicated exit code as
+            # LTX. It is a viewer decision, not a crash; worker_loop maps this
+            # exception to the neutral `stopped` history state.
+            raise JobStopped("H3 render stopped early at the next forward boundary")
         if rc != 0:
             raise RuntimeError(
                 f"H3 render exited with code {rc} — see the log above for the "
@@ -18841,6 +18909,14 @@ class Handler(BaseHTTPRequestHandler):
                     payload["current"]["progress"] = _compute_progress(
                         payload["current"], payload.get("log") or [],
                     )
+                elif _engine == "h3":
+                    # The H3 runner owns its progress object, so preserve it
+                    # and layer the separate h3-live-preview/1 file contract
+                    # onto the snapshot. This executes in the existing status
+                    # poll; there is no preview-specific request or timer.
+                    _h3_progress = dict(payload["current"].get("progress") or {})
+                    _h3_progress.update(_h3_preview_progress(payload["current"]))
+                    payload["current"]["progress"] = _h3_progress
             payload["helper"] = {
                 "alive": HELPER.is_alive(), "pid": HELPER.pid(),
                 "low_memory": HELPER_LOW_MEMORY == "true",
@@ -24346,6 +24422,63 @@ def _preview_progress(current: dict | None, remaining: float | None,
     }
 
 
+def _h3_preview_progress(current: dict | None) -> dict:
+    """Adapt H3's versioned file contract into the live-preview poll object.
+
+    H3's first forward is already composition-meaningful (the engine proof
+    measured 0.9899 downsampled-luma correlation with the delivered frame),
+    unlike LTX distilled's first five estimates. That rule stays here beside
+    the schema adapter; the browser only renders the resulting boolean.
+    """
+    if not current or not h3_live_preview_ready():
+        return {}
+    d = live_preview_dir(current.get("id") or "")
+    status_path = d / "status.json"
+    try:
+        st = json.loads(status_path.read_text())
+    except (OSError, ValueError):
+        return {}
+    if st.get("schema") != "h3-live-preview/1":
+        return {}
+
+    try:
+        forward = max(0, int(st.get("forward") or 0))
+        total = max(1, int(st.get("total_forwards") or 0))
+        window = int(st.get("window") or 0)
+        window_total = max(1, int(st.get("total_windows") or 1))
+    except (TypeError, ValueError):
+        # A partial/foreign writer must not turn the entire /status endpoint
+        # into a 500. Atomic JSON protects against torn bytes, not bad types.
+        return {}
+    latest = d / "preview_latest.png"
+    has_frame = latest.is_file() and forward >= 1
+    status = str(st.get("status") or "")
+    phase = str((current.get("progress") or {}).get("phase") or "")
+    try:
+        remaining = max(0.0, float(st.get("eta_seconds") or 0.0))
+    except (TypeError, ValueError):
+        remaining = 0.0
+    raw = {
+        "schema": "h3-live-preview/1",
+        "preview_url": (
+            f"/image?path={quote(str(latest))}&t={status_path.stat().st_mtime_ns}"
+            if has_frame else ""
+        ),
+        "preview_step": forward,
+        "preview_total": total,
+        "meaningful": has_frame,
+        # The runner checks immediately after every forward, including the
+        # last one before VAE decode/mux, so there is still work to save at N/N.
+        "abortable": bool(has_frame and status in ("starting", "running")
+                          and phase == "denoise"),
+        "remaining_sec": remaining,
+        "saves_sec": remaining,
+        "window": window,
+        "window_total": window_total,
+    }
+    return {"live_preview": raw}
+
+
 # ---- HTML --------------------------------------------------------------------
 
 def _resolve_quant_tier() -> str:
@@ -28506,6 +28639,61 @@ HTML = r"""<!doctype html>
       object-fit: contain;
       display: block;
     }
+    /* Live render owns the same hero surface as finished media. The image node
+       stays mounted while its cache-busted src advances, so a new estimate
+       replaces pixels without flashing the black player underneath. */
+    .player-wrap.live-stage {
+      padding: 0;
+      background:
+        radial-gradient(circle at 50% 45%, rgba(47,129,247,0.12), transparent 58%),
+        #030611;
+    }
+    .player-wrap .live-stage-image {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%; object-fit: contain;
+      transition: opacity 180ms ease;
+    }
+    .player-wrap.live-stage.is-aborting .live-stage-image { opacity: .58; }
+    .live-stage-warming {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 12px; color: rgba(218,229,255,.78);
+      background:
+        radial-gradient(circle at 50% 47%, rgba(88,166,255,.13), transparent 28%),
+        linear-gradient(155deg, #060b19, #030611 72%);
+    }
+    .live-stage-warming-mark {
+      width: 66px; height: 44px;
+      color: var(--accent-bright);
+      opacity: .62;
+      animation: liveStageBreathe 2.8s ease-in-out infinite;
+      filter: drop-shadow(0 0 18px rgba(88,166,255,.28));
+    }
+    .live-stage-warming strong {
+      font-size: 14px; font-weight: 600; letter-spacing: .01em;
+      color: rgba(238,244,255,.9);
+    }
+    .live-stage-warming span {
+      font-size: 12px; color: rgba(184,198,230,.56);
+    }
+    @keyframes liveStageBreathe {
+      0%,100% { opacity:.38; transform:scale(.98) }
+      50% { opacity:.76; transform:scale(1.025) }
+    }
+    /* Completion handoff: keep the last forming frame underneath until the
+       finished video has decoded a real frame. No empty player between them. */
+    .player-wrap .player-handoff-backdrop,
+    .player-wrap .player-handoff-media {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%; object-fit: contain;
+    }
+    .player-wrap .player-handoff-backdrop { z-index: 0; }
+    .player-wrap .player-handoff-media {
+      z-index: 1; opacity: 0;
+      transition: opacity 220ms ease;
+    }
+    .player-wrap .player-handoff-media.is-ready { opacity: 1; }
     .player-wrap.empty {
       background:
         radial-gradient(circle at 50% 35%, rgba(47,129,247,0.08), transparent 55%),
@@ -28730,9 +28918,93 @@ HTML = r"""<!doctype html>
       .po-act { padding: 6px 7px; }
     }
 
-    /* (Bottom progress overlay CSS removed 2026-05-12 — the in-player
-       chip duplicated the bottom-pane Now card AND covered the playing
-       video. Bottom strip is now the single source for progress.) */
+    /* Live render overlay. It consumes the SAME /status progress object as
+       the Now card; there is no second timer or polling loop. Unlike the old
+       generic progress chip, it is present only while the stage is showing
+       the forming take, and therefore never covers a clip being watched. */
+    .live-stage-overlay {
+      position: absolute; inset: auto 0 0 0;
+      z-index: 4;
+      display: flex; align-items: flex-end; gap: 12px;
+      padding: 42px 16px 15px;
+      background: linear-gradient(180deg, transparent, rgba(1,4,13,.88));
+      color: #fff;
+      pointer-events: none;
+    }
+    .live-stage-overlay[hidden] { display: none; }
+    .live-stage-badge {
+      align-self: center;
+      display: inline-flex; align-items: center; gap: 6px;
+      height: 24px; padding: 0 9px;
+      border-radius: var(--r-pill);
+      border: 1px solid rgba(255,255,255,.24);
+      background: rgba(8,14,35,.62);
+      font-size: 10.5px; font-weight: 750; letter-spacing: .1em;
+      box-shadow: 0 0 18px rgba(248,81,73,.14);
+    }
+    .live-stage-badge::before {
+      content: ""; width: 6px; height: 6px; border-radius: 50%;
+      background: #ff6158; box-shadow: 0 0 0 4px rgba(255,97,88,.13);
+      animation: liveStageDot 1.7s ease-in-out infinite;
+    }
+    @keyframes liveStageDot { 50% { opacity:.45 } }
+    .live-stage-copy { flex: 1; min-width: 0; }
+    .live-stage-title {
+      font-size: 13px; font-weight: 650; letter-spacing: .005em;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .live-stage-eta {
+      margin-top: 3px; font-size: 11.5px;
+      color: rgba(226,235,255,.66);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .live-stage-stop {
+      pointer-events: auto;
+      align-self: center;
+      height: 29px; padding: 0 11px;
+      border-radius: var(--r-pill);
+      border: 1px solid rgba(255,255,255,.2);
+      background: rgba(8,14,35,.68);
+      color: rgba(255,255,255,.9);
+      font: inherit; font-size: 11.5px; font-weight: 600;
+      cursor: pointer;
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      transition: background var(--t-fast), border-color var(--t-fast);
+    }
+    .live-stage-stop:hover:not(:disabled) {
+      background: rgba(248,81,73,.2);
+      border-color: rgba(255,117,109,.55);
+    }
+    .live-stage-stop:disabled { opacity:.55; cursor:wait; }
+    .live-return-chip {
+      position: absolute; top: 12px; left: 50%; z-index: 5;
+      transform: translateX(-50%);
+      display: inline-flex; align-items: center; gap: 7px;
+      min-height: 29px; padding: 0 11px;
+      border-radius: var(--r-pill);
+      border: 1px solid rgba(88,166,255,.42);
+      background: rgba(5,10,25,.78);
+      color: #dceaff;
+      font: inherit; font-size: 11.5px; font-weight: 650;
+      white-space: nowrap;
+      cursor: pointer;
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      box-shadow: 0 5px 18px rgba(0,0,0,.35);
+      transition: border-color var(--t-fast), background var(--t-fast);
+    }
+    .live-return-chip[hidden] { display: none; }
+    .live-return-chip::before {
+      content: ""; width: 6px; height: 6px; border-radius: 50%;
+      background: #ff6158; box-shadow: 0 0 0 3px rgba(255,97,88,.13);
+    }
+    .live-return-chip.is-done { border-color: rgba(47,191,113,.48); }
+    .live-return-chip.is-done::before {
+      background: var(--ok, #2fbf71); box-shadow: 0 0 0 3px rgba(47,191,113,.14);
+    }
+    .live-return-chip:hover {
+      border-color: rgba(88,166,255,.78);
+      background: rgba(10,20,46,.9);
+    }
 
     /* Hidden compatibility slot — kept in the DOM for legacy callers but
        never visible. Real meta now lives in the top overlay. */
@@ -34836,10 +35108,23 @@ HTML = r"""<!doctype html>
           </svg>
         </button>
       </div>
-      <!-- (Mr Bizarro 2026-05-12: the in-player progress chip was redundant
-           with the bottom Now strip, AND it covered the playing video.
-           Removed entirely; bottom-pane Now card is the single source of
-           truth for live + failed job state.) -->
+      <!-- This chip appears only when a clip is being watched while another
+           take is forming. It is the explicit way back; the poll never yanks a
+           playing clip out from under the viewer. -->
+      <button type="button" class="live-return-chip" id="liveReturnChip" hidden
+              onclick="returnToLiveRender()">LIVE · return to render</button>
+      <!-- Full-size live state. It reads the same progress object as #nowCard
+           and adds no polling. Hidden whenever the finished-output player is
+           visible, so it cannot repeat the old overlay-over-playback mistake. -->
+      <div class="live-stage-overlay" id="liveStageOverlay" hidden>
+        <span class="live-stage-badge" id="liveStageBadge">LIVE</span>
+        <div class="live-stage-copy">
+          <div class="live-stage-title" id="liveStageTitle">forming take</div>
+          <div class="live-stage-eta" id="liveStageEta"></div>
+        </div>
+        <button type="button" class="live-stage-stop" id="liveStageStop"
+                onclick="stopEarly()" hidden>Stop early</button>
+      </div>
     </div>
     <!-- Expand lightbox: full-viewport overlay shared by image + video.
          Opens via the Expand button on the player overlay actions, or by
@@ -35943,6 +36228,16 @@ let filterMode = 'visible';
 let activePath = null;
 let currentOutputs = [];
 let currentMode = 't2v';
+// A deliberate grace window after the user touches the main player. Native
+// video controls briefly report paused while seeking/buffering; without the
+// timestamp the next 1.5 s poll could mistake that instant for an idle stage
+// and replace the clip the user just asked to watch.
+const LIVE_STAGE_PLAYBACK_HOLD_MS = 12000;
+window._stagePlaybackIntentAt = 0;
+window._liveStageJobId = null;
+window._liveStageOwnsPlayer = false;
+window._liveStageForcedJobId = null;
+window._liveStagePendingOutput = null;
 // REMIX_MODES — the IC-LoRA reference tools grouped under the single "Remix"
 // mode pill. These are REAL backend modes (the #mode field + the dispatch see
 // them); "remix" itself is a UI-only pseudo-mode that resolves to one of these.
@@ -43971,6 +44266,10 @@ async function poll() {
   // block (e.g. mid-deploy where the server is older than the JS).
   const nowCard = document.getElementById('nowCard');
   const fill = document.getElementById('progressFill');
+  // Normalize once per /status response. The compact Now card and the main
+  // stage are two views over this object, not two readers inventing their own
+  // schema/rules (and emphatically not two polling loops).
+  let livePreviewData = null;
   // The Now-card Stop button is gone — both the video form's Stop and
   // the Image Studio's Stop now live in the form-pane and stay
   // visible across mode switches, so a Now-card duplicate is no
@@ -44010,9 +44309,10 @@ async function poll() {
     nowCard.querySelector('.meta').innerHTML = phaseLabel
       ? `${baseMeta}<br><span style="color:var(--muted)">${escapeHtml(phaseLabel)}</span>`
       : baseMeta;
-    renderNowPreview(s, prog);
+    livePreviewData = normalizeLivePreview(s, prog);
+    renderNowPreview(s, prog, livePreviewData);
   } else {
-    renderNowPreview(s, null);
+    renderNowPreview(s, null, null);
     // Idle state. If the LAST history entry was a failure (helper crash,
     // OOM, etc.) surface it loud-and-clear here — otherwise users like
     // cocktailpeanut just see "Idle" and assume "the panel did nothing."
@@ -44266,7 +44566,11 @@ async function poll() {
     // viewer agrees with what the gallery is showing — without this,
     // landing on Photos with no active selection would auto-pick a
     // video and fight the filter.
-    if (!activePath) {
+    // A first-ever render can finish while activePath is still null because
+    // the live stage, not an output, owns the player. Let renderLiveStage()
+    // below perform its preview-backed handoff; auto-selecting here would
+    // destroy the last estimate one line before the seamless swap can use it.
+    if (stageMayAutoSelectOutput()) {
       const visible = filteredMainOutputs();
       if (visible.length) selectOutput(visible[0].path);
     }
@@ -44294,6 +44598,10 @@ async function poll() {
     const controlSel = document.getElementById('controlSrcSelect');
     if (controlSel) controlSel.innerHTML = _videoOpts;
   }
+  // OUTSIDE #queueList's qSig memoisation, and after currentOutputs refreshes:
+  // a completed job can therefore hand off from its last preview frame to the
+  // newly-listed mp4 in this same poll without rebuilding the queue DOM.
+  renderLiveStage(s, livePreviewData);
   // (The old "Hidden (N)" pill that lived here was retired with the
   // Visible/Hidden segmented control — the carousel-head comment above
   // documents the removal. Setting textContent on the missing element
@@ -44880,8 +45188,15 @@ function findOutputByPath(path) {
   }
   return o || null;
 }
-function selectOutput(path) {
+function stageMayAutoSelectOutput() {
+  return !activePath && !window._liveStageOwnsPlayer;
+}
+function selectOutput(path, options) {
+  options = options || {};
   activePath = path;
+  const _uev = (typeof window !== 'undefined') ? window.event : null;
+  const userSelected = !!(_uev && _uev.isTrusted);
+  if (userSelected) window._stagePlaybackIntentAt = Date.now();
   // The credit names the weights that made THIS clip.
   if (typeof updateModelCredit === 'function') { try { updateModelCredit(path); } catch (e) {} }
   // If the Ideogram editor canvas is holding the stage, a USER click on an
@@ -44889,14 +45204,27 @@ function selectOutput(path) {
   // Gate on isTrusted so the boot-time auto-select of the newest output (and
   // any other programmatic selection) can't yank someone out of mid-edit;
   // the Generate flow flips explicitly in imgStudioGenerate.
-  var _uev = (typeof window !== 'undefined') ? window.event : null;
-  if (_uev && _uev.isTrusted &&
+  if (userSelected &&
       typeof ideoInLayout === 'function' && ideoInLayout() &&
       typeof stageSetMode === 'function') {
     stageSetMode('result');
   }
   document.querySelectorAll('.car-card').forEach(el => el.classList.toggle('active', el.dataset.path === path));
   const wrap = document.getElementById('playerWrap');
+  // A user can pick an output while the forming take owns the stage. Preserve
+  // the render in status/Now, but immediately yield the hero to the explicit
+  // click; the next poll offers the small LIVE return chip instead of stealing
+  // the clip back.
+  const liveBackdrop = options.liveHandoff
+    ? ((wrap.querySelector('.live-stage-image') || {}).src || '') : '';
+  window._liveStageOwnsPlayer = false;
+  const liveOverlay = document.getElementById('liveStageOverlay');
+  const liveChip = document.getElementById('liveReturnChip');
+  if (liveOverlay) liveOverlay.hidden = true;
+  if (liveChip) liveChip.hidden = true;
+  wrap.classList.remove('live-stage', 'is-warming', 'is-aborting');
+  delete wrap.dataset.liveJobId;
+  delete wrap.dataset.liveState;
   wrap.classList.remove('empty');
   // Y1.039 — use the server-provided URL (which includes the mtime
   // cache-bust v=N param) instead of reconstructing from path. Otherwise
@@ -44921,9 +45249,31 @@ function selectOutput(path) {
   // Photo viewer is a static <img> — no controls, no autoplay (would
   // be a no-op on an image element anyway). Video viewer keeps the
   // existing controls + autoplay behaviour.
-  wrap.innerHTML = isPhoto
-    ? `<img src="${playerSrc}" alt="${o ? escapeHtml(o.name) : ''}">`
-    : `<video controls autoplay src="${playerSrc}"></video>`;
+  if (isPhoto) {
+    wrap.innerHTML = `<img src="${escapeHtml(playerSrc)}" alt="${o ? escapeHtml(o.name) : ''}">`;
+  } else if (liveBackdrop) {
+    wrap.innerHTML =
+      `<img class="player-handoff-backdrop" src="${escapeHtml(liveBackdrop)}" alt="">` +
+      `<video class="player-handoff-media" controls autoplay src="${escapeHtml(playerSrc)}"></video>`;
+    const handoffVideo = wrap.querySelector('.player-handoff-media');
+    const revealFinished = () => {
+      if (!handoffVideo || !handoffVideo.isConnected) return;
+      handoffVideo.classList.add('is-ready');
+      setTimeout(() => {
+        const back = wrap.querySelector('.player-handoff-backdrop');
+        if (back) back.remove();
+        handoffVideo.classList.remove('player-handoff-media', 'is-ready');
+      }, 240);
+    };
+    if (handoffVideo.readyState >= 2) requestAnimationFrame(revealFinished);
+    else handoffVideo.addEventListener('loadeddata', revealFinished, { once: true });
+    // A valid local mp4 normally fires loadeddata immediately. This ceiling is
+    // the escape hatch for a browser that withholds it while autoplay policy
+    // settles; controls must never stay transparent forever.
+    setTimeout(revealFinished, 4000);
+  } else {
+    wrap.innerHTML = `<video controls autoplay src="${escapeHtml(playerSrc)}"></video>`;
+  }
   // Surface aspect adapts to actual media dimensions so vertical clips
   // render vertically (previous hardcoded 16:9 surface + object-fit:cover
   // cropped head/feet off any 9:16 clip, and also showed horizontal
@@ -48513,6 +48863,327 @@ function renderCharacterStrip() {
   });
 }
 
+// ---- One live-preview model, two consumers ----------------------------------
+//
+// LTX publishes `progress.preview.{url,estimate,total,meaningful,...}`. H3's
+// runner-facing progress is intentionally a different schema and can surface
+// the same facts as `progress.live_preview`, `preview_url`, `preview_step`,
+// etc. Normalize at the poll boundary ONCE. Neither consumer counts estimates
+// or owns a timer; `meaningful` remains the engine/server's decision.
+function normalizeLivePreview(s, prog) {
+  const cur = (s || {}).current || {};
+  const params = cur.params || {};
+  const engine = String(params.engine || '').toLowerCase();
+  let raw = null;
+  if (prog && prog.preview && typeof prog.preview === 'object') raw = prog.preview;
+  else if (prog && prog.live_preview && typeof prog.live_preview === 'object') raw = prog.live_preview;
+  else if (cur.preview && typeof cur.preview === 'object') raw = cur.preview;
+  else if (prog && typeof prog.preview === 'string') raw = { url: prog.preview };
+
+  const firstNumber = (...values) => {
+    for (const value of values) {
+      if (value === null || value === undefined || value === '') continue;
+      const n = Number(value);
+      if (Number.isFinite(n)) return n;
+    }
+    return null;
+  };
+  const url = String(
+    (raw && (raw.url || raw.preview_url || raw.image_url || raw.src)) ||
+    (prog && prog.preview_url) || cur.preview_url || ''
+  );
+  const estimate = firstNumber(
+    raw && (raw.estimate ?? raw.step ?? raw.preview_step ?? raw.frame),
+    prog && prog.preview_step
+  );
+  const total = firstNumber(
+    raw && (raw.total ?? raw.steps ?? raw.preview_total ?? raw.frame_total),
+    prog && prog.preview_total
+  );
+  let meaningful = null;
+  if (raw && typeof raw.meaningful === 'boolean') meaningful = raw.meaningful;
+  else if (prog && typeof prog.preview_meaningful === 'boolean') meaningful = prog.preview_meaningful;
+  // A schema that only publishes preview_url after its own quality gate is
+  // already making the meaningful decision server-side. URL presence is the
+  // published fact; the browser still does not infer a threshold.
+  else if (url) meaningful = true;
+
+  // Both engines can promise a warming state before status.json exists, but
+  // only when their bootstrap explicitly declares the installed runner ready.
+  // Engines/lanes with no preview stay untouched.
+  let eligible = !!(raw || url);
+  if (engine === 'ltx') {
+    const pstate = ((BOOT.ltx || {}).preview_state) || {};
+    const previewModes = ((BOOT.ltx || {}).preview_modes) || [];
+    const qualities = ((BOOT.ltx || {}).qualities) || [];
+    const cell = Array.isArray(qualities)
+      ? qualities.find(c => c && c.key === String(params.quality || ''))
+      : qualities[String(params.quality || '')];
+    const laneRuns = cell ? Number(cell.preview_every || 0) > 0 : false;
+    const mode = String(params.mode || '').toLowerCase();
+    const laneDeclared = Array.isArray(previewModes) && previewModes.includes(mode);
+    eligible = eligible || (pstate.on !== false && laneRuns && laneDeclared);
+  } else if (engine === 'h3') {
+    const h3Preview = ((BOOT.h3 || {}).live_preview) || {};
+    const h3Modes = ((BOOT.h3 || {}).modes) || [];
+    const mode = String(params.mode || '').toLowerCase();
+    eligible = eligible || (h3Preview.on === true &&
+      Array.isArray(h3Modes) && h3Modes.includes(mode));
+  }
+
+  const remaining = firstNumber(
+    prog && prog.remaining_sec,
+    raw && raw.remaining_sec,
+    raw && raw.saves_sec
+  );
+  const eta = firstNumber(prog && prog.eta_sec, raw && raw.eta_sec);
+  const elapsed = firstNumber(prog && prog.elapsed_sec, 0) || 0;
+  return {
+    eligible,
+    available: !!(raw || url),
+    engine,
+    help: engine === 'h3'
+      ? ((((BOOT.h3 || {}).live_preview) || {}).help || '')
+      : ((((BOOT.ltx || {}).help) || {}).preview || ''),
+    url,
+    estimate,
+    total,
+    meaningful: meaningful === true,
+    abortable: !!(raw && raw.abortable),
+    saves_sec: firstNumber(raw && raw.saves_sec, remaining),
+    remaining_sec: remaining != null ? remaining
+      : (eta != null ? Math.max(0, eta - elapsed) : null),
+  };
+}
+
+function _liveStageMediaHeld() {
+  const wrap = document.getElementById('playerWrap');
+  const video = wrap ? wrap.querySelector('video') : null;
+  const playing = !!(video && !video.paused && !video.ended);
+  const recent = Date.now() - Number(window._stagePlaybackIntentAt || 0)
+                 < LIVE_STAGE_PLAYBACK_HOLD_MS;
+  return playing || recent;
+}
+
+function _showLiveReturnChip(label, outputPath) {
+  const chip = document.getElementById('liveReturnChip');
+  if (!chip) return;
+  chip.textContent = label;
+  chip.hidden = false;
+  chip.classList.toggle('is-done', !!outputPath);
+  if (outputPath) chip.dataset.outputPath = outputPath;
+  else delete chip.dataset.outputPath;
+}
+
+function _hideLiveStageChrome() {
+  const overlay = document.getElementById('liveStageOverlay');
+  const chip = document.getElementById('liveReturnChip');
+  if (overlay) overlay.hidden = true;
+  if (chip) { chip.hidden = true; chip.classList.remove('is-done'); delete chip.dataset.outputPath; }
+}
+
+function _restoreSelectedOutputAfterLive() {
+  const wrap = document.getElementById('playerWrap');
+  window._liveStageOwnsPlayer = false;
+  _hideLiveStageChrome();
+  if (activePath && findOutputByPath(activePath)) {
+    selectOutput(activePath);
+    return;
+  }
+  if (!wrap) return;
+  wrap.className = 'player-wrap empty';
+  wrap.innerHTML = `<div class="ps-empty">
+    <div class="ps-empty-icon" aria-hidden="true">
+      <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+        <circle cx="28" cy="28" r="22" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.35"/>
+        <path d="M23 19 L37 28 L23 37 Z" fill="currentColor" fill-opacity="0.45"/>
+      </svg>
+    </div>
+    <div class="ps-empty-title">No outputs yet</div>
+    <div class="ps-empty-sub">Generate something on the left and the result lands here.</div>
+  </div>`;
+  const surface = wrap.closest('.player-surface');
+  if (surface) { surface.removeAttribute('data-orient'); surface.style.removeProperty('--media-aspect'); }
+}
+
+function _handoffLiveStageToOutput(path) {
+  if (!path || !findOutputByPath(path)) return false;
+  window._liveStagePendingOutput = null;
+  window._liveStageJobId = null;
+  window._liveStageForcedJobId = null;
+  // Give the finished take the same grace window as a user-started clip. This
+  // matters when the queue has already advanced: the next job's first poll
+  // must not replace the completion frame before anyone has seen it.
+  window._stagePlaybackIntentAt = Date.now();
+  selectOutput(path, { liveHandoff: !!window._liveStageOwnsPlayer });
+  return true;
+}
+
+function returnToLiveRender() {
+  const chip = document.getElementById('liveReturnChip');
+  const donePath = chip && chip.dataset.outputPath;
+  const video = document.querySelector('#playerWrap video');
+  if (video) video.pause();
+  window._stagePlaybackIntentAt = 0;
+  if (donePath) {
+    _handoffLiveStageToOutput(donePath);
+    return;
+  }
+  const s = window.__phosLastStatus || {};
+  const cur = s.current;
+  if (!cur) return;
+  window._liveStageForcedJobId = cur.id;
+  renderLiveStage(s, normalizeLivePreview(s, cur.progress || null));
+}
+
+function _renderLiveStageFrame(s, preview) {
+  const cur = s.current;
+  const wrap = document.getElementById('playerWrap');
+  const surface = wrap && wrap.closest('.player-surface');
+  const overlay = document.getElementById('liveStageOverlay');
+  const chip = document.getElementById('liveReturnChip');
+  if (!cur || !wrap || !surface || !overlay) return;
+
+  window._liveStageOwnsPlayer = true;
+  window._liveStageJobId = cur.id;
+  if (chip) chip.hidden = true;
+  document.getElementById('playerOverlayTop').style.display = 'none';
+  document.getElementById('playerOverlayActions').style.display = 'none';
+  surface.removeAttribute('data-orient');
+  surface.style.setProperty('--media-aspect', '16 / 9');
+  wrap.classList.remove('empty');
+  wrap.classList.add('live-stage');
+  wrap.dataset.liveJobId = String(cur.id);
+
+  const stopping = window._stopEarlyRequested === cur.id;
+  wrap.classList.toggle('is-aborting', stopping);
+  if (!preview.meaningful || !preview.url) {
+    if (wrap.dataset.liveState !== 'warming') {
+      wrap.innerHTML = `<div class="live-stage-warming">
+        <svg class="live-stage-warming-mark" viewBox="0 0 24 16" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="22" height="14" rx="2" stroke="currentColor" stroke-width="1"/>
+          <path d="M1 5h22M1 11h22M6 1v14M18 1v14" stroke="currentColor" stroke-width=".8" opacity=".72"/>
+        </svg>
+        <strong>Finding the shot…</strong>
+        <span>The first useful estimate will appear here.</span>
+      </div>`;
+      wrap.dataset.liveState = 'warming';
+    }
+  } else {
+    let img = wrap.querySelector('.live-stage-image');
+    if (!img) {
+      wrap.innerHTML = '<img class="live-stage-image" alt="Live render preview">';
+      img = wrap.querySelector('.live-stage-image');
+    }
+    if (img.getAttribute('src') !== preview.url) img.setAttribute('src', preview.url);
+    wrap.dataset.liveState = 'meaningful';
+  }
+
+  const badge = document.getElementById('liveStageBadge');
+  const title = document.getElementById('liveStageTitle');
+  const eta = document.getElementById('liveStageEta');
+  const stop = document.getElementById('liveStageStop');
+  overlay.hidden = false;
+  if (badge) {
+    badge.textContent = 'LIVE';
+    badge.title = preview.help || 'Live render preview';
+  }
+  const step = preview.estimate != null && preview.total != null
+    ? ` · step ${preview.estimate}/${preview.total}` : '';
+  if (title) title.textContent = preview.meaningful
+    ? `forming take${step}` : 'forming take · warming';
+  if (eta) {
+    eta.textContent = stopping ? 'Finishing the current step, then stopping.'
+      : (preview.remaining_sec != null && preview.remaining_sec > 0
+          ? `~${fmtMin(preview.remaining_sec)} left`
+          : 'ETA settling…');
+  }
+  if (stop) {
+    stop.hidden = !(preview.meaningful && preview.abortable);
+    stop.disabled = stopping;
+    stop.textContent = stopping ? 'Stopping…' : 'Stop early';
+  }
+}
+
+function renderLiveStage(s, preview) {
+  const currentId = (s.running && s.current) ? s.current.id : null;
+  const priorId = window._liveStageJobId;
+
+  // Capture the output before considering the next queued job. If the user is
+  // still watching another clip, hold it as a DONE chip; otherwise hand off
+  // immediately from the last estimate to the real mp4.
+  if (priorId && priorId !== currentId) {
+    const ended = (s.history || []).find(j => j && j.id === priorId);
+    if (ended && ended.status === 'done' && ended.output_path) {
+      window._liveStagePendingOutput = { id: priorId, path: ended.output_path };
+    } else if (ended && window._liveStageOwnsPlayer) {
+      _restoreSelectedOutputAfterLive();
+    }
+    if (ended) window._liveStageJobId = null;
+  }
+
+  const pending = window._liveStagePendingOutput;
+  if (pending) {
+    if (window._liveStageOwnsPlayer || !_liveStageMediaHeld()) {
+      if (_handoffLiveStageToOutput(pending.path)) {
+        // A newly-queued job may already be running. Its preview is handled on
+        // the next poll, after the finished video's real playback state exists.
+        return;
+      }
+      // list_outputs intentionally withholds a freshly-written mp4 for two
+      // seconds. Keep the last forming pixels mounted during that safety gap;
+      // restoring the old selected clip here would create the exact black
+      // flash this handoff exists to remove.
+      if (window._liveStageOwnsPlayer) {
+        const badge = document.getElementById('liveStageBadge');
+        const title = document.getElementById('liveStageTitle');
+        const eta = document.getElementById('liveStageEta');
+        const stop = document.getElementById('liveStageStop');
+        if (badge) badge.textContent = 'DONE';
+        if (title) title.textContent = 'preparing finished take';
+        if (eta) eta.textContent = 'Loading the full clip…';
+        if (stop) stop.hidden = true;
+      }
+      return;
+    } else {
+      _showLiveReturnChip('DONE · view finished take', pending.path);
+      return;
+    }
+  }
+
+  if (!currentId || !preview || !preview.eligible) {
+    if (window._liveStageOwnsPlayer) _restoreSelectedOutputAfterLive();
+    else _hideLiveStageChrome();
+    return;
+  }
+
+  window._liveStageJobId = currentId;
+  const forced = window._liveStageForcedJobId === currentId;
+  if (!window._liveStageOwnsPlayer && !forced && _liveStageMediaHeld()) {
+    const label = preview.meaningful ? 'LIVE · return to render'
+                                     : 'LIVE · render warming';
+    _showLiveReturnChip(label, '');
+    return;
+  }
+  window._liveStageForcedJobId = null;
+  _renderLiveStageFrame(s, preview);
+}
+
+// Native video controls do not call selectOutput() when playback begins. A
+// delegated intent stamp covers play/pause/seeking clicks and keyboard use;
+// the actual `video.paused` state remains the stronger hold while it plays.
+document.addEventListener('pointerdown', (event) => {
+  if (event.target && event.target.matches('#playerWrap video')) {
+    window._stagePlaybackIntentAt = Date.now();
+  }
+}, true);
+document.addEventListener('keydown', (event) => {
+  if (event.target && event.target.matches('#playerWrap video') &&
+      [' ', 'Enter', 'k', 'K', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+    window._stagePlaybackIntentAt = Date.now();
+  }
+}, true);
+
 // ---- The live preview, in the Now card --------------------------------------
 //
 // Four states, and the transitions between them are what the copy is for:
@@ -48527,11 +49198,11 @@ function renderCharacterStrip() {
 //
 // `meaningful` is the SERVER's call — see _preview_progress(). The client
 // renders it; it never counts estimates.
-function renderNowPreview(s, prog) {
+function renderNowPreview(s, prog, previewData) {
   const box = document.getElementById('nowThumb');
   const actions = document.getElementById('nowCardActions');
   if (!box) return;
-  const prev = prog && prog.preview;
+  const prev = previewData && previewData.available ? previewData : null;
   // A MISSING DECODER MUST SAY SO. Without this, a render on an install whose
   // 22 MB decoder never arrived looks identical to one where the user switched
   // the preview off: nothing appears, and a feature the release announced simply
@@ -48559,13 +49230,14 @@ function renderNowPreview(s, prog) {
   // _live_preview_params say so here) — when the table is absent we do not
   // guess, we stay quiet.
   const _qs = ((BOOT.ltx || {}).qualities) || [];
+  const _previewModes = ((BOOT.ltx || {}).preview_modes) || [];
   const _cell = Array.isArray(_qs)
     ? _qs.find(c => c && c.key === String(_p.quality || ''))
     : _qs[String(_p.quality || '')];
   const laneRuns = _cell ? Number(_cell.preview_every || 0) > 0 : false;
   const previewServesThisJob =
         jobEngine !== '' && capEngines.indexOf(jobEngine) !== -1
-     && jobMode !== 'train' && jobMode !== 'image'
+     && Array.isArray(_previewModes) && _previewModes.indexOf(jobMode) !== -1
      && laneRuns;
   // A REASON SWITCH, not a decoder special-case. There are two silent absences
   // now, and they need DIFFERENT actions: a missing decoder is a download, a
@@ -48628,7 +49300,7 @@ function renderNowPreview(s, prog) {
   // The copy constraint, on the element it constrains. §4.1: "The UI must never
   // invite a face judgement from it." Rendered once per render rather than per
   // poll so the button does not flicker under the 1.5 s cadence.
-  if (!box.parentNode.querySelector('.now-thumb-help')) {
+  if (prev.help && !box.parentNode.querySelector('.now-thumb-help')) {
     const dot = document.createElement('button');
     dot.type = 'button';
     dot.className = 'help-dot now-thumb-help';
@@ -48642,7 +49314,16 @@ function renderNowPreview(s, prog) {
     note.className = 'h3-winhelp';
     note.id = 'nowThumbHelpNote';
     note.hidden = true;
+    note.textContent = prev.help;
     box.parentNode.appendChild(note);
+  } else if (!prev.help) {
+    const oldDot = box.parentNode.querySelector('.now-thumb-help');
+    const oldNote = document.getElementById('nowThumbHelpNote');
+    if (oldDot) oldDot.remove();
+    if (oldNote) oldNote.remove();
+  } else {
+    const note = document.getElementById('nowThumbHelpNote');
+    if (note && note.textContent !== prev.help) note.textContent = prev.help;
   }
   if (!prev.meaningful) {
     box.className = 'now-thumb is-warming';
@@ -48701,7 +49382,7 @@ async function stopEarly() {
   const s = window.__phosLastStatus || {};
   const cur = s.current;
   if (!cur) return;
-  const prev = ((cur.progress || {}).preview) || {};
+  const prev = normalizeLivePreview(s, cur.progress || null) || {};
   const saves = (prev.saves_sec != null && prev.saves_sec > 0)
     ? `About ${fmtMin(prev.saves_sec)} of work is dropped. ` : '';
   if (!confirm('Stop this render?\n\n' +
