@@ -223,28 +223,36 @@ module.exports = {
       }
     },
 
-    // ---- Turbo v1.0 release asset (publication TODO; no fetch yet) ---------
-    // LightX2V publishes the Apache-2.0 source, but the H3 runner cannot load
-    // that diffusers-layout file directly: its alpha/rank scale lives outside
-    // the checkpoint. A raw download would therefore be a successful install
-    // followed by coloured noise at `--lora ...:1.0`, which is worse than a
-    // loud missing-asset state.
-    //
-    // TODO(release asset): repack and publish EXACTLY:
-    //   target: lightx2v_v1.0_768p_ourlayout.safetensors
-    //   source repo: lightx2v/Minimax-h3-Turbo (Apache-2.0)
-    //   source file: minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors
-    //   source SHA-256:
-    //     1bdabc2e9fce20b1db563b96bcf6e46adcad4c1964f423676436bf266cc7416c
-    //   release-asset SHA-256: REQUIRED BEFORE WIRING (record the digest of
-    //     the finished `lightx2v_v1.0_768p_ourlayout.safetensors` here)
-    //
-    // Once published, add a digest-checked release fetch into:
-    //   {{cwd}}/mlx_models/hailuo-h3/models/turbo-lora/
+    // ---- Turbo v1.0 release asset (digest-checked fetch) -------------------
+    // Target: lightx2v_v1.0_768p_ourlayout.safetensors — the runner-layout
+    // repack, published as a release asset on the weights-ltx25-v1 lane,
+    // digest-pinned. Provenance: repacked from
+    // lightx2v/Minimax-h3-Turbo (Apache-2.0),
+    // minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors (source SHA-256
+    // 1bdabc2e9fce20b1db563b96bcf6e46adcad4c1964f423676436bf266cc7416c).
     // Do not substitute the raw v0.1 file
-    // `minimax_h3_fl2v_turbo_4step_v0.1.safetensors`. The ONLY accepted v0.1
-    // fallback is the already alpha-folded release name
+    // `minimax_h3_fl2v_turbo_4step_v0.1.safetensors`: its alpha/rank scale
+    // lives OUTSIDE the checkpoint and at `--lora ...:1.0` it renders
+    // coloured noise. The ONLY accepted v0.1 fallback is the alpha-folded
     // `lightx2v_v0.1_ourlayout_alpha8.safetensors`.
+    //
+    // BEST-EFFORT ON PURPOSE: the panel's /h3/turbo/install endpoint fetches
+    // this same asset on demand with the same digest check, so a transient
+    // network failure here must not fail a 75 GB install that is otherwise
+    // complete. scripts/fetch_h3_turbo.py resumes partials, verifies
+    // SHA-256 d51d626fe0845da7e5845a47c323cf3f29086d44d24cb1a4b980882488746197
+    // and renames into place only after the check — a corrupt transfer is
+    // deleted, never installed. (One short line per command: Pinokio 8.0.x
+    // wedges its shell on ~350+ character lines.)
+    {
+      method: "shell.run",
+      params: {
+        path: "minimax-h3-mlx",
+        message: [
+          ".venv/bin/python '{{cwd}}/scripts/fetch_h3_turbo.py' --dir '{{cwd}}/mlx_models/hailuo-h3/models/turbo-lora' || echo 'TURBO FETCH FAILED - panel offers a one-click retry'"
+        ]
+      }
+    },
 
     // ---- TAE: the fast draft decoder (~23 MB) ------------------------------
     // H3's video decoder is a 36-layer ViT and it is the biggest FIXED cost in

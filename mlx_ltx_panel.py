@@ -2321,14 +2321,92 @@ def _train_install_dev_transformer(push_log) -> dict:
             "filename": "transformer-dev.safetensors"}
 
 
-def _h3_install_turbo(push_log) -> dict:
-    """Refuse an unpinned Turbo repack download rather than install raw weights.
+# One in-flight Turbo fetch at a time, mirroring the sample-character lane:
+# a daemon thread streaming to .partial, sha256 + exact-size verified, and an
+# atomic rename so a killed download never leaves a file h3_turbo_paths()
+# would resolve. status: idle | downloading | done | error.
+_h3_turbo_dl_lock = threading.Lock()
+# total_mb is a plain literal here because the H3_TURBO_ASSET_* pins are
+# declared with the rest of the Turbo constants further down; every writer
+# below stamps the real total at runtime.
+_h3_turbo_dl_state: dict = {"status": "idle", "mb": 0, "total_mb": 0,
+                            "error": None}
 
-    LightX2V publishes the Apache-2.0 source adapter, but the H3 runner needs
-    the panel's repacked layout. The v1.0 release asset and its output SHA-256
-    have not been published yet, so there is deliberately no URL to execute.
-    install_h3.js carries the exact source/target publication TODO. Once that
-    asset exists, this endpoint can use the ordinary guarded release fetch.
+
+def _set_h3_turbo_dl(**kw) -> None:
+    with _h3_turbo_dl_lock:
+        _h3_turbo_dl_state.clear()
+        _h3_turbo_dl_state.update(kw)
+
+
+def _h3_turbo_download_bg(target_dir, push_log) -> None:
+    """Stream the digest-pinned v1.0 repack release asset into the H3 pack."""
+    import urllib.request
+    import hashlib
+    total_mb = H3_TURBO_ASSET_BYTES // (1 << 20)
+    tmp = None
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / H3_TURBO_LORA_FILE
+        if target.is_file():
+            _set_h3_turbo_dl(status="done", mb=total_mb, total_mb=total_mb,
+                             error=None)
+            return
+        tmp = target.with_suffix(target.suffix + ".partial")
+        push_log(f"[h3:turbo] downloading {H3_TURBO_LORA_FILE} "
+                 f"(~{total_mb} MB)…")
+        req = urllib.request.Request(H3_TURBO_ASSET_URL,
+                                     headers={"User-Agent": "Phosphene"})
+        h = hashlib.sha256()
+        written = 0
+        last_log = 0.0
+        with urllib.request.urlopen(req, timeout=60) as resp, \
+                open(tmp, "wb") as fh:
+            while True:
+                chunk = resp.read(1 << 20)
+                if not chunk:
+                    break
+                fh.write(chunk)
+                h.update(chunk)
+                written += len(chunk)
+                now = time.time()
+                if now - last_log > 2.5:
+                    _set_h3_turbo_dl(status="downloading",
+                                     mb=written // (1 << 20),
+                                     total_mb=total_mb, error=None)
+                    push_log(f"[h3:turbo] {written // (1 << 20)} / "
+                             f"{total_mb} MB")
+                    last_log = now
+        if written != H3_TURBO_ASSET_BYTES:
+            raise RuntimeError(
+                f"size mismatch: got {written}, expected "
+                f"{H3_TURBO_ASSET_BYTES} — please retry")
+        if h.hexdigest() != H3_TURBO_ASSET_SHA256:
+            raise RuntimeError("checksum mismatch (download corrupt) — "
+                               "please retry")
+        tmp.replace(target)
+        _set_h3_turbo_dl(status="done", mb=total_mb, total_mb=total_mb,
+                         error=None)
+        push_log(f"[h3:turbo] adapter installed → {target}")
+    except Exception as e:  # noqa: BLE001
+        if tmp is not None:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+        _set_h3_turbo_dl(status="error", mb=0, total_mb=total_mb,
+                         error=str(e)[:200])
+        push_log(f"[h3:turbo] FAILED: {e}")
+
+
+def _h3_install_turbo(push_log, download_fn=None) -> dict:
+    """Fetch the digest-pinned runner-layout Turbo adapter on demand.
+
+    The v1.0 repack is a published release asset with a pinned SHA-256
+    (H3_TURBO_ASSET_SHA256, verified byte-identical against the repack the
+    adapter selection was graded on). The raw LightX2V v0.1 file is still
+    refused by name in the resolver: its alpha/rank factor lives outside the
+    checkpoint, and at scale 1.0 it renders coloured noise.
     """
     paths = h3_paths()
     if paths["missing"]:
@@ -2343,16 +2421,23 @@ def _h3_install_turbo(push_log) -> dict:
                          "from the Phosphene sidebar in Pinokio to update the "
                          "clone — it keeps every weight already on disk."}
     target = _h3_turbo_dir()
-    message = (
-        "Automatic H3 Turbo install is paused until the runner-layout release "
-        f"asset {H3_TURBO_LORA_FILE} is published with a pinned SHA-256. "
-        f"Upstream source: {H3_TURBO_REPO}/{H3_TURBO_SOURCE_FILE} "
-        f"(SHA-256 {H3_TURBO_SOURCE_SHA256}). Do not substitute "
-        f"{H3_TURBO_RAW_V01_FILE}: raw v0.1 renders coloured noise at scale "
-        f"1.0. Expected the repack under {target}."
-    )
-    push_log(f"[h3:turbo] {message}")
-    return {"ok": False, "error": message, "dir": str(target)}
+    if (target / H3_TURBO_LORA_FILE).is_file():
+        return {"ok": True, "started": False, "already_installed": True,
+                "dir": str(target)}
+    with _h3_turbo_dl_lock:
+        if _h3_turbo_dl_state.get("status") == "downloading":
+            return {"ok": False,
+                    "error": "a Turbo adapter download is already active"}
+        _h3_turbo_dl_state.clear()
+        _h3_turbo_dl_state.update(status="downloading", mb=0,
+                                  total_mb=H3_TURBO_ASSET_BYTES // (1 << 20),
+                                  error=None)
+    fn = download_fn or _h3_turbo_download_bg
+    threading.Thread(target=fn, args=(target, push_log), daemon=True,
+                     name="h3-turbo-download").start()
+    return {"ok": True, "started": True, "dir": str(target),
+            "asset": H3_TURBO_ASSET_URL, "sha256": H3_TURBO_ASSET_SHA256,
+            "bytes": H3_TURBO_ASSET_BYTES}
 
 
 # Compatibility taxonomy for LoRAs across the panel's two render lanes
@@ -3448,9 +3533,25 @@ def version_check_loop() -> None:
 
 def get_version_state() -> dict:
     """Snapshot of _VERSION_STATE for the /version endpoint. Returns a copy
-    so the caller can't mutate the live state under the lock."""
+    so the caller can't mutate the live state under the lock.
+
+    STALE-PROCESS DETECTION (v4.0.5): local_* is the boot snapshot, so a
+    checkout that advances UNDER a running panel — a promote landing while a
+    long-lived daemon serves, the exact 2026-08-14 incident where :8198
+    served pre-4.0.4 HTML for three hours after the folder updated — used to
+    be invisible: /version reported the boot SHA and nothing compared it to
+    disk. One git rev-parse per /version request (the pill polls every 5
+    minutes) answers the only question that matters: is the code on disk the
+    code this process loaded?"""
     with _VERSION_LOCK:
-        return dict(_VERSION_STATE)
+        snap = dict(_VERSION_STATE)
+    disk_sha = _git_capture(["rev-parse", "HEAD"])
+    boot_sha = snap.get("local_sha")
+    snap["stale_process"] = bool(disk_sha and boot_sha and disk_sha != boot_sha)
+    if snap["stale_process"]:
+        snap["disk_short"] = disk_sha[:7]
+        snap["disk_version"] = _read_local_version()
+    return snap
 
 
 # ---------------------------------------------------------------------------
@@ -6361,22 +6462,40 @@ H3_TURBO_REPO = "lightx2v/Minimax-h3-Turbo"
 H3_TURBO_LORA_FILE = "lightx2v_v1.0_768p_ourlayout.safetensors"
 H3_TURBO_FALLBACK_LORA_FILE = "lightx2v_v0.1_ourlayout_alpha8.safetensors"
 H3_TURBO_RAW_V01_FILE = "minimax_h3_fl2v_turbo_4step_v0.1.safetensors"
+# The retired ckpt500-EMA adapter is accepted again — LAST, and only as a
+# fallback. v4.0.4 dropped it outright, which un-Turboed every install that had
+# been rendering fine on it, for the crime of not having the newer file yet.
+# It stays behind both LightX2V layouts so a completed v1.0 download always
+# wins, and it carries the fallback flag so the UI labels it honestly.
+H3_TURBO_CKPT500_FILE = "minimax_h3_turbo_4step_ema_ckpt500.safetensors"
 H3_TURBO_LORA_CANDIDATES = (
     (H3_TURBO_LORA_FILE, "v1.0", False),
     (H3_TURBO_FALLBACK_LORA_FILE, "v0.1", True),
+    (H3_TURBO_CKPT500_FILE, "ckpt500-EMA", True),
 )
-# Exact upstream source for the v1.0 repack. Automatic installation remains
-# disabled until the runner-layout repack is published as a Phosphene release
-# asset with its own pinned digest; install_h3.js carries the publication TODO.
+# Exact upstream source for the v1.0 repack, kept for provenance.
 H3_TURBO_SOURCE_FILE = "minimax_h3_fl2v_turbo_4step_v1.0_768p_bf16.safetensors"
 H3_TURBO_SOURCE_SHA256 = (
     "1bdabc2e9fce20b1db563b96bcf6e46adcad4c1964f423676436bf266cc7416c"
 )
+# The runner-layout repack, published 2026-08-14 as a digest-pinned release
+# asset on the same lane as the LTX-2.5 packs. The digest below was verified
+# against the local repack that core_tan's testing and the owner's visual
+# review selected — byte-identical before the pin was written down.
+H3_TURBO_RELEASE_TAG = "weights-ltx25-v1"
+H3_TURBO_ASSET_URL = (
+    "https://github.com/mrbizarro/Phosphene/releases/download/"
+    + H3_TURBO_RELEASE_TAG + "/" + H3_TURBO_LORA_FILE
+)
+H3_TURBO_ASSET_SHA256 = (
+    "d51d626fe0845da7e5845a47c323cf3f29086d44d24cb1a4b980882488746197"
+)
+H3_TURBO_ASSET_BYTES = 1956165254
 H3_TURBO_DIRNAME = "turbo-lora"
 # Sigma POINTS, matching --steps. 4 points = 3 forwards = what the adapter was
 # distilled for; it is visibly softer at fewer and gains nothing at more.
 H3_TURBO_STEPS = 4
-H3_TURBO_DOWNLOAD_GB = 1.4
+H3_TURBO_DOWNLOAD_GB = 2.0  # the published asset is 1,956,165,254 bytes
 # Size floors for the "is it really there" probe. An interrupted fetch leaves a
 # short file that loads far enough to fail 30 s into a render, which is exactly
 # the failure mode the H3-vanish lesson says to catch at status time instead.
@@ -7416,6 +7535,15 @@ LTX_TIER_STANDARD_NOTE = (
 # DRAFT-lane verdict and retuning HQ stage 2 is ungraded and out of scope.
 LTX_DISTILLED_STAGE1 = 8
 LTX_DISTILLED_STAGE2 = 2
+# The engine's named 'fast' preset on the 2.5 distilled lane (F6S2 in the
+# perf lab): 5+2 forwards against the default 8+2. Owner-graded 2026-08-12 —
+# "quality is fine" — WITH the caveat the UI must carry: it renders a
+# DIFFERENT take (same prompt + seed land on a different shot; composition
+# corr 0.918 vs the control). Measured 121.6 s vs the default's 139.4 s at
+# 1024×576×121 (~13% faster; the −29% sometimes quoted is vs the pre-S2
+# control that no longer ships). The engine refuses named presets on 2.3.
+LTX_FAST_STAGE1 = 5
+LTX_SCHEDULE_PRESETS = ("fast", "default", "vendor")
 # 10+3, from the 1280×704 High-tier lab (2026-08-14): the 10+2 tail candidate
 # saved 60.18 s of a 408 s render but the owner judged its lip-sync worse than
 # 10+3's, so 10+3 ships. 10 also matches what the HQ dispatch
@@ -7654,7 +7782,25 @@ def _build_ltx_tiers() -> dict[str, dict]:
             allowed = ln.get("qualities") or ()
             restricted = bool(allowed) and q["key"] not in allowed
             notes = [n for n in (q["note"], ln["note"]) if n]
+            # 'fast' preset pricing — stamped ONLY on cells that can run it
+            # (2.5 + distilled), which is also how the client gates the
+            # control: a cell without fast_eta offers no Fast draft, so the
+            # UI never parses a version string. Priced by the cost model's
+            # own 5+2-vs-8+2 ratio applied to this cell's eta (the same
+            # anchor-ratio idiom the length scaling above uses), so the fixed
+            # load/decode cost is not discounted along with the forwards.
+            fast_fields = {}
+            if version_id == "ltx25" and q["pipeline"] != "hq":
+                model_default = ltx_estimate_minutes(
+                    w, h, frames, LTX_DISTILLED_STAGE1, LTX_DISTILLED_STAGE2)
+                model_fast = ltx_estimate_minutes(
+                    w, h, frames, LTX_FAST_STAGE1, LTX_DISTILLED_STAGE2)
+                if model_default > 0:
+                    fast_min = eta_min * (model_fast / model_default)
+                    fast_fields = {"fast_eta": _fmt_eta(fast_min),
+                                   "fast_min": round(fast_min, 2)}
             tiers[key] = {
+                **fast_fields,
                 "key": key,
                 "label": f"{q['label']} · {ln['label']}",
                 "quality": q["key"], "quality_label": q["label"],
@@ -8442,9 +8588,14 @@ def h3_turbo_status() -> dict:
         "adapter": str(paths["lora"]) if paths["lora"] else None,
         "adapter_version": paths["version"],
         "fallback": paths["fallback"],
-        # Fail closed until the repack is a real, digest-pinned release asset.
-        "install_available": False,
-        "install_note": (f"{H3_TURBO_LORA_FILE} release asset pending; raw "
+        # The v1.0 repack is a published, digest-pinned release asset, so the
+        # one-click install is live whenever the runner can take a LoRA at
+        # all. `installing` mirrors the in-flight download so /status never
+        # claims idle while a fetch is streaming.
+        "install_available": bool(supported),
+        "installing": _h3_turbo_dl_state.get("status") == "downloading",
+        "install_note": (f"Downloads the digest-pinned {H3_TURBO_LORA_FILE} "
+                         f"release asset (~{H3_TURBO_DOWNLOAD_GB} GB); raw "
                          f"{H3_TURBO_RAW_V01_FILE} is not compatible."),
         "dir": str(paths["dir"]),
         "missing": paths["missing"],
@@ -9217,8 +9368,9 @@ def h3_status() -> dict:
                    "reason": "h3_" + paths["reason"], "steps": H3_TURBO_STEPS,
                    "download_gb": H3_TURBO_DOWNLOAD_GB, "repo": H3_TURBO_REPO,
                    "adapter": None, "adapter_version": None, "fallback": False,
-                   "install_available": False,
-                   "install_note": f"{H3_TURBO_LORA_FILE} release asset pending",
+                   "install_available": False, "installing": False,
+                   "install_note": "Turbo is an add-on to the Hailuo H3 "
+                                   "pack — install H3 first.",
                    "dir": str(_h3_turbo_dir()), "missing": [],
                    "note": H3_TURBO_NOTE, "label": "Turbo"}),
         # User LoRAs — the CivitAI lane. A separate block from `turbo` for the
@@ -14055,6 +14207,9 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                  "H3' from the Phosphene sidebar to update the clone; your "
                  "weights stay.")
             _h3_chain_prompts = []
+        # An LTX schedule preset means nothing on the H3 lane; a leftover
+        # value from an engine switch must not ride onto the job.
+        _schedule_preset = ""
     else:
         # A chained shot list means nothing on the LTX lane, and a fallback to
         # LTX above must not leave one on the job.
@@ -14066,6 +14221,30 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         # stack, so there is no slot to allocate and a leftover "user" here
         # would only be a confusing field in the sidecar.
         _h3_lora_slot = H3_LORA_SLOT_DEFAULT
+        # LTX-2.5 distilled schedule preset ("fast" = the graded F6S2 draft
+        # schedule, 5+2 forwards, renders a DIFFERENT take). Gated server-side
+        # like every H3 rule above: the value rides only when the job will
+        # actually run the lane that defines it. The engine REFUSES named
+        # presets on 2.3, and the HQ lane resolves its own res_2s schedule —
+        # so a leftover value from a stale tab or a Load-Params replay is
+        # dropped with a sentence, never queued into a refusal.
+        _schedule_preset = (f("schedule_preset", "") or "").strip().lower()
+        if _schedule_preset in ("", "default"):
+            _schedule_preset = ""
+        elif _schedule_preset not in LTX_SCHEDULE_PRESETS:
+            push(f"Unknown schedule preset {_schedule_preset!r} — the tuned "
+                 "default schedule runs.")
+            _schedule_preset = ""
+        elif ACTIVE_MODEL_VERSION != "ltx25":
+            push("The fast draft schedule is an LTX-2.5 preset and this "
+                 f"install renders {model_version()['label']} — the default "
+                 "schedule runs.")
+            _schedule_preset = ""
+        elif ltx_quality_uses_hq(quality):
+            push("The fast draft schedule applies to the distilled lanes "
+                 "only — High tiers run their own two-stage schedule. The "
+                 "default runs.")
+            _schedule_preset = ""
     if _h3_turbo and _h3_steps:
         # The adapter is distilled FOR 4 sigma points. Honouring a Steps pill on
         # top of it would quietly render a configuration nobody validated, so
@@ -14129,6 +14308,11 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # trap as every key in this dict: leave it out and the whole
             # control looks wired and silently no-ops on /queue/add.
             "h3_chain_prompts": _h3_chain_prompts,
+            # LTX-2.5 distilled schedule preset — "" (tuned default) or
+            # "fast"/"vendor", already gated above to the lane that defines
+            # it. SAME allowlist trap as every key in this dict: leave it out
+            # and the Speed control looks wired and silently no-ops.
+            "schedule_preset": _schedule_preset,
             "prompt": prompt,
             "negative_prompt": f("negative_prompt", ""),
             "width": max(32, int(f("width", str(default_w)) or default_w)),
@@ -14235,10 +14419,10 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # (matches upstream). Lower values save latent algebra time
             # without skipping any model forwards. See helper for details.
             "bongmath_max_iter": max(0, int(f("bongmath_max_iter", "100") or 100)),
-            # Upstream HQ exposes per-modality guidance skip. Keep it off by
-            # default; experiments can opt in through the raw job form.
-            "video_skip_step": max(0, int(f("video_skip_step", "0") or 0)),
-            "audio_skip_step": max(0, int(f("audio_skip_step", "0") or 0)),
+            # video_skip_step / audio_skip_step removed in v4.0.5: the pinned
+            # engine's generate_and_save accepts neither, the helper filtered
+            # both out before invocation, and the UI sold the difference as
+            # "~12% faster". Dead at the boundary = not stamped on jobs.
             # Stage-2 image-conditioning mode for HQ I2V. Empty string =
             # "let the dispatch decide" (auto-routes I2V>49f to "off" on
             # 48-79 GB tier to dodge boundary OOM). User can override
@@ -14311,6 +14495,33 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         job["params"]["upscale"] = "off"
         job["params"]["temporal_mode"] = "native"
         job["params"]["accel"] = "off"
+    else:
+        # LTX geometry rides the ENGINE'S OWN GRID, normalized here so the
+        # job record carries the dims the render will actually produce.
+        # Every registered LTX lane is two-stage (stage 1 runs at half
+        # resolution, itself /32-aligned), so the engine floors the canvas to
+        # /64 — while the UI's number inputs stepped by 32 and the old
+        # max(32, v) accepted anything. A 1000-wide request silently rendered
+        # 960 wide with a sidecar claiming 1000: the CUSTOMIZE audit's
+        # "Width × Height LIES" row. Same for frames: the engine delivers on
+        # the 8k+1 grid, so an off-grid request is floored (never raised —
+        # matching the "never render more" promise) and recorded as what will
+        # be delivered. If a single-stage /32 lane ever registers, gate this
+        # on the cell's own pipeline instead of relaxing it everywhere.
+        _req_w, _req_h = job["params"]["width"], job["params"]["height"]
+        _req_f = job["params"]["frames"]
+        job["params"]["width"] = max(64, (_req_w // 64) * 64)
+        job["params"]["height"] = max(64, (_req_h // 64) * 64)
+        if _req_f > 1:
+            job["params"]["frames"] = ((_req_f - 1) // 8) * 8 + 1
+        if (job["params"]["width"], job["params"]["height"]) != (_req_w, _req_h):
+            push(f"Canvas {_req_w}×{_req_h} isn't on the engine's /64 grid — "
+                 f"rendering {job['params']['width']}×"
+                 f"{job['params']['height']} (the two-stage pipeline floors "
+                 "to multiples of 64).")
+        if job["params"]["frames"] != _req_f:
+            push(f"{_req_f} frames isn't on the 8k+1 grid — rendering "
+                 f"{job['params']['frames']} frames.")
     # STG (Spatio-Temporal Guidance) — "detail guidance" slider. Only stamp
     # `stg_scale` onto params when the form actually sent a value, so each
     # dispatch keeps its OWN default when the user didn't touch the slider:
@@ -17242,7 +17453,10 @@ def run_job_inner(job: dict) -> None:
             "started": job.get("started_at"),
             "elapsed_sec": round(time.time() - job["started_ts"], 2) if job.get("started_ts") else None,
             "video_duration_sec": video_duration(frames),
-            "fps": FPS, "model": MODEL_ID_HQ, "queue_id": job["id"],
+            # The pack the render ACTUALLY used (same resolution as the
+            # job_spec's model_dir above) — not MODEL_ID_HQ, whose default is
+            # the 2.3 repo and which mislabeled every 2.5 keyframe clip.
+            "fps": FPS, "model": str(pack_path("q8")), "queue_id": job["id"],
             "helper_elapsed_sec": result.get("elapsed_sec"),
             "output_codec": output_codec_settings(),
             "memory_policy": memory_plan,
@@ -17722,8 +17936,8 @@ def run_job_inner(job: dict) -> None:
                 # 1.0 after the 2026-05-20 chartest v3 diagnostic).
                 "teacache_thresh": float(p.get("teacache_thresh", 1.8)),
                 "bongmath_max_iter": int(p.get("bongmath_max_iter", 100)),
-                "video_skip_step": int(p.get("video_skip_step", 0)),
-                "audio_skip_step": int(p.get("audio_skip_step", 0)),
+                # skip-step fields no longer forwarded (v4.0.5): the engine
+                # boundary dropped them, so they were provenance-only noise.
                 # Stage-2 image conditioning mode. "full" re-encodes the
                 # reference image at full res for stage 2 (upstream default,
                 # best I2V anchor quality). "off" skips that full-res VAE
@@ -17821,6 +18035,10 @@ def run_job_inner(job: dict) -> None:
                 "image": p["image"] if mode != "t2v" else None,
                 "loras": loras,
                 "accel": p.get("accel", "off"),
+                # The 2.5 distilled schedule preset, already lane-gated by
+                # make_job; the helper forwards it to generate_two_stage,
+                # whose resolver validates it before any GPU is spent.
+                "schedule_preset": p.get("schedule_preset") or "",
                 "memory_policy": memory_plan["effective"],
                 "vae_full_decode_max_frames": memory_plan["full_decode_max_frames"],
                 # Sharp/PiperSR is a panel-side post-render pass. Do not pass it
@@ -22156,8 +22374,8 @@ class Handler(BaseHTTPRequestHandler):
                 "teacache_thresh": [_val("teacache_thresh", "1.8")],
                 "cfg_scale": [_val("cfg_scale", "3.0")],
                 "bongmath_max_iter": [_val("bongmath_max_iter", "100")],
-                "video_skip_step": [_val("video_skip_step", "1")],
-                "audio_skip_step": [_val("audio_skip_step", "1")],
+                # skip-step entries removed (v4.0.5): make_job no longer
+                # allowlists them and the engine boundary dropped them anyway.
                 "upscale": ["fit_720p"],
                 "upscale_method": ["lanczos"],
                 "accel": ["off"],
@@ -31386,6 +31604,53 @@ HTML = r"""<!doctype html>
       flex-shrink: 0;
       text-decoration: none;
     }
+    /* ONE HEALTH CLUSTER (v4.0.5). One bordered unit for the machine-state
+       pills — and the header's single SHRINKABLE region: min-width:0 +
+       overflow:hidden here means a narrow window compresses/clips INSIDE
+       the cluster, while everything to its right (version pill, bug,
+       settings, creator chip) is flex-shrink:0 and stays visible. Before
+       this, the header's own overflow:hidden ate its rightmost children
+       first — the creator avatar led the casualty list. */
+    body > header #healthCluster {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 6px;
+      border-radius: 10px;
+      border: 1px solid var(--ph-border-soft);
+      background: rgba(140, 160, 220, 0.04);
+      min-width: 0;
+      overflow: hidden;
+      flex-shrink: 1;
+    }
+    body > header #healthCluster .pill {
+      border: none;
+      background: transparent;
+      white-space: nowrap;
+    }
+    body > header #versionPill,
+    body > header #bugBtn,
+    body > header #settingsBtn,
+    body > header .creator-link,
+    body > header .engine-switch {
+      flex-shrink: 0;
+    }
+    /* Narrow windows: the cluster degrades to its STATE DOTS instead of
+       vanishing — each pill keeps its click target, tooltip and colored
+       dot, drops its words. The full-text cluster needs roughly a 1600px
+       row alongside the brand banner, switcher and version pill. */
+    /* span.pill (not .pill) on purpose: the Linear-style pill restyle
+       further down shares the bare selector at equal specificity and would
+       win on source order — a media query adds no specificity of its own. */
+    @media (max-width: 1600px) {
+      body > header #healthCluster > span.pill {
+        font-size: 0;
+        gap: 0;
+        padding: 4px 5px;
+      }
+      body > header #healthCluster > span.pill .dot { margin: 0; }
+      body > header #healthCluster > span.pill svg { width: 12px; height: 12px; }
+    }
     body > header .brand img {
       /* Phosphene brand mark — the rings + wordmark composed as ONE wide
          banner (1291×392, transparent bg). Replaces the previous setup
@@ -31441,7 +31706,7 @@ HTML = r"""<!doctype html>
 
     /* Unified chip language for every header pill — Tier, RAM, Helper,
        Models, Queue, current job, version, etc. */
-    body > header > .pill {
+    body > header > .pill, body > header #healthCluster > .pill {
       display: inline-flex;
       align-items: center;
       gap: 8px;
@@ -31457,29 +31722,29 @@ HTML = r"""<!doctype html>
       white-space: nowrap;
       transition: border-color var(--t-base), color var(--t-base);
     }
-    body > header > .pill:hover {
+    body > header > .pill:hover, body > header #healthCluster > .pill:hover {
       border-color: var(--ph-border-strong);
       color: var(--text);
     }
-    body > header > .pill .dot {
+    body > header > .pill .dot, body > header #healthCluster > .pill .dot {
       width: 7px; height: 7px;
       border-radius: 999px;
       margin-right: 0;
       box-shadow: none;
     }
-    body > header > .pill-good { color: var(--success); border-color: rgba(63,185,80,0.30); }
-    body > header > .pill-good .dot { background: var(--success); box-shadow: 0 0 8px var(--success); }
-    body > header > .pill-warn { color: var(--warning); border-color: rgba(210,153,34,0.35); }
-    body > header > .pill-danger { color: var(--danger); border-color: rgba(248,81,73,0.35); }
-    body > header > .pill-running {
+    body > header > .pill-good, body > header #healthCluster > .pill-good { color: var(--success); border-color: rgba(63,185,80,0.30); }
+    body > header > .pill-good .dot, body > header #healthCluster > .pill-good .dot { background: var(--success); box-shadow: 0 0 8px var(--success); }
+    body > header > .pill-warn, body > header #healthCluster > .pill-warn { color: var(--warning); border-color: rgba(210,153,34,0.35); }
+    body > header > .pill-danger, body > header #healthCluster > .pill-danger { color: var(--danger); border-color: rgba(248,81,73,0.35); }
+    body > header > .pill-running, body > header #healthCluster > .pill-running {
       color: var(--accent-bright);
       border-color: rgba(47,129,247,0.30);
       background: rgba(47,129,247,0.06);
       animation: pulse 1.6s ease-in-out infinite;
     }
-    body > header > .pill-current { color: var(--success); border-color: rgba(63,185,80,0.25); }
-    body > header > .pill-update { color: var(--warning); border-color: rgba(240,185,64,0.40); background: rgba(240,185,64,0.06); }
-    body > header > .pill-restart { color: var(--accent-bright); border-color: rgba(126,152,255,0.40); background: rgba(126,152,255,0.06); }
+    body > header > .pill-current, body > header #healthCluster > .pill-current { color: var(--success); border-color: rgba(63,185,80,0.25); }
+    body > header > .pill-update, body > header #healthCluster > .pill-update { color: var(--warning); border-color: rgba(240,185,64,0.40); background: rgba(240,185,64,0.06); }
+    body > header > .pill-restart, body > header #healthCluster > .pill-restart { color: var(--accent-bright); border-color: rgba(126,152,255,0.40); background: rgba(126,152,255,0.06); }
 
     /* === ENGINE SWITCHER (header, top right) ====================
        The one control in the header row that is an INPUT rather than a
@@ -32099,7 +32364,7 @@ HTML = r"""<!doctype html>
        leading row, the form sections start right under them. */
 
     /* === FALLBACK: Hide unwanted inline icons in version pill === */
-    body > header > .pill svg { width: 12px; height: 12px; }
+    body > header > .pill svg, body > header #healthCluster > .pill svg { width: 12px; height: 12px; }
 
 
     /* === PHOSPHOR ICONS (MIT) ===================================
@@ -32367,17 +32632,25 @@ HTML = r"""<!doctype html>
   <!-- Hardware tier badge — clickable, opens a dialog explaining what
        this Mac's RAM tier allows. Modes / qualities the tier doesn't
        support are visibly disabled in the form below. -->
-  <span id="tierPill" class="pill" style="cursor:pointer" onclick="openTierModal()" title="Click to see what this Mac can do">click for system info</span>
-  <span id="memPill" class="pill">memory…</span>
-  <span id="comfyPill" class="pill" style="display:none">comfy…</span>
-  <span id="helperPill" class="pill">helper…</span>
-  <!-- Models pill: shows roll-up status (X / Y models ready) and click-opens
-       a modal with per-repo download buttons. Color reflects readiness:
-       pill-good = all models present, pill-warn = base ready but Q8 missing,
-       pill-bad = base incomplete (panel can't render). -->
-  <span id="modelsPill" class="pill" style="cursor:pointer" onclick="openModelsModal()" title="View / download model status">models…</span>
-  <span id="queuePill" class="pill">queue 0</span>
-  <span id="jobPill" class="pill">idle</span>
+  <!-- ONE HEALTH CLUSTER (v4.0.5) — every machine-state pill lives in a
+       single container: one visual unit to scan instead of six loose pills
+       bleeding across the header, and one SHRINKABLE region, so a narrow
+       window compresses the cluster instead of shoving the creator chip
+       into the header's overflow:hidden (the "avatar clipped" report).
+       Individual pill ids and their JS updaters are untouched. -->
+  <div id="healthCluster" role="group" aria-label="System health">
+    <span id="tierPill" class="pill" style="cursor:pointer" onclick="openTierModal()" title="Click to see what this Mac can do">click for system info</span>
+    <span id="memPill" class="pill">memory…</span>
+    <span id="comfyPill" class="pill" style="display:none">comfy…</span>
+    <span id="helperPill" class="pill">helper…</span>
+    <!-- Models pill: shows roll-up status (X / Y models ready) and click-opens
+         a modal with per-repo download buttons. Color reflects readiness:
+         pill-good = all models present, pill-warn = base ready but Q8 missing,
+         pill-bad = base incomplete (panel can't render). -->
+    <span id="modelsPill" class="pill" style="cursor:pointer" onclick="openModelsModal()" title="View / download model status">models…</span>
+    <span id="queuePill" class="pill">queue 0</span>
+    <span id="jobPill" class="pill">idle</span>
+  </div>
   <!-- Update-available pill. Hidden by default; renders only when the
        /version poller finds the install behind origin/main. Click → modal
        listing the unseen commits. We do this because users keep telling
@@ -32563,8 +32836,12 @@ HTML = r"""<!doctype html>
            lora-lab/outputs/overnight_2026-05-15/SPEED_RESULTS_CODEX.md
            for the validation grid. Patches in samplers.py + helper line
            1625-26 land the value at the HQ pipeline. -->
-      <input type="hidden" name="video_skip_step" id="video_skip_step" value="0">
-      <input type="hidden" name="audio_skip_step" id="audio_skip_step" value="0">
+      <!-- video_skip_step / audio_skip_step hidden inputs removed in v4.0.5:
+           the engine boundary dropped both, so they were provenance noise. -->
+      <!-- LTX-2.5 distilled schedule preset: "" = tuned default, "fast" = the
+           graded 5+2 draft schedule (a DIFFERENT take). make_job gates it to
+           the lane that defines it; the Speed pills in Customize write it. -->
+      <input type="hidden" name="schedule_preset" id="schedule_preset" value="">
 
       <div id="warnBanner" class="warn-banner"></div>
 
@@ -33313,17 +33590,9 @@ HTML = r"""<!doctype html>
                hidden inputs for all three live up in the engine-state block;
                every one is in the make_job allowlist, which is the only place
                they could silently die. -->
-          <!-- 2026-05-17 (Codex C+ pass 6): the character-only skip-step
-               toggle moved out of here into the Customize section as
-               "HQ speed". It's a Q8 sampler control, not a character
-               control — applies equally to Character / FFLF / Extend
-               renders (anything that hits the HQ pipeline). Visible
-               only when quality=high. Old IDs preserved as a hidden
-               legacy stub so any saved-state restore paths that
-               reference `charSkipstepToggle` keep working. -->
-          <label class="char-skipstep-toggle" id="charSkipstepToggleWrap" hidden style="display:none">
-            <input type="checkbox" id="charSkipstepToggle" checked>
-          </label>
+          <!-- The skip-step toggle (and its charSkipstepToggle legacy stub)
+               is gone as of v4.0.5 — the control was dead at the engine
+               boundary; see the HQ-speed removal note in Customize. -->
         </div>
 
         <!-- ============== ORIENTATION (compact, top-level) ==============
@@ -33535,10 +33804,18 @@ HTML = r"""<!doctype html>
                  overwrites on the next click was the loudest thing wrong with
                  the old H3 Customize. -->
             <div id="dimsRow" class="cz-control" data-ltx-only>
-              <div class="cz-label">Width × height</div>
+              <div class="cz-label">Width × height
+                <span class="cz-label-hint">multiples of 64 — the two-stage engine floors anything else</span>
+              </div>
               <div class="row">
-                <div><input name="width" id="width" value="1024" type="number" min="32" step="32" aria-label="Width"></div>
-                <div><input name="height" id="height" value="576" type="number" min="32" step="32" aria-label="Height"></div>
+                <!-- step/min 64, not 32: every registered LTX lane is
+                     two-stage (stage 1 at half resolution, itself /32), so
+                     the engine floors the canvas to /64. A /32 step offered
+                     sizes the render would silently shrink — the CUSTOMIZE
+                     audit's "Width × Height LIES" row. make_job floors the
+                     job to the same grid and says so. -->
+                <div><input name="width" id="width" value="1024" type="number" min="64" step="64" aria-label="Width"></div>
+                <div><input name="height" id="height" value="576" type="number" min="64" step="64" aria-label="Height"></div>
               </div>
             </div>
 
@@ -33582,30 +33859,42 @@ HTML = r"""<!doctype html>
               </div>
             </div>
 
-            <!-- HQ speed — Codex C+ pass 6, 2026-05-17. The Q8 HQ res_2s
-                 sampler honors `video_skip_step` / `audio_skip_step`
-                 (patched into ti2vid_two_stages_hq.py + samplers.py
-                 2026-05-15). At skip_step=1 the sampler reuses the last
-                 denoised prediction on alternating outer passes — 12.6%
-                 wall-time saving on a 7s 1024×576 character clip with
-                 no visible quality cost (Codex contact-sheet sweep,
-                 SPEED_RESULTS_CODEX.md). Fast = skip=1, Exact = skip=0.
-                 Visible only when quality=high (Q8 HQ pipeline active);
-                 hidden CSS rule belongs in the Q8 capability block. -->
-            <div id="hqSpeedRow" class="cz-control" data-ltx-only hidden>
-              <div class="cz-label">HQ speed
-                <span class="cz-label-hint">Q8 sampler · skip-step cache reuse</span>
+            <!-- HQ speed (Fast/Exact) REMOVED in v4.0.5. The 2026-05-15
+                 skip-step patch it described belongs to the pre-vendored
+                 engine era: the pinned port's `generate_and_save` accepts
+                 neither `video_skip_step` nor `audio_skip_step`, and the
+                 helper's `_filter_unsupported_kwargs` silently dropped both
+                 before invocation — so Fast and Exact ran IDENTICAL settings
+                 while the UI claimed "~12% faster" (CUSTOMIZE audit,
+                 2026-08-14: DEAD on both generations). Low-level sampler
+                 support exists (`MultiModalGuiderParams.skip_step`); if it is
+                 ever wired for real, rebenchmark and bring the control back
+                 with a measured number, not this one. -->
+
+            <!-- Speed — the LTX-2.5 distilled lane's REAL speed control
+                 (v4.0.5), replacing the dead one above. "Fast draft" selects
+                 the engine's named `fast` schedule preset: 5+2 forwards vs
+                 the tuned 8+2, ~13% faster, and it renders a DIFFERENT take
+                 (same prompt + seed land on a different shot) — which is why
+                 it sits next to draft affordances and never on a quality
+                 slider. Visibility is SERVER-OWNED: the row shows only when
+                 the current tier cell carries `fast_eta`, which the registry
+                 stamps only on 2.5 distilled cells — the UI never parses a
+                 version string. -->
+            <div id="schedPresetRow" class="cz-control" data-ltx-only hidden>
+              <div class="cz-label">Speed
+                <span class="cz-label-hint">draft schedule · changes the take</span>
               </div>
-              <div class="pill-group cols-2" id="hqSpeedGroup">
-                <button type="button" class="pill-btn active" data-hq-speed="fast"
-                        title="TeaCache + skip-step (validated 2026-05-15: ~12% faster, no visible quality cost on character renders)">
-                  <span>Fast</span>
-                  <span class="sub">TeaCache + skip-step · ~12% faster</span>
+              <div class="pill-group cols-2" id="schedPresetGroup">
+                <button type="button" class="pill-btn active" data-sched-preset=""
+                        title="The tuned schedule every graded 2.5 clip runs (8+2 forwards).">
+                  <span>Tuned</span>
+                  <span class="sub" id="schedTunedSub">default schedule</span>
                 </button>
-                <button type="button" class="pill-btn" data-hq-speed="exact"
-                        title="TeaCache only (no skip-step). Use if a specific LoRA / prompt looks degraded under Fast.">
-                  <span>Exact</span>
-                  <span class="sub">TeaCache only · slower, reference</span>
+                <button type="button" class="pill-btn" data-sched-preset="fast"
+                        title="The engine's fast draft schedule (5+2 forwards). Renders a DIFFERENT take — the same prompt and seed land on a different shot than Tuned, so use it to explore, then re-render keepers on Tuned.">
+                  <span>Fast draft</span>
+                  <span class="sub" id="schedFastSub">different take</span>
                 </button>
               </div>
             </div>
@@ -39577,16 +39866,8 @@ async function charactersLoadParams(p) {
     throw new Error(`character ${p.character_id} not in list`);
   }
 
-  // Restore skip-step toggle BEFORE selecting the character — that way
-  // _setCharacterQuality (called via selectManualCharacter) reads the
-  // restored state and writes the right values into the hidden inputs.
-  // If the sidecar has no skip-step value (older clips, non-Codex
-  // renders) default to ON, matching the new default behavior.
-  const skipToggle = document.getElementById('charSkipstepToggle');
-  if (skipToggle) {
-    const v = String(p.video_skip_step ?? p.audio_skip_step ?? '1');
-    skipToggle.checked = (v !== '0');
-  }
+  // (Skip-step restore removed in v4.0.5 — the control was dead at the
+  // engine boundary, so an old sidecar's value has nothing to restore into.)
 
   // Pre-select character. selectManualCharacter() writes the id to the
   // hidden #characterIdInput, appends the trigger to the prompt
@@ -40983,9 +41264,6 @@ function setQuality(q) {
   updateAccelAvailability();
   updateTemporalAvailability();
   updateCustomizeSummary();
-  if (typeof _applyHqSpeedRowVisibility === 'function') {
-    try { _applyHqSpeedRowVisibility(); } catch (_) {}
-  }
   if (typeof _applyStgRowVisibility === 'function') {
     try { _applyStgRowVisibility(); } catch (_) {}
   }
@@ -41137,8 +41415,17 @@ function updateCustomizeSummary() {
   if (q !== 'quick' && (w !== expectedW || h !== expectedH)) {
     parts.push(`${w}×${h} custom`);
   }
-  // Speed
-  parts.push(accel === 'off' ? 'exact speed' : (accel === 'boost' ? 'boost' : 'turbo'));
+  // Speed — say something ONLY when a non-default accel is set (an old
+  // sidecar restore). "exact speed" used to print whenever accel was off,
+  // while the separate HQ Speed control defaulted to Fast — the summary
+  // could contradict the open panel. That control is gone (v4.0.5, dead at
+  // the engine boundary), and a default deserves no words.
+  if (accel === 'boost' || accel === 'turbo') parts.push(accel);
+  // The REAL speed control: the folded-away disclosure must name a
+  // non-default schedule, because it changes the take, not just the clock.
+  if (typeof schedPresetActive === 'function' && schedPresetActive()) {
+    parts.push('fast draft · different take');
+  }
   if ((document.getElementById('temporal_mode')?.value || 'native') === 'fps12_interp24') {
     parts.push('12→24fps long clip');
   }
@@ -41559,7 +41846,7 @@ function h3SpeedSub(which) {
   }
   const t = h3TurboState();
   if (!t.downloaded && !t.install_available) return 'adapter asset pending';
-  if (!t.downloaded) return (t.download_gb || 1.4) + ' GB download';
+  if (!t.downloaded) return (t.download_gb || 2.0) + ' GB download';
   const eta = cell && cell.turbo_eta ? _h3EtaPlain(cell.turbo_eta) : '';
   return eta || '4-step adapter';
 }
@@ -41591,11 +41878,15 @@ function renderH3Turbo() {
     : ' Estimated for this shape: Turbo runs ' + ((tier && tier.turbo_forwards) || 3)
       + ' forwards instead of ' + ((tier && tier.forwards) || 8)
       + ', over the same fixed load/decode time. Not measured at this canvas.';
+  const fallbackNote = (t.downloaded && t.fallback && t.adapter_version)
+    ? ' Running the ' + t.adapter_version + ' fallback adapter — the v1.0 '
+      + 'download replaces it.'
+    : '';
   pill.title = t.downloaded
-    ? (t.note || '') + basis
+    ? (t.note || '') + basis + fallbackNote
     : (t.install_available
       ? 'Downloads the LightX2V v1.0 runner-layout adapter (~'
-        + (t.download_gb || 1.4) + ' GB) into the H3 pack.'
+        + (t.download_gb || 2.0) + ' GB) into the H3 pack.'
       : (t.install_note || 'The runner-layout adapter release asset is pending.'));
   // The pack could have gone away (or arrived) since boot without a reload.
   if (!t.available && (document.getElementById('h3_turbo') || {}).value === '1') {
@@ -41678,7 +41969,7 @@ async function h3TurboClick() {
     }
     return;
   }
-  const gb = t.download_gb || 1.4;
+  const gb = t.download_gb || 2.0;
   if (!confirm('Download the H3 Turbo adapter?\n\n'
              + '~' + gb + ' GB, into the H3 pack’s models folder.\n'
              + 'The LightX2V source adapter is Apache-2.0.\n\n'
@@ -42015,6 +42306,12 @@ function renderTierAxes(engine) {
     note.textContent = txt;
     note.hidden = !txt;
   }
+  // Every LTX repaint settles the Speed row too — one hook covers boot,
+  // shape changes, Load Params and engine switches, and the function
+  // deliberately clears the preset without re-entering this repaint.
+  if (engine === 'ltx' && typeof _applySchedPresetRowVisibility === 'function') {
+    try { _applySchedPresetRowVisibility(); } catch (e) {}
+  }
 }
 // The shipped name, kept so every H3 call site is unchanged.
 function renderH3Axes() { return renderTierAxes('h3'); }
@@ -42077,6 +42374,14 @@ function ltxCurrentCell() {
 function ltxCellEta(cell) {
   if (!cell) return '';
   if (cell.eta === 'custom') return 'custom';
+  // Chips must not advertise the tuned wall clock while the Fast draft
+  // schedule is armed — the same lie the H3 Turbo repaint exists to kill.
+  // fast_eta exists only on cells that can run the preset (server-stamped),
+  // so HQ cells keep their own number untouched.
+  if (cell.fast_eta && typeof schedPresetActive === 'function'
+      && schedPresetActive()) {
+    return cell.fast_eta + ' · fast draft';
+  }
   const tail = (cell.pack === 'q8' && cell.pipeline === 'hq') ? ' · Q8 HQ' : '';
   return (cell.eta || '') + tail;
 }
@@ -43228,8 +43533,11 @@ function snapFramesTo8kPlus1() {
   if (!el) return;
   const v = parseInt(el.value) || 0;
   if (v < 1) { el.value = 9; return; }
-  // Nearest 8k+1: round (v-1)/8 to nearest int, multiply back, +1.
-  const k = Math.max(1, Math.round((v - 1) / 8));
+  // FLOOR to the 8k+1 grid — never up. Math.round could snap 100 → 105,
+  // which broke the "never render more than you asked for" promise the
+  // hint makes; the server (make_job) floors the same way, so what the box
+  // settles on is what the job records and what the engine delivers.
+  const k = Math.max(1, Math.floor((v - 1) / 8));
   const snapped = k * 8 + 1;
   if (snapped !== v) {
     el.value = snapped;
@@ -43292,14 +43600,30 @@ function updateDerived() {
   const warns = [];
   // Hailuo H3 counts frames on a 17n+5 grid, not LTX's 8k+1, and its tiers
   // are fixed — so the 8k+1 nudge is not just irrelevant there, it's wrong
-  // (it told the user 124 was a mistake when 124 is the HQ·5s tier). The
-  // 32-alignment rule holds for both engines and stays.
+  // (it told the user 124 was a mistake when 124 is the HQ·5s tier). H3's
+  // canvas rule is /32 (its runner's own grid, stamped from the tier cell
+  // anyway); every LTX lane is TWO-STAGE and floors the canvas to /64 —
+  // warning about /32 there let a 1000-wide request pass while the engine
+  // rendered 960 with a sidecar claiming 1000 (the CUSTOMIZE audit's
+  // "Width × Height LIES" row). Each warning states what WILL render;
+  // make_job normalizes the job to the same numbers.
   const _h3Active = document.body.dataset.engine === 'h3';
-  if (w % 32 !== 0) warns.push(`Width ${w} isn't a multiple of 32 (closest ${Math.round(w/32)*32})`);
-  if (h % 32 !== 0) warns.push(`Height ${h} isn't a multiple of 32 (closest ${Math.round(h/32)*32})`);
+  const _grid = _h3Active ? 32 : 64;
+  if (w % _grid !== 0) {
+    const eff = Math.max(_grid, Math.floor(w / _grid) * _grid);
+    warns.push(_h3Active
+      ? `Width ${w} isn't a multiple of 32 (closest ${Math.round(w / 32) * 32})`
+      : `Width ${w} renders at ${eff} — the two-stage engine needs multiples of 64`);
+  }
+  if (h % _grid !== 0) {
+    const eff = Math.max(_grid, Math.floor(h / _grid) * _grid);
+    warns.push(_h3Active
+      ? `Height ${h} isn't a multiple of 32 (closest ${Math.round(h / 32) * 32})`
+      : `Height ${h} renders at ${eff} — the two-stage engine needs multiples of 64`);
+  }
   if (!_h3Active && f > 1 && (f - 1) % 8 !== 0) {
-    const closest = Math.max(1, Math.round((f - 1) / 8) * 8 + 1);
-    warns.push(`Frames work best as 8k+1 (closest ${closest})`);
+    const eff = Math.max(1, Math.floor((f - 1) / 8) * 8 + 1);
+    warns.push(`Frames snap down to ${eff} (the 8k+1 grid)`);
   }
   if (temporal === 'fps12_interp24') {
     warns.push('12→24fps is experimental; check dialogue lip-sync and fast motion');
@@ -45677,6 +46001,12 @@ async function loadParams() {
   if (p.width) document.getElementById('width').value = p.width;
   if (p.height) document.getElementById('height').value = p.height;
   if (p.accel) setAccel(p.accel);
+  // Schedule preset round-trips from day one (the journey audit's rule: a
+  // new field ships WITH its restore path or it joins the 20 orphans).
+  // Always applied — a clip rendered on Tuned must clear a leftover Fast.
+  if (typeof setSchedPreset === 'function') {
+    try { setSchedPreset(p.schedule_preset || ''); } catch (e) {}
+  }
   if (p.temporal_mode) setTemporalMode(p.temporal_mode);
   if (p.upscale) setUpscale(p.upscale);
   if (p.upscale_method) setUpscaleMethod(p.upscale_method);
@@ -45751,8 +46081,46 @@ async function loadParams() {
   if (restoredStartImage) pickerSetImage('start_image', restoredStartImage, { snapAspect: false });
   if (restoredEndImage)   pickerSetImage('end_image', restoredEndImage, { snapAspect: false });
   if (p.audio) document.getElementById('audio').value = p.audio;
-  // Extend-specific: restore source video path
+  // Extend-specific: restore the WHOLE request, not just the source path.
+  // Duration, direction, sampler depth and CFG were all saved to the sidecar
+  // and never read back — a Load Params + Generate on an Extend silently
+  // re-rendered with the defaults (journey audit, High).
   if (p.video_path) document.getElementById('video_path').value = p.video_path;
+  if (p.mode === 'extend') {
+    const extFrames = parseInt(p.extend_frames, 10);
+    if (Number.isFinite(extFrames) && extFrames > 0) {
+      const fEl = document.getElementById('extend_frames');
+      const sEl = document.getElementById('extend_seconds');
+      if (fEl) fEl.value = String(extFrames);
+      // extend_frames counts LATENT frames (8 video frames each at 24 fps);
+      // the visible seconds field derives from it, then the sync refreshes
+      // the hint line with the same arithmetic the input handler uses.
+      if (sEl) sEl.value = String((extFrames * 8) / 24);
+      if (typeof syncExtendDuration === 'function') {
+        try { syncExtendDuration(); } catch (_) {}
+      }
+    }
+    if (p.extend_direction) {
+      const dEl = document.getElementById('extend_direction');
+      if (dEl) dEl.value = p.extend_direction;
+    }
+    const extSteps = parseInt(p.extend_steps, 10);
+    const extCfg = parseFloat(p.extend_cfg);
+    if (Number.isFinite(extSteps)) {
+      const el = document.getElementById('extend_steps');
+      if (el) el.value = String(extSteps);
+    }
+    if (Number.isFinite(extCfg)) {
+      const el = document.getElementById('extend_cfg');
+      if (el) el.value = String(extCfg);
+    }
+    // Reflect the Fast/Quality pills: light the preset that matches the
+    // restored values; a hand-set API pair lights neither (it IS custom).
+    const extMode = (extSteps === 30 && extCfg === 3.0) ? 'quality'
+                  : (extSteps === 12 && extCfg === 1.0) ? 'fast' : '';
+    document.querySelectorAll('#extendModeGroup .pill-btn').forEach(b =>
+      b.classList.toggle('active', !!extMode && b.dataset.extendMode === extMode));
+  }
   if (p.label) document.getElementById('preset_label').value = p.label;
 
   // Manual-tab Characters picker — restore the selection if the sidecar
@@ -45765,32 +46133,61 @@ async function loadParams() {
   // submission.
   let lorasForPicker = Array.isArray(p.loras) ? p.loras : null;
   if (p.character_id && typeof refreshManualCharacters === 'function') {
-    // Re-pull the list so selectManualCharacter has fresh data, then
-    // pick the saved character if it still exists on disk.
-    (async () => {
-      try { await refreshManualCharacters(); } catch (_) {}
+    // AWAITED, and through the real cascade (v4.0.5, owner-reported): the
+    // old restore was a fire-and-forget IIFE that wrote _selectedCharacterId
+    // and the hidden input directly — no avatar ring on slow registry loads,
+    // no quality-strip swap, "Loaded" flashed before the cast existed, and
+    // a character deleted since the render restored to silence. loadParams
+    // is async; there is nothing to gain by not waiting.
+    try { await refreshManualCharacters(); } catch (_) {}
+    const exists = (_manualCharacters || []).some(c => c.id === p.character_id);
+    if (exists) {
+      // The non-toggling hydrator: full cascade, no trigger injection (the
+      // sidecar prompt, already restored above, carries the trigger).
+      try { applyCharacterSelection(p.character_id); } catch (_) {}
+      // The cascade snaps the character-quality strip to its default chip,
+      // which stomps quality + dims — re-assert the CLIP's own record.
+      // Chip first (by the UI token the sidecar carries), then dims.
       try {
-        const exists = (_manualCharacters || []).some(c => c.id === p.character_id);
-        if (exists) {
-          // Set hidden input directly — selectManualCharacter would
-          // also append the trigger word, but loadParams already set
-          // the prompt from the sidecar so re-injecting would duplicate.
-          _selectedCharacterId = p.character_id;
-          const inp = document.getElementById('characterIdInput');
-          if (inp) inp.value = p.character_id;
-          if (typeof _renderManualCharactersList === 'function') {
-            _renderManualCharactersList();
-          }
+        const chipKey = String(p.quality_choice || '').toLowerCase();
+        const strip = document.getElementById('qualityGroupCharacter');
+        const chip = chipKey && strip
+          ? strip.querySelector(`[data-char-quality="${chipKey}"]`) : null;
+        if (chip && typeof _setCharacterQuality === 'function') {
+          _setCharacterQuality(chip, { allowMissing: true });
         }
       } catch (_) {}
-    })();
+      if (p.quality) document.getElementById('quality').value = p.quality;
+      if (p.width) document.getElementById('width').value = p.width;
+      if (p.height) document.getElementById('height').value = p.height;
+      if (p.frames) document.getElementById('frames').value = p.frames;
+      // Explicit No-voice restore (provenance: the sidecar's own value).
+      // Marking it touched stops the prompt auto-default from overriding
+      // a value the user explicitly rendered with.
+      const nv = document.getElementById('noVoice');
+      if (nv && p.no_voice != null && p.no_voice !== '') {
+        nv.checked = (p.no_voice === 'on' || p.no_voice === true
+                      || p.no_voice === 'true');
+        if (typeof markNoVoiceTouched === 'function') markNoVoiceTouched();
+      }
+    } else {
+      // FAIL VISIBLY. The saved cast is gone from disk; restoring the rest
+      // of the form silently is how the owner's clip reopened castless with
+      // a green "Loaded" flash on top.
+      if (typeof phosToast === 'function') {
+        phosToast(`This clip's character "${p.character_id}" is no longer in `
+                  + 'the library — everything else was restored, but the '
+                  + 'cast could not be. Re-train or re-download it to '
+                  + 're-render this clip faithfully.', { kind: 'danger' });
+      }
+    }
     // BOTH strengths, because the character has two and the sidecar records
     // two. Only the face was restored here, so a clip rendered with a
     // deliberately hotter or colder voice reopened with the voice silently
     // back at its default — Load Params quietly changing the render it claims
     // to reload. The hidden inputs are the source the strip re-renders from,
     // so setting them and re-rendering restores both sliders and the value the
-    // next submit will send.
+    // next submit will send. AFTER the selection cascade, which resets both.
     _restoreCharacterStrengths(p);
     // Strip the character's face/audio LoRA paths out of the loras list
     // so the picker doesn't show duplicate state. The backend will
@@ -45881,6 +46278,28 @@ async function loadParams() {
     }
     const _seedEl = document.getElementById('seed');
     if (_seedEl && _seedBefore != null) _seedEl.value = _seedBefore;
+  }
+
+  // STG round-trips (journey audit, High): the slider only means anything on
+  // an effective HQ pipeline, and a sidecar without the field means the
+  // render ran without it — so absence resets to Off instead of leaving a
+  // stale slider armed for the next submit.
+  const _stgEl = document.getElementById('stgScale');
+  if (_stgEl) {
+    const stg = parseFloat(p.stg_scale);
+    const val = Number.isFinite(stg) ? Math.max(0, Math.min(4, stg)) : 0;
+    _stgEl.value = String(val);
+    const lbl = document.getElementById('stgScaleValue');
+    if (lbl) lbl.textContent = val === 0 ? 'Off' : val.toFixed(1);
+    if (typeof _applyStgRowVisibility === 'function') {
+      try { _applyStgRowVisibility(); } catch (_) {}
+    }
+  }
+  // Repaint the LTX strips AFTER frames landed (journey audit, High): the
+  // programmatic frame assignment fires no input event, so a loaded
+  // 10-second clip used to sit under a Length chip still lit at 5 s.
+  if (_eng !== 'h3' && typeof renderTierAxes === 'function') {
+    try { renderTierAxes('ltx'); } catch (_) {}
   }
 
   updateCustomizeSummary();
@@ -46098,6 +46517,10 @@ function renderOutputInfoBody(path, data) {
   if (p.accel && p.accel !== 'off') {
     genRows.push(`<dt>Speed</dt><dd>${escapeHtml(p.accel.replace(/^./, c => c.toUpperCase()))}</dd>`);
   }
+  // A non-default schedule changed the take, so the record must name it.
+  if (p.schedule_preset && p.schedule_preset !== 'default') {
+    genRows.push(`<dt>Schedule</dt><dd>${escapeHtml(String(p.schedule_preset))} · draft schedule — a different take than Tuned</dd>`);
+  }
   if (accelMetrics && p.accel && p.accel !== 'off') {
     const cachedCount = accelMetrics.cached_steps_count || 0;
     const totalSteps = accelMetrics.total_steps || p.steps || 0;
@@ -46312,6 +46735,7 @@ document.getElementById('genForm').addEventListener('submit', async e => {
     fd.set('negative_prompt', '');   // guidance-distilled: no unconditional branch
     fd.set('character_id', '');      // character LoRAs are an LTX construct
     fd.set('no_voice', '');          // only ever meant "skip the character's voice LoRA"
+    fd.set('schedule_preset', '');   // an LTX-2.5 distilled schedule; H3 has its own axes
     // `loras` IS NOT SCRUBBED, and the line that used to scrub it said "the H3
     // runner stacks nothing" — true when it was written, false since the H3
     // LoRA import shipped in 3.7.0. H3 takes ONE adapter from its own family
@@ -46453,10 +46877,12 @@ document.getElementById('genForm').addEventListener('submit', async e => {
   // No voice — drops the character's audio LoRA server-side (see
   // make_job character_id branch) AND nudges the prompt toward ambient
   // audio so the model doesn't fill the silence with generic speech.
-  // The toggle is only visible when a voice-capable character is
-  // selected, so we don't need to gate by character state here.
+  // GATED on a cast character: "only visible when a character is selected"
+  // was the old justification for not checking, and the journey audit
+  // showed the hidden checkbox could stay checked across a mode switch —
+  // quietly rewriting a plain T2V prompt with a no-speech constraint.
   const noVoice = document.getElementById('noVoice');
-  if (noVoice && noVoice.checked) {
+  if (noVoice && noVoice.checked && (fd.get('character_id') || '')) {
     const original = fd.get('prompt') || '';
     const constraint = ' Audio: ambient sounds and environmental noise only, no speech, no dialogue, no narration.';
     if (!original.toLowerCase().includes('no speech') &&
@@ -48812,18 +49238,27 @@ function _renderCharsAppliedNote() {
   // voice to skip.
   const note = document.getElementById('charsAppliedNote');
   const voicePill = document.getElementById('noVoicePill');
+  // A hidden No-voice pill must never keep a live checkbox: leaving the
+  // check behind let a character-mode "No voice" ride into a later PLAIN
+  // render's prompt as a no-speech constraint (journey audit, High). The
+  // silent-character branch below already cleared it; these two paths —
+  // no selection, selection no longer on disk — did not.
+  const _clearNoVoice = () => {
+    const cb = document.getElementById('noVoice');
+    if (cb) cb.checked = false;
+  };
   if (!note) return;
   if (!_selectedCharacterId) {
     note.hidden = true;
     note.innerHTML = '';
-    if (voicePill) voicePill.hidden = true;
+    if (voicePill) { voicePill.hidden = true; _clearNoVoice(); }
     return;
   }
   const c = _manualCharacters.find(x => x.id === _selectedCharacterId);
   if (!c) {
     note.hidden = true;
     note.innerHTML = '';
-    if (voicePill) voicePill.hidden = true;
+    if (voicePill) { voicePill.hidden = true; _clearNoVoice(); }
     return;
   }
   // Show the No-voice pill only when the active character actually has
@@ -49727,21 +50162,20 @@ async function _charactersManageDelete(cid, btn) {
   }
 }
 
-function selectManualCharacter(id) {
-  // Click-to-toggle: clicking the currently-active avatar deselects it
-  // (2026-05-18 round 3 — the explicit "None" chip is gone; this is
-  // how the user clears a selection now). Passing id === '' also
-  // deselects, kept for callsites that always want to clear.
-  const next = (id === _selectedCharacterId) ? '' : (id || '');
-  _selectedCharacterId = next;
+// The NON-TOGGLING setter — the one safe hydrator (journey audit's fix for
+// the owner-reported cast-restore failure). Sets the selection to exactly
+// `id` ('' clears), runs the FULL cascade — hidden input, avatar ring,
+// quality-strip swap, applied-note/No-voice sync — and never injects the
+// trigger into the prompt (Load Params restores the prompt verbatim from
+// the sidecar, which already carries it). Click handlers decide toggle
+// semantics; hydrators call this directly.
+function applyCharacterSelection(id, opts) {
+  opts = opts || {};
+  _selectedCharacterId = id || '';
   const inp = document.getElementById('characterIdInput');
   if (inp) inp.value = _selectedCharacterId;
-  // Auto-insert the trigger word into the prompt so the user doesn't
-  // have to remember + retype it. Same UX the LoRA picker uses on
-  // toggle (single biggest source of "I selected it but it didn't fire"
-  // is the trigger missing from the prompt). Idempotent — skips if the
-  // word is already present, case-insensitive.
-  if (_selectedCharacterId) {
+  // Trigger injection is CLICK behaviour, not hydration behaviour.
+  if (_selectedCharacterId && opts.injectTrigger) {
     const c = _manualCharacters.find(x => x.id === _selectedCharacterId);
     if (c && c.trigger && typeof appendTriggerToPrompt === 'function') {
       try { appendTriggerToPrompt(c.trigger); } catch (_) {}
@@ -49757,6 +50191,16 @@ function selectManualCharacter(id) {
   // here AND after refreshManualCharacters() boot so the visibility
   // state is correct even on first paint.
   _applyCharacterQualityStripVisibility();
+}
+
+function selectManualCharacter(id) {
+  // Click-to-toggle: clicking the currently-active avatar deselects it
+  // (2026-05-18 round 3 — the explicit "None" chip is gone; this is
+  // how the user clears a selection now). Passing id === '' also
+  // deselects, kept for callsites that always want to clear. The actual
+  // state change + cascade live in applyCharacterSelection.
+  const next = (id === _selectedCharacterId) ? '' : (id || '');
+  applyCharacterSelection(next, { injectTrigger: true });
 }
 
 // Toggle the visibility of the default vs character-only quality strips
@@ -49791,19 +50235,9 @@ function _applyCharacterQualityStripVisibility() {
     if (typeof setQuality === 'function') {
       try { setQuality('balanced'); } catch (_) {}
     }
-    // 2026-05-17 bug 1.1 (code-review caught): this branch USED to call
-    // _setSkipStepEnabled(false) here. That was destructive because:
-    //   * at boot, _updateCharsPickerVisibility('t2v') fires this else
-    //     branch (no character selected yet) — and the call clobbered
-    //     the HTML-default-active Fast pill BEFORE the user ever got
-    //     to Character mode. First character render then went out with
-    //     skip_step=0, missing the Codex 12.6% optimization.
-    //   * the HQ-speed pills in Customize are the source of truth for
-    //     skip-step now (Pass 6). The character mode cascade should
-    //     not be touching that state independently.
-    // Leaving skip-step where the user put it is the correct semantic:
-    // a user who picked "Fast" in HQ-speed before selecting a character
-    // gets Fast when they deselect that character too.
+    // (History: a skip-step reset used to live here; the whole HQ Speed
+    // control was removed in v4.0.5 after the audit proved it dead at
+    // the engine boundary, so there is no skip-step state to manage.)
   }
 }
 
@@ -49836,87 +50270,80 @@ function _setCharacterQuality(btn, opts) {
   const vertical = aspect && aspect.value === 'vertical';
   if (wInp) wInp.value = vertical ? h : w;
   if (hInp) hInp.value = vertical ? w : h;
-  // Skip-step state — Pass 6 moved the toggle to Customize "HQ speed",
-  // but the legacy #charSkipstepToggle stub still exists for Load Params
-  // restoration. Read whichever is the current source of truth: prefer
-  // the new HQ-speed pill state (if Fast pill active, skip=on); fall
-  // back to the legacy checkbox; default ON.
-  const hqGroup = document.getElementById('hqSpeedGroup');
-  const fastActive = hqGroup
-    ? hqGroup.querySelector('[data-hq-speed="fast"]')?.classList.contains('active')
-    : true;
-  const skipToggle = document.getElementById('charSkipstepToggle');
-  const skipOn = (hqGroup ? !!fastActive : (skipToggle ? !!skipToggle.checked : true));
-  _setSkipStepEnabled(skipOn);
+  // (Skip-step application removed in v4.0.5 — the HQ Speed control was
+  // dead at the engine boundary and no longer exists.)
   if (typeof setUpscale === 'function') {
     try { setUpscale('fit_720p'); } catch (_) {}
   }
   if (typeof updateCustomizeSummary === 'function') {
     try { updateCustomizeSummary(); } catch (_) {}
   }
-  // Quality is now 'high'; reveal the HQ-speed row + STG slider.
-  if (typeof _applyHqSpeedRowVisibility === 'function') {
-    try { _applyHqSpeedRowVisibility(); } catch (_) {}
-  }
+  // Quality is now 'high'; reveal the STG slider.
   if (typeof _applyStgRowVisibility === 'function') {
     try { _applyStgRowVisibility(); } catch (_) {}
   }
 }
 
-// Skip-step boost toggle handler. Writes 1/0 into the hidden form
-// inputs that the backend HQ pipeline reads. Standalone function so
-// _setCharacterQuality can re-apply on each chip click + the checkbox
-// onchange handler can call it directly. Also keeps the new Customize
-// "HQ speed" pill row in sync (Pass 6 — the toggle moved out of the
-// Character chip area into Customize).
-function _setSkipStepEnabled(enabled) {
-  const v = enabled ? '1' : '0';
-  const vSkip = document.getElementById('video_skip_step');
-  const aSkip = document.getElementById('audio_skip_step');
-  if (vSkip) vSkip.value = v;
-  if (aSkip) aSkip.value = v;
-  // Mirror state into the new HQ-speed pill row + the legacy checkbox.
-  const group = document.getElementById('hqSpeedGroup');
-  if (group) {
-    const want = enabled ? 'fast' : 'exact';
-    group.querySelectorAll('.pill-btn').forEach(b =>
-      b.classList.toggle('active', b.dataset.hqSpeed === want));
-  }
-  const cb = document.getElementById('charSkipstepToggle');
-  if (cb) cb.checked = enabled;
-}
+// (v4.0.5) _setSkipStepEnabled, _wireHqSpeedPills and
+// _applyHqSpeedRowVisibility are gone with the HQ Speed control: the
+// hidden inputs they wrote were dropped at the engine boundary, so the
+// entire cluster managed state that never reached a render.
 
-// Wire the new Customize "HQ speed" pills (Fast / Exact). Pill click
-// flips the hidden skip-step inputs via _setSkipStepEnabled — same
-// plumbing the character-only toggle used before, just relocated.
-// Visibility (show only when quality=high) is handled separately by
-// _applyHqSpeedRowVisibility called from setQuality + _setCharacterQuality.
-function _wireHqSpeedPills() {
-  const group = document.getElementById('hqSpeedGroup');
+// ---- Speed (LTX-2.5 distilled schedule preset) -----------------------------
+// The REAL speed control that replaced the dead one. Server-owned gating:
+// the row shows only when the current tier cell carries `fast_eta`, which
+// the registry stamps only on 2.5 distilled cells.
+function setSchedPreset(v) {
+  const val = (v === 'fast') ? 'fast' : '';
+  const inp = document.getElementById('schedule_preset');
+  if (inp) inp.value = val;
+  document.querySelectorAll('#schedPresetGroup [data-sched-preset]').forEach(b =>
+    b.classList.toggle('active', (b.dataset.schedPreset || '') === val));
+  // Chips re-price under the preset (ltxCellEta reads the hidden input), the
+  // summary names the state — same discipline as H3's Turbo repaint.
+  if (typeof renderTierAxes === 'function') { try { renderTierAxes('ltx'); } catch (e) {} }
+  if (typeof updateDerived === 'function') { try { updateDerived(); } catch (e) {} }
+  if (typeof updateCustomizeSummary === 'function') { try { updateCustomizeSummary(); } catch (e) {} }
+}
+function schedPresetActive() {
+  return (document.getElementById('schedule_preset') || {}).value === 'fast';
+}
+function _applySchedPresetRowVisibility() {
+  const row = document.getElementById('schedPresetRow');
+  if (!row) return;
+  let cell = null;
+  try { cell = ltxCellFor(ltxCurrentQuality(), ltxCurrentLength()); } catch (e) {}
+  const offered = !!(cell && cell.fast_eta)
+    && document.body.dataset.engine !== 'h3';
+  row.hidden = !offered;
+  // A preset the current lane cannot run must not ride on the form — the
+  // server would drop it anyway (make_job gates it), this keeps the UI and
+  // the wire agreeing. Moving to an HQ tier or H3 resets the pill to Tuned.
+  // Direct clear (not setSchedPreset) — this runs from renderTierAxes and
+  // the setter repaints the axes, which would recurse.
+  if (!offered && schedPresetActive()) {
+    const inp = document.getElementById('schedule_preset');
+    if (inp) inp.value = '';
+    document.querySelectorAll('#schedPresetGroup [data-sched-preset]').forEach(b =>
+      b.classList.toggle('active', (b.dataset.schedPreset || '') === ''));
+  }
+  if (offered && cell) {
+    const fastSub = document.getElementById('schedFastSub');
+    if (fastSub) fastSub.textContent = cell.fast_eta + ' · different take';
+    const tunedSub = document.getElementById('schedTunedSub');
+    if (tunedSub) tunedSub.textContent = cell.eta || 'default schedule';
+  }
+}
+function _wireSchedPresetPills() {
+  const group = document.getElementById('schedPresetGroup');
   if (!group || group.dataset.wired === '1') return;
   group.dataset.wired = '1';
-  group.querySelectorAll('.pill-btn').forEach(b => {
+  group.querySelectorAll('[data-sched-preset]').forEach(b => {
     b.addEventListener('click', (e) => {
       e.preventDefault();
-      _setSkipStepEnabled(b.dataset.hqSpeed === 'fast');
+      setSchedPreset(b.dataset.schedPreset || '');
     });
   });
-}
-
-// Show the HQ speed row only when the active quality is Q8 HQ.
-// Hiding the row deliberately does NOT touch the skip-step values —
-// the Q4 path ignores `video_skip_step` / `audio_skip_step` anyway,
-// and the HTML's default-active Fast pill is the right boot state.
-// Earlier draft reset skip-step to 0 on hide, which clobbered the
-// HTML-default Fast pill at page load (quality starts balanced →
-// row hidden → skip reset to 0 → entering Character mode then read
-// fastActive=false → first character render ran without the
-// optimization).
-function _applyHqSpeedRowVisibility() {
-  const row = document.getElementById('hqSpeedRow');
-  if (!row) return;
-  const q = document.getElementById('quality')?.value || '';
-  row.hidden = !_qualityUsesHq(q);
 }
 
 // Show the STG "detail guidance" slider only when quality=high (Q8 HQ).
@@ -49924,8 +50351,7 @@ function _applyHqSpeedRowVisibility() {
 // for Quick/Standard/Balanced. Hiding the row does NOT reset stg_scale —
 // the slider's own value persists; the make_job clamp + the helper's
 // stg_scale>0 gate mean a stale non-zero value can't engage on a Q4 render
-// anyway (the Q4 dispatch never reads stg_scale). Mirror of
-// _applyHqSpeedRowVisibility so the two HQ-only rows reveal together.
+// anyway (the Q4 dispatch never reads stg_scale).
 function _applyStgRowVisibility() {
   const row = document.getElementById('stgRow');
   if (!row) return;
@@ -50464,26 +50890,19 @@ document.addEventListener('DOMContentLoaded', () => {
   if (typeof _wireCharacterQualityChips === 'function') {
     try { _wireCharacterQualityChips(); } catch (e) {}
   }
-  // Bind the Customize "HQ speed" pills (Pass 6).
-  if (typeof _wireHqSpeedPills === 'function') {
-    try { _wireHqSpeedPills(); } catch (e) {}
-  }
-  // Boot the skip-step inputs to match the HTML's default-active Fast
-  // pill — without this, the inputs stay at "0" while the pill shows
-  // active, and the first character render misses the optimization.
-  if (typeof _setSkipStepEnabled === 'function') {
-    const fastDefault = document.querySelector('#hqSpeedGroup [data-hq-speed="fast"].active');
-    try { _setSkipStepEnabled(!!fastDefault); } catch (e) {}
+  // (HQ Speed pill wiring + skip-step boot init removed in v4.0.5 —
+  // the control was dead at the engine boundary.)
+  // Bind the Speed pills (LTX-2.5 distilled schedule preset). Visibility
+  // settles on every renderTierAxes('ltx') repaint, including boot's.
+  if (typeof _wireSchedPresetPills === 'function') {
+    try { _wireSchedPresetPills(); } catch (e) {}
   }
   // Apply correct quality-strip visibility based on whether a character
   // is already selected (e.g. restored from sidecar / Load Params).
   if (typeof _applyCharacterQualityStripVisibility === 'function') {
     try { _applyCharacterQualityStripVisibility(); } catch (e) {}
   }
-  // Apply correct HQ-speed-row + STG-slider visibility based on initial quality.
-  if (typeof _applyHqSpeedRowVisibility === 'function') {
-    try { _applyHqSpeedRowVisibility(); } catch (e) {}
-  }
+  // Apply correct STG-slider visibility based on initial quality.
   if (typeof _applyStgRowVisibility === 'function') {
     try { _applyStgRowVisibility(); } catch (e) {}
   }
@@ -50724,6 +51143,20 @@ function renderVersionPill() {
       : `Pulled ${v}. Click Stop → Start in Pinokio to apply.`;
     return;
   }
+  // Same restart affordance for a checkout that advanced UNDER this
+  // process (a promote landing while a long-lived panel serves) — the
+  // server compares HEAD-on-disk with HEAD-at-boot on every /version.
+  // Without this the 2026-08-14 incident repeats: newer code on disk,
+  // stale code in memory, and nothing anywhere saying so.
+  if (s.stale_process) {
+    pill.classList.add('pill-restart');
+    pill.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-arrow-clockwise-bold"/></svg>Restart to finish update';
+    const v = s.disk_version || s.disk_short || 'newer code';
+    pill.title = `Phosphene ${v} is on disk, but this panel process loaded `
+      + `${local} before the update landed. Click Stop → Start in Pinokio `
+      + `(or restart the panel) to load it.`;
+    return;
+  }
   // Suppressed (dev branch / dirty tree / no git).
   // 2026-05-21 — Mr Bizarro report: Reddit users on dev were confused
   // because the pill showed an old VERSION string (e.g. "2.0.5") while
@@ -50780,6 +51213,16 @@ async function versionPillClick() {
       ? "Pulled. Because this update touched Python deps / patches, use Pinokio's Update button (it reinstalls + reapplies patches). After that click Start."
       : "Pulled. Click Stop, then Start in Pinokio to apply (your queue and settings are preserved).";
     alert(tip);
+    return;
+  }
+  if ((_versionState || {}).stale_process) {
+    const s = _versionState || {};
+    alert(`Phosphene ${s.disk_version || s.disk_short || '(newer)'} is on `
+      + `disk, but this running panel loaded `
+      + `${s.local_version || s.local_short || 'an older build'} before the `
+      + `update landed.\n\nClick Stop, then Start in Pinokio (or restart `
+      + `the panel process) to load it. Your queue and settings are `
+      + `preserved.`);
     return;
   }
   const s = _versionState || {};

@@ -2488,6 +2488,14 @@ for line in sys.__stdin__:
                 num_steps=int(p.get("steps", 8)),
                 frame_rate=float(p.get("frame_rate", 24.0)),
             )
+            # Named schedule preset for the 2.5 distilled lane ("fast" = the
+            # graded 5+2 draft schedule — a DIFFERENT take, priced in the UI).
+            # The panel gates it to the lane that defines it; the engine's
+            # resolver validates it before stage 1 spends GPU. On an older
+            # installed library _filter_unsupported_kwargs drops it with a
+            # log line, so carrying the key is forward-safe by design.
+            if p.get("schedule_preset"):
+                kwargs["schedule_preset"] = str(p["schedule_preset"])
             # Y1.037: short-clip VAE-streaming opt-out. Set the env var BEFORE
             # generate() so it propagates through the whole chain (the patched
             # decode_and_stream reads os.environ at decode call time).
@@ -2845,11 +2853,12 @@ for line in sys.__stdin__:
                 # the cap IS the iteration count (not just a safety bound).
                 # Each iter is pure latent algebra — no model forwards.
                 bongmath_max_iter=int(p.get("bongmath_max_iter", 100)),
-                # Upstream HQ exposes skip_step for each modality. The MLX
-                # res_2s path now honors it as an opt-in experimental speed
-                # knob; 0 preserves the locked recipe.
-                video_skip_step=int(p.get("video_skip_step", 0)),
-                audio_skip_step=int(p.get("audio_skip_step", 0)),
+                # video_skip_step / audio_skip_step removed (v4.0.5): the
+                # pinned generate_and_save accepts neither kwarg, so
+                # _filter_unsupported_kwargs discarded them every render —
+                # the comment above this line claimed a knob that never
+                # reached the sampler. Wire MultiModalGuiderParams.skip_step
+                # explicitly if the knob is ever wanted for real.
                 # Stage-2 image-conditioning mode for I2V (HQ).
                 # "full"  = re-encode reference at full res (upstream default)
                 # "off"   = skip the full-res re-encode; saves the biggest
