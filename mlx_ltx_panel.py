@@ -7226,10 +7226,20 @@ LTX_LATENT_CELL = 32
 # percent, which is why `_fmt_eta` prints no decimals.
 LTX_FWD_COEFF = 4.357242e-03
 LTX_FWD_EXPONENT = 0.9620
-# Load + text-encode, measured as the sum of the four load phases the render log
-# prints (Gemma 3.8 + encode 3.2 + transformer 3.8 + decoders 0.1). Does not
-# scale with the canvas.
-LTX_LOAD_SEC = 10.9
+# Fixed cost per render, re-measured 2026-08-14 through the REAL panel path
+# (three-arm bench on an isolated dev panel, helper restarted before each arm
+# so every render pays the load, GPU locks held):
+#   standard 5s  230.1 s measured − 198.7 s modelled denoise+decode = 31.4 s
+#   balanced 5s  162.5 s measured − 131.9 s                          = 30.6 s
+# The old 10.9 was the sum of the four LOAD PHASES the render log prints
+# (Gemma 3.8 + encode 3.2 + transformer 3.8 + decoders 0.1) — but a real
+# render also pays helper spawn, job plumbing, the encode/mux tail and the
+# sidecar/gallery write, none of which print a phase line. Pricing only the
+# logged phases ran every model-priced chip ~20 s hot, which is the
+# owner-reported "Standard says 3 min but it isn't" half of the ETA bug
+# (the High half was a stale-geometry measured row — see LTX_MEASURED_ETA).
+# Does not scale with the canvas.
+LTX_LOAD_SEC = 31.0
 # VAE decode + audio + mux, 15.3 s at 1024×576×121, linear in pixel-frames.
 LTX_DECODE_SEC_PER_PX_FRAME = 15.3 / float(1024 * 576 * 121)
 
@@ -7291,15 +7301,31 @@ def ltx_estimate_minutes(w: int, h: int, frames: int,
 # mistake this table exists to prevent. It is a good seed for the model, not a
 # measurement.
 LTX_MEASURED_ETA: dict[tuple[str, str, str, str], tuple[float, str]] = {
-    # LTX-2.5, q8, distilled 8+2 — the schedule shipped on codex/ltx25-sched
-    # (dfee6cf). The confirmation render is byte-identical (sha256 b831a821…)
-    # to the arm the owner graded, so this is the clip he passed, timed.
-    ("ltx25", "balanced", "5s", "q8"): (2.32, "~2 min"),   # 139.4 s
-    # LTX-2.5, q8 + HQ add-on, two-stage HQ, modality 1.0 (25b9b8e,
-    # owner-passed). Confirmation render, env_overrides {}.
-    ("ltx25", "high",     "5s", "q8"): (4.14, "~4 min"),   # 248.5 s
-    # LTX-2.3, q8, two-stage HQ, modality 3.0 — the SFT value 2.3 keeps.
-    ("ltx23", "high",     "5s", "q8"): (5.08, "~5 min"),   # 304.5 s
+    # LTX-2.5, q8 + HQ add-on, 1280×704 @ 10+3, CFG 3.0, TeaCache 1.8, conv
+    # decoder — the High-tier lab's pinned control (notes/hq704_tier_lab.md,
+    # 2026-08-14): 408.19 s end to end, GPU locks held, panel idle. The
+    # same-day panel render on the older ltx25.1 runtime measured 491 s, and
+    # "~7 min" is the lab's own recommended honest label — it covers the
+    # panel-path overhead the harness number doesn't. The previous row here
+    # (248.5 s, "~4 min") was measured at 1024×576 @ 8+3 — a recipe the lane
+    # never actually ran (the HQ dispatch setdefaults stage1=10, Characters
+    # resolved High to 1280×704), which is exactly the owner-reported
+    # "says 4 min, takes 8" drift. Geometry rule enforced the hard way.
+    ("ltx25", "high",     "5s", "q8"): (6.8, "~7 min"),    # 408.2 s + overhead
+    # The three distilled 5s cells, 2026-08-14 three-arm bench through the
+    # REAL panel path: isolated dev panel, /run submissions, helper restarted
+    # before each arm so every render pays the load, GPU locks held, M4 Max
+    # 64 GB. These are what a user actually waits, spawn to gallery. Note
+    # Quick ≈ Balanced at 5 s: per-forward and decode floors dominate at
+    # 640×448 (measured 123 s denoise vs 58 s modelled), which is exactly why
+    # these are measured rather than trusted to the power law. The previous
+    # balanced row (139.4 s) was keyed "q8" — the balanced cell looks up with
+    # its actual pack "q4", so that row never matched and the chip always
+    # printed the model. The old ltx23 high row (304.5 s) died with the
+    # 1024×576 geometry it was measured at.
+    ("ltx25", "quick",    "5s", "q4"): (2.70, "~3 min"),   # 161.8 s bench
+    ("ltx25", "balanced", "5s", "q4"): (2.71, "~3 min"),   # 162.5 s bench
+    ("ltx25", "standard", "5s", "q4"): (3.84, "~4 min"),   # 230.1 s bench
 }
 
 # The four tier notes. Python constants on the same four-hop path
@@ -7311,7 +7337,8 @@ LTX_MEASURED_ETA: dict[tuple[str, str, str, str], tuple[float, str]] = {
 # exist for them.
 _LTX_TIER_HIGH_NOTE_BASE = (
     "High runs a second, larger pass over the first one — sharper detail and "
-    "steadier motion, for roughly twice the wait."
+    "steadier motion, for roughly twice the wait. Peaks near 50 GB, so it "
+    "wants a 64 GB Mac."
 )
 
 
@@ -7340,7 +7367,13 @@ LTX_TIER_STANDARD_NOTE = (
 # DRAFT-lane verdict and retuning HQ stage 2 is ungraded and out of scope.
 LTX_DISTILLED_STAGE1 = 8
 LTX_DISTILLED_STAGE2 = 2
-LTX_HQ_STAGE1 = 8
+# 10+3, per the 1280×704 High-tier lab (notes/hq704_tier_lab.md, 2026-08-14):
+# the 10+2 tail candidate saved 60.18 s but failed the owner's lip-sync ear
+# (OWNER-LIPSYNC-FAIL), so 10+3 ships. 10 also matches what the HQ dispatch
+# was already setdefault-ing ("Q8 Fast knobs: stage1=10"), so the chip stops
+# describing a schedule the lane never actually ran — the drift behind
+# "High says ~4 min but takes ~8".
+LTX_HQ_STAGE1 = 10
 LTX_HQ_STAGE2 = 3
 
 
@@ -7398,7 +7431,15 @@ def _ltx_qualities() -> dict[str, dict]:
         },
         "high": {
             "key": "high", "label": "High", "order": 3,
-            "width": 1024, "height": 576,
+            # 1280×704, the codex ship recommendation from the High-tier lab
+            # (notes/hq704_tier_lab.md, 2026-08-14: "Offer 1280×704 High on
+            # 64 GB machines: yes, using 10+3 / CFG 3.0 / TeaCache 1.8 / the
+            # convolutional decoder"). This is also the canvas the Characters
+            # lane already resolved High to, and 2.3's classic HQ canvas — the
+            # 1024×576 value here was a 2.5-era draft that made the chip price
+            # a render the lane didn't run. Measured peak 49.70 GiB, which is
+            # why the note below keeps the 64 GB requirement explicit.
+            "width": 1280, "height": 704,
             # The two-stage HQ path: dev transformer + CFG + the distilled LoRA,
             # res_2s. It needs the Q8 weights AND the High add-on, which is why
             # its chip carries `.needs-install` until both are on disk.
@@ -7494,6 +7535,26 @@ def _build_ltx_tiers() -> dict[str, dict]:
                 (version_id, q["key"], ln["key"], q["pack"]))
             if hit:
                 eta_min, eta, eta_measured = hit[0], hit[1], True
+            else:
+                # No measurement at this exact geometry — but if this QUALITY
+                # has a measured 5s row, scale that anchor by the model's own
+                # ratio between this length and 5s instead of trusting the
+                # model's absolute price. The model's absolute numbers miss
+                # per-forward and decode floors at small canvases (Quick 5s:
+                # 161.8 s measured vs 96.7 s modelled); those biases are
+                # per-quality and roughly proportional across lengths, so the
+                # ratio cancels them to first order. eta_measured stays False
+                # — this is still an estimate, just an anchored one.
+                anchor = LTX_MEASURED_ETA.get(
+                    (version_id, q["key"], "5s", q["pack"]))
+                if anchor and ln["key"] != "5s":
+                    model_5s = ltx_estimate_minutes(
+                        w, h, int(LTX_LENGTHS["5s"]["frames"]),
+                        int(q["stage1"]), int(q["stage2"]),
+                        int(q.get("stage2_evals") or 1))
+                    if model_5s > 0:
+                        eta_min = anchor[0] * (eta_min / model_5s)
+                        eta = _fmt_eta(eta_min)
             allowed = ln.get("qualities") or ()
             restricted = bool(allowed) and q["key"] not in allowed
             notes = [n for n in (q["note"], ln["note"]) if n]
@@ -17119,8 +17180,12 @@ def run_job_inner(job: dict) -> None:
                 # Defaults updated 2026-05-12 to match the 5-min sweet
                 # spot recovered from the May-10 clip 11–17 cluster
                 # (stage1=10, stage2=3, teacache=2.0). See make_job.
-                "stage1_steps": int(p.get("stage1_steps", 10)),
-                "stage2_steps": int(p.get("stage2_steps", 3)),
+                # The defaults are the SAME constants the quality table and
+                # the ETA model read — these were independent literals (10
+                # here, 8 in the table), which is how the High chip priced a
+                # schedule this lane never ran ("says ~4 min, takes ~8").
+                "stage1_steps": int(p.get("stage1_steps", LTX_HQ_STAGE1)),
+                "stage2_steps": int(p.get("stage2_steps", LTX_HQ_STAGE2)),
                 "cfg_scale": float(p.get("cfg_scale", 3.0)),
                 # STG (Spatio-Temporal Guidance) scale — driven by the
                 # "detail guidance" slider (make_job clamps to 0.0–4.0;
