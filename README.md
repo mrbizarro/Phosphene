@@ -13,7 +13,7 @@
 
 </p>
 
-> **Current release: v4.0.1.** A point release: the Update button now fails loudly instead of reporting success on stale code, and it stops deleting files it should have left alone. The HQ tier gains the live preview it had been promising, the storyboard planner keeps your characters looking like themselves and your premise on screen, and every install offer is resolved against the generation you actually have. Full notes on the [releases page](https://github.com/mrbizarro/phosphene/releases).
+> **Current release: v4.0.2.** A point release: image-to-video actually animates the picture you gave it now (the engine was throwing your image away after the first step and stamping it back at the end), a new **High · 720p** tier renders the 1280×704 canvas in about 8 minutes, characters ride the engine's native runtime-LoRA route so a trained face is no longer partly quantised away, and Enhance works again. Full notes on the [releases page](https://github.com/mrbizarro/phosphene/releases).
 
 ## Overview
 
@@ -135,8 +135,8 @@ cd phosphene
 git clone https://github.com/dgrauet/ltx-2-mlx.git ltx-2-mlx
 cd ltx-2-mlx
 git remote add fork https://github.com/mrbizarro/ltx-2-mlx.git
-git fetch fork +refs/tags/v0.14.19+ltx25.3:refs/tags/v0.14.19+ltx25.3
-git checkout v0.14.19+ltx25.3
+git fetch fork +refs/tags/v0.14.19+ltx25.4:refs/tags/v0.14.19+ltx25.4
+git checkout v0.14.19+ltx25.4
 cd ..
 
 # 2. Create the Python 3.11 venv inside ltx-2-mlx (uv-managed).
@@ -190,7 +190,7 @@ cd ..
 ./ltx-2-mlx/env/bin/python3.11 mlx_ltx_panel.py
 ```
 
-About the version pins: `mlx 0.31.2` attenuates the LTX vocoder by 22 dB. Stay on 0.31.1. `ltx-2-mlx` is pinned to the fork **tag** `v0.14.19+ltx25.3` (`mrbizarro/ltx-2-mlx`, commit `7cada57`) — v0.14.19 plus the LTX-2.5 port, because upstream has no 2.5 branch. A tag, not a bare SHA: a force-push upstream would strand every install with an un-fetchable pin and a dead Update button. The installed packages report `0.14.19+ltx25.3` and `_LTX_EXPECTED_VERSION` must match that string exactly, or every render logs a VERSION SKEW warning. `scripts/pinokio/ltx_checkout.sh` holds the pin and `node scripts/check_ltx_pin.js` enforces the agreement. `mflux 0.17.5` is the version `patch_mflux_fbcache.py` is line-targeted against. `hatchling<1.32` (in `pip-build-constraints.txt`) is a *build-time* pin: 1.32 rejects the `readme = "../../README.md"` that all three upstream packages declare, which fails the wheel build on every tag.
+About the version pins: `mlx 0.31.2` attenuates the LTX vocoder by 22 dB. Stay on 0.31.1. `ltx-2-mlx` is pinned to the fork **tag** `v0.14.19+ltx25.4` (`mrbizarro/ltx-2-mlx`, commit `ee256f5`) — v0.14.19 plus the LTX-2.5 port, because upstream has no 2.5 branch. A tag, not a bare SHA: a force-push upstream would strand every install with an un-fetchable pin and a dead Update button. The installed packages report `0.14.19+ltx25.4` and `_LTX_EXPECTED_VERSION` must match that string exactly, or every render logs a VERSION SKEW warning. `scripts/pinokio/ltx_checkout.sh` holds the pin and `node scripts/check_ltx_pin.js` enforces the agreement. `mflux 0.17.5` is the version `patch_mflux_fbcache.py` is line-targeted against. `hatchling<1.32` (in `pip-build-constraints.txt`) is a *build-time* pin: 1.32 rejects the `readme = "../../README.md"` that all three upstream packages declare, which fails the wheel build on every tag.
 
 ## Interface
 
