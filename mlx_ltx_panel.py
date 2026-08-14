@@ -7933,12 +7933,16 @@ def character_strip_payload(version_id: str | None = None) -> dict:
         tokens.extend([
             option(
                 "high", "High", "high", 1024, 576, str(high["eta"]),
-                "Two-stage High at 1024×576 with the full character LoRA stack.",
+                "Two-stage High at 1024×576. Honest note: trained faces hold "
+                "best on Q8 Pro — the High pipeline repaints fine detail the "
+                "character cannot fully control.",
             ),
             option(
                 "high720", "High · 720p", "high_720p", 1280, 704,
                 str(high720["eta"]),
-                "Two-stage High at 1280×704 with the full character LoRA stack.",
+                "Two-stage High at 1280×704. Honest note: trained faces hold "
+                "best on Q8 Pro — the High pipeline repaints fine detail the "
+                "character cannot fully control.",
             ),
         ])
 
