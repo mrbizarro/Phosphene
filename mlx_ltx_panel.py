@@ -420,11 +420,10 @@ MODEL_VERSIONS: tuple[dict, ...] = (
         # barely locks identity. On 2.5 the reasoning INVERTS: the recipe the
         # owner graded — "insane quality", voice PASS by ear — is q8 + the
         # DISTILLED pipeline at 1024x576x121, and every graded 2.5 character
-        # clip in the campaign ran that path. Forcing "high" would route
-        # characters onto a pipeline nobody has graded them on AND charge a
-        # 29.5 GB add-on for a result the q8 pack already delivers, in 139 s
-        # instead of 246 s. It lives in the registry so the two generations do
-        # not each own a copy of the rule and the markup never decides it.
+        # clip in the campaign ran that path. High is now a separately graded,
+        # explicit option; it must not replace this faster default or silently
+        # charge a 29.5 GB add-on. The default lives in the registry so the two
+        # generations do not each own a copy of the rule.
         "character_quality": "balanced",
         # NOT optional and NOT interchangeable with 2.3's. 2.5 conditions on a
         # Gemma 4 12B fine-tune (`gemma4_unified`); the vendored tower refuses
@@ -3168,7 +3167,8 @@ _CHARACTER_QUALITY_RESOLUTION = {
     # to, so this chip advertised a canvas it never delivered either.
     "draft":    (704, 384),    # ~3:30 wall for 7s, Q8, lower per-frame detail
     "balanced": (1024, 576),   # reserved for a real fast-but-quality-equal tier
-    "high":     (1024, 576),   # locked production recipe
+    "high":     (1024, 576),   # two-stage HQ character option
+    "high_720p": (1280, 704),  # two-stage HQ at the native 720p delivery canvas
 }
 
 
@@ -7315,6 +7315,12 @@ def ltx_estimate_minutes(w: int, h: int, frames: int,
 # mistake this table exists to prevent. It is a good seed for the model, not a
 # measurement.
 LTX_MEASURED_ETA: dict[tuple[str, str, str, str], tuple[float, str]] = {
+    # LTX-2.5, q8 + HQ add-on, 1024x576 x 121 @ 10+3 with the trained
+    # character stack intact. The owner has now graded this exact lane and
+    # explicitly unlocked it for Characters. Keep the character chip on this
+    # SAME row the main High tier reads; a second character-only ETA would
+    # immediately drift again.
+    ("ltx25", "high", "5s", "q8"): (4.14, "~4 min"),   # 248.5 s, panel path
     # LTX-2.5, q8 + HQ add-on, 1280×704 × 121 @ 10+3 — the owner's own render,
     # 491.03 s end to end through the panel with a character stack on it
     # (mlx_outputs/bizarrotrn_bizarro_stands_on_a_windswept.mp4.json). This row
@@ -7324,10 +7330,6 @@ LTX_MEASURED_ETA: dict[tuple[str, str, str, str], tuple[float, str]] = {
     # "says ~4 min, takes ~8". The rule is the same either way: the key that
     # owns the measurement is the key whose canvas was measured.
     ("ltx25", "high_720p", "5s", "q8"): (8.18, "~8 min"),  # 491.0 s, panel path
-    # `high` (1024×576) has NO measured row. The 248.5 s number it used to carry
-    # was taken at 8+3 and the lane has always run 10+3, so it was never this
-    # tier's price; the model prices it now and the chip says `eta_measured:
-    # false`, which is the honest state until someone times the real thing.
     # The three distilled 5s cells, 2026-08-14 three-arm bench through the
     # REAL panel path: isolated dev panel, /run submissions, helper restarted
     # before each arm so every render pays the load, GPU locks held, M4 Max
@@ -7856,45 +7858,131 @@ def character_render_quality(version_id: str | None = None) -> str:
     barely locks identity, so the character strip forces the two-stage HQ path.
     That reasoning is real and it is why the strip exists.
 
-    2.5 -> "balanced". On 2.5 the reasoning INVERTS. The recipe the owner graded
+    2.5 -> "balanced". On 2.5 the reasoning INVERTS. The default the owner graded
     — "insane quality", voice PASS by ear — is q8 + the DISTILLED pipeline at
     1024x576x121 with the face LoRA at 1.0, and every graded 2.5 character clip
-    in the campaign ran that path. Forcing `high` there would (a) route
-    characters onto a pipeline nobody has graded them on and (b) require a
-    29.5 GB add-on for a result the 30 GB q8 pack already delivers, in 139 s
-    instead of 246 s. Two mistakes, so: the graded path is the default.
+    in the campaign ran that path. High and High 720p are now explicit graded
+    options, but choosing neither must not silently require the 29.5 GB add-on.
+    The fast graded path therefore remains the default.
     """
     return str(model_version(version_id).get("character_quality") or "high")
 
 
-def character_strip_payload() -> dict:
-    """The two character chips, priced from the same table everything else uses.
+def character_strip_payload(version_id: str | None = None) -> dict:
+    """The character quality contract consumed by BOTH character surfaces.
 
-    "~2 min" here is not typed: it is the MEASURED 139.4 s row for
-    (ltx25, balanced, 5s, q8) — the character lane really does submit balanced
-    at q8, which is exactly why ltx_measured_eta takes a quant."""
-    q = character_render_quality()
+    ``draft`` and ``pro`` keep using the generation's graded default pipeline.
+    LTX-2.5 additionally offers the two real HQ qualities. Their ETA strings
+    come straight from ``LTX_TIERS`` — the same cells the main quality strip
+    renders — and their pack/pipeline fields let both clients reuse the main
+    High chip's install gate instead of inventing another one.
+    """
+    version = model_version(version_id)
+    vid = str(version["id"])
+    default_quality = character_render_quality(vid)
     pack = "q8"
-    hit = ltx_measured_eta(q, "5s", pack)
+    hit = ltx_measured_eta(default_quality, "5s", pack, vid)
     pro_eta = hit[1] if hit else _fmt_eta(
-        ltx_estimate_minutes(1024, 576, 121,
-                             LTX_QUALITIES[q]["stage1"], LTX_QUALITIES[q]["stage2"],
-                             LTX_QUALITIES[q].get("stage2_evals") or 1))
+        ltx_estimate_minutes(
+            1024, 576, 121,
+            LTX_QUALITIES[default_quality]["stage1"],
+            LTX_QUALITIES[default_quality]["stage2"],
+            LTX_QUALITIES[default_quality].get("stage2_evals") or 1,
+        )
+    )
     draft_eta = _fmt_eta(
-        ltx_estimate_minutes(704, 384, 121,
-                             LTX_QUALITIES[q]["stage1"], LTX_QUALITIES[q]["stage2"],
-                             LTX_QUALITIES[q].get("stage2_evals") or 1))
-    label = "Q8 HQ" if ltx_quality_uses_hq(q) else "Q8"
-    return {
-        "quality": q,
-        "draft": {"width": 704, "height": 384,
-                  "tier": f"{label} · {draft_eta} / 5s",
-                  "title": f"Q8 at 704×384 — faster, slightly less per-frame detail."},
-        "pro": {"width": 1024, "height": 576,
-                "tier": f"{label} · {pro_eta} / 5s · best identity",
-                "title": "Q8 at 1024×576 — the recipe the character LoRAs were "
-                         "graded on."},
+        ltx_estimate_minutes(
+            704, 384, 121,
+            LTX_QUALITIES[default_quality]["stage1"],
+            LTX_QUALITIES[default_quality]["stage2"],
+            LTX_QUALITIES[default_quality].get("stage2_evals") or 1,
+        )
+    )
+    default_lane = "Q8 HQ" if ltx_quality_uses_hq(default_quality) else "Q8"
+
+    def option(key: str, label: str, quality: str, width: int, height: int,
+               eta: str, title: str, *, best_identity: bool = False) -> dict:
+        cell = LTX_QUALITIES[quality]
+        tier = f"{'Q8 HQ' if cell['pipeline'] == 'hq' else default_lane} · {eta} / 5s"
+        if best_identity:
+            tier += " · best identity"
+        return {
+            "key": key, "label": label, "quality": quality,
+            "width": width, "height": height,
+            # Character LoRAs always fuse into q8, including the distilled
+            # Draft/Pro lane. HQ also needs the generation's add-on; the
+            # shared JS gate infers that from pipeline='hq'.
+            "pack": pack, "pipeline": cell["pipeline"],
+            "tier": tier, "title": title,
+        }
+
+    tokens = [
+        option(
+            "draft", "Q8 Draft", default_quality, 704, 384, draft_eta,
+            "Q8 at 704×384 — faster, slightly less per-frame detail.",
+        ),
+        option(
+            "pro", "Q8 Pro", default_quality, 1024, 576, pro_eta,
+            "Q8 at 1024×576 — the graded default character recipe.",
+            best_identity=True,
+        ),
+    ]
+    if vid == "ltx25":
+        high = LTX_TIERS["high_5s"]
+        high720 = LTX_TIERS["high_720p_5s"]
+        tokens.extend([
+            option(
+                "high", "High", "high", 1024, 576, str(high["eta"]),
+                "Two-stage High at 1024×576 with the full character LoRA stack.",
+            ),
+            option(
+                "high720", "High · 720p", "high_720p", 1280, 704,
+                str(high720["eta"]),
+                "Two-stage High at 1280×704 with the full character LoRA stack.",
+            ),
+        ])
+
+    payload = {
+        "quality": default_quality,  # compatibility: graded pipeline default
+        "default": "pro",
+        "tokens": tokens,
     }
+    # Keep the named rows during the bootstrap shape transition. Older clients
+    # read c.draft/c.pro; current clients iterate tokens.
+    payload.update({row["key"]: row for row in tokens})
+    return payload
+
+
+def resolve_character_quality(value: str | None,
+                              version_id: str | None = None) -> dict | None:
+    """Resolve a character UI token to the real pipeline quality + canvas.
+
+    Missing values always mean the graded ``pro`` default. Direct historic
+    pipeline names remain accepted for API/sidecar replay. On LTX-2.5, ``high``
+    now names the first-class High token; there is no reliable feature-schema
+    marker in old sidecars with which to distinguish the retired mapping.
+    """
+    payload = character_strip_payload(version_id)
+    options = {row["key"]: dict(row) for row in payload["tokens"]}
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return options[payload["default"]]
+    if raw in options:
+        return options[raw]
+    if raw == "high_720p" and "high720" in options:
+        return options["high720"]
+
+    # Historic callers submitted the actual pipeline rather than the chip
+    # token. Preserve that lane while giving Load Params a current chip key.
+    if raw in ("balanced", "high"):
+        if raw == "high" and "high" in options:
+            return options["high"]
+        row = dict(options["pro"])
+        row["quality"] = raw
+        row["pipeline"] = (LTX_QUALITIES.get(raw) or {}).get("pipeline", "distilled")
+        row["width"], row["height"] = _CHARACTER_QUALITY_RESOLUTION[raw]
+        return row
+    return None
 
 
 def ltx_measured_eta(quality: str, length: str, quant: str,
@@ -7962,7 +8050,7 @@ def ltx_tiers_payload() -> dict:
         # notice above uses `live_preview.engines` to know which jobs it is
         # even about, and `blocking` is the only thing allowed to hard-block.
         "capabilities": capabilities_state(),
-        # The character strip's two chips, and the PIPELINE they submit —
+        # The generation-scoped character tokens and the PIPELINE each submits —
         # resolved per generation so the markup never owns that rule.
         "character": character_strip_payload(),
         # What the install CTAs offer, keyed and sized from the registry for the
@@ -13752,7 +13840,26 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     prompt = override_prompt if override_prompt is not None else f("prompt", "")
     if not prompt:
         prompt = "A cinematic atmospheric scene"
-    quality = f("quality", "balanced")
+    # Resolve a character token BEFORE reading the quality cell. The two
+    # character surfaces submit ``quality_choice`` (draft/pro/high/high720),
+    # while API replay may submit the real pipeline quality. Both must become
+    # the same job dict, and High · 720p must reach ``high_720p`` rather than an
+    # unknown string that falls through to the distilled lane.
+    _character_id = f("character_id", "")
+    _quality_choice_raw = f("quality_choice", "")
+    _quality_raw = f("quality", "")
+    _character_quality = None
+    if _character_id:
+        _character_quality = resolve_character_quality(
+            _quality_choice_raw or _quality_raw, ACTIVE_MODEL_VERSION)
+        if _character_quality is None:
+            raise CharacterRequestError(
+                "character quality must be draft, pro, high or high720")
+        quality = str(_character_quality["quality"])
+        _quality_choice = str(_character_quality["key"])
+    else:
+        quality = _quality_raw or "balanced"
+        _quality_choice = _quality_choice_raw
     # THE CANVAS COMES FROM THE CELL. This was a per-quality if/elif of literal
     # sizes that had to be edited in lockstep with the registry — and once two
     # tiers shared the HQ pipeline, the `uses_hq` branch handed BOTH of them
@@ -13760,8 +13867,10 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # already states every tier's width and height; reading it is what makes a
     # sixth tier a data change instead of a code change.
     _qcell = LTX_QUALITIES.get(quality) or {}
-    default_w = int(_qcell.get("width") or 1024)
-    default_h = int(_qcell.get("height") or 576)
+    default_w = int((_character_quality or {}).get("width")
+                    or _qcell.get("width") or 1024)
+    default_h = int((_character_quality or {}).get("height")
+                    or _qcell.get("height") or 576)
     upscale = f("upscale", "fit_720p" if quality == "balanced" else "off")
     requested_upscale_method = (f("upscale_method", "lanczos") or "lanczos").strip().lower()
     if requested_upscale_method == "model":
@@ -13780,11 +13889,9 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # the original character pre-selected and chips pre-filled. When absent
     # (every other code path) these stay None and never reach the sidecar.
     _source = f("source", "")
-    _character_id = f("character_id", "")
     _framing_choice = f("framing", "")
     _duration_choice = f("duration", "")
     _prompt_body = f("prompt_body", "")
-    _quality_choice = f("quality_choice", "")
     _full_prompt_override = f("full_prompt_override", "")
 
     # Derive `frames` from `duration` when the caller didn't send frames
@@ -14257,8 +14364,6 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         # prompt_body stays verbatim — separate from the assembled `prompt`
         # so Load Params can repopulate the textarea exactly as typed.
         job["params"]["prompt_body"] = _prompt_body
-        if _quality_choice:
-            job["params"]["quality_choice"] = _quality_choice
         if _full_prompt_override:
             job["params"]["full_prompt_override"] = _full_prompt_override
 
@@ -14395,6 +14500,11 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         # later restore the picker selection.
         if "character_id" not in job["params"]:
             job["params"]["character_id"] = _character_id
+        # This is the UI token, while params.quality above is the pipeline token.
+        # Recording both is what lets all four chips round-trip even when Pro
+        # and High share 1024×576. Missing/legacy requests resolve to Pro here,
+        # preserving the graded default explicitly in new sidecars.
+        job["params"]["quality_choice"] = _quality_choice
         # Persist BOTH strengths so Load Params restores the exact sliders
         # and the sidecar records what actually rendered. The voice value is
         # stamped even when it equals the default: the number in a clip's
@@ -17315,7 +17425,7 @@ def run_job_inner(job: dict) -> None:
     # was measured on 2.3's two-stage HQ pipeline. On 2.5 this silently
     # rerouted quality=balanced onto `high`, which means:
     #   * a CHARACTER render, whose graded 2.5 recipe is q8 + DISTILLED, landed
-    #     on the two-stage HQ path nobody has graded 2.5 characters on; and
+    #     on the two-stage HQ path even though the user chose Balanced; and
     #   * it then demanded the 29.5 GB HQ add-on, so on a machine with the full
     #     q8 pack and no add-on it did not render at all — "High quality
     #     requires the full Q8 model", for a job the user asked to run on
@@ -17323,8 +17433,8 @@ def run_job_inner(job: dict) -> None:
     # Found exactly that way: the step-13 proof render failed on a stock 2.5
     # install with the add-on withheld.
     #
-    # 2.3 keeps the routing unchanged. When someone measures the equivalent on
-    # 2.5's pipeline it can come back, per generation, with its own numbers.
+    # 2.3 keeps the routing unchanged. The now-graded 2.5 HQ path is reached by
+    # explicit quality=high/high_720p, never by silently rewriting Balanced.
     balanced_q8_fast = (
         quality == "balanced"
         and ACTIVE_MODEL_VERSION == "ltx23"
@@ -17669,7 +17779,7 @@ def run_job_inner(job: dict) -> None:
         # 2.3 (whose characters go to `high` and never reach this branch) is
         # untouched.
         _char_pack = "q4"
-        if p.get("character_id") and not ltx_quality_uses_hq(character_render_quality()):
+        if p.get("character_id") and not ltx_quality_uses_hq(quality):
             _char_pack = "q8"
             push(f"[character] {model_version()['label']} characters render on "
                  f"the Q8 weights with the distilled pipeline — the recipe they "
@@ -21866,10 +21976,9 @@ class Handler(BaseHTTPRequestHandler):
         #
         # This endpoint now does ONLY:
         #   1. look up the character → resolve face + (optional) audio LoRA
-        #   2. map duration string → frames (5s/7s/10s)
-        #   3. map the SIZE token → width/height (draft = 704x384, pro = 1024x576;
-        #      704x384 because both old sizes were off the 64-grid the two-stage
-        #      lane snaps to, so the chip advertised a canvas it never delivered)
+        #   2. map duration string → frames
+        #   3. resolve the shared character quality token (Draft / Pro, plus
+        #      High / High 720p on LTX-2.5) to its real pipeline + canvas
         #   4. take the user's prompt verbatim — no prefix, no suffix, no
         #      negative-prompt injection, no framing word
         #   5. build the same form payload /queue/add accepts and call
@@ -21901,40 +22010,16 @@ class Handler(BaseHTTPRequestHandler):
                             f"{sorted(_CHARACTER_DURATION_FRAMES)}"}, 400); return
             frames = _CHARACTER_DURATION_FRAMES[duration]
 
-            # The DEFAULT is resolved per generation, not hardcoded: 2.3 renders
-            # characters on the two-stage HQ path, 2.5 on q8 + distilled (the
-            # recipe every graded 2.5 character clip ran). An explicit `quality`
-            # in the form still wins — this endpoint stays a thin wrapper — but
-            # a caller that says nothing gets the graded path for the generation
-            # actually installed.
-            # TWO SEPARATE QUESTIONS, and conflating them is what kept this
-            # tab on the wrong pipeline.
-            #
-            #   SIZE     which canvas — the tab's two chips, Q8 Draft (704x384)
-            #            and Q8 Pro (1024x576).
-            #   PIPELINE which schedule runs — and that is NOT the user's
-            #            choice, it is the generation's: ltx25 -> balanced
-            #            (q8 + distilled, the recipe every graded 2.5 character
-            #            clip ran), ltx23 -> high (its LoRAs are dev-trained and
-            #            distilled inference barely locks identity).
-            #
-            # `quality` used to mean both at once, so picking the small canvas
-            # also picked a pipeline, and the only two tokens on offer were
-            # 2.3's. A caller that names a real pipeline quality still wins —
-            # this endpoint stays a thin wrapper — but the chips no longer have
-            # to lie to ask for a size.
-            _char_default = character_render_quality()
             _q_raw = (form.get("quality", [""])[0] or "").strip().lower()
-            _SIZE_TOKENS = {"draft": (704, 384), "pro": (1024, 576)}
-            if _q_raw in _SIZE_TOKENS:
-                width, height = _SIZE_TOKENS[_q_raw]
-                quality = _char_default
-            else:
-                quality = _q_raw or _char_default
-                if quality not in _CHARACTER_QUALITY_RESOLUTION:
-                    self._json({"error": "quality must be draft, pro, balanced "
-                                         "or high"}, 400); return
-                width, height = _CHARACTER_QUALITY_RESOLUTION[quality]
+            _resolved_quality = resolve_character_quality(
+                _q_raw, ACTIVE_MODEL_VERSION)
+            if _resolved_quality is None:
+                self._json({"error": "quality must be draft, pro, high or "
+                                         "high720"}, 400); return
+            quality_choice = str(_resolved_quality["key"])
+            quality = str(_resolved_quality["quality"])
+            width = int(_resolved_quality["width"])
+            height = int(_resolved_quality["height"])
 
             seed = (form.get("seed", ["-1"])[0] or "-1").strip()
             try:
@@ -22046,10 +22131,10 @@ class Handler(BaseHTTPRequestHandler):
                 # THE RESOLVED quality, not a hardcoded "high". This line was
                 # missed by the commit that added character_render_quality(),
                 # so the Characters TAB kept doing exactly the two things that
-                # function's docstring says it exists to prevent: routing 2.5
-                # characters onto the two-stage HQ path nobody has graded them
-                # on (~246 s instead of ~139 s), and demanding the 29.5 GB High
-                # add-on for a result the q8 pack already delivers. The main
+                # function's docstring says it exists to prevent: routing a
+                # DEFAULT 2.5 character onto the slower two-stage HQ path and
+                # demanding the 29.5 GB High add-on without an explicit choice.
+                # The main
                 # form was fixed; this lane was not, so the same character
                 # rendered differently depending on which tab launched it —
                 # the exact split the strength unification closed earlier.
@@ -22097,7 +22182,7 @@ class Handler(BaseHTTPRequestHandler):
             job_form["character_id"] = [cid]
             job_form["source"] = ["characters"]
             job_form["duration"] = [duration]
-            job_form["quality_choice"] = [quality]
+            job_form["quality_choice"] = [quality_choice]
             # prompt_body kept as a back-compat alias to the verbatim prompt
             # so older Load-Params restorers still find something.
             job_form["prompt_body"] = [prompt]
@@ -26779,6 +26864,16 @@ HTML = r"""<!doctype html>
       border-color: rgba(94, 234, 255, 0.40);
       color: var(--accent-bright, #5EEAFF);
     }
+    .characters-chip.needs-install {
+      border-style: dashed;
+      border-color: rgba(47, 129, 247, 0.55);
+      color: var(--accent-bright, #5EEAFF);
+      background: rgba(47, 129, 247, 0.04);
+    }
+    .characters-chip.needs-install::before {
+      content: '↓ ';
+      font-weight: 700;
+    }
     /* Quality row gets a small Turbo toggle alongside the chips — small,
        secondary-looking, opt-in. Locked-recipe defaults stay the path of
        least resistance. */
@@ -28160,10 +28255,8 @@ HTML = r"""<!doctype html>
        was being ignored and BOTH the default + character quality strips
        showed at once (Mr Bizarro screenshot 2026-05-17). Restore intent. */
     .quality-strip[hidden] { display: none !important; }
-    /* Character-quality strip has 2 chips, not 4 — distribute evenly. */
-    #qualityGroupCharacter.quality-strip {
-      grid-template-columns: repeat(2, 1fr);
-    }
+    /* Character columns are set from BOOT.ltx.character.tokens: two on 2.3,
+       four on 2.5. The data contract, not static CSS, owns the count. */
     /* Skip-step boost toggle — small secondary affordance under the
        character quality chips. Reads as opt-in (not a noisy default
        chip), keeps the row visually quieter than the main strip. */
@@ -32447,6 +32540,9 @@ HTML = r"""<!doctype html>
       <input type="hidden" name="preset_label" id="preset_label" value="">
       <input type="hidden" name="mode" id="mode" value="t2v">
       <input type="hidden" name="quality" id="quality" value="balanced">
+      <!-- UI token is separate from the pipeline quality: Pro and High share
+           1024×576 but must round-trip to different schedules. -->
+      <input type="hidden" name="quality_choice" id="quality_choice" value="">
       <!-- The DURATION axis's own field. It is a LABEL for the shape, not the
            shape itself: #duration and #frames remain what the render reads, and
            _ltxApplyShape writes all three together. A cell key here means "the
@@ -32966,13 +33062,9 @@ HTML = r"""<!doctype html>
                for the click handler that filters by it.
                When a character is selected in the Characters chip strip,
                selectManualCharacter() hides this strip and reveals the
-               character-only strip below — the Q4 distilled paths
-               (Quick / Balanced / Standard) would produce a base-fine-
-               tune mismatch on dev-trained character LoRAs (the LoRA
-               was trained against transformer-dev.safetensors; distilled
-               inference uses transformer-distilled.safetensors and the
-               identity barely locks). Forcing quality=high here means
-               the user can't accidentally ship a Q4 character render. -->
+               character-only strip below. Its Draft/Pro rows use q8 distilled,
+               while its High rows use the real q8 HQ lane; no character chip
+               ever falls through to the ordinary q4 quality strip. -->
           <!-- LTX's CANVAS axis. Rendered by renderTierAxes('ltx') from
                BOOT.ltx.qualities / .lengths / .tiers, exactly as H3's two
                strips are, so the server-side table is the single source of
@@ -33005,39 +33097,16 @@ HTML = r"""<!doctype html>
                #h3TierNote. Empty and hidden when the combination has nothing
                to warn about, which is most of them. -->
           <div class="engine-hint" id="ltxTierNote" hidden></div>
-          <!-- Character-only quality strip — revealed by selectManualCharacter
-               when a character is selected. Both buttons submit quality=high
-               (the only inference path that matches dev-trained character
-               LoRAs); the difference is resolution. Draft renders smaller
-               + faster, Pro renders at the canonical 1024x576. Both upscale
-               on save to the final delivery resolution. Hidden by default;
-               .show class adds the actual display. -->
+          <!-- Character-only quality strip — revealed by selectManualCharacter.
+               Rendered entirely from BOOT.ltx.character so the Manual surface
+               and Characters tab expose the same generation-specific tokens. -->
           <!-- data-ltx-only for a reason the `hidden` attribute can't cover:
                its visibility is owned by _applyCharacterQualityStripVisibility,
                which only ever asks "is a character selected?". With a character
                active, switching to H3 left this strip lit BESIDE the H3 tier
                strip — two primary strips, both claiming to set the render. The
                fold rule settles it declaratively, whatever the JS believes. -->
-          <!-- The two chips' PIPELINE and their ETAs are filled by
-               renderCharacterStrip() from BOOT.ltx.character, which the server
-               resolves per generation. The markup carries geometry and nothing
-               else, deliberately: 2.3 renders characters on the two-stage HQ
-               path and 2.5 on q8 + distilled (the exact recipe every graded 2.5
-               character clip ran), and two generations each carrying a copy of
-               that rule is how they drift. "~2 min" on Q8 Pro is the MEASURED
-               139.4 s row, not a typed number. -->
-          <div class="quality-strip pill-group" id="qualityGroupCharacter" hidden data-ltx-only>
-            <button type="button" class="q-chip pill-btn pill-quality char-quality" data-char-quality="draft" data-width="704" data-height="384">
-              <span class="ql-name">Q8 Draft</span>
-              <span class="q-spec ql-spec sub">704×384</span>
-              <span class="ql-tier"></span>
-            </button>
-            <button type="button" class="q-chip pill-btn pill-quality char-quality active" data-char-quality="pro" data-width="1024" data-height="576">
-              <span class="ql-name">Q8 Pro</span>
-              <span class="q-spec ql-spec sub">1024×576</span>
-              <span class="ql-tier"></span>
-            </button>
-          </div>
+          <div class="quality-strip pill-group" id="qualityGroupCharacter" hidden data-ltx-only></div>
           <!-- Hailuo H3 render shape — TWO INDEPENDENT AXES, not one fixed tier
                menu. This shipped as six baked combinations (Draft 3s, HQ 3s,
                HQ 5s, Wide 5s, Long 10s, Long 15s) and the owner's report was
@@ -38928,19 +38997,14 @@ function trainUpdateAdvancedFields() {
 // Recipe defaults (TC=1.8, stage1=10/stage2=3, cfg=3.0, seed=-1,
 // enhance=false, video_skip=1+audio_skip=1) are applied server-side per
 // docs/API.md. The UI collects prompt (trigger pre-filled) + duration +
-// quality. Quality maps server-side to resolution + recipe:
-//   draft → 704x384;  pro → 1024x576. Both render on the generation's own
-//   character recipe (2.5: q8 + distilled), resolved server-side — the chips
-//   carry a SIZE, never a pipeline. The wall times that used to sit here were
-//   2.3-era and the canvas was the retired 736x416; measured 2.5 numbers live
-//   in LTX_MEASURED_ETA, which is where the UI reads them from.
+// quality. Draft/Pro use the generation's graded default; LTX-2.5 also offers
+// the two-stage High canvases. All four tokens come from BOOT.ltx.character.
 
 window.CHARACTERS = {
   list: [],            // [{id, name, trigger, pronoun, subject_noun, sample_image_url, ...}]
   selected: null,      // currently-composing character (object from list)
   duration: '7s',      // 5s | 7s | 10s | 15s
-  quality: 'pro',      // SIZE token: draft | pro. The PIPELINE is the
-                       // generation's answer, resolved server-side (§5.6).
+  quality: 'pro',      // token: draft | pro | high | high720 (last two: 2.5)
   // ONE CHARACTER, ONE PAIR OF STRENGTHS, WHICHEVER SURFACE LAUNCHED IT.
   // These were 0.8 and "applied to both face_lora and audio_lora" — a 2.3-era
   // correction for over-baked quirks at 5000 steps, and a comment that stopped
@@ -38990,17 +39054,22 @@ const CHARACTERS_DURATION = (((BOOT.ltx || {}).lengths) || [])
 // HQ pipeline plus the 29.5 GB add-on — so the tab was offering the only two
 // choices that were wrong.
 //
-// The values are now SIZE tokens. Which pipeline runs is the generation's
-// answer, resolved server-side (§5.6); the chips pick a canvas, not a schedule.
+// Each tuple's fourth item is the server row. That makes install routing use
+// the same pack/pipeline fields as the main High chips.
 const CHARACTERS_QUALITY = (() => {
   const c = ((BOOT.ltx || {}).character) || {};
-  if (!c.draft || !c.pro) {
-    return [['pro', 'Q8 Pro', 'Q8 Pro — the recipe the character LoRAs were graded on']];
+  const rows = Array.isArray(c.tokens) && c.tokens.length
+    ? c.tokens
+    : [c.draft, c.pro].filter(Boolean);
+  if (!rows.length) {
+    return [['pro', 'Q8 Pro', 'Q8 Pro — the graded default character recipe', null]];
   }
-  return [
-    ['draft', 'Q8 Draft', `Q8 Draft — ${c.draft.width}×${c.draft.height}, ${c.draft.tier}`],
-    ['pro',   'Q8 Pro',   `Q8 Pro — ${c.pro.width}×${c.pro.height}, ${c.pro.tier}`],
-  ];
+  return rows.map(row => [
+    row.key,
+    row.label,
+    `${row.label} — ${row.width}×${row.height}, ${row.tier}`,
+    row,
+  ]);
 })();
 // Look-up by value → full descriptive text (the third tuple slot).
 const CHARACTERS_FRAMING_TEXT = Object.fromEntries(
@@ -39133,18 +39202,25 @@ function charactersRenderGrid() {
 }
 
 function charactersRenderChips() {
-  // Each option is [value, shortLabel, fullText]. The chip face shows
+  // Each option is [value, shortLabel, fullText, serverRow]. The chip face shows
   // the short label (so 5 framing options fit on one row at ~420px);
   // the full text lives on `title` for accessibility / hover discovery.
   const renderGroup = (containerId, options, current, fieldName) => {
     const el = document.getElementById(containerId);
     if (!el) return;
-    el.innerHTML = options.map(([val, label, full]) => (
-      `<button type="button" class="characters-chip${val === current ? ' active' : ''}"
+    el.innerHTML = options.map(([val, label, full, row]) => {
+      const needsInstall = fieldName === 'quality' && row
+        && typeof ltxCellNeedsInstall === 'function' && ltxCellNeedsInstall(row);
+      const title = needsInstall && typeof ltxCellInstallLabel === 'function'
+        ? ltxCellInstallLabel(row) : (full || label);
+      return (
+      `<button type="button" class="characters-chip${val === current ? ' active' : ''}${needsInstall ? ' needs-install' : ''}"
                data-val="${charactersEscapeAttr(val)}"
-               title="${charactersEscapeAttr(full || label)}"
+               data-pipeline="${charactersEscapeAttr((row && row.pipeline) || '')}"
+               title="${charactersEscapeAttr(title)}"
                onclick="charactersPickChip('${fieldName}', '${charactersEscapeAttr(val)}')">${charactersEscapeHtml(label)}</button>`
-    )).join('');
+      );
+    }).join('');
   };
   renderGroup('charactersDurationChips', CHARACTERS_DURATION, window.CHARACTERS.duration, 'duration');
   renderGroup('charactersQualityChips',  CHARACTERS_QUALITY,  window.CHARACTERS.quality,  'quality');
@@ -39152,6 +39228,15 @@ function charactersRenderChips() {
 
 function charactersPickChip(field, val) {
   if (field !== 'duration' && field !== 'quality') return;
+  if (field === 'quality') {
+    const option = CHARACTERS_QUALITY.find(([key]) => key === val);
+    const row = option && option[3];
+    if (row && typeof ltxCellNeedsInstall === 'function'
+        && ltxCellNeedsInstall(row)) {
+      if (typeof openModelsModal === 'function') openModelsModal();
+      return;
+    }
+  }
   window.CHARACTERS[field] = val;
   charactersRenderChips();
 }
@@ -39332,6 +39417,13 @@ function charactersSyncStrengthControls() {
 async function charactersGenerate() {
   const c = window.CHARACTERS.selected;
   if (!c) return;
+  const qualityRow = (CHARACTERS_QUALITY.find(
+    ([key]) => key === window.CHARACTERS.quality) || [])[3];
+  if (qualityRow && typeof ltxCellNeedsInstall === 'function'
+      && ltxCellNeedsInstall(qualityRow)) {
+    if (typeof openModelsModal === 'function') openModelsModal();
+    return;
+  }
   const btn = document.getElementById('charactersGenerateBtn');
   const labelSpan = btn ? btn.querySelector('.characters-generate-label') : null;
   const busySpan  = btn ? btn.querySelector('.characters-generate-busy')  : null;
@@ -39500,29 +39592,39 @@ async function charactersLoadParams(p) {
     selectManualCharacter(p.character_id);
   }
 
-  // Restore the quality CHIP (Draft vs Pro) by checking the recorded
-  // dimensions. 736×416 = Draft; everything else = Pro. The character-
-  // quality strip's click handler sets quality=high + the right w/h
-  // already; calling _setCharacterQuality bypasses setQuality() so our
-  // exact dims survive.
-  // 704×384 IS THE DRAFT CANVAS. This recognised only the retired 736×416, so
-  // every Draft render made since the size moved reopened as Pro — Load Params
-  // silently changing the shot's geometry, which is the one thing it exists not
-  // to do. Both are listed because sidecars written before the move are still
-  // on disk and must still round-trip.
+  // Restore the UI TOKEN, not merely the canvas. Pro and High are both
+  // 1024×576, so dimensions alone cannot reproduce the selected pipeline.
+  // New sidecars carry quality_choice; older ones fall back to their real
+  // quality and finally to geometry. There is no schema/version marker on the
+  // old dc0051c sidecars that mapped `high` to Pro, so on LTX-2.5 an old bare
+  // `quality=high` now reopens as the newly first-class High token.
   const sidecarW = parseInt(p.width || '0', 10);
   const sidecarH = parseInt(p.height || '0', 10);
+  const charCfg = ((BOOT.ltx || {}).character) || {};
+  const charRows = Array.isArray(charCfg.tokens) ? charCfg.tokens : [];
+  const charKeys = charRows.map(row => row.key);
+  const aliases = {
+    high_720p: 'high720', balanced: 'pro', standard: 'pro', quick: 'draft'
+  };
+  let charChoice = String(p.quality_choice || '').toLowerCase();
+  charChoice = aliases[charChoice] || charChoice;
+  if (!charKeys.includes(charChoice)) {
+    const pipelineQuality = String(p.quality || '').toLowerCase();
+    charChoice = aliases[pipelineQuality] || pipelineQuality;
+  }
   const _draftPairs = [[704, 384], [736, 416]];   // current, then legacy
   const isDraft = _draftPairs.some(([w, h]) =>
     (sidecarW === w && sidecarH === h) || (sidecarW === h && sidecarH === w));
+  if (!charKeys.includes(charChoice)) charChoice = isDraft ? 'draft' : 'pro';
   const charQualityGroup = document.getElementById('qualityGroupCharacter');
   if (charQualityGroup) {
-    const sel = isDraft ? '[data-char-quality="draft"]' : '[data-char-quality="pro"]';
+    const sel = `[data-char-quality="${charChoice}"]`;
     const btn = charQualityGroup.querySelector(sel);
     if (btn && typeof _setCharacterQuality === 'function') {
-      _setCharacterQuality(btn);
+      _setCharacterQuality(btn, { allowMissing: true });
     }
   }
+  if (window.CHARACTERS) window.CHARACTERS.quality = charChoice;
 
   // Restore aspect (landscape vs vertical). If the sidecar's recorded
   // h > w, it was a vertical render. setAspect already exists and
@@ -44122,12 +44224,6 @@ async function poll() {
   // pack and no add-on must not be told to install the pack they already have.
   const q8PackOk = (s.q8_pack_available !== undefined) ? s.q8_pack_available : s.q8_available;
   document.body.dataset.q8Pack = q8PackOk ? 'ready' : 'missing';
-  // The character chips name Q8 weights, so with no pack on disk they are an
-  // install CTA rather than a dead choice — the same contract the High chip has.
-  document.querySelectorAll('#qualityGroupCharacter .char-quality').forEach(b => {
-    b.classList.toggle('needs-install', !q8PackOk);
-  });
-
   // The High chip's install state is rendered by renderTierAxes now
   // (ltxCellNeedsInstall / ltxCellInstallLabel), so the chip's third slot
   // names the download instead of an ETA the user cannot have yet, and a click
@@ -44143,12 +44239,14 @@ async function poll() {
   //
   // Repaint so the chips follow pack state as a download lands or a file goes
   // missing, without a reload.
-  if (typeof renderTierAxes === 'function' && document.body.dataset.engine !== 'h3') {
-    const packSig = `${s.q8_available}|${(s.q8_missing || []).length}|${(s.hq_addon_missing || []).length}`;
-    if (window._lastPackSig !== packSig) {
-      window._lastPackSig = packSig;
+  const packSig = `${s.q8_available}|${q8PackOk}|${(s.q8_missing || []).length}|${(s.hq_addon_missing || []).length}`;
+  if (window._lastPackSig !== packSig) {
+    window._lastPackSig = packSig;
+    if (typeof renderTierAxes === 'function' && document.body.dataset.engine !== 'h3') {
       try { renderTierAxes('ltx'); } catch (e) {}
     }
+    try { renderCharacterStrip(); } catch (e) {}
+    try { charactersRenderChips(); } catch (e) {}
   }
 
   // Balanced subtitle: on the "standard" (48–79 GB) tier with Q8 installed,
@@ -44635,7 +44733,17 @@ function applyPackIncompleteGate(s) {
     }
   };
   if (engine !== 'ltx') { clear(); return; }
-  const cell = (typeof ltxCurrentCell === 'function') ? ltxCurrentCell() : null;
+  let cell = (typeof ltxCurrentCell === 'function') ? ltxCurrentCell() : null;
+  const charId = (document.getElementById('characterIdInput') || {}).value || '';
+  const charChip = charId
+    ? document.querySelector('#qualityGroupCharacter .char-quality.active') : null;
+  if (charChip) {
+    cell = {
+      pack: charChip.dataset.pack || 'q8',
+      pipeline: charChip.dataset.pipeline || '',
+      quality_label: charChip.querySelector('.ql-name')?.textContent || 'This tier',
+    };
+  }
   // The cell knows its pack. Falling back to the raw quality field keeps this
   // correct before the table has rendered, and on any surface that sets
   // #quality directly.
@@ -44645,7 +44753,10 @@ function applyPackIncompleteGate(s) {
   // incomplete BASE pack is already a hard block in the models card above, and
   // duplicating it here would give the same fact two voices.
   if (pack !== 'q8') { clear(); return; }
-  const missing = [].concat(s.q8_missing || [], s.hq_addon_missing || []);
+  const missing = [].concat(
+    s.q8_missing || [],
+    cell && cell.pipeline === 'hq' ? (s.hq_addon_missing || []) : [],
+  );
   if (!missing.length) { clear(); return; }
   // A pack with NOTHING installed is an install offer, not an incomplete
   // download — the High chip's .needs-install state and the Models modal
@@ -48779,24 +48890,44 @@ function _renderCharsAppliedNote() {
   note.hidden = false;
 }
 
-// The character strip's two chips, filled from the server-resolved table. Runs
-// once at boot and again whenever pack presence changes, because the chips are
-// an install CTA when the weights they name are not on disk.
+// The character strip, filled from the server-resolved table. LTX-2.3 gets the
+// two graded-default canvases; LTX-2.5 gets those plus both real HQ qualities.
+// Runs again whenever pack presence changes because every q8 row is an install
+// CTA when its own weights are absent.
 function renderCharacterStrip() {
   const cfg = ((BOOT.ltx || {}).character) || {};
   const group = document.getElementById('qualityGroupCharacter');
-  if (!group || !cfg.pro) return;
-  [['draft', cfg.draft], ['pro', cfg.pro]].forEach(([key, c]) => {
-    if (!c) return;
-    const btn = group.querySelector(`[data-char-quality="${key}"]`);
-    if (!btn) return;
-    btn.title = c.title || '';
-    btn.dataset.tooltipDefault = c.title || '';
-    const tier = btn.querySelector('.ql-tier');
-    if (tier) tier.textContent = c.tier || '';
-    const spec = btn.querySelector('.q-spec');
-    if (spec) spec.textContent = `${c.width}×${c.height}`;
-  });
+  if (!group) return;
+  const rows = Array.isArray(cfg.tokens) && cfg.tokens.length
+    ? cfg.tokens
+    : [cfg.draft, cfg.pro].filter(Boolean);
+  if (!rows.length) return;
+  const previous = group.querySelector('.char-quality.active')?.dataset.charQuality;
+  const keys = rows.map(row => row.key);
+  const current = keys.includes(previous) ? previous
+    : (keys.includes(cfg.default) ? cfg.default : keys[0]);
+  group.style.gridTemplateColumns = `repeat(${rows.length}, 1fr)`;
+  group.innerHTML = rows.map(row => {
+    const needsInstall = typeof ltxCellNeedsInstall === 'function'
+      && ltxCellNeedsInstall(row);
+    const foot = needsInstall && typeof ltxCellInstallLabel === 'function'
+      ? ltxCellInstallLabel(row) : (row.tier || '');
+    const cls = 'q-chip pill-btn pill-quality char-quality'
+      + (row.key === current ? ' active' : '')
+      + (needsInstall ? ' needs-install' : '');
+    return `<button type="button" class="${cls}"
+              data-char-quality="${escapeHtml(row.key)}"
+              data-quality="${escapeHtml(row.quality || cfg.quality || 'high')}"
+              data-width="${Number(row.width || 1024)}"
+              data-height="${Number(row.height || 576)}"
+              data-pack="${escapeHtml(row.pack || 'q8')}"
+              data-pipeline="${escapeHtml(row.pipeline || '')}"
+              title="${escapeHtml(row.title || '')}">
+        <span class="ql-name">${escapeHtml(row.label || row.key)}</span>
+        <span class="q-spec ql-spec sub">${Number(row.width)}×${Number(row.height)}</span>
+        <span class="ql-tier">${escapeHtml(foot)}</span>
+      </button>`;
+  }).join('');
 }
 
 // ---- One live-preview model, two consumers ----------------------------------
@@ -49645,7 +49776,7 @@ function _applyCharacterQualityStripVisibility() {
     // picked Draft earlier and switched between characters).
     const anyActive = char.querySelector('.char-quality.active');
     const target = anyActive || char.querySelector('[data-char-quality="pro"]');
-    if (target) _setCharacterQuality(target);
+    if (target) _setCharacterQuality(target, { allowMissing: true });
   } else {
     def.hidden = false;
     char.hidden = true;
@@ -49672,31 +49803,31 @@ function _applyCharacterQualityStripVisibility() {
   }
 }
 
-// Click handler for the character-only quality chips (Q8 Draft / Q8 Pro).
-// Forces quality=high + sets width/height directly. Both chips submit
-// the same `quality=high` so the backend routes to the HQ pipeline; the
-// resolution distinction is the only difference. Skips setQuality() —
-// that helper would re-derive width/height from QUALITY_PRESETS.high and
-// stomp our 736×416 / 1024×576 character-specific values.
-function _setCharacterQuality(btn) {
+// Apply one server-resolved character row. ``data-quality`` is the real
+// pipeline token; ``data-char-quality`` is the UI token recorded in the
+// sidecar. Keeping both is what distinguishes Pro from High at 1024×576.
+function _setCharacterQuality(btn, opts) {
   if (!btn) return;
+  opts = opts || {};
+  if (btn.classList.contains('needs-install') && !opts.allowMissing) {
+    if (typeof openModelsModal === 'function') openModelsModal();
+    return;
+  }
   const group = document.getElementById('qualityGroupCharacter');
   if (group) {
     group.querySelectorAll('.char-quality').forEach(b =>
       b.classList.toggle('active', b === btn));
   }
   const qInp = document.getElementById('quality');
+  const choiceInp = document.getElementById('quality_choice');
   const wInp = document.getElementById('width');
   const hInp = document.getElementById('height');
   const aspect = document.getElementById('aspect');
   const w = parseInt(btn.dataset.width || '1024', 10);
   const h = parseInt(btn.dataset.height || '576', 10);
-  // RESOLVED SERVER-SIDE, never decided here. On 2.3 this is 'high' (its
-  // character LoRAs are dev-trained and distilled inference barely locks
-  // identity); on 2.5 it is 'balanced', because q8 + distilled is the exact
-  // path every graded 2.5 character clip ran. The markup must not own that
-  // rule — two generations each carrying a copy is how they drift.
-  if (qInp) qInp.value = ((BOOT.ltx || {}).character || {}).quality || 'high';
+  if (qInp) qInp.value = btn.dataset.quality
+    || ((BOOT.ltx || {}).character || {}).quality || 'high';
+  if (choiceInp) choiceInp.value = btn.dataset.charQuality || 'pro';
   // Honor the orientation chip — swap w/h for vertical renders.
   const vertical = aspect && aspect.value === 'vertical';
   if (wInp) wInp.value = vertical ? h : w;
@@ -49798,17 +49929,17 @@ function _applyStgRowVisibility() {
   row.hidden = !_qualityUsesHq(q);
 }
 
-// Wire the char-quality chip clicks once at boot. Idempotent — the
-// `data-wired` flag prevents double-binding on re-render.
+// Delegation survives renderCharacterStrip replacing all four buttons when a
+// pack finishes installing. Idempotent via the data-wired flag.
 function _wireCharacterQualityChips() {
   const group = document.getElementById('qualityGroupCharacter');
   if (!group || group.dataset.wired === '1') return;
   group.dataset.wired = '1';
-  group.querySelectorAll('.char-quality').forEach(b => {
-    b.addEventListener('click', (e) => {
-      e.preventDefault();
-      _setCharacterQuality(b);
-    });
+  group.addEventListener('click', (e) => {
+    const b = e.target.closest('.char-quality');
+    if (!b || !group.contains(b)) return;
+    e.preventDefault();
+    _setCharacterQuality(b);
   });
 }
 
@@ -50888,7 +51019,7 @@ setMode('t2v');
 setAspect('landscape');         // sets aspect first so the default preset orients correctly
 setQuality('balanced');         // bundles quality + dims; respects current aspect
 applyTierTimes();               // no-op for LTX since v4.0 — the tier table owns those subtitles
-renderCharacterStrip();         // the two character chips, priced per generation
+renderCharacterStrip();         // the generation-scoped character quality ladder
 // Engine picker — re-apply the last-used engine after the boot sequence above
 // has settled the mode. setEngine() re-runs every gate (capable / installed /
 // mode), so a stale localStorage value from a machine that has since lost the

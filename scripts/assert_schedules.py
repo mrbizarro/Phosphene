@@ -51,6 +51,7 @@ import importlib.util
 import os
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -59,6 +60,52 @@ sys.path.insert(0, str(ROOT))
 
 FAILS: list[str] = []
 CHECKS = 0
+
+
+def load_scheduler():
+    """Load the checked-in scheduler without initialising an MLX Metal device.
+
+    Every function this gate exercises is pure Python over sigma lists. Importing
+    it through ``ltx_pipelines_mlx`` nevertheless initialises ``mlx.core`` and
+    aborts (not raises) when a CI/sandbox process has no visible Metal device.
+    Load the exact source file with minimal import stubs so this gate remains
+    what its header promises: no GPU, no model load. The stubs provide no
+    schedule logic; all constants and functions under test still come from the
+    vendored file.
+    """
+    names = ("mlx", "mlx.core", "mlx_arsenal", "mlx_arsenal.diffusion")
+    saved = {name: sys.modules.get(name) for name in names}
+    mlx = types.ModuleType("mlx")
+    mx = types.ModuleType("mlx.core")
+    mx.array = lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("this CPU-only gate unexpectedly called mlx.core.array"))
+    mx.bfloat16 = object()
+    mlx.core = mx
+    arsenal = types.ModuleType("mlx_arsenal")
+    diffusion = types.ModuleType("mlx_arsenal.diffusion")
+    diffusion.dynamic_shift_schedule = lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("this gate unexpectedly reached dynamic_shift_schedule"))
+    arsenal.diffusion = diffusion
+    sys.modules.update({
+        "mlx": mlx, "mlx.core": mx,
+        "mlx_arsenal": arsenal, "mlx_arsenal.diffusion": diffusion,
+    })
+    name = "scheduler_under_test"
+    path = (ROOT / "ltx-2-mlx" / "packages" / "ltx-pipelines-mlx" / "src"
+            / "ltx_pipelines_mlx" / "scheduler.py")
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.modules.pop(name, None)
+        for module_name, previous in saved.items():
+            if previous is None:
+                sys.modules.pop(module_name, None)
+            else:
+                sys.modules[module_name] = previous
+    return module
 
 
 def check(label: str, fn) -> None:
@@ -93,6 +140,8 @@ MODE_FORMS = {
     "t2v_high":     {"mode": "t2v", "quality": "high"},
     "i2v":          {"mode": "i2v"},
     "character":    {"mode": "t2v", "character_id": "bizarrotrn"},
+    "character_high": {"mode": "t2v", "character_id": "bizarrotrn",
+                       "quality_choice": "high"},
     "keyframe":     {"mode": "keyframe"},
     "extend":       {"mode": "extend", "video_path": "/tmp/x.mp4"},
     "restore":      {"mode": "restore", "restore_video_path": "/tmp/x.mp4"},
@@ -123,6 +172,8 @@ LANE = {
     "ingredients": (8, 4, "thin"),
     "hdr":        (10, 3, "thin"),   # <- the stamp made this 10 too
     "t2v_high":   (10, 3, "build"),
+    "character_high": (10, 3, "build"),
+    "character_high720": (10, 3, "build"),
     # keyframe HARDCODES stage1_steps=20 in its job_spec — it never reads
     # params — so the stamp never reached it and this fix cannot move it.
     # Modelled as "fixed" so the gate does not pretend otherwise.
@@ -132,9 +183,11 @@ DEFAULT_LANE = (8, 2, "thin")
 
 
 def run() -> None:
-    from ltx_pipelines_mlx.scheduler import (  # noqa: PLC0415
-        DISTILLED_SIGMAS, STAGE_2_SIGMAS, resolve_distilled_schedule, thin_sigmas,
-    )
+    scheduler = load_scheduler()
+    DISTILLED_SIGMAS = scheduler.DISTILLED_SIGMAS
+    STAGE_2_SIGMAS = scheduler.STAGE_2_SIGMAS
+    resolve_distilled_schedule = scheduler.resolve_distilled_schedule
+    thin_sigmas = scheduler.thin_sigmas
 
     # The ceiling every thinning lane lives under, read from the table itself.
     CAP1 = len(DISTILLED_SIGMAS) - 1
@@ -147,7 +200,15 @@ def run() -> None:
         if len(gen) == 2:
             gen = gen + (0,)
 
-        for label, form in MODE_FORMS.items():
+        mode_forms = dict(MODE_FORMS)
+        # High · 720p is intentionally exposed only on LTX-2.5. Exercise it
+        # there without pretending the 2.3 UI offers the token.
+        if version_id == "ltx25":
+            mode_forms["character_high720"] = {
+                "mode": "t2v", "character_id": "bizarrotrn",
+                "quality_choice": "high720",
+            }
+        for label, form in mode_forms.items():
             def _one(label=label, form=form, gen=gen, p=p):
                 job = p.make_job({k: [v] for k, v in form.items()})
                 prm = job["params"]

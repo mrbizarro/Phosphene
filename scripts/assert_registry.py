@@ -235,6 +235,26 @@ eq("2.5 character install copy names its own pack",
 eq("the served page contains no unresolved Q8-copy placeholder",
    "__Q8_CHARACTER_INSTALL_COPY__" in p.page(), False)
 
+# One server table drives both character strips. High is an LTX-2.5 feature;
+# the graded q8+distilled Pro row remains the default on both generations.
+_char23 = p.character_strip_payload("ltx23")
+_char25 = p.character_strip_payload("ltx25")
+eq("2.3 character default stays Pro", _char23["default"], "pro")
+eq("2.5 character default stays Pro", _char25["default"], "pro")
+eq("2.3 offers only the graded character canvases",
+   [r["key"] for r in _char23["tokens"]], ["draft", "pro"])
+eq("2.5 offers the full character quality ladder",
+   [r["key"] for r in _char25["tokens"]],
+   ["draft", "pro", "high", "high720"])
+eq("2.5 character tokens resolve to the real quality keys",
+   [r["quality"] for r in _char25["tokens"]],
+   ["balanced", "balanced", "high", "high_720p"])
+eq("2.5 character canvases are exact",
+   [(r["width"], r["height"]) for r in _char25["tokens"]],
+   [(704, 384), (1024, 576), (1024, 576), (1280, 704)])
+eq("both character High rows use the HQ pipeline",
+   [r["pipeline"] for r in _char25["tokens"][2:]], ["hq", "hq"])
+
 # =============================================================================
 # 5. Completeness — this install, and a synthetic incomplete one
 # =============================================================================
@@ -541,8 +561,15 @@ for _key in p.LTX_MEASURED_ETA:
     eq(f"measured ETA row {_key} names a real length",
        _key[2] in p.LTX_LENGTHS, True)
 
-# The 720p tier's measurement belongs to the geometry it was taken at, and to
-# NOTHING else: 1280×704 × 121 frames. Any other length must print modelled.
+# Each measured HQ row belongs only to the geometry it was taken at. Other
+# lengths remain modelled.
+eq("high at 5s is the measured row",
+   p.LTX_TIERS["high_5s"]["eta_measured"], True)
+eq("high uses the owner-approved label", p.LTX_TIERS["high_5s"]["eta"], "~4 min")
+eq("...and High is measured at its shipped canvas",
+   (p.LTX_TIERS["high_5s"]["width"],
+    p.LTX_TIERS["high_5s"]["height"],
+    p.LTX_TIERS["high_5s"]["frames"]), (1024, 576, 121))
 eq("high_720p at 5s is the measured row",
    p.LTX_TIERS["high_720p_5s"]["eta_measured"], True)
 eq("...and it is measured at the canvas it was timed on",
@@ -551,12 +578,10 @@ eq("...and it is measured at the canvas it was timed on",
     p.LTX_TIERS["high_720p_5s"]["frames"]), (1280, 704, 121))
 for _ln in p.LTX_LENGTHS:
     if _ln != "5s":
+        eq(f"high at {_ln} is modelled, not measured",
+           p.LTX_TIERS[f"high_{_ln}"]["eta_measured"], False)
         eq(f"high_720p at {_ln} is modelled, not measured",
            p.LTX_TIERS[f"high_720p_{_ln}"]["eta_measured"], False)
-# `high` lost its measured row when the 491 s number went to the tier whose
-# canvas actually produced it. It must NOT quietly inherit one again.
-eq("high claims no measurement it did not earn",
-   any(p.LTX_TIERS[f"high_{_ln}"]["eta_measured"] for _ln in p.LTX_LENGTHS), False)
 
 # =============================================================================
 print()

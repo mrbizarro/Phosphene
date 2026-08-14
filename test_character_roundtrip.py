@@ -107,7 +107,15 @@ global.charactersOpenCompose = () => {};
 global.charactersBackToGrid = () => {};
 global.charactersInit = async () => {};
 global.setAspect = () => {};
+global.setUpscale = () => {};
 global.updateEstimate = () => {};
+global.updateCustomizeSummary = () => {};
+global._applyHqSpeedRowVisibility = () => {};
+global._applyStgRowVisibility = () => {};
+global._setSkipStepEnabled = () => {};
+global.ltxCellNeedsInstall = () => false;
+global.ltxCellInstallLabel = () => 'install needed';
+global.openModelsModal = () => {};
 global.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 // The loader refuses a character it cannot find — correctly. Seed the list the
 // panel would have loaded from /characters.
@@ -174,12 +182,40 @@ def _run_loader(sidecar):
 %s
 %s
 %s
+%s
 window.CHARACTERS = %s;
+BOOT.ltx.character = %s;
 _mk('characterStrength', {value: ''});
 _mk('characterVoiceStrength', {value: ''});
 _mk('charactersStrength', {value: '0.8', min: '0.4', max: '1.2'});
 _mk('charactersStrengthValue', {textContent: '0.80'});
 _mk('width', {value: ''}); _mk('height', {value: ''});
+_mk('quality', {value: 'balanced'}); _mk('quality_choice', {value: ''});
+const _charRows = BOOT.ltx.character.tokens;
+const _charButtons = _charRows.map(row => {
+  const classes = new Set(['char-quality']);
+  if (row.key === BOOT.ltx.character.default) classes.add('active');
+  const b = _mk('_char_' + row.key, {dataset: {
+    charQuality: row.key, quality: row.quality,
+    width: String(row.width), height: String(row.height),
+  }});
+  b.classList = {
+    toggle(k, on) { if (on) classes.add(k); else classes.delete(k); },
+    add(k) { classes.add(k); }, remove(k) { classes.delete(k); },
+    contains(k) { return classes.has(k); },
+  };
+  return b;
+});
+const _charGroup = _mk('qualityGroupCharacter');
+_charGroup.querySelectorAll = (sel) => sel === '.char-quality' ? _charButtons : [];
+_charGroup.querySelector = (sel) => {
+  if (sel === '.char-quality.active') {
+    return _charButtons.find(b => b.classList.contains('active')) || null;
+  }
+  const m = String(sel).match(/data-char-quality="([^"]+)"/);
+  return m ? (_charButtons.find(b => b.dataset.charQuality === m[1]) || null) : null;
+};
+_charGroup.contains = (b) => _charButtons.includes(b);
 (async () => {
   await charactersLoadParams(%s);
   console.log(JSON.stringify({
@@ -189,16 +225,21 @@ _mk('width', {value: ''}); _mk('height', {value: ''});
     displayed: document.getElementById('charactersStrengthValue').textContent,
     width: document.getElementById('width').value,
     height: document.getElementById('height').value,
+    token: document.getElementById('quality_choice').value,
+    quality: document.getElementById('quality').value,
   }));
 })().catch(e => { console.error(e); process.exit(3); });
 """ % (_JS.fn("charactersSyncStrengthControls"),
        _JS.fn("_restoreCharacterStrengths"),
        _JS.fn("charactersLoadParams"),
-       _JS.state(), json.dumps(sidecar))
+       _JS.fn("_setCharacterQuality"),
+       _JS.state(), json.dumps(P.character_strip_payload("ltx25")),
+       json.dumps(sidecar))
     return _run_node(script)
 
 
-def _run_submit(*, face=1.0, voice=1.0, prompt="bizarrotrn waves"):
+def _run_submit(*, face=1.0, voice=1.0, prompt="bizarrotrn waves",
+                quality="pro"):
     """Execute the REAL charactersGenerate() and capture its HTTP payload.
 
     The old submit test duplicated two expressions from the function under
@@ -216,7 +257,8 @@ window.CHARACTERS.selected = {id: 'bizarrotrn', name: 'Bizarro', trigger: 'bizar
 window.CHARACTERS.charStrength = %s;
 window.CHARACTERS.voiceStrength = %s;
 window.CHARACTERS.duration = '5s';
-window.CHARACTERS.quality = 'pro';
+window.CHARACTERS.quality = %s;
+const CHARACTERS_QUALITY = %s;
 _mk('charactersPrompt', {value: %s});
 _mk('charactersStrength', {value: '0.8', min: '0.4', max: '1.2'});
 _mk('charactersStrengthValue', {textContent: '0.80'});
@@ -241,7 +283,51 @@ global.fetch = async (url, opts) => {
 """ % (_JS.fn("charactersUpdateStrengthDisplay"),
        _JS.fn("charactersSyncStrengthControls"),
        _JS.fn("charactersGenerate"), _JS.state(),
-       json.dumps(face), json.dumps(voice), json.dumps(prompt))
+       json.dumps(face), json.dumps(voice), json.dumps(quality),
+       json.dumps([
+           [row["key"], row["label"], row["tier"], row]
+           for row in P.character_strip_payload("ltx25")["tokens"]
+       ]), json.dumps(prompt))
+    return _run_node(script)
+
+
+def _run_character_dom(status: dict | None = None) -> dict:
+    """Render BOTH real character strips from the LTX-2.5 bootstrap rows."""
+    rows = P.character_strip_payload("ltx25")
+    quality_tuples = [
+        [row["key"], row["label"], row["tier"], row]
+        for row in rows["tokens"]
+    ]
+    script = DOM_SHIM + """
+%s
+%s
+%s
+%s
+BOOT.ltx.character = %s;
+BOOT.ltx.packs = %s;
+window.__phosLastStatus = %s;
+window.CHARACTERS = %s;
+const CHARACTERS_DURATION = [];
+const CHARACTERS_QUALITY = %s;
+_mk('qualityGroupCharacter');
+_mk('charactersDurationChips');
+_mk('charactersQualityChips');
+renderCharacterStrip();
+charactersRenderChips();
+console.log(JSON.stringify({
+  manual: document.getElementById('qualityGroupCharacter').innerHTML,
+  tab: document.getElementById('charactersQualityChips').innerHTML,
+}));
+""" % (
+        _JS.fn("ltxCellNeedsInstall"), _JS.fn("ltxCellInstallLabel"),
+        _JS.fn("renderCharacterStrip"), _JS.fn("charactersRenderChips"),
+        json.dumps(rows), json.dumps(P.pack_offers("ltx25")),
+        json.dumps(status or {
+            "q8_available": True, "q8_pack_available": True,
+            "hq_addon_missing": [],
+        }),
+        _JS.state(), json.dumps(quality_tuples),
+    )
     return _run_node(script)
 
 
@@ -300,6 +386,35 @@ console.log(JSON.stringify({
         self.assertEqual(float(fields["character_strength"]), 0.65)
         self.assertEqual(float(fields["character_voice_strength"]), 1.4,
                          "the real submit path did not send the voice strength")
+
+
+class TestCharacterQualityDOM(unittest.TestCase):
+    """The rendered page exposes the same four rows on both 2.5 surfaces."""
+
+    def test_both_strips_render_four_chips_with_pro_active(self):
+        out = _run_character_dom()
+        for surface, attr_name in (("manual", "data-char-quality"),
+                                   ("tab", "data-val")):
+            html = out[surface]
+            self.assertEqual(html.count("<button"), 4, surface)
+            for token in ("draft", "pro", "high", "high720"):
+                self.assertIn(f'{attr_name}="{token}"', html, (surface, token))
+            active = re.findall(
+                rf'class="[^"]*\bactive\b[^"]*"[^>]*{attr_name}="([^"]+)"',
+                html,
+            )
+            self.assertEqual(active, ["pro"], (surface, html))
+
+    def test_hq_rows_share_the_main_high_install_gate(self):
+        out = _run_character_dom({
+            "q8_available": False,
+            "q8_pack_available": True,
+            "hq_addon_missing": ["transformer-dev.safetensors"],
+        })
+        for surface in ("manual", "tab"):
+            html = out[surface]
+            self.assertEqual(html.count("needs-install"), 2, html)
+            self.assertRegex(html, r'needs-install[^>]+(?:high|high720)')
 
 
 class TestRestoreRunsInBothLoadPaths(unittest.TestCase):
@@ -379,6 +494,25 @@ console.log(JSON.stringify({
         self.assertEqual(float(out["voice"]), 1.0)
         self.assertEqual(out["width"], "1024")
 
+    def test_bare_legacy_high_now_reopens_as_high_on_ltx25(self):
+        out = _run_loader({
+            "source": "characters", "character_id": "bizarrotrn",
+            "quality": "high", "width": 1024, "height": 576,
+            "frames": 121, "prompt": "x", "seed": 1,
+        })
+        self.assertEqual(out["token"], "high")
+        self.assertEqual(out["quality"], "high")
+
+    def test_explicit_legacy_pro_choice_stays_pro(self):
+        out = _run_loader({
+            "source": "characters", "character_id": "bizarrotrn",
+            "quality": "high", "quality_choice": "pro",
+            "width": 1024, "height": 576, "frames": 121,
+            "prompt": "x", "seed": 1,
+        })
+        self.assertEqual(out["token"], "pro")
+        self.assertEqual(out["quality"], "balanced")
+
 
 class TestDraftCanvasRoundTrips(unittest.TestCase):
     """A Draft render must reopen as Draft — exercised through the real loader's
@@ -427,12 +561,18 @@ class TestServerContract(unittest.TestCase):
 
     def test_full_payload_round_trip(self):
         """payload -> sidecar -> restore -> payload, over the real restorer."""
-        for quality, face, voice in (("draft", 1.0, 1.0), ("high", 1.0, 1.0),
-                                     ("draft", 1.15, 0.75), ("high", 0.9, 1.4)):
-            w, h = P._CHARACTER_QUALITY_RESOLUTION[quality]
+        rows = {row["key"]: row
+                for row in P.character_strip_payload("ltx25")["tokens"]}
+        for quality, face, voice in (("draft", 1.15, 0.75),
+                                     ("pro", 1.0, 1.0),
+                                     ("high", 0.9, 1.4),
+                                     ("high720", 1.0, 1.25)):
+            row = rows[quality]
+            w, h = row["width"], row["height"]
             first = {"character_id": "bizarrotrn", "width": w, "height": h,
                      "frames": 121, "character_strength": face,
-                     "character_voice_strength": voice}
+                     "character_voice_strength": voice,
+                     "quality": row["quality"], "quality_choice": quality}
             sidecar = json.loads(json.dumps(first))
             sidecar["source"] = "characters"
             out = _run_loader(sidecar)          # the LIVE loader, not the helper
@@ -440,6 +580,8 @@ class TestServerContract(unittest.TestCase):
             self.assertEqual(float(out["voice"]), first["character_voice_strength"], first)
             self.assertEqual(out["width"], str(first["width"]), first)
             self.assertEqual(out["height"], str(first["height"]), first)
+            self.assertEqual(out["token"], quality, first)
+            self.assertEqual(out["quality"], row["quality"], first)
 
 
 class TestQueueCharacterVoiceContract(unittest.TestCase):
@@ -532,6 +674,47 @@ class TestQueueCharacterVoiceContract(unittest.TestCase):
         self.assertEqual([Path(x["path"]).name for x in params["loras"][:2]],
                          ["bizarrotrn_v2.safetensors",
                           "bizarrotrn.audio.safetensors"])
+        self.assertEqual([x["strength"] for x in params["loras"][:2]],
+                         [0.9, 1.25])
+        self.assertEqual(params["quality"], "balanced")
+        self.assertEqual(params["quality_choice"], "pro")
+
+    def test_all_four_tokens_survive_job_sidecar_and_reload(self):
+        """Real queue payload -> job params/sidecar shape -> real JS loader."""
+        for row in P.character_strip_payload("ltx25")["tokens"]:
+            with self.subTest(token=row["key"]):
+                reply, params = self._post({
+                    "mode": "t2v", "character_id": "bizarrotrn",
+                    "prompt": "bizarrotrn waves",
+                    "quality": row["quality"],
+                    "quality_choice": row["key"],
+                    "character_strength": "0.9",
+                    "character_voice_strength": "1.25",
+                })
+                self.assertEqual(reply["status"], 200, reply)
+                self.assertEqual(params["quality"], row["quality"])
+                self.assertEqual(params["quality_choice"], row["key"])
+                self.assertEqual((params["width"], params["height"]),
+                                 (row["width"], row["height"]))
+                restored = _run_loader({**params, "source": "characters"})
+                self.assertEqual(restored["token"], row["key"])
+                self.assertEqual(restored["quality"], row["quality"])
+                self.assertEqual((restored["width"], restored["height"]),
+                                 (str(row["width"]), str(row["height"])))
+
+    def test_high720_job_receipt_is_hq_with_both_character_strengths(self):
+        reply, params = self._post({
+            "mode": "t2v", "character_id": "bizarrotrn",
+            "prompt": "bizarrotrn speaks",
+            "quality_choice": "high720",
+            "character_strength": "0.9",
+            "character_voice_strength": "1.25",
+        })
+        self.assertEqual(reply["status"], 200, reply)
+        self.assertEqual(params["quality"], "high_720p")
+        self.assertEqual(params["quality_choice"], "high720")
+        self.assertEqual((params["width"], params["height"]), (1280, 704))
+        self.assertEqual(P.LTX_QUALITIES[params["quality"]]["pipeline"], "hq")
         self.assertEqual([x["strength"] for x in params["loras"][:2]],
                          [0.9, 1.25])
 
@@ -649,15 +832,15 @@ process.stdout.write(JSON.stringify(results));
 
 
 class TestPipelineQualityPerVersion(unittest.TestCase):
-    """The endpoint SUBMITS the pipeline the generation was graded on.
+    """The endpoint defaults to the graded lane and honors first-class HQ.
 
     f65ea9b added character_render_quality() (ltx23 -> high, ltx25 ->
     balanced) and fixed the endpoint's `quality` VARIABLE — but the job_form
     three screens below still hardcoded "quality": ["high"], and THAT is the
     field make_job reads. Every Characters-tab render on 2.5 took the
-    two-stage HQ path (~246 s, 29.5 GB add-on) instead of the graded
-    q8 + distilled path (~139 s). c366e71 fixed the literal; this class pins
-    the property so the variable and the form can never drift apart again.
+    two-stage HQ path instead of the graded q8 + distilled default. c366e71
+    fixed the literal; High is now an explicit, first-class opt-in and the
+    default must remain Pro.
 
     Per this file's own charter, it EXECUTES the real do_POST rather than
     grepping for the fixed line: a stub transport carries the request, and
@@ -715,6 +898,16 @@ class TestPipelineQualityPerVersion(unittest.TestCase):
         self.assertEqual(P.character_render_quality("ltx23"), "high")
         self.assertEqual(P.character_render_quality("ltx25"), "balanced")
 
+    def test_bootstrap_tokens_are_generation_scoped(self):
+        p23 = P.character_strip_payload("ltx23")
+        p25 = P.character_strip_payload("ltx25")
+        self.assertEqual(p23["default"], "pro")
+        self.assertEqual(p25["default"], "pro")
+        self.assertEqual([row["key"] for row in p23["tokens"]],
+                         ["draft", "pro"])
+        self.assertEqual([row["key"] for row in p25["tokens"]],
+                         ["draft", "pro", "high", "high720"])
+
     def test_every_registered_version_resolves_to_a_real_pipeline(self):
         # The endpoint 400s a quality outside _CHARACTER_QUALITY_RESOLUTION —
         # a registry entry naming a fantasy pipeline would brick its own tab.
@@ -737,6 +930,21 @@ class TestPipelineQualityPerVersion(unittest.TestCase):
         _, form = self._generate(
             {"prompt": "gatetrn waves", "quality": "balanced"}, "ltx23")
         self.assertEqual(form["quality"], ["balanced"])
+
+    def test_ltx25_hq_tokens_resolve_to_the_real_hq_qualities(self):
+        expected = {
+            "high": ("high", 1024, 576),
+            "high720": ("high_720p", 1280, 704),
+        }
+        for token, (quality, width, height) in expected.items():
+            reply, form = self._generate(
+                {"prompt": "gatetrn waves", "quality": token}, "ltx25")
+            self.assertTrue(reply["payload"].get("ok"), reply)
+            self.assertEqual(form["quality"], [quality], token)
+            self.assertEqual(form["quality_choice"], [token], token)
+            self.assertEqual(form["width"], [str(width)], token)
+            self.assertEqual(form["height"], [str(height)], token)
+            self.assertTrue(P.ltx_quality_uses_hq(quality), token)
 
     def test_size_tokens_pick_a_canvas_not_a_pipeline(self):
         # The tab's two chips say draft/pro. That must choose WIDTH×HEIGHT and
