@@ -486,7 +486,19 @@ class TestEventSchemas(AnalyticsTestCase):
         # os_version is major.minor only — no patch level.
         self.assertLessEqual(len(p["os_version"].split(".")), 2)
 
+    # The schema-v2 render event's full closed field set (spec 2.4). Every
+    # addition is a coarse class or a closed vocabulary — the exact-set
+    # assertion is the guard that a content-shaped field cannot ride along.
+    RENDER_V2_FIELDS = {
+        "engine", "mode", "tier", "duration_bucket", "resolution", "frames",
+        "version", "chip_family", "ram_gb", "os_version", "canvas_class",
+        "steps", "accel", "temporal_mode", "upscale", "upscale_method",
+        "schedule_preset", "chain_windows", "chain_prompts_used",
+        "lora_count", "lora_kinds", "character_used", "audio_mode",
+    }
+
     def test_render_completed_fields(self):
+        self.configure(analytics_first_render_reported=True)
         P._analytics_render_event({
             "status": "done", "elapsed_sec": 340.0,
             "params": {"mode": "t2v", "engine": "ltx", "quality": "standard",
@@ -494,33 +506,126 @@ class TestEventSchemas(AnalyticsTestCase):
         })
         drain()
         p = self.props_of("render_completed")
-        self.assertEqual(set(p), {
-            "engine", "mode", "tier", "duration_bucket", "resolution", "frames"})
+        self.assertEqual(set(p), self.RENDER_V2_FIELDS | {"wall_sec_bucket"})
         self.assertEqual(p["resolution"], "1216x704")
         self.assertEqual(p["duration_bucket"], "5-15m")
+        self.assertEqual(p["wall_sec_bucket"], 300)
+        self.assertEqual(p["canvas_class"], "720p")
         self.assertEqual(p["tier"], "standard")
+        # The machine-class trio matches what app_boot sends — same values,
+        # repeated so PostHog breakdowns need no join (spec F6).
+        self.assertEqual(p["chip_family"], P._analytics_chip_family())
+        self.assertIsInstance(p["ram_gb"], int)
+        self.assertEqual(p["schedule_preset"], "default")
+        self.assertEqual(p["lora_kinds"], "none")
+        self.assertFalse(p["character_used"])
+        self.assertEqual(p["audio_mode"], "joint")
 
-    def test_render_failed_adds_only_error_signature(self):
+    def test_render_failed_adds_the_error_taxonomy(self):
+        self.configure(analytics_first_render_reported=True)
         P._analytics_render_event({
-            "status": "failed", "error": "OOM during VAE decode",
+            "status": "failed", "error": "OOM during VAE decode: SIGKILL",
             "elapsed_sec": 61.0,
             "params": {"mode": "i2v", "engine": "h3", "h3_tier": "hq_5s",
                        "width": 1280, "height": 720, "frames": 90},
         })
         drain()
         p = self.props_of("render_failed")
-        self.assertEqual(set(p), {
-            "engine", "mode", "tier", "duration_bucket", "resolution",
-            "frames", "error_signature"})
+        self.assertEqual(set(p), self.RENDER_V2_FIELDS
+                         | {"wall_sec_bucket", "error_class",
+                            "error_signature"})
         # h3_tier is the wire format, and every legacy key still resolves to
         # the cell it means: the quality x length refactor renamed hq_5s to
         # standard_5s, and a job replayed from an older sidecar must land in
-        # that bucket rather than inventing one. (The fixture here used to be
-        # "5s", which is a LENGTH and was never a tier key — see
-        # test_unrecognised_h3_tier_collapses_to_unknown for where it goes.)
+        # that bucket rather than inventing one.
         self.assertEqual(p["tier"], "standard_5s",
                          "a legacy h3_tier must resolve to its current cell")
         self.assertEqual(p["duration_bucket"], "<2m")
+        self.assertEqual(p["wall_sec_bucket"], 60)
+        # SIGKILL classifies as the jetsam class; a classified error carries
+        # NO fingerprint — that field exists only for `other`.
+        self.assertEqual(p["error_class"], "oom_jetsam")
+        self.assertNotIn("error_fingerprint", p)
+        self.assertEqual(p["audio_mode"], "h3_native")
+
+    def test_unknown_error_ships_class_other_plus_fingerprint(self):
+        self.configure(analytics_first_render_reported=True)
+        P._analytics_render_event({
+            "status": "failed", "error": "ZeroDivisionError: division by zero",
+            "elapsed_sec": 10.0,
+            "params": {"mode": "t2v", "engine": "ltx", "quality": "quick",
+                       "width": 640, "height": 448, "frames": 73},
+        })
+        drain()
+        p = self.props_of("render_failed")
+        self.assertEqual(p["error_class"], "other")
+        # 12 hex chars of the SCRUBBED line — countable, not readable.
+        self.assertRegex(p["error_fingerprint"], r"^[0-9a-f]{12}$")
+        self.assertEqual(
+            p["error_fingerprint"],
+            P._analytics_error_fingerprint(p["error_signature"]))
+
+    def test_error_taxonomy_is_closed_and_ordered(self):
+        cases = {
+            "Command buffer exec failed: kIOGPUCommandBufferCallbackErrorTimeout":
+                "metal_watchdog",
+            # The watchdog marker must win over the generic signal words —
+            # issue #44 must never be merged into native_crash.
+            "SIGABRT after Caused GPU Timeout Error": "metal_watchdog",
+            "helper died mid-job (no event)": "oom_jetsam",
+            "signal SIGSEGV in worker": "native_crash",
+            "helper failed to start: None": "helper_start_timeout",
+            "Broken pipe while writing job": "helper_exit",
+            "HTTP Error 403: gated repo": "download_failed",
+            "checksum mismatch (download corrupt) - please retry":
+                "download_failed",
+            "safetensors header truncated": "model_corrupt",
+            "Hailuo H3 isn't fully installed yet: dit": "model_missing",
+            "No module named 'mlx'": "venv_broken",
+            "OSError: [Errno 28] No space left on device": "disk_full",
+            "input image does not exist": "input_missing",
+            "ffmpeg exited 1": "export_failed",
+            "prompt required": "bad_params",
+            "phase timed out after 300s": "timeout",
+            "cancel requested, landing as failed": "cancelled_race",
+            "some brand new exploding thing": "other",
+        }
+        for raw, want in cases.items():
+            self.assertEqual(P._analytics_error_class(raw), want, raw)
+
+    def test_wall_ladder_edges(self):
+        f = P._analytics_wall_sec_bucket
+        self.assertIsNone(f(None))
+        self.assertIsNone(f(0))
+        self.assertEqual(f(7), 0)
+        self.assertEqual(f(15), 15)
+        self.assertEqual(f(499.3), 420)
+        self.assertEqual(f(3599), 2400)
+        self.assertEqual(f(99999), 5400)
+
+    def test_canvas_classes(self):
+        f = P._analytics_canvas_class
+        self.assertEqual(f(640, 448), "<=480p")
+        self.assertEqual(f(1024, 576), "576p")
+        self.assertEqual(f(1280, 704), "720p")
+        self.assertEqual(f(1920, 1080), "1080p")
+        self.assertEqual(f(2560, 1440), "native+")
+        self.assertEqual(f(0, 0), "unknown")
+
+    def test_first_render_fires_once_ever(self):
+        self.configure(analytics_first_render_reported=False)
+        job = {"status": "done", "elapsed_sec": 60.0,
+               "params": {"mode": "t2v", "engine": "ltx", "quality": "quick",
+                          "width": 640, "height": 448, "frames": 73}}
+        P._analytics_render_event(job)
+        drain()
+        self.assertTrue(self.props_of("render_completed").get("first_render"))
+        self.assertTrue(
+            P.get_settings().get("analytics_first_render_reported"))
+        self.spy.calls.clear()
+        P._analytics_render_event(job)
+        drain()
+        self.assertNotIn("first_render", self.props_of("render_completed"))
 
     def test_app_installed_fields(self):
         """Fires once per install, ever, immediately before its first

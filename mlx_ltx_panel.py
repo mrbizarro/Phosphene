@@ -10247,6 +10247,138 @@ def _analytics_job_secrets(job: dict) -> list:
     return out
 
 
+# ---- Schema v2 render-event vocabulary (spec: analytics_spec_2026-08-11) ---
+#
+# Every addition below obeys the schema's three rules: coarse classes never
+# measurements, closed vocabularies never free text, and no new information
+# about the PERSON — only about the render and the hardware class it ran on.
+# The point (spec F6): version/chip/ram lived on app_boot only, so "failure
+# rate by chip" or "wall time by machine class" needed a per-install join
+# nobody had written and PostHog's UI can't do in a click. Stamping the same
+# four coarse fields on the render events collapses all of it to one-click
+# breakdowns.
+
+# Lower edges of the wall-clock ladder (seconds). Log-spaced at ~1.3-1.5x:
+# sharp enough that a 8:19 -> 12:00 regression moves buckets (the old
+# 5-value duration_bucket could not see it — spec F7), far too coarse to be
+# a timing fingerprint. Numeric so PostHog's percentile aggregation works.
+_ANALYTICS_WALL_LADDER = (15, 30, 45, 60, 90, 120, 180, 240, 300, 420,
+                          600, 900, 1200, 1800, 2400, 3600, 5400)
+
+
+def _analytics_wall_sec_bucket(seconds):
+    """The ladder's lower edge for this wall clock, or None when unknown."""
+    try:
+        s = float(seconds)
+    except (TypeError, ValueError):
+        return None
+    if s <= 0:
+        return None
+    edge = 0
+    for rung in _ANALYTICS_WALL_LADDER:
+        if s >= rung:
+            edge = rung
+        else:
+            break
+    return int(edge)
+
+
+def _analytics_canvas_class(width: int, height: int) -> str:
+    """Coarse canvas grouping by megapixels — the percentile dimension."""
+    try:
+        mp = (int(width) * int(height)) / 1e6
+    except (TypeError, ValueError):
+        return "unknown"
+    if mp <= 0:
+        return "unknown"
+    if mp <= 0.45:
+        return "<=480p"
+    if mp <= 0.66:
+        return "576p"
+    if mp <= 1.1:
+        return "720p"
+    if mp <= 2.3:
+        return "1080p"
+    return "native+"
+
+
+# Closed error taxonomy (spec 2.7). Classification runs on the ORIGINAL
+# error string, locally; only the class leaves the machine. Order is
+# load-bearing: the watchdog marker must win over the generic signal names
+# (issue #44 must never be merged into native_crash), cancel races must win
+# over broad matches, and download failures must win over corrupt-weights
+# so a failed fetch's checksum line doesn't count against installed packs.
+_ANALYTICS_ERROR_CLASSES = (
+    ("metal_watchdog", ("kiogpucommandbuffercallbackerrortimeout",
+                        "caused gpu timeout error")),
+    ("cancelled_race", ("cancel",)),
+    ("oom_jetsam", ("sigkill", "helper died mid-job")),
+    ("native_crash", ("sigsegv", "sigbus", "sigabrt")),
+    ("helper_start_timeout", ("helper failed to start", "handshake")),
+    ("helper_exit", ("pipe closed", "broken pipe", "helper exited",
+                     "exited mid-job")),
+    ("download_failed", ("download", "urlopen", "http error", "gated",
+                         "401", "403", "fetch")),
+    ("model_corrupt", ("corrupt", "checksum", "integrity",
+                       "safetensors header", "hash mismatch")),
+    ("model_missing", ("isn't fully installed", "not downloaded",
+                       "weights are missing", "pack is missing",
+                       "resume install", "hq add-on", "missing (")),
+    ("venv_broken", ("venv", "dangling", "runner missing",
+                     "no module named")),
+    ("disk_full", ("enospc", "no space left")),
+    ("input_missing", ("does not exist", "no longer exists")),
+    ("export_failed", ("ffmpeg", "pipersr")),
+    ("bad_params", ("required", "invalid", "unknown mode",
+                    "unsupported mode", "must be", "out of range")),
+    ("timeout", ("timed out", "timeout")),
+)
+
+
+def _analytics_error_class(raw) -> str:
+    """Map an original error string onto the closed taxonomy."""
+    s = str(raw or "").strip().lower()
+    if not s:
+        return "other"
+    for name, needles in _ANALYTICS_ERROR_CLASSES:
+        if any(n in s for n in needles):
+            return name
+    return "other"
+
+
+def _analytics_error_fingerprint(scrubbed: str) -> str:
+    """12 hex chars of the ALREADY-SCRUBBED first line, sent only when the
+    class is `other`. The server learns "the same unknown error, N times,
+    on these chips" without the text; the readable line stays in the user's
+    own state/usage-log.jsonl for them to paste if they choose."""
+    import hashlib as _hashlib
+    return _hashlib.sha256(str(scrubbed or "").encode("utf-8",
+                                                      "replace")).hexdigest()[:12]
+
+
+def _analytics_lora_kinds(params: dict) -> str:
+    """Closed-vocabulary adapter summary: none|style|character|mixed.
+    COUNT and KIND only — which files is deliberately never sent."""
+    loras = params.get("loras") or []
+    character = bool(params.get("character_id"))
+    if not loras and not character:
+        return "none"
+    if character and loras:
+        return "mixed"
+    return "character" if character else "style"
+
+
+def _analytics_audio_mode(params: dict, engine: str, mode: str) -> str:
+    """Where this render's soundtrack came from, as a closed vocabulary."""
+    if engine == "h3":
+        return "h3_native"
+    if mode == "a2v":
+        return "a2v_dub"
+    if mode == "i2v_clean_audio":
+        return "none"
+    return "joint"
+
+
 def _analytics_render_tier(params: dict, engine: str) -> str:
     """The user-facing quality/tier selector for this job, per engine.
     LTX calls it `quality` (quick/balanced/standard/high); H3 calls it
@@ -10281,17 +10413,64 @@ def _analytics_render_event(job: dict) -> None:
             frames = int(p.get("frames") or 0)
         except (TypeError, ValueError):
             frames = 0
+        mode = str(p.get("mode") or "unknown")
         props = {
             "engine": engine,
-            "mode": str(p.get("mode") or "unknown"),
+            "mode": mode,
             "tier": _analytics_render_tier(p, engine),
             "duration_bucket": _analytics_duration_bucket(job.get("elapsed_sec")),
             "resolution": f"{width}x{height}" if width and height else "unknown",
             "frames": frames,
+            # ---- Schema v2 context (spec 2.4). The same coarse machine
+            # class app_boot already sends, repeated here so "failure rate
+            # by chip" and "wall time by machine class" are one-click
+            # PostHog breakdowns instead of an unwritten join. No new
+            # information about the person — only the render.
+            "version": _read_local_version() or "unknown",
+            "chip_family": _analytics_chip_family(),
+            "ram_gb": int(round(SYSTEM_RAM_GB)),
+            "os_version": _analytics_os_version(),
+            "canvas_class": _analytics_canvas_class(width, height),
+            # ---- Feature adoption, all closed vocabularies derived from
+            # what actually rendered.
+            "steps": max(0, int(p.get("steps") or 0)),
+            "accel": str(p.get("accel") or "off"),
+            "temporal_mode": str(p.get("temporal_mode") or "native"),
+            "upscale": str(p.get("upscale") or "off"),
+            "upscale_method": str(p.get("upscale_method") or "lanczos"),
+            "schedule_preset": str(p.get("schedule_preset") or "") or "default",
+            "chain_windows": max(1, int(p.get("h3_chain_windows") or 1)),
+            "chain_prompts_used": any(
+                str(x).strip() for x in (p.get("h3_chain_prompts") or [])),
+            "lora_count": len(p.get("loras") or []),
+            "lora_kinds": _analytics_lora_kinds(p),
+            "character_used": bool(p.get("character_id")),
+            "audio_mode": _analytics_audio_mode(p, engine, mode),
         }
+        # wall_sec_bucket only when the wall clock is known — a None would
+        # just pollute the percentile aggregation it exists to feed.
+        wall = _analytics_wall_sec_bucket(job.get("elapsed_sec"))
+        if wall is not None:
+            props["wall_sec_bucket"] = wall
+        if status == "done" and not bool(
+                get_settings().get("analytics_first_render_reported")):
+            # Activation as a one-event funnel (spec D1): the first
+            # successful render this install ever produced, once, same
+            # persisted-flag shape as analytics_install_reported.
+            props["first_render"] = True
+            _settings_set_internal(analytics_first_render_reported=True)
         if status == "failed":
-            props["error_signature"] = _analytics_scrub_text(
+            # The closed class is the leaderboard dimension; the scrubbed
+            # free-text signature ships ONE more transition release (spec
+            # 2.4) and then goes. `other` carries a 12-hex fingerprint of
+            # the scrubbed line so unknown-unknowns can be counted without
+            # transmitting their text.
+            scrubbed = _analytics_scrub_text(
                 job.get("error"), _analytics_job_secrets(job))
+            props["error_class"] = _analytics_error_class(job.get("error"))
+            props["error_signature"] = scrubbed
+            if props["error_class"] == "other":
+                props["error_fingerprint"] = _analytics_error_fingerprint(scrubbed)
         _analytics_capture(
             "render_completed" if status == "done" else "render_failed", props)
     except Exception:

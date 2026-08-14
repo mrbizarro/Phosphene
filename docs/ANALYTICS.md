@@ -173,18 +173,39 @@ including image and training jobs.
 |---|---|---|---|
 | `engine` | string | `"ltx"` | `ltx` or `h3` |
 | `mode` | string | `"i2v"` | `t2v`, `i2v`, `extend`, `keyframe`, `a2v`, `restore`, `ingredients`, `control`, `image`, `train` |
-| `tier` | string | `"standard"` | LTX quality (`quick`/`balanced`/`standard`/`high`) or H3 tier (`3s`/`5s`/`10s`/`15s`) |
-| `duration_bucket` | string | `"5-15m"` | One of `<2m`, `2-5m`, `5-15m`, `15-40m`, `>40m`, `unknown`. Bucketed, not raw — a precise duration plus a resolution plus a timestamp starts to look like a fingerprint |
+| `tier` | string | `"standard"` | LTX quality (`quick`/`balanced`/`standard`/`high`) or the H3 composite cell (`standard_5s`, `high_10s`, …) |
+| `duration_bucket` | string | `"5-15m"` | Legacy 5-value bucket, kept one more release for dashboard continuity, then removed in favour of `wall_sec_bucket` |
+| `wall_sec_bucket` | int | `480` | The lower edge of a log-spaced ladder (`15, 30, 45, 60, 90, 120, 180, 240, 300, 420, 600, 900, 1200, 1800, 2400, 3600, 5400`). Sharp enough to see a performance regression, far too coarse to be a timing fingerprint. Absent when the wall clock is unknown |
 | `resolution` | string | `"1216x704"` | Output dimensions, or `"unknown"` |
+| `canvas_class` | string | `"720p"` | Coarse megapixel class: `<=480p`, `576p`, `720p`, `1080p`, `native+` |
 | `frames` | int | `121` | Frame count |
+| `version` | string | `"4.0.6"` | Same value `app_boot` sends. Repeated here so "failure rate by version" is a one-click breakdown instead of a join |
+| `chip_family` | string | `"M4 Max"` | Hardware **class**, identical across every machine of that model — same value `app_boot` sends |
+| `ram_gb` | int | `64` | Hardware class — same value `app_boot` sends |
+| `os_version` | string | `"macOS 15"` | Coarse — same value `app_boot` sends |
+| `steps` | int | `8` | Sampler depth the job ran — separates a real regression from a user on 30 steps |
+| `accel` | string | `"off"` | `off` / `boost` / `turbo` |
+| `temporal_mode` | string | `"native"` | `native` or `fps12_interp24` (Long Clip Boost) |
+| `upscale` | string | `"fit_720p"` | `off` / `fit_720p` / `fit_1080p` / `x2` |
+| `upscale_method` | string | `"lanczos"` | `lanczos` or `pipersr` |
+| `schedule_preset` | string | `"default"` | `default` or `fast` — the LTX-2.5 draft schedule's adoption |
+| `chain_windows` | int | `2` | H3 chained-window count (1 = single pass) |
+| `chain_prompts_used` | bool | `false` | Did the per-window shot list carry any text |
+| `lora_count` | int | `1` | **Count only. Which adapters is deliberately never sent** |
+| `lora_kinds` | string | `"style"` | Closed vocabulary: `none` / `style` / `character` / `mixed` |
+| `character_used` | bool | `true` | A cast character drove this render |
+| `audio_mode` | string | `"joint"` | `joint` / `none` (external audio replaces the generated track) / `a2v_dub` / `h3_native` |
+| `first_render` | bool | `true` | Present once per install, on its first successful render ever — the activation funnel without a join |
 
 ### `render_failed`
 
-Same as `render_completed`, plus one field:
+Same as `render_completed` (minus `first_render`), plus:
 
 | Field | Type | Example | Notes |
 |---|---|---|---|
-| `error_signature` | string | `"RuntimeError: helper exited before first frame"` | **The only free-text field the panel sends.** See the scrubbing rules below |
+| `error_class` | string | `"metal_watchdog"` | **A closed 16-value taxonomy** (`oom_jetsam`, `metal_watchdog`, `native_crash`, `helper_start_timeout`, `helper_exit`, `model_missing`, `model_corrupt`, `download_failed`, `venv_broken`, `bad_params`, `input_missing`, `disk_full`, `export_failed`, `timeout`, `cancelled_race`, `other`). Classification runs on the original error text locally; **only the class leaves the machine** |
+| `error_fingerprint` | string | `"a3f09c21e7b4"` | Only when `error_class` is `other`: 12 hex chars of the SHA-256 of the already-scrubbed first line. Lets "the same unknown error, 17 times, all on M1 Max" be counted without transmitting the text — the readable line stays in your own `state/usage-log.jsonl` |
+| `error_signature` | string | `"RuntimeError: helper exited before first frame"` | **The only free-text field the panel sends**, see the scrubbing rules below. Kept for ONE transition release alongside `error_class`, then removed |
 
 Cancelled jobs are **not** reported — a user cancelling is not a signal about
 the software.
@@ -259,7 +280,7 @@ network is touched, and independently of whether the send then succeeds. One
 JSON object per line:
 
 ```json
-{"event":"render_completed","props":{"engine":"ltx","mode":"t2v","tier":"standard","duration_bucket":"2-5m","resolution":"1216x704","frames":121},"install_id":"…","ts":1754400000.0,"at":"2026-08-05 17:40:00","utc":"2026-08-05T14:40:00Z"}
+{"event":"render_completed","props":{"engine":"ltx","mode":"t2v","tier":"standard","duration_bucket":"2-5m","wall_sec_bucket":180,"resolution":"1216x704","canvas_class":"720p","frames":121,"version":"4.0.6","chip_family":"M4 Max","ram_gb":64,"os_version":"macOS 15","steps":8,"accel":"off","temporal_mode":"native","upscale":"fit_720p","upscale_method":"lanczos","schedule_preset":"default","chain_windows":1,"chain_prompts_used":false,"lora_count":0,"lora_kinds":"none","character_used":false,"audio_mode":"joint"},"install_id":"…","ts":1754400000.0,"at":"2026-08-05 17:40:00","utc":"2026-08-05T14:40:00Z"}
 ```
 
 Two reasons it exists: it's the "this machine" data source for the Usage
