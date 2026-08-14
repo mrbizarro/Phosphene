@@ -13,7 +13,7 @@
 
 </p>
 
-> **Current release: v4.0.3.** A hotfix for v4.0.2: stacking a LoRA from the library picker crashed the render with a missing import (`name 'mx' is not defined`). Cast characters took a different branch and were unaffected, which is why it got through. Everything else is v4.0.2 — image-to-video actually animates the picture you gave it, a new **High · 720p** tier renders the 1280×704 canvas in about 8 minutes, characters ride the engine's native runtime-LoRA route so a trained face is no longer partly quantised away, and Enhance works again. Full notes on the [releases page](https://github.com/mrbizarro/phosphene/releases).
+> **Current release: v4.0.4.** **The live preview plays on the main stage.** A render you start takes the big player full-size — a calm `Finding the shot…` while the model warms, then the forming take with a `LIVE` badge, step count, ETA and Stop early. A clip you are already watching keeps the stage, and when the render finishes it cross-fades into the finished video with no empty-player flash. Also: the Spicy option follows the Settings switch on both engines instead of only one, and H3's draft adapter moved to the LightX2V v1.0 768p selection. Carries v4.0.3's picker-LoRA crash fix and all of v4.0.2. Full notes on the [releases page](https://github.com/mrbizarro/phosphene/releases).
 
 ## Overview
 
