@@ -434,7 +434,7 @@ class TestServerContract(unittest.TestCase):
 class TestQueueCharacterVoiceContract(unittest.TestCase):
     """The public queue API must never render half a trained character."""
 
-    def _post(self, fields: dict, *, with_audio=True):
+    def _post(self, fields: dict, *, with_audio=True, audio_declared_missing=False):
         body = urlencode(fields).encode()
         h = P.Handler.__new__(P.Handler)
         h.path = "/queue/add"
@@ -452,10 +452,23 @@ class TestQueueCharacterVoiceContract(unittest.TestCase):
             face.touch()
             if with_audio:
                 audio.touch()
+            # THREE SHAPES, AND THEY ARE NOT THE SAME REQUEST.
+            #   with_audio=True             -> a full character
+            #   with_audio=False            -> a SILENT character: no audio file
+            #                                  exists, so list_characters() reports
+            #                                  audio_lora_path=None. This is how a
+            #                                  face-only character is represented,
+            #                                  the shipped sample character among
+            #                                  them. It must RENDER.
+            #   audio_declared_missing=True -> a CORRUPT bundle: the record names
+            #                                  an audio file that is not on disk.
+            #                                  It must REFUSE.
             char = {
                 "id": "bizarrotrn", "trigger": "bizarrotrn", "name": "Bizarro",
                 "face_lora_path": str(face),
-                "audio_lora_path": str(audio) if with_audio else None,
+                "audio_lora_path": (str(audio) if with_audio
+                                    else (str(Path(td) / "gone.audio.safetensors")
+                                          if audio_declared_missing else None)),
             }
             saved = (P.list_characters, P.persist_queue, P.push)
             P.list_characters = lambda: [char]
@@ -509,20 +522,54 @@ class TestQueueCharacterVoiceContract(unittest.TestCase):
                     ["bizarrotrn_v2.safetensors",
                      "bizarrotrn.audio.safetensors"])
 
-    def test_missing_voice_refuses_unless_no_voice_is_explicit(self):
+    def test_a_declared_voice_that_is_missing_refuses(self):
+        """A bundle that NAMES an audio file which is not on disk is corrupt."""
         fields = {"mode": "t2v", "character_id": "bizarrotrn",
                   "prompt": "bizarrotrn waves"}
-        reply, params = self._post(fields, with_audio=False)
+        reply, params = self._post(fields, with_audio=False,
+                                   audio_declared_missing=True)
         self.assertEqual(reply["status"], 400, reply)
         self.assertIn("missing its trained voice LoRA", reply["payload"]["error"])
         self.assertFalse(params)
 
         fields["no_voice"] = "on"
-        reply, params = self._post(fields, with_audio=False)
+        reply, params = self._post(fields, with_audio=False,
+                                   audio_declared_missing=True)
         self.assertEqual(reply["status"], 200, reply)
         self.assertTrue(params["no_voice"])
         self.assertEqual([Path(x["path"]).name for x in params["loras"]],
                          ["bizarrotrn_v2.safetensors"])
+
+    def test_a_silent_character_renders_face_only(self):
+        """A character with NO trained voice is not a broken character.
+
+        THIS IS THE REGRESSION THAT SHIPPED. The voice contract was enforced
+        against `audio_lora_path` being falsy, but list_characters() reports
+        None there for every face-only character — so every silent character
+        became unrenderable on every path, with no way to opt out: the
+        No-voice pill is HIDDEN exactly for these characters, so `no_voice`
+        could never be submitted. The one-click SAMPLE CHARACTER ships as a
+        single face file, which made from-zero onboarding produce a character
+        the panel then refused.
+        """
+        reply, params = self._post(
+            {"mode": "t2v", "character_id": "bizarrotrn",
+             "prompt": "bizarrotrn waves"}, with_audio=False)
+        self.assertEqual(reply["status"], 200, reply)
+        self.assertEqual([Path(x["path"]).name for x in params["loras"]],
+                         ["bizarrotrn_v2.safetensors"])
+        # And it does NOT get stamped as an explicit voice opt-out — the user
+        # never opted out of anything; there was nothing to opt out of.
+        self.assertFalse(params.get("no_voice"))
+
+    def test_the_shipped_sample_character_is_renderable(self):
+        """SAMPLE_CHARACTER is one face file. Whatever the voice contract
+        says, it must not refuse the character the app offers to install."""
+        self.assertNotIn("audio", P.SAMPLE_CHARACTER["filename"])
+        reply, _ = self._post(
+            {"mode": "t2v", "character_id": "bizarrotrn",
+             "prompt": "bizarrotrn waves"}, with_audio=False)
+        self.assertEqual(reply["status"], 200, reply)
 
     def test_h3_character_pair_is_refused_before_lane_scrub(self):
         reply, params = self._post({
@@ -531,7 +578,27 @@ class TestQueueCharacterVoiceContract(unittest.TestCase):
         })
         self.assertEqual(reply["status"], 400, reply)
         self.assertIn("can't load a trained character", reply["payload"]["error"])
-        self.assertFalse(params)
+
+    def test_engine_h3_on_a_mode_h3_cannot_serve_still_renders_on_ltx(self):
+        """`engine=h3` is a REQUEST, and make_job resolves it.
+
+        make_job downgrades h3 to LTX for three legitimate reasons — H3 isn't
+        installed, the Mac lacks the RAM, or the mode is one H3 does not serve.
+        The character refusal used to re-read the RAW form field instead of the
+        resolved engine, so a request that was about to render correctly on LTX
+        with the full character stack got a 400 instead. `extend` is one of the
+        modes H3 never serves, so this can be asserted without depending on
+        whether H3 is installed on the machine running the test.
+        """
+        reply, params = self._post({
+            "mode": "extend", "engine": "h3", "character_id": "bizarrotrn",
+            "prompt": "bizarrotrn keeps speaking",
+        })
+        self.assertEqual(reply["status"], 200, reply)
+        self.assertEqual(params["engine"], "ltx")
+        self.assertEqual([Path(x["path"]).name for x in params["loras"][:2]],
+                         ["bizarrotrn_v2.safetensors",
+                          "bizarrotrn.audio.safetensors"])
 
 
 class TestPipelineQualityPerVersion(unittest.TestCase):

@@ -13130,6 +13130,33 @@ class CharacterRequestError(ValueError):
     """A character request cannot preserve the face + voice contract."""
 
 
+def _engine_would_be_h3(requested: str, mode: str) -> bool:
+    """Would a job asking for this engine ACTUALLY render on H3?
+
+    make_job resolves `engine` rather than obeying it: an id not in the
+    registry, an `announced` engine, a mode H3 does not serve, a Mac without
+    the RAM — each falls back to LTX. Any caller that needs to know "is this an
+    H3 render" and reads the raw form field instead is asking a different
+    question, and will be wrong in exactly the cases the fallbacks exist for.
+
+    This is the shared answer, so the API seam and the enqueue seam cannot
+    disagree. Deliberately conservative: it checks the conditions that are
+    knowable without building the job, and anything it cannot determine
+    resolves to "not H3", which is the forgiving direction (make_job re-checks
+    and raises for real).
+    """
+    eng = (requested or ENGINE_DEFAULT).strip().lower()
+    if eng not in ENGINE_IDS:
+        return False
+    if eng != "h3":
+        return False
+    if (engine_by_id(eng) or {}).get("state") == "announced":
+        return False
+    if not engine_serves_mode(engine_by_id("h3") or {}, (mode or "t2v")):
+        return False
+    return bool(h3_capable())
+
+
 def _validate_character_quality(form: dict[str, list[str]] | dict[str, str]) -> str | None:
     """Validate the complete trained-character contract before enqueueing.
 
@@ -13159,7 +13186,14 @@ def _validate_character_quality(form: dict[str, list[str]] | dict[str, str]) -> 
     quality = _f("quality", "balanced").lower()
     cid = _f("character_id", "")
     if cid:
-        if _f("engine", ENGINE_DEFAULT).lower() == "h3":
+        # ONLY REFUSE WHEN H3 WOULD ACTUALLY RENDER IT. `engine=h3` in the form
+        # is a REQUEST, not the outcome: make_job downgrades it to LTX when H3
+        # isn't installed, when the Mac lacks the RAM, or when the mode is one
+        # H3 doesn't serve. Refusing on the raw field 400'd requests that were
+        # about to render correctly on LTX with the full character stack — so
+        # this asks the same question make_job answers, through the same
+        # registry, instead of trusting the field.
+        if _engine_would_be_h3(_f("engine", ENGINE_DEFAULT), _f("mode", "t2v")):
             return ("Hailuo H3 can't load a trained character's face or voice "
                     "LoRAs. Choose LTX or clear character_id.")
         try:
@@ -13173,8 +13207,24 @@ def _validate_character_quality(form: dict[str, list[str]] | dict[str, str]) -> 
             return (f"character {cid!r} is missing its face LoRA; request was "
                     "not queued")
         no_voice = _f("no_voice", "off").lower() in ("on", "true", "1", "yes")
-        audio = Path(str(char.get("audio_lora_path") or ""))
-        if not no_voice and not audio.is_file():
+        # A CHARACTER THAT NEVER HAD A VOICE IS NOT A BROKEN CHARACTER.
+        #
+        # `list_characters()` sets audio_lora_path to None when no
+        # `.audio.safetensors` sits beside the face file — that is how a
+        # face-only character is REPRESENTED, and the UI has always treated it
+        # as a first-class state (the "silent" badge). Refusing it here made
+        # every silent character unrenderable on every path, with no way to opt
+        # out: the No-voice pill is hidden precisely for these characters, so
+        # `no_voice` could never be sent. The shipped one-click SAMPLE
+        # CHARACTER is exactly this shape — one face file, no audio — so
+        # from-zero onboarding produced a character the panel then refused.
+        #
+        # The contract this check exists to enforce is "a character's declared
+        # voice must actually be there", and it is preserved by asking the
+        # right question: DECLARED but MISSING is a corrupt bundle and still
+        # refuses; NEVER DECLARED is silent by construction and renders.
+        audio_declared = str(char.get("audio_lora_path") or "").strip()
+        if audio_declared and not no_voice and not Path(audio_declared).is_file():
             return (f"character {cid!r} is missing its trained voice LoRA. "
                     "Restore/train the voice file, or submit no_voice=on "
                     "explicitly; request was not queued")
@@ -14030,7 +14080,18 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # LoRA — overriding to 0 effectively disables a character without
     # forcing the user to clear the picker.
     if _character_id:
-        if f("engine", ENGINE_DEFAULT).lower() == "h3":
+        # THE RESOLVED ENGINE, NOT THE RAW FORM FIELD. ~350 lines above, this
+        # function has already downgraded `_engine` from "h3" to "ltx" for
+        # three legitimate reasons: H3 isn't installed, the Mac hasn't got the
+        # RAM, or the mode is one H3 doesn't serve (extend / keyframe / a2v /
+        # restore / ingredients / control). Re-reading `f("engine")` here threw
+        # away that resolution and 400'd requests make_job was about to render
+        # correctly on LTX with the full character stack.
+        #
+        # This is the same lockstep-drift class the character gates were
+        # written to catch — a value corrected in one place while its partner
+        # three screens away still read the original.
+        if _engine == "h3":
             raise CharacterRequestError(
                 "Hailuo H3 can't load a trained character's face or voice "
                 "LoRAs. Choose LTX or clear character_id.")
@@ -14098,7 +14159,16 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             raise CharacterRequestError(
                 f"character {_character_id!r} is missing its face LoRA; "
                 "request was not queued")
-        if not no_voice and (not audio_p or not Path(str(audio_p)).is_file()):
+        # DECLARED-BUT-MISSING refuses; NEVER-DECLARED renders. `audio_p` is
+        # None for a character with no `.audio.safetensors` beside its face
+        # file — the representation of a face-only character, which the UI
+        # shows with a "silent" badge and whose No-voice pill is HIDDEN (so
+        # `no_voice` can never be submitted for it). Refusing that shape made
+        # every silent character unrenderable with no opt-out, the shipped
+        # one-click sample character among them. See the twin check in
+        # _validate_character_quality.
+        _audio_declared = str(audio_p or "").strip()
+        if _audio_declared and not no_voice and not Path(_audio_declared).is_file():
             raise CharacterRequestError(
                 f"character {_character_id!r} is missing its trained voice "
                 "LoRA. Restore/train the voice file, or submit no_voice=on "
@@ -17374,7 +17444,7 @@ def run_job_inner(job: dict) -> None:
         # 2.3 (whose characters go to `high` and never reach this branch) is
         # untouched.
         _char_pack = "q4"
-        if p.get("character_id") and character_render_quality() != "high":
+        if p.get("character_id") and not ltx_quality_uses_hq(character_render_quality()):
             _char_pack = "q8"
             push(f"[character] {model_version()['label']} characters render on "
                  f"the Q8 weights with the distilled pipeline — the recipe they "
@@ -21481,7 +21551,18 @@ class Handler(BaseHTTPRequestHandler):
             err = _validate_character_quality(form)
             if err:
                 self._json({"error": err}, 400); return
-            job = make_job(form)
+            # The validator runs FIRST, so make_job's own refusals should be
+            # unreachable here — but "should be" is not a guarantee: the two
+            # seams read the same form through different code, and a character
+            # deleted between the two calls is a plain TOCTOU. do_POST has no
+            # top-level handler, so an escaping CharacterRequestError becomes a
+            # traceback and a dropped connection instead of the 400 the rest of
+            # this endpoint answers with. The refusal is polite everywhere else;
+            # it must be polite here too.
+            try:
+                job = make_job(form)
+            except CharacterRequestError as exc:
+                self._json({"error": str(exc)}, 400); return
             with QUEUE_COND:
                 STATE["queue"].append(job)
                 QUEUE_COND.notify_all()
@@ -22283,10 +22364,26 @@ class Handler(BaseHTTPRequestHandler):
             chunks = [c for c in chunks if c]
             if not chunks:
                 self._json({"error": "no prompts after split"}, 400); return
+            # The character contract applies here too. /queue/batch accepts any
+            # form the Manual tab can build, character_id included, and it was
+            # the one enqueue path that neither validated up front nor caught
+            # CharacterRequestError — so a batch cast with a voice-less
+            # character raised mid-loop, INSIDE the queue lock, after some jobs
+            # were already appended and before persist_queue() or any response.
+            # Half a batch, no answer, and the refusal the rest of the panel
+            # makes politely arriving as a 500.
+            err = _validate_character_quality(form)
+            if err:
+                self._json({"error": err}, 400); return
             ids = []
+            try:
+                built = [make_job(form, override_prompt=pr) for pr in chunks]
+            except CharacterRequestError as exc:
+                self._json({"error": str(exc)}, 400); return
+            # Built first, appended second: a batch is all-or-nothing, so a
+            # refusal on prompt 7 cannot leave prompts 1-6 queued.
             with QUEUE_COND:
-                for prompt in chunks:
-                    job = make_job(form, override_prompt=prompt)
+                for job in built:
                     job["params"]["open_when_done"] = False
                     STATE["queue"].append(job)
                     ids.append(job["id"])
@@ -45569,17 +45666,59 @@ document.getElementById('genForm').addEventListener('submit', async e => {
         (fd.get('engine') || 'ltx') !== 'h3' &&
         Array.isArray(_knownUserLoras) &&
         Array.isArray(_activeLoras)) {
-      const activePaths = new Set(_activeLoras.map(l => l.path));
+      // COVERED-NESS IS A PROPERTY OF THE TRIGGER, NOT OF A PATH. Two blind
+      // spots made this warn about triggers that were fully attached:
+      //
+      //   1. It only looked at _activeLoras — the user-LoRA picker. A CAST
+      //      CHARACTER's stack is expanded server-side from character_id and
+      //      never appears there, so casting elontrn and writing "elontrn"
+      //      warned that elontrn was not attached while it was about to be
+      //      fused first in the stack.
+      //   2. It matched attached-ness by PATH. A library holding two entries
+      //      for one trigger — the bundle copy and an "elontrn (high)" variant
+      //      — flagged the one the user had NOT toggled even though the trigger
+      //      was already covered by the one they had.
+      //
+      // So: build the set of triggers ANY attached source carries, and only
+      // warn about a trigger that appears in none of them.
+      const coveredTriggers = new Set();
+      const addTrigger = (w) => {
+        const t = String(w || '').toLowerCase().trim();
+        if (t) coveredTriggers.add(t);
+      };
+      for (const l of _activeLoras) {
+        for (const w of (l.trigger_words || [])) addTrigger(w);
+        // A user LoRA row may carry only a path; recover its triggers from the
+        // library entry so an attached-by-path LoRA still covers its words.
+        const known = (_knownUserLoras || []).find(k => k.path === l.path);
+        if (known) for (const w of (known.trigger_words || [])) addTrigger(w);
+      }
+      // The cast character's own trigger(s) — the registry knows them, and the
+      // backend expands them into the stack, so they are attached by definition.
+      const castId = (fd.get('character_id') || '').toString().trim();
+      if (castId) {
+        addTrigger(castId);
+        const chars = (typeof _manualCharacters !== 'undefined' && Array.isArray(_manualCharacters))
+          ? _manualCharacters : [];
+        const cast = chars.find(c => c && c.id === castId);
+        if (cast) {
+          addTrigger(cast.trigger);
+          for (const w of (cast.trigger_words || [])) addTrigger(w);
+        }
+      }
       const orphans = [];   // [{name, trigger}]
+      const seenTrigger = new Set();
       const wordRe = /[a-z0-9]+/g;
       const promptTokens = new Set(promptLower.match(wordRe) || []);
       for (const ul of _knownUserLoras) {
-        if (activePaths.has(ul.path)) continue;
         for (const w of (ul.trigger_words || [])) {
           if (!w) continue;
           const wLower = String(w).toLowerCase().trim();
           if (!wLower || wLower.length < 4) continue;   // skip 1-3 char tokens, too common
+          if (coveredTriggers.has(wLower)) continue;    // attached by SOME source
+          if (seenTrigger.has(wLower)) continue;        // one warning per trigger
           if (promptTokens.has(wLower)) {
+            seenTrigger.add(wLower);
             orphans.push({ name: ul.name || ul.filename || ul.path.split('/').pop(), trigger: w });
             break;   // one match per LoRA is enough
           }
