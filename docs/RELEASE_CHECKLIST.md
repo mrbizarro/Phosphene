@@ -43,6 +43,44 @@ mosaic was a missing `spatial_upscaler_x2_v1_1.safetensors` in the Q4 download �
 if you touch `required_files.json` / `install.js` / `update.js` model lists,
 re-confirm a fresh Q4 install pulls it.
 
+## 3a. Output codec — render-level gate (MANDATORY, the v3.8.1 class)
+
+v3.8.1 shipped fleet-wide silent 4:2:0: the codec patch never ran, and every
+gate that existed was static — `node --check`, shell-line ceilings, patch
+exit codes. Nothing ever looked at a produced file, so renders completed,
+looked like renders, and carried avoidable chroma compression on faces for a
+whole release. This gate looks at the file. Run it after the section-3 smoke
+renders (any panel render on this install works), **every release, whether or
+not LTX was touched** — it is one ffprobe:
+
+```
+python3 scripts/check_output_codec.py
+```
+
+It picks the newest panel-rendered LTX clip under `mlx_outputs/` (H3 clips
+are skipped — their mux is not the patched encoder) and fails non-zero
+unless BOTH hold:
+
+- **pix_fmt matches what was requested** — the sidecar's
+  `output_codec.pix_fmt` (recorded at render time), or `LTX_OUTPUT_PIX_FMT`
+  if set (helper-CLI renders), else the patched default `yuv444p`;
+- **`+faststart` is present** (moov before mdat) — the unpatched upstream
+  encoder writes neither faststart nor reads the env vars, so this catches
+  the patch-bypassed class even when the requested pix_fmt happens to equal
+  upstream's hardcoded yuv420p (the "standard" preset), where the pix_fmt
+  check alone is blind.
+
+When the sidecar names a separate `native_output` (upscaled deliveries), the
+NATIVE file is what gets checked — the panel-side export re-encode always
+applies the settings codec + faststart and would mask a broken patch
+underneath it. Explicit file: `python3 scripts/check_output_codec.py
+<path.mp4>`. Exit 0 = pass; **anything else = DO NOT PROMOTE.**
+
+Defense in depth: every install continuously self-reports the same check
+(same script, imported) via `/status.model_integrity.output_codec`, with a
+red banner + boot warning on mismatch — so even a regression that slips a
+gate gets named on users' own machines instead of shipping silently.
+
 ## 3b. Weight mirror — the packs GitHub carries, not HuggingFace
 
 Only applies to packs whose `required_files.json` entry has a `mirror` block
