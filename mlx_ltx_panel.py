@@ -4884,10 +4884,103 @@ def _model_integrity(force: bool = False) -> dict:
     if placement:
         result["ok"] = False
         result["bad"].extend(placement)
+    # Render-level output-codec audit — see _output_codec_report below. Its
+    # own sub-block rather than a bad[] row on purpose: bad[] drives the
+    # Repair (re-download) flow, and a wrong-codec clip is not fixable by
+    # re-downloading weights. It also does not flip result["ok"] — the boot
+    # warning and the banner's corrupt/misplaced headlines enumerate bad[];
+    # consumers read output_codec.ok directly.
+    try:
+        result["output_codec"] = _output_codec_report()
+    except Exception:  # noqa: BLE001 — integrity must never break /status
+        result["output_codec"] = {"ok": True, "skipped": "audit crashed"}
     with _INTEGRITY_LOCK:
         _INTEGRITY_CACHE["ts"] = now
         _INTEGRITY_CACHE["data"] = result
     return result
+
+
+# ---- render-level output-codec self-report (the v3.8.1 class) ----------------
+# v3.8.1 shipped fleet-wide silent 4:2:0: the codec patch never applied, and
+# every gate that existed was static (node --check, shell-line ceilings, patch
+# exit codes) — nothing ever looked at a PRODUCED file, so renders completed,
+# looked like renders, and carried chroma-subsampled block artifacts on faces
+# for a whole release. This closes the class at the last possible layer:
+# ffprobe the newest panel-rendered LTX clip and compare it against the codec
+# its own sidecar says was requested at render time, plus the patched
+# encoder's +faststart fingerprint (the unpatched upstream line writes
+# neither, so it is detectable even when the requested pix_fmt equals
+# upstream's hardcoded yuv420p). The implementation is
+# scripts/check_output_codec.py — the SAME file the release checklist runs —
+# imported here so the pre-promote gate and every install's self-report
+# cannot drift apart. Cost: one ffprobe per NEW output (cached by
+# path+mtime), riding _model_integrity's 120 s cache.
+_CODEC_GATE_PATH = ROOT / "scripts" / "check_output_codec.py"
+_codec_gate_mod = None
+_OUTPUT_CODEC_CACHE: dict = {"key": None, "report": None, "warned_key": None}
+
+
+def _codec_gate():
+    """Lazy-import the gate script. Returns None if missing/unimportable —
+    the self-report then skips; a broken gate must never break /status."""
+    global _codec_gate_mod
+    if _codec_gate_mod is not None:
+        return _codec_gate_mod
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "phosphene_check_output_codec", _CODEC_GATE_PATH)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _codec_gate_mod = mod
+    except Exception:  # noqa: BLE001 — retried on the next integrity refresh
+        return None
+    return _codec_gate_mod
+
+
+def _output_codec_report() -> dict:
+    """Codec state of this install's newest panel render. Shapes:
+    {ok: True, skipped: str} when there is nothing checkable, else
+    {ok, file, actual, expected, expected_source, faststart, problems}."""
+    gate = _codec_gate()
+    if gate is None:
+        return {"ok": True, "skipped": "gate script unavailable"}
+    if not FFPROBE.exists():
+        return {"ok": True, "skipped": "ffprobe not found"}
+    picked = gate.newest_panel_output(OUTPUT)
+    if picked is None:
+        return {"ok": True, "skipped": "no panel-rendered clip yet"}
+    target, sidecar = picked
+    try:
+        key = (str(target), target.stat().st_mtime)
+    except OSError:
+        return {"ok": True, "skipped": "output vanished mid-check"}
+    if _OUTPUT_CODEC_CACHE["key"] == key:
+        return _OUTPUT_CODEC_CACHE["report"]
+    try:
+        rep = gate.check_file(target, FFPROBE, sidecar=sidecar)
+        report = {
+            "ok": rep["ok"],
+            "file": Path(rep["file"]).name,
+            "actual": rep["actual"],
+            "expected": rep["expected"],
+            "expected_source": rep["expected_source"],
+            "faststart": rep["faststart"],
+            "problems": rep["problems"],
+        }
+    except Exception as e:  # noqa: BLE001 — a half-written mp4 is a skip, not an alarm
+        report = {"ok": True, "skipped": f"probe failed: {e}"}
+    if not report["ok"] and _OUTPUT_CODEC_CACHE.get("warned_key") != key:
+        # Once per offending file — the log is how this stays visible in the
+        # panel UI without a render-blocking modal. ASCII only (emoji in
+        # panel output can break the Pinokio/helper handshake, 2026-06-02).
+        _OUTPUT_CODEC_CACHE["warned_key"] = key
+        push("[codec-audit] OUTPUT CODEC MISMATCH on "
+             f"{report['file']}: {'; '.join(report['problems'])} - the codec "
+             "patch may not be applied (the v3.8.1 class). Click Update in "
+             "Pinokio; if it persists, reinstall.")
+    _OUTPUT_CODEC_CACHE["key"] = key
+    _OUTPUT_CODEC_CACHE["report"] = report
+    return report
 
 
 # ---- deep (checksum) integrity vs upstream -----------------------------------
@@ -42750,6 +42843,15 @@ function mergeIntegrity(integ, deep) {
   if (integ && !integ.ok) add(integ.bad);
   const dv = deep && deep.result;
   if (dv && !dv.ok) add(dv.bad);
+  // Render-level codec audit (the v3.8.1 class) rides model_integrity as its
+  // own sub-block. Flagged `codec:true` so the banner never offers Repair for
+  // it — re-downloading weights cannot fix an unapplied codec patch. See
+  // _output_codec_report() in the backend.
+  const oc = integ && integ.output_codec;
+  if (oc && oc.ok === false) {
+    bad.push({ repo: 'output-codec', file: oc.file || '', codec: true,
+               reason: (oc.problems || []).join('; ') });
+  }
   return { ok: bad.length === 0, bad };
 }
 
@@ -42816,17 +42918,21 @@ function renderIntegrityBanner(integ) {
       + 'align-items:center;gap:12px;flex-wrap:wrap;box-shadow:0 2px 10px rgba(0,0,0,.45)';
     document.body.appendChild(el);
   }
-  const repos = [...new Set(bad.map(b => b.repo))];
+  // Repair (re-download) only makes sense for weight files — codec-audit rows
+  // are excluded from the button list; their cure is Update / reinstall.
+  const repos = [...new Set(bad.filter(b => !b.codec).map(b => b.repo))];
   // Placement errors (right content, wrong path) are a different failure from a
   // corrupt download, and the cure is usually a move rather than a re-fetch — so
   // they get their own headline and their reason printed in full (it names both
   // the found-at and expected-at paths). See _placement_errors() in the backend.
   const misplaced = bad.filter(b => b.placement);
-  const corrupt = bad.filter(b => !b.placement);
+  const codecBad = bad.filter(b => b.codec);
+  const corrupt = bad.filter(b => !b.placement && !b.codec);
   el.innerHTML =
     '<span style="font-weight:700">'
     + (corrupt.length ? 'Model files look incomplete / corrupt'
-                      : 'Model files are in the wrong place') + '</span>'
+       : misplaced.length ? 'Model files are in the wrong place'
+       : 'Renders are not being encoded as requested') + '</span>'
     + (corrupt.length
         ? '<span style="opacity:.92">' + escapeHtml(corrupt.map(b => b.file).join(', '))
           + ' — this produces garbled / "mosaic" output (usually an interrupted '
@@ -42836,6 +42942,13 @@ function renderIntegrityBanner(integ) {
         ? '<span style="opacity:.92;flex-basis:100%">'
           + misplaced.map(b => escapeHtml(b.reason)).join('<br>')
           + '</span>'
+        : '')
+    + (codecBad.length
+        ? '<span style="opacity:.92;flex-basis:100%">'
+          + codecBad.map(b => escapeHtml(b.file + ' — ' + b.reason)).join('<br>')
+          + '. The codec patch may not be applied — click Update in Pinokio '
+          + '(if it persists, reinstall). Clips rendered like this carry '
+          + 'avoidable compression on faces.</span>'
         : '')
     + '<span style="margin-left:auto;display:flex;gap:8px">'
     + repos.map(k => '<button class="btn btn-primary" onclick="repairModel(\'' + escapeHtml(k)
@@ -51313,6 +51426,18 @@ if __name__ == "__main__":
             print("-" * 64, flush=True)
         else:
             print(f"model integrity: OK ({_integ['checked']} weight files verified)", flush=True)
+        # Render-level codec audit (the v3.8.1 class) — the newest render's
+        # actual encoding vs what its sidecar says was requested. Not part of
+        # bad[] (that list is the re-download Repair flow); warned separately.
+        _codec = _integ.get("output_codec") or {}
+        if not _codec.get("ok", True):
+            print("-" * 64, flush=True)
+            print("WARNING output codec: the newest render is not encoded the way it", flush=True)
+            print(f"  was requested - {_codec.get('file')}: "
+                  f"{'; '.join(_codec.get('problems') or [])}", flush=True)
+            print("  The codec patch may not be applied (v3.8.1 shipped exactly this,", flush=True)
+            print("  silently). Click Update in Pinokio; if it persists, reinstall.", flush=True)
+            print("-" * 64, flush=True)
     except Exception as _ie:  # noqa: BLE001 — never block boot on the scan
         print(f"model integrity scan skipped: {_ie}", flush=True)
     try:
