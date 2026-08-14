@@ -18371,6 +18371,30 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _inline_filename(self, path: Path) -> str:
+        """`Content-Disposition: inline; filename="<real basename>"`.
+
+        WHY `inline` AND NOT `attachment`: this same response is what the
+        gallery's `<video>` tag streams and range-requests. `attachment` would
+        force a save dialog and stop playback dead. `inline` changes nothing
+        about how the browser RENDERS the response — it only supplies the name
+        the browser uses when the user then chooses "Save video as…" or
+        right-click → Download.
+
+        Without it the browser has no name to offer and derives one from the
+        URL, which for `/file?path=/…/clip.mp4` is the literal string `file` —
+        so every clip anyone ever saved from the panel landed in Downloads as
+        `file`, `file-1`, `file-2`. The name was always right there in the
+        query string; nothing was reading it back out.
+
+        ASCII-safe for the same reason `/loras/download` is: the header does
+        not survive non-ASCII without RFC 5987 encoding. Quotes are stripped so
+        a crafted name cannot break out of the quoted-string and inject a
+        header value."""
+        safe = "".join(c for c in path.name if 32 <= ord(c) < 127)
+        safe = safe.replace('"', "").replace("\\", "").strip()
+        return safe or path.name.encode("ascii", "ignore").decode() or "download"
+
     def _serve_video_with_range(self, path: Path) -> None:
         """Serve an mp4 with HTTP byte-range support so the browser <video>
         tag can seek without redownloading and the gallery's `preload="metadata"`
@@ -18417,6 +18441,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
             self.send_header("Content-Length", str(length))
+            self.send_header(
+                "Content-Disposition",
+                f'inline; filename="{self._inline_filename(path)}"')
             # Y1.039 — `no-cache` forces revalidation on every request even
             # when the URL is reused. Combined with the v=<mtime> URL bust
             # in list_outputs, this means a refreshed file gets re-fetched
@@ -18445,6 +18472,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "video/mp4")
         self.send_header("Content-Length", str(size))
         self.send_header("Accept-Ranges", "bytes")
+        self.send_header(
+            "Content-Disposition",
+            f'inline; filename="{self._inline_filename(path)}"')
         self.send_header("Cache-Control", "no-cache")  # Y1.039 — see above
         self.end_headers()
         with path.open("rb") as fh:
@@ -19822,6 +19852,21 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(served.stat().st_size))
+            # The ORIGINAL's name, the SERVED file's extension.
+            #
+            # Neither half is optional. `served.name` alone would hand the user
+            # a cache key (`clip.png.480.webp`), which is not a name anyone
+            # asked for. But `path.name` alone lies in the other direction: a
+            # `w=480` request re-encodes a PNG as JPEG, so calling those bytes
+            # `alice_start.png` saves a file whose extension contradicts its
+            # contents. Stem from the original, suffix from what actually went
+            # down the socket — recognisable AND true.
+            _dl_name = self._inline_filename(path)
+            if served is not path:
+                _dl_name = Path(_dl_name).stem + served.suffix
+            self.send_header(
+                "Content-Disposition",
+                f'inline; filename="{_dl_name}"')
             self.end_headers()
             with served.open("rb") as fh:
                 self.wfile.write(fh.read())
@@ -47945,7 +47990,12 @@ async function renameLora(path, currentName) {
 function downloadLora(path) {
   const a = document.createElement('a');
   a.href = '/loras/download?path=' + encodeURIComponent(path);
-  a.download = '';
+  // The BASENAME, not the empty string. `download=''` delegates the name to
+  // the server's Content-Disposition, which this endpoint does send — but the
+  // empty form silently falls back to the URL-derived name ("download") on any
+  // path where the header is missing or stripped by an extension. We know the
+  // name here; saying it costs nothing and removes the failure mode.
+  a.download = String(path || '').split('/').pop() || '';
   document.body.appendChild(a);
   a.click();
   a.remove();
