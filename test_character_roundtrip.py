@@ -19,6 +19,7 @@ If a function stops doing that, the test fails. If a function is renamed or
 deleted, extraction raises and the test fails loudly rather than quietly going
 back to grepping.
 """
+import io
 import json
 import re
 import shutil
@@ -27,6 +28,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from urllib.parse import urlencode
 
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
@@ -385,6 +387,123 @@ class TestServerContract(unittest.TestCase):
             self.assertEqual(float(out["voice"]), first["character_voice_strength"], first)
             self.assertEqual(out["width"], str(first["width"]), first)
             self.assertEqual(out["height"], str(first["height"]), first)
+
+
+class TestPipelineQualityPerVersion(unittest.TestCase):
+    """The endpoint SUBMITS the pipeline the generation was graded on.
+
+    f65ea9b added character_render_quality() (ltx23 -> high, ltx25 ->
+    balanced) and fixed the endpoint's `quality` VARIABLE — but the job_form
+    three screens below still hardcoded "quality": ["high"], and THAT is the
+    field make_job reads. Every Characters-tab render on 2.5 took the
+    two-stage HQ path (~246 s, 29.5 GB add-on) instead of the graded
+    q8 + distilled path (~139 s). c366e71 fixed the literal; this class pins
+    the property so the variable and the form can never drift apart again.
+
+    Per this file's own charter, it EXECUTES the real do_POST rather than
+    grepping for the fixed line: a stub transport carries the request, and
+    make_job is captured at the seam the bug lived on — the form the endpoint
+    actually submits. Each case runs per model version, not just whichever
+    generation is active today, because "works on the active version" is
+    exactly the coverage hole the original miss hid in.
+    """
+
+    def _generate(self, fields: dict, version: str):
+        """POST /characters/<id>/generate through the REAL handler.
+
+        Returns (reply, submitted): the JSON the endpoint answered and the
+        form it handed make_job. Module seams (character list, make_job,
+        queue persistence, log) are restored in `finally`; the fake job is
+        removed from the in-memory queue so no other test sees it.
+        """
+        body = urlencode(fields).encode()
+        h = P.Handler.__new__(P.Handler)          # no socket — stub transport
+        h.path = "/characters/gatetrn/generate"
+        h.headers = {"Content-Type": "application/x-www-form-urlencoded",
+                     "Content-Length": str(len(body))}
+        h.rfile = io.BytesIO(body)
+        h._is_local_request = lambda: True
+        reply: dict = {}
+        h._json = lambda payload, status=200: reply.update(
+            payload=payload, status=status)
+
+        submitted: dict = {}
+
+        def _capture(form, **_kw):
+            submitted.update(form)
+            return {"id": "quality-gate-job"}
+
+        char = {"id": "gatetrn", "trigger": "gatetrn", "name": "Gate",
+                "face_lora_path": "f.safetensors"}
+        saved = (P.ACTIVE_MODEL_VERSION, P.list_characters, P.make_job,
+                 P.persist_queue, P.push)
+        P.ACTIVE_MODEL_VERSION = version
+        P.list_characters = lambda: [char]
+        P.make_job = _capture
+        P.persist_queue = lambda: None
+        P.push = lambda line: None
+        try:
+            h.do_POST()
+        finally:
+            (P.ACTIVE_MODEL_VERSION, P.list_characters, P.make_job,
+             P.persist_queue, P.push) = saved
+            with P.QUEUE_COND:
+                P.STATE["queue"] = [j for j in P.STATE["queue"]
+                                    if j.get("id") != "quality-gate-job"]
+        return reply, submitted
+
+    def test_the_registry_rule_itself(self):
+        self.assertEqual(P.character_render_quality("ltx23"), "high")
+        self.assertEqual(P.character_render_quality("ltx25"), "balanced")
+
+    def test_every_registered_version_resolves_to_a_real_pipeline(self):
+        # The endpoint 400s a quality outside _CHARACTER_QUALITY_RESOLUTION —
+        # a registry entry naming a fantasy pipeline would brick its own tab.
+        for v in P.MODEL_VERSIONS:
+            self.assertIn(P.character_render_quality(v["id"]),
+                          P._CHARACTER_QUALITY_RESOLUTION, v["id"])
+
+    def test_the_submitted_form_carries_the_resolved_quality(self):
+        for version, expected in (("ltx25", "balanced"), ("ltx23", "high")):
+            reply, form = self._generate({"prompt": "gatetrn waves"}, version)
+            self.assertTrue(reply["payload"].get("ok"), reply)
+            self.assertEqual(form["quality"], [expected], version)
+
+    def test_an_explicit_caller_quality_still_wins(self):
+        # The thin-wrapper promise: a caller naming a REAL pipeline quality is
+        # obeyed on either generation. (Replay / Load Params depends on this.)
+        _, form = self._generate(
+            {"prompt": "gatetrn waves", "quality": "high"}, "ltx25")
+        self.assertEqual(form["quality"], ["high"])
+        _, form = self._generate(
+            {"prompt": "gatetrn waves", "quality": "balanced"}, "ltx23")
+        self.assertEqual(form["quality"], ["balanced"])
+
+    def test_size_tokens_pick_a_canvas_not_a_pipeline(self):
+        # The tab's two chips say draft/pro. That must choose WIDTH×HEIGHT and
+        # leave the pipeline to the generation's rule — conflating the two is
+        # what kept this tab on the wrong pipeline in the first place.
+        for version, expected in (("ltx25", "balanced"), ("ltx23", "high")):
+            for token, (w, hgt) in (("draft", (704, 384)),
+                                    ("pro", (1024, 576))):
+                _, form = self._generate(
+                    {"prompt": "gatetrn waves", "quality": token}, version)
+                self.assertEqual(form["quality"], [expected], (version, token))
+                self.assertEqual(form["width"], [str(w)], (version, token))
+                self.assertEqual(form["height"], [str(hgt)], (version, token))
+
+    def test_schedule_steps_ride_only_when_the_caller_sent_them(self):
+        # c366e71's second half: hardcoded stage1/stage2 steps are inert on
+        # the HQ lane but a pad-request landmine on a thinning lane. A bare
+        # request must not carry them; an explicit caller must.
+        _, form = self._generate({"prompt": "gatetrn waves"}, "ltx25")
+        self.assertNotIn("stage1_steps", form)
+        self.assertNotIn("stage2_steps", form)
+        _, form = self._generate(
+            {"prompt": "gatetrn waves", "stage1_steps": "8",
+             "stage2_steps": "2"}, "ltx25")
+        self.assertEqual(form["stage1_steps"], ["8"])
+        self.assertEqual(form["stage2_steps"], ["2"])
 
 
 if __name__ == "__main__":
