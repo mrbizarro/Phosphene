@@ -173,6 +173,12 @@ STATS_HTML_FILE = ROOT / "panel_assets" / "stats.html"
 STATS_FETCHER = ROOT / "scripts" / "fetch_repo_stats.py"
 HELPER_IDLE_TIMEOUT = int(os.environ.get("LTX_HELPER_IDLE_TIMEOUT", "1800"))
 HELPER_LOW_MEMORY = os.environ.get("LTX_HELPER_LOW_MEMORY", "true")
+# Enhance is an interactive HTTP request, unlike renders that may legitimately
+# run for tens of minutes. Bound its helper wait below the UI/curl client's
+# 120-second ceiling so a silent helper still produces a JSON error response.
+PROMPT_ENHANCE_TIMEOUT = max(
+    1.0, float(os.environ.get("LTX_PROMPT_ENHANCE_TIMEOUT", "90") or 90)
+)
 FPS = 24
 
 
@@ -2617,6 +2623,53 @@ def _read_lora_sidecar(safetensors_path: Path) -> dict:
     return meta
 
 
+def _active_ltx_transformer_path() -> Path | None:
+    """Return the checkpoint the active generation's default LoRA lane uses."""
+    from lora_compat import resolve_distilled_transformer
+
+    model_dir = Path(base_model_dir())
+    if not model_dir.is_dir():
+        return None
+    return resolve_distilled_transformer(model_dir)
+
+
+def _ltx_lora_compatibility(path: str | Path) -> dict:
+    """Library-safe compatibility fields for one local adapter.
+
+    Missing active weights produce an unknown result rather than hiding the
+    entire library during install.  A present checkpoint is authoritative: a
+    malformed or mismatched adapter is marked unavailable and its exact file
+    name travels to both the UI and the enqueue refusal.
+    """
+    from lora_compat import LoraCompatibilityError, inspect_lora_compatibility
+
+    lora_path = Path(path)
+    transformer_path = _active_ltx_transformer_path()
+    if transformer_path is None:
+        return {
+            "ltx_compatible": None,
+            "ltx_compat_reason": "active LTX transformer is not installed",
+            "ltx_fusion_tally": None,
+        }
+    try:
+        report = inspect_lora_compatibility(lora_path, transformer_path)
+        reason = "" if report.compatible else report.failure_message()
+        return {
+            "ltx_compatible": report.compatible,
+            "ltx_compat_reason": reason,
+            "ltx_fusion_tally": report.tally,
+        }
+    except (LoraCompatibilityError, OSError, ValueError) as exc:
+        return {
+            "ltx_compatible": False,
+            "ltx_compat_reason": (
+                f"LoRA '{lora_path.name}' cannot be inspected for the active "
+                f"LTX generation: {exc}"
+            ),
+            "ltx_fusion_tally": None,
+        }
+
+
 def list_user_loras() -> list[dict]:
     """Scan mlx_models/loras/ and return one entry per .safetensors found.
     Filenames are matched case-insensitive on the extension; subdirectories
@@ -2662,6 +2715,7 @@ def list_user_loras() -> list[dict]:
                     trigger_words = [_conv_trigger]
                 if not kind:
                     kind = "train_character"
+        ltx_compat = _ltx_lora_compatibility(path)
         out.append({
             "id": f"user:{path.name}",
             "name": meta["name"],
@@ -2696,6 +2750,7 @@ def list_user_loras() -> list[dict]:
             "civitai_url": civitai_url,
             "downloaded_at": meta.get("downloaded_at"),
             "is_curated": False,
+            **ltx_compat,
         })
     return out
 
@@ -2875,6 +2930,16 @@ def list_characters() -> list[dict]:
                 break
         bundle = _character_bundle(trigger)
         sample = _character_dataset_image(trigger)
+        compat_parts = [_ltx_lora_compatibility(face_path)]
+        if has_audio:
+            compat_parts.append(_ltx_lora_compatibility(audio_path))
+        incompatible = next(
+            (part for part in compat_parts if part["ltx_compatible"] is False),
+            None,
+        )
+        compatibility_known = all(
+            part["ltx_compatible"] is not None for part in compat_parts
+        )
         out.append({
             "id": trigger,
             "trigger": trigger,
@@ -2897,8 +2962,26 @@ def list_characters() -> list[dict]:
             "sample_image_path": str(sample) if sample else None,
             "sample_image_url": (f"/characters/{trigger}/preview"
                                  if sample else None),
+            "ltx_compatible": (
+                False if incompatible else (True if compatibility_known else None)
+            ),
+            "ltx_compat_reason": (
+                incompatible["ltx_compat_reason"] if incompatible else ""
+            ),
+            "ltx_fusion_tallies": [
+                part["ltx_fusion_tally"] for part in compat_parts
+                if part.get("ltx_fusion_tally")
+            ],
         })
     return out
+
+
+def list_library_characters() -> list[dict]:
+    """Characters the active generation can safely offer in the UI."""
+    return [
+        char for char in list_characters()
+        if char.get("ltx_compatible") is not False
+    ]
 
 
 # ---- Shipped sample character ------------------------------------------------
@@ -11262,6 +11345,13 @@ class WarmHelper:
             # moved the transformer and silently left the text tower on 2.3's
             # encoder. It renders; it just renders wrong (ltx25 entry, above).
             env["LTX_GEMMA"] = text_encoder_dir()
+            # Prompt enhancement is a language-model generation task, not a
+            # render-conditioning task. LTX-2.5's Gemma 4 tower is the correct
+            # text encoder but deliberately has no lm_head / KV cache, so
+            # reusing LTX_GEMMA here made Enhance spend the whole client
+            # timeout loading Gemma 4 and then close with no response body.
+            # Keep the generative Gemma 3 root on its own explicit seam.
+            env["LTX_ENHANCE_GEMMA"] = str(GEMMA)
             env["LTX_IDLE_TIMEOUT"] = str(HELPER_IDLE_TIMEOUT)
             env["LTX_LOW_MEMORY"] = HELPER_LOW_MEMORY
             env["LTX_ENABLE_MODEL_UPSCALE"] = "1" if MODEL_UPSCALE_ENABLED else "0"
@@ -11611,7 +11701,7 @@ class WarmHelper:
                 and self.gemma_max_length is None
                 and not self.is_alive())
 
-    def run(self, job_spec: dict) -> dict:
+    def run(self, job_spec: dict, timeout: float | None = None) -> dict:
         """Run a job, with one automatic retry at a shorter Gemma prompt
         encode if the macOS GPU watchdog killed this machine's encode.
 
@@ -11622,7 +11712,7 @@ class WarmHelper:
         session spawns pre-mitigated instead of crashing again.
         """
         try:
-            return self._run_once(job_spec)
+            return self._run_once(job_spec, timeout=timeout)
         except RuntimeError:
             if not self._gemma_fallback_applies():
                 raise
@@ -11631,9 +11721,9 @@ class WarmHelper:
                  f"encoding on this chip. Retrying this job once with Gemma "
                  f"encoding at {self.gemma_max_length} tokens instead of 1024 "
                  f"— nothing was rendered yet, so no work is lost.")
-        return self._run_once(job_spec)
+        return self._run_once(job_spec, timeout=timeout)
 
-    def _run_once(self, job_spec: dict) -> dict:
+    def _run_once(self, job_spec: dict, timeout: float | None = None) -> dict:
         # Per-run detector state — reset here so a watchdog kill seen on an
         # earlier job can't arm the fallback for an unrelated failure.
         self._metal_timeout_seen = False
@@ -11657,9 +11747,19 @@ class WarmHelper:
                 # kept waiting for an event that was never coming, so a
                 # deliberate Stop early surfaced as whatever timed out first.
                 ["done", "error", "exit", "stopped"],
+                timeout=timeout,
                 log_hook=log_hook,
                 panic_check=panic_check,
             )
+            if ev is None and timeout is not None and self.is_alive():
+                # _read_until's deadline expired while the helper remained
+                # alive and silent. Leave no reader parked on the old pipe:
+                # kill it so the next job starts clean, then let the endpoint
+                # serialize the timeout as a normal JSON error.
+                self.kill()
+                raise RuntimeError(
+                    f"helper timed out after {timeout:g}s waiting for a response"
+                )
             return self._dispatch_run_event(ev)
 
     def _dispatch_run_event(self, ev: dict | None) -> dict:
@@ -13316,6 +13416,10 @@ def _validate_character_quality(form: dict[str, list[str]] | dict[str, str]) -> 
             return f"could not resolve character {cid!r}: {exc}"
         if not char:
             return f"character {cid!r} not found; request was not queued"
+        if char.get("ltx_compatible") is False:
+            return str(char.get("ltx_compat_reason") or
+                       f"character {cid!r} is incompatible with the active "
+                       "LTX generation; request was not queued")
         face = Path(str(char.get("face_lora_path") or ""))
         if not face.is_file():
             return (f"character {cid!r} is missing its face LoRA; request was "
@@ -14357,6 +14461,24 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                  f"{'…' if len(_dropped) > 4 else ''}) — LTX and Hailuo H3 "
                  f"adapters are not interchangeable.")
             job["params"]["loras"] = _kept
+
+    # The browser library is a convenience, not an authority boundary: a stale
+    # tab or hand-written API call can still submit a path the active generation
+    # cannot use.  Refuse local LTX adapters here as well, before the queue can
+    # spend minutes producing a plausible stranger.  Remote curated adapters
+    # are resolved and checked by the helper immediately before model load.
+    if job["params"].get("engine") == "ltx":
+        for _entry in (job["params"].get("loras") or []):
+            _path_raw = str((_entry or {}).get("path") or "").strip()
+            try:
+                _strength = float((_entry or {}).get("strength", 1.0))
+            except (TypeError, ValueError):
+                _strength = 1.0
+            if not _path_raw or _strength == 0.0 or not Path(_path_raw).is_file():
+                continue
+            _compat = _ltx_lora_compatibility(_path_raw)
+            if _compat["ltx_compatible"] is False:
+                raise CharacterRequestError(_compat["ltx_compat_reason"])
 
     _apply_generation_profile_to_job(job)
 
@@ -19441,6 +19563,7 @@ class Handler(BaseHTTPRequestHandler):
                     user_loras = [
                         l for l in user_loras
                         if l.get("lane") != "h3"
+                        and l.get("ltx_compatible") is not False
                         and (mode_filter in (l.get("compatible_modes") or [])
                              or "unknown" in (l.get("compatible_modes") or []))
                     ]
@@ -19544,7 +19667,7 @@ class Handler(BaseHTTPRequestHandler):
         # with the locked production recipe applied. See list_characters()
         # for the discovery rules.
         if parsed.path == "/characters":
-            self._json({"characters": list_characters()})
+            self._json({"characters": list_library_characters()})
             return
 
         # ---- Storyboard reads ------------------------------------------
@@ -23668,11 +23791,19 @@ class Handler(BaseHTTPRequestHandler):
                     "id": f"enh-{int(time.time()*1000)}",
                     "params": {"prompt": user_prompt, "mode": mode, "seed": 10,
                                "preserve_tokens": preserve_tokens},
-                })
+                }, timeout=PROMPT_ENHANCE_TIMEOUT)
             except Exception as exc:
                 push(f"[enhance] failed: {exc}")
                 self._json({"error": str(exc)}, 500); return
-            enhanced = result.get("enhanced", "").strip()
+            # A malformed terminal helper event must still become JSON. Before
+            # this guard, None/non-string values raised after the only try/except
+            # in the lane and BaseHTTPRequestHandler closed the socket empty.
+            if not isinstance(result, dict):
+                self._json({"error": "Gemma returned an invalid helper response"}, 500); return
+            enhanced_raw = result.get("enhanced", "")
+            if not isinstance(enhanced_raw, str):
+                self._json({"error": "Gemma returned an invalid enhanced prompt"}, 500); return
+            enhanced = enhanced_raw.strip()
             if not enhanced:
                 self._json({"error": "Gemma returned empty result"}, 500); return
             push(f"[enhance] → {enhanced[:120]}… ({result.get('elapsed_sec','?')}s)")
@@ -47503,7 +47634,7 @@ function populateIngredientCharLoras() {
   const empty = document.getElementById('ingredientCharEmpty');
   if (!sel) return;
   const chars = (Array.isArray(_knownUserLoras) ? _knownUserLoras : [])
-    .filter(u => u && u.kind === 'train_character');
+    .filter(u => u && u.kind === 'train_character' && u.ltx_compatible !== false);
   const prev = sel.value;
   sel.innerHTML = '<option value="">None — compose from the reference images only</option>';
   for (const c of chars) {
@@ -47618,6 +47749,10 @@ async function refreshLoras() {
   try { populateIngredientCharLoras(); } catch (_) {}
 }
 
+function _loraGenerationCompatible(row, modeTag) {
+  return !(modeTag === 'video' && row && row.ltx_compatible === false);
+}
+
 function renderLorasList() {
   const wrap = document.getElementById('lorasList');
   const empty = document.getElementById('lorasEmpty');
@@ -47653,6 +47788,8 @@ function renderLorasList() {
       layout: ul.layout || null,
       layout_ok: (ul.layout_ok === undefined) ? true : !!ul.layout_ok,
       layout_reason: ul.layout_reason || '',
+      ltx_compatible: ul.ltx_compatible,
+      ltx_compat_reason: ul.ltx_compat_reason || '',
       active: !!active,
       strength: active ? active.strength : (ul.recommended_strength || 1.0),
       // 'user' = downloaded/installed (CivitAI or manual);
@@ -47676,6 +47813,8 @@ function renderLorasList() {
       layout: null,
       layout_ok: true,
       layout_reason: '',
+      ltx_compatible: null,
+      ltx_compat_reason: '',
       active: true,
       strength: a.strength,
       kind: 'remote',
@@ -47753,6 +47892,13 @@ function renderLorasList() {
       return tags.includes(modeTag) || tags.includes('unknown');
     };
     rows = allRows.filter(r => {
+      // A model-family mismatch may be revealed with "Show other modes";
+      // an adapter proven unable to attach to the active LTX generation may
+      // not. The helper would refuse it too, but the library must not offer a
+      // button that can only lead to an error.
+      if (!_loraGenerationCompatible(r, modeTag)) {
+        return false;
+      }
       const m = _matches(r);
       if (!m && !showOtherModes) hiddenCount++;
       return m || showOtherModes;

@@ -73,8 +73,10 @@ if "LTX2_GEMMA_EVAL_EVERY" not in os.environ:
 # ---- end early bootstrap ====================================================
 
 # ---- config ------------------------------------------------------------------
-# All paths come from env vars set by the panel. If LTX_GEMMA isn't set, the
-# pipeline falls back to downloading the HF model id, which works first-run.
+# All paths come from env vars set by the panel. LTX_GEMMA is the active
+# generation's render text encoder; LTX_ENHANCE_GEMMA is deliberately separate
+# because prompt rewriting needs Gemma 3's generative language-model head while
+# LTX-2.5 conditions renders with a non-generative Gemma 4 tower.
 _ROOT = Path(__file__).resolve().parent
 _Q4_LOCAL_PATH = _ROOT / "mlx_models" / "ltx-2.3-mlx-q4"
 MODEL_ID = os.environ.get(
@@ -82,6 +84,9 @@ MODEL_ID = os.environ.get(
     str(_Q4_LOCAL_PATH) if _Q4_LOCAL_PATH.is_dir() else "dgrauet/ltx-2.3-mlx-q4",
 )
 GEMMA_PATH = os.environ.get("LTX_GEMMA", "mlx-community/gemma-3-12b-it-4bit")
+ENHANCE_GEMMA_PATH = os.environ.get(
+    "LTX_ENHANCE_GEMMA", "mlx-community/gemma-3-12b-it-4bit"
+)
 IDLE_TIMEOUT = int(os.environ.get("LTX_IDLE_TIMEOUT", "1800"))
 LOW_MEMORY = os.environ.get("LTX_LOW_MEMORY", "true").lower() in ("true", "1", "yes")
 MODEL_UPSCALE_ENABLED = os.environ.get("LTX_ENABLE_MODEL_UPSCALE", "").lower() in ("1", "true", "yes", "on")
@@ -674,7 +679,12 @@ def _install_a2v_frame_rate_patch() -> None:
 
 
 def _install_lora_fusion_patches() -> None:
-    """Make subclass pipelines actually fuse _pending_loras during load().
+    """Install fail-closed native LoRA guards, or repair an older engine.
+
+    Current engines already own the correct quantization-aware LoRA route; the
+    first branch below preserves it and verifies the live attachment report.
+    The rest of this function is the legacy compatibility path for engines
+    whose subclasses bypassed ``_pending_loras`` entirely.
 
     Upstream `BasePipeline.load()` in `_base.py` checks `_pending_loras` and
     fuses LoRA deltas into transformer weights before quantization. But the
@@ -702,6 +712,82 @@ def _install_lora_fusion_patches() -> None:
     HQ ever gets a user-LoRA path."""
     global _LORA_PATCH_INSTALLED
     if _LORA_PATCH_INSTALLED:
+        return
+
+    # v0.14.19+ltx25.3 routes every modern pipeline through BasePipeline's
+    # native LoRA-aware transformer loader.  The historical wrapper below was
+    # written for older subclasses that bypassed that seam; leaving it active
+    # now bypasses the native `auto -> unfused` path and re-quantizes character
+    # deltas into Q4/Q8 weights.  That can erase identity while still producing
+    # a perfectly plausible video.  Prefer the native loader when it exists,
+    # and guard both its header routing and the modules it actually attached.
+    try:
+        from ltx_pipelines_mlx._base import BasePipeline as _NativeBasePipeline
+    except ImportError:
+        _NativeBasePipeline = None
+    if (
+        _NativeBasePipeline is not None
+        and hasattr(_NativeBasePipeline, "_load_transformer_with_optional_streaming")
+        and hasattr(_NativeBasePipeline, "_attach_pending_loras")
+    ):
+        if not getattr(_NativeBasePipeline, "_phosphene_lora_guard", False):
+            _native_load_transformer = (
+                _NativeBasePipeline._load_transformer_with_optional_streaming
+            )
+
+            def _guarded_native_load_transformer(self, transformer_path):
+                pending = list(getattr(self, "_pending_loras", None) or [])
+                active = [(str(path), float(strength))
+                          for path, strength in pending if float(strength) != 0.0]
+                self._phosphene_lora_preflight = []
+                if active:
+                    from lora_compat import validate_lora_stack
+
+                    reports = validate_lora_stack(active, transformer_path)
+                    self._phosphene_lora_preflight = list(zip(
+                        reports, (strength for _, strength in active)
+                    ))
+                return _native_load_transformer(self, transformer_path)
+
+            def _guarded_native_attach(self, dit, lora_paths):
+                from lora_compat import (
+                    LoraCompatibilityError,
+                    validate_runtime_application,
+                )
+                from ltx_core_mlx.loader.runtime_loras import load_and_attach_loras
+                from ltx_core_mlx.utils.memory import aggressive_cleanup
+                from ltx_pipelines_mlx.utils._orchestration import resolve_lora_path
+
+                active = [(resolve_lora_path(path), float(strength))
+                          for path, strength in lora_paths
+                          if float(strength) != 0.0]
+                if not active:
+                    return
+                expected = list(getattr(self, "_phosphene_lora_preflight", []) or [])
+                if len(expected) != len(active):
+                    names = ", ".join(Path(path).name for path, _ in active)
+                    raise LoraCompatibilityError(
+                        f"LoRA preflight state was lost before live attachment "
+                        f"({names}). Rendering was refused before it could "
+                        "produce a LoRA-free result."
+                    )
+                report = load_and_attach_loras(dit, active, verbose=self.verbose)
+                validate_runtime_application(
+                    expected,
+                    (module.name for module in report.applied),
+                    reporter=lambda line: emit({"event": "log", "line": line}),
+                )
+                # Mirror BasePipeline._attach_pending_loras: force the adapter
+                # parameters out of MLX's lazy graph before cleanup.
+                mx.eval(dit.parameters())
+                aggressive_cleanup()
+
+            _NativeBasePipeline._load_transformer_with_optional_streaming = (
+                _guarded_native_load_transformer
+            )
+            _NativeBasePipeline._attach_pending_loras = _guarded_native_attach
+            _NativeBasePipeline._phosphene_lora_guard = True
+        _LORA_PATCH_INSTALLED = True
         return
 
     classes = []
@@ -884,6 +970,33 @@ def _attach_loras(pipe, loras: list[dict] | None) -> None:
               "line": f"  + LoRA queued: {os.path.basename(path)} "
                       f"(strength {strength:.2f})"})
     pipe._pending_loras = pairs
+
+
+def _preflight_distilled_loras(
+    loras: list[tuple[str, float]], model_dir: str | Path
+) -> None:
+    """Fail closed for IC-LoRA pipelines that own their fusion internally."""
+    from lora_compat import resolve_distilled_transformer, validate_lora_stack
+
+    active = [(path, float(strength)) for path, strength in loras
+              if float(strength) != 0.0]
+    if not active:
+        return
+    transformer = resolve_distilled_transformer(model_dir)
+    if transformer is None:
+        raise RuntimeError(
+            f"Cannot validate LoRAs: no distilled transformer found in {model_dir}."
+        )
+    reports = validate_lora_stack(active, transformer)
+    for index, ((_, strength), report) in enumerate(zip(active, reports), start=1):
+        emit({
+            "event": "log",
+            "line": (
+                f"LoRA[{index}] strength={float(strength):.2f} "
+                f"PREFLIGHT={report.matched_tensors}/{report.declared_tensors} "
+                f"tensors file={report.lora_path.name}"
+            ),
+        })
 
 
 _extend_model_dir: str | None = None
@@ -1424,11 +1537,12 @@ def get_a2v_distilled_pipe(model_dir: str):
 
 
 # ---- prompt enhancement (Gemma language model) ------------------------------
-# Separate from the pipeline's TextEncoder wrapper — same weights file, but
-# the LanguageModel class supports `.enhance_t2v(prompt, seed)` /
-# `.enhance_i2v(prompt, seed)` for prompt rewriting. Loaded lazily on first
-# enhance request. Held warm across calls; freed by `release_pipelines`
-# when a render starts to keep memory below the 64 GB ceiling.
+# Separate from the pipeline's TextEncoder wrapper. The LanguageModel class
+# supports `.enhance_t2v(prompt, seed)` / `.enhance_i2v(prompt, seed)` for
+# prompt rewriting, which requires the generative Gemma 3 root even when the
+# active LTX generation renders with Gemma 4. Loaded lazily on first enhance
+# request. Held warm across calls; freed by `release_pipelines` when a render
+# starts to keep memory below the 64 GB ceiling.
 _gemma_lm = None
 
 
@@ -1443,7 +1557,7 @@ def get_gemma_lm():
             # us past 64 GB on standard tier.
             release_pipelines(keep_kind=None)
             _gemma_lm = GemmaLanguageModel()
-            _gemma_lm.load(GEMMA_PATH)
+            _gemma_lm.load(ENHANCE_GEMMA_PATH)
         emit({"event": "log", "line": "Gemma loaded — subsequent enhances will be fast."})
     return _gemma_lm
 
@@ -3163,6 +3277,7 @@ for line in sys.__stdin__:
                 (_resolve_lora_path(str(l["path"])), float(l.get("strength", 1.0)))
                 for l in loras
             ]
+            _preflight_distilled_loras(resolved, model_dir)
             num_frames = int(p["frames"])
             _apply_vae_streaming_decision(num_frames)
             # Tear down any existing cached pipeline before instantiating
@@ -3282,6 +3397,7 @@ for line in sys.__stdin__:
                 (_resolve_lora_path(str(l["path"])), float(l.get("strength", 1.0)))
                 for l in loras
             ]
+            _preflight_distilled_loras(resolved, model_dir)
             num_frames = int(p["frames"])
             _apply_vae_streaming_decision(num_frames)
             # Tear down any existing cached pipeline before instantiating

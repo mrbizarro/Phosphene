@@ -23,6 +23,7 @@ import io
 import json
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -42,6 +43,16 @@ from extract_panel_js import (  # noqa: E402
 import mlx_ltx_panel as P  # noqa: E402
 
 NODE = shutil.which("node")
+
+
+def _write_synthetic_safetensors(path: Path, keys: list[str]) -> None:
+    """Write a header-only fixture; routing gates never materialise payloads."""
+    header = {
+        key: {"dtype": "F32", "shape": [1, 1], "data_offsets": [0, 0]}
+        for key in keys
+    }
+    raw = json.dumps(header, separators=(",", ":")).encode("utf-8")
+    path.write_bytes(struct.pack("<Q", len(raw)) + raw)
 
 # A DOM shim just large enough for the functions under test: getElementById,
 # element values, textContent, and the querySelectorAll calls they make.
@@ -449,9 +460,20 @@ class TestQueueCharacterVoiceContract(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             face = Path(td) / "bizarrotrn_v2.safetensors"
             audio = Path(td) / "bizarrotrn.audio.safetensors"
-            face.touch()
+            transformer = Path(td) / "transformer-distilled.safetensors"
+            module = "transformer_blocks.0.attn1.to_q"
+            _write_synthetic_safetensors(
+                transformer, [f"transformer.{module}.weight"]
+            )
+            _write_synthetic_safetensors(
+                face, [f"diffusion_model.{module}.lora_A.weight",
+                       f"diffusion_model.{module}.lora_B.weight"]
+            )
             if with_audio:
-                audio.touch()
+                _write_synthetic_safetensors(
+                    audio, [f"diffusion_model.{module}.lora_A.weight",
+                            f"diffusion_model.{module}.lora_B.weight"]
+                )
             # THREE SHAPES, AND THEY ARE NOT THE SAME REQUEST.
             #   with_audio=True             -> a full character
             #   with_audio=False            -> a SILENT character: no audio file
@@ -470,10 +492,15 @@ class TestQueueCharacterVoiceContract(unittest.TestCase):
                                     else (str(Path(td) / "gone.audio.safetensors")
                                           if audio_declared_missing else None)),
             }
-            saved = (P.list_characters, P.persist_queue, P.push)
+            saved = (P.list_characters, P.persist_queue, P.push,
+                     P._active_ltx_transformer_path, P.h3_capable)
             P.list_characters = lambda: [char]
             P.persist_queue = lambda: None
             P.push = lambda line: None
+            P._active_ltx_transformer_path = lambda: transformer
+            # Make the H3 refusal test independent of the CI host's RAM. Modes
+            # H3 does not serve still resolve back to LTX through the registry.
+            P.h3_capable = lambda: True
             try:
                 h.do_POST()
                 jid = (reply.get("payload") or {}).get("id")
@@ -487,7 +514,8 @@ class TestQueueCharacterVoiceContract(unittest.TestCase):
                 if queued:
                     params["loras"] = [dict(x) for x in params.get("loras") or []]
             finally:
-                P.list_characters, P.persist_queue, P.push = saved
+                (P.list_characters, P.persist_queue, P.push,
+                 P._active_ltx_transformer_path, P.h3_capable) = saved
         return reply, params
 
     def test_reported_t2v_api_case_stacks_face_and_trained_voice(self):
@@ -599,6 +627,25 @@ class TestQueueCharacterVoiceContract(unittest.TestCase):
         self.assertEqual([Path(x["path"]).name for x in params["loras"][:2]],
                          ["bizarrotrn_v2.safetensors",
                           "bizarrotrn.audio.safetensors"])
+
+
+@unittest.skipUnless(NODE, "node is required to execute the panel JavaScript")
+class TestLoraLibraryGenerationFilter(unittest.TestCase):
+    def test_incompatible_ltx_row_is_never_offered_as_an_other_mode(self):
+        source = panel_source()
+        fn = extract_function("_loraGenerationCompatible", source)
+        script = fn + r"""
+const results = [
+  _loraGenerationCompatible({ltx_compatible:false}, 'video'),
+  _loraGenerationCompatible({ltx_compatible:false}, 'image:flux'),
+  _loraGenerationCompatible({ltx_compatible:true}, 'video'),
+];
+process.stdout.write(JSON.stringify(results));
+"""
+        proc = subprocess.run(
+            [NODE, "-e", script], text=True, capture_output=True, check=True
+        )
+        self.assertEqual(json.loads(proc.stdout), [False, True, True])
 
 
 class TestPipelineQualityPerVersion(unittest.TestCase):
