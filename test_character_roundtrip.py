@@ -187,6 +187,53 @@ _mk('width', {value: ''}); _mk('height', {value: ''});
     return _run_node(script)
 
 
+def _run_submit(*, face=1.0, voice=1.0, prompt="bizarrotrn waves"):
+    """Execute the REAL charactersGenerate() and capture its HTTP payload.
+
+    The old submit test duplicated two expressions from the function under
+    test. It therefore kept passing if the function returned early, stopped
+    sending a field, or sent a different value. This shim observes the fetch
+    boundary instead: no fetch means ``request`` is null, and whatever the real
+    function put on URLSearchParams is what the assertions receive.
+    """
+    script = DOM_SHIM + """
+%s
+%s
+%s
+window.CHARACTERS = %s;
+window.CHARACTERS.selected = {id: 'bizarrotrn', name: 'Bizarro', trigger: 'bizarrotrn'};
+window.CHARACTERS.charStrength = %s;
+window.CHARACTERS.voiceStrength = %s;
+window.CHARACTERS.duration = '5s';
+window.CHARACTERS.quality = 'pro';
+_mk('charactersPrompt', {value: %s});
+_mk('charactersStrength', {value: '0.8', min: '0.4', max: '1.2'});
+_mk('charactersStrengthValue', {textContent: '0.80'});
+let _request = null;
+global.fetch = async (url, opts) => {
+  _request = {
+    url: String(url),
+    method: String(opts?.method || ''),
+    headers: opts?.headers || {},
+    fields: Object.fromEntries(new URLSearchParams(String(opts?.body || '')).entries()),
+  };
+  return {ok: true, status: 200, json: async () => ({ok: true, job_id: 'gate-job'})};
+};
+(async () => {
+  charactersSyncStrengthControls();
+  await charactersGenerate();
+  console.log(JSON.stringify({
+    request: _request,
+    displayed: document.getElementById('charactersStrengthValue').textContent,
+  }));
+})().catch(e => { console.error(e); process.exit(3); });
+""" % (_JS.fn("charactersUpdateStrengthDisplay"),
+       _JS.fn("charactersSyncStrengthControls"),
+       _JS.fn("charactersGenerate"), _JS.state(),
+       json.dumps(face), json.dumps(voice), json.dumps(prompt))
+    return _run_node(script)
+
+
 class TestVisibleEqualsSubmitted(unittest.TestCase):
     """The defect the review found: the form displayed 0.80 and submitted 1.0."""
 
@@ -219,34 +266,29 @@ console.log(JSON.stringify({
                          "the printed number does not match the state's value")
 
     def test_untouched_form_displays_what_it_submits(self):
-        """End to end: sync the control, then read what the submit path sends."""
-        script = DOM_SHIM + """
-%s
-%s
-window.CHARACTERS = %s;
-_mk('charactersStrength', {value: '0.8', min: '0.4', max: '1.2'});
-_mk('charactersStrengthValue', {textContent: '0.80'});
-charactersSyncStrengthControls();
-// what charactersGenerate() would put on the form, by its own expressions
-const submittedFace  = String(window.CHARACTERS.charStrength ?? 1.0);
-const submittedVoice = String(window.CHARACTERS.voiceStrength ?? 1.0);
-console.log(JSON.stringify({
-  displayed: document.getElementById('charactersStrengthValue').textContent,
-  submittedFace, submittedVoice,
-}));
-""" % (_JS.fn("charactersUpdateStrengthDisplay"),
-       _JS.fn("charactersSyncStrengthControls"), _JS.state())
-        out = _run_node(script)
-        self.assertEqual(float(out["displayed"]), float(out["submittedFace"]),
-                         "displayed %s but submits %s" % (out["displayed"], out["submittedFace"]))
-        self.assertEqual(float(out["submittedFace"]), 1.0)
-        self.assertEqual(float(out["submittedVoice"]), 1.0)
+        """End to end: sync the control, then execute the submit function."""
+        out = _run_submit()
+        self.assertIsNotNone(out["request"],
+                             "charactersGenerate returned before submitting")
+        fields = out["request"]["fields"]
+        self.assertEqual(float(out["displayed"]), float(fields["character_strength"]),
+                         "displayed %s but submits %s" %
+                         (out["displayed"], fields.get("character_strength")))
+        self.assertEqual(float(fields["character_strength"]), 1.0)
+        self.assertEqual(float(fields["character_voice_strength"]), 1.0)
 
     def test_the_submit_path_sends_both_strengths(self):
-        body = _JS.fn("charactersGenerate")
-        self.assertIn("character_strength", body)
-        self.assertIn("character_voice_strength", body,
-                      "the voice strength is never submitted, so it cannot round-trip")
+        out = _run_submit(face=0.65, voice=1.4, prompt="bizarrotrn speaks")
+        self.assertIsNotNone(out["request"],
+                             "charactersGenerate returned before submitting")
+        self.assertEqual(out["request"]["url"],
+                         "/characters/bizarrotrn/generate")
+        self.assertEqual(out["request"]["method"], "POST")
+        fields = out["request"]["fields"]
+        self.assertEqual(fields["prompt_body"], "bizarrotrn speaks")
+        self.assertEqual(float(fields["character_strength"]), 0.65)
+        self.assertEqual(float(fields["character_voice_strength"]), 1.4,
+                         "the real submit path did not send the voice strength")
 
 
 class TestRestoreRunsInBothLoadPaths(unittest.TestCase):
@@ -387,6 +429,109 @@ class TestServerContract(unittest.TestCase):
             self.assertEqual(float(out["voice"]), first["character_voice_strength"], first)
             self.assertEqual(out["width"], str(first["width"]), first)
             self.assertEqual(out["height"], str(first["height"]), first)
+
+
+class TestQueueCharacterVoiceContract(unittest.TestCase):
+    """The public queue API must never render half a trained character."""
+
+    def _post(self, fields: dict, *, with_audio=True):
+        body = urlencode(fields).encode()
+        h = P.Handler.__new__(P.Handler)
+        h.path = "/queue/add"
+        h.headers = {"Content-Type": "application/x-www-form-urlencoded",
+                     "Content-Length": str(len(body))}
+        h.rfile = io.BytesIO(body)
+        h._is_local_request = lambda: True
+        reply: dict = {}
+        h._json = lambda payload, status=200: reply.update(
+            payload=payload, status=status)
+
+        with tempfile.TemporaryDirectory() as td:
+            face = Path(td) / "bizarrotrn_v2.safetensors"
+            audio = Path(td) / "bizarrotrn.audio.safetensors"
+            face.touch()
+            if with_audio:
+                audio.touch()
+            char = {
+                "id": "bizarrotrn", "trigger": "bizarrotrn", "name": "Bizarro",
+                "face_lora_path": str(face),
+                "audio_lora_path": str(audio) if with_audio else None,
+            }
+            saved = (P.list_characters, P.persist_queue, P.push)
+            P.list_characters = lambda: [char]
+            P.persist_queue = lambda: None
+            P.push = lambda line: None
+            try:
+                h.do_POST()
+                jid = (reply.get("payload") or {}).get("id")
+                with P.QUEUE_COND:
+                    queued = next((j for j in P.STATE["queue"]
+                                   if j.get("id") == jid), None)
+                    if jid:
+                        P.STATE["queue"] = [j for j in P.STATE["queue"]
+                                            if j.get("id") != jid]
+                params = dict((queued or {}).get("params") or {})
+                if queued:
+                    params["loras"] = [dict(x) for x in params.get("loras") or []]
+            finally:
+                P.list_characters, P.persist_queue, P.push = saved
+        return reply, params
+
+    def test_reported_t2v_api_case_stacks_face_and_trained_voice(self):
+        reply, params = self._post({
+            "mode": "t2v",
+            "character_id": "bizarrotrn",
+            "prompt": 'bizarrotrn stands at a podium and says "Welcome back."',
+            "character_strength": "0.9",
+            "character_voice_strength": "1.25",
+        })
+        self.assertEqual(reply["status"], 200, reply)
+        self.assertTrue(reply["payload"].get("ok"), reply)
+        self.assertEqual(params["mode"], "t2v")
+        self.assertEqual([Path(x["path"]).name for x in params["loras"][:2]],
+                         ["bizarrotrn_v2.safetensors",
+                          "bizarrotrn.audio.safetensors"])
+        self.assertEqual([x["strength"] for x in params["loras"][:2]],
+                         [0.9, 1.25])
+
+    def test_every_ltx_video_mode_uses_the_same_pair(self):
+        modes = ("i2v", "i2v_clean_audio", "extend", "keyframe", "a2v",
+                 "restore", "ingredients", "control")
+        for mode in modes:
+            with self.subTest(mode=mode):
+                reply, params = self._post({
+                    "mode": mode, "engine": "ltx",
+                    "character_id": "bizarrotrn", "prompt": "bizarrotrn moves",
+                })
+                self.assertEqual(reply["status"], 200, reply)
+                self.assertEqual(
+                    [Path(x["path"]).name for x in params["loras"][:2]],
+                    ["bizarrotrn_v2.safetensors",
+                     "bizarrotrn.audio.safetensors"])
+
+    def test_missing_voice_refuses_unless_no_voice_is_explicit(self):
+        fields = {"mode": "t2v", "character_id": "bizarrotrn",
+                  "prompt": "bizarrotrn waves"}
+        reply, params = self._post(fields, with_audio=False)
+        self.assertEqual(reply["status"], 400, reply)
+        self.assertIn("missing its trained voice LoRA", reply["payload"]["error"])
+        self.assertFalse(params)
+
+        fields["no_voice"] = "on"
+        reply, params = self._post(fields, with_audio=False)
+        self.assertEqual(reply["status"], 200, reply)
+        self.assertTrue(params["no_voice"])
+        self.assertEqual([Path(x["path"]).name for x in params["loras"]],
+                         ["bizarrotrn_v2.safetensors"])
+
+    def test_h3_character_pair_is_refused_before_lane_scrub(self):
+        reply, params = self._post({
+            "mode": "t2v", "engine": "h3", "character_id": "bizarrotrn",
+            "prompt": "bizarrotrn speaks",
+        })
+        self.assertEqual(reply["status"], 400, reply)
+        self.assertIn("can't load a trained character", reply["payload"]["error"])
+        self.assertFalse(params)
 
 
 class TestPipelineQualityPerVersion(unittest.TestCase):

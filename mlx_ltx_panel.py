@@ -12931,8 +12931,21 @@ def _sb_export(board: dict) -> dict:
     return {"ok": True, "dir": str(dest), "files": files}
 
 
+class CharacterRequestError(ValueError):
+    """A character request cannot preserve the face + voice contract."""
+
+
 def _validate_character_quality(form: dict[str, list[str]] | dict[str, str]) -> str | None:
-    """Character mode is available on Q4 — LoRAs fuse into the distilled
+    """Validate the complete trained-character contract before enqueueing.
+
+    A character id means more than visual treatment: it names a face LoRA and,
+    unless ``no_voice`` is explicit, the paired trained voice LoRA. The old
+    branch silently ignored an unknown id or a missing audio file and then
+    rendered a plausible-looking stranger/default voice. It also let H3 accept
+    the id before make_job's lane scrub removed both LTX adapters. Those are
+    successful renders of the wrong request, so reject them at the API seam.
+
+    Character mode remains available on Q4 — LoRAs fuse into the distilled
     base (identity match is mediocre per 2026-05-17 empirical test with
     the chartest Q4-Balanced runs, but the render completes). When Q8 is
     installed and the user picks quality=high, the Q8 HQ pipeline is used
@@ -12947,14 +12960,32 @@ def _validate_character_quality(form: dict[str, list[str]] | dict[str, str]) -> 
         v = form.get(name, default)
         if isinstance(v, list):
             v = v[0] if v else default
-        return (v or "").strip()
+        return str(v or "").strip()
     quality = _f("quality", "balanced").lower()
     cid = _f("character_id", "")
     if cid:
-        # Character mode on Q4 submits with Quick/Balanced/Standard.
-        # The identity match is imperfect but it renders and does not
-        # error. Q8 users who pick quality=high get the full fidelity
-        # path — no enforcement needed.
+        if _f("engine", ENGINE_DEFAULT).lower() == "h3":
+            return ("Hailuo H3 can't load a trained character's face or voice "
+                    "LoRAs. Choose LTX or clear character_id.")
+        try:
+            char = next((c for c in list_characters() if c.get("id") == cid), None)
+        except Exception as exc:  # noqa: BLE001 - turn discovery failure into API 400
+            return f"could not resolve character {cid!r}: {exc}"
+        if not char:
+            return f"character {cid!r} not found; request was not queued"
+        face = Path(str(char.get("face_lora_path") or ""))
+        if not face.is_file():
+            return (f"character {cid!r} is missing its face LoRA; request was "
+                    "not queued")
+        no_voice = _f("no_voice", "off").lower() in ("on", "true", "1", "yes")
+        audio = Path(str(char.get("audio_lora_path") or ""))
+        if not no_voice and not audio.is_file():
+            return (f"character {cid!r} is missing its trained voice LoRA. "
+                    "Restore/train the voice file, or submit no_voice=on "
+                    "explicitly; request was not queued")
+        # Character mode on Q4 submits with Quick/Balanced/Standard. The
+        # identity match is imperfect but the requested face + voice pair is
+        # present. Q8 users who pick quality=high get the full-fidelity path.
         return None
     # No character_id — but a raw train_character LoRA in `loras` triggers
     # the same quality concern. 2026-06-26: we allow it on Q4 (same
@@ -13812,6 +13843,10 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # LoRA — overriding to 0 effectively disables a character without
     # forcing the user to clear the picker.
     if _character_id:
+        if f("engine", ENGINE_DEFAULT).lower() == "h3":
+            raise CharacterRequestError(
+                "Hailuo H3 can't load a trained character's face or voice "
+                "LoRAs. Choose LTX or clear character_id.")
         try:
             char_strength = float(f("character_strength", "1.0") or "1.0")
         except (TypeError, ValueError):
@@ -13863,47 +13898,59 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         no_voice = (f("no_voice", "off") or "").strip().lower() in ("on", "true", "1", "yes")
         try:
             chars_by_id = {c["id"]: c for c in list_characters()}
-        except Exception:
-            chars_by_id = {}
+        except Exception as exc:  # noqa: BLE001 - preserve a loud contract failure
+            raise CharacterRequestError(
+                f"could not resolve character {_character_id!r}: {exc}") from exc
         char_rec = chars_by_id.get(_character_id)
-        if char_rec:
-            existing_paths = {
-                str((entry or {}).get("path") or "")
-                for entry in (job["params"].get("loras") or [])
-            }
-            face_p = char_rec.get("face_lora_path")
-            audio_p = char_rec.get("audio_lora_path")
-            additions: list[dict] = []
-            if face_p and face_p not in existing_paths:
-                additions.append({"path": face_p, "strength": char_strength})
-                existing_paths.add(face_p)
-            if audio_p and audio_p not in existing_paths and not no_voice:
-                additions.append({"path": audio_p,
-                                  "strength": char_voice_strength})
-                existing_paths.add(audio_p)
-            elif audio_p and no_voice:
-                job["params"]["no_voice"] = True
-            if additions:
-                # Face/audio LoRAs go FIRST in the stack so they take effect
-                # before any style LoRAs the user stacked on top. Mirrors
-                # the existing /characters/<id>/generate ordering.
-                job["params"]["loras"] = additions + list(
-                    job["params"].get("loras") or []
-                )
-            # Always stamp the character_id on params even when the form
-            # didn't declare source="characters". The Manual-tab picker is
-            # a different entry point — stamping is what lets Load Params
-            # later restore the picker selection.
-            if "character_id" not in job["params"]:
-                job["params"]["character_id"] = _character_id
-            # Persist BOTH strengths so Load Params restores the exact sliders
-            # and the sidecar records what actually rendered. The voice value is
-            # stamped even when it equals the default: the number in a clip's
-            # sidecar is how a future listener knows which rung of the ladder
-            # they are hearing.
-            job["params"].setdefault("character_strength", char_strength)
-            job["params"].setdefault("character_voice_strength",
-                                     char_voice_strength)
+        if not char_rec:
+            raise CharacterRequestError(
+                f"character {_character_id!r} not found; request was not queued")
+        face_p = char_rec.get("face_lora_path")
+        audio_p = char_rec.get("audio_lora_path")
+        if not face_p or not Path(str(face_p)).is_file():
+            raise CharacterRequestError(
+                f"character {_character_id!r} is missing its face LoRA; "
+                "request was not queued")
+        if not no_voice and (not audio_p or not Path(str(audio_p)).is_file()):
+            raise CharacterRequestError(
+                f"character {_character_id!r} is missing its trained voice "
+                "LoRA. Restore/train the voice file, or submit no_voice=on "
+                "explicitly; request was not queued")
+        if no_voice:
+            job["params"]["no_voice"] = True
+        existing_paths = {
+            str((entry or {}).get("path") or "")
+            for entry in (job["params"].get("loras") or [])
+        }
+        additions: list[dict] = []
+        if face_p not in existing_paths:
+            additions.append({"path": face_p, "strength": char_strength})
+            existing_paths.add(face_p)
+        if audio_p and audio_p not in existing_paths and not no_voice:
+            additions.append({"path": audio_p,
+                              "strength": char_voice_strength})
+            existing_paths.add(audio_p)
+        if additions:
+            # Face/audio LoRAs go FIRST in the stack so they take effect
+            # before any style LoRAs the user stacked on top. Mirrors
+            # the existing /characters/<id>/generate ordering.
+            job["params"]["loras"] = additions + list(
+                job["params"].get("loras") or []
+            )
+        # Always stamp the character_id on params even when the form
+        # didn't declare source="characters". The Manual-tab picker is
+        # a different entry point — stamping is what lets Load Params
+        # later restore the picker selection.
+        if "character_id" not in job["params"]:
+            job["params"]["character_id"] = _character_id
+        # Persist BOTH strengths so Load Params restores the exact sliders
+        # and the sidecar records what actually rendered. The voice value is
+        # stamped even when it equals the default: the number in a clip's
+        # sidecar is how a future listener knows which rung of the ladder
+        # they are hearing.
+        job["params"].setdefault("character_strength", char_strength)
+        job["params"].setdefault("character_voice_strength",
+                                 char_voice_strength)
 
     # ---- lane scrub: a LoRA never crosses engines --------------------------
     # The picker is ONE control shared by both video engines, and its hidden
@@ -21503,7 +21550,14 @@ class Handler(BaseHTTPRequestHandler):
             # prompt_body kept as a back-compat alias to the verbatim prompt
             # so older Load-Params restorers still find something.
             job_form["prompt_body"] = [prompt]
-            job = make_job(job_form)
+            try:
+                job = make_job(job_form)
+            except CharacterRequestError as exc:
+                # A bundle can become incomplete after the grid was drawn
+                # (for example its audio LoRA is moved between click and
+                # submit). Refuse the now-half-character rather than dropping
+                # the connection or rendering only its face.
+                self._json({"error": str(exc)}, 400); return
             with QUEUE_COND:
                 STATE["queue"].append(job)
                 QUEUE_COND.notify_all()
@@ -21997,6 +22051,9 @@ class Handler(BaseHTTPRequestHandler):
                 "character_id": src_params.get("character_id") or "",
                 "quality": src_params.get("quality") or "",
                 "loras": json.dumps(src_params.get("loras") or []),
+                "engine": src_params.get("engine") or ENGINE_DEFAULT,
+                "mode": src_params.get("mode") or "t2v",
+                "no_voice": src_params.get("no_voice") or "off",
             }
             err = _validate_character_quality(_retry_form)
             if err:
