@@ -22,7 +22,7 @@
 #   whatever update.js says is the version the user had, not the version they
 #   just downloaded. A pin held in update.js therefore moves ONE CLICK LATE,
 #   forever — the exact failure class the thin updater exists to kill
-#   (notes/update_path_sequencing.md §10, cocktailpeanut's own diagnosis).
+#   (cocktailpeanut's own diagnosis; see `scripts/post_update.sh`).
 #
 # So the pin lives in the POST-PULL tree, in this file, and both lanes read it
 # from here. `scripts/check_ltx_pin.js` is the gate that keeps install.js's
@@ -33,8 +33,8 @@
 # =============================================================================
 # v3.8.0 through v3.8.3 pinned a bare SHA obtained via `git fetch fork
 # feat/ltx-2.5`. That worked only for as long as the SHA stayed reachable from
-# that branch: notes/update_path_sequencing.md §6 recorded the branch head had
-# ALREADY moved past it, and a single force-push or rebase would have stranded
+# that branch: the branch head had ALREADY moved past it by the time this was
+# checked, and a single force-push or rebase would have stranded
 # every existing install with an un-fetchable pin and a dead Update button.
 # A tag is the only form of this reference that an upstream history rewrite
 # cannot take away.

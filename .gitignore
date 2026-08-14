@@ -137,9 +137,9 @@ __pycache__/
 # =============================================================================
 # Campaign notes — private by convention, and now by rule
 # =============================================================================
-# The PM hub (~/AI/projects/phosphene/notes/) is where design specs, validation
-# reports and release planning live, and agents write there constantly during a
-# campaign. Nothing has leaked — `git ls-files` has never carried a notes/ path
+# Design specs, validation reports and release planning live OUTSIDE this repo,
+# and agents write those notes constantly during a campaign. Nothing has
+# leaked — `git ls-files` has never carried a notes/ path
 # — but the sibling `state/` is ignored and this was not, so the only thing
 # standing between a stray `notes/` write inside the repo and a public commit
 # was that nobody made one. Same defence-in-depth reasoning as the stats file

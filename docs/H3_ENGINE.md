@@ -125,7 +125,7 @@ axes (the runner errors otherwise), so exact 16:9 means width `512k`, height
 | 2 | **1024×576** | **0.59 MP** | **the delivery canvas — `wide_5s`** |
 | 3 | 1536×864 | 1.33 MP | over the model's own `MAX_PIXELS` (1.03 MP) and dearer than native 1344×768. Not shipped. |
 
-`wide_5s` is measured, not extrapolated (`notes/QUALITY_LOOP.md` R1 on the same
+`wide_5s` is measured, not extrapolated (the quality loop's R1 run, on the same
 M4 Max): 22,923 packed rows, 126.0 s/step, 90.5 s VAE decode, 10.71 GiB decode
 peak, **18.8 min**; the same probe put 768×448 at 9.1 min against this table's
 ~8 min, hence the ~17-19 band. Denoise stayed at 37.6 GiB — identical to
@@ -165,7 +165,7 @@ audio cross-fade (the chain's real overlap). The panel passes:
 --frames <window_frames>  --chain-windows N  --chain-total-frames <delivered>
 ```
 
-Measured (M4 Max 64 GB, `notes/CHAIN_WINDOWS.md` in the H3 campaign):
+Measured (M4 Max 64 GB, on the H3 campaign's chained-window runs):
 
 | | Dense 10 s | Chained 10 s | Chained 15 s |
 |---|---:|---:|---:|
@@ -318,17 +318,17 @@ install. Two working configurations:
 no venv of its own, so borrow the sibling one:
 
 ```sh
-export LTX_H3_ROOT=/Users/salo/AI/projects/hailuo-mlx/codex/opt
-export LTX_H3_PYTHON=/Users/salo/AI/projects/hailuo-mlx/codex/minimax-h3-mlx/.venv/bin/python
-export LTX_H3_MODELS=/Users/salo/AI/projects/hailuo-mlx/codex/models
+export LTX_H3_ROOT=<campaign-checkout>/opt
+export LTX_H3_PYTHON=<campaign-checkout>/minimax-h3-mlx/.venv/bin/python
+export LTX_H3_MODELS=<campaign-checkout>/models
 ```
 
 **What a user gets from `install_h3.js` today (Text only)** — the published
 branch, with its own venv:
 
 ```sh
-export LTX_H3_ROOT=/Users/salo/AI/projects/hailuo-mlx/codex/minimax-h3-mlx
-export LTX_H3_MODELS=/Users/salo/AI/projects/hailuo-mlx/codex/models
+export LTX_H3_ROOT=<campaign-checkout>/minimax-h3-mlx
+export LTX_H3_MODELS=<campaign-checkout>/models
 ```
 
 Add either block to the normal panel env (`start.js` / `run_panel.sh`) and

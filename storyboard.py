@@ -1,7 +1,6 @@
 #!/usr/bin/env python3.11
 """Storyboard — plan a run of shots that share a character, then shoot them.
 
-Design doc: ~/AI/projects/phosphene/decisions/director_architecture.md
 
 WHAT THIS IS, IN PHOSPHENE'S OWN TERMS
 --------------------------------------

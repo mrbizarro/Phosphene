@@ -8,8 +8,8 @@
 # Pinokio loads `update.js` from disk into memory and THEN runs it. Our step 1
 # is what pulls the repo, so the repo moves to the new version MID-RUN and
 # execution continues from the STALE in-memory script. cocktailpeanut hit this
-# on his own machine and confirmed the sequencing with timestamps
-# (notes/update_path_sequencing.md §1): the fix an app ships to its own
+# on his own machine and confirmed the sequencing by timestamp: the fix an
+# app ships to its own
 # installer always lands ONE CLICK LATE, and the user sees a failure they have
 # already downloaded the fix for.
 #

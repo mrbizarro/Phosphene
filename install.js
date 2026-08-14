@@ -160,9 +160,9 @@ module.exports = {
     //      876/22 on the vendored suite, a byte-identical job-dict capture
     //      across 18 form shapes, and THREE real 2.3 draft renders whose mp4s
     //      are sha256-identical to the one recorded before any of this work
-    //      (notes/ltx25_sampler_ab/, arms A / A2 / E — the last of which
-    //      renders out of the INSTALLED packages with no PYTHONPATH override,
-    //      i.e. the thing a user actually runs).
+    //      (three arms, the last of which renders out of the INSTALLED
+    //      packages with no PYTHONPATH override — i.e. the thing a user
+    //      actually runs).
     //
     //      What this pin CHANGES, and only on 2.5: the Euler-ancestral sampler
     //      is finally reached (it had zero callers, so every prior 2.5 render

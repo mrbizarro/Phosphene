@@ -13,7 +13,7 @@
 
 </p>
 
-> **Current release: v3.8.0.** Storyboard — describe a film in a sentence, get a shot list you can edit before anything renders. Also fixes the install failure that had been breaking every fresh install and every Update since hatchling 1.32.0 shipped. Full notes on the [releases page](https://github.com/mrbizarro/phosphene/releases).
+> **Current release: v4.0.1.** A point release: the Update button now fails loudly instead of reporting success on stale code, and it stops deleting files it should have left alone. The HQ tier gains the live preview it had been promising, the storyboard planner keeps your characters looking like themselves and your premise on screen, and every install offer is resolved against the generation you actually have. Full notes on the [releases page](https://github.com/mrbizarro/phosphene/releases).
 
 ## Overview
 
