@@ -49139,6 +49139,20 @@ function renderNowPreview(s, prog, previewData) {
   const actions = document.getElementById('nowCardActions');
   if (!box) return;
   const prev = previewData && previewData.available ? previewData : null;
+  // THE THUMB FOLLOWS THE RENDER'S SHAPE. A fixed 16:9 box center-cropped a
+  // vertical (9:16) preview into a landscape strip of torso — the render's own
+  // params say what shape it is, so the box matches it, clamped so a portrait
+  // thumb widens the card by nothing and grows it by at most ~2x.
+  {
+    const jp = ((s.current || {}).params) || {};
+    const jw = parseInt(jp.width, 10), jh = parseInt(jp.height, 10);
+    if (jw > 0 && jh > 0) {
+      const ar = Math.min(16 / 9, Math.max(9 / 16, jw / jh));
+      box.style.aspectRatio = String(ar);
+    } else {
+      box.style.aspectRatio = '';
+    }
+  }
   // A MISSING DECODER MUST SAY SO. Without this, a render on an install whose
   // 22 MB decoder never arrived looks identical to one where the user switched
   // the preview off: nothing appears, and a feature the release announced simply
