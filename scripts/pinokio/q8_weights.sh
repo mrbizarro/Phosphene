@@ -36,8 +36,8 @@ VERSION=$(sed -n 's/^[[:space:]]*LTX_MODEL_VERSION[[:space:]]*=[[:space:]]*\([^[
             ENVIRONMENT 2>/dev/null | tail -1)
 VERSION="${LTX_MODEL_VERSION:-$VERSION}"
 case "$VERSION" in
-  ltx23) REPO_KEY=q8;    LABEL='LTX-2.3 Q8 weights' ;;
-  *)     REPO_KEY=q8_25; LABEL='LTX-2.5 Q8 weights' ;;
+  ltx23) REPO_KEY=q8;    LABEL='LTX-2.3 Q8 weights'; SIZE_GB=37 ;;
+  *)     REPO_KEY=q8_25; LABEL='LTX-2.5 Q8 weights'; SIZE_GB=30.02 ;;
 esac
 echo "Fetching $LABEL (pack key: $REPO_KEY)…"
 
@@ -50,7 +50,7 @@ else
   echo 'Nothing is broken - this pack is optional. The panel keeps rendering'
   echo 'on the base weights; trained characters and voices are what need Q8.'
   echo 'This is almost always a network problem (no connection, a VPN or'
-  echo 'proxy, or GitHub blocked) or a full disk: the pack needs 30 GB.'
+  echo "proxy, or GitHub blocked) or a full disk: the pack needs about $SIZE_GB GB."
   echo 'Fix that and click again - nothing already downloaded is fetched'
   echo 'twice, and a part-finished pack resumes where it stopped.'
   echo '=================================================================='

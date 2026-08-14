@@ -7638,6 +7638,25 @@ def pack_offers(version_id: str | None = None) -> dict:
     }
 
 
+def q8_character_install_copy(version_id: str | None = None) -> str:
+    """The repeated character warning, named/sized for one generation.
+
+    This is HTML because it replaces a complete body fragment in two panel
+    surfaces (Manual Character and Storyboard cast). Values originate in the
+    local registry, but are escaped anyway so a future pack label cannot turn
+    into markup by accident.
+    """
+    offer = pack_offers(version_id).get("q8") or {}
+    name = html.escape(str(offer.get("name") or "Q8 weights"))
+    size = html.escape(str(offer.get("size") or "?"))
+    return (
+        f"<b>Trained characters need {name}.</b> Right now this Mac has the "
+        "base pack, so the trained face comes out approximate. "
+        '<a href="#" onclick="openModelsModal();return false;">'
+        f"Install {name} ({size}) →</a>"
+    )
+
+
 def character_render_quality(version_id: str | None = None) -> str:
     """Which pipeline a TRAINED CHARACTER renders on, per generation.
 
@@ -23902,6 +23921,8 @@ def page() -> str:
     return (HTML
             .replace("__BOOTSTRAP__", bootstrap)
             .replace("__PROFILE_BADGE__", profile_badge)
+            .replace("__Q8_CHARACTER_INSTALL_COPY__",
+                     q8_character_install_copy())
             # The header badge used to be the literal string "3.0", so it kept
             # claiming 3.0 through every release since. It reads the VERSION
             # file now — the same source /version and the update pill use.
@@ -27587,8 +27608,8 @@ HTML = r"""<!doctype html>
        missing. Reads as a discoverable install CTA rather than a
        dead grey button: full opacity, accent-tinted border, pointer
        cursor, and a small download icon prefixed to the subtitle.
-       Click → opens the Models modal so the user can kick off the
-       37 GB Q8 download from one place. */
+       Click → opens the Models modal so the user can install the active
+       generation's Q8 pack from one place. */
     .quality-strip .q-chip.needs-install {
       opacity: 1;
       cursor: pointer;
@@ -31721,7 +31742,7 @@ HTML = r"""<!doctype html>
                   title="Rescan mlx_models/characters/ for new bundles"
                   onclick="refreshManualCharacters()"><svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise-bold"/></svg></button>
         </div>
-        <div class="chars-q4-note"><b>Trained characters need the Q8 weights.</b> Right now this Mac has the base pack, so the trained face comes out approximate. <a href="#" onclick="openModelsModal();return false;">Install Q8 (30 GB) →</a></div>
+        <div class="chars-q4-note">__Q8_CHARACTER_INSTALL_COPY__</div>
         <!-- One-liner that surfaces under the strip when a character is
              active. Shows trigger word + a tiny strength control inline.
              charsSummaryMeta stays as a hidden carrier for legacy JS
@@ -33897,7 +33918,7 @@ HTML = r"""<!doctype html>
           <button type="button" class="ghost-btn js-get-sample-char" style="padding:2px 8px;font-size:12px"
                   onclick="downloadSampleCharacter()">get a sample character (Bizarro)</button>.
         </div>
-        <div class="chars-q4-note"><b>Trained characters need the Q8 weights.</b> Right now this Mac has the base pack, so the trained face comes out approximate. <a href="#" onclick="openModelsModal();return false;">Install Q8 (30 GB) →</a></div>
+        <div class="chars-q4-note">__Q8_CHARACTER_INSTALL_COPY__</div>
       </div>
 
       <details class="customize-section" id="sbMustSection">

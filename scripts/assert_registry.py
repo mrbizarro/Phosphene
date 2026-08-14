@@ -220,6 +220,21 @@ eq("2.3 declares none, so the two-stage gates are inert for it",
 eq("the add-on is a guest in the q8 directory",
    _by_key["hq_25"].get("publish_scope"), "files")
 
+# User-facing character warnings are rendered twice in the panel (Manual and
+# Storyboard), but both fragments come from this one registry-backed helper.
+# Exercise BOTH generations: checking only the active default is how literal
+# "Install Q8 (30 GB)" copy passed while the LTX23 pin needed 37 GB.
+_q23_copy = p.q8_character_install_copy("ltx23")
+_q25_copy = p.q8_character_install_copy("ltx25")
+eq("2.3 character install copy names its own pack",
+   "LTX 2.3" in _q23_copy and "37 GB" in _q23_copy, True)
+eq("2.3 character install copy never advertises the 2.5 pack",
+   "2.5" not in _q23_copy and "30.02 GB" not in _q23_copy, True)
+eq("2.5 character install copy names its own pack",
+   "LTX-2.5" in _q25_copy and "30.02 GB" in _q25_copy, True)
+eq("the served page contains no unresolved Q8-copy placeholder",
+   "__Q8_CHARACTER_INSTALL_COPY__" in p.page(), False)
+
 # =============================================================================
 # 5. Completeness — this install, and a synthetic incomplete one
 # =============================================================================

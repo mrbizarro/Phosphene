@@ -154,6 +154,9 @@ module.exports = {
                        || (capChars.repos_by_version || {})[capChars.default_version] || [])
     const q8Repo    = q8Keys.map(k => repos.find(r => r.key === k)).filter(Boolean)[0]
                    || repos.find(r => r.key === "q8_25") || repos.find(r => r.key === "q8")
+    const q8Size    = q8Repo && q8Repo.size_gb
+      ? `~${Math.round(q8Repo.size_gb)} GB` : "unknown size"
+    const q8Name    = q8Repo && q8Repo.name ? q8Repo.name : "Q8 weights"
 
     const base_ready = baseRepos.length > 0 && baseRepos.every(r => repoComplete(installRoot, r, minBytes))
     const q8_ready   = q8Repo ? repoComplete(installRoot, q8Repo, minBytes) : false
@@ -320,7 +323,7 @@ module.exports = {
     if (running.install)    return [{ default: true, icon: "fa-solid fa-plug",     text: "Installing",                   href: "install.js" }]
     if (running.update)     return [{ default: true, icon: "fa-solid fa-rotate",   text: "Updating",                     href: "update.js" }]
     if (running.reset)      return [{ default: true, icon: "fa-solid fa-eraser",   text: "Resetting",                    href: "reset.js" }]
-    if (running.q8download) return [{ default: true, icon: "fa-solid fa-download", text: "Downloading Q8 weights (~30 GB)", href: "download_q8.js" }]
+    if (running.q8download) return [{ default: true, icon: "fa-solid fa-download", text: `Downloading ${q8Name} (${q8Size})`, href: "download_q8.js" }]
     if (running.sharp)      return [{ default: true, icon: "fa-solid fa-wand-magic-sparkles", text: "Installing Sharp upscaler", href: "install_sharp.js" }]
     if (running.qwen)       return [{ default: true, icon: "fa-solid fa-images", text: "Installing Qwen-Image-Edit (multi-ref)", href: "install_qwen.js" }]
     if (running.h3)         return [{ default: true, icon: "fa-solid fa-comments", text: "Installing Hailuo H3 (~75 GB)", href: "install_h3.js" }]
@@ -393,9 +396,8 @@ module.exports = {
       // High additionally needs the separate 29.5 GB add-on, which is offered
       // in Settings -> Models rather than here — one menu entry, one download.
       // Size and wording follow the pack that will actually be fetched.
-      const q8Size = q8Repo && q8Repo.size_gb ? `~${Math.round(q8Repo.size_gb)} GB` : "~30 GB"
       baseMenu.push({ icon: "fa-solid fa-download",
-                      text: `Download Q8 weights (${q8Size}) — trained characters + voices`,
+                      text: `Download ${q8Name} (${q8Size}) — trained characters + voices`,
                       href: "download_q8.js" })
     }
     if (!sharp_ready) {

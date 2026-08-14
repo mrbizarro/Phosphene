@@ -105,6 +105,41 @@ if (!read("scripts/post_update.sh").includes("scripts/pinokio/ltx_checkout.sh"))
   ok("post_update.sh delegates the checkout")
 }
 
+// ---- 5b. The Q8 launcher speaks the active generation ---------------------
+// The fetch lane was made version-aware first, but its two notifications and
+// failure text kept advertising 2.5/30 GB/High add-on to an LTX23 pin. Drive
+// the launcher's real resolver for both generations; checking only today's
+// default is how the stale 2.3 branch survived the previous gate.
+try {
+  const q8Launcher = require(path.join(root, "download_q8.js"))
+  const q23 = q8Launcher._resolveQ8Offer(root, "ltx23")
+  const q25 = q8Launcher._resolveQ8Offer(root, "ltx25")
+  if (q23.key !== "q8" || q23.size !== "37 GB"
+      || !/LTX.?2\.3/.test(q23.startHtml)
+      || /2\.5|29\.5 GB|one more download/.test(q23.readyHtml)) {
+    fail(`LTX23 Q8 notifications are version-wrong: ${JSON.stringify(q23)}`)
+  } else {
+    ok("LTX23 Q8 notifications name its 37 GB pack and no 2.5 add-on")
+  }
+  if (q25.key !== "q8_25" || q25.size !== "30.02 GB"
+      || !/LTX-2\.5/.test(q25.startHtml)
+      || !/High add-on \(~29\.5 GB\)/.test(q25.readyHtml)) {
+    fail(`LTX25 Q8 notifications are version-wrong: ${JSON.stringify(q25)}`)
+  } else {
+    ok("LTX25 Q8 notifications name its pack and separate High add-on")
+  }
+} catch (e) {
+  fail(`download_q8.js could not resolve both generation offers: ${e.stack || e}`)
+}
+const q8Shell = read("scripts/pinokio/q8_weights.sh")
+if (!/ltx23\).*SIZE_GB=37/.test(q8Shell)
+    || !/q8_25;.*SIZE_GB=30\.02/.test(q8Shell)
+    || !/pack needs about \$SIZE_GB GB/.test(q8Shell)) {
+  fail("q8_weights.sh failure copy does not follow the resolved generation size")
+} else {
+  ok("Q8 download failure copy follows the resolved generation size")
+}
+
 // ---- 6. update.js stays THIN -----------------------------------------------
 // It is read BEFORE the pull, so anything it does itself can only be fixed one
 // click late. notes/update_path_sequencing.md §10.
