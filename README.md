@@ -13,7 +13,7 @@
 
 </p>
 
-> **Current release: v4.0.2.** A point release: image-to-video actually animates the picture you gave it now (the engine was throwing your image away after the first step and stamping it back at the end), a new **High · 720p** tier renders the 1280×704 canvas in about 8 minutes, characters ride the engine's native runtime-LoRA route so a trained face is no longer partly quantised away, and Enhance works again. Full notes on the [releases page](https://github.com/mrbizarro/phosphene/releases).
+> **Current release: v4.0.3.** A hotfix for v4.0.2: stacking a LoRA from the library picker crashed the render with a missing import (`name 'mx' is not defined`). Cast characters took a different branch and were unaffected, which is why it got through. Everything else is v4.0.2 — image-to-video actually animates the picture you gave it, a new **High · 720p** tier renders the 1280×704 canvas in about 8 minutes, characters ride the engine's native runtime-LoRA route so a trained face is no longer partly quantised away, and Enhance works again. Full notes on the [releases page](https://github.com/mrbizarro/phosphene/releases).
 
 ## Overview
 
