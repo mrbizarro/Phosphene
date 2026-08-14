@@ -108,7 +108,14 @@ if (!read("scripts/post_update.sh").includes("scripts/pinokio/ltx_checkout.sh"))
 // ---- 6. update.js stays THIN -----------------------------------------------
 // It is read BEFORE the pull, so anything it does itself can only be fixed one
 // click late. notes/update_path_sequencing.md §10.
-const updateSrc = read("update.js")
+// Optional path makes the behavioural gate mutation-testable:
+//   node scripts/check_ltx_pin.js /tmp/previous-update.js
+// Round 4 proved that a gate which can only inspect the current file can pass
+// beside the same old unsafe implementation forever.
+const updatePath = process.argv[2]
+  ? path.resolve(process.argv[2])
+  : path.join(root, "update.js")
+const updateSrc = fs.readFileSync(updatePath, "utf8")
 const banned = [
   [/uv\s+pip\s+install/, "a uv/pip install"],
   [/\bpip\s+install/, "a pip install"],
@@ -170,7 +177,7 @@ const { execFileSync, spawnSync } = require("child_process")
 const os = require("os")
 
 function updateDispatches() {
-  const mod = require(path.join(root, "update.js"))
+  const mod = require(updatePath)
   return (mod.run || [])
     .filter((st) => st.method === "shell.run" && st.params && st.params.message)
     .map((st) => st.params.message)
@@ -191,11 +198,39 @@ function probe(scenario) {
   git(work, ["clone", "-q", up, clone])
   git(clone, ["config", "user.email", "a@b"]); git(clone, ["config", "user.name", "t"])
 
+  let protectedPath = "notes.txt"
   if (scenario === "mixed" || scenario === "obstruction_only") {
     fs.writeFileSync(path.join(up, "notes.txt"), "upstream\n")
     git(up, ["add", "notes.txt"]); git(up, ["commit", "-qm", "add notes"])
     fs.writeFileSync(path.join(clone, "notes.txt"), "MINE\n")
     if (scenario === "mixed") git(clone, ["commit", "-q", "--allow-empty", "-m", "local"])
+  } else if (scenario === "file_blocks_directory" || scenario === "ignored_file_blocks_directory") {
+    fs.mkdirSync(path.join(up, "scratch"))
+    fs.writeFileSync(path.join(up, "scratch", "private.txt"), "upstream\n")
+    git(up, ["add", "scratch/private.txt"]); git(up, ["commit", "-qm", "add directory"])
+    fs.writeFileSync(path.join(clone, "scratch"), "MINE\n")
+    protectedPath = "scratch"
+    if (scenario === "ignored_file_blocks_directory") {
+      fs.appendFileSync(path.join(clone, ".git", "info", "exclude"), "\nscratch\n")
+    }
+    git(clone, ["commit", "-q", "--allow-empty", "-m", "local"])
+  } else if (scenario === "directory_blocks_file" || scenario === "ignored_directory_blocks_file") {
+    fs.writeFileSync(path.join(up, "scratch"), "upstream\n")
+    git(up, ["add", "scratch"]); git(up, ["commit", "-qm", "add file"])
+    fs.mkdirSync(path.join(clone, "scratch"))
+    fs.writeFileSync(path.join(clone, "scratch", "private.txt"), "MINE\n")
+    protectedPath = "scratch/private.txt"
+    if (scenario === "ignored_directory_blocks_file") {
+      fs.appendFileSync(path.join(clone, ".git", "info", "exclude"), "\nscratch/\n")
+    }
+    git(clone, ["commit", "-q", "--allow-empty", "-m", "local"])
+  } else if (scenario === "ignored_exact") {
+    fs.writeFileSync(path.join(up, "ignored.txt"), "upstream\n")
+    git(up, ["add", "ignored.txt"]); git(up, ["commit", "-qm", "add ignored"])
+    fs.appendFileSync(path.join(clone, ".git", "info", "exclude"), "\nignored.txt\n")
+    fs.writeFileSync(path.join(clone, "ignored.txt"), "MINE\n")
+    protectedPath = "ignored.txt"
+    git(clone, ["commit", "-q", "--allow-empty", "-m", "local"])
   } else if (scenario === "divergence_only") {
     fs.writeFileSync(path.join(up, "f.txt"), "v2\n")
     git(up, ["commit", "-qam", "v2"])
@@ -220,10 +255,12 @@ function probe(scenario) {
     env: Object.assign({}, G.env, { PATH: bin + ":" + process.env.PATH }),
   })
   const outText = (r.stdout || "") + (r.stderr || "")
-  const notes = fs.existsSync(path.join(clone, "notes.txt"))
-    ? fs.readFileSync(path.join(clone, "notes.txt"), "utf8").trim() : null
+  const protectedValue = fs.existsSync(path.join(clone, protectedPath))
+    && fs.statSync(path.join(clone, protectedPath)).isFile()
+    ? fs.readFileSync(path.join(clone, protectedPath), "utf8").trim() : null
   fs.rmSync(work, { recursive: true, force: true })
-  return { reset: /RESET_CALLED/.test(outText), code: r.status, notes, out: outText }
+  return { reset: /RESET_CALLED/.test(outText), code: r.status,
+           protectedValue, protectedPath, out: outText }
 }
 
 let probesRan = false
@@ -236,17 +273,32 @@ try {
 
 if (probesRan) {
   const mixed = probe("mixed")
-  if (mixed.reset || mixed.notes !== "MINE") {
-    fail(`update.js RESET on a diverged clone whose untracked file is tracked upstream — the file is destroyed. Divergence and obstruction are independent; the destructive step must clear BOTH. (reset=${mixed.reset}, notes=${JSON.stringify(mixed.notes)})`)
+  if (mixed.reset || mixed.protectedValue !== "MINE") {
+    fail(`update.js RESET on a diverged clone whose untracked file is tracked upstream — the file is destroyed. Divergence and obstruction are independent; the destructive step must clear BOTH. (reset=${mixed.reset}, value=${JSON.stringify(mixed.protectedValue)})`)
   } else {
     ok("mixed divergence + untracked obstruction: no reset, file intact")
   }
 
   const obs = probe("obstruction_only")
-  if (obs.reset || obs.notes !== "MINE") {
-    fail(`update.js RESET over an untracked obstruction with no divergence at all (reset=${obs.reset}, notes=${JSON.stringify(obs.notes)})`)
+  if (obs.reset || obs.protectedValue !== "MINE") {
+    fail(`update.js RESET over an untracked obstruction with no divergence at all (reset=${obs.reset}, value=${JSON.stringify(obs.protectedValue)})`)
   } else {
     ok("untracked obstruction alone: no reset, file intact")
+  }
+
+  for (const [scenario, label] of [
+    ["file_blocks_directory", "untracked FILE obstructing an upstream DIRECTORY"],
+    ["directory_blocks_file", "untracked DIRECTORY obstructing an upstream FILE"],
+    ["ignored_exact", "ignored exact-path obstruction"],
+    ["ignored_file_blocks_directory", "ignored FILE obstructing an upstream DIRECTORY"],
+    ["ignored_directory_blocks_file", "ignored child beneath an upstream FILE"],
+  ]) {
+    const result = probe(scenario)
+    if (result.reset || result.protectedValue !== "MINE") {
+      fail(`${label}: reset=${result.reset}, ${result.protectedPath}=${JSON.stringify(result.protectedValue)}`)
+    } else {
+      ok(`${label}: no reset, file intact`)
+    }
   }
 
   const div = probe("divergence_only")

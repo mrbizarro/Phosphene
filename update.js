@@ -124,16 +124,21 @@ module.exports = {
     // Divergence and obstruction are independent facts and the destructive
     // step must clear BOTH.
     //
-    // The set is computed exactly: every untracked path that also exists in the
-    // fetched upstream tree (`git cat-file -e $U:<path>`). No process
-    // substitution, so it behaves the same under sh, bash and zsh.
+    // The set is computed from paths the fetched tree will write, then checked
+    // against the worktree itself. That direction is deliberate: `git status`
+    // omits ignored files and reports only leaf paths, so it misses both an
+    // untracked FILE where upstream needs a DIRECTORY and an untracked
+    // DIRECTORY where upstream needs a FILE. Walking each upstream path toward
+    // its first existing worktree ancestor covers exact and parent/child
+    // collisions, including ignored files, without enumerating a multi-GB
+    // ignored cache. A path already present in HEAD is tracked and belongs to
+    // the tracked-dirty/divergence checks below, not this obstruction set.
     {
       method: "shell.run",
       params: {
         message: [
-          "U=$(git rev-parse --abbrev-ref --symbolic-full-name @{u})",
-          "O=$(git status --porcelain -uall | sed -n 's/^?? //p' | while read -r f; do git cat-file -e \"$U:$f\" 2>/dev/null && echo \"$f\"; done)",
-          "[ -z \"$O\" ] || { echo \"$O\"; echo 'FATAL: the untracked files above are tracked upstream. Move them, then Update. Nothing deleted.'; exit 1; }"
+          "O=$(git diff --name-only --diff-filter=ADRT HEAD '@{u}'|while IFS= read -r f;do git cat-file -e \"@{u}:$f\" 2>/dev/null||continue;git cat-file -e \"HEAD:$f\" 2>/dev/null&&continue;p=$f;while :;do if [ -e \"$p\" ]||[ -L \"$p\" ];then git cat-file -e \"HEAD:$p\" 2>/dev/null||echo \"$p -> $f\";break;fi;[ \"${p%/*}\" != \"$p\" ]||break;p=${p%/*};done;done)",
+          "[ -z \"$O\" ]||{ echo \"$O\";echo 'FATAL: untracked/ignored paths obstruct Update. Move them; nothing deleted.';exit 1;}"
         ].join("\n")
       }
     },
