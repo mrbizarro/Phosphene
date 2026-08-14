@@ -2280,6 +2280,19 @@ def _plan_with_session(sess, *, system, user, fb_mode, fb_shot, previous, valida
         # silently undo an earlier guarantee and nothing looked.
         spec, _degraded = _assert_final_invariants(
             spec, cast, warnings, style=style, sb=sb, premise=_premise)
+    else:
+        # A RE-ROLL IS A PLAN TOO. The whole enforcement block above is skipped
+        # for fb_mode == "shot" — correctly, because re-planning a re-plan from
+        # inside itself turns a 25 s call into a four-minute one. But skipping
+        # the RE-PLAN also skipped the final SCAN, so a re-rolled shot carrying
+        # an L13 violation came back with ok: true, degraded: false and empty
+        # reasons. The expensive part is the model round trip; scanning what it
+        # returned costs nothing and is exactly the thing that must not be
+        # optional. Mechanical repair still applies, and what cannot be repaired
+        # is reported the same way a full plan reports it.
+        _premise = _premise_species(" ".join([concept or "", style or ""]))
+        spec, _degraded = _assert_final_invariants(
+            spec, cast, warnings, style=style, sb=sb, premise=_premise)
 
     # A DEGRADED PLAN DOES NOT GET TO SAY ok=True. The final pass reports what it
     # could not repair — an unlawful shot, or a premise the film never showed —

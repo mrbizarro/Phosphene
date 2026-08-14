@@ -2638,6 +2638,34 @@ for line in sys.__stdin__:
                                distilled_lora=p.get("distilled_lora"))
             # Y1.037: short-clip VAE-streaming opt-out (HQ T2V/I2V path).
             _apply_vae_streaming_decision(int(p["frames"]))
+            lp_kwargs: dict = {}
+            # LIVE PREVIEW ON THE HQ LANE TOO — it was only ever built in the
+            # `generate` branch. High advertises preview_every=2 in the quality
+            # table and published nothing, so the UI reported a MISSING DECODER
+            # on a lane that had simply never been wired. Every-2 is the lane
+            # rule, decided server-side: res_2s evaluates the denoiser twice per
+            # stage-2 step and its odd ANCHOR estimates come back patchy, so the
+            # even SUBSTEP ones are the clean series.
+            # TI2VidTwoStagesHQPipeline.generate_and_save takes `live_preview`
+            # directly; _filter_unsupported_kwargs below still guards a stock
+            # upstream that does not.
+            for _k in ("live_preview_dir", "live_preview_tae", "live_preview_every"):
+                if p.get(_k) is not None:
+                    lp_kwargs[_k] = p[_k]
+            # output_path too: LivePreviewMonitor takes it, so leaving it out
+            # made _build_live_preview raise KeyError into its own "never fatal"
+            # except and return None — the preview silently not happening in the
+            # one place whose entire job is to stop things silently not
+            # happening. The `generate` branch passes the whole kwargs dict,
+            # which is why it never hit this.
+            if lp_kwargs:
+                lp_kwargs["output_path"] = p["output_path"]
+            _hq_preview = _build_live_preview(lp_kwargs) if lp_kwargs else None
+            if _hq_preview is not None:
+                emit({"event": "log",
+                      "line": f"live preview on (HQ) — every "
+                              f"{lp_kwargs.get('live_preview_every', 2)} estimate(s) "
+                              f"→ {p.get('live_preview_dir')}"})
             kwargs = dict(
                 prompt=p["prompt"],
                 output_path=p["output_path"],
@@ -2737,6 +2765,8 @@ for line in sys.__stdin__:
                 # etc., which would crash a stock install. Introspect once, drop
                 # any kwarg the installed signature doesn't accept — better to
                 # silently skip a feature flag than to fail the whole render.
+                if _hq_preview is not None:
+                    kwargs["live_preview"] = _hq_preview
                 kwargs = _filter_unsupported_kwargs(pipe.generate_and_save, kwargs)
                 out_path = pipe.generate_and_save(**kwargs)
             elapsed = round(time.time() - t0, 2)

@@ -16939,6 +16939,14 @@ def run_job_inner(job: dict) -> None:
                 # see hq_weights().
                 "dev_transformer": hq_weights()["dev_transformer"],
                 "distilled_lora": hq_weights()["distilled_lora"],
+                # Live preview, same contract as the t2v branch. This was
+                # missing, so High promised preview_every=2 in the quality table
+                # and shipped no frames — and the missing-decoder notice then
+                # fired on a lane that had never been wired at all. The lane rule
+                # (every 2 on res_2s, whose odd ANCHOR estimates come back
+                # patchy) is decided in _live_preview_params from the quality
+                # cell, so the helper is told the number rather than guessing.
+                **_live_preview_params(job, p),
                 "prompt": p["prompt"],
                 "negative_prompt": p.get("negative_prompt", ""),
                 "output_path": str(raw_out),

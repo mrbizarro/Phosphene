@@ -154,23 +154,114 @@ if (!/git fetch[^\n]*\|\|[^\n]*exit 1/.test(updCode)) {
   ok("a failed fetch aborts the update")
 }
 
-// 3. reset --hard must never be reachable without a clean-tree check, or the
-//    updater answers "you have local edits" by destroying them.
-if (/git reset --hard/.test(updCode) && !/git diff --quiet/.test(updCode)) {
-  fail("update.js can `git reset --hard` without first proving the worktree is clean — dirty-worktree and genuine non-fast-forward must not share one blunt fallback.")
-} else {
-  ok("reset --hard is guarded by a clean-worktree check")
+// 3+4. THE DESTRUCTIVE PATH IS ASSERTED BY BEHAVIOUR, NOT BY STRINGS.
+//
+// The previous two checks tested that `git diff --quiet` and `rev-list --count`
+// APPEARED SOMEWHERE in the file. Both were present and the updater still
+// deleted an untracked file: a clone with genuine divergence AND an untracked
+// path that upstream now tracks passed every string test and reached
+// `reset --hard`. A gate that greps for the fix cannot see the case the fix
+// misses — so this one builds a real repository, drives the REAL dispatches out
+// of update.js, and shims `git reset` so any call is recorded rather than run.
+//
+// Three scenarios, one rule: reset is allowed ONLY when history truly diverged
+// AND nothing untracked is in the way.
+const { execFileSync, spawnSync } = require("child_process")
+const os = require("os")
+
+function updateDispatches() {
+  const mod = require(path.join(root, "update.js"))
+  return (mod.run || [])
+    .filter((st) => st.method === "shell.run" && st.params && st.params.message)
+    .map((st) => st.params.message)
+    .filter((m) => !/post_update/.test(m))
 }
 
-// 4. …and a clean-worktree check is NOT enough, because `git diff --quiet`
-//    ignores untracked files. The most common non-divergence merge failure is
-//    an untracked path that a newly tracked upstream path would overwrite: it
-//    passes both diff checks, and reset --hard then DELETES the user's file.
-//    Divergence must be proven positively before any reset.
-if (/git reset --hard/.test(updCode) && !/rev-list --count/.test(updCode)) {
-  fail("update.js resets without PROVING history divergence. `git diff --quiet` ignores untracked files, so an untracked obstruction reads as 'tracked-clean merge failure' and reset --hard deletes it. Count the local-only commits (`git rev-list --count $U..HEAD`) and reset only when that is > 0.")
-} else {
-  ok("reset --hard requires proven divergence, so an untracked obstruction cannot be deleted")
+function probe(scenario) {
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), "phos-upd-"))
+  const G = { cwd: null, env: Object.assign({}, process.env, {
+    GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" }) }
+  const git = (cwd, args) => execFileSync("git", args, { cwd, env: G.env, stdio: "pipe" })
+  const up = path.join(work, "up"), clone = path.join(work, "clone")
+  fs.mkdirSync(up)
+  git(up, ["init", "-q", "."])
+  git(up, ["config", "user.email", "a@b"]); git(up, ["config", "user.name", "t"])
+  fs.writeFileSync(path.join(up, "f.txt"), "v1\n")
+  git(up, ["add", "f.txt"]); git(up, ["commit", "-qm", "v1"])
+  git(work, ["clone", "-q", up, clone])
+  git(clone, ["config", "user.email", "a@b"]); git(clone, ["config", "user.name", "t"])
+
+  if (scenario === "mixed" || scenario === "obstruction_only") {
+    fs.writeFileSync(path.join(up, "notes.txt"), "upstream\n")
+    git(up, ["add", "notes.txt"]); git(up, ["commit", "-qm", "add notes"])
+    fs.writeFileSync(path.join(clone, "notes.txt"), "MINE\n")
+    if (scenario === "mixed") git(clone, ["commit", "-q", "--allow-empty", "-m", "local"])
+  } else if (scenario === "divergence_only") {
+    fs.writeFileSync(path.join(up, "f.txt"), "v2\n")
+    git(up, ["commit", "-qam", "v2"])
+    git(clone, ["commit", "-q", "--allow-empty", "-m", "local"])
+  } else if (scenario === "clean_ff") {
+    fs.writeFileSync(path.join(up, "f.txt"), "v2\n")
+    git(up, ["commit", "-qam", "v2"])
+  }
+  git(clone, ["fetch", "-q", "origin"])
+
+  const bin = path.join(work, "bin")
+  fs.mkdirSync(bin)
+  fs.writeFileSync(path.join(bin, "git"),
+    '#!/usr/bin/env bash\nif [ "${1:-}" = "reset" ]; then echo "RESET_CALLED $*"; exit 0; fi\nexec ' +
+    execFileSync("which", ["git"]).toString().trim() + ' "$@"\n')
+  fs.chmodSync(path.join(bin, "git"), 0o755)
+
+  const script = updateDispatches()
+    .map((m, i) => `(\n${m}\n)\nrc=$?; [ $rc -eq 0 ] || exit $rc\n`).join("")
+  const r = spawnSync("bash", ["-c", script], {
+    cwd: clone, encoding: "utf8",
+    env: Object.assign({}, G.env, { PATH: bin + ":" + process.env.PATH }),
+  })
+  const outText = (r.stdout || "") + (r.stderr || "")
+  const notes = fs.existsSync(path.join(clone, "notes.txt"))
+    ? fs.readFileSync(path.join(clone, "notes.txt"), "utf8").trim() : null
+  fs.rmSync(work, { recursive: true, force: true })
+  return { reset: /RESET_CALLED/.test(outText), code: r.status, notes, out: outText }
+}
+
+let probesRan = false
+try {
+  execFileSync("git", ["--version"], { stdio: "ignore" })
+  probesRan = true
+} catch (e) {
+  ok("SKIPPED the updater behaviour probes — git is not available here")
+}
+
+if (probesRan) {
+  const mixed = probe("mixed")
+  if (mixed.reset || mixed.notes !== "MINE") {
+    fail(`update.js RESET on a diverged clone whose untracked file is tracked upstream — the file is destroyed. Divergence and obstruction are independent; the destructive step must clear BOTH. (reset=${mixed.reset}, notes=${JSON.stringify(mixed.notes)})`)
+  } else {
+    ok("mixed divergence + untracked obstruction: no reset, file intact")
+  }
+
+  const obs = probe("obstruction_only")
+  if (obs.reset || obs.notes !== "MINE") {
+    fail(`update.js RESET over an untracked obstruction with no divergence at all (reset=${obs.reset}, notes=${JSON.stringify(obs.notes)})`)
+  } else {
+    ok("untracked obstruction alone: no reset, file intact")
+  }
+
+  const div = probe("divergence_only")
+  if (!div.reset) {
+    fail("update.js refused to reset a genuinely diverged, clean clone — the updater must still be able to converge.")
+  } else {
+    ok("genuine divergence with a clean tree: reset is reached")
+  }
+
+  const ff = probe("clean_ff")
+  if (ff.reset || ff.code !== 0) {
+    fail(`a plain fast-forward must not reset and must succeed (reset=${ff.reset}, exit=${ff.code})`)
+  } else {
+    ok("plain fast-forward: converges without reset")
+  }
 }
 
 console.log("")

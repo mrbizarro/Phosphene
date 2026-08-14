@@ -1237,6 +1237,56 @@ class TestLawEnforcement(unittest.TestCase):
         self.assertFalse(blk["degraded"])
         self.assertEqual(blk["degraded_reasons"], [])
 
+    def test_a_shot_reroll_is_scanned_like_any_other_plan(self):
+        """The enforcement block is skipped for fb_mode == "shot" — correctly,
+        because re-planning a re-plan from inside itself turns a 25 s call into
+        four minutes. But it skipped the final SCAN too, so a re-rolled shot
+        carrying an L13 violation came back ok: true, degraded: false, empty
+        reasons. Codex's probe, as a test."""
+        prev = {"schema": 1, "id": "sb-x", "title": "Op", "created_at": 0, "cast": [],
+                "policy": P.default_policy(),
+                "shots": [{"n": 1, "title": "a", "mode": "text", "engine": "ltx",
+                           "tier": "draft", "prompt": "x", "duration_s": 5.0, "seed": 1,
+                           "refs": [], "status": "pending",
+                           "description": "A quiet room.", "camera": "static",
+                           "face": "medium", "settle": "still",
+                           "soundscape": "Wind.", "music": "N/A"}]}
+        reroll = json.dumps({"title": "Op", "shots": [_shot(
+            1, description="Live-action, cinematic, he explains the mission to the unit.",
+            soundscape="The low murmur of voices.")]})
+        spec, _ = _plan([reroll], n_shots=1, feedback={"shot": 1, "note": "redo"},
+                        previous=prev)
+        self.assertFalse(P.is_plan_error(spec), spec)
+        s = spec["shots"][0]
+        # The violation must not survive into the plan the user gets...
+        self.assertFalse(P._speech_violations(s["description"], s["soundscape"]),
+                         "a re-rolled shot shipped an L13 violation: %r" % s["description"])
+        self.assertNotIn("explains", s["description"])
+        self.assertNotIn("murmur", s["soundscape"])
+        # ...and the assembled prompt must be rebuilt, not left stale.
+        self.assertNotIn("explains", s["prompt"])
+        self.assertTrue(any("final invariant" in w
+                            for w in (spec["_planner"].get("warnings") or [])),
+                        spec["_planner"].get("warnings"))
+
+    def test_a_clean_shot_reroll_stays_clean_and_quiet(self):
+        prev = {"schema": 1, "id": "sb-y", "title": "Op", "created_at": 0, "cast": [],
+                "policy": P.default_policy(),
+                "shots": [{"n": 1, "title": "a", "mode": "text", "engine": "ltx",
+                           "tier": "draft", "prompt": "x", "duration_s": 5.0, "seed": 1,
+                           "refs": [], "status": "pending",
+                           "description": "A quiet room.", "camera": "static",
+                           "face": "medium", "settle": "still",
+                           "soundscape": "Wind.", "music": "N/A"}]}
+        reroll = json.dumps({"title": "Op", "shots": [_shot(
+            1, description="Live-action, cinematic, he traces the river with one finger.")]})
+        spec, _ = _plan([reroll], n_shots=1, feedback={"shot": 1, "note": "redo"},
+                        previous=prev)
+        blk = spec["_planner"]
+        self.assertTrue(blk["ok"])
+        self.assertFalse(blk["degraded"])
+        self.assertFalse(any("final invariant" in w for w in (blk.get("warnings") or [])))
+
     def test_a_film_that_kept_its_premise_costs_no_extra_call(self):
         concept = "ww2 scene but the soldiers are humanoid animals"
         ok = json.dumps({"title": "Operation Wildfire", "shots": [

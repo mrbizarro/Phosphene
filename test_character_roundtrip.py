@@ -46,13 +46,23 @@ NODE = shutil.which("node")
 DOM_SHIM = r"""
 const _els = {};
 function _mk(id, props) {
+  // A real <input>.value ALWAYS coerces to string. The shim does the same, so a
+  // type bug in the panel shows up here instead of being smoothed over.
+  let _v = '';
   const e = Object.assign({
-    id, value: '', textContent: '', min: '', max: '', className: '',
+    id, textContent: '', min: '', max: '', className: '',
     dataset: {}, hidden: false, style: {}, innerHTML: '',
     classList: { toggle(){}, add(){}, remove(){}, contains(){ return false } },
     querySelector(){ return null }, querySelectorAll(){ return [] },
     setAttribute(){}, getAttribute(){ return null }, appendChild(){}, remove(){},
+    dispatchEvent(){ return true }, addEventListener(){}, focus(){}, blur(){},
   }, props || {});
+  Object.defineProperty(e, 'value', {
+    get() { return _v; },
+    set(x) { _v = (x === null || x === undefined) ? '' : String(x); },
+    enumerable: true, configurable: true,
+  });
+  if (props && Object.prototype.hasOwnProperty.call(props, 'value')) e.value = props.value;
   _els[id] = e;
   return e;
 }
@@ -67,6 +77,8 @@ global.document = {
 global.window = global;
 global.BOOT = { ltx: {} };
 global.escapeHtml = (s) => String(s);
+global.Event = function (t) { this.type = t; };
+global.CustomEvent = global.Event;
 global.fetch = async () => ({ json: async () => ({}) });
 global._renderCharsAppliedNote = () => {};
 global.selectManualCharacter = () => {};
@@ -76,7 +88,30 @@ global.charactersRenderChips = () => {};
 global.charactersEscapeAttr = (s) => String(s);
 global.charactersEscapeHtml = (s) => String(s);
 global.setMode = () => {};
+global.setQuality = () => {};
+global.workflowSwitch = () => {};
+global.charactersOpenCompose = () => {};
+global.charactersBackToGrid = () => {};
+global.charactersInit = async () => {};
+global.setAspect = () => {};
+global.updateEstimate = () => {};
+global.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+// The loader refuses a character it cannot find — correctly. Seed the list the
+// panel would have loaded from /characters.
+global._manualCharacters = [{ id: 'bizarrotrn', trigger: 'bizarrotrn', name: 'Bizarro',
+                              face_lora_path: 'f.safetensors', audio_lora_path: 'a.safetensors' }];
+global._activeLoras = [];
+global.refreshManualCharacters = async () => {};
 global.console = console;
+// Auto-vivify: charactersLoadParams touches a known, small set of ids and one
+// querySelectorAll. Creating on demand keeps the shim honest — if the loader
+// starts touching something new, it still runs, and the ASSERTIONS are what
+// decide whether it behaved.
+const _origGet = global.document.getElementById;
+global.document.getElementById = (id) => _els[id] || _mk(id);
+global.document.querySelectorAll = (sel) => (sel === '#aspectGroup .pill-btn')
+  ? [_mk('_aspL', {dataset:{aspect:'landscape'}}), _mk('_aspV', {dataset:{aspect:'vertical'}})]
+  : [];
 """
 
 
@@ -112,6 +147,42 @@ class _JS:
     @classmethod
     def state(cls):
         return extract_object("CHARACTERS", cls.src())
+
+
+def _run_loader(sidecar):
+    """Execute the REAL charactersLoadParams() against the DOM shim.
+
+    This is the difference between a gate and a rumour: the function is
+    extracted from the panel, run in node, and the DOM it leaves behind is what
+    the assertions read. Insert an early return anywhere above the restoration
+    and these tests fail.
+    """
+    script = DOM_SHIM + """
+%s
+%s
+%s
+window.CHARACTERS = %s;
+_mk('characterStrength', {value: ''});
+_mk('characterVoiceStrength', {value: ''});
+_mk('charactersStrength', {value: '0.8', min: '0.4', max: '1.2'});
+_mk('charactersStrengthValue', {textContent: '0.80'});
+_mk('width', {value: ''}); _mk('height', {value: ''});
+(async () => {
+  await charactersLoadParams(%s);
+  console.log(JSON.stringify({
+    face: document.getElementById('characterStrength').value,
+    voice: document.getElementById('characterVoiceStrength').value,
+    slider: document.getElementById('charactersStrength').value,
+    displayed: document.getElementById('charactersStrengthValue').textContent,
+    width: document.getElementById('width').value,
+    height: document.getElementById('height').value,
+  }));
+})().catch(e => { console.error(e); process.exit(3); });
+""" % (_JS.fn("charactersSyncStrengthControls"),
+       _JS.fn("_restoreCharacterStrengths"),
+       _JS.fn("charactersLoadParams"),
+       _JS.state(), json.dumps(sidecar))
+    return _run_node(script)
 
 
 class TestVisibleEqualsSubmitted(unittest.TestCase):
@@ -220,13 +291,38 @@ console.log(JSON.stringify({
         self.assertEqual(float(out["slider"]), 1.6)
         self.assertEqual(float(out["face"]), 1.6)
 
-    def test_the_characters_branch_calls_the_restorer(self):
-        # Executed, not grepped: the loader is extracted and its call is present
-        # in the body that actually runs (the dead block is gone).
-        body = _JS.fn("charactersLoadParams")
-        self.assertIn("_restoreCharacterStrengths(p)", body,
-                      "the live Characters load path still does not restore strengths")
-        self.assertNotIn("eslint-disable-next-line no-unreachable", body)
+    def test_the_LIVE_loader_restores_both_strengths(self):
+        """charactersLoadParams() ITSELF, executed.
+
+        The previous version of this test string-checked that the loader
+        contained a call to the restorer. An early return inserted above that
+        call would still have passed — which is precisely the defect the loader
+        shipped with. This runs the real function end to end and reads the DOM
+        it leaves behind, so an early return fails the suite."""
+        out = _run_loader({
+            "source": "characters", "character_id": "bizarrotrn", "mode": "t2v",
+            "width": 704, "height": 384, "frames": 121,
+            "character_strength": 0.65, "character_voice_strength": 1.4,
+            "prompt": "at the map table", "seed": 7,
+        })
+        self.assertEqual(float(out["face"]), 0.65,
+                         "the LIVE loader did not restore the face strength")
+        self.assertEqual(float(out["voice"]), 1.4,
+                         "the LIVE loader did not restore the voice strength")
+        self.assertEqual(float(out["slider"]), 0.65)
+        self.assertEqual(out["width"], "704")
+        self.assertEqual(out["height"], "384")
+
+    def test_the_live_loader_round_trips_pro_too(self):
+        out = _run_loader({
+            "source": "characters", "character_id": "bizarrotrn", "mode": "t2v",
+            "width": 1024, "height": 576, "frames": 121,
+            "character_strength": 1.0, "character_voice_strength": 1.0,
+            "prompt": "x", "seed": 1,
+        })
+        self.assertEqual(float(out["face"]), 1.0)
+        self.assertEqual(float(out["voice"]), 1.0)
+        self.assertEqual(out["width"], "1024")
 
 
 class TestDraftCanvasRoundTrips(unittest.TestCase):
@@ -283,9 +379,12 @@ class TestServerContract(unittest.TestCase):
                      "frames": 121, "character_strength": face,
                      "character_voice_strength": voice}
             sidecar = json.loads(json.dumps(first))
-            out = TestRestoreRunsInBothLoadPaths()._restore(sidecar)
+            sidecar["source"] = "characters"
+            out = _run_loader(sidecar)          # the LIVE loader, not the helper
             self.assertEqual(float(out["face"]), first["character_strength"], first)
             self.assertEqual(float(out["voice"]), first["character_voice_strength"], first)
+            self.assertEqual(out["width"], str(first["width"]), first)
+            self.assertEqual(out["height"], str(first["height"]), first)
 
 
 if __name__ == "__main__":

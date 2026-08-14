@@ -25,16 +25,28 @@
 # a complete 30 GB pack hostage to a 60 GB wait. Q8 alone is what characters and
 # voices need; High is one more click in Settings → Models.
 #
-# A USER PINNED BACK TO 2.3 (LTX_MODEL_VERSION=ltx23) should use Settings →
-# Models, which offers every registered pack of every generation. This button is
-# the one-click path for the generation the panel actually boots into.
+# A USER PINNED BACK TO 2.3 FOLLOWS THEIR PIN. This used to fetch q8_25
+# unconditionally while the sidebar entry that dispatches it was gated on the
+# same hardcoded key — so a 2.3-pinned install with its own Q8 pack complete was
+# still offered "Download Q8 weights (~30 GB)", and clicking it fetched 30 GB of
+# a generation that install does not load. The version is resolved from the same
+# ENVIRONMENT file the launcher sources and pinokio.js reads, so the button, its
+# gate and this fetch all name one pack.
+VERSION=$(sed -n 's/^[[:space:]]*LTX_MODEL_VERSION[[:space:]]*=[[:space:]]*\([^[:space:]#]*\).*/\1/p' \
+            ENVIRONMENT 2>/dev/null | tail -1)
+VERSION="${LTX_MODEL_VERSION:-$VERSION}"
+case "$VERSION" in
+  ltx23) REPO_KEY=q8;    LABEL='LTX-2.3 Q8 weights' ;;
+  *)     REPO_KEY=q8_25; LABEL='LTX-2.5 Q8 weights' ;;
+esac
+echo "Fetching $LABEL (pack key: $REPO_KEY)…"
 
 PY=./ltx-2-mlx/env/bin/python3.11
-if $PY scripts/fetch_pack_release.py --repo-key q8_25; then
-  echo 'LTX-2.5 Q8 weights ready (verified against the published manifest).'
+if $PY scripts/fetch_pack_release.py --repo-key "$REPO_KEY"; then
+  echo "$LABEL ready (verified against the published manifest)."
 else
   echo '=================================================================='
-  echo 'PHOSPHENE COULD NOT DOWNLOAD THE LTX-2.5 Q8 WEIGHTS'
+  echo "PHOSPHENE COULD NOT DOWNLOAD THE $LABEL"
   echo 'Nothing is broken - this pack is optional. The panel keeps rendering'
   echo 'on the base weights; trained characters and voices are what need Q8.'
   echo 'This is almost always a network problem (no connection, a VPN or'

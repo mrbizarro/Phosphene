@@ -114,6 +114,29 @@ module.exports = {
     // that upstream does not. Zero means the history did not diverge, whatever
     // made the merge fail — so we stop and print git's own error, which names
     // the obstructing paths. Nothing is deleted on that path, ever.
+    // THE OBSTRUCTION GUARD, and it runs BEFORE anything can move the tree.
+    //
+    // The rev-list proof added in the previous pass only covered the
+    // zero-local-commit case. A clone that has genuinely diverged (A > 0) AND
+    // holds an untracked file where upstream now tracks one still reached
+    // `reset --hard`, because both `git diff` checks ignore untracked files —
+    // so the reset deleted it while legitimately reconciling real divergence.
+    // Divergence and obstruction are independent facts and the destructive
+    // step must clear BOTH.
+    //
+    // The set is computed exactly: every untracked path that also exists in the
+    // fetched upstream tree (`git cat-file -e $U:<path>`). No process
+    // substitution, so it behaves the same under sh, bash and zsh.
+    {
+      method: "shell.run",
+      params: {
+        message: [
+          "U=$(git rev-parse --abbrev-ref --symbolic-full-name @{u})",
+          "O=$(git status --porcelain -uall | sed -n 's/^?? //p' | while read -r f; do git cat-file -e \"$U:$f\" 2>/dev/null && echo \"$f\"; done)",
+          "[ -z \"$O\" ] || { echo \"$O\"; echo 'FATAL: the untracked files above are tracked upstream. Move them, then Update. Nothing deleted.'; exit 1; }"
+        ].join("\n")
+      }
+    },
     {
       method: "shell.run",
       params: {

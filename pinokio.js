@@ -144,7 +144,16 @@ module.exports = {
     // successful 30 GB install the menu kept offering the download forever.
     // Resolved by mirror-block presence rather than a hardcoded key so a third
     // generation does not reopen it: the 2.5-era packs are the mirrored ones.
-    const q8Repo    = repos.find(r => r.key === "q8_25") || repos.find(r => r.key === "q8")
+    // THE Q8 PACK OF THE ACTIVE GENERATION. This preferred q8_25 unconditionally,
+    // so a user pinned back with LTX_MODEL_VERSION=ltx23 whose 2.3 Q8 pack was
+    // already complete still saw "Download Q8 weights (~30 GB)" forever — an
+    // offer to fetch 30 GB their generation does not load. `characters` is the
+    // capability that names it, and it is declared per version.
+    const capChars  = caps.characters || {}
+    const q8Keys    = ((capChars.repos_by_version || {})[activeVersion]
+                       || (capChars.repos_by_version || {})[capChars.default_version] || [])
+    const q8Repo    = q8Keys.map(k => repos.find(r => r.key === k)).filter(Boolean)[0]
+                   || repos.find(r => r.key === "q8_25") || repos.find(r => r.key === "q8")
 
     const base_ready = baseRepos.length > 0 && baseRepos.every(r => repoComplete(installRoot, r, minBytes))
     const q8_ready   = q8Repo ? repoComplete(installRoot, q8Repo, minBytes) : false
@@ -211,8 +220,15 @@ module.exports = {
     // routinely survive whatever broke the engine. `model_roots` are
     // ALTERNATIVES (either download layout is valid); every entry in `models`
     // is required beneath whichever root carried the DiT.
-    const h3_weights = (capH3.model_roots || []).some(root =>
-      (capH3.models || []).every(rel => h3Resolves(root + "/" + rel)))
+    // PER FILE, not per root. This required every component beneath ONE root,
+    // while the panel resolves each file against any of them — and the panel is
+    // right: LTX_H3_MODELS and LTX_H3_COMPACT_DIR legitimately split a layout
+    // across roots, which is the documented dev setup. On a split layout the
+    // panel said installed and this said not, so Pinokio offered a 75 GB
+    // install for weights already on disk. Two consumers, one manifest, and now
+    // one resolution rule.
+    const h3_weights = (capH3.models || []).every(rel =>
+      (capH3.model_roots || []).some(root => h3Resolves(root + "/" + rel)))
     const h3_ready = h3_venv && h3_runner && h3_weights
     // Weights on disk but the code/venv gone → a REPAIR, not a 75 GB install.
     // install_h3.js is idempotent and skips every intact weight, so the same
@@ -376,7 +392,11 @@ module.exports = {
       // ~30 GB and what it actually buys on 2.5: trained characters and voices.
       // High additionally needs the separate 29.5 GB add-on, which is offered
       // in Settings -> Models rather than here — one menu entry, one download.
-      baseMenu.push({ icon: "fa-solid fa-download", text: "Download Q8 weights (~30 GB) — trained characters + voices", href: "download_q8.js" })
+      // Size and wording follow the pack that will actually be fetched.
+      const q8Size = q8Repo && q8Repo.size_gb ? `~${Math.round(q8Repo.size_gb)} GB` : "~30 GB"
+      baseMenu.push({ icon: "fa-solid fa-download",
+                      text: `Download Q8 weights (${q8Size}) — trained characters + voices`,
+                      href: "download_q8.js" })
     }
     if (!sharp_ready) {
       baseMenu.push({ icon: "fa-solid fa-wand-magic-sparkles", text: "Install Sharp upscaler (PiperSR, optional)", href: "install_sharp.js" })
