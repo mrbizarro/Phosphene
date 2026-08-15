@@ -30199,7 +30199,15 @@ HTML = r"""<!doctype html>
        870 px from the thumbnail it refers to. It snapped into place only once
        the job stopped and `.stopped` supplied the relative — i.e. exactly when
        it was no longer needed. */
-    .now-card { display: flex; gap: 12px; align-items: flex-start; position: relative; }
+    /* `flex-wrap` is load-bearing, not tidying: the preview-absence note is a
+       THIRD child of this row, and on a nowrap row it competed with the text
+       column for width — the prompt collapsed into a one-word-per-line ribbon
+       the moment the note appeared (owner-reported on an H3 render, where the
+       note is now common rather than rare). Wrapping plus a 100% basis on the
+       note puts it on its own line under the card, which is also its reading
+       order. Nothing else in this row can reach 100% basis, so no other
+       layout moves. */
+    .now-card { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; position: relative; }
     .now-card > .now-body { flex: 1; min-width: 0; }
     .now-thumb {
       flex: 0 0 auto;
@@ -30230,6 +30238,8 @@ HTML = r"""<!doctype html>
     .now-preview-missing {
       font-size: 11.5px; color: var(--muted);
       padding: 6px 2px 0; line-height: 1.45;
+      /* Own line, full width — see the .now-card wrap note above. */
+      flex: 0 0 100%; width: 100%; min-width: 0;
     }
     .now-preview-missing a { color: var(--accent-bright); }
     /* ABORTING — frozen on the last frame it managed to show. */
