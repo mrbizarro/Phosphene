@@ -24907,6 +24907,16 @@ def _preview_progress(current: dict | None, remaining: float | None,
     latest = d / "preview_latest.png"
     if not latest.is_file():
         return {}
+    # THE LOOP, WHEN THE RUNNER PUBLISHED ONE. The decode that produces the
+    # still already computes the causal warm-up frames — the moments just
+    # before it — so a runner new enough to write them out gives ~half a
+    # second of real motion for no extra GPU. It is an ANIMATED WEBP, and
+    # /image already serves image/webp, so pointing the same `url` at it
+    # makes the browser loop it with no player, no timer and no client
+    # state. An older runner writes no such file and keeps the still: this
+    # is a capability, resolved per job, exactly like every other H3 one.
+    loop = d / (st.get("preview_loop") or "preview_latest.webp")
+    shown = loop if (st.get("preview_loop") and loop.is_file()) else latest
     q = (current.get("params") or {}).get("quality") or ""
     cell = LTX_QUALITIES.get(q, {})
     need = int(cell.get("preview_meaningful_at") or 1)
@@ -24937,7 +24947,11 @@ def _preview_progress(current: dict | None, remaining: float | None,
         # the spec and the review matched the contract, and neither loaded the
         # image. The same URL feeds the storyboard's #sbRunThumb via the
         # preview_url alias below, so both consumers were broken by one word.
-        "url": f"/image?path={quote(str(latest))}&t={int((d / 'status.json').stat().st_mtime)}",
+        "url": f"/image?path={quote(str(shown))}&t={int((d / 'status.json').stat().st_mtime)}",
+        # What the stage is actually showing, so the UI can label it honestly
+        # (and so a future consumer can prefer the still if it wants one).
+        "animated": bool(shown is not latest),
+        "still_url": f"/image?path={quote(str(latest))}&t={int((d / 'status.json').stat().st_mtime)}",
         "estimate": published,
         "total": max(1, int(st.get("total_forwards") or 0) // every),
         "meaningful": meaningful,
@@ -24988,6 +25002,16 @@ def _h3_preview_progress(current: dict | None) -> dict:
         # into a 500. Atomic JSON protects against torn bytes, not bad types.
         return {}
     latest = d / "preview_latest.png"
+    # THE LOOP, WHEN THIS RUNNER PUBLISHES ONE. The decode behind the still
+    # already computes the causal warm-up frames (the moments just before it),
+    # and a runner new enough writes them out as one animated WebP — ~half a
+    # second of real motion for no extra GPU. /image already serves
+    # image/webp, so pointing the URL at it makes the browser loop it with no
+    # player, no timer and no client state. An older runner names no loop and
+    # keeps the still: a capability, resolved per job, like every other H3 one.
+    loop_name = str(st.get("preview_loop") or "")
+    loop = d / loop_name if loop_name else None
+    shown = loop if (loop is not None and loop.is_file()) else latest
     has_frame = latest.is_file() and forward >= 1
     status = str(st.get("status") or "")
     phase = str((current.get("progress") or {}).get("phase") or "")
@@ -24998,9 +25022,11 @@ def _h3_preview_progress(current: dict | None) -> dict:
     raw = {
         "schema": "h3-live-preview/1",
         "preview_url": (
-            f"/image?path={quote(str(latest))}&t={status_path.stat().st_mtime_ns}"
+            f"/image?path={quote(str(shown))}&t={status_path.stat().st_mtime_ns}"
             if has_frame else ""
         ),
+        "animated": bool(has_frame and shown is not latest),
+        "loop_frames": int(st.get("preview_loop_frames") or 0) or None,
         "preview_step": forward,
         "preview_total": total,
         "meaningful": has_frame,
