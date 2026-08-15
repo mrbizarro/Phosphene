@@ -8179,6 +8179,18 @@ def ltx_tiers_payload() -> dict:
             LTX_LENGTHS.values(), key=lambda x: x["order"]) if l["offered"]],
         "default_quality": LTX_QUALITY_DEFAULT,
         "default_length": LTX_LENGTH_DEFAULT,
+        # The active generation, SERVER-OWNED, so surfaces that differ by
+        # generation (the i2v Anchor/Inspire pills, the Ingredients gate)
+        # read one authoritative flag instead of parsing a label string.
+        "generation": ACTIVE_MODEL_VERSION,
+        # Inspire (loose-reference i2v) exists only where the engine's
+        # masked-sample re-pin is version-resolved on — 2.5.
+        "inspire_available": ACTIVE_MODEL_VERSION == "ltx25",
+        # Ingredients runs the 2.3-trained IC-LoRA whose in-context transfer
+        # does not graft onto 2.5 layers: refs get ignored at two-stage cost
+        # (owner-reproduced 2026-08-15). Offered only where it works; the
+        # 2.5 adapter swap is one registry row the day Lightricks ships it.
+        "ingredients_available": ltx_generation_serves_ingredients(),
         # The `?` copy the LTX help-dots fill from, on the same four-hop
         # Python-owned path H3's chain-prompt help takes. It rides the LTX
         # bootstrap block rather than a top-level one so everything the LTX
@@ -10377,6 +10389,17 @@ def _analytics_audio_mode(params: dict, engine: str, mode: str) -> str:
     if mode == "i2v_clean_audio":
         return "none"
     return "joint"
+
+
+def ltx_generation_serves_ingredients(version_id: str | None = None) -> bool:
+    """Can this generation actually run the Ingredients IC-LoRA?
+
+    One predicate, read by the worker's gate, the bootstrap flag the UI
+    keys off, and the tests — so "which generations serve Ingredients"
+    cannot drift between the three the way `q8_available` once did. The
+    day Lightricks publishes a 2.5 adapter this returns True for ltx25 and
+    the registry row is the only other change."""
+    return (version_id or ACTIVE_MODEL_VERSION) != "ltx25"
 
 
 def _analytics_render_tier(params: dict, engine: str) -> str:
@@ -14389,6 +14412,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         # An LTX schedule preset means nothing on the H3 lane; a leftover
         # value from an engine switch must not ride onto the job.
         _schedule_preset = ""
+        _i2v_ref_mode = "anchor"
     else:
         # A chained shot list means nothing on the LTX lane, and a fallback to
         # LTX above must not leave one on the job.
@@ -14424,6 +14448,27 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                  "only — High tiers run their own two-stage schedule. The "
                  "default runs.")
             _schedule_preset = ""
+        # i2v reference mode: "anchor" (default — the image is animated) or
+        # "inspire" (2.5 only — the image guides subject/style while the
+        # composition re-imagines itself; the engine skips the masked-sample
+        # re-pin ON PURPOSE). Same lane-gating discipline as the preset
+        # above: a value the active lane cannot honor is normalized with a
+        # sentence, never queued into a surprise.
+        _i2v_ref_mode = (f("i2v_reference_mode", "") or "").strip().lower()
+        if _i2v_ref_mode in ("", "anchor"):
+            _i2v_ref_mode = "anchor"
+        elif _i2v_ref_mode != "inspire":
+            push(f"Unknown i2v reference mode {_i2v_ref_mode!r} — anchoring "
+                 "to the image.")
+            _i2v_ref_mode = "anchor"
+        elif ACTIVE_MODEL_VERSION != "ltx25":
+            push("Inspire is an LTX-2.5 mode — this install renders "
+                 f"{model_version()['label']}, so the image is anchored.")
+            _i2v_ref_mode = "anchor"
+        elif f("mode", "t2v") not in ("i2v", "i2v_clean_audio"):
+            # Inert without a reference image; a leftover pill from a mode
+            # switch resets quietly rather than logging noise on every t2v.
+            _i2v_ref_mode = "anchor"
     if _h3_turbo and _h3_steps:
         # The adapter is distilled FOR 4 sigma points. Honouring a Steps pill on
         # top of it would quietly render a configuration nobody validated, so
@@ -14492,6 +14537,10 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # it. SAME allowlist trap as every key in this dict: leave it out
             # and the Speed control looks wired and silently no-ops.
             "schedule_preset": _schedule_preset,
+            # i2v reference mode: "anchor" (animate the image) or "inspire"
+            # (2.5: guide subject/style, re-imagine the composition). Already
+            # lane-gated above. SAME allowlist trap as every key here.
+            "i2v_reference_mode": _i2v_ref_mode,
             "prompt": prompt,
             "negative_prompt": f("negative_prompt", ""),
             "width": max(32, int(f("width", str(default_w)) or default_w)),
@@ -17258,6 +17307,27 @@ def run_job_inner(job: dict) -> None:
         # (skip_stage_2=True), and the two-field prompt. Default off; no other
         # mode changes. Recipe matches the public Space
         # ltx-community/ltx-2.3-ingredients-distilled.
+        #
+        # GENERATION GATE (2026-08-15, owner-reproduced). The adapter is
+        # 2.3-trained and Lightricks has published no 2.5 Ingredients
+        # IC-LoRA — their whole 2.5 IC-LoRA catalogue is a pixel upscaler.
+        # On 2.5 its in-context transfer does not graft onto the layers: the
+        # reference sheet rides at strength 0.0 BY DESIGN (at 1.0 the model
+        # copies the sheet verbatim — measured), so when the adapter
+        # contributes nothing the refs are simply absent and the render
+        # collapses to prompt-only. The owner's report is exactly that: an
+        # unrelated subject, produced at two-stage cost. Refuse at the door
+        # with the reason instead of burning ~11 GPU-minutes on noise.
+        if not ltx_generation_serves_ingredients():
+            raise RuntimeError(
+                "Ingredients needs the LTX-2.3 generation. Its IC-LoRA is "
+                "2.3-trained and Lightricks has not published a 2.5 one, so "
+                "on "
+                f"{model_version()['label']} the reference sheet is ignored "
+                "and you get an unrelated clip at full two-stage cost. For "
+                "reference-guided work on 2.5, use Image mode with Inspire "
+                "— or install the 2.3 pack from the Train tab for "
+                "Ingredients.")
         try:
             image_paths = json.loads(p.get("ingredient_images_json") or "[]")
             if not isinstance(image_paths, list):
@@ -18085,6 +18155,11 @@ def run_job_inner(job: dict) -> None:
                 "seed": p["seed"],
                 "image": p["image"] if mode != "t2v" else None,
                 "loras": hq_loras,
+                # Inspire on the HQ lane — this is the lane where the owner
+                # first hit the loose-reference behavior (High / High·720p),
+                # because res_2s re-noises the anchor unmasked. Anchored
+                # renders (the default) now hold the image here for real.
+                "loose_reference": (p.get("i2v_reference_mode") == "inspire"),
                 # Q8 tuning knobs honor per-job overrides from the form.
                 # Defaults updated 2026-05-12 to match the 5-min sweet
                 # spot recovered from the May-10 clip 11–17 cluster
@@ -18218,6 +18293,11 @@ def run_job_inner(job: dict) -> None:
                 # make_job; the helper forwards it to generate_two_stage,
                 # whose resolver validates it before any GPU is spent.
                 "schedule_preset": p.get("schedule_preset") or "",
+                # Inspire: the engine skips its masked-sample re-pin so the
+                # reference guides subject/style while the composition is
+                # re-imagined. Lane-gated in make_job; the helper only
+                # forwards it when true.
+                "loose_reference": (p.get("i2v_reference_mode") == "inspire"),
                 "memory_policy": memory_plan["effective"],
                 "vae_full_decode_max_frames": memory_plan["full_decode_max_frames"],
                 # Sharp/PiperSR is a panel-side post-render pass. Do not pass it
@@ -33121,6 +33201,33 @@ HTML = r"""<!doctype html>
                 <div class="picker-recent-strip" id="picker_recent_image"></div>
               </div>
             </div>
+            <!-- HOW the reference is used. Anchor = the image IS frame one
+                 and gets animated (what i2v has always promised). Inspire =
+                 the image guides subject, style and palette while the shot
+                 re-composes — the behavior High/High·720p produced BY
+                 ACCIDENT until v4.0.7 anchored them for real, kept as an
+                 explicit choice because the owner graded the accident as
+                 worth having. 2.5 only (server-owned flag); the row hides
+                 itself on 2.3 and on H3. -->
+            <div class="cz-control" id="i2vRefModeRow" data-ltx-only hidden
+                 style="margin-top:10px">
+              <div class="cz-label">Reference use
+                <span class="cz-label-hint">anchor the image, or take it as inspiration</span>
+              </div>
+              <input type="hidden" name="i2v_reference_mode" id="i2v_reference_mode" value="anchor">
+              <div class="pill-group cols-2" id="i2vRefModeGroup">
+                <button type="button" class="pill-btn active" data-i2v-ref="anchor"
+                        title="Your image is frame one and the clip animates it. This is what Image mode has always promised — and on High tiers it is a v4.0.7 fix.">
+                  <span>Anchor</span>
+                  <span class="sub">animate this image</span>
+                </button>
+                <button type="button" class="pill-btn" data-i2v-ref="inspire"
+                        title="The image guides subject, style and palette, but the shot composes itself — you will NOT see your picture as frame one. Good for 'this character, new scene'.">
+                  <span>Inspire</span>
+                  <span class="sub">new shot from it</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           <!-- Keyframe interpolation — FFLF or a dynamic 3–8-anchor shot. -->
@@ -41605,6 +41712,12 @@ function updateCustomizeSummary() {
   if (typeof schedPresetActive === 'function' && schedPresetActive()) {
     parts.push('fast draft · different take');
   }
+  // Inspire changes what the reference DOES; the folded-away summary owes
+  // that sentence as much as it owes the schedule.
+  if (typeof i2vInspireActive === 'function' && i2vInspireActive()
+      && currentMode === 'i2v') {
+    parts.push('inspire · new shot from the image');
+  }
   if ((document.getElementById('temporal_mode')?.value || 'native') === 'fps12_interp24') {
     parts.push('12→24fps long clip');
   }
@@ -41660,8 +41773,41 @@ document.querySelectorAll('#modeGroup .pill-btn').forEach(b => b.onclick = () =>
 // setMode keeps the parent Remix pill lit + this sub-pill active + the section
 // shown. Wired here alongside the #modeGroup handler so both rows behave alike.
 document.querySelectorAll('#remixSubGroup .pill-btn').forEach(b => b.onclick = () => {
+  // Ingredients needs the 2.3 generation: its IC-LoRA is 2.3-trained and no
+  // 2.5 one exists, so on 2.5 the references are silently ignored and the
+  // clip costs full two-stage time (owner-reproduced 2026-08-15). Say that
+  // instead of letting someone spend 11 GPU-minutes finding out. The server
+  // refuses too — this is the polite half.
+  if (b.dataset.remix === 'ingredients'
+      && (BOOT.ltx || {}).ingredients_available === false) {
+    if (typeof phosToast === 'function') {
+      phosToast('Ingredients needs the LTX-2.3 generation — its reference '
+        + 'adapter has no 2.5 release yet, so on 2.5 your references would '
+        + 'be ignored. For reference-guided work here, use Image mode with '
+        + 'Inspire.', { kind: 'danger' });
+    }
+    return;
+  }
   setMode(b.dataset.remix);
 });
+// Paint the Ingredients chip as unavailable on a generation that cannot
+// serve it, so the state is visible before the click.
+(function _markIngredientsAvailability() {
+  const apply = () => {
+    if ((BOOT.ltx || {}).ingredients_available !== false) return;
+    const chip = document.querySelector('#remixSubGroup [data-remix="ingredients"]');
+    if (!chip) return;
+    chip.classList.add('disabled');
+    chip.title = 'Needs LTX-2.3 — the 2.5 reference adapter is not published '
+               + 'yet. Use Image mode with Inspire for reference-guided work '
+               + 'on 2.5.';
+    const sub = chip.querySelector('.mc-sub');
+    if (sub) sub.textContent = 'needs LTX-2.3';
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', apply);
+  } else { apply(); }
+})();
 document.querySelectorAll('#qualityGroup .pill-btn').forEach(b => b.onclick = () => {
   // Disabled-but-actionable: the High pill becomes a "click to install Q8"
   // CTA when Q8 is missing. Routes to the Models modal so the user lands
@@ -43815,6 +43961,11 @@ function updateDerived() {
   const inI2V = mode === 'i2v' || mode === 'i2v_clean_audio';
   const inImageFlow = inI2V || currentMode === 'keyframe';
   document.getElementById('imageSection').classList.toggle('show', inI2V && currentMode !== 'keyframe');
+  // The reference-use row lives inside that section and follows the same
+  // mode question, plus the server's 2.5-only availability flag.
+  if (typeof _applyI2vRefModeVisibility === 'function') {
+    try { _applyI2vRefModeVisibility(); } catch (_) {}
+  }
   document.getElementById('extendSection').classList.toggle('show', currentMode === 'extend');
   // Colorize (restore) shows its own source-video picker. Unlike Extend it
   // KEEPS the sizing + quick-metrics rows below (the source's own dims/length
@@ -46186,6 +46337,11 @@ async function loadParams() {
   if (typeof setSchedPreset === 'function') {
     try { setSchedPreset(p.schedule_preset || ''); } catch (e) {}
   }
+  // Reference use round-trips from day one; always applied, so a clip
+  // rendered on Anchor clears a leftover Inspire.
+  if (typeof setI2vRefMode === 'function') {
+    try { setI2vRefMode(p.i2v_reference_mode || 'anchor'); } catch (e) {}
+  }
   if (p.temporal_mode) setTemporalMode(p.temporal_mode);
   if (p.upscale) setUpscale(p.upscale);
   if (p.upscale_method) setUpscaleMethod(p.upscale_method);
@@ -46700,6 +46856,9 @@ function renderOutputInfoBody(path, data) {
   if (p.schedule_preset && p.schedule_preset !== 'default') {
     genRows.push(`<dt>Schedule</dt><dd>${escapeHtml(String(p.schedule_preset))} · draft schedule — a different take than Tuned</dd>`);
   }
+  if (p.i2v_reference_mode === 'inspire') {
+    genRows.push(`<dt>Reference use</dt><dd>Inspire — the image guided subject and style; the shot was composed fresh (not animated from it)</dd>`);
+  }
   if (accelMetrics && p.accel && p.accel !== 'off') {
     const cachedCount = accelMetrics.cached_steps_count || 0;
     const totalSteps = accelMetrics.total_steps || p.steps || 0;
@@ -46915,6 +47074,7 @@ document.getElementById('genForm').addEventListener('submit', async e => {
     fd.set('character_id', '');      // character LoRAs are an LTX construct
     fd.set('no_voice', '');          // only ever meant "skip the character's voice LoRA"
     fd.set('schedule_preset', '');   // an LTX-2.5 distilled schedule; H3 has its own axes
+    fd.set('i2v_reference_mode', 'anchor');  // an LTX-2.5 sampler behaviour
     // `loras` IS NOT SCRUBBED, and the line that used to scrub it said "the H3
     // runner stacks nothing" — true when it was written, false since the H3
     // LoRA import shipped in 3.7.0. H3 takes ONE adapter from its own family
@@ -50522,6 +50682,52 @@ function _applySchedPresetRowVisibility() {
     if (tunedSub) tunedSub.textContent = cell.eta || 'default schedule';
   }
 }
+// ---- i2v reference use (Anchor / Inspire) ----------------------------------
+// Server-owned availability: BOOT.ltx.inspire_available is true only where the
+// engine's masked-sample re-pin is version-resolved on (2.5). The UI never
+// parses a generation label.
+function setI2vRefMode(v) {
+  const val = (v === 'inspire') ? 'inspire' : 'anchor';
+  const inp = document.getElementById('i2v_reference_mode');
+  if (inp) inp.value = val;
+  document.querySelectorAll('#i2vRefModeGroup [data-i2v-ref]').forEach(b =>
+    b.classList.toggle('active', (b.dataset.i2vRef || '') === val));
+  if (typeof updateCustomizeSummary === 'function') {
+    try { updateCustomizeSummary(); } catch (e) {}
+  }
+}
+function i2vInspireActive() {
+  return (document.getElementById('i2v_reference_mode') || {}).value === 'inspire';
+}
+function _applyI2vRefModeVisibility() {
+  const row = document.getElementById('i2vRefModeRow');
+  if (!row) return;
+  const isI2v = (currentMode === 'i2v');
+  const offered = !!((BOOT.ltx || {}).inspire_available)
+    && isI2v && document.body.dataset.engine !== 'h3';
+  row.hidden = !offered;
+  // A mode the current lane cannot honor must not ride on the form — the
+  // server drops it anyway (make_job gates it); this keeps UI and wire
+  // agreeing. Direct clear, no setter (avoids a summary repaint loop).
+  if (!offered && i2vInspireActive()) {
+    const inp = document.getElementById('i2v_reference_mode');
+    if (inp) inp.value = 'anchor';
+    document.querySelectorAll('#i2vRefModeGroup [data-i2v-ref]').forEach(b =>
+      b.classList.toggle('active', (b.dataset.i2vRef || '') === 'anchor'));
+  }
+}
+function _wireI2vRefModePills() {
+  const group = document.getElementById('i2vRefModeGroup');
+  if (!group || group.dataset.wired === '1') return;
+  group.dataset.wired = '1';
+  group.querySelectorAll('[data-i2v-ref]').forEach(b => {
+    b.addEventListener('click', (e) => {
+      e.preventDefault();
+      setI2vRefMode(b.dataset.i2vRef || 'anchor');
+    });
+  });
+}
+
 function _wireSchedPresetPills() {
   const group = document.getElementById('schedPresetGroup');
   if (!group || group.dataset.wired === '1') return;
@@ -51084,6 +51290,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // settles on every renderTierAxes('ltx') repaint, including boot's.
   if (typeof _wireSchedPresetPills === 'function') {
     try { _wireSchedPresetPills(); } catch (e) {}
+  }
+  // Bind the reference-use pills; visibility follows mode in updateDerived.
+  if (typeof _wireI2vRefModePills === 'function') {
+    try { _wireI2vRefModePills(); } catch (e) {}
   }
   // Apply correct quality-strip visibility based on whether a character
   // is already selected (e.g. restored from sidecar / Load Params).

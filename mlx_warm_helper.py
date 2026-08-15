@@ -2237,7 +2237,7 @@ def configure_acceleration(mode: str) -> str:
 # of letting it surface as an un-triageable TypeError mid-render.
 #
 # 2026-08-12: this is a FORK BUILD, not an upstream tag. The vendored checkout
-# is mrbizarro/ltx-2-mlx at the immutable tag `v0.14.19+ltx25.4` — v0.14.19 plus
+# is mrbizarro/ltx-2-mlx at the immutable tag `v0.14.19+ltx25.5` — v0.14.19 plus
 # the LTX-2.5 port (keyframe pos-emb, Gemma 4 tower, ancestral sampler). The
 # release segment stays 0.14.19 because that is genuinely what it branches from;
 # the `+ltx25.N` local segment is what makes the two distinguishable.
@@ -2262,7 +2262,7 @@ def configure_acceleration(mode: str) -> str:
 # — a skew gate blind to the one skew that mattered. Bumping the pin here
 # without bumping the packages (or the reverse) puts it back into permanent
 # SKEW warnings, so the two move together or not at all.
-_LTX_EXPECTED_VERSION = "0.14.19+ltx25.4"
+_LTX_EXPECTED_VERSION = "0.14.19+ltx25.5"
 
 
 def _detect_ltx_version() -> dict:
@@ -2496,6 +2496,11 @@ for line in sys.__stdin__:
             # log line, so carrying the key is forward-safe by design.
             if p.get("schedule_preset"):
                 kwargs["schedule_preset"] = str(p["schedule_preset"])
+            # Inspire (loose reference): forwarded only when TRUE, so an
+            # older installed library never sees a key it cannot take — and
+            # _filter_unsupported_kwargs drops it with a log line even then.
+            if p.get("loose_reference"):
+                kwargs["loose_reference"] = True
             # Y1.037: short-clip VAE-streaming opt-out. Set the env var BEFORE
             # generate() so it propagates through the whole chain (the patched
             # decode_and_stream reads os.environ at decode call time).
@@ -2853,6 +2858,12 @@ for line in sys.__stdin__:
                 # the cap IS the iteration count (not just a safety bound).
                 # Each iter is pure latent algebra — no model forwards.
                 bongmath_max_iter=int(p.get("bongmath_max_iter", 100)),
+                # Inspire on the HQ lane: skip the masked-sample re-pin so
+                # the reference guides subject/style and the composition
+                # re-imagines itself. False (default) anchors the image for
+                # real on 2.5 — the fix for the owner-reported "High ignores
+                # my reference". Filtered out on an older library.
+                loose_reference=bool(p.get("loose_reference", False)),
                 # video_skip_step / audio_skip_step removed (v4.0.5): the
                 # pinned generate_and_save accepts neither kwarg, so
                 # _filter_unsupported_kwargs discarded them every render —

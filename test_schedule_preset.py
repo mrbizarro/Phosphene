@@ -110,5 +110,71 @@ class TestTierTableStampsFastOnlyWhereItRuns(unittest.TestCase):
             self.assertNotIn("fast_eta", cell, cell["key"])
 
 
+
+
+class TestI2vReferenceMode(unittest.TestCase):
+    """Anchor/Inspire is lane-gated exactly like the schedule preset."""
+
+    def setUp(self):
+        self.old_version = P.ACTIVE_MODEL_VERSION
+
+    def tearDown(self):
+        P.ACTIVE_MODEL_VERSION = self.old_version
+
+    def test_inspire_rides_on_25_i2v(self):
+        P.ACTIVE_MODEL_VERSION = "ltx25"
+        job = job_for({"mode": "i2v", "i2v_reference_mode": "inspire"})
+        self.assertEqual(job["params"]["i2v_reference_mode"], "inspire")
+
+    def test_inspire_is_dropped_on_t2v(self):
+        # No reference image, nothing to be loose about.
+        P.ACTIVE_MODEL_VERSION = "ltx25"
+        job = job_for({"mode": "t2v", "i2v_reference_mode": "inspire"})
+        self.assertEqual(job["params"]["i2v_reference_mode"], "anchor")
+
+    def test_inspire_is_dropped_on_23(self):
+        # The engine only version-resolves the re-pin on 2.5; 2.3's bytes
+        # are deliberately untouched, so the mode has no meaning there.
+        P.ACTIVE_MODEL_VERSION = "ltx23"
+        job = job_for({"mode": "i2v", "i2v_reference_mode": "inspire"})
+        self.assertEqual(job["params"]["i2v_reference_mode"], "anchor")
+
+    def test_inspire_is_dropped_on_h3(self):
+        P.ACTIVE_MODEL_VERSION = "ltx25"
+        job = job_for({"mode": "i2v", "engine": "h3",
+                       "i2v_reference_mode": "inspire"})
+        self.assertEqual(job["params"]["i2v_reference_mode"], "anchor")
+
+    def test_bogus_and_absent_normalize_to_anchor(self):
+        P.ACTIVE_MODEL_VERSION = "ltx25"
+        self.assertEqual(
+            job_for({"mode": "i2v", "i2v_reference_mode": "wildcard"}
+                    )["params"]["i2v_reference_mode"], "anchor")
+        self.assertEqual(
+            job_for({"mode": "i2v"})["params"]["i2v_reference_mode"], "anchor")
+
+
+class TestIngredientsGeneration(unittest.TestCase):
+    """Ingredients is offered exactly where its adapter works."""
+
+    def test_predicate_matches_the_generation(self):
+        self.assertFalse(P.ltx_generation_serves_ingredients("ltx25"))
+        self.assertTrue(P.ltx_generation_serves_ingredients("ltx23"))
+
+    def test_bootstrap_flags_follow_the_predicate(self):
+        old = P.ACTIVE_MODEL_VERSION
+        try:
+            P.ACTIVE_MODEL_VERSION = "ltx25"
+            boot = P.ltx_tiers_payload()
+            self.assertFalse(boot["ingredients_available"])
+            self.assertTrue(boot["inspire_available"])
+            P.ACTIVE_MODEL_VERSION = "ltx23"
+            boot = P.ltx_tiers_payload()
+            self.assertTrue(boot["ingredients_available"])
+            self.assertFalse(boot["inspire_available"])
+        finally:
+            P.ACTIVE_MODEL_VERSION = old
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

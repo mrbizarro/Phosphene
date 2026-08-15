@@ -180,7 +180,7 @@ module.exports = {
     //      LAUNCHER SCRIPT. Both lanes now call the one implementation in
     //      `scripts/pinokio/ltx_checkout.sh`, which holds the literal:
     //
-    //          v0.14.19+ltx25.4   on mrbizarro/ltx-2-mlx
+    //          v0.14.19+ltx25.5   on mrbizarro/ltx-2-mlx
     //
     //      Two reasons, both structural. (1) A SHA on a branch is not a pin:
     //      v3.8.x fetched `feat/ltx-2.5` and checked out a SHA that the branch
@@ -193,7 +193,7 @@ module.exports = {
     //      lanes carried byte-identical copies of this block, and a duplicated
     //      fix is a fix that half-lands.
     //
-    //      2026-08-14 (v4.0.2) — the pin moves to `v0.14.19+ltx25.4` for one
+    //      2026-08-14 (v4.0.2) — the pin moves to `v0.14.19+ltx25.5` for one
     //      change, and it is the reason image-to-video on 2.5 now animates the
     //      image you gave it: the euler-ancestral step rescaled and re-noised
     //      the pinned conditioning tokens on every intermediate step, so the
@@ -203,7 +203,7 @@ module.exports = {
     //      not implemented. t2v is sha256-identical across the change and every
     //      Euler lane never reaches the branch.
     //
-    //      The packages report `0.14.19+ltx25.4`, and `_LTX_EXPECTED_VERSION`
+    //      The packages report `0.14.19+ltx25.5`, and `_LTX_EXPECTED_VERSION`
     //      in mlx_warm_helper.py must equal that string. The local segment is
     //      the ONLY thing distinguishing this tree from upstream v0.14.19 at
     //      runtime — the release segment is deliberately unchanged. Move the
