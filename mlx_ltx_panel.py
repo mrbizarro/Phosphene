@@ -9382,11 +9382,16 @@ def h3_status() -> dict:
             "help": LTX_PREVIEW_HELP,
             # WHY it is off, so the stage can say it instead of showing
             # nothing and letting the user conclude the feature is broken —
-            # the same rule the LTX lane's `preview_state` follows. The
-            # panel side is complete (schema, adapter, per-job live dir,
-            # tests); no published H3 runner branch implements
-            # `--live-preview`, so the probe is correctly false and the
-            # honest sentence is "the runner cannot publish frames yet".
+            # the same rule the LTX lane's `preview_state` follows.
+            #
+            # 2026-08-15: this note previously claimed the runner half did
+            # not exist. THAT WAS WRONG. It was written and validated on
+            # `codex/live-preview` and simply never pushed; the owner
+            # remembered it and was right. It is published now, and
+            # `codex/h3-engine-v2` (the branch install_h3.js pins) was
+            # fast-forwarded onto it — so this state means one thing only:
+            # the user's H3 clone predates the publication. That has an
+            # ACTION, and the note gives it.
             "reason": (
                 None if (available and h3_live_preview_ready())
                 else "engine_off" if not available
@@ -9395,9 +9400,10 @@ def h3_status() -> dict:
                 else "missing_decoder"),
             "note": (
                 "" if (available and h3_live_preview_ready())
-                else ("This Hailuo H3 runner cannot publish preview frames "
-                      "yet — the panel is ready for them, the runner half "
-                      "is still to come. Renders are unaffected.")
+                else ("This Hailuo H3 pack predates the live preview. "
+                      "Re-run \'Install Hailuo H3\' from the Phosphene "
+                      "sidebar in Pinokio to update the runner — your "
+                      "weights stay. Renders are unaffected meanwhile.")
                 if (available and not h3_supports_live_preview()) else ""),
         },
         # Turbo — the 4-step distill LoRA. A separate block rather than a bare
