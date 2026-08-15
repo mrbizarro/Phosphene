@@ -255,7 +255,7 @@ def _shout(*lines: str) -> None:
 
 
 def main() -> int:
-    print("Applying LTX23MLX codec patch (ltx-2-mlx v0.14.19+ltx25.5 — only the codec edit remains):")
+    print("Applying LTX23MLX codec patch (ltx-2-mlx v0.14.19+ltx25.6 — only the codec edit remains):")
 
     # `upgrade_marker="+faststart"` lets us upgrade installs where the
     # earlier version of this patch was applied (LTX_OUTPUT_PIX_FMT marker

@@ -2237,7 +2237,7 @@ def configure_acceleration(mode: str) -> str:
 # of letting it surface as an un-triageable TypeError mid-render.
 #
 # 2026-08-12: this is a FORK BUILD, not an upstream tag. The vendored checkout
-# is mrbizarro/ltx-2-mlx at the immutable tag `v0.14.19+ltx25.5` — v0.14.19 plus
+# is mrbizarro/ltx-2-mlx at the immutable tag `v0.14.19+ltx25.6` — v0.14.19 plus
 # the LTX-2.5 port (keyframe pos-emb, Gemma 4 tower, ancestral sampler). The
 # release segment stays 0.14.19 because that is genuinely what it branches from;
 # the `+ltx25.N` local segment is what makes the two distinguishable.
@@ -2262,7 +2262,7 @@ def configure_acceleration(mode: str) -> str:
 # — a skew gate blind to the one skew that mattered. Bumping the pin here
 # without bumping the packages (or the reverse) puts it back into permanent
 # SKEW warnings, so the two move together or not at all.
-_LTX_EXPECTED_VERSION = "0.14.19+ltx25.5"
+_LTX_EXPECTED_VERSION = "0.14.19+ltx25.6"
 
 
 def _detect_ltx_version() -> dict:
