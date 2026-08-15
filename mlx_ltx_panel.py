@@ -8231,6 +8231,16 @@ def ltx_tiers_payload() -> dict:
 # to 1080p, no pad filter at all.
 H3_UPSCALE_MODES = ("off", "fit_720p", "fit_1080p")
 H3_UPSCALE_DEFAULT = "fit_720p"
+# ORIENTATION — H3's canvases are all landscape, which left vertical social
+# formats unreachable on this engine (owner-reported 2026-08-15). Portrait is
+# the SAME canvas rotated: 576x1024 is the same 0.59 MP, the same packed-row
+# count and therefore the same wall clock and peak as the shipped 1024x576
+# cell, so every estimate in the tier table stays true by construction. It is
+# a per-render FLIP applied where the cell's geometry is stamped, deliberately
+# NOT a third tier axis: `h3_tier` is the wire format every sidecar carries
+# and a key change would strand replay for every clip ever rendered.
+H3_ORIENTATIONS = ("landscape", "portrait")
+H3_ORIENTATION_DEFAULT = "landscape"
 # Modes H3 can serve. Text = prompt only; Image = FL2VA first-frame
 # conditioning. Everything else (FFLF, Extend, Remix, Character, A2V) is
 # LTX-pipeline-specific and has no H3 equivalent.
@@ -9370,6 +9380,25 @@ def h3_status() -> dict:
             "schema": "h3-live-preview/1",
             "meaningful_at": 1,
             "help": LTX_PREVIEW_HELP,
+            # WHY it is off, so the stage can say it instead of showing
+            # nothing and letting the user conclude the feature is broken —
+            # the same rule the LTX lane's `preview_state` follows. The
+            # panel side is complete (schema, adapter, per-job live dir,
+            # tests); no published H3 runner branch implements
+            # `--live-preview`, so the probe is correctly false and the
+            # honest sentence is "the runner cannot publish frames yet".
+            "reason": (
+                None if (available and h3_live_preview_ready())
+                else "engine_off" if not available
+                else "runner_lacks_flag" if not h3_supports_live_preview()
+                else "setting_off" if not live_preview_setting_on()
+                else "missing_decoder"),
+            "note": (
+                "" if (available and h3_live_preview_ready())
+                else ("This Hailuo H3 runner cannot publish preview frames "
+                      "yet — the panel is ready for them, the runner half "
+                      "is still to come. Renders are unaffected.")
+                if (available and not h3_supports_live_preview()) else ""),
         },
         # Turbo — the 4-step distill LoRA. A separate block rather than a bare
         # flag because "off" has three causes the UI must not conflate: H3
@@ -14409,6 +14438,11 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                  "H3' from the Phosphene sidebar to update the clone; your "
                  "weights stay.")
             _h3_chain_prompts = []
+        # Orientation: flip the resolved cell's canvas for vertical work.
+        _h3_orientation = (f("h3_orientation", H3_ORIENTATION_DEFAULT)
+                           or H3_ORIENTATION_DEFAULT).strip().lower()
+        if _h3_orientation not in H3_ORIENTATIONS:
+            _h3_orientation = H3_ORIENTATION_DEFAULT
         # An LTX schedule preset means nothing on the H3 lane; a leftover
         # value from an engine switch must not ride onto the job.
         _schedule_preset = ""
@@ -14424,6 +14458,8 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         # stack, so there is no slot to allocate and a leftover "user" here
         # would only be a confusing field in the sidecar.
         _h3_lora_slot = H3_LORA_SLOT_DEFAULT
+        # LTX has its own aspect control; H3's orientation must not ride along.
+        _h3_orientation = H3_ORIENTATION_DEFAULT
         # LTX-2.5 distilled schedule preset ("fast" = the graded F6S2 draft
         # schedule, 5+2 forwards, renders a DIFFERENT take). Gated server-side
         # like every H3 rule above: the value rides only when the job will
@@ -14522,6 +14558,9 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # would look wired, post cleanly, and every render would silently
             # come back on the Turbo branch.
             "h3_lora_slot": _h3_lora_slot,
+            # Portrait flips the resolved cell's canvas (same pixel budget,
+            # same cost). SAME allowlist trap as every key in this dict.
+            "h3_orientation": _h3_orientation,
             # Per-window prompts for a chained length: one entry per 5 s
             # window, in render order, "" = "use the main prompt for this
             # window". Already clamped to the resolved cell's window count
@@ -14702,8 +14741,14 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                  "to spend it on your LoRA. Rendering at this shape's own "
                  f"{_h3_steps or H3_TIERS[_h3_tier]['steps']} sigma points.")
         _tier_cfg = H3_TIERS[_h3_tier]
-        job["params"]["width"] = _tier_cfg["width"]
-        job["params"]["height"] = _tier_cfg["height"]
+        # Portrait = the cell's own canvas, rotated. Identical pixel count and
+        # packed-row count, so the tier's measured estimate stays honest.
+        if _h3_orientation == "portrait":
+            job["params"]["width"] = _tier_cfg["height"]
+            job["params"]["height"] = _tier_cfg["width"]
+        else:
+            job["params"]["width"] = _tier_cfg["width"]
+            job["params"]["height"] = _tier_cfg["height"]
         # DELIVERED frames — for a chained tier that is the stitched total, not
         # the per-window count, so the queue card and the duration line read the
         # clip the user actually gets. run_h3_job_inner splits it back out.
@@ -34035,6 +34080,30 @@ HTML = r"""<!doctype html>
                  control below it, folded away on any other engine by
                  data-h3-only (rule emitted from the ENGINES table). -->
 
+            <!-- H3 orientation. Every H3 canvas ships landscape, which made
+                 vertical social formats unreachable on this engine. Portrait
+                 is the SAME canvas rotated — identical pixel count, identical
+                 packed rows, so the tier chip's measured estimate stays true
+                 and no new cell is invented. Applied where make_job stamps the
+                 cell's geometry; `h3_tier` (the wire format every sidecar
+                 carries) is untouched. -->
+            <div class="cz-control" id="h3OrientationRow" data-h3-only>
+              <div class="cz-label">Orientation
+                <span class="cz-label-hint">portrait rotates the tier's canvas — same cost</span>
+              </div>
+              <input type="hidden" name="h3_orientation" id="h3_orientation" value="landscape">
+              <div class="pill-group cols-2" id="h3OrientationGroup">
+                <button type="button" class="pill-btn active" data-h3-orientation="landscape"
+                        title="The tier's canvas as trained and measured — e.g. 1024×576.">
+                  <span>Landscape</span><span class="sub" id="h3OrientLandSub">16:9-ish</span>
+                </button>
+                <button type="button" class="pill-btn" data-h3-orientation="portrait"
+                        title="The same canvas rotated for vertical/social — e.g. 576×1024. Same pixel budget, same wall clock.">
+                  <span>Portrait</span><span class="sub" id="h3OrientPortSub">vertical / social</span>
+                </button>
+              </div>
+            </div>
+
             <!-- H3 export canvas. Most tiers render 12:7 (768×448), which is
                  neither 720p nor 1080p; this runs the SAME lanczos-fit + pad +
                  libx264 pass an LTX render gets, keeping the native file on
@@ -42065,6 +42134,40 @@ document.querySelectorAll('#h3UpscaleGroup [data-h3-upscale]').forEach(b => {
   b.onclick = () => setH3Upscale(b.dataset.h3Upscale);
 });
 
+// H3 orientation — a per-render flip of the resolved cell's canvas, not a new
+// tier. The chips' estimates stay valid because a rotation changes no pixel
+// count. Persisted like the other H3 sub-preferences.
+function setH3Orientation(v) {
+  const val = (v === 'portrait') ? 'portrait' : 'landscape';
+  const inp = document.getElementById('h3_orientation');
+  if (inp) inp.value = val;
+  document.querySelectorAll('#h3OrientationGroup [data-h3-orientation]').forEach(b =>
+    b.classList.toggle('active', b.dataset.h3Orientation === val));
+  try { localStorage.setItem('phos_h3_orientation', val); } catch (e) {}
+  _h3SyncOrientationSubs();
+  if (typeof updateDerived === 'function') { try { updateDerived(); } catch (e) {} }
+}
+// Say the ACTUAL canvases the current cell would produce, both ways round.
+function _h3SyncOrientationSubs() {
+  const cell = (typeof h3CurrentCell === 'function') ? h3CurrentCell() : null;
+  const land = document.getElementById('h3OrientLandSub');
+  const port = document.getElementById('h3OrientPortSub');
+  if (!cell) return;
+  if (land) land.textContent = `${cell.width}×${cell.height}`;
+  if (port) port.textContent = `${cell.height}×${cell.width} · vertical`;
+}
+document.querySelectorAll('#h3OrientationGroup [data-h3-orientation]').forEach(b => {
+  b.onclick = () => setH3Orientation(b.dataset.h3Orientation);
+});
+(function _restoreH3Orientation() {
+  let v = 'landscape';
+  try { v = localStorage.getItem('phos_h3_orientation') || 'landscape'; } catch (e) {}
+  const apply = () => setH3Orientation(v);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', apply);
+  } else { apply(); }
+})();
+
 // Sampler depth for an H3 render. 'auto' = the tier's tuned count (stamped in
 // H3_TIERS); a number overrides it for every window of the job. Server-side
 // make_job clamps to 4-30 and re-validates — a stale tab must never win.
@@ -46587,6 +46690,9 @@ async function loadParams() {
     if (typeof setH3Upscale === 'function' && p.h3_upscale) {
       try { setH3Upscale(p.h3_upscale); } catch (e) {}
     }
+    if (typeof setH3Orientation === 'function') {
+      try { setH3Orientation(p.h3_orientation || 'landscape'); } catch (e) {}
+    }
     if (typeof setH3Turbo === 'function') {
       try { setH3Turbo(!!Number(p.h3_turbo || 0)); } catch (e) {}
     }
@@ -50131,9 +50237,22 @@ function renderNowPreview(s, prog, previewData) {
     missing_decoder: { label: 'Install it', run: 'openModelsModal()' },
     stale_engine: null,
   };
-  const speaks = s.running && !prev && previewServesThisJob
+  // H3 gets the SAME courtesy, from its own bootstrap block. Its absence has
+  // a different cause and therefore a different sentence: the panel side is
+  // complete (schema, adapter, per-job live dir) but no published H3 runner
+  // implements `--live-preview`, so nothing can publish frames yet. Silence
+  // here read as "the theater preview is broken on MiniMax" — it is not
+  // broken, it is not built on that half yet, and saying so is the fix
+  // available today. No CTA: there is nothing for the user to click.
+  const h3state = ((BOOT.h3 || {}).live_preview) || {};
+  const h3Modes = ((BOOT.h3 || {}).modes) || [];
+  const h3Speaks = s.running && !prev && jobEngine === 'h3'
+                && Array.isArray(h3Modes) && h3Modes.indexOf(jobMode) !== -1
+                && h3state.on !== true && !!h3state.note;
+  const speaks = (s.running && !prev && previewServesThisJob
               && Object.prototype.hasOwnProperty.call(PREVIEW_ABSENCE_CTA,
-                                                      pstate.reason);
+                                                      pstate.reason))
+              || h3Speaks;
   let miss = document.getElementById('nowPreviewMissing');
   if (speaks) {
     if (!miss) {
@@ -50142,8 +50261,8 @@ function renderNowPreview(s, prog, previewData) {
       miss.className = 'now-preview-missing';
       box.parentNode.insertBefore(miss, box.nextSibling);
     }
-    const cta = PREVIEW_ABSENCE_CTA[pstate.reason];
-    miss.innerHTML = escapeHtml(pstate.note || '') + (cta
+    const cta = h3Speaks ? null : PREVIEW_ABSENCE_CTA[pstate.reason];
+    miss.innerHTML = escapeHtml((h3Speaks ? h3state.note : pstate.note) || '') + (cta
       ? ` <a href="#" onclick="event.preventDefault();${cta.run}">`
         + escapeHtml(cta.label) + '</a>'
       : '');

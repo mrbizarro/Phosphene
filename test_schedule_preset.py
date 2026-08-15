@@ -176,5 +176,44 @@ class TestIngredientsGeneration(unittest.TestCase):
             P.ACTIVE_MODEL_VERSION = old
 
 
+class TestH3Orientation(unittest.TestCase):
+    """Portrait rotates the resolved cell; it never invents a tier."""
+
+    def h3_job(self, form: dict) -> dict:
+        base = {"mode": "t2v", "engine": "h3", "prompt": "a lighthouse"}
+        base.update(form)
+        return P.make_job({k: [str(v)] for k, v in base.items()})
+
+    def test_portrait_flips_the_cells_canvas(self):
+        land = self.h3_job({})["params"]
+        port = self.h3_job({"h3_orientation": "portrait"})["params"]
+        self.assertEqual(port["width"], land["height"])
+        self.assertEqual(port["height"], land["width"])
+        self.assertGreater(port["height"], port["width"], "portrait must be tall")
+        # Same tier key and same frame count: the wire format is untouched,
+        # so every sidecar ever written still replays.
+        self.assertEqual(port["h3_tier"], land["h3_tier"])
+        self.assertEqual(port["frames"], land["frames"])
+
+    def test_the_pixel_budget_is_identical(self):
+        land = self.h3_job({})["params"]
+        port = self.h3_job({"h3_orientation": "portrait"})["params"]
+        self.assertEqual(land["width"] * land["height"],
+                         port["width"] * port["height"],
+                         "a rotation must not change cost")
+
+    def test_bogus_and_absent_normalize_to_landscape(self):
+        self.assertEqual(
+            self.h3_job({"h3_orientation": "sideways"})["params"]["h3_orientation"],
+            "landscape")
+        self.assertEqual(self.h3_job({})["params"]["h3_orientation"], "landscape")
+
+    def test_orientation_does_not_ride_the_ltx_lane(self):
+        job = P.make_job({k: [v] for k, v in {
+            "mode": "t2v", "engine": "ltx", "prompt": "x",
+            "quality": "balanced", "h3_orientation": "portrait"}.items()})
+        self.assertEqual(job["params"]["h3_orientation"], "landscape")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
