@@ -56492,12 +56492,17 @@ function renderLorasList() {
         </div>`;
     } else if (modeTag === 'video:h3') {
       // Its own empty state, not the LTX one: the two libraries are separate
-      // directories and the CivitAI filter to reach for is a different pill.
+      // directories. CivitAI is convenient, but a custom adapter someone
+      // already has must be just as discoverable: it only needs the runner's
+      // lora_A/lora_B layout in the H3 library. The layout gate below keeps a
+      // raw Kohya file visible with its conversion reason instead of letting a
+      // bad adapter reach a long render.
       wrap.innerHTML = `
         <div class="hint" style="padding:14px 8px;text-align:center;line-height:1.6;">
           <div style="margin-bottom:4px;color:var(--fg);"><strong>No Hailuo H3 LoRAs in your library.</strong></div>
           <div>H3 has its own library — your LTX LoRAs can't load here, and H3's can't load on LTX.</div>
-          <div style="margin-top:6px;">Install one via <strong>Browse CivitAI</strong> above (the <strong>Hailuo H3</strong> pill), and it lands in <code>${escapeHtml(_lorasDirs.h3 || 'the H3 pack’s loras/ folder')}</code>.</div>
+          <div style="margin-top:6px;">Drop a converted H3 <code>.safetensors</code> with <code>lora_A</code> / <code>lora_B</code> tensors into <code>${escapeHtml(_lorasDirs.h3 || 'the H3 pack’s loras/ folder')}</code>, then press Rescan.</div>
+          <div style="margin-top:6px;">Or install one via <strong>Browse CivitAI</strong> above using the <strong>Hailuo H3</strong> CivitAI filter.</div>
         </div>`;
     } else {
       wrap.innerHTML = `<div class="hint" style="padding:8px 0;">No LoRAs available.</div>`;

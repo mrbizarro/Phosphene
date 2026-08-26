@@ -77,6 +77,16 @@ New workflow tab in 3.0. WAV or MP3 in, MP4 out — the audio drives motion in t
 
 Drop `.safetensors` into `mlx_models/loras/` for immediate use, or browse and install LTX LoRAs from CivitAI inside the panel (per-row rename, download, companion-aware delete). Character bundles live alongside style LoRAs and are filtered out of the regular picker so they don't show up twice.
 
+**MiniMax H3 LoRAs use a separate library:** drop a converted H3 adapter into
+`mlx_models/hailuo-h3/loras/`, switch the Video engine to **Hailuo H3**, and
+press the LoRAs panel's Rescan button. H3 accepts the runner layout with paired
+`lora_A` / `lora_B` tensors and lets you choose its strength in the picker. A
+raw Kohya file (`lora_down`, `lora_up`, and `.alpha`) is deliberately rejected:
+renaming it would ignore its required alpha/rank scaling. The H3 CivitAI filter
+also routes compatible downloads to this library; H3 uses one adapter at a
+time. If Turbo is selected, turn it off or choose **My LoRA** in the Adapter
+control to spend that slot on your custom LoRA for the render.
+
 ### HTTP API
 
 Everything the panel does is reachable over plain HTTP on `127.0.0.1:8198`. Queue video jobs, generate images, train characters, manage LoRAs, poll status, fetch outputs — all from `curl`, a Python script, or an external agent like Claude Code or Codex. The panel UI is just one client; nothing about the feature set is exclusive to it.
