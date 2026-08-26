@@ -9521,15 +9521,24 @@ def _h3_lora_prepare(path: Path) -> dict:
     header, buf_start = _safetensors_header(path)
     _validate_h3_lora_payload(path, header, buf_start)
     meta = header.get("__metadata__") or {}
+    safe_scale_one_note = False
     if isinstance(meta, dict) and meta.get("alpha") is not None:
         try:
             if not math.isfinite(float(str(meta["alpha"]))):
                 raise ValueError
         except (TypeError, ValueError):
-            raise RuntimeError(f"{path.name} has an unreadable metadata alpha value.")
+            # The one known conversion marker is descriptive, not numeric:
+            # the converter already folded alpha/rank into the adapter and
+            # records that its effective scale is exactly 1.0.
+            safe_scale_one_note = bool(re.fullmatch(
+                r"\s*alpha\s*==\s*rank\s*;\s*scale\s*=\s*1(?:\.0+)?\s*",
+                str(meta["alpha"]), flags=re.IGNORECASE))
+            if not safe_scale_one_note:
+                raise RuntimeError(f"{path.name} has an unreadable metadata alpha value.")
     scale, evidence = _h3_lora_effective_alpha(path, header, buf_start)
     declares_alpha = (any(k != "__metadata__" and k.endswith(".alpha") for k in header)
-                      or (isinstance(meta, dict) and meta.get("alpha") is not None))
+                      or (isinstance(meta, dict) and meta.get("alpha") is not None
+                          and not safe_scale_one_note))
     if declares_alpha and scale is None:
         raise RuntimeError(f"{path.name} declares alpha but it cannot be applied safely.")
     if scale is not None and not math.isclose(scale, 1.0, rel_tol=1e-6,

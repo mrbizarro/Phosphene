@@ -20,7 +20,8 @@ import mlx_ltx_panel as P
 
 
 def _safetensors_lora(*, alpha: float | None = None,
-                      module: str = "blocks.24.attn.qkv_proj") -> bytes:
+                      module: str = "blocks.24.attn.qkv_proj",
+                      metadata: dict | None = None) -> bytes:
     """A tiny but complete F32 A/B safetensors payload for import validation."""
     names = (
         module + ".lora_A.weight",
@@ -29,7 +30,7 @@ def _safetensors_lora(*, alpha: float | None = None,
     values = [(name, struct.pack("<f", 0.0)) for name in names]
     if alpha is not None:
         values.append((module + ".alpha", struct.pack("<f", alpha)))
-    header = {}
+    header = {"__metadata__": metadata} if metadata is not None else {}
     offset = 0
     for key, raw in values:
         header[key] = {"dtype": "F32",
@@ -88,6 +89,13 @@ class TestH3LoraFileImport(unittest.TestCase):
             P.import_h3_lora_file("needs-scale.safetensors", _safetensors_lora(alpha=8.0))
 
         self.assertEqual(list(self.dir.iterdir()), [])
+
+    def test_imports_explicit_scale_one_conversion_metadata(self):
+        result = P.import_h3_lora_file(
+            "converted.safetensors",
+            _safetensors_lora(metadata={"alpha": "alpha == rank; scale = 1.0"}))
+
+        self.assertEqual(result["filename"], "converted.safetensors")
 
     def test_refuses_unreadable_alpha_without_leaving_a_file(self):
         payload = _safetensors_lora(alpha=1.0)[:-4]
