@@ -26,6 +26,7 @@ import select
 import shlex
 import shutil
 import signal
+import struct
 import subprocess
 import sys
 import threading
@@ -9000,6 +9001,11 @@ H3_LORAS_DIRNAME = "loras"
 H3_LORA_MAX_STACK = 1
 H3_LORA_SLOTS = ("turbo", "user")
 H3_LORA_SLOT_DEFAULT = "turbo"
+# `_parse_multipart_form` reads the request body into memory. Community H3
+# adapters are normally a few hundred MB, so 512 MiB admits real files while
+# keeping a malformed local request from consuming the whole machine.
+H3_LORA_UPLOAD_MAX_BYTES = 512 * 1024 * 1024
+H3_LORA_IMPORT_LOCK = threading.Lock()
 H3_LORA_STACK_NOTE = (
     "H3's runner has ONE adapter slot (`--lora` takes a single path), so a "
     "LoRA and Turbo can't both run. Pick which one this render uses.")
@@ -9046,6 +9052,60 @@ def _safe_h3_loras_dir() -> Path:
     d = _h3_loras_dir()
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def import_h3_lora_file(filename: str, data: bytes) -> dict:
+    """Stage, validate, and atomically install one user-selected H3 LoRA.
+
+    The browser chooser is intentionally not a generic file drop: accepting a
+    raw Kohya adapter would leave a permanently failing row in the library.
+    Stage the bytes under a hidden sibling, run the same layout preparation the
+    CivitAI path and render path use, then replace into the visible library
+    only after that succeeds. A refusal therefore leaves no misleading file.
+    """
+    raw_name = Path(str(filename or "")).name
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", raw_name).strip("._")
+    if not safe_name or not safe_name.lower().endswith(".safetensors"):
+        raise ValueError("choose a .safetensors H3 LoRA file")
+    if not data:
+        raise ValueError("the selected file is empty")
+    if len(data) > H3_LORA_UPLOAD_MAX_BYTES:
+        raise ValueError(
+            f"the selected file is larger than "
+            f"{H3_LORA_UPLOAD_MAX_BYTES // (1024 * 1024)} MB")
+
+    # Handler instances run in parallel. Reserve the name across the complete
+    # stage → validate → publish sequence so a second request cannot replace a
+    # file whose first import checked `target.exists()` one instruction earlier.
+    with H3_LORA_IMPORT_LOCK:
+        base = _safe_h3_loras_dir()
+        target = base / safe_name
+        if target.exists():
+            raise FileExistsError(
+                f"{safe_name} is already in the H3 LoRA library; remove or rename "
+                "the existing file before importing another one")
+        tmp = base / f".{safe_name}.{os.getpid()}.{threading.get_ident()}.uploading"
+        try:
+            with tmp.open("xb") as fh:
+                fh.write(data)
+                fh.flush()
+                os.fsync(fh.fileno())
+            layout = _h3_lora_prepare(tmp)
+            os.replace(tmp, target)
+        except Exception:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            raise
+    push(f"[h3:lora] imported {target.name} ({layout['pairs']} module pair(s))")
+    return {
+        "path": str(target),
+        "filename": target.name,
+        "layout": layout["layout"],
+        "converted": bool(layout["converted"]),
+        "pairs": int(layout["pairs"]),
+    }
 
 
 def _lora_is_h3_lane(path_str) -> bool:
@@ -9099,6 +9159,126 @@ def _safetensors_header(path: Path) -> tuple[dict, int]:
     if not isinstance(header, dict):
         raise RuntimeError(f"{path.name} has a safetensors header that isn't an object.")
     return header, 8 + n
+
+
+def _validate_h3_lora_payload(path: Path, header: dict, buf_start: int) -> None:
+    """Reject a structurally incomplete adapter before it reaches the runner.
+
+    Header-only inspection is deliberately cheap, but it is not enough for an
+    upload endpoint: a forged header can advertise A/B tensors whose byte
+    ranges do not exist.  Validate only the tensors that make an H3 adapter
+    loadable, without loading them into MLX.  This keeps malformed files out
+    of the library and turns a late runner failure into an actionable import
+    error.
+    """
+    widths = {
+        "BOOL": 1, "U8": 1, "I8": 1, "U16": 2, "I16": 2,
+        "U32": 4, "I32": 4, "F16": 2, "BF16": 2, "U64": 8,
+        "I64": 8, "F32": 4, "F64": 8,
+        "F8_E4M3FN": 1, "F8_E4M3FNUZ": 1, "F8_E5M2": 1,
+        "F8_E5M2FNUZ": 1,
+    }
+    try:
+        buffer_bytes = path.stat().st_size - buf_start
+    except OSError as exc:
+        raise RuntimeError(f"{path.name} cannot be read ({exc}).")
+    if buffer_bytes < 0:
+        raise RuntimeError(f"{path.name} is truncated before its tensor buffer.")
+
+    entries = {k: v for k, v in header.items() if k != "__metadata__"}
+    a_names = {k[: -len(_H3_LORA_A_SUFFIX)] for k in entries
+               if k.endswith(_H3_LORA_A_SUFFIX)}
+    b_names = {k[: -len(_H3_LORA_B_SUFFIX)] for k in entries
+               if k.endswith(_H3_LORA_B_SUFFIX)}
+    if a_names != b_names:
+        missing_a = sorted(b_names - a_names)
+        missing_b = sorted(a_names - b_names)
+        detail = (f"missing lora_A for {missing_a[0]}" if missing_a else
+                  f"missing lora_B for {missing_b[0]}")
+        raise RuntimeError(f"{path.name} has unmatched H3 LoRA tensors ({detail}).")
+
+    def validate_tensor(key: str, entry: object) -> list[int]:
+        if not isinstance(entry, dict):
+            raise RuntimeError(f"{path.name} has an invalid tensor entry for {key!r}.")
+        dtype = str(entry.get("dtype") or "")
+        width = widths.get(dtype)
+        shape = entry.get("shape")
+        offsets = entry.get("data_offsets")
+        if width is None or not isinstance(shape, list) or len(shape) != 2:
+            raise RuntimeError(f"{path.name} has an unsupported H3 LoRA tensor {key!r}.")
+        try:
+            dims = [int(dim) for dim in shape]
+            start, end = [int(off) for off in offsets]
+        except (TypeError, ValueError):
+            raise RuntimeError(f"{path.name} has invalid offsets for {key!r}.")
+        if (len(offsets) != 2 or any(dim <= 0 for dim in dims) or start < 0 or
+                end < start or end > buffer_bytes):
+            raise RuntimeError(f"{path.name} is truncated or has invalid offsets for {key!r}.")
+        expected = width * dims[0] * dims[1]
+        if end - start != expected:
+            raise RuntimeError(f"{path.name} has inconsistent shape or offsets for {key!r}.")
+        return dims
+
+    for module in sorted(a_names):
+        a_shape = validate_tensor(module + _H3_LORA_A_SUFFIX,
+                                  entries[module + _H3_LORA_A_SUFFIX])
+        b_shape = validate_tensor(module + _H3_LORA_B_SUFFIX,
+                                  entries[module + _H3_LORA_B_SUFFIX])
+        if a_shape[0] != b_shape[1]:
+            raise RuntimeError(
+                f"{path.name} has incompatible LoRA rank for {module!r}.")
+
+    # A declared alpha must be readable.  The runner ignores alpha entirely,
+    # so silently skipping a malformed entry would recreate the wrong-strength
+    # failure this endpoint is meant to prevent.
+    scalar_widths = {"F64": 8, "F32": 4, "F16": 2, "BF16": 2,
+                     "I64": 8, "I32": 4}
+    for key, entry in entries.items():
+        if not key.endswith(".alpha"):
+            continue
+        if not isinstance(entry, dict):
+            raise RuntimeError(f"{path.name} has an invalid alpha entry for {key!r}.")
+        dtype = str(entry.get("dtype") or "")
+        shape, offsets = entry.get("shape"), entry.get("data_offsets")
+        try:
+            start, end = [int(off) for off in offsets]
+        except (TypeError, ValueError):
+            raise RuntimeError(f"{path.name} has invalid alpha offsets for {key!r}.")
+        scalar = shape == [] or shape == [1]
+        if (dtype not in scalar_widths or not scalar or len(offsets) != 2 or
+                start < 0 or end > buffer_bytes or
+                end - start != scalar_widths[dtype]):
+            raise RuntimeError(f"{path.name} has an unreadable alpha value for {key!r}.")
+
+    targets = _h3_lora_target_modules()
+    if targets is not None:
+        unknown = sorted(module for module in a_names if module not in targets)
+        if unknown:
+            raise RuntimeError(
+                f"{path.name} targets no module in the installed H3 transformer "
+                f"({unknown[0]!r}).")
+
+
+def _h3_lora_target_modules() -> set[str] | None:
+    """Return installed H3 DiT module names, or None until its weights exist.
+
+    A syntactically valid A/B pair is still a silent no-op if its module name
+    belongs to another MiniMax variant.  Read just the installed DiT header at
+    import time and compare module stems; a machine without H3 weights can
+    still curate its library for a later model download.
+    """
+    for root in _h3_model_roots():
+        dit = root / "deepbeep-pruned-bf16" / H3_DIT_FILENAME
+        if not dit.is_file():
+            continue
+        try:
+            header, _ = _safetensors_header(dit)
+        except Exception as exc:
+            raise RuntimeError(
+                f"could not inspect the installed H3 transformer ({exc}).")
+        return {key[: -len(".weight")] for key in header
+                if key != "__metadata__" and key.endswith(".weight")}
+    return None
 
 
 def _h3_lora_effective_alpha(path: Path, header: dict,
@@ -9333,11 +9513,34 @@ def _h3_lora_prepare(path: Path) -> dict:
     gets the same treatment instead of failing inside the runner). Idempotent:
     a bare-layout file is inspected and returned untouched."""
     info = _h3_lora_layout(path)
+    # Classify first so raw Kohya/diffusers files receive their useful
+    # conversion diagnosis even when their tensor payload is incomplete.
+    if not info["ok"] and not info["convertible"]:
+        raise RuntimeError(f"{path.name}: {info['reason']}")
+
+    header, buf_start = _safetensors_header(path)
+    _validate_h3_lora_payload(path, header, buf_start)
+    meta = header.get("__metadata__") or {}
+    if isinstance(meta, dict) and meta.get("alpha") is not None:
+        try:
+            if not math.isfinite(float(str(meta["alpha"]))):
+                raise ValueError
+        except (TypeError, ValueError):
+            raise RuntimeError(f"{path.name} has an unreadable metadata alpha value.")
+    scale, evidence = _h3_lora_effective_alpha(path, header, buf_start)
+    declares_alpha = (any(k != "__metadata__" and k.endswith(".alpha") for k in header)
+                      or (isinstance(meta, dict) and meta.get("alpha") is not None))
+    if declares_alpha and scale is None:
+        raise RuntimeError(f"{path.name} declares alpha but it cannot be applied safely.")
+    if scale is not None and not math.isclose(scale, 1.0, rel_tol=1e-6,
+                                               abs_tol=1e-6):
+        raise RuntimeError(
+            f"{path.name}: {evidence}; the H3 loader does not apply "
+            "alpha/rank. Re-export it with alpha/rank folded into lora_B "
+            "before importing.")
     if info["ok"]:
         return {"layout": "bare", "converted": False, "prefix": "",
                 "pairs": info["pairs"]}
-    if not info["convertible"]:
-        raise RuntimeError(f"{path.name}: {info['reason']}")
     n = _h3_lora_strip_prefix(path, info["prefix"])
     push(f"[h3:lora] {path.name}: stripped `{info['prefix']}` from {n} keys "
          f"(ComfyUI repack → bare layout; tensors untouched)")
@@ -25623,6 +25826,35 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "status": "downloading"}, 202)
             return
 
+        # H3 LoRA import. This is deliberately a separate endpoint from
+        # /upload: reference media can be any image/audio, whereas an H3
+        # adapter must pass its model-layout gate BEFORE it lands in the picker.
+        if path == "/h3/loras/import" and ctype.startswith("multipart/form-data"):
+            try:
+                clen = int(self.headers.get("Content-Length") or "0")
+            except ValueError:
+                clen = 0
+            if clen <= 0:
+                self._json({"ok": False, "error": "Content-Length required"}, 411)
+                return
+            if clen > H3_LORA_UPLOAD_MAX_BYTES:
+                self._json({"ok": False,
+                            "error": f"upload too large (max "
+                                     f"{H3_LORA_UPLOAD_MAX_BYTES // (1024 * 1024)} MB)"}, 413)
+                return
+            try:
+                form = _parse_multipart_form(self.rfile, ctype, clen)
+                fld = form["file"] if "file" in form else None
+                if fld is None or not getattr(fld, "filename", None):
+                    raise ValueError("choose one .safetensors file")
+                imported = import_h3_lora_file(str(fld.filename), fld.file.read())
+                self._json({"ok": True, **imported})
+            except (ValueError, FileExistsError, RuntimeError) as exc:
+                self._json({"ok": False, "error": str(exc)}, 400)
+            except Exception as exc:
+                self._json({"ok": False, "error": f"import failed: {exc}"}, 500)
+            return
+
         # Multipart upload
         if path == "/upload" and ctype.startswith("multipart/form-data"):
             # Hard cap on body size so a misbehaving / malicious caller can't
@@ -40416,6 +40648,10 @@ HTML = r"""<!doctype html>
               <button type="button" class="loras-icon-btn"
                       title="Rescan mlx_models/loras/ for new files"
                       onclick="event.stopPropagation(); event.preventDefault(); refreshLoras()"><svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise-bold"/></svg></button>
+              <input type="file" id="h3LoraImportFile" accept=".safetensors,application/octet-stream" hidden
+                     onchange="importH3Lora(this.files[0]); this.value = ''">
+              <button type="button" class="loras-browse-btn" id="h3LoraImportBtn" hidden
+                      onclick="event.stopPropagation(); event.preventDefault(); document.getElementById('h3LoraImportFile').click()">Import H3 LoRA</button>
               <button type="button" class="loras-browse-btn"
                       onclick="event.stopPropagation(); event.preventDefault(); openCivitaiModal()"><svg class="ph" aria-hidden="true" style="margin-right:6px;vertical-align:-2px"><use href="#ph-magnifying-glass"/></svg>Browse CivitAI</button>
             </span>
@@ -55981,11 +56217,38 @@ function _syncLoraPickerForEngine() {
       ? (_lorasDirs.h3 || 'the Hailuo H3 pack’s loras/ folder')
       : (_lorasDirs.ltx || 'mlx_models/loras/');
   }
+  const importBtn = document.getElementById('h3LoraImportBtn');
+  if (importBtn) importBtn.hidden = tag !== 'video:h3';
   if (typeof renderLorasList === 'function') { try { renderLorasList(); } catch (_) {} }
   // Re-serialize: the lane guard in _serializeLoras is what keeps the other
   // engine's chips off the wire, and it has to re-run when the lane changes.
   if (typeof _serializeLoras === 'function') { try { _serializeLoras(); } catch (_) {} }
   if (typeof renderH3LoraSlot === 'function') { try { renderH3LoraSlot(); } catch (_) {} }
+}
+
+async function importH3Lora(file) {
+  if (!file) return;
+  if (!/\.safetensors$/i.test(file.name || '')) {
+    alert('Choose a .safetensors Hailuo H3 LoRA file.');
+    return;
+  }
+  const btn = document.getElementById('h3LoraImportBtn');
+  const original = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+  const fd = new FormData();
+  fd.append('file', file, file.name);
+  try {
+    const r = await fetch('/h3/loras/import', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!r.ok || !data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    await refreshLoras();
+    const converted = data.converted ? ' Key namespace converted safely.' : '';
+    alert(`Imported ${data.filename} (${data.pairs} module pairs).${converted}`);
+  } catch (e) {
+    alert(`H3 LoRA import failed: ${e.message || e}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = original || 'Import H3 LoRA'; }
+  }
 }
 
 // The H3-lane LoRA (at most one) currently picked, as a picker row — or null.
