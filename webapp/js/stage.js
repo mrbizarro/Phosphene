@@ -1837,3 +1837,18 @@ Object.assign(globalThis, {
   ideoBuildCaption, ideoOnRawInput, ideoApplyRaw, ideoLoadExample,
   ideoStagePointerDown, imgStudioGenerate, imgStudioRefreshLibrary, imgStudioCopyPath,
 });
+
+// --- expose inline event-handler functions to window --------------------
+// index.html's dynamically-generated markup (candidate cards, modals, etc.)
+// wires up interactivity with plain onclick="fn(...)" attribute strings.
+// Since this file now runs as <script type="module"> (v4.9.0 restructuring),
+// top-level `function`/`const` bindings are scoped to the module and are no
+// longer visible as globals, so every such inline handler threw
+// "fn is not defined" in the console and silently did nothing when clicked.
+// Re-exporting the handlers actually referenced by inline attributes here
+// restores click wiring without rewriting every template string to use
+// addEventListener/delegation.
+Object.assign(window, {
+  imgStudioClearRef,
+  openExternal
+});
