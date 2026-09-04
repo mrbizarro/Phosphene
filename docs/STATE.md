@@ -1,5 +1,28 @@
 # Phosphene — project state, history, open work
 
+> **🩹 2026-09-04 — v4.9.4: the four follow-ups from 4.9.3's first day, shipped.**
+> Queue circuit breaker (3 identical failures → pause + why), H3 failures
+> carry their last engine line, stage step counts capped at the checkpoint's
+> tables, dead HiDream image setting falls back. Fleet-driven, all verified
+> on scratch panels / tests; full gates green. Promoted by the snapshot ritual.
+
+> **📈 2026-09-04 — first 12 h of v4.9.3 (UNRELEASED follow-ups on dev/beta: b1ffb4b).**
+> 40 installs on 4.9.3 within 12 h, 15 new installs. Its raw failure count
+> (394) is ONE 16 GB install with an incomplete Q4 pack failing 371 times
+> (227 in ten minutes; it had failed 479× on 4.6.0) — not a regression. Fix
+> on dev: the queue pauses itself after three identical failures in a row
+> (`_CONSEC_FAIL` in worker_loop, verified on a scratch panel). H3: 20
+> failures / 3 installs all read "exited with code 1 — see the log above";
+> per-install history shows those installs failed on older versions too
+> and an old-branch install (cf14779a) renders fine after the #74 branch
+> move — no sign the move broke anything. Fix on dev: the H3 failure now
+> carries the last engine line. Also fixed on dev (same day): explicit stage step counts are capped at
+> what the checkpoint's own tables hold (`_clamp_stage_steps_to_tables`,
+> the "cannot thin … up to 12 steps" class); a saved HiDream image engine
+> with no venv promotes to an installed mflux family instead of failing
+> every Studio render. Pinokio: no replies to the 4.9.3 post or from @vxlab
+> yet; no new threads. GitHub: no new activity on any open issue.
+
 > **🩹 2026-09-03 — v4.9.3: the full-review fixes, shipped as a plain bugfix.**
 > Everything in the 09-02 review entry below, plus #74 (Update now moves the
 > H3 engine checkout to `codex/h3-engine-v2` via the new shared

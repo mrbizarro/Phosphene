@@ -13,7 +13,7 @@
 
 </p>
 
-> **Current release: v4.9.3.** Fixes from a full review of the fast 4.9.x releases. Storyboard works again on Macs that cap at 768 (24 GB): new films are planned at a size the Mac can deliver, the fix button offers the real size, and the Quality section is visible at Pinokio window widths (#71). Renaming a character works again. A freshly trained character clicked "Use in video" now actually rides on the render. Image Studio tells 8/24 GB Macs up front which engines fit instead of refusing at the last second. High/Keyframes/Extend without the Q8 pack point to Settings → Models. Image mode with no image is stopped at the button. Update moves the H3 engine to its pinned branch before building the half-memory engine (#74, thanks @blackest). Full notes on the [releases page](https://github.com/mrbizarro/phosphene/releases).
+> **Current release: v4.9.4.** Four small fixes from the first day of fleet data on 4.9.3. A queue that fails three times in a row on the same problem now pauses itself and says what to fix, instead of burning through every waiting job. H3 failures name the actual reason ("last line: …") instead of "see the log above". Step counts that exceed what the model's schedule holds are capped instead of crashing the render after the models load. A stale HiDream setting in Image Studio falls back to an installed engine. Full notes on the [releases page](https://github.com/mrbizarro/phosphene/releases).
 
 ## Overview
 

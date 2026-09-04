@@ -19,6 +19,7 @@ import importlib.util
 import io
 import json
 import math
+import collections
 import os
 import random
 import re
@@ -18430,6 +18431,48 @@ def _safe_float(raw, default: float = 0.0, *,
     return val
 
 
+def _clamp_stage_steps_to_tables(job: dict) -> None:
+    """Cap an explicit stage1/stage2 step count at what the active
+    checkpoint's schedule tables can be thinned to. Stage 2 is always a
+    fixed table (4 points on 2.5); stage 1 is only a table on the distilled
+    lane — the HQ lane's stage 1 is a real sampler, left alone. Logs each
+    clamp so the render card explains the number the user did not get."""
+    p = job.get("params") or {}
+    try:
+        from ltx_pipelines_mlx.scheduler import (       # noqa: PLC0415
+            resolve_distilled_schedule, resolve_stage2_sigmas)
+    except Exception:                                       # noqa: BLE001
+        return
+    mv = (2, 5) if (model_version().get("id") or "").startswith("ltx25") else (2, 3)
+    caps: dict[str, int] = {}
+    try:
+        caps["stage2_steps"] = len(resolve_stage2_sigmas(mv, None)) - 1
+    except Exception:                                       # noqa: BLE001
+        pass
+    hq = False
+    try:
+        hq = bool(ltx_quality_uses_hq(p.get("quality") or ""))
+    except Exception:                                       # noqa: BLE001
+        pass
+    if not hq and p.get("mode") not in ("extend", "keyframe", "restore",
+                                        "ingredients", "control"):
+        try:
+            _s1, _ = resolve_distilled_schedule(
+                mv, preset=(p.get("schedule_preset") or None))
+            caps["stage1_steps"] = len(_s1) - 1
+        except Exception:                                   # noqa: BLE001
+            pass
+    for key, cap in caps.items():
+        try:
+            want = int(p.get(key))
+        except (TypeError, ValueError):
+            continue
+        if cap > 0 and want > cap:
+            p[key] = cap
+            push(f"{key.replace('_steps', '')} steps {want} → {cap}: the model's "
+                 f"own schedule has {cap}; more would be padding, not quality.")
+
+
 def make_job(form: dict[str, list[str]] | dict[str, str], *,
              override_prompt: str | None = None) -> dict:
     def f(name: str, default: str = "") -> str:
@@ -19329,6 +19372,11 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                 job["params"][_sk] = max(_lo, int(_raw))
             except (TypeError, ValueError):
                 pass
+    # And never MORE than the loaded checkpoint's own table holds: a step
+    # count thins that table, and asking for more is a pad request the
+    # sampler refuses after the models are already loaded (fleet 2026-09-03:
+    # "stage 2: cannot thin a 4-point schedule (3 steps) up to 12 steps").
+    _clamp_stage_steps_to_tables(job)
     # Attach Characters-origin metadata only when the form actually carried
     # it. Keeps the params shape unchanged for every other entry point.
     if _source == "characters" and _character_id:
@@ -21447,11 +21495,17 @@ def run_h3_job_inner(job: dict) -> None:
                     line, buf = buf.split(b"\n", 1)
                     yield line.decode("utf-8", "replace") + "\n"
 
+        # The last few lines the engine printed ride on the failure message
+        # (fleet 2026-09-03: 20 H3 failures on one release all read
+        # "exited with code 1 — see the log above", which analytics cannot
+        # see and users rarely paste). Traceback tails are what we want.
+        _h3_tail: collections.deque = collections.deque(maxlen=4)
         for raw in _h3_lines():
             line = raw.rstrip("\n")
             if not line.strip():
                 continue
             push(f"[h3] {line}")
+            _h3_tail.append(line.strip())
             m_window = window_rx.match(line.strip())
             if m_window:
                 try:
@@ -21565,9 +21619,12 @@ def run_h3_job_inner(job: dict) -> None:
                 raise RuntimeError(
                     f"H3 helper exited from {_sig} ({_hint}) — see the log "
                     f"above (metrics at {metrics_path}).")
+            _last = next((t for t in reversed(_h3_tail)
+                          if t and not t.startswith(('step', 'Window', '['))), '')
             raise RuntimeError(
-                f"H3 render exited with code {rc} — see the log above for the "
-                f"traceback (metrics at {metrics_path}).")
+                f"H3 render exited with code {rc}"
+                + (f" — last line: {_last[:220]}" if _last else "")
+                + f" (see the log above; metrics at {metrics_path}).")
     finally:
         if proc is not None:
             try:
@@ -23446,6 +23503,9 @@ def run_job_inner(job: dict) -> None:
 
 # ---- worker thread -----------------------------------------------------------
 
+_CONSEC_FAIL: dict = {"sig": "", "n": 0}   # worker_loop's same-failure streak
+
+
 def worker_loop() -> None:
     while True:
         with QUEUE_COND:
@@ -23471,6 +23531,7 @@ def worker_loop() -> None:
             with _GPU_LOCK:
                 run_job_inner(job)
             job["status"] = "done"
+            _CONSEC_FAIL.update(sig="", n=0)
         except JobStopped as stop:
             # EXIT 75 IS A CANCEL, NOT A FAILURE. The user looked at the live
             # preview, saw the wrong shot and stopped it. Nothing was saved —
@@ -23498,6 +23559,22 @@ def worker_loop() -> None:
                 if isinstance(exc, RenderRefused) and exc.reason:
                     job["refused_reason"] = exc.reason
                 push(f"ERROR: {exc}")
+                # CIRCUIT BREAKER (fleet 2026-09-03: one 16 GB install failed
+                # 227 renders in ten minutes on the same incomplete-model
+                # message — a whole queue burning down on a problem no
+                # retry can fix). Three identical failures in a row with
+                # more work queued: pause, say why, leave the queue intact.
+                _sig = str(exc)[:80]
+                if _sig and _sig == _CONSEC_FAIL["sig"]:
+                    _CONSEC_FAIL["n"] += 1
+                else:
+                    _CONSEC_FAIL.update(sig=_sig, n=1)
+                if _CONSEC_FAIL["n"] >= 3 and STATE["queue"] and not STATE["paused"]:
+                    STATE["paused"] = True
+                    push(f"Paused the queue: {_CONSEC_FAIL['n']} renders in a row failed "
+                         f"with the same problem, and {len(STATE['queue'])} more are "
+                         f"waiting. Fix the cause above (Settings → Models for a "
+                         f"missing or incomplete model), then press Resume.")
         finally:
             job["finished_at"] = iso_now()
             if job.get("started_ts"):
@@ -23651,6 +23728,14 @@ def _load_agent_image_config() -> agent_image_engine.ImageEngineConfig:
         if cfg.kind == "mock":
             needs_promote = True
             reason = "mock"
+        elif (cfg.kind == "hidream"
+              and not agent_image_engine._resolve_hidream_python(cfg)):
+            # The HiDream lab lives in a venv most installs never built; a
+            # config that still names it (an old Settings pick, or a copied
+            # state dir) failed every Studio render with "HiDream venv python
+            # not found" (fleet 2026-09-03). Same promotion as mock.
+            needs_promote = True
+            reason = "hidream_not_installed"
         elif (cfg.kind == "mflux"
               and (cfg.mflux_family == "qwen_edit"
                    or agent_image_engine._infer_mflux_family(cfg.mflux_model) == "qwen_edit")

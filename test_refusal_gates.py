@@ -477,3 +477,32 @@ class ImageStudioMemoryGuardIsARefusal(unittest.TestCase):
         msg = ("High quality needs the LTX-2.5 High add-on (the Q8 model), which "
                "isn't downloaded on this Mac yet. Missing 12 file(s): x.")
         self.assertEqual(P._analytics_refusal_reason(msg), "pack_missing")
+
+
+class StepCountsNeverPadTheTable(unittest.TestCase):
+    """Fleet 2026-09-03: an explicit stage-2 count of 12 on 2.5's 4-point
+    table loaded the models and then died on "cannot thin … up to 12 steps".
+    The panel now caps explicit counts at what the table holds."""
+
+    def test_stage2_is_capped_and_stage1_on_the_distilled_lane(self):
+        job = {"params": {"quality": "balanced", "mode": "t2v",
+                          "stage1_steps": 40, "stage2_steps": 12}}
+        with unittest.mock.patch.object(P, "model_version", lambda *a, **k: {"id": "ltx25"}):
+            P._clamp_stage_steps_to_tables(job)
+        self.assertEqual(job["params"]["stage2_steps"], 3)
+        self.assertLessEqual(job["params"]["stage1_steps"], 8)
+
+    def test_hq_lane_stage1_is_left_alone(self):
+        job = {"params": {"quality": "high", "mode": "t2v",
+                          "stage1_steps": 15, "stage2_steps": 12}}
+        with unittest.mock.patch.object(P, "model_version", lambda *a, **k: {"id": "ltx25"}):
+            P._clamp_stage_steps_to_tables(job)
+        self.assertEqual(job["params"]["stage1_steps"], 15)
+        self.assertEqual(job["params"]["stage2_steps"], 3)
+
+    def test_counts_within_the_table_are_untouched(self):
+        job = {"params": {"quality": "balanced", "mode": "t2v",
+                          "stage1_steps": 6, "stage2_steps": 2}}
+        with unittest.mock.patch.object(P, "model_version", lambda *a, **k: {"id": "ltx25"}):
+            P._clamp_stage_steps_to_tables(job)
+        self.assertEqual((job["params"]["stage1_steps"], job["params"]["stage2_steps"]), (6, 2))
