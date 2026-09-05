@@ -212,6 +212,40 @@ def post_version_check(h, path, qs, ctype) -> None:
         h._json({"ok": False, "error": str(exc)}, 500)
 
 
+@post("/analytics/ui")
+def post_analytics_ui(h, path, qs, ctype) -> None:
+    """The browser's ONLY analytics channel (v4.9.7): a strict allowlist of
+    (event, props) shapes the page may report — how the update pop-up was
+    answered, a broadcast being seen, the Editor being opened/exported.
+    Anything outside the allowlist is dropped with 400; nothing here is
+    free text and nothing reaches the network when analytics is off."""
+    _rb = h._read_form_body()
+    if _rb is None:
+        return
+    body, form = _rb
+    def _f(k):
+        v = form.get(k, [""])
+        return (v[0] if isinstance(v, list) else v) or ""
+    event = str(_f("event")).strip()
+    if event == "update_prompt":
+        action = str(_f("action")).strip()
+        if action not in ("shown", "later", "update_now", "banner_update",
+                          "banner_later", "restart_needed"):
+            h._json({"ok": False, "error": "unknown action"}, 400); return
+        P._analytics_capture("update_prompt", {
+            "action": action, "version": P.running_version()})
+    elif event == "broadcast_seen":
+        P._analytics_capture("broadcast_seen", {"version": P.running_version()})
+    elif event == "feature_used":
+        feature = str(_f("feature")).strip()
+        if feature not in ("editor_open", "editor_export", "enhance_prompt"):
+            h._json({"ok": False, "error": "unknown feature"}, 400); return
+        P._analytics_feature(feature, _f("detail"))
+    else:
+        h._json({"ok": False, "error": "unknown event"}, 400); return
+    h._json({"ok": True})
+
+
 @post("/version/pull")
 def post_version_pull(h, path, qs, ctype) -> None:
     # The "magic button" path — when the pill is in the behind

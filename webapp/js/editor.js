@@ -2308,6 +2308,7 @@ async function edShowPicker() {
 
 // The one door, from anywhere: the rail's step 3, a board row, the picker.
 function edOpenBoard(id) {
+  try { _uiEvent('feature_used', {feature: 'editor_open'}); } catch (_) {}
   if (!id) return;
   if (typeof workflowSwitch === 'function') workflowSwitch('editor');
   sbeOpen(id);
@@ -7486,6 +7487,7 @@ async function sbeRenderFilm() {
 // EXPORT FOR AN NLE — the film as a project the next room can open
 // ---------------------------------------------------------------------------
 async function sbeExportNle() {
+  try { _uiEvent('feature_used', {feature: 'editor_export'}); } catch (_) {}
   if (!SBE.open || !SBE.id) return;
   // Same rule as the render: the project is written from the saved file.
   if (SBE.dirty && !(await sbeSave(true))) {

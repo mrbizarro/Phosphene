@@ -197,6 +197,7 @@ including image and training jobs.
 | `character_used` | bool | `true` | A cast character drove this render |
 | `audio_mode` | string | `"joint"` | `joint` / `none` (external audio replaces the generated track) / `a2v_dub` / `h3_native` |
 | `first_render` | bool | `true` | Present once per install, on its first successful render ever — the activation funnel without a join |
+| `source` | string | `"storyboard"` | v4.9.7 — which surface queued the job. **Closed vocabulary**: `form`, `batch`, `storyboard`, `characters`, `image_studio`, `retry`, `api`, `unknown`. Makes "how much of the rendering is Storyboard" a one-click breakdown |
 
 ### `render_failed`
 
@@ -248,6 +249,50 @@ Neither are **refusals** — those get their own event, next.
 > So at that release expect: `input_missing` to go from ~zero to a real number,
 > `other` to drop again, and a small, permanent drop in `download_failed`. All
 > three are this change.
+
+### `feature_used` (v4.9.7)
+
+The surfaces render events cannot see. One event per action, no free text.
+
+| prop | type | example | why |
+|---|---|---|---|
+| `feature` | string | `"storyboard_plan"` | **Closed vocabulary**: `storyboard_plan`, `storyboard_export`, `editor_open`, `editor_export`, `civitai_download`, `sample_character`, `train_start`, `enhance_prompt`. Unknown names are dropped locally, never sent |
+| `detail` | string | `"nle"` | Optional, lowercase `[a-z0-9_.-]` only, ≤32 chars — a sub-choice within the feature |
+| `version` | string | `"4.9.7"` | As on `app_boot` |
+
+### `app_updated` (v4.9.7)
+
+Sent once at the first boot after the running version changed. Answers "did people move to the new release" without a per-install join across `app_boot` rows.
+
+| prop | type | example | why |
+|---|---|---|---|
+| `from_version` | string | `"4.9.5"` | The version the previous boot ran (kept locally in settings) |
+| `to_version` | string | `"4.9.7"` | The version now running |
+
+### `update_prompt` (v4.9.7)
+
+How the update pop-up and banner are answered — the only way to know whether the "please update" surfaces work.
+
+| prop | type | example | why |
+|---|---|---|---|
+| `action` | string | `"later"` | **Closed vocabulary**: `shown`, `update_now`, `later` (the pop-up), `banner_update`, `banner_later` (the banner), `restart_needed` (the "Restart to finish update" pill, once per page load) |
+| `version` | string | `"4.9.5"` | The version that was prompted |
+
+### `broadcast_seen` (v4.9.7)
+
+One event when a developer broadcast (`BROADCAST.json`) is acknowledged. No text — which message is derivable from the date.
+
+### `queue_paused_breaker` (v4.9.7)
+
+The queue paused itself after three identical failures in a row.
+
+| prop | type | example | why |
+|---|---|---|---|
+| `n_failed` | int | `3` | The streak length when it fired |
+| `queued` | int | `12` | Jobs left waiting |
+| `error_class` | string | `"model_missing"` | The same closed taxonomy as `render_failed` |
+
+The browser reports `update_prompt`, `broadcast_seen` and the Editor's two `feature_used` values through **one** route, `POST /analytics/ui`, which allowlists every (event, value) pair and answers 400 to anything else. Everything else is emitted server-side.
 
 ### `render_refused`
 
@@ -540,4 +585,91 @@ To watch it live, tail the local log while you render:
 
 ```sh
 tail -f state/usage-log.jsonl
+```
+
+## Fleet dashboard tiles (HogQL)
+
+The queries behind the **Phosphene Fleet** dashboard's tiles, kept here so the board can be rebuilt (PostHog → New insight → SQL → paste → Add to dashboard). Each is a one-click breakdown; none joins across installs.
+
+**Activation — installs vs first renders per day (14d)**
+
+```sql
+select toDate(timestamp) as day, countIf(event='app_installed') as installs, countIf(event='render_completed' and toString(properties.first_render)='true') as first_renders
+from events where timestamp > now() - interval 14 day group by day order by day
+```
+
+**Versions in use — active installs by version (7d)**
+
+```sql
+select properties.version as version, count(distinct distinct_id) as installs
+from events where timestamp > now() - interval 7 day and event='app_boot' group by version order by installs desc
+```
+
+**Failure rate by version (7d)**
+
+```sql
+select properties.version as version, countIf(event='render_completed') as ok, countIf(event='render_failed') as failed, round(100*failed/greatest(ok+failed,1),1) as fail_pct
+from events where timestamp > now() - interval 7 day group by version having ok+failed >= 10 order by version
+```
+
+**Why renders fail — error class (7d)**
+
+```sql
+select properties.error_class as class, count() as events, count(distinct distinct_id) as installs
+from events where event='render_failed' and timestamp > now() - interval 7 day group by class order by events desc
+```
+
+**Where we said no — refusals (7d)**
+
+```sql
+select properties.refusal as reason, count() as events, count(distinct distinct_id) as installs
+from events where event='render_refused' and timestamp > now() - interval 7 day group by reason order by events desc
+```
+
+**Where renders come from — source (7d)**
+
+```sql
+select properties.source as source, count() as renders, count(distinct distinct_id) as installs
+from events where event in ('render_completed','render_failed') and timestamp > now() - interval 7 day group by source order by renders desc
+```
+
+**Feature use (7d)**
+
+```sql
+select properties.feature as feature, count() as uses, count(distinct distinct_id) as installs
+from events where event='feature_used' and timestamp > now() - interval 7 day group by feature order by uses desc
+```
+
+**Update prompt — how people answer it (7d)**
+
+```sql
+select properties.action as action, count() as events, count(distinct distinct_id) as installs
+from events where event='update_prompt' and timestamp > now() - interval 7 day group by action order by events desc
+```
+
+**Updates landed per day (14d)**
+
+```sql
+select toDate(timestamp) as day, count(distinct distinct_id) as installs_updated
+from events where event='app_updated' and timestamp > now() - interval 14 day group by day order by day
+```
+
+**Hardware mix of active installs (7d)**
+
+```sql
+select multiIf(toFloat(properties.ram_gb) <= 16, '≤16 GB', toFloat(properties.ram_gb) <= 24, '24 GB', toFloat(properties.ram_gb) <= 36, '32–36 GB', toFloat(properties.ram_gb) <= 64, '48–64 GB', '96 GB+') as ram, count(distinct distinct_id) as installs
+from events where event='app_boot' and timestamp > now() - interval 7 day group by ram order by installs desc
+```
+
+**Renders per active install (7d)**
+
+```sql
+select bucket, count() as installs from (select distinct_id, multiIf(c=0,'0', c<=2,'1–2', c<=10,'3–10', c<=50,'11–50','50+') as bucket from (select distinct_id, countIf(event='render_completed') as c from events where timestamp > now() - interval 7 day group by distinct_id)) group by bucket order by bucket
+```
+
+**Queue breaker fires (14d)**
+
+```sql
+select toDate(timestamp) as day, count() as fires, count(distinct distinct_id) as installs
+from events where event='queue_paused_breaker' and timestamp > now() - interval 14 day group by day order by day
 ```

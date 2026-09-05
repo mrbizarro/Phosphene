@@ -2717,17 +2717,26 @@
     const sec = $('#sec-releases');
     if (!tl || !tl.length) { sec.hidden = true; return; }
     sec.hidden = false;
-    const max = Math.max(1, ...tl.map(r => r.total_downloads || 0));
+    // A weights pack is ~90 files per install; its raw file total is not
+    // comparable with a code release. Chart and show the number of
+    // complete pack downloads (median per-file count) for those rows, and
+    // keep the raw file total in the tooltip.
+    const shown = r => (String(r.tag || '').startsWith('weights-') && r.pack_downloads != null)
+      ? r.pack_downloads : (r.total_downloads || 0);
+    const max = Math.max(1, ...tl.map(shown));
     const body = $('#releases-table tbody');
     body.innerHTML = tl.map(r => {
-      const w = Math.max(2, ((r.total_downloads || 0) / max) * 100);
+      const isPack = String(r.tag || '').startsWith('weights-') && r.pack_downloads != null;
+      const w = Math.max(2, (shown(r) / max) * 100);
       const when = r.published_at ? new Date(r.published_at) : null;
       const whenStr = (when && Number.isFinite(when.getTime()))
         ? when.toISOString().slice(0, 10) : '—';
       return `<tr>
         <td><code>${escapeHtml(r.tag || '—')}</code></td>
         <td class="mono" style="color:var(--muted)">${escapeHtml(whenStr)}</td>
-        <td class="num" title="${escapeAttr(fmt(r.total_downloads))}">${escapeHtml(fmtShort(r.total_downloads || 0))}</td>
+        <td class="num" title="${escapeAttr(isPack
+            ? `≈${fmt(r.pack_downloads)} complete downloads of the base pack (median per file). Per pack: ${Object.entries(r.packs || {}).map(([k, v]) => `${k} ≈${fmt(v)}`).join(', ') || '—'}. ${fmt(r.asset_count)} files, ${fmt(r.total_downloads)} file downloads in total — each install fetches every file of its pack.`
+            : fmt(r.total_downloads))}">${escapeHtml(isPack ? `≈${fmtShort(r.pack_downloads)} packs` : fmtShort(r.total_downloads || 0))}</td>
         <td class="num" style="width:30%">
           <span class="row-bar gradient" style="width:100%"><i style="--w:${w}%"></i></span>
         </td>

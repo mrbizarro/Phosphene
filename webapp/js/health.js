@@ -89,6 +89,7 @@ function renderVersionPill() {
   // Without this the 2026-08-14 incident repeats: newer code on disk,
   // stale code in memory, and nothing anywhere saying so.
   if (s.stale_process) {
+    if (!window._staleReported) { window._staleReported = true; _uiEvent('update_prompt', {action: 'restart_needed'}); }
     pill.classList.add('pill-restart');
     pill.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-arrow-clockwise-bold"/></svg>Restart to finish update';
     // Name BOTH builds, each with its SHA. Most fixes land without a VERSION
@@ -200,6 +201,16 @@ function _phModalClose() {
   window._phModalOpen = false;
 }
 
+// The page's one analytics channel (v4.9.7): a closed set of (event, props)
+// the server allowlists — how the update pop-up was answered, a broadcast
+// seen, the Editor opened/exported. Fire-and-forget; never throws.
+function _uiEvent(event, props) {
+  try {
+    const fd = new URLSearchParams(Object.assign({event}, props || {}));
+    fetch('/analytics/ui', {method: 'POST', body: fd, keepalive: true}).catch(() => {});
+  } catch (_) {}
+}
+
 function _maybeShowUpdateModal(st) {
   if (window._updModalShownThisLoad || window._phModalOpen) return;
   if (!st || st.error || st.suppress_reason || !st.checked_ts) return;
@@ -207,6 +218,7 @@ function _maybeShowUpdateModal(st) {
   const remote = st.remote_version || st.remote_short || 'a new version';
   const local = st.local_version || st.local_short || 'your build';
   window._updModalShownThisLoad = true;
+  _uiEvent('update_prompt', {action: 'shown'});
   _phModalShow({
     kicker: 'Update available',
     title: `Phosphene ${remote} is out — you're on ${local}`,
@@ -216,12 +228,14 @@ function _maybeShowUpdateModal(st) {
     primaryLabel: 'Update now',
     secondaryLabel: 'Later',
     onPrimary: () => {
+      _uiEvent('update_prompt', {action: 'update_now'});
       const go = document.getElementById('ubUpdate');
       if (go) { go.disabled = true; go.textContent = 'Updating…'; }
       versionDoPull({skipConfirm: true});
     },
     // Later = this page load only. The banner (per-version dismissal)
     // remains as the quieter in-session reminder.
+    onSecondary: () => { _uiEvent('update_prompt', {action: 'later'}); },
   });
 }
 
@@ -239,6 +253,7 @@ function _maybeShowBroadcastModal(st) {
     body: b.body || '',
     primaryLabel: 'Got it',
     onPrimary: () => {
+      _uiEvent('broadcast_seen', {});
       const ids = seen.concat([b.id]).slice(-50);
       window._ubStarSettings = Object.assign(window._ubStarSettings || {},
                                              {broadcast_seen_ids: ids});
@@ -326,6 +341,7 @@ async function _ubSaveSetting(patch) {
 function _ubWire() {
   const go = document.getElementById('ubUpdate');
   if (go) go.onclick = () => {
+    _uiEvent('update_prompt', {action: 'banner_update'});
     go.disabled = true;
     go.textContent = 'Updating…';
     // Straight to the pull, with no confirm: this button already said what it
@@ -334,6 +350,7 @@ function _ubWire() {
   };
   const later = document.getElementById('ubLater');
   if (later) later.onclick = () => {
+    _uiEvent('update_prompt', {action: 'banner_later'});
     const s = _versionState || {};
     _ubSaveSetting({update_banner_dismissed: String(s.remote_version || s.remote_short || '')});
     const el = document.getElementById('updateBanner');
@@ -761,5 +778,5 @@ setInterval(refreshVersionPill, 5 * 60 * 1000);
 // Inline handlers in the markup and the other files resolve these through
 // the global scope; everything NOT listed here is private to this module.
 Object.assign(globalThis, {
-  renderVersionPill, updateHealthChip, versionPillClick,
+  renderVersionPill, updateHealthChip, versionPillClick, _uiEvent,
 });

@@ -13,7 +13,7 @@
 
 </p>
 
-> **Current release: v4.9.6.** One fix: deleting a Hailuo H3 clip from the Outputs gallery now takes its audio track and stage cache with it (`<name>.wav`, `<name>_source.wav`, `<name>.stage_a.npz`) instead of leaving them piling up in mlx_outputs (#77). Includes v4.9.5: character training re-trains for real (the preprocessing cache reused old captions after a trigger change — #62) and a finished H3 clip survives a shutdown-time crash (#76). Full notes on the [releases page](https://github.com/mrbizarro/phosphene/releases).
+> **Current release: v4.9.7.** Better anonymous fleet telemetry, no new behaviour for you: renders now report which surface queued them (form, Batch, Storyboard, Characters, Image Studio, Retry), a handful of feature-use counts (Storyboard planning, the Editor, CivitAI, the sample character, a training start), whether the update pop-up was answered, and when the queue paused itself — all closed vocabularies, no text, same install id, same Settings toggle to turn it off (see docs/ANALYTICS.md). Also: the stats page shows complete weight-pack downloads instead of a per-file total. Includes v4.9.6 (H3 clips take their sidecars to Trash, #77). Full notes on the [releases page](https://github.com/mrbizarro/phosphene/releases).
 
 ## Overview
 

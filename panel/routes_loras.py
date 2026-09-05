@@ -378,6 +378,7 @@ def post_loras_rename(h, path, qs, ctype) -> None:
 
 @post("/civitai/download")
 def post_civitai_download(h, path, qs, ctype) -> None:
+    P._analytics_feature("civitai_download")
     _rb = h._read_form_body()
     if _rb is None:
         return

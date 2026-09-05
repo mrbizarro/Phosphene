@@ -42,6 +42,7 @@ import tempfile
 import threading
 import time
 import unittest
+import unittest.mock
 import urllib.request
 from pathlib import Path
 
@@ -494,7 +495,7 @@ class TestEventSchemas(AnalyticsTestCase):
         "version", "chip_family", "ram_gb", "os_version", "canvas_class",
         "steps", "accel", "temporal_mode", "upscale", "upscale_method",
         "schedule_preset", "chain_windows", "chain_prompts_used",
-        "lora_count", "lora_kinds", "character_used", "audio_mode",
+        "lora_count", "lora_kinds", "character_used", "source", "audio_mode",
     }
 
     def test_render_completed_fields(self):
@@ -971,6 +972,14 @@ class TestReceiverDirectives(AnalyticsTestCase):
         # straight from the /star-click handler, so it is captured directly
         # here with the same closed vocabulary that handler coerces `via` to.
         P._analytics_capture("star_prompt", {"via": "link"})
+        # v4.9.7 events, fired the way their call sites fire them.
+        P._analytics_feature("editor_open", "")
+        P._analytics_capture("app_updated", {"from_version": "4.9.5", "to_version": "4.9.7"})
+        P._analytics_capture("update_prompt", {"action": "later", "version": "4.9.7"})
+        P._analytics_capture("broadcast_seen", {"version": "4.9.7"})
+        P._analytics_capture("queue_paused_breaker", {"n_failed": 3, "queued": 2,
+                                                       "error_class": "model_missing",
+                                                       "version": "4.9.7"})
         # A refusal: the panel declining on purpose. Fired here for the same
         # reason as the rest — its payload has to carry the receiver
         # directives too, and it is the newest way to get an event out.
@@ -1169,3 +1178,40 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+class SourceAndFeatureVocabularies(unittest.TestCase):
+    """v4.9.7: the job-origin field and feature events are closed sets."""
+
+    def test_source_normalises_to_the_closed_set(self):
+        self.assertEqual(P._analytics_source({}, {}), "form")
+        self.assertEqual(P._analytics_source({"source": "panel.image_studio"}, {}), "image_studio")
+        self.assertEqual(P._analytics_source({"source": "characters"}, {}), "characters")
+        self.assertEqual(P._analytics_source({"source": "storyboard"}, {}), "storyboard")
+        self.assertEqual(P._analytics_source({"source": "retry"}, {}), "retry")
+        self.assertEqual(P._analytics_source({"board_id": "b1"}, {}), "storyboard")
+        self.assertEqual(P._analytics_source({"source": "/Users/x/secret"}, {}), "unknown")
+        for v in P._ANALYTICS_SOURCES:
+            self.assertRegex(v, r"^[a-z_]+$")
+
+    def test_feature_event_drops_unknown_names_and_scrubs_detail(self):
+        sent = []
+        with unittest.mock.patch.object(P, "_analytics_capture", lambda e, pr=None: sent.append((e, pr))):
+            P._analytics_feature("not_a_feature", "x")
+            P._analytics_feature("editor_export", "NLE Premiere/../etc")
+        self.assertEqual(len(sent), 1)
+        ev, props = sent[0]
+        self.assertEqual(ev, "feature_used")
+        self.assertEqual(props["feature"], "editor_export")
+        self.assertEqual(props["detail"], "nlepremiere..etc")
+        self.assertNotIn("/", props["detail"])
+
+    def test_render_event_carries_source(self):
+        job = {"status": "done", "elapsed_sec": 30,
+               "params": {"engine": "ltx", "mode": "t2v", "source": "storyboard",
+                          "width": 768, "height": 432, "frames": 49, "quality": "balanced"}}
+        sent = []
+        with unittest.mock.patch.object(P, "_analytics_capture", lambda e, pr=None: sent.append((e, pr))):
+            P._analytics_render_event(job)
+        self.assertTrue(sent, "no event")
+        self.assertEqual(sent[-1][1].get("source"), "storyboard")

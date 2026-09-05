@@ -11858,6 +11858,9 @@ _ANALYTICS_EVENTS = (
     "render_refused",
     "pack_state_change",
     "star_prompt",
+    # v4.9.7
+    "feature_used", "app_updated", "update_prompt", "broadcast_seen",
+    "queue_paused_breaker",
 )
 
 
@@ -11925,6 +11928,15 @@ def _analytics_boot() -> None:
                 "ram_gb": int(round(SYSTEM_RAM_GB)),
             })
             _settings_set_internal(analytics_install_reported=True)
+        # v4.9.7: an explicit update event — "did people move" without a
+        # per-install join across boots. Stored version is local only.
+        _prev_ver = str(get_settings().get("analytics_last_version") or "")
+        if _prev_ver and _prev_ver != running_version():
+            _analytics_capture("app_updated", {
+                "from_version": _prev_ver, "to_version": running_version(),
+            })
+        if _prev_ver != running_version():
+            _settings_set_internal(analytics_last_version=running_version())
         _analytics_capture("app_boot", {
             "version": running_version(),
             "os_version": _analytics_os_version(),
@@ -12006,6 +12018,42 @@ def _analytics_wall_sec_bucket(seconds):
         else:
             break
     return int(edge)
+
+
+_ANALYTICS_SOURCES = ("form", "batch", "storyboard", "characters",
+                      "image_studio", "retry", "api", "unknown")
+
+
+def _analytics_source(p: dict, job: dict | None = None) -> str:
+    """Which surface queued this job — a closed vocabulary, never free text."""
+    raw = str((p or {}).get("source") or "").strip().lower()
+    if raw == "panel.image_studio":
+        raw = "image_studio"
+    if raw in _ANALYTICS_SOURCES:
+        return raw
+    if (job or {}).get("retry_of"):
+        return "retry"
+    if (p or {}).get("board_id") or (p or {}).get("sb_board_id"):
+        return "storyboard"
+    return "form" if not raw else "unknown"
+
+
+_ANALYTICS_FEATURES = ("storyboard_plan", "storyboard_export", "editor_open",
+                       "editor_export", "civitai_download", "sample_character",
+                       "train_start", "enhance_prompt")
+
+
+def _analytics_feature(feature: str, detail: str = "") -> None:
+    """`feature_used` for the surfaces render events cannot see (Storyboard
+    planning, the Editor, CivitAI, the sample character, a training start).
+    Closed vocabulary on both fields; unknown names are dropped, not sent."""
+    if feature not in _ANALYTICS_FEATURES:
+        return
+    props = {"feature": feature, "version": running_version()}
+    detail = re.sub(r"[^a-z0-9_.-]", "", str(detail or "").lower())[:32]
+    if detail:
+        props["detail"] = detail
+    _analytics_capture("feature_used", props)
 
 
 def _analytics_canvas_class(width: int, height: int) -> str:
@@ -12336,6 +12384,10 @@ def _analytics_render_event(job: dict) -> None:
             "lora_count": len(p.get("loras") or []),
             "lora_kinds": _analytics_lora_kinds(p),
             "character_used": bool(p.get("character_id")),
+            # Where the job came from (v4.9.7): the render form, a Batch,
+            # Storyboard's "Render all", the Characters pane, the Image
+            # Studio, a Retry. Closed vocabulary — see _analytics_source.
+            "source": _analytics_source(p, job),
             "audio_mode": _analytics_audio_mode(p, engine, mode),
         }
         # wall_sec_bucket only when the wall clock is known — a None would
@@ -15673,6 +15725,7 @@ def _sb_plan_thread(board_id: str, brief: dict, previous: dict | None) -> None:
 def _sb_enqueue(job_form: dict) -> str:
     """Enqueue one shot exactly the way /queue/add does. No private path."""
     job = make_job(job_form)
+    job["params"]["source"] = "storyboard"
     with QUEUE_COND:
         STATE["queue"].append(job)
         QUEUE_COND.notify_all()
@@ -23605,6 +23658,12 @@ def worker_loop() -> None:
                     _CONSEC_FAIL.update(sig=_sig, n=1)
                 if _CONSEC_FAIL["n"] >= 3 and STATE["queue"] and not STATE["paused"]:
                     STATE["paused"] = True
+                    _analytics_capture("queue_paused_breaker", {
+                        "n_failed": int(_CONSEC_FAIL["n"]),
+                        "queued": len(STATE["queue"]),
+                        "error_class": _analytics_error_class(job.get("error")),
+                        "version": running_version(),
+                    })
                     push(f"Paused the queue: {_CONSEC_FAIL['n']} renders in a row failed "
                          f"with the same problem, and {len(STATE['queue'])} more are "
                          f"waiting. Fix the cause above (Settings → Models for a "
@@ -25139,6 +25198,9 @@ class Handler(BaseHTTPRequestHandler):
                 with _SB_LOCK:
                     _SB_PLANNERS.pop("-pending-", None)
                     _SB_PLANNERS.setdefault(bid, {"cancelled": False})
+                # Counted only once every refusal above has passed — the planner is
+                # about to run, so this is a plan that happened (v4.9.7).
+                _analytics_feature("storyboard_plan")
                 th = threading.Thread(
                     target=_sb_plan_thread, daemon=True, name=f"phos-sb-plan-{bid}",
                     args=(bid, {"concept": concept, "n_shots": shots_n,
@@ -25530,6 +25592,7 @@ class Handler(BaseHTTPRequestHandler):
 
             # ---- export / housekeeping -----------------------------------
             if action == "export":
+                _analytics_feature("storyboard_export")
                 board = load(f("id", ""))
                 # Opt-in, and only from an explicit request. Absent these the
                 # export is byte-for-byte the one that shipped: whole clips,

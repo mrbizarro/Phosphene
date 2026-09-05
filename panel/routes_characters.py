@@ -51,6 +51,7 @@ def get_styles(h, parsed) -> None:
 # /characters/download-sample/status until status == done|error.
 @post("/characters/download-sample")
 def post_characters_download_sample(h, path, qs, ctype) -> None:
+    P._analytics_feature("sample_character")
     if P._sample_character_present():
         h._json({"ok": True, "status": "done", "already": True,
                     "character_id": P.SAMPLE_CHARACTER["trigger"]})

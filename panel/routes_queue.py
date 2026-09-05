@@ -329,6 +329,7 @@ def post_queue_retry(h, path, qs, ctype) -> None:
         "error": None,
     }
     new_job["params"]["open_when_done"] = False
+    new_job["params"]["source"] = "retry"
     with P.QUEUE_COND:
         P.STATE["queue"].append(new_job)
         P.QUEUE_COND.notify_all()

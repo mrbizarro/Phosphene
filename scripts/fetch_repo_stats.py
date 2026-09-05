@@ -552,15 +552,38 @@ def fetch_release_timeline(repo: str) -> list[dict]:
         tag = rel.get("tag_name", "?")
         published = (rel.get("published_at") or rel.get("created_at") or "")
         total = 0
+        counts: list[int] = []
+        by_pack: dict[str, list[int]] = {}
         for a in rel.get("assets") or []:
             try:
-                total += int(a.get("download_count", 0))
+                n = int(a.get("download_count", 0))
             except (TypeError, ValueError):
                 continue
+            total += n
+            counts.append(n)
+            # Pack files are named <pack>__<file>; a release can carry
+            # several packs (q4_25, q8_25, gemma4_25) with different reach.
+            name = str(a.get("name") or "")
+            if "__" in name:
+                by_pack.setdefault(name.split("__", 1)[0], []).append(n)
+        # A weight pack is ~40 files per install, so its "downloads" is
+        # ~40× the number of installs that fetched it (84.4K read as a crowd
+        # using the weights without the app — it was ~1,000 installs). The
+        # median per-file count within ONE pack is that pack's complete
+        # downloads (big shards run higher: interrupted fetches resume them).
+        packs = {}
+        for pk, ns in by_pack.items():
+            ns.sort()
+            packs[pk] = ns[len(ns) // 2]
+        pack_downloads = max(packs.values()) if packs else (
+            sorted(counts)[len(counts) // 2] if counts else 0)
         out.append({
             "tag": tag,
             "published_at": published,
             "total_downloads": total,
+            "asset_count": len(counts),
+            "pack_downloads": pack_downloads,
+            "packs": packs,
         })
     # GitHub returns newest-first; sort oldest-first for charting.
     out.sort(key=lambda r: r.get("published_at") or "")

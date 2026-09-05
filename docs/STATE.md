@@ -117,6 +117,20 @@
 > update (EditAnything → LTX 2.5 v2.0); `/loras/guide` wrote a real guide
 > (6.5 s).
 
+> **📈 2026-09-05 — v4.9.7: the fleet picture gets its blind spots filled (analytics only).**
+> `source` on every render event; `feature_used` (storyboard_plan/export,
+> editor_open/export, civitai_download, sample_character, train_start);
+> `app_updated`; `update_prompt` (shown/later/update_now/banner_*/
+> restart_needed); `broadcast_seen`; `queue_paused_breaker`. One browser
+> route `POST /analytics/ui` with a strict allowlist. Validated offline on a
+> scratch panel; 59 analytics tests. The 12 HogQL tile queries for the
+> PostHog "Phosphene Fleet" board are in docs/ANALYTICS.md — the panel's
+> query key lacks `insight:write`/`dashboard:write`, so adding them to the
+> board needs a scoped key (owner) or a paste per tile. Stats page: weights
+> release shows complete pack downloads (~1.2K), not the 84K per-file sum.
+> NOTE: promoted by cherry-pick onto origin/main — dev/beta also carry the
+> other window's unreleased UX batch + Director (835b2c5, 14592a8…).
+
 > **🩹 2026-09-05 — v4.9.6: H3 sidecars follow the clip to Trash (#77).**
 > `post_output_delete._expand_for_media` now collects `<stem>.wav`,
 > `<stem>_source.wav`, `<stem>.stage_a.npz` (+ bare `.stage_a`). Validated on

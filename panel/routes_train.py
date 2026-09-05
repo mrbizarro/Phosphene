@@ -169,6 +169,7 @@ def get_train_file(h, parsed) -> None:
 # ====== Train Character — start training (enqueue a mode='train' job)
 @post("/train/start")
 def post_train_start(h, path, qs, ctype) -> None:
+    P._analytics_feature("train_start")
     _rb = h._read_form_body()
     if _rb is None:
         return
