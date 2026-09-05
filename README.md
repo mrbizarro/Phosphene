@@ -13,7 +13,7 @@
 
 </p>
 
-> **Current release: v4.9.4.** Four small fixes from the first day of fleet data on 4.9.3. A queue that fails three times in a row on the same problem now pauses itself and says what to fix, instead of burning through every waiting job. H3 failures name the actual reason ("last line: …") instead of "see the log above". Step counts that exceed what the model's schedule holds are capped instead of crashing the render after the models load. A stale HiDream setting in Image Studio falls back to an installed engine. Full notes on the [releases page](https://github.com/mrbizarro/phosphene/releases).
+> **Current release: v4.9.5.** Two fixes. Character training re-trains for real: the preprocessing cache used to be keyed by position, so re-training from the same folder with a new trigger word silently reused the old encoded captions (and dropping a photo paired later photos with the wrong captions) — the likely cause behind "training completes but the character never shows up" (#62). And a Hailuo H3 render that finishes its clip and then crashes during shutdown is kept as a finished render instead of a failure (#76, engine fix included on Update). Full notes on the [releases page](https://github.com/mrbizarro/phosphene/releases).
 
 ## Overview
 

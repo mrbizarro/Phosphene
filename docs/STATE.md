@@ -1,5 +1,32 @@
 # Phosphene — project state, history, open work
 
+> **🩹 2026-09-05 — v4.9.5: character training actually re-trains (#62 cache), H3 shutdown abort (#76).**
+> Both validated end-to-end before promote: real Gemma preprocess twice on
+> a 3-image set — one changed caption re-encoded exactly that one file,
+> unchanged inputs reused; stub H3 engine that writes the clip then aborts
+> → job done + log line, stub that aborts before writing → still failed.
+> Full gates green. Owner rule from today: bug fixes ship same day, validated
+> (memory feedback_ship_bugfixes_validated).
+
+> **🩹 2026-09-05 — after v4.9.4: two more on dev/beta (fe31e41), UNRELEASED.**
+> **#76 (PhantombrainM):** H3 helper aborted at interpreter shutdown AFTER
+> the MP4 was written (mlx#4248 stream teardown → PyThreadState_Get /
+> SIGABRT); panel called finished renders failures. Engine fix pushed to
+> minimax-h3-mlx `codex/h3-engine-v2` 79c252b (+ cherry-picked to the
+> owner's `codex/live-preview` 7cdcf99): guarded `atexit.register(
+> mx.clear_streams)`. Panel guard `_h3_clip_is_complete` keeps a whole clip
+> (mtime/size/ffprobe) when the helper exits non-zero. **#62 root cause
+> candidate FOUND on our side:** the vendored preprocess skips cached
+> conditions/latents by INDEX FILENAME only — a re-train from the same
+> folder with a new trigger trained on the OLD captions, a dropped photo
+> misaligned every later latent. `lora_lab/preprocess_images.py` now
+> writes `.precomputed/manifest.json` and invalidates exactly what changed
+> (`_reconcile_precomputed`, 5 tests). Asked PiotrAstroCamp for one
+> fresh-folder run to confirm (his sample-character test proved his
+> render path is fine). Fleet 12 h after 4.9.4: 35 installs on it, no new
+> failure class; the "[Errno 2]" venv_broken signature is pre-existing.
+> Pinokio post for 4.9.4 still NOT made (Chrome logged out of pinokio.co).
+
 > **🩹 2026-09-04 — v4.9.4: the four follow-ups from 4.9.3's first day, shipped.**
 > Queue circuit breaker (3 identical failures → pause + why), H3 failures
 > carry their last engine line, stage step counts capped at the checkpoint's

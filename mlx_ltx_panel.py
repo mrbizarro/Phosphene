@@ -20946,6 +20946,29 @@ def _h3_fit_first_frame(src: Path, width: int, height: int, job_id: str) -> Path
         return src
 
 
+def _h3_clip_is_complete(path: Path, started_at: float) -> bool:
+    """True when the H3 output at `path` is a whole, playable clip written by
+    THIS run: exists, newer than the process start, non-trivial size, and
+    ffprobe (when present) reads a duration from it."""
+    try:
+        st = path.stat()
+    except OSError:
+        return False
+    if st.st_mtime < started_at - 1 or st.st_size < 200_000:
+        return False
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return True
+    try:
+        out = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nw=1:nk=1", str(path)],
+            capture_output=True, text=True, timeout=20)
+        return out.returncode == 0 and float((out.stdout or "0").strip() or 0) > 0
+    except Exception:                                       # noqa: BLE001
+        return False
+
+
 def run_h3_job_inner(job: dict) -> None:
     """Render one job on the Hailuo H3 engine (optional subprocess pack).
 
@@ -21590,6 +21613,17 @@ def run_h3_job_inner(job: dict) -> None:
             # LTX. It is a viewer decision, not a crash; worker_loop maps this
             # exception to the neutral `stopped` history state.
             raise JobStopped("H3 render stopped early at the next forward boundary")
+        if rc != 0 and _h3_clip_is_complete(out_path, t0):
+            # #76 (@PhantombrainM): the engine finished the clip, then aborted
+            # during interpreter shutdown (mlx stream teardown after the
+            # runtime was gone → PyThreadState_Get / SIGABRT). The file is
+            # whole and plays; calling that a failure threw away a finished
+            # render. The engine fix is upstream; this keeps older engine
+            # checkouts honest too.
+            push(f"[h3] the engine exited with {rc} AFTER the clip was fully "
+                 f"written (a shutdown-time abort, not a render fault) — "
+                 f"keeping the file.")
+            rc = 0
         if rc != 0:
             # Negative rc means the child died on a signal, and NAMING it is
             # the whole diagnosis: a jetsam kill during joint denoise (issue

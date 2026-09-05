@@ -96,6 +96,73 @@ def _apply_gemma_max_length_override() -> int | None:
     return n
 
 
+def _reconcile_precomputed(precomputed: Path, image_files: list, captions: list,
+                           canvas: tuple) -> str:
+    """Drop cached tensors that no longer match the inputs, and say what was done.
+
+    The vendored encoders skip work by INDEX FILENAME — "condition_0007 exists,
+    skipping" — with no idea what produced it. Re-training from the same folder
+    with a new trigger therefore trained on the OLD captions; dropping a photo
+    shifted every later index so latents paired with the wrong captions; a new
+    canvas kept the old latents. Issue #62: three triggers, one folder, one
+    result. A manifest of (image name/size/mtime, caption hash, canvas, encode
+    length) is written BEFORE encoding, so a crash mid-way resumes correctly
+    and any change to the inputs invalidates exactly what it must.
+    """
+    import hashlib
+    import json
+    import shutil
+
+    def _h(text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+    cur = {
+        "images": [[f.name, f.stat().st_size, int(f.stat().st_mtime)] for f in image_files],
+        "captions": [_h(c) for c in captions],
+        "canvas": list(canvas),
+        "gemma_max_length": os.environ.get("LTX2_GEMMA_MAX_LENGTH", ""),
+    }
+    latents_dir = precomputed / "latents"
+    conditions_dir = precomputed / "conditions"
+    manifest = precomputed / "manifest.json"
+    try:
+        prev = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        prev = None
+
+    def _has_files(d: Path) -> bool:
+        return d.is_dir() and any(d.iterdir())
+
+    if prev is None:
+        if _has_files(latents_dir) or _has_files(conditions_dir):
+            shutil.rmtree(latents_dir, ignore_errors=True)
+            shutil.rmtree(conditions_dir, ignore_errors=True)
+            action = "cache predates manifests, cannot prove it matches these inputs - re-encoding everything"
+        else:
+            action = "fresh"
+    elif prev.get("images") != cur["images"] or prev.get("canvas") != cur["canvas"]:
+        shutil.rmtree(latents_dir, ignore_errors=True)
+        shutil.rmtree(conditions_dir, ignore_errors=True)
+        action = "images or canvas changed - re-encoding everything"
+    elif (prev.get("gemma_max_length") != cur["gemma_max_length"]
+          or len(prev.get("captions") or []) != len(cur["captions"])):
+        shutil.rmtree(conditions_dir, ignore_errors=True)
+        action = "caption encode settings changed - re-encoding captions"
+    elif prev.get("captions") != cur["captions"]:
+        n = 0
+        for i, (a, b) in enumerate(zip(prev["captions"], cur["captions"])):
+            if a != b:
+                (conditions_dir / f"condition_{i:04d}.safetensors").unlink(missing_ok=True)
+                n += 1
+        action = f"{n} caption(s) changed - re-encoding those"
+    else:
+        action = "inputs unchanged - reusing cached tensors"
+
+    precomputed.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(json.dumps(cur), encoding="utf-8")
+    return action
+
+
 def _resolve_captions(image_files: list[Path], captions_dir: Path | None, caption_ext: str) -> list[str]:
     captions: list[str] = []
     if captions_dir is None:
@@ -266,6 +333,12 @@ def preprocess_images(
         Path(captions_dir) if captions_dir else None,
         caption_ext,
     )
+
+    print("cache: " + _reconcile_precomputed(
+        precomputed, image_files, captions,
+        (int(target_width), int(target_height), str(crop_anchor))))
+    latents_dir.mkdir(parents=True, exist_ok=True)
+    conditions_dir.mkdir(parents=True, exist_ok=True)
 
     print("Phase 1: encoding text captions (Gemma)...")
     _encode_all_captions(
