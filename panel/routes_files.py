@@ -421,6 +421,16 @@ def post_output_delete(h, path, qs, ctype) -> None:
         # <stem>.json (older shape).
         _add(seen, candidates, P.Path(str(media_path) + ".json"))
         _add(seen, candidates, media_path.with_suffix(".json"))
+        # H3 writes more than a clip and a sidecar (#77, @PhantombrainM):
+        # the mixed audio track (<stem>.wav), the pre-mix source audio
+        # (<stem>_source.wav) and a draft's stage-A cache
+        # (<stem>.stage_a.npz — np.savez appends .npz; the bare name is
+        # kept for older engines). They used to stay behind and pile up.
+        _add(seen, candidates, media_path.with_suffix(".wav"))
+        _add(seen, candidates,
+             media_path.with_name(media_path.stem + "_source.wav"))
+        _add(seen, candidates, media_path.with_suffix(".stage_a.npz"))
+        _add(seen, candidates, media_path.with_suffix(".stage_a"))
 
     def _base_stem(stem: str) -> str:
         # If this stem ends with `_720p` / `_v720p` / `_up2x`,

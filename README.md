@@ -13,7 +13,7 @@
 
 </p>
 
-> **Current release: v4.9.5.** Two fixes. Character training re-trains for real: the preprocessing cache used to be keyed by position, so re-training from the same folder with a new trigger word silently reused the old encoded captions (and dropping a photo paired later photos with the wrong captions) — the likely cause behind "training completes but the character never shows up" (#62). And a Hailuo H3 render that finishes its clip and then crashes during shutdown is kept as a finished render instead of a failure (#76, engine fix included on Update). Full notes on the [releases page](https://github.com/mrbizarro/phosphene/releases).
+> **Current release: v4.9.6.** One fix: deleting a Hailuo H3 clip from the Outputs gallery now takes its audio track and stage cache with it (`<name>.wav`, `<name>_source.wav`, `<name>.stage_a.npz`) instead of leaving them piling up in mlx_outputs (#77). Includes v4.9.5: character training re-trains for real (the preprocessing cache reused old captions after a trigger change — #62) and a finished H3 clip survives a shutdown-time crash (#76). Full notes on the [releases page](https://github.com/mrbizarro/phosphene/releases).
 
 ## Overview
 

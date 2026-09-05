@@ -1,5 +1,129 @@
 # Phosphene — project state, history, open work
 
+> **🎬 2026-09-05 — Editor v2 on dev/beta, UNRELEASED: speed, titles, transitions, the Director, sliding windows.**
+> From the long-form editing brief (the measured gaps only, built our way).
+> **Transitions** are a typed object on a BOUNDARY (`transitions[]`,
+> `after_clip`), never a picture overlap: the clips' slots do not move, the
+> film stays the timeline's length, the render pulls half the duration of
+> source handle either side of the cut and joins the two concat runs with
+> `xfade` centred on it; the sound takes the J-cut lane path untouched. No
+> handles → refused with the side and the shortfall named; every code is an
+> error, `WARNING_CODES` untouched. Even-frame quantised (0.8 s came out one
+> frame long before). **Speed** on the clip (0.25–4x, never automatic):
+> `setpts` + chained `atempo`, `(end-start)/speed` everywhere, envelopes on
+> the strip's PLAYED clock (decided once in `audio_gain_points`). **Titles**
+> are overlays with `kind: "text"`, rasterised with Pillow from an
+> explicitly resolved font FILE into the same overlay chain an uploaded card
+> takes — not `drawtext`, which the Homebrew ffmpeg this panel resolves on
+> the owner's Mac does not carry; DOM preview at the same anchor/size. UI:
+> a mark on every cut → inspector; Add title beside Add black; Speed in the
+> Clip section. **The Director**: a soundtrack on the storyboard brief →
+> `beat_map` slots → the planner writes one movement per slot (lead with
+> the move; no dialogue) → shots get slot+1 s → the Editor opens the film
+> cut on the downbeats under the track (`_sb_director_grid`,
+> `_sbe_auto_edit` fallback). **Sliding windows** for LTX (`ltx_windows.py`
+> — stride/count arithmetic over LTX windows, our code): third answer on the Long
+> clips row, one `generate` + N `extend` on the kept tail with one prompt
+> per window and re-injected invariants, trimmed to length; needs Q8, refused
+> with Extend's own sentences otherwise. Markers deliberately not built.
+> Proven: `smoke_dissolve.mp4` (2x clip + dissolve + boxed title, 5.00 s,
+> real ffmpeg) and 1456 tests green incl. `test_editor_v2`,
+> `test_director`, `test_ltx_windows`; fast gates green. Not carried to the
+> NLE export: transitions (butt join) and titles (no path); speed rides as
+> in/out vs start/end. A real windows render has NOT run (GPU, Q8) — the
+> chain is exercised with a mocked helper only.
+> **Same day, the next gap: the SONG MAP.** `storyboard_edit.song_map`
+> — per-bar RMS + spectral centroid on the fitted downbeat grid, section
+> boundaries at the peaks of a 4-bar level jump (non-maximum suppressed),
+> labels by position and relative energy — and `director_pacing` (chorus
+> cuts 2x as often, intro/outro half). The Director's slots follow it and
+> the brief names the arc ("shots 3–10 are the chorus, peak energy");
+> the Editor ruler paints the sections. Measured on AMOR FATI: 126.7 bpm,
+> intro 0–37 s (0.39), chorus 37–67 s (0.94), then verses, in 2.1 s. numpy
+> only — no librosa, no whisper. Labels are a heuristic and are said to be.
+> **Same day, two more gaps:** **Retake** — the Editor's inspector
+> sends a clip back through the renderer (`edit/generate` with
+> `retake_of`, which clones the clip's own shot and changes only prompt /
+> length / seed); the finished take comes back flagged in the relink rows
+> and is adopted per clip (`relink` with `only`) with "Use it / Keep the
+> old one" — never the batch drafts→finals rewrite. **Completion alerts**
+> — `notify_done` (default on): a Web-Audio chime in the tab on done or
+> failed, a browser Notification when the tab is hidden and allowed;
+> Settings row with the permission ask. The poller keys on history ids and
+> the first poll only records what is already done.
+> **Deliver as** on the Editor's Render menu: H.264 / HEVC (VideoToolbox,
+> hvc1) / ProRes 422 HQ (.mov, 10-bit 4:2:2, PCM) × as cut / 1080p / 4K
+> (one Lanczos scale after the overlays, up only). Different delivery,
+> different file name; the films list shows .mov. Proven with real
+> encodes of the v2 smoke doc (test_deliver + ffprobe).
+> **Duplicate** (Clip section, key D) and **gallery search**: each output
+> row carries `q` (sidecar words — prompt, mode, quality, engine, WxH,
+> frames, seed, LoRA stems, model, character); the Outputs head has a
+> search box, every word must match, typing pulls the older outputs in.
+> **Framing** (`clip.frame = {zoom, x, y}`): crop of the source's own
+> pixels before the fit in the render, CSS scale on the stage, Basic
+> Motion / AE scale+position in the exports. Inspector: Effects → Zoom,
+> Across, Down. Two UX-agent passes over the day's work (17 + 8 findings)
+> all applied: stale stage after a title delete, hidden per-window fields,
+> a lagging windows hint, ruler bands too small to read, a search title
+> that went stale on clear, an unnamed Duplicate, "Fill this hole" on a
+> retake — each fixed and re-verified on the :8240 test panel.
+> **Finish** on Deliver as (clean / grain / heavy grain — `noise` t+u after
+> the size, delivery only, named in the file). **Auto** on the storyboard
+> brief: plan → every shot renders (`_sb_auto_after_plan` once the planner
+> gives the memory back) → cut on the beat → film assembled
+> (`_sb_auto_film`), each step the existing one; a shot that failed leaves
+> the film waiting and says so. A **real sliding-windows render** ran on
+> the :8240 panel with both GPU locks taken (the stale 4-day-old ones
+> overridden and announced): 233 f at 512×256 quick, window 1 in 42 s,
+> window 2 an extend on the Q8 dev transformer with its own prompt.
+> Done in 5 min 04 s: 233 delivered frames (9.7 s), continuity held across
+> the seam at 5.0 s and window 2 played its own line (`windows_proof.mp4`,
+> sidecar `windows` block). Locks released after.
+> **Same day, the last eight gaps from the brief, our way:**
+> **Anchor stills** — a brief switch; before a text/character shot renders,
+> an ordinary image job makes its first frame (`still_prompt` drops the
+> camera-move clauses; the character's sheet is the reference through
+> `qwen_edit_inline` when it exists), the render thread waits for the
+> batch, `_sb_reconcile` folds it back as `shot.still`, and the clip
+> renders as **i2v · anchor** from it; a failed still is written on the
+> card and the shot renders unanchored once. **Long windows** — a second
+> switch: an LTX shot over 121 frames becomes `temporal_mode=windows` with
+> style + location as invariants (an anchored long shot is anchored by its
+> first window only — extend cannot re-inject an image). **LoRA guides**
+> (`POST /loras/guide`, planner-written, kept in the sidecar, released
+> after) and **LoRA update checks** (`GET /loras/updates` vs
+> `modelVersions[0]`; the install is the ordinary `/civitai/download`).
+> **Closed-tab push** — Web Push with a panel-generated VAPID pair, `/sw.js`
+> at the root scope, `/push/*`; every done/failed job pushes its label off
+> the GPU lock while Completion alerts are on; `pywebpush` on both install
+> lanes, the button appears only when it imports. **Light theme**
+> (Settings → Appearance, a token block on `html[data-theme="light"]`) and a
+> live "N left" on the Storyboard run bar. Reference Edit already covers
+> image editing (Qwen-Image-Edit engines); inpaint/outpaint would need a
+> mask model and were not built. `test_anchor_stills` pins it; fast gates
+> green. A UX review pass then fixed fifteen findings: the still phase is
+> visible while it runs (card placeholder + "Still for shot N" on the run
+> bar), a **New still** button per card (`POST /storyboard/restill`),
+> stills skipped for H3 shots, the three brief switches read back from the
+> board and carry a "?" note, the long-shot switch is disabled without Q8,
+> the light palette is stamped on `<html>` from a cookie before first paint
+> and its hard-coded dark surfaces are overridden, the invented CSS tokens
+> are real ones, the LoRA Update badge is a button with a download icon and
+> the check is remembered per browser, guides have a busy state and are
+> disabled while a render runs, and Completion alerts say "closed-tab
+> alerts" instead of "push". Proven on :8240: still (FLUX, 13 s) → i2v
+> anchor (41 s), frame 0 = the still; `/loras/updates` found one real
+> update (EditAnything → LTX 2.5 v2.0); `/loras/guide` wrote a real guide
+> (6.5 s).
+
+> **🩹 2026-09-05 — v4.9.6: H3 sidecars follow the clip to Trash (#77).**
+> `post_output_delete._expand_for_media` now collects `<stem>.wav`,
+> `<stem>_source.wav`, `<stem>.stage_a.npz` (+ bare `.stage_a`). Validated on
+> a scratch panel: H3 clip → 5 files trashed, LTX clip → the same 2 as
+> before, an unrelated .wav untouched. #76 closed (reporter confirmed the
+> Update path). Pinokio posts for 4.9.4→4.9.6 still pending (owner login).
+
 > **🩹 2026-09-05 — v4.9.5: character training actually re-trains (#62 cache), H3 shutdown abort (#76).**
 > Both validated end-to-end before promote: real Gemma preprocess twice on
 > a 3-image set — one changed caption re-encoded exactly that one file,
