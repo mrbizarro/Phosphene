@@ -19,7 +19,7 @@
 
 </p>
 
-> **Current release: v4.12.2.** The morning's field reports: a One Shot with only a prompt is the prompt for the whole take (the beats box no longer half-fills itself), the H3 compact-engine build validates in a fresh process and marks itself built only after that (36 GB Macs, #78), more than 8 distilled steps is refused up front, a missing ffmpeg is named before an H3 render, a moved LoRA file is named as a missing file, and the stats page ranks errors by installs and shows failures per version. Includes 4.12.x: the talking one shot. Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
+> **Current release: v4.12.3.** **One-shot takes stay in sync**: the voice no longer falls behind the lips over a long take (each part's sound is now trimmed to its own frames before the join; a 50 s take used to end about a tenth of a second late). Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
 
 ## Overview
 

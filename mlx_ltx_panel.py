@@ -24183,6 +24183,40 @@ def _run_windows_chain(job: dict, p: dict, plan: dict, first: Path,
     return plan
 
 
+def _join_take_parts(ff: str, parts: list[str], final: Path, fps: float = 24.0) -> None:
+    """Join the parts of a one-shot take with the sound locked to the picture.
+
+    Every part's audio comes out of the model a few hundredths of a second
+    LONGER than its frames (a 10.04 s picture with 10.07 s of sound). The
+    concat demuxer just adds those up, so a five-part take ended with the
+    voice ~130 ms behind the lips — "not in sync" by the last line. Here each
+    part's audio is trimmed to exactly its own frame count before the
+    concat filter joins them sample-accurately; a part whose sound is
+    shorter than its picture is padded with silence to the same length."""
+    n = len(parts)
+    if n == 1:
+        subprocess.run([ff, "-loglevel", "error", "-y", "-i", parts[0],
+                        "-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(final)], check=True)
+        return
+    cmd = [ff, "-loglevel", "error", "-y"]
+    graph = []
+    for k, part in enumerate(parts):
+        cmd += ["-i", part]
+        frames = _probe_video_frames(part) or 0
+        dur = frames / float(fps) if frames else 0.0
+        if dur > 0:
+            graph.append(f"[{k}:a]atrim=0:{dur:.6f},asetpts=PTS-STARTPTS,"
+                         f"apad=whole_dur={dur:.6f}[a{k}]")
+        else:
+            graph.append(f"[{k}:a]asetpts=PTS-STARTPTS[a{k}]")
+    graph.append("".join(f"[{k}:v][a{k}]" for k in range(n)) + f"concat=n={n}:v=1:a=1[v][a]")
+    cmd += ["-filter_complex", ";".join(graph), "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(final)]
+    subprocess.run(cmd, check=True)
+
+
 def run_take_job_inner(job: dict) -> None:
     """One take on either engine: N parts, each continuing from the last frame
     of the part before, joined into one clip. H3 parts are 15 s (three beats)
@@ -24416,9 +24450,7 @@ def run_take_job_inner(job: dict) -> None:
     final = _unique_output_path(
         OUTPUT, _descriptive_filename(label, p.get("prompt") or "", fallback="take") + f"_take{take['seconds']}s")
     push(f"[take] joining {n_parts} parts → {final.name}")
-    subprocess.run([ff, "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(lst),
-                    "-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p",
-                    "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(final)], check=True)
+    _join_take_parts(ff, outs, final)
     side: dict = {}
     try:
         side = json.loads(Path(outs[-1] + ".json").read_text())

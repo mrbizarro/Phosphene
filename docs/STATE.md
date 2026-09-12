@@ -1,5 +1,17 @@
 # Phosphene — project state, history, open work
 
+> **🩹 2026-09-12 — v4.12.3 ships: one-shot takes stay in sync.** The
+> owner's 50 s "awkward silences" one-shot was out of sync by its last line:
+> every rendered part's audio comes out of the model a few hundredths of a
+> second longer than its picture, and the concat-demuxer join summed those
+> (five parts → the voice ~130 ms behind the lips). `_join_take_parts` trims
+> (or pads) each part's audio to exactly its frame count and joins through
+> the concat filter, sample-accurate; `test_take_join_sync.py` proves five
+> synthetic parts with model-style excess join to audio == video (<30 ms).
+> The owner's clip itself was repaired by re-timing its audio to the picture
+> (`…50s_q8pro_sync.mp4` beside the original). Promoted by cherry-pick
+> (9e3bbc1) onto origin/main.
+
 > **🎙️ 2026-09-07, evening — the handoff is a J-cut, and audio-first is out.**
 > Two questions from the owner. (1) *Can he keep talking through a cut?* Yes,
 > when the next part is anchored on a frame where his mouth is mid-word:
