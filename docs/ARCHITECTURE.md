@@ -33,6 +33,7 @@ webapp/                 ← the frontend, as plain files served from disk
 │   ├── health.js       ← version pill, update pop-up/banner, health chip
 │   ├── storyboard.js   ← the Storyboard tab
 │   ├── editor.js       ← the timeline editor
+│   ├── oneshot.js      ← the One Shot tab (its own composer; posts to /oneshot)
 │   └── main.js         ← the kickoff sequence — ALWAYS the last tag (see below)
 └── style/
     └── panel.css       ← ALL panel CSS (slice 1, landed)

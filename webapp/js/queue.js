@@ -433,9 +433,7 @@ function setEngine(engine, opts) {
     // shot IS the length there, so the LTX length the user had goes back
     // exactly as it was (the hidden #ltx_length is H3's one field it never
     // touches) instead of being snapped from H3's number.
-    if (typeof currentMode !== 'undefined' && currentMode === 'oneshot') {
-      try { restoreFoldedLtxLength(); } catch (e) {}
-    } else if (typeof snapFramesTo8kPlus1 === 'function') {
+    if (typeof snapFramesTo8kPlus1 === 'function') {
       try { snapFramesTo8kPlus1(); } catch (e) {}
     }
     // Give the active quality preset its upscale back (H3 forced it off).
@@ -465,18 +463,6 @@ function setEngine(engine, opts) {
   // reads the engine this call actually settled on rather than the one that
   // was requested — a gate may have bounced it back to the built-in.
   try { _syncLoraPickerForEngine(); } catch (e) {}
-  // A One Shot is priced and labelled per engine: 15 s parts on H3, 10 s
-  // parts on LTX. The estimate and the chip labels both follow the switch.
-  try { if (typeof oneshotRefreshLabels === 'function') oneshotRefreshLabels(); } catch (e) {}
-  // And the mode's own state is re-asserted after the surface swap — the
-  // active length chip, the folded strips, the beats row — because the swap
-  // above re-rendered the strips it folds. takeRefresh rides inside it.
-  if (typeof currentMode !== 'undefined' && currentMode === 'oneshot'
-      && typeof setTakeSeconds === 'function') {
-    try { setTakeSeconds((document.getElementById('take_seconds') || {}).value || 0); } catch (e) {}
-  } else {
-    try { if (typeof takeRefresh === 'function') takeRefresh(); } catch (e) {}
-  }
   return target;
 }
 
@@ -906,16 +892,7 @@ function updateDerived() {
   // expanded Customize body).
   const derivedFooter = document.getElementById('derivedFooter');
   if (derivedFooter) {
-    // A One Shot is not a 5 s clip: take_seconds is non-zero only while that
-    // mode is open, and then the strip says the shot — "1 min · 6 parts of
-    // 10 s" — in front of the same canvas line. The per-part duration in
-    // #frames is the engine's business, not the user's.
-    const takeS = parseInt(document.getElementById('take_seconds')?.value || '0', 10) || 0;
-    const shot = (takeS && typeof oneshotSummary === 'function')
-      ? oneshotSummary(takeS, document.body.dataset.engine || 'ltx') : '';
-    derivedFooter.innerHTML = shot
-      ? `<strong>${shot}</strong> · ${finalRes}`
-      : `<strong>${dur}s</strong> · ${finalRes}${temporalText}${accelText}`;
+    derivedFooter.innerHTML = `<strong>${dur}s</strong> · ${finalRes}${temporalText}${accelText}`;
   }
   // Also update the Quality strip's right-side meta line (e.g. "5s · 1024×576")
   // so the Quality picker block reads as a self-contained summary.
@@ -965,7 +942,7 @@ function updateDerived() {
   const inImageFlow = inI2V || currentMode === 'keyframe';
   // One Shot ships i2v when its anchor is set, but the anchor has its own
   // surface inside the One Shot panel — Image mode's picker stays folded.
-  document.getElementById('imageSection').classList.toggle('show', inI2V && currentMode !== 'keyframe' && currentMode !== 'oneshot');
+  document.getElementById('imageSection').classList.toggle('show', inI2V && currentMode !== 'keyframe');
   // The reference-use row lives inside that section and follows the same
   // mode question, plus the server's 2.5-only availability flag.
   if (typeof _applyI2vRefModeVisibility === 'function') {
@@ -1013,7 +990,7 @@ function updateDerived() {
   // In T2V/Extend/FFLF the model generates audio jointly; there's nothing
   // to swap out, so the dropdown is just noise.
   const i2vAudioSec = document.getElementById('i2vAudioModeSection');
-  if (i2vAudioSec) i2vAudioSec.classList.toggle('show', inI2V && currentMode !== 'oneshot');
+  if (i2vAudioSec) i2vAudioSec.classList.toggle('show', inI2V);
   // Width/height stays visible in image flows too. (Restored 2026-06-03: the
   // 2026-05-17 simplification hid it for I2V/FFLF, which cost users the custom
   // I2V sizing they relied on.) The image still drives the DEFAULT —
@@ -1180,12 +1157,6 @@ function pickerSetImage(key, path, opts = {}) {
     if (els.recentStrip) {
       els.recentStrip.querySelectorAll('img').forEach(img => img.classList.remove('selected'));
     }
-  }
-  // The One Shot panel mirrors this same field as its anchor image, and the
-  // hidden #mode follows it (i2v with an anchor, t2v without) while that mode
-  // is open. Before updateDerived so the visibility pass reads the new mode.
-  if (key === 'image' && typeof oneshotSyncAnchor === 'function') {
-    try { oneshotSyncAnchor(); } catch (e) {}
   }
   updateDerived();
 }
@@ -2762,6 +2733,20 @@ async function retryJob(jobId) {
 // Fast/Medium previews → bake one at Quality" — adding a dialog would
 // burn a click for no information. The Image Studio form is left
 // pre-filled so the user can tweak + resubmit if they want.
+// Which engine the ✦ Quality chip re-runs through. HiDream Quality is the
+// recipe the chip was built for, but that engine has been hidden since the
+// lab-repo dependency (issue #15) and no install has it: in the week to
+// 2026-09-09 the fleet logged 81 "HiDream venv python not found" errors from
+// 12 installs — every one of them this chip. So: HiDream when this Mac
+// reports it installed AND cached, otherwise Reference Edit — Quality, the
+// shipped 40-step engine. Pure, so the test can run it in node.
+function remakeQualityEngine(statusMap) {
+  const st = (statusMap && typeof statusMap === 'object') ? statusMap : {};
+  const hd = st.hidream_quality_inline;
+  if (hd && hd.family_installed !== false && hd.cached === true) return 'hidream_quality_inline';
+  return 'qwen_edit_high_inline';
+}
+
 async function remakeInQuality(payload) {
   if (!payload || !payload.path) {
     if (typeof phosToast === 'function') {
@@ -2794,7 +2779,9 @@ async function remakeInQuality(payload) {
   const nEl = document.getElementById('imgStudioN');
   if (nEl) nEl.value = '1';   // remake just the picked one
   const engineEl = document.getElementById('imgStudioEngine');
-  if (engineEl) engineEl.value = 'hidream_quality_inline';
+  const remakeEngine = remakeQualityEngine(
+    (typeof imgStudioEngineStatus === 'function') ? imgStudioEngineStatus() : {});
+  if (engineEl) engineEl.value = remakeEngine;
   const aspectEl = document.getElementById('imgStudioAspect');
   if (aspectEl && sidecar.aspect) aspectEl.value = sidecar.aspect;
 
@@ -2804,7 +2791,11 @@ async function remakeInQuality(payload) {
       IMG_STUDIO.refs[i] = null;
       if (typeof imgStudioRenderSlot === 'function') imgStudioRenderSlot(i);
     }
-    const refs = Array.isArray(sidecar.refs) ? sidecar.refs : [];
+    let refs = Array.isArray(sidecar.refs) ? sidecar.refs : [];
+    // Reference Edit is image-to-image: a photo made without references
+    // (Ideogram, a text-only Qwen) is remade FROM ITSELF, which is what
+    // "the same composition at Quality fidelity" means for it.
+    if (!refs.length && remakeEngine.startsWith('qwen_edit')) refs = [payload.path];
     refs.slice(0, IMG_STUDIO.refs.length).forEach((path, i) => {
       const fname = String(path).split('/').pop();
       IMG_STUDIO.refs[i] = { path, name: fname };
@@ -2820,8 +2811,10 @@ async function remakeInQuality(payload) {
   // Auto-submit. imgStudioGenerate reads the now-prefilled fields.
   if (typeof imgStudioGenerate === 'function') {
     if (typeof phosToast === 'function') {
-      phosToast('Remaking in Quality (12-step) · watch Recent → Photos',
-                { kind: 'success' });
+      phosToast((remakeEngine === 'hidream_quality_inline'
+                   ? 'Remaking in HiDream Quality (12-step)'
+                   : 'Remaking in Reference Edit — Quality (40-step)')
+                + ' · watch Recent → Photos', { kind: 'success' });
     }
     imgStudioGenerate();
   }
@@ -3006,7 +2999,7 @@ function renderCarousel() {
     const remakeArgs = JSON.stringify({path: o.path}).replace(/"/g, '&quot;');
     const remakeChip = (isPhoto && o.has_sidecar)
       ? `<button class="card-action card-action-photo" type="button"
-                 title="Re-run this prompt + seed + refs through HiDream Quality (auto-submits)"
+                 title="Re-run this prompt + seed + refs at Quality (auto-submits)"
                  onclick="event.stopPropagation(); remakeInQuality(${remakeArgs})">✦ Quality</button>`
       : '';
     return `
@@ -3021,7 +3014,7 @@ function renderCarousel() {
         <div class="card-chrome">
           ${remakeChip}
           ${animateChip}
-          <button class="card-action card-action-danger" type="button" title="Delete this file from disk"
+          <button class="card-action card-action-danger" type="button" title="Move this file to the Trash — asks first"
                   onclick="event.stopPropagation(); deleteOutput(${pathAttr})"><svg class="ph" aria-hidden="true"><use href="#ph-trash-simple"/></svg></button>
         </div>
       </div>
@@ -3363,6 +3356,12 @@ function closeExpandLightbox() {
     // Don't steal keystrokes from inputs/textareas.
     const tag = (e.target && e.target.tagName) || '';
     const inField = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable);
+    // F and the arrows are the GALLERY's only while the gallery is the thing
+    // on screen: in the Editor they are the playhead's (and F opened a hidden
+    // output over the timeline), and with ⌘ / ⌃ / ⌥ held they are somebody
+    // else's chord — ⌘F is Find.
+    if (e.key !== 'Escape' && (e.metaKey || e.ctrlKey || e.altKey
+        || document.body.dataset.workflow === 'editor')) return;
     if (e.key === 'Escape' && isOpen) {
       closeExpandLightbox();
       e.preventDefault();
@@ -3595,8 +3594,12 @@ async function loadParams() {
   // character_id above). Checked FIRST because a One Shot with an anchor is
   // stored as mode=i2v and would otherwise land in Image mode with its
   // length gone.
-  const _isTake = !!(p.take && p.take.seconds);
-  if (_isTake) setMode('oneshot');
+  // A One Shot reloads into its own tab, rebuilt from the take block; the
+  // video form is left as it was (oneshot.js owns the rest of the restore).
+  if (p.take && p.take.seconds && typeof oneshotOpenFromParams === 'function') {
+    oneshotOpenFromParams(p);
+    return;
+  }
   else if (p.mode === 'extend') setMode('extend');
   else if (p.mode === 'keyframe') setMode('keyframe');
   else if (p.mode === 'i2v_clean_audio' || p.mode === 'i2v') { setMode('i2v'); document.getElementById('i2vMode').value = p.mode; document.getElementById('mode').value = p.mode; }
@@ -3629,24 +3632,6 @@ async function loadParams() {
     try { setI2vRefMode(p.i2v_reference_mode || 'anchor'); } catch (e) {}
   }
   if (p.temporal_mode) setTemporalMode(p.temporal_mode);
-  // A take restores as a take (length + beats), not as the fields it was
-  // turned into — those are derived, and would re-derive differently.
-  if (_isTake && typeof setTakeSeconds === 'function') {
-    // The beats as WRITTEN (`beats`), not the beat_prompts the light lock
-    // decorated — restoring those would re-append the continuity sentence.
-    setTakeSeconds(p.take.seconds, p.take.beats || p.take.beat_prompts || null);
-    // The two continuity toggles: light_lock is the sentence the server
-    // appended ('' when it was off); retake is a boolean.
-    if (typeof setTakeLightLock === 'function') {
-      setTakeLightLock(('light_lock' in p.take && !p.take.light_lock) ? 'off' : 'on');
-    }
-    if (typeof setTakeRetake === 'function') {
-      setTakeRetake(p.take.retake === false ? 'off' : 'on');
-    }
-    // The camera line, as written once for the whole shot (take.camera).
-    const _camEl = document.getElementById('take_camera');
-    if (_camEl) _camEl.value = p.take.camera || '';
-  } else if (typeof setTakeSeconds === 'function') setTakeSeconds(0);
   if (p.upscale) setUpscale(p.upscale);
   if (p.upscale_method) setUpscaleMethod(p.upscale_method);
   document.getElementById('prompt').value = p.prompt || '';
@@ -4708,5 +4693,5 @@ Object.assign(globalThis, {
   // inline-handler targets: generated markup resolves these through the
   // global scope (the v4.9.0 regression, PR #69)
   _copyToClipboard, animateFromPhoto, deleteOutput, openOutputInfoModal,
-  remakeInQuality, removeJob, repairModel,
+  remakeInQuality, remakeQualityEngine, removeJob, repairModel,
 });

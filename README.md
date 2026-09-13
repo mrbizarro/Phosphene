@@ -19,7 +19,7 @@
 
 </p>
 
-> **Current release: v4.12.4.** **Ten fixes from the field**: the queue no longer stays "Worker paused" after a restart, the Avoid box stops pushing the avoided thing into the picture, Hailuo H3 renders on 48 GB Macs again when Settings said Full, long H3 renders with per-window prompts no longer fail on a cache error, a dub a moment shorter than its clip no longer crashes, FLUX.2 klein stops reporting a finished download as stuck, and training survives the macOS GPU watchdog on its retry. Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
+> **Current release: v4.13.0.** **The editor you already know**: a clip bar above the tracks for the everyday cuts, select several clips and move them together, right-click menus, keys from Premiere and Final Cut, and **Docs built into the app** (the Docs button, or press ?). One Shot gets its own tab, and Storyboard scores spoken shots for lip-sync. Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
 
 ## Overview
 

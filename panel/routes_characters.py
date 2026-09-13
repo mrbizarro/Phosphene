@@ -223,8 +223,9 @@ def post_character_sheet_generate(h, path, qs, ctype) -> None:
     try:
         result = P.generate_character_sheet(
             cid_raw,
-            engine_override=(payload.get("engine_override")
-                             or "hidream_inline"),
+            # An absent engine lets generate_character_sheet pick the one
+            # this Mac has (HiDream only where its lab checkout exists).
+            engine_override=(payload.get("engine_override") or ""),
             views=payload.get("views"),
             wardrobe=str(payload.get("wardrobe") or ""),
             seed=payload.get("seed", -1),

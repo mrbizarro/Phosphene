@@ -1319,8 +1319,57 @@ def get_settings_public() -> dict:
 _SETTINGS = _load_settings()
 
 
+def _settings_file_stamp() -> tuple[int, int] | None:
+    try:
+        st = SETTINGS_FILE.stat()
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
+
+
+_SETTINGS_STAMP: tuple[int, int] | None = _settings_file_stamp()
+
+
+def _settings_reload_if_changed() -> None:
+    """Under _SETTINGS_LOCK. Re-read panel_settings.json when another process
+    wrote it — two panels share one state dir on a dev box (the drive
+    symlink), and a second panel's boot or Settings save must be visible here."""
+    global _SETTINGS_STAMP
+    stamp = _settings_file_stamp()
+    if stamp == _SETTINGS_STAMP:
+        return
+    try:
+        with SETTINGS_FILE.open("r") as fh:
+            data = json.load(fh)
+    except Exception:                                              # noqa: BLE001
+        return
+    if isinstance(data, dict):
+        for k, v in _settings_defaults().items():
+            data.setdefault(k, v)
+        _SETTINGS.clear()
+        _SETTINGS.update(data)
+        _SETTINGS_STAMP = stamp
+
+
+def _settings_write_delta(delta: dict) -> None:
+    """Under _SETTINGS_LOCK. Persist ONLY `delta` on top of what is on disk.
+
+    Why (2026-09-08): every writer used to dump this process's whole in-memory
+    dict. A panel that had been running since Sep 5 wrote its bookkeeping over
+    a file another panel had since saved the PostHog query key into, and the
+    key was gone — a secret typed once, silently emptied by an unrelated
+    write. Merging the delta onto the file as it is now means a stale copy can
+    only change the keys it is actually setting."""
+    global _SETTINGS_STAMP
+    _settings_reload_if_changed()
+    _SETTINGS.update(delta)
+    _save_settings(_SETTINGS)
+    _SETTINGS_STAMP = _settings_file_stamp()
+
+
 def get_settings() -> dict:
     with _SETTINGS_LOCK:
+        _settings_reload_if_changed()
         return dict(_SETTINGS)
 
 
@@ -1351,11 +1400,11 @@ def update_settings(patch: dict) -> tuple[dict, str | None]:
     if err:
         return get_settings(), err
     with _SETTINGS_LOCK:
-        _SETTINGS.update(clean)
         try:
-            _save_settings(_SETTINGS)
+            _settings_write_delta(clean)
         except Exception as exc:
-            return get_settings(), f"could not persist settings: {exc}"
+            _SETTINGS.update(clean)
+            return dict(_SETTINGS), f"could not persist settings: {exc}"
         return dict(_SETTINGS), None
 
 
@@ -12177,8 +12226,7 @@ def _settings_set_internal(**kv) -> None:
     a bookkeeping write costs at most one duplicate boot event."""
     try:
         with _SETTINGS_LOCK:
-            _SETTINGS.update(kv)
-            _save_settings(_SETTINGS)
+            _settings_write_delta(kv)
     except Exception:
         pass
 
@@ -15916,6 +15964,207 @@ def take_ltx_part_frames(n_beats: int) -> int:
     return max(1, int(n_beats)) * TAKE_BEAT_SECONDS * 24 + 1
 
 
+# ---- ONE SHOT — its own door (2026-09-08) -----------------------------------
+# One Shot is a workflow tab and a first-class API, not a mode of the video
+# form. `POST /oneshot` takes a small JSON (or form) document — prompt,
+# seconds, engine, quality, optional beats / camera / start frame / character —
+# and this mapper turns it into the make_job form the take runner already
+# understands, so the tab and the API render exactly what /queue/add would.
+# One prompt is a complete request: with no beats the prompt carries every five
+# seconds (make_job); everything else is a tweak.
+ONESHOT_HANDOFF_VALUES = ("last", "speech")
+
+
+def _onoff(v, default: str = "on") -> str:
+    s = str(v if v is not None else default).strip().lower()
+    if s in ("", "on", "1", "true", "yes"):
+        return "on" if s or default == "on" else default
+    if s in ("off", "0", "false", "no"):
+        return "off"
+    return default
+
+
+def oneshot_form(data: dict) -> tuple[dict, str | None]:
+    """A One Shot request → the make_job form (values as parse_qs lists).
+    Returns (form, None) or ({}, "what is wrong")."""
+    def g(k: str, d: str = "") -> str:
+        v = data.get(k)
+        if isinstance(v, list):
+            v = v[0] if v else ""
+        return str(v if v is not None else d).strip()
+    prompt = g("prompt")
+    if not prompt:
+        return {}, "prompt is required — describe the whole shot once"
+    raw_secs = g("seconds") or g("take_seconds") or "60"
+    try:
+        seconds = int(float(raw_secs))
+    except ValueError:
+        return {}, f"seconds must be a number, one of {list(TAKE_SECONDS)}"
+    if seconds not in TAKE_SECONDS:
+        return {}, f"seconds must be one of {list(TAKE_SECONDS)} (got {seconds})"
+    engine = (g("engine") or ENGINE_DEFAULT or "ltx").lower()
+    if engine not in ("ltx", "h3"):
+        return {}, "engine must be 'ltx' or 'h3'"
+    if engine == "h3" and not h3_available():
+        return {}, "Hailuo H3 is not installed on this Mac — pick engine 'ltx'"
+    beats_raw = data.get("beats")
+    if isinstance(beats_raw, list):
+        beats_str = json.dumps([str(b or "").strip() for b in beats_raw])
+    else:
+        beats_str = str(beats_raw or "").strip()
+    image = g("image")
+    if image and not Path(image).is_file():
+        return {}, f"start frame not found: {image} — upload it first (POST /upload) and pass the returned path"
+    handoff = (g("handoff") or "").lower()
+    if handoff in ("1", "true", "yes", "on"):
+        handoff = "speech"
+    if handoff and handoff not in ONESHOT_HANDOFF_VALUES:
+        return {}, "handoff must be 'last' or 'speech'"
+    character = g("character_id")
+    form: dict[str, str] = {
+        "engine": engine,
+        "mode": "i2v" if image else "t2v",
+        "prompt": prompt,
+        "take_seconds": str(seconds),
+        "beats": beats_str,
+        "take_camera": g("camera")[:240],
+        "take_light_lock": _onoff(g("light_lock", "on"), "on"),
+        "take_retake": _onoff(g("retake", "on"), "on"),
+        # A character speaks: hand off where the line ends unless told otherwise.
+        "take_handoff": handoff or ("speech" if character else "last"),
+        "seed": g("seed") or "-1",
+        "preset_label": g("label")[:120],
+        "enhance": "off",
+        "accel": "off",
+        "no_music": _onoff(g("no_music", "off"), "off"),
+    }
+    quality = g("quality").lower()
+    if engine == "h3":
+        form["h3_quality"] = quality or "standard"
+        form["h3_length"] = TAKE_H3_PART_LENGTH
+        form["h3_turbo"] = _onoff(g("turbo", "on"), "on")
+        form["h3_upscale"] = g("upscale") or "fit_720p"
+    elif character:
+        form["character_id"] = character
+        form["quality_choice"] = quality or "pro"
+        form["character_strength"] = g("character_strength") or "1.0"
+        form["character_voice_strength"] = g("voice_strength") or "1.0"
+        form["upscale"] = g("upscale") or "fit_720p"
+        form["upscale_method"] = g("upscale_method") or "pipersr"
+    else:
+        form["quality"] = quality or LTX_QUALITY_DEFAULT
+        form["upscale"] = g("upscale") or "off"
+        form["upscale_method"] = g("upscale_method") or "lanczos"
+    if image:
+        form["image"] = image
+    return {k: [v] for k, v in form.items()}, None
+
+
+def oneshot_plan_beats(prompt: str, seconds: int, engine: str = "ltx") -> dict:
+    """Write the beats for a prompt with the Storyboard's planner: the take
+    brief (`_sb_take_concept`) asks for one movement per five seconds, the
+    planner answers N shots, `collapse_take` folds them into one take's beats.
+    Blocks for the planner's 20-40 s; the caller runs it off the UI thread."""
+    prompt = str(prompt or "").strip()
+    try:
+        seconds = int(seconds)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "seconds must be a number"}
+    if not prompt:
+        return {"ok": False, "error": "prompt is required"}
+    if seconds not in TAKE_SECONDS:
+        return {"ok": False, "error": f"seconds must be one of {list(TAKE_SECONDS)}"}
+    n = max(1, seconds // TAKE_BEAT_SECONDS)
+    concept = _sb_take_concept(prompt, seconds)
+    eng = "h3" if (str(engine or "").lower() == "h3" and _sb_h3_available()) else "ltx"
+    try:
+        res = storyboard_planner.plan_film(
+            concept, n_shots=n, engine=eng,
+            known_character_ids=_sb_known_character_ids(), max_dim=_sb_max_dim())
+    except Exception as exc:                                       # noqa: BLE001
+        return {"ok": False, "error": f"the planner did not answer: {exc}"}
+    if not isinstance(res, dict) or res.get("error"):
+        err = (res or {}).get("error") if isinstance(res, dict) else res
+        if isinstance(err, dict):
+            err = err.get("message") or err.get("kind") or json.dumps(err)[:200]
+        return {"ok": False, "error": str(err or "the planner returned nothing")}
+    shots = storyboard.collapse_take(res.get("shots") or [], seconds)
+    beats = [str(b or "").strip() for b in ((shots[0].get("beats") if shots else []) or [])]
+    if not any(beats):
+        return {"ok": False, "error": "the planner wrote no beats"}
+    return {"ok": True, "beats": beats, "title": (shots[0].get("title") if shots else "") or "",
+            "seconds": seconds, "engine": eng}
+
+
+def _oneshot_take_view(job: dict | None) -> dict | None:
+    if not isinstance(job, dict):
+        return None
+    p = job.get("params") or {}
+    take = p.get("take") or {}
+    if not take:
+        return None
+    prog = job.get("take_progress") or {}
+    return {"id": job.get("id"), "status": job.get("status"),
+            "label": p.get("label") or p.get("preset_label") or "",
+            "engine": take.get("engine") or p.get("engine"),
+            "seconds": take.get("seconds"), "parts": len(take.get("parts") or []),
+            "part": prog.get("part"), "handoff": take.get("handoff"),
+            "lipsync": job.get("take_lipsync") or [],
+            "drift": [d.get("delta") for d in (job.get("take_drift") or []) if isinstance(d, dict)],
+            "output": job.get("output_path"), "error": job.get("error"),
+            "elapsed_sec": job.get("elapsed_sec")}
+
+
+def oneshot_status() -> dict:
+    """What the One Shot tab shows while a take runs: the take, its part, the
+    per-part verdicts and the take's own log lines."""
+    with QUEUE_COND:
+        cur = STATE.get("current")
+        queued = [j for j in STATE.get("queue", []) if (j.get("params") or {}).get("take")]
+        hist = [j for j in STATE.get("history", [])[:20] if (j.get("params") or {}).get("take")]
+        log = [l for l in STATE.get("log", []) if "[take]" in l][-16:]
+    return {"ok": True, "current": _oneshot_take_view(cur),
+            "queued": [_oneshot_take_view(j) for j in queued],
+            "recent": [_oneshot_take_view(j) for j in hist[:6]],
+            "paused": bool(STATE.get("paused")),
+            "log": log, "server_now": time.time()}
+
+
+def oneshot_options() -> dict:
+    """The choices the tab and the API can make on this Mac."""
+    chars = []
+    try:
+        for c in (list_characters() or []):
+            chars.append({"id": c.get("id"), "name": c.get("name") or c.get("id"),
+                          "trigger": c.get("trigger") or c.get("id"),
+                          "preview": c.get("preview_url") or c.get("thumb") or None,
+                          "has_voice": bool(c.get("voice") or c.get("has_voice"))})
+    except Exception:                                              # noqa: BLE001
+        chars = []
+    return {"ok": True, "seconds": list(TAKE_SECONDS), "beat_seconds": TAKE_BEAT_SECONDS,
+            "engines": {"ltx": {"available": True, "part_seconds": TAKE_LTX_PART_FRAMES // 24,
+                                "qualities": [{"key": q, "label": (LTX_QUALITIES.get(q) or {}).get("label") or q.title(),
+                                               "eta_min": LTX_TIERS.get(f"{q}_10s", {}).get("eta_min")}
+                                              for q in ("quick", "balanced", "standard", "high")
+                                              if f"{q}_10s" in LTX_TIERS]},
+                        "h3": {"available": bool(h3_available()), "part_seconds": 15,
+                               "qualities": [{"key": q["key"], "label": q["label"],
+                                              "size": f"{q['width']}×{q['height']}"}
+                                             for q in _h3_qualities().values() if q.get("offered", True)]}},
+            "characters": chars, "handoff": list(ONESHOT_HANDOFF_VALUES),
+            # A trained face renders on the generation's graded recipe ("pro" —
+            # the default the owner graded); Draft is for checking the shot,
+            # High is the two-stage pipeline, which repaints a trained face and
+            # is offered with that warning in its own words.
+            "character_qualities": [
+                {"key": "draft", "label": "Draft", "sub": "a quick look · softer face"},
+                {"key": "pro", "label": "Pro", "sub": "the face holds · recommended"},
+                {"key": "high", "label": "High", "sub": "sharper picture · the face may change"},
+                {"key": "high_720p", "label": "High · 720p", "sub": "the same, exported at 720p"},
+            ],
+            "planner": bool(getattr(storyboard_planner, "DEFAULT_MODEL_PATH", None))}
+
+
 def take_beats(raw, n: int) -> list[str]:
     """Exactly `n` beat prompts from what the form sent (a JSON list or a
     newline-separated string). A blank beat holds the previous moment; extras
@@ -16066,6 +16315,43 @@ def take_handoff_points(path, back: float = TAKE_TALKING_BACK) -> tuple[float, f
     pad = take_speech_end.__defaults__[1]
     cut = max(0.0, end - pad - back)
     return (round(cut, 3), round(end, 3))
+
+
+def sb_lipsync_retake_plan(shots: list, scores: dict, attempts: dict,
+                           *, floor: float = TAKE_LIPSYNC_MIN,
+                           limit: int = TAKE_LIPSYNC_RETAKES) -> list:
+    """Which board shots get a fresh-seed retake for lip-sync, and with what seed.
+
+    The One Shot runner has measured, gated and retaken every spoken part since
+    2026-09-07; the Storyboard rendered a spoken shot once and kept whatever
+    came out. The owner's twelve-shot sitcom showed the gap: shots that scored
+    +0.33 next to shots at -0.06 (the panel's own scorer), and every one of
+    them shipped. Same rule here, per shot: a shot whose prompt carries a
+    spoken line, whose score is known and under the floor, and that still has
+    retakes left, is rendered again with a fresh seed; `_sb_lipsync_settle`
+    keeps the best-scoring take.
+
+    Pure: `shots` are board shot dicts, `scores` maps n -> score (None = no
+    face or no speech to judge, never retaken), `attempts` maps n -> retakes
+    already spent. Returns [(n, new_seed)].
+    """
+    out = []
+    for s in shots:
+        n = s.get("n")
+        sc = scores.get(n)
+        if sc is None or sc >= floor:
+            continue
+        if not storyboard._SPOKEN_WORDS_RE.search(str(s.get("prompt") or "")):
+            continue
+        used = int(attempts.get(n) or 0)
+        if used >= limit:
+            continue
+        try:
+            base = int(s.get("seed"))
+        except (TypeError, ValueError):
+            base = 0
+        out.append((n, base + 211 * (used + 1)))
+    return out
 
 
 def take_expects_speech(params: dict, beats: list[str] | None = None) -> bool:
@@ -16283,6 +16569,113 @@ def _sb_sidecar_seed(path) -> int | None:
         if isinstance(v, str) and v.strip().lstrip("-").isdigit():
             return int(v)
     return None
+
+
+def _sb_lipsync_gate(board_id: str, batch: list, key: str, out_key: str, policy: dict,
+                     h3_ok: bool, chain_ok: bool, wait) -> None:
+    """Score every spoken shot of a rendered bucket and retake the ones that miss.
+
+    The One Shot runner has done this per part since 2026-09-07; a board shot
+    was rendered once and kept. Each round: reload the board, score the
+    bucket's spoken shots with `take_lipsync_score` (None = nothing to judge),
+    ask `sb_lipsync_retake_plan` which ones go again, queue them with fresh
+    seeds through the same `shot_to_job` path, wait, and keep the best-scoring
+    take per shot (`shot["lipsync"]` records score, attempts and the file
+    kept; the losing take is hidden from the gallery). At most
+    TAKE_LIPSYNC_RETAKES rounds, and never for a shot with no spoken line.
+    """
+    ns = [s.get("n") for s in batch if isinstance(s, dict)]
+    board = storyboard.load_storyboard(STATE_DIR, board_id)
+    shots = {s.get("n"): s for s in (board.get("shots") or []) if isinstance(s, dict)}
+    best: dict = {}      # n -> (score, path)
+    # The job id and seed that MADE the kept take travel with it. Without
+    # this the shot keeps pointing at the LAST retake's job, and the next
+    # _sb_reconcile() dutifully repoints the output at that job's file —
+    # the gate chose take 2 of 3 and the board delivered take 3 (2026-09-10,
+    # shot 9 of the sitcom: kept -0.09, delivered -0.27).
+    best_job: dict = {}  # n -> job id of the kept take
+    best_seed: dict = {} # n -> seed of the kept take
+    for n in ns:
+        s = shots.get(n)
+        out = s.get(out_key) if s else None
+        if not s or not out or not Path(str(out)).is_file():
+            continue
+        if not storyboard._SPOKEN_WORDS_RE.search(str(s.get("prompt") or "")):
+            continue
+        sc = take_lipsync_score(out)
+        if sc is None:
+            continue
+        best[n] = (sc, str(out))
+        best_job[n] = s.get(key)
+        best_seed[n] = s.get("seed")
+        s["lipsync"] = {"score": round(sc, 3), "attempts": 0, "kept": str(out)}
+        push(f"[storyboard] shot {n}: lip-sync {sc:+.2f}"
+             + ("" if sc >= TAKE_LIPSYNC_MIN else f" — under {TAKE_LIPSYNC_MIN:.2f}, the voice is not on the mouth"))
+    storyboard.save_storyboard(STATE_DIR, board)
+    attempts: dict = {}
+    for _round in range(TAKE_LIPSYNC_RETAKES):
+        plan = sb_lipsync_retake_plan([shots[n] for n in best], {n: best[n][0] for n in best}, attempts)
+        if not plan:
+            break
+        ids = []
+        for n, seed in plan:
+            s = shots[n]
+            attempts[n] = attempts.get(n, 0) + 1
+            s["seed"] = seed
+            form = storyboard.shot_to_job(
+                s, policy, board_id=board_id, board_title=board.get("title") or "",
+                h3_available=h3_ok, engine_mode=board.get("engine_mode") or "auto",
+                h3_chain_prompts=chain_ok, h3_first_frame=bool(h3_ok and h3_supports_first_frame()),
+                locations=storyboard.board_locations(board),
+                wardrobe=storyboard.board_wardrobe(board), long_windows=bool(board.get("long_windows")),
+                style=str(board.get("style") or ""))
+            try:
+                jid = _sb_enqueue({k: ("" if v is None else str(v)) for k, v in form.items()})
+            except Exception as exc:                                  # noqa: BLE001
+                push(f"[storyboard] shot {n}: lip-sync retake could not be queued: {exc}")
+                continue
+            s[key] = jid
+            s["status"] = "queued"
+            ids.append((n, jid))
+            push(f"[storyboard] shot {n}: retaking it for lip-sync with a fresh seed "
+                 f"({attempts[n]} of {TAKE_LIPSYNC_RETAKES})")
+        storyboard.save_storyboard(STATE_DIR, board)
+        if not ids:
+            break
+        if not wait([j for _, j in ids]):
+            return
+        idx = _sb_job_index()
+        for n, jid in ids:
+            job = idx.get(jid) or {}
+            out = job.get("output_path") if job.get("status") == "done" else None
+            s = shots[n]
+            sc = take_lipsync_score(out) if out and Path(str(out)).is_file() else None
+            prev_sc, prev_out = best[n]
+            if sc is not None and sc > prev_sc:
+                push(f"[storyboard] shot {n}: the retake syncs better ({sc:+.2f} vs {prev_sc:+.2f}) — using it")
+                try:
+                    set_hidden(prev_out, True)
+                except Exception:                                      # noqa: BLE001
+                    pass
+                best[n] = (sc, str(out))
+                best_job[n] = jid
+                best_seed[n] = s.get("seed")
+            else:
+                push(f"[storyboard] shot {n}: the retake did not sync better ({sc}) — keeping the earlier one")
+                if out:
+                    try:
+                        set_hidden(str(out), True)
+                    except Exception:                                  # noqa: BLE001
+                        pass
+            s[out_key] = best[n][1]
+            if best_job.get(n):
+                s[key] = best_job[n]
+            if best_seed.get(n) is not None:
+                s["seed"] = best_seed[n]
+            s["status"] = "done"
+            s["error"] = None
+            s["lipsync"] = {"score": round(best[n][0], 3), "attempts": attempts.get(n, 0), "kept": best[n][1]}
+        storyboard.save_storyboard(STATE_DIR, board)
 
 
 def _sb_reconcile(board: dict) -> bool:
@@ -17373,6 +17766,7 @@ def _sb_render_thread(board_id: str, pass_name: str, only: list | None) -> None:
                     h3_available=h3_ok,
                     engine_mode=board.get("engine_mode") or "auto",
                     h3_chain_prompts=chain_ok,
+                    h3_first_frame=bool(h3_ok and h3_supports_first_frame()),
                     locations=storyboard.board_locations(board),
                     wardrobe=storyboard.board_wardrobe(board),
                     long_windows=bool(board.get("long_windows")),
@@ -17401,17 +17795,22 @@ def _sb_render_thread(board_id: str, pass_name: str, only: list | None) -> None:
                  f"{bucket[0].upper()} — {board.get('title')}")
 
             # Wait for this bucket to go terminal before submitting the next.
-            while ids:
-                with _SB_LOCK:
-                    entry = _SB_RENDERS.get(board_id)
-                    if not entry or entry.get("stop"):
-                        return
-                idx = _sb_job_index()
-                live = [j for j in ids
-                        if (idx.get(j) or {}).get("status") in ("queued", "running")]
-                if not live:
-                    break
-                time.sleep(5.0)
+            def _wait(ids_):
+                while ids_:
+                    with _SB_LOCK:
+                        entry = _SB_RENDERS.get(board_id)
+                        if not entry or entry.get("stop"):
+                            return False
+                    idx = _sb_job_index()
+                    live = [j for j in ids_
+                            if (idx.get(j) or {}).get("status") in ("queued", "running")]
+                    if not live:
+                        break
+                    time.sleep(5.0)
+                return True
+
+            if not _wait(ids):
+                return
 
             try:
                 board = storyboard.load_storyboard(STATE_DIR, board_id)
@@ -17419,6 +17818,15 @@ def _sb_render_thread(board_id: str, pass_name: str, only: list | None) -> None:
                     storyboard.save_storyboard(STATE_DIR, board)
             except Exception:
                 pass
+
+            # LIP-SYNC GATE (2026-09-10). Every spoken shot of this bucket is
+            # scored the way a One Shot part is; the ones under the floor are
+            # rendered again with a fresh seed, up to TAKE_LIPSYNC_RETAKES
+            # times, and the best-scoring take is the one the board keeps.
+            try:
+                _sb_lipsync_gate(board_id, batch, key, out_key, policy, h3_ok, chain_ok, _wait)
+            except Exception as exc:                                  # noqa: BLE001
+                push(f"[storyboard] lip-sync gate skipped: {type(exc).__name__}: {exc}")
     except Exception as exc:                                       # noqa: BLE001
         push(f"[storyboard] render dispatch stopped: {exc}")
     finally:
@@ -21956,6 +22364,21 @@ def _preflight_image_job(cfg, *, engine_override: str = "auto") -> None:
     if (os.environ.get("PHOSPHENE_SKIP_PREFLIGHT") or "").strip() in ("1", "true", "yes"):
         push(f"[preflight] skipped via PHOSPHENE_SKIP_PREFLIGHT (engine={engine_override})")
         return
+
+    # HiDream has been hidden from the Studio since issue #15 (it needs a
+    # lab-repo clone no install ships), but its recipes stayed reachable —
+    # the gallery's ✦ Quality chip and a saved Settings default from before
+    # the hide both land here — and each attempt died deep in the engine
+    # with "HiDream venv python not found", counted as a failed render: 81
+    # times from 12 installs in the week to 2026-09-09. Say no at the door,
+    # as a refusal, with the engine that does the same job.
+    if str(engine_override or "").lower().startswith("hidream") and not _hidream_available():
+        raise RenderRefused(
+            "pack_missing",
+            "HiDream isn't installed on this Mac (it needs a separate lab "
+            "checkout that Phosphene does not ship). Use Reference Edit — "
+            "Quality in Image Studio for the same job; the ✦ Quality chip "
+            "now picks it on its own.")
 
     need_gb = _preflight_estimate_ram_gb(cfg)
     mem = get_memory()
@@ -27303,7 +27726,13 @@ def generate_character_sheet(character_id: str, *,
     reproduces from one number).
     """
     cid = _character_safe_id(character_id)
-    engine_override = (engine_override or "hidream_inline").strip().lower()
+    # The sheet was written against HiDream Medium; on an install without
+    # the lab checkout (every shipped one) the reference-conditioned Qwen
+    # engine does the same job, and asking for HiDream would only fail
+    # after the preflight refusal above.
+    if not (engine_override or "").strip():
+        engine_override = "hidream_inline" if _hidream_available() else "qwen_edit_inline"
+    engine_override = engine_override.strip().lower()
     if engine_override not in _CHARACTER_SHEET_ENGINES:
         raise ValueError(
             f"engine_override {engine_override!r} cannot build a character "
@@ -27671,6 +28100,7 @@ from panel import routes_files as _routes_files
 from panel import routes_image as _routes_image
 from panel import routes_loras as _routes_loras
 from panel import routes_meta as _routes_meta
+from panel import routes_oneshot as _routes_oneshot
 from panel import routes_models as _routes_models
 from panel import routes_queue as _routes_queue
 from panel import routes_storyboard as _routes_storyboard
@@ -27678,7 +28108,7 @@ from panel import routes_stats as _routes_stats
 from panel import routes_train as _routes_train
 
 for _routes_mod in (_routes_characters, _routes_files, _routes_image,
-                    _routes_loras, _routes_meta, _routes_models,
+                    _routes_loras, _routes_meta, _routes_models, _routes_oneshot,
                     _routes_queue, _routes_stats, _routes_storyboard,
                     _routes_train):
     _routes_mod.P = sys.modules[__name__]
@@ -29658,6 +30088,7 @@ class Handler(BaseHTTPRequestHandler):
                         h3_available=h3_ok,
                         engine_mode=board.get("engine_mode") or "auto",
                         h3_chain_prompts=chain_ok,
+                        h3_first_frame=bool(h3_ok and h3_supports_first_frame()),
                         locations=storyboard.board_locations(board),
                         wardrobe=storyboard.board_wardrobe(board))
                     job_form = {k: ("" if v is None else str(v))

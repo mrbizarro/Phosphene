@@ -62,7 +62,7 @@ function imgStudioUpdateValidity() {
   // during in-flight gens.
   if (!IMG_STUDIO.busy) {
     btn.disabled = !!invalidReason;
-    btn.title = invalidReason || 'Generate (Cmd/Ctrl+Enter)';
+    btn.title = invalidReason || ('Generate' + ((typeof shortcutHint === 'function') ? ' (' + shortcutHint('prompt.generate') + ')' : ''));
     if (status && !status.textContent.startsWith('Generating')) {
       if (invalidReason) {
         status.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-fill"/></svg>' + escapeHtml(invalidReason);
@@ -280,6 +280,11 @@ function imgStudioApplyMemoryFit() {
   }
 }
 
+// The last /image/engine_status answer, for the modules that decide an
+// engine off it (the gallery's ✦ Quality chip). Read-only by contract.
+function imgStudioEngineStatus() {
+  return _IMG_ENGINE_STATUS || {};
+}
 async function imgStudioRefreshEngineStatus() {
   try {
     const r = await fetch('/image/engine_status');
@@ -1880,7 +1885,7 @@ function imgStudioCopyPath(path) {
 // the global scope; everything NOT listed here is private to this module.
 Object.assign(globalThis, {
   imgStudioUpdateValidity, imgStudioWireRefSlots, imgStudioRenderSlot, imgStudioUpdateRefWarning,
-  imgStudioRefreshEngineStatus, ideoUpdateSetupNote, imgStudioUpdateEstimate, imgStudioRefreshRecent,
+  imgStudioRefreshEngineStatus, imgStudioEngineStatus, ideoUpdateSetupNote, imgStudioUpdateEstimate, imgStudioRefreshRecent,
   imgStudioOnPillClick, ideoInLayout, stageSetMode, ideoSyncStage,
   ideoSyncVisibility, ideoSyncRefBridge, ideoSetMode, ideoApplyAspect,
   ideoSetRender, ideoUndo, ideoInsertBox, ideoUpdateSel,

@@ -4,6 +4,7 @@ Copy this whole page into your own assistant (ChatGPT, Claude, Codex) and ask it
 
 ## One Shot (a clip longer than one pass)
 
+- **One Shot has its own tab** beside Video: the shot, a start frame, who is in it, length and quality, then the beats with a time gutter, one camera line and the continuity switches. A script posts the same document to `POST /oneshot` (docs/API.md).
 - **You do not have to write beats.** Leave the box empty and the prompt carries the whole shot, sustained for every five seconds. Write beats when you want the shot to *go* somewhere: each line directs its own five seconds, a blank line holds the moment before it.
 - **One beat = five seconds = one thing that happens.** Lead with the movement: what the subject does, what the camera does, what enters the frame.
 - **A scene change gets a beat of its own.** Going through a door, into a room, onto a bridge: give it its own five seconds, and put the *approach* in the beat before it. A scene change hidden at the end of a busy beat is the one the model skips.

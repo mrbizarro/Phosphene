@@ -64,6 +64,24 @@ The inspector presents brightness in the **Effects** section beside the fades,
 because that is where a person looks for it. Presentation follows the model;
 storage follows history.
 
+## The inspector is the PROPERTIES panel now (2026-09-12)
+
+The three sections below are unchanged, but the inspector no longer holds
+verbs. Lock, Duplicate, Lift, Ripple delete, Unlink/Link sound, Resync, Mute,
+Delete sound and Clear points moved to a **clip bar** above the tracks, because
+a cutter presses them hundreds of times a session and they were in a 212px rail
+in the corner, drawn identically to a brightness slider — and four of them were
+rendered conditionally, so they appeared and disappeared with the selection.
+
+> "We have some, but they are hidden inside that menu, the toggle menu on the
+> right. That is not a good use... You can leave it if the person wants to dig
+> into the options and then put advanced options there."
+
+The rule that decides where a new control goes is therefore **how many times an
+hour**, not what it is a property of: a verb goes on the bar, a property stays
+here, and rare-or-slow stays here too (Retake opens a render). The first
+section carries one line saying so. Full account: `docs/EDITOR_TOOLBAR.md`.
+
 ## The inspector has sections now
 
 The inspector grew one control at a time and was a flat run of buttons with a

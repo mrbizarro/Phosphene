@@ -1282,6 +1282,27 @@ def board_wardrobe(board: dict) -> dict[str, str]:
     return out
 
 
+_H3_FIELD_BOUNDARY_RE = re.compile(
+    r"\n\s*(?:overall_soundscape|non_diegetic_music)\s*:", re.IGNORECASE)
+
+
+def split_h3_fields(prompt: str) -> tuple[str, str]:
+    """`(description, the rest)` of an H3 three-field prompt; `(prompt, "")` otherwise.
+
+    The rest starts at the first `overall_soundscape:` / `non_diegetic_music:`
+    line and keeps its own leading newlines, so `head + tail` is the prompt
+    byte for byte. A prose prompt (LTX, or an H3 shot written as one
+    paragraph) has no tail and composes exactly as before.
+    """
+    p = prompt or ""
+    if not p.lstrip().lower().startswith("integrated_multimodal_description:"):
+        return p, ""
+    m = _H3_FIELD_BOUNDARY_RE.search(p)
+    if not m:
+        return p, ""
+    return p[:m.start()].rstrip(), p[m.start():]
+
+
 def compose_shot_prompt(shot: dict, locations: dict[str, dict] | None = None,
                         wardrobe: dict[str, str] | None = None) -> str:
     """The prompt that is actually rendered: subject, action, FRAME, PLACE.
@@ -1298,7 +1319,15 @@ def compose_shot_prompt(shot: dict, locations: dict[str, dict] | None = None,
     uses it without rewriting anybody's text.
     """
     trigger = (shot.get("trigger") or shot.get("character_id") or "").strip()
-    parts = [ensure_trigger(shot.get("prompt") or "", trigger)]
+    # H3's three-field prompt. The additions below describe the PICTURE, so
+    # they belong in `integrated_multimodal_description` and nowhere after it:
+    # appended to the whole prompt they landed on the LAST field, and a located
+    # 12-shot sitcom rendered with "..., medium shot, a sitcom apartment" on
+    # the end of `non_diegetic_music: N/A` — the room in the score (measured
+    # 2026-09-08). Split the description off, compose into it, put the sound
+    # and the music back untouched.
+    head, tail = split_h3_fields(ensure_trigger(shot.get("prompt") or "", trigger))
+    parts = [head]
 
     # WARDROBE goes right after the person, where a costume note belongs, and
     # only if the shot has not already said it — a board that spells the outfit
@@ -1321,6 +1350,15 @@ def compose_shot_prompt(shot: dict, locations: dict[str, dict] | None = None,
     if scene:
         parts.append(scene)
 
+    if tail:
+        # The description's closing full stop moves to the end of the composed
+        # sentence, so the sound field still follows a finished sentence.
+        if len(parts) > 1 and parts[0].endswith("."):
+            parts[0] = parts[0][:-1]
+        body = ", ".join(p for p in parts if p)
+        if len(parts) > 1 and not body.endswith("."):
+            body += "."
+        return body + tail
     return ", ".join(p for p in parts if p)
 
 
@@ -1469,6 +1507,7 @@ def shot_to_job(shot: dict, policy_pass: dict, *,
                 h3_available: bool = True,
                 engine_mode: str = DEFAULT_ENGINE_MODE,
                 h3_chain_prompts: bool = False,
+                h3_first_frame: bool = False,
                 long_windows: bool = False,
                 style: str = "",
                 locations: dict[str, dict] | None = None,
@@ -1611,8 +1650,14 @@ def shot_to_job(shot: dict, policy_pass: dict, *,
             job["frames"] = take_secs * 24 + 1
     # ANCHOR STILL. When the shot has a still, the video STARTS from it: the
     # ordinary i2v path with the still as the image, anchored (the strict
-    # pin, not Inspire). LTX only — H3's i2v is a different contract.
-    if shot.get("still") and engine != "h3" and job["mode"] == "t2v":
+    # pin, not Inspire). On H3 the same still is the runner's `--first-frame`
+    # (FL2VA conditioning), which the caller confirms the installed runner has
+    # (`h3_first_frame`) — the panel probes the script for the flag. This is
+    # how a face stays the same face across a board's H3 shots: the still is
+    # made from the character's own frames (2026-09-10, the sitcom's jungle
+    # shots lost the lead's face on every text-only render and kept it on
+    # every render that started from a still).
+    if shot.get("still") and job["mode"] == "t2v" and (engine != "h3" or h3_first_frame):
         job["mode"] = "i2v"
         job["image"] = str(shot["still"])
         job["i2v_reference_mode"] = "anchor"

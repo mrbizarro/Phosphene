@@ -74,7 +74,7 @@ function _currentSurface() {
   // leaves the engine switcher visible in a tab that has no engine choice to
   // offer — the film decides per shot, not a global toggle.
   return ({ manual: 'video', studio: 'image', audio: 'audio', train: 'train',
-            storyboard: 'storyboard' })[wf] || 'video';
+            storyboard: 'storyboard', oneshot: 'oneshot' })[wf] || 'video';
 }
 function engineOnSurface(e) {
   return (e.surfaces || ['video']).indexOf(_currentSurface()) !== -1;

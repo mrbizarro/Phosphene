@@ -485,8 +485,10 @@ class TestSheetGenerateRoute(unittest.TestCase):
     def test_empty_body_uses_the_documented_defaults(self):
         reply, calls = self._post("/characters/bizarrotrn/sheet/generate")
         self.assertEqual(reply["status"], 200, reply)
+        # An empty engine is the contract now: generate_character_sheet
+        # picks HiDream only where its lab checkout exists, else Qwen.
         self.assertEqual(calls, [{"cid": "bizarrotrn",
-                                  "engine_override": "hidream_inline",
+                                  "engine_override": "",
                                   "views": None, "wardrobe": "", "seed": -1}])
         self.assertTrue(reply["payload"]["ok"])
 

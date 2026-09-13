@@ -1,5 +1,48 @@
 # Phosphene — project state, history, open work
 
+> **🚀 2026-09-13 — v4.13.0 ships: "the editor you already know".** Owner:
+> "ship everything". Promoted dev's whole tree (5a1675a) onto origin/main by
+> read-tree: the Editor clip bar + multi-select + right-click + gap audit
+> keys (ba48941), Docs inside the panel + one SHORTCUTS registry (eee5f89,
+> 8878285), Escape never closes the film (5a1675a), One Shot as its own tab
+> with its composer and API (44dd227, 0c3632b), Storyboard lip-sync scoring
+> and retake for spoken shots (712109d, e0a3dd7), board stills anchor H3
+> shots (457b2b8), located H3 shots composed in the description (bc9871e),
+> Image Quality chip engine guard (d68e598), Sharp export 1080p (6a4b3d8),
+> settings writes merge per key (b75fd0d). Gates --fast 86 pass (the banner
+> test fails until the banner is written); release copy clicked through on
+> a scratch panel: all seven tabs, Editor on a cloned 13-clip board with the
+> clip bar, Docs, One Shot composer, zero console errors. From-zero install
+> NOT re-run (6 GB free disk); the change set is panel code and webapp only.
+
+> **📖 2026-09-13 — Docs inside the panel, and one table for every shortcut.**
+> A **Docs** button beside the settings gear (and `?` anywhere) opens a
+> full-height manual over whatever you are doing: left nav, search that filters
+> headings as you type, deep links `#docs/<section>/<anchor>` that work from any
+> link in the panel. Fourteen pages — Getting started, Video, One Shot, Remix,
+> Images, Storyboard, Audio, Editor (the deep one: clip bar button by button,
+> sound, music, titles, transitions, save model, deliver, five step-by-step
+> jobs), Train Character, LoRAs, Settings, Keyboard shortcuts, Buttons and
+> icons, Troubleshooting. Written against the code; the words are the UI's.
+> Source is Markdown in `webapp/docs/*.md`, rendered by `webapp/js/docs.js`
+> (no build step, served by the panel's `/webapp/` route, offline).
+> **`webapp/js/shortcuts.js` is the one list of shortcuts**: the Docs page, the
+> Editor's Keys popover and every `data-shortcut` tooltip render from it, and
+> `test_docs_and_shortcuts.py` drives the Editor's REAL keydown handler with
+> every row's keys (both directions), checks every docs link lands on a heading,
+> and forbids browser/macOS-reserved chords. New keys: `?` Docs, `⇧1–⇧7` tabs
+> (Resolve's pages), `⌘F` the on-screen search box, `⌘⏎` Generate from the
+> Video / Images prompt (the button's own submit path, refused when the button
+> is), Space play/pause and `⌘⌫` Trash (asks) for the selected output; in the
+> Editor `↑ ↓` previous/next cut, `⌘K` / `⌘B` split, `N` snap, `⇧Z` fit, and
+> **Render moved from ⌘R (the browser's reload — a refresh queued a render) to
+> ⌘E**. Fixed on the way: the Retake offer (*New take is ready · Use it*) was
+> painted into `#sbeRetakes`, which never existed in the markup — a finished
+> retake could not be put on the timeline; Storyboard's K/R/C grade keys fired
+> on ⌘C / ⌘R; the Outputs F / arrow keys fired inside the Editor; the Save
+> tooltip claimed an autosave that is only a backup; two toasts pointed at the
+> inspector for buttons that moved to the clip bar.
+
 > **🩹 2026-09-13 — v4.12.4 ships: the morning's issues and fleet read.**
 > Promoted by cherry-pick onto origin/main: ca9b8e9 (#80 paused queue clears
 > on boot, Now card carries Resume), 5e888ee (#81 Avoid no longer folded into
@@ -31,6 +74,66 @@
 > The owner's clip itself was repaired by re-timing its audio to the picture
 > (`…50s_q8pro_sync.mp4` beside the original). Promoted by cherry-pick
 > (9e3bbc1) onto origin/main.
+
+> **🔍 2026-09-09 — Upscale ×2 on a real film: 86 s of EX ALTO through seventeen chunks.**
+> The mode renders one pass at twice the source, so a long clip is cut first:
+> the film scaled to 768×432 (its native detail level — the 720p delivery was
+> a lanczos enlargement of 768×448 H3 renders), padded to the 1+8k grid and
+> split into 121-frame chunks, one `mode=upscale` job each (Faithful: keep 1.0,
+> from the clip's own latent, 3 refine steps, Q8 fused, one seed). Measured:
+> **447–531 s per 5 s chunk at 1536×832, 129 min for 86 s.** Two things the
+> mode does not tell you: (1) `ltx_floor_canvas` floors to /64, so a 16:9
+> source lands on 1536×**832** and the reference is resized onto it — a 3.7 %
+> squash, undone with one lanczos pass at assembly; (2) butt-joined chunks
+> pop, because the invented texture re-rolls per chunk (seam frame step 20
+> against ~11.5 inside a chunk) — a 24-frame exposure match plus a four-frame
+> blend toward the source at each edge (.25/.5 | .5/.25) brings the seam to
+> 12.6, no warp (the chunks are cuts of one continuous clip). Faithfulness by
+> passage (SSIM against the 768 source): 0.93–0.97 on the slow half, 0.81–0.86
+> with dips to 0.71 on the fast city passes, where the adapter re-draws
+> motion-blurred buildings rather than resolving them. Deliverables in the
+> gallery: `ex_alto_v2_from_above_86s_{track,wind}_x2_1536.mp4`. A
+> chunked long-clip path inside the mode itself (split, refine, seam-match,
+> rejoin, one job) is the obvious product follow-up.
+
+> **📺 2026-09-08 — Saint Feld, one chapter: the planner, the board, the Editor and H3 dialogue, end to end.**
+> A one-minute sitcom chapter (twelve 5 s H3 draft shots at 640×384, no
+> Turbo, ~5.6 min each) planned through `POST /storyboard/plan` (H3 engine,
+> two locations, five views derived), the shots then replaced with a
+> hand-written script through `save`, rendered by the board's own `render`,
+> cut whole in the Editor with a text-overlay title and delivered at native
+> size: `mlx_outputs/saint_feld_the_ceremony_h3_draft_60s.mp4`, 61.5 s. **All
+> twelve lines transcribed back word for word on the first take** (whisper
+> large-v3-turbo), the laugh track after each line where the soundscape asked
+> for it, the slap-bass sting where `non_diegetic_music` named the
+> instrument. What made it work is in `docs/H3_ENGINE.md` → "Dialogue on
+> H3 — the recipe": the line inside `<d>[English] …</d>` (prose quotes render
+> babble — the earlier 10 s dialogue draft transcribed as *"You know, for
+> when? Please, Jack…"*), ≤8 words per 5 s, the mouth stopped in the same
+> sentence, the exact voiceover phrase, one face per shot. Two things found on
+> the way: (1) **`compose_shot_prompt` put a located H3 shot's framing, eyeline
+> and room AFTER `non_diegetic_music:`** — the room in the score on every
+> H3 board with geography; fixed in `bc9871e` (`split_h3_fields`, the
+> additions compose into the description; `test_storyboard.H3ThreeFieldsCompose`).
+> (2) the plan route's `notes` is the RE-PLAN feedback field and refuses a
+> fresh plan ("feedback needs the plan it refers to"); a first plan carries
+> its structure in `concept` / `must`. Levelled each shot with `loudnorm`
+> before the cut (one shot rendered ~12 dB under its neighbours) and cut from
+> the native 5:3 files, not the pillarboxed 720p exports. Draft only — the
+> owner's call whether to re-shoot at Standard/High or Upscale ×2.
+> **2026-09-10 follow-up — the jungle shots re-shot at the final pass from the
+> owner's own stills, through the new lip-sync gate.** The draft chapter's
+> spoken shots scored −0.06 … +0.33 on the panel's mouth-vs-voice meter at the
+> same recipe: sync is a per-shot roll, One Shot already retook under 0.20 and
+> the board never did (`712109d` adds the gate; `e0a3dd7` makes the kept take's
+> job id and seed travel with it — `_sb_reconcile` had repointed shot 9 at the
+> last retake). Two rounds of GENERATED stills for the jungle lost the face
+> (Reference Edit re-posing a wide shot, text-only drafts); four stills the
+> owner supplied, cut to 1024×576 with the face kept, set as `still` and
+> rendered as anchored i2v at H3 high (`457b2b8`, `h3_first_frame`) held it
+> in one pass: sync +0.31 / +0.46 first take, every line transcribed verbatim,
+> ~18 min a take. v5 is `mlx_outputs/saint_feld_the_ceremony_v5_60s.mp4`
+> (Sharp ×2 from the native takes, centre-cut to the film's 5:3, `loudnorm`).
 
 > **🎙️ 2026-09-07, evening — the handoff is a J-cut, and audio-first is out.**
 > Two questions from the owner. (1) *Can he keep talking through a cut?* Yes,
@@ -204,6 +307,24 @@
 > the 40 s bar one shot at Q4 was "pretty decent, but the quality is really
 > shitty on the faces" — and the two-character experiment (bizarrotrn +
 > eltrumpo at one table, Q8 Pro, camera lock) is the first render on this code.
+
+> **🎬 2026-09-08 — One Shot is its own door (on dev).** Owner: "One shot should be
+> its own thing… highly optimized… even one prompt should work, and the user
+> should be able to tweak it; the API should make good use of it." A workflow
+> tab beside Video with its own composer (`webapp/js/oneshot.js`,
+> `#oneshotSectionTab`): engine, the shot, a start frame, who is in it (trained
+> characters), length and quality with the cost on this Mac, beats with a time
+> gutter (+ 'Split my prompt' and 'Write the beats for me' through the Storyboard
+> planner), one camera line, three continuity switches (light, drift retake,
+> speech handoff — on by itself when a character is picked), More (seed, label,
+> no music), Generate, and a part-by-part status strip with the lip-sync verdicts.
+> It posts ONE document to `POST /oneshot` (`panel/routes_oneshot.py`, with
+> `/oneshot/options`, `/estimate`, `/plan`, `/status`), mapped onto make_job by
+> `oneshot_form()` so the tab, the API and /queue/add render the same job. The
+> mode chip, the folded panel and the hidden take fields are gone from the video
+> form; `setMode('oneshot')` and Load Params of a take open the tab. Tests:
+> `test_oneshot_api.py` (9), `OneShotIsATab` in the UI suite (11, the module run
+> in node). Walked live on a scratch panel before it left dev.
 
 > **🚀 2026-09-08 — v4.12.2 ships: the morning's field reports.** The beats box no
 > longer prefills from the prompt (one written beat + five holds was the half-state

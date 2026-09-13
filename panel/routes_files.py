@@ -740,6 +740,8 @@ def get_webapp_file(h, parsed) -> None:
         ".mjs": "text/javascript; charset=utf-8",
         ".html": "text/html; charset=utf-8",
         ".svg": "image/svg+xml",
+        # The Docs pages (webapp/docs/*.md), rendered in the browser.
+        ".md": "text/markdown; charset=utf-8",
     }.get(ext, "application/octet-stream")
     # Production serves the bytes this process booted with (snapshot taken
     # beside HTML at import) so a pull under a running panel can't pair new

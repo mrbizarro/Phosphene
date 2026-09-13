@@ -74,7 +74,7 @@ class ControlsHideWithTheirParents(unittest.TestCase):
     and Studio."""
 
     SURFACES = ("train", "audio", "storyboard", "editor", "characters",
-                "studio")
+                "studio", "oneshot")
 
     @classmethod
     def setUpClass(cls):

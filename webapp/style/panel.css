@@ -2048,6 +2048,102 @@
       pointer-events: none; max-width: 640px;
     }
 
+    /* ---- THE CLIP BAR -----------------------------------------------
+       The verbs, above the tracks, always on screen. See the block comment
+       in webapp/index.html and docs/EDITOR_TOOLBAR.md.
+
+       NOWRAP IS THE WHOLE POINT. `flex-wrap: wrap` here would answer a
+       narrow pane by growing a second row, which pushes the tracks down the
+       column and takes the height off the picture — so the bar does not
+       wrap, it OVERFLOWS: sbeCbarFit moves the tail into #sbeCbarMenu.
+       min-width:0 so the row may be measured smaller than its content. */
+    .sbe-cbar {
+      display: flex; align-items: center; gap: 5px; flex-wrap: nowrap;
+      min-width: 0; overflow: hidden;
+    }
+    /* THE SPRITE ITSELF NEVER DRAWS. It is a <defs> carrier, and without an
+       explicit zero box a stray <svg> in a flex column is a 300x150 hole. */
+    .sbe-icons { position: absolute; width: 0; height: 0; overflow: hidden; }
+    /* WHAT IS SELECTED, and it is the item that yields: the verbs are all
+       at their intrinsic width, so the prose is the one that can shrink. */
+    .sbe-cbar-who {
+      flex: 0 1 auto; min-width: 42px; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+      font-size: var(--fs-xs); color: var(--muted);
+      padding-right: 2px;
+    }
+    .sbe-cbar-who.is-many { color: var(--accent-bright); font-weight: 600; }
+    .sbe-cbar-sep {
+      flex: 0 0 auto; width: 1px; height: 16px; margin: 0 3px;
+      background: var(--border);
+    }
+    /* A VERB, NOT A STICKER. Same family as .ghost-btn — one border, one
+       radius token, the same hover — plus the icon slot, so the row reads as
+       a toolbar at a glance instead of as ten words in a line. */
+    .sbe-cbar-btn {
+      flex: 0 0 auto; width: auto; display: inline-flex; align-items: center;
+      gap: 5px; height: var(--ctl-h-sm); padding: 0 9px;
+      background: var(--panel-2); border: 1px solid var(--border);
+      color: var(--text); border-radius: var(--r-xs);
+      font-size: var(--fs-xs); line-height: 1; cursor: pointer;
+      white-space: nowrap;
+      transition: background var(--t-base), border-color var(--t-base),
+                  color var(--t-base);
+    }
+    .sbe-cbar-btn > b { font-weight: 500; }
+    .sbe-cbar-btn:hover:not(:disabled) {
+      background: var(--bg-2); border-color: var(--accent);
+      color: var(--accent-bright);
+    }
+    .sbe-cbar-btn:focus-visible { outline: none; box-shadow: var(--ring); }
+    /* DISABLED, NEVER GONE. Legible enough to read the label and the tooltip
+       that says why — the tooltip is the only thing that can teach "select a
+       clip first", and a button that is not there cannot carry one. */
+    .sbe-cbar-btn:disabled {
+      opacity: 0.42; cursor: default; background: transparent;
+      border-color: var(--border); color: var(--muted);
+    }
+    /* ON. A toggle whose label already flips (Lock → Unlock) still needs to
+       say which way it is pointing at a glance across a ten-button row. */
+    .sbe-cbar-btn.is-on {
+      background: var(--accent-dim); border-color: var(--accent);
+      color: var(--accent-bright);
+    }
+    .sbe-cbar-i {
+      flex: 0 0 auto; width: 13px; height: 13px;
+      fill: none; stroke: currentColor; stroke-width: 1.7;
+      stroke-linecap: round; stroke-linejoin: round;
+    }
+    /* THE FOLD, RESTATED. `display: inline-flex` on the class beats the UA's
+       `[hidden] { display: none }`, so the overflow button and a spent group
+       divider stayed on screen with the attribute set — the same lesson
+       `.quality-strip` and the One Shot panel already paid for. */
+    .sbe-cbar-btn[hidden], .sbe-cbar-sep[hidden] { display: none !important; }
+    .sbe-cbar-more { margin-left: 2px; }
+    .sbe-cbar-more .sbe-car { font-size: 9px; opacity: 0.75; }
+    /* THE OVERFLOW PANEL holds the very same buttons, so they have to stop
+       being a row and become a list once they are in it. */
+    .sbe-cbar-pop { min-width: 170px; }
+    .sbe-cbar-pop .sbe-cbar-btn,
+    .sbe-ctx .sbe-cbar-btn {
+      width: 100%; justify-content: flex-start; height: var(--ctl-h);
+    }
+    .sbe-cbar-pop .sbe-cbar-sep, .sbe-cbar-pop .ch-spacer { display: none; }
+    .sbe-ctx { min-width: 186px; }
+    .sbe-ctx-h {
+      font-size: var(--fs-2xs); text-transform: uppercase;
+      letter-spacing: 0.07em; color: var(--muted);
+      padding: 2px 4px 4px; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    /* Below the stacking breakpoint the PAGE is the scroller — there is no
+       column height to protect, so the bar is allowed to wrap and the
+       overflow logic stands down (sbeCbarFit returns early there). */
+    @media (max-width: 900px) {
+      .sbe-cbar { flex-wrap: wrap; overflow: visible; }
+    }
+
     .sbe-transport {
       display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
       position: relative;
@@ -2412,6 +2508,14 @@
       font-size: var(--fs-2xs); letter-spacing: 0.08em; text-transform: uppercase;
       color: var(--muted); font-weight: 700;
     }
+    /* WHAT THIS BOX IS NOW. Said once, above the first section, because the
+       inspector lost most of its buttons to the clip bar and a panel of
+       properties that used to be a panel of verbs has to name the change or
+       it reads as a panel with things missing. */
+    .sbe-sect-lead {
+      font-size: var(--fs-2xs); color: var(--muted); line-height: 1.45;
+      padding: 2px 0 1px; border-top: 1px solid var(--border); margin-top: 4px;
+    }
     .sbe-sect-b { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
     .sbe-fade-row { display: inline-flex; align-items: center; gap: 5px; }
     .sbe-fade-row label { font-size: var(--fs-xs); color: var(--muted); }
@@ -2749,6 +2853,16 @@
     .sbe-clip.is-sel {
       border-color: var(--accent);
       box-shadow: 0 0 0 1px var(--accent), var(--shadow-2);
+    }
+    /* WHICH ONE OF A SELECTION THE PANEL IS TALKING ABOUT. With four shots
+       selected the inspector still shows ONE clip's properties and the
+       sound buttons still read one clip's state, so the primary has to be
+       pickable out of the row or the bar is lying about which shot it means.
+       A second ring rather than a different colour: they are all selected,
+       and one of them is also the subject. */
+    .sbe-clip.is-sel.is-primary {
+      box-shadow: 0 0 0 1px var(--accent), 0 0 0 3px var(--accent-dim),
+                  var(--shadow-2);
     }
     .sbe-clip.is-playing { border-color: var(--success); }
     .sbe-clip.is-playing::after {
@@ -10078,3 +10192,268 @@ body.oneshot-mode #h3LengthGroup { display: none !important; }
 .civitai-chips .pill-btn { width: auto; flex: 0 0 auto; padding: 3px 9px; font-size: 11px; border-radius: 999px; margin: 0; }
 .civitai-chips .toggle-pill { margin-left: auto; }
 .civitai-toolbar .toggle-pill { margin-left: auto; }
+
+/* ---- One Shot tab (webapp/js/oneshot.js, 2026-09-08) ---------------------- */
+/* The tab owns the left pane the way Audio and Train do: the video form, its
+   mode bar and the models card fold away, and the section takes the column. */
+body[data-workflow="oneshot"] #modelsInline,
+body[data-workflow="oneshot"] #modeGroup,
+body[data-workflow="oneshot"] #remixSubGroup,
+body[data-workflow="oneshot"] aside.form-pane > h2,
+body[data-workflow="oneshot"] #genForm,
+body[data-workflow="oneshot"] #studioSection,
+body[data-workflow="oneshot"] #trainSection,
+body[data-workflow="oneshot"] #audioSectionTab { display: none !important; }
+/* The label row, as the quick-settings cards draw it: name left, meta right. */
+.os-card .qs-label { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 6px; min-width: 0; }
+.os-card .qs-label .qs-name { flex: 0 0 auto; font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap; }
+.os-card .qs-label .qs-meta { min-width: 0; font-size: 11px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-align: right; white-space: normal; }
+#oneshotSectionTab { display: grid; gap: 10px; min-width: 0; max-width: 100%; }
+/* The same side padding the video form gets, so the cards and the sticky
+   footer's edge-to-edge break-out land where they do on the Video tab. */
+.form-pane > #oneshotSectionTab { padding: 0 18px; }
+#oneshotSectionTab > * { min-width: 0; }
+#oneshotSectionTab[style*="display: none"], #oneshotSectionTab[style*="display:none"] { display: none; }
+.os-card { display: grid; gap: 12px; min-width: 0; overflow-wrap: anywhere; }
+.os-card > * { min-width: 0; }
+.os-card h2 { margin: 0; }
+.os-lead { margin-top: -4px; line-height: 1.45; }
+.os-block { display: grid; gap: 6px; min-width: 0; }
+.os-two { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.os-prompt { min-height: 96px; }
+.os-anchor { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 32px; }
+.os-anchor-thumb { height: 44px; width: auto; border-radius: 6px; border: 1px solid var(--border, #2a2f3a); }
+.os-anchor-thumb[hidden] { display: none !important; }
+.os-anchor-name { color: var(--muted); }
+.os-characters { display: flex; flex-wrap: wrap; gap: 6px; }
+.os-characters .pill-btn { flex: 0 1 auto; min-width: 120px; }
+#osLengthGroup.cols-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+#osLengthGroup .q-chip, #osQualityGroup .q-chip { justify-content: flex-start; min-height: 56px; }
+#osLengthGroup .q-chip .ql-tier { white-space: nowrap; color: var(--muted); }
+#osQualityGroup[hidden] { display: none !important; }
+.os-estimate { font-size: var(--fs-sm, 12px); color: var(--muted); min-height: 1.2em; }
+.os-beats-tools { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; margin-top: -2px; }
+.os-beat-rows { display: grid; gap: 4px; }
+.os-beat-row { display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: center; gap: 6px; }
+.os-beat-row .os-stamp { font-family: var(--ph-font-mono); font-size: 11px; color: var(--faint, var(--muted)); text-align: right; }
+.os-beat-row.over .os-stamp { color: var(--danger, #f85149); }
+.os-beat-row.over .os-beat { opacity: 0.6; }
+.os-beat-row .os-beat { width: 100%; min-width: 0; box-sizing: border-box; font-size: 12px; }
+.os-beats-note { margin-top: -2px; }
+.os-beats-note a { color: var(--accent-bright); }
+.os-toggles { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.os-toggle { display: grid; gap: 6px; min-width: 0; }
+.os-toggle .pill-group.cols-2 { grid-template-columns: 1fr 1fr; }
+.os-toggle[hidden] { display: none !important; }
+.os-more { margin-top: 2px; }
+.os-more summary { cursor: pointer; color: var(--muted); font-size: var(--fs-sm, 12px); user-select: none; }
+.os-more-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+@media (max-width: 720px) { .os-more-grid { grid-template-columns: 1fr; } }
+.os-field { display: grid; gap: 4px; min-width: 0; }
+.os-field .sub { color: var(--muted); }
+.os-check { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
+.os-check .sub { color: var(--muted); }
+.os-character-note { margin-top: 2px; }
+.os-character-note[hidden] { display: none !important; }
+.os-footer { margin-top: 2px; }
+.os-status .os-parts { display: flex; flex-wrap: wrap; gap: 6px; }
+.os-part { font-size: 11px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border, #2a2f3a); color: var(--muted); }
+.os-part.now { color: var(--accent-bright); border-color: var(--accent-bright); }
+.os-part.ok { color: #3fb950; border-color: rgba(63, 185, 80, 0.5); }
+.os-part.mid { color: #d29922; border-color: rgba(210, 153, 34, 0.5); }
+.os-part.bad { color: #f85149; border-color: rgba(248, 81, 73, 0.5); }
+.os-part.quiet { color: var(--muted); }
+.os-log { margin: 0; white-space: pre-wrap; font-family: var(--ph-font-mono); font-size: 11px; line-height: 1.4; color: var(--muted); max-height: 9em; overflow: auto; }
+
+    /* ======================================================================
+       THE DOCS (webapp/js/docs.js, pages in webapp/docs/*.md) and the keycap
+       every shortcut is drawn with. One reading column in the panel's own
+       tokens: the nav is the rail, the article is the page, and the light
+       theme comes free from the same variables.
+       ====================================================================== */
+    kbd.kbd {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 20px; height: 20px; padding: 0 5px; margin: 0 1px;
+      font: 600 11px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      color: var(--text); background: var(--panel-2);
+      border: 1px solid var(--border-strong); border-bottom-width: 2px;
+      border-radius: 5px; white-space: nowrap; vertical-align: 1px;
+    }
+    .sc-chord { display: inline-flex; gap: 2px; white-space: nowrap; }
+    .sc-or { color: var(--muted); font-size: var(--fs-xs); margin: 0 5px; }
+    kbd.sbe-kbd { display: inline-block; margin: 0 1px; }
+    .sbe-key-row .sc-or { margin: 0 3px; }
+    .sbe-keys-docs {
+      display: block; margin-top: 10px; padding-top: 8px;
+      border-top: 1px solid var(--border); font-size: var(--fs-xs);
+      color: var(--accent-bright); text-decoration: none;
+    }
+    .sbe-keys-docs:hover { text-decoration: underline; }
+    .sbe-retakes { flex-direction: column; align-items: stretch; margin-top: 6px; }
+    .sbe-relink-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .sbe-relink-row > span { flex: 1 1 auto; }
+    .sbe-relink-row .ghost-btn { width: auto; flex: 0 0 auto; }
+
+    body > header .docs-btn {
+      width: auto; padding: 0 10px 0 8px; gap: 6px;
+      font-size: var(--fs-sm); font-weight: 600; color: var(--muted);
+    }
+    body > header .docs-btn:hover { color: var(--text); background: var(--accent-dim); }
+    body > header .docs-btn .ph { width: 16px; height: 16px; }
+    @media (max-width: 1100px) {
+      body > header .docs-btn { width: 34px; padding: 0; }
+      body > header .docs-btn .docs-btn-word { display: none; }
+    }
+
+    .docs-view.show { display: flex; }
+    .docs-view { z-index: 140; padding: 20px; align-items: stretch; justify-content: center; }
+    .docs-shell {
+      display: grid; grid-template-columns: 272px minmax(0, 1fr);
+      width: min(1180px, 100%); height: 100%;
+      background: var(--bg-2); border: 1px solid var(--border-strong);
+      border-radius: var(--r-lg); box-shadow: var(--shadow-2); overflow: hidden;
+    }
+    .docs-nav {
+      display: flex; flex-direction: column; min-height: 0;
+      border-right: 1px solid var(--border); background: var(--bg);
+    }
+    .docs-brand {
+      display: flex; align-items: center; gap: 9px;
+      padding: 18px 18px 12px; font-size: var(--fs-lg); font-weight: 650;
+      letter-spacing: -0.01em; color: var(--text);
+    }
+    .docs-brand .ph { width: 18px; height: 18px; color: var(--accent-bright); }
+    .docs-search-wrap {
+      position: relative; display: block; margin: 0 14px 10px;
+    }
+    .docs-search-wrap .ph {
+      position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+      width: 14px; height: 14px; color: var(--muted); pointer-events: none;
+    }
+    .docs-search-wrap input.docs-search {
+      width: 100%; height: var(--ctl-h); padding: 0 10px 0 31px;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: var(--r-sm); color: var(--text); font: inherit; font-size: var(--fs-md);
+    }
+    .docs-search-wrap input.docs-search:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
+    .docs-toc, .docs-results { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 8px 18px; }
+    .docs-toc[hidden], .docs-results[hidden] { display: none; }
+    .docs-toc-group {
+      margin: 14px 10px 4px; font-size: var(--fs-2xs); font-weight: 650;
+      letter-spacing: .12em; text-transform: uppercase; color: var(--muted); opacity: .8;
+    }
+    .docs-toc a {
+      display: block; padding: 6px 10px; border-radius: var(--r-xs);
+      color: var(--muted); text-decoration: none; font-size: var(--fs-md); line-height: 1.35;
+    }
+    .docs-toc a:hover { color: var(--text); background: var(--panel); }
+    .docs-toc a.docs-toc-sec.is-active { color: var(--text); background: var(--panel); font-weight: 600; }
+    .docs-toc-subs { margin: 2px 0 6px 10px; padding-left: 8px; border-left: 1px solid var(--border); }
+    .docs-toc a.docs-toc-sub { padding: 4px 10px; font-size: var(--fs-sm); }
+    .docs-toc a.docs-toc-sub.is-here { color: var(--accent-bright); }
+    .docs-hit {
+      display: block; padding: 8px 10px; border-radius: var(--r-sm);
+      text-decoration: none; color: var(--text); border: 1px solid transparent;
+    }
+    .docs-hit:hover, .docs-hit:focus { background: var(--panel); border-color: var(--border); outline: none; }
+    .docs-hit-t { display: block; font-size: var(--fs-md); font-weight: 600; }
+    .docs-hit-s { display: block; font-size: var(--fs-2xs); color: var(--accent-bright); margin-top: 1px; letter-spacing: .02em; }
+    .docs-hit-x { display: block; font-size: var(--fs-xs); color: var(--muted); margin-top: 3px; line-height: 1.45; }
+    .docs-hit mark, .docs-hit-t mark { background: var(--accent-dim); color: var(--text); border-radius: 3px; padding: 0 1px; }
+    .docs-noresult { padding: 14px 10px; color: var(--muted); font-size: var(--fs-sm); line-height: 1.5; }
+
+    .docs-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg-2); }
+    .docs-bar {
+      display: flex; align-items: center; gap: 10px; flex: 0 0 auto;
+      height: 52px; padding: 0 16px 0 28px; border-bottom: 1px solid var(--border);
+    }
+    .docs-bar .ghost-btn { width: auto; }
+    .docs-nav-toggle { display: none; }
+    .docs-crumb { font-size: var(--fs-sm); color: var(--muted); white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+    .docs-bar-spacer { flex: 1 1 auto; }
+    .docs-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; scroll-behavior: auto; }
+    .docs-article {
+      max-width: 760px; margin: 0 auto; padding: 30px 40px 12px;
+      font-size: 14px; line-height: 1.68; color: var(--text);
+    }
+    .docs-article h1 {
+      margin: 0 0 6px; font-size: 28px; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em;
+    }
+    .docs-article h1 + p { font-size: 15px; color: var(--muted); margin-top: 6px; }
+    .docs-article h2 {
+      margin: 38px 0 10px; padding-top: 22px; border-top: 1px solid var(--border);
+      font-size: 19px; line-height: 1.3; font-weight: 650; letter-spacing: -0.01em;
+    }
+    .docs-article h3 { margin: 26px 0 8px; font-size: 15px; font-weight: 650; }
+    .docs-article h2, .docs-article h3 { scroll-margin-top: 12px; position: relative; }
+    .docs-anchor {
+      margin-left: 8px; color: var(--muted); text-decoration: none; opacity: 0;
+      font-weight: 400; transition: opacity var(--t-fast);
+    }
+    .docs-article h2:hover .docs-anchor, .docs-article h3:hover .docs-anchor, .docs-anchor:focus { opacity: .7; }
+    .docs-flash { animation: docsFlash 1.4s ease-out; }
+    @keyframes docsFlash { 0% { color: var(--accent-bright); } 100% { color: inherit; } }
+    .docs-article p { margin: 10px 0; }
+    .docs-article ul, .docs-article ol { margin: 10px 0; padding-left: 22px; }
+    .docs-article li { margin: 5px 0; }
+    .docs-article li > ul, .docs-article li > ol { margin: 4px 0; }
+    .docs-article ol > li::marker { color: var(--accent-bright); font-weight: 650; }
+    .docs-article a { color: var(--accent-bright); text-decoration: none; }
+    .docs-article a:hover { text-decoration: underline; }
+    .docs-article strong { font-weight: 650; color: var(--text); }
+    .docs-article code {
+      font: 12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px;
+    }
+    .docs-pre {
+      margin: 12px 0; padding: 12px 14px; overflow-x: auto;
+      background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-sm);
+    }
+    .docs-pre code { background: none; border: 0; padding: 0; }
+    .docs-note {
+      margin: 16px 0; padding: 10px 14px; border-radius: var(--r-sm);
+      background: var(--accent-dim); border-left: 3px solid var(--accent);
+    }
+    .docs-note p { margin: 4px 0; }
+    .docs-muted { color: var(--muted); font-size: var(--fs-sm); margin-top: -2px !important; }
+    .docs-table-wrap { overflow-x: auto; margin: 14px 0; border: 1px solid var(--border); border-radius: var(--r-sm); }
+    .docs-table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.5; }
+    .docs-table th {
+      text-align: left; font-size: var(--fs-xs); font-weight: 650; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .06em; background: var(--bg); padding: 8px 12px;
+    }
+    .docs-table td { padding: 8px 12px; border-top: 1px solid var(--border); vertical-align: top; }
+    .docs-keys { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 13px; }
+    .docs-keys td { padding: 7px 10px 7px 0; border-top: 1px solid var(--border); vertical-align: top; }
+    .docs-keys tr:first-child td { border-top: 0; }
+    .docs-keys td.docs-keys-k { width: 210px; white-space: normal; }
+    .docs-sc { white-space: nowrap; }
+    .docs-icon { width: 15px; height: 15px; vertical-align: -3px; color: var(--text); }
+    .docs-missing { color: var(--danger); }
+    .docs-article hr { border: 0; border-top: 1px solid var(--border); margin: 26px 0; }
+    .docs-pagenav {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+      max-width: 760px; margin: 18px auto 40px; padding: 0 40px;
+    }
+    .docs-pagenav a {
+      display: flex; flex-direction: column; gap: 2px; padding: 12px 14px;
+      border: 1px solid var(--border); border-radius: var(--r-sm);
+      color: var(--text); text-decoration: none; font-weight: 600; font-size: var(--fs-md);
+    }
+    .docs-pagenav a span { font-size: var(--fs-2xs); color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: .1em; }
+    .docs-pagenav a:hover { border-color: var(--accent); }
+    .docs-page-next { text-align: right; grid-column: 2; }
+    @media (max-width: 860px) {
+      .docs-view { padding: 0; }
+      .docs-shell { grid-template-columns: minmax(0, 1fr); border-radius: 0; border: 0; position: relative; }
+      .docs-nav {
+        position: absolute; inset: 52px 0 0 0; z-index: 2; display: none;
+        border-right: 0; box-shadow: var(--shadow-2);
+      }
+      .docs-view.nav-open .docs-nav { display: flex; }
+      .docs-nav-toggle { display: inline-flex; }
+      .docs-bar { padding-left: 12px; }
+      .docs-article { padding: 22px 18px 8px; }
+      .docs-pagenav { padding: 0 18px; }
+      .docs-keys td.docs-keys-k { width: 42%; }
+    }

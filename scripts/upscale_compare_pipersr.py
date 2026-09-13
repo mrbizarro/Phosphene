@@ -64,9 +64,16 @@ def probe_video(path: Path) -> dict:
 
 
 def target_for_mode(width: int, height: int, mode: str) -> tuple[int, int, str]:
+    """The export canvas for a mode, the same three the panel's `upscale` field
+    accepts (`off` never reaches here). `fit_1080p` was missing: the panel hands
+    `run_pipersr_tracked` whatever `upscale` the job carried, and docs/API.md
+    lists fit_1080p as a value, so a Sharp export at 1080p died here with
+    "Unsupported upscale mode" after the whole render (2026-09-09)."""
     mode = (mode or "fit_720p").strip().lower()
     if mode == "x2":
         return width * 2, height * 2, "up2x"
+    if mode in ("fit_1080p", "1080p"):
+        return (1920, 1080, "1080p") if width >= height else (1080, 1920, "v1080p")
     if mode not in ("fit_720p", "720p"):
         raise SystemExit(f"Unsupported upscale mode for PiperSR compare: {mode}")
     if width >= height:
@@ -248,7 +255,7 @@ def main() -> int:
     ap.add_argument("--pix-fmt", default="yuv420p")
     ap.add_argument("--preset", default="medium")
     ap.add_argument("--keep-work", action="store_true")
-    ap.add_argument("--mode", default="fit_720p", choices=("fit_720p", "x2"))
+    ap.add_argument("--mode", default="fit_720p", choices=("fit_720p", "fit_1080p", "x2"))
     ap.add_argument("--pipersr-only", action="store_true")
     ap.add_argument("--output", type=Path, default=None)
     args = ap.parse_args()

@@ -38,6 +38,17 @@ def test_shot_with_still_becomes_anchored_i2v():
     assert j["i2v_reference_mode"] == "anchor"
 
 
+def test_h3_shot_with_still_starts_from_it_when_the_runner_has_first_frame():
+    shot = {"n": 6, "mode": "text", "prompt": "x", "still": "/tmp/s.png", "duration_s": 5}
+    policy = {"quality": "quick", "width": 640, "height": 384}
+    j = sb.shot_to_job(shot, policy, h3_available=True, engine_mode="h3", h3_first_frame=True)
+    assert j["engine"] == "h3" and j["mode"] == "i2v" and j["image"] == "/tmp/s.png"
+    # A runner without --first-frame cannot honour the still: the shot stays text-only
+    # rather than fail on an unknown flag.
+    j2 = sb.shot_to_job(shot, policy, h3_available=True, engine_mode="h3", h3_first_frame=False)
+    assert j2["engine"] == "h3" and j2["mode"] == "t2v" and "image" not in j2
+
+
 def test_shot_without_still_stays_t2v():
     j = sb.shot_to_job({"n": 1, "mode": "text", "prompt": "x", "duration_s": 4},
                        {"quality": "balanced"}, h3_available=False)

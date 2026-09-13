@@ -179,6 +179,10 @@ window.SBE = {
   // wrong one every time Enter is pressed.
   renaming: '',
   sel: '', playhead: 0, playing: false, curId: '', pps: 42,
+  // THE REST OF THE SELECTION. `sel` is the primary — the one clip the
+  // inspector, the preview and the strip player mean — and `selSet` is every
+  // clip the verbs act on, always including `sel`. See sbeSelNormalise.
+  selSet: [],
   undo: [], redo: [], errors: {}, sentOrder: [],
   // THE ONE NOTICE SURFACE. `noticeLead` is the chip the user clicked open,
   // `backupHidden` is "Later" on the recovery offer (this session, this
@@ -3064,6 +3068,283 @@ function sbeOvDeleteSel() {
   if (ok) { SBE.ovSel = ''; sbePaint(); }
 }
 
+// ---------------------------------------------------------------------------
+// THE SELECTION — one clip, or several
+// ---------------------------------------------------------------------------
+// "You should be able to select, hit Shift, and select multiple clips and move
+// them together. It's very important."
+//
+// `SBE.sel` STAYS A SINGLE ID and it stays the PRIMARY: fifty-odd call sites
+// read it, and the inspector, the strip player and the preview all mean "the
+// one clip whose properties are on screen" by it. `SBE.selSet` is the FULL
+// selection, and the invariant is that it always contains `SBE.sel`.
+//
+// That invariant is enforced in ONE place — `sbeSelNormalise`, at the top of
+// `sbePaint` — and not at every assignment. A lift, a duplicate, a resync, a
+// retake and a dozen other paths write `SBE.sel = …` directly; a set that has
+// to be updated by hand at each of them is a set that is stale by the next
+// feature. So anything that points `SBE.sel` at a clip outside the set
+// COLLAPSES the selection to that clip, which is the correct behaviour at
+// every one of those call sites and costs none of them a line.
+function sbeSelNormalise() {
+  const live = {};
+  for (const c of SBE.clips || []) live[String(c.id)] = true;
+  let s = (SBE.selSet || []).filter(id => live[String(id)]);
+  if (!SBE.sel || !live[String(SBE.sel)]) s = [];
+  else if (s.indexOf(String(SBE.sel)) < 0) s = [String(SBE.sel)];
+  SBE.selSet = s;
+  return s;
+}
+
+// Every selected clip, in TIMELINE order — which is the order every group verb
+// needs. A ripple delete running right-to-left would slide the film out from
+// under its own next victim, and a group move reads its boundaries in order.
+function sbeSelIds() {
+  const s = sbeSelNormalise();
+  if (s.length < 2) return s.slice();
+  const pos = {};
+  (SBE.clips || []).forEach((c, i) => { pos[String(c.id)] = i; });
+  return s.slice().sort((a, b) => sbeNum(pos[a]) - sbeNum(pos[b]));
+}
+
+function sbeSelCount() { return sbeSelNormalise().length; }
+function sbeSelMap() {
+  const m = {};
+  for (const id of sbeSelNormalise()) m[String(id)] = true;
+  return m;
+}
+function sbeSelHas(id) { return !!sbeSelMap()[String(id)]; }
+
+// The selected clips themselves, primary first — what the clip bar reads to
+// decide what its buttons say.
+function sbeSelClips() {
+  return sbeSelIds().map(id => sbeById(SBE.clips, id)).filter(Boolean);
+}
+
+function sbeSelectOne(id) {
+  SBE.sel = String(id || '');
+  SBE.selSet = SBE.sel ? [SBE.sel] : [];
+}
+
+// ⌘-click: add one, or take one out. Taking out the PRIMARY hands the role to
+// whatever is left, so the inspector never goes blank over a live selection —
+// and ⌘-clicking the last one standing is a no-op rather than a way to end up
+// with an empty selection you did not ask for.
+function sbeSelectToggle(id) {
+  const want = String(id || '');
+  if (!want) return;
+  const set = sbeSelIds();
+  const i = set.indexOf(want);
+  if (i < 0) { set.push(want); SBE.sel = want; }
+  else if (set.length > 1) {
+    set.splice(i, 1);
+    if (String(SBE.sel) === want) SBE.sel = set[0];
+  } else return;
+  SBE.selSet = set;
+}
+
+// Shift-click: everything from the anchor to here, the range every list in
+// every program answers to. THE ANCHOR DOES NOT MOVE — shift-clicking a third
+// clip extends from where the first click landed, which is what makes a range
+// feel like a range instead of like a pair.
+function sbeSelectRange(id) {
+  const order = (SBE.clips || []).map(c => String(c.id));
+  const a = order.indexOf(String(SBE.sel));
+  const b = order.indexOf(String(id));
+  if (a < 0 || b < 0) { sbeSelectOne(id); return; }
+  SBE.selSet = order.slice(Math.min(a, b), Math.max(a, b) + 1);
+  SBE.sel = order[a];
+}
+
+function sbeSelectAll() {
+  const order = (SBE.clips || []).map(c => String(c.id));
+  if (!order.length) return;
+  SBE.selSet = order;
+  if (order.indexOf(String(SBE.sel)) < 0) SBE.sel = order[0];
+  SBE.ovSel = ''; SBE.txSel = '';
+  sbePaint();
+}
+
+function sbeSelectNone() {
+  SBE.sel = ''; SBE.selSet = []; SBE.ovSel = ''; SBE.txSel = '';
+  sbePaint();
+}
+
+// ONE UNDO STEP FOR ONE GESTURE. Pressing Ripple delete with four clips
+// selected is ONE thing the user did, so ⌘Z has to take back one thing — four
+// `sbeMutate` calls would leave four steps on the stack and a person pressing
+// undo once to find three quarters of his shots still gone.
+//
+// A per-clip refusal does NOT abort the rest, and it is reported. Locking is
+// per clip, so a selection holding one locked shot should still mute the other
+// three and say which one it could not touch; refusing the whole gesture over
+// one member would make a multi-selection unusable the moment anything in it
+// was pinned.
+function sbeMutateEach(ids, fn) {
+  const list = (ids || []).slice();
+  if (!list.length) return false;
+  const before = sbeSnapshot();
+  let done = 0;
+  const why = [];
+  for (const id of list) {
+    const res = fn(SBE.clips, id);
+    if (!res || res.ok === false) { if (res && res.why) why.push(String(res.why)); continue; }
+    SBE.clips = res.clips;
+    if (res.transitions) SBE.transitions = res.transitions;
+    done++;
+  }
+  if (!done) {
+    // NOTHING LANDED, SO NOTHING IS KEPT. The refusals ran against the live
+    // array — most model functions work in place and hand back the array they
+    // were given — so the snapshot goes back rather than being trusted to be
+    // untouched. A refusal that half-wrote would otherwise ride out on the
+    // next paint with no undo step behind it.
+    sbeRestore(before);
+    phosToast(why[0] || 'Nothing on this selection could take that.', {});
+    sbePaint();
+    return false;
+  }
+  SBE.undo.push(before);
+  if (SBE.undo.length > SBE_UNDO_MAX) SBE.undo.shift();
+  SBE.redo.length = 0;
+  SBE.transitions = sbeTxPrune(SBE.transitions || [], SBE.clips);
+  SBE.dirty = true;
+  sbeSetState('unsaved changes', 'dirty');
+  if (why.length) {
+    phosToast(why.length + ' of ' + list.length + ' were left as they were — '
+              + why[0], { duration: 6000 });
+  }
+  sbePaint();
+  sbeQueueSave();
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// MOVING SEVERAL CLIPS AT ONCE
+// ---------------------------------------------------------------------------
+// The layout model is GAPS, not positions (see `sbeLayout`), and that is what
+// makes a group move exact rather than a simulation. Slide a set of clips by
+// `d` and leave everything else where it is: the only gaps that change are the
+// ones on a BOUNDARY between a clip that is moving and a clip that is not, and
+// each of those changes by exactly ±d. So the legal range of d is closed-form
+// — the intersection of "no gap goes negative" over every boundary — which is
+// the same clamp a single-clip move already applies at its two neighbours,
+// written once for any number of clips.
+//
+// Relative spacing is therefore preserved by construction, including the holes
+// inside the selection: nothing is re-packed, so a selection with a deliberate
+// two-second hole in it arrives with the hole still two seconds.
+function sbeGroupLimits(clips, ids) {
+  const sel = {};
+  for (const id of ids || []) sel[String(id)] = true;
+  const list = clips || [];
+  let lo = -Infinity, hi = Infinity;
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i];
+    const prev = i > 0 ? list[i - 1] : null;
+    // The film's own head is a boundary that never moves, which is why the
+    // i === 0 case needs no special term: its gap is `film_start - 0`, and
+    // the rule below already says that gap may not go negative.
+    const gap = sbeNum(c.film_start) - (prev ? sbeNum(prev.film_end) : 0);
+    const k = (sel[String(c.id)] ? 1 : 0) - ((prev && sel[String(prev.id)]) ? 1 : 0);
+    if (k > 0) lo = Math.max(lo, -gap);
+    else if (k < 0) hi = Math.min(hi, gap);
+  }
+  return { lo: lo, hi: hi };
+}
+
+function sbeMoveGroup(clips, ids, delta) {
+  const list = clips || [];
+  const sel = (ids || []).map(String);
+  if (!sel.length) return { clips: list, ok: false, why: 'gone' };
+  for (const id of sel) {
+    const c = sbeById(list, id);
+    if (!c) return { clips: list, ok: false, why: 'gone' };
+    if (c.locked) return { clips: list, ok: false, why: 'locked' };
+  }
+  const lim = sbeGroupLimits(list, sel);
+  const d = sbeRound(Math.max(lim.lo, Math.min(lim.hi, sbeNum(delta))));
+  const mark = sbeSyncMark(list);
+  const set = {};
+  for (const id of sel) set[id] = true;
+  // Every clip's gap is restated from where it actually IS, so the pass is
+  // exact whatever `_gap` happens to be carrying, and then the boundary terms
+  // are applied on top. One layout pass places the result.
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i];
+    const prev = i > 0 ? list[i - 1] : null;
+    const gap = sbeNum(c.film_start) - (prev ? sbeNum(prev.film_end) : 0);
+    const k = (set[String(c.id)] ? 1 : 0) - ((prev && set[String(prev.id)]) ? 1 : 0);
+    c._gap = Math.max(0, sbeRound(gap + k * d));
+  }
+  sbeLayout(list);
+  // THE SOUND COMES TOO, and this is the one place the rule differs from a
+  // single-clip drag. Dragging one picture deliberately leaves its strip
+  // behind — that is how a J-cut is made. Sliding a BLOCK is not that gesture:
+  // it is "put these four shots a second later", and a strip left behind would
+  // be a sync error nobody asked for. Carrying also preserves any J-cut
+  // already inside the selection, because it moves every strip by the same d.
+  sbeSyncCarry(list, mark, []);
+  for (const id of sel) { const c = sbeById(list, id); if (c) c.source = 'human'; }
+  return { clips: list, ok: true, moved: d };
+}
+
+// Closing a hole, which is what a right-click on one offers. The clip that
+// OPENS after the hole loses the gap in front of it and everything behind it
+// slides by exactly that much — the only reading of "close the gap" that
+// leaves the rest of the cut intact.
+function sbeCloseGapAt(t) {
+  const holes = sbeHoles(SBE.clips) || [];
+  const at = sbeNum(t);
+  const h = holes.find(g => at >= sbeNum(g.film_start) - 1e-6
+                         && at <= sbeNum(g.film_end) + 1e-6);
+  if (!h) { phosToast('No hole there.', {}); return false; }
+  return sbeMutate(cs => {
+    const mark = sbeSyncMark(cs);
+    let after = null;
+    for (const c of cs) {
+      if (sbeNum(c.film_start) >= sbeNum(h.film_end) - 1e-3) { after = c; break; }
+    }
+    if (!after) return { clips: cs, ok: false, why: 'nothing follows that hole' };
+    if (after.locked) return { clips: cs, ok: false, why: 'locked' };
+    for (let i = 0; i < cs.length; i++) {
+      const prev = i > 0 ? cs[i - 1] : null;
+      cs[i]._gap = Math.max(0, sbeRound(sbeNum(cs[i].film_start)
+                                        - (prev ? sbeNum(prev.film_end) : 0)));
+    }
+    after._gap = 0;
+    sbeLayout(cs);
+    // A CLOSE IS A HEAL, NOT A DRAG, so the sound travels with the pictures
+    // it belongs to — the same reasoning `sbeAdoptGaps` gives for the
+    // sub-frame version of exactly this operation.
+    sbeSyncCarry(cs, mark, []);
+    return { clips: cs, ok: true };
+  });
+}
+
+// One frame at a time, on whatever is selected. Every NLE has this and this
+// one did not: the arrow keys moved the PLAYHEAD and there was no gesture at
+// all for "a hair later", short of dragging at a zoom high enough to see a
+// frame. Alt is the modifier because the bare arrows are the playhead's and
+// have to stay the playhead's.
+function sbeNudge(dir, big) {
+  const ids = sbeSelIds();
+  if (!ids.length) return;
+  const d = ((big ? 10 : 1) * (dir < 0 ? -1 : 1)) / sbeFps();
+  const lim = sbeGroupLimits(SBE.clips, ids);
+  if (Math.abs(Math.max(lim.lo, Math.min(lim.hi, d))) < 1e-6) {
+    // SAY IT RATHER THAN BURN A REVISION. A clamped move produces no change,
+    // and `sbeMutate` would still stamp the document dirty, push an undo step
+    // that undoes nothing and queue a save — on every repeat of a held key.
+    phosToast(dir < 0
+      ? 'Already hard against what comes before it — nothing to give.'
+      : 'Already hard against what comes after it — nothing to give.',
+      { duration: 5000 });
+    return;
+  }
+  sbeMutate(cs => sbeMoveGroup(cs, ids, d));
+}
+
 function sbeMutate(fn) {
   const before = sbeSnapshot();
   const res = fn(SBE.clips);
@@ -3962,6 +4243,10 @@ function sbePx(t) { return sbeNum(t) * SBE.pps; }
 
 function sbePaint() {
   if (!SBE.open) return;
+  // THE SELECTION'S INVARIANT, ENFORCED IN ONE PLACE. Everything downstream —
+  // the track, the strips, the clip bar, the inspector — reads the set, and
+  // this is the only line that repairs it. See sbeSelNormalise.
+  sbeSelNormalise();
   const span = sbeSpan();
   // NEVER FURTHER OUT THAN "THE WHOLE FILM". The floor moves with the window
   // and with the film's length, so widening the window re-fits instead of
@@ -3985,6 +4270,7 @@ function sbePaint() {
   sbePaintTrack();
   sbePaintAudioLane();
   sbePaintHead();
+  sbePaintCbar();
   sbePaintInspector();
   sbePaintHeads();
   sbePaintMix();
@@ -4754,6 +5040,10 @@ function sbePaintMix() {
 function sbePaintTrack() {
   const track = sbeEl('sbeTrack');
   const holes = sbeHoles(SBE.clips);
+  // ONE LOOKUP FOR THE WHOLE LOOP. `sbeSelHas` normalises and sorts on every
+  // call, which is nothing once and O(n^2) inside a sixty-clip paint.
+  const selMap = sbeSelMap();
+  const selN = sbeSelCount();
   // THE MESSAGE BELONGS WHERE THE EMPTINESS IS. This sentence used to live in
   // the inspector, which is a short auto-scrolled box in the corner — so on a
   // brand-new draft the user read "…media pool to put it here, or Add black
@@ -4786,7 +5076,8 @@ function sbePaintTrack() {
           // un-scrubbable would be advice to run a Prepare that would do
           // nothing.
           : (kind === 'video' && !c.proxy ? 'slow' : '')));
-    const cls = 'sbe-clip is-' + kind + (c.id === SBE.sel ? ' is-sel' : '')
+    const cls = 'sbe-clip is-' + kind + (selMap[String(c.id)] ? ' is-sel' : '')
+              + ((selN > 1 && String(c.id) === String(SBE.sel)) ? ' is-primary' : '')
               + (c.id === SBE.curId ? ' is-playing' : '')
               + (bad ? ' is-bad' : '') + (c.locked ? ' is-locked' : '')
               + (Math.abs(bright) >= 1e-6 ? ' is-graded' : '')
@@ -4915,6 +5206,7 @@ function sbeSyncBadge(c) {
 function sbePaintAudioLane() {
   const lane = sbeEl('sbeAudioLane');
   if (!lane) return;
+  const aSelMap = sbeSelMap();
   let html = '';
   for (const c of SBE.clips) {
     if (sbeKind(c) !== 'video') continue;
@@ -4934,7 +5226,7 @@ function sbePaintAudioLane() {
               + (w.coupled ? ' is-coupled' : '')
               + (mute ? ' is-mute' : '')
               + (off ? ' is-silenced' : '')
-              + (c.id === SBE.sel ? ' is-sel' : '');
+              + (aSelMap[String(c.id)] ? ' is-sel' : '');
     // ONE WORD, EIGHT TIMES, IN A 26PX STRIP. The label is only news when the
     // sound has been pulled off its picture — the lane's own fill says the
     // rest, and a column of identical labels says nothing at all. A COUPLED
@@ -4949,11 +5241,11 @@ function sbePaintAudioLane() {
                 : (w.linked ? '' : ('sound · ' + w.len.toFixed(2) + 's'))));
     html += '<div class="' + cls + '" data-id="' + escapeHtml(c.id) + '" '
           + 'title="' + escapeHtml(off
-              ? 'Muted — this clip\'s own sound is switched off in the preview, the render and the export. Unmute it in the inspector.'
+              ? 'Muted — this clip\'s own sound is switched off in the preview, the render and the export. Unmute sound, on the bar above the tracks.'
               : w.coupled
               ? 'Linked at ' + sbeDriftLabel(sbeAudioDrift(c)) + ' — the sound keeps this offset and travels with the picture. Unlink it to slide it on its own.'
               : (w.linked
-              ? 'This clip\'s sound moves with its picture. Unlink it in the inspector to slide it under the neighbour (a J-cut or an L-cut).'
+              ? 'This clip\'s sound moves with its picture. Unlink sound, on the bar above the tracks, to slide it under the neighbour (a J-cut or an L-cut).'
               : 'Unlinked — drag to slide the sound, pull either end to trim it. The picture does not move.')) + '" '
           + 'style="left:' + x.toFixed(1) + 'px;width:' + Math.max(2, px).toFixed(1) + 'px">'
           + (mute ? '' : sbeStripWave(c, w, px))
@@ -5529,30 +5821,43 @@ function sbeAddPointAtPlayhead() {
   sbeMutate(() => ({ clips: r.clips, ok: true }));
 }
 
+// "MAYBE SOME KIND OF DELETE BUTTON FOR THE ANCHORS OF THE AUDIO." The dots
+// on the yellow level line are the only anchors a person PLACES on a sound,
+// and the two ways to take them off were a right-click on each one and a
+// "Clear 4" button that appeared and disappeared in the rail. This is that
+// button, on the clip bar, over the whole selection.
 function sbeClearPoints() {
-  const c = sbeById(SBE.clips, SBE.sel);
-  if (!c) return;
-  sbeMutate(cs => sbeAfxWrite(cs, c.id, []));
+  const ids = sbeSelIds().filter(x => {
+    const c = sbeById(SBE.clips, x);
+    return c && sbeAfx(c, sbeClipAudio(c).len).points.length;
+  });
+  if (!ids.length) return;
+  const n = ids.reduce((a, x) => {
+    const c = sbeById(SBE.clips, x);
+    return a + sbeAfx(c, sbeClipAudio(c).len).points.length;
+  }, 0);
+  const ok = (ids.length === 1)
+    ? sbeMutate(cs => sbeAfxWrite(cs, ids[0], []))
+    : sbeMutateEach(ids, (cs, x) => sbeAfxWrite(cs, x, []));
+  if (ok) {
+    phosToast(n + ' level point' + (n === 1 ? '' : 's') + ' removed. The '
+              + 'fades are untouched — those are the corner handles.',
+              { duration: 6000 });
+  }
 }
 
 // THE LEGEND, in one function, because it is the only thing that tells a new
 // user what the gestures are and it has to be true. The Keys chip renders it.
+//
+// THE ROWS ARE NOT HERE ANY MORE. They live in webapp/js/shortcuts.js — the
+// one table the Docs page, this popover and the tooltips all read — so the
+// keys a person is told about cannot drift from the keys the handler below
+// answers to (test_docs_and_shortcuts.py drives the real handler with every
+// row). This function only draws them.
 function sbeKeysLegend() {
-  const k = t => '<span class="sbe-kbd">' + t + '</span>';
-  return [
-    ['Drag', 'move a clip · handles to trim'],
-    [k('Space'), 'play / pause'],
-    [k('←') + k('→'), 'one frame'],
-    [k('S'), 'split at the playhead'],
-    [k('⌫'), 'ripple delete'],
-    [k('Alt'), 'held: ignore the beat grid'],
-    [k('Shift'), 'held: reorder instead of move'],
-    ['Levels', 'click the yellow line to add a point · drag it to set the '
-             + 'level · right-click it to remove · ' + k('Shift')
-             + '-click removes too'],
-    ['Sound', 'the music strip drags and trims like a clip'],
-    ['Timeline', 'drag its top edge for more height · double-click to reset'],
-  ].map(r => '<span class="sbe-key-row"><b>' + r[0] + '</b>' + r[1] + '</span>')
+  const rows = (typeof shortcutRows === 'function')
+    ? shortcutRows(['editor', 'editor-mouse'], 'sbe-kbd') : [];
+  return rows.map(r => '<span class="sbe-key-row"><b>' + r.keys + '</b>' + r.label + '</span>')
    .join('');
 }
 
@@ -5686,15 +5991,15 @@ function sbeOnAudioDown(ev) {
     sbePaint();
     phosToast(w.coupled
       ? 'This sound is linked to its picture at ' + sbeDriftLabel(sbeAudioDrift(c))
-        + ' and moves with it. Unlink it in the inspector to slide it on its own.'
-      : 'That clip\'s sound is linked to its picture. Unlink it in the '
-        + 'inspector to slide it under the neighbour.', { duration: 6000 });
+        + ' and moves with it. Press Unlink sound on the bar above the tracks to slide it on its own.'
+      : 'That clip\'s sound is linked to its picture. Press Unlink sound on '
+        + 'the bar above the tracks to slide it under the neighbour.', { duration: 6000 });
     return;
   }
   if (c.locked) {
     sbePaint();
-    phosToast('That shot is locked, so its sound is locked with it. Click '
-              + 'Unlock in the inspector.', { duration: 6000 });
+    phosToast('That shot is locked, so its sound is locked with it. Press '
+              + 'Unlock on the bar above the tracks.', { duration: 6000 });
     return;
   }
   const lane = sbeEl('sbeAudioLane');
@@ -5793,6 +6098,22 @@ function sbeToggleAudioLink() {
   if (!c) return;
   const w = sbeClipAudio(c);
   const drift = sbeAudioDrift(c);
+  const ids = sbeSelIds();
+  if (ids.length > 1) {
+    // THE PRIMARY'S STATE DECIDES FOR THE WHOLE SELECTION, for the same
+    // reason Lock converges: the button's own label reads "Unlink sound", and
+    // it has to mean that for every clip it was pressed over.
+    const want = !w.linked;
+    const ok = sbeMutateEach(ids, (cs, id) => sbeSetAudioLink(cs, id, want));
+    if (ok) {
+      phosToast(want
+        ? ids.length + ' strips unlinked — each one now drags and trims on '
+          + 'its own, under its own picture.'
+        : ids.length + ' strips re-linked — each one travels with its picture '
+          + 'again, keeping whatever offset it had.', { duration: 7000 });
+    }
+    return;
+  }
   const ok = sbeMutate(cs => sbeSetAudioLink(cs, c.id, !w.linked));
   if (!ok) return;
   phosToast(w.linked
@@ -5807,18 +6128,39 @@ function sbeToggleAudioLink() {
 }
 
 function sbeDeleteStripSel() {
-  const c = sbeById(SBE.clips, SBE.sel);
+  const ids = sbeSelIds();
+  if (!ids.length) return;
+  if (ids.length > 1) {
+    const ok = sbeMutateEach(ids, (cs, id) => sbeDeleteStrip(cs, id));
+    if (ok) {
+      phosToast('Sound removed from the selection — the pictures play silent '
+                + 'and none of them moved.', { duration: 7000 });
+    }
+    return;
+  }
+  const c = sbeById(SBE.clips, ids[0]);
   if (!c) return;
   const ok = sbeMutate(cs => sbeDeleteStrip(cs, c.id));
   if (!ok) return;
   phosToast('Sound removed — the picture plays silent and stays exactly where '
-            + 'it is. Unmute in Sound to bring it back.', { duration: 7000 });
+            + 'it is. Undo brings it back.', { duration: 7000 });
 }
 
 function sbeToggleClipMute() {
   const c = sbeById(SBE.clips, SBE.sel);
   if (!c) return;
   const on = !sbeClipMuted(c);
+  const ids = sbeSelIds();
+  if (ids.length > 1) {
+    const ok = sbeMutateEach(ids, (cs, id) => sbeSetClipMute(cs, id, on));
+    if (ok) {
+      phosToast(on
+        ? 'The selection is muted — their own sound is off in the preview, '
+          + 'the render and the export. The soundtrack is untouched.'
+        : 'The selection is unmuted.', { duration: 6000 });
+    }
+    return;
+  }
   const ok = sbeMutate(cs => sbeSetClipMute(cs, c.id, on));
   if (!ok) return;
   phosToast(on
@@ -5827,8 +6169,26 @@ function sbeToggleClipMute() {
     : 'Clip sound unmuted.', { duration: 6000 });
 }
 
-// THE REMATCH, from the flag on either half or from the inspector.
+// THE REMATCH, from the flag on either half, from the clip bar, or from the
+// inspector. An explicit `id` is a click on one flag and means that strip
+// alone; no id means the selection, which may be several.
 function sbeResyncSel(id) {
+  if (!id) {
+    const ids = sbeSelIds().filter(x => {
+      const c = sbeById(SBE.clips, x);
+      return c && sbeClipAudio(c).split && !sbeAudioInSync(c);
+    });
+    if (ids.length > 1) {
+      const ok = sbeMutateEach(ids, (cs, x) => sbeResyncAudio(cs, x));
+      if (ok) {
+        phosToast(ids.length + ' strips are back under their own pictures. '
+                  + 'They are still unlinked, so they can be moved again.',
+                  { duration: 6000 });
+      }
+      return;
+    }
+    if (ids.length === 1) id = ids[0];
+  }
   const who = id || SBE.sel;
   const c = sbeById(SBE.clips, who);
   if (!c) return;
@@ -5845,6 +6205,7 @@ function sbePaintHead() {
   const el = sbeEl('sbeHead');
   if (el) el.style.left = sbePx(SBE.playhead).toFixed(1) + 'px';
   sbeFollow();
+  sbeCbarPlayhead();
   const t = sbeEl('sbeTime');
   if (t) {
     t.innerHTML = escapeHtml(sbeFmtTime(SBE.playhead)) +
@@ -5860,6 +6221,13 @@ function sbePaintHead() {
 // panel is `position: fixed` and measured against the anchor, which is the
 // whole reason it can exist at all: an open menu must not push the workspace
 // around, the same rule the notice surface has always followed.
+// EVERY FIXED PANEL ON THIS SCREEN, in one list. It was written out twice —
+// close-all and any-open — so the clip bar's overflow and the track's context
+// menu would have been two more chances to add a panel that Escape and a
+// click elsewhere could not shut.
+const SBE_POPS = ['sbeRenderMenu', 'sbeMoreMenu', 'sbeKeysPop', 'sbeMusicMenu',
+                  'sbeCbarMenu', 'sbeCtxMenu'];
+
 function sbePopToggle(id, anchorId) {
   const el = sbeEl(id);
   if (!el) return;
@@ -5886,7 +6254,7 @@ function sbePopToggle(id, anchorId) {
 }
 
 function sbePopCloseAll(except) {
-  for (const id of ['sbeRenderMenu', 'sbeMoreMenu', 'sbeKeysPop', 'sbeMusicMenu']) {
+  for (const id of SBE_POPS) {
     if (id === except) continue;
     const el = sbeEl(id);
     if (el && !el.hidden) el.hidden = true;
@@ -5904,7 +6272,7 @@ function sbePopGlobal(ev) {
 }
 
 function sbePopAnyOpen() {
-  for (const id of ['sbeRenderMenu', 'sbeMoreMenu', 'sbeKeysPop', 'sbeMusicMenu']) {
+  for (const id of SBE_POPS) {
     const el = sbeEl(id);
     if (el && !el.hidden) return true;
   }
@@ -5942,6 +6310,388 @@ function sbePaintHeads() {
 function sbePaintKeys() {
   const el = sbeEl('sbeKeys');
   if (el && !el._done) { el.innerHTML = sbeKeysLegend(); el._done = 1; }
+}
+
+// ---------------------------------------------------------------------------
+// THE CLIP BAR
+// ---------------------------------------------------------------------------
+// ONE TABLE, THREE CONSUMERS. The bar above the tracks, the overflow panel it
+// spills into at narrow widths, and the right-click menu on the track all say
+// the same words about the same state, because they all read this. The
+// alternative — three sets of labels — is three chances for one of them to go
+// on offering a verb the model has stopped accepting, which is the defect the
+// inspector kept producing by hiding a control instead of explaining it.
+//
+// A DISABLED BUTTON IS A TEACHER. Every row that cannot fire carries a `why`
+// that says what would have to be true, because that is the sentence the
+// inspector could never carry: it dropped the button, and a control that is
+// not on screen reads as a feature that does not exist. "Delete sound" was
+// invisible on every linked clip, which is every clip, until you happened to
+// unlink one.
+// WHY SPLIT CANNOT FIRE, or '' when it can. Its own function because it is
+// the one row on the bar whose state follows the PLAYHEAD rather than the
+// selection — the selection has nothing to do with it, the same as in every
+// NLE — and the playhead moves without a full `sbePaint`, on every frame of
+// playback and every pixel of a scrub. So two callers share this: the full
+// paint, and the cheap per-frame refresh below.
+function sbeSplitWhy() {
+  const under = sbeClipAt(SBE.clips, SBE.playhead);
+  if (!under) {
+    return 'Put the playhead over a shot first — this cuts whatever is under '
+         + 'it into two.' + sbeKeyHint('editor.split');
+  }
+  if (under.locked) {
+    return 'The shot under the playhead is locked to its place. Unlock it to '
+         + 'cut it.';
+  }
+  const off = SBE.playhead - sbeNum(under.film_start);
+  if (off < SBE_MIN_CLIP || sbeLen(under) - off < SBE_MIN_CLIP) {
+    return 'The playhead is right on a cut — move it into the middle of a '
+         + 'shot to split it.' + sbeKeyHint('editor.split');
+  }
+  return '';
+}
+
+// THE ONE BUTTON THAT HAS TO KEEP UP WITH THE PLAYHEAD. `sbeSeek` and the
+// playback loop repaint the head and the time and deliberately NOT the rest of
+// the screen, which is why Split sat greyed out over the middle of a shot the
+// scrub had just landed in — the stale state lasted until the next real edit.
+// One element, one comparison, no layout read: safe to call per frame.
+function sbeCbarPlayhead() {
+  const el = sbeEl('sbeCbSplit');
+  if (!el) return;
+  const why = sbeSplitWhy();
+  const want = why || SBE_SPLIT_TITLE;
+  if (el.title !== want) el.title = want;
+  if (el.disabled !== !!why) el.disabled = !!why;
+}
+
+const SBE_SPLIT_TITLE = 'Cuts the shot under the playhead into two at the '
+  + 'playhead. Nothing moves and nothing is lost.' + sbeKeyHint('editor.split');
+
+function sbeCbarModel() {
+  const ids = sbeSelIds();
+  const n = ids.length;
+  const many = n > 1;
+  const c = sbeById(SBE.clips, SBE.sel);
+  const kind = c ? sbeKind(c) : '';
+  const vid = !!c && kind === 'video';
+  const w = c ? sbeClipAudio(c) : null;
+  const track = vid && c.has_audio !== false;
+  const split = !!(vid && w && w.split);
+  const drift = c ? sbeAudioDrift(c) : 0;
+  const pts = (c && w) ? sbeAfx(c, w.len).points.length : 0;
+  const some = many ? ('all ' + n + ' shots') : 'this shot';
+  const splitWhy = sbeSplitWhy();
+  const pick = 'Click a shot on the track. Shift-click a second one to take '
+             + 'the range between them, ⌘-click to add or drop one.';
+  const noSel = (!n && SBE.ovSel) ? 'A title or card is selected, not a shot '
+                  + '— its own controls are in the panel on the right, and '
+                  + '⌫ removes it. ' + pick
+              : ((!n && SBE.txSel) ? 'A cut is selected, not a shot — set its '
+                  + 'transition in the panel on the right. ' + pick
+                 : pick);
+  const rows = [
+    { id: 'sbeCbSplit', act: 'sbeSplitHere()', label: 'Split',
+      why: splitWhy,
+      title: SBE_SPLIT_TITLE },
+    { id: 'sbeCbLift', act: 'sbeLiftSelected()', label: 'Lift',
+      why: n ? '' : noSel,
+      title: 'Takes ' + some + ' out and LEAVES the hole, so nothing after '
+             + 'it moves.' + sbeKeyHint('editor.lift') },
+    { id: 'sbeCbRipple', act: 'sbeRippleSelected()', label: 'Ripple delete',
+      why: n ? '' : noSel,
+      title: 'Takes ' + some + ' out and CLOSES the gap — everything after '
+             + 'slides earlier and the film gets shorter.' + sbeKeyHint('editor.ripple') },
+    { id: 'sbeCbDup', act: 'sbeDuplicateSel()', label: 'Duplicate',
+      why: n ? '' : noSel,
+      title: (many ? 'Each selected shot again, right behind itself'
+                   : 'The same shot again, right after this one')
+             + ' — window, speed, fades and grade included. Everything after '
+             + 'it slides.' + sbeKeyHint('editor.duplicate') },
+    // THE SOUND GROUP. Link and Resync are adjacent on purpose: the thing
+    // that is hard to hold in your head is the difference between them, and
+    // side by side both tooltips can say it.
+    { id: 'sbeCbLink', act: 'sbeToggleAudioLink()',
+      icon: (split && !w.linked) ? '#ic-link' : '#ic-unlink',
+      label: !vid ? 'Unlink sound'
+             : (w.linked ? 'Unlink sound'
+                : (sbeAudioIsThePicture(c) ? 'Re-link sound' : 'Link sound')),
+      why: !n ? noSel : (!vid ? 'Only a video clip has sound of its own — a '
+                                + 'still and a black slug have none to unlink.'
+                         : ''),
+      title: (w && w.linked)
+        ? 'Frees ' + (many ? 'their' : 'this clip\'s') + ' sound from the '
+          + 'picture so you can slide it under the shot before or after — the '
+          + 'J-cut and the L-cut. The picture does not move.' + sbeKeyHint('editor.link')
+        : ((c && sbeAudioIsThePicture(c))
+           ? 'Puts the sound back under its own picture and keeps the two '
+             + 'together from here.' + sbeKeyHint('editor.link')
+           : 'Keeps the ' + sbeDriftLabel(drift) + ' offset you made and '
+             + 'makes the pair travel together from here. Resync is the '
+             + 'button that puts it back under its own frame.' + sbeKeyHint('editor.link')) },
+    { id: 'sbeCbResync', act: 'sbeResyncSel()', label: 'Resync sound',
+      why: !n ? noSel
+           : (!split ? (w && w.linked
+                        ? 'This sound travels with its picture, so it cannot '
+                          + 'be out of sync. Unlink it first.'
+                        : 'This clip has no sound of its own.')
+              : (sbeAudioInSync(c)
+                 ? 'The sound is already under its own picture.' : '')),
+      title: 'Slides the sound back to where its own picture plays it — it is '
+             + sbeDriftLabel(drift) + ' out. The trim you gave it is kept and '
+             + 'it stays unlinked, so it can be moved again.' + sbeKeyHint('editor.resync') },
+    { id: 'sbeCbMute', act: 'sbeToggleClipMute()',
+      icon: (c && sbeClipMuted(c)) ? '#ic-sound' : '#ic-mute',
+      label: (c && sbeClipMuted(c)) ? 'Unmute sound' : 'Mute sound',
+      on: !!(c && sbeClipMuted(c)),
+      why: !n ? noSel : (!track ? 'This clip has no sound of its own to '
+                                  + 'switch off.' : ''),
+      title: (c && sbeClipMuted(c))
+        ? 'Lets ' + (many ? 'their' : 'this clip\'s') + ' own sound play '
+          + 'again.'
+        : 'Switches ' + (many ? 'their' : 'this clip\'s') + ' own sound off — '
+          + 'in the preview, the render and the export. The strip stays where '
+          + 'it is and the soundtrack is not affected.' },
+    { id: 'sbeCbDelSound', act: 'sbeDeleteStripSel()', label: 'Delete sound',
+      why: !n ? noSel
+           : (!split ? 'Unlink the sound first. On a clip whose sound is '
+                       + 'still attached to its picture, removing it and '
+                       + 'muting it would be the same button twice.' : ''),
+      title: 'Removes ' + (many ? 'their' : 'this clip\'s') + ' sound. The '
+             + 'picture keeps playing, silent, and does not move. Undo brings '
+             + 'it back.' },
+    { id: 'sbeCbPoints', act: 'sbeClearPoints()', label: 'Clear points',
+      why: !n ? noSel
+           : (!pts ? 'This sound has no level anchors on it. Click the yellow '
+                     + 'line on a strip — or double-click the strip — to put '
+                     + 'one down.' : ''),
+      title: 'Deletes the level anchors — the dots on the yellow line — from '
+             + (many ? 'every selected strip' : 'this strip') + '. The corner '
+             + 'fades are not points and are left alone.' },
+    { id: 'sbeCbLock', act: 'sbeToggleLock()',
+      icon: (c && c.locked) ? '#ic-unlock' : '#ic-lock',
+      label: (c && c.locked) ? 'Unlock' : 'Lock',
+      on: !!(c && c.locked),
+      why: n ? '' : noSel,
+      title: (c && c.locked)
+        ? 'Lets ' + some + ' move and trim again.'
+        : 'Pins ' + some + ' to its place on the film — everything else '
+          + 'flows around it, and it cannot be dragged or trimmed until it '
+          + 'is unlocked.' },
+  ];
+  // The one readout that makes the rest of the row legible.
+  let who = 'Nothing selected';
+  if (many) who = n + ' clips selected';
+  else if (c) {
+    who = (kind === 'slug') ? 'Black'
+      : sbeNiceName(c.title || String(c.path || '').split('/').pop() || 'clip');
+  } else if (SBE.ovSel) who = 'Title or card selected';
+  else if (SBE.txSel) who = 'Cut selected';
+  return { rows: rows, who: who, count: n, many: many, whoWhy: noSel };
+}
+
+// Apply the table to the row. Labels, tooltips, icons and the disabled state
+// — and nothing is added or removed, which is what lets the overflow below
+// move these very elements around without any of them losing a handler.
+function sbePaintCbar() {
+  const bar = sbeEl('sbeCbar');
+  if (!bar) return;
+  const m = sbeCbarModel();
+  const who = sbeEl('sbeCbarWho');
+  if (who) {
+    who.textContent = m.who;
+    who.title = m.whoWhy;
+    who.classList.toggle('is-many', m.many);
+  }
+  for (const r of m.rows) {
+    const el = sbeEl(r.id);
+    if (!el) continue;
+    const lab = el.querySelector('b');
+    if (lab && lab.textContent !== r.label) lab.textContent = r.label;
+    el.disabled = !!r.why;
+    el.title = r.why || r.title;
+    el.classList.toggle('is-on', !!r.on);
+    if (r.icon) {
+      const use = el.querySelector('use');
+      if (use && use.getAttribute('href') !== r.icon) {
+        use.setAttribute('href', r.icon);
+      }
+    }
+  }
+  sbeCbarFit();
+}
+
+// The row's own order, stamped once, so a button that has been in the
+// overflow can be put back exactly where it came from. Without it the bar
+// slowly re-orders itself every time the pane is resized.
+function sbeCbarStamp(bar) {
+  if (bar.dataset.stamped) return;
+  let i = 0;
+  for (const kid of Array.prototype.slice.call(bar.children)) {
+    kid.dataset.ord = String(i++);
+  }
+  bar.dataset.stamped = '1';
+}
+
+// OVERFLOW, NOT WRAP. `flex-wrap` would answer a narrow pane by growing a
+// second row, and a second row pushes the tracks down the column — which
+// sbeFitMonitors then pays for out of the PICTURE, the one thing this screen
+// is for. So the bar measures itself and moves its tail into #sbeCbarMenu,
+// last button first, until what is left fits. Everything comes home when the
+// pane is widened: there is one copy of every control, never two.
+//
+// MEASURED, NOT GUESSED: the labels are words, the words change with the
+// state (Unlink → Link), and the pane's own width is a drag handle, so the
+// only number worth trusting is the one the browser just laid out. Gated on a
+// signature of that number and those words, because sbePaint runs on every
+// frame of a drag and of playback, and a forced reflow per frame is a
+// stutter.
+function sbeCbarFit(force) {
+  const bar = sbeEl('sbeCbar');
+  const pop = sbeEl('sbeCbarMenu');
+  const more = sbeEl('sbeCbMoreBtn');
+  if (!bar || !pop || !more) return;
+  if (!bar.clientWidth) return;               // the timeline is not on screen
+  sbeCbarStamp(bar);
+  const verbs = Array.prototype.slice.call(bar.children)
+    .concat(Array.prototype.slice.call(pop.children))
+    .filter(k => k.classList && k.classList.contains('sbe-cbar-btn')
+                 && k !== more)
+    .sort((a, b) => sbeNum(a.dataset.ord) - sbeNum(b.dataset.ord));
+  const sig = bar.clientWidth + '|' + verbs.map(v => v.textContent).join(',');
+  if (!force && bar.dataset.fit === sig) return;
+  bar.dataset.fit = sig;
+  // Home first, in the stamped order, so the measurement below is of the
+  // whole row and not of whatever was left after the last pass.
+  const home = Array.prototype.slice.call(bar.children)
+    .concat(Array.prototype.slice.call(pop.children))
+    .sort((a, b) => sbeNum(a.dataset.ord) - sbeNum(b.dataset.ord));
+  for (const kid of home) bar.appendChild(kid);
+  more.hidden = true;
+  if (window.matchMedia && window.matchMedia('(max-width: 900px)').matches) {
+    // Below the stacking breakpoint the page is the scroller, there is no
+    // column height to protect, and the CSS lets the bar wrap. Nothing to do.
+    return;
+  }
+  // The overflow button has to be paid for out of the row before anything is
+  // measured against it, or the last verb moves in and then does not fit.
+  const spill = [];
+  for (let guard = verbs.length; guard > 0; guard--) {
+    if (bar.scrollWidth <= bar.clientWidth + 1) break;
+    const last = verbs.pop();
+    if (!last) break;
+    spill.unshift(last);
+    more.hidden = false;
+    pop.insertBefore(last, pop.firstChild);
+  }
+  if (!spill.length) {
+    more.hidden = true;
+    if (!pop.hidden) sbePopCloseAll('');
+  }
+  // A GROUP DIVIDER WITH NOTHING LEFT AFTER IT is a hairline floating at the
+  // end of the row. Hidden rather than removed, so homing puts it back.
+  const kids = Array.prototype.slice.call(bar.children);
+  for (let i = 0; i < kids.length; i++) {
+    if (!kids[i].classList.contains('sbe-cbar-sep')) continue;
+    let live = false;
+    for (let j = i + 1; j < kids.length; j++) {
+      if (kids[j].classList.contains('sbe-cbar-btn') && kids[j] !== more) {
+        live = true; break;
+      }
+    }
+    kids[i].hidden = !live;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// RIGHT-CLICK ON THE TRACK
+// ---------------------------------------------------------------------------
+// The second place every editor's hand goes, and this timeline answered it
+// with the browser's own menu. Items are written for whatever is UNDER the
+// pointer: a shot gets the clip bar's verbs (the enabled ones, from the same
+// table, so nothing can drift), and a hole gets the only two things a hole
+// can be asked — close it, or fill it with a new shot.
+function sbeCtxOpen(ev) {
+  const menu = sbeEl('sbeCtxMenu');
+  if (!menu) return;
+  const gap = ev.target.closest ? ev.target.closest('.sbe-gap') : null;
+  const blk = ev.target.closest ? ev.target.closest('.sbe-clip') : null;
+  if (!gap && !blk) return;
+  ev.preventDefault();
+  sbePopCloseAll('');
+  let html = '';
+  if (gap) {
+    const at = sbeNum(gap.dataset.gapStart);
+    const dur = sbeNum(gap.dataset.gapDur);
+    html = '<div class="sbe-ctx-h">Hole · ' + escapeHtml(dur.toFixed(2)) + 's</div>'
+      + '<button type="button" class="sbe-cbar-btn" onclick="sbeCloseGapAt('
+      + (at + dur / 2).toFixed(4) + ')" title="Slides everything after the '
+      + 'hole earlier by ' + escapeHtml(dur.toFixed(2)) + 's, so the film '
+      + 'gets that much shorter.">Close this hole</button>'
+      + '<button type="button" class="sbe-cbar-btn" onclick="sbeGenOpen('
+      + at.toFixed(4) + ',' + dur.toFixed(4) + ')" title="Render a new shot '
+      + 'to fill exactly these seconds.">Generate a shot here…</button>';
+  } else {
+    // A right-click on a shot that is NOT in the selection selects it, which
+    // is what every program does; a right-click INSIDE a selection leaves the
+    // selection alone, so the menu acts on all of it.
+    if (!sbeSelHas(blk.dataset.id)) { sbeSelectOne(blk.dataset.id); sbePaint(); }
+    const m = sbeCbarModel();
+    html = '<div class="sbe-ctx-h">' + escapeHtml(m.who) + '</div>';
+    for (const r of m.rows) {
+      if (r.why) continue;                    // only what can actually fire
+      html += '<button type="button" class="sbe-cbar-btn" onclick="'
+        + escapeHtml(r.act) + '" title="' + escapeHtml(r.title) + '">'
+        + escapeHtml(r.label) + '</button>';
+    }
+    // REORDER LIVES HERE NOW. It used to be shift+drag, and shift had to go
+    // to the range selection the owner asked for — so the gesture moved to
+    // alt+shift+drag, and it also became two plain items in a menu, which is
+    // strictly more discoverable than the modifier it lost.
+    const order = (SBE.clips || []).map(c => String(c.id));
+    const i = order.indexOf(String(blk.dataset.id));
+    html += '<span class="sbe-pop-sep"></span>';
+    if (i > 0) {
+      html += '<button type="button" class="sbe-cbar-btn" '
+        + 'onclick="sbeReorderSel(-1)" title="Swaps this shot with the one '
+        + 'before it. The film stays exactly as long.">Move earlier</button>';
+    }
+    if (i >= 0 && i < order.length - 1) {
+      html += '<button type="button" class="sbe-cbar-btn" '
+        + 'onclick="sbeReorderSel(1)" title="Swaps this shot with the one '
+        + 'after it. The film stays exactly as long.">Move later</button>';
+    }
+  }
+  menu.innerHTML = html;
+  menu.hidden = false;
+  // At the pointer, kept inside the window — the same rule sbePopToggle
+  // applies to a button-anchored panel, against a point instead of a box.
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.max(6, Math.min(ev.clientX,
+                      window.innerWidth - r.width - 6)) + 'px';
+  menu.style.top = Math.max(6, Math.min(ev.clientY,
+                     window.innerHeight - r.height - 6)) + 'px';
+}
+
+// Swap the selected shot with its neighbour — the reorder verb, reachable by
+// name. It goes through the model's own `sbeReorderTo`, so a locked shot
+// refuses it the way a locked shot refuses everything else.
+function sbeReorderSel(dir) {
+  const id = String(SBE.sel || '');
+  if (!id) return;
+  const i = (SBE.clips || []).map(c => String(c.id)).indexOf(id);
+  if (i < 0) return;
+  // `sbeReorderTo` takes a TIME and turns it into a drop index against the
+  // list with this clip already taken out. So one slot either way is "aim at
+  // the head of the shot before" or "aim at the tail of the shot after",
+  // which lands correctly however long the neighbours are.
+  const rest = (SBE.clips || []).filter(c => String(c.id) !== id);
+  const nb = (dir < 0) ? rest[i - 1] : rest[i];
+  if (!nb) return;
+  const at = (dir < 0) ? sbeNum(nb.film_start) : sbeNum(nb.film_end);
+  sbeMutate(cs => sbeReorderTo(cs, id, at));
+  sbePopCloseAll('');
 }
 
 function sbePaintInspector() {
@@ -6136,10 +6886,21 @@ function sbePaintInspector() {
   // become a flat run of buttons with a brightness slider floating in the
   // middle. Clip / Sound / Effects — and Effects is the home the ruling asked
   // for, so the next one lands without a decision.
-  const sect = (name, body) => body
-    ? '<div class="sbe-sect"><div class="sbe-sect-h">' + name + '</div>' +
-      '<div class="sbe-sect-b">' + body + '</div></div>'
-    : '';
+  // THE SECTIONS STILL SAY Clip / Sound / Effects — that is the model
+  // docs/EDITOR_EFFECTS_MODEL.md describes and the home the next effect lands
+  // in without a decision. What is new is the LEAD: the verbs left this box
+  // for the clip bar, so the box says what it is now, once, instead of
+  // looking like a toolbar that has lost most of its buttons.
+  let leadDone = false;
+  const sect = (name, body) => {
+    if (!body) return '';
+    const lead = leadDone ? ''
+      : '<div class="sbe-sect-lead">Advanced \u2014 the everyday verbs are on '
+        + 'the bar above the tracks.</div>';
+    leadDone = true;
+    return lead + '<div class="sbe-sect"><div class="sbe-sect-h">' + name
+      + '</div><div class="sbe-sect-b">' + body + '</div></div>';
+  };
   const e = sbeFx(c);
   const fadeRow = (edge, val) =>
     '<span class="sbe-fade-row">' +
@@ -6154,8 +6915,18 @@ function sbePaintInspector() {
       ? '<button type="button" class="ghost-btn" onclick="sbeFadeCommit(\'' + edge + '\', 0)">Clear</button>'
       : '') +
     '</span>';
+  // HOW MANY, AND WHOSE PROPERTIES THESE ARE. With four shots selected the
+  // bar acts on four and this box still describes ONE of them, so it has to
+  // say which — otherwise a speed typed here would read as a speed set on all
+  // of them.
+  const nSel = sbeSelCount();
   box.innerHTML =
-    '<b>' + escapeHtml(label) + '</b>' + src +
+    '<b>' + escapeHtml(label) + '</b>' +
+    (nSel > 1
+      ? '<span class="sbe-sect-lead">' + nSel + ' clips selected \u00b7 these '
+        + 'are THIS one\'s properties. The bar above the tracks acts on all '
+        + nSel + '.</span>'
+      : '') + src +
     '<span>film ' + sbeNum(c.film_start).toFixed(2) + '–' + sbeNum(c.film_end).toFixed(2) + 's</span>' +
     '<span>' + escapeHtml(c.source === 'human' ? 'moved by hand' : 'placed by the auto-editor') + '</span>' +
     // THE PAIR'S OWN LINE. An unlinked strip is either where the picture would
@@ -6192,68 +6963,32 @@ function sbePaintInspector() {
             'title="' + (v === 1 ? 'Normal speed' : (v < 1 ? 'Half speed — twice as long on the film' : 'Double speed — half as long on the film')) + '">' + v + 'x</button>').join('') +
           '</span>'
         : '') +
-      '<button type="button" class="ghost-btn" onclick="sbeToggleLock()" ' +
-      'title="' + (c.locked ? 'Let this shot move and trim again.' : 'Pin this shot to its place on the film; everything else flows around it.') + '">' +
-      (c.locked ? 'Unlock' : 'Lock') + '</button>' +
-      '<button type="button" class="ghost-btn" onclick="sbeDuplicateSel()" ' +
-      'title="The same shot again, right after this one — window, speed, fades and grade included. Everything after it slides. (D)">Duplicate</button>' +
+      // LOCK, DUPLICATE, LIFT AND RIPPLE DELETE ARE NOT HERE ANY MORE. They
+      // are verbs a cutter reaches for hundreds of times a session and they
+      // were drawn identically to a brightness slider, in a 212px column, in
+      // the corner of the screen: "they are hidden inside that menu, the
+      // toggle menu on the right. That is not a good use." They live on the
+      // clip bar above the tracks now — always visible, always in the same
+      // place, disabled with a reason rather than dropped. What stays here is
+      // what this box is FOR: the properties of the one selected clip.
+      // See docs/EDITOR_TOOLBAR.md.
       // RETAKE: send this clip back through the renderer and get a new take
-      // offered against it, in place. Only a clip that came from a shot has
-      // a prompt to start from — and the inspector says so when it cannot.
+      // offered against it, in place. It stays in the inspector because it is
+      // rare, slow and it opens a dialogue — nothing a toolbar should invite
+      // by accident. Only a clip that came from a shot has a prompt to start
+      // from, and the inspector says so when it cannot.
       ((kind === 'video' && sbeShotForClip(c))
         ? '<button type="button" class="ghost-btn" onclick="sbeRetakeSel()" ' +
           'title="Render a new take of this shot — same character, a new seed, the prompt to edit. When it lands you choose whether it replaces this clip.">Retake</button>'
-        : '') +
-      '<button type="button" class="ghost-btn" onclick="sbeLiftSelected()" ' +
-      'title="Take this shot out and leave its hole. Nothing else moves. (Delete)">Lift</button>' +
-      '<button type="button" class="ghost-btn" onclick="sbeRippleSelected()" ' +
-      'title="Take this shot out and close the gap. Everything after it slides earlier. (Shift+Delete)">Ripple delete</button>') +
+        : '')) +
     sect('Sound',
-    // THE J-CUT'S ONE SWITCH. Only a video clip has sound of its own, so
-    // only a video clip is offered it.
-    (kind === 'video'
-      ? '<button type="button" class="ghost-btn" onclick="sbeToggleAudioLink()" ' +
-        'title="' + escapeHtml(sbeClipAudio(c).linked
-          ? 'Let this clip\'s sound move and trim on its own — the J-cut and the L-cut. The picture stays draggable from both edges.'
-          : (sbeAudioInSync(c)
-             ? 'Put the sound back under its own picture'
-             : 'Keep the ' + sbeDriftLabel(sbeAudioDrift(c)) + ' offset you made '
-               + 'and travel together from here. Resync is the button that '
-               + 'puts it back under its own frame.')) + '">' +
-        (sbeClipAudio(c).linked ? 'Unlink sound'
-         : (sbeAudioIsThePicture(c) ? 'Re-link sound'
-            : 'Link sound' + (sbeAudioInSync(c) ? ''
-               : ' at ' + sbeDriftLabel(sbeAudioDrift(c))))) + '</button>'
-      : '') +
-    // MUTE, and it is offered whether the sound is linked, unlinked or
-    // travelling — muting silences the CLIP's sound wherever its strip is.
-    // Refused only for a clip whose file has no audio track at all, because
-    // there is nothing there to switch off.
-    ((kind === 'video' && c.has_audio !== false)
-      ? '<button type="button" class="ghost-btn" onclick="sbeToggleClipMute()" ' +
-        'title="' + escapeHtml(sbeClipMuted(c)
-          ? 'Let this clip\'s own sound play again'
-          : 'Switch this clip\'s own sound off — in the preview, in the render '
-            + 'and in the export. The soundtrack is not affected.') + '">' +
-        (sbeClipMuted(c) ? 'Unmute sound' : 'Mute sound') + '</button>'
-      : '') +
-    // DELETE THE STRIP, not the clip. Offered only once the two halves are
-    // actually separate — on a linked clip "delete the sound" and "mute" would
-    // be the same button twice.
-    ((kind === 'video' && sbeClipAudio(c).split)
-      ? '<button type="button" class="ghost-btn" onclick="sbeDeleteStripSel()" ' +
-        'title="' + escapeHtml('Remove this clip\'s sound. The picture keeps '
-          + 'playing, silent, and does not move.') + '">Delete sound</button>'
-      : '') +
-    // RESYNC IS NOT RE-LINK, and the two sit next to each other so the
-    // difference is legible: re-link puts the sound back UNDER the picture
-    // permanently, resync only slides it back into place and leaves it free.
-    ((kind === 'video' && sbeClipAudio(c).split && !sbeAudioInSync(c))
-      ? '<button type="button" class="ghost-btn" onclick="sbeResyncSel()" ' +
-        'title="' + escapeHtml('Slide the sound back to where its own picture '
-          + 'plays it. The trim you gave it is kept, and it stays unlinked.') +
-        '">Resync sound (' + escapeHtml(sbeDriftLabel(sbeAudioDrift(c))) + ')</button>'
-      : '') +
+    // UNLINK / LINK, RESYNC, MUTE AND DELETE SOUND ARE ON THE CLIP BAR NOW.
+    // They were the four the owner named — "for instance, unlink and link
+    // audio… I find myself all the time un-syncing and syncing" — and all
+    // four were inside this box, two of them appearing and disappearing with
+    // the state, which is how "Delete sound" managed to be invisible on every
+    // linked clip and therefore on almost every clip. What is left here is
+    // the sound's SHAPE: its ramps and its level line.
     // THE SOUND'S OWN RAMPS LIVE HERE, not under a fourth heading. Three
     // sections is what docs/EDITOR_EFFECTS_MODEL.md describes and what the
     // rail has room for; a "Sound fades" heading of its own pushed the
@@ -6287,10 +7022,13 @@ function sbePaintInspector() {
                  + 'strip: click the yellow line to add one, drag it to set '
                  + 'the level, right-click it to remove it.">'
                  + 'Add point at playhead</button>'
-                 + (n ? '<button type="button" class="ghost-btn" '
-                        + 'onclick="sbeClearPoints()" '
-                        + 'title="Removes every level point on this strip. The '
-                        + 'fades stay.">Clear ' + n + '</button>'
+                 // "Clear" IS ON THE CLIP BAR — it is the owner's "delete
+                 // button for the anchors of the audio", and a button that
+                 // only existed once there was something to clear is a
+                 // button nobody knew existed. This says how many there are.
+                 + (n ? '<span class="sbe-adj-val">' + n + ' point'
+                        + (n === 1 ? '' : 's') + ' \u00b7 Clear points on the '
+                        + 'bar above</span>'
                       : '<span class="sbe-adj-val">click the yellow line</span>')
                : '<span class="sbe-adj-val">unlink the sound to shape its '
                  + 'level</span>')
@@ -6628,14 +7366,46 @@ function sbeOnTrackDown(ev) {
     return;
   }
   const blk = ev.target.closest('.sbe-clip');
-  if (!blk) { SBE.txSel = ''; sbeSeek(sbeTimeFromEvent(ev, track)); sbePaint(); return; }
+  // EMPTY TRACK CLEARS THE SELECTION as well as moving the playhead, which is
+  // what every NLE does and what makes ⌘-click and shift-click safe to
+  // experiment with: there is always an obvious way back to nothing.
+  if (!blk) {
+    SBE.txSel = ''; SBE.sel = ''; SBE.selSet = [];
+    sbeSeek(sbeTimeFromEvent(ev, track));
+    sbePaint();
+    return;
+  }
   const id = blk.dataset.id;
-  SBE.sel = id;
   SBE.ovSel = '';           // one inspector, one subject
   SBE.txSel = '';
   SBE.audioDrag = null;     // same insurance the lane takes against the other
   const c = sbeById(SBE.clips, id);
   if (!c) return;
+  // ---- WHAT THIS CLICK DOES TO THE SELECTION ----------------------------
+  // Two of the three modifiers are already taken by this very gesture — ⌘ is
+  // ripple-drag and shift was reorder-drag — so the selection cannot simply
+  // claim them at pointerdown and hope.
+  //
+  //   shift  — takes the RANGE, now, because selection feedback that waits
+  //            for pointerup feels broken. Reorder therefore moves to
+  //            alt+shift (it never snapped, so alt costs it nothing) and to
+  //            two named items in the right-click menu.
+  //   ⌘/ctrl — cannot be decided here: the same chord means "ripple" once the
+  //            pointer moves. Recorded, and resolved on pointerup, and only
+  //            if the pointer never moved.
+  //   plain  — selects this clip, UNLESS it is already part of a multiple
+  //            selection, in which case the selection survives so the drag
+  //            that follows can move the whole block. Clicking without
+  //            dragging then collapses to this clip on pointerup — the rule
+  //            Premiere and Resolve share.
+  const meta = !!(ev.metaKey || ev.ctrlKey);
+  const already = sbeSelHas(id);
+  let toggle = '', collapse = '';
+  if (ev.shiftKey && !meta && SBE.sel) sbeSelectRange(id);
+  else if (meta) { toggle = id; }
+  else if (!already) sbeSelectOne(id);
+  else if (sbeSelCount() > 1) { SBE.sel = String(id); collapse = id; }
+  else sbeSelectOne(id);
   // A LOCKED SHOT SAYS SO. Until now it refused every drag in silence: the CSS
   // turned the cursor to `not-allowed`, hid both grips, and nothing on screen
   // said why or what to press. The owner hit it while cutting — "trying to
@@ -6649,8 +7419,8 @@ function sbeOnTrackDown(ev) {
     // clip and its sound travel together, which is what he was reaching for
     // when he pressed it. That one is Link sound.
     phosToast('That shot is locked to its place on the __SEQ__, so it cannot be '
-              + 'moved or trimmed from either edge — click Unlock in the '
-              + 'inspector. To move a shot and its sound TOGETHER, unlink the '
+              + 'moved or trimmed from either edge — press Unlock on the bar '
+              + 'above the tracks. To move a shot and its sound TOGETHER, unlink the '
               + 'sound, put it where you want it, then press Link sound.',
               { duration: 9000 });
     return;
@@ -6679,22 +7449,38 @@ function sbeOnTrackDown(ev) {
     if (ev.clientX - br.left <= EDGE) grip = { classList: { contains: () => false } };
     else if (br.right - ev.clientX <= EDGE) grip = { classList: { contains: (k) => k === 'r' } };
   }
-  // SHIFT IS REORDER. The hint strip already teaches "hold Alt to ignore the
-  // beat", so a second modifier on the same gesture is the idiom this timeline
-  // already has — and it is the only way to offer both verbs without a mode
-  // switch nobody would find. Free drag stays the default: it is what every
-  // arrangement on disk was made with, and it is the one that can open a hole
-  // for the generate control to fill.
+  // ALT+SHIFT IS REORDER. It was shift alone until multi-select needed shift
+  // for the range every list in every program answers to. Alt costs the
+  // gesture nothing — a reorder chooses a NEIGHBOUR, not a time, so it never
+  // snapped to the beat grid that alt suppresses — and the verb also became
+  // two named items in the right-click menu, which is strictly easier to find
+  // than the modifier it gave up. Free drag stays the default: it is what
+  // every arrangement on disk was made with, and it is the one that can open
+  // a hole for the generate control to fill.
+  //
+  // A MULTIPLE SELECTION MAKES THE DRAG A BLOCK SLIDE. Only for `move`: a
+  // trim is one clip's edge whatever else is selected, and a reorder chooses
+  // one clip's neighbour.
+  const many = sbeSelCount() > 1 && sbeSelHas(id);
   const mode = grip ? (grip.classList.contains('r') ? 'trimR' : 'trimL')
-                    : (ev.shiftKey ? 'reorder' : 'move');
+               : ((ev.shiftKey && ev.altKey) ? 'reorder'
+                  : (many ? 'movemany' : 'move'));
   // ⌘ / CTRL IS RIPPLE: the gesture also slides everything after the clip,
   // the way it did before 2026-09-05. Read again on every move so it can be
   // pressed or released mid-drag, as in Premiere.
   SBE.drag = { id: id, mode: mode, x0: ev.clientX, t0: sbeTimeFromEvent(ev, track),
                fs0: sbeNum(c.film_start), fe0: sbeNum(c.film_end), moved: false,
                ripple: !!(ev.metaKey || ev.ctrlKey),
+               ids: (mode === 'movemany') ? sbeSelIds() : null,
+               toggle: toggle, collapse: collapse,
                before: JSON.stringify(SBE.clips) };
-  if (mode === 'move') blk.classList.add('is-drag');
+  if (mode === 'move' || mode === 'movemany') {
+    for (const el of document.querySelectorAll('.sbe-clip')) {
+      if (mode === 'move' ? el === blk : sbeSelHas(el.dataset.id)) {
+        el.classList.add('is-drag');
+      }
+    }
+  }
   track.classList.toggle('is-ripple', SBE.drag.ripple);
   try { track.setPointerCapture(ev.pointerId); } catch (e) {}
   ev.preventDefault();
@@ -6736,7 +7522,15 @@ function sbeOnTrackMove(ev) {
     track.classList.toggle('is-ripple', ripple);
     SBE.clips = JSON.parse(d.before);
     const o = { ripple: ripple };
-    if (d.mode === 'move') {
+    if (d.mode === 'movemany') {
+      // THE BLOCK SLIDES BY ONE DELTA, and it is the PRIMARY clip's own start
+      // that is snapped — the beat the user is watching is the one under the
+      // clip he grabbed, and snapping each member separately would stretch
+      // the selection instead of moving it.
+      const want = sbeSnapTime(Math.max(0, d.fs0 + dt), SBE.beats, tol, snapOn, off);
+      const r = sbeMoveGroup(SBE.clips, d.ids || [], want - d.fs0);
+      if (r.ok) SBE.clips = r.clips;
+    } else if (d.mode === 'move') {
       const want = sbeSnapTime(Math.max(0, d.fs0 + dt), SBE.beats, tol, snapOn, off);
       const r = sbeMoveTo(SBE.clips, d.id, want, o);
       if (r.ok) SBE.clips = r.clips;
@@ -6775,7 +7569,17 @@ function sbeOnTrackUp(ev) {
   if (!d) return;
   document.querySelectorAll('.sbe-clip.is-drag').forEach(el => el.classList.remove('is-drag'));
   const trk = sbeEl('sbeTrack'); if (trk) trk.classList.remove('is-ripple');
-  if (!d.moved) { sbePaint(); return; }
+  // A CLICK, NOT A DRAG — so the two modifiers this gesture shares with the
+  // selection finally get to mean the selection. ⌘ could not be decided at
+  // pointerdown (the same chord is ripple-drag) and a plain click inside a
+  // multiple selection had to wait to find out whether it was the start of a
+  // block move or a request to work on this one shot.
+  if (!d.moved) {
+    if (d.toggle) sbeSelectToggle(d.toggle);
+    else if (d.collapse) sbeSelectOne(d.collapse);
+    sbePaint();
+    return;
+  }
   // A DRAG THAT MOVED THE POINTER BUT NOT THE FILM IS NOT AN EDIT. Dragging a
   // clip left when it is already hard against its neighbour is the common case
   // — the maths clamps, nothing lands anywhere new, and without this the
@@ -8155,18 +8959,59 @@ function sbeZoom(dir) {
   sbeZoomTo(steps[Math.max(0, Math.min(steps.length - 1, i + dir))]);
 }
 
+// ⇧Z — FIT. The slider's left end already means "all of it"; this is its key.
+function sbeZoomFit() { sbeZoomTo(sbeZoomMin()); }
+
+// ↑ ↓ — THE PREVIOUS / NEXT CUT: every edge a clip has on the picture lane,
+// plus the two ends of the sequence. The playhead lands exactly on one.
+function sbeJumpCut(dir) {
+  const marks = [0, sbeFilmDuration(SBE.clips)];
+  for (const c of SBE.clips || []) marks.push(sbeNum(c.film_start), sbeNum(c.film_end));
+  const eps = 0.5 / sbeFps();
+  const now = SBE.playhead;
+  let want = null;
+  for (const m of marks) {
+    if (dir < 0 && m < now - eps && (want === null || m > want)) want = m;
+    if (dir > 0 && m > now + eps && (want === null || m < want)) want = m;
+  }
+  if (want === null) return;
+  sbeStop();
+  sbeSeek(want);
+}
+
+// N — SNAP. The transport's own checkbox, so the key and the box are one state.
+function sbeToggleSnap() {
+  const box = sbeEl('sbeSnapOn');
+  if (!box) return;
+  box.checked = !box.checked;
+  sbePaint();
+  phosToast(box.checked ? 'Snap to beat is on.' : 'Snap to beat is off — clips move freely.',
+            { duration: 2000 });
+}
+
+// A tooltip's keys, read from the one shortcut table (webapp/js/shortcuts.js).
+function sbeKeyHint(id) {
+  const h = (typeof shortcutHint === 'function') ? shortcutHint(id) : '';
+  return h ? ' (' + h + ')' : '';
+}
+
 function sbeZoomSlide(v) {
   const lo = sbeZoomMin();
   sbeZoomTo(sbeZoomFromSlider(v, lo, Math.max(lo, SBE_PPS_MAX)));
 }
 
-// shift + wheel pans, alt + wheel zooms around the pointer — the two gestures
-// every NLE and every DAW already has. A plain wheel is left alone: it belongs
-// to the column, which scrolls vertically.
+// shift + wheel pans, alt + wheel (or a trackpad pinch) zooms around the
+// pointer — the gestures every NLE and every DAW already has. A plain wheel is
+// left alone: it belongs to the column, which scrolls vertically.
 function sbeOnTlWheel(ev) {
   const box = sbeEl('sbeScroll');
   if (!box) return;
-  if (ev.altKey) {
+  // PINCH IS ZOOM, and it was not. A trackpad pinch arrives as a `wheel`
+  // event with `ctrlKey` set — that is how every browser reports it — so the
+  // one zoom gesture a Mac user tries first did nothing here, and on a page
+  // with no handler it would have zoomed the whole panel instead. Alt+wheel
+  // stays for a mouse.
+  if (ev.altKey || ev.ctrlKey) {
     ev.preventDefault();
     const r = box.getBoundingClientRect();
     const at = (box.scrollLeft + (ev.clientX - r.left)) / Math.max(1e-6, SBE.pps);
@@ -8182,21 +9027,53 @@ function sbeOnTlWheel(ev) {
   box.scrollLeft += dx;
 }
 
+// THE VERBS, AND THE ONE RULE THEY ALL FOLLOW. Each of these used to read
+// `SBE.sel` and act on exactly one clip. They now act on the whole selection —
+// and on a selection of one they take the SAME path they always did, with the
+// same toast, because that is the behaviour on disk, in the tests and in the
+// owner's hands. Only the plural case is new.
 function sbeRippleSelected() {
-  if (!SBE.sel) return;
-  sbeMutate(cs => sbeRippleDelete(cs, SBE.sel));
-  SBE.sel = '';
+  const ids = sbeSelIds();
+  if (!ids.length) return;
+  if (ids.length === 1) {
+    sbeMutate(cs => sbeRippleDelete(cs, ids[0]));
+  } else {
+    // RIGHT TO LEFT. A ripple closes the gap it leaves, so removing the
+    // earliest first slides every later victim earlier — and the ids are
+    // still valid, but the film underneath them is not the one the user was
+    // looking at. Taking the last one first leaves the earlier ones exactly
+    // where they were drawn.
+    sbeMutateEach(ids.slice().reverse(), (cs, id) => sbeRippleDelete(cs, id));
+  }
+  SBE.sel = ''; SBE.selSet = [];
   sbePaint();
 }
 
 function sbeLiftSelected() {
-  if (!SBE.sel) return;
-  sbeMutate(cs => sbeLiftDelete(cs, SBE.sel));
-  SBE.sel = '';
+  const ids = sbeSelIds();
+  if (!ids.length) return;
+  if (ids.length === 1) sbeMutate(cs => sbeLiftDelete(cs, ids[0]));
+  else sbeMutateEach(ids, (cs, id) => sbeLiftDelete(cs, id));
+  SBE.sel = ''; SBE.selSet = [];
   sbePaint();
 }
 
 function sbeDuplicateSel() {
+  const many = sbeSelIds();
+  if (many.length > 1) {
+    // Each selected shot gets its own copy right behind it, and the COPIES
+    // become the selection — the same rule the single case follows, so the
+    // next verb acts on the thing just made.
+    const made = [];
+    const ok = sbeMutateEach(many, (cs, id) => {
+      const r = sbeDuplicate(cs, id);
+      if (r.ok && r.added) made.push(String(r.added.id));
+      return r;
+    });
+    if (ok && made.length) { SBE.selSet = made; SBE.sel = made[0]; sbePaint(); }
+    sbeBlurControl();
+    return;
+  }
   if (!SBE.sel) return;
   let added = null;
   const ok = sbeMutate(cs => { const r = sbeDuplicate(cs, SBE.sel); if (r.ok) added = r.added; return r; });
@@ -8212,14 +9089,29 @@ function sbeSplitHere() {
 }
 
 function sbeToggleLock() {
-  const c = sbeById(SBE.clips, SBE.sel);
-  if (!c) return;
+  const ids = sbeSelIds();
+  const first = sbeById(SBE.clips, ids[0]);
+  if (!first) return;
+  // THE PRIMARY DECIDES, so a mixed selection CONVERGES rather than inverting
+  // clip by clip. Pressing Lock over three shots where one is already pinned
+  // should end with three pinned shots, which is what the button says it will
+  // do; per-clip inversion would leave the row half on and half off and the
+  // label lying about both.
+  const on = !first.locked;
   const before = JSON.stringify(SBE.clips);
-  c.locked = !c.locked;
-  if (c.locked) c._pin = sbeNum(c.film_start); else delete c._pin;
-  c.source = 'human';
+  let touched = 0;
+  for (const id of ids) {
+    const c = sbeById(SBE.clips, id);
+    if (!c || !!c.locked === on) continue;
+    c.locked = on;
+    if (on) c._pin = sbeNum(c.film_start); else delete c._pin;
+    c.source = 'human';
+    touched++;
+  }
+  if (!touched) return;
   sbeLayout(SBE.clips);
   SBE.undo.push(before);
+  if (SBE.undo.length > SBE_UNDO_MAX) SBE.undo.shift();
   SBE.redo.length = 0;
   SBE.dirty = true;
   sbeSetState('unsaved changes', 'dirty');
@@ -8590,20 +9482,93 @@ document.addEventListener('keydown', (ev) => {
   if (document.querySelector('.modal-bg.show')) return;
   const step = 1 / sbeFps();
   if (ev.key === ' ') { ev.preventDefault(); sbeTogglePlay(); return; }
+  // ALT+ARROW NUDGES THE SHOT, plain arrow moves the playhead. Every NLE has
+  // the first and this one had only the second: there was no gesture at all
+  // for "a hair later" short of dragging at a zoom high enough to see a
+  // frame. The bare arrows stay the playhead's — they are the more frequent
+  // of the two and changing them would move the ground under everybody.
+  if (ev.altKey && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')) {
+    ev.preventDefault();
+    sbeNudge(ev.key === 'ArrowLeft' ? -1 : 1, ev.shiftKey);
+    return;
+  }
   if (ev.key === 'ArrowLeft') { ev.preventDefault(); sbeStop(); sbeSeek(SBE.playhead - (ev.shiftKey ? step * 10 : step)); return; }
   if (ev.key === 'ArrowRight') { ev.preventDefault(); sbeStop(); sbeSeek(SBE.playhead + (ev.shiftKey ? step * 10 : step)); return; }
+  // ↑ ↓ JUMP BETWEEN CUTS — where Premiere, Final Cut and Resolve all put
+  // "previous / next edit point". The timeline's height handle keeps its own
+  // ↑ ↓ while it has focus.
+  if ((ev.key === 'ArrowUp' || ev.key === 'ArrowDown') && !ev.metaKey && !ev.ctrlKey
+      && !ev.altKey && !(t && t.id === 'sbeTlGrab')) {
+    ev.preventDefault(); sbeJumpCut(ev.key === 'ArrowUp' ? -1 : 1); return;
+  }
+  // THE TWO ENDS OF THE FILM. Missing, and the only way to reach the tail was
+  // to drag the playhead across the whole timeline.
+  if (ev.key === 'Home') { ev.preventDefault(); sbeStop(); sbeSeek(0); return; }
+  if (ev.key === 'End') {
+    ev.preventDefault(); sbeStop(); sbeSeek(sbeFilmDuration(SBE.clips)); return;
+  }
+  // SELECT ALL, and it is a selection of CLIPS — there is nothing else on
+  // this screen a ⌘A could plausibly mean, and the browser's own select-all
+  // over a timeline is never what anybody wanted.
+  if ((ev.metaKey || ev.ctrlKey) && (ev.key === 'a' || ev.key === 'A')) {
+    ev.preventDefault(); sbeSelectAll(); return;
+  }
+  // ZOOM ON THE KEYBOARD. The slider and alt+wheel were the only ways in, and
+  // neither is reachable without letting go of what you were doing.
+  if (!ev.metaKey && !ev.ctrlKey
+      && (ev.key === '+' || ev.key === '=' || ev.key === '-' || ev.key === '_')) {
+    ev.preventDefault();
+    sbeZoom((ev.key === '-' || ev.key === '_') ? -1 : 1);
+    return;
+  }
+  // ⇧Z FITS THE SEQUENCE (Final Cut's ⇧Z, Premiere's \) — the slider's left
+  // end, on a key.
+  if (!ev.metaKey && !ev.ctrlKey && !ev.altKey
+      && ((ev.shiftKey && (ev.key === 'Z' || ev.key === 'z')) || ev.key === '\\')) {
+    ev.preventDefault(); sbeZoomFit(); return;
+  }
+  // N IS SNAPPING in all three NLEs. It flips the transport's own "Snap to
+  // beat" box, so the key and the checkbox are one state.
+  if (!ev.metaKey && !ev.ctrlKey && !ev.altKey && !ev.shiftKey && (ev.key === 'n' || ev.key === 'N')) {
+    ev.preventDefault(); sbeToggleSnap(); return;
+  }
+  // THE SOUND PAIR, on the two keys the clip bar's tooltips name. Shift so
+  // they cannot be hit while reaching for L or R, and because the bare
+  // letters are worth keeping free for the J/K/L transport this timeline does
+  // not have yet.
+  if (ev.shiftKey && !ev.metaKey && !ev.ctrlKey && (ev.key === 'L' || ev.key === 'l')) {
+    ev.preventDefault(); sbeToggleAudioLink(); return;
+  }
+  if (ev.shiftKey && !ev.metaKey && !ev.ctrlKey && (ev.key === 'R' || ev.key === 'r')) {
+    ev.preventDefault(); sbeResyncSel(); return;
+  }
   if ((ev.key === 'Delete' || ev.key === 'Backspace') && SBE.txSel) { ev.preventDefault(); sbeTxRemoveSel(); return; }
   if ((ev.key === 'Delete' || ev.key === 'Backspace') && SBE.ovSel && !SBE.sel) { ev.preventDefault(); sbeOvDeleteSel(); return; }
   if ((ev.key === 'Delete' || ev.key === 'Backspace') && ev.shiftKey) { ev.preventDefault(); sbeRippleSelected(); return; }
   if (ev.key === 'Delete' || ev.key === 'Backspace') { ev.preventDefault(); sbeLiftSelected(); return; }
-  if (ev.key === 's' || ev.key === 'S') { ev.preventDefault(); sbeSplitHere(); return; }
+  // ⌘S SAVES. It has been documented as the manual save since the save model
+  // was written — docs/EDITOR_SAVE_MODEL.md §1, "`Save` (and ⌘S)" — and it
+  // has never done it: the bare-S split below took the key first, with no
+  // modifier guard, so the one chord every person on a Mac presses to make
+  // their work safe SPLIT THE SHOT under the playhead instead. Found while
+  // adding the clip bar, which is exactly the class of thing this pass is
+  // for.
+  if ((ev.metaKey || ev.ctrlKey) && (ev.key === 's' || ev.key === 'S')) {
+    ev.preventDefault(); sbeSaveNow(); return;
+  }
+  // ⌘K is Premiere's Add Edit and ⌘B the Blade in Final Cut and Resolve —
+  // the same verb as S, so a cutter's hand finds it whichever app it learned in.
+  if (((ev.key === 's' || ev.key === 'S') && !ev.metaKey && !ev.ctrlKey)
+      || ((ev.metaKey || ev.ctrlKey) && !ev.shiftKey && !ev.altKey && /^[kKbB]$/.test(ev.key))) {
+    ev.preventDefault(); sbeSplitHere(); return;
+  }
   if ((ev.key === 'd' || ev.key === 'D') && !ev.metaKey && !ev.ctrlKey && SBE.sel) { ev.preventDefault(); sbeDuplicateSel(); return; }
   if ((ev.metaKey || ev.ctrlKey) && (ev.key === 'z' || ev.key === 'Z')) {
     ev.preventDefault();
     ev.shiftKey ? sbeRedo() : sbeUndo();
     return;
   }
-  if (ev.key === 'm' || ev.key === 'M') {
+  if ((ev.key === 'm' || ev.key === 'M') && !ev.metaKey && !ev.ctrlKey && !ev.altKey) {
     ev.preventDefault();
     SBE.muted ? sbeUnmuteFromRefusal() : sbeSetMute(true);
     return;
@@ -8616,10 +9581,25 @@ document.addEventListener('keydown', (ev) => {
     if (sbePopAnyOpen()) { sbePopCloseAll(''); return; }
     const vers = document.getElementById('sbeVersions');
     if (vers && !vers.hidden) { sbeVersionsClose(); return; }
-    sbeClose();
+    // THE SELECTION IS A THING ON TOP TOO, and it is the one Escape means far
+    // more often than "shut the film". Multi-select made this urgent: a
+    // person who has just ⌘-clicked eight shots needs one key that means
+    // "never mind", and the key that meant it also closed the document.
+    if (SBE.sel || SBE.ovSel || SBE.txSel) { sbeSelectNone(); return; }
+    // AND NOTHING ELSE. Escape used to fall through to closing the document and
+    // shut the
+    // film: a second Escape after clearing a selection threw the editor out of
+    // its timeline, and so did the Escape that closed the Docs on top of it —
+    // the Docs close on keydown first, this handler then found no dialog up
+    // and closed the document behind it. No editor closes a project on
+    // Escape; closing is a choice, made from the ⋯ menu's Close.
+    return;
   }
-  // RENDER HAS A KEY NOW that it is the only filled control on the screen.
-  if ((ev.key === 'r' || ev.key === 'R') && (ev.metaKey || ev.ctrlKey)) {
+  // RENDER HAS A KEY — ⌘E, Export in Final Cut. It was ⌘R, which is the
+  // browser's reload: refreshing the page queued a render of the timeline
+  // instead. A page never claims a reserved chord (SHORTCUT_RESERVED in
+  // webapp/js/shortcuts.js).
+  if ((ev.key === 'e' || ev.key === 'E') && (ev.metaKey || ev.ctrlKey) && !ev.shiftKey && !ev.altKey) {
     ev.preventDefault();
     sbeRenderFilm();
   }
@@ -8644,6 +9624,19 @@ document.addEventListener('click', (ev) => {
   if (!track) return;
   sbeSetMute(SBE.muted);   // the button must agree with the stored state on load
   track.addEventListener('pointerdown', sbeOnTrackDown);
+  // THE SECOND PLACE EVERY EDITOR'S HAND GOES. Until now a right-click on the
+  // picture lane got the browser's own menu — Reload, Save image as — over a
+  // film somebody was cutting.
+  track.addEventListener('contextmenu', sbeCtxOpen);
+  const ctx = document.getElementById('sbeCtxMenu');
+  if (ctx) {
+    // A MENU ITEM CLOSES THE MENU. The click-away guard deliberately spares
+    // anything inside a `.sbe-pop`, which is right for the render menu's
+    // pills and wrong for a list of verbs that each do their thing once.
+    ctx.addEventListener('click', (ev) => {
+      if (ev.target.closest('button')) setTimeout(() => { ctx.hidden = true; }, 0);
+    });
+  }
   track.addEventListener('pointermove', sbeOnTrackMove);
   track.addEventListener('pointerup', sbeOnTrackUp);
   track.addEventListener('pointercancel', sbeOnTrackUp);
@@ -8766,6 +9759,7 @@ function workflowSwitch(name) {
   const audioTab = document.getElementById('audioSectionTab');
   const sbTab = document.getElementById('sbSectionTab');
   const edTab = document.getElementById('edSectionTab');
+  const osTab = document.getElementById('oneshotSectionTab');
   const characters = document.getElementById('charactersSection');  // dead HTML; hide defensively
   // Set body data attribute so CSS can switch the layout per workflow.
   document.body.setAttribute('data-workflow', name);
@@ -8775,6 +9769,8 @@ function workflowSwitch(name) {
   if (audioTab) audioTab.style.display = 'none';
   if (sbTab) sbTab.style.display = 'none';
   if (edTab) edTab.style.display = 'none';
+  if (osTab) osTab.style.display = 'none';
+  if (name !== 'oneshot' && typeof oneshotTabLeave === 'function') { try { oneshotTabLeave(); } catch (e) {} }
   if (characters) characters.classList.remove('show');
   // The board poller is the Storyboard tab's only timer and it stops on exit —
   // no new polling loop runs while the tab is closed.
@@ -8817,6 +9813,13 @@ function workflowSwitch(name) {
     if (manual) manual.style.display = 'none';
     if (audioTab) audioTab.style.display = 'block';
     if (typeof audioStudioInit === 'function') audioStudioInit();
+  } else if (name === 'oneshot') {
+    // One Shot: its own composer and its own API (webapp/js/oneshot.js,
+    // POST /oneshot). A shot that never cuts is a different thing to make
+    // than a clip, so it is a tab beside Video, not a chip inside it.
+    if (manual) manual.style.display = 'none';
+    if (osTab) osTab.style.display = 'grid';
+    if (typeof oneshotTabEnter === 'function') { try { oneshotTabEnter(); } catch (e) { console.warn('oneshotTabEnter failed', e); } }
   } else if (name === 'editor') {
     // The Editor. Engine-agnostic and board-agnostic: it opens the document
     // it had open last, and an empty timeline is a legitimate place to stand.
@@ -8950,11 +9953,24 @@ Object.assign(globalThis, {
   sbeSetMute, sbeUnmuteFromRefusal, sbePlay, sbeStop,
   sbeFrame, sbeMusicPlay, sbeMusicSync, sbeStripSync,
   sbeStripStop, sbeZoomMin, sbeZoomTo, sbeZoom,
-  sbeZoomSlide, sbeOnTlWheel, sbePrepare, sbePrepareCancel,
+  sbeZoomSlide, sbeZoomFit, sbeJumpCut, sbeToggleSnap, sbeKeyHint,
+  sbeOnTlWheel, sbePrepare, sbePrepareCancel,
   sbeAuto, sbeGenClose, sbeGenSubmit, sbeRenderFilm,
   sbeExportNle, sbeTick, workflowSwitch,
   // inline-handler targets: generated markup resolves these through the
   // global scope (the v4.9.0 regression, PR #69)
   sbeLiftSelected, sbeOvDeleteSel, sbeOvFadeCommit, sbePlace,
   sbeRippleSelected, sbeToggleLock,
+  // THE SELECTION AND THE CLIP BAR. `sbeSplitHere` and the nine verbs beside
+  // it are reached from onclick attributes in index.html now as well as from
+  // generated markup, and `sbeCtxOpen` writes a menu whose items call back
+  // into the same names — so every one of them has to be on the global scope
+  // or the button is a silent no-op at event time. That is exactly the
+  // module-split hazard scripts/lint_webapp.mjs exists to catch.
+  sbeSelNormalise, sbeSelIds, sbeSelCount, sbeSelMap, sbeSelHas, sbeSelClips,
+  sbeSelectOne, sbeSelectToggle, sbeSelectRange, sbeSelectAll, sbeSelectNone,
+  sbeMutateEach, sbeGroupLimits, sbeMoveGroup, sbeCloseGapAt, sbeNudge,
+  sbeCbarModel, sbePaintCbar, sbeCbarFit, sbeCbarStamp,
+  sbeSplitWhy, sbeCbarPlayhead,
+  sbeCtxOpen, sbeReorderSel, sbeSplitHere, sbeGenOpen,
 });

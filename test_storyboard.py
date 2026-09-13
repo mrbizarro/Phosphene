@@ -662,6 +662,45 @@ class Wardrobe(unittest.TestCase):
         self.assertIn("Hawaiian", job["prompt"])
 
 
+class H3ThreeFieldsCompose(unittest.TestCase):
+    """The room, the frame and the eyeline land INSIDE the H3 description.
+
+    An H3 shot's prompt is the three-field form. Appending the composed parts
+    to the whole prompt put them after `non_diegetic_music: N/A` — a located
+    sitcom shot rendered with the apartment in its score (2026-09-08).
+    """
+    H3 = ("integrated_multimodal_description: [Shot 1] Live-action, a man says: "
+          "<d>[English] Hi.</d> His mouth settles closed. No text appears at any point."
+          "\n\noverall_soundscape: Room tone.\n\nnon_diegetic_music: N/A")
+    LOCS = {"apt": {"id": "apt", "description": "a sitcom apartment"}}
+
+    def test_the_additions_go_into_the_description(self):
+        got = sb.compose_shot_prompt(
+            {"n": 1, "prompt": self.H3, "location_id": "apt", "framing": "medium shot",
+             "eyeline": "right", "pronoun": "he", "engine": "h3"}, self.LOCS)
+        head, tail = got.split("\n\noverall_soundscape:")
+        self.assertIn("medium shot", head)
+        self.assertIn("a sitcom apartment", head)
+        self.assertIn("his eyes fixed past the right edge of frame", head)
+        self.assertTrue(head.endswith("."), head[-40:])
+        self.assertEqual(tail, " Room tone.\n\nnon_diegetic_music: N/A")
+        self.assertNotIn("apartment", tail)
+
+    def test_nothing_to_add_leaves_the_prompt_byte_identical(self):
+        self.assertEqual(sb.compose_shot_prompt({"n": 1, "prompt": self.H3}, {}), self.H3)
+
+    def test_a_prose_prompt_composes_exactly_as_before(self):
+        got = sb.compose_shot_prompt(
+            {"n": 1, "prompt": "a man waves.", "location_id": "apt",
+             "framing": "medium shot"}, self.LOCS)
+        self.assertEqual(got, "a man waves., medium shot, a sitcom apartment")
+
+    def test_split_h3_fields_round_trips(self):
+        head, tail = sb.split_h3_fields(self.H3)
+        self.assertEqual(head + tail, self.H3)
+        self.assertEqual(sb.split_h3_fields("plain prose"), ("plain prose", ""))
+
+
 class SpeechLawAtBoardLevel(unittest.TestCase):
     """No mouth moves without words, whoever wrote the shot.
 

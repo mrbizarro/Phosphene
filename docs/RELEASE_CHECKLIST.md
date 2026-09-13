@@ -25,6 +25,12 @@ zero tests from them and prints a green "Ran 0 tests / OK" that asserts
 nothing). It prints a PASS/FAIL/SKIP table and exits non-zero on any failure.
 **A SKIP is not a PASS** — it means the gate could not run.
 
+**Key every public step on the runner's exit code, explicitly.** On 2026-09-08 a
+release chain written as `set -e; …; [ "$G" = "0" ]; git push …` ran straight
+through a red gate (one UI test) and 4.12.2 went out with a failing test in its
+tree. `set -e` is not a gate. Write `if [ "$G" != "0" ]; then exit 1; fi` right
+after the gate line, or chain every public step with `&&` from that test onward.
+
 This does NOT replace the sections below. From-zero, the Ideogram eyeball, the
 smoke renders, the weight mirror and the update-path gate all need a human and
 a real machine.

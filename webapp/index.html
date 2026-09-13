@@ -55,6 +55,7 @@
 <symbol id="ph-info-fill" viewBox="0 0 256 256"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm-4,48a12,12,0,1,1-12,12A12,12,0,0,1,124,72Zm12,112a16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40a8,8,0,0,1,0,16Z"/></symbol>
 <symbol id="ph-info" viewBox="0 0 256 256"><circle cx="128" cy="128" r="96" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><polyline points="120 120 128 120 128 172 136 172" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><circle cx="126" cy="84" r="10" fill="currentColor"/></symbol>
 <symbol id="ph-magnifying-glass" viewBox="0 0 256 256"><circle cx="112" cy="112" r="80" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="168.57" y1="168.57" x2="224" y2="224" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
+<symbol id="ph-book-open" viewBox="0 0 256 256"><path d="M128,88a32,32,0,0,1,32-32h72V200H160a32,32,0,0,0-32,32" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M24,200H96a32,32,0,0,1,32,32V88A32,32,0,0,0,96,56H24Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 <symbol id="ph-pause-fill" viewBox="0 0 256 256"><path d="M216,48V208a16,16,0,0,1-16,16H160a16,16,0,0,1-16-16V48a16,16,0,0,1,16-16h40A16,16,0,0,1,216,48ZM96,32H56A16,16,0,0,0,40,48V208a16,16,0,0,0,16,16H96a16,16,0,0,0,16-16V48A16,16,0,0,0,96,32Z"/></symbol>
 <symbol id="ph-pencil-simple" viewBox="0 0 256 256"><path d="M92.69,216H48a8,8,0,0,1-8-8V163.31a8,8,0,0,1,2.34-5.65L165.66,34.34a8,8,0,0,1,11.31,0L221.66,79a8,8,0,0,1,0,11.31L98.34,213.66A8,8,0,0,1,92.69,216Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><line x1="136" y1="64" x2="192" y2="120" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 <symbol id="ph-play-fill" viewBox="0 0 256 256"><path d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"/></symbol>
@@ -253,6 +254,14 @@
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
     </svg>
   </button>
+  <!-- DOCS. The manual gets a door of its own beside the gear, with a WORD on
+       it: an icon alone is the discoverability problem the Docs exist to fix
+       (users asked for features that already shipped because nothing on
+       screen used their words). ? opens it too, on the shortcuts page. -->
+  <button id="docsBtn" type="button" class="icon-btn docs-btn" onclick="openDocs()"
+          data-shortcut="docs.open" title="Docs — how every tool works, and every shortcut">
+    <svg class="ph" aria-hidden="true"><use href="#ph-book-open"/></svg><span class="docs-btn-word">Docs</span>
+  </button>
   <button id="stopComfyBtn" class="ghost-btn" style="display:none" onclick="api('/stop_comfy', 'POST').then(poll)">Stop Comfy</button>
   <!-- Official Phosphene account on X (2026-05-18). Sits next to the
        "by Bizarro" creator credit so the two brand links read as a
@@ -291,6 +300,11 @@
          localStorage so the user lands on the same tab next session. -->
     <nav class="workflow-tabs" id="workflowTabs">
       <button data-workflow="manual" class="active"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-film-strip"/></svg>Video</button>
+      <!-- One Shot is its own door (2026-09-08): one continuous shot of 30 s – 2 min,
+           with its own composer and its own API (POST /oneshot). It was a mode chip
+           on the video form; a shot that never cuts is a different thing to make
+           than a clip, and it gets the tab. -->
+      <button data-workflow="oneshot"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-target"/></svg>One Shot</button>
       <button data-workflow="studio"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-image"/></svg>Images</button>
       <!-- Storyboard sits next to the video surfaces; Audio and Train are the
            two "go elsewhere and come back" tabs. No NEW badge on purpose —
@@ -348,14 +362,6 @@
            toggle inside another mode. Q8-only — hidden on cap_tier="q4". -->
       <button type="button" class="mode-chip pill-btn" data-mode="character">Character<span class="mc-sub sub">trained face + voice</span></button>
       <button type="button" class="mode-chip pill-btn" data-mode="i2v">Image<span class="mc-sub sub">image + prompt</span></button>
-      <!-- ONE SHOT — a different way of making a video, not a length on the
-           clip form: one continuous shot of 30 s – 2 min that never cuts,
-           written as beats. A UI mode like Character: the hidden #mode input
-           ships t2v (or i2v when an anchor image is set) and make_job reads
-           take_seconds + beats. setMode('oneshot') in boot.js opens the One
-           Shot panel (#takeAxes); every other mode closes it and zeroes
-           take_seconds, so a normal clip never carries a take. -->
-      <button type="button" class="mode-chip pill-btn" data-mode="oneshot">One Shot<span class="mc-sub sub">30 s – 2 min · never cuts</span></button>
       <button type="button" class="mode-chip pill-btn" data-mode="keyframe">FFLF<span class="mc-sub sub">first + last</span></button>
       <!-- Multi-keyframe shares backend mode="keyframe"; the form dropdown
            chooses any total anchor count from 3–8. -->
@@ -973,10 +979,6 @@
              continuity toggles are read by make_job as on/off: light lock
              appends the continuity sentence to every beat, retake allows one
              re-render of a part whose light drifted. -->
-        <input type="hidden" name="take_seconds" id="take_seconds" value="0">
-        <input type="hidden" name="beats" id="beats" value="">
-        <input type="hidden" name="take_light_lock" id="take_light_lock" value="on">
-        <input type="hidden" name="take_retake" id="take_retake" value="on">
         <input type="hidden" name="h3_tier" id="h3_tier" value="draft_3s">
         <input type="hidden" name="h3_quality" id="h3_quality" value="draft">
         <input type="hidden" name="h3_length" id="h3_length" value="3s">
@@ -1110,105 +1112,6 @@
                warning; h3_visible_tiers() swaps the old warning back in for a
                pack whose runner has no --chain-prompts. -->
           <div class="engine-hint" id="h3TierNote" data-h3-only hidden></div>
-          <!-- ONE SHOT — its own mode, its own panel. Visible ONLY in One Shot
-               mode (setMode('oneshot') removes `hidden`; every other mode
-               puts it back). A different way of making a video from the clip
-               modes above: one continuous shot of 30 s – 2 min, written as
-               beats, rendered as parts that continue from each other's last
-               frame. The engine's own Length strip is folded while this is
-               open — a shot IS the length. Ids are unchanged from the strip
-               era (#takeAxes, #takeGroup, data-take, #beatsRow, #beats_text,
-               #takeEstimate) so setTakeSeconds / sbSetTake / Load Params
-               keep working. The part labels are written by
-               oneshotRefreshLabels() from document.body.dataset.engine (15 s
-               parts on H3, 10 s on LTX) and refreshed on every setEngine. -->
-          <div class="take-axes oneshot-panel" id="takeAxes" hidden>
-            <div class="qs-label h3-axis-label">
-              <span class="qs-name">Length</span>
-              <span class="qs-meta" id="takeHint">one continuous shot · the camera never cuts · <a href="/docs/prompting" target="_blank" rel="noopener">how to write the beats</a></span>
-            </div>
-            <div class="quality-strip pill-group cols-5" id="takeGroup">
-              <button type="button" class="q-chip pill-btn pill-quality" data-take="30" onclick="setTakeSeconds(30)" title="30 seconds, one continuous shot: 6 beats of 5 s.">
-                <span class="ql-name">30 s</span><span class="q-spec ql-spec sub">6 beats</span><span class="ql-tier take-parts"></span></button>
-              <button type="button" class="q-chip pill-btn pill-quality" data-take="45" onclick="setTakeSeconds(45)" title="45 seconds, one continuous shot: 9 beats of 5 s.">
-                <span class="ql-name">45 s</span><span class="q-spec ql-spec sub">9 beats</span><span class="ql-tier take-parts"></span></button>
-              <button type="button" class="q-chip pill-btn pill-quality active" data-take="60" onclick="setTakeSeconds(60)" title="One minute, one continuous shot: 12 beats of 5 s.">
-                <span class="ql-name">1 min</span><span class="q-spec ql-spec sub">12 beats</span><span class="ql-tier take-parts"></span></button>
-              <button type="button" class="q-chip pill-btn pill-quality" data-take="90" onclick="setTakeSeconds(90)" title="A minute and a half, one continuous shot: 18 beats of 5 s.">
-                <span class="ql-name">1½ min</span><span class="q-spec ql-spec sub">18 beats</span><span class="ql-tier take-parts"></span></button>
-              <button type="button" class="q-chip pill-btn pill-quality" data-take="120" onclick="setTakeSeconds(120)" title="Two minutes, one continuous shot: 24 beats of 5 s.">
-                <span class="ql-name">2 min</span><span class="q-spec ql-spec sub">24 beats</span><span class="ql-tier take-parts"></span></button>
-            </div>
-            <div class="take-beats" id="beatsRow" hidden>
-              <!-- The split button sits IN the label row, on the right: it
-                   is a tool for this box, not a row of its own. It only
-                   splits sentences, and its name says so. -->
-              <div class="qs-label h3-axis-label beats-label">
-                <span class="qs-name">Beats</span>
-                <span class="qs-meta" id="beatsHint">one line per 5 seconds — what happens in that moment</span>
-                <button type="button" class="ghost-btn small" id="beatsPrefillBtn" onclick="takePrefillClick()"
-                        title="Splits the prompt above into one beat per line — a start to edit, not the final word.">Split my prompt into beats</button>
-              </div>
-              <textarea id="beats_text" class="sb-textarea" rows="6" spellcheck="false"
-                oninput="beatsInput()"
-                placeholder="she pushes off down the sunlit avenue&#10;a van sweeps past, pigeons burst up ahead&#10;she drops off the kerb into the road&#10;…"></textarea>
-            </div>
-            <!-- The camera, once, for the whole shot. The handoff anchors the
-                 picture between parts but not the motion; this line is carried
-                 into every part's prompt so the move continues in the same
-                 direction at the same speed across the join (take_camera_lock).
-                 Left blank, later parts still get the generic continuity line. -->
-            <div class="oneshot-camera" id="oneshotCamera">
-              <div class="qs-label h3-axis-label">
-                <span class="qs-name">Camera</span>
-                <span class="qs-meta">optional · one move for the whole shot, its direction and speed — every part continues it</span>
-              </div>
-              <input type="text" name="take_camera" id="take_camera" class="sb-input" maxlength="240" autocomplete="off" spellcheck="false"
-                     placeholder="a slow, steady clockwise arc around the table at eye level, wide to close">
-            </div>
-            <!-- Start frame (optional). The SAME hidden `image` field as
-                 Image mode, through the same /upload path (pickerUploadFile),
-                 so when it is set the hidden #mode becomes i2v and the shot
-                 starts from this frame. Image mode's own picker stays folded
-                 in this mode; this is the only surface for it here. -->
-            <div class="oneshot-anchor" id="oneshotAnchor">
-              <div class="qs-label h3-axis-label">
-                <span class="qs-name">Start frame</span>
-                <span class="qs-meta">optional · the shot starts from this picture</span>
-              </div>
-              <div class="oneshot-anchor-row">
-                <img class="oneshot-anchor-thumb" id="oneshotAnchorThumb" alt="" hidden>
-                <button type="button" class="ghost-btn small" id="oneshotAnchorPick" onclick="document.getElementById('oneshotAnchorFile').click()">Choose an image</button>
-                <button type="button" class="ghost-btn small" id="oneshotAnchorClear" onclick="oneshotClearAnchor()" hidden>Clear</button>
-                <span class="oneshot-anchor-name sub" id="oneshotAnchorName"></span>
-                <input type="file" id="oneshotAnchorFile" accept="image/*" hidden onchange="oneshotAnchorPicked(this)">
-              </div>
-            </div>
-            <!-- Continuity. Both default ON; make_job reads on/off. -->
-            <div class="oneshot-toggles">
-              <div class="oneshot-toggle">
-                <div class="qs-label h3-axis-label">
-                  <span class="qs-name">Lock the light</span>
-                  <span class="qs-meta">keeps the time of day and weather the same in every line</span>
-                </div>
-                <div class="pill-group cols-2" id="takeLightLockGroup">
-                  <button type="button" class="pill-btn active" data-take-light="on" onclick="setTakeLightLock('on')"><span>On</span><span class="sub">same light, every line</span></button>
-                  <button type="button" class="pill-btn" data-take-light="off" onclick="setTakeLightLock('off')"><span>Off</span><span class="sub">lines as written</span></button>
-                </div>
-              </div>
-              <div class="oneshot-toggle">
-                <div class="qs-label h3-axis-label">
-                  <span class="qs-name">Redo a part that drifts</span>
-                  <span class="qs-meta">if a part changes the light, it is rendered once more</span>
-                </div>
-                <div class="pill-group cols-2" id="takeRetakeGroup">
-                  <button type="button" class="pill-btn active" data-take-retake="on" onclick="setTakeRetake('on')"><span>On</span><span class="sub">once more, at most</span></button>
-                  <button type="button" class="pill-btn" data-take-retake="off" onclick="setTakeRetake('off')"><span>Off</span><span class="sub">keep the first pass</span></button>
-                </div>
-              </div>
-            </div>
-            <div class="take-estimate" id="takeEstimate" aria-live="polite"></div>
-            <div class="oneshot-note" id="takeEngineNote"></div>
           </div>
 
           <!-- ========== PER-WINDOW PROMPTS (chained lengths only) ==========
@@ -3019,6 +2922,124 @@
          present the pipeline anchors frame 0 (same shape as I2V), so
          the same surface covers both pure A2V (audio only) and
          Image + Audio (audio + still). -->
+    <!-- ========== ONE SHOT — its own door (2026-09-08) ==========
+         One continuous shot of 30 s – 2 min that never cuts, rendered as parts
+         that continue from each other's last frame. Its own composer: the shot
+         (engine, one prompt, a start frame, who is in it), then length and
+         quality with the cost on this Mac, then direction (beats with a time
+         gutter, one camera line, three continuity switches), then Generate and
+         a part-by-part status. Nothing here rides the video form: webapp/js/
+         oneshot.js reads these fields, posts ONE document to POST /oneshot
+         (panel/routes_oneshot.py — the same document a script posts) and paints
+         the take from GET /oneshot/status. -->
+    <div id="oneshotSectionTab" style="display:none">
+      <div class="composer-card os-card">
+        <h2>One Shot <span class="h2-hint">30 s to 2 min · never cuts</span></h2>
+        <div class="hint os-lead">Write the whole shot once and it renders as parts that continue from each other's last frame. Everything below is optional: the beats direct five seconds each, one camera line holds the move, and a trained character speaks with its own face and voice.</div>
+
+        <div class="os-block">
+          <div class="qs-label h3-axis-label"><span class="qs-name">Engine</span><span class="qs-meta" id="osEngineMeta"></span></div>
+          <div class="pill-group cols-2" id="osEngineGroup" role="group" aria-label="Engine">
+            <button type="button" class="pill-btn active" data-os-engine="ltx" aria-label="LTX 2.5 — 10 second parts, faces, voices, dialogue"><span>LTX 2.5</span><span class="sub">10 s parts · faces, voices, dialogue</span></button>
+            <button type="button" class="pill-btn" data-os-engine="h3" aria-label="Hailuo H3 — 15 second parts, motion, landscapes, crowds"><span>Hailuo H3</span><span class="sub">15 s parts · motion, landscapes, crowds</span></button>
+          </div>
+        </div>
+
+        <div class="os-block">
+          <div class="qs-label h3-axis-label"><span class="qs-name">The shot</span><span class="qs-meta">who, where, the time of day and the weather, the sound — once, for the whole shot</span></div>
+          <textarea id="osPrompt" class="sb-textarea os-prompt" rows="4" spellcheck="false" placeholder="A red vintage tram rolls through a rain-soaked Lisbon street at night, neon on the wet cobbles; a woman with a yellow umbrella waits at the stop. The tram bell rings twice; rain on the roof, distant fado from a bar."></textarea>
+        </div>
+
+        <div class="os-two">
+          <div class="os-block">
+            <div class="qs-label h3-axis-label"><span class="qs-name">Start frame</span><span class="qs-meta">optional · the shot opens on this picture</span></div>
+            <div class="os-anchor" id="osAnchor">
+              <img class="os-anchor-thumb" id="osAnchorThumb" alt="" hidden>
+              <button type="button" class="ghost-btn small" id="osAnchorPick">Choose an image</button>
+              <button type="button" class="ghost-btn small" id="osAnchorClear" hidden>Clear</button>
+              <span class="sub os-anchor-name" id="osAnchorName"></span>
+              <input type="file" id="osAnchorFile" accept="image/*" hidden>
+            </div>
+          </div>
+          <div class="os-block" id="osCharacterBlock">
+            <div class="qs-label h3-axis-label"><span class="qs-name">Who is in it</span><span class="qs-meta" id="osCharacterMeta">optional · a trained character, with its own face and voice</span></div>
+            <div class="pill-group os-characters" id="osCharacterGroup" role="group" aria-label="Who is in it"></div>
+            <div class="hint os-character-note" id="osCharacterNote" hidden></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="composer-card os-card">
+        <div class="os-block">
+          <div class="qs-label h3-axis-label"><span class="qs-name">Length</span><span class="qs-meta" id="osLengthMeta"></span></div>
+          <div class="quality-strip pill-group cols-5" id="osLengthGroup"></div>
+        </div>
+        <div class="os-block">
+          <div class="qs-label h3-axis-label"><span class="qs-name">Quality</span><span class="qs-meta" id="osQualityMeta"></span></div>
+          <div class="quality-strip pill-group" id="osQualityGroup"></div>
+        </div>
+        <div class="os-estimate" id="osEstimate" aria-live="polite"></div>
+      </div>
+
+      <div class="composer-card os-card">
+        <div class="os-block">
+          <div class="qs-label h3-axis-label">
+            <span class="qs-name">Beats</span>
+            <span class="qs-meta" id="osBeatsHint">one line per five seconds · none written — the prompt carries the whole shot</span>
+          </div>
+          <div class="os-beats-tools">
+            <button type="button" class="ghost-btn small" id="osSplitBtn" title="Splits the shot above into one line per sentence — a start to edit, not the final word">Split my prompt into beats</button>
+            <button type="button" class="ghost-btn small" id="osPlanBtn" title="The planner writes one beat per five seconds from the shot above — about half a minute">Write the beats for me</button>
+          </div>
+          <!-- One row per five seconds, the stamp glued to its own field: a
+               beat that wraps or a box that scrolls can never put a stamp
+               beside the wrong line (the reviewer's first finding). -->
+          <div class="os-beat-rows" id="osBeats" role="group" aria-label="Beats, one per five seconds"></div>
+          <div class="hint os-beats-note">A blank row holds that moment. Enter moves to the next row; paste a whole list and it fills the rows. <a href="/docs/prompting" target="_blank" rel="noopener">How to write the beats</a>.</div>
+        </div>
+        <div class="os-block">
+          <div class="qs-label h3-axis-label"><span class="qs-name">Camera</span><span class="qs-meta">optional · one move for the whole shot, its direction and speed — every part continues it</span></div>
+          <input type="text" id="osCamera" class="sb-input" maxlength="240" autocomplete="off" spellcheck="false" placeholder="a slow, steady clockwise arc around the table at eye level, wide to close">
+        </div>
+        <div class="os-toggles">
+          <div class="os-toggle">
+            <div class="qs-label h3-axis-label"><span class="qs-name">Lock the light</span><span class="qs-meta">the time of day and the weather stay the same in every part</span></div>
+            <div class="pill-group cols-2" data-os-toggle="light" role="group" aria-label="Lock the light"><button type="button" class="pill-btn active" data-os-value="on"><span>On</span><span class="sub">same light, every part</span></button><button type="button" class="pill-btn" data-os-value="off"><span>Off</span><span class="sub">beats as written</span></button></div>
+          </div>
+          <div class="os-toggle">
+            <div class="qs-label h3-axis-label"><span class="qs-name">Redo a part that drifts</span><span class="qs-meta">a part whose light changes is rendered once more</span></div>
+            <div class="pill-group cols-2" data-os-toggle="retake" role="group" aria-label="Redo a part that drifts"><button type="button" class="pill-btn active" data-os-value="on"><span>On</span><span class="sub">once more, at most</span></button><button type="button" class="pill-btn" data-os-value="off"><span>Off</span><span class="sub">keep the first pass</span></button></div>
+          </div>
+          <div class="os-toggle">
+            <div class="qs-label h3-axis-label"><span class="qs-name">Hand off where the line ends</span><span class="qs-meta">for dialogue: the next part starts while the mouth still moves</span></div>
+            <div class="pill-group cols-2" data-os-toggle="handoff" role="group" aria-label="Hand off where the line ends"><button type="button" class="pill-btn" data-os-value="speech"><span>On</span><span class="sub">a talking character</span></button><button type="button" class="pill-btn active" data-os-value="last"><span>Off</span><span class="sub">on the last frame</span></button></div>
+          </div>
+        </div>
+        <details class="os-more" id="osMore">
+          <summary>More</summary>
+          <div class="os-more-grid">
+            <label class="os-field"><span class="sub">Seed</span><input type="text" id="osSeed" class="sb-input" inputmode="numeric" placeholder="random" autocomplete="off"></label>
+            <label class="os-field"><span class="sub">Label</span><input type="text" id="osLabel" class="sb-input" maxlength="120" placeholder="how it appears in the queue" autocomplete="off"></label>
+            <label class="os-field os-check"><input type="checkbox" id="osNoMusic"><span>No music</span><span class="sub">voice, sound and ambience only</span></label>
+          </div>
+        </details>
+      </div>
+
+      <div class="form-action-footer os-footer">
+        <div class="queue-strip"><span class="qchip-derived" id="osSummary"></span></div>
+        <div class="actions">
+          <button type="button" class="primary" id="osGenBtn">Generate</button>
+          <button type="button" class="danger" onclick="api('/stop','POST').then(poll)">Stop</button>
+        </div>
+      </div>
+
+      <div class="composer-card os-card os-status" id="osStatus" hidden>
+        <div class="qs-label h3-axis-label"><span class="qs-name" id="osStatusTitle">Rendering</span><span class="qs-meta" id="osStatusMeta"></span></div>
+        <div class="os-parts" id="osParts"></div>
+        <pre class="os-log" id="osLog"></pre>
+      </div>
+    </div>
+
     <div id="audioSectionTab" style="display:none">
       <div class="composer-card">
         <div class="composer-refs">
@@ -3222,7 +3243,7 @@
       <select class="sb-input ed-pool-film" id="edPoolFilm" hidden
               onchange="edPoolPickFilm(this.value)"
               aria-label="Which __SEQ__ to take clips from"></select>
-      <input type="text" class="sb-input ed-pool-search" id="edPoolSearch"
+      <input type="text" class="sb-input ed-pool-search" id="edPoolSearch" data-shortcut="search.focus" title="Filter the media pool by name"
              spellcheck="false" placeholder="Filter by name"
              oninput="edPoolPaint()">
       <div class="ed-pool-list" id="edPoolList"></div>
@@ -3428,7 +3449,7 @@
           <span class="po-act-label">Hide preview</span>
         </button>
         <button id="expandBtn" class="po-act" type="button"
-                onclick="openExpandLightbox()" title="Expand to fullscreen (Esc to close)">
+                onclick="openExpandLightbox()" title="Expand to fullscreen — Esc closes it" data-shortcut="outputs.expand">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M3 6 V3 H6 M10 3 H13 V6 M13 10 V13 H10 M6 13 H3 V10"
                   stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -3717,11 +3738,12 @@
         <!-- One gesture, two directions: a segmented pair rather than two
              free-standing buttons that happen to sit next to each other. -->
         <span class="sbe-undogroup">
-          <button type="button" class="ghost-btn" id="sbeUndoBtn" onclick="sbeUndo()" title="Undo (⌘Z)" disabled>Undo</button>
-          <button type="button" class="ghost-btn" id="sbeRedoBtn" onclick="sbeRedo()" title="Redo (⇧⌘Z)" disabled>Redo</button>
+          <button type="button" class="ghost-btn" id="sbeUndoBtn" onclick="sbeUndo()" title="Undo" data-shortcut="editor.undo" disabled>Undo</button>
+          <button type="button" class="ghost-btn" id="sbeRedoBtn" onclick="sbeRedo()" title="Redo" data-shortcut="editor.redo" disabled>Redo</button>
         </span>
         <button type="button" class="ghost-btn" id="sbeSaveBtn" onclick="sbeSaveNow()"
-                title="Save now and say so. The editor also saves on its own, quietly, a second after every edit.">Save</button>
+                data-shortcut="editor.save"
+                title="Save the draft. Save is the only thing that writes it — between saves your edits are kept as a backup you can restore from Drafts.">Save</button>
         <!-- RENDER CAME UP, NOT OUT. It was the far corner of a sticky bar at
              the bottom of the column, 54px of chrome under the timeline to
              hold two buttons; it is the one thing this screen is FOR, so it is
@@ -3729,7 +3751,8 @@
              the render note, because it is the same verb pointed elsewhere. -->
         <span class="sbe-split">
           <button type="button" class="primary" id="sbeRenderBtn" onclick="sbeRenderFilm()"
-                  title="Render this timeline into one file (⌘R)">Render</button>
+                  data-shortcut="editor.render"
+                  title="Render this timeline into one file">Render</button>
           <button type="button" class="primary sbe-car-btn" id="sbeRenderMore"
                   onclick="sbePopToggle('sbeRenderMenu', 'sbeRenderMore')"
                   aria-haspopup="menu" title="Export, and what the render will do">▾</button>
@@ -3800,7 +3823,20 @@
 
       <div class="sbe-pop sbe-pop-wide" id="sbeKeysPop" hidden>
         <span class="sbe-note sbe-keys" id="sbeKeys"></span>
+        <a class="sbe-keys-docs" href="#docs/shortcuts/keys-editor">Every shortcut, in the Docs →</a>
       </div>
+      <!-- THE CLIP BAR'S OVERFLOW. Empty in the markup on purpose: the bar
+           MOVES its own buttons in here when the pane is too narrow for them
+           and moves them back out when it is not, so there is exactly one
+           copy of every control and no second set of ids to keep in step. -->
+      <div class="sbe-pop sbe-cbar-pop" id="sbeCbarMenu" hidden></div>
+      <!-- RIGHT-CLICK ON THE TRACK. The same verbs the clip bar carries, at
+           the pointer, because that is the second place every editor's hand
+           goes and this timeline answered a right-click with the browser's
+           own menu. Painted by sbeCtxOpen — a context menu whose items are
+           written for the thing under the pointer is the only kind worth
+           having, and a gap's only verb is "close it". -->
+      <div class="sbe-pop sbe-ctx" id="sbeCtxMenu" hidden></div>
       <div class="sbe-pop sbe-pop-wide" id="sbeMusicMenu" hidden>
         <span class="sbe-pop-note" id="sbePrepText">The soundtrack drives the waveform and the beat grid.</span>
         <input type="text" class="sb-input" id="sbeMusic" spellcheck="false"
@@ -3951,6 +3987,11 @@
         <button type="button" class="ghost-btn" id="sbeRelinkBtn"
                 onclick="sbeRelink()">Use the finished versions</button>
       </div>
+      <!-- A RETAKE'S OFFER. One line per new take — "Use it" / "Keep the old
+           one" — painted by sbePaintRelink. It was written into this id from
+           the day Retake shipped and the element did not exist, so a finished
+           retake could never be put on the timeline. -->
+      <div class="sbe-relink sbe-retakes" id="sbeRetakes" hidden></div>
 
 
       <!-- ============== THE TWO MONITORS =========================
@@ -4050,25 +4091,122 @@
         </div>
       </div>
 
+      <!-- ============== THE CLIP BAR ==============================
+           "It's really hard when you are using the editor of Phosphene to
+           use the basic tools you actually need to use all the time, for
+           instance, unlink and link audio… We have some, but they are hidden
+           inside that menu, the toggle menu on the right. That is not a good
+           use."
+
+           Every verb below already existed — inside the inspector, in the
+           rail, beside a brightness slider and a zoom range, which is where
+           an NLE keeps PROPERTIES and not where it keeps VERBS. A cutter
+           reaches for split / lift / ripple / unlink / resync hundreds of
+           times in a session and for "font size" twice, and the two were
+           drawn identically in the same 212px column. So the verbs came out
+           and the properties stayed: see docs/EDITOR_TOOLBAR.md.
+
+           It is the row directly above the tracks, which is where Resolve
+           and Final Cut both put it, and it is the empty half of a row that
+           already existed rather than a new band of chrome — the height
+           budget in sbeFitMonitors measures its children, so a row that
+           costs 30px costs the picture 30px, and the picture is the thing
+           this screen is for.
+
+           EVERY BUTTON IS ALWAYS HERE. They DISABLE rather than disappear,
+           and a disabled button's tooltip says what would have to be true
+           for it to work — a control that vanishes teaches nothing, and the
+           inspector's habit of dropping a button it could not offer is
+           exactly why "delete sound" read as a feature that did not exist. -->
+      <!-- THE ICON SPRITE. Defined once, referenced by <use>, stroked in
+           currentColor so one rule themes every glyph and the disabled state
+           dims the icon with its label. Geometric rather than pictorial: at
+           13px a drawing of a padlock is four grey pixels, and the label is
+           doing the naming anyway. -->
+      <svg class="sbe-icons" aria-hidden="true" focusable="false"><defs>
+        <g id="ic-split"><path d="M12 2v20"/><path d="M7 8 3.5 12 7 16"/><path d="M17 8l3.5 4-3.5 4"/></g>
+        <g id="ic-lift"><path d="M3 20h18"/><path d="M12 3v11"/><path d="M7.5 7.5 12 3l4.5 4.5"/></g>
+        <g id="ic-ripple"><path d="M3 20h18"/><path d="M20 9H7"/><path d="M11.5 4.5 7 9l4.5 4.5"/></g>
+        <g id="ic-dup"><rect x="3" y="3" width="12" height="12" rx="2"/><path d="M9 21h10a2 2 0 0 0 2-2V9"/></g>
+        <g id="ic-unlink"><path d="M9 7H6a5 5 0 0 0 0 10h3"/><path d="M15 7h3a5 5 0 0 1 0 10h-3"/><path d="M4 4l16 16"/></g>
+        <g id="ic-link"><path d="M9 7H6a5 5 0 0 0 0 10h3"/><path d="M15 7h3a5 5 0 0 1 0 10h-3"/><path d="M8 12h8"/></g>
+        <g id="ic-resync"><path d="M20 6v5h-5"/><path d="M20 11A8 8 0 0 0 5 8"/><path d="M4 18v-5h5"/><path d="M4 13a8 8 0 0 0 15 3"/></g>
+        <g id="ic-mute"><path d="M4 9v6h3l5 4V5L7 9H4z"/><path d="M17 9l4 6"/><path d="M21 9l-4 6"/></g>
+        <g id="ic-sound"><path d="M4 9v6h3l5 4V5L7 9H4z"/><path d="M16 9a4 4 0 0 1 0 6"/></g>
+        <g id="ic-delsound"><path d="M4 9v6h3l5 4V5L7 9H4z"/><path d="M15 12h6"/></g>
+        <g id="ic-points"><path d="M3 14h18"/><circle cx="8" cy="14" r="1.8"/><circle cx="15" cy="14" r="1.8"/><path d="M17 5l5 5"/><path d="M22 5l-5 5"/></g>
+        <g id="ic-lock"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></g>
+        <g id="ic-unlock"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></g>
+      </defs></svg>
+      <div class="sbe-cbar" id="sbeCbar">
+        <!-- WHAT AM I ABOUT TO ACT ON. The bar's buttons are worth nothing
+             without it: "Ripple delete" over an unnamed selection is the one
+             gesture nobody should have to guess at, and multi-select made the
+             question real rather than rhetorical. -->
+        <span class="sbe-cbar-who" id="sbeCbarWho">Nothing selected</span>
+        <span class="sbe-cbar-sep"></span>
+        <button type="button" class="sbe-cbar-btn" id="sbeCbSplit" onclick="sbeSplitHere()">
+          <svg class="sbe-cbar-i"><use href="#ic-split"/></svg><b>Split</b></button>
+        <button type="button" class="sbe-cbar-btn" id="sbeCbLift" onclick="sbeLiftSelected()">
+          <svg class="sbe-cbar-i"><use href="#ic-lift"/></svg><b>Lift</b></button>
+        <button type="button" class="sbe-cbar-btn" id="sbeCbRipple" onclick="sbeRippleSelected()">
+          <svg class="sbe-cbar-i"><use href="#ic-ripple"/></svg><b>Ripple delete</b></button>
+        <button type="button" class="sbe-cbar-btn" id="sbeCbDup" onclick="sbeDuplicateSel()">
+          <svg class="sbe-cbar-i"><use href="#ic-dup"/></svg><b>Duplicate</b></button>
+        <span class="sbe-cbar-sep"></span>
+        <!-- THE SOUND GROUP, and it is second because it is the one he named:
+             "I find myself all the time un-syncing and syncing." Link and
+             Resync sit side by side because the difference between them is
+             the thing that is hard to hold in your head — one makes the pair
+             permanent, the other only slides the sound back under its frame
+             and leaves it free. -->
+        <button type="button" class="sbe-cbar-btn" id="sbeCbLink" onclick="sbeToggleAudioLink()">
+          <svg class="sbe-cbar-i"><use href="#ic-unlink" id="sbeCbLinkUse"/></svg><b>Unlink sound</b></button>
+        <button type="button" class="sbe-cbar-btn" id="sbeCbResync" onclick="sbeResyncSel()">
+          <svg class="sbe-cbar-i"><use href="#ic-resync"/></svg><b>Resync sound</b></button>
+        <button type="button" class="sbe-cbar-btn" id="sbeCbMute" onclick="sbeToggleClipMute()">
+          <svg class="sbe-cbar-i"><use href="#ic-mute" id="sbeCbMuteUse"/></svg><b>Mute sound</b></button>
+        <button type="button" class="sbe-cbar-btn" id="sbeCbDelSound" onclick="sbeDeleteStripSel()">
+          <svg class="sbe-cbar-i"><use href="#ic-delsound"/></svg><b>Delete sound</b></button>
+        <!-- THE "DELETE BUTTON FOR THE ANCHORS OF THE AUDIO". The dots on the
+             yellow level line are the only anchors a person PLACES on a
+             sound, and until now the only ways to take them off were a
+             right-click on each one and a "Clear 4" button in the inspector
+             that appeared and disappeared. -->
+        <button type="button" class="sbe-cbar-btn" id="sbeCbPoints" onclick="sbeClearPoints()">
+          <svg class="sbe-cbar-i"><use href="#ic-points"/></svg><b>Clear points</b></button>
+        <span class="sbe-cbar-sep"></span>
+        <button type="button" class="sbe-cbar-btn" id="sbeCbLock" onclick="sbeToggleLock()">
+          <svg class="sbe-cbar-i"><use href="#ic-lock" id="sbeCbLockUse"/></svg><b>Lock</b></button>
+        <span class="ch-spacer" style="flex:1 1 auto"></span>
+        <!-- OVERFLOW, NOT A DRAWER. It holds nothing of its own: whatever the
+             row cannot fit at this width moves into it, in reverse priority
+             order, and moves back out when the pane is widened. At the
+             Editor's normal width it is not even rendered. -->
+        <button type="button" class="sbe-cbar-btn sbe-cbar-more" id="sbeCbMoreBtn" hidden
+                onclick="sbePopToggle('sbeCbarMenu', 'sbeCbMoreBtn')"
+                aria-haspopup="menu" title="The verbs this pane is too narrow to show">More<span class="sbe-car">▾</span></button>
+      </div>
+
       <div class="sbe-transport">
-        <button type="button" class="ghost-btn" id="sbePlayBtn" onclick="sbeTogglePlay()">Play</button>
+        <button type="button" class="ghost-btn" id="sbePlayBtn" onclick="sbeTogglePlay()" title="Play / pause" data-shortcut="editor.play">Play</button>
         <button type="button" class="ghost-btn sbe-mute" id="sbeMuteBtn"
-                onclick="SBE.muted ? sbeUnmuteFromRefusal() : sbeSetMute(true)" title="Mute / unmute (M)">🔊</button>
+                onclick="SBE.muted ? sbeUnmuteFromRefusal() : sbeSetMute(true)" title="Mute / unmute the preview" data-shortcut="editor.mute">🔊</button>
         <span class="sbe-time" id="sbeTime">0:00.00 <span>/ 0:00.00</span></span>
-        <label class="check" style="margin:0;font-size:11px">
+        <label class="check" style="margin:0;font-size:11px" data-shortcut="editor.snap"
+               title="Clips you drag snap to the beat grid. ⌥ while dragging ignores it">
           <input type="checkbox" id="sbeSnapOn" checked onchange="sbePaint()"> Snap to beat
         </label>
         <!-- The two sliders an editor expects: the scrollbar on the track
              below moves the view, this one changes the scale. All the way
              left is the whole film in the window, whatever the window is. -->
         <span class="sbe-zoom">
-          <button type="button" class="ghost-btn" onclick="sbeZoom(-1)"
-                  title="Zoom out (alt + wheel over the track does the same, around the pointer)">−</button>
+          <button type="button" class="ghost-btn" onclick="sbeZoom(-1)" title="Zoom out" data-shortcut="editor.zoom">−</button>
           <input type="range" id="sbeZoomRange" min="0" max="1000" step="1" value="500"
                  aria-label="Timeline zoom"
-                 title="Zoom. Fully left fits the whole __SEQ__ in the window. Over the track: shift + wheel pans, alt + wheel zooms."
+                 title="Zoom. Fully left fits the whole __SEQ__ in the window. + and − on the keyboard. Over the track: shift + wheel pans, alt + wheel or a trackpad pinch zooms."
                  oninput="sbeZoomSlide(this.value)">
-          <button type="button" class="ghost-btn" onclick="sbeZoom(1)" title="Zoom in">+</button>
+          <button type="button" class="ghost-btn" onclick="sbeZoom(1)" title="Zoom in" data-shortcut="editor.zoom">+</button>
         </span>
         <!-- PROSE DEMOTED TO AN AFFORDANCE. Two lines of explanation sat
              across the middle of the transport for the life of the feature;
@@ -4241,7 +4379,7 @@
              quality, engine, size, seed, LoRA and character names. A
              substring test on one lower-cased string per output, so it is
              free per keystroke; the title says how many match. -->
-        <input type="search" class="sb-input outputs-search" id="outputsSearch"
+        <input type="search" class="sb-input outputs-search" id="outputsSearch" data-shortcut="search.focus" title="Search outputs"
                placeholder="Search prompts, models, LoRAs, sizes…" aria-label="Search outputs"
                spellcheck="false" oninput="setOutputsQuery(this.value)" onsearch="setOutputsQuery(this.value)">
         <span class="ch-spacer"></span>
@@ -4927,6 +5065,41 @@
      in the bottom strip until done. Newly-installed models appear in the
      local-engine model picker on next refresh. -->
 <!-- ============== BATCH MODAL ============== -->
+<!-- THE DOCS VIEW (webapp/js/docs.js; pages in webapp/docs/*.md). A .modal-bg
+     so the Editor's keys stand down while it is open and health.js's Esc and
+     focus trap cover it; the Close button's onclick names close for Esc. -->
+<div class="modal-bg docs-view" id="docsView" role="dialog" aria-modal="true"
+     aria-labelledby="docsViewTitle" onclick="if(event.target===this) closeDocs()">
+  <div class="docs-shell">
+    <aside class="docs-nav" id="docsNav" aria-label="Docs sections">
+      <div class="docs-brand">
+        <svg class="ph" aria-hidden="true"><use href="#ph-book-open"/></svg>
+        <span id="docsViewTitle">Phosphene Docs</span>
+      </div>
+      <label class="docs-search-wrap">
+        <svg class="ph" aria-hidden="true"><use href="#ph-magnifying-glass"/></svg>
+        <input type="search" class="docs-search" id="docsSearch" placeholder="Search the docs"
+               aria-label="Search the docs" spellcheck="false" autocomplete="off">
+      </label>
+      <nav class="docs-toc" id="docsToc"></nav>
+      <div class="docs-results" id="docsResults" hidden></div>
+    </aside>
+    <section class="docs-main">
+      <header class="docs-bar">
+        <button type="button" class="ghost-btn docs-nav-toggle" id="docsNavToggle"
+                aria-controls="docsNav" aria-expanded="false">Sections</button>
+        <span class="docs-crumb" id="docsCrumb"></span>
+        <span class="docs-bar-spacer"></span>
+        <button type="button" class="ghost-btn docs-close" onclick="closeDocs()" title="Close the Docs (⎋ Esc)">Close</button>
+      </header>
+      <div class="docs-scroll" id="docsScroll">
+        <article class="docs-article" id="docsArticle"></article>
+        <nav class="docs-pagenav" id="docsPageNav" aria-label="Previous and next page"></nav>
+      </div>
+    </section>
+  </div>
+</div>
+
 <div class="modal-bg" id="batchModal" onclick="if(event.target===this)closeBatch()">
   <div class="modal">
     <h3>Batch paste — split prompts with <code>---</code> on its own line</h3>
@@ -5024,6 +5197,8 @@ Third prompt."></textarea>
 <script>
 const BOOT = __BOOTSTRAP__;</script>
 <script type="module" src="/webapp/js/boot.js"></script>
+<script type="module" src="/webapp/js/shortcuts.js"></script>
+<script type="module" src="/webapp/js/docs.js"></script>
 <script type="module" src="/webapp/js/stage.js"></script>
 <script type="module" src="/webapp/js/characters.js"></script>
 <script type="module" src="/webapp/js/engines.js"></script>
@@ -5034,6 +5209,7 @@ const BOOT = __BOOTSTRAP__;</script>
 <script type="module" src="/webapp/js/health.js"></script>
 <script type="module" src="/webapp/js/storyboard.js"></script>
 <script type="module" src="/webapp/js/editor.js"></script>
+<script type="module" src="/webapp/js/oneshot.js"></script>
 <script type="module" src="/webapp/js/main.js"></script>
 <div class="phos-toast-container" id="phosToast" aria-live="polite" aria-atomic="false"></div>
 </body>

@@ -2264,6 +2264,9 @@ document.addEventListener('keydown', (ev) => {
   const li = document.activeElement && document.activeElement.closest
            && document.activeElement.closest('.sb-shot');
   if (!li || /^(INPUT|TEXTAREA|SELECT)$/.test((ev.target.tagName || ''))) return;
+  // Bare letters only: ⌘C on a focused card is a copy and ⌘R a reload, and
+  // both used to grade the shot as well.
+  if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
   const g = { k: 'keep', r: 'reroll', c: 'cut' }[ev.key.toLowerCase()];
   if (!g) return;
   const n = Number(li.dataset.n);

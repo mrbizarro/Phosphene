@@ -287,6 +287,68 @@ can never disagree with the ffmpeg command because it is generated from it.
 
 ---
 
+## Dialogue on H3 — the recipe (measured 2026-09-08)
+
+H3 speaks only what is written inside its dialogue tag. A line written as
+prose quotes — `She says: "You said Tuesday."` — leaves the voice switched
+off and the model guessing: a 10 s draft written that way transcribed (whisper
+large-v3-turbo) as *"You know, for when? Please, Jack, you're telling him…"*.
+The same engine, same canvas, with the line in the tag, transcribed the line
+word for word — at 640×384 draft and at 768×448 standard alike, so a draft is
+enough to judge whether a line comes out.
+
+One 5-second window, in the three-field form the Storyboard planner writes
+(`docs/PROMPTING.md` has the laws; this is the shape):
+
+```text
+integrated_multimodal_description: [Shot 1] Live-action, vintage 1990s
+multi-camera sitcom, a medium shot of GEORGE, <two or three anchors: build,
+glasses, jacket>, <where he is, the light>. The camera holds a static shot,
+the frame never moves - no pan, no push-in, no reframing. <What he does
+first, in silence.> Then George, with a nasal, agitated New York voice (S1),
+says: <d>[English] I thought it was ashwagandha!</d> Exactly as his voice
+stops, his jaw ceases speaking motion and his mouth settles closed, and a
+studio audience laughs. No text appears at any point.
+
+overall_soundscape: The room tone of a television studio, then a burst of
+studio-audience laughter right after the line.
+
+non_diegetic_music: N/A
+```
+
+The rules that were paid for:
+
+- **The words go in `<d>[English] …</d>` and nowhere else.** Speaker, voice
+  and delivery stay outside the tag; the speaker keeps one ID (`(S1)`) across
+  every shot. The panel and the runner pass the tag through untouched.
+- **At most about eight words per five seconds.** Speech runs ~2.4 words a
+  second and the mouth needs a second to settle (`storyboard.SPEECH_WORDS_PER_SEC`
+  is the same budget the board validator enforces). A twelve-word line spills
+  past the window.
+- **Stop the mouth in the same sentence** — "his jaw ceases speaking motion
+  and his mouth settles closed" — or the model keeps it moving on nothing.
+- **Voiceover has a fixed phrase.** `George (S1) says in an off-screen
+  voiceover: <d>[English] …</d> while his lips remain completely closed.`
+  Without the closing clause the on-screen mouth lip-syncs the narration.
+- **One face in frame while a line plays.** Every mouth in frame moves to
+  whatever voice plays. The other character's hands may enter the frame; the
+  reverse angle is its own shot.
+- **A laugh track is a soundscape event**, not dialogue: "then a burst of
+  studio-audience laughter right after the line" gave a clean line at
+  0.5–2.5 s and laughter at 3–4.5 s at the same loudness; the identical prompt
+  without it is silent after the line.
+- **Music is instrumentation.** "A funky slap bass riff with a bright synth
+  pop, fast tempo, two bars, that ends before he speaks" plays as a sting under
+  the first second; "upbeat sitcom music" is a mood word and does nothing
+  predictable.
+
+A chained 10 s or 15 s clip carries one line per window through the
+per-window prompts (`h3_chain_prompts`); a board shot carries one line per
+5 s shot. The Saint Feld chapter (twelve 5 s draft shots, every line
+transcribed back word for word on the first take) is the reference render.
+
+---
+
 ## LoRAs
 
 H3 takes community adapters through the same `--lora PATH[:SCALE]` flag Turbo

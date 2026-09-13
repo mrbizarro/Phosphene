@@ -137,6 +137,45 @@ Submit multiple prompts as one batch.
 
 ## Status — poll job state
 
+### One Shot — its own door: `POST /oneshot` (2026-09-08)
+
+One Shot is a workflow tab and a first-class API. A script posts the same
+document the tab posts — one JSON object — and gets the queued job back:
+
+```bash
+curl -s -X POST http://127.0.0.1:8198/oneshot -H 'Content-Type: application/json' -d '{
+  "prompt": "A red vintage tram rolls through a rain-soaked Lisbon street at night; a woman with a yellow umbrella waits at the stop. The bell rings twice; rain on the roof.",
+  "seconds": 60,
+  "engine": "ltx",
+  "quality": "balanced",
+  "camera": "a slow, steady push in along the street",
+  "beats": ["the tram comes round the corner", "", "the woman steps to the kerb"],
+  "handoff": "last"
+}'
+# → {"ok": true, "id": "j-…", "plan": {"seconds": 60, "parts": 6, "beats": 12, "engine": "ltx", "handoff": "last", "minutes": 28.2, "eta": "~28 min"}}
+```
+
+| Field | Type | Default | Meaning |
+|---|---|---|---|
+| `prompt` | str | **required** | The whole shot, once: who, where, the time of day and the weather, the sound. With no beats it carries every five seconds. |
+| `seconds` | int | `60` | One of 30 / 45 / 60 / 90 / 120. Any other value is refused, never rounded (a 75 used to render as one clip). |
+| `engine` | `ltx` / `h3` | `ltx` | LTX renders 10 s parts (faces, voices, dialogue); H3 renders 15 s parts (motion, landscapes). H3 is refused when not installed. |
+| `quality` | str | engine default | LTX: `quick` / `balanced` / `standard` / `high`; with a character: `draft` / `pro` / `high` / `high_720p`; H3: `draft` / `standard` / `high` / `native`. |
+| `beats` | list or newline text | none | One line per five seconds. A blank line holds that moment; extra lines are dropped. Absent = the prompt is every beat. |
+| `camera` | str | `""` | One move for the whole shot, its direction and speed; carried into every part (`take_camera`). |
+| `image` | path | none | A start frame already on this Mac — upload first with `POST /upload` (field `image`) and pass the returned `path`. Makes the first part i2v. |
+| `character_id` | str | none | A trained character (LTX only). Defaults quality to `pro`, the export to 720p Sharp, and `handoff` to `speech`. `character_strength`, `voice_strength` optional. |
+| `handoff` | `last` / `speech` | `last` (`speech` with a character) | Where a part hands off: its last frame, or a talking frame with the last word carried over the next part (see the take contract below). |
+| `light_lock` / `retake` | on/off | `on` | The continuity sentence on every beat; one drift retake per part. |
+| `seed`, `label`, `no_music`, `turbo` (H3), `upscale`, `upscale_method` | | | As on `/queue/add`. |
+
+`GET /oneshot/options` — what this Mac can do: `seconds`, `engines.{ltx,h3}` (available, `part_seconds`, `qualities`), `character_qualities`, `characters` (id, name, trigger, has_voice), `planner`.
+`GET /oneshot/estimate?engine=&quality=&seconds=` — `parts`, `part_seconds`, `beats`, `minutes`, `eta`.
+`POST /oneshot/plan` `{prompt, seconds, engine}` — the Storyboard planner writes one beat per five seconds from the prompt (blocks 20–40 s): `{ok, beats:[…]}`.
+`GET /oneshot/status` — `current` (id, label, part, parts, `lipsync` per part, `drift`, handoff), `queued`, `recent`, and the take's own `log` lines.
+
+Under the hood every One Shot is the take contract below — `POST /oneshot` maps the document onto `make_job`'s form, so the tab, the API and `/queue/add` render exactly the same job.
+
 ### One take — `take_seconds` + `beats` on `POST /queue/add`
 
 A clip longer than a single pass, on either engine. `take_seconds` is one of
@@ -523,7 +562,7 @@ Renders a multi-view turnaround sheet from the character's reference image (bund
 
 ```json
 {
-  "engine_override": "hidream_inline",
+  "engine_override": "qwen_edit_inline",
   "views": ["front", "profile_left", "three_quarter"],
   "wardrobe": "a red flight jacket",
   "seed": -1
