@@ -17,6 +17,7 @@ import os
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.request
 from http.server import ThreadingHTTPServer
@@ -110,6 +111,54 @@ class EngineStatusRoute(unittest.TestCase):
         self.assertFalse(qwen["cached"], "an interrupted download is not cached")
         self.assertTrue(qwen["partial"], "the status names the partial state")
         self.assertGreaterEqual(qwen["partial_gb"], 0.0)
+
+
+class LeftoversOfACompleteDownload(unittest.TestCase):
+    """FLUX.2 klein (fleet, 14 renders on 3 installs): "stuck at 4.6 GB" about a
+    4.6 GB model. A complete download kept a leftover `.incomplete`, the repair
+    found nothing to fetch, the size never moved, and the panel called it stuck."""
+
+    def setUp(self) -> None:
+        image_engine._REPAIR_MEMO.clear()
+
+    def _repo(self, name: str):
+        root = Path(tempfile.mkdtemp())
+        return root, _fake_repo(root, name, partial=False)
+
+    def test_incomplete_with_a_finished_twin_is_litter(self) -> None:
+        name = "Runpod/klein-twin"
+        root, repo_dir = self._repo(name)
+        (repo_dir / "blobs" / "aaaa.incomplete").write_bytes(b"\0" * 10)
+        self.assertIsNone(image_engine.hf_repo_partial_download(name, {"HF_HOME": str(root)}))
+        self.assertFalse((repo_dir / "blobs" / "aaaa.incomplete").exists())
+        self.assertTrue((repo_dir / "blobs" / "aaaa").exists(), "the finished blob is never touched")
+
+    def test_leftover_untouched_by_a_full_pass_is_litter(self) -> None:
+        name = "Runpod/klein-orphan"
+        root, repo_dir = self._repo(name)
+        left = repo_dir / "blobs" / "zzzz.incomplete"
+        left.write_bytes(b"\0" * 10)
+        old = time.time() - 3600
+        os.utime(left, (old, old))
+        env = {"HF_HOME": str(root)}
+        self.assertIsNotNone(image_engine.repair_partial_hf_download(name, env))
+        (repo_dir / "snapshots" / "def456").mkdir(parents=True)   # the pass re-linked the snapshot
+        self.assertIsNone(image_engine.repair_partial_hf_download(name, env))
+        self.assertFalse(left.exists())
+
+    def test_a_stalled_download_is_still_reported_and_kept(self) -> None:
+        name = "Runpod/klein-stalled"
+        root, repo_dir = self._repo(name)
+        left = repo_dir / "blobs" / "zzzz.incomplete"
+        left.write_bytes(b"\0" * 10)
+        old = time.time() - 3600
+        os.utime(left, (old, old))
+        env = {"HF_HOME": str(root)}
+        image_engine.repair_partial_hf_download(name, env)
+        with self.assertRaises(RuntimeError) as cm:           # no snapshot came back
+            image_engine.repair_partial_hf_download(name, env)
+        self.assertIn("stuck", str(cm.exception))
+        self.assertTrue(left.exists(), "a partial that may still be needed is never deleted")
 
 
 if __name__ == "__main__":

@@ -675,6 +675,20 @@ async function openSettingsModal() {
     if (ditHint) ditHint.hidden = !haveH3;
     const v = String(cur.h3_dit || 'auto').toLowerCase();
     ditSelect.value = ['auto', 'bf16', 'q8'].includes(v) ? v : 'auto';
+    // Below the full engine's memory floor "Full" is not a real choice: the
+    // master alone loads ~39 GiB and the render dies of Metal memory. The
+    // server renders Compact there anyway; the menu says why instead of
+    // offering it.
+    const fullOpt = ditSelect.querySelector('option[value="bf16"]');
+    if (fullOpt) {
+      const h3s = (LAST_STATUS && LAST_STATUS.h3) || {};
+      const fits = h3s.bf16_fits !== false;
+      fullOpt.disabled = !fits;
+      fullOpt.textContent = fits
+        ? 'Full (bf16) — 42 GiB peak'
+        : 'Full (bf16) — needs ' + Math.round(h3s.min_ram_gb || 60) + ' GB of memory, not this Mac';
+      if (h3s.bf16_fits === false && ditSelect.value === 'bf16') ditSelect.value = 'auto';
+    }
   }
 
   // Token rows. We never receive the actual key from the server (the

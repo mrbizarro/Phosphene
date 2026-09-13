@@ -23,10 +23,11 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) poll
 // click that landed mid-rewrite could be lost. A single delegated
 // listener on document survives every rewrite + costs nothing.
 document.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-action="retry"], [data-action="dismiss"], [data-action="stop-early"]');
+  const btn = e.target.closest('[data-action="retry"], [data-action="dismiss"], [data-action="stop-early"], [data-action="resume"]');
   if (!btn) return;
   e.stopPropagation();
   e.preventDefault();
+  if (btn.dataset.action === 'resume') { if (typeof togglePause === 'function') togglePause(); return; }
   // A third delegated action in the same row, for the same reason the other
   // two are delegated: poll() rewrites this element every 1.5 s, and an inline
   // handler would be lost to that race mid-click.

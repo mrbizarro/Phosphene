@@ -37,7 +37,7 @@ Add a job to the panel's queue. Returns immediately; the helper renders it async
 |---|---|---|
 | `mode` | `t2v` \| `i2v` \| `extend` \| `keyframe` \| `image` | Job type. |
 | `prompt` | string | Full prompt text. Trigger words for LoRAs go here. |
-| `negative_prompt` | string | Optional. Usually empty. |
+| `negative_prompt` | string | Optional. Honoured only where the pipeline runs classifier-free guidance: `high`, `extend`, `keyframe`, `a2v`. The distilled `quick` / `balanced` / `standard` paths have no guidance branch and ignore it (they used to fold the terms into the prompt, which made the model draw them, #81). |
 | `width`, `height` | int | Both divisible by 32. |
 | `frames` | int | Must satisfy `frames % 8 == 1`. 121 = 5s, 169 = 7s, 241 = 10s. |
 | `frame_rate` | float | Default `24`. LTX is trained at 24 fps; deviation degrades quality. |

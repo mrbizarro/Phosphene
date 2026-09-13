@@ -200,5 +200,34 @@ class ItIsActuallyWiredIntoTheRender(unittest.TestCase):
                          "--draft-cache-dir reached the runner argv")
 
 
+class APoisonedEntryIsAMiss(unittest.TestCase):
+    """Before this fix the shot-list path keyed the cache on the run's prompt while
+    the runner wrote window 1's prompt into the entry, and every later render of
+    that prompt raised "The prompt cache belongs to a different prompt" (fleet
+    4.12.3). An entry holding another prompt is thrown away, not served."""
+
+    def test_entry_for_another_prompt_is_removed(self):
+        import numpy as np
+        path = P.h3_prompt_cache_path("the run prompt", None)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(path, prompt=np.array("window one prompt"),
+                            embeds=np.zeros((1, 2), np.float32))
+        self.assertEqual(P.h3_prompt_cache_path("the run prompt", None), path)
+        self.assertFalse(path.exists(), "a mismatched entry was left for the runner to raise on")
+
+    def test_entry_for_the_same_prompt_is_kept(self):
+        import numpy as np
+        path = P.h3_prompt_cache_path("same prompt kept", None)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(path, prompt=np.array("same prompt kept"),
+                            embeds=np.zeros((1, 2), np.float32))
+        P.h3_prompt_cache_path("same prompt kept", None)
+        self.assertTrue(path.exists())
+
+    def test_shot_list_keys_on_the_prompt_the_runner_encodes(self):
+        self.assertIn("_pc_prompt = (chain_prompts[0]", PANEL_SRC)
+        self.assertIn("h3_prompt_cache_path(_pc_prompt, first_frame)", PANEL_SRC)
+
+
 if __name__ == "__main__":
     unittest.main()

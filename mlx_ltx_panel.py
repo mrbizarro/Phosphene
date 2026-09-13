@@ -9742,6 +9742,24 @@ def h3_prompt_cache_path(prompt: str, first_frame) -> Path | None:
             path.unlink()
         except OSError:
             return None
+    # An entry written for ANOTHER prompt under this key (the shot-list keying
+    # bug before 4.12.4) would make the runner raise on every render of this
+    # prompt. It is a miss, not a fault: drop it and let this render re-encode.
+    if path.exists():
+        try:
+            import numpy as _np
+        except ImportError:
+            return path
+        try:
+            with _np.load(path, allow_pickle=False) as _z:
+                _stored = str(_z["prompt"].item()) if "prompt" in _z.files else None
+            if _stored is not None and _stored != prompt:
+                path.unlink()
+        except Exception:                                            # noqa: BLE001
+            try:
+                path.unlink()
+            except OSError:
+                return None
     return path
 
 
@@ -9885,7 +9903,12 @@ def h3_dit_choice() -> tuple[str, Path | None]:
     q8 = _h3_q8_dit_dir()
     if pref == "q8" and q8 is not None:
         return "q8", q8
-    if pref == "bf16":
+    # A bf16 preference below the bf16 floor, with the Q8 pack built, is not
+    # honoured: the master loads 38.6 GiB before the modulation cache and a
+    # 48 GB Mac died with Metal "Insufficient Memory" on every render, Draft
+    # included (Pinokio report, M5 Max 48 GB, Q8 engine built and skipped).
+    # Q8 is the only lane that fits there; the dispatch says so in the log.
+    if pref == "bf16" and (SYSTEM_RAM_GB >= H3_MIN_RAM_GB or q8 is None):
         return "bf16", None
     if pref == "q8" and q8 is None:
         pref = "auto"      # fall through, surfaced via /status
@@ -11723,6 +11746,9 @@ def h3_status() -> dict:
                    "note": H3_LORA_STACK_NOTE,
                    "base_model": _CIVITAI_VIDEO_FAMILIES["h3"][0]}),
         "min_ram_gb": H3_MIN_RAM_GB,
+        # The Settings menu greys out "Full" below its floor instead of
+        # offering a choice the dispatch will not honour (h3_dit_choice).
+        "bf16_fits": SYSTEM_RAM_GB >= H3_MIN_RAM_GB,
         "min_ram_gb_q8": H3_MIN_RAM_GB_Q8,
         "dit_choice": (lambda _c, _p: {
             "kind": _c[0],
@@ -14573,7 +14599,14 @@ def load_queue() -> None:
     with LOCK:
         STATE["queue"] = data.get("queue", []) or []
         STATE["history"] = data.get("history", []) or []
-        STATE["paused"] = bool(data.get("paused", False))
+        # A paused flag is NOT restored across a restart (#80). The breaker
+        # pauses the queue on three identical failures and /queue/pause is a
+        # button; both are session decisions whose reason is gone once the
+        # panel restarts, and a user who restarted Pinokio to "unstick" the
+        # worker found it still refusing every job with no visible cause.
+        if data.get("paused"):
+            print("queue was paused when the panel last ran — resumed on start", flush=True)
+        STATE["paused"] = False
         if data.get("current"):
             stale = data["current"]
             stale["status"] = "queued"
@@ -22589,10 +22622,25 @@ def run_train_job_inner(job: dict) -> None:
             # Stream stdout. Each line is either JSON (a structured progress
             # event) or plain text (forwarded as-is to the log).
             assert proc.stdout is not None
+            # Every trainer line also lands in <job>/train.log (#62: the
+            # reporter's adapter came out at half strength and "the raw
+            # training log for this job was never persisted to disk" — the
+            # panel's log ring is capped, so the one run that mattered was
+            # gone by the time anyone asked for its numbers). Append, so a
+            # relaunch keeps the first attempt's lines above its own.
+            try:
+                _tlog = open(Path(dataset_dir) / "train.log", "a", encoding="utf-8")
+            except OSError:
+                _tlog = None
             for raw in proc.stdout:
                 line = raw.rstrip("\n")
                 if not line:
                     continue
+                if _tlog is not None:
+                    try:
+                        _tlog.write(line + "\n"); _tlog.flush()
+                    except OSError:
+                        pass
                 payload = None
                 if line.lstrip().startswith("{"):
                     try:
@@ -22691,6 +22739,11 @@ def run_train_job_inner(job: dict) -> None:
                     _train_watchdog_seen = True
             rc = proc.wait()
             proc = None
+            if _tlog is not None:
+                try:
+                    _tlog.write(f"[panel] trainer exited with code {rc}\n"); _tlog.close()
+                except OSError:
+                    pass
             with LOCK:
                 STATE["pid"] = None
                 STATE["train_pgid"] = None
@@ -22711,6 +22764,18 @@ def run_train_job_inner(job: dict) -> None:
                      f"encoding at {n} tokens instead of 1024. {wiped} caption "
                      f"encoding(s) discarded; image latents kept.")
                 _train_env["LTX2_GEMMA_MAX_LENGTH"] = str(n)
+                # The shorter pad did not save M2 Max / 96 GB (#61: the
+                # relaunch died on caption 6 the same way). That kill is the
+                # macOS 26 "Impacting Interactivity" eviction, not the 10 s
+                # command-buffer deadline the per-layer eval already bounds
+                # (ml-explore/mlx#3267). The AGX knob relaxes that eviction
+                # for THIS process only, at the cost of UI smoothness while
+                # it trains — a trade a user who started a training run has
+                # already made. Never set for renders, never set globally.
+                _train_env["AGX_RELAX_CDM_CTXSTORE_TIMEOUT"] = "1"
+                push("[train] also relaxing the macOS GPU eviction timeout for the "
+                     "trainer process (AGX_RELAX_CDM_CTXSTORE_TIMEOUT=1) — the "
+                     "screen may feel less responsive until it finishes.")
                 _train_watchdog_seen = False
                 _train_phase = "start"
                 continue
@@ -23536,6 +23601,11 @@ def run_h3_job_inner(job: dict) -> None:
              "the compact Q8 engine is not built on this install. Re-run the "
              "H3 engine Install (safe to repeat, ~5 min) to build it and "
              "halve H3's memory.")
+    if _dit_kind == "q8" and \
+            str(get_settings().get("h3_dit") or "auto").strip().lower() == "bf16":
+        push(f"H3: Settings asks for the full bf16 engine, but this Mac reports "
+             f"{SYSTEM_RAM_GB:.0f} GB and the full engine needs {H3_MIN_RAM_GB:.0f} GB "
+             "— rendering with the compact Q8 engine instead.")
     _dit_path = _dit_q8 if (_dit_kind == "q8" and _dit_q8 is not None) else paths["dit"]
     cmd += [
         "--dit", str(_dit_path),
@@ -23571,7 +23641,15 @@ def run_h3_job_inner(job: dict) -> None:
         _mem_gb, _wired_gb = h3_memory_budget()
         if _mem_gb > 0:
             cmd += ["--memory-gb", str(_mem_gb), "--wired-gb", str(_wired_gb)]
-    _pc = h3_prompt_cache_path(prompt, first_frame) if h3_supports_prompt_cache() else None
+    # The runner checks a cache entry against the prompt IT encodes: the
+    # positional prompt, or window 1's prompt on the shot-list path (it turns
+    # the cache off for later windows). Keying on the run's prompt while the
+    # shot list drove window 1 wrote an entry under one prompt and read it back
+    # under another, and the runner RAISES on that — "The prompt cache belongs
+    # to a different prompt" (fleet 4.12.3, a 15 s High chain, every retry).
+    _pc_prompt = (chain_prompts[0]
+                  if (chain_prompts_path is not None and chain_prompts) else prompt)
+    _pc = h3_prompt_cache_path(_pc_prompt, first_frame) if h3_supports_prompt_cache() else None
     if _pc is not None:
         # Prune BEFORE the render, so the entry this run is about to write is
         # never the one evicted.
@@ -24183,6 +24261,43 @@ def _run_windows_chain(job: dict, p: dict, plan: dict, first: Path,
     return plan
 
 
+_GEMMA4_PROBE: dict = {}
+
+
+def _gemma4_tower_supported() -> bool | None:
+    """Can the INSTALLED engine encode prompts for LTX-2.5? True, False, or
+    None when it cannot be told.
+
+    The helper reports this on its ready line, but the stale-engine gate runs
+    BEFORE the helper is spawned on the first render after a restart. ready_info
+    was {} then, the gate read None, let the render through, and it died with
+    mlx_lm's "Model type gemma4_unified not supported." (fleet 4.12.2, one
+    install, four renders in a row). When the helper has not answered yet, the
+    helper's own interpreter is asked the same find_spec question, once per
+    panel process — an Update restarts the panel, so a fixed engine is re-asked.
+    """
+    v = HELPER.ready_info.get("gemma4_tower_supported") if HELPER.ready_info else None
+    if v is not None:
+        return bool(v)
+    key = str(HELPER_PYTHON)
+    if key in _GEMMA4_PROBE:
+        return _GEMMA4_PROBE[key]
+    res: bool | None = None
+    try:
+        r = subprocess.run(
+            [str(HELPER_PYTHON), "-c",
+             "import importlib.util, sys; "
+             "sys.exit(0 if importlib.util.find_spec("
+             "'ltx_core_mlx.text_encoders.gemma.gemma4') else 3)"],
+            capture_output=True, timeout=90, cwd=str(MLX))
+        res = True if r.returncode == 0 else (False if r.returncode == 3 else None)
+    except Exception:                                                # noqa: BLE001
+        res = None
+    if res is not None:
+        _GEMMA4_PROBE[key] = res
+    return res
+
+
 def _join_take_parts(ff: str, parts: list[str], final: Path, fps: float = 24.0) -> None:
     """Join the parts of a one-shot take with the sound locked to the picture.
 
@@ -24514,7 +24629,7 @@ def run_job_inner(job: dict) -> None:
     # `is False`, not falsy: ready_info is {} until the helper boots, and
     # 'we haven't asked yet' must not render as 'your engine is broken'.
     if (model_version().get("id") == "ltx25"
-            and HELPER.ready_info.get("gemma4_tower_supported") is False):
+            and _gemma4_tower_supported() is False):
         raise RenderRefused(
             "stale_engine",
             "This install's vendored engine predates LTX-2.5's text encoder "

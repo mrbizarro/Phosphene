@@ -1201,6 +1201,40 @@ def _attach_loras(pipe, loras: list[dict] | None) -> None:
     pipe._pending_loras = pairs
 
 
+def _a2v_pad_audio_to(audio_path: str, need_s: float,
+                      start_s: float = 0.0) -> tuple[str, bool]:
+    """(path, padded). When `audio_path` from `start_s` runs out before
+    `need_s`, a temp WAV of that span padded with silence to exactly `need_s`;
+    otherwise the original path, untouched. Any probe failure leaves the
+    original in place — padding is a repair, never a new way to fail."""
+    import subprocess as _sp
+    import tempfile as _tf
+    try:
+        from ltx_core_mlx.utils.ffmpeg import find_ffmpeg, find_ffprobe
+        out = _sp.run([find_ffprobe(), "-v", "error", "-show_entries", "format=duration",
+                       "-of", "csv=p=0", audio_path],
+                      capture_output=True, text=True, timeout=30).stdout.strip()
+        have = float(out.splitlines()[0].strip(",")) - max(0.0, float(start_s))
+    except Exception:                                                # noqa: BLE001
+        return audio_path, False
+    if have >= need_s - 0.005:
+        return audio_path, False
+    fd, tmp = _tf.mkstemp(prefix="a2v_pad_", suffix=".wav")
+    os.close(fd)
+    cmd = [find_ffmpeg(), "-v", "error", "-y"]
+    if start_s and float(start_s) > 0:
+        cmd += ["-ss", f"{float(start_s):.3f}"]
+    cmd += ["-i", audio_path, "-vn", "-af", f"apad=whole_dur={need_s:.6f}",
+            "-t", f"{need_s:.6f}", "-ar", "48000", "-c:a", "pcm_s16le", tmp]
+    try:
+        r = _sp.run(cmd, capture_output=True, timeout=180)
+        if r.returncode != 0 or os.path.getsize(tmp) == 0:
+            return audio_path, False
+    except Exception:                                                # noqa: BLE001
+        return audio_path, False
+    return tmp, True
+
+
 def _preflight_distilled_loras(
     loras: list[tuple[str, float]], model_dir: str | Path
 ) -> None:
@@ -2149,14 +2183,19 @@ def _clean_text(value) -> str:
 
 
 def _prompt_with_soft_negative(prompt: str, negative_prompt: str) -> str:
-    """Fold avoid terms into Q4 one-stage prompts where CFG is disabled."""
-    neg = _clean_text(negative_prompt)
-    if not neg:
-        return prompt
-    lower = prompt.lower()
-    if "avoid:" in lower or "negative prompt:" in lower:
-        return prompt
-    return f"{prompt}\nAvoid: {neg}"
+    """The positive prompt, untouched, on the distilled paths where CFG is off.
+
+    This used to append ``Avoid: <terms>`` to the positive prompt so the
+    Avoid box did *something* without guidance. It did the opposite: a
+    text encoder has no negation, so "Avoid: rain poncho" is a prompt that
+    mentions a rain poncho, and the render leaned INTO the avoided thing
+    (#81, "minor signs of a rain poncho were heavily increased"). Without a
+    CFG branch there is no mechanism that can subtract a concept, so the
+    honest behaviour is to leave the prompt alone and say so in the log.
+    Extend, High, first-last-frame and audio-to-video still carry the terms
+    through the real negative conditioning (`_override_default_negative_prompt`).
+    """
+    return prompt
 
 
 @contextmanager
@@ -2885,7 +2924,7 @@ for line in sys.__stdin__:
             if negative_prompt:
                 emit({
                     "event": "log",
-                    "line": "Avoid terms active (Q4 path folds them into the positive prompt; CFG paths use native negative conditioning).",
+                    "line": "Avoid terms ignored on this quality: the distilled path runs without guidance, so nothing can subtract a concept (they used to be appended to the prompt, which made the model draw them, #81). They apply on High, Extend, first-last-frame and audio-to-video.",
                 })
 
             kwargs = dict(
@@ -3537,6 +3576,22 @@ for line in sys.__stdin__:
             if not os.path.exists(audio_path):
                 raise RuntimeError(f"audio file not found: {audio_path}")
             num_frames = int(p["frames"])
+            # A dub whose track is SHORTER than the clip it drives: the pipeline
+            # slices the encoded audio to the video's token count, and when the
+            # file runs out first the shorter tensor meets full-length positions
+            # — "[broadcast_shapes] Shapes (1,32,567,32) and (1,32,576,32)"
+            # (fleet 4.12.3: a 22.7 s track under a 553-frame, 23.04 s clip; the
+            # frame count rounds UP to the 8k+1 grid). Pad the track with silence
+            # to the clip's length — the tail the rounding added is a fraction of
+            # a second of quiet — instead of failing the whole render.
+            _a2v_fps = float(p.get("frame_rate", 24.0))
+            audio_path, _a2v_padded = _a2v_pad_audio_to(
+                audio_path, num_frames / _a2v_fps, float(p.get("audio_start_time", 0.0)))
+            if _a2v_padded:
+                p["audio_start_time"] = 0.0
+                emit({"event": "log",
+                      "line": f"[a2v] the audio is shorter than the clip — padded "
+                              f"with silence to {num_frames / _a2v_fps:.2f} s"})
             loras = p.get("loras") or []
             pipe = get_a2v_pipe(model_dir, loras=loras,
                                 dev_transformer=p.get("dev_transformer"),

@@ -1,5 +1,25 @@
 # Phosphene — project state, history, open work
 
+> **🩹 2026-09-13 — v4.12.4 ships: the morning's issues and fleet read.**
+> Promoted by cherry-pick onto origin/main: ca9b8e9 (#80 paused queue clears
+> on boot, Now card carries Resume), 5e888ee (#81 Avoid no longer folded into
+> the positive prompt on the distilled qualities), 99a436c (#62 trainer lines
+> persisted to train.log), 31991c8 (#61 AGX_RELAX_CDM_CTXSTORE_TIMEOUT on the
+> trainer's encode relaunch only), d6b8734 (fleet + Pinokio): H3 "Full"
+> preference below the 60 GB floor with Q8 built now renders Q8 and Settings
+> greys Full out (Pinokio, M5 Max 48 GB OOM at ModulationCache); H3 prompt
+> cache keyed on window 1's prompt on the shot-list path + mismatched entries
+> discarded (fleet: "belongs to a different prompt"); a2v track shorter than
+> the clip padded with silence (fleet: broadcast_shapes 567 vs 576); image
+> Hub leftovers of a finished download cleared — twin `.incomplete` always,
+> untouched leftovers only after a pass that re-linked `snapshots/` (fleet:
+> FLUX.2 klein "stuck at 4.6 GB"); stale-engine gate probes the helper
+> interpreter before boot (fleet: gemma4_unified on the first render after a
+> restart); LTX Upscale Generate blocked with no clip. Validated end to end on
+> a scratch panel: a2v with a 1.85 s track under 49 frames, an H3 draft on a
+> deliberately poisoned cache entry, an H3 10 s chain with per-window prompts.
+> NOT in this release: the Editor clip bar (ba48941) — waits for owner use.
+
 > **🩹 2026-09-12 — v4.12.3 ships: one-shot takes stay in sync.** The
 > owner's 50 s "awkward silences" one-shot was out of sync by its last line:
 > every rendered part's audio comes out of the model a few hundredths of a

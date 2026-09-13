@@ -144,6 +144,23 @@ def hf_repo_partial_download(repo_id: str, env: "dict | None" = None) -> "dict |
     except OSError:
         return None
     partial = [p for p in entries if p.name.endswith(".incomplete")]
+    # An `.incomplete` whose finished blob is ALREADY here is litter: the file
+    # was fetched again and completed under its real name, and huggingface_hub
+    # never goes back for the leftover. Counting it kept a COMPLETE download
+    # "partial" forever — the repair found nothing to fetch, the size never
+    # moved, and the panel said "stuck at 4.6 GB" about a 4.6 GB model (fleet,
+    # FLUX.2 klein, 14 renders on 3 installs).
+    names = {p.name for p in entries}
+    live = []
+    for p in partial:
+        if p.name[: -len(".incomplete")] in names:
+            try:
+                p.unlink()
+                continue
+            except OSError:
+                pass
+        live.append(p)
+    partial = live
     if not partial:
         return None
     total = 0
@@ -182,13 +199,43 @@ def repair_partial_hf_download(repo_id: str, env: "dict | None" = None) -> "dict
     # left the download exactly where it was, wiping and re-fetching again
     # on every render just burns time — say what's stuck instead.
     on_disk = round(float(info.get("on_disk_gb") or 0.0), 2)
-    if _REPAIR_MEMO.get(str(repo_id)) == on_disk:
+    import time as _time
+    prev = _REPAIR_MEMO.get(str(repo_id))
+    if prev is not None and prev[0] == on_disk:
+        # A whole download pass ran since the last repair. huggingface_hub
+        # resumes a blob it needs by APPENDING to its `.incomplete`, so a
+        # leftover older than that pass belongs to no file this revision wants
+        # (an older revision, a renamed file) — IF the pass actually reached
+        # the Hub, which is what a re-linked `snapshots/` proves. Then the
+        # download is complete and the leftovers are litter. Without that proof
+        # (offline, Hub down) nothing is deleted and the stall is reported.
+        try:
+            leftovers = [p for p in (info["repo_dir"] / "blobs").iterdir()
+                         if p.name.endswith(".incomplete")]
+        except OSError:
+            leftovers = []
+
+        def _mtime(p):
+            try:
+                return p.stat().st_mtime
+            except OSError:
+                return None
+        untouched = [p for p in leftovers if (_mtime(p) or 0.0) < prev[1]]
+        if (leftovers and len(untouched) == len(leftovers)
+                and (info["repo_dir"] / "snapshots").is_dir()):
+            for p in untouched:
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+            _REPAIR_MEMO.pop(str(repo_id), None)
+            return None
         raise RuntimeError(
             f"The download for {repo_id} is stuck at {on_disk:.1f} GB — it did "
             f"not grow on the last try. Check free disk space and the network, "
             f"then Generate again to resume it."
         )
-    _REPAIR_MEMO[str(repo_id)] = on_disk
+    _REPAIR_MEMO[str(repo_id)] = (on_disk, _time.time())
     snaps = info["repo_dir"] / "snapshots"
     if snaps.is_dir():
         _shutil.rmtree(snaps, ignore_errors=True)

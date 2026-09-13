@@ -131,5 +131,40 @@ class TheControlExists(unittest.TestCase):
             self.assertIn(n, block, f"the measured figure {n} is not shown")
 
 
+class BelowTheFullEngineFloor(unittest.TestCase):
+    """A 48 GB Mac with the Q8 pack built, whose Settings said Full: every render
+    loaded the 41 GB master and died of Metal memory (Pinokio, M5 Max 48 GB).
+    Below the floor, Full with Q8 present resolves to Q8."""
+
+    def setUp(self):
+        self._ram = P.SYSTEM_RAM_GB
+        self._q8 = P._h3_q8_dit_dir
+        self._pack = Path(tempfile.mkdtemp(prefix="phos-q8pack-"))
+        P._h3_q8_dit_dir = lambda: self._pack
+        P.update_settings({"h3_dit": "bf16"})
+
+    def tearDown(self):
+        P.SYSTEM_RAM_GB = self._ram
+        P._h3_q8_dit_dir = self._q8
+        P.update_settings({"h3_dit": "auto"})
+
+    def test_48gb_full_preference_renders_q8(self):
+        P.SYSTEM_RAM_GB = 48.0
+        self.assertEqual(P.h3_dit_choice(), ("q8", self._pack))
+
+    def test_64gb_full_preference_is_honoured(self):
+        P.SYSTEM_RAM_GB = 64.0
+        self.assertEqual(P.h3_dit_choice(), ("bf16", None))
+
+    def test_48gb_without_q8_is_not_silently_q8(self):
+        P.SYSTEM_RAM_GB = 48.0
+        P._h3_q8_dit_dir = lambda: None
+        self.assertEqual(P.h3_dit_choice(), ("bf16", None))
+
+    def test_the_menu_is_told(self):
+        self.assertIn('"bf16_fits": SYSTEM_RAM_GB >= H3_MIN_RAM_GB', SRC)
+        self.assertIn("bf16_fits === false", SRC)
+
+
 if __name__ == "__main__":
     unittest.main()

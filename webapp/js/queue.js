@@ -2262,9 +2262,19 @@ async function poll() {
       nowCard.classList.remove('failed', 'stopped');
       nowCard.querySelector('.ttl').textContent = s.paused ? 'Paused' : 'Idle';
       nowCard.querySelector('.meta').textContent = s.paused
-        ? 'Worker paused — current job (if any) finishes, queue waits for resume.'
+        ? 'Queue paused — nothing will render until you press Resume.'
         : (s.queue.length ? 'Worker about to pick up next queued job.' : 'No jobs queued. Generate something on the left.');
-      if (actionsEl) { actionsEl.innerHTML = ''; actionsEl.dataset.jobId = ''; }
+      // #80: a paused worker used to say "waits for resume" and offer no way
+      // to resume from where the user was looking; the only control was the
+      // Pause/Resume chip above the queue list, and a restart persisted the
+      // pause. The card now carries the button itself.
+      if (actionsEl) {
+        actionsEl.dataset.jobId = '';
+        actionsEl.innerHTML = s.paused
+          ? `<button type="button" class="now-card-retry" data-action="resume" title="Resume the queue">` +
+            `<svg class="ph" aria-hidden="true"><use href="#ph-play-fill"/></svg><span>Resume queue</span></button>`
+          : '';
+      }
     }
   }
 
@@ -4390,6 +4400,16 @@ document.getElementById('genForm').addEventListener('submit', async e => {
     // filters the stack by the directory each file lives in and logs
     // "Dropped N LoRA(s) that belong to the other video engine". That is
     // strictly better than blanking here, because the user is told why.
+  }
+
+  // LTX Upscale needs a clip. With none picked the job used to queue, wait its
+  // turn, and fail with "source clip for Upscale ×2 not found: ''" (fleet
+  // 4.12.3). Say it before anything is queued.
+  const _upMode = String(fd.get('mode') || (typeof currentMode !== 'undefined' ? currentMode : '') || '');
+  if (_upMode === 'upscale' && !String(fd.get('upscale_source_path') || '').trim()) {
+    const _msg = 'Pick the clip to upscale first — choose it in the list, or press LTX Upscale on a clip in Outputs.';
+    alert(_msg);
+    return;
   }
 
   // Disable the Generate button while we POST to /queue/add so a fast
