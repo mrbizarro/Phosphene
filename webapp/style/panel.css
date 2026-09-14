@@ -8574,15 +8574,29 @@
 
     /* CivitAI browser modal — grid of cards with thumbnail, name,
        creator, downloads, NSFW indicator, and an Install button per
-       card. Layered on the .models-modal scaffold. */
+       card. Layered on the .models-modal scaffold.
+
+       Search row: the global `input, button { width: 100% }` plus
+       `.pill-btn { width: 100% }` used to make Search the whole card
+       and pinch the field to a stub. Field grows; Search stays intrinsic. */
     .civitai-search-bar {
       display: flex; gap: 8px; margin-bottom: 12px; align-items: center;
+      min-width: 0;
     }
-    .civitai-search-bar { position: relative; }
+    .civitai-search-field {
+      position: relative; flex: 1 1 auto; min-width: 0;
+    }
     .civitai-search-bar input[type="text"],
-    .civitai-search-bar input[type="search"] { flex: 1; padding-left: 32px; min-height: 36px; }
+    .civitai-search-bar input[type="search"] {
+      display: block; width: 100%; min-width: 0; box-sizing: border-box;
+      padding-left: 32px; min-height: 36px;
+    }
     .civitai-search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
                            color: var(--dim, #7a8194); pointer-events: none; }
+    .civitai-search-go {
+      width: auto; flex: 0 0 auto; white-space: nowrap;
+      min-height: 36px; padding: 0 14px; font-size: 12px;
+    }
     .civitai-grid {
       display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
       gap: 12px; margin-top: 10px;
@@ -10192,6 +10206,11 @@ body.oneshot-mode #h3LengthGroup { display: none !important; }
 .civitai-chips .pill-btn { width: auto; flex: 0 0 auto; padding: 3px 9px; font-size: 11px; border-radius: 999px; margin: 0; }
 .civitai-chips .toggle-pill { margin-left: auto; }
 .civitai-toolbar .toggle-pill { margin-left: auto; }
+.civitai-search-bar { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.civitai-search-field { position: relative; flex: 1 1 auto; min-width: 0; }
+.civitai-search-bar input[type="search"],
+.civitai-search-bar input[type="text"] { display: block; width: 100%; min-width: 0; box-sizing: border-box; }
+.civitai-search-go { width: auto; flex: 0 0 auto; white-space: nowrap; min-height: 36px; padding: 0 14px; }
 
 /* ---- One Shot tab (webapp/js/oneshot.js, 2026-09-08) ---------------------- */
 /* The tab owns the left pane the way Audio and Train do: the video form, its
