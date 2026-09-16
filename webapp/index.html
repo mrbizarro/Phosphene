@@ -1207,7 +1207,7 @@
               </div>
               <div class="pill-group cols-2" id="h3TurboGroup">
                 <button type="button" class="pill-btn active" data-h3-turbo="0"
-                        title="This shape's own sampler — 9 sigma points, 8 forwards per window.">
+                        title="This shape's own sampler — its tuned sigma points per window.">
                   <span>Standard</span><span class="sub" id="h3StdPillSub"></span>
                 </button>
                 <button type="button" class="pill-btn" data-h3-turbo="1" id="h3TurboPill">
@@ -1242,8 +1242,9 @@
               <div class="h3-turbo-note" id="h3LoraSlotNote"></div>
             </div>
 
-            <!-- H3 sampler depth. Every cell bakes 9 steps (8 forwards per
-                 window) — the validated speed/quality point; the official
+            <!-- H3 sampler depth. Cells bake 9 steps (8 forwards per window),
+                 except High and dense 10 s, which bake 16 (15 forwards) — High
+                 since the 2026-09-16 gym A/B; the official
                  reference recipe runs 20. Four honest pills beat an unbounded
                  numeric box, and the chips above re-price live when one is
                  pinned, so the multiplier does not have to live in a tooltip. -->

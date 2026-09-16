@@ -19,7 +19,7 @@
 
 </p>
 
-> **Current release: v4.13.0.** **The editor you already know**: a clip bar above the tracks for the everyday cuts, select several clips and move them together, right-click menus, keys from Premiere and Final Cut, and **Docs built into the app** (the Docs button, or press ?). One Shot gets its own tab, and Storyboard scores spoken shots for lip-sync. Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
+> **Current release: v4.13.1.** **Hailuo H3 that looks right**: High clips run twice the sampler steps, so faces and motion come out sharp (a 5 s High clip now takes about 34 min instead of 19); every clip keeps its last frame; Turbo applies its whole adapter; Upscale ×2 no longer flashes white at the end; twelve more H3 fixes. Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
 
 ## Overview
 

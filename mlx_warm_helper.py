@@ -759,6 +759,107 @@ def _filter_unsupported_kwargs(fn, kwargs: dict) -> dict:
 _LORA_PATCH_INSTALLED = False
 _VIDEO_DECODER_PATCH_INSTALLED = False
 _A2V_FRAME_RATE_PATCH_INSTALLED = False
+_DECODE_INT32_GUARD_INSTALLED = False
+
+# The VAE decoder's biggest activation, in ELEMENTS, has to stay below this.
+# MLX's Metal conv3d (implicit GEMM, steel_conv_3d.h) addresses its output
+# buffer with 32-bit ints: `C += c_row * (N * groups) + c_col`. Once a conv
+# output passes 2**31 elements the offset wraps, the tail of the tensor is
+# never written, and every frame past that point decodes as garbage.
+# Measured on Upscale ×2 (2048×1152, 121 frames): the last conv stage is
+# 128 × 121 × 288 × 512 = 2.28e9 elements, the wrap lands at frame 112.8,
+# and every such render shows a clean horizontal edge 3/4 down frame 112
+# and near-white frames 113–120 — on every seed and every source. The same
+# canvas at 65 frames (1.23e9) and 1280×768 at 121 frames (0.95e9) are
+# clean. 10 % headroom for the conv's padded input and upstream changes.
+_DECODE_MAX_ELEMENTS = int(0.9 * 2 ** 31)
+
+
+def _vae_decode_peak_elements(latent_frames: int, h_lat: int, w_lat: int) -> int:
+    """Largest single tensor the conv VAE decoder builds for this latent.
+
+    Stage 8 (128 ch, 8× the latent's height and width, 8L-7 frames) is the
+    biggest for any real clip; stage 4 (512 ch, 4×, 4L-3 frames) only wins
+    at a single latent frame. Both are conv INPUTS, which carry one frame and
+    one pixel of padding on every side. Every other tensor is smaller — the
+    whole decoder is walked in test_upscale_x2_tail.py."""
+    n, h, w = max(1, int(latent_frames)), int(h_lat), int(w_lat)
+    stage8 = 128 * (8 * n - 7 + 2) * (8 * h + 2) * (8 * w + 2)
+    stage4 = 512 * (4 * n - 3 + 2) * (4 * h + 2) * (4 * w + 2)
+    return max(stage8, stage4)
+
+
+def _vae_decode_max_latent_frames(h_lat: int, w_lat: int) -> int:
+    """How many latent frames one decode pass may carry without the wrap."""
+    n = 1
+    while _vae_decode_peak_elements(n + 1, h_lat, w_lat) <= _DECODE_MAX_ELEMENTS:
+        n += 1
+    return n
+
+
+def _int32_safe_decode_tiling(orig, latent_shape, frame_rate=24.0):
+    """`_compute_decode_tiling`, plus an element cap next to its byte budget.
+
+    Upstream only tiles when a decode would exceed a MEMORY budget (8 GB by
+    default), so a 2048×1152 × 121-frame clip — 2.3 GB of block-3 activation —
+    decodes in one pass and runs straight into the int32 wrap above. When the
+    pass is too big, this returns the same temporal tiling upstream uses for
+    long clips, with tiles small enough to stay under the cap. Everything
+    that already fits keeps upstream's answer untouched."""
+    cfg = orig(latent_shape, frame_rate=frame_rate)
+    _, _, f_lat, h_lat, w_lat = (int(v) for v in latent_shape)
+    max_lat = _vae_decode_max_latent_frames(h_lat, w_lat)
+    if f_lat <= max_lat:
+        return cfg
+    # split_temporal_latents moves every tile after the first one latent
+    # frame earlier (causal continuity), so those tiles are size + 1 long.
+    size = max(2, max_lat - 1)
+    tc = getattr(cfg, "temporal_config", None) if cfg is not None else None
+    if tc is not None and tc.tile_size_in_frames // 8 <= size:
+        return cfg
+    from ltx_core_mlx.model.video_vae.tiling import TemporalTilingConfig, TilingConfig
+    tile_frames = size * 8
+    one_second = max(8, (int(frame_rate) // 8) * 8)
+    overlap = min(one_second, (tile_frames // 32) * 8)
+    if overlap >= tile_frames:
+        overlap = tile_frames - 8
+    return TilingConfig(
+        spatial_config=getattr(cfg, "spatial_config", None) if cfg is not None else None,
+        temporal_config=TemporalTilingConfig(
+            tile_size_in_frames=tile_frames, tile_overlap_in_frames=overlap))
+
+
+def _install_decode_int32_guard() -> None:
+    """Route every conv-VAE decode through `_int32_safe_decode_tiling`.
+
+    `VideoDecoder.decode_and_stream` looks `_compute_decode_tiling` up as a
+    module global at call time, so replacing the module attribute covers
+    every pipeline (t2v, i2v, extend, HQ, A2V, HDR, every IC lane). Idempotent."""
+    global _DECODE_INT32_GUARD_INSTALLED
+    if _DECODE_INT32_GUARD_INSTALLED:
+        return
+    import ltx_core_mlx.model.video_vae.video_vae as _vv
+    orig = _vv._compute_decode_tiling
+    if getattr(orig, "_phosphene_int32_guard", False):
+        _DECODE_INT32_GUARD_INSTALLED = True
+        return
+
+    def _guarded(latent_shape, frame_rate: float = 24.0):
+        cfg = _int32_safe_decode_tiling(orig, latent_shape, frame_rate=frame_rate)
+        tc =getattr(cfg, "temporal_config", None) if cfg is not None else None
+        if tc is not None:
+            _, _, f_lat, h_lat, w_lat = (int(v) for v in latent_shape)
+            if f_lat > _vae_decode_max_latent_frames(h_lat, w_lat):
+                emit({"event": "log",
+                      "line": f"vae-decode int32 guard: {f_lat} latent frames at "
+                              f"{w_lat * 32}×{h_lat * 32} decode in tiles of "
+                              f"{tc.tile_size_in_frames} frames "
+                              f"(overlap {tc.tile_overlap_in_frames})"})
+        return cfg
+
+    _guarded._phosphene_int32_guard = True
+    _vv._compute_decode_tiling = _guarded
+    _DECODE_INT32_GUARD_INSTALLED = True
 
 
 # NOTE — an earlier `_PostDecodeWatchdog` daemon-thread class lived
@@ -2869,6 +2970,13 @@ for line in sys.__stdin__:
     # lane added tomorrow would otherwise inherit whatever the last job left.
     if isinstance(action, str) and action.startswith(("generate", "extend")):
         apply_mlx_cache_policy()
+        # And the decoder's int32 cap (see _DECODE_MAX_ELEMENTS): once, for
+        # every lane, before any of them can decode.
+        try:
+            _install_decode_int32_guard()
+        except Exception as _exc:                          # noqa: BLE001
+            emit({"event": "log",
+                  "line": f"vae-decode int32 guard NOT installed: {_exc}"})
 
     if action == "generate":
         job_id = msg.get("id", "?")

@@ -256,11 +256,12 @@ _PIPELINE_LOAD_SECS = 90.0
 # same measurements rather than invented:
 #   draft 3s     3.0 min / 3 s  =  60 s per video-second
 #   standard 5s  9.1 min / 5 s  = 109
-#   high 5s     18.8 min / 5 s  = 226   (no Turbo)
+#   high 5s     34 min / 5 s    = 408   (no Turbo; model-derived at 15 forwards since
+#                                        2026-09-16 — the 18.8 min receipt was 8 forwards)
 #   native 5s   44.9 min / 5 s  = 538   (no Turbo, never selected by a pass)
 # An H3 clip is a fresh subprocess that loads its own weights, so this per-clip number is
 # END TO END — which is why an H3 bucket adds no separate pipeline-load charge below.
-_H3_SECS_PER_VIDEO_SEC = {"draft": 60.0, "standard": 109.0, "high": 226.0, "native": 538.0}
+_H3_SECS_PER_VIDEO_SEC = {"draft": 60.0, "standard": 109.0, "high": 408.0, "native": 538.0}
 
 
 class StoryboardError(Exception):

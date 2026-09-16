@@ -184,7 +184,7 @@ function h3CurrentCell() {
   if (!st) return;
   let savedSt = null;
   try { savedSt = localStorage.getItem('phos_h3_steps'); } catch (e) {}
-  if (savedSt && ['auto', '12', '16', '20'].indexOf(savedSt) !== -1) st.value = savedSt;
+  if (savedSt) st.value = h3NormalizeSteps(savedSt);
   // And Turbo — but only restore an ON state when this install can actually
   // serve it. A user who downloaded the adapter, deleted it and reloaded must
   // come back on Standard, not on a mode that would fail at queue time.
@@ -282,13 +282,32 @@ document.querySelectorAll('#h3OrientationGroup [data-h3-orientation]').forEach(b
 // Sampler depth for an H3 render. 'auto' = the tier's tuned count (stamped in
 // H3_TIERS); a number overrides it for every window of the job. Server-side
 // make_job clamps to 4-30 and re-validates — a stale tab must never win.
+// Any count the server accepts (4-30) is kept: a replayed render pinned at 21
+// or 7 must replay at 21 or 7, not silently at the target's Auto. No pill lights
+// for such a count and the row hint names it instead.
+function h3NormalizeSteps(v) {
+  const t = String(v == null ? '' : v).trim().toLowerCase();
+  if (/^\d+$/.test(t)) {
+    const n = parseInt(t, 10);
+    if (n >= 4 && n <= 30) return String(n);
+  }
+  return 'auto';
+}
 function setH3Steps(v) {
-  const allowed = ['auto', '12', '16', '20'];
-  v = allowed.indexOf(String(v)) !== -1 ? String(v) : 'auto';
+  v = h3NormalizeSteps(v);
   const inp = document.getElementById('h3_steps');
   if (inp) inp.value = v;
-  document.querySelectorAll('#h3StepsGroup [data-h3-steps]').forEach(b =>
-    b.classList.toggle('active', b.dataset.h3Steps === v));
+  let lit = false;
+  document.querySelectorAll('#h3StepsGroup [data-h3-steps]').forEach(b => {
+    const on = b.dataset.h3Steps === v;
+    lit = lit || on;
+    b.classList.toggle('active', on);
+  });
+  const hint = document.querySelector('#h3StepsRow .cz-label-hint');
+  if (hint) {
+    hint.textContent = lit ? "Auto = this shape's tuned count"
+      : ('Pinned at ' + v + ' (from a saved render) · pick a pill to change');
+  }
   // Mirror the resolved count into the shared hidden `steps` so the queue
   // card and the estimate line read the truth (make_job re-stamps anyway).
   const tier = h3CurrentCell();
@@ -397,6 +416,31 @@ function h3TurboPillLabel() {
   return 'Turbo · ' + h3TurboPillSub();
 }
 
+// The sampler depth each shape runs is per CELL (High runs 16 sigma points,
+// Draft/Standard/Native 9, dense 10 s 16), so the Standard and Auto tooltips
+// read it from the cell rather than printing one number for every shape.
+function _h3SyncSamplerTitles() {
+  const cell = h3CurrentCell();
+  const pts = (cell && cell.steps) || 9;
+  const fwd = Math.max(1, pts - 1);
+  const std = document.querySelector('#h3TurboGroup [data-h3-turbo="0"]');
+  if (std) std.title = "This shape's own sampler — " + pts + ' sigma points, '
+    + fwd + ' forwards per window.';
+  const auto = document.querySelector('#h3StepsGroup [data-h3-steps="auto"]');
+  if (auto) auto.title = "This shape's tuned count — " + pts + ' sigma points ('
+    + fwd + ' forwards per window) at this canvas.';
+  if (!cell || !cell.eta_min) return;
+  document.querySelectorAll('#h3StepsGroup [data-h3-steps]').forEach(b => {
+    const n = b.dataset.h3Steps;
+    if (!/^\d+$/.test(n)) return;
+    const k = h3CellEtaMin(cell, { turbo: false, steps: n }) / cell.eta_min;
+    const rel = Math.abs(k - 1) < 0.05 ? 'the same time as Auto at this shape'
+      : '~' + k.toFixed(1) + '× Auto\'s render time at this shape';
+    b.title = n + ' sigma points (' + (parseInt(n, 10) - 1) + ' forwards) — ' + rel
+      + (n === '20' ? '. The official reference recipe.' : '.');
+  });
+}
+
 function renderH3Turbo() {
   const row = document.getElementById('h3TurboRow');
   const pill = document.getElementById('h3TurboPill');
@@ -407,6 +451,7 @@ function renderH3Turbo() {
   if (sub) sub.textContent = h3SpeedSub('turbo');
   const stdSub = document.getElementById('h3StdPillSub');
   if (stdSub) stdSub.textContent = h3SpeedSub('standard');
+  _h3SyncSamplerTitles();
   pill.classList.toggle('needs-download', !t.downloaded);
   // Two different kinds of number, and the tooltip must not blur them: the ONE
   // shape that has actually been rendered with the adapter end to end says so,
@@ -445,7 +490,7 @@ function _h3SyncStepsEnabled() {
   });
   if (row) {
     row.style.opacity = on ? '.5' : '';
-    row.title = on ? 'Turbo pins the sampler at 4 steps.' : '';
+    row.title = on ? ('Turbo pins the sampler at ' + (h3TurboState().steps || 7) + ' sigma points.') : '';
   }
 }
 

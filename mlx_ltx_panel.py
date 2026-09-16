@@ -2961,6 +2961,66 @@ def _h3_turbo_asset(key: str | None = None) -> dict:
             "sha256": H3_TURBO_ASSET_SHA256, "bytes": H3_TURBO_ASSET_BYTES}
 
 
+def _h3_turbo_fetch_embedder(target_dir, push_log, runner=None) -> bool:
+    """Fetch Turbo's adaLN companion (H3_TURBO_EMBEDDER_FILE, ~63 MB) with the
+    H3 pack's own `scripts/fetch_time_embedder.py`, when the resolved adapter
+    carries adaLN pairs and the file is not already there.
+
+    Best-effort by design: the adapter works without it (208 of 259 pairs),
+    so a failure here is logged loudly and the render log repeats it — it
+    never fails the adapter download. Returns True when the file is present
+    afterwards (or was never needed)."""
+    import subprocess
+    target_dir = Path(target_dir)
+    target = target_dir / H3_TURBO_EMBEDDER_FILE
+    resolved = h3_turbo_paths()
+    if not resolved.get("adaln_pairs"):
+        return True
+    if _h3_real_file(target, H3_TURBO_EMBEDDER_MIN_BYTES):
+        return True
+    python = _h3_python()
+    fetcher = H3_ROOT / "scripts" / "fetch_time_embedder.py"
+    if python is None or not fetcher.is_file():
+        push_log(f"[h3:turbo] WARNING: cannot fetch {H3_TURBO_EMBEDDER_FILE} "
+                 f"(H3 pack venv or {fetcher.name} missing) — Turbo's "
+                 f"{resolved['adaln_pairs']} adaLN pairs will be skipped")
+        return False
+    env = dict(os.environ)
+    hf_token = _active_hf_token()
+    if hf_token:
+        env["HF_TOKEN"] = hf_token
+        env["HUGGING_FACE_HUB_TOKEN"] = hf_token
+    # One small index JSON goes through the hub cache; keep it inside the H3
+    # models tree instead of ~/.cache/huggingface.
+    env.setdefault("HF_HOME", str(H3_MODELS / "hf_home"))
+    env["PYTHONUNBUFFERED"] = "1"
+    tmp = target.with_name(target.name + ".partial")
+    push_log(f"[h3:turbo] fetching {H3_TURBO_EMBEDDER_FILE} (~60 MB, four "
+             f"tensors range-read from MiniMaxAI/MiniMax-H3) for the "
+             f"adapter's {resolved['adaln_pairs']} adaLN pairs…")
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        proc = (runner or subprocess.run)(
+            [str(python), str(fetcher), "--out", str(tmp)],
+            capture_output=True, text=True, env=env, timeout=1800)
+        if proc.returncode != 0:
+            raise RuntimeError((proc.stderr or proc.stdout or "")[-300:].strip()
+                               or f"exit {proc.returncode}")
+        if not _h3_real_file(tmp, H3_TURBO_EMBEDDER_MIN_BYTES):
+            raise RuntimeError("fetch wrote no usable file")
+        tmp.replace(target)
+    except Exception as e:  # noqa: BLE001
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        push_log(f"[h3:turbo] WARNING: {H3_TURBO_EMBEDDER_FILE} fetch failed "
+                 f"({e}) — Turbo still works, but its adaLN pairs are skipped")
+        return False
+    push_log(f"[h3:turbo] adaLN companion installed → {target}")
+    return True
+
+
 def _h3_turbo_download_bg(target_dir, push_log, asset: dict | None = None) -> None:
     """Stream the digest-pinned v1.0 repack release asset into the H3 pack."""
     import urllib.request
@@ -2972,6 +3032,7 @@ def _h3_turbo_download_bg(target_dir, push_log, asset: dict | None = None) -> No
         target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / asset['file']
         if target.is_file():
+            _h3_turbo_fetch_embedder(target_dir, push_log)
             _set_h3_turbo_dl(status="done", mb=total_mb, total_mb=total_mb,
                              error=None)
             return
@@ -3008,9 +3069,10 @@ def _h3_turbo_download_bg(target_dir, push_log, asset: dict | None = None) -> No
             raise RuntimeError("checksum mismatch (download corrupt) — "
                                "please retry")
         tmp.replace(target)
+        push_log(f"[h3:turbo] adapter installed → {target}")
+        _h3_turbo_fetch_embedder(target_dir, push_log)
         _set_h3_turbo_dl(status="done", mb=total_mb, total_mb=total_mb,
                          error=None)
-        push_log(f"[h3:turbo] adapter installed → {target}")
     except Exception as e:  # noqa: BLE001
         if tmp is not None:
             try:
@@ -3022,7 +3084,7 @@ def _h3_turbo_download_bg(target_dir, push_log, asset: dict | None = None) -> No
         push_log(f"[h3:turbo] FAILED: {e}")
 
 
-def _h3_install_turbo(push_log, download_fn=None) -> dict:
+def _h3_install_turbo(push_log, download_fn=None, embedder_fn=None) -> dict:
     """Fetch the digest-pinned runner-layout Turbo adapter on demand.
 
     The v1.0 repack is a published release asset with a pinned SHA-256
@@ -3045,6 +3107,28 @@ def _h3_install_turbo(push_log, download_fn=None) -> dict:
                          "clone — it keeps every weight already on disk."}
     target = _h3_turbo_dir()
     if any((target / f).is_file() for f, _v, _fb in H3_TURBO_LORA_CANDIDATES):
+        # The adapter is here; an install from before the adaLN companion came
+        # back still lacks it. Fetch just that (~60 MB) instead of saying
+        # "installed" over an adapter that is silently missing 51 pairs.
+        if h3_turbo_adaln_state() == "no_embedder":
+            with _h3_turbo_dl_lock:
+                if _h3_turbo_dl_state.get("status") == "downloading":
+                    return {"ok": False,
+                            "error": "a Turbo download is already active"}
+                _h3_turbo_dl_state.update(status="downloading", mb=0,
+                                          total_mb=60, error=None)
+
+            def _embedder_only():
+                ok = (embedder_fn or _h3_turbo_fetch_embedder)(target, push_log)
+                _set_h3_turbo_dl(status="done" if ok else "error", mb=60,
+                                 total_mb=60,
+                                 error=None if ok else
+                                 "adaLN companion fetch failed (see log)")
+
+            threading.Thread(target=_embedder_only, daemon=True,
+                             name="h3-turbo-embedder").start()
+            return {"ok": True, "started": True, "already_installed": True,
+                    "embedder_only": True, "dir": str(target)}
         return {"ok": True, "started": False, "already_installed": True,
                 "dir": str(target)}
     with _h3_turbo_dl_lock:
@@ -7775,6 +7859,17 @@ H3_TURBO_DOWNLOAD_GB = 0.8  # the v4 adapter is 779,849,816 bytes
 # short file that loads far enough to fail 30 s into a render, which is exactly
 # the failure mode the H3-vanish lesson says to catch at status time instead.
 H3_TURBO_LORA_MIN_BYTES = 600 * 1024 * 1024
+# The adaLN companion. larryvrh's adapters carry 51 adaLN pairs (50 blocks +
+# the final layer) trained against the ORIGINAL 2688-d timestep embedding,
+# which the pruned DiT replaced with a 64-d curve — so the runner can only
+# wrap the other 208 pairs, and applies these 51 by folding their exact delta
+# into the modulation cache, given the upstream `time_embedder` tensors
+# (`--lora-adaln`). Four tensors, 63 MB, range-read out of the 66 GB MiniMax
+# release by the pack's own scripts/fetch_time_embedder.py. Without it the
+# 51 pairs are dropped: the 2026-08-14 LightX2V switch removed the flag, and
+# v4 came back without it (Codex audit 2026-09-16, finding 2).
+H3_TURBO_EMBEDDER_FILE = "upstream_time_embedder.safetensors"
+H3_TURBO_EMBEDDER_MIN_BYTES = 32 * 1024 * 1024
 # Forwards Turbo runs, whatever shape the render asks for. Turbo ALWAYS runs 3
 # forwards, so the saving depends entirely on how many forwards the render would
 # otherwise have run — and on the fixed cost (staged loads, prompt + adaLN cache,
@@ -8095,6 +8190,17 @@ H3_TIER_WIDE_DRAFT_NOTE = (
 # 2.05× a 5 s window rather than 2.0×, and it is why the estimates below are not
 # simply proportional to duration.
 H3_STEPS_DEFAULT = 9              # sigma POINTS; the runner does points-1 forwards
+# Per-CANVAS Auto sampler depth, in sigma points (forwards = points - 1). A cell
+# runs max(its length's steps, its canvas's steps), so dense-10s (16) is never
+# lowered by a canvas.
+# High 1024x576: owner ruling 2026-09-16 — a matched gym A/B (same seed, still and
+# prompt) at 15 forwards was clearly better than at 8, whose face was blurry.
+# 1024x576 x 124f is 22.9k packed rows, ~1.8x the ~13k envelope where 8 forwards
+# was validated (round-1 audit, notes/h3-review/FINDINGS.md §1).
+H3_HIGH_STEPS = 16
+# Native 1344x768 (40k rows) is presumed under-stepped too, but a Native-15 A/B is
+# still pending. Flip this ONE constant to 16 when it lands.
+H3_NATIVE_STEPS = H3_STEPS_DEFAULT
 H3_ROWS_REF = 22923               # measured packed rows at the reference canvas
 H3_ROWS_AUDIO = 500               # rows that don't scale with the canvas
 H3_REF_W, H3_REF_H, H3_REF_FRAMES = 1024, 576, 124
@@ -8264,12 +8370,16 @@ def _fmt_eta(minutes: float) -> str:
 # exact canvas" vs "estimated for this shape"). The model agrees with every one
 # of these to within a minute, which is the point: these are a regression guard
 # on the model as much as they are the numbers we print.
-H3_MEASURED_ETA: dict[tuple[str, str, bool], tuple[float, str]] = {
-    ("draft",    "3s",        False): (3.0,  "~3 min"),
-    ("standard", "5s",        False): (9.1,  "~9 min"),
-    ("standard", "10s",       False): (17.1, "~17 min"),
-    ("standard", "15s",       False): (26.6, "~27 min · batch"),
-    ("standard", "10s_dense", False): (36.2, "~36 min · batch"),
+# Each entry also records the FORWARDS PER WINDOW it was measured at. A cell only
+# prints a measurement taken at its own sampler depth: when a canvas's Auto step
+# count moves (High 8 -> 15 forwards, 2026-09-16), its old wall clock must stop
+# being shown as "measured" and the model prices the new depth instead.
+H3_MEASURED_ETA: dict[tuple[str, str, bool], tuple[float, str, int]] = {
+    ("draft",    "3s",        False): (3.0,  "~3 min", 8),
+    ("standard", "5s",        False): (9.1,  "~9 min", 8),
+    ("standard", "10s",       False): (17.1, "~17 min", 8),
+    ("standard", "15s",       False): (26.6, "~27 min · batch", 8),
+    ("standard", "10s_dense", False): (36.2, "~36 min · batch", 15),
     # These Turbo measurements belong to the RETIRED ckpt500-EMA adapter and
     # remain documented in docs/STATE.md as historical evidence. Do not put
     # them in this active table: LightX2V v1.0 passed visual review, but has no
@@ -8289,8 +8399,8 @@ H3_MEASURED_ETA: dict[tuple[str, str, bool], tuple[float, str]] = {
     #     Note the Turbo forwards are slightly SLOWER per forward than the
     #     9-step ones (331 vs 315 s) — small enough to ignore in the model,
     #     large enough that the measurement is the number we print.
-    ("high",     "5s",        False): (18.8, "~19 min"),
-    ("native",   "5s",        False): (44.85, "~45 min · batch"),
+    ("high",     "5s",        False): (18.8, "~19 min", 8),
+    ("native",   "5s",        False): (44.85, "~45 min · batch", 8),
 }
 
 
@@ -8337,8 +8447,10 @@ def _h3_qualities() -> dict[str, dict]:
             "width": 1024, "height": 576,
             "blurb": "True 16:9 — the only canvas that exports to 720p as a "
                      "pure 1.25× scale with no bars, and it resolves face "
-                     "detail 768×448 cannot. The recommended delivery canvas: "
-                     "Native is sharper still, but costs more and needs bars.",
+                     "detail 768×448 cannot. Auto runs 15 forwards here, not 8: "
+                     "at 8 faces in motion come out soft. The recommended "
+                     "delivery canvas.",
+            "steps": H3_HIGH_STEPS,
             "offered": True,
         },
         # H3's OWN canvas — what `resolve_canvas_size` picks for itself at the
@@ -8357,6 +8469,7 @@ def _h3_qualities() -> dict[str, dict]:
                      "detail H3 can produce. 7:4, so an export adds thin bars "
                      "top and bottom. Worth it with Turbo on; a long wait "
                      "without.",
+            "steps": H3_NATIVE_STEPS,
             "offered": True,
         },
         # Off by default, behind an env flag, for the same reason the dense pass
@@ -8380,6 +8493,8 @@ def _h3_qualities() -> dict[str, dict]:
         q["spec"] = f"{q['canvas']} · {q['aspect']}"
         q.setdefault("draft", False)
         q.setdefault("note", "")
+        # 0 = no canvas opinion; the length's own count applies.
+        q.setdefault("steps", 0)
     return out
 
 
@@ -8478,8 +8593,12 @@ def _build_h3_tiers() -> dict[str, dict]:
             windows = max(1, int(ln["windows"]))
             window_frames = int(ln["window_frames"])
             frames = int(ln["frames"])
-            steps = int(ln["steps"])
-            forwards = windows * max(1, steps - 1)
+            # The deeper of the two axes wins: a canvas can ask for more
+            # forwards (High), a length can too (dense 10 s); neither lowers
+            # the other.
+            steps = max(int(ln["steps"]), int(q.get("steps") or 0))
+            win_fwd = max(1, steps - 1)
+            forwards = windows * win_fwd
             eta_min = h3_estimate_minutes(w, h, window_frames, windows,
                                           max(1, steps - 1))
             turbo_min = h3_estimate_minutes(w, h, window_frames, windows,
@@ -8487,13 +8606,19 @@ def _build_h3_tiers() -> dict[str, dict]:
             # Turbo removes forwards; it can never make a shape slower.
             turbo_min = min(eta_min, turbo_min)
             eta, eta_measured = _fmt_eta(eta_min), False
+            # Receipts are M4 Max wall clocks. The model above already carries
+            # this Mac's factor, so a receipt must carry it too or an M4 Pro is
+            # promised the M4 Max number exactly where a measurement exists.
+            hw = _hw_speed_factor("h3")
             hit = H3_MEASURED_ETA.get((q["key"], ln["key"], False))
-            if hit:
-                eta_min, eta, eta_measured = hit[0], hit[1], True
+            if hit and int(hit[2]) == win_fwd:
+                eta_min, eta_measured = hit[0] * hw, True
+                eta = hit[1] if hw == 1.0 else _fmt_eta(eta_min)
             turbo_eta, turbo_measured = _fmt_eta(turbo_min), False
             hit = H3_MEASURED_ETA.get((q["key"], ln["key"], True))
-            if hit:
-                turbo_min, turbo_eta, turbo_measured = hit[0], hit[1], True
+            if hit and int(hit[2]) == H3_TURBO_FORWARDS:
+                turbo_min, turbo_measured = hit[0] * hw, True
+                turbo_eta = hit[1] if hw == 1.0 else _fmt_eta(turbo_min)
             spec = f"{w}×{h} · {frames}f"
             if windows > 1:
                 spec += f" · {windows}×5s"
@@ -8527,9 +8652,11 @@ def _build_h3_tiers() -> dict[str, dict]:
                 # The two model outputs the browser needs to price a shape the
                 # server didn't pre-compute — a pinned Steps override. Same
                 # function, same numbers, no second cost model in JS.
+                # Scaled by this Mac's factor, as h3_estimate_minutes is, so a
+                # pinned count prices on the same clock as Auto.
                 "per_forward_sec": round(
-                    _h3_forward_seconds(_h3_packed_rows(w, h, window_frames)), 2),
-                "fixed_sec": round(_h3_fixed_seconds(w, h, window_frames), 2),
+                    _h3_forward_seconds(_h3_packed_rows(w, h, window_frames)) * hw, 2),
+                "fixed_sec": round(_h3_fixed_seconds(w, h, window_frames) * hw, 2),
                 "packed_rows": _h3_packed_rows(w, h, window_frames),
                 "blurb": f"{q['blurb']} {ln['blurb']}",
                 # The honest artefact warnings, joined: a Draft 10 s clip owes
@@ -10220,6 +10347,7 @@ def h3_turbo_paths() -> dict:
         + H3_TURBO_FALLBACK_LORA_FILE
         + ")"
     ]
+    embedder = directory / H3_TURBO_EMBEDDER_FILE
     return {
         "dir": directory,
         "lora": lora,
@@ -10227,7 +10355,74 @@ def h3_turbo_paths() -> dict:
         "fallback": fallback,
         "missing": missing,
         "files_ok": lora is not None,
+        # Read from the adapter's own header, never assumed from its name.
+        "adaln_pairs": h3_lora_adaln_pairs(lora) if lora is not None else 0,
+        "embedder": (embedder if _h3_real_file(embedder, H3_TURBO_EMBEDDER_MIN_BYTES)
+                     else None),
     }
+
+
+_H3_ADALN_PAIRS_CACHE: dict[tuple, int] = {}
+
+
+def h3_lora_adaln_pairs(path: Path | str | None) -> int:
+    """How many adaLN LoRA pairs (`*.adaln_proj.linear.lora_A/B`) a
+    safetensors adapter carries, from its JSON header alone — no tensor is
+    read, so this is cheap enough for /status. 0 for anything unreadable,
+    which is the safe answer: no `--lora-adaln` is emitted for it."""
+    if path is None:
+        return 0
+    path = Path(path)
+    try:
+        st = path.stat()
+    except OSError:
+        return 0
+    key = (str(path), st.st_mtime_ns, st.st_size)
+    if key in _H3_ADALN_PAIRS_CACHE:
+        return _H3_ADALN_PAIRS_CACHE[key]
+    count = 0
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(8)
+            if len(head) == 8:
+                size = int.from_bytes(head, "little")
+                if 0 < size <= 100 * 1024 * 1024 and size <= st.st_size - 8:
+                    header = json.loads(fh.read(size))
+                    if isinstance(header, dict):
+                        a = {k[:-len(".lora_A.weight")] for k in header
+                             if k.endswith("adaln_proj.linear.lora_A.weight")}
+                        b = {k[:-len(".lora_B.weight")] for k in header
+                             if k.endswith("adaln_proj.linear.lora_B.weight")}
+                        count = len(a & b)
+    except (OSError, ValueError, UnicodeDecodeError):
+        count = 0
+    if len(_H3_ADALN_PAIRS_CACHE) > 64:
+        _H3_ADALN_PAIRS_CACHE.clear()
+    _H3_ADALN_PAIRS_CACHE[key] = count
+    return count
+
+
+def h3_supports_lora_adaln() -> bool:
+    """Whether the INSTALLED runner accepts `--lora-adaln` (every runner with
+    `--lora` does today; probed anyway, same as every other runner flag)."""
+    return _h3_runner_has_flag("--lora-adaln")
+
+
+def h3_turbo_adaln_state(paths: dict | None = None) -> str:
+    """What happens to the adapter's adaLN pairs on this install:
+      none        — the adapter has none (LightX2V repacks); nothing to do
+      absorbed    — companion + runner support present: `--lora-adaln` rides
+      no_embedder — pairs present, companion file missing: they are DROPPED
+      runner_old  — pairs + companion present, runner lacks the flag
+    """
+    resolved = paths or h3_turbo_paths()
+    if not resolved.get("adaln_pairs"):
+        return "none"
+    if resolved.get("embedder") is None:
+        return "no_embedder"
+    if not h3_supports_lora_adaln():
+        return "runner_old"
+    return "absorbed"
 
 
 def h3_turbo_steps(paths: dict | None = None) -> int:
@@ -10238,16 +10433,25 @@ def h3_turbo_steps(paths: dict | None = None) -> int:
     return int(H3_TURBO_VERSION_STEPS.get(resolved.get("version") or "", H3_TURBO_STEPS))
 
 
+# Forwards the tier table's Turbo cells are currently priced at.
+_H3_TURBO_PRICED_FWD = H3_TURBO_FORWARDS
+
+
 def _h3_retune_turbo_estimates() -> None:
     """The tier table priced Turbo at import with the 4-step forwards, before
     the adapter directory could be resolved. Re-price every cell for the
     adapter that is actually installed — six forwards for v4 — so the chips,
     the Speed pills and the Storyboard estimate say what will happen."""
+    global _H3_TURBO_PRICED_FWD
     try:
         fwd = max(1, h3_turbo_steps() - 1)
     except Exception:                                              # noqa: BLE001
         return
-    if fwd == H3_TURBO_FORWARDS:
+    # Called at import AND from h3_turbo_status(), so an in-app install (or a
+    # removal that falls back to another adapter) re-prices a running panel.
+    # Compare against what the table is priced at NOW, not the import default,
+    # or a v4 → 4-step change could never be priced back.
+    if fwd == _H3_TURBO_PRICED_FWD:
         return
     for cell in H3_TIERS.values():
         try:
@@ -10258,8 +10462,10 @@ def _h3_retune_turbo_estimates() -> None:
             cell["turbo_min"] = round(tm, 2)
             cell["turbo_eta"] = _fmt_eta(tm)
             cell["turbo_forwards"] = windows * fwd
+            cell["turbo_measured"] = False
         except Exception:                                          # noqa: BLE001
             continue
+    _H3_TURBO_PRICED_FWD = fwd
 
 
 def h3_turbo_lora_spec(paths: dict | None = None) -> str:
@@ -10271,8 +10477,17 @@ def h3_turbo_lora_spec(paths: dict | None = None) -> str:
 
 
 def h3_turbo_argv(paths: dict | None = None) -> list[str]:
-    """The exact runner argv fragment, kept executable as a contract test."""
-    return ["--lora", h3_turbo_lora_spec(paths)]
+    """The exact runner argv fragment, kept executable as a contract test.
+
+    `--lora-adaln` rides only when the adapter really carries adaLN pairs
+    (read from its header) AND the companion embedder is on disk AND the
+    runner takes the flag. The runner absorbs adaLN pairs for every adapter
+    in the `--lora` stack, and one without any is a logged no-op."""
+    resolved = paths or h3_turbo_paths()
+    argv = ["--lora", h3_turbo_lora_spec(resolved)]
+    if h3_turbo_adaln_state(resolved) == "absorbed":
+        argv += ["--lora-adaln", str(resolved["embedder"])]
+    return argv
 
 
 def h3_turbo_status() -> dict:
@@ -10286,6 +10501,8 @@ def h3_turbo_status() -> dict:
     supported = h3_supports_lora()
     paths = h3_turbo_paths()
     downloaded = paths["files_ok"]
+    # Cheap no-op unless the resolved adapter changed since the last price.
+    _h3_retune_turbo_estimates()
     if not supported:
         reason = "runner_too_old"
     elif not downloaded:
@@ -10316,6 +10533,10 @@ def h3_turbo_status() -> dict:
         "missing": paths["missing"],
         "note": h3_turbo_note(paths),
         "label": "Turbo",
+        "adaln": {"pairs": paths.get("adaln_pairs", 0),
+                  "embedder": (str(paths["embedder"])
+                               if paths.get("embedder") else None),
+                  "state": h3_turbo_adaln_state(paths)},
     }
 
 
@@ -10809,11 +11030,23 @@ def _h3_lora_effective_alpha(path: Path, header: dict,
     dimension. Returns (effective_scale, evidence) or (None, "") when the file
     declares no per-module alpha at all — the common, already-handled case.
     """
+    ratios = _h3_lora_alpha_ratios(path, header, buf_start)
+    if not ratios:
+        return None, ""
+    lo, hi = min(ratios), max(ratios)
+    ev = (f"{len(ratios)} module(s), alpha/rank "
+          + (f"{lo:.4g}" if abs(hi - lo) < 1e-6 else f"{lo:.4g}–{hi:.4g}"))
+    return (hi if abs(hi - lo) < 1e-6 else max(ratios, key=lambda r: abs(r - 1.0))), ev
+
+
+def _h3_lora_alpha_ratios(path: Path, header: dict, buf_start: int) -> list[float]:
+    """alpha/rank for every module whose `.alpha` scalar can be read from a
+    few bytes (header offsets; no tensor load). [] when the file has none."""
     _WIDTH = {"F64": 8, "F32": 4, "F16": 2, "BF16": 2, "I64": 8, "I32": 4}
     alpha_keys = [k for k in header
                   if k != "__metadata__" and k.endswith(".alpha")]
     if not alpha_keys:
-        return None, ""
+        return []
 
     def _rank_for(module: str) -> int | None:
         ent = header.get(module + _H3_LORA_A_SUFFIX) or {}
@@ -10851,12 +11084,7 @@ def _h3_lora_effective_alpha(path: Path, header: dict,
             rank = _rank_for(k[: -len(".alpha")])
             if rank:
                 ratios.append(float(val) / float(rank))
-    if not ratios:
-        return None, ""
-    lo, hi = min(ratios), max(ratios)
-    ev = (f"{len(ratios)} module(s), alpha/rank "
-          + (f"{lo:.4g}" if abs(hi - lo) < 1e-6 else f"{lo:.4g}–{hi:.4g}"))
-    return (hi if abs(hi - lo) < 1e-6 else max(ratios, key=lambda r: abs(r - 1.0))), ev
+    return ratios
 
 
 # Metadata keys an exporter uses to say "the PEFT alpha/rank multiplier is
@@ -10902,6 +11130,18 @@ def _h3_lora_scale_report(path: Path, header: dict, buf_start: int) -> dict:
     if not isinstance(meta, dict):
         meta = {}
 
+    if str(meta.get("converted_by") or "") == "phosphene" and (
+            meta.get("converted_from") == "kohya"
+            or meta.get("peft_scale_folded_into_B") is not None):
+        # Our own converters fold alpha/rank into lora_B per module. That
+        # includes kohya files converted before they wrote the marker, which
+        # still carry the trainer's `ss_network_alpha`.
+        return {"strength": 1.0, "source": "folded",
+                "evidence": (f"converted by Phosphene from "
+                             f"{meta.get('converted_from') or 'per-module alpha'}: "
+                             f"alpha/rank {meta.get('alpha_over_rank') or '?'} is "
+                             f"already folded into lora_B, so 1.0 is the correct "
+                             f"strength")}
     for key in _H3_LORA_FOLDED_SCALE_KEYS:
         raw = meta.get(key)
         if raw is None:
@@ -11183,6 +11423,11 @@ def _h3_lora_convert_kohya(path: Path) -> dict:
     meta.update({
         "converted_from": "kohya",
         "converted_by": "phosphene",
+        # The canonical "load me at 1.0" claim _h3_lora_scale_report reads.
+        # Without it the trainer's own `ss_network_alpha` (kept above as
+        # history) was divided by the rank a SECOND time at import.
+        "peft_scale_folded_into_B": (f"{quotients[0]:g}" if len(quotients) == 1
+                                     else "per-module"),
         "alpha_over_rank": ",".join(f"{v:g}" for v in quotients),
         "converted_modules": str(len(out) // 2),
         "dropped_modules": str(len(dropped)),
@@ -11221,6 +11466,14 @@ def _h3_lora_prepare(path: Path) -> dict:
     a bare-layout file is inspected and returned untouched."""
     info = _h3_lora_layout(path)
     if info["ok"]:
+        folded = _h3_lora_fold_mixed_alphas(path)
+        if folded:
+            push(f"[h3:lora] {path.name}: per-module alpha/rank "
+                 f"{folded['lo']:g}–{folded['hi']:g} folded into lora_B for "
+                 f"{folded['modules']} modules (one strength cannot represent "
+                 f"them) — load at 1.0")
+            return {"layout": "bare", "converted": True, "prefix": "",
+                    "pairs": info["pairs"]}
         return {"layout": "bare", "converted": False, "prefix": "",
                 "pairs": info["pairs"]}
     if not info["convertible"]:
@@ -11248,8 +11501,80 @@ def _h3_lora_prepare(path: Path) -> dict:
     n = _h3_lora_strip_prefix(path, info["prefix"])
     push(f"[h3:lora] {path.name}: stripped `{info['prefix']}` from {n} keys "
          f"(ComfyUI repack → bare layout; tensors untouched)")
+    folded = _h3_lora_fold_mixed_alphas(path)
+    if folded:
+        push(f"[h3:lora] {path.name}: per-module alpha/rank "
+             f"{folded['lo']:g}–{folded['hi']:g} folded into lora_B for "
+             f"{folded['modules']} modules — load at 1.0")
     return {"layout": "comfyui", "converted": True, "prefix": info["prefix"],
             "pairs": info["pairs"]}
+
+
+def _h3_lora_fold_mixed_alphas(path: Path) -> dict | None:
+    """Fold per-module `.alpha` scalars into lora_B when they DISAGREE.
+
+    The runner applies one strength per adapter and ignores `.alpha`. When
+    every module has the same alpha/rank that one strength is exact, and the
+    scale report recommends it (nothing to rewrite). When they differ, no
+    single strength is right — the old report picked the ratio farthest from
+    1.0 and applied it to every module. Here each B takes its own quotient,
+    the `.alpha` tensors are dropped, and the file says it is folded, so it
+    loads at 1.0 as trained. Returns None when there is nothing to fold."""
+    header, buf_start = _safetensors_header(path)
+    alpha_keys = [k for k in header if k != "__metadata__" and k.endswith(".alpha")]
+    if not alpha_keys:
+        return None
+    ratios = _h3_lora_alpha_ratios(path, header, buf_start)
+    if not ratios or (max(ratios) - min(ratios)) < 1e-6:
+        return None                       # uniform (or unreadable): header only
+    import mlx.core as mx
+    tensors = mx.load(str(path))
+    out: dict = {}
+    quotients: list[float] = []
+    for k, v in tensors.items():
+        if k.endswith(".alpha"):
+            continue
+        out[k] = v
+    for k in alpha_keys:
+        module = k[: -len(".alpha")]
+        a = tensors.get(module + _H3_LORA_A_SUFFIX)
+        b = tensors.get(module + _H3_LORA_B_SUFFIX)
+        if a is None or b is None:
+            continue
+        rank = int(a.shape[0])
+        q = float(tensors[k].astype(mx.float32).item()) / rank if rank else 1.0
+        quotients.append(q)
+        if abs(q - 1.0) > 1e-6:
+            out[module + _H3_LORA_B_SUFFIX] = (b.astype(mx.float32) * q).astype(b.dtype)
+    if not quotients or (max(quotients) - min(quotients)) < 1e-6:
+        del tensors, out
+        return None                       # uniform: the strength is exact
+    meta = {str(k): str(v) for k, v in (header.get("__metadata__") or {}).items()}
+    meta.update({
+        "converted_by": "phosphene",
+        "converted_from": meta.get("converted_from") or "per-module-alpha",
+        "peft_scale_folded_into_B": "per-module",
+        "alpha_over_rank": ",".join(f"{v:g}" for v in sorted(set(round(x, 6) for x in quotients))),
+    })
+    tmp = path.with_name(path.stem + ".alpha-tmp.safetensors")
+    pairs_before = _h3_lora_layout(path)["pairs"]
+    try:
+        mx.save_safetensors(str(tmp), out, metadata=meta)
+        check = _h3_lora_layout(tmp)
+        if check["layout"] != "bare" or check["pairs"] != pairs_before:
+            raise RuntimeError(
+                f"post-fold check failed (layout={check['layout']}, "
+                f"pairs={check['pairs']}) — leaving the original untouched.")
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+    finally:
+        del tensors, out
+    return {"modules": len(quotients), "lo": min(quotients), "hi": max(quotients)}
 
 
 # Layout probes are cheap but not free, and h3_status() runs on every /status
@@ -11323,7 +11648,12 @@ def list_h3_user_loras() -> list[dict]:
             "size_bytes": size_bytes,
             "lane": "h3",
             "trigger_words": list(meta.get("trigger_words") or []),
-            "recommended_strength": float(meta.get("recommended_strength") or 1.0),
+            # A kohya file is always converted with alpha/rank folded into
+            # lora_B, so 1.0 is right. Imports before 2026-09-16 saved the
+            # trainer's alpha/rank here as well — a double scale — and are
+            # corrected on read rather than trusted.
+            "recommended_strength": (1.0 if meta.get("lora_layout") == "kohya"
+                                     else float(meta.get("recommended_strength") or 1.0)),
             "preview_url": preview_url,
             "preview_type": preview_type,
             "base_model": meta.get("base_model") or "MiniMax H3",
@@ -13941,28 +14271,111 @@ def _video_has_audio(path: str) -> bool:
         return False
 
 
-def _mux_audio_from(video_path: Path, audio_source: str) -> bool:
-    """Copy the source clip's audio track onto `video_path` (video stream
-    untouched). The whole point of the H3 → LTX ×2 lane: H3 wrote the
-    dialogue and the sound; the upscaler must not throw them away."""
-    if not _video_has_audio(audio_source):
+def ltx_grid_frames_up(frames: int) -> int:
+    """The smallest LTX frame count (1 + 8k, at least 9) that holds `frames`."""
+    frames = max(1, int(frames))
+    return max(9, 1 + 8 * (-(-(frames - 1) // 8)))
+
+
+# The longest clip the ×2 lane renders whole unless the form asks for more:
+# a 5 s H3 High render (124 frames) on its LTX grid (129). Measured there.
+UPSCALE_FULL_CLIP_FRAMES = 129
+
+
+def upscale_frame_plan(src_frames: int, form_frames=None) -> tuple[int, int]:
+    """(frames the ×2 delivers, frames the model renders) for a source clip.
+
+    Delivered = the source's own count, up to the ceiling; rendered = the
+    next 1+8k at or above it (the held tail is cut off afterwards). A clip
+    past the ceiling is covered from its start, on a grid that fits."""
+    try:
+        asked = int(form_frames or 0)
+    except (TypeError, ValueError):
+        asked = 0
+    out_frames = int(src_frames or 0) or asked or 49
+    ceiling = max(UPSCALE_FULL_CLIP_FRAMES, asked)
+    out_frames = min(out_frames, ceiling)
+    grid = ltx_grid_frames_up(out_frames)
+    if grid > ceiling:
+        grid = max(9, 1 + 8 * ((ceiling - 1) // 8))
+        out_frames = grid
+    return out_frames, grid
+
+
+def _upscale_hold_tail_cmd(src: str, out: str, frames: int, grid: int) -> list[str]:
+    """ffmpeg argv: `src` with its last frame held until it is `grid` frames.
+
+    Lossless RGB (libx264rgb, crf 0), so the loader reads the clip's own
+    pixels for frames 0..frames-1 and the held copies after them."""
+    return [str(FFMPEG), "-y", "-loglevel", "error", "-i", str(src),
+            "-map", "0:v:0", "-an",
+            "-vf", f"tpad=stop_mode=clone:stop={max(0, grid - frames)}",
+            "-frames:v", str(grid),
+            "-c:v", "libx264rgb", "-crf", "0", "-preset", "veryfast",
+            "-pix_fmt", "rgb24", "-f", "mp4", str(out)]
+
+
+def _upscale_finish_cmd(video: str, audio_source: str | None, out: str, *,
+                        frames: int, fps: float, trim: bool,
+                        codec: dict[str, str]) -> list[str]:
+    """ffmpeg argv that makes the upscale exactly `frames` long, sound included.
+
+    `trim`: the render ran on a longer 1+8k grid, so the held tail is cut
+    (a re-encode — a stream copy cannot cut B-frame H.264 on an exact frame).
+    Without it the video is copied untouched. The sound is the source's,
+    padded then cut to frames/fps: never `-shortest`, which drops the last
+    video frame whenever the audio ends first."""
+    cmd = [str(FFMPEG), "-y", "-loglevel", "error", "-i", str(video)]
+    if audio_source:
+        cmd += ["-i", str(audio_source)]
+    cmd += ["-map", "0:v:0"]
+    if audio_source:
+        cmd += ["-map", "1:a:0"]
+    cmd += ["-frames:v", str(int(frames))]
+    if trim:
+        cmd += ["-c:v", "libx264", "-pix_fmt", codec["pix_fmt"], "-crf", codec["crf"],
+                "-preset", "medium"]
+    else:
+        cmd += ["-c:v", "copy"]
+    if audio_source:
+        cmd += ["-af", f"apad,atrim=end={int(frames) / float(fps):.6f}",
+                "-c:a", "aac", "-b:a", "192k"]
+    else:
+        cmd += ["-an"]
+    cmd += ["-movflags", "+faststart", "-f", "mp4", str(out)]
+    return cmd
+
+
+def _upscale_finish(video_path: Path, audio_source: str, *, frames: int,
+                    fps: float, trim: bool) -> bool:
+    """Bring the ×2 render back to the source clip's length and soundtrack.
+
+    Returns whether the source's audio is on the result. The whole point of
+    the H3 → LTX ×2 lane: H3 wrote the dialogue and the sound; the upscaler
+    must not throw them away, nor a single frame of the picture."""
+    has_audio = _video_has_audio(audio_source)
+    if not (has_audio or trim):
         return False
     tmp = video_path.with_name(video_path.stem + ".mux.mp4")
+    cmd = _upscale_finish_cmd(str(video_path), audio_source if has_audio else None,
+                              str(tmp), frames=frames, fps=fps, trim=trim,
+                              codec=output_codec_settings())
     try:
-        r = subprocess.run(
-            [str(FFMPEG), "-y", "-loglevel", "error",
-             "-i", str(video_path), "-i", str(audio_source),
-             "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac",
-             "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(tmp)],
-            capture_output=True, text=True, timeout=300)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
         if r.returncode != 0 or not tmp.is_file():
-            push(f"Upscale: audio mux failed ({(r.stderr or '')[-160:].strip()}); clip kept silent")
             tmp.unlink(missing_ok=True)
+            if trim:
+                raise RuntimeError("Upscale ×2: could not cut the render back to "
+                                   f"{frames} frames: {(r.stderr or '')[-200:].strip()}")
+            push(f"Upscale: audio mux failed ({(r.stderr or '')[-160:].strip()}); clip kept silent")
             return False
         tmp.replace(video_path)
-        return True
-    except Exception as exc:                                   # noqa: BLE001
-        push(f"Upscale: audio mux failed ({exc}); clip kept silent")
+        return has_audio
+    except subprocess.TimeoutExpired:
+        tmp.unlink(missing_ok=True)
+        if trim:
+            raise RuntimeError("Upscale ×2: cutting the render back to length timed out")
+        push("Upscale: audio mux timed out; clip kept silent")
         return False
 
 
@@ -21263,7 +21676,9 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         }
 
     prompt = override_prompt if override_prompt is not None else f("prompt", "")
-    if not prompt:
+    # Upscale ×2 keeps an empty prompt: its worker falls back to the source
+    # clip's own prompt, which a generic filler here would shadow.
+    if not prompt and mode_in != "upscale":
         prompt = "A cinematic atmospheric scene"
     # Resolve a character token BEFORE reading the quality cell. The two
     # character surfaces submit ``quality_choice`` (draft/pro/high/high720),
@@ -21454,7 +21869,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     if _h3_upscale not in H3_UPSCALE_MODES:
         _h3_upscale = H3_UPSCALE_DEFAULT
     # Sampler depth override for an H3 render ("Steps" pills). 0 = Auto = the
-    # tier's tuned count (9 → 8 forwards, the validated speed/quality point).
+    # tier's tuned count (9 points → 8 forwards; High 16 → 15 since 2026-09-16).
     # The official reference recipe runs 20; wall time scales ~(steps-1)/8.
     _h3_steps_raw = (f("h3_steps", "") or "").strip().lower()
     if _h3_steps_raw in ("", "auto", "0"):
@@ -23604,25 +24019,51 @@ def _h3_fit_first_frame(src: Path, width: int, height: int, job_id: str) -> Path
         return src
 
 
-def _h3_clip_is_complete(path: Path, started_at: float) -> bool:
-    """True when the H3 output at `path` is a whole, playable clip written by
-    THIS run: exists, newer than the process start, non-trivial size, and
-    ffprobe (when present) reads a duration from it."""
+def _h3_clip_is_complete(path: Path, started_at: float,
+                         expect_frames: int | None = None) -> bool:
+    """True when the H3 output at `path` is a whole clip written by THIS run:
+    exists, newer than the process start, non-trivial size, and ffprobe reads
+    a VIDEO stream carrying at least `expect_frames` frames.
+
+    A nonzero exit is only turned into success on this answer, so "plays for
+    a moment" is not enough: an 8-frame partial or an audio-only container
+    must stay a failure. Without ffprobe nothing can be verified, and the
+    failure stands."""
     try:
         st = path.stat()
     except OSError:
         return False
     if st.st_mtime < started_at - 1 or st.st_size < 200_000:
         return False
-    ffprobe = shutil.which("ffprobe")
+    ffprobe = str(FFPROBE) if Path(str(FFPROBE)).is_file() else shutil.which("ffprobe")
     if not ffprobe:
-        return True
+        return False
     try:
         out = subprocess.run(
-            [ffprobe, "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=nw=1:nk=1", str(path)],
+            [ffprobe, "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=codec_type,nb_frames:format=duration",
+             "-of", "json", str(path)],
             capture_output=True, text=True, timeout=20)
-        return out.returncode == 0 and float((out.stdout or "0").strip() or 0) > 0
+        if out.returncode != 0:
+            return False
+        info = json.loads(out.stdout or "{}")
+        streams = [x for x in (info.get("streams") or [])
+                   if x.get("codec_type") == "video"]
+        if not streams:
+            return False
+        if float((info.get("format") or {}).get("duration") or 0) <= 0:
+            return False
+        if expect_frames:
+            try:
+                have = int(streams[0].get("nb_frames") or 0)
+            except (TypeError, ValueError):
+                have = 0
+            # One short is tolerated: runners before the mux fix (the public
+            # pack until it is updated) cut the last frame with `-shortest`
+            # on every clip, and #76's shutdown abort must still salvage those.
+            if have < int(expect_frames) - 1:
+                return False
+        return True
     except Exception:                                       # noqa: BLE001
         return False
 
@@ -23639,8 +24080,13 @@ def _chain_upscale_after_h3(job: dict, p: dict, native_path: Path) -> None:
             "engine": "ltx",
             "upscale_source_path": str(native_path),
             "keep_shot": str(p.get("keep_shot") or "1.0"),
-            "seed": str(p.get("seed") if p.get("seed") not in (None, "") else "-1"),
-            "prompt": "",
+            # The seed THIS render resolved, not the form's "-1".
+            "seed": str(p.get("seed_used") if p.get("seed_used") is not None
+                        else (p.get("seed") if p.get("seed") not in (None, "") else "-1")),
+            # The draft's own prompt. An empty one used to be replaced by
+            # make_job's generic "A cinematic atmospheric scene", so the ×2
+            # never read the source's description.
+            "prompt": str(p.get("prompt") or ""),
             "label": f"{p.get('label') or native_path.stem} · LTX ×2",
         }
         nxt = make_job(form)
@@ -23927,6 +24373,14 @@ def run_h3_job_inner(job: dict) -> None:
                 + f". Expected under {turbo_paths['dir']} — turn Turbo off, or "
                   f"install {H3_TURBO_V4_FILE} (or {H3_TURBO_LORA_FILE}, or the safe "
                   f"folded v0.1 fallback) under {turbo_paths['dir']}.")
+        if h3_turbo_adaln_state(turbo_paths) == "no_embedder":
+            # An adapter downloaded before the adaLN companion came back.
+            # ~60 MB, once; a failure leaves the render running without the
+            # pairs, and the dispatch log below says so.
+            _h3_turbo_fetch_embedder(
+                turbo_paths["dir"], push,
+                runner=lambda *a, **kw: subprocess.run(*a, **{**kw, "timeout": 300}))
+            turbo_paths = h3_turbo_paths()
         steps = h3_turbo_steps(turbo_paths)
 
     # First-frame conditioning (Image mode). The flag landed on the runner
@@ -23940,6 +24394,18 @@ def run_h3_job_inner(job: dict) -> None:
             raise RuntimeError(
                 "Image mode on H3 needs a reference image — pick one, or "
                 "switch to Text mode.")
+        # Reject unreadable images before the H3 subprocess starts — the runner
+        # also uses PIL and crashes with PIL.UnidentifiedImageError there instead
+        # of a useful message (fleet: 4 installs, v4.12.2).
+        try:
+            from PIL import Image as _PilImg
+            with _PilImg.open(Path(src)):
+                pass
+        except Exception as _pil_err:
+            raise RuntimeError(
+                f"The reference image can't be read ({_pil_err.__class__.__name__}). "
+                "Export it as a JPEG or PNG and try again."
+            ) from None
         if not h3_supports_first_frame():
             raise RuntimeError(
                 "Image mode conditions on a first frame: "
@@ -24044,6 +24510,21 @@ def run_h3_job_inner(job: dict) -> None:
         "--steps", str(steps),
         "--seed", str(seed),
     ]
+    # Codec, frozen for this job: the runner's own encode is what a Native /
+    # Off / ×2 delivery ships, so it gets the configured CRF, and the sidecar
+    # records what the encoder actually used (the runner always writes
+    # yuv420p) rather than re-reading mutable settings at the end.
+    # Never coarser than the runner's own 18: when an export pass follows, this
+    # file is its intermediate, and a web-grade CRF here would be compounded.
+    job_codec = output_codec_settings()
+    native_codec = {"crf": "18", "pix_fmt": "yuv420p", "encoder": "runner"}
+    try:
+        _native_crf = min(18, max(0, int(float(job_codec["crf"]))))
+    except (TypeError, ValueError):
+        _native_crf = 18
+    if _native_crf != 18 and _h3_runner_has_flag("--crf"):
+        cmd += ["--crf", str(_native_crf)]
+        native_codec["crf"] = str(_native_crf)
     if chain_windows > 1:
         # Window chaining: each window after the first is conditioned on its
         # predecessor's last decoded frame, and --chain-total-frames trims the
@@ -24159,6 +24640,21 @@ def run_h3_job_inner(job: dict) -> None:
          + (f" · first frame {first_frame.name}" if first_frame else ""))
     if turbo:
         push(f"[h3] {h3_turbo_note(turbo_paths)}")
+        _adaln_state = h3_turbo_adaln_state(turbo_paths)
+        if _adaln_state == "absorbed":
+            push(f"[h3] Turbo adaLN: {turbo_paths['adaln_pairs']} pairs folded "
+                 f"into the modulation cache (--lora-adaln)")
+        elif _adaln_state != "none":
+            # Loud, not silent: the render still runs, but without these
+            # pairs it is not the adapter its author published.
+            push(f"[h3] WARNING Turbo adaLN: this adapter's "
+                 f"{turbo_paths['adaln_pairs']} adaLN pairs will be SKIPPED — "
+                 + ("the companion " + H3_TURBO_EMBEDDER_FILE + " is missing "
+                    "from " + str(turbo_paths['dir']) + " (re-run the Turbo "
+                    "download to fetch it)"
+                    if _adaln_state == "no_embedder" else
+                    "the installed H3 runner has no --lora-adaln (update the "
+                    "H3 pack)"))
     # The shot list, in the log, in render order — so a clip whose second beat
     # didn't land can be diagnosed from the log alone.
     for _i, _wp in enumerate(chain_prompts, 1):
@@ -24194,6 +24690,13 @@ def run_h3_job_inner(job: dict) -> None:
     window_prefix_rx = re.compile(r"^w(\d+)_")
     cur_window, tot_windows = 1, max(1, chain_windows)
     phase_label = "Loading H3 text encoder"
+    # The runner's own phase, unprefixed. After the last forward the runner
+    # decodes and muxes with NO further Stop-early check in that window, so
+    # progress must stop calling itself `denoise` the moment decode starts.
+    bare_phase = ""
+    _H3_POST_PHASES = ("video_vae_decode", "audio_vae_decode", "encode_mux", "stitch")
+    _decode_est = (H3_DECODE_SEC_PER_PX_FRAME * int(width) * int(height)
+                   * int(window_frames) * _hw_speed_factor("h3"))
     last_step, total_steps = 0, max(1, steps - 1)
     try:
         proc = subprocess.Popen(
@@ -24286,6 +24789,8 @@ def run_h3_job_inner(job: dict) -> None:
                     "text_cache_load": "Loading cached prompt embedding",
                     "keyframe_encode": "Encoding first frame",
                     "dit_load_bf16": "Loading H3 transformer (bf16)",
+                    "dit_load_q8": "Loading H3 transformer (Q8)",
+                    "dit_load_q4": "Loading H3 transformer (Q4)",
                     "adaln_cache_and_noise": "Building AdaLN cache",
                     "joint_denoise": "Denoising video + audio",
                     "video_vae_decode": "Decoding video",
@@ -24311,15 +24816,22 @@ def run_h3_job_inner(job: dict) -> None:
             win_span = 87.0 / float(tot_windows)
             win_base = 5.0 + win_span * (cur_window - 1)
             win_tag = f"Window {cur_window}/{tot_windows} · " if tot_windows > 1 else ""
+            post = bool(last_step) and bare_phase in _H3_POST_PHASES
             if last_step:
                 pct = win_base + win_span * (last_step / float(total_steps))
                 spent = elapsed if denoise_t0 is None else max(0.0, time.time() - denoise_t0)
                 per_step = spent / max(1, last_step)
                 # Remaining steps in this window, plus every step of every
-                # window still to come.
-                left = (total_steps - last_step) + total_steps * (tot_windows - cur_window)
-                eta = max(0.0, left * per_step)
-                label = f"{win_tag}{phase_label} · step {last_step} / {total_steps}"
+                # window still to come — and the decodes still owed, so the
+                # clock does not read 0 through a minutes-long VAE decode.
+                later = tot_windows - cur_window
+                left = (total_steps - last_step) + total_steps * later
+                eta = max(0.0, left * per_step
+                          + _decode_est * (later + (1 if not post
+                                                    or bare_phase == "video_vae_decode"
+                                                    else 0)))
+                label = (f"{win_tag}{phase_label}" if post else
+                         f"{win_tag}{phase_label} · step {last_step} / {total_steps}")
             else:
                 pct, eta = max(3.0, win_base), 0.0
                 label = f"{win_tag}{phase_label}"
@@ -24327,7 +24839,8 @@ def run_h3_job_inner(job: dict) -> None:
                 cur = STATE.get("current")
                 if cur and cur.get("id") == job["id"]:
                     cur["progress"] = {
-                        "phase": "denoise" if last_step else "load",
+                        "phase": ("decode" if post else
+                                  "denoise" if last_step else "load"),
                         "phase_label": label,
                         "pct": min(99.0, pct),
                         "elapsed_sec": elapsed,
@@ -24348,7 +24861,7 @@ def run_h3_job_inner(job: dict) -> None:
             # LTX. It is a viewer decision, not a crash; worker_loop maps this
             # exception to the neutral `stopped` history state.
             raise JobStopped("H3 render stopped early at the next forward boundary")
-        if rc != 0 and _h3_clip_is_complete(out_path, t0):
+        if rc != 0 and _h3_clip_is_complete(out_path, t0, expect_frames=frames):
             # #76 (@PhantombrainM): the engine finished the clip, then aborted
             # during interpreter shutdown (mlx stream teardown after the
             # runtime was gone → PyThreadState_Get / SIGABRT). The file is
@@ -24436,7 +24949,7 @@ def run_h3_job_inner(job: dict) -> None:
     except RuntimeError as exc:
         push(f"[h3] export target ignored: {exc}")
     if upscale_plan:
-        codec = output_codec_settings()
+        codec = job_codec
         export_preset = os.environ.get("LTX_UPSCALE_PRESET", "medium")
         upscaled_out = OUTPUT / (
             f"{out_path.stem}_{upscale_plan['tag']}{out_path.suffix}")
@@ -24505,7 +25018,13 @@ def run_h3_job_inner(job: dict) -> None:
             "h3_turbo": turbo,
             "width": width, "height": height, "frames": frames, "steps": steps,
             "seed_used": seed,
-            "image": str(first_frame) if first_frame else None,
+            # The user's OWN reference, not the canvas crop made from it: the
+            # crop is deterministic from this file, so a same-canvas replay
+            # reproduces it, and a Finish at another canvas re-fits from the
+            # full image instead of enlarging a Draft-sized crop. The crop
+            # that conditioned THIS render is h3.first_frame.
+            "image": ((p.get("image") or "").strip() or str(first_frame))
+                     if first_frame else None,
         },
         "command": "hailuo_h3",
         "engine": "h3",
@@ -24518,11 +25037,23 @@ def run_h3_job_inner(job: dict) -> None:
                           else None),
         "started": job.get("started_at"),
         "elapsed_sec": elapsed,
-        "video_duration_sec": round(max(0.0, frames / H3_FPS), 3),
+        # What the runner verified in the encoded file (ffprobe), falling back
+        # to the request only when an older runner did not report it.
+        "video_duration_sec": round(
+            max(0.0, int(metrics.get("delivered_frames") or frames) / H3_FPS), 3),
         "fps": H3_FPS,
-        "model": str(paths["dit"]),
+        # The checkpoint that RAN, not the bf16 default path: a Q8 render must
+        # not read as "full bf16" in its own provenance.
+        "model": str(_dit_path),
+        "model_precision": (metrics.get("dit_precision")
+                            or metrics.get("w1_dit_precision")
+                            or ("bf16" if _dit_path == paths["dit"] else "q8")),
         "queue_id": job["id"],
-        "output_codec": output_codec_settings(),
+        # What encoded the delivered file: the panel's export pass when one ran
+        # (it re-encodes with the job's settings), else the runner's own mp4.
+        "output_codec": (dict(job_codec, encoder="panel_export") if upscale_plan
+                         else dict(native_codec)),
+        "native_codec": dict(native_codec),
         "h3": {
             "tier": tier["key"],
             "quality": tier["quality"],
@@ -24536,6 +25067,8 @@ def run_h3_job_inner(job: dict) -> None:
             "phase_seconds": {k: v.get("seconds") for k, v in phases.items()},
             "peak_gib": max([v.get("peak_gib") or 0 for v in phases.values()] or [0]),
             "first_frame": str(first_frame) if first_frame else None,
+            "first_frame_source": ((p.get("image") or "").strip() or None)
+                                  if first_frame else None,
             "turbo": ({"lora": str(turbo_paths["lora"]),
                        "adapter_version": turbo_paths["version"],
                        "fallback": turbo_paths["fallback"],
@@ -24544,7 +25077,12 @@ def run_h3_job_inner(job: dict) -> None:
                        "repo": H3_TURBO_REPO,
                        # The runner's own report: how many modules landed.
                        "applied": (metrics.get("lora")
-                                   or metrics.get("w1_lora"))}
+                                   or metrics.get("w1_lora")),
+                       "adaln": (metrics.get("lora_adaln")
+                                 or metrics.get("w1_lora_adaln")),
+                       # wrapped + absorbed + unaccounted; unaccounted must be 0.
+                       "accounting": (metrics.get("lora_accounting")
+                                      or metrics.get("w1_lora_accounting"))}
                       if turbo else None),
             "chain_windows": chain_windows,
             "window_frames": window_frames,
@@ -24563,7 +25101,7 @@ def run_h3_job_inner(job: dict) -> None:
     if upscale_plan:
         sidecar["upscale"] = (
             {k: v for k, v in upscale_plan.items() if k != "vf"}
-            | {"source": str(native_path), "codec": output_codec_settings()}
+            | {"source": str(native_path), "codec": dict(job_codec)}
         )
     write_sidecar(final_target.with_suffix(final_target.suffix + ".json"), sidecar)
     job["output_path"] = str(final_target)
@@ -25578,14 +26116,19 @@ def run_job_inner(job: dict) -> None:
                 f"tier, and {source.name} is already {sw}×{sh}. Use a smaller "
                 "source clip.")
         up_w, up_h = ltx_floor_canvas(int(sw * scale), int(sh * scale))
-        # LTX's grid is 1+8k frames and the IC reference loader rounds the
-        # source DOWN to that grid, so the target must match it exactly or
-        # the last latent frame renders unconditioned. A 72-frame H3 clip
-        # becomes 65 frames (0.3 s trimmed at the tail); the soundtrack is
-        # trimmed to match at mux time.
-        frames = int(p.get("frames") or 0) or src_frames or 49
-        frames = min(frames, src_frames or frames)
-        frames = max(9, 1 + 8 * ((frames - 1) // 8))
+        # The ×2 is the same clip: same frame count, same duration, same
+        # sound. LTX's grid is 1+8k frames and the IC reference loader
+        # rounds whatever it is given DOWN to that grid, so the render runs
+        # on the next grid length UP (124 → 129) from a copy of the clip
+        # whose last frame is held for the extra frames, and the held tail
+        # is cut off again afterwards (124 out). It used to round DOWN
+        # instead, silently dropping up to 7 frames (124 → 121, 72 → 65).
+        # The form's generation length is not an upscale control; it only
+        # widens the ceiling past the length this lane is measured at.
+        out_frames, frames = upscale_frame_plan(src_frames, p.get("frames"))
+        if src_frames and out_frames < src_frames:
+            push(f"Upscale ×2: {source.name} is {src_frames} frames; the ×2 covers "
+                 f"its first {out_frames}")
         try:
             keep = float(p.get("keep_shot") or 1.0)
         except (TypeError, ValueError):
@@ -25628,6 +26171,22 @@ def run_job_inner(job: dict) -> None:
         out_name = f"{source.stem}_x2_{stamp}.mp4"
         final_out = OUTPUT / out_name
         job["raw_path"] = str(final_out)
+        # The clip the model reads: the source itself when it already covers
+        # the grid, else a lossless copy with its last frame held to `frames`.
+        import tempfile as _tempfile
+        work_dir = Path(_tempfile.mkdtemp(prefix="phosphene_x2_"))
+        model_src = src
+        if frames > (src_frames or frames):
+            model_src = str(work_dir / f"{source.stem}_hold{frames}.mp4")
+            _r = subprocess.run(_upscale_hold_tail_cmd(src, model_src, src_frames, frames),
+                                capture_output=True, text=True, timeout=600)
+            if _r.returncode != 0 or _probe_video_frames(model_src) != frames:
+                shutil.rmtree(work_dir, ignore_errors=True)
+                raise RuntimeError(
+                    f"Upscale ×2: could not extend {source.name} to {frames} frames "
+                    f"for the model: {(_r.stderr or '')[-200:].strip()}")
+            push(f"Upscale ×2: {src_frames} frames → the model renders {frames} "
+                 f"(last frame held), the ×2 is cut back to {out_frames}")
         job_spec = {
             "action": "generate_restore",
             "id": job["id"],
@@ -25641,10 +26200,10 @@ def run_job_inner(job: dict) -> None:
                 "frames": frames,
                 "frame_rate": src_fps,
                 "seed": p["seed"],
-                "video_conditioning": [[src, keep]],
+                "video_conditioning": [[model_src, keep]],
                 "conditioning_attention_strength": keep,
                 "single_stage": start_from == "noise",
-                "source_video": src if start_from == "source" else "",
+                "source_video": model_src if start_from == "source" else "",
                 "refine_steps": refine_steps if start_from == "source" else None,
                 # Q4 cannot hold a fused adapter (see the helper); Q8 can, at a
                 # measured 22.6% loss. Exact runtime attachment on request.
@@ -25663,15 +26222,27 @@ def run_job_inner(job: dict) -> None:
              f"{up_w}×{up_h} {frames}f · keep-the-shot {keep:.2f} · {quant.upper()} distilled · "
              + (f"from the clip's own latent, {refine_steps}-step refine + Pixel Spatial Upscaler"
                 if start_from == "source" else "full re-render from noise + Pixel Spatial Upscaler"))
-        result = HELPER.run(job_spec)
-        if "seed_used" in result:
-            push(f"seed used: {result['seed_used']}")
-            p["seed_used"] = result["seed_used"]
-        muxed = _mux_audio_from(final_out, src)
+        try:
+            result = HELPER.run(job_spec)
+            if "seed_used" in result:
+                push(f"seed used: {result['seed_used']}")
+                p["seed_used"] = result["seed_used"]
+            muxed = _upscale_finish(final_out, src, frames=out_frames, fps=src_fps,
+                                    trim=frames != out_frames)
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
+        delivered = _probe_video_frames(str(final_out))
+        if delivered and delivered != out_frames:
+            push(f"Upscale ×2: WARNING — {final_out.name} has {delivered} frames, "
+                 f"expected {out_frames}")
         sidecar = {
             "output": str(final_out), "raw_output": str(final_out),
             "params": {**p, "command": "upscale", "keep_shot": keep,
+                       "frames": out_frames, "render_frames": frames,
+                       "source_frames": src_frames,
                        "source_size": [sw, sh], "audio_from_source": muxed},
+            "delivered_frames": delivered or None,
+            "video_duration_sec": (round(delivered / src_fps, 4) if delivered else None),
             "started": job.get("started_at"),
             "elapsed_sec": round(time.time() - job["started_ts"], 2) if job.get("started_ts") else None,
             "fps": src_fps, "model": up_model_dir, "queue_id": job["id"],
@@ -30748,6 +31319,11 @@ def _h3_preview_progress(current: dict | None) -> dict:
     status = str(st.get("status") or "")
     phase = str((current.get("progress") or {}).get("phase") or "")
     try:
+        _prog_window = int((current.get("progress") or {}).get("window") or 1)
+        _prog_windows = int((current.get("progress") or {}).get("window_total") or 1)
+    except (TypeError, ValueError):
+        _prog_window = _prog_windows = 1
+    try:
         remaining = max(0.0, float(st.get("eta_seconds") or 0.0))
     except (TypeError, ValueError):
         remaining = 0.0
@@ -30764,8 +31340,13 @@ def _h3_preview_progress(current: dict | None) -> dict:
         "meaningful": has_frame,
         # The runner checks immediately after every forward, including the
         # last one before VAE decode/mux, so there is still work to save at N/N.
+        # ...but NOT after the final window's last forward: decode and mux
+        # run with no further check, so a Stop there would be acknowledged
+        # and then ignored. Between windows the next window's first forward
+        # still honours it.
         "abortable": bool(has_frame and status in ("starting", "running")
-                          and phase == "denoise"),
+                          and (phase == "denoise"
+                               or (phase == "decode" and _prog_window < _prog_windows))),
         "remaining_sec": remaining,
         "saves_sec": remaining,
         "window": window,

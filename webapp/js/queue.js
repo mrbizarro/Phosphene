@@ -98,6 +98,10 @@ function h3FinishSetTier(key) {
 // seed, image. A field that isn't in that dict silently no-ops on /queue/add,
 // which is the known trap in this codebase; adding a key here means adding it
 // there too.
+function _h3FinishSteps(v) {
+  const n = parseInt(String(v == null ? '' : v), 10);
+  return (Number.isFinite(n) && n >= 4 && n <= 30) ? String(n) : 'auto';
+}
 function h3FinishFieldsFromSidecar(p, tierKey) {
   if (!p || typeof p !== 'object') return null;
   if (p.engine !== 'h3') return null;
@@ -133,11 +137,20 @@ function h3FinishFieldsFromSidecar(p, tierKey) {
     // matters for sidecars written before h3_upscale existed.
     h3_upscale: (typeof p.h3_upscale === 'string' && p.h3_upscale) ? p.h3_upscale : '',
     // The sidecar stores the resolved override as an int, 0 = "the cell's own
-    // count". The form's pills speak 'auto' | '12' | '16' | '20'; anything
-    // outside that set (an older sidecar, a curl'd job) reads as auto so the
-    // target canvas's tuned count is used rather than a depth no pill can show.
-    h3_steps: (['12', '16', '20'].indexOf(String(p.h3_steps)) !== -1)
-      ? String(p.h3_steps) : 'auto',
+    // count" (Auto, which follows the TARGET canvas). Any other count the
+    // server accepts (4-30) is a deliberate pin and carries over as-is, even
+    // when no pill shows it.
+    h3_steps: _h3FinishSteps(p.h3_steps),
+    // The adapters and the framing are part of the recipe being finished.
+    // Absent `loras` means the source ran without any: the Finish must clear
+    // whatever the picker holds now, not inherit it.
+    loras: Array.isArray(p.loras)
+      ? p.loras.filter(l => l && l.path)
+          .map(l => ({ path: String(l.path),
+                       strength: (typeof l.strength === 'number') ? l.strength : 1.0 }))
+      : [],
+    h3_orientation: (p.h3_orientation === 'portrait') ? 'portrait' : 'landscape',
+    h3_lora_slot: (p.h3_lora_slot === 'user') ? 'user' : 'turbo',
     // Turbo carries over: a draft judged with the 4-step sampler should be
     // finished with it too, or the Finish render is a different recipe as well
     // as a different canvas. setH3Turbo re-checks availability, so a sidecar
@@ -287,6 +300,10 @@ async function h3FinishActive() {
     }
   }
   if (fields.h3_upscale && typeof setH3Upscale === 'function') setH3Upscale(fields.h3_upscale);
+  // The source's adapters, not whatever the picker holds now (an empty list
+  // clears it), and its framing BEFORE the shape stamps geometry.
+  _restoreLoraPicker(fields.loras);
+  if (typeof setH3Orientation === 'function') setH3Orientation(fields.h3_orientation);
   if (typeof setH3Steps === 'function') setH3Steps(fields.h3_steps);
   // Turbo before the shape: setH3Turbo forces the Steps pills back to 'auto',
   // and setH3Tier below re-reads them when it stamps the resolved count.
@@ -301,6 +318,9 @@ async function h3FinishActive() {
   if (typeof setH3ChainPrompts === 'function') {
     try { setH3ChainPrompts(fields.h3_chain_prompts); } catch (e) {}
   }
+  // After Turbo and the picker: the slot row re-renders from both and resets
+  // itself when there is no conflict.
+  if (typeof setH3LoraSlot === 'function') { try { setH3LoraSlot(fields.h3_lora_slot); } catch (e) {} }
   // Seed after the shape for the same reason it comes last in loadParams:
   // nothing downstream may quietly re-randomise it.
   document.getElementById('seed').value = fields.seed;
@@ -3131,15 +3151,19 @@ function stageMayAutoSelectOutput() {
 }
 function selectOutput(path, options) {
   options = options || {};
-  // AUTOPLAY IS FOR A CLICK, NOT FOR BOOT. The stage selects the newest
-  // output on load and after every refresh or filter change; those used to
-  // build the player with `autoplay`, so the panel opened already playing
-  // the last clip, sound and all. A selection the person did not make shows
-  // the clip paused on its first frame; a click plays.
-  const autoplay = options.autoplay !== false;
   activePath = path;
   const _uev = (typeof window !== 'undefined') ? window.event : null;
   const userSelected = !!(_uev && _uev.isTrusted);
+  // AUTOPLAY IS FOR A CLICK, NOT FOR BOOT. The stage selects outputs on its
+  // own in many places — the newest clip on load, a storyboard putting its
+  // film's newest shot up on every poll, the clip coming back after a live
+  // preview, a finished take handed over. Each of those used to build the
+  // player with `autoplay`, so the panel kept opening with a clip playing,
+  // sound and all. The rule is decided HERE, once, not at each caller: only a
+  // real click or key press plays; every other selection shows the clip
+  // paused on its first frame. `autoplay: true` forces it, `false` forbids it.
+  const autoplay = options.autoplay === true
+    || (options.autoplay !== false && userSelected);
   if (userSelected) window._stagePlaybackIntentAt = Date.now();
   // The credit names the weights that made THIS clip.
   if (typeof updateModelCredit === 'function') { try { updateModelCredit(path); } catch (e) {} }
@@ -3537,6 +3561,33 @@ function setUpscalePreset(btn) {
     b.classList.toggle('active', b === btn));
 }
 
+// Put a saved {path, strength} list into the LoRA picker (Load Params and
+// Finish share this). Re-decorated with name + trigger words from
+// _knownUserLoras so the chips render nicely.
+function _restoreLoraPicker(list) {
+  if (!Array.isArray(list)) return;
+  _activeLoras = list.map(l => {
+    const path = l && l.path;
+    const strength = (l && typeof l.strength === 'number') ? l.strength : 1.0;
+    const meta = (Array.isArray(_knownUserLoras)
+                  ? _knownUserLoras.find(u => u.path === path)
+                  : null) || {};
+    return {
+      path,
+      strength,
+      name: meta.name || (path ? path.split('/').pop() : 'LoRA'),
+      trigger_words: meta.trigger_words || [],
+      compatible_modes: meta.compatible_modes || ['unknown'],
+    };
+  }).filter(x => x.path);
+  if (typeof renderLorasList === 'function') {
+    try { renderLorasList(); } catch (_) {}
+  }
+  if (typeof _serializeLoras === 'function') {
+    try { _serializeLoras(); } catch (_) {}
+  }
+}
+
 async function loadParams() {
   if (!activePath) return;
   const r = await fetch('/sidecar?path='+encodeURIComponent(activePath));
@@ -3836,28 +3887,7 @@ async function loadParams() {
   // without fusion (no face/style transfer). Wire shape on the sidecar is
   // a list of {path, strength}; we re-decorate with `name` + `trigger_words`
   // from _knownUserLoras when available so the chip renders nicely.
-  if (lorasForPicker) {
-    _activeLoras = lorasForPicker.map(l => {
-      const path = l.path;
-      const strength = (typeof l.strength === 'number') ? l.strength : 1.0;
-      const meta = (Array.isArray(_knownUserLoras)
-                    ? _knownUserLoras.find(u => u.path === path)
-                    : null) || {};
-      return {
-        path,
-        strength,
-        name: meta.name || (path ? path.split('/').pop() : 'LoRA'),
-        trigger_words: meta.trigger_words || [],
-        compatible_modes: meta.compatible_modes || ['unknown'],
-      };
-    }).filter(x => x.path);
-    if (typeof renderLorasList === 'function') {
-      try { renderLorasList(); } catch (_) {}
-    }
-    if (typeof _serializeLoras === 'function') {
-      try { _serializeLoras(); } catch (_) {}
-    }
-  }
+  if (lorasForPicker) _restoreLoraPicker(lorasForPicker);
 
   // ---- Engine + engine-specific settings ----------------------------------
   // Params restored geometry and prompt but NOT the engine, so loading an LTX
@@ -4546,6 +4576,22 @@ document.getElementById('genForm').addEventListener('submit', async e => {
       // three-field format owns that line, and a second one would contradict it.
       if (!lower.includes('non_diegetic_music')) {
         fd.set('prompt', original.trim() + '\n\nnon_diegetic_music: N/A');
+      }
+      // A chained length sends its own prompt per window, and a WRITTEN box
+      // replaces the main prompt for that window — so the field has to ride
+      // in every written box too (blank boxes inherit the main prompt above).
+      const cpRaw = String(fd.get('h3_chain_prompts') || '');
+      if (cpRaw.trim()) {
+        try {
+          const cps = JSON.parse(cpRaw);
+          if (Array.isArray(cps)) {
+            fd.set('h3_chain_prompts', JSON.stringify(cps.map(x => {
+              const t = String(x == null ? '' : x);
+              if (!t.trim() || t.toLowerCase().includes('non_diegetic_music')) return t;
+              return t.trim() + '\n\nnon_diegetic_music: N/A';
+            })));
+          }
+        } catch (_) { /* not JSON (a hand-rolled ' ||| ' string): leave it */ }
       }
     } else {
       const constraint = ' Audio: voice and ambient sounds only, no music, no soundtrack, no score, no melody.';

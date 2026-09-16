@@ -254,6 +254,31 @@ leaves it staging the promote tree — reset it when you are done. And any weigh
 pack published for this release must be tagged on the **public main commit you
 just pushed** (§3b), which means the packs go up *after* step 4, not before.
 
+## 6. Announce on Pinokio — part of every release
+
+A release is not done until its Pinokio post is live and the post's URL is in
+the release report. Owner, 2026-08-05 and again 2026-09-13: "This should be
+part of the protocol for releases."
+
+- **Check the login BEFORE promoting.** Open the app page on pinokio.co in the
+  owner's Chrome. A **Log in** link in the header means the session dropped:
+  tell the owner at once, so he signs in while the gates run. Never type
+  credentials on his behalf.
+- **Enter through the app page's Post button** (owner-only, top right).
+  Navigating straight to `/posts/new` bounces and can drop the session.
+- **Size the post to the release.** x.y.Z: a short text post (headline title,
+  4–6 bullets in user language, credit the reporters, link the release).
+  x.Y.0: media-rich, with a hero image or clip made from real Phosphene output,
+  screenshots of the new surface, and the fuller story.
+- **Paste ASCII only** (straight quotes, `-` instead of dashes). Non-ASCII
+  mojibakes through the clipboard paste.
+- **Media goes in through the composer's own file input**, so it lands on
+  Pinokio's CDN before publishing.
+- **Publish → Review → pick the feed cover → Publish.** Write the post URL into
+  the release's `docs/STATE.md` entry.
+- **Missed a release?** The next post covers every unannounced version, one
+  section each.
+
 ---
 
 If any gate fails, **do not ship** — that's the whole point of this file.

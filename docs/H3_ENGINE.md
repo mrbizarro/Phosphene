@@ -136,7 +136,7 @@ its chips from `/status.h3.tiers`, so a tier change is one Python edit.
 | Draft · 3s | 640×384 · 73f | 5:3 | 1 | 9 (8 forwards) | ~3 min |
 | HQ · 3s | 768×448 · 73f | 12:7 | 1 | 9 (8 forwards) | ~4-5 min |
 | HQ · 5s | 768×448 · 124f | 12:7 | 1 | 9 (8 forwards) | ~8 min |
-| **Wide · 5s** | **1024×576 · 124f** | **16:9** | 1 | 9 (8 forwards) | **~17-19 min** |
+| **Wide / High · 5s** | **1024×576 · 124f** | **16:9** | 1 | **16 (15 forwards)** since 2026-09-16 | **~34 min** (was ~19 at 8 forwards) |
 | Long · 10s | 768×448 · 243f | 12:7 | **2 × 124f chained** | 9 (8 forwards) | ~17 min |
 | Long · 15s | 768×448 · 362f | 12:7 | **3 × 124f chained** | 9 (8 forwards) | ~27 min · batch |
 
@@ -174,7 +174,17 @@ Each tier's `aspect` is derived from its own width/height (`_h3_aspect`) and
 appended to the `spec` string the chip prints, so the advertised ratio can never
 drift from the geometry that renders.
 
-**Why 9 points everywhere now.** `--steps` is sigma *points*; the runner does
+**High runs 16 points (2026-09-16).** Every High cell (1024×576, any length)
+now runs 16 sigma points = 15 forwards per window. A matched gym A/B (same seed,
+still and prompt) at 15 forwards was clearly better than at 8, where the face was
+blurry; 1024×576/124f is ~22.9k packed rows, well past the ~13k envelope below.
+Knobs: `H3_HIGH_STEPS` and `H3_NATIVE_STEPS` in `mlx_ltx_panel.py` (Native stays
+at 9 until its own 15-forward test is judged). A cell runs
+`max(length steps, canvas steps)`. `H3_MEASURED_ETA` entries carry the forwards
+they were measured at, so the old 18.8 min High receipt no longer prints as
+"measured" for a 15-forward cell.
+
+**Why 9 points everywhere else.** `--steps` is sigma *points*; the runner does
 `points - 1` forwards. A matched-cost A/B showed 8 forwards is visually free at
 or below ~13k packed rows (640×384/73f ≈ 5.6k, 768×448/124f ≈ 13.7k). A *dense*
 768×448/243f pass is ~25k rows, where 8 forwards **ghosts** (two astronauts on

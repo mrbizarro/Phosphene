@@ -194,6 +194,195 @@ class TestH3TurboInstallContract(unittest.TestCase):
         self.assertIn(P.H3_TURBO_LORA_FILE, status["install_note"])
 
 
+def _write_lora_fixture(path: Path, adaln_modules: list[str],
+                        other_modules: list[str]) -> Path:
+    """A real (tiny) safetensors file: header + zero bytes, one 1x1 tensor per
+    lora_A / lora_B key. Only the header is ever read by the panel."""
+    import json as _json
+    import struct as _struct
+    header, offset = {}, 0
+    for module in adaln_modules + other_modules:
+        for suffix in (".lora_A.weight", ".lora_B.weight"):
+            header[module + suffix] = {"dtype": "F32", "shape": [1, 1],
+                                       "data_offsets": [offset, offset + 4]}
+            offset += 4
+    header["__metadata__"] = {"base_model": "fixture"}
+    raw = _json.dumps(header).encode()
+    raw += b" " * (-len(raw) % 8)
+    path.write_bytes(_struct.pack("<Q", len(raw)) + raw + b"\0" * offset)
+    return path
+
+
+V4_ADALN = ([f"blocks.{i}.adaln_proj.linear" for i in range(50)]
+            + ["final_layer.adaln_proj.linear"])
+V4_OTHER = [f"blocks.{i}.attn.out_proj" for i in range(4)]
+
+
+class TestH3TurboAdaln(unittest.TestCase):
+    """Turbo v4 carries 51 adaLN pairs the pruned DiT cannot wrap; the runner
+    absorbs them only when handed `--lora-adaln`. The panel dropped that flag
+    on 2026-08-14 and every v4 render since lost all 51 (Codex audit
+    2026-09-16, finding 2). Detection is by header, never by filename."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="phos-turbo-adaln-")
+        self.directory = Path(self.tmp.name)
+        self.saved = {name: getattr(P, name) for name in (
+            "_h3_turbo_dir", "H3_TURBO_LORA_MIN_BYTES",
+            "H3_TURBO_EMBEDDER_MIN_BYTES", "h3_supports_lora_adaln",
+            "h3_supports_lora", "h3_paths", "_h3_python", "H3_ROOT")}
+        P._h3_turbo_dir = lambda: self.directory
+        P.H3_TURBO_LORA_MIN_BYTES = 1
+        P.H3_TURBO_EMBEDDER_MIN_BYTES = 1
+        P.h3_supports_lora_adaln = lambda: True
+        _reset_dl_state()
+
+    def tearDown(self):
+        for name, value in self.saved.items():
+            setattr(P, name, value)
+        self.tmp.cleanup()
+        _reset_dl_state()
+
+    def v4(self) -> Path:
+        return _write_lora_fixture(self.directory / P.H3_TURBO_V4_FILE,
+                                   V4_ADALN, V4_OTHER)
+
+    def embedder(self) -> Path:
+        path = self.directory / P.H3_TURBO_EMBEDDER_FILE
+        path.write_bytes(b"embedder fixture")
+        return path
+
+    def test_header_count_is_the_detector(self):
+        self.assertEqual(P.h3_lora_adaln_pairs(self.v4()), 51)
+        plain = _write_lora_fixture(self.directory / "plain.safetensors",
+                                    [], V4_OTHER)
+        self.assertEqual(P.h3_lora_adaln_pairs(plain), 0)
+        # An A without its B is not a pair.
+        junk = self.directory / "junk.safetensors"
+        junk.write_bytes(b"not a safetensors file at all")
+        self.assertEqual(P.h3_lora_adaln_pairs(junk), 0)
+        self.assertEqual(P.h3_lora_adaln_pairs(self.directory / "nope"), 0)
+        self.assertEqual(P.h3_lora_adaln_pairs(None), 0)
+
+    def test_v4_with_companion_emits_lora_adaln(self):
+        v4, emb = self.v4(), self.embedder()
+        resolved = P.h3_turbo_paths()
+        self.assertEqual(resolved["adaln_pairs"], 51)
+        self.assertEqual(resolved["embedder"], emb)
+        self.assertEqual(P.h3_turbo_adaln_state(resolved), "absorbed")
+        self.assertEqual(P.h3_turbo_argv(resolved),
+                         ["--lora", f"{v4}:1.0", "--lora-adaln", str(emb)])
+        status = P.h3_turbo_status()
+        self.assertEqual(status["adaln"],
+                         {"pairs": 51, "embedder": str(emb), "state": "absorbed"})
+
+    def test_v4_without_companion_is_named_not_silent(self):
+        v4 = self.v4()
+        resolved = P.h3_turbo_paths()
+        self.assertIsNone(resolved["embedder"])
+        self.assertEqual(P.h3_turbo_adaln_state(resolved), "no_embedder")
+        self.assertEqual(P.h3_turbo_argv(resolved), ["--lora", f"{v4}:1.0"])
+
+    def test_old_runner_never_gets_the_flag(self):
+        v4, _ = self.v4(), self.embedder()
+        P.h3_supports_lora_adaln = lambda: False
+        resolved = P.h3_turbo_paths()
+        self.assertEqual(P.h3_turbo_adaln_state(resolved), "runner_old")
+        self.assertEqual(P.h3_turbo_argv(resolved), ["--lora", f"{v4}:1.0"])
+
+    def test_adapter_without_adaln_pairs_gets_no_flag(self):
+        # LightX2V repacks carry none; a companion on disk must not change that.
+        lx = _write_lora_fixture(self.directory / P.H3_TURBO_LORA_FILE,
+                                 [], V4_OTHER)
+        self.embedder()
+        resolved = P.h3_turbo_paths()
+        self.assertEqual(resolved["lora"], lx)
+        self.assertEqual(P.h3_turbo_adaln_state(resolved), "none")
+        self.assertEqual(P.h3_turbo_argv(resolved), ["--lora", f"{lx}:1.0"])
+
+    def test_the_real_v4_adapter_has_51_pairs_when_present(self):
+        real = Path("/Users/salo/AI/projects/hailuo-mlx/codex/models/turbo-lora/"
+                    + P.H3_TURBO_V4_FILE)
+        if not real.is_file():
+            self.skipTest("v4 adapter not on this machine")
+        self.assertEqual(P.h3_lora_adaln_pairs(real), 51)
+
+    def test_render_dispatch_uses_the_argv_helper(self):
+        src = (ROOT / "mlx_ltx_panel.py").read_text(encoding="utf-8")
+        body = src[src.index("def run_h3_job_inner("):]
+        body = body[:body.index("\ndef ", 10)]
+        self.assertIn("cmd += h3_turbo_argv(turbo_paths)", body)
+        self.assertIn('h3_turbo_adaln_state(turbo_paths) == "no_embedder"', body)
+        # provenance: the checkpoint that ran, not the bf16 default path
+        self.assertIn('"model": str(_dit_path)', body)
+        self.assertNotIn('"model": str(paths["dit"])', body)
+
+    def test_fetch_embedder_uses_the_pack_script_and_is_non_fatal(self):
+        self.v4()
+        root = self.directory / "pack"
+        (root / "scripts").mkdir(parents=True)
+        (root / "scripts" / "fetch_time_embedder.py").write_text("# fixture")
+        P.H3_ROOT = root
+        P._h3_python = lambda: Path("/usr/bin/python3")
+        calls, logs = [], []
+
+        class Done:
+            returncode, stdout, stderr = 0, "", ""
+
+        def ok_runner(cmd, **kw):
+            calls.append(cmd)
+            Path(cmd[cmd.index("--out") + 1]).write_bytes(b"tensors")
+            return Done()
+
+        self.assertTrue(P._h3_turbo_fetch_embedder(self.directory, logs.append,
+                                                   runner=ok_runner))
+        self.assertEqual(calls[0][1], str(root / "scripts" / "fetch_time_embedder.py"))
+        self.assertTrue((self.directory / P.H3_TURBO_EMBEDDER_FILE).is_file())
+        self.assertFalse(list(self.directory.glob("*.partial")))
+        # already there: no second fetch
+        self.assertTrue(P._h3_turbo_fetch_embedder(self.directory, logs.append,
+                                                   runner=ok_runner))
+        self.assertEqual(len(calls), 1)
+
+        (self.directory / P.H3_TURBO_EMBEDDER_FILE).unlink()
+
+        class Fail:
+            returncode, stdout, stderr = 1, "", "HTTP 403"
+
+        logs.clear()
+        self.assertFalse(P._h3_turbo_fetch_embedder(
+            self.directory, logs.append, runner=lambda cmd, **kw: Fail()))
+        self.assertTrue(any("WARNING" in m and "HTTP 403" in m for m in logs))
+        self.assertFalse((self.directory / P.H3_TURBO_EMBEDDER_FILE).exists())
+
+    def test_install_on_an_existing_v4_fetches_only_the_companion(self):
+        self.v4()
+        P.h3_paths = lambda: {"missing": []}
+        P.h3_supports_lora = lambda: True
+        done = threading.Event()
+        seen = []
+
+        def fake_embedder(target_dir, push_log):
+            seen.append(target_dir)
+            done.set()
+            return True
+
+        result = P._h3_install_turbo(lambda _m: None,
+                                     download_fn=lambda *a: self.fail("no adapter download"),
+                                     embedder_fn=fake_embedder)
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["started"])
+        self.assertTrue(result["embedder_only"])
+        self.assertTrue(done.wait(timeout=5))
+        self.assertEqual(seen, [self.directory])
+        # with the companion present, it is a plain "already installed"
+        self.embedder()
+        _reset_dl_state()
+        again = P._h3_install_turbo(lambda _m: None, download_fn=lambda *a: None,
+                                    embedder_fn=lambda *a: self.fail("refetch"))
+        self.assertFalse(again["started"])
+
+
 class TestH3TurboPins(unittest.TestCase):
     def _load_fetch_script(self):
         spec = importlib.util.spec_from_file_location(

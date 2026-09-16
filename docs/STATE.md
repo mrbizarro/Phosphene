@@ -1,5 +1,231 @@
 # Phosphene — project state, history, open work
 
+> **🚀 2026-09-16 — v4.13.1 released: the H3 + ×2 fix wave (owner's order: "fix it and ship it").**
+> **Shipped (cherry-picked onto public 4.13.0, NOT a dev read-tree):** `3a5c5cc` autoplay only on click,
+> `85a7098` H3 reference image validated with PIL, `745dc9c` Turbo adaLN + provenance, `8eafdc5` High = 16
+> sigma points, `1e1ec51` ×2 int32 tail + full frame count, `3a4d9ad`, `a1c9808` the twelve round-2 fixes,
+> plus `docs/RELEASE_CHECKLIST.md` (Pinokio step) from dev. **Held back on dev (headline Editor work, gated on
+> owner use):** audio tracks (`d12dc30` `d3c5dfb` `d8b280a`), A/B clip-sound lanes (`02a7e30`), compact sound
+> lanes (`e588b52`) — their panel/editor/API/doc hunks are the ONLY difference between the release tree and dev.
+> **Runner:** no SHA pin exists — `install_h3.js` clones and `scripts/pinokio/h3_checkout.sh` (run by Install
+> and by every Update through `post_update.sh` when H3 is installed) resets to the tip of
+> `minimax-h3-mlx codex/h3-engine-v2`, which is `11b90a0` (mux keeps every frame, LoRA accounting). So H3
+> users get the runner fix by pressing Update; no reinstall.
+> **Gates:** full `release_gates.sh` 93 PASS / 0 FAIL / 0 SKIP in the release worktree, MLX forced to the CPU
+> device via a `sitecustomize` shim (the GPU was rendering the owner's jobs on 8199). Clean-room boot of a
+> fresh clone on a spare port: see the release report in the PM hub.
+
+> **🔎 2026-09-16 — H3 round-2 review: High runs 15 forwards, twelve bugs fixed (UNRELEASED, `dev`).**
+> **High = 16 points (`8eafdc5`).** The owner ran a matched gym A/B: High 1024×576 was clearly better at 15
+> forwards than at 8, where the face was blurry. Every High cell now bakes `H3_HIGH_STEPS = 16`. A cell runs
+> `max(length steps, canvas steps)`, so dense 10 s stays at 16. **Native is unchanged** and waits for its own
+> 15-forward test: flip `H3_NATIVE_STEPS` (today `= H3_STEPS_DEFAULT`). `H3_MEASURED_ETA` entries now carry the
+> forwards they were measured at. The 8-forward 18.8 min receipt therefore no longer prices High; the model
+> says ~34 min for High 5 s. Storyboard "standard"/"high" passes use the High canvas, so **storyboard H3
+> films now take about 1.8× longer**. Queued jobs keep the steps stamped at queue time.
+> **Round-2 audit (`a1c9808`).** Codex's report is PM hub `notes/h3-review/FINDINGS_R2.md`; the triage is
+> `FINDINGS_R2_TRIAGE.md`. All 12 findings were confirmed and fixed:
+> - the ×2 handoff now keeps the prompt and seed
+> - Finish restores LoRAs, orientation and the adapter slot
+> - a salvage needs a verified frame count
+> - kohya imports are no longer double-scaled; stored strengths are corrected on read
+> - mixed per-module alphas are folded
+> - No Music reaches written chain windows
+> - the sidecar keeps the user's reference image
+> - pinned steps 4–30 survive a replay
+> - measured and pinned ETAs carry the hardware factor
+> - Turbo ETAs re-price live
+> - codec provenance is truthful (runner `--crf ≤ 18`)
+> - Stop early is withdrawn after the last abort boundary
+>
+> **Not changed:** the ×2 lane's 129-frame ceiling (the upscaler agent's `1e1ec51`) and the runner's fixed `yuv420p`.
+> **Gates:** `test_h3_review_r2` 31 new, `test_h3_high_steps` 12 new. `release_gates.sh --fast`: 94 PASS / 0 FAIL
+> / 2 SKIP. MLX tests were run on the CPU device because renders were on the GPU.
+> **Needs a panel restart** for the Python changes. The web changes (Finish, Steps, No Music) arrive on a hard refresh.
+> **Runner:** `46f718e` is cherry-picked onto a local `codex/h3-engine-v2` (`11b90a0`, worktree
+> `hailuo-mlx/codex/h3-engine-v2-wt`) and is NOT pushed. Until it is pushed, fresh installs still lose the
+> last frame.
+
+> **🩹 2026-09-16 — LTX Upscale ×2: the white tail (and the early flash) was an int32 wrap in the VAE decode; the ×2 keeps every frame (UNRELEASED, `dev`).**
+> **Symptom.** Every ×2 of a 5 s 1024×576 H3 clip (→ 2048×1152, 121 f) blew frames 113–120 to near-white, on every
+> seed and source (13/13 in `state/panel_queue.json` history); some runs also flashed ~frames 18–27. 3 s sources
+> (65 f) and 640×384 sources (→ 1280×768) were clean (15/15). Per-band diffs vs the source show a razor-sharp
+> horizontal edge 3/4 down frame 112 — a flat-index boundary, not a bad latent frame.
+> **Cause.** MLX's Metal conv3d (`steel_conv_3d.h`, implicit GEMM) offsets its output with 32-bit ints. The conv VAE
+> decoder's stage 8 at that size is 128 × 121 × 288 × 512 = **2.28e9 elements > 2³¹**; the wrap lands at frame
+> 112.8 and the tail is never written. The early flash is the same wrap: its corrupted run is 7.2 frames long —
+> exactly the 136 M elements past 2³¹ — written into whichever buffer the allocator put there (hence "random per
+> seed"). Upstream `_compute_decode_tiling` only tiles past an 8 GB *memory* budget (this decode is 2.3 GB).
+> **Fix.** `mlx_warm_helper.py`: `_DECODE_MAX_ELEMENTS` (0.9·2³¹), `_vae_decode_peak_elements`,
+> `_int32_safe_decode_tiling`, `_install_decode_int32_guard()` — wraps the module global every decode reads and
+> returns upstream's own temporal tiling with tiles under the cap (2048×1152: 96-frame tiles, 24 overlap).
+> Installed once at the generate/extend choke point, so every lane is covered; decodes that fit keep upstream's
+> answer. **Frame count:** the lane rounded DOWN to 1+8k (124 → 121) and muxed with `-shortest`. Now
+> `upscale_frame_plan()` delivers the source's own count (ceiling 129, or the form's frames if larger), the model
+> renders the next grid UP from a lossless copy with the last frame held (`_upscale_hold_tail_cmd`), and
+> `_upscale_finish()` cuts back to exactly N frames with the source audio `apad,atrim`'d to N/fps.
+> Sidecar: `delivered_frames`, `video_duration_sec`, `render_frames`, `source_frames`.
+> **Gates.** `test_upscale_x2_tail` 16 (decoder walk proves the peak formula; tiles from the vendored tiler all
+> under the cap and covering the clip; frame plan; real ffmpeg: held copy lossless, 124 in → 124 out + sound,
+> short audio keeps every frame — the old mux lost 7 of 121). `release_gates.sh --fast` 93 PASS / 0 FAIL / 2 SKIP.
+> **Not yet validated live:** needs a panel restart, then one queued ×2 of `integrated_multimodal_description_shot_1_a_h3_8.mp4`
+> (params of j-1a0a8e34dbf-055). The fork (`ltx-2-mlx`) should absorb the element cap at the next re-pin.
+
+> **🛠️ 2026-09-16 — H3: Turbo v4 gets its 51 adaLN pairs back; every clip keeps its last frame (UNRELEASED, `dev`).**
+> Two bugs CONFIRMED by the Codex audit (PM hub `notes/h3-review/FINDINGS.md`, §2 and §4). Both are now fixed.
+> **Turbo adaLN (§2).** larryvrh v4 step600 EMA has 259 LoRA pairs. 51 of them are adaLN pairs (50 blocks + the
+> final layer), and the pruned DiT cannot wrap those. The runner folds them into the modulation cache only when it
+> gets `--lora-adaln <upstream_time_embedder.safetensors>`. The 2026-08-14 LightX2V switch (below) removed that
+> flag, and v4 later came back as the preferred adapter without it. Result: every v4 render since then logged
+> `208 applied, 51 skipped` and dropped all 51. **Fix:** `h3_lora_adaln_pairs()` counts the pairs from the
+> adapter's safetensors HEADER, so detection never depends on the filename. `h3_turbo_paths()` now carries
+> `adaln_pairs` and `embedder`. `h3_turbo_adaln_state()` returns `none` / `absorbed` / `no_embedder` /
+> `runner_old`. `h3_turbo_argv()` adds `--lora-adaln` only in the `absorbed` state. The dispatch log names the
+> state, and says it loudly when the pairs will be skipped. /status has `turbo.adaln`. Getting the file to users:
+> `_h3_turbo_fetch_embedder()` runs the pack's own `scripts/fetch_time_embedder.py` (~60 MB range read). It runs
+> after the managed v4 download, from `/h3/turbo/install` when the adapter is already on disk (an embedder-only
+> fetch), and once at the first Turbo render that is missing the file (300 s cap). It is non-fatal everywhere.
+> **NOT exercised live:** that fetch; the mocks cover it. The dev box already has the file.
+> **Frame loss (§4).** The runner's `save_mp4` used `-shortest`, and that cut the last video frame of every
+> delivery (73→72, 124→123). Runner `codex/live-preview` @ `46f718e` fixes it: the audio is padded, then trimmed to
+> exactly frames/fps (`apad,atrim`), and video is capped with `-frames:v`. `delivered_frames` now comes from
+> ffprobe on the encoded file. The panel sidecar's `video_duration_sec` now reads that number.
+> **Provenance (§6, the cheap part).** The sidecar `model` is now the DiT that actually RAN (`_dit_path`), not
+> `paths["dit"]`. New fields: `model_precision`, plus `h3.turbo.adaln` and `h3.turbo.accounting` (the runner's
+> `lora_accounting`: wrapped / absorbed / unaccounted). The runner names its load phase `dit_load_q8` /
+> `dit_load_bf16` to match what it loaded, and the phase-label map knows both names.
+> **Validated.** One direct runner draft: Turbo v4 on Q8, 640×384/73f, 6 forwards (2.4 min). It logged
+> `208 wrapped, 51/51 adaLN absorbed (50 blocks + final layer, |dM|/|M| 2.9e-4), 0 unaccounted`. ffprobe on the
+> mp4 shows **73** video frames, with video and audio both 3.042 s. The frame looks coherent.
+> **Gates:** `test_h3_turbo_adapter` 22 (9 new: header detector, argv in all four states, the real v4 file = 51,
+> fetch success/failure, embedder-only install). Runner `tests/test_mux_frame_count.py` 35 checks: the old mux
+> fails 15 of them, and both Homebrew 8.1.2 and Pinokio 8.0.1 ffmpeg pass. `release_gates.sh --fast`: 91 PASS /
+> 0 FAIL / 2 SKIP (fast).
+> **Still open:** the runner fix sits on `codex/live-preview` and is NOT pushed. The pack that users clone
+> (`codex/h3-engine`) still has `-shortest` until it is ported. The panel was not restarted. The only render was
+> the draft above.
+
+> **🔇 2026-09-16 — The sound lanes make themselves small (branch `feat/compact-audio-lanes`, UNRELEASED).**
+> Owner, cutting a 13-shot film with clip sound on A/B and four audio tracks:
+> "the sound expands lower. The picture is so tiny, and it's a problem. I cannot
+> see anything in the image, and I can also not push it down if I want to compact
+> it… compact all audio lanes when I am not working with them and make them
+> little." **Measured, that was literal**: A/B + four tracks cost 246px of
+> `sbeExtraLanesH`, all of it out of the monitor, and `SBE_TL_MIN_H` was a
+> CONSTANT 280 (the sum of every lane's full base), so the drag handle could
+> never push the box lower than its sound lanes' 44 + 108.
+> **Model:** the lane table carries a second height — `audio: true, small: 18`
+> on `alane` (so A/B and every A3+ track follow it) and `small: 20` on `wave`.
+> `sbeTlFloor(small)` / `sbeTlRoof(small)` REPLACE the two constants (which are
+> now `sbeTlFloor(false)` / `sbeTlRoof(false)`), `sbeLaneHeights(tlH, small)`
+> gives a thin lane no share of a dragged pixel, and `sbeFitMonitors` budgets
+> against the current pair — so the whole saving reaches the picture.
+> **Auto:** `sbeAudioWant()` reads the state the audio gestures already write —
+> any audio drag, the height drag, playback, an open menu, a selected strip or
+> sound, the pointer over a lane or head, the Sound pool, focus in a sound head —
+> and `sbeAudioArm()` (re-armed by every `sbePaint`) makes them small 2.4s after
+> the last of it. Hover, click, a sound verb, + Add audio track, Add sound file
+> and pulling the edge up past the thin roof all open it at once.
+> **Manual:** ▾ / ▸ on the **A1 Clip sound A** head and **⇧A**
+> (`editor.soundLanes` in the one SHORTCUTS table) pin `small` or `open`;
+> clicking a thin lane hands the decision back to auto. Pinned in
+> `localStorage` as `phos_sbe_audio`, NEVER in `edit.json` — the rule above
+> `sbeTlPrefRead`. First auto-collapse says so in a toast, once per browser.
+> **Small is a picture, not a control surface:** CSS (inside `min-width: 901px`,
+> so the stacked page is untouched) drops grips, corner fades, the level line,
+> its points and the labels, keeps the waveform silhouette and the selection,
+> and the three pointer handlers short-circuit to `sbeAudioOpenFrom`.
+> **Measured** on a copy of the owner's four-track board, real Chrome at
+> 1600x1000 (scratch panel 8392, screenshots in the PM hub's
+> `notes/compact-audio-lanes-2026-09-16/`): program monitor **132px → 300px**
+> tall (235 → 532 wide), timeline floor **280 → 166**, extra lanes **246 → 116**,
+> the box **527 → 363**. Handle pushed all the way down: it stops at 280 with the
+> sound open (picture 132) and reaches **197 with it small (picture 349**, where
+> the 16:9 picture becomes width-limited and stops asking for height). Auto
+> expands on touch and compacts after the idle; it held open through a 3.4s drag
+> and 3.6s of playback and collapsed only after each ended; at 860px the lanes
+> keep their full height and their grips. Console clean.
+> **Gates:** `test_audio_compact.py` (13 new), the floor test rewritten to assert
+> the RULE at both sizes plus a lane-height probe, 483 in
+> `test_storyboard_editor_ui` + `test_docs_and_shortcuts`, 82 in the two audio
+> suites, `lint_webapp` clean, `release_gates.sh --fast` 88 PASS / 3 FAIL (the
+> worktree's known missing model packs + characters). `measure_editor_layout.py`
+> now pins the lanes open before it measures the handles.
+> **UI-only** — no Python touched, so it reaches a running dev panel on a hard
+> refresh with no restart.
+
+> **🎚️ 2026-09-15 — Clip sound on two lanes, A/B (branch `feat/audio-ab-lanes`, UNRELEASED).**
+> Owner: "When the app creates a timeline, the sound between clips should already
+> be intercalated into two different lanes … if I want to blend and dissolve from
+> both sides, cut a little, and bring the clips together to make it more realistic,
+> it's easy. This should be the default."
+> **Model:** `clip.sound_lane: 2` puts a video clip's own sound on lane B; absent
+> (or 1) is lane A, so every existing edit reads, digests and renders as before.
+> `clips_audio_overlap` is now checked WITHIN a lane (message names the lane);
+> across lanes sounds overlap and mix. `alternate_sound_lanes`, `sound_lane_after`,
+> `clip_sound_lane` in storyboard_editor.py; mirrors `sbeSoundLane`,
+> `sbeAlternateLanes`, `sbeLaneAfter`, `sbeLaneFit`, `sbeSetSoundLane` in editor.js.
+> **Default:** `edit_from_plan` lays every fresh timeline A, B, A… by film order
+> (video clips only); insert, fill-a-hole (pool +, Place) and Duplicate put the new
+> clip on the lane its previous neighbour is not on; Split keeps both halves on one.
+> **UI (A1 is one box, two strip lanes):** heads "A1 Clip sound A" / "A1 Clip sound
+> B"; **Alternate A/B** on the B head and **Alternate sound lanes** in the right-click
+> menu of any shot or sound re-lay an existing timeline (nothing moves in time, one
+> Undo); drag a sound up/down to change lane (linked ones too); right-click a sound →
+> **Move sound to lane B / A**; a dragged sound edge also snaps to other sounds' edges.
+> Preview already plays every overlapping strip. `sbeExtraLanesH` pays the timeline
+> height for lane B the way tracks are paid; SBE_LANES and the floor are unchanged.
+> **Render:** `_sb_split_audio_plan` returns `lanes` (A) and `lanes_b`; lane B is its
+> own `concat` (`[alb]`, silences `aqb*`), summed into the same `amix … asoftclip` as
+> the bed and A3+; `replace` drops both. Legacy graphs are BYTE-IDENTICAL: 42 golden
+> hashes from 85a7098 in `test_audio_ab_lanes` (linked/J-cut/muted/gain/speed/tx/still
+> × none/under/replace × strips); normalise/digest/cuts/XML/JSX of the owner's Saint
+> Feld edit also diffed identical. The bed duck already keys on every clip's window.
+> **Export:** FCP7 writes lane B as its own audio track straight after lane A (only
+> when used). **Measured** on a copy of Saint Feld (scratch panel 8391, UI: Alternate
+> A/B, S01's sound pulled 1 s under S02 with a 1 s fade, Save, Render): no silence gaps,
+> film peak −1.2 dBFS; S01+S02 pair rendered two-lane vs one-lane through the same
+> path — 2.75–3.45 s +6.6 dB RMS, difference −17.9 dB RMS vs S01's own −19.2 dB (the
+> outgoing line now plays under the incoming one instead of being cut at 2.746 s).
+> Tones: both at source level across the cut on two lanes; one lane cuts the tail.
+> **To convert the owner's board** once 8199 runs this: open Saint Feld in the Editor
+> → **Alternate A/B** (Clip sound B head) → Save. Audible change: existing J-cuts that
+> overlapped on one lane (S02 under S01) now sum instead of trimming the outgoing tail.
+
+> **🎚️ 2026-09-14 — Audio tracks in the Editor (branch `feat/audio-tracks`, UNRELEASED, not on dev).**
+> Owner: "you actually need to have multiple audio clips, like we have multiple
+> video layers" — a laugh track, a slap-bass sting and a looping bed on one film
+> had nowhere to go (A1 = each shot's own sound, A2 = ONE soundtrack), and
+> "the duplicate button is disabled when you're touching the sound/music area".
+> **Model:** `edit.audio_tracks = [{id, name, muted, gain, strips: [{id, path,
+> start, end, film_start, duration, gain, muted, locked, title, afx}]}]`; `afx`
+> is the same envelope clip sound and the bed carry; strip × track faders
+> multiply it (`track_strip_gain_points`). Same-track overlap is an error
+> (`audio_track_strips_overlap`), different tracks mix. Absent = none: old
+> edits normalise, digest and build the graph byte-identically (tested).
+> **Render:** each audible strip is a `-vn -i` after the overlays, atrim →
+> volume → aresample → adelay (samples) → apad → atrim, all `amix`ed under the
+> one `asoftclip`. Measured on a cloned 15-clip board through the UI: a bed with
+> a 1.5 s fade rose −14.4 → −8.8 → −6.5 → −4.8 dB max over a −22.7 dB
+> clips-only floor, its Duplicate at 17.08 s carried its own fade, `mix_peak`
+> 0.767 unlimited. Synthetic tones: source level exact (−27.1 / −27.1 dB),
+> half gain −6.0 dB, silence −91 dB outside the strips.
+> **Export:** one FCP7 audio track per A3/A4…, level keyframes, mutes disabled;
+> AE layers named `<track> · <title>`. **UI:** lanes + heads (name, M, level, ×),
+> "+ Add audio track", a Sound pool source (film `audio/` + OUTPUT sounds), ♪ on
+> video rows for sound only, drop on a lane or the dashed row (new track),
+> "Add sound file…" (hardlinked into the film's `audio/` when outside OUTPUT),
+> drag within/between tracks, trims, splits, fades, points, snapping, mute, lock,
+> multi-select, undo/redo, inspector, right-click. **Duplicate on sound:** a
+> track strip copies right after itself on its track; the A2 bed and an A1
+> clip's sound copy onto the first track with room (else a new one); a retimed
+> clip's sound and a bed of unknown length say why. Tests: `test_audio_tracks`
+> (35, incl. a real ffmpeg render and node-run client model).
+> **Found, not fixed (outside this change):** the Editor's save and backup
+> callers never pass `transitions` to `sbeSaveBody`, which writes
+> `transitions: []` from `state.transitions || []` — a pressed Save looks like
+> it drops every transition. Needs its own check and fix.
+
 > **🚀 2026-09-13 — v4.13.0 ships: "the editor you already know".** Owner:
 > "ship everything". Promoted dev's whole tree (5a1675a) onto origin/main by
 > read-tree: the Editor clip bar + multi-select + right-click + gap audit
@@ -14,6 +240,8 @@
 > a scratch panel: all seven tabs, Editor on a cloned 13-clip board with the
 > clip bar, Docs, One Shot composer, zero console errors. From-zero install
 > NOT re-run (6 GB free disk); the change set is panel code and webapp only.
+> Pinokio Official Update (covers 4.12.4 + 4.13.0, hero image from the car
+> wash film + Editor and Docs screenshots): https://pinokio.co/posts/01m2dh42thptx8ggqcax8k7484
 
 > **📖 2026-09-13 — Docs inside the panel, and one table for every shortcut.**
 > A **Docs** button beside the settings gear (and `?` anywhere) opens a
