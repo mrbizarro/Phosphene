@@ -4536,6 +4536,8 @@ The last line"></textarea>
                   onclick="setMainOutputsFilter('videos')">Videos</button>
           <button type="button" id="mainOutputsFilterPhotos"
                   onclick="setMainOutputsFilter('photos')">Photos</button>
+          <button type="button" id="mainOutputsFilterAudio"
+                  onclick="setMainOutputsFilter('audio')">Audio</button>
         </div>
         <!-- SEARCH, over everything the sidecar knows: prompt words, mode,
              quality, engine, size, seed, LoRA and character names. A
@@ -5225,6 +5227,7 @@ The last line"></textarea>
         <button id="recentFilterAll" class="active" onclick="setRecentFilter('all')">All</button>
         <button id="recentFilterVideos" onclick="setRecentFilter('videos')">Videos</button>
         <button id="recentFilterPhotos" onclick="setRecentFilter('photos')">Photos</button>
+        <button id="recentFilterAudio" onclick="setRecentFilter('audio')">Audio</button>
       </div>
       <ul class="row-list" id="historyList"></ul>
     </div>

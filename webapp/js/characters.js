@@ -78,8 +78,8 @@ function audioModeSet(mode) {
   audioModeChoice = mode === 'compose' ? 'compose' : 'drive';
   try { localStorage.setItem('phos_audio_mode', audioModeChoice); } catch (_) {}
   updateMusicAvailability();
-  // Music stays in the existing stream even if the last Video visit filtered it.
-  if (audioModeChoice === 'compose') setMainOutputsFilter('all');
+  // Compose shows the songs (the Audio chip); Video modes switch back to Videos.
+  if (audioModeChoice === 'compose') setMainOutputsFilter('audio');
 }
 function musicPick(id, button) {
   document.getElementById(id).value = button.dataset.value;
@@ -137,7 +137,7 @@ async function musicGenerate() {
     const result = await r.json();
     if (!r.ok || result.error) throw new Error(result.error || 'Could not queue music');
     status.textContent = 'Song queued.';
-    setMainOutputsFilter('all');
+    setMainOutputsFilter('audio');
     await poll();
   } catch (e) {
     status.textContent = e.message || String(e);
@@ -222,7 +222,7 @@ function closeMusicInstallCard() {
 }
 
 function audioStudioInit() {
-  if (musicComposeActive()) setMainOutputsFilter('all');
+  if (musicComposeActive()) setMainOutputsFilter('audio');
   if (AUDIO_STUDIO.wired) return;
   AUDIO_STUDIO.wired = true;
   const audioSlot = document.getElementById('audioStudioAudioSlot');

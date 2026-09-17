@@ -276,7 +276,7 @@ globalThis.REMIX_MODES = ['ingredients', 'control', 'restore', 'upscale'];
 globalThis.mainOutputsFilter = 'all';
 try {
   const stored = localStorage.getItem('phos_main_outputs_filter');
-  if (stored === 'all' || stored === 'videos' || stored === 'photos') {
+  if (stored === 'all' || stored === 'videos' || stored === 'photos' || stored === 'audio') {
     mainOutputsFilter = stored;
   }
 } catch (e) {}
@@ -318,6 +318,7 @@ function filteredMainOutputs() {
     all = currentOutputs;
   }
   if (mainOutputsFilter === 'photos') all = all.filter(o => outputKind(o) === 'image');
+  else if (mainOutputsFilter === 'audio') all = all.filter(o => outputKind(o) === 'audio');
   else if (mainOutputsFilter !== 'all') all = all.filter(o => outputKind(o) === 'video');
   return applyOutputsQuery(all);
 }
@@ -405,6 +406,8 @@ function _updateMainFilterChips() {
   if (a) a.classList.toggle('active', mainOutputsFilter === 'all');
   if (v) v.classList.toggle('active', mainOutputsFilter === 'videos');
   if (p) p.classList.toggle('active', mainOutputsFilter === 'photos');
+  const au = document.getElementById('mainOutputsFilterAudio');
+  if (au) au.classList.toggle('active', mainOutputsFilter === 'audio');
 }
 // Shared "filter is empty, the missing kind is paginated out of /status,
 // pull it in via /outputs" auto-fetch. Returns true if a fetch was kicked
@@ -427,7 +430,7 @@ function _maybeAutoLoadAllForEmptyFilter(mode) {
   return true;
 }
 function setMainOutputsFilter(mode) {
-  if (mode !== 'all' && mode !== 'videos' && mode !== 'photos') mode = 'all';
+  if (mode !== 'all' && mode !== 'videos' && mode !== 'photos' && mode !== 'audio') mode = 'all';
   mainOutputsFilter = mode;
   try { localStorage.setItem('phos_main_outputs_filter', mode); } catch (e) {}
   // Filter change → reset the carousel render cap so the user lands at

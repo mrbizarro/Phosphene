@@ -2365,7 +2365,9 @@ async function poll() {
   const filtered = s.history.filter(j => {
     if (filterPhotos === 'all') return true;
     const isPhoto = (j.params && j.params.mode === 'image');
-    return filterPhotos === 'photos' ? isPhoto : !isPhoto && j.params.engine !== 'music';
+    const isSong = !!(j.params && j.params.engine === 'music');
+    if (filterPhotos === 'audio') return isSong;
+    return filterPhotos === 'photos' ? isPhoto : !isPhoto && !isSong;
   });
   // Memoized on the same principle as the queue list above: identical data
   // must not trigger an innerHTML replacement every 1.5 s. Unmemoized, the 20
@@ -2380,6 +2382,7 @@ async function poll() {
   window._lastHistorySig = hSig;
   if (!filtered.length) {
     const empty = filterPhotos === 'photos' ? 'No photo renders yet'
+                : filterPhotos === 'audio' ? 'No songs yet'
                 : filterPhotos === 'videos' ? 'No video renders yet'
                 : 'No history yet';
     hl.innerHTML = `<li class="empty-state"><span></span><span>${empty}</span><span></span><span></span></li>`;
@@ -2690,6 +2693,8 @@ function setRecentFilter(mode) {
   document.getElementById('recentFilterAll').classList.toggle('active', mode === 'all');
   document.getElementById('recentFilterVideos').classList.toggle('active', mode === 'videos');
   document.getElementById('recentFilterPhotos').classList.toggle('active', mode === 'photos');
+  const au = document.getElementById('recentFilterAudio');
+  if (au) au.classList.toggle('active', mode === 'audio');
   // Re-poll so the filter's effect is visible immediately. /status is
   // a localhost no-op, so the user perceives no latency.
   poll();
@@ -2958,6 +2963,7 @@ function renderCarousel() {
     const q = (typeof outputsQueryText === 'function') ? outputsQueryText() : '';
     const msg = q ? ('No matches for \u201c' + escapeHtml(q) + '\u201d.')
               : mainOutputsFilter === 'photos' ? 'No photo outputs yet.'
+              : mainOutputsFilter === 'audio' ? 'No audio outputs yet — write a song in Audio → Compose.'
               : mainOutputsFilter === 'videos' ? 'No video outputs yet.'
               : 'No outputs in this view yet.';
     el.innerHTML = `<div class="empty-msg">${msg}</div>`;

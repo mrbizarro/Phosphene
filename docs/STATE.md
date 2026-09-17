@@ -1,5 +1,17 @@
 # Phosphene — project state, history, open work
 
+> **🎧 2026-09-17 — v4.14.2 released (public, tag `v4.14.2`): "an Audio filter in Outputs and Recent".**
+> Asked for by @cocktailpeanut on the 4.14 Pinokio post ("audio filter … along with video/photo"); owner: "he is right, ship and update".
+> Outputs and Recent get an **Audio** chip beside Videos / Photos (`outputKind(o) === 'audio'`; Recent = `params.engine === 'music'`;
+> empty states "No audio outputs yet — write a song in Audio → Compose." / "No songs yet"); the filter is remembered like the others;
+> Compose, a queued song and opening Audio in Compose land on Audio instead of All. Dev commit `dae8ead`, cherry-picked alone on
+> `d8a7ca4` (no Fast switch, room tone, Editor round 2 or Face Fix placement). Tests `test_outputs_audio_filter.py`.
+> Gates: `release_gates.sh --fast` 100 PASS / 0 FAIL / 2 SKIP (--fast), MLX on CPU; lint_webapp clean. **Clean room:** fresh clone
+> in `<home>/api/phosphene.git` + install's LTX steps, booted :8452 → 4.14.2 not dirty; a dummy song (WAV + music sidecar) and a
+> dummy clip in its outputs, two done jobs in its history. Outputs: All = both, Videos = clip, Photos = empty, Audio = song only
+> ("Outputs · 1 audio", player switches to the song); Recent: same split. Audio → Compose lands on Audio; 0 console errors.
+> A video tab still forces Videos on load (existing mode rule, same as Photos). No Codex (owner). Pinokio post: NOT made.
+
 > **🎶 2026-09-17 — v4.14.1 released (public, tag `v4.14.1`): "Compose is always in Audio; H3 black renders fixed".**
 > Pinokio's author looked for YuE2 for an hour: Compose only appeared after a sidebar install. Owner: "do as the peanut says and ship".
 > **Music:** Audio always offers Compose. Not installed → greyed form + one button "Install music engine (YuE2, ~11 GB)"; Compose,
