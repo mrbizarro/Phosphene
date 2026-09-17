@@ -6778,10 +6778,14 @@
       border-color: rgba(255,117,109,.55);
     }
     .live-stage-stop:disabled { opacity:.55; cursor:wait; }
+    /* Owner 2026-09-17: it used to sit top-centre, straight over the clip
+       action row (Params / Extend / Upscale & Face Fix / To film), so you
+       could not re-use params while a take was forming. It lives at the
+       bottom-left now, clear of the action row AND of the native controls. */
     .live-return-chip {
-      position: absolute; top: 12px; left: 50%; z-index: 5;
-      transform: translateX(-50%);
+      position: absolute; bottom: 54px; left: 12px; z-index: 5;
       display: inline-flex; align-items: center; gap: 7px;
+      width: fit-content; max-width: calc(100% - 24px); align-self: flex-start;
       min-height: 29px; padding: 0 11px;
       border-radius: var(--r-pill);
       border: 1px solid rgba(88,166,255,.42);

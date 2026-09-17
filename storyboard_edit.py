@@ -197,7 +197,7 @@ def probe_media(path) -> dict | None:
             [str(FFPROBE), "-v", "error", "-show_entries",
              "stream=codec_type,width,height,sample_rate,duration,avg_frame_rate"
              ":format=duration", "-of", "json", str(p)],
-            capture_output=True, text=True, timeout=120)
+            capture_output=True, text=True, errors="replace", timeout=120)
     except (OSError, subprocess.SubprocessError):
         return None
     if out.returncode != 0:

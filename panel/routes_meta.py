@@ -149,7 +149,7 @@ def get_panel_bug_context(h, parsed) -> None:
         try:
             mac_ver = P.subprocess.run(
                 ["sw_vers", "-productVersion"],
-                capture_output=True, text=True, timeout=2,
+                capture_output=True, text=True, errors="replace", timeout=2,
             ).stdout.strip()
         except Exception:                                   # noqa: BLE001
             pass
@@ -157,7 +157,7 @@ def get_panel_bug_context(h, parsed) -> None:
         try:
             hw_model = P.subprocess.run(
                 ["sysctl", "-n", "hw.model"],
-                capture_output=True, text=True, timeout=2,
+                capture_output=True, text=True, errors="replace", timeout=2,
             ).stdout.strip()
         except Exception:                                   # noqa: BLE001
             pass

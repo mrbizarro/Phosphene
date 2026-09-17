@@ -13,6 +13,7 @@ Features:
 from __future__ import annotations
 
 import atexit
+import functools
 import hashlib
 import html
 import importlib.util
@@ -2889,7 +2890,7 @@ def _train_install_dev_transformer(push_log) -> dict:
                      f"the full-precision copy training requires).")
             proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1, env=env, start_new_session=True)
+                text=True, errors="replace", bufsize=1, env=env, start_new_session=True)
             with DOWNLOAD_LOCK:
                 DOWNLOAD["proc"] = proc
                 try:
@@ -3051,7 +3052,7 @@ def _h3_turbo_fetch_embedder(target_dir, push_log, runner=None, *,
             target_dir.mkdir(parents=True, exist_ok=True)
             proc = (runner or subprocess.run)(
                 [str(python), str(fetcher), "--out", str(tmp)],
-                capture_output=True, text=True, env=env, timeout=1800)
+                capture_output=True, text=True, errors="replace", env=env, timeout=1800)
             if proc.returncode != 0:
                 raise RuntimeError((proc.stderr or proc.stdout or "")[-300:].strip()
                                    or f"exit {proc.returncode}")
@@ -4580,7 +4581,7 @@ def _resolve_github_token() -> str:
     try:
         out = subprocess.run(
             ["gh", "auth", "token"], check=True, capture_output=True,
-            timeout=5, text=True,
+            timeout=5, text=True, errors="replace",
         )
         return (out.stdout or "").strip()
     except (FileNotFoundError, subprocess.SubprocessError):
@@ -4614,7 +4615,7 @@ def _run_stats_fetch_once() -> None:
     try:
         cp = subprocess.run(
             [sys.executable, str(STATS_FETCHER)],
-            capture_output=True, text=True, timeout=120, env=env,
+            capture_output=True, text=True, errors="replace", timeout=120, env=env,
         )
         if cp.returncode != 0:
             # The stats dashboard is a maintainer-only nicety; a fetch failure
@@ -6435,7 +6436,7 @@ def _download_thread(repo: dict) -> None:
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
-                    text=True,
+                    text=True, errors="replace",
                     bufsize=1,
                     env=env,
                     start_new_session=True,
@@ -7420,7 +7421,7 @@ def find_comfy_pids(fresh: bool = False) -> list[int]:
         return pids
     try:
         out = subprocess.run(["pgrep", "-f", COMFY_PATTERN],
-            capture_output=True, text=True, timeout=2).stdout
+            capture_output=True, text=True, errors="replace", timeout=2).stdout
         pids = [int(line) for line in out.splitlines() if line.strip().isdigit()]
     except Exception:
         pids = []
@@ -7655,7 +7656,7 @@ def _detect_total_ram_gb() -> float:
     try:
         out = subprocess.run(
             ["sysctl", "-n", "hw.memsize"],
-            capture_output=True, text=True, timeout=1,
+            capture_output=True, text=True, errors="replace", timeout=1,
         ).stdout.strip()
         return int(out) / 1024**3
     except Exception:
@@ -8396,7 +8397,7 @@ def _hw_chip_family() -> str:
         fam = "unknown"
         try:
             brand = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"],
-                                   capture_output=True, text=True, timeout=3).stdout.strip()
+                                   capture_output=True, text=True, errors="replace", timeout=3).stdout.strip()
             m = re.search(r"Apple (M\d+)(?: (Pro|Max|Ultra))?", brand)
             if m:
                 fam = m.group(1) + (f" {m.group(2)}" if m.group(2) else "")
@@ -12450,6 +12451,8 @@ MUSIC_ROOT = ROOT / Path(os.environ.get("LTX_MUSIC_ROOT", "yue2-mlx")).expanduse
 MUSIC_MODELS = ROOT / Path(os.environ.get("LTX_MUSIC_MODELS", "mlx_models/yue2")).expanduser()
 MUSIC_RUNNER = ROOT / "scripts/music/yue2_run.py"
 MUSIC_ENGINE_PIN = (ROOT / "scripts/music/engine_pin.txt").read_text().strip()
+# Env vars the music runner must NEVER inherit — see music_child_env().
+MUSIC_ENV_STRIP = ("PYTORCH_ENABLE_MPS_FALLBACK", "PYTORCH_MPS_FAST_MATH")
 # Lock paths that command-line GPU jobs (the H3 lab's scripts) create while they
 # run. Music only READS them: inside Phosphene the queue already serialises GPU
 # work, so the panel never creates, deletes or reclaims a shared lock — which
@@ -12788,6 +12791,28 @@ def music_argv(job: dict, paths: dict, output: Path) -> list[str]:
     return args
 
 
+def music_child_env(base: dict | None = None) -> dict:
+    """The env the YuE2 runner gets. Pinokio's shell exports
+    `PYTORCH_ENABLE_MPS_FALLBACK=1` (and some setups `PYTORCH_MPS_FAST_MATH=1`)
+    into every app it starts, and the pinned engine REFUSES to run with either
+    set — `lyra/pipeline.py` raises "Unset PYTORCH_ENABLE_MPS_FALLBACK;
+    fallback/fast-math is not a validated execution path" in its constructor,
+    before a single note is written. It is an MLX runtime; those vars are for
+    PyTorch and mean nothing here. Every song on a Pinokio-started panel died
+    on it (fleet 4.14.0: nine failures, three installs) and the only users who
+    ever got a song were the ones who unset the var themselves and restarted.
+
+    So the panel decides the child's env instead of inheriting the accident:
+    both vars come out, and TF32 is stated (the engine's own default) rather
+    than left to whatever the shell had.
+    """
+    env = {k: v for k, v in (base if base is not None else os.environ).items()
+           if k not in MUSIC_ENV_STRIP}
+    env["PYTHONUNBUFFERED"] = "1"
+    env["MLX_ENABLE_TF32"] = "0"
+    return env
+
+
 def music_progress(line: str, previous: dict | None = None) -> dict | None:
     """Decode the runner's flushed protocol; percentages describe stages."""
     m = re.match(r"^\[music\] (stage|plan|song|synth|decode|done|error)\s*(.*)$", line.strip())
@@ -12896,9 +12921,9 @@ def run_music_job_inner(job: dict) -> None:
         cmd = music_argv(job, paths, output)
         job["command"] = shlex.join(cmd)
         t0 = time.time()
-        proc = subprocess.Popen(cmd, cwd=str(MUSIC_ROOT), env={**os.environ, "PYTHONUNBUFFERED": "1"},
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
-                                start_new_session=True)
+        proc = subprocess.Popen(cmd, cwd=str(MUSIC_ROOT), env=music_child_env(),
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                errors="replace", bufsize=1, start_new_session=True)
         with LOCK:
             STATE["pid"] = proc.pid
             STATE["music_pgid"] = proc.pid
@@ -13488,7 +13513,7 @@ def _analytics_chip_family() -> str:
     try:
         brand = subprocess.run(
             ["sysctl", "-n", "machdep.cpu.brand_string"],
-            capture_output=True, text=True, timeout=2,
+            capture_output=True, text=True, errors="replace", timeout=2,
         ).stdout.strip()
         m = _CHIP_FAMILY_RE.search(brand)
         if m:
@@ -14811,9 +14836,9 @@ def get_memory() -> dict:
     info = {"total_gb": 0.0, "used_gb": 0.0, "pressure_pct": 0, "swap_gb": 0.0}
     try:
         total = int(subprocess.run(["sysctl", "-n", "hw.memsize"],
-            capture_output=True, text=True, timeout=1).stdout.strip())
+            capture_output=True, text=True, errors="replace", timeout=1).stdout.strip())
         info["total_gb"] = total / 1024**3
-        vm = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=1).stdout
+        vm = subprocess.run(["vm_stat"], capture_output=True, text=True, errors="replace", timeout=1).stdout
         m = re.search(r"page size of (\d+)", vm)
         page_size = int(m.group(1)) if m else 16384
 
@@ -14827,7 +14852,7 @@ def get_memory() -> dict:
         info["pressure_pct"] = round(used_bytes / total * 100) if total else 0
 
         swap = subprocess.run(["sysctl", "-n", "vm.swapusage"],
-            capture_output=True, text=True, timeout=1).stdout
+            capture_output=True, text=True, errors="replace", timeout=1).stdout
         m = re.search(r"used\s*=\s*([\d.]+)([KMG])", swap)
         if m:
             v = float(m.group(1))
@@ -14963,7 +14988,7 @@ def _probe_video_dims(path: str) -> tuple[int, int]:
         out = subprocess.run(
             [str(FFPROBE), "-v", "error", "-select_streams", "v:0",
              "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", path],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, errors="replace", timeout=10,
         ).stdout.strip()
         if "x" in out:
             w, h = out.split("x", 1)
@@ -14980,7 +15005,7 @@ def _probe_video_frames(path: str) -> int:
             [str(FFPROBE), "-v", "error", "-select_streams", "v:0",
              "-count_packets", "-show_entries", "stream=nb_read_packets",
              "-of", "csv=p=0", path],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, errors="replace", timeout=30,
         ).stdout.strip()
         return int(out.splitlines()[0]) if out else 0
     except Exception:
@@ -14997,7 +15022,7 @@ def _probe_audio_state(path: str) -> str:
         r = subprocess.run(
             [str(FFPROBE), "-v", "error", "-select_streams", "a",
              "-show_entries", "stream=codec_type", "-of", "csv=p=0", path],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, errors="replace", timeout=30,
         )
     except Exception:  # noqa: BLE001
         return "unknown"
@@ -15940,6 +15965,14 @@ class WarmHelper:
         self.gemma_max_length: int | None = None
         self._metal_timeout_seen = False
         self._past_prompt_encode = False
+        # What the helper said on its way out. A helper that dies during
+        # startup prints its traceback and exits, and the panel used to
+        # report only the bookkeeping event — `helper failed to start:
+        # {'event': 'exit', 'reason': 'python_normal_exit'}` — which is the
+        # single most-reported failure in the fleet (85 events, 7 installs in
+        # a week) and names no cause, no remedy and nothing to search for.
+        # These are the lines that do.
+        self._boot_tail: collections.deque = collections.deque(maxlen=14)
 
     def _ensure(self) -> None:
         with self.lock:
@@ -16020,7 +16053,7 @@ class WarmHelper:
                 [str(HELPER_PYTHON), str(HELPER_SCRIPT)],
                 cwd=str(MLX), env=env,
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1, start_new_session=True,
+                text=True, errors="replace", bufsize=1, start_new_session=True,
             )
             # Crash guard: the helper is in its own session, so a SIGKILLed
             # panel would leave it resident holding the LTX weights while the
@@ -16033,9 +16066,11 @@ class WarmHelper:
             # Fresh fd → drop any bytes carried over from a prior helper's pipe
             # so _read_until's line buffer starts clean for this process.
             self._read_carry = b""
-            ready = self._read_until(["ready", "error", "exit"], timeout=120)
+            self._boot_tail.clear()
+            ready = self._read_until(["ready", "error", "exit"], timeout=120,
+                                     collect_tail=self._boot_tail)
             if not ready or ready.get("event") != "ready":
-                raise RuntimeError(f"helper failed to start: {ready}")
+                raise RuntimeError(_helper_start_failure(ready, self._boot_tail))
             # v3.0.7 (P2): keep the version + model fields for /status.
             self.ready_info = {
                 k: ready.get(k) for k in (
@@ -16065,7 +16100,8 @@ class WarmHelper:
 
     def _read_until(self, target_events: list[str], timeout: float | None = None,
                     log_hook: callable | None = None,
-                    panic_check: callable | None = None) -> dict | None:
+                    panic_check: callable | None = None,
+                    collect_tail: collections.deque | None = None) -> dict | None:
         """Read helper events until one of `target_events` arrives.
 
         ``log_hook(line)`` is invoked for every log line the helper emits
@@ -16140,6 +16176,8 @@ class WarmHelper:
                 ev = json.loads(line)
             except json.JSONDecodeError:
                 push(line)
+                if collect_tail is not None:
+                    collect_tail.append(line)
                 self._sniff_helper_line(line)
                 if log_hook is not None:
                     try: log_hook(line)
@@ -16149,6 +16187,8 @@ class WarmHelper:
             if ev_type == "log":
                 log_line = ev.get("line", "")
                 push(log_line)
+                if collect_tail is not None and log_line:
+                    collect_tail.append(log_line)
                 self._sniff_helper_line(log_line)
                 if log_hook is not None:
                     try: log_hook(log_line)
@@ -16665,7 +16705,7 @@ def _pid_cmdline(pid: int) -> str:
     enough here — this runs at most twice, at boot."""
     try:
         out = subprocess.run(["ps", "-o", "command=", "-p", str(pid)],
-                             capture_output=True, text=True, timeout=5)
+                             capture_output=True, text=True, errors="replace", timeout=5)
         return (out.stdout or "").strip()
     except Exception:      # noqa: BLE001
         return ""
@@ -16803,7 +16843,7 @@ def _ffmpeg_has_filter(name: str) -> bool:
     ok = False
     try:
         out = subprocess.run([str(FFMPEG), "-hide_banner", "-filters"],
-                             capture_output=True, text=True, timeout=15)
+                             capture_output=True, text=True, errors="replace", timeout=15)
         ok = any(line.split()[1:2] == [name]
                  for line in (out.stdout or "").splitlines() if line.strip())
     except Exception:      # noqa: BLE001 — a probe must never break a render
@@ -16991,7 +17031,7 @@ def _clear_job_pgid(key: str, pgid: int | None) -> None:
 def run_tracked_subprocess(cmd: list[str], *, pgid_key: str, label: str,
                            job: dict | None = None, timeout: float | None = None,
                            **popen_kw) -> subprocess.CompletedProcess:
-    """`subprocess.run(capture_output=True, text=True)`, but Stop can end it.
+    """`subprocess.run(capture_output=True, text=True, errors="replace")`, but Stop can end it.
 
     Refuses to start after Stop, runs in its own process group registered
     under `pgid_key` (which `stop_current_job` kills), and kills the whole
@@ -17002,8 +17042,11 @@ def run_tracked_subprocess(cmd: list[str], *, pgid_key: str, label: str,
     _raise_if_cancelled(job, label)
     popen_kw.pop("capture_output", None)
     popen_kw.pop("text", None)
+    # Callers written as `subprocess.run(...)` pass the text-mode trio; this
+    # function states all three itself, so none of them may arrive twice.
+    popen_kw.pop("errors", None)
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            text=True, start_new_session=True, **popen_kw)
+                            text=True, errors="replace", start_new_session=True, **popen_kw)
     # start_new_session: the child is its own group leader, pgid == pid (and
     # os.getpgid would race a child that has already exited).
     pgid = proc.pid
@@ -17800,7 +17843,7 @@ def take_drift(path, duration: float | None = None) -> dict:
     if duration is None:
         try:
             duration = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                                             "-of", "csv=p=0", str(path)], capture_output=True, text=True, timeout=30).stdout.strip())
+                                             "-of", "csv=p=0", str(path)], capture_output=True, text=True, errors="replace", timeout=30).stdout.strip())
         except Exception:                                          # noqa: BLE001
             duration = 0.0
     a = take_frame_light(path, TAKE_DRIFT_SAMPLE_SEC)
@@ -19439,7 +19482,7 @@ def _sb_probe_clip(path) -> dict | None:
             [str(FFPROBE), "-v", "error", "-show_entries",
              "stream=codec_type,width,height,sample_rate,duration:format=duration",
              "-of", "json", str(p)],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, errors="replace", timeout=60,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -19504,7 +19547,7 @@ def _sb_probe_still(path) -> dict | None:
         out = subprocess.run(
             [str(FFPROBE), "-v", "error", "-select_streams", "v:0",
              "-show_entries", "stream=width,height", "-of", "json", str(p)],
-            capture_output=True, text=True, timeout=60)
+            capture_output=True, text=True, errors="replace", timeout=60)
     except (OSError, subprocess.SubprocessError):
         return None
     if out.returncode != 0:
@@ -19749,7 +19792,7 @@ def _sb_probe_audio_rate(path) -> int:
             [str(FFPROBE), "-v", "error", "-select_streams", "a:0",
              "-show_entries", "stream=sample_rate", "-of",
              "default=nw=1:nk=1", str(path)],
-            capture_output=True, text=True, timeout=60)
+            capture_output=True, text=True, errors="replace", timeout=60)
     except (OSError, subprocess.SubprocessError):
         return 0
     try:
@@ -21151,7 +21194,7 @@ def _sb_audio_peak(path) -> float | None:
         res = subprocess.run(
             [FFMPEG, "-v", "info", "-nostdin", "-i", str(path),
              "-map", "0:a:0", "-af", "volumedetect", "-f", "null", "-"],
-            capture_output=True, text=True, timeout=120, check=False)
+            capture_output=True, text=True, errors="replace", timeout=120, check=False)
     except (OSError, subprocess.SubprocessError):
         return None
     m = re.search(r"max_volume:\s*(-?\d+(?:\.\d+)?)\s*dB",
@@ -22026,7 +22069,7 @@ def _sbe_probe_sound(path) -> dict | None:
             [str(FFPROBE), "-v", "error", "-show_entries",
              "stream=codec_type,sample_rate,duration:format=duration",
              "-of", "json", str(path)],
-            capture_output=True, text=True, timeout=60)
+            capture_output=True, text=True, errors="replace", timeout=60)
     except (OSError, subprocess.SubprocessError):
         return None
     if out.returncode != 0:
@@ -22575,13 +22618,167 @@ def _clamp_stage_steps_to_tables(job: dict) -> None:
                  f"own schedule has {cap}; more would be padding, not quality.")
 
 
+@functools.lru_cache(maxsize=1)
+def _boot_volume_names() -> tuple[str, ...]:
+    """Names that mean "/" when they appear at the front of a pasted path.
+
+    Finder's path bar, its "Copy as pathname" on some systems, and every
+    AppleScript-ish tool write the STARTUP DISK'S NAME in front of the path:
+    `Macintosh HD/Users/me/clip.mp4`. macOS itself has no such path. The boot
+    volume's own name is discovered (people rename their disk) and the factory
+    default is always accepted, because the pasted string may well come from
+    another Mac.
+    """
+    names = {"Macintosh HD"}
+    try:
+        for p in Path("/Volumes").iterdir():
+            try:
+                if os.path.realpath(p) == "/":
+                    names.add(p.name)
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return tuple(sorted(names, key=len, reverse=True))
+
+
+def normalize_pasted_path(value: str) -> str:
+    """Turn what a human pasted into a path the filesystem answers to.
+
+    Every field that takes a file accepts a pasted path, and what people paste
+    is never the bare POSIX path: Finder's "Copy as pathname" wraps it in
+    quotes and prefixes the startup disk's name, a drag into Terminal escapes
+    every space with a backslash, a drag from a browser arrives as a `file://`
+    URL, and shells hand out `~`. The fleet's own sentence for it is
+    `control video not found: "'Macintosh HD<path> Tinder 1.mp4'"` — a real
+    clip, a real user, and a render refused for punctuation.
+
+    Conservative by construction: if the rewrite does not name an existing file
+    and the raw string does, the raw string wins.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return value
+    raw = value
+    s = value.strip()
+    if s.lower().startswith("file://"):
+        parsed = urllib.parse.urlparse(s)
+        if parsed.netloc in ("", "localhost"):
+            s = urllib.parse.unquote(parsed.path)
+    # Wrapping quotes, including the lopsided pair a half-selected copy leaves.
+    for _ in range(2):
+        s = s.strip()
+        if len(s) >= 2 and s[0] == s[-1] and s[0] in "'\"":
+            s = s[1:-1]
+        else:
+            s = s.strip("'\"")
+    s = s.strip()
+    # Terminal-style escapes: `Els\ Tinder\ 1.mp4`, `\(take\ 2\)`.
+    if "\\" in s and not Path(s).exists():
+        s = re.sub(r"\\(.)", r"\1", s)
+    for name in _boot_volume_names():
+        if s.startswith(f"/Volumes/{name}/"):
+            s = s[len(f"/Volumes/{name}"):]
+            break
+        if s.startswith(f"{name}/"):
+            s = s[len(name):]
+            break
+        if s.startswith(f"{name}:"):
+            # HFS-style colon path (AppleScript, older "copy path" tools).
+            s = "/" + s[len(name) + 1:].replace(":", "/")
+            break
+    if s.startswith("~"):
+        s = os.path.expanduser(s)
+    s = s.strip()
+    if not s:
+        return raw
+    if s != raw:
+        try:
+            if not Path(s).exists() and Path(raw).exists():
+                return raw
+        except OSError:
+            return raw
+    return s
+
+
+_EXC_LINE_RX = re.compile(r"^[A-Za-z_][\w.]*(?:Error|Exception|Interrupt|Exit)\s*:\s*\S")
+_NOISE_LINE_PREFIXES = ("step", "Window", "[", "Traceback", 'File "', "Invoked with",
+                        "The following argument types", "^^^", "~~~", "During handling",
+                        "The above exception")
+
+
+def failure_line(tail) -> str:
+    """The line out of a dead subprocess's last lines that names the cause.
+
+    "The last line" is not the same thing. A pybind11 type error ends with
+    `Invoked with types: mlx.core.array, mlx.core.array` — three words of
+    argument dump under the sentence that actually says what broke, and that
+    dump is what the fleet recorded for a real H3 crash (4.13.0). So: prefer
+    the line that names an exception, fall back to the last line that is not
+    traceback scaffolding, and only then to the last line at all.
+    """
+    lines = [str(t).strip() for t in tail if str(t or "").strip()]
+    if not lines:
+        return ""
+    for t in reversed(lines):
+        if _EXC_LINE_RX.match(t):
+            return t
+    for t in reversed(lines):
+        if not t.startswith(_NOISE_LINE_PREFIXES) and not t[0].isdigit():
+            return t
+    return lines[-1]
+
+
+def _helper_start_failure(ready: dict | None, tail) -> str:
+    """The sentence the user gets when the render helper never comes up.
+
+    Keeps the `helper failed to start` prefix (the fleet series and every
+    support answer are keyed on it) and then says what the helper itself said
+    plus what to do about it. Before this the whole message was the
+    bookkeeping event, so the top failure in the fleet read
+    `helper failed to start: {'event': 'exit', 'reason': 'python_normal_exit'}`
+    — which means "it printed a traceback and exited" and told nobody that.
+    """
+    cause = failure_line(tail)
+    event = (ready or {}).get("event") if isinstance(ready, dict) else None
+    if ready is None:
+        what = "it never reported ready"
+    elif event == "exit":
+        what = "it quit while loading"
+    elif event == "error":
+        what = "it reported an error while loading"
+    else:
+        what = f"it sent {event or ready}"
+    msg = f"helper failed to start: {what}"
+    if cause:
+        msg += f" — last line: {cause[:220]}"
+    msg += (". This is nearly always the install, not the render: click Update "
+            "in Pinokio (or reinstall Phosphene) so the ltx-2-mlx folder and "
+            "its Python environment are rebuilt. The whole trace is in Logs.")
+    return msg
+
+
+# Form fields whose value is a path a human may have pasted. Anything added to
+# make_job that names a file belongs here — the alternative is another
+# "<thing> not found: '<quoted path>'" in the fleet.
+PASTED_PATH_FIELDS = (
+    "image", "audio", "video_path", "restore_video_path", "upscale_source_path",
+    "control_video_path", "start_image", "end_image", "ingredient_char_lora",
+)
+
+
 def make_job(form: dict[str, list[str]] | dict[str, str], *,
              override_prompt: str | None = None) -> dict:
     def f(name: str, default: str = "") -> str:
         val = form.get(name, default)
         if isinstance(val, list):
             val = val[0] if val else default
-        return (val or "").strip() or default
+        val = (val or "").strip() or default
+        # Every field that names a file goes through the paste cleaner, once,
+        # here — so the quoted, volume-prefixed, backslash-escaped path a user
+        # pasted is a path by the time any gate looks at it.
+        if name in PASTED_PATH_FIELDS and isinstance(val, str):
+            val = normalize_pasted_path(val)
+        return val
 
     # ---- mode == "image" branch ----
     # Image jobs use a different params shape (engine_override, aspect, n,
@@ -22822,6 +23019,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             refs = json.loads(refs_raw)
             if not isinstance(refs, list):
                 refs = []
+            refs = [normalize_pasted_path(r) if isinstance(r, str) else r for r in refs]
         except (json.JSONDecodeError, ValueError):
             refs = []
         return {
@@ -24109,6 +24307,7 @@ def run_image_job_inner(job: dict) -> None:
     for r in refs_in:
         if not isinstance(r, str) or not r.strip():
             raise RuntimeError("each ref must be a non-empty path string")
+        r = normalize_pasted_path(r)
         rp = Path(r)
         rp = (rp if rp.is_absolute() else (UPLOADS / r)).resolve()
         # The character sheets are a legitimate reference too: the Storyboard's
@@ -24642,7 +24841,7 @@ def run_train_job_inner(job: dict) -> None:
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
+                text=True, errors="replace",
                 bufsize=1,
                 env=_train_env,
                 # Own process group so /stop can take down the entire trainer
@@ -25035,7 +25234,7 @@ def run_train_job_inner(job: dict) -> None:
             audio_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
+            text=True, errors="replace",
             bufsize=1,
             env={**os.environ},
             # Same reasoning as the face trainer above — own pgid so
@@ -25244,7 +25443,7 @@ def _h3_clip_is_complete(path: Path, started_at: float,
             [ffprobe, "-v", "error", "-select_streams", "v:0",
              "-show_entries", "stream=codec_type,nb_frames:format=duration",
              "-of", "json", str(path)],
-            capture_output=True, text=True, timeout=20)
+            capture_output=True, text=True, errors="replace", timeout=20)
         if out.returncode != 0:
             return False
         info = json.loads(out.stdout or "{}")
@@ -26194,7 +26393,7 @@ def run_h3_job_inner(job: dict) -> None:
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
+            text=True, errors="replace",
             bufsize=1,
             # Own process group so /stop can take down caffeinate + python +
             # the ffmpeg it pipes into with one killpg.
@@ -26251,7 +26450,9 @@ def run_h3_job_inner(job: dict) -> None:
         # (fleet 2026-09-03: 20 H3 failures on one release all read
         # "exited with code 1 — see the log above", which analytics cannot
         # see and users rarely paste). Traceback tails are what we want.
-        _h3_tail: collections.deque = collections.deque(maxlen=4)
+        # Deep enough to hold a whole Python traceback's tail: the line that
+        # names the exception can sit several lines above the last one.
+        _h3_tail: collections.deque = collections.deque(maxlen=14)
         for raw in _h3_lines():
             line = raw.rstrip("\n")
             if not line.strip():
@@ -26397,8 +26598,7 @@ def run_h3_job_inner(job: dict) -> None:
                 raise RuntimeError(
                     f"H3 helper exited from {_sig} ({_hint}) — see the log "
                     f"above (metrics at {metrics_path}).")
-            _last = next((t for t in reversed(_h3_tail)
-                          if t and not t.startswith(('step', 'Window', '['))), '')
+            _last = failure_line(_h3_tail)
             raise RuntimeError(
                 f"H3 render exited with code {rc}"
                 + (f" — last line: {_last[:220]}" if _last else "")
@@ -27011,7 +27211,7 @@ def run_take_job_inner(job: dict) -> None:
                 cut, end = pts
                 try:
                     dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                                                "-of", "csv=p=0", out], capture_output=True, text=True, timeout=30).stdout.strip())
+                                                "-of", "csv=p=0", out], capture_output=True, text=True, errors="replace", timeout=30).stdout.strip())
                 except Exception:                                  # noqa: BLE001
                     dur = 0.0
                 if dur and 0.5 < cut < end <= dur:
@@ -27615,7 +27815,7 @@ def run_job_inner(job: dict) -> None:
             _r = subprocess.run(
                 [str(FFPROBE), "-v", "error", "-select_streams", "v:0",
                  "-show_entries", "stream=r_frame_rate", "-of", "csv=p=0", src],
-                capture_output=True, text=True, timeout=30).stdout.strip()
+                capture_output=True, text=True, errors="replace", timeout=30).stdout.strip()
             _n, _d = _r.split("/") if "/" in _r else (_r, "1")
             if float(_d) > 0 and 1.0 <= float(_n) / float(_d) <= 120.0:
                 src_fps = round(float(_n) / float(_d), 3)
@@ -27845,7 +28045,7 @@ def run_job_inner(job: dict) -> None:
                 image_paths = []
         except (ValueError, TypeError):
             image_paths = []
-        image_paths = [str(x) for x in image_paths if x]
+        image_paths = [normalize_pasted_path(str(x)) for x in image_paths if x]
         if len(image_paths) < 2:
             raise RuntimeError(
                 f"Ingredients needs 2-8 reference images (got {len(image_paths)}). "
@@ -28099,7 +28299,7 @@ def run_job_inner(job: dict) -> None:
                 raise RuntimeError("keyframes_json must be a list with >=2 items")
             last_idx = -1
             for kf in parsed:
-                img = (kf.get("image_path") or "").strip()
+                img = normalize_pasted_path((kf.get("image_path") or "").strip())
                 idx = int(kf.get("frame_index", 0))
                 if not img or not Path(img).exists():
                     raise RuntimeError(f"keyframe image not found: {img}")

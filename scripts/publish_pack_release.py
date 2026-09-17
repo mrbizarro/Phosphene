@@ -206,7 +206,7 @@ def asset_name(prefix: str, filename: str, shard_idx: int | None) -> str:
 # --------------------------------------------------------------------------- #
 def gh(*args: str, check: bool = True, capture: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(["gh", *args], check=check,
-                          capture_output=capture, text=True)
+                          capture_output=capture, text=True, errors="replace")
 
 
 def release_assets(release_repo: str, tag: str) -> dict[str, int]:

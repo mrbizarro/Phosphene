@@ -944,7 +944,7 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
                     except Exception:  # noqa: BLE001
                         pass
                 cap_res = subprocess.run(
-                    cap_cmd, capture_output=True, text=True,
+                    cap_cmd, capture_output=True, text=True, errors="replace",
                     env=_clean_subprocess_env(), timeout=180,
                 )
                 if cap_res.returncode != 0:
@@ -1239,7 +1239,7 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         env=env,
-        text=True,
+        text=True, errors="replace",
         bufsize=1,
         # Own process group so the Popen.terminate/kill below escalates
         # to the entire mflux+MLX subtree (mflux can spawn helper procs
@@ -1878,7 +1878,7 @@ def _generate_hidream(prompt: str, n: int, width: int, height: int,
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True,
+        text=True, errors="replace",
         env=_clean_subprocess_env(),
         # Own process group so /stop's killpg cascades to any
         # child procs MLX/Metal might spawn under this generation.

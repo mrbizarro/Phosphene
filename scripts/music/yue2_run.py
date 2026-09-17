@@ -165,6 +165,10 @@ def main(argv=None):
     signal.signal(signal.SIGINT, on_signal)
 
     os.environ.setdefault("MLX_ENABLE_TF32", "0")
+    # lyra/pipeline.py rejects these PyTorch MPS vars (it's an MLX runtime; fallback
+    # paths are not validated). Strip them if the parent env (e.g. Pinokio) set them.
+    os.environ.pop("PYTORCH_ENABLE_MPS_FALLBACK", None)
+    os.environ.pop("PYTORCH_MPS_FAST_MATH", None)
     say("stage", "loading")
     import mlx.core as mx
     from yue2.protocol import GenerationConfig

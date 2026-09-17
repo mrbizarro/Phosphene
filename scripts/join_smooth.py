@@ -29,7 +29,7 @@ FP = os.path.join(os.path.dirname(FF), "ffprobe") if os.path.dirname(FF) else "f
 def probe(p):
     j = json.loads(subprocess.run([FP, "-v", "error", "-select_streams", "v:0", "-show_entries",
                                    "stream=width,height,r_frame_rate", "-of", "json", p],
-                                  capture_output=True, text=True, check=True).stdout)["streams"][0]
+                                  capture_output=True, text=True, errors="replace", check=True).stdout)["streams"][0]
     num, den = j["r_frame_rate"].split("/"); return int(j["width"]), int(j["height"]), float(num) / float(den)
 
 def frames(p, w, h):
@@ -118,7 +118,7 @@ def main():
             subprocess.run([FF, "-v", "error", "-y", "-i", parts[0], "-vn", "-c:a", "aac", "-b:a", "192k", aud], check=True)
         else:
             durs = [float(subprocess.run([FP, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", q],
-                                         capture_output=True, text=True).stdout.strip()) for q in parts]
+                                         capture_output=True, text=True, errors="replace").stdout.strip()) for q in parts]
             for i, d in enumerate(durs):
                 fin = f"afade=t=in:st=0:d=0.015," if i > 0 else ""
                 fout = f"afade=t=out:st={max(0.0, d - 0.015):.3f}:d=0.015" if i < len(parts) - 1 else "anull"

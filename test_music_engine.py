@@ -857,3 +857,96 @@ def test_install_refusals(pack, monkeypatch, http_server):
     monkeypatch.setattr(P, "SYSTEM_RAM_GB", 64.0)
     monkeypatch.setitem(P.STATE, "current", {"params": {"engine": "music"}})
     assert P.music_install_start()[0] == 409
+
+
+# ---- the Pinokio env trap (v4.14.3) ------------------------------------------
+# Pinokio's shell exports PYTORCH_ENABLE_MPS_FALLBACK=1 into every app it
+# starts. `lyra/pipeline.py` refuses to construct with it set ("Unset
+# PYTORCH_ENABLE_MPS_FALLBACK; fallback/fast-math is not a validated execution
+# path"), so on 4.14.0 every song on a Pinokio-started panel died before the
+# first note: nine failures across three installs in the fleet, and the only
+# successes came from users who unset the var and restarted the panel.
+
+# What the pinned engine actually does, copied from
+# yue2-mlx/src/lyra/pipeline.py:118 — a stub runner that enforces it, so this
+# suite fails the moment the panel stops scrubbing the env.
+GUARD_STUB = '''import os, sys, json, pathlib
+for name in ("PYTORCH_ENABLE_MPS_FALLBACK", "PYTORCH_MPS_FAST_MATH"):
+    if os.environ.get(name) == "1":
+        print("[music] error RuntimeError: Unset %s; fallback/fast-math is not a "
+              "validated execution path" % name, flush=True)
+        sys.exit(1)
+if os.environ.get("MLX_ENABLE_TF32") != "0":
+    print("[music] error TF32 was left on", flush=True)
+    sys.exit(1)
+args = sys.argv
+out = pathlib.Path(args[args.index("--output") + 1])
+print("[music] stage loading", flush=True)
+print("[music] song 25/25", flush=True)
+out.write_bytes(b"fixture WAV")
+pathlib.Path(str(out) + ".json").write_text(json.dumps({
+    "argv": args[1:], "mode": args[args.index("--mode") + 1],
+    "steps": args[args.index("--steps") + 1],
+    "instrumental": "--instrumental" in args}))
+print("[music] done 5 " + str(out), flush=True)
+'''
+
+
+def test_music_child_env_drops_the_pinokio_torch_vars():
+    env = P.music_child_env({"PATH": "/bin", "HF_HOME": "/hf",
+                             "PYTORCH_ENABLE_MPS_FALLBACK": "1",
+                             "PYTORCH_MPS_FAST_MATH": "1"})
+    assert "PYTORCH_ENABLE_MPS_FALLBACK" not in env
+    assert "PYTORCH_MPS_FAST_MATH" not in env
+    assert env["HF_HOME"] == "/hf" and env["PATH"] == "/bin"
+    assert env["MLX_ENABLE_TF32"] == "0" and env["PYTHONUNBUFFERED"] == "1"
+
+
+def test_music_child_env_reads_the_live_environment_by_default(monkeypatch):
+    monkeypatch.setenv("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+    monkeypatch.setenv("PYTORCH_MPS_FAST_MATH", "1")
+    assert "PYTORCH_ENABLE_MPS_FALLBACK" not in P.music_child_env()
+    assert "PYTORCH_MPS_FAST_MATH" not in P.music_child_env()
+
+
+@pytest.mark.parametrize("mode", ["full", "melody", "off"])
+@pytest.mark.parametrize("quality", ["draft", "final"])
+@pytest.mark.parametrize("instrumental", [False, True])
+def test_every_music_mode_survives_a_pinokio_environment(
+        pack, monkeypatch, tmp_path, mode, quality, instrumental):
+    """Every mode the form can ask for, spawned under Pinokio's own env."""
+    monkeypatch.setenv("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+    monkeypatch.setenv("PYTORCH_MPS_FAST_MATH", "1")
+    monkeypatch.delenv("MLX_ENABLE_TF32", raising=False)
+    stub = tmp_path / f"guard_runner_{mode}_{quality}_{int(instrumental)}.py"
+    stub.write_text(GUARD_STUB)
+    monkeypatch.setattr(P, "MUSIC_RUNNER", stub)
+    monkeypatch.setattr(P.HELPER, "kill", lambda: None)
+    form = {"mode": "music", "music_style": "warm analogue synth",
+            "music_lyrics": "[Verse]\nlow sun on the ring road",
+            "music_mode": mode, "music_quality": quality}
+    if instrumental:
+        form["music_instrumental"] = "1"
+    job = P.make_job(form)
+    P.STATE["current"] = job
+    P.run_job_inner(job)
+    assert job["error"] is None, job["error"]
+    assert Path(job["output_path"]).is_file()
+    seen = json.loads(Path(job["output_path"] + ".json").read_text())
+    assert seen["mode"] == mode
+    assert seen["steps"] == str(P.MUSIC_QUALITY_STEPS[quality])
+    assert seen["instrumental"] is instrumental
+
+
+def test_the_runner_itself_strips_the_vars_before_importing_the_engine():
+    src = (ROOT / "scripts/music/yue2_run.py").read_text()
+    for name in ("PYTORCH_ENABLE_MPS_FALLBACK", "PYTORCH_MPS_FAST_MATH"):
+        popped = src.index(f'os.environ.pop("{name}", None)')
+        assert popped < src.index("from lyra.pipeline import YuE2Pipeline")
+
+
+def test_the_panel_spawns_music_through_the_scrubbed_env():
+    src = Path(P.__file__).read_text()
+    body = src[src.index("def run_music_job_inner"):src.index("ENGINE_DEFAULT = ")]
+    assert "env=music_child_env()" in body
+    assert "env={**os.environ" not in body

@@ -2566,7 +2566,7 @@ class PlannerSession(object):
         self.proc = subprocess.Popen(
             [str(self.python_exe), str(Path(__file__).resolve()), "--serve"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            env=env, cwd=str(ROOT), text=True, bufsize=1,
+            env=env, cwd=str(ROOT), text=True, errors="replace", bufsize=1,
         )
         self.stats["released"] = False
 

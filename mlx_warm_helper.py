@@ -126,8 +126,8 @@ def _log_memory_pressure() -> None:
     try:
         import subprocess, re
         total = int(subprocess.run(["sysctl", "-n", "hw.memsize"],
-            capture_output=True, text=True, timeout=1).stdout.strip())
-        vm = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=1).stdout
+            capture_output=True, text=True, errors="replace", timeout=1).stdout.strip())
+        vm = subprocess.run(["vm_stat"], capture_output=True, text=True, errors="replace", timeout=1).stdout
         m = re.search(r"page size of (\d+)", vm)
         page_size = int(m.group(1)) if m else 16384
         def pages(name: str) -> int:
@@ -1413,7 +1413,7 @@ def _a2v_pad_audio_to(audio_path: str, need_s: float,
         from ltx_core_mlx.utils.ffmpeg import find_ffmpeg, find_ffprobe
         out = _sp.run([find_ffprobe(), "-v", "error", "-show_entries", "format=duration",
                        "-of", "csv=p=0", audio_path],
-                      capture_output=True, text=True, timeout=30).stdout.strip()
+                      capture_output=True, text=True, errors="replace", timeout=30).stdout.strip()
         have = float(out.splitlines()[0].strip(",")) - max(0.0, float(start_s))
     except Exception:                                                # noqa: BLE001
         return audio_path, False
@@ -2824,7 +2824,7 @@ def _detect_runtime_env() -> dict:
     try:
         import subprocess as _sp
         _chip = _sp.run(["sysctl", "-n", "machdep.cpu.brand_string"],
-                        capture_output=True, text=True, timeout=3).stdout.strip()
+                        capture_output=True, text=True, errors="replace", timeout=3).stdout.strip()
         env["chip"] = _chip or None
     except Exception:
         pass
@@ -2916,7 +2916,7 @@ def _physical_ram_bytes() -> int:
     try:
         import subprocess as _sp
         out = _sp.run(["sysctl", "-n", "hw.memsize"],
-                      capture_output=True, text=True, timeout=3).stdout.strip()
+                      capture_output=True, text=True, errors="replace", timeout=3).stdout.strip()
         return int(out)
     except Exception:
         return 0

@@ -729,6 +729,7 @@ def post_image_generate(h, path, qs, ctype) -> None:
     for r in refs_in:
         if not isinstance(r, str) or not r.strip():
             h._json({"error": "each ref must be a non-empty path"}, 400); return
+        r = P.normalize_pasted_path(r)
         rp = P.Path(r)
         if not rp.is_absolute():
             rp = (P.UPLOADS / r).resolve()

@@ -1,5 +1,39 @@
 # Phosphene — project state, history, open work
 
+> **🩹 2026-09-17 — v4.14.3 released (public, tag `v4.14.3`): "songs that start, paths that paste".**
+> A fleet read (PostHog, last 48 h) rather than a report: four real-user failures, fixed and shipped the same day.
+> **1. YuE2 failed for nearly everyone.** Pinokio's shell exports `PYTORCH_ENABLE_MPS_FALLBACK=1` into every app it
+> starts (pinokiod `kernel/shell.js init_env`), and the pinned engine refuses to construct with it set —
+> `lyra/pipeline.py:119` checks that var and `PYTORCH_MPS_FAST_MATH` in `YuE2Pipeline.__init__` and raises
+> "Unset …; fallback/fast-math is not a validated execution path". Fleet 4.14.0: 9 failures / 8 songs / 3 installs, and
+> the shape was always failure → app_boot → songs, i.e. only the users who unset it themselves ever heard anything. Not
+> mode-dependent: the guard is in the constructor. Panel now builds the child env itself (`music_child_env()`: both vars
+> out, `MLX_ENABLE_TF32=0` stated) and the runner keeps its own `os.environ.pop` for a command-line launch (dev
+> `fa23647` + `3bcffe6`). Tests: a stub runner enforcing the engine's real check, through `run_job_inner`, for
+> full/melody/off × draft/final × instrumental (12).
+> **2. Pasted paths.** `control video not found: "'Macintosh HD<path> Tinder 1.mp4'"` (4.14.0) — Finder's "Copy as
+> pathname" adds the startup disk's name and quotes, a Terminal drag escapes spaces, a browser drag gives `file://`,
+> shells give `~`. `normalize_pasted_path()` undoes all of it (the boot volume's real name is discovered from
+> `/Volumes`), refuses to "fix" a path that already exists, and runs inside `make_job`'s own field reader for every
+> field in `PASTED_PATH_FIELDS`, plus image refs, ingredient images and keyframes.
+> **3. `'utf-8' codec can't decode byte 0xb0 in position 37`** (42 events, 3 installs): `text=True` with no `errors=`
+> is a strict decode of another program's output. All 50 subprocess pipes in the shipped modules now use
+> `errors="replace"`, and a test fails the build if a new one arrives without it. Same byte from the other side: macOS
+> AppleDouble `._` twins on exFAT/SMB drives are binary and `pathlib.glob` matches them — the H3 runner's draft cache
+> read one as JSON (UnicodeDecodeError is a ValueError, not a JSONDecodeError, so it escaped) and its loader offered one
+> as a shard. Runner `codex/h3-engine-v2` pushed `d39879b` → `7919020` (users get it via **Update Hailuo H3 runner**).
+> **4. The two messages that named nothing.** `helper failed to start: {'event': 'exit', 'reason':
+> 'python_normal_exit'}` (85 events, 7 installs — the fleet's top failure) means "the helper printed a traceback and
+> exited"; the panel now keeps its boot lines and reports the line that names the cause plus the remedy, keeping the
+> `helper failed to start` prefix so the series and `_ANALYTICS_ERROR_CLASSES` still key on it. And
+> `H3 render exited with code 1 — last line: Invoked with types: mlx.core.array, mlx.core.array` was a pybind argument
+> dump under the real sentence: `failure_line()` prefers the exception line, with a tail deep enough (14) to hold it.
+> **NOT fixed:** the H3 `Invoked with types` crash itself (one install, 4.13.0, 7 events) — the recorded line never
+> carried the exception, which is exactly what this release fixes for the next occurrence.
+> Also in: the owner's **LIVE · return to render** pill moved off the clip action row (dev `9bcb7f5`, CSS only).
+> Built by cherry-pick on `b858d32` (Fast|Best switch, room tone, Editor round 2 and Face Fix placement stay
+> unreleased). No Codex round (owner).
+
 > **🎧 2026-09-17 — v4.14.2 released (public, tag `v4.14.2`): "an Audio filter in Outputs and Recent".**
 > Asked for by @cocktailpeanut on the 4.14 Pinokio post ("audio filter … along with video/photo"); owner: "he is right, ship and update".
 > Outputs and Recent get an **Audio** chip beside Videos / Photos (`outputKind(o) === 'audio'`; Recent = `params.engine === 'music'`;

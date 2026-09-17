@@ -117,7 +117,7 @@ def probe_pix_fmt(path: Path, ffprobe: Path) -> str:
     proc = subprocess.run(
         [str(ffprobe), "-v", "error", "-select_streams", "v:0",
          "-show_entries", "stream=pix_fmt", "-of", "csv=p=0", str(path)],
-        capture_output=True, text=True, timeout=60,
+        capture_output=True, text=True, errors="replace", timeout=60,
     )
     out = (proc.stdout or "").strip()
     if proc.returncode != 0 or not out:

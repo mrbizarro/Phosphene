@@ -537,7 +537,7 @@ def post_train_auto_caption(h, path, qs, ctype) -> None:
                 cmd,
                 stdout=P.subprocess.PIPE,
                 stderr=P.subprocess.STDOUT,
-                text=True,
+                text=True, errors="replace",
                 bufsize=1,
                 # Own process group so /stop's killpg can take down
                 # the captioner + any child it spawned.
@@ -1071,7 +1071,7 @@ def post_train_upload_voice(h, path, qs, ctype) -> None:
                      "-show_entries", "format=duration",
                      "-of", "default=noprint_wrappers=1:nokey=1",
                      str(dest)],
-                    capture_output=True, text=True, timeout=10,
+                    capture_output=True, text=True, errors="replace", timeout=10,
                 )
                 if out.returncode == 0 and out.stdout.strip():
                     duration_s = float(out.stdout.strip())
