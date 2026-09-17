@@ -17,7 +17,125 @@ const AUDIO_STUDIO = {
   wired: false,         // init() runs once
 };
 
+// Compose shares Audio's existing queue and poll; the server supplies every ETA.
+let audioModeChoice = null;
+let musicBusy = false;
+
+function musicComposeActive() {
+  return document.body.dataset.workflow === 'audio' && audioModeChoice === 'compose'
+    && !!window._ENGINE_PROBES.music.available;
+}
+function musicInit() {
+  try { audioModeChoice = localStorage.getItem('phos_audio_mode'); } catch (_) {}
+  if (!['compose', 'drive'].includes(audioModeChoice)) audioModeChoice = null;
+  updateMusicAvailability({ music: BOOT.music });
+}
+function updateMusicAvailability(s) {
+  if (s && s.music) window._ENGINE_PROBES.music = s.music;
+  const ready = !!window._ENGINE_PROBES.music.available;
+  if (audioModeChoice == null && ready) audioModeChoice = 'compose';
+  const compose = ready && audioModeChoice === 'compose';
+  document.getElementById('audioModeGroup').hidden = !ready;
+  document.getElementById('musicComposePane').hidden = !compose;
+  document.getElementById('audioDrivePane').hidden = compose;
+  document.querySelectorAll('#audioModeGroup [data-audio-mode]').forEach(b => {
+    const active = b.dataset.audioMode === (compose ? 'compose' : 'drive');
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-pressed', String(active));
+  });
+  musicFormChanged();
+  if (document.body.dataset.workflow === 'audio') renderEngineSwitch();
+}
+function audioModeSet(mode) {
+  audioModeChoice = mode === 'compose' ? 'compose' : 'drive';
+  try { localStorage.setItem('phos_audio_mode', audioModeChoice); } catch (_) {}
+  updateMusicAvailability();
+  // Music stays in the existing stream even if the last Video visit filtered it.
+  if (audioModeChoice === 'compose') setMainOutputsFilter('all');
+}
+function musicPick(id, button) {
+  document.getElementById(id).value = button.dataset.value;
+  button.parentElement.querySelectorAll('.pill-btn').forEach(b => {
+    b.classList.toggle('active', b === button);
+    b.setAttribute('aria-pressed', String(b === button));
+  });
+  musicFormChanged();
+}
+function musicFormChanged() {
+  const instrumental = document.getElementById('musicInstrumental').checked;
+  document.getElementById('musicLyrics').disabled = instrumental;
+  document.getElementById('musicInstrumentalPill').classList.toggle('on', instrumental);
+  const seconds = Number(document.getElementById('musicMaxSeconds').value);
+  document.getElementById('musicMaxSecondsVal').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  const quality = document.getElementById('musicQuality').value;
+  const music = window._ENGINE_PROBES.music;
+  const estimate = ((music.estimates || {})[quality] || {})[String(seconds)];
+  document.getElementById('musicEstimate').textContent = estimate
+    ? `≈ ${estimate.eta} at full length · estimate` : '';
+  document.getElementById('musicGenBtn').disabled = musicBusy || !music.available || !music.capable;
+}
+function musicFormParams() {
+  const instrumental = document.getElementById('musicInstrumental').checked;
+  return new URLSearchParams({
+    mode: 'music', engine: 'music',
+    music_lyrics: instrumental ? '' : document.getElementById('musicLyrics').value,
+    music_style: document.getElementById('musicStyle').value,
+    music_mode: document.getElementById('musicMode').value,
+    music_instrumental: instrumental ? 'on' : 'off',
+    music_max_seconds: document.getElementById('musicMaxSeconds').value,
+    music_seed: document.getElementById('musicSeed').value,
+    music_quality: document.getElementById('musicQuality').value,
+  });
+}
+async function musicGenerate() {
+  if (musicBusy) return;
+  const fd = musicFormParams();
+  const status = document.getElementById('musicStatus');
+  if (!fd.get('music_style').trim() && !fd.get('music_lyrics').trim() && fd.get('music_instrumental') !== 'on') {
+    status.textContent = 'Give it something to work with — lyrics, a style description, or both.';
+    return;
+  }
+  musicBusy = true;
+  musicFormChanged();
+  status.textContent = 'Queueing…';
+  try {
+    const r = await fetch('/queue/add', { method: 'POST', body: fd });
+    const result = await r.json();
+    if (!r.ok || result.error) throw new Error(result.error || 'Could not queue music');
+    status.textContent = 'Song queued.';
+    setMainOutputsFilter('all');
+    await poll();
+  } catch (e) {
+    status.textContent = e.message || String(e);
+  } finally {
+    musicBusy = false;
+    musicFormChanged();
+  }
+}
+function useTrackInA2V(path) {
+  const output = findOutputByPath(path);
+  AUDIO_STUDIO.audioPath = path;
+  AUDIO_STUDIO.audioName = path.split('/').pop();
+  AUDIO_STUDIO.audioDuration = output ? output.clip_sec : null;
+  audioModeSet('drive');
+  workflowSwitch('audio');
+  audioStudioRenderSlots();
+  phosToast('Track loaded — add a prompt and generate.');
+}
+function openMusicInstallCard() {
+  const music = window._ENGINE_PROBES.music;
+  const body = document.getElementById('musicInstallBody');
+  body.textContent = music.repairable
+    ? 'The YuE2 weights are on disk but the engine needs repair. Click “Repair the music engine (weights kept — no re-download)” in the Phosphene sidebar in Pinokio. It skips every intact weight.'
+    : `Click “Install the music engine (YuE2, ~11 GB)” in the Phosphene sidebar in Pinokio. Needs ${music.min_ram_gb} GB unified memory. The download resumes if interrupted. Compose appears in Audio when it is ready.`;
+  document.getElementById('musicInstallModal').hidden = false;
+}
+function closeMusicInstallCard() {
+  document.getElementById('musicInstallModal').hidden = true;
+}
+
 function audioStudioInit() {
+  if (musicComposeActive()) setMainOutputsFilter('all');
   if (AUDIO_STUDIO.wired) return;
   AUDIO_STUDIO.wired = true;
   const audioSlot = document.getElementById('audioStudioAudioSlot');
@@ -2703,7 +2821,7 @@ function updateCustomizeSummary() {
     // actually folded away on H3 is the export target, so that is what it says.
     if (up === 'fit_720p') parts.push('720p export');
     else if (up === 'fit_1080p') parts.push('1080p export');
-    else if (up === 'ltx_x2') parts.push('LTX ×2 after');
+    else if (up === 'ltx_x2') parts.push('native export + Upscale & Face Fix after');
     else parts.push('native export');
     el.textContent = parts.join(' · ');
     return;
@@ -2859,6 +2977,8 @@ document.querySelectorAll('#extendModeGroup .pill-btn').forEach(b => b.onclick =
 // Inline handlers in the markup and the other files resolve these through
 // the global scope; everything NOT listed here is private to this module.
 Object.assign(globalThis, {
+  musicComposeActive, musicInit, updateMusicAvailability, audioModeSet, musicPick, musicFormChanged,
+  musicFormParams, musicGenerate, useTrackInA2V, openMusicInstallCard, closeMusicInstallCard,
   windowPromptsInput,
   audioStudioInit, audioStudioDurationChanged, audioStudioEnhancePrompt, audioStudioGenerate,
   trainRecommendedPreset, trainUpdatePresetButtons, trainUpdatePresetNote, downloadSampleCharacter,

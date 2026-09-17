@@ -112,6 +112,49 @@ def post_storyboard_edit_upload(h, path, qs, ctype) -> None:
                200 if out.get("ok") else int(out.get("status") or 400))
 
 
+# ====== the Editor's audio tracks — where a sound comes from ========
+# The Sound source of the media pool: the film's own `audio/` folder and
+# every sound file at the top of the outputs. A read; it makes nothing.
+@get("/storyboard/edit/sounds")
+def get_storyboard_edit_sounds(h, parsed) -> None:
+    bid = (P.parse_qs(parsed.query).get("id") or [""])[0].strip()
+    try:
+        board = P.storyboard.load_storyboard(P.STATE_DIR, bid)
+    except Exception as exc:                                # noqa: BLE001
+        h._json({"ok": False, "error": str(exc)}, 404)
+        return
+    h._json({"ok": True, "sounds": P._sbe_list_sounds(board),
+             "dir": str(P._sbe_sound_dir(board))})
+
+
+# One file → a sound an audio track can hold: probed for its length, and
+# brought into the film's `audio/` folder when it lives anywhere the preview
+# cannot play it from. The strip itself is placed by the client, which owns
+# the arrangement, and saved like every other edit.
+@post("/storyboard/edit/add-sound")
+def post_storyboard_edit_add_sound(h, path, qs, ctype) -> None:
+    _rb = h._read_form_body()
+    if _rb is None:
+        return
+    _body, form = _rb
+
+    def f(name: str) -> str:
+        v = form.get(name) or [""]
+        return str(v[0] if isinstance(v, list) else v).strip()
+
+    try:
+        board = P.storyboard.load_storyboard(P.STATE_DIR, f("id"))
+    except Exception as exc:                                # noqa: BLE001
+        h._json({"ok": False, "error": str(exc)}, 404)
+        return
+    try:
+        out = P._sbe_add_sound(board, f("path"))
+    except Exception as exc:                                # noqa: BLE001
+        out = {"ok": False, "status": 500, "error": f"could not add that sound: {exc}"}
+    h._json({k: v for k, v in out.items() if k != "status"},
+            200 if out.get("ok") else int(out.get("status") or 400))
+
+
 # ====== Storyboard — plan a film, then shoot it ====================
 # Sits with the /queue/* cluster on purpose: every one of these routes
 # ends up going through the SAME make_job -> STATE["queue"] contract

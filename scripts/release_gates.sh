@@ -174,6 +174,11 @@ echo "== root test sweep (unittest) =="
 for t in test_*.py; do
     [ -e "$t" ] || continue
     mod="${t%.py}"
+    # Music uses pytest fixtures; unittest would falsely report zero tests.
+    if [ "$mod" = "test_music_engine" ]; then
+        run_gate "$mod" "$VENV_PY" -m pytest -q "$t"
+        continue
+    fi
     if [ "$FAST" = "1" ] && [ "$mod" = "test_storyboard_editor_ui" ]; then
         mark_skip "$mod" "--fast"
         continue

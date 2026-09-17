@@ -1,5 +1,74 @@
 # Phosphene — project state, history, open work
 
+> **🎵 2026-09-17 — v4.14.0 released (public, tag `v4.14.0`): "Songs, faces and sound".**
+> Owner's order: "Let's make a release because I think there are too many things to release at the moment." No further
+> Codex round for this release (owner). Ships everything on dev: **Audio → Compose (YuE2)**, **Upscale & Face Fix** (renamed
+> ×2 lane, one-click on any clip, optional after-draft pass), and the **Editor sound** work (audio tracks A3/A4…, Sound pool +
+> Add sound, track lanes, Duplicate on sound, clip sound on lanes A/B with crossfade, sound lanes that shrink when idle).
+> It also announces what 4.13.1/4.13.2 shipped quietly (H3 High 15 steps, full last frame, Turbo adapter, ×2 white flash,
+> Stop fixes, LoRA strength restore, CivitAI search #82 by @Viktorminator).
+> **History:** dev now CONTAINS public main — merge commit `d9f642a` (parents dev `1729ce0` + public `e1d500e`), a three-way
+> merge on base `0e726de` (the dev commit whose tree equals public v4.13.0). Two text conflicts, both dev's side
+> (mlx_ltx_panel.py: dev's Face Fix wording, face_fix_form chain, music_pgid in Stop; docs/STATE.md: dev's entries are a
+> superset); resolved mlx_ltx_panel.py is byte-identical to dev, i.e. public carried no code dev lacked. Public main still
+> advances by ONE snapshot commit (docs/RELEASE_CHECKLIST.md — a dev-branch push would publish ~690 private commits), and
+> dev then merges that snapshot (tree-identical), so `git log dev..origin/main` is empty.
+> **Credit:** YuE2 by Multimodal Art Projection (m-a-p), CC BY-NC 4.0 + individual-creator permission; MLX port by vanch007
+> (Apache-2.0). CivitAI search fix #82 by @Viktorminator.
+
+> **🧑‍🎨 2026-09-17 — "Upscale ×2 / LTX Upscale" is now Upscale & Face Fix, and a one-click clip action (UNRELEASED, beta; waits for owner use).**
+> Owner: the upscaler "that fixes the faces has the wrong name … should be optional and something you can do to an existing clip."
+> **Rename (user-visible only):** Remix chip, lane ("Clip to fix"), player button, card chip, history button, queue label, info panel
+> (Mode + Recipe), log lines, Models entry, docs (`#docs/remix/upscale-face-fix`; the old name is kept once for search). Internal
+> ids unchanged: `mode=upscale`, `h3_upscale=ltx_x2`, `upscale_source_path/keep_shot/upscale_start/upscale_steps`.
+> **Recipe:** `FACE_FIX_RECIPE` = keep_shot 1.0 + start=source + **1** refine step (the 09-16 face-safe setting). The lane's
+> **Faithful** pill is unchanged (keep_shot 1.0 → **3** steps); a new first pill **Face Fix** (1 step) is the lane default.
+> **One click:** `POST /queue/facefix` → `queue_face_fix()` (clip's own prompt/seed/label from its sidecar, One Shot takes use the
+> take's top-level prompt; frames = source count rounded UP to 1+8k so long clips are covered; refuses stills / missing adapter /
+> size cap / undecodable length up front; a second click on a queued OR rendering fix returns the same job). Doors: player split
+> button (click = queue, ⚙ half = open the lane), Outputs card chip (video only), history "Face Fix" on finished videos, Editor
+> clip bar "Face Fix ×2" + right-click "Upscale & Face Fix". The fixed clip is a new `<stem>_x2_<stamp>.mp4`; nothing is overwritten.
+> **Editor swap:** orders record `state/storyboards/<id>/face_fix.json` (`params.face_fix_targets`, all askers answered; the worker
+> writes `to` + `complete`); `_sbe_relinks` offers only while the clip still plays the source and the fix covers every frame.
+> The tick fetches offers (never `sbeLoad`) when history shows a done job naming this film (survives reload/retry). **Swap it in**
+> is a LOCAL undoable edit (`sbeFaceFixSwap`: path + proxy from add-clip; in/out, speed, fades, place untouched), never a server
+> rewrite. `/storyboard/edit/relink` also accepts `to` (a retake and a fix on one clip).
+> **Optional:** the H3 after-draft pass is now a checkbox "Also run Upscale & Face Fix after the draft", off by default and no longer
+> restored from localStorage on reload (it used to stick). The chain uses the 1-step recipe (was the form's keep_shot → 3 steps),
+> carries the draft's frame count, and its queue label finally lands (`preset_label`; the old `label` key was dropped by make_job).
+> **Proof:** live 8199 (restarted idle), real click on the player button → job `j-1a0af0dd254-001`, 640×384 124 f H3 draft →
+> 1280×768 124 f + audio in 154 s, 1-step refine logged, sidecar `display_name`/`face_fix`. Editor offer + swap verified on a
+> scratch panel (:8421, copied film): in/out 0.5–4.0 kept. Screenshots: PM hub `notes/face-fix-rename/`.
+> **Gates:** `test_face_fix` 23 new; `release_gates.sh --fast` on the merged tree 98 PASS / 0 FAIL / 2 SKIP (MLX on CPU); editor UI suite run separately, green. Codex: 5 rounds on the diff, every
+> confirmed finding fixed (round 5's merge-race items removed by the local-edit swap); stopped on the owner's word before a
+> final SHIP-SAFE round.
+
+> **🎵 2026-09-17 — YuE2 is the music engine: Audio → Compose (UNRELEASED, beta; headline feature, waits for owner use).**
+> **What:** YuE2-3B (Multimodal Art Projection) writes whole songs, vocals and arrangement, from lyrics and a
+> style sentence. Phosphene did NOT port it: the MLX port is vanch007/mlx-Yue, pinned at `9253ed1`, in its
+> own Python 3.12 / mlx 0.32.2 venv under `yue2-mlx/`. Weights come straight from the public repos at pinned
+> revisions (vanch007/mlx-Yue2-3B `fa66d20`, m-a-p/YuE2-Vae `95535e7`); nothing is re-hosted (owner ruling).
+> All 628 BF16 tensors were proven byte-identical to m-a-p/YuE2-3B, and `ar-8bit` re-quantizes bit-for-bit
+> on the GPU. Ours: `scripts/music/yue2_run.py` (stage-line progress, SIGTERM stop, a desktop-tolerant
+> memory guard, a provenance sidecar), `install_music.js` + `scripts/pinokio/music_*`, and the Compose form
+> inside the existing Audio tab (lyrics, style, Instrumental, Score full/melody/off, Draft 8 / Final 32,
+> Max length as a ceiling, seed). Songs are WAV cards with a player, info and a Drive video chip. Credit
+> appears on the form, the card chip and the docs.
+> **Measured (M4 Max 64 GB, 8-bit AR):** Final renders 177.8 s of song in 180.2 s; Draft renders 120 s in
+> 64 s; peak is 11.0 GB at every length. Music3 needed 415 s and 53 GB for 60 s. A Whisper lyric check heard
+> the lyrics in order (recall 0.75–0.94), and the instrumental carries no vocal line. Receipts and songs:
+> PM hub `notes/yue2/`.
+> **Validated:** a from-zero install lane (fresh clone, fresh uv Python, empty HF_HOME, pinned checkout,
+> frozen sync, fetcher; the big weights were pre-seeded as hard links because disk was at 11 GB, and
+> everything else downloaded for real) → the panel boots `available`. `/queue/add` wrote a real song in
+> 155 s. Stop mid-song leaves nothing behind. `/file` answers `audio/wav` with ranges. The card, info modal
+> and Now card were checked in the browser. Three Codex review rounds (smartest model): 7 + 6 + 3 findings,
+> all fixed (the panel never writes shared lock files; Stop targets the exact song; a late Stop deletes the
+> job's files; resumable and space-safe fetch; an absolute venv path; menu entries while running).
+> `test_music_engine` 40; `release_gates.sh --fast` 97 PASS / 0 FAIL / 2 SKIP (MLX on the CPU).
+> **Not yet:** the owner's ear; a real 10.5 GB download on a clean Mac; a cold-first-load timing; the
+> Pinokio-driven install click. Public release waits for the owner's use (headline rule).
+
 > **🛑 2026-09-17 — v4.13.2 released (public, tag `v4.13.2`): "Stop means stop" — five fixes from an independent review of 4.13.1.**
 > **Why:** Codex re-reviewed the shipped 4.13.1 (PM hub `notes/ship-review-0917/REVIEW.md`): NOT ship-safe, 1 P1 + 4 P2.
 > Each was reproduced on `efe5fcf` with CPU-only probes before fixing (`scratchpad/hotfix/repro_shipped.py`).

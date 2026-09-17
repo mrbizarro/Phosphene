@@ -80,6 +80,8 @@ def get_status(h, parsed) -> None:
     # when history is empty (90s for images, 420s for videos).
     def _eta_for(job: dict) -> float:
         params = job.get("params") or {}
+        if params.get("engine") == "music":
+            return P.music_estimate(params["music_quality"], params["music_max_seconds"])["eta_sec"]
         if params.get("mode") == "image":
             return float(avg_image) if avg_image else 90.0
         return float(avg_video) if avg_video else 420.0
@@ -107,7 +109,7 @@ def get_status(h, parsed) -> None:
         _cur_params = (payload["current"].get("params") or {})
         _mode = (_cur_params.get("mode") or "").lower()
         _engine = (_cur_params.get("engine") or "ltx").lower()
-        if _mode != "train" and _engine != "h3":
+        if _mode != "train" and _engine not in ("h3", "music"):
             payload["current"]["progress"] = P._compute_progress(
                 payload["current"], payload.get("log") or [],
             )
@@ -208,6 +210,7 @@ def get_status(h, parsed) -> None:
     # Pinokio sidebar unlocks the engine pill without a panel restart,
     # exactly like the Q8 download already does.
     payload["h3"] = P.h3_status()
+    payload["music"] = P.music_status()
     payload["train_profile"] = P.TRAIN_PROFILE
     payload["train_presets"] = P.TRAIN_PRESETS
     payload["train_style_presets"] = P.TRAIN_STYLE_PRESETS
@@ -329,6 +332,9 @@ def post_queue_retry(h, path, qs, ctype) -> None:
         "error": None,
     }
     new_job["params"]["open_when_done"] = False
+    new_job["params"].pop("face_fix_result", None)
+    if new_job["params"].get("face_fix_targets"):
+        new_job["params"]["face_fix_targets"] = [list(x) for x in new_job["params"]["face_fix_targets"]]
     new_job["params"]["source"] = "retry"
     with P.QUEUE_COND:
         P.STATE["queue"].append(new_job)
@@ -552,6 +558,33 @@ def post_run(h, path, qs, ctype) -> None:
         P.QUEUE_COND.notify_all()
     P.persist_queue()
     h._json({"ok": True, "id": job["id"]})
+
+
+# UPSCALE & FACE FIX as a clip action: one click on a finished clip (player,
+# Outputs card, history row, Editor clip bar) queues the face-safe recipe for
+# that clip. Server-side so the prompt/seed come from the clip's own sidecar
+# and every door queues exactly the same job.
+@post("/queue/facefix")
+def post_queue_facefix(h, path, qs, ctype) -> None:
+    _rb = h._read_form_body()
+    if _rb is None:
+        return
+    body, form = _rb
+
+    def f(name: str) -> str:
+        v = form.get(name, "")
+        if isinstance(v, list):
+            v = v[0] if v else ""
+        return str(v or "").strip()
+
+    try:
+        out = P.queue_face_fix(f("path"), board_id=f("board"), clip_id=f("clip"))
+    except P.CharacterRequestError as exc:
+        h._json({"ok": False, "error": str(exc)}, 400); return
+    except Exception as exc:                                   # noqa: BLE001
+        h._json({"ok": False, "error": f"could not queue {P.FACE_FIX_NAME}: {exc}"}, 500)
+        return
+    h._json(out, 200 if out.get("ok") else 400)
 
 
 # The chain held /stop as TWO arms split on ?mode=early; one path, one

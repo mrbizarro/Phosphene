@@ -78,7 +78,9 @@ def get_file(h, parsed) -> None:
         h.send_error(404); return
     if not path.exists():
         h.send_error(404); return
-    h._serve_video_with_range(path)
+    ctype = {".wav": "audio/wav", ".mp4": "video/mp4", ".png": "image/png",
+             ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}.get(path.suffix.lower(), "video/mp4")
+    h._serve_video_with_range(path, ctype=ctype)
 
 
 @get("/image")
@@ -164,13 +166,13 @@ def get_sidecar(h, parsed) -> None:
     # extension. Without this, an attacker who dropped a `.json`
     # alongside an arbitrary file under OUTPUT/UPLOADS could read
     # it via /sidecar?path=<that-file>. Sidecars are always
-    # `<media>.json` where <media> is mp4/png/webp/jpg/jpeg, so
+    # `<media>.json` where <media> is mp4/png/webp/jpg/jpeg/wav, so
     # rejecting other suffixes closes that off without breaking
     # any legitimate caller. See security-review.md §M1.
-    _SIDECAR_MEDIA_SUFFIXES = {".mp4", ".png", ".webp", ".jpg", ".jpeg"}
+    _SIDECAR_MEDIA_SUFFIXES = {".mp4", ".png", ".webp", ".jpg", ".jpeg", ".wav"}
     if path.suffix.lower() not in _SIDECAR_MEDIA_SUFFIXES:
         h.send_error(400, "sidecar requires media path "
-                             "(.mp4/.png/.webp/.jpg)")
+                             "(.mp4/.png/.webp/.jpg/.jpeg/.wav)")
         return
     # Sidecars live next to the output they describe. Videos sit
     # under OUTPUT (mlx_outputs/*.mp4.json); image-mode queue jobs

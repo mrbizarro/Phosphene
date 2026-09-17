@@ -70,7 +70,16 @@ const SBE_TL_CHROME = 32;        // 18 ruler + 12 scrollbar gutter + 2 border
 const SBE_LANES = [
   { key: 'ov',    base: 32, cap:  56, share: 0.08 },   // overlay: a card is placed, not performed
   { key: 'track', base: 64, cap: 120, share: 0.14 },   // the picture: a labelled block, not a poster
-  { key: 'alane', base: 44, cap: 190, share: 0.44 },   // per-clip sound: waveform, level line, points
+  // THE SOUND LANES CARRY A SECOND HEIGHT — `small`. The owner cuts with clip
+  // sound on two lanes and four audio tracks, and every one of them is paid
+  // for out of the PICTURE: "the sound expands lower. The picture is so tiny…
+  // I cannot see anything in the image, and I can also not push it down."
+  // `small` is what a sound lane is worth when nobody is working on sound: a
+  // strip tall enough to show WHERE the sound sits and what colour it is, and
+  // deliberately too short to edit in — which is the point, because the moment
+  // you touch one they come back. `audio: true` is what makes a lane part of
+  // that area; A3, A4, … are drawn at `alane`'s height, so they follow it.
+  { key: 'alane', base: 44, cap: 190, share: 0.44, audio: true, small: 18 },
   // The soundtrack. Its base rose 72 -> 108 when the bed stopped being a
   // rectangle you can only slide: it now carries a waveform, a level line,
   // draggable points and two corner fade handles, exactly like the strip lane
@@ -78,7 +87,7 @@ const SBE_LANES = [
   // is that a control has to be legible AT REST and not only after somebody
   // has discovered it. The HEAD grew with it (the level and the duck now live
   // there), and head and lane read the same variable on purpose.
-  { key: 'wave',  base: 108, cap: 240, share: 0.34 },  // the soundtrack
+  { key: 'wave',  base: 108, cap: 240, share: 0.34, audio: true, small: 20 },
 ];
 // Both ends are the SUM of the parts, never a hand-picked round number — the
 // floor is every lane at its base (which is what the box needs to draw itself
@@ -88,8 +97,37 @@ const SBE_LANES = [
 // a comment and the overlay lane was added without moving it: the box has
 // been 30px short of its own contents, with `overflow-y: hidden` over the
 // difference, since that lane shipped.
-globalThis.SBE_TL_MIN_H = 280;
-globalThis.SBE_TL_MAX_H = 638;
+// ...and both ends MOVE WITH THE SOUND AREA. A constant floor is exactly what
+// stopped the owner compacting his timeline — "I can also not push it down if
+// I want to compact it" — because 280 was the sum of the lanes at their FULL
+// height and the handle could never ask for less than every lane's base. With
+// the sound lanes small the box's own contents are 114px shorter, so that is
+// how much further down the handle goes, and sbeFitMonitors hands every one of
+// those pixels (plus the second clip lane's and every track's) to the monitors.
+function sbeLaneBase(L, small) { return (small && L.audio) ? L.small : L.base; }
+function sbeLaneCap(L, small) { return (small && L.audio) ? L.small : L.cap; }
+// `small` defaults to WHAT IS ON SCREEN, so every caller that does not pass it
+// keeps meaning "the floor of the timeline as it is drawn right now".
+function sbeTlFloor(small) {
+  const s = (small === undefined) ? sbeAudioSmall() : !!small;
+  let n = SBE_TL_CHROME;
+  for (const L of SBE_LANES) n += sbeLaneBase(L, s);
+  return n;
+}
+function sbeTlRoof(small) {
+  const s = (small === undefined) ? sbeAudioSmall() : !!small;
+  let n = SBE_TL_CHROME;
+  for (const L of SBE_LANES) n += sbeLaneCap(L, s);
+  return n;
+}
+// The two ends with the sound at full height: the CSS fallback, the timeline's
+// remembered preference and the layout gate all stand on these.
+globalThis.SBE_TL_MIN_H = sbeTlFloor(false);
+globalThis.SBE_TL_MAX_H = sbeTlRoof(false);
+// How long the sound lanes wait, with nothing happening on sound, before they
+// make themselves small. Long enough that clicking off a strip to look at the
+// picture is not a flicker; short enough that it reads as the app noticing.
+const SBE_ASMALL_IDLE = 2400;
 // How far one arrow key moves the edge, and one arrow key with Shift.
 const SBE_TL_STEP = 12;
 const SBE_TL_STEP_BIG = 40;
@@ -210,7 +248,7 @@ window.SBE = {
   // used to exist (`superseded`) was set by a passive page load in another
   // browser and switched this tab's safety net off for seven hours.
   otherEditor: '', protectedAt: 0,
-  timer: null, saveTimer: null, raf: 0, drag: null, awaitingClip: 0,
+  timer: null, saveTimer: null, raf: 0, drag: null, awaitingClip: 0, fixHandled: {}, fixBusy: false,
   // The soundtrack's own drag. Separate from `drag` because the two lanes are
   // separate objects and a pointer is only ever on one of them.
   musicDrag: null, audioDrag: null,
@@ -242,6 +280,21 @@ window.SBE = {
   // whenever the pointer is not near a line it could edit. It is the whole of
   // "hover teaches": the control answers before it is used.
   kfGhost: null,
+  // THE AUDIO TRACKS (A3, A4, …). `tracks` is `edit.audio_tracks` as the
+  // timeline holds it; `tsSet` the selected strips (the primary is
+  // `sel === '@ts:<id>'`); `tsDrag` a gesture on a track lane; `tsDrop` where
+  // a pool drag would land on one. `selLane` is the clip whose SOUND strip on
+  // A1 was clicked, which is what lets Duplicate copy the sound rather than
+  // the shot. `tgSliding` holds the heads still while a level slider moves.
+  tracks: [], tsSet: [], tsDrag: null, tsDrop: null, selLane: '',
+  tgBefore: null, tgSliding: false, tsGainBefore: null,
+  // THE SOUND AREA'S SIZE. `aPin` is this browser's own answer ('auto' — thin
+  // until you touch sound — or 'open' / 'small' pinned); `aSmall` is what is on
+  // screen; `aTouch` when sound was last worked on; `aHover` whether the pointer
+  // is on a lane or a head; `aTimer` the idle that makes them small and `aAnim`
+  // the brief transition. See sbeAudioPinRead.
+  aPin: sbeAudioPinRead(), aSmall: false, aTouch: 0, aHover: false,
+  aTimer: null, aAnim: null,
 };
 
 const SBE_MIN_CLIP = 0.2;        // shorter than this is not a shot, it is a blink
@@ -750,6 +803,92 @@ function sbeSetClipMute(clips, id, on) {
   if (on) t.mute = true; else delete t.mute;
   t.source = 'human';
   return { clips: out, ok: true };
+}
+
+// ---- THE TWO CLIP-SOUND LANES (A/B) ---------------------------------------
+// THE MIRROR OF `clip_sound_lane()`. The owner, 2026-09-15: "the sound between
+// clips should already be intercalated into two different lanes … if I want to
+// blend and dissolve from both sides, cut a little, and bring the clips
+// together to make it more realistic, it's easy." Lane A is the absence of the
+// field, so every clip on every disk is already on A; only lane B is written.
+// Sounds on ONE lane never overlap (the render trims the outgoing tail); sounds
+// on the two lanes overlap and mix, which is the crossfade.
+function sbeSoundLane(c) {
+  return (c && c.sound_lane === 2 && sbeKind(c) === 'video') ? 2 : 1;
+}
+
+function sbeLaneName(lane) { return lane === 2 ? 'B' : 'A'; }
+
+// One clip's sound onto one lane. Nothing moves in time.
+function sbeSetSoundLane(clips, id, lane) {
+  const c = sbeById(clips, id);
+  if (!c) return { clips: clips, ok: false, why: 'gone' };
+  if (sbeKind(c) !== 'video') {
+    return { clips: clips, ok: false, why: 'only a video clip has sound of its own' };
+  }
+  if (c.locked) return { clips: clips, ok: false, why: 'locked' };
+  const want = (sbeNum(lane) === 2) ? 2 : 1;
+  if (sbeSoundLane(c) === want) return { clips: clips, ok: false, why: '' };
+  const out = clips.map(x => Object.assign({}, x));
+  const t = sbeById(out, id);
+  if (want === 2) t.sound_lane = 2; else delete t.sound_lane;
+  t.source = 'human';
+  return { clips: out, ok: true, lane: want };
+}
+
+// "ALTERNATE SOUND LANES": A, B, A, B… in film order, for a timeline that was
+// cut before there were two. The mirror of `alternate_sound_lanes()` — only the
+// lane changes, so every sound plays at exactly the second it did. Stills and
+// black take no turn: alternation is between the sounds that meet.
+function sbeAlternateLanes(clips) {
+  const out = (clips || []).map(x => Object.assign({}, x));
+  const vids = out.filter(x => sbeKind(x) === 'video')
+    .sort((a, b) => (sbeNum(a.film_start) - sbeNum(b.film_start))
+                    || String(a.id).localeCompare(String(b.id)));
+  let changed = 0;
+  vids.forEach((c, k) => {
+    const want = (k % 2 === 0) ? 1 : 2;
+    if (sbeSoundLane(c) !== want) {
+      changed++;
+      c.source = 'human';
+    }
+    if (want === 2) c.sound_lane = 2; else delete c.sound_lane;
+  });
+  if (!changed) {
+    return { clips: clips, ok: false, changed: 0,
+             why: vids.length ? 'The clip sound already alternates A, B, A… — nothing to change.'
+                              : 'There is no clip sound on this __SEQ__ to lay out.' };
+  }
+  return { clips: out, ok: true, changed: changed };
+}
+
+// The lane a clip arriving at `filmStart` takes: the one the previous video
+// clip is NOT on (with nothing before it, the one the next is not on). The
+// mirror of `sound_lane_after()`.
+function sbeLaneAfter(clips, filmStart) {
+  const fs = sbeNum(filmStart);
+  const vids = (clips || []).filter(x => x && sbeKind(x) === 'video')
+    .sort((a, b) => sbeNum(a.film_start) - sbeNum(b.film_start));
+  let prev = null, next = null;
+  for (const v of vids) {
+    if (sbeNum(v.film_start) < fs - 1e-9) prev = v;
+    else if (!next) next = v;
+  }
+  if (prev) return sbeSoundLane(prev) === 1 ? 2 : 1;
+  if (next) return sbeSoundLane(next) === 1 ? 2 : 1;
+  return 1;
+}
+
+// A NEW CLIP KEEPS THE ALTERNATION. Called by every path that puts a shot on
+// the track (insert, fill a hole, Duplicate) once the film is laid out.
+function sbeLaneFit(clips, c) {
+  if (!c) return clips;
+  delete c.sound_lane;
+  if (sbeKind(c) !== 'video') return clips;
+  if (sbeLaneAfter((clips || []).filter(x => x !== c), sbeNum(c.film_start)) === 2) {
+    c.sound_lane = 2;
+  }
+  return clips;
 }
 
 function sbeAudioIsThePicture(c) {
@@ -1443,6 +1582,649 @@ function sbeSetAudioFade(clips, id, edge, seconds) {
   return { clips: out, ok: true };
 }
 
+// ---------------------------------------------------------------------------
+// THE AUDIO TRACKS — A3, A4, … under the music
+// ---------------------------------------------------------------------------
+// "You actually need to have multiple audio clips, like we have multiple video
+// layers... you stack them on top of each other." The client half of
+// `storyboard_editor.audio_tracks`: a list of tracks, each a list of strips,
+// and every function here is a mirror of the server's model or a pure edit of
+// it — tracks in, a NEW list out, never a mutation — so a drag can be tested
+// in node and re-derived from its starting state on every pointer event.
+//
+// ONE RULE PER LANE, the NLE's: strips on the same track never overlap, strips
+// on different tracks overlap and mix. Every edit below lands a strip on the
+// nearest LEGAL second rather than refusing, because a drag that stops dead at
+// a neighbour is how every timeline answers "there is something there".
+//
+// THE ENVELOPE IS THE SAME OBJECT a clip's sound and the bed carry (`afx`), read
+// by the same `sbeAfx` / `sbeGainPoints`, drawn by the same `sbeStripWave`.
+const SBE_TRACK_STRIP_MIN = 0.05;   // mirrors TRACK_STRIP_MIN
+const SBE_SOUND_EXT = /\.(wav|m4a|mp3|aac|flac|aiff?|ogg|opus)$/i;
+// The row under the last track — "+ Add audio track" in the gutter, a drop
+// zone in the lanes. Its height rides on top of the timeline's own, see
+// sbeApplyTl, so adding a track never squeezes the lanes that were there.
+const SBE_TADD_H = 26;
+
+function sbeTrackLabel(i) { return 'A' + (Math.round(sbeNum(i)) + 3); }
+
+// A fader: 1 when absent, clamped 0..1 — the mirror of `_unit_gain`.
+function sbeUnitGain(v) {
+  if (v === null || v === undefined || typeof v === 'boolean') return 1;
+  const g = Number(v);
+  if (!(g === g) || !isFinite(g)) return 1;
+  return sbeRound(Math.max(0, Math.min(1, g)));
+}
+function sbeTrackGain(t) { return sbeUnitGain((t || {}).gain); }
+function sbeTsGain(s) { return sbeUnitGain((s || {}).gain); }
+
+// `{start, end, film_start, film_end, len}` — the mirror of `strip_window`.
+function sbeTsWindow(s) {
+  const st = sbeNum((s || {}).start), en = sbeNum((s || {}).end);
+  const fs = sbeNum((s || {}).film_start);
+  const n = Math.max(0, en - st);
+  return { start: sbeRound(st), end: sbeRound(en), film_start: sbeRound(fs),
+           film_end: sbeRound(fs + n), len: sbeRound(n) };
+}
+
+// THE ONE STRIP CURVE — the mirror of `track_strip_gain_points`: the envelope,
+// times the strip's fader, times the track's. Empty is unity.
+function sbeTsGainPoints(track, s) {
+  const n = sbeTsWindow(s).len;
+  if (n <= 0) return [];
+  const g0 = sbeRound(sbeTsGain(s) * sbeTrackGain(track));
+  const curve = sbeGainPoints(s || {}, n);
+  if (!curve.length) {
+    if (Math.abs(g0 - 1) < 1e-9) return [];
+    return [[0, g0], [sbeRound(n), g0]];
+  }
+  return curve.map(p => [p[0], sbeRound(Math.max(0, Math.min(1, p[1] * g0)))]);
+}
+
+function sbeTsGainAt(track, s, t) {
+  const c = sbeTsGainPoints(track, s);
+  return c.length ? sbeRound(sbeLerpGain(c, Math.max(0, sbeNum(t)))) : 1;
+}
+
+function sbeTsCopy(tracks) { return JSON.parse(JSON.stringify(tracks || [])); }
+
+function sbeTsTrackById(tracks, tid) {
+  return (tracks || []).find(t => String(t.id) === String(tid)) || null;
+}
+
+function sbeTsFind(tracks, sid) {
+  const want = String(sid || '');
+  const list = tracks || [];
+  for (let ti = 0; ti < list.length; ti++) {
+    const ss = (list[ti] && list[ti].strips) || [];
+    for (let si = 0; si < ss.length; si++) {
+      if (String(ss[si].id) === want) return { track: list[ti], strip: ss[si], ti: ti, si: si };
+    }
+  }
+  return null;
+}
+
+function sbeTsSort(track) {
+  track.strips = (track.strips || []).slice()
+    .sort((a, b) => sbeNum(a.film_start) - sbeNum(b.film_start));
+}
+
+// Is [fs, fs + len) free on this track? `skip` is a strip id, or a list of
+// them — the strips being moved do not collide with where they were. The
+// tolerance is the server's TOUCH_TOLERANCE, so a butt join is never an overlap.
+function sbeTsFits(track, fs, len, skip) {
+  const a0 = sbeNum(fs), a1 = a0 + Math.max(0, sbeNum(len));
+  if (a0 < -1e-9) return false;
+  const except = Array.isArray(skip) ? skip.map(String)
+    : ((skip === undefined || skip === null) ? [] : [String(skip)]);
+  for (const s of ((track || {}).strips || [])) {
+    if (except.indexOf(String(s.id)) >= 0) continue;
+    const w = sbeTsWindow(s);
+    if (a0 < w.film_end - SBE_SYNC_TOL && w.film_start < a1 - SBE_SYNC_TOL) return false;
+  }
+  return true;
+}
+
+// The legal second nearest `want`: where it was asked for when that is free,
+// else butted against whichever neighbour is closer. The tail of the last
+// strip is always free, so there is always an answer.
+function sbeTsNearest(track, want, len, skip) {
+  const w0 = Math.max(0, sbeNum(want));
+  const n = Math.max(0, sbeNum(len));
+  const except = Array.isArray(skip) ? skip.map(String)
+    : ((skip === undefined || skip === null) ? [] : [String(skip)]);
+  const cands = [w0, 0];
+  for (const s of ((track || {}).strips || [])) {
+    if (except.indexOf(String(s.id)) >= 0) continue;
+    const w = sbeTsWindow(s);
+    cands.push(w.film_end, w.film_start - n);
+  }
+  let best = null;
+  for (const c of cands) {
+    if (c < -1e-9 || !sbeTsFits(track, c, n, skip)) continue;
+    if (best === null || Math.abs(c - w0) < Math.abs(best - w0) - 1e-9) best = c;
+  }
+  return best === null ? null : sbeRound(Math.max(0, best));
+}
+
+// The first free second at or after `from` — where a duplicate goes when the
+// spot right after its original is taken.
+function sbeTsNextFree(track, from, len, skip) {
+  const f0 = Math.max(0, sbeNum(from));
+  const cands = [f0];
+  for (const s of ((track || {}).strips || [])) {
+    const e = sbeTsWindow(s).film_end;
+    if (e >= f0 - 1e-9) cands.push(e);
+  }
+  cands.sort((a, b) => a - b);
+  for (const c of cands) if (sbeTsFits(track, c, len, skip)) return sbeRound(c);
+  return null;
+}
+
+function sbeTsNewTrack(tracks, name) {
+  const out = sbeTsCopy(tracks);
+  const t = { id: 't' + sbeNewId().slice(1), strips: [] };
+  if (name) t.name = String(name).slice(0, 60);
+  out.push(t);
+  return { tracks: out, ok: true, added: t };
+}
+
+function sbeTsRemoveTrack(tracks, tid) {
+  const t = sbeTsTrackById(tracks, tid);
+  if (!t) return { tracks: tracks, ok: false, why: 'gone' };
+  if ((t.strips || []).some(s => s.locked === true)) {
+    return { tracks: tracks, ok: false,
+             why: 'a sound on this track is locked — unlock it before removing the track' };
+  }
+  return { tracks: sbeTsCopy(tracks).filter(x => String(x.id) !== String(tid)),
+           ok: true, removed: t };
+}
+
+// Mute, level and name of one TRACK. Neutral is absent, as on the server.
+function sbeTsSetTrack(tracks, tid, patch) {
+  const out = sbeTsCopy(tracks);
+  const t = sbeTsTrackById(out, tid);
+  if (!t) return { tracks: tracks, ok: false, why: 'gone' };
+  const p = patch || {};
+  if ('muted' in p) { if (p.muted) t.muted = true; else delete t.muted; }
+  if ('gain' in p) {
+    const g = sbeUnitGain(p.gain);
+    if (Math.abs(g - 1) > 1e-9) t.gain = g; else delete t.gain;
+  }
+  if ('name' in p) {
+    const nm = String(p.name || '').trim().slice(0, 60);
+    if (nm) t.name = nm; else delete t.name;
+  }
+  return { tracks: out, ok: true };
+}
+
+// A NEW strip onto a track. `tid` '' means the first track with room at
+// `want`, 'new' means a track of its own — and when no track has room, one is
+// made: a sound from the pool or a copy is never refused for want of a lane.
+function sbeTsPlace(tracks, tid, strip, want) {
+  let out = sbeTsCopy(tracks);
+  const s = JSON.parse(JSON.stringify(strip || {}));
+  const len = sbeTsWindow(s).len;
+  if (len < SBE_TRACK_STRIP_MIN) {
+    return { tracks: tracks, ok: false, why: 'that sound is too short to place' };
+  }
+  const at = Math.max(0, sbeNum(want));
+  let t = null;
+  if (tid && tid !== 'new') {
+    t = sbeTsTrackById(out, tid);
+    if (!t) return { tracks: tracks, ok: false, why: 'gone' };
+    s.film_start = sbeTsNearest(t, at, len);
+  } else if (tid !== 'new') {
+    t = out.find(x => sbeTsFits(x, at, len)) || null;
+    if (t) s.film_start = sbeRound(at);
+  }
+  if (!t) {
+    out = sbeTsNewTrack(out).tracks;
+    t = out[out.length - 1];
+    s.film_start = sbeRound(at);
+  }
+  if (!s.id) s.id = sbeNewId();
+  t.strips = (t.strips || []).concat([s]);
+  sbeTsSort(t);
+  return { tracks: out, ok: true, added: s, track: String(t.id) };
+}
+
+// Drag: onto `toTid` (or its own track), landing on the legal second nearest
+// `want`.
+function sbeTsMove(tracks, sid, toTid, want) {
+  const f = sbeTsFind(tracks, sid);
+  if (!f) return { tracks: tracks, ok: false, why: 'gone' };
+  if (f.strip.locked === true) return { tracks: tracks, ok: false, why: 'locked' };
+  const out = sbeTsCopy(tracks);
+  const g = sbeTsFind(out, sid);
+  const len = sbeTsWindow(g.strip).len;
+  let dest = g.track;
+  if (toTid && String(toTid) !== String(g.track.id)) {
+    dest = sbeTsTrackById(out, toTid);
+    if (!dest) return { tracks: tracks, ok: false, why: 'gone' };
+  }
+  const spot = sbeTsNearest(dest, want, len, sid);
+  if (spot === null) return { tracks: tracks, ok: false, why: 'there is no room there' };
+  g.track.strips.splice(g.si, 1);
+  g.strip.film_start = spot;
+  dest.strips.push(g.strip);
+  sbeTsSort(dest);
+  return { tracks: out, ok: true, track: String(dest.id), at: spot };
+}
+
+// Several strips by one delta, each on its own track. All or nothing: if any
+// would land on a neighbour the whole slide is refused, and the drag keeps the
+// last position that was legal.
+function sbeTsMoveGroup(tracks, ids, delta) {
+  const list = (ids || []).map(String);
+  const out = sbeTsCopy(tracks);
+  let d = sbeNum(delta);
+  const found = [];
+  for (const id of list) {
+    const g = sbeTsFind(out, id);
+    if (!g) return { tracks: tracks, ok: false, why: 'gone' };
+    if (g.strip.locked === true) return { tracks: tracks, ok: false, why: 'locked' };
+    found.push(g);
+    d = Math.max(d, -sbeNum(g.strip.film_start));
+  }
+  for (const g of found) g.strip.film_start = sbeRound(sbeNum(g.strip.film_start) + d);
+  for (const g of found) {
+    const w = sbeTsWindow(g.strip);
+    if (!sbeTsFits(g.track, w.film_start, w.len, list)) {
+      return { tracks: tracks, ok: false, why: 'there is no room there' };
+    }
+  }
+  for (const t of out) sbeTsSort(t);
+  return { tracks: out, ok: true, moved: sbeRound(d) };
+}
+
+// Trim one edge. `edge` is 'trimL' (a new in-point: the rest stays where it
+// is) or 'trimR' (a new out-point). Bounded by the file's own ends and by the
+// neighbours on the same track — a trim never reaches under another strip.
+function sbeTsTrim(tracks, sid, edge, want) {
+  const f = sbeTsFind(tracks, sid);
+  if (!f) return { tracks: tracks, ok: false, why: 'gone' };
+  if (f.strip.locked === true) return { tracks: tracks, ok: false, why: 'locked' };
+  const out = sbeTsCopy(tracks);
+  const g = sbeTsFind(out, sid);
+  const w = sbeTsWindow(g.strip);
+  const others = g.track.strips.filter(x => x !== g.strip).map(sbeTsWindow);
+  if (edge === 'trimL') {
+    let lo = Math.max(0, w.film_start - w.start);
+    for (const o of others) if (o.film_end <= w.film_start + 1e-6) lo = Math.max(lo, o.film_end);
+    const hi = w.film_end - SBE_TRACK_STRIP_MIN;
+    const fs = Math.max(lo, Math.min(hi, sbeNum(want)));
+    g.strip.start = sbeRound(Math.max(0, w.start + (fs - w.film_start)));
+    g.strip.film_start = sbeRound(fs);
+  } else {
+    let hi = Infinity;
+    const dur = sbeNum(g.strip.duration, 0);
+    if (dur > 0) hi = w.film_start + (dur - w.start);
+    for (const o of others) if (o.film_start >= w.film_end - 1e-6) hi = Math.min(hi, o.film_start);
+    const lo = w.film_start + SBE_TRACK_STRIP_MIN;
+    const fe = Math.max(lo, Math.min(hi, sbeNum(want)));
+    g.strip.end = sbeRound(w.start + (fe - w.film_start));
+  }
+  return { tracks: out, ok: true };
+}
+
+// Split at film second `t`. The outer fades stay on the outer ends, and the
+// level points are divided at the cut with a point on each side of it, so the
+// two halves play exactly the curve the whole strip did.
+function sbeTsSplit(tracks, sid, t, newId) {
+  const f = sbeTsFind(tracks, sid);
+  if (!f) return { tracks: tracks, ok: false, why: 'gone' };
+  if (f.strip.locked === true) return { tracks: tracks, ok: false, why: 'locked' };
+  const w = sbeTsWindow(f.strip);
+  const off = sbeNum(t) - w.film_start;
+  if (off < SBE_TRACK_STRIP_MIN || w.len - off < SBE_TRACK_STRIP_MIN) {
+    return { tracks: tracks, ok: false,
+             why: 'the playhead is not inside that sound, or is right on its edge' };
+  }
+  const out = sbeTsCopy(tracks);
+  const g = sbeTsFind(out, sid);
+  const a = g.strip;
+  const b = JSON.parse(JSON.stringify(a));
+  b.id = newId || sbeNewId();
+  const e = sbeAfx(a, w.len);
+  const mid = sbeLerpGain(e.points, off);
+  const pa = e.points.filter(p => p[0] < off - 1e-6);
+  const pb = e.points.filter(p => p[0] > off + 1e-6).map(p => [sbeRound(p[0] - off), p[1]]);
+  if (e.points.length) { pa.push([sbeRound(off), sbeRound(mid)]); pb.unshift([0, sbeRound(mid)]); }
+  a.end = sbeRound(w.start + off);
+  b.start = a.end;
+  b.film_start = sbeRound(w.film_start + off);
+  const afxA = {}, afxB = {};
+  if (e.fade_in > 1e-9) afxA.fade_in = sbeRound(Math.min(e.fade_in, off));
+  if (e.fade_out > 1e-9) afxB.fade_out = sbeRound(Math.min(e.fade_out, w.len - off));
+  if (pa.length) afxA.points = pa;
+  if (pb.length) afxB.points = pb;
+  if (Object.keys(afxA).length) a.afx = afxA; else delete a.afx;
+  if (Object.keys(afxB).length) b.afx = afxB; else delete b.afx;
+  g.track.strips.splice(g.si + 1, 0, b);
+  return { tracks: out, ok: true, added: b };
+}
+
+function sbeTsCopyTitle(s, fallback) {
+  const base = String((s || {}).title || String((s || {}).path || '').split('/').pop()
+                      || fallback || 'sound').replace(/ \(copy( \d+)?\)$/, '');
+  return base + ' (copy)';
+}
+
+// DUPLICATE: the same sound again, right after itself on the same track — or
+// at the next free spot on it. Window, level, fades and points included.
+function sbeTsDuplicate(tracks, sid) {
+  const f = sbeTsFind(tracks, sid);
+  if (!f) return { tracks: tracks, ok: false, why: 'gone' };
+  const out = sbeTsCopy(tracks);
+  const g = sbeTsFind(out, sid);
+  const w = sbeTsWindow(g.strip);
+  const b = JSON.parse(JSON.stringify(g.strip));
+  b.id = sbeNewId();
+  delete b.locked;
+  b.title = sbeTsCopyTitle(g.strip);
+  b.film_start = sbeTsNextFree(g.track, w.film_end, w.len);
+  g.track.strips.push(b);
+  sbeTsSort(g.track);
+  return { tracks: out, ok: true, added: b, track: String(g.track.id) };
+}
+
+// LIFT takes the strip off and leaves the silence. RIPPLE closes the gap on
+// THAT track only: the picture and every other track stay where they are.
+function sbeTsDelete(tracks, sid, ripple) {
+  const f = sbeTsFind(tracks, sid);
+  if (!f) return { tracks: tracks, ok: false, why: 'gone' };
+  if (f.strip.locked === true) return { tracks: tracks, ok: false, why: 'locked' };
+  const out = sbeTsCopy(tracks);
+  const g = sbeTsFind(out, sid);
+  const w = sbeTsWindow(g.strip);
+  g.track.strips.splice(g.si, 1);
+  if (ripple) {
+    for (const s of g.track.strips) {
+      const sw = sbeTsWindow(s);
+      if (sw.film_start < w.film_end - 1e-6) continue;
+      if (s.locked === true) {
+        return { tracks: tracks, ok: false,
+                 why: 'a locked sound after it on the same track cannot slide — unlock it, or use Lift' };
+      }
+      s.film_start = sbeRound(Math.max(0, sw.film_start - w.len));
+    }
+  }
+  return { tracks: out, ok: true, removed: g.strip };
+}
+
+// The strip's own switches and fader, and its envelope. Neutral is absent.
+function sbeTsSetStrip(tracks, sid, patch) {
+  const f = sbeTsFind(tracks, sid);
+  if (!f) return { tracks: tracks, ok: false, why: 'gone' };
+  const p = patch || {};
+  if (f.strip.locked === true && !('locked' in p) && !('muted' in p)) {
+    return { tracks: tracks, ok: false, why: 'locked' };
+  }
+  const out = sbeTsCopy(tracks);
+  const s = sbeTsFind(out, sid).strip;
+  if ('muted' in p) { if (p.muted) s.muted = true; else delete s.muted; }
+  if ('locked' in p) { if (p.locked) s.locked = true; else delete s.locked; }
+  if ('gain' in p) {
+    const g = sbeUnitGain(p.gain);
+    if (Math.abs(g - 1) > 1e-9) s.gain = g; else delete s.gain;
+  }
+  if ('afx' in p) {
+    const a = p.afx || {};
+    const has = a.fade_in > 1e-9 || a.fade_out > 1e-9 || (a.points && a.points.length);
+    if (has) s.afx = a; else delete s.afx;
+  }
+  return { tracks: out, ok: true };
+}
+
+function sbeTsSetFade(tracks, sid, edge, seconds) {
+  const f = sbeTsFind(tracks, sid);
+  if (!f) return { tracks: tracks, ok: false, why: 'gone' };
+  const n = sbeTsWindow(f.strip).len;
+  const key = (edge === 'out') ? 'fade_out' : 'fade_in';
+  const afx = Object.assign({}, f.strip.afx || {});
+  const want = Math.max(0, Math.min(n, sbeNum(seconds)));
+  if (want > 1e-9) afx[key] = sbeRound(want); else delete afx[key];
+  return sbeTsSetStrip(tracks, sid, { afx: afx });
+}
+
+function sbeTsPointsWrite(tracks, sid, pts) {
+  const f = sbeTsFind(tracks, sid);
+  if (!f) return { tracks: tracks, ok: false, why: 'gone' };
+  const n = sbeTsWindow(f.strip).len;
+  const afx = Object.assign({}, f.strip.afx || {});
+  const kept = (pts || []).slice().sort((x, y) => x[0] - y[0])
+    .map(pr => [sbeRound(Math.max(0, Math.min(n, pr[0]))),
+                sbeRound(Math.max(0, Math.min(1, pr[1])))]);
+  if (kept.length) afx.points = kept; else delete afx.points;
+  return sbeTsSetStrip(tracks, sid, { afx: afx });
+}
+
+function sbeTsAddKeyframe(tracks, sid, t, gain) {
+  const f = sbeTsFind(tracks, sid);
+  if (!f) return { tracks: tracks, ok: false, why: 'gone' };
+  const n = sbeTsWindow(f.strip).len;
+  const at = Math.max(0, Math.min(n, sbeNum(t)));
+  const pts = sbeAfx(f.strip, n).points.slice();
+  for (const pr of pts) {
+    if (Math.abs(pr[0] - at) < 1e-3) {
+      return { tracks: tracks, ok: false, why: 'there is already a point here' };
+    }
+  }
+  pts.push([at, Math.max(0, Math.min(1, sbeNum(gain, 1)))]);
+  return sbeTsPointsWrite(tracks, sid, pts);
+}
+
+function sbeTsMoveKeyframe(tracks, sid, index, t, gain) {
+  const f = sbeTsFind(tracks, sid);
+  if (!f) return { tracks: tracks, ok: false, why: 'gone' };
+  const n = sbeTsWindow(f.strip).len;
+  const pts = sbeAfx(f.strip, n).points.slice();
+  if (!pts.length) return { tracks: tracks, ok: false, why: 'gone' };
+  const i = Math.max(0, Math.min(pts.length - 1, sbeNum(index)));
+  pts[i] = [Math.max(0, Math.min(n, sbeNum(t))), Math.max(0, Math.min(1, sbeNum(gain)))];
+  return sbeTsPointsWrite(tracks, sid, pts);
+}
+
+function sbeTsDeleteKeyframe(tracks, sid, index) {
+  const f = sbeTsFind(tracks, sid);
+  if (!f) return { tracks: tracks, ok: false, why: 'gone' };
+  const pts = sbeAfx(f.strip, sbeTsWindow(f.strip).len).points.slice();
+  const i = sbeNum(index, -1);
+  if (i < 0 || i >= pts.length) return { tracks: tracks, ok: false, why: 'gone' };
+  pts.splice(i, 1);
+  return sbeTsPointsWrite(tracks, sid, pts);
+}
+
+// EVERY TRACK STRIP AUDIBLE AT FILM SECOND `t`, as the strip player wants it:
+// the source second, and the volume the render's curve has there. The mirror
+// of `sbeStripsAt`, for the lanes a clip does not own.
+function sbeTsAt(tracks, t) {
+  const now = sbeNum(t);
+  const out = [];
+  for (const tr of (tracks || [])) {
+    if (tr.muted === true) continue;
+    for (const s of (tr.strips || [])) {
+      if (s.muted === true || !s.path) continue;
+      const w = sbeTsWindow(s);
+      if (now < w.film_start - 1e-6 || now >= w.film_end) continue;
+      out.push({ id: 'ts:' + s.id, path: String(s.path),
+                 at: sbeRound(w.start + (now - w.film_start)),
+                 from: w.film_start, to: w.film_end, speed: 1,
+                 vol: sbeTsGainAt(tr, s, now - w.film_start) });
+    }
+  }
+  return out;
+}
+
+// What a track strip's edge clicks onto: the cuts (the same list a clip's
+// sound snaps to), every other strip's ends on every track, and every clip
+// strip's ends on A1. The beat grid is added by the drag, near the pointer.
+function sbeTsSnaps(tracks, clips, skip) {
+  const out = sbeMusicSnaps(clips);
+  for (const t of (tracks || [])) {
+    for (const s of (t.strips || [])) {
+      if (skip !== undefined && String(s.id) === String(skip)) continue;
+      const w = sbeTsWindow(s);
+      out.push(w.film_start, w.film_end);
+    }
+  }
+  for (const c of (clips || [])) {
+    if (sbeKind(c) !== 'video') continue;
+    const w = sbeClipAudio(c);
+    out.push(sbeRound(w.film_start), sbeRound(w.film_start + w.len));
+  }
+  return out;
+}
+
+// A1 → a strip. The clip's own sound, window and envelope, placed right after
+// where it plays. Refused, with the reason, for a clip that has none, and for
+// a retimed one: a track strip plays at 1x.
+function sbeTsFromClip(c) {
+  if (!c || sbeKind(c) !== 'video') return { why: 'Only a video clip has sound of its own to copy.' };
+  if (c.has_audio === false) return { why: 'This clip has no sound of its own to copy.' };
+  const w = sbeClipAudio(c);
+  if (Math.abs(w.speed - 1) > 1e-9) {
+    return { why: 'This clip plays at ' + w.speed + 'x and a sound on an audio track plays at 1x — '
+                  + 'set the clip back to 1x to copy its sound.' };
+  }
+  const s = { id: sbeNewId(), path: String(c.path || ''), start: w.start, end: w.end,
+              film_start: sbeRound(w.film_start + w.len),
+              title: sbeTsCopyTitle({ title: c.title, path: c.path }, 'clip sound') };
+  if (sbeNum(c.duration, 0) > 0) s.duration = sbeNum(c.duration);
+  const e = sbeAfx(c, w.len);
+  const afx = {};
+  if (e.fade_in > 1e-9) afx.fade_in = e.fade_in;
+  if (e.fade_out > 1e-9) afx.fade_out = e.fade_out;
+  if (e.points.length) afx.points = e.points;
+  if (Object.keys(afx).length) s.afx = afx;
+  if (sbeClipMuted(c)) s.muted = true;
+  return { strip: s };
+}
+
+// A2 → a strip. The played window of the soundtrack, its envelope and its
+// fader (the duck is a relationship with A1, not a property of the sound, so
+// it does not travel). A2 holds ONE strip, so the copy is always a track's.
+function sbeTsFromBed(audio, peaksDur) {
+  const a = audio || {};
+  if (!a.path) return { why: 'There is no soundtrack on A2 to copy.' };
+  const w = sbeMusicWindow(a, peaksDur);
+  if (w.film_end === null || w.tail === null) {
+    return { why: 'The soundtrack\'s length is not known yet — press Prepare in the A2 head\'s ▾ first.' };
+  }
+  const len = sbeRound(w.tail - w.head);
+  if (len < SBE_TRACK_STRIP_MIN) return { why: 'The soundtrack is trimmed to nothing.' };
+  const s = { id: sbeNewId(), path: String(a.path), start: w.head, end: w.tail,
+              film_start: sbeRound(w.film_start + len),
+              title: sbeTsCopyTitle({ path: a.path }, 'music') };
+  if (w.duration > 0) s.duration = sbeRound(w.duration);
+  const e = sbeAfx(a, len);
+  const afx = {};
+  if (e.fade_in > 1e-9) afx.fade_in = e.fade_in;
+  if (e.fade_out > 1e-9) afx.fade_out = e.fade_out;
+  if (e.points.length) afx.points = e.points;
+  if (Object.keys(afx).length) s.afx = afx;
+  const g = sbeAudioMix(a).bed_gain;
+  if (Math.abs(g - 1) > 1e-9) s.gain = g;
+  return { strip: s };
+}
+
+// The tracks as the save payload carries them: client bookkeeping stripped,
+// numbers rounded. An empty list is sent as no key at all (see sbeSaveBody).
+function sbeTsClean(tracks) {
+  return (tracks || []).map(t => {
+    const o = {};
+    for (const k of Object.keys(t || {})) if (k.charAt(0) !== '_') o[k] = t[k];
+    o.strips = ((t || {}).strips || []).map(s => {
+      const x = {};
+      for (const k of Object.keys(s || {})) if (k.charAt(0) !== '_') x[k] = s[k];
+      x.start = sbeRound(x.start); x.end = sbeRound(x.end);
+      x.film_start = sbeRound(x.film_start);
+      return x;
+    });
+    return o;
+  });
+}
+
+// ---- the selection, on the tracks ----------------------------------------
+// `SBE.sel` names the PRIMARY the way '@music' already does: '@ts:<strip id>'.
+// `SBE.tsSet` is every selected strip and always holds the primary. Anything
+// that points `SBE.sel` at a clip — every existing click path — therefore
+// ends the strip selection without having to know it exists.
+function sbeTsSelIds() {
+  const sel = String(SBE.sel || '');
+  if (sel.indexOf('@ts:') !== 0) return [];
+  const primary = sel.slice(4);
+  const live = {};
+  for (const t of (SBE.tracks || [])) for (const s of (t.strips || [])) live[String(s.id)] = true;
+  if (!live[primary]) return [];
+  let set = (SBE.tsSet || []).map(String).filter(id => live[id]);
+  if (set.indexOf(primary) < 0) set = [primary];
+  SBE.tsSet = set;
+  return set.slice();
+}
+
+function sbeTsSelectOne(sid) {
+  SBE.sel = '@ts:' + String(sid);
+  SBE.tsSet = [String(sid)];
+  SBE.selSet = []; SBE.ovSel = ''; SBE.txSel = ''; SBE.selLane = '';
+}
+
+function sbeTsSelectToggle(sid) {
+  const want = String(sid);
+  const set = sbeTsSelIds();
+  if (!set.length) { sbeTsSelectOne(want); return; }
+  const i = set.indexOf(want);
+  if (i < 0) { set.push(want); SBE.sel = '@ts:' + want; }
+  else if (set.length > 1) {
+    set.splice(i, 1);
+    if (SBE.sel === '@ts:' + want) SBE.sel = '@ts:' + set[0];
+  } else return;
+  SBE.tsSet = set;
+}
+
+// THE DOOR every track edit goes through, the same shape `sbeMutateEach` has:
+// one undo step for one gesture however many strips it touched, a refusal on
+// one strip reported and the rest done, and the model's pure answers adopted
+// only when something landed. Returns the list of answers, or false.
+function sbeTsMutateEach(ids, fn) {
+  const list = (ids || []).slice();
+  if (!list.length) return false;
+  const before = sbeSnapshot();
+  let tracks = SBE.tracks || [];
+  const why = [];
+  const done = [];
+  for (const id of list) {
+    const r = fn(tracks, id);
+    if (!r || r.ok === false) { if (r && r.why) why.push(String(r.why)); continue; }
+    tracks = r.tracks;
+    done.push(r);
+  }
+  const say = (w) => (w === 'locked' ? 'That sound is locked.' : w);
+  if (!done.length) {
+    phosToast(say(why[0] || 'Nothing on this selection could take that.'), {});
+    return false;
+  }
+  SBE.undo.push(before);
+  if (SBE.undo.length > SBE_UNDO_MAX) SBE.undo.shift();
+  SBE.redo.length = 0;
+  SBE.tracks = tracks;
+  SBE.dirty = true;
+  sbeSetState('unsaved changes', 'dirty');
+  if (why.length) {
+    phosToast(why.length + ' of ' + list.length + ' were left as they were — '
+              + say(why[0]), { duration: 6000 });
+  }
+  sbePaint();
+  sbeQueueSave();
+  return done;
+}
+
+function sbeTsMutate(fn) {
+  const r = sbeTsMutateEach(['*'], (ts) => fn(ts));
+  return r ? r[0] : false;
+}
+
 // ---- THE OVERLAY LANE'S MODEL -------------------------------------------
 // Overlays do NOT ripple. A card is placed where somebody wants it in the
 // finished film, so moving one moves one, and trimming one changes only its
@@ -2025,6 +2807,9 @@ function sbeDuplicate(clips, id) {
   out.splice(out.indexOf(c) + 1, 0, b);
   sbeLayout(out);
   sbeSyncCarry(out, mark, [b.id]);
+  // THE COPY IS A NEIGHBOUR, so its sound goes on the other lane — the two
+  // can then be trimmed into each other and crossfaded like any pair.
+  sbeLaneFit(out, b);
   return { clips: out, ok: true, added: b };
 }
 
@@ -2165,6 +2950,7 @@ function sbePlaceUnplaced(clips, item, filmStart) {
     sbeLayout(out);
   }
   sbeSyncCarry(out, mark, []);
+  sbeLaneFit(out, c);
   return { clips: out, ok: true, added: c };
 }
 
@@ -2288,6 +3074,7 @@ function sbeInsertAt(clips, item, filmTime) {
   c._gap = 0;                       // hard against its new neighbour
   sbeLayout(out);                   // everything after it rides along
   sbeSyncCarry(out, mark, []);      // ...sound included
+  sbeLaneFit(out, c);               // ...on the lane its neighbour is not on
   return { clips: out, ok: true, added: c, index: idx };
 }
 
@@ -2349,6 +3136,8 @@ function sbeCleanClip(c) {
   else out.speed = sp;
   if (kind === 'slug' || sbeFramingIsNeutral(c)) delete out.frame;
   else out.frame = sbeFraming(c);
+  // Lane A is the absence of the field, the same way the server writes it.
+  if (sbeSoundLane(c) === 2) out.sound_lane = 2; else delete out.sound_lane;
   return out;
 }
 
@@ -2364,6 +3153,11 @@ function sbeSaveBody(state) {
   });
   // THE BOUNDARIES TRAVEL TOO. An empty list is the server's absent key.
   edit.transitions = (state.transitions || []).map(t => Object.assign({}, t));
+  // THE AUDIO TRACKS, and NO KEY when there are none — the server's absent
+  // key, so a timeline with no tracks sends exactly the document it always
+  // did and the backup's digest cannot differ from the save's over `[]`.
+  const tracks = (typeof sbeTsClean === 'function') ? sbeTsClean(state.tracks || []) : [];
+  if (tracks.length) edit.audio_tracks = tracks; else delete edit.audio_tracks;
   edit.board_id = state.id;
   const body = { id: state.id, edit: edit };
   if (state.expect !== null && state.expect !== undefined) body.expect_revision = state.expect;
@@ -2549,11 +3343,10 @@ function sbeMonitorFit(width, budget, opts) {
 // never take so much that the monitors stop being monitors — `max` is
 // sbeFitMonitors' measurement of that, and it is clamped again here so a
 // caller that has not measured yet cannot ask for a screenful.
-function sbeTlClamp(want, max) {
-  const hi = Math.max(SBE_TL_MIN_H,
-                      Math.min(SBE_TL_MAX_H, sbeNum(max, SBE_TL_MAX_H)));
-  return Math.round(Math.max(SBE_TL_MIN_H,
-                             Math.min(hi, sbeNum(want, SBE_TL_MIN_H))));
+function sbeTlClamp(want, max, small) {
+  const floor = sbeTlFloor(small), roof = sbeTlRoof(small);
+  const hi = Math.max(floor, Math.min(roof, sbeNum(max, roof)));
+  return Math.round(Math.max(floor, Math.min(hi, sbeNum(want, floor))));
 }
 
 // WHERE A DRAGGED PIXEL LANDS. Every lane starts at the height it has always
@@ -2561,21 +3354,28 @@ function sbeTlClamp(want, max) {
 // a capped lane cannot take is offered again to the ones still growing, so the
 // height is spent rather than lost. Pure: px in, px out, no DOM — the
 // distribution is the whole feature and it is not checkable by eye.
-function sbeLaneHeights(tlH) {
+function sbeLaneHeights(tlH, small) {
+  const s = (small === undefined) ? sbeAudioSmall() : !!small;
+  const floor = sbeTlFloor(s);
   const out = { ruler: 18 };
-  for (const L of SBE_LANES) out[L.key] = L.base;
-  let left = Math.max(0, Math.round(sbeNum(tlH, SBE_TL_MIN_H)) - SBE_TL_MIN_H);
+  for (const L of SBE_LANES) out[L.key] = sbeLaneBase(L, s);
+  let left = Math.max(0, Math.round(sbeNum(tlH, floor)) - floor);
   // Four passes is one more than the number of lanes that can cap while
   // another still has room, so this terminates with the height spent or every
   // lane full. A `while` here would be a loop whose bound is an argument.
   for (let pass = 0; pass < 4 && left > 0.5; pass++) {
     let share = 0;
-    for (const L of SBE_LANES) if (out[L.key] < L.cap) share += L.share;
+    // A LANE THAT IS SUPPOSED TO BE THIN NEVER TAKES A DRAGGED PIXEL — a
+    // compacted lane that grew with the drag would not be compact.
+    for (const L of SBE_LANES) {
+      if (out[L.key] < sbeLaneCap(L, s)) share += L.share;
+    }
     if (share <= 0) break;
     const pool = left;
     for (const L of SBE_LANES) {
-      if (out[L.key] >= L.cap) continue;
-      const take = Math.min(pool * (L.share / share), L.cap - out[L.key]);
+      const cap = sbeLaneCap(L, s);
+      if (out[L.key] >= cap) continue;
+      const take = Math.min(pool * (L.share / share), cap - out[L.key]);
       out[L.key] += take;
       left -= take;
     }
@@ -2594,13 +3394,203 @@ function sbeLaneHeights(tlH) {
 function sbeTlPrefRead() {
   let v = NaN;
   try { v = parseInt(localStorage.getItem('phos_sbe_tl_h') || '', 10); } catch (e) {}
-  return (v === v) ? sbeTlClamp(v, SBE_TL_MAX_H) : SBE_TL_MIN_H;
+  // Read and written against the FULL-height ends: the number the user dragged
+  // is what he asked for with the sound open, and making the lanes small must
+  // not quietly rewrite it to the smaller ceiling.
+  return (v === v) ? sbeTlClamp(v, SBE_TL_MAX_H, false) : SBE_TL_MIN_H;
 }
 function sbeTlPrefWrite(px) {
   try {
     localStorage.setItem('phos_sbe_tl_h',
-                         String(sbeTlClamp(px, SBE_TL_MAX_H)));
+                         String(sbeTlClamp(px, SBE_TL_MAX_H, false)));
   } catch (e) {}
+}
+
+// ---------------------------------------------------------------------------
+// THE SOUND LANES MAKE THEMSELVES SMALL
+// ---------------------------------------------------------------------------
+// "Think of some way that is really seamless and user-friendly to maybe
+// compact all audio lanes when I am not working with them and make them little
+// (because I want to see the image also as I'm working sometimes)."
+//
+// So it is AUTOMATIC and it is also a button. Automatic is the default: the
+// sound area is thin until you go near it and full height for as long as you
+// are on it. The button (the ▾ on the A1 head, ⇧A) is for when you have an
+// opinion — it pins one answer, in THIS BROWSER, next to the timeline's height
+// and for the same reason: a window's shape is not the film's data. See the
+// comment above sbeTlPrefRead, which this follows exactly.
+//
+// THREE STATES, ONE KEY: 'auto' (the default), 'open', 'small'.
+function sbeAudioPinRead() {
+  let v = '';
+  try { v = localStorage.getItem('phos_sbe_audio') || ''; } catch (e) {}
+  return (v === 'open' || v === 'small') ? v : 'auto';
+}
+function sbeAudioPinWrite(v) {
+  try { localStorage.setItem('phos_sbe_audio', String(v || 'auto')); } catch (e) {}
+}
+function sbeAudioPinSet(v) {
+  const want = (v === 'open' || v === 'small') ? v : 'auto';
+  SBE.aPin = want;
+  sbeAudioPinWrite(want);
+  sbeAudioSync();
+}
+
+// IS THE SOUND AREA SMALL RIGHT NOW? Every height function asks this, including
+// the one the timeline's own preference is read through — which runs inside
+// SBE's initialiser, before SBE exists. Hence the guard: this may not throw.
+function sbeAudioSmall() {
+  try { return !!(SBE && SBE.aSmall); } catch (e) { return false; }
+}
+
+// IS SOMEBODY WORKING ON SOUND? Read off the state the audio gestures already
+// write, so no click path has to remember to announce itself: a selected strip,
+// a drag in progress, the pointer over a lane or a head, the Sound pool open,
+// a focused control in the sound heads. Playback and an open menu hold it open
+// too — a lane that collapsed mid-play or under an open menu would be the
+// "jumps" the request rules out.
+function sbeAudioBusy() {
+  if (SBE.audioDrag || SBE.musicDrag || SBE.tsDrag || SBE.kfDrag || SBE.tgSliding) return true;
+  if (SBE.tlDrag) return true;
+  if (SBE.playing) return true;
+  if (SBE.aHover) return true;
+  if (typeof sbePopAnyOpen === 'function' && sbePopAnyOpen()) return true;
+  const sel = String(SBE.sel || '');
+  if (sel === '@music' || sel.indexOf('@ts:') === 0) return true;
+  if (SBE.selLane) return true;
+  if (typeof ED === 'object' && ED && ED.src === 'sound') return true;
+  const f = (typeof document === 'object' && document) ? document.activeElement : null;
+  if (f && f.closest && f.closest('.sbe-gh-aud, .sbe-gh-mus, .sbe-gh-trk, .sbe-gh-add')) return true;
+  return false;
+}
+
+// What the area SHOULD be, right now. Pure decision, no DOM.
+function sbeAudioWant() {
+  if (SBE.aPin === 'open') return false;
+  if (SBE.aPin === 'small') return true;
+  if (sbeAudioBusy()) return false;
+  return (Date.now() - sbeNum(SBE.aTouch, 0)) >= SBE_ASMALL_IDLE;
+}
+
+// ASK AGAIN LATER. One timer, always the only one, and it is only ever armed
+// while the area is OPEN and unpinned — the way back the other direction is a
+// touch, which is immediate.
+function sbeAudioArm() {
+  if (SBE.aTimer) { clearTimeout(SBE.aTimer); SBE.aTimer = null; }
+  if (!SBE.open || SBE.aPin !== 'auto' || SBE.aSmall) return;
+  SBE.aTimer = setTimeout(() => { SBE.aTimer = null; sbeAudioSync(); }, SBE_ASMALL_IDLE);
+}
+
+function sbeAudioSync() {
+  const want = sbeAudioWant();
+  if (want !== SBE.aSmall) { sbeAudioSet(want); return; }
+  sbeAudioArm();
+}
+
+// SOMEBODY IS ON SOUND. Opens the area at once (that half may never wait) and
+// restarts the idle. `opts.open` also releases a `small` pin, because the two
+// gestures that carry it — clicking a thin lane, dragging the edge up past what
+// thin lanes can use — are the user asking for the sound back in so many words.
+function sbeAudioTouch(opts) {
+  SBE.aTouch = Date.now();
+  if (opts && opts.open && SBE.aPin === 'small') {
+    SBE.aPin = 'auto';
+    sbeAudioPinWrite('auto');
+  }
+  if (SBE.aSmall && SBE.aPin !== 'small') sbeAudioSet(false);
+  else sbeAudioArm();
+}
+
+// The pointer over a lane or a head is "working with it" for as long as it is
+// there — hovering a thin lane opens it, which is how you find out it opens.
+function sbeAudioOver(on) {
+  const want = !!on;
+  if (SBE.aHover === want) return;
+  SBE.aHover = want;
+  if (want) sbeAudioTouch();
+  else sbeAudioArm();
+}
+
+// THE ONE WRITER of the area's size. Nothing here resizes an element either:
+// it moves the same lane table the drag handle moves, and sbeFitMonitors gives
+// the difference to the picture.
+function sbeAudioSet(small) {
+  const want = !!small;
+  if (SBE.aSmall === want) return;
+  SBE.aSmall = want;
+  const plan = sbeEl('sbTimeline');
+  if (plan && plan.classList) plan.classList.toggle('is-asmall', want);
+  // A HEIGHT THAT JUMPS READS AS A BUG, so the lanes and their heads carry a
+  // transition — but only while this class is on the body, so the drag handle,
+  // which moves the same numbers sixty times a second, stays instant.
+  if (typeof document === 'object' && document && document.body) {
+    document.body.classList.add('sbe-aanim');
+  }
+  if (SBE.aAnim) clearTimeout(SBE.aAnim);
+  SBE.aAnim = setTimeout(() => {
+    SBE.aAnim = null;
+    if (typeof document === 'object' && document && document.body) {
+      document.body.classList.remove('sbe-aanim');
+    }
+    // THE WAVEFORMS ARE DRAWN, NOT STYLED: the soundtrack's canvas carries a
+    // backing store and every strip's waveform is emitted at its own height, so
+    // both have to be re-issued at the height they actually landed on. Same
+    // reason sbeFitMonitors redraws them when the drag moves the number.
+    SBE.laneAt = -1;
+    sbePaint();
+  }, 220);
+  sbeApplyTl(sbeTlClamp(SBE.tlH, SBE.tlMax));
+  if (want) sbeAudioSmallOnce();
+  sbePaint();
+  sbeAudioArm();
+}
+
+// THE FIRST TIME IT HAPPENS BY ITSELF, IT SAYS SO. An area that shrinks with no
+// explanation is a bug the user reports; one sentence turns it into a feature
+// he knows the handle for. Once per browser, next to the other view preferences.
+function sbeAudioSmallOnce() {
+  let seen = '';
+  try { seen = localStorage.getItem('phos_sbe_audio_seen') || ''; } catch (e) {}
+  if (seen) return;
+  try { localStorage.setItem('phos_sbe_audio_seen', '1'); } catch (e) {}
+  if (typeof phosToast !== 'function') return;
+  phosToast('Sound lanes made small so the picture gets the height — touch any sound and they '
+            + 'come straight back. The ▾ on the A1 head (⇧A) keeps them small, or open, for good.',
+            { duration: 9000 });
+}
+
+// THE BUTTON. Two answers, and neither of them is "auto": auto is what you have
+// until you have an opinion, and clicking a thin lane hands it back.
+function sbeAudioPinToggle() {
+  const want = sbeAudioSmall() ? 'open' : 'small';
+  SBE.aPin = want;
+  sbeAudioPinWrite(want);
+  sbeAudioSet(want === 'small');
+  if (typeof phosToast === 'function') {
+    phosToast(want === 'small'
+      ? 'Sound lanes small — A1, A2 and every audio track stay thin and the picture keeps the '
+        + 'height. Click any sound to work on it; ⇧A brings them back for good.'
+      : 'Sound lanes at full height — they stay open while you work. ⇧A, or the ▾ on the A1 '
+        + 'head, makes them small again.', { duration: 6000 });
+  }
+}
+
+// ONE CLICK ON A THIN LANE OPENS THE AREA AND SELECTS WHAT WAS CLICKED, which
+// is the whole gesture: you point at the sound you want and it is there, full
+// height, selected, ready for the second click to edit it.
+function sbeAudioOpenFrom(ev) {
+  const blk = (ev && ev.target && ev.target.closest)
+    ? ev.target.closest('.sbe-tstrip, .sbe-aclip, .sbe-music-clip') : null;
+  if (blk && blk.classList.contains('sbe-tstrip')) {
+    sbeTsSelectOne(blk.dataset.strip);
+  } else if (blk && blk.id === 'sbeMusicClip') {
+    SBE.sel = '@music'; SBE.selSet = []; SBE.tsSet = []; SBE.selLane = '';
+  } else if (blk && blk.dataset && blk.dataset.id) {
+    sbeSelectOne(blk.dataset.id);
+    SBE.selLane = blk.dataset.id; SBE.tsSet = [];
+  }
+  sbeAudioTouch({ open: true });
+  if (ev && ev.preventDefault) ev.preventDefault();
 }
 
 // ---------------------------------------------------------------------------
@@ -2832,6 +3822,8 @@ function sbeAdopt(r, quiet) {
   SBE.backupHidden = false;          // a NEW offer is not the one dismissed
   SBE.overlays = (SBE.edit.overlays || []).map(o => Object.assign({}, o));
   SBE.transitions = (SBE.edit.transitions || []).map(t => Object.assign({}, t));
+  SBE.tracks = sbeTsCopy(SBE.edit.audio_tracks || []);
+  SBE.tsSet = []; SBE.tsDrag = null; SBE.tsDrop = null; SBE.selLane = '';
   SBE.ovSel = '';
   SBE.txSel = '';
   SBE.clips = sbeAdoptGaps((SBE.edit.clips || []).map(c => Object.assign({}, c)));
@@ -2994,6 +3986,9 @@ function sbeSnapshot(audio) {
     // pictures walked back without it.
     overlays: SBE.overlays || [],
     transitions: SBE.transitions || [],
+    // THE AUDIO TRACKS ARE THE ARRANGEMENT TOO — a strip placed and undone
+    // must leave with the undo, not stay behind on its lane.
+    tracks: SBE.tracks || [],
     audio: (audio === undefined)
       ? (SBE.audio || (SBE.edit && SBE.edit.audio) || null) : audio,
   });
@@ -3008,6 +4003,7 @@ function sbeRestore(json) {
   // card nobody asked to remove — absent means "unchanged", not "empty".
   if (s.overlays !== undefined) SBE.overlays = s.overlays || [];
   if (s.transitions !== undefined) SBE.transitions = s.transitions || [];
+  if (s.tracks !== undefined) SBE.tracks = s.tracks || [];
   SBE.edit = SBE.edit || {};
   // ...and a restore never COMMITS a discovered track into the document. The
   // arrangement owns a soundtrack only once somebody has placed it (see
@@ -3167,6 +4163,7 @@ function sbeSelectAll() {
 
 function sbeSelectNone() {
   SBE.sel = ''; SBE.selSet = []; SBE.ovSel = ''; SBE.txSel = '';
+  SBE.tsSet = []; SBE.selLane = '';
   sbePaint();
 }
 
@@ -3438,7 +4435,8 @@ async function sbeBackup(quiet) {
   let r;
   try {
     const body = sbeSaveBody({ id: SBE.id, edit: SBE.edit, clips: SBE.clips,
-                               overlays: SBE.overlays, expect: null });
+                               overlays: SBE.overlays, tracks: SBE.tracks,
+                               expect: null });
     // WHICH DRAFT THIS WAS COMPOSED FROM. The server files the backup under
     // the draft that is active when the write LANDS, and this one is
     // debounced — so without the name in the body, a backup of the draft you
@@ -3556,7 +4554,7 @@ async function sbeSaveInner(quiet, force) {
   const order = SBE.clips.map(c => c.id);
   SBE.sentOrder = order;
   const body = sbeSaveBody({ id: SBE.id, edit: SBE.edit, clips: SBE.clips,
-                             overlays: SBE.overlays,
+                             overlays: SBE.overlays, tracks: SBE.tracks,
                              expect: force ? null : SBE.revision });
   let r;
   try {
@@ -4233,7 +5231,13 @@ function sbeSpan() {
   const film = sbeFilmDuration(SBE.clips);
   const w = sbeMusicWindow(SBE.audio, SBE.peaks ? SBE.peaks.duration : 0);
   const music = (w.film_end === null) ? w.film_start : w.film_end;
-  const base = Math.max(film, music, 0);
+  // ...and the audio tracks, whose strips are placed on the film as freely as
+  // the music is and must stay reachable past the last cut.
+  let tracksEnd = 0;
+  for (const t of (SBE.tracks || [])) {
+    for (const s of (t.strips || [])) tracksEnd = Math.max(tracksEnd, sbeTsWindow(s).film_end);
+  }
+  const base = Math.max(film, music, tracksEnd, 0);
   const slack = Math.min(SBE_SLACK_MAX,
                          Math.max(SBE_SLACK_MIN, base * SBE_SLACK_RATIO));
   return Math.max(SBE_SPAN_MIN, base + slack);
@@ -4269,6 +5273,7 @@ function sbePaint() {
   sbeOvPaint();
   sbePaintTrack();
   sbePaintAudioLane();
+  sbePaintTracks();
   sbePaintHead();
   sbePaintCbar();
   sbePaintInspector();
@@ -4280,6 +5285,10 @@ function sbePaint() {
   // here, so this is the one place that cannot be forgotten. Unforced: the
   // slip tolerance keeps a drag from re-seeking sixty times a second.
   sbeStripSync();
+  // EVERY EDIT AND EVERY SELECTION LANDS HERE, so this is where the sound
+  // area's idle is restarted — a click that deselected the last strip has to
+  // start the clock without every click path knowing that it did.
+  sbeAudioArm();
   // LAST, and after the inspector: the row's budget is what the column has
   // left once everything else has been laid out, and the inspector is the
   // one that changes height when a clip is selected.
@@ -4337,13 +5346,20 @@ function sbeFitMonitors() {
   // is small but it is still a picture, and it is the same floor sbeMonitorFit
   // has always refused to go under.
   const avail = col.clientHeight - used - gap * Math.max(0, shown - 1) - chrome;
-  SBE.tlMax = Math.max(SBE_TL_MIN_H,
-                       Math.min(SBE_TL_MAX_H, Math.round(avail - SBE_MON_MIN_H)));
+  // THE AUDIO TRACKS RIDE ON TOP of the height the handle sets: one strip
+  // lane per track plus the add row. The lanes that were there keep what the
+  // user gave them, and the monitors pay for the new ones.
+  // Both ends read the CURRENT lane set: with the sound lanes small the box
+  // can use less height, every track costs a fifth of what it did, and the
+  // difference lands in `budget` below — which is the picture.
+  const extra = sbeExtraLanesH(sbeLaneHeights(sbeTlClamp(SBE.tlH, sbeTlRoof())));
+  SBE.tlMax = Math.max(sbeTlFloor(),
+                       Math.min(sbeTlRoof(), Math.round(avail - SBE_MON_MIN_H - extra)));
   // The PREFERENCE is never overwritten by a window that cannot honour it —
   // shrink the browser and the timeline gives the height back; widen it again
   // and the drag the user made is still there.
   const want = sbeTlClamp(SBE.tlH, SBE.tlMax);
-  const budget = avail - want;
+  const budget = avail - want - extra;
   const apply = (b) => {
     const fit = sbeMonitorFit(row.clientWidth, b);
     row.style.setProperty('--sbe-prog-h', Math.round(fit.progH) + 'px');
@@ -4361,7 +5377,12 @@ function sbeFitMonitors() {
     // own floor and cannot give anything back, so whatever the column is
     // overflowing by has to come off the TIMELINE or it does not come off
     // anything. Floored, never negative — the box may not shrink into itself.
-    sbeApplyTl(Math.max(SBE_TL_MIN_H, want + Math.round(b - fit.progH)));
+    // ...AND IT MAY NOT HAND THE TIMELINE MORE THAN ITS LANES CAN USE. With
+    // the sound lanes small the picture and the overlay reach their caps in
+    // the first 80px, so anything past the roof is dead band inside the box
+    // rather than a taller lane — the column keeps it instead.
+    sbeApplyTl(Math.max(sbeTlFloor(),
+                        Math.min(sbeTlRoof(), want + Math.round(b - fit.progH))));
   };
   apply(budget);
   // ONE CORRECTION, NEVER A LOOP. Rounding, a sticky bar's own padding and a
@@ -4382,6 +5403,7 @@ function sbeFitMonitors() {
   if (SBE.laneAt !== SBE.tlNow) {
     SBE.laneAt = SBE.tlNow;
     sbePaintAudioLane();
+    sbePaintTracks();
     const inner = sbeEl('sbeInner');
     if (inner) sbePaintWave(sbeSpan(), parseFloat(inner.style.width) || 0);
   }
@@ -4392,12 +5414,13 @@ function sbeFitMonitors() {
 // strip waveform's viewBox, the soundtrack canvas — reads the same numbers, so
 // the picture and the pointer maths cannot disagree about where a strip is.
 function sbeApplyTl(px) {
-  const tl = Math.max(SBE_TL_MIN_H, Math.round(sbeNum(px, SBE_TL_MIN_H)));
+  const floor = sbeTlFloor();
+  const tl = Math.max(floor, Math.round(sbeNum(px, floor)));
   SBE.tlNow = tl;
   const plan = sbeEl('sbTimeline');
   if (!plan || !plan.style) return;
   const L = sbeLaneHeights(tl);
-  plan.style.setProperty('--sbe-tl-h', tl + 'px');
+  plan.style.setProperty('--sbe-tl-h', (tl + sbeExtraLanesH(L)) + 'px');
   plan.style.setProperty('--sbe-ov-h', L.ov + 'px');
   plan.style.setProperty('--sbe-track-h', L.track + 'px');
   plan.style.setProperty('--sbe-alane-h', L.alane + 'px');
@@ -4412,7 +5435,11 @@ function sbeStripH() {
   // SEVEN, not six: the lane is border-box with a 1px top rule, and the strip
   // inside it is inset 3px top and bottom. Off by that one pixel the viewBox
   // and the box disagree and every waveform is drawn 4% tall.
-  return Math.max(14, sbeLaneHeights(SBE.tlNow || SBE.tlH).alane - 7);
+  // 14 is the shortest strip that can still hold a level line and a point —
+  // and it is the wrong floor for a lane that is deliberately 18px, so a small
+  // lane gets the only floor that matters there: the box it is drawn in.
+  return Math.max(sbeAudioSmall() ? 8 : 14,
+                  sbeLaneHeights(SBE.tlNow || SBE.tlH).alane - 7);
 }
 
 // ---- the drag itself ----------------------------------------------------
@@ -4449,6 +5476,11 @@ function sbeTlGrabUp(ev) {
 // sbeFitMonitors (last inside sbePaint) gives the monitors what is left and
 // corrects tlNow for what the window could actually spare.
 function sbeTlSet(px) {
+  // PULLING THE EDGE UP PAST WHAT THIN LANES CAN USE IS "give me the sound
+  // back": there is no other height left in the box to ask for.
+  if (sbeAudioSmall() && sbeNum(px, 0) > sbeTlRoof(true) + 8) {
+    sbeAudioTouch({ open: true });
+  }
   SBE.tlH = sbeTlClamp(px, SBE.tlMax);
   sbeApplyTl(SBE.tlH);
   sbePaint();
@@ -4457,7 +5489,7 @@ function sbeTlSet(px) {
 // DOUBLE-CLICK RESETS, the same gesture the fade corners and the level line
 // already answer to on this timeline.
 function sbeTlReset() {
-  sbeTlSet(SBE_TL_MIN_H);
+  sbeTlSet(sbeTlFloor());
   sbeTlPrefWrite(SBE.tlH);
 }
 
@@ -4466,7 +5498,7 @@ function sbeTlGrabKey(ev) {
   const now = SBE.tlNow || SBE.tlH;
   if (ev.key === 'ArrowUp') sbeTlSet(now + step);
   else if (ev.key === 'ArrowDown') sbeTlSet(now - step);
-  else if (ev.key === 'Home') sbeTlSet(SBE_TL_MIN_H);
+  else if (ev.key === 'Home') sbeTlSet(sbeTlFloor());
   else return;
   // The Editor's own shortcuts own the arrows (a frame at a time) and Home.
   // A focused handle is not the timeline, so the event stops here.
@@ -4760,6 +5792,7 @@ function sbeBedLevelClick(ev) {
 }
 
 function sbeOnMusicDown(ev) {
+  if (sbeAudioSmall()) { sbeAudioOpenFrom(ev); return; }
   const el = sbeEl('sbeMusicClip');
   if (!el || el.hidden) return;
   const a = SBE.audio;
@@ -5222,7 +6255,9 @@ function sbePaintAudioLane() {
     // not have.
     const mute = c.has_audio === false;
     const off = sbeClipMuted(c);
+    const lane = sbeSoundLane(c);
     const cls = 'sbe-aclip ' + (w.linked ? 'is-linked' : 'is-split')
+              + (lane === 2 ? ' is-b' : '')
               + (w.coupled ? ' is-coupled' : '')
               + (mute ? ' is-mute' : '')
               + (off ? ' is-silenced' : '')
@@ -5245,8 +6280,9 @@ function sbePaintAudioLane() {
               : w.coupled
               ? 'Linked at ' + sbeDriftLabel(sbeAudioDrift(c)) + ' — the sound keeps this offset and travels with the picture. Unlink it to slide it on its own.'
               : (w.linked
-              ? 'This clip\'s sound moves with its picture. Unlink sound, on the bar above the tracks, to slide it under the neighbour (a J-cut or an L-cut).'
-              : 'Unlinked — drag to slide the sound, pull either end to trim it. The picture does not move.')) + '" '
+              ? 'This clip\'s sound moves with its picture. Unlink sound, on the bar above the tracks, to slide it under the neighbour (a J-cut or an L-cut). Drag it up or down to put it on the other sound lane.'
+              : 'Unlinked — drag to slide the sound, pull either end to trim it, drag it up or down to the other sound lane. The picture does not move.')
+              + ' Sound lane ' + sbeLaneName(lane) + '.') + '" '
           + 'style="left:' + x.toFixed(1) + 'px;width:' + Math.max(2, px).toFixed(1) + 'px">'
           + (mute ? '' : sbeStripWave(c, w, px))
           + (px > 70 ? '<span class="sbe-aclip-t">' + escapeHtml(label) + '</span>' : '')
@@ -5265,6 +6301,600 @@ function sbePaintAudioLane() {
   }
   lane.innerHTML = html;
   lane.style.width = sbeEl('sbeInner').style.width;
+}
+
+// ---------------------------------------------------------------------------
+// THE AUDIO TRACKS ON SCREEN — lanes, heads, gestures
+// ---------------------------------------------------------------------------
+// How much taller the timeline is for its audio tracks: one strip lane per
+// track (the same height A1's lane is given) plus the add row.
+function sbeTracksExtraH(L) {
+  const lanes = L || sbeLaneHeights(SBE.tlNow || SBE.tlH);
+  return (SBE.tracks || []).length * lanes.alane + SBE_TADD_H;
+}
+
+// EVERYTHING the lane table does not itemise: the audio tracks, and clip sound
+// lane B — A1 is drawn as TWO strip lanes in one box (`#sbeAudioLane` is twice
+// `--sbe-alane-h` tall), and the second one is paid for here, the way a track
+// is, so the lanes the user sized keep their height.
+function sbeExtraLanesH(L) {
+  const lanes = L || sbeLaneHeights(SBE.tlNow || SBE.tlH);
+  return sbeTracksExtraH(lanes) + lanes.alane;
+}
+
+// A LANE PER TRACK, directly under the music, and each strip drawn by the
+// SAME painter A1's strips use — waveform, level line, points, fade ramps,
+// grips and the corner band — handed the strip's render curve.
+function sbePaintTracks() {
+  const box = sbeEl('sbeTracks');
+  if (!box) return;
+  const tracks = SBE.tracks || [];
+  const sel = {};
+  for (const id of sbeTsSelIds()) sel[id] = true;
+  const drop = SBE.tsDrop || null;
+  let html = '';
+  tracks.forEach((t) => {
+    const tid = escapeHtml(String(t.id));
+    const tmuted = t.muted === true;
+    let body = '';
+    for (const s of (t.strips || [])) {
+      const w = sbeTsWindow(s);
+      const px = sbePx(w.len);
+      const item = { id: '@ts:' + s.id, path: s.path, afx: s.afx,
+                     locked: s.locked === true, _ts: true };
+      const off = tmuted || s.muted === true;
+      const name = s.title || String(s.path || '').split('/').pop() || 'sound';
+      const cls = 'sbe-aclip is-split sbe-tstrip' + (sel[String(s.id)] ? ' is-sel' : '')
+                + (off ? ' is-silenced' : '') + (s.locked === true ? ' is-locked' : '');
+      body += '<div class="' + cls + '" data-strip="' + escapeHtml(String(s.id)) + '" '
+        + 'data-track="' + tid + '" title="' + escapeHtml(name + '\n'
+            + (off ? 'Muted — silent in the preview, the render and the export.\n' : '')
+            + (s.locked === true ? 'Locked — Unlock on the bar above the tracks.'
+               : 'Drag to move it, onto another track too · pull either end to trim · '
+                 + 'the corners fade it · click the yellow line for a level point.')) + '" '
+        + 'style="left:' + sbePx(w.film_start).toFixed(1) + 'px;width:'
+        + Math.max(2, px).toFixed(1) + 'px">'
+        + sbeStripWave(item, w, px, sbeTsGainPoints(t, s))
+        + (px > 70 ? '<span class="sbe-aclip-t">' + escapeHtml((off ? 'MUTED · ' : '')
+                     + sbeNiceName(name)) + '</span>' : '')
+        + sbeAudioFadeMarks(item, w)
+        + (s.locked === true ? ''
+           : '<div class="sbe-grip l"></div><div class="sbe-grip r"></div>'
+             + '<div class="sbe-fade-band">'
+             + '<div class="sbe-fade-h in" data-afade="in"></div>'
+             + '<div class="sbe-fade-h out" data-afade="out"></div></div>')
+        + '</div>';
+    }
+    if (drop && String(drop.tid) === String(t.id)) {
+      body += '<div class="sbe-drop-line" style="left:' + sbePx(drop.at).toFixed(1) + 'px"></div>';
+    }
+    html += '<div class="sbe-alane sbe-tlane' + (tmuted ? ' is-muted' : '') + '" '
+          + 'data-track="' + tid + '">' + body + '</div>';
+  });
+  html += '<div class="sbe-tadd' + ((drop && drop.tid === 'new') ? ' is-drop' : '') + '" '
+        + 'data-track="new"><span class="sbe-tadd-t">'
+        + escapeHtml(tracks.length
+            ? 'Drop a sound here for a track of its own'
+            : 'Audio tracks — drop a sound from the media pool here, or press + Add audio track')
+        + '</span></div>';
+  box.innerHTML = html;
+  const inner = sbeEl('sbeInner');
+  if (inner) box.style.width = inner.style.width;
+  sbePaintTrackHeads();
+}
+
+// The heads: name, mute, level, remove. Rewritten only when what they show
+// changed, and never while a level slider is being dragged — replacing the
+// element under the pointer is how a slider drag dies halfway.
+function sbePaintTrackHeads() {
+  const heads = sbeEl('sbeTrackHeads');
+  if (!heads) return;
+  const tracks = SBE.tracks || [];
+  const sig = JSON.stringify(tracks.map(t => [t.id, t.name || '', t.muted === true,
+                                              sbeTrackGain(t)]));
+  if (SBE.tgSliding || heads.dataset.sig === sig) return;
+  heads.dataset.sig = sig;
+  heads.innerHTML = tracks.map((t, ti) => {
+    const tid = escapeHtml(String(t.id));
+    const q = '\'' + tid + '\'';
+    const label = sbeTrackLabel(ti);
+    const pct = Math.round(sbeTrackGain(t) * 100);
+    const muted = t.muted === true;
+    return '<div class="sbe-gh sbe-gh-trk' + (muted ? ' is-muted' : '') + '" data-track="' + tid + '">'
+      + '<span class="sbe-gh-tag"><i>' + label + '</i>'
+      + '<input type="text" class="sbe-trk-name" maxlength="60" spellcheck="false" value="'
+      + escapeHtml(t.name || 'Sound') + '" aria-label="Name of audio track ' + label + '" '
+      + 'title="Rename this track" onchange="sbeTrackRename(' + q + ', this.value)">'
+      + '<button type="button" class="sbe-gh-more sbe-trk-x" onclick="sbeTrackRemove(' + q + ')" '
+      + 'title="Remove this track and every sound on it. Undo brings it back.">×</button></span>'
+      + '<span class="sbe-trk-row">'
+      + '<button type="button" class="sbe-trk-mute' + (muted ? ' is-on' : '') + '" '
+      + 'aria-pressed="' + muted + '" onclick="sbeTrackMute(' + q + ')" title="'
+      + (muted ? 'Unmute this track'
+               : 'Mute this track — silent in the preview, the render and the export') + '">M</button>'
+      + '<input type="range" min="0" max="100" step="1" value="' + pct + '" '
+      + 'aria-label="Level of audio track ' + label + '" '
+      + 'title="How loud everything on this track plays. 100% is the files\' own level; the render applies exactly this." '
+      + 'oninput="sbeTrackGainSlide(' + q + ', this.value)" onchange="sbeTrackGainCommit(' + q + ', this.value)">'
+      + '<b>' + pct + '%</b></span></div>';
+  }).join('');
+}
+
+// One undo step for a gesture whose live updates wrote SBE.tracks directly.
+function sbeTsCommit(before) {
+  SBE.undo.push(before);
+  if (SBE.undo.length > SBE_UNDO_MAX) SBE.undo.shift();
+  SBE.redo.length = 0;
+  SBE.dirty = true;
+  sbeSetState('unsaved changes', 'dirty');
+  sbePaint();
+  sbeQueueSave();
+}
+
+function sbeTrackAdd() {
+  sbeAudioTouch({ open: true });
+  if (!SBE.open) return;
+  if (sbeTsMutate(ts => sbeTsNewTrack(ts))) {
+    phosToast(sbeTrackLabel(SBE.tracks.length - 1) + ' added — drag a sound from the media '
+              + 'pool onto it, or use Add sound file…. Sounds on different tracks play '
+              + 'together.', { duration: 6000 });
+  }
+}
+
+function sbeTrackRemove(tid) {
+  const t = sbeTsTrackById(SBE.tracks, tid);
+  if (!t) return;
+  const n = (t.strips || []).length;
+  if (sbeTsMutate(ts => sbeTsRemoveTrack(ts, tid))) {
+    phosToast('Track removed' + (n ? ' with its ' + n + ' sound' + (n === 1 ? '' : 's') : '')
+              + ' — Undo brings it back.', { duration: 6000 });
+  }
+}
+
+function sbeTrackMute(tid) {
+  const t = sbeTsTrackById(SBE.tracks, tid);
+  if (!t) return;
+  sbeTsMutate(ts => sbeTsSetTrack(ts, tid, { muted: t.muted !== true }));
+}
+
+function sbeTrackRename(tid, v) {
+  const t = sbeTsTrackById(SBE.tracks, tid);
+  if (!t || String(v || '').trim() === String(t.name || 'Sound')) return;
+  sbeTsMutate(ts => sbeTsSetTrack(ts, tid, { name: v }));
+}
+
+function sbeTrackGainSlide(tid, v) {
+  const r = sbeTsSetTrack(SBE.tracks, tid, { gain: sbeNum(v) / 100 });
+  if (!r.ok) return;
+  if (!SBE.tgBefore) SBE.tgBefore = sbeSnapshot();
+  SBE.tgSliding = true;
+  SBE.tracks = r.tracks;
+  const head = document.querySelector('.sbe-gh-trk[data-track="' + String(tid).replace(/"/g, '') + '"] b');
+  if (head) head.textContent = Math.round(sbeNum(v)) + '%';
+  sbePaintTracks();
+  sbeStripSync();
+}
+
+function sbeTrackGainCommit(tid, v) {
+  sbeTrackGainSlide(tid, v);
+  SBE.tgSliding = false;
+  const before = SBE.tgBefore;
+  SBE.tgBefore = null;
+  if (!before || JSON.stringify(JSON.parse(before).tracks || []) === JSON.stringify(SBE.tracks)) {
+    sbePaint();
+    return;
+  }
+  sbeTsCommit(before);
+}
+
+// The selected strip's own level, from the inspector. Live on input, one undo
+// step on change — the rule every slider here follows.
+function sbeTsGainSlide(v) {
+  const sid = String(SBE.sel || '').slice(4);
+  const r = sbeTsSetStrip(SBE.tracks, sid, { gain: sbeNum(v) / 100 });
+  if (!r.ok) return;
+  if (!SBE.tsGainBefore) SBE.tsGainBefore = sbeSnapshot();
+  SBE.tracks = r.tracks;
+  const el = sbeEl('sbeTsGainVal');
+  if (el) el.textContent = Math.round(sbeNum(v)) + '%';
+  sbePaintTracks();
+  sbeStripSync();
+}
+
+function sbeTsGainCommit(v) {
+  sbeTsGainSlide(v);
+  const before = SBE.tsGainBefore;
+  SBE.tsGainBefore = null;
+  if (!before || JSON.stringify(JSON.parse(before).tracks || []) === JSON.stringify(SBE.tracks)) {
+    sbePaint();
+    return;
+  }
+  sbeTsCommit(before);
+}
+
+function sbeTsFadeCommit(edge, v) {
+  const sid = String(SBE.sel || '').slice(4);
+  if (!sid) return;
+  sbeTsMutate(tracks => sbeTsSetFade(tracks, sid, edge, v));
+}
+
+// THE INSPECTOR FOR A TRACK SOUND: what it is, where it plays, and its shape —
+// level, fades and the level points. True when it painted the box.
+function sbePaintTsInspector(box) {
+  if (String(SBE.sel || '').indexOf('@ts:') !== 0) return false;
+  const f = sbeTsFind(SBE.tracks, String(SBE.sel).slice(4));
+  if (!f) return false;
+  const s = f.strip;
+  const w = sbeTsWindow(s);
+  const ae = sbeAfx(s, w.len);
+  const g = Math.round(sbeTsGain(s) * 100);
+  const name = s.title || String(s.path || '').split('/').pop() || 'sound';
+  const n = sbeTsSelIds().length;
+  const arow = (edge, val) =>
+    '<span class="sbe-fade-row"><label for="sbeTsFade' + edge + '">Fade ' + edge + '</label>'
+    + '<input type="number" class="sb-input sbe-fade-num" id="sbeTsFade' + edge + '" min="0" '
+    + 'max="' + w.len.toFixed(2) + '" step="0.05" value="' + val.toFixed(2) + '" '
+    + 'onchange="sbeTsFadeCommit(\'' + edge + '\', this.value)" '
+    + 'title="Seconds. Drag the corner of the strip for the same thing by eye.">'
+    + '<span class="sbe-adj-val">s</span></span>';
+  box.innerHTML =
+    '<b>' + escapeHtml(sbeNiceName(name)) + '</b>'
+    + (n > 1 ? '<span class="sbe-sect-lead">' + n + ' sounds selected · these are THIS '
+               + 'one\'s properties. The bar above the tracks acts on all ' + n + '.</span>' : '')
+    + '<span>' + escapeHtml(sbeTrackLabel(f.ti) + ' · ' + (f.track.name || 'Sound')
+                            + (f.track.muted === true ? ' (muted)' : '')) + '</span>'
+    + '<span>source ' + w.start.toFixed(2) + '–' + w.end.toFixed(2) + 's'
+    + (sbeNum(s.duration, 0) > 0 ? ' of ' + sbeNum(s.duration).toFixed(2) + 's' : '') + '</span>'
+    + '<span>film ' + w.film_start.toFixed(2) + '–' + w.film_end.toFixed(2) + 's</span>'
+    + '<span class="sbe-why">' + escapeHtml('A sound on an audio track plays over everything '
+        + 'above it, mixed — in the preview, the render and the export.'
+        + (s.locked === true ? ' It is locked.' : '')) + '</span>'
+    + '<div class="sbe-sect"><div class="sbe-sect-h">Sound</div><div class="sbe-sect-b">'
+    + '<span class="sbe-fade-row"><label for="sbeTsGain">Level</label>'
+    + '<input type="range" id="sbeTsGain" min="0" max="100" step="1" value="' + g + '" '
+    + 'oninput="sbeTsGainSlide(this.value)" onchange="sbeTsGainCommit(this.value)" '
+    + 'title="How loud this sound plays. 100% is the file\'s own level; the track\'s level multiplies it.">'
+    + '<span class="sbe-adj-val" id="sbeTsGainVal">' + g + '%</span></span>'
+    + arow('in', ae.fade_in) + arow('out', ae.fade_out)
+    + '<span class="sbe-fade-row sbe-levels"><label>Levels</label>'
+    + '<button type="button" class="ghost-btn" onclick="sbeAddPointAtPlayhead()" '
+    + 'title="Puts a level point where the playhead is. On the strip: click the yellow line to add one, drag it to set the level, right-click it to remove it.">'
+    + 'Add point at playhead</button>'
+    + '<span class="sbe-adj-val">' + ae.points.length + ' point'
+    + (ae.points.length === 1 ? '' : 's') + '</span></span>'
+    + '</div></div>';
+  return true;
+}
+
+// ---- the gestures on a track lane ----------------------------------------
+// The same precedence A1's lane uses, most specific first: a level point, a
+// corner fade handle, the level line, the grips (trim), the body (move — and
+// onto another lane). Listeners live on the #sbeTracks container, which
+// outlives every repaint of the strips inside it.
+function sbeTsStripAt(ev) {
+  const blk = (ev.target && ev.target.closest) ? ev.target.closest('.sbe-tstrip') : null;
+  if (!blk || ev.target.closest('.sbe-fade-h')) return null;
+  const f = sbeTsFind(SBE.tracks, blk.dataset.strip);
+  if (!f || f.strip.locked === true) return null;
+  const r = blk.getBoundingClientRect();
+  const w = sbeTsWindow(f.strip);
+  return { f: f, sid: String(f.strip.id), rect: r, len: w.len,
+           t: w.len * Math.max(0, Math.min(1, (ev.clientX - r.left) / Math.max(1, r.width))),
+           g: sbeStripGain(ev.clientY, r.top, r.height) };
+}
+
+// Which lane the pointer is over, by height: a track id, 'new' for the add
+// row, or null. By rectangle rather than by target, because a captured
+// pointer reports the container as its target wherever it is.
+function sbeTsLaneAt(ev) {
+  const box = sbeEl('sbeTracks');
+  if (!box) return null;
+  for (const el of Array.prototype.slice.call(box.children)) {
+    const r = el.getBoundingClientRect();
+    if (ev.clientY >= r.top && ev.clientY < r.bottom) return el.dataset.track || null;
+  }
+  return null;
+}
+
+// The envelope value that puts the line under the pointer: the line carries
+// the strip and track faders, the point does not.
+function sbeTsEnvGain(f, g) {
+  const g0 = sbeTsGain(f.strip) * sbeTrackGain(f.track);
+  return g0 > 1e-6 ? Math.min(1, Math.max(0, g / g0)) : 1;
+}
+
+function sbeTsLevelClick(ev) {
+  const at = sbeTsStripAt(ev);
+  if (!at) return false;
+  const onLine = sbeStripY(sbeTsGainAt(at.f.track, at.f.strip, at.t), at.rect.height);
+  const near = Math.abs((ev.clientY - at.rect.top) - onLine) <= SBE_LVL_GRAB;
+  if (!near && !ev.target.closest('.sbe-lvl-hit')) return false;
+  const before = sbeSnapshot();
+  const r = sbeTsAddKeyframe(SBE.tracks, at.sid, at.t, sbeTsEnvGain(at.f, at.g));
+  if (!r.ok) return false;
+  SBE.tracks = r.tracks;
+  sbeTsSelectOne(at.sid);
+  SBE.kfGhost = null;
+  const pts = sbeAfx(sbeTsFind(SBE.tracks, at.sid).strip, at.len).points;
+  let idx = 0;
+  for (let i = 0; i < pts.length; i++) {
+    if (Math.abs(pts[i][0] - sbeRound(at.t)) < 1e-3) { idx = i; break; }
+  }
+  SBE.tsDrag = { mode: 'kf', sid: at.sid, index: idx, rect: at.rect, before: before, moved: true };
+  try { sbeEl('sbeTracks').setPointerCapture(ev.pointerId); } catch (e) {}
+  SBE.dirty = true;
+  sbeSetState('unsaved changes', 'dirty');
+  sbePaint();
+  return true;
+}
+
+function sbeOnTsDown(ev) {
+  if (ev.button !== undefined && ev.button !== 0) return;
+  if (sbeAudioSmall()) { sbeAudioOpenFrom(ev); return; }
+  if (ev.target.closest && ev.target.closest('button, input')) return;
+  sbeStop();
+  const box = sbeEl('sbeTracks');
+  const blk = ev.target.closest('.sbe-tstrip');
+  if (!blk) {
+    // EMPTY LANE: nothing selected, and the playhead goes there — the answer
+    // every other lane on this timeline gives.
+    const lane = ev.target.closest('.sbe-tlane, .sbe-tadd');
+    SBE.sel = ''; SBE.selSet = []; SBE.tsSet = []; SBE.ovSel = ''; SBE.txSel = ''; SBE.selLane = '';
+    if (lane) sbeSeek(sbeTimeFromEvent(ev, lane));
+    sbePaint();
+    return;
+  }
+  const sid = String(blk.dataset.strip);
+  const f = sbeTsFind(SBE.tracks, sid);
+  if (!f) return;
+  const cap = () => { try { box.setPointerCapture(ev.pointerId); } catch (e) {} };
+  const locked = f.strip.locked === true;
+  const kf = ev.target.closest('.sbe-kf');
+  if (kf && !locked) {
+    sbeTsSelectOne(sid);
+    if (ev.shiftKey) {
+      sbeTsMutate(ts => sbeTsDeleteKeyframe(ts, sid, sbeNum(kf.dataset.kf)));
+      ev.preventDefault();
+      return;
+    }
+    SBE.tsDrag = { mode: 'kf', sid: sid, index: sbeNum(kf.dataset.kf),
+                   rect: blk.getBoundingClientRect(), before: sbeSnapshot(), moved: false };
+    cap(); ev.preventDefault(); sbePaint();
+    return;
+  }
+  const fh = ev.target.closest('.sbe-fade-h');
+  if (fh && !locked) {
+    sbeTsSelectOne(sid);
+    const e0 = sbeAfx(f.strip, sbeTsWindow(f.strip).len);
+    SBE.tsDrag = { mode: 'afade', sid: sid, edge: fh.dataset.afade, x0: ev.clientX,
+                   f0: (fh.dataset.afade === 'out') ? e0.fade_out : e0.fade_in,
+                   before: sbeSnapshot(), moved: false };
+    cap(); ev.preventDefault(); sbePaint();
+    return;
+  }
+  // SHIFT AND ⌘ ADD OR DROP A STRIP from the selection, as on the picture.
+  if (ev.shiftKey || ev.metaKey || ev.ctrlKey) {
+    sbeTsSelectToggle(sid);
+    ev.preventDefault();
+    sbePaint();
+    return;
+  }
+  if (!ev.target.closest('.sbe-grip') && sbeTsLevelClick(ev)) { ev.preventDefault(); return; }
+  const already = sbeTsSelIds().indexOf(sid) >= 0;
+  const many = already && sbeTsSelIds().length > 1;
+  if (!already) sbeTsSelectOne(sid); else SBE.sel = '@ts:' + sid;
+  if (locked) {
+    sbePaint();
+    phosToast('That sound is locked to its place. Press Unlock on the bar above the tracks.',
+              { duration: 6000 });
+    return;
+  }
+  const grip = ev.target.closest('.sbe-grip');
+  const w = sbeTsWindow(f.strip);
+  SBE.tsDrag = { mode: grip ? (grip.classList.contains('r') ? 'trimR' : 'trimL') : 'move',
+                 sid: sid, tid: String(f.track.id), x0: ev.clientX,
+                 fs0: w.film_start, fe0: w.film_end,
+                 ids: (!grip && many) ? sbeTsSelIds() : null, collapse: many ? sid : '',
+                 base: JSON.stringify(SBE.tracks), before: sbeSnapshot(),
+                 moved: false, toNew: false };
+  blk.classList.add('is-drag');
+  cap(); ev.preventDefault(); sbePaint();
+}
+
+function sbeOnTsMove(ev) {
+  const d = SBE.tsDrag;
+  if (!d) { sbeTsGhost(ev); return; }
+  if (d.mode === 'kf') {
+    const f = sbeTsFind(SBE.tracks, d.sid);
+    if (!f) return;
+    const w = sbeTsWindow(f.strip);
+    const r = d.rect;
+    const t = w.len * Math.max(0, Math.min(1, (ev.clientX - r.left) / Math.max(1, r.width)));
+    const res = sbeTsMoveKeyframe(SBE.tracks, d.sid, d.index, t,
+                                  sbeTsEnvGain(f, sbeStripGain(ev.clientY, r.top, r.height)));
+    if (res.ok) SBE.tracks = res.tracks;
+    d.moved = true;
+    sbePaint();
+    return;
+  }
+  const lane = (d.mode === 'move') ? sbeTsLaneAt(ev) : null;
+  if (Math.abs(ev.clientX - d.x0) > 3 || (lane && lane !== d.tid)) d.moved = true;
+  if (!d.moved) return;
+  if (d.mode === 'afade') {
+    const adt = (d.edge === 'out') ? -(ev.clientX - d.x0) / SBE.pps
+                                   : (ev.clientX - d.x0) / SBE.pps;
+    const r2 = sbeTsSetFade(SBE.tracks, d.sid, d.edge, Math.max(0, d.f0 + adt));
+    if (r2.ok) SBE.tracks = r2.tracks;
+    sbePaint();
+    return;
+  }
+  // RE-DERIVED FROM WHERE THE GESTURE STARTED on every event, so a fast mouse
+  // and a slow one land in the same place.
+  const base = JSON.parse(d.base);
+  const tol = SBE_SNAP_PX / SBE.pps;
+  const snapOn = sbeSnapEnabled(ev);
+  const anchor = (d.mode === 'trimR') ? d.fe0 : d.fs0;
+  let want = Math.max(0, anchor + (ev.clientX - d.x0) / SBE.pps);
+  // THE SNAPS: cuts, every other strip's ends, A1's strips, and the beat.
+  const marks = sbeTsSnaps(base, SBE.clips, d.sid);
+  if (snapOn && SBE.beats && typeof sbeBeatGrid === 'function') {
+    for (const b of sbeBeatGrid(SBE.beats, want - tol, want + tol, (SBE.audio || {}).offset)) marks.push(b.t);
+  }
+  want = sbeSnapToList(want, marks, tol, snapOn);
+  let r;
+  if (d.mode === 'move') {
+    if (d.ids && d.ids.length > 1) {
+      r = sbeTsMoveGroup(base, d.ids, want - d.fs0);
+    } else {
+      d.toNew = (lane === 'new');
+      r = sbeTsMove(base, d.sid, (lane && lane !== 'new') ? lane : d.tid, want);
+    }
+  } else {
+    r = sbeTsTrim(base, d.sid, d.mode, want);
+  }
+  if (r && r.ok) SBE.tracks = r.tracks;
+  sbePaint();
+}
+
+function sbeOnTsUp(ev) {
+  const d = SBE.tsDrag;
+  SBE.tsDrag = null;
+  if (!d) return;
+  if (!d.moved) {
+    if (d.collapse) sbeTsSelectOne(d.collapse);
+    sbePaint();
+    return;
+  }
+  if (d.mode === 'move' && d.toNew && !(d.ids && d.ids.length > 1)) {
+    // DROPPED ON THE ADD ROW: a track of its own, at the second it was held.
+    const cur = sbeTsFind(SBE.tracks, d.sid);
+    const nt = sbeTsNewTrack(JSON.parse(d.base));
+    const r = sbeTsMove(nt.tracks, d.sid, nt.added.id, cur ? cur.strip.film_start : d.fs0);
+    if (r.ok) SBE.tracks = r.tracks;
+  }
+  if (JSON.stringify(SBE.tracks || []) === JSON.stringify(JSON.parse(d.before).tracks || [])) {
+    sbePaint();
+    return;
+  }
+  sbeTsCommit(d.before);
+}
+
+// HOVER TEACHES, on a track strip as on A1's.
+function sbeTsGhost(ev) {
+  const at = sbeTsStripAt(ev);
+  let want = null;
+  if (at) {
+    const onLine = sbeStripY(sbeTsGainAt(at.f.track, at.f.strip, at.t), at.rect.height);
+    if (Math.abs((ev.clientY - at.rect.top) - onLine) <= SBE_LVL_GRAB) {
+      want = { id: '@ts:' + at.sid, t: sbeRound(at.t), g: sbeRound(at.g) };
+    }
+  }
+  const now = SBE.kfGhost;
+  const same = (!want && !(now && String(now.id).indexOf('@ts:') === 0))
+    || (want && now && want.id === now.id && Math.abs(want.t - now.t) < 1e-4
+        && Math.abs(want.g - now.g) < 2e-3);
+  if (same) return;
+  SBE.kfGhost = want;
+  sbePaintTracks();
+}
+
+function sbeOnTsDbl(ev) {
+  const at = sbeTsStripAt(ev);
+  if (!at || ev.target.closest('.sbe-kf')) return;
+  // SILENT WHEN A POINT IS ALREADY THERE — the first press of this very
+  // double-click is what put it there.
+  const r = sbeTsAddKeyframe(SBE.tracks, at.sid, at.t, sbeTsEnvGain(at.f, at.g));
+  if (!r.ok) return;
+  sbeTsSelectOne(at.sid);
+  sbeTsMutate(() => r);
+  ev.preventDefault();
+}
+
+// RIGHT-CLICK: on a point it removes the point; on a strip it opens the menu.
+function sbeOnTsMenu(ev) {
+  const blk = (ev.target && ev.target.closest) ? ev.target.closest('.sbe-tstrip') : null;
+  if (!blk) return;
+  const kf = ev.target.closest('.sbe-kf');
+  if (kf) {
+    const f = sbeTsFind(SBE.tracks, blk.dataset.strip);
+    if (!f || f.strip.locked === true) return;
+    ev.preventDefault();
+    sbeTsSelectOne(blk.dataset.strip);
+    sbeTsMutate(ts => sbeTsDeleteKeyframe(ts, blk.dataset.strip, sbeNum(kf.dataset.kf)));
+    return;
+  }
+  sbeCtxOpen(ev);
+}
+
+// ---- where a sound comes from --------------------------------------------
+// One door for the pool's +, a drop on a lane and "Add sound file…": the
+// server probes the file (and brings it into the film's audio/ folder when
+// the preview could not play it where it is), the client places the strip.
+async function sbeTsAddSoundPath(path, tid, at) {
+  sbeAudioTouch({ open: true });
+  if (!SBE.open || !SBE.id) {
+    phosToast('Open a __SEQ__ first — a sound belongs to a timeline.', {});
+    return false;
+  }
+  const fd = new URLSearchParams();
+  fd.set('id', SBE.id);
+  fd.set('path', String(path || ''));
+  let r;
+  try {
+    r = await (await fetch('/storyboard/edit/add-sound', { method: 'POST', body: fd })).json();
+  } catch (e) { r = { ok: false, error: String(e) }; }
+  if (!r || !r.ok) {
+    phosToast((r && r.error) || 'That sound could not be added.', { kind: 'danger' });
+    return false;
+  }
+  const dur = sbeRound(sbeNum(r.duration_s, 0));
+  const strip = { id: sbeNewId(), path: r.path, start: 0, end: dur, film_start: 0,
+                  duration: dur, title: r.title || '' };
+  const want = (at === undefined || at === null) ? SBE.playhead : sbeNum(at);
+  const res = sbeTsMutate(ts => sbeTsPlace(ts, tid || '', strip, want));
+  if (!res) return false;
+  const idx = (SBE.tracks || []).findIndex(t => String(t.id) === String(res.track));
+  sbeTsSelectOne(res.added.id);
+  sbePaint();
+  phosToast((r.imported ? 'Brought into this film\'s audio folder and put' : 'Put')
+            + ' on ' + sbeTrackLabel(idx) + ' at ' + sbeFmtTime(res.added.film_start)
+            + ' — drag it, trim either end, fade its corners.',
+            { kind: 'success', duration: 6000 });
+  if (ED.src === 'sound' && r.imported) edPoolRefresh(true);
+  return true;
+}
+
+async function edPoolSound(i, tid, at) {
+  if (ED.suppressClick && at === undefined) { ED.suppressClick = false; return; }
+  const list = document.getElementById('edPoolList');
+  const row = ((list || {})._rows || [])[i];
+  if (!row) return;
+  await sbeTsAddSoundPath(row.path, tid, at);
+}
+
+// "Add sound file…" — a path typed or pasted, the way A2's Change… takes one.
+async function sbeAddSoundFile() {
+  const inp = sbeEl('sbeSoundPath');
+  const p = String((inp || {}).value || '').trim();
+  if (!p) { phosToast('Paste the full path of a sound file first.', {}); return; }
+  if (await sbeTsAddSoundPath(p, '', SBE.playhead)) {
+    sbePopCloseAll('');
+    if (inp) inp.value = '';
+  }
+}
+
+// Where a pool row would land on the audio tracks: {tid, at}, or null.
+function edPoolOverTracks(ev) {
+  const box = sbeEl('sbeTracks');
+  if (!box) return null;
+  for (const el of Array.prototype.slice.call(box.children)) {
+    const r = el.getBoundingClientRect();
+    if (ev.clientX >= r.left && ev.clientX <= r.right
+        && ev.clientY >= r.top && ev.clientY < r.bottom) {
+      return { tid: el.dataset.track || 'new', at: Math.max(0, sbeTimeFromEvent(ev, el)) };
+    }
+  }
+  return null;
 }
 
 async function edPoolOverlay(i) {
@@ -5594,7 +7224,10 @@ function sbeLvlHitPath(pts, xOf, yOf, x0, x1) {
   return d;
 }
 
-function sbeStripWave(c, w, px) {
+// `lvl` is the curve to draw when it is not the item's own envelope — an audio
+// track strip's line carries its strip and track faders, exactly as the bed's
+// carries `bed_gain`. Absent, the clip strip's envelope, as it always was.
+function sbeStripWave(c, w, px, lvl) {
   const peaks = sbeWaveWant(c.path);
   // THE STRIP IS AS TALL AS THE LANE WAS DRAGGED TO. Everything below is
   // expressed in H, so a taller lane is not a stretched picture — it is more
@@ -5616,7 +7249,7 @@ function sbeStripWave(c, w, px) {
   // THE LEVEL LINE, drawn ON the waveform because that is what it acts on.
   // Unity sits at the top: a gain of 1 is "all of it", and a line that fell
   // to the middle at unity would read as half.
-  const curve = sbeGainPoints(c, w.len);
+  const curve = lvl || sbeGainPoints(c, w.len);
   const pts = curve.length ? curve : [[0, 1], [w.len, 1]];
   const yOf = g => sbeStripY(g, H);
   const xOf = t => (w.len > 0 ? (t / w.len) * px : 0);
@@ -5686,6 +7319,8 @@ function sbeStripWave(c, w, px) {
 // so the line, the ghost, the click and the inspector cannot disagree about it.
 function sbeStripEditable(c) {
   if (!c || c.locked) return false;
+  // A strip on an audio track has no picture to be linked to.
+  if (c._ts) return true;
   if (c.has_audio === false) return false;
   return !sbeClipAudio(c).linked;
 }
@@ -5761,6 +7396,7 @@ function sbeLevelClick(ev) {
   if (!r.ok) return false;
   SBE.clips = r.clips;
   SBE.sel = at.id;
+  SBE.selLane = at.id;
   SBE.kfGhost = null;
   // The point it just made is the point the drag continues on, so a level is
   // set in one gesture rather than two.
@@ -5783,7 +7419,8 @@ function sbeLevelClick(ev) {
 // other application on this machine keeps "remove".
 function sbeOnAudioMenu(ev) {
   const kf = ev.target && ev.target.closest ? ev.target.closest('.sbe-kf') : null;
-  if (!kf) return;
+  // Anywhere else on a strip: the clip-sound menu, with the lane verbs in it.
+  if (!kf) { sbeCtxOpen(ev); return; }
   const blk = ev.target.closest('.sbe-aclip');
   const c = blk ? sbeById(SBE.clips, blk.dataset.id) : null;
   if (!c || c.locked) return;
@@ -5796,6 +7433,21 @@ function sbeOnAudioMenu(ev) {
 // put a point exactly where the playhead is, which is also the only way to
 // place one at a frame you have actually listened to.
 function sbeAddPointAtPlayhead() {
+  if (String(SBE.sel || '').indexOf('@ts:') === 0) {
+    const sid = String(SBE.sel).slice(4);
+    const f = sbeTsFind(SBE.tracks, sid);
+    if (!f) return;
+    const w = sbeTsWindow(f.strip);
+    const t = sbeNum(SBE.playhead) - w.film_start;
+    if (t < -1e-6 || t > w.len + 1e-6) {
+      phosToast('Move the playhead over this sound first — a point is placed where you '
+                + 'are listening.', { duration: 6000 });
+      return;
+    }
+    const at = Math.max(0, Math.min(w.len, t));
+    sbeTsMutate(tracks => sbeTsAddKeyframe(tracks, sid, at, sbeGainAt(f.strip, w.len, at)));
+    return;
+  }
   const c = sbeById(SBE.clips, SBE.sel);
   if (!c) return;
   if (!sbeStripEditable(c)) {
@@ -5827,6 +7479,18 @@ function sbeAddPointAtPlayhead() {
 // "Clear 4" button that appeared and disappeared in the rail. This is that
 // button, on the clip bar, over the whole selection.
 function sbeClearPoints() {
+  const ts = sbeTsSelIds().filter(id => {
+    const f = sbeTsFind(SBE.tracks, id);
+    return f && sbeAfx(f.strip, sbeTsWindow(f.strip).len).points.length;
+  });
+  if (ts.length) {
+    if (sbeTsMutateEach(ts, (tracks, id) => sbeTsPointsWrite(tracks, id, []))) {
+      phosToast('Level points removed. The fades are untouched — those are the corner '
+                + 'handles.', { duration: 6000 });
+    }
+    return;
+  }
+  if (sbeTsSelIds().length) return;
   const ids = sbeSelIds().filter(x => {
     const c = sbeById(SBE.clips, x);
     return c && sbeAfx(c, sbeClipAudio(c).len).points.length;
@@ -5909,6 +7573,10 @@ function sbeAudioFadeCommit(edge, v) {
 }
 
 function sbeOnAudioDown(ev) {
+  // SMALL IS A PICTURE OF THE SOUND, NOT A CONTROL SURFACE. One click opens
+  // the area and selects what was clicked; the second one edits it, at a
+  // height where the grips and the level line are big enough to hit.
+  if (sbeAudioSmall()) { sbeAudioOpenFrom(ev); return; }
   // The sync flag is a BUTTON inside the strip, and pointerdown would start a
   // drag before its click ever fired.
   const badge = ev.target.closest('.sbe-sync');
@@ -5932,7 +7600,7 @@ function sbeOnAudioDown(ev) {
     const blk1 = ev.target.closest('.sbe-aclip');
     const c1 = blk1 ? sbeById(SBE.clips, blk1.dataset.id) : null;
     if (c1 && !c1.locked) {
-      SBE.sel = c1.id;
+      SBE.sel = c1.id; SBE.selLane = c1.id;
       // SHIFT-CLICK DELETES. A modifier rather than a second affordance
       // drawn on a 6px target, which would be a delete nobody meant.
       if (ev.shiftKey) {
@@ -5954,7 +7622,7 @@ function sbeOnAudioDown(ev) {
     const blk0 = ev.target.closest('.sbe-aclip');
     const c0 = blk0 ? sbeById(SBE.clips, blk0.dataset.id) : null;
     if (c0) {
-      SBE.sel = c0.id;
+      SBE.sel = c0.id; SBE.selLane = c0.id;
       const w0 = sbeClipAudio(c0);
       const e0 = sbeAfx(c0, w0.len);
       SBE.audioDrag = {
@@ -5981,10 +7649,25 @@ function sbeOnAudioDown(ev) {
   if (!blk) return;
   const id = blk.dataset.id;
   SBE.sel = id;
+  // THE SOUND WAS CLICKED, not the shot — so the clip bar's Duplicate copies
+  // this sound onto an audio track instead of duplicating the picture.
+  SBE.selLane = id;
   SBE.drag = null;          // a pointerup lost off the edge must not wedge a lane
   const c = sbeById(SBE.clips, id);
   if (!c) return;
   const w = sbeClipAudio(c);
+  if (w.linked && !c.locked && ev.button === 2) { sbePaint(); return; }   // the menu's
+  if (w.linked && !c.locked) {
+    // A LINKED STRIP CANNOT SLIDE, BUT IT CAN CHANGE LANE: which lane a sound
+    // plays on moves nothing in time, so it needs no unlinking. A press that
+    // never travels is still the instruction below, given on release.
+    SBE.audioDrag = { id: id, mode: 'lane', x0: ev.clientX, y0: ev.clientY,
+                      before: sbeSnapshot(), moved: false };
+    try { sbeEl('sbeAudioLane').setPointerCapture(ev.pointerId); } catch (e) {}
+    ev.preventDefault();
+    sbePaint();
+    return;
+  }
   if (w.linked) {
     // Not an error — an instruction. The toggle is one click away and the
     // inspector is already showing this clip.
@@ -6006,7 +7689,7 @@ function sbeOnAudioDown(ev) {
   const grip = ev.target.closest('.sbe-grip');
   SBE.audioDrag = {
     id: id, mode: grip ? (grip.classList.contains('r') ? 'trimR' : 'trimL') : 'move',
-    x0: ev.clientX, fs0: w.film_start, fe0: w.film_start + w.len,
+    x0: ev.clientX, y0: ev.clientY, fs0: w.film_start, fe0: w.film_start + w.len,
     before: sbeSnapshot(), moved: false,
   };
   blk.classList.add('is-drag');
@@ -6043,8 +7726,21 @@ function sbeOnAudioMove(ev) {
   }
   const d = SBE.audioDrag;
   if (!d) return;
-  if (Math.abs(ev.clientX - d.x0) > 3) d.moved = true;
+  if (Math.abs(ev.clientX - d.x0) > 3) { d.moved = true; d.xmoved = true; }
+  if ((d.mode === 'move' || d.mode === 'lane')
+      && Math.abs(ev.clientY - sbeNum(d.y0, ev.clientY)) > 6) d.moved = true;
   if (!d.moved) return;
+  // UP OR DOWN IS THE LANE. The body of a strip — linked or not — goes to
+  // whichever half of the A1 box the pointer is over; left and right stay time.
+  if (d.mode === 'move' || d.mode === 'lane') {
+    const want = sbeAudioLaneAtY(ev.clientY);
+    const cl = sbeById(SBE.clips, d.id);
+    if (want && cl && sbeSoundLane(cl) !== want) {
+      const rl = sbeSetSoundLane(SBE.clips, d.id, want);
+      if (rl.ok) SBE.clips = rl.clips;
+    }
+    if (d.mode === 'lane' || !d.xmoved) { sbePaint(); return; }
+  }
   if (d.mode === 'afade') {
     const adt = (d.edge === 'out') ? -(ev.clientX - d.x0) / SBE.pps
                                    : (ev.clientX - d.x0) / SBE.pps;
@@ -6056,6 +7752,13 @@ function sbeOnAudioMove(ev) {
   const dt = (ev.clientX - d.x0) / SBE.pps;
   const tol = SBE_SNAP_PX / SBE.pps;
   const marks = sbeMusicSnaps(SBE.clips);      // the CUTS: what a J-cut aims at
+  // ...and every OTHER clip's sound, on either lane: a crossfade is made by
+  // pulling one strip's edge onto its neighbour's.
+  for (const o of SBE.clips) {
+    if (String(o.id) === String(d.id) || sbeKind(o) !== 'video') continue;
+    const ow = sbeClipAudio(o);
+    marks.push(ow.film_start, sbeRound(ow.film_start + ow.len));
+  }
   const anchor = (d.mode === 'trimR') ? d.fe0 : d.fs0;
   const want = sbeSnapToList(Math.max(0, anchor + dt), marks, tol,
                              sbeSnapEnabled(ev));
@@ -6083,6 +7786,20 @@ function sbeOnAudioUp(ev) {
   SBE.audioDrag = null;
   if (!d) return;
   document.querySelectorAll('.sbe-aclip.is-drag').forEach(el => el.classList.remove('is-drag'));
+  if (!d.moved && d.mode === 'lane') {
+    const c0 = sbeById(SBE.clips, d.id);
+    sbePaint();
+    if (c0) {
+      phosToast(sbeClipAudio(c0).coupled
+        ? 'This sound is linked to its picture at ' + sbeDriftLabel(sbeAudioDrift(c0))
+          + ' and moves with it. Press Unlink sound on the bar above the tracks to slide it on its own'
+          + ' — or drag it up or down to the other sound lane.'
+        : 'That clip\'s sound is linked to its picture. Press Unlink sound on the bar above the '
+          + 'tracks to slide it under the neighbour — or drag it up or down to the other sound lane.',
+        { duration: 6000 });
+    }
+    return;
+  }
   if (!d.moved) { sbePaint(); return; }
   SBE.undo.push(d.before);
   if (SBE.undo.length > SBE_UNDO_MAX) SBE.undo.shift();
@@ -6093,7 +7810,40 @@ function sbeOnAudioUp(ev) {
   sbeQueueSave();
 }
 
+// WHICH LANE OF THE A1 BOX a pointer height is over: the top half is A, the
+// bottom half B, clamped at both edges so a drag that strays over the picture
+// or the music still means the nearer lane.
+function sbeAudioLaneAtY(y) {
+  const box = sbeEl('sbeAudioLane');
+  if (!box) return 0;
+  const r = box.getBoundingClientRect();
+  if (!(r.height > 0)) return 0;
+  return (sbeNum(y) - r.top) < r.height / 2 ? 1 : 2;
+}
+
+// "ALTERNATE SOUND LANES" — the one click that re-lays an existing timeline's
+// clip sound A, B, A… without moving a picture or a sound. One undo step.
+function sbeAlternateSel() {
+  sbeAudioTouch({ open: true });
+  sbePopCloseAll('');
+  const ok = sbeMutate(cs => sbeAlternateLanes(cs));
+  if (ok) {
+    phosToast('Clip sound now alternates between lanes A and B — nothing moved in time. '
+              + 'To crossfade two shots, unlink a sound, pull its edge under its neighbour on '
+              + 'the other lane and fade both. Undo puts the lanes back.',
+              { kind: 'success', duration: 9000 });
+  }
+  sbeBlurControl();
+}
+
+// One clip's sound onto the named lane — the right-click menu's verb.
+function sbeSoundLaneSet(id, lane) {
+  sbePopCloseAll('');
+  sbeMutate(cs => sbeSetSoundLane(cs, id, lane));
+}
+
 function sbeToggleAudioLink() {
+  sbeAudioTouch({ open: true });
   const c = sbeById(SBE.clips, SBE.sel);
   if (!c) return;
   const w = sbeClipAudio(c);
@@ -6128,6 +7878,7 @@ function sbeToggleAudioLink() {
 }
 
 function sbeDeleteStripSel() {
+  if (sbeTsDeleteSel(false)) return;
   const ids = sbeSelIds();
   if (!ids.length) return;
   if (ids.length > 1) {
@@ -6147,6 +7898,13 @@ function sbeDeleteStripSel() {
 }
 
 function sbeToggleClipMute() {
+  const ts = sbeTsSelIds();
+  if (ts.length) {
+    const f = sbeTsFind(SBE.tracks, String(SBE.sel).slice(4));
+    const on = !(f && f.strip.muted === true);
+    sbeTsMutateEach(ts, (tracks, id) => sbeTsSetStrip(tracks, id, { muted: on }));
+    return;
+  }
   const c = sbeById(SBE.clips, SBE.sel);
   if (!c) return;
   const on = !sbeClipMuted(c);
@@ -6173,6 +7931,7 @@ function sbeToggleClipMute() {
 // inspector. An explicit `id` is a click on one flag and means that strip
 // alone; no id means the selection, which may be several.
 function sbeResyncSel(id) {
+  sbeAudioTouch({ open: true });
   if (!id) {
     const ids = sbeSelIds().filter(x => {
       const c = sbeById(SBE.clips, x);
@@ -6226,7 +7985,7 @@ function sbePaintHead() {
 // menu would have been two more chances to add a panel that Escape and a
 // click elsewhere could not shut.
 const SBE_POPS = ['sbeRenderMenu', 'sbeMoreMenu', 'sbeKeysPop', 'sbeMusicMenu',
-                  'sbeCbarMenu', 'sbeCtxMenu'];
+                  'sbeCbarMenu', 'sbeCtxMenu', 'sbeSoundMenu'];
 
 function sbePopToggle(id, anchorId) {
   const el = sbeEl(id);
@@ -6303,6 +8062,21 @@ function sbePaintHeads() {
     aud.textContent = bits.length ? bits.join(' · ') : 'linked to the picture';
     aud.classList.toggle('is-live', split > 0);
   }
+  // THE SOUND AREA'S OWN CONTROL, on the head of the area it acts on — the
+  // same place and the same 18px square the soundtrack's ▾ already uses.
+  const sz = sbeEl('sbeAudioSize');
+  if (sz) {
+    const small = sbeAudioSmall();
+    const hint = (typeof shortcutHint === 'function')
+      ? shortcutHint('editor.soundLanes') : '';
+    sz.textContent = small ? '▸' : '▾';
+    sz.setAttribute('aria-expanded', small ? 'false' : 'true');
+    sz.title = (small
+      ? 'Sound lanes are small. Click to put them back at full height and keep them there'
+        + (SBE.aPin === 'small' ? '' : ' — or click any sound to open them while you work')
+      : 'Make the sound lanes small — A1, A2 and every audio track become thin strips so the '
+        + 'picture gets the height. They come back the moment you touch a sound') + '.' + hint;
+  }
 }
 
 // The legend is painted rather than written into the markup so there is one
@@ -6335,6 +8109,10 @@ function sbePaintKeys() {
 // playback and every pixel of a scrub. So two callers share this: the full
 // paint, and the cheap per-frame refresh below.
 function sbeSplitWhy() {
+  // With sounds on an audio track selected, Split cuts THEM — the blade goes
+  // where the selection is, the way every NLE targets a selected clip.
+  const ts = sbeTsSelIds();
+  if (ts.length) return sbeTsSplitWhy(ts);
   const under = sbeClipAt(SBE.clips, SBE.playhead);
   if (!under) {
     return 'Put the playhead over a shot first — this cuts whatever is under '
@@ -6361,15 +8139,139 @@ function sbeCbarPlayhead() {
   const el = sbeEl('sbeCbSplit');
   if (!el) return;
   const why = sbeSplitWhy();
-  const want = why || SBE_SPLIT_TITLE;
+  const want = why || (sbeTsSelIds().length ? SBE_TS_SPLIT_TITLE : SBE_SPLIT_TITLE);
   if (el.title !== want) el.title = want;
   if (el.disabled !== !!why) el.disabled = !!why;
 }
 
 const SBE_SPLIT_TITLE = 'Cuts the shot under the playhead into two at the '
   + 'playhead. Nothing moves and nothing is lost.' + sbeKeyHint('editor.split');
+const SBE_TS_SPLIT_TITLE = 'Cuts the selected sound into two at the playhead. '
+  + 'Nothing moves; its fades and level points stay where they were.' + sbeKeyHint('editor.split');
+
+// DUPLICATE, READ FOR WHATEVER KIND OF SOUND IS SELECTED. The owner: "the
+// duplicate button is disabled when you're touching the sound/music area." The
+// A2 bed had no clip id, so the selection was empty and the button grey; an A1
+// strip duplicated the SHOT. Both now copy the SOUND onto an audio track.
+function sbeSoundLaneSel() {
+  const c = sbeById(SBE.clips, SBE.sel);
+  return !!(c && SBE.selLane && String(SBE.selLane) === String(c.id)
+            && sbeSelCount() === 1);
+}
+
+function sbeCbarDupRow(n, many, c, noSel) {
+  const hint = sbeKeyHint('editor.duplicate');
+  const row = { id: 'sbeCbDup', act: 'sbeDuplicateSel()', label: 'Duplicate' };
+  if (SBE.sel === '@music') {
+    const r = sbeTsFromBed(SBE.audio, SBE.peaks ? SBE.peaks.duration : 0);
+    return Object.assign(row, { why: r.why || '',
+      title: 'Copies the soundtrack onto an audio track, right after itself — A2 '
+             + 'holds one strip, so the copy lands on the first audio track with '
+             + 'room there, or on a new one.' + hint });
+  }
+  if (c && sbeSoundLaneSel()) {
+    const r = sbeTsFromClip(c);
+    return Object.assign(row, { why: r.why || '',
+      title: 'Copies this clip\'s sound onto an audio track, right after itself — '
+             + 'the shot is not copied. It lands on the first audio track with room '
+             + 'there, or on a new one.' + hint });
+  }
+  return Object.assign(row, { why: n ? '' : noSel,
+    title: (many ? 'Each selected shot again, right behind itself'
+                 : 'The same shot again, right after this one')
+           + ' — window, speed, fades and grade included. Everything after '
+           + 'it slides.' + hint });
+}
+
+// WHY SPLIT CANNOT CUT the selected track sounds, or '' when it can.
+function sbeTsSplitWhy(ids) {
+  let locked = false;
+  for (const id of ids || []) {
+    const f = sbeTsFind(SBE.tracks, id);
+    if (!f) continue;
+    const w = sbeTsWindow(f.strip);
+    const off = SBE.playhead - w.film_start;
+    if (off >= SBE_TRACK_STRIP_MIN && w.len - off >= SBE_TRACK_STRIP_MIN) {
+      if (f.strip.locked === true) locked = true; else return '';
+    }
+  }
+  return locked
+    ? 'The sound under the playhead is locked. Unlock it to cut it.'
+    : 'Put the playhead inside the selected sound first — Split cuts it there.'
+      + sbeKeyHint('editor.split');
+}
+
+// THE CLIP BAR FOR SOUNDS ON AN AUDIO TRACK. The same ten buttons in the same
+// places, saying what each one does to a sound. Link and Resync stay grey and
+// say why: a strip on a track has no picture to be linked to.
+function sbeCbarTsModel(ids) {
+  const n = ids.length;
+  const many = n > 1;
+  const f = sbeTsFind(SBE.tracks, String(SBE.sel).slice(4)) || sbeTsFind(SBE.tracks, ids[0]);
+  const s = f.strip;
+  const some = many ? ('all ' + n + ' sounds') : 'this sound';
+  const noPic = 'A sound on an audio track has no picture of its own — Link, Unlink and '
+              + 'Resync are for a clip\'s sound on A1.';
+  const pts = ids.reduce((a, id) => {
+    const g = sbeTsFind(SBE.tracks, id);
+    return a + (g ? sbeAfx(g.strip, sbeTsWindow(g.strip).len).points.length : 0);
+  }, 0);
+  const rows = [
+    { id: 'sbeCbSplit', act: 'sbeSplitHere()', label: 'Split', why: sbeTsSplitWhy(ids),
+      title: SBE_TS_SPLIT_TITLE },
+    { id: 'sbeCbLift', act: 'sbeLiftSelected()', label: 'Lift', why: '',
+      title: 'Takes ' + some + ' off its track and leaves the silence, so nothing after '
+             + 'it moves.' + sbeKeyHint('editor.lift') },
+    { id: 'sbeCbRipple', act: 'sbeRippleSelected()', label: 'Ripple delete', why: '',
+      title: 'Takes ' + some + ' off and closes the gap on that track — the sounds after '
+             + 'it on the same track slide earlier. The picture and the other tracks do '
+             + 'not move.' + sbeKeyHint('editor.ripple') },
+    { id: 'sbeCbDup', act: 'sbeDuplicateSel()', label: 'Duplicate', why: '',
+      title: (many ? 'Each selected sound again, right after itself'
+                   : 'The same sound again, right after itself')
+             + ' on its own track — or at the next free spot on it. Trim, level, fades '
+             + 'and points included.' + sbeKeyHint('editor.duplicate') },
+    { id: 'sbeCbLink', act: 'sbeToggleAudioLink()', icon: '#ic-unlink',
+      label: 'Unlink sound', why: noPic, title: noPic },
+    { id: 'sbeCbResync', act: 'sbeResyncSel()', label: 'Resync sound', why: noPic,
+      title: noPic },
+    { id: 'sbeCbMute', act: 'sbeToggleClipMute()',
+      icon: s.muted === true ? '#ic-sound' : '#ic-mute',
+      label: s.muted === true ? 'Unmute sound' : 'Mute sound', on: s.muted === true, why: '',
+      title: s.muted === true
+        ? 'Lets ' + some + ' play again.'
+        : 'Switches ' + some + ' off — in the preview, the render and the export. The '
+          + 'strip stays where it is.' },
+    { id: 'sbeCbDelSound', act: 'sbeDeleteStripSel()', label: 'Delete sound', why: '',
+      title: 'Removes ' + some + ' from its track. Nothing else moves. Undo brings it '
+             + 'back.' },
+    { id: 'sbeCbPoints', act: 'sbeClearPoints()', label: 'Clear points',
+      why: pts ? '' : 'This sound has no level anchors on it. Click the yellow line on '
+                      + 'the strip — or double-click the strip — to put one down.',
+      title: 'Deletes the level anchors — the dots on the yellow line — from '
+             + (many ? 'every selected sound' : 'this sound') + '. The corner fades are '
+             + 'not points and are left alone.' },
+    { id: 'sbeCbLock', act: 'sbeToggleLock()',
+      icon: s.locked === true ? '#ic-unlock' : '#ic-lock',
+      label: s.locked === true ? 'Unlock' : 'Lock', on: s.locked === true, why: '',
+      title: s.locked === true
+        ? 'Lets ' + some + ' move and trim again.'
+        : 'Pins ' + some + ' to its place — it cannot be dragged, trimmed or shaped '
+          + 'until it is unlocked.' },
+    { id: 'sbeCbFaceFix', act: 'sbeFaceFixSel()', label: 'Face Fix ×2',
+      why: 'A sound has no picture to upscale — select a clip on the picture lane.',
+      title: 'A sound has no picture to upscale — select a clip on the picture lane.' },
+  ];
+  const name = s.title || String(s.path || '').split('/').pop() || 'sound';
+  return { rows: rows, count: n, many: many,
+           who: many ? (n + ' sounds selected') : (sbeNiceName(name) + ' · ' + sbeTrackLabel(f.ti)),
+           whoWhy: 'Sounds on audio tracks. Shift-click or ⌘-click a second strip to '
+                   + 'add it; click a shot to go back to the picture.' };
+}
 
 function sbeCbarModel() {
+  const tsIds = sbeTsSelIds();
+  if (tsIds.length) return sbeCbarTsModel(tsIds);
   const ids = sbeSelIds();
   const n = ids.length;
   const many = n > 1;
@@ -6385,7 +8287,10 @@ function sbeCbarModel() {
   const splitWhy = sbeSplitWhy();
   const pick = 'Click a shot on the track. Shift-click a second one to take '
              + 'the range between them, ⌘-click to add or drop one.';
-  const noSel = (!n && SBE.ovSel) ? 'A title or card is selected, not a shot '
+  const noSel = (!n && SBE.sel === '@music')
+    ? 'The soundtrack on A2 is selected, not a shot — its file, mode and level '
+      + 'are on the A2 head, and Duplicate copies it onto an audio track. ' + pick
+    : (!n && SBE.ovSel) ? 'A title or card is selected, not a shot '
                   + '— its own controls are in the panel on the right, and '
                   + '⌫ removes it. ' + pick
               : ((!n && SBE.txSel) ? 'A cut is selected, not a shot — set its '
@@ -6403,12 +8308,7 @@ function sbeCbarModel() {
       why: n ? '' : noSel,
       title: 'Takes ' + some + ' out and CLOSES the gap — everything after '
              + 'slides earlier and the film gets shorter.' + sbeKeyHint('editor.ripple') },
-    { id: 'sbeCbDup', act: 'sbeDuplicateSel()', label: 'Duplicate',
-      why: n ? '' : noSel,
-      title: (many ? 'Each selected shot again, right behind itself'
-                   : 'The same shot again, right after this one')
-             + ' — window, speed, fades and grade included. Everything after '
-             + 'it slides.' + sbeKeyHint('editor.duplicate') },
+    sbeCbarDupRow(n, many, c, noSel),
     // THE SOUND GROUP. Link and Resync are adjacent on purpose: the thing
     // that is hard to hold in your head is the difference between them, and
     // side by side both tooltips can say it.
@@ -6479,10 +8379,28 @@ function sbeCbarModel() {
         : 'Pins ' + some + ' to its place on the film — everything else '
           + 'flows around it, and it cannot be dragged or trimmed until it '
           + 'is unlocked.' },
+    // UPSCALE & FACE FIX, on the clip itself. Queues the face-safe 2× of the
+    // clip's file; the timeline is not touched until the person says so.
+    // Short label on the bar (the full name did not fit at 1512 px and fell
+    // into More); the tooltip and the right-click menu carry the full name.
+    { id: 'sbeCbFaceFix', act: 'sbeFaceFixSel()', label: 'Face Fix ×2', menuLabel: 'Upscale & Face Fix',
+      why: !n ? noSel
+           : (many ? 'Pick one clip — each fix is its own render.'
+              : (!vid ? 'Only a video clip can be upscaled — a still or a black '
+                        + 'slug has no frames to fix.' : '')),
+      title: 'Upscale & Face Fix — renders this clip again at twice the size with LTX-2.5 detail, '
+             + 'keeping the face and the sound. It runs in the queue; when it '
+             + 'lands, a line above the timeline offers to swap it in — same '
+             + 'cut, same in and out points. The original file is not changed.' },
   ];
   // The one readout that makes the rest of the row legible.
+  // A SOUND IS NAMED AS A SOUND, so "Duplicate" beside it reads as copying
+  // the sound: the A2 bed, or the A1 strip of the clip that was clicked.
   let who = 'Nothing selected';
-  if (many) who = n + ' clips selected';
+  if (SBE.sel === '@music') who = 'Soundtrack (A2)';
+  else if (c && sbeSoundLaneSel()) {
+    who = 'Sound of ' + sbeNiceName(c.title || String(c.path || '').split('/').pop() || 'clip');
+  } else if (many) who = n + ' clips selected';
   else if (c) {
     who = (kind === 'slug') ? 'Black'
       : sbeNiceName(c.title || String(c.path || '').split('/').pop() || 'clip');
@@ -6617,7 +8535,10 @@ function sbeCtxOpen(ev) {
   if (!menu) return;
   const gap = ev.target.closest ? ev.target.closest('.sbe-gap') : null;
   const blk = ev.target.closest ? ev.target.closest('.sbe-clip') : null;
-  if (!gap && !blk) return;
+  const tsb = ev.target.closest ? ev.target.closest('.sbe-tstrip') : null;
+  const ablk = (ev.target.closest && ev.target.closest('#sbeAudioLane'))
+    ? ev.target.closest('.sbe-aclip') : null;
+  if (!gap && !blk && !tsb && !ablk) return;
   ev.preventDefault();
   sbePopCloseAll('');
   let html = '';
@@ -6632,6 +8553,47 @@ function sbeCtxOpen(ev) {
       + '<button type="button" class="sbe-cbar-btn" onclick="sbeGenOpen('
       + at.toFixed(4) + ',' + dur.toFixed(4) + ')" title="Render a new shot '
       + 'to fill exactly these seconds.">Generate a shot here…</button>';
+  } else if (ablk) {
+    // A CLIP'S OWN SOUND: the clip bar's verbs for that sound, then its lane.
+    if (!sbeSelHas(ablk.dataset.id) || sbeSelCount() !== 1) sbeSelectOne(ablk.dataset.id);
+    SBE.selLane = ablk.dataset.id;
+    sbePaint();
+    const m = sbeCbarModel();
+    html = '<div class="sbe-ctx-h">' + escapeHtml(m.who) + '</div>';
+    for (const r of m.rows) {
+      if (r.why) continue;
+      html += '<button type="button" class="sbe-cbar-btn" onclick="'
+        + escapeHtml(r.act) + '" title="' + escapeHtml(r.title) + '">'
+        + escapeHtml(r.label) + '</button>';
+    }
+    const ac = sbeById(SBE.clips, ablk.dataset.id);
+    html += '<span class="sbe-pop-sep"></span>';
+    if (ac && !ac.locked) {
+      const other = sbeSoundLane(ac) === 2 ? 1 : 2;
+      html += '<button type="button" class="sbe-cbar-btn" onclick="sbeSoundLaneSet('
+        + escapeHtml(JSON.stringify(String(ac.id))) + ',' + other + ')" title="Puts this '
+        + 'sound on sound lane ' + sbeLaneName(other) + '. Nothing moves in time; sounds on the '
+        + 'two lanes can overlap and crossfade.">Move sound to lane ' + sbeLaneName(other)
+        + '</button>';
+    }
+    html += '<button type="button" class="sbe-cbar-btn" onclick="sbeAlternateSel()" '
+      + 'title="Lays every clip\'s sound A, B, A, B… in film order, so neighbouring shots '
+      + 'sit on different lanes and can overlap and crossfade. Nothing moves in time; one '
+      + 'Undo puts it back.">Alternate sound lanes</button>';
+  } else if (tsb) {
+    // A SOUND ON AN AUDIO TRACK gets the same table's verbs, for sounds.
+    if (sbeTsSelIds().indexOf(String(tsb.dataset.strip)) < 0) {
+      sbeTsSelectOne(tsb.dataset.strip);
+      sbePaint();
+    }
+    const m = sbeCbarModel();
+    html = '<div class="sbe-ctx-h">' + escapeHtml(m.who) + '</div>';
+    for (const r of m.rows) {
+      if (r.why) continue;
+      html += '<button type="button" class="sbe-cbar-btn" onclick="'
+        + escapeHtml(r.act) + '" title="' + escapeHtml(r.title) + '">'
+        + escapeHtml(r.label) + '</button>';
+    }
   } else {
     // A right-click on a shot that is NOT in the selection selects it, which
     // is what every program does; a right-click INSIDE a selection leaves the
@@ -6643,7 +8605,7 @@ function sbeCtxOpen(ev) {
       if (r.why) continue;                    // only what can actually fire
       html += '<button type="button" class="sbe-cbar-btn" onclick="'
         + escapeHtml(r.act) + '" title="' + escapeHtml(r.title) + '">'
-        + escapeHtml(r.label) + '</button>';
+        + escapeHtml(r.menuLabel || r.label) + '</button>';
     }
     // REORDER LIVES HERE NOW. It used to be shift+drag, and shift had to go
     // to the range selection the owner asked for — so the gesture moved to
@@ -6662,6 +8624,10 @@ function sbeCtxOpen(ev) {
         + 'onclick="sbeReorderSel(1)" title="Swaps this shot with the one '
         + 'after it. The film stays exactly as long.">Move later</button>';
     }
+    html += '<button type="button" class="sbe-cbar-btn" onclick="sbeAlternateSel()" '
+      + 'title="Lays every clip\'s sound A, B, A, B… in film order, so neighbouring shots '
+      + 'sit on different lanes and can overlap and crossfade. Nothing moves in time; one '
+      + 'Undo puts it back.">Alternate sound lanes</button>';
   }
   menu.innerHTML = html;
   menu.hidden = false;
@@ -6823,6 +8789,7 @@ function sbePaintInspector() {
       '</div></div>';
     return;
   }
+  if (sbePaintTsInspector(box)) return;
   const c = sbeById(SBE.clips, SBE.sel);
   if (!c) {
     const n = SBE.clips.length;
@@ -7376,6 +9343,7 @@ function sbeOnTrackDown(ev) {
     return;
   }
   const id = blk.dataset.id;
+  SBE.selLane = '';         // a click on the PICTURE means the shot
   SBE.ovSel = '';           // one inspector, one subject
   SBE.txSel = '';
   SBE.audioDrag = null;     // same insurance the lane takes against the other
@@ -7947,6 +9915,8 @@ window.ED = { src: 'film', rows: [], films: [], film: '', loading: false,
 
 function edPoolSrc(name) {
   ED.src = name;
+  // Opening the Sound pool is somebody going to put a sound somewhere.
+  if (name === 'sound') sbeAudioTouch({ open: true });
   const tabs = document.getElementById('edPoolTabs');
   if (tabs) tabs.querySelectorAll('.pill-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.src === name));
@@ -8061,6 +10031,16 @@ async function edPoolRefresh(force) {
       const seen = {};
       ED.rows = (ED.uploaded || []).concat(mine, gallery)
         .filter(row => (row.path && !seen[row.path]) && (seen[row.path] = 1));
+    } else if (ED.src === 'sound') {
+      // SOUNDS, for the audio tracks: this film's own audio/ folder first,
+      // then every sound file the engines left at the top of the outputs.
+      const r = SBE.id
+        ? await (await fetch('/storyboard/edit/sounds?id=' + encodeURIComponent(SBE.id))).json()
+        : null;
+      ED.rows = ((r && r.sounds) || []).map(o => ({
+        path: o.path, title: o.name, kind: 'sound',
+        sub: (o.where === 'film' ? 'this __SEQ__’s audio' : 'outputs') + ' · sound',
+      }));
     } else {
       const r = await (await fetch('/outputs?limit=400&offset=0')).json();
       ED.rows = ((r && r.outputs) || [])
@@ -8170,7 +10150,9 @@ function edPoolPaint() {
     // An image has no frame to seek to, so it is an <img> — and the /image
     // route's own `w=` resize is what keeps a 14 MB PNG from being decoded at
     // full size for a 44 px thumbnail.
-    (r.kind === 'still'
+    (r.kind === 'sound'
+      ? '<span class="ed-pool-snd" aria-hidden="true">♪</span>'
+      : r.kind === 'still'
       ? '<img alt="" data-src="/image?w=180&path=' + encodeURIComponent(r.path) + '">'
       : '<video preload="metadata" muted playsinline data-src="/file?path=' +
         encodeURIComponent(r.path) + '#t=0.1"></video>') +
@@ -8178,9 +10160,20 @@ function edPoolPaint() {
       '<span class="ed-pool-name">' + escapeHtml(sbeNiceName(r.title || '')) + '</span>' +
       '<span class="ed-pool-sub">' + escapeHtml(r.sub || '') + '</span>' +
     '</span>' +
-    '<button type="button" class="ed-pool-add" ' +
-    'title="Put this clip at the end of the __SEQ__" ' +
-    'onclick="event.stopPropagation();edPoolAdd(' + i + ')">+</button>' +
+    (r.kind === 'sound'
+      ? '<button type="button" class="ed-pool-add" ' +
+        'title="Put this sound on an audio track at the playhead" ' +
+        'onclick="event.stopPropagation();edPoolSound(' + i + ')">+</button>'
+      : '<button type="button" class="ed-pool-add" ' +
+        'title="Put this clip at the end of the __SEQ__" ' +
+        'onclick="event.stopPropagation();edPoolAdd(' + i + ')">+</button>') +
+    // A VIDEO CAN GIVE ITS SOUND ALONE — onto an audio track, at the playhead,
+    // with no picture.
+    ((!r.kind || r.kind === 'video')
+      ? '<button type="button" class="ed-pool-add ed-pool-ov" ' +
+        'title="Put only this clip’s sound on an audio track at the playhead" ' +
+        'onclick="event.stopPropagation();edPoolSound(' + i + ')">♪</button>'
+      : '') +
     // AN IMAGE CAN BE A CARD. A transparent PNG belongs on the overlay lane,
     // not at the end of the picture track, and this is the one click that
     // says so — it lands at the playhead, where you are looking.
@@ -8250,6 +10243,8 @@ async function edPoolAdd(i, dropAt) {
   // on a <button>, so without this flag every drop would also add the clip a
   // second time, at the end of the track.
   if (ED.suppressClick && dropAt === undefined) { ED.suppressClick = false; return; }
+  // A SOUND HAS NO PICTURE to put on V1 — it goes on an audio track.
+  if (row.kind === 'sound') { await sbeTsAddSoundPath(row.path, '', SBE.playhead); return; }
   if (!SBE.open || !SBE.id) {
     phosToast('Open a __SEQ__ first — the Editor holds one timeline at a time.', {});
     return;
@@ -8358,10 +10353,15 @@ function edPoolDragMove(ev) {
   d.ghost.style.left = (ev.clientX + 12) + 'px';
   d.ghost.style.top = (ev.clientY + 12) + 'px';
   const track = sbeEl('sbeTrack');
-  const over = edPoolOverTrack(ev, track);
-  track.classList.toggle('is-dropping', over);
+  // A SOUND lands on an audio track only; a VIDEO dropped on one gives its
+  // sound; anything dropped on the picture track is a clip, as before.
+  const onTracks = edPoolOverTracks(ev);
+  const over = !onTracks && d.row.kind !== 'sound' && edPoolOverTrack(ev, track);
+  track.classList.toggle('is-dropping', !!over);
   SBE.dropAt = over ? edPoolDropTime(ev, track) : null;
+  SBE.tsDrop = (onTracks && d.row.kind !== 'still') ? onTracks : null;
   sbePaintTrack();
+  sbePaintTracks();
 }
 
 // The film time under the pointer, snapped to the boundary a drop would use —
@@ -8393,7 +10393,10 @@ async function edPoolDragEnd(ev) {
   if (track) track.classList.remove('is-dropping');
   const at = SBE.dropAt;
   SBE.dropAt = null;
+  const tsDrop = SBE.tsDrop;
+  SBE.tsDrop = null;
   sbePaintTrack();
+  sbePaintTracks();
   if (!d.moved) return;                       // a press that never travelled
   // ARMED ONLY IF THE CLICK IS ACTUALLY COMING. "A drag ends in a click event
   // on the row it started from" is true for a press that never left the row
@@ -8402,6 +10405,7 @@ async function edPoolDragEnd(ev) {
   // a clip on the timeline, click another clip to preview it, and the source
   // monitor does nothing until you click a second time.
   ED.suppressClick = !!(d.el && ev.target && d.el.contains(ev.target));
+  if (tsDrop) { await edPoolSound(d.index, tsDrop.tid, tsDrop.at); return; }
   if (at === null || at === undefined) return;   // dropped in open space
   await edPoolAdd(d.index, at);
 }
@@ -8449,14 +10453,28 @@ function sbePaintRelink() {
   if (!tb) return;
   tb.hidden = !takes.length;
   if (!takes.length) return;
-  tb.innerHTML = takes.map(r =>
-    '<span class="sbe-relink-row">' +
-    '<span>New take of <b>' + escapeHtml(sbeNiceName(r.title || ('shot ' + r.n))) + '</b> is ready.</span>' +
-    '<button type="button" class="ghost-btn" onclick="sbeRetakeUse(\'' + escapeHtml(r.id) + '\')" ' +
-      'title="Replace the clip with the new take. Same cut, same timings.">Use it</button>' +
-    '<button type="button" class="ghost-btn" onclick="sbeRetakeKeep(\'' + escapeHtml(r.id) + '\', \'' + escapeHtml(r.to) + '\')" ' +
-      'title="Keep the take that is on the timeline. The new one stays in the media pool.">Keep the old one</button>' +
-    '</span>').join('');
+  // Arguments go through JSON inside a double-quoted attribute: a file name
+  // with an apostrophe must not end the handler's string.
+  const arg = v => escapeHtml(JSON.stringify(String(v == null ? '' : v)));
+  tb.innerHTML = takes.map(r => {
+    const nm = escapeHtml(sbeNiceName(r.title || ('shot ' + r.n)));
+    return '<span class="sbe-relink-row">' +
+      (r.face_fix
+        ? '<span><b>Upscale &amp; Face Fix</b> of <b>' + nm + '</b> is ready.</span>'
+        : '<span>New take of <b>' + nm + '</b> is ready.</span>') +
+      '<button type="button" class="ghost-btn" onclick="' + (r.face_fix ? 'sbeFaceFixSwap(' : 'sbeRetakeUse(')
+        + arg(r.id) + ', ' + arg(r.to) + ')" ' +
+        'title="' + (r.face_fix
+          ? 'Swap the clip for the fixed version. Same cut, same in and out points.'
+          : 'Replace the clip with the new take. Same cut, same timings.') + '">' +
+        (r.face_fix ? 'Swap it in' : 'Use it') + '</button>' +
+      '<button type="button" class="ghost-btn" onclick="sbeRetakeKeep(' + arg(r.id) + ', ' + arg(r.to) + ')" ' +
+        'title="' + (r.face_fix
+          ? 'Keep the clip that is on the timeline. The fixed version stays in Outputs.'
+          : 'Keep the take that is on the timeline. The new one stays in the media pool.') + '">' +
+        'Keep the old one</button>' +
+      '</span>';
+  }).join('');
 }
 
 // "Keep the old one" is a decision about ONE file against ONE clip, kept in
@@ -8476,7 +10494,7 @@ function sbeRetakeKeep(id, to) {
   } catch (e) {}
   sbePaintRelink();
 }
-async function sbeRetakeUse(id) {
+async function sbeRetakeUse(id, to) {
   if (SBE.dirty && !SBE.conflict && !(await sbeSave(true))) {
     phosToast('Your arrangement could not be saved, and the swap works on the saved file — fix the save first.',
               { kind: 'danger', duration: 8000 });
@@ -8485,6 +10503,7 @@ async function sbeRetakeUse(id) {
   const fd = new URLSearchParams();
   fd.set('id', SBE.id);
   fd.set('only', id);
+  if (to) fd.set('to', to);
   let r;
   try { r = await (await fetch('/storyboard/edit/relink', { method: 'POST', body: fd })).json(); }
   catch (e) { r = { ok: false, error: String(e) }; }
@@ -8492,6 +10511,97 @@ async function sbeRetakeUse(id) {
   SBE.undo.length = 0; SBE.redo.length = 0;
   sbeAdopt(r, true);
   phosToast('The new take is on the timeline. Same cut, same timings.', { kind: 'success', duration: 5000 });
+}
+
+// SWAP IN A FACE FIX — an ordinary local edit, not a server rewrite: the
+// clip's file changes, its in/out points, speed, fades and place do not; Undo
+// puts the original back and the normal save writes it. Nothing is adopted
+// from the server, so an edit made meanwhile can never be lost. The server
+// only builds the proxy (add-clip with a bare path changes no timeline).
+async function sbeFaceFixSwap(id, to) {
+  const film = SBE.id;
+  const row = (SBE.relink || []).find(x => x.face_fix && String(x.id) === String(id)
+                                           && String(x.to) === String(to));
+  const c0 = sbeById(SBE.clips, id);
+  if (!row || !c0 || String(c0.path) !== String(row.path)) {
+    phosToast('That clip has changed since the fix was ordered — nothing was swapped.', {});
+    return;
+  }
+  if (c0.locked) { phosToast('That clip is locked — unlock it first.', {}); return; }
+  const fd = new URLSearchParams();
+  fd.set('id', film);
+  fd.set('path', to);
+  let r;
+  try { r = await (await fetch('/storyboard/edit/add-clip', { method: 'POST', body: fd })).json(); }
+  catch (e) { r = { ok: false, error: String(e) }; }
+  if (!r || !r.ok) { phosToast((r && r.error) || 'The fixed clip could not be loaded.', { kind: 'danger' }); return; }
+  const c = SBE.id === film ? sbeById(SBE.clips, id) : null;
+  if (!c || String(c.path) !== String(row.path) || c.locked) {
+    phosToast('That clip changed while the fixed file was loading — nothing was swapped.', {});
+    return;
+  }
+  const before = sbeSnapshot();
+  c.path = to;
+  c.proxy = (r.clip && r.clip.proxy) || null;
+  SBE.undo.push(before);
+  if (SBE.undo.length > SBE_UNDO_MAX) SBE.undo.shift();
+  SBE.redo.length = 0;
+  SBE.dirty = true;
+  sbeSetState('unsaved changes', 'dirty');
+  SBE.relink = (SBE.relink || []).filter(x => x !== row);
+  sbePaint();
+  sbePaintRelink();
+  sbeQueueSave();
+  phosToast('The fixed clip is on the timeline — same cut, same in and out points. Undo puts the original back.',
+            { kind: 'success', duration: 6000 });
+}
+
+// UPSCALE & FACE FIX from the clip bar / right-click. The same server door as
+// the player button (faceFixClip), plus the film and clip ids so the finished
+// file is offered against THIS clip. The arrangement is saved first: the offer
+// is matched against the saved timeline.
+async function sbeFaceFixSel() {
+  const film = SBE.id;
+  const c = sbeById(SBE.clips, SBE.sel);
+  if (!c || sbeKind(c) !== 'video' || sbeSelCount() !== 1) {
+    phosToast('Select one video clip first.', {});
+    return;
+  }
+  if (SBE.saving) {
+    phosToast('Saving — press it again in a moment.', { duration: 4000 });
+    return;
+  }
+  if (SBE.conflict) {
+    phosToast('This film was changed in another tab — resolve that first; the fix is offered ' +
+              'against the saved timeline.', { kind: 'danger', duration: 8000 });
+    return;
+  }
+  if (SBE.dirty && (await sbeSave(true)) !== true) {
+    phosToast('Your arrangement could not be saved, and the fix is offered against the saved ' +
+              'timeline — fix the save first.', { kind: 'danger', duration: 8000 });
+    return;
+  }
+  if (SBE.id !== film || !sbeById(SBE.clips, c.id)) return;   // another film opened meanwhile
+  const r = await faceFixClip(c.path, {
+    board: film, clip: c.id,
+    doneHint: 'Upscale & Face Fix queued for ' + sbeNiceName(c.title || String(c.path).split('/').pop())
+      + '. When it lands, a line above the timeline offers to swap it in.',
+  });
+}
+
+// Refresh ONLY the swap offers. A full sbeLoad would adopt the whole
+// arrangement, and an edit made while the request is out would be lost.
+async function sbeRefreshOffers() {
+  const id = SBE.id;
+  let r;
+  try {
+    r = await (await fetch('/storyboard/edit?id=' + encodeURIComponent(id)
+              + '&session=' + encodeURIComponent(SBE.session))).json();
+  } catch (e) { return false; }
+  if (!r || !r.ok || SBE.id !== id) return false;
+  SBE.relink = r.relink || [];
+  sbePaintRelink();
+  return true;
 }
 
 async function sbeRelink() {
@@ -8831,9 +10941,13 @@ const SBE_STRIP_VOICES = 3;
 // stutter; letting it drift further than a quarter second would be audible.
 const SBE_STRIP_SLIP = 0.25;
 
-function sbeStripPool() {
+// `n` is how many voices this frame needs. The pool grows to it (capped — a
+// browser allows a document only so many media elements) because audio
+// tracks overlap by design: a laugh, a sting and a bed over a J-cut is five.
+function sbeStripPool(n) {
   if (!SBE.stripEls) SBE.stripEls = [];
-  while (SBE.stripEls.length < SBE_STRIP_VOICES) {
+  const need = Math.max(SBE_STRIP_VOICES, Math.min(16, Math.round(sbeNum(n, 0))));
+  while (SBE.stripEls.length < need) {
     const a = new Audio();
     a.preload = 'auto';
     a.dataset.clip = '';
@@ -8848,8 +10962,10 @@ function sbeStripPool() {
 // the ground, so "close enough" is the wrong answer.
 function sbeStripSync(force) {
   if (!SBE.open) return;
-  const pool = sbeStripPool();
-  const want = sbeStripsAt(SBE.clips, SBE.playhead);
+  // A1's strips AND every audio track's, one voice each, driven the same way.
+  const want = sbeStripsAt(SBE.clips, SBE.playhead)
+    .concat(sbeTsAt(SBE.tracks, SBE.playhead));
+  const pool = sbeStripPool(want.length + 1);
   const live = {};
   for (const w of want) live[w.id] = w;
   // A voice whose strip has gone quiet is released BEFORE any is claimed, or
@@ -8882,12 +10998,20 @@ function sbeStripSync(force) {
     // or the one place the user checks his work is the one place the fade
     // does not exist. `w.at - w.start` is the STRIP-relative second, which is
     // the envelope's own clock.
-    const c2 = sbeById(SBE.clips, w.id);
-    const win = c2 ? sbeClipAudio(c2) : null;
-    // The envelope's clock is the strip AS PLAYED — film seconds into it —
-    // which is `(source second - in-point) / speed`.
-    a.volume = win ? sbeGainAt(c2, win.len, (w.at - win.start) / win.speed) : 1;
-    try { a.playbackRate = win ? win.speed : 1; } catch (e) {}
+    if (w.vol !== undefined) {
+      // AN AUDIO TRACK STRIP brings its volume with it: the same curve the
+      // render's `volume` is built from (envelope × strip fader × track
+      // fader), at this second of the strip. It plays at 1x.
+      a.volume = Math.max(0, Math.min(1, sbeNum(w.vol, 1)));
+      try { a.playbackRate = 1; } catch (e) {}
+    } else {
+      const c2 = sbeById(SBE.clips, w.id);
+      const win = c2 ? sbeClipAudio(c2) : null;
+      // The envelope's clock is the strip AS PLAYED — film seconds into it —
+      // which is `(source second - in-point) / speed`.
+      a.volume = win ? sbeGainAt(c2, win.len, (w.at - win.start) / win.speed) : 1;
+      try { a.playbackRate = win ? win.speed : 1; } catch (e) {}
+    }
     try {
       if (fresh || force || Math.abs(a.currentTime - w.at) > SBE_STRIP_SLIP) {
         a.currentTime = w.at;
@@ -9032,7 +11156,64 @@ function sbeOnTlWheel(ev) {
 // and on a selection of one they take the SAME path they always did, with the
 // same toast, because that is the behaviour on disk, in the tests and in the
 // owner's hands. Only the plural case is new.
+// LIFT, RIPPLE AND DELETE SOUND on track strips. Right to left, so a ripple
+// never slides a later victim out from under the ids it was handed.
+function sbeTsDeleteSel(ripple) {
+  const ts = sbeTsSelIds();
+  if (!ts.length) return false;
+  const order = ts.map(id => sbeTsFind(SBE.tracks, id)).filter(Boolean)
+    .sort((a, b) => sbeNum(b.strip.film_start) - sbeNum(a.strip.film_start))
+    .map(f => String(f.strip.id));
+  const done = sbeTsMutateEach(order, (tracks, id) => sbeTsDelete(tracks, id, ripple));
+  if (done) { SBE.sel = ''; SBE.tsSet = []; sbePaint(); }
+  return true;
+}
+
+// DUPLICATE ON SOUND. A track strip is copied right after itself on its own
+// track; the A2 bed and an A1 clip's sound are copied onto an audio track,
+// because A2 holds one strip and A1 belongs to its picture. True when the
+// selection was a sound (whether or not it could act), false for a shot.
+function sbeTsDuplicateSel() {
+  const ts = sbeTsSelIds();
+  if (ts.length) {
+    const done = sbeTsMutateEach(ts, (tracks, id) => sbeTsDuplicate(tracks, id));
+    if (done) {
+      const made = done.map(r => String(r.added.id));
+      SBE.tsSet = made;
+      SBE.sel = '@ts:' + made[0];
+      sbePaint();
+    }
+    sbeBlurControl();
+    return true;
+  }
+  let src = null;
+  let from = '';
+  if (SBE.sel === '@music') {
+    src = sbeTsFromBed(SBE.audio, SBE.peaks ? SBE.peaks.duration : 0);
+    from = 'soundtrack';
+  } else if (sbeSoundLaneSel()) {
+    src = sbeTsFromClip(sbeById(SBE.clips, SBE.sel));
+    from = 'clip\'s sound';
+  } else {
+    return false;
+  }
+  if (!src.strip) { phosToast(src.why, { duration: 7000 }); return true; }
+  const r = sbeTsMutate(tracks => sbeTsPlace(tracks, '', src.strip, src.strip.film_start));
+  if (r) {
+    const i = (SBE.tracks || []).findIndex(t => String(t.id) === String(r.track));
+    sbeTsSelectOne(r.added.id);
+    sbePaint();
+    phosToast('Copied the ' + from + ' onto ' + sbeTrackLabel(i) + ' at '
+              + sbeFmtTime(r.added.film_start) + ', right after the original. It plays '
+              + 'with everything above it; drag it wherever it belongs.',
+              { duration: 7000 });
+  }
+  sbeBlurControl();
+  return true;
+}
+
 function sbeRippleSelected() {
+  if (sbeTsDeleteSel(true)) return;
   const ids = sbeSelIds();
   if (!ids.length) return;
   if (ids.length === 1) {
@@ -9050,6 +11231,7 @@ function sbeRippleSelected() {
 }
 
 function sbeLiftSelected() {
+  if (sbeTsDeleteSel(false)) return;
   const ids = sbeSelIds();
   if (!ids.length) return;
   if (ids.length === 1) sbeMutate(cs => sbeLiftDelete(cs, ids[0]));
@@ -9059,6 +11241,7 @@ function sbeLiftSelected() {
 }
 
 function sbeDuplicateSel() {
+  if (sbeTsDuplicateSel()) return;
   const many = sbeSelIds();
   if (many.length > 1) {
     // Each selected shot gets its own copy right behind it, and the COPIES
@@ -9085,10 +11268,33 @@ function sbeDuplicateSel() {
 }
 
 function sbeSplitHere() {
+  const ts = sbeTsSelIds();
+  if (ts.length) {
+    const at = SBE.playhead;
+    const under = ts.filter(id => {
+      const f = sbeTsFind(SBE.tracks, id);
+      if (!f) return false;
+      const w = sbeTsWindow(f.strip);
+      return at > w.film_start && at < w.film_end;
+    });
+    if (!under.length) {
+      phosToast('Put the playhead inside the selected sound first — Split cuts it there.', {});
+      return;
+    }
+    sbeTsMutateEach(under, (tracks, id) => sbeTsSplit(tracks, id, at));
+    return;
+  }
   sbeMutate(cs => sbeSplitAt(cs, SBE.playhead, undefined, SBE.transitions || []));
 }
 
 function sbeToggleLock() {
+  const ts = sbeTsSelIds();
+  if (ts.length) {
+    const f = sbeTsFind(SBE.tracks, String(SBE.sel).slice(4));
+    const on = !(f && f.strip.locked === true);
+    sbeTsMutateEach(ts, (tracks, id) => sbeTsSetStrip(tracks, id, { locked: on }));
+    return;
+  }
   const ids = sbeSelIds();
   const first = sbeById(SBE.clips, ids[0]);
   if (!first) return;
@@ -9463,6 +11669,29 @@ async function sbeTick() {
   // A shot generated into a hole is rendering somewhere in the panel's one
   // queue. Poll for it — but never while the user has unsaved work in flight,
   // because a reload would be a reload over their arrangement.
+  // Face Fixes ordered for this film — including retries and ones ordered
+  // before a reload: any finished job in the queue history that names this
+  // film is a reason to fetch the offers (only the offers). A job counts as
+  // handled only after a fetch that worked.
+  if (!SBE.fixBusy) {
+    const hist = ((globalThis.LAST_STATUS || {}).history) || [];
+    const landed = hist.filter(j => j && j.status === 'done' && !SBE.fixHandled[j.id]
+      && ((j.params || {}).face_fix_targets || []).some(t => t && t[0] === SBE.id));
+    if (landed.length) {
+      SBE.fixBusy = true;
+      const before = (SBE.relink || []).filter(x => x.face_fix).length;
+      try {
+        if (await sbeRefreshOffers()) {
+          landed.forEach(j => { SBE.fixHandled[j.id] = 1; });
+          const now = (SBE.relink || []).filter(x => x.face_fix && !sbeRetakeDismissed(x)).length;
+          if (now > before) {
+            phosToast('Upscale & Face Fix is ready — swap it in from the line above the timeline.',
+                      { kind: 'success', duration: 6000 });
+          }
+        }
+      } finally { SBE.fixBusy = false; }
+    }
+  }
   if (SBE.awaitingClip && !SBE.dirty && !SBE.drag && !SBE.saving) {
     const before = (SBE.unplaced || []).length;
     await sbeLoad(true);
@@ -9536,6 +11765,12 @@ document.addEventListener('keydown', (ev) => {
   // they cannot be hit while reaching for L or R, and because the bare
   // letters are worth keeping free for the J/K/L transport this timeline does
   // not have yet.
+  // ⇧A — THE SOUND AREA'S SIZE, on a key, because it is the one thing on this
+  // screen you reach for with both hands already on the timeline.
+  if (ev.shiftKey && !ev.metaKey && !ev.ctrlKey && !ev.altKey
+      && (ev.key === 'A' || ev.key === 'a')) {
+    ev.preventDefault(); sbeAudioPinToggle(); return;
+  }
   if (ev.shiftKey && !ev.metaKey && !ev.ctrlKey && (ev.key === 'L' || ev.key === 'l')) {
     ev.preventDefault(); sbeToggleAudioLink(); return;
   }
@@ -9681,6 +11916,8 @@ document.addEventListener('click', (ev) => {
     lane.addEventListener('pointerup', sbeOnMusicUp);
     lane.addEventListener('pointercancel', sbeOnMusicUp);
     lane.addEventListener('dblclick', sbeOnMusicDbl);
+    lane.addEventListener('pointerenter', () => sbeAudioOver(true));
+    lane.addEventListener('pointerleave', () => sbeAudioOver(false));
     // The ghost belongs to the pointer, so it goes when the pointer does.
     lane.addEventListener('pointerleave', () => {
       if (SBE.kfGhost && SBE.kfGhost.id === '@music') {
@@ -9689,8 +11926,20 @@ document.addEventListener('click', (ev) => {
       }
     });
   }
+  // THE POINTER ON THE SOUND AREA OPENS IT, which is also how anybody finds
+  // out that it opens: the lanes answer before they are used. On the
+  // CONTAINERS, which outlive every repaint of the strips inside them.
+  const gutter = document.getElementById('sbeGutter');
+  if (gutter) {
+    gutter.addEventListener('pointermove', (ev) => sbeAudioOver(
+      !!(ev.target.closest
+         && ev.target.closest('.sbe-gh-aud, .sbe-gh-mus, .sbe-gh-trk, .sbe-gh-add'))));
+    gutter.addEventListener('pointerleave', () => sbeAudioOver(false));
+  }
   const alane = document.getElementById('sbeAudioLane');
   if (alane) {
+    alane.addEventListener('pointerenter', () => sbeAudioOver(true));
+    alane.addEventListener('pointerleave', () => sbeAudioOver(false));
     alane.addEventListener('pointerdown', (ev) => { sbeStop(); sbeOnAudioDown(ev); });
     alane.addEventListener('dblclick', sbeOnAudioDbl);
     alane.addEventListener('pointermove', sbeOnAudioMove);
@@ -9700,6 +11949,25 @@ document.addEventListener('click', (ev) => {
     // it is near a level, and it goes when the pointer does.
     alane.addEventListener('pointerleave', sbeAudioGhostClear);
     alane.addEventListener('contextmenu', sbeOnAudioMenu);
+  }
+  // THE AUDIO TRACKS. On the container, which outlives every repaint of the
+  // lanes and strips inside it — the rule the music lane states above.
+  const tlanes = document.getElementById('sbeTracks');
+  if (tlanes) {
+    tlanes.addEventListener('pointerdown', sbeOnTsDown);
+    tlanes.addEventListener('pointermove', sbeOnTsMove);
+    tlanes.addEventListener('pointerup', sbeOnTsUp);
+    tlanes.addEventListener('pointercancel', sbeOnTsUp);
+    tlanes.addEventListener('dblclick', sbeOnTsDbl);
+    tlanes.addEventListener('pointerenter', () => sbeAudioOver(true));
+    tlanes.addEventListener('pointerleave', () => sbeAudioOver(false));
+    tlanes.addEventListener('contextmenu', sbeOnTsMenu);
+    tlanes.addEventListener('pointerleave', () => {
+      if (SBE.kfGhost && String(SBE.kfGhost.id).indexOf('@ts:') === 0) {
+        SBE.kfGhost = null;
+        sbePaintTracks();
+      }
+    });
   }
   const scrubbers = ['sbeRuler', 'sbeWave', 'sbeWaveNone'];
   for (const id of scrubbers) {
@@ -9897,7 +12165,7 @@ Object.assign(globalThis, {
   sbeDeliverGet, sbeDeliverPick, sbeDeliverPaint, sbeDuplicate, sbeDuplicateSel,
   sbeFraming, sbeFramingIsNeutral, sbeSetFraming, sbeApplyPreviewFraming, sbeFramingPreview,
   sbeFramingCommit, sbeFramingReset,
-  sbeRetakeKeep, sbeRetakeUse,
+  sbeRetakeKeep, sbeRetakeUse, sbeFaceFixSel, sbeFaceFixSwap,
   sbeOvTextPlace, sbeBlurControl,
   sbeTxById, sbeTxAfter, sbeTxDuration, sbeTxSpare, sbeTxResolve, sbeTxEdges,
   sbeTxSet, sbeTxDelete, sbeTxPrune, sbeTxRepoint, sbeTxMutate, sbeTxCommit,
@@ -9973,4 +12241,28 @@ Object.assign(globalThis, {
   sbeCbarModel, sbePaintCbar, sbeCbarFit, sbeCbarStamp,
   sbeSplitWhy, sbeCbarPlayhead,
   sbeCtxOpen, sbeReorderSel, sbeSplitHere, sbeGenOpen,
+  // THE AUDIO TRACKS — the model (for the harnesses) and every name the
+  // generated heads, strips, inspector and pool rows call back into.
+  sbeTrackLabel, sbeUnitGain, sbeTrackGain, sbeTsGain, sbeTsWindow, sbeTsGainPoints,
+  sbeTsGainAt, sbeTsCopy, sbeTsTrackById, sbeTsFind, sbeTsSort, sbeTsFits, sbeTsNearest,
+  sbeTsNextFree, sbeTsNewTrack, sbeTsRemoveTrack, sbeTsSetTrack, sbeTsPlace, sbeTsMove,
+  sbeTsMoveGroup, sbeTsTrim, sbeTsSplit, sbeTsCopyTitle, sbeTsDuplicate, sbeTsDelete,
+  sbeTsSetStrip, sbeTsSetFade, sbeTsPointsWrite, sbeTsAddKeyframe, sbeTsMoveKeyframe,
+  sbeTsDeleteKeyframe, sbeTsAt, sbeTsSnaps, sbeTsFromClip, sbeTsFromBed, sbeTsClean,
+  sbeTsSelIds, sbeTsSelectOne, sbeTsSelectToggle, sbeTsMutateEach, sbeTsMutate,
+  sbeSoundLaneSel, sbeCbarDupRow, sbeTsSplitWhy, sbeCbarTsModel, sbeTsDeleteSel,
+  sbeTsDuplicateSel, sbeTracksExtraH, sbePaintTracks, sbePaintTrackHeads, sbeTsCommit,
+  sbeTrackAdd, sbeTrackRemove, sbeTrackMute, sbeTrackRename, sbeTrackGainSlide,
+  sbeTrackGainCommit, sbeTsGainSlide, sbeTsGainCommit, sbeTsFadeCommit,
+  sbePaintTsInspector, sbeTsStripAt, sbeTsLaneAt, sbeTsEnvGain, sbeTsLevelClick,
+  sbeOnTsDown, sbeOnTsMove, sbeOnTsUp, sbeTsGhost, sbeOnTsDbl, sbeOnTsMenu,
+  sbeTsAddSoundPath, edPoolSound, sbeAddSoundFile, edPoolOverTracks,
+  // THE TWO CLIP-SOUND LANES — the model (for the harnesses) and the verbs the
+  // head button and the right-click menu call.
+  sbeSoundLane, sbeLaneName, sbeSetSoundLane, sbeAlternateLanes, sbeLaneAfter, sbeLaneFit,
+  sbeExtraLanesH, sbeAudioLaneAtY, sbeAlternateSel, sbeSoundLaneSet,
+  sbeLaneBase, sbeLaneCap, sbeTlFloor, sbeTlRoof, sbeAudioSmall, sbeAudioBusy,
+  sbeAudioWant, sbeAudioSync, sbeAudioArm, sbeAudioSet, sbeAudioTouch,
+  sbeAudioOver, sbeAudioOpenFrom, sbeAudioPinRead, sbeAudioPinWrite,
+  sbeAudioPinSet, sbeAudioPinToggle, sbeAudioSmallOnce,
 });

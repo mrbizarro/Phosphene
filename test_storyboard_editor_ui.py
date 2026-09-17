@@ -97,6 +97,10 @@ FUNCTIONS = (
     # Where a dragged pixel lands is the whole feature and the one thing that
     # cannot be checked by looking at it.
     "sbeTlClamp", "sbeLaneHeights", "sbeTlPrefRead", "sbeTlPrefWrite",
+    # ...and the floor is no longer a number: it is the sum of the lane set
+    # that is ON SCREEN, which is what lets the handle push a timeline with
+    # small sound lanes 114px lower than one with tall ones.
+    "sbeLaneBase", "sbeLaneCap", "sbeTlFloor", "sbeTlRoof", "sbeAudioSmall",
     # The level line's geometry, which three gestures now share instead of
     # each carrying a copy of a 20px band.
     "sbeStripY", "sbeStripGain", "sbeStripEditable", "sbeKeysLegend",
@@ -175,6 +179,10 @@ FUNCTIONS = (
     # to stack; this decides which is open and which is a chip.
     "sbePaintNotices", "sbeNoticeOpen", "sbeNoticeClick", "sbeNoticeLater",
     "sbeErrsToggle",
+    # The two clip-sound lanes (A/B): the insert paths and the save body call
+    # these, so every harness that extracts those needs them too.
+    "sbeSoundLane", "sbeLaneName", "sbeSetSoundLane", "sbeAlternateLanes",
+    "sbeLaneAfter", "sbeLaneFit",
 )
 
 SHIM = r"""
@@ -237,8 +245,8 @@ const SBE_TL_CHROME = 32;
 const SBE_LANES = [
   { key: 'ov',    base: 32, cap:  56, share: 0.08 },
   { key: 'track', base: 64, cap: 120, share: 0.14 },
-  { key: 'alane', base: 44, cap: 190, share: 0.44 },
-  { key: 'wave',  base: 108, cap: 240, share: 0.34 },
+  { key: 'alane', base: 44, cap: 190, share: 0.44, audio: true, small: 18 },
+  { key: 'wave',  base: 108, cap: 240, share: 0.34, audio: true, small: 20 },
 ];
 const SBE_TL_MIN_H = 280;
 const SBE_TL_MAX_H = 638;
@@ -1992,6 +2000,19 @@ out.tlClamp = {
   ceiling: sbeTlClamp(9000, 99999),
   junk: sbeTlClamp('kittens', 600),
 };
+// THE SOUND AREA AT ITS TWO SIZES. The floor is the sum of the lane set that
+// is on screen, so making the sound lanes small has to MOVE it — that is the
+// whole of "I cannot push it down if I want to compact it" — and a lane that
+// is supposed to be thin may never take a dragged pixel.
+out.tlSmall = {
+  floorOpen: sbeTlFloor(false), floorSmall: sbeTlFloor(true),
+  roofOpen: sbeTlRoof(false), roofSmall: sbeTlRoof(true),
+  lanesSmall: sbeLaneHeights(sbeTlFloor(true), true),
+  lanesSmallDragged: sbeLaneHeights(sbeTlFloor(true) + 200, true),
+  clampSmall: [sbeTlClamp(10, 600, true), sbeTlClamp(9000, 99999, true)],
+  // Defaulted, with nothing small on screen: every existing caller's meaning.
+  floorNow: sbeTlFloor(), roofNow: sbeTlRoof(),
+};
 out.lanesAtFloor = sbeLaneHeights(SBE_TL_MIN_H);
 out.lanesAtCeiling = sbeLaneHeights(SBE_TL_MAX_H);
 out.lanesMid = sbeLaneHeights(SBE_TL_MIN_H + 100);
@@ -3176,16 +3197,29 @@ class SplitEditsInTheBrowser(unittest.TestCase):
         chrome = int(re.search(r"const SBE_TL_CHROME = (\d+);",
                                self.src).group(1))
         lanes = re.findall(
-            r"\{ key: '(\w+)',\s+base:\s*(\d+), cap:\s*(\d+), share: ([\d.]+) \}",
+            r"\{ key: '(\w+)',\s+base:\s*(\d+), cap:\s*(\d+), share: ([\d.]+)",
             self.src)
         self.assertEqual([l[0] for l in lanes], ["ov", "track", "alane", "wave"])
         # These two are read by the layout harness's injected probe JS, so
         # the editor module publishes them as globalThis properties rather
         # than module-private consts (slice 3, docs/ARCHITECTURE.md).
-        floor = int(re.search(r"globalThis\.SBE_TL_MIN_H = (\d+);", self.src).group(1))
-        ceil_ = int(re.search(r"globalThis\.SBE_TL_MAX_H = (\d+);", self.src).group(1))
-        self.assertEqual(floor, chrome + sum(int(l[1]) for l in lanes))
-        self.assertEqual(ceil_, chrome + sum(int(l[2]) for l in lanes))
+        # AND THE FLOOR IS NO LONGER A NUMBER AT ALL. It is computed from the
+        # lane set that is on screen, because the sound lanes have two heights
+        # now and a constant floor is what stopped the owner compacting his
+        # timeline: "I can also not push it down if I want to compact it."
+        self.assertIn("globalThis.SBE_TL_MIN_H = sbeTlFloor(false);", self.src)
+        self.assertIn("globalThis.SBE_TL_MAX_H = sbeTlRoof(false);", self.src)
+        base_of = extract_function("sbeLaneBase", self.src)
+        self.assertIn("(small && L.audio) ? L.small : L.base", base_of)
+        for fn, part in (("sbeTlFloor", "sbeLaneBase"), ("sbeTlRoof", "sbeLaneCap")):
+            body = extract_function(fn, self.src)
+            self.assertIn("let n = SBE_TL_CHROME;", body)
+            self.assertIn("for (const L of SBE_LANES) n += " + part + "(L, s);", body)
+        # The numbers those rules produce are checked in the browser-side probe
+        # (test_small_sound_lanes_lower_the_floor_and_never_grow); here it is
+        # enough that nobody can type one in again.
+        floor = chrome + sum(int(l[1]) for l in lanes)
+        self.assertEqual(floor, 280)
         # And the CSS fallback — what the page shows for the frame before the
         # JS runs — is the same number.
         self.assertIn("min-height: var(--sbe-tl-h, %dpx);" % floor, self.src)
@@ -3206,7 +3240,7 @@ class SplitEditsInTheBrowser(unittest.TestCase):
         # factor would give the picture track 41% of the drag and the sound
         # strip 14%, which is the opposite of the sentence above.
         lanes = dict((m[0], float(m[3])) for m in re.findall(
-            r"\{ key: '(\w+)',\s+base:\s*(\d+), cap:\s*(\d+), share: ([\d.]+) \}",
+            r"\{ key: '(\w+)',\s+base:\s*(\d+), cap:\s*(\d+), share: ([\d.]+)",
             self.src))
         self.assertAlmostEqual(sum(lanes.values()), 1.0, places=6)
         self.assertGreaterEqual(lanes["alane"] + lanes["wave"], 0.75)
@@ -4708,7 +4742,7 @@ class TheSoundStaysWhereItWasPut(unittest.TestCase):
         # handle must not be sized against a number somebody can move. The
         # block inside a lane is inset 6px top and bottom; the strip 3px.
         lanes = dict(re.findall(
-            r"\{ key: '(\w+)',\s+base:\s*(\d+), cap:\s*\d+, share: [\d.]+ \}",
+            r"\{ key: '(\w+)',\s+base:\s*(\d+), cap:\s*\d+, share: [\d.]+",
             src))
         for key, inset in (("track", 12), ("alane", 7)):
             block = int(lanes[key]) - inset
@@ -5115,6 +5149,36 @@ class TheTimelineIsResizable(unittest.TestCase):
         # ends and in the middle. A distribution that loses pixels leaves a
         # dead band under the soundtrack.
         self.assertEqual(self.r["laneSums"], [0, 0, 0])
+
+    def test_small_sound_lanes_lower_the_floor_and_never_grow(self):
+        # "The sound expands lower. The picture is so tiny… and I can also not
+        # push it down if I want to compact it." The floor WAS a constant — the
+        # sum of every lane's full height — so the handle could never ask for
+        # less than the sound lanes' 44 + 108, whatever the user wanted. It is
+        # computed from the lane set on screen now, and these are the numbers
+        # that make the handle reach lower and hand the difference to the
+        # picture (sbeFitMonitors subtracts exactly these two terms).
+        s = self.r["tlSmall"]
+        self.assertEqual(s["floorOpen"], 280)
+        self.assertEqual(s["floorSmall"], 32 + 32 + 64 + 18 + 20)
+        self.assertEqual(s["floorOpen"] - s["floorSmall"], 114)
+        self.assertEqual(s["roofOpen"], 638)
+        self.assertEqual(s["roofSmall"], 32 + 56 + 120 + 18 + 20)
+        # Nothing on screen is small, so an unasked question means "as drawn".
+        self.assertEqual([s["floorNow"], s["roofNow"]],
+                         [s["floorOpen"], s["roofOpen"]])
+        # A LANE THAT IS SUPPOSED TO BE THIN NEVER TAKES A DRAGGED PIXEL —
+        # otherwise "compact" lasts until the first drag.
+        self.assertEqual(s["lanesSmall"]["alane"], 18)
+        self.assertEqual(s["lanesSmall"]["wave"], 20)
+        self.assertEqual(s["lanesSmallDragged"]["alane"], 18)
+        self.assertEqual(s["lanesSmallDragged"]["wave"], 20)
+        # ...and the 200px that lane could not take was not dropped: the
+        # picture and the overlay took it, up to their own caps.
+        self.assertEqual(s["lanesSmallDragged"]["track"], 120)
+        self.assertEqual(s["lanesSmallDragged"]["ov"], 56)
+        # Both ends of the clamp move with the lane set.
+        self.assertEqual(s["clampSmall"], [s["floorSmall"], s["roofSmall"]])
 
     def test_the_sound_takes_the_biggest_share_because_that_was_the_ask(self):
         g = self.r["laneGain"]
@@ -5862,6 +5926,7 @@ class TheClipBar(unittest.TestCase):
         ("sbeCbDelSound", "sbeDeleteStripSel()", "Delete sound"),
         ("sbeCbPoints", "sbeClearPoints()", "Clear points"),
         ("sbeCbLock", "sbeToggleLock()", "Lock"),
+        ("sbeCbFaceFix", "sbeFaceFixSel()", "Face Fix ×2"),
     )
 
     def test_every_verb_is_in_the_real_markup_with_a_handler(self):
@@ -6472,7 +6537,7 @@ class TimelineMarkup(unittest.TestCase):
         # row it is sizing, or the budget becomes its own input. The timeline
         # is counted at its CSS floor for exactly that reason.
         fn = extract_function("sbeFitMonitors", self.src)
-        self.assertIn("SBE_TL_MIN_H", fn)
+        self.assertIn("sbeTlFloor()", fn)
         self.assertIn("clientHeight", fn)
         self.assertIn("sbeMonitorFit(", fn)
         self.assertIn("--sbe-prog-h", fn)

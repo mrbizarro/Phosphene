@@ -21,7 +21,7 @@ Do that, then choose Settings → **Hailuo H3 model** → Automatic or Compact. 
 ## A model or add-on is not downloaded {#missing}
 
 - *"Extend needs the LTX-2.5 High add-on (the Q8 model), which isn't downloaded on this Mac yet"* — the same for Keyframes and High quality. Install it from the Models window (click the health chip, then **Models**).
-- *"Upscale ×2 needs the LTX-2.5 Pixel Spatial Upscaler adapter"* — download it from the Models window, then render again.
+- *"Upscale & Face Fix needs the LTX-2.5 Pixel Spatial Upscaler adapter"* — download it from the Models window, then render again.
 - *"Stopped before rendering — the model weights are incomplete"* — a download was interrupted. Open the Models window and resume it. Settings → **Verify model files** checks every file and offers a re-download of any that are damaged.
 
 ## "Click Update" — an engine older than the panel {#stale-engine}

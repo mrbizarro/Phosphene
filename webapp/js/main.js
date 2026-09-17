@@ -8,6 +8,7 @@
 // future 'call this once at startup' line belongs HERE, not at the top
 // level of a feature module.
 // ====== Init ======
+musicInit();
 // Skip poll when the tab is backgrounded — at 1.5s cadence with a fan-
 // spinning render in the background, every saved request matters. Pinokio
 // users park the panel in a tab and switch to other apps for the 5–20 min

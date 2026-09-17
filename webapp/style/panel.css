@@ -670,8 +670,7 @@
     body[data-workflow="audio"] #trainSection { display: none !important; }
     body[data-workflow="audio"] #audioSectionTab { display: block; }
 
-    /* =========================================================
-       STORYBOARD — the workflow fold + its own surfaces
+    /* ==================================================       STORYBOARD — the workflow fold + its own surfaces
        =========================================================
        Same shape as the audio fold above, plus one extra move: the shot
        list takes the GALLERY's slot in the stage column and the player
@@ -1706,6 +1705,48 @@
       justify-content: flex-start; padding-top: 6px; gap: 4px;
     }
     .sbe-gh-foot { flex: 0 0 13px; }
+    /* ---- A3, A4, …: THE AUDIO TRACKS' HEADS ----------------------------
+       Each head reads the SAME --sbe-alane-h its lane does, so the columns
+       cannot drift; the add row is the fixed SBE_TADD_H (26px) on both sides.
+       `display: contents` lets the painted heads be flex items of the gutter. */
+    .sbe-trk-heads { display: contents; }
+    .sbe-gh-trk {
+      flex: 0 0 var(--sbe-alane-h, 44px); border-top: 1px solid var(--border);
+      justify-content: flex-start; padding-top: 3px; gap: 2px;
+    }
+    .sbe-gh-trk.is-muted .sbe-trk-name, .sbe-gh-trk.is-muted .sbe-trk-row b { opacity: 0.55; }
+    .sbe-trk-name {
+      flex: 1 1 auto; min-width: 0; width: 100%; height: 16px; margin: 0; padding: 0 3px;
+      border: 1px solid transparent; border-radius: var(--r-xs); background: transparent;
+      color: var(--text); font: inherit; font-size: var(--fs-2xs); font-weight: 600;
+    }
+    .sbe-trk-name:hover, .sbe-trk-name:focus {
+      border-color: var(--border); background: var(--panel); outline: none;
+    }
+    .sbe-trk-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+    .sbe-trk-row input[type=range] {
+      flex: 1 1 auto; min-width: 0; height: 12px; margin: 0; accent-color: var(--sbe-trk-c);
+    }
+    .sbe-trk-row b {
+      flex: 0 0 auto; min-width: 28px; text-align: right; color: var(--text);
+      font-size: var(--fs-2xs); font-weight: 600; font-variant-numeric: tabular-nums;
+    }
+    .sbe-trk-mute {
+      flex: 0 0 auto; width: 18px; height: 16px; padding: 0; line-height: 1;
+      border: 1px solid var(--border); border-radius: var(--r-xs);
+      background: var(--panel); color: var(--muted); font-size: 9px; font-weight: 700;
+      cursor: pointer;
+    }
+    .sbe-trk-mute.is-on { background: var(--warning); border-color: var(--warning); color: #14101c; }
+    .sbe-gh-add {
+      flex: 0 0 26px; border-top: 1px solid var(--border); flex-direction: row;
+      align-items: center; justify-content: flex-start; gap: 4px; padding: 0 6px;
+    }
+    .sbe-gh-add .ghost-btn {
+      width: auto; height: 18px; padding: 0 6px; font-size: var(--fs-2xs);
+      white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    }
+    .sbe-gh-add .sbe-gh-more { margin-left: auto; font-size: 10px; }
     .sbe-gh-tag {
       display: flex; align-items: center; gap: 5px; min-width: 0;
       font-size: var(--fs-2xs); color: var(--text); font-weight: 600;
@@ -2335,6 +2376,34 @@
     /* The lane is the positioning context for the block; the canvas keeps its
        own borders and heights, so the lane adds nothing to the 164px floor. */
     .sbe-lane { position: relative; }
+    /* ---- A3, A4, …: THE AUDIO TRACKS -----------------------------------
+       Every lane IS an A1 strip lane (`.sbe-alane`), so the strip, its
+       waveform, level line, points, grips and corner band are the same
+       geometry the layout gate measures there. Green, so a sound on a track
+       never reads as a clip's own sound. */
+    .sbe-tracks { --sbe-trk-c: #3fb978; display: flex; flex-direction: column; }
+    .sbe-gutter { --sbe-trk-c: #3fb978; }
+    .sbe-tstrip {
+      background: rgba(63,185,120,0.16); border-color: var(--sbe-trk-c);
+      color: #8fe0b5;
+    }
+    .sbe-tstrip.is-sel { box-shadow: 0 0 0 1px var(--sbe-trk-c); }
+    .sbe-tstrip.is-locked { cursor: not-allowed; border-style: dotted; }
+    .sbe-tlane.is-muted .sbe-tstrip { opacity: 0.5; }
+    .sbe-tadd {
+      position: relative; height: 26px; border-top: 1px dashed var(--border);
+      font-size: var(--fs-2xs); color: var(--muted); line-height: 24px;
+      white-space: nowrap; overflow: hidden; user-select: none; touch-action: none;
+    }
+    .sbe-tadd-t { position: sticky; left: 10px; padding-left: 10px; }
+    .sbe-tadd.is-drop { background: rgba(63,185,120,0.14); color: var(--text); }
+    .sbe-tlane .sbe-drop-line, .sbe-tadd .sbe-drop-line { top: 0; bottom: 0; }
+    /* A sound in the media pool has no frame to show. */
+    .ed-pool-snd {
+      flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
+      width: 64px; height: 36px; border-radius: var(--r-xs);
+      background: var(--bg-2); color: #3fb978; font-size: 16px;
+    }
     /* The per-clip sound. Slim on purpose: it is a second reading of blocks
        you have already read, and a lane as tall as the pictures would say the
        two matter equally. */
@@ -2415,6 +2484,61 @@
       position: relative; height: var(--sbe-alane-h, 44px);
       border-top: 1px solid var(--border);
       user-select: none; touch-action: none;
+    }
+    /* A1 IS TWO STRIP LANES: clip sound A over clip sound B, each exactly as
+       tall as one `--sbe-alane-h`, so the strip painter, `sbeStripH` and the
+       heads in the gutter all read the one number they always did. The audio
+       tracks reuse `.sbe-alane` and stay one lane each — hence the id. */
+    #sbeAudioLane { height: calc(var(--sbe-alane-h, 44px) * 2); }
+    #sbeAudioLane::before {
+      content: ''; position: absolute; left: 0; right: 0; pointer-events: none;
+      top: calc(var(--sbe-alane-h, 44px) - 1px); border-top: 1px dashed var(--border);
+    }
+    #sbeAudioLane > .sbe-aclip { bottom: auto; height: calc(var(--sbe-alane-h, 44px) - 7px); }
+    #sbeAudioLane > .sbe-aclip.is-b { top: calc(var(--sbe-alane-h, 44px) + 3px); }
+    .sbe-gh-alt { margin-top: 2px; padding: 1px 6px; font-size: var(--fs-2xs); }
+    /* ---- THE SOUND LANES, MADE SMALL ---------------------------------
+       "The picture is so tiny… make them little (because I want to see the
+       image also as I'm working sometimes)." Small is a PICTURE OF THE SOUND,
+       not a control surface: the waveform silhouette and the strip's own
+       colour and selection stay, and everything you would GRAB goes — grips,
+       corner fades, the level line, its points, the labels — because an 11px
+       target is a control you cannot hit and a lane full of them is not
+       compact. One click on a thin lane opens the area and selects what you
+       clicked (sbeAudioOpenFrom); the heads keep their name and lose their
+       controls, which is what tells you which thin strip is which.
+       ABOVE THE STACKING BREAKPOINT ONLY: below it the page is the scroller,
+       sbeFitMonitors stands down and every lane is back on its CSS height, so
+       a class left on the box may not take the controls away down there. */
+    @media (min-width: 901px) {
+      body.sbe-aanim .sbe-alane, body.sbe-aanim #sbeAudioLane,
+      body.sbe-aanim .sbe-wave, body.sbe-aanim .sbe-wave-none,
+      body.sbe-aanim .sbe-gh-aud, body.sbe-aanim .sbe-gh-mus,
+      body.sbe-aanim .sbe-gh-trk, body.sbe-aanim .sbe-tlwrap {
+        transition: height 180ms cubic-bezier(.2,.8,.2,1),
+                    min-height 180ms cubic-bezier(.2,.8,.2,1),
+                    flex-basis 180ms cubic-bezier(.2,.8,.2,1);
+      }
+      .is-asmall .sbe-grip, .is-asmall .sbe-fade-band, .is-asmall .sbe-cl-fade,
+      .is-asmall .sbe-lvl, .is-asmall .sbe-lvl-u, .is-asmall .sbe-kf,
+      .is-asmall .sbe-aclip-t, .is-asmall .sbe-sync,
+      .is-asmall .sbe-mc-name, .is-asmall .sbe-mc-lvl,
+      .is-asmall .sbe-gh-aud .sbe-gh-sub, .is-asmall .sbe-gh-alt,
+      .is-asmall .sbe-mix-row, .is-asmall .sbe-music-name,
+      .is-asmall .sbe-gh-mode, .is-asmall .sbe-gh-mus .sbe-gh-more,
+      .is-asmall .sbe-trk-row { display: none !important; }
+      /* The strip is the target now, and it says so. */
+      .is-asmall .sbe-aclip, .is-asmall .sbe-tstrip,
+      .is-asmall .sbe-music-clip { cursor: pointer; line-height: 0; }
+      .is-asmall .sbe-aclip.is-linked { opacity: 0.75; }
+      /* The silhouette IS the lane, so it is drawn harder than it is at full
+         height, where it sits under a level line and its points. */
+      .is-asmall .sbe-wave-p { opacity: 0.8; stroke-width: 1; }
+      /* Ten pixels of head, and a name has to fit in it. */
+      .is-asmall .sbe-gh-aud, .is-asmall .sbe-gh-mus { padding-top: 1px; }
+      .is-asmall .sbe-gh-trk { padding-top: 0; }
+      .is-asmall .sbe-trk-name { height: 14px; }
+      .is-asmall .sbe-gh-tag i { padding: 0 3px; }
     }
     .sbe-aclip {
       position: absolute; top: 3px; bottom: 3px; border-radius: var(--r-xs);
@@ -6483,6 +6607,22 @@
       color: var(--ok, #2fbf71);
       background: rgba(47,191,113,0.12);
     }
+    /* Upscale & Face Fix split control: the label half queues the fix in one
+       click, the narrow half opens the lane's settings. One hairline shell so
+       the two read as one control. */
+    .po-split {
+      display: inline-flex; align-items: stretch;
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: var(--r-sm);
+    }
+    .po-split .po-act { border: none; }
+    .po-split .po-split-main { border-radius: var(--r-sm) 0 0 var(--r-sm); }
+    .po-split .po-split-more {
+      padding: 5px 6px;
+      border-left: 1px solid rgba(255,255,255,0.10);
+      border-radius: 0 var(--r-sm) var(--r-sm) 0;
+    }
+    .po-split .po-act.po-act-done { border: none; }
     .po-act.po-act-danger .po-act-label { display: none; }
     .po-act.po-act-danger:hover {
       background: rgba(248,81,73,0.18);
@@ -6909,6 +7049,16 @@
        as visually loud in the gallery's neutral grid. */
     .car-card .card-chrome .card-action-photo {
       flex: 1;
+    }
+    /* Upscale & Face Fix on video cards: the only chip a video card has
+       besides Delete, so it takes the row. Ellipsis on a narrow card; the
+       title carries the whole sentence. */
+    .car-card .card-chrome .card-action-facefix {
+      flex: 1 1 auto;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .car-card .card-chrome .card-action-danger {
       flex: 0 0 auto;
@@ -10476,3 +10626,29 @@ body[data-workflow="oneshot"] #audioSectionTab { display: none !important; }
       .docs-pagenav { padding: 0 18px; }
       .docs-keys td.docs-keys-k { width: 42%; }
     }
+
+/* Audio's two panes use the existing composer/strip grammar. */
+#audioModeGroup[hidden], #musicComposePane[hidden], #audioDrivePane[hidden],
+#musicInstallModal[hidden] { display: none !important; }
+#musicComposePane .composer-card > label { display: block; margin: 12px 14px 4px; }
+#musicComposePane .composer-card > .hint { margin: 4px 14px 12px; }
+#musicLyrics:disabled { opacity: .45; }
+#musicComposePane .quick-settings { display: block; }
+#musicComposePane .quick-settings > .hint { margin: 6px 0 14px; }
+#musicComposePane .range-strip { margin-top: 16px; }
+#musicHint { margin-top: 10px; }
+.music-card-player { width: calc(100% - 34px); margin-left: 4px; min-width: 0; position: relative; z-index: 1; }
+/* The player sits at the TOP of the thumb: the card's hover chrome slides up
+   over the bottom edge and would otherwise cover the play button. */
+.music-card-note { position: absolute; inset: auto 0 22%; text-align: center; font-size: 40px; color: var(--muted); }
+.car-thumb-wrap:has(.music-card-player) { display: flex; align-items: flex-start; padding-top: 8px; }
+.music-info-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+=======
+    /* After-the-draft Upscale & Face Fix (H3 Customize → Upscale). A checkbox
+       under the size pills: it is an extra job, not a size. While it is on,
+       the draft ships as rendered, so the size pills step back. */
+    .h3-facefix-after { align-items: flex-start; margin: 10px 0 2px; line-height: 1.45; }
+    .h3-facefix-after input { margin-top: 2px; }
+    .h3-facefix-after .cz-label-hint { display: block; margin-left: 0; }
+    #h3UpscaleGroup.is-overridden .pill-btn { opacity: 0.45; }
+    #h3UpscaleGroup.is-overridden .pill-btn[data-h3-upscale="off"] { opacity: 1; }

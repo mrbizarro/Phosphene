@@ -14,7 +14,7 @@ The chips across the top of the form. Each one says what it takes.
 | **FFLF** | a start frame and an end frame | a clip that travels from one to the other |
 | **Keyframes** | 3–8 frames | a clip that passes through each |
 | **Extend** | a clip | more of that clip, after or before it |
-| **Remix** | your own media | Ingredients, Motion Control, Colorize, LTX Upscale — see [Remix](#docs/remix) |
+| **Remix** | your own media | Ingredients, Motion Control, Colorize, Upscale & Face Fix — see [Remix](#docs/remix) |
 
 Hailuo H3 renders **Text** and **Image**; the other modes are LTX's.
 
@@ -122,11 +122,11 @@ After the render, the clip can be resized without cropping.
 
 - **Native** — as rendered.
 - **720p fit** / **1080p fit** — scaled and padded to fit. 720p fit is the default.
-- **LTX ×2** — *generated detail*: queues an **Upscale ×2** pass right after the draft, which re-renders it at twice the size with LTX-2.5 and keeps the sound. It needs the 0.3 GB Upscale adapter, downloaded from the Models window.
+Below the sizes, **Also run Upscale & Face Fix after the draft** is optional and off by default. When it is ticked, the draft ships as rendered and a second job re-renders it at twice the size with LTX-2.5, keeping the face and the sound; the fixed clip lands next to the draft. It needs the 0.3 GB Upscale adapter, downloaded from the Models window, and takes about the draft's time again.
 
 **On LTX** (under Customize → **Export**): **Native** (default), **720p fit**, or **2×**. When it is not Native, **Method** chooses **Fast** (instant) or **Sharp** (a sharper upscaler, +30–90 s).
 
-Any finished clip can also go through [LTX Upscale](#docs/remix/ltx-upscale) later.
+Any finished clip can also go through [Upscale & Face Fix](#docs/remix/upscale-face-fix) later — one click under the player.
 
 ## More controls {#more}
 

@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>Generative video, image, and character training on your Mac.</strong><br>
+  <strong>Generative video, music, image, and character training on your Mac.</strong><br>
   MLX. No PyTorch, no CUDA, no cloud, no API key.<br>
   <a href="https://x.com/PhospheneAI">@PhospheneAI</a> on X · <a href="https://github.com/mrbizarro/phosphene">github.com/mrbizarro/phosphene</a>
 </p>
@@ -19,7 +19,7 @@
 
 </p>
 
-> **Current release: v4.13.2.** **Stop means stop**: pressing Stop while Turbo is still preparing no longer lets the render start afterwards; H3 LoRAs imported before 4.13.1 are applied at their trained strength again; very large Upscale ×2 canvases decode safely (or are refused up front); a failed Turbo companion download is not retried by every job; a silent clip stays silent after Upscale ×2. Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
+> **Current release: v4.14.0.** **Songs, faces and sound**: **Audio → Compose** writes whole songs with vocals from your lyrics and a style (YuE2 by Multimodal Art Projection, MLX port by vanch007; about real time on an M4 Max, 11 GB). **Upscale & Face Fix** sharpens faces and doubles the size of any clip in one click, from the player, Outputs, the queue or the Editor. The Editor gets **sound tracks**: A3, A4 and more, a Sound pool, and clip sound on two lanes so neighbouring shots can crossfade. Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
 
 ## Overview
 
@@ -30,6 +30,29 @@ Phosphene is a local generative-media panel for Apple Silicon. It runs **two vid
 A 7-second character clip with synced audio renders in roughly 6 minutes on an M4 Max 64 GB. The delivered file is **1280×720 HD** after the built-in 2× upscale; clips are generated at 1024×576 internally and upscaled before mux. Voice + face LoRAs from a 50-image dataset finish in ~3 hours on the same hardware.
 
 The interface adapts to the machine it runs on. Under 48 GB of unified memory, the panel exposes only what fits in that envelope (text-to-video, image-to-video, and the Image tab). At 48 GB and above, character mode, first/last-frame keyframing, clip extension, and the Q8 HQ pipelines become available. Tier detection runs once at boot and the unsupported surfaces are hidden rather than greyed out.
+
+## Engines
+
+LTX, Hailuo H3 and YuE2 are peers with their own jobs and install sizes:
+
+| Engine | Surface | Weights | Unified memory |
+|---|---|---|---|
+| **LTX-Video 2.5** | Video, including Audio → Video | ~27.5 GB base; Q8 adds ~37 GB | Adapts to the Mac; advanced modes need more memory |
+| **Hailuo H3** | Video with dialogue and sound | ~75 GB; Q8 DiT adds ~22 GB | 36 GB+ with the Q8 DiT; 60 GB+ for full bf16 |
+| **YuE2** | Audio → Compose: vocals and arrangement from lyrics and a style | ~11 GB | 24 GB or more |
+
+YuE2 arrives through **Install the music engine** in the Pinokio sidebar.
+Compose offers section-tagged lyrics, a prose style, an Instrumental pill,
+three score modes, Draft/Final quality and a maximum length. Songs appear as
+48 kHz stereo WAVs in the gallery; **Drive video** loads a song into the video
+workflow without submitting it. Until the music pack is installed, Audio
+keeps its existing layout. [Music engine guide](docs/MUSIC_ENGINE.md).
+
+YuE2 weights use [CC BY-NC 4.0 plus individual-creator permission](LICENSES/YuE2-MODEL_LICENSE.txt):
+creators may monetize their songs; companies need a license for the weights.
+Code is Apache-2.0. Generated with YuE2 by Multimodal Art Projection · MLX port
+by vanch007. On an M4 Max a 3-minute song renders in about 3 minutes (Final)
+and a 2-minute Draft in about 1 minute, peaking at 11 GB of memory.
 
 ## Features
 

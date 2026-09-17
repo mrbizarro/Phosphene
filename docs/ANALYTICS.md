@@ -364,7 +364,7 @@ what gets *counted*, which is what was wrong.
 In this order:
 
 1. **First line only.** Tracebacks and multi-line detail are discarded.
-2. **Exact content redaction.** This job's prompt, negative prompt, image
+2. **Exact content redaction.** This job's prompt, negative prompt, music lyrics, music style, image
    path, audio path, output path, character name and training-job id are
    removed by exact substring match → `<redacted>`. This is the defense that
    matters: the realistic leak is an exception that quotes your prompt back.

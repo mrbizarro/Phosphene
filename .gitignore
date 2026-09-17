@@ -148,3 +148,6 @@ notes/
 
 # Frontend lint harness (dev-only; see package.json). Never ship node_modules.
 node_modules/
+
+# YuE2 engine checkout; weights live in the shared mlx_models tree.
+yue2-mlx/

@@ -719,6 +719,12 @@ JS_HANDLES = r"""
   const out = { blocks: {}, errors: [] };
 
   if (typeof sbeTlSet !== 'function') { out.errors.push('sbeTlSet missing'); return out; }
+  // THE HANDLES THIS GATE MEASURES LIVE ON THE SOUND LANES, and those lanes now
+  // make themselves small when nobody is working on sound — a grip inside an
+  // 18px strip is not the control this gate is about, and the page would have
+  // compacted underneath it a couple of seconds after it loaded. Hold them open
+  // the way a user does with the ▾ on the A1 head, through the app's own writer.
+  if (typeof sbeAudioPinSet === 'function') sbeAudioPinSet('open');
   sbeTlSet(%(tl)s);
   if (typeof sbePaint === 'function') sbePaint();
   await settle();

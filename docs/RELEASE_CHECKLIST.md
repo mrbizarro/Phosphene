@@ -35,6 +35,20 @@ This does NOT replace the sections below. From-zero, the Ideogram eyeball, the
 smoke renders, the weight mirror and the update-path gate all need a human and
 a real machine.
 
+## Music — from-zero install and listening gate
+
+- [ ] On a fresh Pinokio install with empty music weights and no cached HF
+  files, use **Install the music engine (YuE2, ~11 GB)**. Verify the isolated
+  Python 3.12 venv, pinned checkout, frozen sync, resumable staged downloads,
+  full SHA-256 check and clean generator tree. Open Audio → Compose, make a
+  real song, play its WAV, inspect the sidecar and credit, and use **Drive
+  video** without an automatic submission. Test Stop, Repair with weights
+  kept, and Update's offline check. Record memory and timing at Draft/Final;
+  the ETA table stays unmeasured until receipts exist. The owner's listening
+  verdict and explicit ship instruction are required. YuE2: the owner ordered
+  the ship on 2026-09-17 (v4.14.0); the real 10.5 GB download on a clean Mac is
+  still unrun.
+
 ## 1. Ideogram — from-zero render gate (the one that keeps biting us)
 
 ```

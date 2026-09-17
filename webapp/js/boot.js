@@ -285,15 +285,15 @@ try {
 // server now stamps a `kind` field, but the suffix fallback covers
 // outputs whose sidecar got lost (older entries) and any future caller
 // that forgets to set kind.
-function isPhotoOutputMain(o) {
-  if (!o) return false;
-  if (o.kind === 'image') return true;
-  if (o.kind === 'video') return false;
+function outputKind(o) {
+  if (!o) return 'video';
+  if (['image', 'video', 'audio'].includes(o.kind)) return o.kind;
   const path = (o.path || o.name || '').toLowerCase();
-  if (/\.(png|jpg|jpeg|webp)$/.test(path)) return true;
-  if (/\.mp4$/.test(path)) return false;
-  return false;
+  if (/\.(png|jpg|jpeg|webp)$/.test(path)) return 'image';
+  return /\.wav$/.test(path) ? 'audio' : 'video';
 }
+// Compatibility for older gallery harnesses; all UI branches use outputKind.
+function isPhotoOutputMain(o) { return outputKind(o) === 'image'; }
 // Apply the main filter on top of currentOutputs. Returns the filtered
 // array; callers also use this for the count badge so the filter and
 // the rendered cells agree.
@@ -317,8 +317,8 @@ function filteredMainOutputs() {
   } else {
     all = currentOutputs;
   }
-  if (mainOutputsFilter === 'photos') all = all.filter(isPhotoOutputMain);
-  else if (mainOutputsFilter !== 'all') all = all.filter(o => !isPhotoOutputMain(o));
+  if (mainOutputsFilter === 'photos') all = all.filter(o => outputKind(o) === 'image');
+  else if (mainOutputsFilter !== 'all') all = all.filter(o => outputKind(o) === 'video');
   return applyOutputsQuery(all);
 }
 
@@ -531,9 +531,19 @@ function updateModelCredit(path) {
   try {
     const p = path || (typeof activePath !== 'undefined' ? activePath : '');
     const entry = (typeof currentOutputs !== 'undefined' && currentOutputs || []).find(o => o && o.path === p);
+    if (entry && entry.kind === 'audio' && entry.engine === 'music') {
+      // The slot is a short chip beside the Now/Queue tabs: the full credit
+      // lives in the tooltip and on the Compose form.
+      el.textContent = 'YuE2 · MLX by vanch007';
+      el.title = 'Generated with YuE2 by Multimodal Art Projection · MLX port by vanch007';
+      el.href = 'https://github.com/vanch007/mlx-Yue';
+      return;
+    }
     if (entry && entry.model) raw = entry.model;
   } catch (e) {}
   el.textContent = _modelCreditLabel(raw || BOOT.model);
+  el.title = 'MLX port by @dgrauet';
+  el.href = 'https://github.com/dgrauet/ltx-2-mlx';
 }
 updateModelCredit();
 // `audio` is still a free-text input (advanced section); `image` is now a
@@ -879,7 +889,7 @@ function _portalLoraPicker(dest) {
 // the global scope; everything NOT listed here is private to this module.
 Object.assign(globalThis, {
   applyTierTimes, setKeyframeMode, keyframeTimingSlots, renderKeyframeDynamicSlots,
-  maybeScaleTouchedKeyframeTiming, syncKeyframeTiming, isPhotoOutputMain, filteredMainOutputs,
+  maybeScaleTouchedKeyframeTiming, syncKeyframeTiming, outputKind, isPhotoOutputMain, filteredMainOutputs,
   applyOutputsQuery, setOutputsQuery, paintOutputsCount, outputsTitleText, outputsQueryText,
   outputsLoadAll, _updateMainFilterChips, _maybeAutoLoadAllForEmptyFilter, setMainOutputsFilter,
   updateModelCredit, toggleAvoidRow, syncAvoidRowFromValue, ingredientsServed,

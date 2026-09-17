@@ -356,4 +356,20 @@ if ! "$PY" -c "import ltx_core_mlx; import ltx_pipelines_mlx; import mlx" 2>/dev
 fi
 require "the render engine import gate" -- "$PY" -c "import ltx_core_mlx, ltx_pipelines_mlx, mlx"
 
+# Music is independent of LTX. Update only an installed checkout; never pull
+# an 11 GB pack as a side effect of an ordinary panel update.
+MUSIC_CHECKOUT="${LTX_MUSIC_ROOT:-$ROOT/yue2-mlx}"
+MUSIC_MODELS_ROOT="${LTX_MUSIC_MODELS:-$ROOT/mlx_models/yue2}"
+if [ -d "$MUSIC_CHECKOUT/.git" ] && [ -f "$MUSIC_CHECKOUT/.venv/pyvenv.cfg" ]; then
+  echo 'Checking the pinned YuE2 engine and installed music pack…'
+  if bash "$ROOT/scripts/pinokio/music_checkout.sh" "$MUSIC_CHECKOUT" \
+     && bash "$ROOT/scripts/pinokio/music_venv.sh" "$MUSIC_CHECKOUT" \
+     && bash "$ROOT/scripts/pinokio/music_sync.sh" "$MUSIC_CHECKOUT" \
+     && "$MUSIC_CHECKOUT/.venv/bin/python" "$ROOT/scripts/pinokio/music_fetch.py" --models "$MUSIC_MODELS_ROOT" --check; then
+    echo 'YuE2 engine and weights verified.'
+  else
+    echo 'WARN: YuE2 needs repair. Run Repair the music engine from the sidebar; intact weights are kept.'
+  fi
+fi
+
 echo "=== post-update complete ==="

@@ -353,6 +353,7 @@ function _h3ServesMode(mode) {
 }
 
 function setEngine(engine, opts) {
+  if (engine === 'music') { audioModeSet('compose'); workflowSwitch('audio'); return; }
   opts = opts || {};
   const fallback = defaultEngine();
   const note = document.getElementById('engineRowNote');
@@ -1711,6 +1712,10 @@ async function repairModel(key) {
 // instead of leaving them with the engine wording.
 function friendlyJobError(raw) {
   raw = raw || 'unknown error';
+  if (/music engine isn't installed|YuE2 needs about|YuE2 weights.*repair/i.test(raw)) {
+    return { friendly: 'Stopped before generating — the music engine is not ready.',
+      hint: 'Install or repair it from the Phosphene sidebar in Pinokio. Everything else in the panel is unaffected.' };
+  }
   const rawLower = String(raw).toLowerCase();
   if (rawLower.includes('sigkill')) {
     return { friendly: 'Helper killed by the OS — out of memory (jetsam).',
@@ -1970,6 +1975,7 @@ async function poll() {
   // Hailuo H3 install state — refreshes the engine pill in place when the
   // pack lands (or disappears), same live-unlock contract Q8 already has.
   if (typeof updateH3Availability === 'function') updateH3Availability(s);
+  updateMusicAvailability(s);
   // The pack-incomplete gate, BEFORE the render rather than 30 s into it.
   if (typeof applyPackIncompleteGate === 'function') {
     try { applyPackIncompleteGate(s); } catch (e) {}
@@ -2316,8 +2322,12 @@ async function poll() {
       // A One Shot is named as one: the t2v/i2v underneath is how it is
       // rendered, not what was asked for.
       const _take = j.params.take && j.params.take.seconds;
-      const params = (j.params.mode === 'image')
+      const params = j.params.engine === 'music'
+        ? `YuE2 · ${j.params.music_quality} · max ${j.params.music_max_seconds}s`
+        : (j.params.mode === 'image')
         ? `image · ${j.params.aspect || '?'} · n=${j.params.n || '?'}`
+        : (j.params.mode === 'upscale')
+        ? `${FACE_FIX_NAME} · 2×`
         : _take
         ? `One Shot · ${_take} s · ${j.params.width}×${j.params.height}`
         : `${j.params.mode} · ${j.params.width}×${j.params.height} · ${j.params.frames}f`;
@@ -2355,7 +2365,7 @@ async function poll() {
   const filtered = s.history.filter(j => {
     if (filterPhotos === 'all') return true;
     const isPhoto = (j.params && j.params.mode === 'image');
-    return filterPhotos === 'photos' ? isPhoto : !isPhoto;
+    return filterPhotos === 'photos' ? isPhoto : !isPhoto && j.params.engine !== 'music';
   });
   // Memoized on the same principle as the queue list above: identical data
   // must not trigger an innerHTML replacement every 1.5 s. Unmemoized, the 20
@@ -2435,10 +2445,17 @@ async function poll() {
     // cancellation often means "wrong intent, try again with edits" but
     // sometimes "ran out of RAM, want to retry as-is."
     const isRetryable = j.status === 'failed' || j.status === 'cancelled';
+    const _p = j.params || {};
+    const canFaceFix = j.status === 'done' && j.output_path && _p.mode !== 'upscale'
+      && _p.mode !== 'train' && /\.(mp4|mov|m4v|webm|mkv)$/i.test(String(j.output_path));
     const actionHtml = isRetryable
       ? `<button class="retry-btn" type="button"
                  title="Re-submit this job with the same params"
                  onclick='retryJob(${JSON.stringify(j.id)})'>Retry</button>`
+      : canFaceFix
+      ? `<button class="retry-btn facefix-btn" type="button"
+                 title="Upscale &amp; Face Fix — queue a 2× re-render of this clip that keeps the face and the sound. The fixed clip lands next to it."
+                 onclick="faceFixClip(${escapeHtml(JSON.stringify(j.output_path))})">Face Fix</button>`
       : '';
     // Same film badge the queue rows carry, so a shot is identifiable
     // wherever the bottom pane shows it.
@@ -2489,7 +2506,7 @@ async function poll() {
     // mp4 input. Filter to videos so the user can't accidentally pick a
     // .png as an Extend source (which would 400 server-side).
     const sel = document.getElementById('extendSrcSelect');
-    const videoOutputs = currentOutputs.filter(o => !isPhotoOutputMain(o));
+    const videoOutputs = currentOutputs.filter(o => outputKind(o) === 'video');
     const _videoOpts = '<option value="">— pick an output below or paste a path —</option>' +
       videoOutputs.slice(0, 40).map(o => `<option value="${escapeHtml(o.path)}">${escapeHtml(o.name)}</option>`).join('');
     sel.innerHTML = _videoOpts;
@@ -2904,6 +2921,7 @@ function animateFromPhoto(payload) {
 // pre-date the elapsed_sec field, or outputs whose sidecar got
 // deleted) so the slot is never empty.
 function _outputDurationLabel(o) {
+  if (outputKind(o) === 'audio' && o.clip_sec != null) return _humanDuration(o.clip_sec);
   // Lead with what the file IS (its length), then how long it took, labeled.
   // "1 h 20 m" alone on a 10-second clip read as a broken duration
   // (Mr Bizarro 2026-08-10: "preview is not accurate") — same confusion as
@@ -2963,7 +2981,8 @@ function renderCarousel() {
   const _hiddenCount = visible.length - _visibleSlice.length;
   el.innerHTML = _visibleSlice.map(o => {
     const pathAttr = JSON.stringify(o.path).replace(/"/g, '&quot;');
-    const isPhoto = isPhotoOutputMain(o);
+    const isPhoto = outputKind(o) === 'image';
+    const isAudio = outputKind(o) === 'audio';
     // Thumbnail markup branches on kind. Videos use <video> with a
     // mid-clip seek (2.5s — LTX clips are 5s at 24fps and the first
     // half-second is often a dark fade-in, so seeking to the middle
@@ -2984,7 +3003,9 @@ function renderCarousel() {
     // ~2-screen-tall preload margin. Off-screen cards stay completely
     // dormant. <img> already has loading="lazy" so it's fine; we keep
     // the existing markup for photos.
-    const thumbHtml = isPhoto
+    const thumbHtml = isAudio
+      ? `<span class="music-card-note" aria-hidden="true">♪</span><audio class="train-voice-audio music-card-player" controls preload="metadata" src="${escapeHtml(o.url)}" onclick="event.stopPropagation()"></audio>`
+      : isPhoto
       ? `<img class="car-thumb" src="${_thumbUrl(o.url, 480)}" alt="${escapeHtml(o.name)}" loading="lazy">`
       // Hover-scrub: on enter, jump to 0 and play silently at 0.6×;
       // on leave, pause + snap back to the static 2.5s preview frame.
@@ -3022,6 +3043,11 @@ function renderCarousel() {
                  title="Re-run this prompt + seed + refs at Quality (auto-submits)"
                  onclick="event.stopPropagation(); remakeInQuality(${remakeArgs})">✦ Quality</button>`
       : '';
+    // Upscale & Face Fix — one click, on video cards only.
+    const faceFixChip = (isPhoto || isAudio) ? ''
+      : `<button class="card-action card-action-facefix" type="button"
+                 title="Upscale &amp; Face Fix — queue a 2× re-render of this clip that keeps the face and the sound. The fixed clip lands next to it; this one is not changed."
+                 onclick="event.stopPropagation(); faceFixClip(${escapeHtml(JSON.stringify(o.path))})">Upscale &amp; Face Fix</button>`;
     return `
     <div class="car-card${o.path === activePath ? ' active' : ''}"
          data-path="${escapeHtml(o.path)}" onclick="selectOutput(${pathAttr})">
@@ -3034,6 +3060,8 @@ function renderCarousel() {
         <div class="card-chrome">
           ${remakeChip}
           ${animateChip}
+          ${isAudio ? `<button class="card-action card-action-photo" type="button" title="Load this track into Audio → Video (does not auto-submit)" onclick="event.stopPropagation();useTrackInA2V(${pathAttr})">Drive video</button>` : ''}
+          ${faceFixChip}
           <button class="card-action card-action-danger" type="button" title="Move this file to the Trash — asks first"
                   onclick="event.stopPropagation(); deleteOutput(${pathAttr})"><svg class="ph" aria-hidden="true"><use href="#ph-trash-simple"/></svg></button>
         </div>
@@ -3199,7 +3227,8 @@ function selectOutput(path, options) {
   // the player ends up on the cached stale-bytes URL and re-shows black
   // until the browser cache expires.
   const o = findOutputByPath(path);
-  const isPhoto = isPhotoOutputMain(o);
+  const isPhoto = outputKind(o) === 'image';
+  const isAudio = outputKind(o) === 'audio';
   // Photo entries don't go through /file (which is OUTPUT-bound and
   // serves video with Range headers). Use /image which supports both
   // OUTPUT and UPLOADS roots, with the right MIME headers. Server-side
@@ -3217,7 +3246,9 @@ function selectOutput(path, options) {
   // Photo viewer is a static <img> — no controls, no autoplay (would
   // be a no-op on an image element anyway). Video viewer keeps the
   // existing controls + autoplay behaviour.
-  if (isPhoto) {
+  if (isAudio) {
+    wrap.innerHTML = `<audio class="train-voice-audio" controls preload="metadata"${autoplay ? ' autoplay' : ''} src="${escapeHtml(playerSrc)}"></audio>`;
+  } else if (isPhoto) {
     wrap.innerHTML = `<img src="${escapeHtml(playerSrc)}" alt="${o ? escapeHtml(o.name) : ''}">`;
   } else if (liveBackdrop) {
     wrap.innerHTML =
@@ -3291,7 +3322,7 @@ function selectOutput(path, options) {
     document.getElementById('playerOverlayName').textContent = o ? o.name : '';
     const rel = o ? _relTimeFromMtime(o.mtime) : '';
     const sizeLbl = o ? `${o.size_mb.toFixed(1)} MB` : '';
-    const kindLbl = isPhoto ? 'Photo' : 'Video';
+    const kindLbl = isPhoto ? 'Photo' : isAudio ? 'Audio' : 'Video';
     document.getElementById('playerOverlayMeta').innerHTML = o
       ? `<span>${kindLbl}</span><span class="po-dot"></span>` +
         `<span>${escapeHtml(rel)}</span><span class="po-dot"></span>` +
@@ -3302,7 +3333,7 @@ function selectOutput(path, options) {
 
   // Load params is video-only — image sidecars use the library@1 schema
   // which doesn't carry the i2v/t2v form fields the loader expects.
-  document.getElementById('loadParamsBtn').disabled = !(o && o.has_sidecar) || isPhoto;
+  document.getElementById('loadParamsBtn').disabled = !(o && o.has_sidecar) || isPhoto || isAudio;
   // Action button row: swap "Use as Extend" for "Animate" on photo
   // entries (Extend is video-only, but the still can be the seed for
   // an i2v render).
@@ -3323,11 +3354,11 @@ function selectOutput(path, options) {
   //   /status payload as o.engine) — not the form's current engine, which is
   //   about the next render and says nothing about this clip.
   const outIsH3 = !!(o && o.engine === 'h3');
-  if (useExtBtn) useExtBtn.style.display = (isPhoto || outIsH3) ? 'none' : '';
-  // Upscale ×2 is video-only but engine-agnostic: an H3 draft is exactly the
-  // clip it was built for.
-  const useUpBtn = document.getElementById('useAsUpscaleBtn');
-  if (useUpBtn) useUpBtn.style.display = isPhoto ? 'none' : '';
+  if (useExtBtn) useExtBtn.style.display = (isPhoto || isAudio || outIsH3) ? 'none' : '';
+  // Upscale & Face Fix is video-only but engine-agnostic: an H3 draft is
+  // exactly the clip it was built for.
+  const useUpBtn = document.getElementById('faceFixWrap');
+  if (useUpBtn) useUpBtn.style.display = (isPhoto || isAudio) ? 'none' : '';
   if (animBtn) animBtn.style.display = isPhoto ? '' : 'none';
   // "Finish at …" — for a completed H3 render that has a higher canvas to be
   // committed at. Decided from o.engine / o.h3_tier (both sidecar-derived,
@@ -3349,10 +3380,13 @@ function openExpandLightbox() {
   const stage = document.getElementById('expandStage');
   const meta = document.getElementById('expandMeta');
   if (!lb || !stage) return;
-  const isPhoto = isPhotoOutputMain(o);
+  const isPhoto = outputKind(o) === 'image';
+  const isAudio = outputKind(o) === 'audio';
   // Build the media element fresh each time so the previous selection's
   // <video> stops decoding immediately.
-  stage.innerHTML = isPhoto
+  stage.innerHTML = isAudio
+    ? `<audio class="train-voice-audio" src="${escapeHtml(o.url)}" controls autoplay></audio>`
+    : isPhoto
     ? `<img src="${o.url}" alt="${escapeHtml(o.name)}">`
     : `<video src="${o.url}" controls autoplay></video>`;
   _wireStageMutePersistence(stage.querySelector('video'));
@@ -3538,8 +3572,46 @@ function useAsExtendSourcePath(path) {
   document.querySelector('aside.form-pane').scrollTop = 0;
 }
 function useAsExtendSource() { if (!activePath) return alert('Pick an output first.'); useAsExtendSourcePath(activePath); }
-// Upscale ×2 — same hand-off shape as Extend: switch to the Remix tool,
-// point the picker at this clip, scroll the form to the top.
+// UPSCALE & FACE FIX — the one-click clip action. The server builds the job
+// (the face-safe recipe, the clip's own prompt and seed) so the player, the
+// Outputs cards, the history rows and the Editor queue exactly the same thing.
+// The fixed clip lands NEXT TO the original as a new file; nothing is
+// overwritten. `opts.board` + `opts.clip` = ordered from an Editor clip, which
+// makes the Editor offer the swap when it lands.
+const FACE_FIX_NAME = 'Upscale & Face Fix';
+async function faceFixClip(path, opts) {
+  opts = opts || {};
+  if (!path) { phosToast('Pick a clip first.', {}); return null; }
+  const fd = new URLSearchParams();
+  fd.set('path', path);
+  if (opts.board) fd.set('board', opts.board);
+  if (opts.clip) fd.set('clip', opts.clip);
+  let r;
+  try { r = await (await fetch('/queue/facefix', { method: 'POST', body: fd })).json(); }
+  catch (e) { r = { ok: false, error: String(e) }; }
+  const name = String(path).split('/').pop();
+  if (!r || !r.ok) {
+    phosToast((r && r.error) || (FACE_FIX_NAME + ' could not be queued.'),
+              { kind: 'danger', duration: 9000 });
+    return r;
+  }
+  if (opts.btnId) { try { _flashActionDone(opts.btnId, 'Queued'); } catch (e) {} }
+  phosToast(r.duplicate
+    ? (FACE_FIX_NAME + (r.running ? ' is already rendering for ' : ' is already waiting in the queue for ')
+       + name + '.')
+    : (opts.doneHint || (FACE_FIX_NAME + ' queued for ' + name
+       + ' — the fixed clip (2× size, same face, same sound) lands next to it in Outputs.')),
+    { kind: 'success', duration: 6000 });
+  try { poll(); } catch (e) {}
+  return r;
+}
+function faceFixActive() {
+  if (!activePath) return phosToast('Pick a clip in Outputs first.', {});
+  return faceFixClip(activePath, { btnId: 'faceFixBtn' });
+}
+// The full lane (Remix → Upscale & Face Fix): presets, source picker, prompt.
+// Same hand-off shape as Extend: switch to the Remix tool, point the picker
+// at this clip, scroll the form to the top.
 function useAsUpscaleSourcePath(path) {
   setMode('upscale');
   const inp = document.getElementById('upscale_source_path');
@@ -3551,12 +3623,18 @@ function useAsUpscaleSourcePath(path) {
   if (pane) pane.scrollTop = 0;
 }
 function useAsUpscaleSource() { if (!activePath) return alert('Pick an output first.'); useAsUpscaleSourcePath(activePath); }
-// Upscale ×2 presets — one hidden number (keep_shot) the server maps to how
-// the render starts; the pills are the only thing the user touches.
+// Upscale & Face Fix presets — hidden numbers the server maps to how the
+// render starts; the pills are the only thing the user touches. `keep_shot`
+// is the preset; the Face Fix pill also pins the start and the step count
+// (the other pills clear them so the server's own mapping applies).
 function setUpscalePreset(btn) {
   const v = (btn && btn.dataset && btn.dataset.keep) || '1.0';
   const inp = document.getElementById('keep_shot');
   if (inp) inp.value = v;
+  const st = document.getElementById('upscale_start');
+  if (st) st.value = (btn && btn.dataset && btn.dataset.start) || '';
+  const sp = document.getElementById('upscale_steps');
+  if (sp) sp.value = (btn && btn.dataset && btn.dataset.steps) || '';
   document.querySelectorAll('#upscalePresetGroup .pill-btn').forEach(b =>
     b.classList.toggle('active', b === btn));
 }
@@ -3649,6 +3727,39 @@ async function loadParams() {
   // video form is left as it was (oneshot.js owns the rest of the restore).
   if (p.take && p.take.seconds && typeof oneshotOpenFromParams === 'function') {
     oneshotOpenFromParams(p);
+    return;
+  }
+  else if (p.mode === 'upscale') {
+    // Upscale & Face Fix reopens in its own lane on the same source clip with
+    // the EXACT recipe that ran. A pill lights only when it names that recipe;
+    // old sidecars (keep_shot only) match the pill with that strength.
+    useAsUpscaleSourcePath(p.upscale_source_path || '');
+    const keepN = Number(p.keep_shot != null && p.keep_shot !== '' ? p.keep_shot : 1);
+    const keep = String(keepN);                // exact: 0.49 is not 0.5
+    const start = String(p.upscale_start || '');
+    const steps = String(p.upscale_steps || '');
+    const pills = Array.from(document.querySelectorAll('#upscalePresetGroup .pill-btn'));
+    const pick = pills.find(b => Number(b.dataset.keep) === keepN
+      && (b.dataset.start || '') === start && (b.dataset.steps || '') === steps);
+    if (pick) setUpscalePreset(pick);
+    else {
+      pills.forEach(b => b.classList.remove('active'));
+      const set = (idn, v) => { const el = document.getElementById(idn); if (el) el.value = v; };
+      set('keep_shot', keep); set('upscale_start', start); set('upscale_steps', steps);
+    }
+    document.getElementById('prompt').value = p.prompt || '';
+    // The source's length, asked on the 1+8k grid ABOVE it: the server floors
+    // an off-grid count, and the lane cuts the render back to the source.
+    const fr = Number(p.source_frames || p.frames || 0);
+    if (fr > 0 && document.getElementById('frames')) {
+      const grid = Math.max(9, 1 + 8 * Math.ceil((fr - 1) / 8));
+      // frames only: the (hidden) duration box has a 1–20 s range, and a
+      // 30 s source written into it would block Generate.
+      document.getElementById('frames').value = grid;
+    }
+    const sd = (p.seed_used != null) ? p.seed_used : p.seed;
+    if (sd != null && sd !== '') document.getElementById('seed').value = sd;
+    _flashActionDone('loadParamsBtn', 'Loaded');
     return;
   }
   else if (p.mode === 'extend') setMode('extend');
@@ -4065,6 +4176,14 @@ function _humanDuration(s) {
 }
 
 function renderOutputInfoBody(path, data) {
+  if (data && data.engine === 'music') {
+    const fields = [['Style', data.style], ['Lyrics', data.lyrics], ['Seed', data.seed],
+      ['Length', _humanDuration(data.audio_seconds)],
+      ['Ended naturally', data.ended_naturally == null ? 'Unknown' : data.ended_naturally ? 'Yes' : 'No — max length reached'],
+      ['Score (ABC)', data.score_abc || 'No score']];
+    return fields.map(([label, value]) => `<div class="oi-section"><h3 class="oi-section-title">${label}</h3><div class="oi-prompt music-info-text">${escapeHtml(String(value == null ? '—' : value))}</div></div>`).join('')
+      + '<p class="hint">Generated with YuE2 by Multimodal Art Projection · MLX port by vanch007</p>';
+  }
   const p = (data && data.params) || {};
   const loras = Array.isArray(p.loras) ? p.loras : [];
 
@@ -4102,6 +4221,10 @@ function renderOutputInfoBody(path, data) {
     i2v_clean_audio: 'Image → Video (clean audio)',
     keyframe: keyframeModeLabel,
     extend: 'Extend',
+    upscale: FACE_FIX_NAME,
+    restore: 'Colorize',
+    control: 'Motion Control',
+    ingredients: 'Ingredients',
   })[p.mode] || (p.mode || '—');
   // One Shot is the mode the user chose; t2v/i2v is what it ran as.
   const modeLabel = (p.take && p.take.seconds)
@@ -4129,6 +4252,23 @@ function renderOutputInfoBody(path, data) {
   // ---- Generation parameters ----
   const genRows = [];
   genRows.push(`<dt>Mode</dt><dd>${escapeHtml(modeLabel)}</dd>`);
+  if (p.mode === 'upscale') {
+    // Which recipe ran. `face_fix` is written by the worker since the rename;
+    // older sidecars only carry keep_shot, and the words follow the server's
+    // own mapping (1.0 → 3 steps, 0.8 → 2, below 0.5 → from noise).
+    const ff = data.face_fix || {};
+    const keep = Number(ff.keep_shot != null ? ff.keep_shot : (p.keep_shot || 1));
+    const start = ff.start || p.upscale_start || (keep < 0.5 ? 'noise' : 'source');
+    const steps = ff.refine_steps || (start === 'source'
+      ? (Number(p.upscale_steps) || (keep >= 0.95 ? 3 : 2)) : null);
+    const how = start === 'noise' ? 'Re-imagine — full re-render from noise'
+      : (steps === 1 ? 'Face Fix — 1 refine step from the clip (the face is kept)'
+         : `${steps} refine steps from the clip`);
+    genRows.push(`<dt>Recipe</dt><dd>${escapeHtml(how)}</dd>`);
+    if (p.upscale_source_path) {
+      genRows.push(`<dt>From</dt><dd>${escapeHtml(String(p.upscale_source_path).split('/').pop())}</dd>`);
+    }
+  }
   // A Hailuo H3 render has no LTX quality preset. `params.quality` is just
   // whatever the quality strip happened to hold when Generate was pressed —
   // the H3 TIER defined this render's geometry — so printing "Quality:
@@ -4422,7 +4562,7 @@ document.getElementById('genForm').addEventListener('submit', async e => {
   // 4.12.3). Say it before anything is queued.
   const _upMode = String(fd.get('mode') || (typeof currentMode !== 'undefined' ? currentMode : '') || '');
   if (_upMode === 'upscale' && !String(fd.get('upscale_source_path') || '').trim()) {
-    const _msg = 'Pick the clip to upscale first — choose it in the list, or press LTX Upscale on a clip in Outputs.';
+    const _msg = 'Pick the clip to fix first — choose it in the list, or press Upscale & Face Fix on a clip in Outputs.';
     alert(_msg);
     return;
   }
@@ -4734,7 +4874,8 @@ Object.assign(globalThis, {
   retryJob, renderCarousel, findOutputByPath, stageMayAutoSelectOutput,
   selectOutput, openExpandLightbox, closeExpandLightbox, phosToast,
   animateActive, hide, openOutputsFolder, hideActive,
-  useAsExtendSource, useAsUpscaleSource, useAsUpscaleSourcePath, setUpscalePreset, loadParams, _flashActionDone, closeOutputInfoModal,
+  useAsExtendSource, useAsUpscaleSource, useAsUpscaleSourcePath, setUpscalePreset,
+  faceFixClip, faceFixActive, loadParams, _flashActionDone, closeOutputInfoModal,
   togglePause, openBatch, closeBatch, queueBatch,
   // inline-handler targets: generated markup resolves these through the
   // global scope (the v4.9.0 regression, PR #69)

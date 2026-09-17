@@ -43,7 +43,7 @@ The gallery on the right shows what you have made. Click a card to put it on the
 - **All / Videos / Photos** filter it, and the search box finds outputs by prompt words, model, LoRA, size or seed ([[sc:search.focus]] jumps to it).
 - **Show all** loads older renders than the newest 60.
 - [[sc:outputs.step]] steps through the gallery, [[sc:player.toggle]] plays and pauses, [[sc:outputs.expand]] expands the player to full screen.
-- Under the player, the action row offers what you can do next with that clip: **Extend** it, **LTX Upscale** it, send it **To film**, **Animate** a still, see its **Params**.
+- Under the player, the action row offers what you can do next with that clip: **Extend** it, run **Upscale & Face Fix** on it, send it **To film**, **Animate** a still, see its **Params**.
 - The trash button on a card moves the file to the macOS Trash after asking — restore it from Finder if you change your mind. [[sc:outputs.trash]] does the same for the selected output.
 
 ## Where files go {#files}

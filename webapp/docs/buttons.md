@@ -20,7 +20,8 @@ The buttons that show a picture instead of a word. Hover any of them in the pane
 | Button | What it does |
 |---|---|
 | **Params** | the settings the selected output was made with |
-| **Extend** · **LTX Upscale** · **To film** · **Animate** | use the selected output as the start of something new |
+| **Upscale & Face Fix** | queues a 2× re-render of the clip that keeps the face and the sound; the fixed clip lands next to it. The small button beside it opens the [settings](#docs/remix/upscale-face-fix) |
+| **Extend** · **To film** · **Animate** | use the selected output as the start of something new |
 | the crossed-out eye (red) | hides this output from the gallery — the file is not deleted |
 | **Expand** | full screen ([[sc:outputs.expand]]; Esc closes it) |
 
@@ -29,6 +30,7 @@ The buttons that show a picture instead of a word. Hover any of them in the pane
 | Button | What it does |
 |---|---|
 | **ⓘ** | how this output was made — prompt, engine, quality, seed, LoRAs |
+| **Upscale & Face Fix** (on a video card, on hover) | queues the face-safe 2× of that clip — same as the player button |
 | [[icon:ph-trash-simple]] | moves the file to the macOS Trash, after asking ([[sc:outputs.trash]] on the selected output) |
 | [[icon:ph-folder-simple]] (Outputs header) | reveals the outputs folder in Finder |
 
@@ -37,6 +39,7 @@ The buttons that show a picture instead of a word. Hover any of them in the pane
 | Button | What it does |
 |---|---|
 | **×** on a queued job | removes it from the queue |
+| **Face Fix** on a finished video in the history | queues Upscale & Face Fix for that clip |
 | **×** on a failed or stopped card | dismisses the message |
 | **Stop** (under Generate) | stops the render in progress |
 | **Stop early** (on the live preview) | stops it after asking — nothing is saved, the queue carries on |

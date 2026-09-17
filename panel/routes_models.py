@@ -76,7 +76,14 @@ def post_models_remove(h, path, qs, ctype) -> None:
 
     targets: list[P.Path] = []
     label = ""
-    if key.startswith("version:"):
+    if key == "music":
+        with P.LOCK:
+            jobs = [P.STATE.get("current")] + list(P.STATE.get("queue") or [])
+            if any(j and (j.get("params") or {}).get("engine") == "music" for j in jobs):
+                h._json({"error": "Music is queued or rendering — stop or remove those jobs first."}, 409); return
+        targets = [P.MUSIC_MODELS] if P.MUSIC_MODELS.is_dir() else []
+        label = "YuE2 weights"
+    elif key.startswith("version:"):
         vid = key.split(":", 1)[1]
         ver = next((v for v in P.MODEL_VERSIONS if v["id"] == vid), None)
         if not ver:

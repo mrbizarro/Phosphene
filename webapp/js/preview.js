@@ -1862,7 +1862,22 @@ async function refreshModelsModal({ silent = false } = {}) {
         </li>`;
     }
   }
-  list.innerHTML = (rows + h3Row) || `<li class="empty-state">No model manifest found — required_files.json is missing or unreadable.</li>`;
+  let musicRow = '';
+  const music = (LAST_STATUS && LAST_STATUS.music) || BOOT.music;
+  if (music && music.capable) {
+    const statusText = music.available
+      ? `Ready · Compose unlocked in the Audio tab · ${escapeHtml(music.root || '')}`
+      : music.repairable ? 'Weights on disk · engine needs repair'
+      : `Available to install · one click in the Pinokio sidebar · ~11 GB · needs ${music.min_ram_gb} GB unified memory`;
+    musicRow = `<li class="${music.available ? 'ready' : 'missing'}">
+      <span class="icon">♪</span><div class="meta">
+        <span class="ttl">YuE2 · music engine</span>
+        <span class="sub">Lyrics and a style description in, a finished song out — vocals and arrangement together</span>
+        <span class="sub">${statusText}</span></div>
+      ${music.available ? '<button class="ghost" disabled>Installed</button>' : '<button onclick="openMusicInstallCard()">How to install</button>'}
+    </li>`;
+  }
+  list.innerHTML = (rows + h3Row + musicRow) || `<li class="empty-state">No model manifest found — required_files.json is missing or unreadable.</li>`;
   // Footer summarises required vs optional counts.
   // Count only what THIS BUILD needs. 2.3's two base rows were inside
   // "Required: N/M ready", which made §7.1's first-visit contract

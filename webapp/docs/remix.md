@@ -25,20 +25,25 @@ An ordinary video works. A pose, depth or edge sequence you already have follows
 
 *B&W clip → color.* Pick the clip in **Source video to colorize** and describe the colours to paint in. The output keeps the source's size and length.
 
-## LTX Upscale {#ltx-upscale}
+## Upscale & Face Fix {#upscale-face-fix}
 
-*Any clip → 2× sharper.* Re-renders a clip at twice its size with generated detail — not a filter. Made for Hailuo H3 drafts, works on any clip.
+*Any clip → 2× sharper, face kept.* Re-renders a clip at twice its size with generated detail — not a filter — and keeps the face and the sound. Made for Hailuo H3 drafts, works on any clip. (Earlier versions called this **LTX Upscale** / **Upscale ×2**.)
 
-1. Pick the clip in **Clip to upscale**, or press **LTX Upscale** under the player with a clip selected in Outputs.
+**One click:** press **Upscale & Face Fix** under the player, on an Outputs card, on a finished row in the queue history, or on the Editor's clip bar. It queues the **Face Fix** recipe for that clip with the clip's own prompt and seed. The fixed clip is a **new file** next to the original, which is not changed. From the Editor, a line above the timeline offers to **swap it in** when it lands — same cut, same in and out points — or to keep the old one.
+
+**With settings:** the small button beside **Upscale & Face Fix** under the player opens the clip here, in Remix.
+
+1. Pick the clip in **Clip to fix**.
 2. Choose a preset:
 
 | Preset | What it does | Time for 5 s at 640×384 on an M4 Max |
 |---|---|---|
-| **Faithful** | sharp, the face stays (default) | about 5.5 min |
-| **Quick** | a touch softer | about 3.75 min |
-| **Re-imagine** | the sharpest, and faces drift | about 7 min |
+| **Face Fix** | one refine step from the clip — sharper, the face is not redrawn (default, and what the one-click button runs) | about 2.5 min |
+| **Faithful** | three refine steps — sharper detail, the face can shift a little | about 5.5 min |
+| **Quick** | two refine steps, a touch softer | about 3.75 min |
+| **Re-imagine** | a full re-render — the sharpest, and faces drift | about 7 min |
 
-3. Generate. The sound is kept, the length and (if you leave it empty) the prompt come from the source, and up to 0.3 s may be trimmed at the end. The result is capped at this Mac's Image-to-Video size.
+3. Generate. The sound, the length and the frame count are kept, and (if you leave it empty) the prompt comes from the source. The result is capped at this Mac's Image-to-Video size. A 5 s 1024×576 source takes much longer (about 20 min for Face Fix).
 
 It needs the **LTX-2.5 Pixel Spatial Upscaler** adapter (0.3 GB) — download it from the Models window. A source already near the cap is refused, because it cannot grow enough to be worth the render.
 

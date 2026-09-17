@@ -1525,7 +1525,7 @@ CURATED_LORAS: dict[str, dict] = {
         "name": "Pixel Spatial Upscaler ×2 (LTX-2.5)",
         "description": "Lightricks' LTX-2.5 IC-LoRA that re-renders a finished "
                        "clip at twice the size, inventing real detail instead of "
-                       "interpolating pixels. Drives the Upscale ×2 mode; takes "
+                       "interpolating pixels. Drives Upscale & Face Fix; takes "
                        "the source clip on the IC reference channel. Gated on "
                        "HF (license click) — mirrored on the Phosphene release.",
         "repo_id": "Lightricks/LTX-2.5-22b-IC-LoRA-Pixel-Spatial-Upscaler",
@@ -5593,6 +5593,11 @@ def storage_rows() -> list[dict]:
                         "planner run on.",
                 "removable": False,
             })
+    music_bytes = _dir_size_bytes(MUSIC_MODELS)
+    if music_bytes:
+        rows.append({"key": "music", "name": "YuE2 weights", "paths": [str(MUSIC_MODELS)],
+                     "bytes": music_bytes, "size": _fmt_gb(music_bytes), "removable": True,
+                     "note": "Removing this turns off Compose in the Audio tab. Audio → Video is unaffected — it uses tracks you already have."})
     return rows
 
 
@@ -7287,6 +7292,7 @@ STATE: dict = {
     # video engine — a `caffeinate → python → ffmpeg` tree outside HELPER).
     # /stop and the atexit hook kill it by pgid, same contract as train_pgid.
     "h3_pgid": None,
+    "music_pgid": None,
 }
 LOCK = threading.RLock()
 QUEUE_COND = threading.Condition(LOCK)
@@ -12100,9 +12106,9 @@ def _h3_export_notes(w: int, h: int) -> dict[str, str]:
                 _cap = 0
             _sc = min(2.0, _cap / float(max(w, h))) if _cap else 2.0
             _tw, _th = ltx_floor_canvas(int(w * _sc), int(h * _sc))
-            out[mode] = (f"LTX ×2: after the draft, an Upscale ×2 job is queued that re-renders "
-                         f"it at {_tw}×{_th} with LTX-2.5 generated detail and keeps the sound. "
-                         "Faithful preset: about the draft's time again."
+            out[mode] = (f"{FACE_FIX_NAME}: after the draft, a second job re-renders it at "
+                         f"{_tw}×{_th} with LTX-2.5 detail, keeps the face and the sound, and "
+                         "lands beside the draft. About the draft's time again."
                          + ("" if _adapter_ok else
                             " Needs the 0.3 GB Upscale adapter first — Settings → Models."))
             continue
@@ -12424,6 +12430,302 @@ def h3_status() -> dict:
     return result
 
 
+# YuE2 receipts, measured 2026-09-17 on an M4 Max 64 GB (8-bit AR, runner
+# sidecars in the PM hub notes/yue2/MEASUREMENTS.md):
+#   Final 32 steps: 177.8 s song in 180.2 s · 120.0 s in 113.8 s · 60.0 s in 58.5 s
+#   Draft  8 steps: 120.0 s song in 64.2 s
+#   Score planning + resident loads ≈ 12 s per song; peak process footprint
+#   11.0 GB (MLX peak 10.5 GiB) on every length. 24 GB Macs are known to work
+#   (yue2-studio's M5 Pro 24 GB receipts), hence the floor.
+# Wall ≈ MUSIC_FIXED_SEC + audio seconds × rate, scaled for other chips by the
+# LTX speed table (both are MLX GPU work). The slider is a ceiling, so this
+# prices a song that runs to Max length; most songs end sooner.
+MUSIC_MIN_RAM_GB = 24.0
+MUSIC_SAMPLE_RATE = 48000
+MUSIC_CHANNELS = 2
+MUSIC_QUALITY_STEPS = {"draft": 8, "final": 32}
+MUSIC_FIXED_SEC = 12.0
+MUSIC_SECONDS_PER_AUDIO_SECOND = {"draft": 0.43, "final": 0.93}
+MUSIC_ROOT = ROOT / Path(os.environ.get("LTX_MUSIC_ROOT", "yue2-mlx")).expanduser()
+MUSIC_MODELS = ROOT / Path(os.environ.get("LTX_MUSIC_MODELS", "mlx_models/yue2")).expanduser()
+MUSIC_RUNNER = ROOT / "scripts/music/yue2_run.py"
+MUSIC_ENGINE_PIN = (ROOT / "scripts/music/engine_pin.txt").read_text().strip()
+# Lock paths that command-line GPU jobs (the H3 lab's scripts) create while they
+# run. Music only READS them: inside Phosphene the queue already serialises GPU
+# work, so the panel never creates, deletes or reclaims a shared lock — which
+# is what makes a stale or raced lock impossible on this side.
+MUSIC_GPU_DIR_LOCK = Path.home() / "AI/projects/hailuo-mlx/.gpu_lock"
+MUSIC_GPU_FILE_LOCK = Path("/tmp/phosphene_gpu.lock")
+
+
+def _music_python() -> Path | None:
+    for p in (MUSIC_ROOT / ".venv/bin/python", MUSIC_ROOT / ".venv/bin/python3.12"):
+        if p.is_file() and os.access(p, os.X_OK):
+            return p
+    return None
+
+
+def music_capable() -> bool:
+    return SYSTEM_RAM_GB >= MUSIC_MIN_RAM_GB
+
+
+def music_paths() -> dict:
+    from scripts.pinokio.music_fetch import pack_problems
+    missing = pack_problems(MUSIC_MODELS)
+    weights_ok = not missing
+    python = _music_python()
+    runner_ok = MUSIC_RUNNER.is_file() and (MUSIC_ROOT / "pyproject.toml").is_file()
+    built = (MUSIC_ROOT / ".venv/pyvenv.cfg").is_file()
+    if not runner_ok:
+        missing.append(f"runner / checkout under {MUSIC_ROOT}")
+    if python is None:
+        missing.append(f"venv python under {MUSIC_ROOT / '.venv'}")
+    reason = ("ok" if not missing else
+              "not_installed" if not weights_ok and not (built or (MUSIC_ROOT / "pyproject.toml").is_file()) else
+              "missing_weights" if not weights_ok else
+              "missing_venv" if python is None else "missing_runner")
+    return {"root": str(MUSIC_ROOT), "models": str(MUSIC_MODELS),
+            "runner": MUSIC_RUNNER, "python": python,
+            "generator": MUSIC_MODELS / "generator", "vae": MUSIC_MODELS / "vae",
+            "missing": missing, "reason": reason, "weights_ok": weights_ok,
+            "runner_ok": runner_ok, "venv_ok": python is not None,
+            "venv_broken": built and python is None,
+            "repairable": weights_ok and bool(missing)}
+
+
+def music_estimate(quality: str, seconds: int) -> dict:
+    """A fit to the M4 Max receipts above, scaled by chip. Never a measurement:
+    songs usually end before Max length, and cold first loads are unmeasured."""
+    wall = (MUSIC_FIXED_SEC + seconds * MUSIC_SECONDS_PER_AUDIO_SECOND[quality]) * _hw_speed_factor("ltx")
+    return {"eta_sec": round(wall), "eta": _fmt_eta(wall / 60), "eta_measured": False}
+
+
+def music_status() -> dict:
+    paths = music_paths()
+    return {**{k: paths[k] for k in ("root", "models", "missing", "reason", "repairable",
+                                    "weights_ok", "runner_ok", "venv_ok", "venv_broken")},
+            "capable": music_capable(), "available": not paths["missing"],
+            "installed": not paths["missing"], "min_ram_gb": MUSIC_MIN_RAM_GB,
+            "eta_measured": False,
+            "estimates": {q: {str(n): music_estimate(q, n) for n in range(30, 361, 15)}
+                          for q in MUSIC_QUALITY_STEPS}}
+
+
+def music_params(form: dict) -> dict:
+    """Explicit allowlist shared by queue construction and dispatch/replays."""
+    def value(key, default=""):
+        v = form.get(key, default)
+        if isinstance(v, list):
+            v = v[0] if v else default
+        return str(v if v is not None else default).strip()
+    def integer(key, default):
+        try:
+            return int(value(key, default))
+        except (TypeError, ValueError):
+            return default
+    instrumental = value("music_instrumental").lower() in ("1", "true", "yes", "on")
+    quality = value("music_quality", "final")
+    mode = value("music_mode", "full")
+    return {"mode": "music", "engine": "music",
+            "music_lyrics": "" if instrumental else value("music_lyrics"),
+            "music_style": value("music_style"),
+            "music_mode": mode if mode in ("full", "melody", "off") else "full",
+            "music_instrumental": instrumental,
+            "music_max_seconds": max(8, min(360, integer("music_max_seconds", 240))),
+            "music_seed": max(-1, min(2**32 - 1, integer("music_seed", -1))),
+            "music_quality": quality if quality in MUSIC_QUALITY_STEPS else "final"}
+
+
+def music_argv(job: dict, paths: dict, output: Path) -> list[str]:
+    p = music_params(job["params"])
+    try:
+        sources = json.loads((MUSIC_MODELS / "pack_source.json").read_text())["sources"]
+    except (OSError, ValueError, KeyError):
+        sources = {}  # Manual packs have unknown provenance; never invent it.
+    provenance = {"job_id": job["id"], "engine": "music", "engine_pin": MUSIC_ENGINE_PIN,
+                  "pack_sources": sources, "params": p}
+    args = [str(paths["python"]), str(paths["runner"]),
+            "--model-dir", str(paths["generator"]), "--vae-dir", str(paths["vae"]),
+            "--output", str(output), "--sidecar", str(output) + ".json",
+            "--extra-json", json.dumps(provenance, ensure_ascii=False),
+            "--style", p["music_style"], "--lyrics", p["music_lyrics"],
+            "--mode", p["music_mode"], "--steps", str(MUSIC_QUALITY_STEPS[p["music_quality"]]),
+            "--max-seconds", str(p["music_max_seconds"]), "--seed", str(p["music_seed"]),
+            "--precision", "8bit"]
+    if p["music_instrumental"]:
+        args.append("--instrumental")
+    return args
+
+
+def music_progress(line: str, previous: dict | None = None) -> dict | None:
+    """Decode the runner's flushed protocol; percentages describe stages."""
+    m = re.match(r"^\[music\] (stage|plan|song|synth|decode|done|error)\s*(.*)$", line.strip())
+    if not m:
+        return None
+    phase, detail = m.groups()
+    pct = float((previous or {}).get("pct", 0))
+    label = ""
+    if phase == "stage":
+        label, target = {"loading": ("Loading YuE2", 2), "planning": ("Writing score", 5),
+                         "writing": ("Writing song", 15), "stopping": ("Stopping music", pct)}.get(detail, (detail, pct))
+        pct = max(pct, target)
+    elif phase == "plan":
+        label = f"Writing score · {detail} tokens"
+        pct = max(pct, 5)
+    elif phase in ("song", "synth", "decode"):
+        count = re.fullmatch(r"(\d+)/(\d+)", detail)
+        if not count:
+            return None
+        k, total = map(int, count.groups())
+        if not total:
+            return None
+        start, span, name = {"song": (15, 45, "Writing song"), "synth": (60, 30, "Synthesizing music"),
+                             "decode": (90, 8, "Decoding audio")}[phase]
+        pct = max(pct, start + span * min(1, k / total))
+        label = f"{name} · {k}/{total}"
+    elif phase == "done":
+        pct, label = 100, "Song ready"
+    else:
+        label = detail
+    return {"phase": phase, "phase_label": label, "pct": pct}
+
+
+def _music_external_gpu_lock() -> Path | None:
+    """The first external GPU lock that exists (file or directory), else None."""
+    for path in (MUSIC_GPU_DIR_LOCK, MUSIC_GPU_FILE_LOCK):
+        try:
+            if path.exists() or path.is_symlink():
+                return path
+        except OSError:
+            continue
+    return None
+
+
+def _stop_music_proc(grace: float = 8.0, pgid: int | None = None) -> None:
+    """SIGTERM a music runner group, SIGKILL it after `grace` if it is still the
+    current one. Callers that decided to stop a SPECIFIC job pass its pgid, read
+    in the same locked section as the cancel flag, so a worker that advanced in
+    between is never hit."""
+    if pgid is None:
+        with LOCK:
+            pgid = STATE.get("music_pgid")
+    if not pgid:
+        return
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    def force():
+        time.sleep(grace)
+        # An old cancellation timer must never kill the next job's group.
+        with LOCK:
+            if STATE.get("music_pgid") != pgid:
+                return
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    threading.Thread(target=force, daemon=True, name="stop-music").start()
+
+
+atexit.register(_stop_music_proc)
+
+
+def run_music_job_inner(job: dict) -> None:
+    p = music_params(job["params"])
+    paths = music_paths()
+    if not music_capable():
+        raise RenderRefused("music_ram", f"YuE2 needs about {MUSIC_MIN_RAM_GB:.0f} GB of unified memory; this Mac reports {SYSTEM_RAM_GB:.0f} GB. The rest of Phosphene is unaffected.")
+    if paths["missing"]:
+        missing = "; ".join(paths["missing"])
+        if paths["repairable"]:
+            raise RuntimeError(f"The YuE2 weights are on disk but the engine needs repair — missing: {missing}. Click 'Repair the music engine' in the Phosphene sidebar in Pinokio — it is idempotent and skips every weight already on disk, so this is a couple of minutes, NOT an 11 GB download.")
+        raise RuntimeError(f"The music engine isn't installed — missing: {missing}. Click 'Install the music engine' in the Phosphene sidebar in Pinokio (~11 GB, resumable).")
+    if not p["music_style"] and not p["music_lyrics"] and not p["music_instrumental"]:
+        raise RenderRefused("music_input", "Give it something to work with — lyrics, a style description, or both.")
+    held = _music_external_gpu_lock()
+    if held is not None:
+        raise RenderRefused(
+            "gpu_busy",
+            f"The GPU is in use by another render (lock {held}). Retry music when it has finished. "
+            f"If nothing is rendering, that lock was left behind by a command-line job — delete it and retry.")
+    proc = None
+    output = None
+    try:
+        _proc_guard_write("music", 0, 0, note=f"job {job['id']}")
+        HELPER.kill()  # Park LTX's resident weights before starting the other MLX runtime.
+        if job.get("cancel_requested"):
+            raise JobStopped("Music stopped")
+        OUTPUT.mkdir(parents=True, exist_ok=True)
+        slug = _sb_slug(p["music_style"] or p["music_lyrics"] or "instrumental")
+        output = _unique_output_path(OUTPUT, f"music_{time.strftime('%Y%m%d_%H%M%S')}_{slug}", ext=".wav")
+        job["raw_path"] = str(output)
+        cmd = music_argv(job, paths, output)
+        job["command"] = shlex.join(cmd)
+        t0 = time.time()
+        proc = subprocess.Popen(cmd, cwd=str(MUSIC_ROOT), env={**os.environ, "PYTHONUNBUFFERED": "1"},
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+                                start_new_session=True)
+        with LOCK:
+            STATE["pid"] = proc.pid
+            STATE["music_pgid"] = proc.pid
+        _proc_guard_write("music", proc.pid, proc.pid, note=f"job {job['id']}")
+        if job.get("cancel_requested"):
+            _stop_music_proc(pgid=proc.pid)
+        tail = collections.deque(maxlen=4)
+        progress = None
+        assert proc.stdout is not None
+        for raw in proc.stdout:
+            line = raw.rstrip()
+            if not line:
+                continue
+            push(line)
+            tail.append(line)
+            parsed = music_progress(line, progress)
+            if parsed:
+                progress = parsed
+                elapsed = time.time() - t0
+                parsed.update(elapsed_sec=elapsed,
+                              eta_sec=music_estimate(p["music_quality"], p["music_max_seconds"])["eta_sec"],
+                              remaining_sec=max(0, music_estimate(p["music_quality"], p["music_max_seconds"])["eta_sec"] - elapsed),
+                              eta_measured=False)
+                with LOCK:
+                    job["progress"] = parsed
+        rc = proc.wait()
+        if job.get("cancel_requested") or rc == 130:
+            # A Stop that lands while the runner is publishing can still leave
+            # this job's files behind; "Nothing was saved" has to be true.
+            for leftover in (output, Path(str(output) + ".json"),
+                             output.with_name(output.stem + ".partial" + output.suffix)):
+                try:
+                    leftover.unlink()
+                except OSError:
+                    pass
+            raise JobStopped("Music stopped")
+        if rc != 0:
+            raise RuntimeError(f"YuE2 exited with code {rc}: " + " · ".join(tail))
+        if not output.is_file() or not Path(str(output) + ".json").is_file():
+            raise RuntimeError("YuE2 finished without the WAV and its sidecar. See the log.")
+        job["output_path"] = str(output)
+    finally:
+        if proc is not None:
+            if proc.poll() is None:
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                    proc.wait(timeout=8)
+                except subprocess.TimeoutExpired:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                    proc.wait()
+                except ProcessLookupError:
+                    proc.wait()
+            if proc.stdout:
+                proc.stdout.close()
+        with LOCK:
+            STATE["pid"] = None
+            STATE["music_pgid"] = None
+        _proc_guard_clear("music")
+
+
 ENGINE_DEFAULT = "ltx"
 
 ENGINES: tuple[dict, ...] = (
@@ -12498,6 +12800,17 @@ ENGINES: tuple[dict, ...] = (
         "install_card": "openH3InstallCard",
         "install_size": "~75 GB",
         "state": "ready",
+    },
+    {
+        "id": "music", "label": "YuE2", "sublabel": "music",
+        "tagline": "lyrics and a style in, a finished song out — vocals and arrangement together.",
+        "mark": "eng-mark-music", "accent": "#B14AFF",
+        "accent_dim": "rgba(177,74,255,0.14)", "accent_soft": "rgba(177,74,255,0.42)",
+        "builtin": False, "probe": "music", "modes": ("music",), "excluded_modes": (),
+        "serves_label": "Compose", "surfaces": ("music",), "lora_tag": None,
+        "strip": "", "hint": "", "strip_label": "Quality", "state": "ready",
+        "install_card": "openMusicInstallCard", "install_size": "~11 GB",
+        "size_note": f"~11 GB · needs {MUSIC_MIN_RAM_GB:.0f} GB unified memory · YuE2 license (CC BY-NC 4.0 + creator permission)",
     },
     # ---- Flux Video ---------------------------------------------------------
     # Weights are announced, not released. The entry is real (and rendered as
@@ -13231,7 +13544,8 @@ def _analytics_job_secrets(job: dict) -> list:
     p = (job or {}).get("params") or {}
     out = []
     for k in ("prompt", "negative_prompt", "image", "audio", "output",
-              "first_frame", "last_frame", "character", "train_job_id"):
+              "first_frame", "last_frame", "character", "train_job_id",
+              "music_lyrics", "music_style"):
         v = p.get(k)
         if isinstance(v, str) and v.strip():
             out.append(v.strip())
@@ -14616,14 +14930,14 @@ def _upscale_finish(video_path: Path, audio_source: str, *, frames: int,
         if ok and state == "unknown":
             kept = _probe_audio_state(str(tmp)) == "audio"
         if not ok and want_source:
-            push(f"Upscale ×2: could not carry the source sound over ({err}) — "
+            push(f"{FACE_FIX_NAME}: could not carry the source sound over ({err}) — "
                  "delivering the clip without sound")
             ok, err = _run(False)
         if not ok:
             raise RuntimeError(
-                (f"Upscale ×2: could not cut the render back to {frames} frames: {err}"
+                (f"{FACE_FIX_NAME}: could not cut the render back to {frames} frames: {err}"
                  if trim else
-                 f"Upscale ×2: could not finish the clip (removing the model's own "
+                 f"{FACE_FIX_NAME}: could not finish the clip (removing the model's own "
                  f"soundtrack failed): {err}"))
         tmp.replace(video_path)
         return kept
@@ -15059,7 +15373,8 @@ def list_outputs(
     # Merge-sort videos + images by mtime DESC so the limit applies to the
     # unified newest-first stream (no kind-specific imbalance).
     combined: list[tuple[Path, float]] = []
-    for p in video_files:
+    audio_files = [p for p in OUTPUT.glob("*.wav") if not p.name.endswith(".partial.wav")]
+    for p in video_files + audio_files:
         try:
             combined.append((p, p.stat().st_mtime))
         except OSError:
@@ -15162,9 +15477,11 @@ def list_outputs(
         if has_sidecar:
             try:
                 meta = json.loads(sidecar.read_text())
-                v = meta.get("elapsed_sec")
+                v = meta.get("elapsed_sec", meta.get("wall_seconds"))
                 if isinstance(v, (int, float)):
                     elapsed_sec = float(v)
+                if p.suffix.lower() == ".wav":
+                    clip_sec = meta.get("audio_seconds")
                 _sc_params = meta.get("params")
                 if not isinstance(_sc_params, dict):
                     _sc_params = {}
@@ -15255,7 +15572,7 @@ def list_outputs(
             # 'kind' lets the right-pane viewer + filter chips branch
             # without re-parsing the filename. Mirrors isPhotoOutput() on
             # the agent-stage pane (commit af5c184).
-            "kind": "image" if is_image else "video",
+            "kind": "image" if is_image else "audio" if p.suffix.lower() == ".wav" else "video",
             "q": search,
         })
     total = len(out)
@@ -16081,6 +16398,7 @@ def _kill_h3_proc() -> None:
 # reaped by this one.
 _PROC_GUARDS: dict[str, tuple[Path, str]] = {
     "h3": (STATE_DIR / "h3_running.json", "generate_staged"),
+    "music": (STATE_DIR / "music_running.json", "yue2_run.py"),
     "helper": (STATE_DIR / "helper_running.json", "mlx_warm_helper"),
 }
 
@@ -16553,8 +16871,11 @@ def stop_current_job(timeout: float = 5.0) -> None:
         mux_pgid = STATE.get("mux_pgid")
         train_pgid = STATE.get("train_pgid")
         h3_pgid = STATE.get("h3_pgid")
+        music_pgid = STATE.get("music_pgid")
     push("Stop requested — killing helper + ffmpeg post-process + training subprocess to abort current job.")
     HELPER.kill()
+    if music_pgid:
+        _stop_music_proc(pgid=music_pgid)
     # Image-engine subprocesses (HiDream's BF16 helper, mflux's per-family
     # binaries) live outside HELPER. Without this they would run to
     # completion regardless of /stop. Each engine registers its Popen via
@@ -19531,15 +19852,19 @@ def _sb_split_audio_plan(segs: list[dict]) -> dict:
     """Where every clip's SOUND plays in the concatenated film.
 
     Returns {"split": bool, "total": float, "lanes": [{idx, start, end, at,
-    len}]}. `split` is False when nothing is unlinked, and that is what keeps
-    the ordinary graph byte-identical: the whole decoupled path is skipped.
+    len}], "lanes_b": [...]}. `split` is False when nothing is unlinked, and
+    that is what keeps the ordinary graph byte-identical: the whole decoupled
+    path is skipped.
 
-    ONE LANE, ENFORCED HERE TOO. The validator refuses overlapping sound in
-    the EDITOR's clock, but the assembler closes gaps, so two clips can slide
-    into each other on the way out. Rather than emit a graph that would need a
-    mixer, a later lane's head is trimmed to the one before it — deterministic,
-    and the only alternative is the second audio track this feature is
-    explicitly not.
+    TWO LANES, EACH ONE A LANE. `lanes` is clip sound lane A — every clip that
+    carries no `lane` — and `lanes_b` is lane B (`lane: 2`). Within a lane the
+    rule is the old one: the assembler closes gaps, so two clips can slide
+    into each other on the way out, and a later strip's arrival trims the
+    tail before it — deterministic, and no mixer inside the lane. BETWEEN the
+    lanes nothing is trimmed: the two are summed downstream, which is how a
+    sound dissolve across a cut is made (`storyboard_editor.clip_sound_lane`).
+    A film that never used lane B returns an empty `lanes_b` and everything
+    else exactly as before.
     """
     cum, rows, split = 0.0, [], False
     for i, sg in enumerate(segs):
@@ -19565,22 +19890,35 @@ def _sb_split_audio_plan(segs: list[dict]) -> dict:
             split = True
             has_audio = False
         aud = sg.get("audio") if isinstance(sg.get("audio"), dict) else None
+        lane_b = sg.get("lane") == 2
         if has_audio:
+            # LANE B CANNOT RIDE THE PLAIN CONCAT — that graph is one lane —
+            # so a clip on it takes the lane path like an unlinked one.
+            if lane_b:
+                split = True
             if aud:
                 split = True
                 rows.append({"idx": i, "start": float(aud["start"]),
                              "end": float(aud["end"]), "speed": speed,
-                             "at": cum + float(aud.get("delta") or 0.0)})
+                             "at": cum + float(aud.get("delta") or 0.0),
+                             "b": lane_b})
             else:
                 cut = sg.get("window")
                 st = float(cut["start"]) if cut else 0.0
                 # SOURCE seconds on both ends: `n` is film seconds, so the
                 # window a retimed clip plays is `n * speed` of the take.
                 rows.append({"idx": i, "start": st, "end": st + n * speed,
-                             "speed": speed, "at": cum})
+                             "speed": speed, "at": cum, "b": lane_b})
         cum += n
     total = round(cum, 6)
-    rows.sort(key=lambda r: r["at"])
+    return {"split": split, "total": total,
+            "lanes": _sb_audio_lane_rows([r for r in rows if not r["b"]], total),
+            "lanes_b": _sb_audio_lane_rows([r for r in rows if r["b"]], total)}
+
+
+def _sb_audio_lane_rows(rows: list[dict], total: float) -> list[dict]:
+    """One clip-sound lane's strips, clipped to the film and butt-joined."""
+    rows = sorted(rows, key=lambda r: r["at"])
     lanes = []
     for r in rows:
         at, st, en, sp = r["at"], r["start"], r["end"], r["speed"]
@@ -19615,23 +19953,25 @@ def _sb_split_audio_plan(segs: list[dict]) -> dict:
         if abs(L["speed"] - 1.0) > 1e-9:
             lane["speed"] = L["speed"]
         out.append(lane)
-    return {"split": split, "total": total, "lanes": out}
+    return out
 
 
 def _sb_split_audio_chains(lanes: list[dict], total: float, rate: int,
-                           out_label: str) -> list[str]:
-    """The film's ONE audio lane, as silence and sound laid end to end.
+                           out_label: str, hush_tag: str = "aq") -> list[str]:
+    """ONE clip-sound lane, as silence and sound laid end to end.
 
-    `concat` and not `amix`, deliberately: concat cannot sum, so this graph is
-    incapable of becoming the mixer the refuse list bans, and the gaps between
-    split edits are honest `anullsrc` rather than an input that happens to be
-    quiet.
+    `concat` and not `amix`, deliberately: concat cannot sum, so a lane cannot
+    become a mixer, and the gaps between split edits are honest `anullsrc`
+    rather than an input that happens to be quiet. The SUM of lane A and lane
+    B happens once, downstream, in the same `amix` the bed and the audio
+    tracks join. `hush_tag` names the silences, so two lanes in one graph
+    cannot collide; lane A keeps `aq`, character for character.
     """
     chains, parts, cursor, n = [], [], 0.0, 0
 
     def hush(seconds: float) -> None:
         nonlocal n
-        lab = f"aq{n}"
+        lab = f"{hush_tag}{n}"
         n += 1
         chains.append(f"anullsrc=channel_layout=stereo:sample_rate={rate}:"
                       f"d={seconds:.6f}[{lab}]")
@@ -19690,8 +20030,17 @@ def _sb_film_filtergraph(probes: list[tuple], target_w: int, target_h: int,
                          overlays: list | None = None,
                          overlay_base: int = 0,
                          segments: list[dict] | None = None,
-                         scale_to: int = 0, grain: int = 0) -> tuple[str, str]:
+                         scale_to: int = 0, grain: int = 0,
+                         sound_strips: list | None = None,
+                         sound_base: int = 0) -> tuple[str, str]:
     """The concat FILTER graph for a mixed-geometry cut → (graph, video_label).
+
+    `sound_strips` are the audio TRACKS' strips (A3, A4, …), from
+    `storyboard_editor.track_render_strips`, and `sound_base` the ffmpeg input
+    index of the first of them (one `-i` per row, in order). Each is trimmed to
+    its source window, shaped by its own curve, dropped onto its film second
+    with `adelay` and MIXED over whatever the clips and the bed made. None or
+    empty leaves the graph character-for-character what it was.
 
     A bare concat DEMUXER cannot do this job. The shots in one film are not
     uniform and never were: the draft pass writes 640×448, delivery writes
@@ -19757,7 +20106,7 @@ def _sb_film_filtergraph(probes: list[tuple], target_w: int, target_h: int,
     # loop below only learns that as it goes. `split` False leaves every line
     # after this exactly as it was.
     aplan = _sb_split_audio_plan(segs)
-    alane = {L["idx"]: L for L in aplan["lanes"]}
+    alane = {L["idx"]: L for L in aplan["lanes"] + aplan["lanes_b"]}
     split = bool(aplan["split"])
     music_mode = str((music or {}).get("mode") or "replace").lower()
     if music_mode not in ("replace", "under"):
@@ -19891,6 +20240,43 @@ def _sb_film_filtergraph(probes: list[tuple], target_w: int, target_h: int,
     # the clips kept their own sound.
     bed_env = _sb_volume_term((music or {}).get("gain"))
     bed_tail = ("," + bed_env.rstrip(",")) if bed_env else ""
+    # ---- THE AUDIO TRACKS: a strip is a chain, and the chains are MIXED ----
+    # Built before the branches below so each branch can name its own result
+    # `[abase]` instead of `[aout]` when there is something to mix over it. The
+    # envelope runs on the STRIP's clock (after `asetpts`, t is 0 at the strip's
+    # first sample), which is the clock `track_strip_gain_points` speaks, so
+    # there is no conversion to get wrong. `adelay` in SAMPLES, after the
+    # resample, so a strip lands on its film second to the sample rather than
+    # to the millisecond. `apad` + `atrim=0:total` gives every strip exactly
+    # the base's length, which is what `amix duration=first` expects of them.
+    strip_labels: list[str] = []
+    strip_chains: list[str] = []
+    # ---- CLIP SOUND LANE B joins that same sum --------------------------
+    # Laid end to end exactly like lane A, into its own label, and mixed with
+    # everything else under the one `asoftclip`. Only when a clip is on it and
+    # the clips keep their sound: `replace` throws both lanes away, and an
+    # empty lane B adds nothing, so every film that never used it builds the
+    # graph it always did.
+    if aplan["lanes_b"] and not silent_segments:
+        strip_chains.extend(_sb_split_audio_chains(
+            aplan["lanes_b"], total, rate, "[alb]", hush_tag="aqb"))
+        strip_labels.append("[alb]")
+    for k, row in enumerate(r for r in (sound_strips or []) if isinstance(r, dict)):
+        s_at = max(0.0, float(row.get("at") or 0.0))
+        s_st = max(0.0, float(row.get("start") or 0.0))
+        s_en = float(row.get("end") or 0.0)
+        if s_en - s_st <= 1e-6 or s_at >= total - 1e-6:
+            continue                      # nothing of it plays inside the film
+        s_vol = _sb_volume_term(row.get("gain"))
+        s_delay = (f"adelay=delays={int(round(s_at * rate))}S:all=1,"
+                   if s_at > 1e-6 else "")
+        strip_chains.append(
+            f"[{sound_base + k}:a]atrim=start={s_st:.6f}:end={s_en:.6f},"
+            f"asetpts=PTS-STARTPTS,{s_vol}aresample={rate},"
+            f"aformat=sample_fmts=fltp:channel_layouts=stereo,"
+            f"{s_delay}apad,atrim=0:{total:.6f},asetpts=PTS-STARTPTS[ts{k}]")
+        strip_labels.append(f"[ts{k}]")
+    aout = "[abase]" if strip_labels else "[aout]"
     if silent_segments:
         chains.extend(_sb_picture_chains(pads, segs, pic_lens))
         # `apad` before the trim so a soundtrack shorter than the film ends in
@@ -19899,7 +20285,7 @@ def _sb_film_filtergraph(probes: list[tuple], target_w: int, target_h: int,
             f"{music_head}aresample={rate},"
             f"aformat=sample_fmts=fltp:channel_layouts=stereo,"
             f"apad,atrim=0:{total:.6f},asetpts=PTS-STARTPTS"
-            f"{bed_tail}[aout]")
+            f"{bed_tail}{aout}")
     elif music and music_mode == "under":
         if split:
             # The picture concatenates on its own; the sound was already laid
@@ -19952,17 +20338,33 @@ def _sb_film_filtergraph(probes: list[tuple], target_w: int, target_h: int,
         # so a preview could only fake it. It is a safety net, not a mix
         # decision — and the render MEASURES what it did (`mix_peak`) and says
         # so, which is what a net owes the person it is under.
+        # WITH AUDIO TRACKS THE STRIPS JOIN THIS SAME SUM, so the limiter runs
+        # once over everything rather than twice in series.
+        chains.extend(strip_chains)
         chains.append(
-            "[acat][bed]amix=inputs=2:duration=first:dropout_transition=0:"
+            f"[acat][bed]{''.join(strip_labels)}amix=inputs={2 + len(strip_labels)}"
+            ":duration=first:dropout_transition=0:"
             f"normalize=0,asoftclip=type=tanh:threshold={_sb_mix_ceiling():g}"
             "[aout]")
+        strip_labels = []
     elif split:
         chains.extend(_sb_picture_chains(pads, segs, pic_lens))
         chains.extend(_sb_split_audio_chains(aplan["lanes"], total, rate,
-                                             "[aout]"))
+                                             aout))
     else:
         chains.append(
-            f"{''.join(pads)}concat=n={len(segs)}:v=1:a=1[vcat][aout]")
+            f"{''.join(pads)}concat=n={len(segs)}:v=1:a=1[vcat]{aout}")
+    if strip_labels:
+        # THE SAME SUM AND THE SAME NET the under-mix uses: `normalize=0` so no
+        # input is halved behind the user's back, `duration=first` so the film
+        # is as long as its picture, and `asoftclip` because nothing else stops
+        # a laugh track over a hot line from hard-clipping.
+        chains.extend(strip_chains)
+        chains.append(
+            f"{aout}{''.join(strip_labels)}amix=inputs={1 + len(strip_labels)}"
+            ":duration=first:dropout_transition=0:"
+            f"normalize=0,asoftclip=type=tanh:threshold={_sb_mix_ceiling():g}"
+            "[aout]")
     # ---- THE OVERLAY LANE, composited over the finished picture ----------
     # A SECOND VIDEO TRACK, and the alpha is the whole of it. The card arrives
     # 1536x832 for a 768x416 frame — authored at 2x on purpose — so it is
@@ -20134,6 +20536,8 @@ def _sb_timeline_segments(timeline: list) -> tuple[list[dict], list[str], list]:
             seg["fx"] = dict(entry["fx"])
         if entry.get("gain"):
             seg["gain"] = [list(pt) for pt in entry["gain"]]
+        if entry.get("lane") == 2:
+            seg["lane"] = 2
         aud = entry.get("audio")
         if isinstance(aud, dict):
             # A DELTA, NOT A FILM SECOND. The assembler CONCATENATES, so a
@@ -20243,8 +20647,13 @@ def _sb_assemble_film(clips: list, out_path, *, plan: list | None = None,
                       music_delay: float = 0.0,
                       music_mode: str = "replace",
                       music_gain: list | None = None,
-                      deliver: dict | None = None) -> dict:
+                      deliver: dict | None = None,
+                      sound_strips: list | None = None) -> dict:
     """Concatenate the exported shots into ONE playable film.
+
+    `sound_strips` (from `storyboard_editor.track_render_strips`) are the audio
+    tracks' strips; each gets its own `-i` AFTER the overlays, so no index the
+    graph already used moves, and they are mixed over the film's sound.
 
     `clips` is the export directory's own copies, in `n` order, already
     filtered by the copy loop — the film is exactly what the folder contains,
@@ -20397,12 +20806,16 @@ def _sb_assemble_film(clips: list, out_path, *, plan: list | None = None,
     # UP ONLY, and only when it changes something: a 1080p delivery of a
     # 1080-high cut is the cut.
     scale_to = dl["height"] if dl["height"] and dl["height"] != target_h else 0
+    strip_rows = [r for r in (sound_strips or []) if isinstance(r, dict)
+                  and str(r.get("path") or "")]
     graph, vlabel = _sb_film_filtergraph(probes, target_w, target_h, rate,
                                          graph_pix, cuts=cuts,
                                          music=music_arg, segments=segments,
                                          overlays=ov_rows,
                                          overlay_base=overlay_base,
-                                         scale_to=scale_to, grain=dl["grain"])
+                                         scale_to=scale_to, grain=dl["grain"],
+                                         sound_strips=strip_rows,
+                                         sound_base=overlay_base + len(ov_inputs))
 
     cmd = [str(FFMPEG), "-y"]
     if segments is not None:
@@ -20418,6 +20831,11 @@ def _sb_assemble_film(clips: list, out_path, *, plan: list | None = None,
         cmd += ["-i", music_arg["path"]]
     for frag in ov_inputs:
         cmd += frag
+    # THE AUDIO TRACKS' FILES LAST, one per strip, in the order the graph
+    # numbered them from `sound_base`. `-vn` so a video used for its sound
+    # only is not decoded for a picture nothing maps.
+    for row in strip_rows:
+        cmd += ["-vn", "-i", str(row["path"])]
     cmd += [
         "-filter_complex", graph,
         "-map", vlabel, "-map", "[aout]",
@@ -20465,13 +20883,15 @@ def _sb_assemble_film(clips: list, out_path, *, plan: list | None = None,
                         for k in ("video", "still", "slug")}
                        if segments is not None else None),
              "unreadable": unreadable}
+    if strip_rows:
+        facts["sound_strips"] = len(strip_rows)
     # WHAT THE LIMITER DID, MEASURED. It is the one gain in this graph that is
     # not a value in the document, because it acts on the sum of two signals
     # and nothing outside ffmpeg has those samples — so instead of a preview
     # pretending to apply it, the render reports it. A peak sitting above the
     # soft-clip knee is the knee working: tanh only pushes a sample past the
     # threshold when it was already over it.
-    if music_arg and str(music_arg.get("mode") or "") == "under":
+    if strip_rows or (music_arg and str(music_arg.get("mode") or "") == "under"):
         peak = _sb_audio_peak(out_path)
         if peak is not None:
             facts["mix_peak"] = round(peak, 4)
@@ -20593,6 +21013,14 @@ def _sbe_render_edit(board: dict, edit: dict, *, music=None,
     probs = sedit.transition_problems(edit)
     if probs:
         return {"ok": False, "error": probs[0]["message"], "status": 400}
+    # THE AUDIO TRACKS, refused the way a missing soundtrack is: a film with a
+    # hole where the laugh track was is not the film anybody cut.
+    strips = sedit.track_render_strips(edit)
+    for row in strips:
+        if not Path(row["path"]).is_file():
+            return {"ok": False, "status": 400,
+                    "error": f"no sound file at {row['path']} (audio track "
+                             f"{sedit.track_label(row['track_index'])})"}
     if any(sedit.overlay_kind(o) == "text" for o in sedit.overlay_items(edit)):
         problem = sedit.title_font_problem()
         if problem:
@@ -20633,7 +21061,7 @@ def _sbe_render_edit(board: dict, edit: dict, *, music=None,
         music_end=win["end"], music_delay=win["delay"], music_mode=mmode,
         music_gain=sedit.bed_render_gain(edit),
         overlays=sedit.overlay_items(edit),
-        deliver=dl)
+        deliver=dl, sound_strips=strips or None)
     film["gaps"] = gaps
     if gaps:
         # An honest limitation, disclosed rather than discovered: this
@@ -21349,6 +21777,145 @@ def _sbe_pool_path_ok(path: str) -> bool:
     return False
 
 
+def _sbe_probe_sound(path) -> dict | None:
+    """What an AUDIO TRACK needs to know about a file, or None.
+
+    Deliberately not `_sb_probe_clip`, which refuses anything without a
+    picture — the right verdict for a shot and exactly the wrong one for a
+    laugh track. A file with no audio stream is None: a sound strip made of
+    silence is a strip nobody meant to add. Returns
+    `{"duration", "has_video", "sample_rate"}`, `duration` being the AUDIO
+    stream's own when it says, else the container's.
+    """
+    try:
+        out = subprocess.run(
+            [str(FFPROBE), "-v", "error", "-show_entries",
+             "stream=codec_type,sample_rate,duration:format=duration",
+             "-of", "json", str(path)],
+            capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    try:
+        data = json.loads(out.stdout or "{}")
+    except (ValueError, TypeError):
+        return None
+    a_dur, rate, has_audio, has_video = 0.0, 0, False, False
+    for st in (data.get("streams") or []) if isinstance(data, dict) else []:
+        if not isinstance(st, dict):
+            continue
+        kind = str(st.get("codec_type") or "")
+        if kind == "audio":
+            has_audio = True
+            try:
+                a_dur = max(a_dur, float(st.get("duration") or 0.0))
+                rate = max(rate, int(st.get("sample_rate") or 0))
+            except (TypeError, ValueError):
+                pass
+        elif kind == "video":
+            has_video = True
+    if not has_audio:
+        return None
+    if a_dur <= 0:
+        try:
+            a_dur = float(((data.get("format") or {}).get("duration")) or 0.0)
+        except (TypeError, ValueError):
+            a_dur = 0.0
+    if not (a_dur > 0):
+        return None
+    return {"duration": round(a_dur, 6), "has_video": has_video,
+            "sample_rate": rate}
+
+
+def _sbe_sound_dir(board: dict) -> Path:
+    """The film's own sound folder: `<film folder>/audio/`.
+
+    Beside the renders of the film it belongs to, and under OUTPUT, which is
+    what `/file` serves — so a sound put here can be HEARD in the Editor's
+    preview, not only rendered.
+    """
+    return _sb_film_dir(board) / "audio"
+
+
+def _sbe_list_sounds(board: dict, *, limit: int = 300) -> list[dict]:
+    """The media pool's Sound source: every sound file the film can use.
+
+    Two places, film first: `<film folder>/audio/` (what "Add sound file…"
+    brings in, and what belongs to this film) and the top of OUTPUT (every
+    `.wav` the engines and the Audio tab leave there). Newest first, capped,
+    and no probing — two hundred ffprobes on a tab switch would be the slow
+    part of the Editor; the length is read when a sound is actually added.
+    """
+    suffixes = set(_sbe_import().SOUND_SUFFIXES)
+    rows: list[dict] = []
+    seen: set = set()
+    for where, root in (("film", _sbe_sound_dir(board)), ("outputs", OUTPUT)):
+        if not root.is_dir():
+            continue
+        try:
+            found = [p for p in root.iterdir()
+                     if p.is_file() and p.suffix.lower() in suffixes
+                     and not p.name.startswith(".")]
+        except OSError:
+            continue
+        found.sort(key=lambda q: q.stat().st_mtime, reverse=True)
+        for p in found:
+            key = str(p)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append({"path": key, "name": p.name, "where": where,
+                         "mtime": int(p.stat().st_mtime)})
+            if len(rows) >= limit:
+                return rows
+    return rows
+
+
+def _sbe_add_sound(board: dict, path: str) -> dict:
+    """One file → a sound an audio track can hold, or an honest refusal.
+
+    A file already under OUTPUT is used where it is. Anything else — a path
+    typed into "Add sound file…" pointing at a Downloads folder, an uploaded
+    clip — is HARDLINKED (copied across volumes) into the film's own `audio/`
+    folder first, for two reasons that are the same reason: `/file` only
+    serves OUTPUT, so a sound anywhere else renders but cannot be auditioned,
+    and a film whose sounds live in the film's folder still has them when the
+    folder is moved. The original is never touched.
+    """
+    raw = str(path or "").strip()
+    if raw.startswith("~"):
+        raw = str(Path(raw).expanduser())
+    try:
+        src = Path(raw).resolve()
+    except OSError:
+        return {"ok": False, "status": 400, "error": "that is not a path"}
+    if not raw or not src.is_file():
+        return {"ok": False, "status": 404, "error": f"there is no file at {raw}"}
+    info = _sbe_probe_sound(src)
+    if not info:
+        return {"ok": False, "status": 400,
+                "error": f"{src.name} has no sound this panel can read"}
+    dest = src
+    imported = False
+    if not src.is_relative_to(OUTPUT.resolve()):
+        sdir = _sbe_sound_dir(board)
+        sdir.mkdir(parents=True, exist_ok=True)
+        dest = sdir / re.sub(r"[^A-Za-z0-9._-]+", "_", src.name)
+        if dest.exists() and not dest.samefile(src):
+            dest = sdir / f"{int(time.time() * 1000)}_{dest.name}"
+        if not dest.exists():
+            try:
+                os.link(str(src), str(dest))
+            except OSError:
+                shutil.copy2(str(src), str(dest))
+            imported = True
+            push(f"[timeline] sound brought into the film: {dest.name}")
+    return {"ok": True, "path": str(dest), "title": src.stem[:80],
+            "duration_s": info["duration"], "has_video": info["has_video"],
+            "imported": imported}
+
+
 def _sbe_proxy_now(board_dir: Path, paths: list[str], sedit) -> dict:
     """Build proxies for EXACTLY these paths, and prune nothing.
 
@@ -21493,6 +22060,12 @@ def _sbe_relinks(board: dict, edit: dict) -> list[dict]:
                     "to": str(new), "n": s.get("n"),
                     "title": (s.get("title") or s.get("prompt") or "")[:80],
                     "retake": True})
+    # UPSCALE & FACE FIX ordered from a clip on this timeline — the same
+    # one-clip-at-a-time offer as a retake.
+    try:
+        out.extend(_face_fix_offers(str(board.get("id") or ""), edit))
+    except Exception:                                          # noqa: BLE001
+        pass
     return out
 
 
@@ -21782,6 +22355,15 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # make_job() entry point so /queue/add stays mode-agnostic; the
     # worker dispatches by params.mode in run_job_inner.
     mode_in = f("mode", "t2v")
+    if mode_in == "music" or f("engine") == "music":
+        params = music_params(form)
+        params["prompt"] = params["music_style"] or params["music_lyrics"] or "Instrumental"
+        params["label"] = params["prompt"][:80]
+        return {"id": _new_job_id(), "status": "queued", "queued_at": iso_now(),
+                "started_at": None, "started_ts": None, "finished_at": None,
+                "elapsed_sec": None, "params": params, "command": None,
+                "raw_path": None, "output_path": None, "error": None}
+
     if mode_in == "train":
         # Training jobs don't render anything — they consume a pre-uploaded
         # dataset directory (TRAIN_DIR / <job_id>) and write a .safetensors
@@ -24453,38 +25035,260 @@ def _h3_clip_is_complete(path: Path, started_at: float,
         return False
 
 
+# UPSCALE & FACE FIX — the user-facing name of the Upscale ×2 lane (owner,
+# 2026-09-17: "this thing we ship that fixes the faces has the wrong name").
+# Only the words changed: the mode is still `upscale`, the form keys are still
+# `upscale_source_path` / `keep_shot` / `upscale_start` / `upscale_steps`, so
+# old sidecars, Load Params and scripts keep working.
+FACE_FIX_NAME = "Upscale & Face Fix"
+# The face-safe recipe, verified on real character clips 2026-09-16: start from
+# the clip's own latent and refine ONCE — the ×2 sharpness without redrawing
+# the face. This is NOT the lane's "Faithful" pill (keep_shot 1.0 alone
+# resolves to 3 refine steps, see the upscale worker); the one-click clip
+# action and the after-the-draft pass send these three keys explicitly.
+FACE_FIX_RECIPE = {"keep_shot": "1.0", "upscale_start": "source",
+                   "upscale_steps": "1"}
+_FACE_FIX_VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v", ".webm", ".mkv")
+_FACE_FIX_BOARD_RE = re.compile(r"^[A-Za-z0-9_-]{1,120}$")
+
+
+def face_fix_form(source_path, *, prompt: str = "", seed="-1",
+                  label: str = "", frames: int = 0) -> dict:
+    """The /queue/add form for one Upscale & Face Fix of `source_path`.
+
+    One builder for every door (clip action, after-the-draft pass), so the
+    recipe cannot drift between them. `prompt` and `seed` are the SOURCE's
+    own — an empty prompt stays empty and the worker reads the source's
+    sidecar for it."""
+    name = label or Path(str(source_path)).stem
+    return {
+        "mode": "upscale",
+        "engine": "ltx",
+        "upscale_source_path": str(source_path),
+        **FACE_FIX_RECIPE,
+        "seed": str(seed if seed not in (None, "") else "-1"),
+        "prompt": str(prompt or ""),
+        # make_job reads the queue label from `preset_label` — a `label` key
+        # here was silently dropped, so the queue row showed the prompt.
+        "preset_label": f"{name} · {FACE_FIX_NAME}",
+        # The whole clip, not make_job's 121-frame default: the ×2 lane only
+        # renders past its measured 129-frame ceiling when the form asks.
+        # Rounded UP to LTX's 1+8k grid: make_job floors an off-grid count,
+        # and the lane cuts the render back to the source's own length.
+        **({"frames": str(ltx_grid_frames_up(int(frames)))}
+           if frames and int(frames) > 0 else {}),
+    }
+
+
+def _face_fix_source_meta(source: Path) -> dict:
+    """prompt / resolved seed / label from the clip's own sidecar ({} if none)."""
+    try:
+        sc = json.loads(Path(str(source) + ".json").read_text(encoding="utf-8"))
+    except Exception:                                          # noqa: BLE001
+        return {}
+    sp = sc.get("params") if isinstance(sc.get("params"), dict) else {}
+    seed = sp.get("seed_used")
+    if seed in (None, ""):
+        seed = sp.get("seed")
+    prompt = sp.get("prompt")
+    label = sp.get("label")
+    if isinstance(sc.get("take"), dict):
+        # A joined One Shot copies its LAST part's sidecar and writes the
+        # whole take's prompt and label on top; those describe the clip.
+        if isinstance(sc.get("prompt"), str) and sc.get("prompt"):
+            prompt = sc["prompt"]
+        if sc.get("label"):
+            label = sc["label"]
+    if not isinstance(prompt, str):
+        prompt = ""
+    return {"prompt": prompt, "seed": seed if seed not in (None, "") else "-1",
+            "label": str(label or "")}
+
+
+def _face_fix_record_path(board_id: str) -> Path:
+    return _sbe_board_dir(board_id) / "face_fix.json"
+
+
+def _face_fix_records(board_id: str) -> dict:
+    try:
+        data = json.loads(_face_fix_record_path(board_id).read_text(encoding="utf-8"))
+    except Exception:                                          # noqa: BLE001
+        return {}
+    clips = data.get("clips") if isinstance(data, dict) else None
+    return clips if isinstance(clips, dict) else {}
+
+
+_FACE_FIX_LOCK = threading.Lock()
+
+
+def _face_fix_note(board_id: str, clip_id: str, **fields) -> None:
+    """Remember (or update) the Face Fix ordered for one Editor clip."""
+    with _FACE_FIX_LOCK:
+        recs = _face_fix_records(board_id)
+        row = recs.get(clip_id) if isinstance(recs.get(clip_id), dict) else {}
+        if fields.get("job") and row.get("job") != fields.get("job"):
+            row = {}                       # a new order replaces the old one
+        elif row.get("to") and not fields.get("to"):
+            # A late registration for a job that already landed must not
+            # erase its result.
+            fields = {k: v for k, v in fields.items() if k not in ("to", "complete")}
+        row.update(fields)
+        recs[clip_id] = row
+        # Bounded: a film has at most a few hundred clips.
+        if len(recs) > 400:
+            for k in sorted(recs, key=lambda k: (recs[k] or {}).get("queued_at") or 0)[:len(recs) - 400]:
+                recs.pop(k, None)
+        atomic_write_text(_face_fix_record_path(board_id),
+                          json.dumps({"clips": recs}, indent=2))
+
+
+def _face_fix_offers(board_id: str, edit: dict) -> list[dict]:
+    """Finished Face Fixes offered against the Editor clip they were made from.
+
+    Same shape as a retake row (`retake: True`, adopted one clip at a time by
+    id) and only while that clip still plays the file the fix was made from —
+    a clip already swapped, or re-pointed at something else, gets no offer."""
+    recs = _face_fix_records(board_id)
+    if not recs:
+        return []
+    by_id = {str(c.get("id")): c for c in (edit.get("clips") or [])
+             if isinstance(c, dict) and c.get("id")}
+    out: list[dict] = []
+    for cid, r in recs.items():
+        if not isinstance(r, dict):
+            continue
+        to, src = str(r.get("to") or ""), str(r.get("from") or "")
+        c = by_id.get(str(cid))
+        if not (to and c and Path(to).is_file()):
+            continue
+        if str(c.get("path") or "") != src or src == to:
+            continue
+        if r.get("complete") is False:
+            # A fix that does not cover the whole clip is no swap: the
+            # clip's in/out points would point past its end.
+            continue
+        out.append({"id": str(cid), "path": src, "to": to,
+                    "title": str(c.get("title") or Path(src).stem)[:80],
+                    "retake": True, "face_fix": True})
+    return out
+
+
+def queue_face_fix(source_path: str, *, board_id: str = "",
+                   clip_id: str = "") -> dict:
+    """Queue one Upscale & Face Fix of a finished clip — the one-click action.
+
+    Refuses up front what the worker would only refuse after a wait in the
+    queue (not a video, adapter missing, already at this Mac's size cap).
+    Returns {ok, id, label, duplicate?} or {ok: False, error}."""
+    src = Path(str(source_path or ""))
+    if not source_path or not src.is_file():
+        return {"ok": False, "error": "That clip is not on disk any more."}
+    if src.suffix.lower() not in _FACE_FIX_VIDEO_SUFFIXES:
+        return {"ok": False, "error": f"{FACE_FIX_NAME} works on video clips, not stills."}
+    if board_id and not _FACE_FIX_BOARD_RE.match(board_id):
+        return {"ok": False, "error": "unknown film"}
+    if board_id and not (_sbe_board_dir(board_id) / "storyboard.json").is_file():
+        return {"ok": False, "error": "unknown film"}
+    adapter_path = CURATED_LORAS["upscale_x2"].get("local_path") or ""
+    if not (adapter_path and Path(adapter_path).exists()):
+        return {"ok": False, "code": "pack_missing",
+                "error": f"{FACE_FIX_NAME} needs the LTX-2.5 Pixel Spatial Upscaler "
+                         "adapter (0.3 GB). Open Settings → Models and download it."}
+    sw, sh = _probe_video_dims(str(src))
+    src_frames = _probe_video_frames(str(src)) or 0
+    if sw and sh:
+        cap = int(tier_max_dim("i2v") or 0) or max(sw, sh) * 2
+        scale = min(2.0, cap / float(max(sw, sh)))
+        if scale < 1.25:
+            return {"ok": False, "code": "hardware_tier",
+                    "error": f"{src.name} is already {sw}×{sh} — {FACE_FIX_NAME} "
+                             f"can't go above {cap}px on this Mac."}
+        if src_frames:
+            up_w, up_h = ltx_floor_canvas(int(sw * scale), int(sh * scale))
+            _, grid = upscale_frame_plan(src_frames, src_frames)
+            if not upscale_canvas_decodable(up_w, up_h, grid):
+                return {"ok": False, "code": "hardware_tier",
+                        "error": f"{src.name} is too long to fix at {up_w}×{up_h} "
+                                 "(the video decoder's limit). Cut it shorter first."}
+    meta = _face_fix_source_meta(src)
+    form = face_fix_form(src, prompt=meta.get("prompt", ""),
+                         seed=meta.get("seed", "-1"), label=meta.get("label", ""),
+                         frames=src_frames)
+    job = make_job(form)
+    job["params"]["face_fix"] = True
+    target = [board_id, str(clip_id)] if (board_id and clip_id) else None
+    if target:
+        job["params"]["face_fix_targets"] = [target]
+    dup = None
+    with QUEUE_COND:
+        # Same clip, same recipe, same seed = the same file: a second click
+        # while the first is waiting OR rendering is not a second order.
+        # Checked under the queue lock so two racing clicks cannot both land.
+        cands = list(STATE["queue"])
+        if STATE.get("current"):
+            cands.insert(0, STATE["current"])
+        for j in cands:
+            jp = (j or {}).get("params") or {}
+            if (jp.get("mode") == "upscale" and jp.get("face_fix")
+                    and jp.get("upscale_source_path") == str(src)):
+                dup = j
+                break
+        if dup is None:
+            STATE["queue"].append(job)
+            QUEUE_COND.notify_all()
+        elif target:
+            # Every Editor clip that asked is answered when it lands. The
+            # worker snapshots the targets under this same lock, so a target
+            # added after its snapshot sees the result here instead.
+            tl = dup["params"].setdefault("face_fix_targets", [])
+            if target not in tl:
+                tl.append(target)
+        landed = dict((dup or {}).get("params", {}).get("face_fix_result") or {})
+    if target:
+        _face_fix_note(board_id, str(clip_id), job=(dup or job)["id"],
+                       to=landed.get("to", ""), queued_at=time.time(),
+                       **({"complete": landed["complete"]} if "complete" in landed else {}),
+                       **{"from": str(src)})
+    persist_queue()
+    if dup is not None:
+        return {"ok": True, "id": dup["id"], "label": dup["params"].get("label"),
+                "duplicate": True,
+                "running": dup is STATE.get("current")}
+    push(f"{FACE_FIX_NAME} queued for {src.name} → job {job['id']}")
+    return {"ok": True, "id": job["id"], "label": job["params"].get("label")}
+
+
 def _chain_upscale_after_h3(job: dict, p: dict, native_path: Path) -> None:
-    """Queue the Upscale ×2 job for a draft whose form asked for "LTX ×2".
+    """Queue the Upscale & Face Fix pass for a draft whose form asked for it
+    (h3_upscale = "ltx_x2").
 
     Same door as /queue/add (make_job), so every allowlist and refusal
-    applies; the preset (keep_shot) and seed travel from the draft's form.
-    The draft stays in the gallery — the ×2 lands beside it as its own card."""
+    applies; the seed and prompt travel from the draft. The draft stays in the
+    gallery — the fixed clip lands beside it as its own card."""
     try:
-        form = {
-            "mode": "upscale",
-            "engine": "ltx",
-            "upscale_source_path": str(native_path),
-            "keep_shot": str(p.get("keep_shot") or "1.0"),
-            # The seed THIS render resolved, not the form's "-1".
-            "seed": str(p.get("seed_used") if p.get("seed_used") is not None
-                        else (p.get("seed") if p.get("seed") not in (None, "") else "-1")),
+        form = face_fix_form(
+            native_path,
             # The draft's own prompt. An empty one used to be replaced by
             # make_job's generic "A cinematic atmospheric scene", so the ×2
             # never read the source's description.
-            "prompt": str(p.get("prompt") or ""),
-            "label": f"{p.get('label') or native_path.stem} · LTX ×2",
-        }
+            prompt=str(p.get("prompt") or ""),
+            # The seed THIS render resolved, not the form's "-1".
+            seed=(p.get("seed_used") if p.get("seed_used") is not None
+                  else (p.get("seed") if p.get("seed") not in (None, "") else "-1")),
+            label=str(p.get("label") or native_path.stem),
+            frames=_probe_video_frames(str(native_path)) or 0)
         nxt = make_job(form)
         nxt["params"]["source"] = "chain"
         nxt["params"]["chained_from"] = job.get("id")
+        nxt["params"]["face_fix"] = True
         with QUEUE_COND:
             STATE["queue"].append(nxt)
             QUEUE_COND.notify_all()
         persist_queue()
-        push(f"[h3] LTX ×2 queued behind the draft → job {nxt['id']}")
+        push(f"[h3] {FACE_FIX_NAME} queued behind the draft → job {nxt['id']}")
     except Exception as exc:                                   # noqa: BLE001
-        push(f"[h3] could not queue the LTX ×2 pass: {exc} — the draft is in "
-             "the gallery; use its Upscale ×2 button.")
+        push(f"[h3] could not queue {FACE_FIX_NAME}: {exc} — the draft is in "
+             f"the gallery; use its {FACE_FIX_NAME} button.")
 
 
 def run_h3_job_inner(job: dict) -> None:
@@ -25973,6 +26777,8 @@ def run_job_inner(job: dict) -> None:
     # Image jobs share the queue + worker but use a totally different
     # params shape (no width/height/frames, etc.). Dispatch to the
     # image path before any of the video-only validation runs.
+    if mode == "music" or p.get("engine") == "music":
+        return run_music_job_inner(job)
     if mode == "image":
         return run_image_job_inner(job)
     if mode == "train":
@@ -26487,7 +27293,7 @@ def run_job_inner(job: dict) -> None:
         src = p.get("upscale_source_path") or p.get("restore_video_path") or ""
         if not src or not Path(src).exists():
             raise RuntimeError(
-                f"source clip for Upscale ×2 not found: {src!r}. Pick a finished "
+                f"source clip for {FACE_FIX_NAME} not found: {src!r}. Pick a finished "
                 "clip in the Outputs gallery (or paste a path).")
         source = Path(src)
         adapter = CURATED_LORAS["upscale_x2"]
@@ -26495,7 +27301,7 @@ def run_job_inner(job: dict) -> None:
         if not (adapter_path and Path(adapter_path).exists()):
             raise RenderRefused(
                 "pack_missing",
-                "Upscale ×2 needs the LTX-2.5 Pixel Spatial Upscaler adapter, which "
+                f"{FACE_FIX_NAME} needs the LTX-2.5 Pixel Spatial Upscaler adapter, which "
                 "isn't downloaded on this Mac yet. Open Settings → Models and "
                 "download it, then render again.")
         sw, sh = _probe_video_dims(src)
@@ -26521,7 +27327,7 @@ def run_job_inner(job: dict) -> None:
         if scale < 1.25:
             raise RenderRefused(
                 "hardware_tier",
-                f"Upscale ×2 can't go above {cap}px on the {SYSTEM_CAPS['label']} "
+                f"{FACE_FIX_NAME} can't go above {cap}px on the {SYSTEM_CAPS['label']} "
                 f"tier, and {source.name} is already {sw}×{sh}. Use a smaller "
                 "source clip.")
         up_w, up_h = ltx_floor_canvas(int(sw * scale), int(sh * scale))
@@ -26539,11 +27345,11 @@ def run_job_inner(job: dict) -> None:
             # The helper refuses this too, but only after the whole render.
             raise RenderRefused(
                 "hardware_tier",
-                f"Upscale ×2 to {up_w}×{up_h} is past what the video decoder can "
+                f"{FACE_FIX_NAME} to {up_w}×{up_h} is past what the video decoder can "
                 f"write safely, even in tiles (the GPU kernels' 2^31-element "
                 f"limit). Use a smaller source clip.")
         if src_frames and out_frames < src_frames:
-            push(f"Upscale ×2: {source.name} is {src_frames} frames; the ×2 covers "
+            push(f"{FACE_FIX_NAME}: {source.name} is {src_frames} frames; the ×2 covers "
                  f"its first {out_frames}")
         try:
             keep = float(p.get("keep_shot") or 1.0)
@@ -26583,7 +27389,7 @@ def run_job_inner(job: dict) -> None:
         if p.get("upscale_steps") and start_from == "source":
             refine_steps = max(1, min(7, int(p["upscale_steps"])))
         up_model_dir = ltx_model_dir(quant)
-        ltx_pack_preflight(quant, "Upscale ×2")
+        ltx_pack_preflight(quant, FACE_FIX_NAME)
         out_name = f"{source.stem}_x2_{stamp}.mp4"
         final_out = OUTPUT / out_name
         job["raw_path"] = str(final_out)
@@ -26605,9 +27411,9 @@ def run_job_inner(job: dict) -> None:
             if _r.returncode != 0 or _probe_video_frames(model_src) != frames:
                 shutil.rmtree(work_dir, ignore_errors=True)
                 raise RuntimeError(
-                    f"Upscale ×2: could not extend {source.name} to {frames} frames "
+                    f"{FACE_FIX_NAME}: could not extend {source.name} to {frames} frames "
                     f"for the model: {(_r.stderr or '')[-200:].strip()}")
-            push(f"Upscale ×2: {src_frames} frames → the model renders {frames} "
+            push(f"{FACE_FIX_NAME}: {src_frames} frames → the model renders {frames} "
                  f"(last frame held), the ×2 is cut back to {out_frames}")
         job_spec = {
             "action": "generate_restore",
@@ -26640,7 +27446,7 @@ def run_job_inner(job: dict) -> None:
                 "stage2_steps": int(p.get("stage2_steps", 3)),
             },
         }
-        push(f"Upscale ×2 via helper: id={job['id']} src={source.name} {sw}×{sh} → "
+        push(f"{FACE_FIX_NAME} via helper: id={job['id']} src={source.name} {sw}×{sh} → "
              f"{up_w}×{up_h} {frames}f · keep-the-shot {keep:.2f} · {quant.upper()} distilled · "
              + (f"from the clip's own latent, {refine_steps}-step refine + Pixel Spatial Upscaler"
                 if start_from == "source" else "full re-render from noise + Pixel Spatial Upscaler"))
@@ -26656,10 +27462,16 @@ def run_job_inner(job: dict) -> None:
             shutil.rmtree(work_dir, ignore_errors=True)
         delivered = _probe_video_frames(str(final_out))
         if delivered and delivered != out_frames:
-            push(f"Upscale ×2: WARNING — {final_out.name} has {delivered} frames, "
+            push(f"{FACE_FIX_NAME}: WARNING — {final_out.name} has {delivered} frames, "
                  f"expected {out_frames}")
         sidecar = {
             "output": str(final_out), "raw_output": str(final_out),
+            # What the gallery and the info panel call this file. The mode
+            # stays `upscale` so Load Params and scripts keep working.
+            "display_name": FACE_FIX_NAME,
+            "face_fix": {"start": start_from,
+                         "refine_steps": refine_steps if start_from == "source" else None,
+                         "keep_shot": keep},
             "params": {**p, "command": "upscale", "keep_shot": keep,
                        "frames": out_frames, "render_frames": frames,
                        "source_frames": src_frames,
@@ -26674,7 +27486,23 @@ def run_job_inner(job: dict) -> None:
         }
         write_sidecar(final_out.with_suffix(final_out.suffix + ".json"), sidecar)
         job["output_path"] = str(final_out)
-        push(f"Upscale ×2 done in {sidecar['elapsed_sec']}s → {final_out.name}"
+        # Ordered from Editor clips: each of them is offered the swap. A job
+        # still waiting when the targets list grew reads it from the live
+        # params (the queue shares this dict).
+        _ff_result = {"to": str(final_out),
+                      "complete": bool(delivered and src_frames
+                                       and delivered == src_frames)}
+        with QUEUE_COND:
+            p["face_fix_result"] = _ff_result
+            _ff_targets = [list(t) for t in (p.get("face_fix_targets") or [])]
+        for _t in _ff_targets:
+            try:
+                _face_fix_note(str(_t[0]), str(_t[1]), job=job["id"],
+                               **{"from": str(source)}, **_ff_result)
+            except Exception as exc:                           # noqa: BLE001
+                push(f"{FACE_FIX_NAME}: could not tell the Editor ({exc}); the "
+                     "fixed clip is in Outputs.")
+        push(f"{FACE_FIX_NAME} done in {sidecar['elapsed_sec']}s → {final_out.name}"
              + (" (source audio kept)" if muxed else ""))
         if p.get("open_when_done"):
             subprocess.run(["open", str(final_out)], check=False)
@@ -29201,7 +30029,7 @@ class Handler(BaseHTTPRequestHandler):
         safe = safe.replace('"', "").replace("\\", "").strip()
         return safe or path.name.encode("ascii", "ignore").decode() or "download"
 
-    def _serve_video_with_range(self, path: Path) -> None:
+    def _serve_video_with_range(self, path: Path, ctype: str = "video/mp4") -> None:
         """Serve an mp4 with HTTP byte-range support so the browser <video>
         tag can seek without redownloading and the gallery's `preload="metadata"`
         thumbnails only fetch the moov atom range instead of full clips.
@@ -29243,7 +30071,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             length = end - start + 1
             self.send_response(206)
-            self.send_header("Content-Type", "video/mp4")
+            self.send_header("Content-Type", ctype)
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
             self.send_header("Content-Length", str(length))
@@ -29275,7 +30103,7 @@ class Handler(BaseHTTPRequestHandler):
         # No Range header — full file with Accept-Ranges advertised so the
         # browser knows it CAN range-request next time.
         self.send_response(200)
-        self.send_header("Content-Type", "video/mp4")
+        self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(size))
         self.send_header("Accept-Ranges", "bytes")
         self.send_header(
@@ -30478,6 +31306,11 @@ class Handler(BaseHTTPRequestHandler):
                     # by id, because it replaces a take the user may prefer.
                     if only:
                         rows = [r for r in rows if str(r.get("id")) == only]
+                        # A clip can have a retake AND a Face Fix waiting;
+                        # `to` says which file the person chose.
+                        want_to = f("to", "")
+                        if want_to:
+                            rows = [r for r in rows if str(r.get("to")) == want_to]
                     else:
                         rows = [r for r in rows if not r.get("retake")]
                     swaps = {}
@@ -30924,7 +31757,8 @@ class Handler(BaseHTTPRequestHandler):
                         res = sedit.export_nle(
                             edit.get("clips") or [], dest,
                             name=Path(_sb_film_name(board)).stem,
-                            fps=FPS, audio=audio, probe=_probe)
+                            fps=FPS, audio=audio, probe=_probe,
+                            audio_tracks=edit.get("audio_tracks") or None)
                     except sedit.EditError as exc:
                         self._json({"ok": False, "error": str(exc)}, 400)
                         return
@@ -31203,6 +32037,9 @@ def _avg_elapsed(kind: str | None = None) -> float | None:
     """
     with LOCK:
         history_snap = list(STATE["history"][:10])
+    # Music has its own explicitly unmeasured model. Its wall times must not
+    # silently re-price the existing image/video estimates or their fallback.
+    history_snap = [j for j in history_snap if (j.get("params") or {}).get("engine") != "music"]
 
     def _ok(j: dict) -> bool:
         return j.get("status") == "done" and j.get("elapsed_sec")
@@ -31897,6 +32734,7 @@ def page(theme: str = "") -> str:
         # points at this block by name (its `probe` key), rather than the
         # switcher knowing anything about H3 in particular.
         "h3": h3_status(),
+        "music": music_status(),
         # LTX's own (quality × length) table, in the SAME shape as `h3` above so
         # the two strips are rendered by one generalised function rather than
         # two that drift. Every LTX estimate the page prints is a lookup into

@@ -705,6 +705,7 @@ The Editor is a **top-level workflow**, not a stage of the storyboard: engine-ag
 | `GET /storyboard/edit/peaks?id=<bid>` | The waveform. Hundreds of KB — fetch once, **never on a poll**. `404` until `prepare` has run. |
 | `GET /storyboard/edit/proxy?id=<bid>&name=<file>.mp4` | A proxy video, served with **range support**. Safari will not seek a `<video>` whose server answers plain `200`, which would undo the entire reason proxies exist. `name` must match `[A-Za-z0-9._-]{1,120}\.mp4` — it is a basename the server minted, so anything else is a probe. |
 | `GET /storyboard/edit/uploads` | Videos the user brought with them (`panel_uploads/timeline/`, newest first, capped at 200). Kept out of `OUTPUT` on purpose, which is why they need a route at all; images do not, they land in the library the gallery already walks. |
+| `GET /storyboard/edit/sounds?id=<bid>` | The media pool's **Sound** source: `{sounds: [{path, name, where, mtime}], dir}` — the film's own `audio/` folder (`where: "film"`) first, then the sound files (`.wav .m4a .mp3 .aac .flac .aif .ogg .opus`) at the top of `OUTPUT`, newest first, capped at 300. No probing; the length is read when a sound is added. |
 | `GET /storyboard/edit/drafts?id=<bid>` | `{active, drafts: [...], backup}` — see **Drafts** below. |
 | `GET /storyboard/edit/versions?id=<bid>` | **Metadata only**: name, revision, when kept, clip count, duration, plus `keep` (= `EDIT_HISTORY_KEEP`, 50). The documents themselves are read once, by `restore`, on the user's word. Opening the panel must not be a download. |
 
@@ -714,6 +715,7 @@ The Editor is a **top-level workflow**, not a stage of the storyboard: engine-ag
 |---|---|---|
 | `prepare` | `id`, `music`, `target_seconds` | Build proxies + peaks. `400` if `music` is not a file. |
 | `add-clip` | `id`, `from`, `only`, `path`, `title`, `kind` | `kind` is `video` \| `still` \| `slug` — passing it is what stops an image landing as a video with no frames. |
+| `add-sound` | `id`, `path` | One file for an **audio track**: probed (`{path, title, duration_s, has_video, imported}`), `400` when it carries no sound. A file outside `OUTPUT` is hardlinked (copied across volumes) into the film's own `audio/` folder first, because `/file` only serves `OUTPUT` and a sound the preview cannot play is half a sound. The strip is placed and saved by the client. |
 | `relink` | `id`, `only` | Re-point clips at their finished (delivery) files. **A finished RETAKE is never part of that batch** — it is offered against its clip with `retake: true` in the payload's `relink` rows and adopted one clip at a time with `only=<clip id>`. |
 | `cancel` | `id` | Cancel the prepare job. |
 | `auto` | `id`, `music`, `target_seconds`, `min_shot`, `max_shot` | Re-run the machine's cut. Lands in the **automatic** lane. |
@@ -777,7 +779,24 @@ Video clips only. Same three numbers as the picture, for the SOUND — so the so
 
 **The PRESENCE of the field is the switch, not the values in it.** Do not derive "linked" from `audio` equalling the picture window: unlinking writes the window the clip already has, so a clip the user had just unlinked would read as linked and refuse to be dragged. The toggle adds the object or deletes it; nothing else decides. `normalise_edit` rounds the field but **never removes it** for the same reason, and strips it entirely from a still or a slug.
 
-Audio windows may not overlap each other any more than the pictures may. This is still one video track and one music lane — a split edit is a butt join that lands somewhere else, not a mix.
+Audio windows may not overlap each other any more than the pictures may. A split edit is a butt join that lands somewhere else, not a mix — the mix is what `audio_tracks` is for.
+
+#### `audio_tracks[]` — A3, A4, … under the music
+
+```jsonc
+"audio_tracks": [
+  {"id": "t…", "name": "Laughs", "muted": true, "gain": 0.8,
+   "strips": [{"id": "k…", "path": "/…/laugh.wav", "start": 0.0, "end": 2.0,
+               "film_start": 12.5, "duration": 4.1, "gain": 0.5,
+               "muted": true, "locked": true, "title": "laugh (copy)",
+               "afx": {"fade_in": 0.5, "fade_out": 0.25, "points": [[1.0, 0.6]]}}]}]
+```
+
+Any number of tracks, each holding any number of strips. `start`/`end` are the in/out points inside the file (a strip plays at 1x, so it is `end - start` long on the film); `film_start` is a timeline second, laid out with `adelay` exactly as the bed is. `afx` is the same envelope object a clip's sound and the bed carry, read by `audio_gain_points`; the strip's `gain` and the track's `gain` (linear 0–1) multiply it — `track_strip_gain_points` is the one curve the preview, the render and the export read. **Absent is none and neutral is absent**: an edit with no tracks has no key, so it loads, saves and renders byte-identically; an empty track is kept.
+
+**Strips on the same track may not overlap** (`audio_track_strips_overlap`, an error, `TOUCH_TOLERANCE` for a butt join); strips on different tracks overlap and mix. Shape errors: `audio_tracks_shape`, `audio_track_shape`, `audio_track_name`, `audio_track_muted`, `audio_track_gain(_range)`, `audio_track_strips`, `track_strip_shape`, `track_strip_path`, `track_strip_start`, `track_strip_end`, `track_strip_film_start`, `track_strip_window`, `track_strip_past_the_end`, `track_strip_gain(_range)`, `track_strip_muted`, `track_strip_locked`, `track_strip_title`, `track_strip_afx*`.
+
+**Render:** every audible strip (not muted, track not muted, curve not silent) is one `-vn -i` after the overlays, `atrim` → `volume` (its curve, on the strip clock) → `aresample` → `adelay` (in samples) → `apad` → `atrim` to the film, and all of them are `amix`ed (`normalize=0`, `duration=first`) over the clips' sound and the bed under the one `asoftclip` limiter; the film facts carry `sound_strips` and `mix_peak`. A strip whose file is gone refuses the render with its path and track. **Export:** each track is its own FCP7 audio track (clipitems with in/out, level keyframes, `<enabled>FALSE</enabled>` for a mute) and each strip an After Effects layer named `<track> · <title>`.
 
 #### `transitions[]` — a typed object that owns a BOUNDARY
 

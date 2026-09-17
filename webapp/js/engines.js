@@ -70,6 +70,7 @@ function engineServesMode(e, mode) {
 // offering a choice that changes nothing.
 function _currentSurface() {
   const wf = (document.body.dataset.workflow || 'manual').toLowerCase();
+  if (wf === 'audio' && musicComposeActive()) return 'music';
   // 'storyboard' MUST be in this map. Without it the `|| 'video'` fallback
   // leaves the engine switcher visible in a tab that has no engine choice to
   // offer — the film decides per shot, not a global toggle.
@@ -97,6 +98,7 @@ function engineRenderable(e) {
 // download already has with the High pill). A new engine adds a key here the
 // day it has a status function; nothing else in this file changes.
 window._ENGINE_PROBES = {
+  music: (BOOT.music || { capable: false, available: false, estimates: {} }),
   h3: (BOOT.h3 || { capable: false, available: false, tiers: [] }),
 };
 // H3 keeps its own binding because the H3 tier / Turbo / export code below is
@@ -178,7 +180,9 @@ function h3CurrentCell() {
   let savedUp = null;
   try { savedUp = localStorage.getItem('phos_h3_upscale'); } catch (e) {}
   const allowed = H3.upscale_modes || ['off', 'fit_720p', 'fit_1080p'];
-  if (savedUp && allowed.indexOf(savedUp) !== -1) up.value = savedUp;
+  // The after-the-draft Upscale & Face Fix is an extra job, so a reload
+  // starts with it OFF even if an older panel saved it as the preference.
+  if (savedUp && savedUp !== 'ltx_x2' && allowed.indexOf(savedUp) !== -1) up.value = savedUp;
   // And again for the sampler-depth pills, same reason.
   const st = document.getElementById('h3_steps');
   if (!st) return;
@@ -230,16 +234,34 @@ function _h3SyncExportNote() {
 // Export canvas for an H3 render. Separate from the LTX `upscale` control
 // (which is data-ltx-only and folds away on H3) so one pill never means two
 // things. Server-side make_job re-validates — a stale tab must never win.
+// "ltx_x2" is the stored value of the OPTIONAL after-the-draft Upscale & Face
+// Fix (a checkbox under the pills): the draft ships as rendered and the fix is
+// queued behind it. It is never saved as the preference; the size the user had
+// is, so unticking the box returns to it.
 function setH3Upscale(mode) {
   const allowed = H3.upscale_modes || ['off', 'fit_720p', 'fit_1080p'];
   const v = allowed.indexOf(mode) !== -1 ? mode : (H3.default_upscale || 'fit_720p');
   const inp = document.getElementById('h3_upscale');
   if (inp) inp.value = v;
+  const fix = v === 'ltx_x2';
+  const shown = fix ? 'off' : v;
+  const grp = document.getElementById('h3UpscaleGroup');
+  if (grp) grp.classList.toggle('is-overridden', fix);
   document.querySelectorAll('#h3UpscaleGroup [data-h3-upscale]').forEach(b =>
-    b.classList.toggle('active', b.dataset.h3Upscale === v));
-  try { localStorage.setItem('phos_h3_upscale', v); } catch (e) {}
+    b.classList.toggle('active', b.dataset.h3Upscale === shown));
+  const box = document.getElementById('h3FaceFixAfter');
+  if (box) box.checked = fix;
+  const row = document.getElementById('h3FaceFixAfterRow');
+  if (row) row.hidden = allowed.indexOf('ltx_x2') === -1;
+  if (!fix) { try { localStorage.setItem('phos_h3_upscale', v); } catch (e) {} }
   _h3SyncExportNote();
   if (typeof updateDerived === 'function') { try { updateDerived(); } catch (e) {} }
+}
+function setH3FaceFixAfter(on) {
+  if (on) { setH3Upscale('ltx_x2'); return; }
+  let size = null;
+  try { size = localStorage.getItem('phos_h3_upscale'); } catch (e) {}
+  setH3Upscale(size && size !== 'ltx_x2' ? size : (H3.default_upscale || 'fit_720p'));
 }
 document.querySelectorAll('#h3UpscaleGroup [data-h3-upscale]').forEach(b => {
   b.onclick = () => setH3Upscale(b.dataset.h3Upscale);
@@ -593,7 +615,8 @@ document.querySelectorAll('#h3LoraSlotGroup [data-h3-lora-slot]').forEach(b => {
 // gate exists to prevent. (Old name kept: it is what the rest of this file
 // calls.)
 function _engineRowVisible() {
-  return ENGINES.filter(e => engineRenderable(e) && e.state !== 'announced').length > 1;
+  const count = ENGINES.filter(e => engineRenderable(e) && e.state !== 'announced').length;
+  return count > 1 || (_currentSurface() === 'music' && count === 1);
 }
 
 // ---- The header switcher ----------------------------------------------------
@@ -694,7 +717,8 @@ function renderEngineSwitch() {
   if (div) div.hidden = !show;
   if (!show) { box.innerHTML = ''; closeEngineMenu(); return; }
 
-  const active = currentEngine();
+  const active = _currentSurface() === 'music' ? 'music' : currentEngine();
+  const surfaceMode = _currentSurface() === 'music' ? 'music' : currentMode;
   const list = ENGINES.filter(engineRenderable);
 
   // ---- The trigger: the active engine, and nothing else ----
@@ -703,7 +727,7 @@ function renderEngineSwitch() {
     box.innerHTML = `<button type="button" class="eng-trigger" aria-haspopup="listbox"
         aria-expanded="false"
         style="--eng-accent:${escapeHtml(act.accent)};--eng-dim:${escapeHtml(act.accent_dim)};--eng-soft:${escapeHtml(act.accent_soft)}"
-        title="${escapeHtml(_engineTooltip(act, engineStatus(act), engineServesMode(act, currentMode)))}">
+        title="${escapeHtml(_engineTooltip(act, engineStatus(act), engineServesMode(act, surfaceMode)))}">
       <span class="eng-mark"><svg class="ph" aria-hidden="true"><use href="#${escapeHtml(act.mark)}"/></svg></span>
       <span class="eng-seg-name">${escapeHtml(act.label)}</span>${
       act.generation ? `<span class="eng-seg-gen">${escapeHtml(act.generation)}</span>` : ''}
@@ -718,7 +742,7 @@ function renderEngineSwitch() {
   menu.innerHTML = list.map(e => {
     const st = engineStatus(e);
     const offer = !e.builtin && !st.announced && st.capable && !st.available;
-    const modeOk = engineServesMode(e, currentMode);
+    const modeOk = engineServesMode(e, surfaceMode);
     // Four badges, four different sentences. An OFFER (download / repair) is
     // worth the engine's own colour; a constraint is not.
     let badge = '', badgeClass = '';
@@ -1452,7 +1476,7 @@ function setH3Tier(key) {
 Object.assign(globalThis, {
   engineById, defaultEngine, engineStatus, engineServesMode,
   h3ResolveTierKey, h3TierByKey, h3CellFor, h3CurrentCell,
-  setH3Upscale, setH3Orientation, setH3Steps, h3TurboPillSub,
+  setH3Upscale, setH3FaceFixAfter, setH3Orientation, setH3Steps, h3TurboPillSub,
   renderH3Turbo, setH3Turbo, syncModeStripToEngine, renderEngineSwitch,
   renderTierAxes, renderH3Axes, ltxCellFor, ltxCurrentQuality,
   ltxCurrentLength, ltxCurrentCell, ltxCellEta, ltxCellNeedsInstall,

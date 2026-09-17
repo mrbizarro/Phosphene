@@ -73,7 +73,7 @@ const path = require("path")
 const MAX_DISPATCH = 500
 
 const SCRIPTS = [
-  "install.js", "update.js", "install_h3.js", "install_qwen.js",
+  "install.js", "update.js", "install_h3.js", "install_music.js", "install_qwen.js",
   "install_sharp.js", "download_q8.js", "download_upscaler.js",
   "start.js", "reset.js", "pinokio.js",
 ]

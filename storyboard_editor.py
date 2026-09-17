@@ -76,12 +76,18 @@ __all__ = [
     "migrate_edit", "clip_kind", "clip_brightness", "clip_carries_media",
     "clip_audio", "clip_audio_drift", "clip_audio_resync", "clip_muted",
     "clip_effects", "clip_length",
+    "SOUND_LANES", "clip_sound_lane", "sound_lane_label", "alternate_sound_lanes",
+    "sound_lane_after",
     "audio_effects", "audio_gain_points", "audio_gain_at",
     "MIX_BED_GAIN", "MIX_DUCK", "MIX_LEGACY_BED_GAIN", "MIX_DUCK_GAIN",
     "MIX_DUCK_ATTACK", "MIX_DUCK_RELEASE", "MIX_CEILING",
     "MIX_REPAIR_VERSION", "audio_mix", "bed_length", "audible_strips",
     "bed_duck_points", "bed_duck_suppressed", "bed_gain_points",
     "bed_gain_at", "bed_render_gain", "heal_mix",
+    "SOUND_SUFFIXES", "TRACK_STRIP_MIN", "audio_tracks", "track_strips",
+    "track_label", "track_gain", "track_muted", "strip_gain", "strip_muted",
+    "strip_window", "track_strip_gain_points", "track_strip_gain_at",
+    "track_render_strips",
     "overlay_items", "overlay_kind", "OVERLAY_SUFFIXES",
     "blocking_errors", "WARNING_CODES", "repair_audio_overlaps",
     "edit_digest", "session_token_path", "claim_session", "current_session",
@@ -307,10 +313,16 @@ def clip_audio(clip) -> dict:
     and a clip only carries the field once somebody has actually pulled the
     two apart.
 
-    NOT A SECOND AUDIO TRACK. The refuse list still holds: one video track,
-    one music lane, and per-clip sound that is linked by default. The audio
-    windows may not overlap each other any more than the pictures may — a
-    split edit is a butt join that lands somewhere else, not a mix.
+    TWO LANES, AND THE OVERLAP LIVES BETWEEN THEM. Until 2026-09-15 this said
+    "not a second audio track": one lane, where a split edit is a butt join
+    that lands somewhere else. The owner, cutting Saint Feld: "the sound
+    between clips should already be intercalated into two different lanes …
+    if I want to blend and dissolve from both sides, cut a little, and bring
+    the clips together to make it more realistic, it's easy." So a clip's
+    sound sits on lane A or lane B (`clip_sound_lane`), windows may still not
+    overlap WITHIN a lane, and the two lanes overlap and mix — which is how
+    every NLE's A/B roll makes a sound dissolve. The window itself is unchanged
+    by the lane; this function does not report it.
     """
     if not isinstance(clip, dict):
         return {"start": 0.0, "end": 0.0, "film_start": 0.0,
@@ -394,6 +406,85 @@ def clip_muted(clip) -> bool:
 # thing the editor decides.
 SPEED_MIN = 0.25
 SPEED_MAX = 4.0
+
+
+# ---- THE TWO CLIP-SOUND LANES (A/B) ----------------------------------------
+# THE OWNER, 2026-09-15: "When the app creates a timeline, the sound between
+# clips should already be intercalated into two different lanes. Clip 1: the
+# sound is in one lane. Clip 2: the sound is in another lane. If I want to
+# blend and dissolve from both sides, cut a little, and bring the clips
+# together to make it more realistic, it's easy."
+#
+# That is the A/B roll, the oldest trick in sound editing: alternate shots
+# between two tracks so a neighbour's tail and head can overlap and fade
+# against each other instead of butting. The A1 track grows a second lane —
+# "Clip sound A" and "Clip sound B" on screen — and A2 stays the music.
+#
+# ABSENT IS LANE A, the migration every field on a clip follows: every
+# document ever written plays every clip on A exactly as before, and only a
+# clip on B carries `sound_lane: 2`. No-overlap is a rule WITHIN a lane.
+SOUND_LANES = (1, 2)
+
+
+def clip_sound_lane(clip) -> int:
+    """Which clip-sound lane this clip's own sound plays on: 1 (A) or 2 (B).
+
+    Only a VIDEO clip has sound, so a still or a slug is always 1 — the answer
+    that asks nothing of the renderer. Anything but the integer 2 is lane A.
+    """
+    if not isinstance(clip, dict) or clip_kind(clip) != "video":
+        return 1
+    v = clip.get("sound_lane")
+    return 2 if (v == 2 and not isinstance(v, bool)) else 1
+
+
+def sound_lane_label(lane: int) -> str:
+    """What a person reads: "A" or "B"."""
+    return "B" if int(lane or 1) == 2 else "A"
+
+
+def alternate_sound_lanes(clips) -> int:
+    """Lay every video clip's sound on A, B, A, B… in FILM order. In place.
+
+    Moves no picture and no sound in time — only which lane each strip is on —
+    so a timeline re-laid by this plays every second where it did. Clips with
+    no picture of their own (stills, slugs) are skipped and do not take a turn:
+    alternation is between the sounds that actually meet. Returns how many
+    clips changed lane.
+    """
+    rows = [c for c in (clips or []) if isinstance(c, dict)
+            and clip_kind(c) == "video"]
+    rows.sort(key=lambda c: (_f(c.get("film_start")), str(c.get("id") or "")))
+    changed = 0
+    for k, c in enumerate(rows):
+        want = 1 if k % 2 == 0 else 2
+        if clip_sound_lane(c) != want:
+            changed += 1
+        if want == 2:
+            c["sound_lane"] = 2
+        else:
+            c.pop("sound_lane", None)
+    return changed
+
+
+def sound_lane_after(clips, film_start: float) -> int:
+    """The lane a clip arriving at `film_start` takes: NOT the previous one's.
+
+    The previous video clip on the film decides, because that is the sound a
+    new shot's head meets. With nothing before it, the lane opposite the next
+    clip's, so alternation holds from either side; an empty film starts on A.
+    """
+    fs = _f(film_start)
+    vids = sorted((c for c in (clips or []) if isinstance(c, dict)
+                   and clip_kind(c) == "video"),
+                  key=lambda c: _f(c.get("film_start")))
+    before = [c for c in vids if _f(c.get("film_start")) < fs - 1e-9]
+    if before:
+        return 2 if clip_sound_lane(before[-1]) == 1 else 1
+    after = [c for c in vids if _f(c.get("film_start")) >= fs - 1e-9]
+    if after:
+        return 2 if clip_sound_lane(after[0]) == 1 else 1
+    return 1
 
 
 def clip_speed(clip) -> float:
@@ -1104,6 +1195,364 @@ def bed_render_gain(edit) -> list[list[float]]:
     return [[round(t + d, 6), g] for t, g in curve]
 
 
+# ---------------------------------------------------------------------------
+# THE AUDIO TRACKS — A3, A4, … under the music
+# ---------------------------------------------------------------------------
+# THE OWNER'S CASE: "You actually need to have multiple audio clips, like we
+# have multiple video layers... you stack them on top of each other." A laugh
+# track, a slap-bass sting and a looping bed on one film, and nowhere to put
+# any of them: A1 is each shot's own sound and A2 holds ONE soundtrack.
+#
+# SO A LIST OF TRACKS, EACH A LIST OF STRIPS, and the refuse list's old rule
+# ("one lane, a split edit is a butt join") moves to where it still belongs:
+# strips on the SAME track may not overlap — a track is a lane, and an NLE
+# refuses two clips on one lane at one second — while strips on DIFFERENT
+# tracks overlap and mix, which is the whole point of having more than one.
+#
+#   edit["audio_tracks"] = [
+#     {"id", "name", "muted"?, "gain"?,
+#      "strips": [{"id", "path", "film_start", "start", "end", "duration"?,
+#                  "gain"?, "muted"?, "locked"?, "title"?,
+#                  "afx"?: {"fade_in", "fade_out", "points"}}]}]
+#
+# `afx` IS THE SAME OBJECT a clip's sound and the bed carry, read by the same
+# `audio_effects` / `audio_gain_points` — one envelope model for every sound on
+# the timeline, not a fourth. `start`/`end` are SOURCE seconds (the in and out
+# points inside the file); a strip plays at 1x, so its length on the film is
+# `end - start`. `gain` is a static fader on the strip and `gain` on the track
+# is a second one on the lane; both are linear 0..1 like the bed's, and both
+# multiply the envelope — exactly the `bed_gain` rule, for the same reason.
+#
+# ABSENT IS NONE, the migration every field in this file follows: a document
+# with no tracks has no key, so every edit.json ever written loads, validates,
+# saves and renders byte-identically, and EDIT_VERSION does not move.
+#
+# THE CLOCK IS THE BED'S. A strip's `film_start` is a timeline second, laid out
+# with `adelay` the way the soundtrack is — not re-flowed through the picture
+# concat — so a strip sits where the music would sit at the same second.
+SOUND_SUFFIXES = (".wav", ".m4a", ".mp3", ".aac", ".flac", ".aif", ".aiff",
+                  ".ogg", ".opus")
+# Shorter than this is not a sound, it is a click — the same idea as a clip's
+# `SBE_MIN_CLIP`, and the floor the trim handles stop at.
+TRACK_STRIP_MIN = 0.05
+
+
+def audio_tracks(edit) -> list[dict]:
+    """The tracks, in lane order. Anything that is not an object is dropped."""
+    rows = edit.get("audio_tracks") if isinstance(edit, dict) else None
+    if not isinstance(rows, list):
+        return []
+    return [t for t in rows if isinstance(t, dict)]
+
+
+def track_strips(track) -> list[dict]:
+    """One track's strips, as stored. Non-objects are dropped."""
+    rows = track.get("strips") if isinstance(track, dict) else None
+    if not isinstance(rows, list):
+        return []
+    return [s for s in rows if isinstance(s, dict)]
+
+
+def track_label(index: int) -> str:
+    """What the lane head says: A3 for the first track, because A1 and A2 are
+    taken by the clips' own sound and the music."""
+    return f"A{int(index) + 3}"
+
+
+def _unit_gain(v) -> float:
+    """A fader value: 1.0 when absent, clamped to 0..1 like `bed_gain`."""
+    if v is None or isinstance(v, bool):
+        return 1.0
+    g = _f(v, 1.0)
+    if g != g:
+        return 1.0
+    return round(max(0.0, min(1.0, g)), 6)
+
+
+def track_gain(track) -> float:
+    return _unit_gain((track or {}).get("gain") if isinstance(track, dict) else None)
+
+
+def track_muted(track) -> bool:
+    return isinstance(track, dict) and track.get("muted") is True
+
+
+def strip_gain(strip) -> float:
+    return _unit_gain((strip or {}).get("gain") if isinstance(strip, dict) else None)
+
+
+def strip_muted(strip) -> bool:
+    return isinstance(strip, dict) and strip.get("muted") is True
+
+
+def strip_window(strip) -> dict:
+    """`{start, end, film_start, film_end, len}` for one strip. 1x, always."""
+    s = strip if isinstance(strip, dict) else {}
+    st, en = _f(s.get("start")), _f(s.get("end"))
+    fs = _f(s.get("film_start"))
+    n = max(0.0, en - st)
+    return {"start": round(st, 6), "end": round(en, 6),
+            "film_start": round(fs, 6), "film_end": round(fs + n, 6),
+            "len": round(n, 6)}
+
+
+def track_strip_gain_points(track, strip) -> list[list[float]]:
+    """THE ONE STRIP CURVE: `[[t, gain], ...]` on the STRIP's own clock.
+
+    The bed's three-term rule with the duck left out (a track is not ducked by
+    anything): the authored envelope from `audio_gain_points`, multiplied by the
+    strip's fader and the track's fader. Preview, render and export read this
+    and nothing else. Empty means unity means no filter, so an untouched strip
+    builds the shortest chain the render can make.
+    """
+    n = strip_window(strip)["len"]
+    if n <= 0:
+        return []
+    g0 = round(strip_gain(strip) * track_gain(track), 6)
+    curve = audio_gain_points(strip, n)
+    if not curve:
+        if abs(g0 - 1.0) < 1e-9:
+            return []
+        return [[0.0, g0], [round(n, 6), g0]]
+    return [[t, round(max(0.0, min(1.0, g * g0)), 6)] for t, g in curve]
+
+
+def track_strip_gain_at(track, strip, t: float) -> float:
+    """The gain at one second of the strip. The preview's per-frame answer."""
+    curve = track_strip_gain_points(track, strip)
+    if not curve:
+        return 1.0
+    return round(_lerp_gain(curve, max(0.0, _f(t))), 6)
+
+
+def track_render_strips(edit) -> list[dict]:
+    """Every strip the render has to MIX, in film order.
+
+    `[{track, track_index, id, path, start, end, at, len, gain}]` — the source
+    window, the film second it lands on, and its curve on its own clock. A muted
+    strip, a strip on a muted track and a strip whose curve is silence the whole
+    way contribute nothing, so they cost the graph no input and no chain.
+    """
+    out: list[dict] = []
+    for ti, t in enumerate(audio_tracks(edit)):
+        if track_muted(t):
+            continue
+        for s in track_strips(t):
+            path = str(s.get("path") or "")
+            if strip_muted(s) or not path:
+                continue
+            w = strip_window(s)
+            if w["len"] <= 1e-6:
+                continue
+            gain = track_strip_gain_points(t, s)
+            if gain and all(g <= 1e-9 for _, g in gain):
+                continue
+            out.append({"track": str(t.get("id") or ""), "track_index": ti,
+                        "id": str(s.get("id") or ""), "path": path,
+                        "start": w["start"], "end": w["end"],
+                        "at": w["film_start"], "len": w["len"],
+                        "gain": gain})
+    out.sort(key=lambda r: (r["at"], r["track_index"], r["id"]))
+    return out
+
+
+def _is_num(v) -> bool:
+    return (isinstance(v, (int, float)) and not isinstance(v, bool)
+            and v == v and v not in (float("inf"), float("-inf")))
+
+
+def _validate_audio_tracks(edit, bad) -> None:
+    """The tracks' half of `validate_edit`. `bad(code, message)` records one.
+
+    Shape errors are errors, and so is two strips on ONE track claiming the
+    same second: a lane plays one sound at a time in every NLE, and the client
+    never produces the state, so a document carrying it is corrupt rather than
+    an edit in progress. Two strips on two tracks at one second is the feature.
+    """
+    rows = edit.get("audio_tracks")
+    if rows is None:
+        return
+    if not isinstance(rows, list):
+        bad("audio_tracks_shape", "audio_tracks must be a list or absent")
+        return
+    for ti, t in enumerate(rows):
+        who = track_label(ti)
+        if not isinstance(t, dict):
+            bad("audio_track_shape", f"audio track {who} must be an object")
+            continue
+        if t.get("name") is not None and not isinstance(t.get("name"), str):
+            bad("audio_track_name", f"audio track {who}: name must be text")
+        if t.get("muted") is not None and not isinstance(t.get("muted"), bool):
+            bad("audio_track_muted", f"audio track {who}: muted must be true or false")
+        g = t.get("gain")
+        if g is not None:
+            if not _is_num(g):
+                bad("audio_track_gain", f"audio track {who}: gain must be a number")
+            elif not 0.0 <= float(g) <= 1.0:
+                bad("audio_track_gain_range",
+                    f"audio track {who}: gain must be between 0 and 1")
+        strips = t.get("strips")
+        if strips is None:
+            continue
+        if not isinstance(strips, list):
+            bad("audio_track_strips", f"audio track {who}: strips must be a list")
+            continue
+        spans: list[tuple[float, float, int]] = []
+        for si, s in enumerate(strips):
+            at = f"audio track {who}, sound {si + 1}"
+            if not isinstance(s, dict):
+                bad("track_strip_shape", f"{at} must be an object")
+                continue
+            path = s.get("path")
+            if not isinstance(path, str) or not path.strip():
+                bad("track_strip_path", f"{at} has no file")
+            broken = False
+            for key in ("start", "end", "film_start"):
+                if not _is_num(s.get(key)):
+                    bad(f"track_strip_{key}", f"{at}: {key} must be a number")
+                    broken = True
+            if broken:
+                continue
+            st, en, fs = float(s["start"]), float(s["end"]), float(s["film_start"])
+            if st < 0:
+                bad("track_strip_start", f"{at}: start must be >= 0")
+            if fs < 0:
+                bad("track_strip_film_start", f"{at}: film_start must be >= 0")
+            if en <= st:
+                bad("track_strip_window",
+                    f"{at}: end ({en}) must be after start ({st})")
+            dur = s.get("duration")
+            if _is_num(dur) and float(dur) > 0 and en > float(dur) + 1e-3:
+                bad("track_strip_past_the_end",
+                    f"{at}: the sound ends at {en:.3f}s but the file is "
+                    f"{float(dur):.3f}s long")
+            sg = s.get("gain")
+            if sg is not None:
+                if not _is_num(sg):
+                    bad("track_strip_gain", f"{at}: gain must be a number")
+                elif not 0.0 <= float(sg) <= 1.0:
+                    bad("track_strip_gain_range", f"{at}: gain must be between 0 and 1")
+            for key in ("muted", "locked"):
+                if s.get(key) is not None and not isinstance(s.get(key), bool):
+                    bad(f"track_strip_{key}", f"{at}: {key} must be true or false")
+            if s.get("title") is not None and not isinstance(s.get("title"), str):
+                bad("track_strip_title", f"{at}: title must be text")
+            afx = s.get("afx")
+            if afx is not None and not isinstance(afx, dict):
+                bad("track_strip_afx", f"{at}: afx must be an object or absent")
+            elif isinstance(afx, dict):
+                for key in ("fade_in", "fade_out"):
+                    v = afx.get(key)
+                    if v is None:
+                        continue
+                    if not _is_num(v):
+                        bad(f"track_strip_{key}", f"{at}: afx.{key} must be a number")
+                    elif float(v) < 0:
+                        bad(f"track_strip_{key}_range", f"{at}: afx.{key} must be >= 0")
+                pts = afx.get("points")
+                if pts is not None and not isinstance(pts, list):
+                    bad("track_strip_afx_points", f"{at}: afx.points must be a list or absent")
+                elif isinstance(pts, list):
+                    for row in pts:
+                        if not isinstance(row, (list, tuple)) or len(row) != 2 \
+                                or not all(_is_num(x) for x in row):
+                            bad("track_strip_afx_point",
+                                f"{at}: every afx point is [seconds, gain]")
+                            break
+            if en > st and fs >= 0:
+                spans.append((fs, fs + (en - st), si))
+        spans.sort()
+        for (a_s, a_e, a_i), (b_s, b_e, b_i) in zip(spans, spans[1:]):
+            if b_s < a_e - TOUCH_TOLERANCE:
+                bad("audio_track_strips_overlap",
+                    f"audio track {who}: sounds {a_i + 1} and {b_i + 1} overlap "
+                    f"({a_s:.3f}-{a_e:.3f}s and {b_s:.3f}-{b_e:.3f}s) — one track "
+                    f"plays one sound at a time; put the other on another track")
+
+
+def _normalise_audio_tracks(out: dict) -> None:
+    """Round, sort, invent ids, drop neutral fields. Mutates `out`.
+
+    NOTHING IS DECIDED: a strip is never moved, trimmed or re-tracked here. An
+    empty track list is an absent key, so a timeline that never had one is
+    byte-identical to one written before tracks existed; an empty TRACK is
+    kept, because somebody pressed "+ Add audio track" and means to use it.
+    """
+    rows = audio_tracks(out)
+    if not rows:
+        out.pop("audio_tracks", None)
+        return
+    tracks: list[dict] = []
+    seen_t: set = set()
+    seen_s: set = set()
+    for ti, t in enumerate(rows):
+        t2 = dict(t)
+        tid = str(t2.get("id") or "") or ("t" + _clip_id(f"track{ti}", ti, 0.0)[:10])
+        while tid in seen_t:
+            tid = tid + "x"
+        seen_t.add(tid)
+        t2["id"] = tid
+        name = t2.get("name")
+        if isinstance(name, str) and name.strip():
+            t2["name"] = name.strip()[:60]
+        else:
+            t2.pop("name", None)
+        if t2.get("muted") is True:
+            t2["muted"] = True
+        else:
+            t2.pop("muted", None)
+        g = track_gain(t2)
+        if abs(g - 1.0) > 1e-9:
+            t2["gain"] = g
+        else:
+            t2.pop("gain", None)
+        strips = []
+        for s in track_strips(t2):
+            s2 = {k: v for k, v in s.items() if not str(k).startswith("_")}
+            for k in ("start", "end", "film_start"):
+                s2[k] = round(_f(s2.get(k)), 6)
+            s2["path"] = str(s2.get("path") or "")
+            sid = str(s2.get("id") or "") or _clip_id(s2["path"], s2["start"],
+                                                      s2["film_start"])
+            while sid in seen_s:
+                sid = sid + "x"
+            seen_s.add(sid)
+            s2["id"] = sid
+            dur = s2.get("duration")
+            if _is_num(dur) and float(dur) > 0:
+                s2["duration"] = round(float(dur), 6)
+            else:
+                s2.pop("duration", None)
+            title = s2.get("title")
+            if isinstance(title, str) and title.strip():
+                s2["title"] = title.strip()[:200]
+            else:
+                s2.pop("title", None)
+            sg = strip_gain(s2)
+            if abs(sg - 1.0) > 1e-9:
+                s2["gain"] = sg
+            else:
+                s2.pop("gain", None)
+            for key in ("muted", "locked"):
+                if s2.get(key) is True:
+                    s2[key] = True
+                else:
+                    s2.pop(key, None)
+            ae = audio_effects(s2, strip_window(s2)["len"])
+            akeep = {k: ae[k] for k in ("fade_in", "fade_out") if ae[k] > 1e-9}
+            if ae["points"]:
+                akeep["points"] = ae["points"]
+            if akeep:
+                s2["afx"] = akeep
+            else:
+                s2.pop("afx", None)
+            strips.append(s2)
+        strips.sort(key=lambda x: (x["film_start"], x["id"]))
+        t2["strips"] = strips
+        tracks.append(t2)
+    out["audio_tracks"] = tracks
+
+
 def clip_audio_drift(clip) -> float:
     """How far an UNLINKED sound has drifted from the picture it came from.
 
@@ -1573,6 +2022,11 @@ def edit_from_plan(plan, *, board_id: str = "", audio: dict | None = None,
             },
             **extra,
         ))
+    # A FRESH TIMELINE IS LAID A/B. Every new cut alternates its clips' sound
+    # between the two lanes by film order, so neighbouring shots can overlap
+    # and crossfade the moment somebody trims them together — the owner's
+    # default, not a mode.
+    alternate_sound_lanes(clips)
     return normalise_edit({
         "version": EDIT_VERSION,
         "board_id": board_id,
@@ -2072,6 +2526,13 @@ def validate_edit(edit) -> list[dict]:
                     bad("clip_audio_past_the_end",
                         f"clip {i + 1}: the sound ends at {w['end']:.3f}s but "
                         f"the source is {float(dur):.3f}s long", i)
+        sl = c.get("sound_lane")
+        if sl is not None and (isinstance(sl, bool) or sl not in SOUND_LANES):
+            # Only a VALUE is refused. A stale lane on a still is dropped by
+            # `normalise_edit` rather than blocking a save over a field the
+            # picture cannot use.
+            bad("clip_sound_lane",
+                f"clip {i + 1}: sound_lane must be 1, 2 or absent", i)
         afx = c.get("afx")
         if afx is not None and not isinstance(afx, dict):
             bad("clip_afx", f"clip {i + 1}: afx must be an object or absent", i)
@@ -2271,24 +2732,32 @@ def validate_edit(edit) -> list[dict]:
                 f"clips {a_i + 1} and {b_i + 1} overlap on the film "
                 f"({a_s:.3f}-{a_e:.3f}s and {b_s:.3f}-{b_e:.3f}s) — one video "
                 f"track can only play one of them", b_i)
-    # THE SAME RULE FOR THE SOUND, and it is what keeps a split edit from
-    # becoming the multi-track mixer the refuse list bans. A J-cut is a butt
-    # join that lands somewhere the picture does not; it is still one lane, so
-    # two clips' sound may no more overlap than two clips' pictures.
-    asp: list[tuple[float, float, int]] = []
-    for i, c in enumerate(clips):
-        if not isinstance(c, dict) or clip_kind(c) != "video":
-            continue
-        w = clip_audio(c)
-        if w["end"] > w["start"]:
-            asp.append((w["film_start"], w["film_start"] + w["len"], i))
-    asp.sort()
-    for (a_s, a_e, a_i), (b_s, b_e, b_i) in zip(asp, asp[1:]):
-        if b_s < a_e - TOUCH_TOLERANCE:
-            bad("clips_audio_overlap",
-                f"the sound of clips {a_i + 1} and {b_i + 1} overlaps "
-                f"({a_s:.3f}-{a_e:.3f}s and {b_s:.3f}-{b_e:.3f}s) — a split "
-                f"edit moves the sound, it does not add a second track", b_i)
+    # THE SAME RULE FOR THE SOUND — WITHIN A LANE. Two clips' sound on ONE
+    # lane may no more overlap than two pictures may (the render trims the
+    # outgoing tail there); on lane A and lane B they overlap and mix, which
+    # is the whole point of having two (`clip_sound_lane`).
+    for lane in SOUND_LANES:
+        asp: list[tuple[float, float, int]] = []
+        for i, c in enumerate(clips):
+            if not isinstance(c, dict) or clip_kind(c) != "video":
+                continue
+            if clip_sound_lane(c) != lane:
+                continue
+            w = clip_audio(c)
+            if w["end"] > w["start"]:
+                asp.append((w["film_start"], w["film_start"] + w["len"], i))
+        asp.sort()
+        for (a_s, a_e, a_i), (b_s, b_e, b_i) in zip(asp, asp[1:]):
+            if b_s < a_e - TOUCH_TOLERANCE:
+                bad("clips_audio_overlap",
+                    f"the sound of clips {a_i + 1} and {b_i + 1} overlaps on "
+                    f"sound lane {sound_lane_label(lane)} "
+                    f"({a_s:.3f}-{a_e:.3f}s and {b_s:.3f}-{b_e:.3f}s) — one lane "
+                    f"plays one sound at a time; put one of them on the other "
+                    f"sound lane to hear both", b_i)
+    # THE AUDIO TRACKS (A3, A4, …) — where a second sound at the same second
+    # DOES belong. Their own rules live beside their model.
+    _validate_audio_tracks(edit, bad)
     return errs
 
 
@@ -2582,6 +3051,13 @@ def normalise_edit(edit: dict) -> dict:
                 c.pop("afx", None)
         else:
             c.pop("afx", None)
+        # THE LANE, neutral-is-absent: lane A is no field at all, so a
+        # document that never used lane B is byte-identical to one written
+        # before there were two.
+        if clip_sound_lane(c) == 2:
+            c["sound_lane"] = 2
+        else:
+            c.pop("sound_lane", None)
         if kind != "video":
             c.pop("audio", None)
         elif isinstance(c.get("audio"), dict):
@@ -2701,6 +3177,8 @@ def normalise_edit(edit: dict) -> dict:
         out["transitions"] = txs
     else:
         out.pop("transitions", None)
+    # THE AUDIO TRACKS. Same discipline, and an empty list is an absent key.
+    _normalise_audio_tracks(out)
     out.setdefault("board_id", "")
     # NEUTRAL IS ABSENT, the same rule `adjust` follows one block up. Dragging
     # a trim handle back to the end of the track must leave a document
@@ -3501,6 +3979,10 @@ def edit_to_cuts(edit: dict) -> list[dict]:
             # the identical graph it always did.
             if clip_muted(c):
                 entry["mute"] = True
+            # Lane B only. A film that never used it hands the assembler the
+            # list it always did, and the graph cannot change.
+            if clip_sound_lane(c) == 2:
+                entry["lane"] = 2
         # EFFECTS RIDE ON EVERY KIND — a still and a slug fade like anything
         # else, and all three outputs read the same entry.
         e = clip_effects(c)
@@ -3844,6 +4326,8 @@ def _nle_segments(clips, *, probe=None) -> list[dict]:
             # clipitem rather than dropping it, so the editor on the far end
             # can see the decision and undo it.
             "muted": clip_muted(c),
+            # Which clip-sound lane — the XML writes lane B as its own track.
+            "lane": clip_sound_lane(c),
             "source_duration": _f(info.get("duration"))
             or (fe - fs if kind != "video" else 0.0),
         })
@@ -3982,7 +4466,8 @@ def _fcp7_file(fid: str, seg: dict, media_abs: Path, *, fps: int,
 
 def fcp7_xml(segments, *, name: str, media: dict, width: int, height: int,
              base, fps: int = NLE_FPS, audio: dict | None = None,
-             overlays: list | None = None) -> str:
+             overlays: list | None = None,
+             audio_tracks: list | None = None) -> str:
     """The sequence, as the one XML both Premiere and Resolve import.
 
     SLUGS ARE GAPS. A slug could be written as a `<generatoritem>` with the
@@ -3993,7 +4478,9 @@ def fcp7_xml(segments, *, name: str, media: dict, width: int, height: int,
     script, which has no such ambiguity, gets real black solids.
 
     THE AUDIO IS STEMS, NOT THE MIX. The clips' own sound goes on A1 and the
-    soundtrack goes on A2, unducked. The under-mix the renderer builds —
+    soundtrack goes on A2, unducked. A film that uses the second clip-sound
+    lane writes it as its own track straight after the first — "Clip sound A",
+    "Clip sound B", then the music — so the A/B roll arrives as an A/B roll. The under-mix the renderer builds —
     sidechain compression against the dialogue, then a tanh ceiling — has no
     representation in an NLE's timeline at all, so baking it in would hand an
     editor a bed they cannot unmix and cannot re-balance. Stems are what the
@@ -4010,7 +4497,7 @@ def fcp7_xml(segments, *, name: str, media: dict, width: int, height: int,
     mdir = Path(str(base)) / "media"
     file_ids: dict = {}
     total = max([_frames(s["film_end"], fps) for s in segments] or [0])
-    v_items, a_items = [], []
+    v_items, a_items, b_items = [], [], []
     for i, seg in enumerate(segments):
         if seg["kind"] == "slug":
             continue                          # a gap on the track IS the slug
@@ -4046,7 +4533,7 @@ def fcp7_xml(segments, *, name: str, media: dict, width: int, height: int,
             # from a source without one. `<enabled>FALSE</enabled>` is the
             # timeline's own word for "this is here and it is off", and one
             # click puts it back.
-            a_items.append(
+            (b_items if seg.get("lane") == 2 else a_items).append(
                 f'<clipitem id="clipitem-a{i + 1}">'
                 f"<name>{_xml_text(seg['title'])}</name>"
                 f"<enabled>{'FALSE' if seg.get('muted') else 'TRUE'}</enabled>"
@@ -4122,6 +4609,57 @@ def fcp7_xml(segments, *, name: str, media: dict, width: int, height: int,
             f"<sourcetrack><mediatype>audio</mediatype>"
             f"<trackindex>1</trackindex></sourcetrack>"
             f"</clipitem></track>")
+    # ---- A3, A4, …: the audio tracks, one XML track each ----------------
+    # STEMS, the same promise the music makes: every strip is a clipitem with
+    # its own in/out, its level curve as keyframes (the fades folded in, the
+    # strip and track faders multiplied through — `track_strip_gain_points`),
+    # and a muted strip or track DISABLED rather than dropped, so the decision
+    # arrives in the NLE and one click undoes it.
+    extra_tracks = ""
+    for ti, trk in enumerate(audio_tracks or []):
+        if not isinstance(trk, dict):
+            continue
+        items = []
+        for si, s in enumerate(track_strips(trk)):
+            src = str(s.get("path") or "")
+            if not src or src not in media:
+                continue
+            w = strip_window(s)
+            if w["len"] <= 0:
+                continue
+            abs_media = mdir / media[src]
+            fid = "file-" + str(file_ids.setdefault(src, len(file_ids) + 1))
+            if fid in declared:
+                fel = f'<file id="{_xml_text(fid)}"/>'
+            else:
+                declared.add(fid)
+                sdur = _f(s.get("duration"))
+                fel = (f'<file id="{_xml_text(fid)}">'
+                       f"<name>{_xml_text(abs_media.name)}</name>"
+                       f"<pathurl>{_xml_text(_pathurl(abs_media))}</pathurl>"
+                       f"{_fcp7_rate(fps)}"
+                       + (f"<duration>{_frames(sdur, fps)}</duration>" if sdur > 0 else "")
+                       + "<media><audio><samplecharacteristics><depth>16</depth>"
+                         "<samplerate>48000</samplerate></samplecharacteristics>"
+                         "<channelcount>2</channelcount></audio></media></file>")
+            f_in, f_out = _frames(w["start"], fps), _frames(w["end"], fps)
+            f_s = _frames(w["film_start"], fps)
+            f_e = max(f_s + 1, _frames(w["film_end"], fps))
+            on = not (strip_muted(s) or track_muted(trk))
+            items.append(
+                f'<clipitem id="clipitem-t{ti + 1}s{si + 1}">'
+                f"<name>{_xml_text(str(s.get('title') or Path(src).stem))}</name>"
+                f"<enabled>{'TRUE' if on else 'FALSE'}</enabled>"
+                f"<duration>{max(1, f_out - f_in)}</duration>"
+                f"{_fcp7_rate(fps)}"
+                f"<start>{f_s}</start><end>{f_e}</end>"
+                f"<in>{f_in}</in><out>{max(f_in + 1, f_out)}</out>"
+                f"{fel}"
+                f"<sourcetrack><mediatype>audio</mediatype>"
+                f"<trackindex>1</trackindex></sourcetrack>"
+                f"{_fcp7_levels(track_strip_gain_points(trk, s), fps)}"
+                f"</clipitem>")
+        extra_tracks += f"<track>{''.join(items)}</track>"
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         "<!DOCTYPE xmeml>\n"
@@ -4148,7 +4686,11 @@ def fcp7_xml(segments, *, name: str, media: dict, width: int, height: int,
         "</video>"
         "<audio>"
         f"<track>{''.join(a_items)}</track>"
+        # LANE B ONLY WHEN IT IS USED, so an export of a film that never
+        # touched it is the file it always was.
+        f"{('<track>' + ''.join(b_items) + '</track>') if b_items else ''}"
         f"{music_track}"
+        f"{extra_tracks}"
         "</audio>"
         "</media>"
         "</sequence>\n"
@@ -4157,7 +4699,8 @@ def fcp7_xml(segments, *, name: str, media: dict, width: int, height: int,
 
 def ae_jsx(segments, *, name: str, media: dict, width: int, height: int,
            fps: int = NLE_FPS, audio: dict | None = None,
-           overlays: list | None = None) -> str:
+           overlays: list | None = None,
+           audio_tracks: list | None = None) -> str:
     """An ExtendScript that BUILDS the comp, because AE cannot import a timeline.
 
     It locates its own folder (`File($.fileName).parent`) and imports from the
@@ -4332,6 +4875,42 @@ def ae_jsx(segments, *, name: str, media: dict, width: int, height: int,
                 "  lay.inPoint = %.6f;" % win["delay"],
                 "  lay.outPoint = %.6f;" % max(win["delay"] + 1e-3, end_film),
             ]
+    # ---- A3, A4, …: every strip its own layer, named for its track -------
+    # The same stem rule as the soundtrack. A video file used for its sound
+    # only keeps its picture switched off, so the comp shows what the film does.
+    for ti, trk in enumerate(audio_tracks or []):
+        if not isinstance(trk, dict):
+            continue
+        tname = str(trk.get("name") or track_label(ti))
+        for si, s in enumerate(track_strips(trk)):
+            src = str(s.get("path") or "")
+            if not src or src not in media:
+                continue
+            w = strip_window(s)
+            if w["len"] <= 0:
+                continue
+            rel = "/media/" + media[src]
+            lines += [
+                f"  // {track_label(ti)} sound {si + 1}",
+                "  lay = comp.layers.add(bring(%s));" % _jsx_string(rel),
+                "  lay.name = %s;" % _jsx_string(
+                    tname + " · " + str(s.get("title") or Path(src).stem)),
+                "  lay.startTime = %.6f;" % (w["film_start"] - w["start"] + 0.0),
+                "  lay.inPoint = %.6f;" % w["film_start"],
+                "  lay.outPoint = %.6f;" % max(w["film_start"] + 1e-3, w["film_end"]),
+            ]
+            if Path(src).suffix.lower() not in SOUND_SUFFIXES:
+                lines.append("  if (lay.hasVideo) { lay.enabled = false; }")
+            gain = track_strip_gain_points(trk, s)
+            if len(gain) >= 2:
+                lines.append("  au = lay.property('ADBE Audio Group')"
+                             ".property('ADBE Audio Levels');")
+                for t, g in gain:
+                    db = -96.0 if g <= 1e-6 else max(-96.0, 20.0 * math.log10(g))
+                    lines.append("  au.setValueAtTime(%.6f, [%.3f, %.3f]);"
+                                 % (w["film_start"] + t, db, db))
+            if strip_muted(s) or track_muted(trk):
+                lines.append("  lay.audioEnabled = false;")
     lines += [
         "  comp.openInViewer();",
         "  app.endUndoGroup();",
@@ -4344,11 +4923,15 @@ def ae_jsx(segments, *, name: str, media: dict, width: int, height: int,
 def export_nle(clips, dest_dir, *, name: str, fps: int = NLE_FPS,
                audio: dict | None = None, probe=None, link=None,
                width: int = 0, height: int = 0,
-               overlays: list | None = None) -> dict:
+               overlays: list | None = None,
+               audio_tracks: list | None = None) -> dict:
     """Write `<name>_project/` — one XML, one AE script, and the media beside them.
 
     Returns {"ok", "dir", "xml", "jsx", "clips", "linked", "copied",
-             "missing", "width", "height", "duration"}.
+             "missing", "width", "height", "duration", "sound_strips"}.
+
+    `audio_tracks` is `edit["audio_tracks"]`: each track becomes its own audio
+    track in the XML and its strips their own layers in the AE script.
     """
     import shutil                                                 # noqa: PLC0415, F401
     segs = _nle_segments(clips, probe=probe)
@@ -4376,6 +4959,9 @@ def export_nle(clips, dest_dir, *, name: str, fps: int = NLE_FPS,
     wanted += [str(o["path"]) for o in ovs]
     if audio and audio.get("path"):
         wanted.append(str(audio["path"]))
+    trks = [t for t in (audio_tracks or []) if isinstance(t, dict)]
+    for t in trks:
+        wanted += [str(s["path"]) for s in track_strips(t) if str(s.get("path") or "")]
     for src_str in wanted:
         if src_str in media:
             continue
@@ -4399,16 +4985,19 @@ def export_nle(clips, dest_dir, *, name: str, fps: int = NLE_FPS,
     xml_path.write_text(
         fcp7_xml(segs, name=name, media=media, width=width, height=height,
                  overlays=ovs,
-                 base=root, fps=fps, audio=a_arg), encoding="utf-8")
+                 base=root, fps=fps, audio=a_arg,
+                 audio_tracks=trks or None), encoding="utf-8")
     jsx_path.write_text(
         ae_jsx(segs, name=name, media=media, width=width, height=height,
                overlays=ovs,
-               fps=fps, audio=a_arg), encoding="utf-8")
+               fps=fps, audio=a_arg, audio_tracks=trks or None), encoding="utf-8")
     return {
         "ok": True, "dir": str(root), "xml": str(xml_path),
         "jsx": str(jsx_path), "clips": len(segs),
         "linked": linked, "copied": copied, "missing": missing,
         "media": sorted(media.values()),
+        "sound_strips": sum(1 for t in trks for s in track_strips(t)
+                            if str(s.get("path") or "") in media),
         "width": width, "height": height,
         "duration": round(max([s["film_end"] for s in segs] or [0.0]), 3),
     }

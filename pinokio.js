@@ -44,6 +44,10 @@ function h3Capable() {
   }
 }
 
+function musicCapable() {
+  try { return os.totalmem() >= 24 * 1000 * 1000 * 1000 } catch (e) { return false }
+}
+
 function getInstallRoot(info) {
   // Pinokio's `info.path` API has shifted across versions:
   //   - older Pinokio: info.path is a STRING property (the install dir itself)
@@ -82,7 +86,7 @@ function loadRequired(installRoot) {
 // Deliberately narrow: `KEY=value`, no continuations, no expansion. Anything
 // this parser cannot read leaves the caller on its default, which is always the
 // shipped behaviour.
-const ENV_KEYS = ["LTX_MODEL_VERSION", "LTX_H3_ROOT", "LTX_H3_MODELS"]
+const ENV_KEYS = ["LTX_MODEL_VERSION", "LTX_H3_ROOT", "LTX_H3_MODELS", "LTX_MUSIC_ROOT", "LTX_MUSIC_MODELS"]
 
 function readEnvironment(installRoot) {
   const out = {}
@@ -303,6 +307,50 @@ module.exports = {
     // made this look like data loss.
     const h3_repair = h3_weights && !h3_ready
 
+    const musicRoot = underRoot(envFile.LTX_MUSIC_ROOT || "yue2-mlx", "")
+    const musicModels = underRoot(envFile.LTX_MUSIC_MODELS || "mlx_models/yue2", "")
+    const musicFile = p => { try { return fs.statSync(p).isFile() } catch (e) { return false } }
+    let musicWeights = false
+    try {
+      const generator = path.join(musicModels, "generator")
+      const files = JSON.parse(fs.readFileSync(path.join(generator, "conversion.json"), "utf8")).files
+      const generatorNames = ["LICENSE", "THIRD_PARTY_NOTICES.md", "ar-8bit.safetensors", "ar-bf16.safetensors",
+        "config.json", "licenses/SnakeBeta-NVIDIA-MIT.txt", "licenses/stable-audio-tools-MIT.txt",
+        "nar-bf16.safetensors", "qwen.tiktoken"]
+      const allowed = new Set([...Object.keys(files), "conversion.json", "README.md"])
+      const clean = (dir, prefix = "") => fs.readdirSync(dir, { withFileTypes: true }).every(e => {
+        const rel = prefix + e.name
+        if (e.isSymbolicLink()) return false
+        if (e.isDirectory()) return [...allowed].some(n => n.startsWith(rel + "/")) && clean(path.join(dir, e.name), rel + "/")
+        return allowed.has(rel)
+      })
+      const vae = path.join(musicModels, "vae")
+      const vfiles = JSON.parse(fs.readFileSync(path.join(vae, "weights_manifest.json"), "utf8")).files
+      const intact = (base, entries) => Object.entries(entries).every(([n, r]) => {
+        if (n.includes("..") || path.isAbsolute(n)) return false
+        const st = fs.lstatSync(path.join(base, n))
+        return st.isFile() && st.size > 0 && st.size === r.bytes && /^[0-9a-f]{64}$/.test(r.sha256)
+      })
+      musicWeights = Object.keys(files).length === generatorNames.length && generatorNames.every(n => files[n])
+        && clean(generator) && intact(generator, files)
+        && vfiles["model.safetensors"].bytes === 530512720
+        && vfiles["model.safetensors"].sha256 === "807ce9d5149fa27c5ad3e6582058469852e908f6c5acc8c8aa338e7ab7751346"
+        && intact(vae, vfiles)
+        && ["config.json", "LICENSE", "THIRD_PARTY_NOTICES.md"].every(n => musicFile(path.join(vae, n)))
+        && fs.readdirSync(path.join(vae, "licenses")).length > 0
+    } catch (e) { /* partial pack: keep the install route available */ }
+    const musicReady = musicWeights && ["python", "python3.12"].some(n => {
+      const p = path.join(musicRoot, ".venv/bin", n)
+      try { fs.accessSync(p, fs.constants.X_OK); return musicFile(p) } catch (e) { return false }
+    })
+      && musicFile(path.join(musicRoot, "pyproject.toml"))
+      && musicFile(path.join(installRoot, "scripts/music/yue2_run.py"))
+    const musicRepair = musicWeights && !musicReady
+    const musicMenu = () => !musicCapable() ? [] : [musicReady || musicRepair
+      ? { icon: "fa-solid fa-screwdriver-wrench", text: "Repair the music engine (weights kept — no re-download)", href: "install_music.js" }
+      : { icon: "fa-solid fa-music", text: "Install the music engine (YuE2, ~11 GB)", href: "install_music.js" }]
+
+
     // Keep the H3 recovery affordance reachable from EVERY menu state, not
     // only the healthy one. Reset wipes ltx-2-mlx, so env_ready goes false and
     // the menu early-returns (below) long before it reaches the H3 row — which
@@ -311,6 +359,9 @@ module.exports = {
     // venv, weights in a different tree), so offering the repair mid-reinstall
     // is safe and never competes with the default action.
     const pushH3Recovery = (m) => {
+      if (musicRepair && musicCapable()) {
+        m.push({ icon: "fa-solid fa-screwdriver-wrench", text: "Repair the music engine (weights kept — no re-download)", href: "install_music.js" })
+      }
       if (h3_repair && h3Capable()) {
         m.push({ icon: "fa-solid fa-screwdriver-wrench",
                  text: "Repair Hailuo H3 (weights kept — no re-download)",
@@ -409,6 +460,7 @@ module.exports = {
       sharp:      info.running("install_sharp.js"),
       qwen:       info.running("install_qwen.js"),
       h3:         info.running("install_h3.js"),
+      music:      info.running("install_music.js"),
     }
 
     // Running states first — show what's in progress, hide everything else.
@@ -418,6 +470,7 @@ module.exports = {
     if (running.q8download) return [{ default: true, icon: "fa-solid fa-download", text: `Downloading ${q8Name} (${q8Size})`, href: "download_q8.js" }]
     if (running.sharp)      return [{ default: true, icon: "fa-solid fa-wand-magic-sparkles", text: "Installing Sharp upscaler", href: "install_sharp.js" }]
     if (running.qwen)       return [{ default: true, icon: "fa-solid fa-images", text: "Installing Qwen-Image-Edit (multi-ref)", href: "install_qwen.js" }]
+    if (running.music) return [{ default: true, icon: "fa-solid fa-music", text: "Installing the music engine (~11 GB)", href: "install_music.js" }]
     if (running.h3)         return [{ default: true, icon: "fa-solid fa-comments", text: "Installing Hailuo H3 (~75 GB)", href: "install_h3.js" }]
 
     // No env at all → fresh install path. Recovery shortcuts to user content
@@ -472,9 +525,13 @@ module.exports = {
           { icon: "fa-solid fa-film",     text: "Outputs",    href: "mlx_outputs?fs=true" },
           { icon: "fa-solid fa-cube",     text: "Models",     href: "mlx_models?fs=true" },
           { icon: "fa-solid fa-image",    text: "Uploads",    href: "panel_uploads?fs=true" },
+          // Settings → Models tells a running panel's user to click this, so it
+          // has to exist while the panel runs. The install touches only
+          // yue2-mlx/ and mlx_models/yue2/; the panel picks it up on /status.
+          ...musicMenu(),
         ]
       }
-      return [{ default: true, icon: "fa-solid fa-terminal", text: "Terminal", href: "start.js" }]
+      return [{ default: true, icon: "fa-solid fa-terminal", text: "Terminal", href: "start.js" }, ...musicMenu()]
     }
 
     // Healthy install — Start path.
@@ -507,6 +564,7 @@ module.exports = {
       // confusion: installing "Qwen" to use Ideogram).
       baseMenu.push({ icon: "fa-solid fa-images", text: "Reinstall image engines (Ideogram 4 + Qwen-Edit)", href: "install_qwen.js" })
     }
+    baseMenu.push(...musicMenu())
     if (!h3_ready && h3Capable()) {
       // Second VIDEO engine — joint picture + dialogue + sound. Opt-in only:
       // ~75 GB, 36 GB+ Macs (H3_MIN_BYTES above), MiniMax Community License

@@ -92,6 +92,7 @@
 <symbol id="eng-mark-h3" viewBox="0 0 24 24"><path d="M5.4 6.4v11.2M11.4 6.4v11.2M5.4 12h6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M15.6 10v4M18.6 8.4v7.2M21.4 6.8v10.4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
 <!-- Flux Video — "F" with a flow chevron. Rendered only under
      LTX_ENGINE_PREVIEW=1; the symbol is free to sit here regardless. -->
+<symbol id="eng-mark-music" viewBox="0 0 24 24"><path d="M9 18V5l11-2v13M9 8l11-2" fill="none" stroke="currentColor" stroke-width="2"/><ellipse cx="6" cy="18" rx="3" ry="2" fill="currentColor"/><ellipse cx="17" cy="16" rx="3" ry="2" fill="currentColor"/></symbol>
 <symbol id="eng-mark-flux" viewBox="0 0 24 24"><path d="M7.4 17.6V6.4h6.4M7.4 11.6h5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M16.4 8.6l3.6 3.4-3.6 3.4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 <symbol id="ph-speaker-slash" viewBox="0 0 256 256"><line x1="48" y1="40" x2="208" y2="216" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M80,168H32a8,8,0,0,1-8-8V96a8,8,0,0,1,8-8H80l72-56V147" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M152,179v45L94.4,179.2" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 </defs>
@@ -408,13 +409,14 @@
              LTX IC-LoRAs elsewhere recognises it here. -->
         <button type="button" class="mode-chip pill-btn" data-remix="control" title="Union Control IC-LoRA — the render copies the motion, camera move, composition and pose of a clip you supply, while the prompt repaints the subject and scene. Feed it an ordinary video, or a pose / depth / canny sequence you already have.">Motion Control<span class="mc-sub sub">its motion → your scene</span></button>
         <button type="button" class="mode-chip pill-btn" data-remix="restore" title="Colorize IC-LoRA — adds natural color to a black-and-white or desaturated clip.">Colorize<span class="mc-sub sub">B&amp;W clip → color</span></button>
-        <!-- Upscale ×2 — the LTX-2.5 Pixel Spatial Upscaler IC-LoRA. A
+        <!-- Upscale & Face Fix (was "Upscale ×2" / "LTX Upscale"; mode stays
+             `upscale`) — the LTX-2.5 Pixel Spatial Upscaler IC-LoRA. A
              generative 2× enlarge: the source clip rides the reference
              channel and the 2.5 base re-renders every pixel at twice the
              canvas (up to this Mac's i2v cap). The natural partner of an H3
              draft: H3 does the story and the sound at a small canvas, LTX
              2.5 does the pixels. Works on any clip in Outputs. -->
-        <button type="button" class="mode-chip pill-btn" data-remix="upscale" title="LTX Upscale — LTX-2.5 Pixel Spatial Upscaler IC-LoRA. Re-renders a clip at twice its size with real generated detail (not a filter). Made for H3 drafts, works on any clip.">LTX Upscale<span class="mc-sub sub">any clip → 2× sharper</span></button>
+        <button type="button" class="mode-chip pill-btn" data-remix="upscale" title="Upscale &amp; Face Fix — LTX-2.5 Pixel Spatial Upscaler IC-LoRA. Re-renders a clip at twice its size with real generated detail (not a filter) and keeps the face and the sound. Made for H3 drafts, works on any clip. One click from any clip: the Upscale &amp; Face Fix button under the player.">Upscale &amp; Face Fix<span class="mc-sub sub">any clip → 2× sharper · face kept</span></button>
       </div>
     </div>
 
@@ -716,7 +718,7 @@
             <div class="hint" style="margin-top:6px">Pick a black-and-white or washed-out clip. The prompt below describes the colors to paint in (e.g. "golden warm sunlight, blue sky, green grass"). Output matches the source's resolution + length. Runs on Q4 — no Q8 needed.</div>
           </div>
 
-          <!-- Upscale ×2 (upscale) — source-video picker + one slider. The
+          <!-- Upscale & Face Fix (mode `upscale`) — source-video picker + presets. The
                LTX-2.5 Pixel Spatial Upscaler IC-LoRA re-renders the clip at
                2× (capped at this Mac's i2v canvas; frames + prompt come from
                the source and its sidecar). The slider is the IC reference
@@ -725,7 +727,7 @@
                source is carried over. Shown/hidden by updateDerived() when
                currentMode === 'upscale'. -->
           <div class="mode-only" id="upscaleSection">
-            <h2>Clip to upscale</h2>
+            <h2>Clip to fix</h2>
             <select id="upscaleSrcSelect" onchange="document.getElementById('upscale_source_path').value=this.value"></select>
             <input name="upscale_source_path" id="upscale_source_path" placeholder="/path/to/draft.mp4" style="margin-top:6px">
             <!-- Presets, not a slider: the number (keep_shot) maps server-side
@@ -733,10 +735,18 @@
                  own latent for 1/2 steps, Re-imagine is the adapter's full
                  re-render from noise. Times measured on an M4 Max for a 5 s
                  640×384 draft → 1280×768. -->
-            <div class="pill-group cols-3" id="upscalePresetGroup" style="margin-top:10px">
-              <button type="button" class="pill-btn active" data-keep="1.0" onclick="setUpscalePreset(this)"
-                      title="Sharp generated detail on the clip's own frames — the face stays hers, expressions can shift a touch. About 5.5 min per 5 s on an M4 Max.">
-                <span>Faithful</span><span class="sub">sharp, face stays</span>
+            <!-- Face Fix = the one-click recipe (1 refine step from the
+                 clip's latent, verified on character clips 2026-09-16). It
+                 pins upscale_start/upscale_steps; the other three pills clear
+                 them and keep their server-side mapping (Faithful = 3 steps). -->
+            <div class="pill-group cols-4" id="upscalePresetGroup" style="margin-top:10px">
+              <button type="button" class="pill-btn active" data-keep="1.0" data-start="source" data-steps="1" onclick="setUpscalePreset(this)"
+                      title="The clip-action recipe: one refine step from the clip's own frames — 2× sharper and the face is not redrawn. About 2.5 min per 5 s 640×384 draft on an M4 Max.">
+                <span>Face Fix</span><span class="sub">face kept</span>
+              </button>
+              <button type="button" class="pill-btn" data-keep="1.0" onclick="setUpscalePreset(this)"
+                      title="Three refine steps on the clip's own frames — sharper detail, the face can be re-sculpted a little. About 5.5 min per 5 s on an M4 Max.">
+                <span>Faithful</span><span class="sub">sharper</span>
               </button>
               <button type="button" class="pill-btn" data-keep="0.8" onclick="setUpscalePreset(this)"
                       title="Same recipe with one step less — a touch softer, noticeably faster. About 3.75 min per 5 s on an M4 Max.">
@@ -744,11 +754,13 @@
               </button>
               <button type="button" class="pill-btn" data-keep="0.4" onclick="setUpscalePreset(this)"
                       title="Full re-render at 2× from the clip as reference — the sharpest detail; faces drift from the draft. About 7 min per 5 s on an M4 Max.">
-                <span>Re-imagine</span><span class="sub">sharpest, faces drift</span>
+                <span>Re-imagine</span><span class="sub">faces drift</span>
               </button>
             </div>
             <input type="hidden" name="keep_shot" id="keep_shot" value="1.0">
-            <div class="hint" style="margin-top:6px">Doubles the clip's size with generated detail, not a filter — an H3 draft comes out with LTX-2.5 pixels and keeps its sound. Length and (if empty) the prompt come from the source (up to 0.3 s may be trimmed at the tail to fit LTX's frame grid). Output is capped at this Mac's Image-to-Video canvas. Times on the presets are for a 5 s 640×384 draft on an M4 Max (Faithful ≈ 5.5 min, Quick ≈ 3.75, Re-imagine ≈ 6.5); slower Macs take longer in proportion.</div>
+            <input type="hidden" name="upscale_start" id="upscale_start" value="source">
+            <input type="hidden" name="upscale_steps" id="upscale_steps" value="1">
+            <div class="hint" style="margin-top:6px">Doubles the clip's size with generated detail, not a filter, and keeps its sound — an H3 draft comes out with LTX-2.5 pixels. The fixed clip is a new file next to the original. Length, frame count and (if empty) the prompt come from the source. Output is capped at this Mac's Image-to-Video canvas. Times are for a 5 s 640×384 draft on an M4 Max (Face Fix ≈ 2.5 min, Faithful ≈ 5.5, Quick ≈ 3.75, Re-imagine ≈ 6.5); bigger sources and slower Macs take longer. Quicker: the <b>Upscale &amp; Face Fix</b> button under the player queues Face Fix in one click.</div>
           </div>
 
           <!-- Ingredients (multi-reference) — the flagship IC-LoRA. Pick 2-8
@@ -1483,7 +1495,7 @@
               <div class="cz-label">Upscale
                 <span class="cz-label-hint">after the render · no crop</span>
               </div>
-              <div class="pill-group cols-4" id="h3UpscaleGroup">
+              <div class="pill-group cols-3" id="h3UpscaleGroup">
                 <button type="button" class="pill-btn" data-h3-upscale="off"
                         title="Ship the tier's native canvas with no post-process.">
                   <span>Native</span><span class="sub">as rendered</span>
@@ -1496,13 +1508,6 @@
                         title="Scale to 1920×1080 — no crop, no distortion. A 16:9 tier scales clean; anything else is padded.">
                   <span>1080p fit</span><span class="sub">scale + pad</span>
                 </button>
-                <!-- "H3 mind, LTX pixels": the draft ships native and an Upscale
-                     ×2 job (LTX-2.5 Pixel Spatial Upscaler) is queued behind it.
-                     Not a resize — generated detail, the draft's own sound. -->
-                <button type="button" class="pill-btn" data-h3-upscale="ltx_x2"
-                        title="Queue an Upscale ×2 pass (LTX-2.5 Pixel Spatial Upscaler) right after the draft: twice the size with generated detail, keeps the sound. Faithful preset — the face and lips stay as drafted.">
-                  <span>LTX ×2</span><span class="sub">generated detail</span>
-                </button>
               </div>
               <!-- What THIS tier + THIS export target will actually do: "pure
                    1.25× scale, no bars" or "12:7 fits to 1234×720 — 23 px bars
@@ -1511,6 +1516,17 @@
                    sentence can never disagree with the ffmpeg command that
                    runs. Sits UNDER the control it describes now, instead of
                    floating between two unrelated rows. Hidden on Native. -->
+              <!-- "H3 mind, LTX pixels", OPTIONAL and OFF by default: the draft
+                   ships native and an Upscale & Face Fix job is queued behind
+                   it. Stored as h3_upscale = "ltx_x2" (sidecars, Load Params
+                   and the API are unchanged); a checkbox because it is an
+                   extra job, not a size. -->
+              <label class="check h3-facefix-after" id="h3FaceFixAfterRow"
+                     title="Queues a second job right after the draft: the draft at twice the size with LTX-2.5 detail, the face and the sound kept. The draft itself stays as rendered, next to it. Needs the 0.3 GB Upscale adapter (Settings → Models).">
+                <input type="checkbox" id="h3FaceFixAfter" onchange="setH3FaceFixAfter(this.checked)">
+                <span>Also run <b>Upscale &amp; Face Fix</b> after the draft
+                  <span class="cz-label-hint">optional · 2× · face and sound kept · about the draft's time again</span></span>
+              </label>
               <div class="cz-note" id="h3ExportNote" hidden></div>
             </div>
 
@@ -3042,6 +3058,75 @@
     </div>
 
     <div id="audioSectionTab" style="display:none">
+      <div class="mode-bar pill-group cols-2" id="audioModeGroup" hidden>
+        <button type="button" class="mode-chip pill-btn" data-audio-mode="compose" onclick="audioModeSet('compose')">Compose<span class="mc-sub sub">write a song</span></button>
+        <button type="button" class="mode-chip pill-btn" data-audio-mode="drive" onclick="audioModeSet('drive')">Drive video<span class="mc-sub sub">use a track you have</span></button>
+      </div>
+      <div id="musicComposePane" hidden>
+        <div class="composer-card">
+          <label for="musicLyrics">Lyrics</label>
+          <textarea id="musicLyrics" class="composer-prompt" rows="8" placeholder="[Verse]
+Write the words here, one line at a time
+
+[Pre-Chorus]
+Build toward the chorus
+
+[Chorus]
+The words you want to come back to
+
+[Bridge]
+A different turn
+
+[Outro]
+The last line"></textarea>
+          <div class="hint">Tags in square brackets mark the sections. Everything else is sung. A tag with nothing under it is an instrumental passage.</div>
+          <label for="musicStyle">Style</label>
+          <textarea id="musicStyle" class="composer-prompt" rows="2" placeholder="Genre, instruments, vocal, language and tempo in plain words — e.g. English, warm piano pop, expressive female voice, acoustic piano, light drums, 88 BPM"></textarea>
+          <div class="hint">Prose, not fields. Put the tempo, the language and the singer in the sentence.</div>
+          <div class="composer-tools">
+            <label class="toggle-pill" id="musicInstrumentalPill" title="When on, the model is asked for a track with no vocal line. Your lyrics stay in the box and are not used.">
+              <input type="checkbox" id="musicInstrumental" onchange="musicFormChanged()"><span class="dot"></span><span>Instrumental</span>
+            </label>
+          </div>
+        </div>
+        <div class="quick-settings">
+          <div class="mf-label">Score</div>
+          <div class="pill-group cols-3" id="musicModePills">
+            <button type="button" class="pill-btn active" data-value="full" onclick="musicPick('musicMode',this)">Melody + chords</button>
+            <button type="button" class="pill-btn" data-value="melody" onclick="musicPick('musicMode',this)">Melody only</button>
+            <button type="button" class="pill-btn" data-value="off" onclick="musicPick('musicMode',this)">No score</button>
+          </div>
+          <input type="hidden" id="musicMode" value="full">
+          <div class="hint">YuE2 writes a sheet-music plan first, then the song.</div>
+          <div class="mf-label">Quality</div>
+          <div class="pill-group cols-2" id="musicQualityPills">
+            <button type="button" class="pill-btn" data-value="draft" onclick="musicPick('musicQuality',this)">Draft<span class="sub">8 steps</span></button>
+            <button type="button" class="pill-btn active" data-value="final" onclick="musicPick('musicQuality',this)">Final<span class="sub">32 steps</span></button>
+          </div>
+          <input type="hidden" id="musicQuality" value="final">
+          <div class="hint">Draft is several times faster for auditioning ideas.</div>
+          <div class="range-strip">
+            <label for="musicMaxSeconds">Max length</label>
+            <input type="range" id="musicMaxSeconds" min="30" max="360" step="15" value="240" oninput="musicFormChanged()">
+            <span id="musicMaxSecondsVal">4:00</span>
+          </div>
+          <div class="hint">YuE2 writes as long as your lyrics need. This only cuts a longer song off; it never stretches a short one.</div>
+          <div class="mini-fields"><div class="mf-cell">
+            <label class="mf-label" for="musicSeed">Seed</label>
+            <input type="number" id="musicSeed" value="-1" min="-1" max="4294967295" step="1" placeholder="-1 = random" title="-1 = random">
+          </div></div>
+        </div>
+        <div class="form-action-footer">
+          <div class="queue-strip"><span class="qchip-spacer"></span><span class="qchip-derived" id="musicEstimate" title="Estimated for a song that runs to Max length, from M4 Max timings (a 3-minute song took about 3 minutes on Final) scaled for this chip. Most songs end sooner; the first song after install also loads the models."></span></div>
+          <div class="actions">
+            <button type="button" class="primary" id="musicGenBtn" onclick="musicGenerate()">Compose</button>
+            <button type="button" class="danger" onclick="api('/stop', 'POST').then(poll)">Stop</button>
+          </div>
+          <div class="hint" id="musicStatus" role="status"></div>
+          <div class="hint" id="musicHint">Generated with YuE2 by Multimodal Art Projection · MLX port by vanch007</div>
+        </div>
+      </div>
+      <div id="audioDrivePane">
       <div class="composer-card">
         <div class="composer-refs">
           <div class="show">
@@ -3184,6 +3269,7 @@
           <button type="button" class="danger" onclick="api('/stop', 'POST').then(poll)">Stop</button>
         </div>
       </div>
+      </div>
     </div>
 
 
@@ -3225,6 +3311,9 @@
              every render into panel_uploads/library/manual — and until a clip
              could be a STILL there was nothing a timeline could do with one. -->
         <button type="button" class="pill-btn" data-src="images">Images</button>
+        <!-- SOUND. Laugh tracks, stings, beds: this film's audio/ folder and
+             every sound file in the outputs, for the audio tracks. -->
+        <button type="button" class="pill-btn" data-src="sound">Sound</button>
       </div>
       <!-- BLACK IS NOT SOMETHING YOU PICK FROM A LIST. It has no file, so it
            has no row; it is made, with a length, which is its only property. -->
@@ -3403,16 +3492,28 @@
           </svg>
           <span class="po-act-label">Extend</span>
         </button>
-        <!-- Upscale ×2 — hands this clip to the LTX-2.5 Pixel Spatial
-             Upscaler lane (Remix → Upscale ×2). Video-only; the natural
-             next step after an H3 draft. -->
-        <button id="useAsUpscaleBtn" class="po-act" type="button"
-                onclick="useAsUpscaleSource()" title="LTX Upscale — re-render this clip at 2× with LTX-2.5 (generated detail, keeps the sound)">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M3 13 L13 3 M8 3 L13 3 L13 8 M3 8 L3 13 L8 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          <span class="po-act-label">LTX Upscale</span>
-        </button>
+        <!-- Upscale & Face Fix — ONE CLICK queues the face-safe 2× of this
+             clip (a new file lands next to it). The ⋯ half opens the full
+             lane (Remix → Upscale & Face Fix) for presets and the prompt.
+             Video-only; the natural next step after an H3 draft. -->
+        <div class="po-split" id="faceFixWrap">
+          <button id="faceFixBtn" class="po-act po-split-main" type="button"
+                  onclick="faceFixActive()" title="Queue Upscale &amp; Face Fix for this clip: twice the size with LTX-2.5 detail, the face and the sound kept. The fixed clip lands next to this one — nothing is overwritten.">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M3 13 L13 3 M8 3 L13 3 L13 8 M3 8 L3 13 L8 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="po-act-label">Upscale &amp; Face Fix</span>
+          </button>
+          <button id="useAsUpscaleBtn" class="po-act po-split-more" type="button"
+                  onclick="useAsUpscaleSource()" aria-label="Upscale &amp; Face Fix settings"
+                  title="Upscale &amp; Face Fix settings — open this clip in Remix to pick a preset (Face Fix, Faithful, Quick, Re-imagine) or edit the prompt first.">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M3 5 H13 M3 11 H13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <circle cx="6" cy="5" r="1.6" fill="var(--panel, #111)" stroke="currentColor" stroke-width="1.3"/>
+              <circle cx="10.5" cy="11" r="1.6" fill="var(--panel, #111)" stroke="currentColor" stroke-width="1.3"/>
+            </svg>
+          </button>
+        </div>
         <!-- Pull a good accident from the Video tab into a film. Hidden until
              at least one board exists on disk — nothing about Storyboard shows
              up in the rest of the panel until there is a film to show it for. -->
@@ -3853,6 +3954,20 @@
         <span class="sbe-bar" id="sbePrepBar" hidden><i style="width:0%"></i></span>
         <span class="sbe-music-warn" id="sbeMusicWarn" hidden></span>
       </div>
+      <!-- ADD SOUND FILE… — a sound from anywhere on this Mac onto an audio
+           track at the playhead, the way A2's Change… takes a path. A file
+           outside the outputs is brought into the film's own audio/ folder so
+           the preview can play it. -->
+      <div class="sbe-pop sbe-pop-wide" id="sbeSoundMenu" hidden>
+        <span class="sbe-pop-note">Add a sound file to an audio track, at the playhead.</span>
+        <input type="text" class="sb-input" id="sbeSoundPath" spellcheck="false"
+               placeholder="/path/to/the/sound.wav"
+               onkeydown="if (event.key === 'Enter') { event.preventDefault(); sbeAddSoundFile(); }">
+        <span class="sbe-pop-row">
+          <button type="button" class="ghost-btn" onclick="sbeAddSoundFile()"
+                  title=".wav, .m4a, .mp3, .aac — or a video, for its sound only">Add sound file</button>
+        </span>
+      </div>
 
 
       <!-- ONE SURFACE, NOT FOUR. Conflict, save-alarm, recovery and the
@@ -4137,6 +4252,7 @@
         <g id="ic-delsound"><path d="M4 9v6h3l5 4V5L7 9H4z"/><path d="M15 12h6"/></g>
         <g id="ic-points"><path d="M3 14h18"/><circle cx="8" cy="14" r="1.8"/><circle cx="15" cy="14" r="1.8"/><path d="M17 5l5 5"/><path d="M22 5l-5 5"/></g>
         <g id="ic-lock"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></g>
+        <g id="ic-facefix"><path d="M4 20L20 4"/><path d="M13 4h7v7"/><path d="M4 13v7h7"/></g>
         <g id="ic-unlock"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></g>
       </defs></svg>
       <div class="sbe-cbar" id="sbeCbar">
@@ -4179,6 +4295,11 @@
         <span class="sbe-cbar-sep"></span>
         <button type="button" class="sbe-cbar-btn" id="sbeCbLock" onclick="sbeToggleLock()">
           <svg class="sbe-cbar-i"><use href="#ic-lock" id="sbeCbLockUse"/></svg><b>Lock</b></button>
+        <span class="sbe-cbar-sep"></span>
+        <!-- UPSCALE & FACE FIX on the selected clip: queues the face-safe 2×;
+             the swap is offered on the relink line when it lands. -->
+        <button type="button" class="sbe-cbar-btn" id="sbeCbFaceFix" onclick="sbeFaceFixSel()">
+          <svg class="sbe-cbar-i"><use href="#ic-facefix"/></svg><b>Face Fix ×2</b></button>
         <span class="ch-spacer" style="flex:1 1 auto"></span>
         <!-- OVERFLOW, NOT A DRAWER. It holds nothing of its own: whatever the
              row cannot fit at this width moves into it, in reverse priority
@@ -4256,9 +4377,29 @@
           <span class="sbe-gh-tag"><i>V1</i><b>Picture</b></span>
           <span class="sbe-gh-sub" id="sbeHeadPic"></span>
         </div>
+        <!-- THE SOUND AREA'S SIZE, on the head of the area it acts on. The
+             lanes do this by themselves — thin while nobody is on sound, full
+             height the moment anything is — and this pins one answer when the
+             owner wants one. Its glyph, its tooltip and aria-expanded are
+             painted by sbePaintHeads; the keys come from the one SHORTCUTS
+             table (editor.soundLanes). -->
         <div class="sbe-gh sbe-gh-aud">
-          <span class="sbe-gh-tag"><i>A1</i><b>Clip sound</b></span>
+          <span class="sbe-gh-tag"><i>A1</i><b>Clip sound A</b>
+            <button type="button" class="sbe-gh-more sbe-asize" id="sbeAudioSize"
+                    onclick="sbeAudioPinToggle()" aria-expanded="true"
+                    title="Make the sound lanes small — A1, A2 and every audio track become thin strips so the picture gets the height. They come back the moment you touch a sound.">▾</button>
+          </span>
           <span class="sbe-gh-sub" id="sbeHeadAud"></span>
+        </div>
+        <!-- CLIP SOUND LANE B. A1 is two strip lanes: a new timeline lays its
+             clips' sound A, B, A… so neighbours can overlap and crossfade, and
+             this head carries the one click that does the same to a timeline
+             cut before there were two. -->
+        <div class="sbe-gh sbe-gh-aud sbe-gh-audb">
+          <span class="sbe-gh-tag"><i>A1</i><b>Clip sound B</b></span>
+          <button type="button" class="ghost-btn sbe-gh-alt" id="sbeAltLanes"
+                  onclick="sbeAlternateSel()"
+                  title="Alternate sound lanes — lays every clip's sound A, B, A, B… in film order, so neighbouring shots sit on different lanes and can overlap and crossfade. Nothing moves in time; one Undo puts it back.">Alternate A/B</button>
         </div>
         <div class="sbe-gh sbe-gh-mus">
           <span class="sbe-gh-tag"><i>A2</i><b>Music</b>
@@ -4300,6 +4441,17 @@
             <span class="sbe-mix-note" id="sbeBedDuckNote" hidden></span>
           </div>
         </div>
+        <!-- A3, A4, …: THE AUDIO TRACKS' HEADS. Painted by sbePaintTracks —
+             name, mute, level, remove — each as tall as its lane. -->
+        <div class="sbe-trk-heads" id="sbeTrackHeads"></div>
+        <div class="sbe-gh sbe-gh-add">
+          <button type="button" class="ghost-btn" onclick="sbeTrackAdd()"
+                  title="A new, empty audio track under the others. Sounds on different tracks play together; sounds on one track play one at a time.">+ Add audio track</button>
+          <button type="button" class="sbe-gh-more" id="sbeSoundMore"
+                  onclick="sbePopToggle('sbeSoundMenu', 'sbeSoundMore')"
+                  aria-haspopup="menu"
+                  title="Add sound file… — put a sound from anywhere on this Mac onto an audio track at the playhead">♪</button>
+        </div>
         <div class="sbe-gh sbe-gh-foot"></div>
       </div>
       <div class="sbe-tl" id="sbeScroll">
@@ -4324,6 +4476,9 @@
                sound, the music. The owner's list exactly. A clip's strip sits
                directly under its block and moves with it — until it is
                unlinked, which is the whole of the J-cut and the L-cut. -->
+          <!-- A1 IS TWO LANES IN ONE BOX: clip sound A on top, B below. Sounds
+               on one lane play one at a time; across the two they overlap and
+               mix — the A/B roll a sound dissolve is made of. -->
           <div class="sbe-alane" id="sbeAudioLane"></div>
           <!-- The soundtrack lane. The canvas is the picture of the track and
                the block over it is the OBJECT: drag it to place the music,
@@ -4353,6 +4508,11 @@
               </div>
             </div>
           </div>
+          <!-- A3, A4, …: THE AUDIO TRACKS, under the music, and the row that
+               makes a new one when a sound is dropped on it. Any number of
+               strips per track; tracks play together, a track plays one at a
+               time. Painted by sbePaintTracks. -->
+          <div class="sbe-tracks" id="sbeTracks"></div>
           <div class="sbe-head-line" id="sbeHead" style="left:0"></div>
         </div>
       </div>
@@ -4899,6 +5059,13 @@
      venv + ~75 GB of weights), not through the panel's `hf download` path, so
      this card explains the one sidebar click — the same shape the Sharp and
      image-engine optional packs already use. -->
+<div id="musicInstallModal" class="models-modal" role="dialog" aria-modal="true" aria-labelledby="musicInstallTitle" hidden onclick="if(event.target===this)closeMusicInstallCard()">
+  <div class="models-card">
+    <div class="models-head"><h2 id="musicInstallTitle">YuE2 · music engine</h2><button type="button" onclick="closeMusicInstallCard()" aria-label="Close">×</button></div>
+    <p id="musicInstallBody"></p>
+    <p class="hint">YuE2 license (CC BY-NC 4.0 + creator permission): individual creators may monetize their songs; companies need a license for the weights.</p>
+  </div>
+</div>
 <div id="h3InstallModal" class="models-modal" style="display:none"
      role="dialog" aria-modal="true" aria-labelledby="h3InstallTitle"
      onclick="if(event.target===this) closeH3InstallCard()">
@@ -5218,4 +5385,3 @@ const BOOT = __BOOTSTRAP__;</script>
 <div class="phos-toast-container" id="phosToast" aria-live="polite" aria-atomic="false"></div>
 </body>
 </html>
-
