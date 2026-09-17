@@ -797,36 +797,130 @@ def _vae_decode_max_latent_frames(h_lat: int, w_lat: int) -> int:
     return n
 
 
-def _int32_safe_decode_tiling(orig, latent_shape, frame_rate=24.0):
+def _decode_tiling_peak_elements(tiling, latent_shape, T=None) -> int:
+    """The largest tensor a decode with `tiling` builds, from the tile
+    extents the pinned tiler will ACTUALLY cut — the causal extra latent frame
+    on every temporal tile after the first, the per-axis spatial tile size
+    `prepare_tiles_for_decoding` derives, and the last tile running to the
+    edge — plus the float32 accumulation buffer `tiled_decode` allocates per
+    temporal group (3 × frames × the FULL canvas). Pure arithmetic over the
+    tiler's own split functions; no tensor is built. `T` is the tiling module."""
+    _, _, f_lat, h_lat, w_lat = (int(v) for v in latent_shape)
+    if tiling is None:
+        return _vae_decode_peak_elements(f_lat, h_lat, w_lat)
+    if T is None:
+        from ltx_core_mlx.model.video_vae import tiling as T
+    t_starts, t_ends = [0], [f_lat]
+    h_max, w_max = h_lat, w_lat
+    sc = getattr(tiling, "spatial_config", None)
+    if sc is not None:
+        long_side = max(h_lat, w_lat)
+        size_lat = sc.tile_size_in_pixels // 32
+        overlap = sc.tile_overlap_in_pixels // 32
+        lower = max(2, overlap + 1)
+        maxes = []
+        for n in (h_lat, w_lat):
+            adjusted = max(lower, round(size_lat * n / long_side))
+            iv = T.split_with_symmetric_overlaps(adjusted, overlap)(n)
+            maxes.append(max(e - s for s, e in zip(iv.starts, iv.ends)))
+        h_max, w_max = maxes
+    tc = getattr(tiling, "temporal_config", None)
+    if tc is not None:
+        iv = T.split_temporal_latents(tc.tile_size_in_frames // 8,
+                                      tc.tile_overlap_in_frames // 8)(f_lat)
+        t_starts, t_ends = list(iv.starts), list(iv.ends)
+    elif sc is not None:
+        # tiled_decode needs a temporal slice with integer bounds; spatial
+        # tiling without temporal tiling cannot run at all.
+        return 1 << 62
+    t_max = max(e - s for s, e in zip(t_starts, t_ends))
+    peak = _vae_decode_peak_elements(t_max, h_max, w_max)
+    out_frames = max(1 + (e - 1) * 8 - s * 8 for s, e in zip(t_starts, t_ends))
+    return max(peak, 3 * out_frames * (32 * h_lat) * (32 * w_lat))
+
+
+def _decode_temporal_config(T, latent_frames: int, frame_rate: float):
+    tile_frames = int(latent_frames) * 8
+    one_second = max(8, (int(frame_rate) // 8) * 8)
+    overlap = min(one_second, (tile_frames // 32) * 8)
+    if overlap >= tile_frames:
+        overlap = tile_frames - 8
+    return T.TemporalTilingConfig(tile_size_in_frames=tile_frames,
+                                  tile_overlap_in_frames=overlap)
+
+
+def _int32_safe_decode_tiling(orig, latent_shape, frame_rate=24.0, T=None):
     """`_compute_decode_tiling`, plus an element cap next to its byte budget.
 
     Upstream only tiles when a decode would exceed a MEMORY budget (8 GB by
     default), so a 2048×1152 × 121-frame clip — 2.3 GB of block-3 activation —
     decodes in one pass and runs straight into the int32 wrap above. When the
-    pass is too big, this returns the same temporal tiling upstream uses for
-    long clips, with tiles small enough to stay under the cap. Everything
+    pass is too big, this returns upstream's own temporal tiling with tiles
+    small enough to stay under the cap; when no temporal tiling can (a canvas
+    so large that two latent frames plus the causal third already wrap), it
+    ALSO tiles in space. Every candidate is checked against the extents the
+    tiler will really cut (`_decode_tiling_peak_elements`), and a canvas no
+    tiling can fit is refused rather than decoded into garbage. Everything
     that already fits keeps upstream's answer untouched."""
     cfg = orig(latent_shape, frame_rate=frame_rate)
+    if T is None:
+        from ltx_core_mlx.model.video_vae import tiling as T
+    cap = _DECODE_MAX_ELEMENTS
+
+    def fits(c) -> bool:
+        return _decode_tiling_peak_elements(c, latent_shape, T) <= cap
+
+    if fits(cfg):
+        return cfg
     _, _, f_lat, h_lat, w_lat = (int(v) for v in latent_shape)
+    spatial = getattr(cfg, "spatial_config", None) if cfg is not None else None
+    # 1. Temporal only (the 4.13.1 answer, now verified): split_temporal_latents
+    #    moves every tile after the first one latent frame earlier (causal
+    #    continuity), so those tiles are size + 1 long. Taken as-is when its
+    #    tiles are 4+ latent frames: those are 32+ frames with an 8-frame blend
+    #    between them. Shorter tiles have NO blend (overlap rounds to 0), and on
+    #    the real decoder that seam costs more than a blended spatial one
+    #    (CPU, LTX-2.5 VAE, 384×512: 16-frame temporal tiles 31.5 dB vs the
+    #    single pass; 256 px spatial + 32-frame temporal tiles 40.5 dB).
     max_lat = _vae_decode_max_latent_frames(h_lat, w_lat)
-    if f_lat <= max_lat:
-        return cfg
-    # split_temporal_latents moves every tile after the first one latent
-    # frame earlier (causal continuity), so those tiles are size + 1 long.
     size = max(2, max_lat - 1)
-    tc = getattr(cfg, "temporal_config", None) if cfg is not None else None
-    if tc is not None and tc.tile_size_in_frames // 8 <= size:
-        return cfg
-    from ltx_core_mlx.model.video_vae.tiling import TemporalTilingConfig, TilingConfig
-    tile_frames = size * 8
-    one_second = max(8, (int(frame_rate) // 8) * 8)
-    overlap = min(one_second, (tile_frames // 32) * 8)
-    if overlap >= tile_frames:
-        overlap = tile_frames - 8
-    return TilingConfig(
-        spatial_config=getattr(cfg, "spatial_config", None) if cfg is not None else None,
-        temporal_config=TemporalTilingConfig(
-            tile_size_in_frames=tile_frames, tile_overlap_in_frames=overlap))
+    temporal_only = T.TilingConfig(
+        spatial_config=spatial,
+        temporal_config=_decode_temporal_config(T, size, frame_rate))
+    if size >= 4 and fits(temporal_only):
+        return temporal_only
+    # 2. Space as well. Largest spatial tile first (fewest seams), each with
+    #    the longest temporal tile that fits; prefer temporal tiles of 4+.
+    long_px = max(h_lat, w_lat) * 32
+    overlap_px = 64
+    spatial_sizes = []
+    for k in range(2, 129):
+        per_tile = -(-long_px // k)                  # ceil(long / k)
+        px = -(-per_tile // 32) * 32                  # up to a multiple of 32
+        if px <= overlap_px + 32:
+            break
+        if px < long_px and px not in spatial_sizes:
+            spatial_sizes.append(px)
+    fallback = None
+    for px in spatial_sizes:
+        sc = T.SpatialTilingConfig(tile_size_in_pixels=px, tile_overlap_in_pixels=overlap_px)
+        for t in range(max(2, f_lat), 1, -1):
+            c = T.TilingConfig(spatial_config=sc,
+                               temporal_config=_decode_temporal_config(T, t, frame_rate))
+            if fits(c):
+                if t >= min(4, max(2, f_lat)):
+                    return c
+                fallback = fallback or c
+                break
+    if fits(temporal_only):
+        return temporal_only
+    if fallback is not None:
+        return fallback
+    raise RuntimeError(
+        f"This canvas ({w_lat * 32}×{h_lat * 32}) is too large for the video "
+        f"decoder to write safely, even in tiles: its tensors would pass the "
+        f"2^31-element limit of the GPU kernels and the frames would come out "
+        f"corrupted. Use a smaller size.")
 
 
 def _install_decode_int32_guard() -> None:
@@ -845,16 +939,21 @@ def _install_decode_int32_guard() -> None:
         return
 
     def _guarded(latent_shape, frame_rate: float = 24.0):
-        cfg = _int32_safe_decode_tiling(orig, latent_shape, frame_rate=frame_rate)
-        tc =getattr(cfg, "temporal_config", None) if cfg is not None else None
-        if tc is not None:
+        up = orig(latent_shape, frame_rate=frame_rate)
+        cfg = _int32_safe_decode_tiling(lambda *_a, **_k: up, latent_shape,
+                                        frame_rate=frame_rate)
+        if cfg is not up:
             _, _, f_lat, h_lat, w_lat = (int(v) for v in latent_shape)
-            if f_lat > _vae_decode_max_latent_frames(h_lat, w_lat):
-                emit({"event": "log",
-                      "line": f"vae-decode int32 guard: {f_lat} latent frames at "
-                              f"{w_lat * 32}×{h_lat * 32} decode in tiles of "
-                              f"{tc.tile_size_in_frames} frames "
-                              f"(overlap {tc.tile_overlap_in_frames})"})
+            tc = getattr(cfg, "temporal_config", None)
+            sc = getattr(cfg, "spatial_config", None)
+            emit({"event": "log",
+                  "line": f"vae-decode int32 guard: {f_lat} latent frames at "
+                          f"{w_lat * 32}×{h_lat * 32} decode in tiles of "
+                          f"{tc.tile_size_in_frames} frames "
+                          f"(overlap {tc.tile_overlap_in_frames})"
+                          + (f" × {sc.tile_size_in_pixels}px squares "
+                             f"(overlap {sc.tile_overlap_in_pixels}px)"
+                             if sc is not None else "")})
         return cfg
 
     _guarded._phosphene_int32_guard = True

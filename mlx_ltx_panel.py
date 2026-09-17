@@ -2961,7 +2961,31 @@ def _h3_turbo_asset(key: str | None = None) -> dict:
             "sha256": H3_TURBO_ASSET_SHA256, "bytes": H3_TURBO_ASSET_BYTES}
 
 
-def _h3_turbo_fetch_embedder(target_dir, push_log, runner=None) -> bool:
+# ONE companion fetch at a time, from any caller (the install button, the
+# managed download, the first Turbo render): they share this lock instead of
+# racing each other onto the same file. A failed attempt is remembered per
+# target so a queue of Turbo jobs does not pay the same network timeout once
+# per job; the Turbo install button (force=True) retries at any time.
+_h3_turbo_embedder_lock = threading.Lock()
+_h3_turbo_embedder_failures: dict[str, dict] = {}
+H3_TURBO_EMBEDDER_RETRY_SEC = 6 * 3600
+
+
+def _h3_turbo_embedder_retry_state(target_dir=None) -> dict | None:
+    """The remembered failure for the companion under `target_dir`, while its
+    cooldown lasts: {"failed_at", "retry_at", "error"}; else None."""
+    try:
+        target = Path(target_dir if target_dir is not None else _h3_turbo_dir())
+    except Exception:  # noqa: BLE001
+        return None
+    rec = _h3_turbo_embedder_failures.get(str(target / H3_TURBO_EMBEDDER_FILE))
+    if not rec or time.time() >= rec["retry_at"]:
+        return None
+    return dict(rec)
+
+
+def _h3_turbo_fetch_embedder(target_dir, push_log, runner=None, *,
+                             force: bool = False) -> bool:
     """Fetch Turbo's adaLN companion (H3_TURBO_EMBEDDER_FILE, ~63 MB) with the
     H3 pack's own `scripts/fetch_time_embedder.py`, when the resolved adapter
     carries adaLN pairs and the file is not already there.
@@ -2969,7 +2993,13 @@ def _h3_turbo_fetch_embedder(target_dir, push_log, runner=None) -> bool:
     Best-effort by design: the adapter works without it (208 of 259 pairs),
     so a failure here is logged loudly and the render log repeats it — it
     never fails the adapter download. Returns True when the file is present
-    afterwards (or was never needed)."""
+    afterwards (or was never needed).
+
+    Coordinated: one fetch at a time (a second caller returns False at once
+    rather than waiting or writing the same file), each attempt writes its
+    own temp file, and a failure is not retried for
+    H3_TURBO_EMBEDDER_RETRY_SEC unless `force` (the install button). A
+    JobCancelled from the runner — Stop during the fetch — is re-raised."""
     import subprocess
     target_dir = Path(target_dir)
     target = target_dir / H3_TURBO_EMBEDDER_FILE
@@ -2978,6 +3008,16 @@ def _h3_turbo_fetch_embedder(target_dir, push_log, runner=None) -> bool:
         return True
     if _h3_real_file(target, H3_TURBO_EMBEDDER_MIN_BYTES):
         return True
+    key = str(target)
+    if not force:
+        rec = _h3_turbo_embedder_retry_state(target_dir)
+        if rec is not None:
+            mins = max(1, int((rec["retry_at"] - time.time()) // 60))
+            push_log(f"[h3:turbo] not fetching {H3_TURBO_EMBEDDER_FILE} again yet — "
+                     f"the last attempt failed ({rec['error']}); next automatic try "
+                     f"in ~{mins} min, or press Install Turbo to retry now. "
+                     f"Turbo's {resolved['adaln_pairs']} adaLN pairs will be skipped")
+            return False
     python = _h3_python()
     fetcher = H3_ROOT / "scripts" / "fetch_time_embedder.py"
     if python is None or not fetcher.is_file():
@@ -2985,40 +3025,63 @@ def _h3_turbo_fetch_embedder(target_dir, push_log, runner=None) -> bool:
                  f"(H3 pack venv or {fetcher.name} missing) — Turbo's "
                  f"{resolved['adaln_pairs']} adaLN pairs will be skipped")
         return False
-    env = dict(os.environ)
-    hf_token = _active_hf_token()
-    if hf_token:
-        env["HF_TOKEN"] = hf_token
-        env["HUGGING_FACE_HUB_TOKEN"] = hf_token
-    # One small index JSON goes through the hub cache; keep it inside the H3
-    # models tree instead of ~/.cache/huggingface.
-    env.setdefault("HF_HOME", str(H3_MODELS / "hf_home"))
-    env["PYTHONUNBUFFERED"] = "1"
-    tmp = target.with_name(target.name + ".partial")
-    push_log(f"[h3:turbo] fetching {H3_TURBO_EMBEDDER_FILE} (~60 MB, four "
-             f"tensors range-read from MiniMaxAI/MiniMax-H3) for the "
-             f"adapter's {resolved['adaln_pairs']} adaLN pairs…")
+    if not _h3_turbo_embedder_lock.acquire(blocking=False):
+        push_log(f"[h3:turbo] {H3_TURBO_EMBEDDER_FILE} is already being fetched — "
+                 f"not starting a second download; Turbo's "
+                 f"{resolved['adaln_pairs']} adaLN pairs are skipped until it lands")
+        return False
+    import uuid as _uuid
+    tmp = target.with_name(f"{target.name}.{_uuid.uuid4().hex}.partial")
     try:
-        target_dir.mkdir(parents=True, exist_ok=True)
-        proc = (runner or subprocess.run)(
-            [str(python), str(fetcher), "--out", str(tmp)],
-            capture_output=True, text=True, env=env, timeout=1800)
-        if proc.returncode != 0:
-            raise RuntimeError((proc.stderr or proc.stdout or "")[-300:].strip()
-                               or f"exit {proc.returncode}")
-        if not _h3_real_file(tmp, H3_TURBO_EMBEDDER_MIN_BYTES):
-            raise RuntimeError("fetch wrote no usable file")
-        tmp.replace(target)
-    except Exception as e:  # noqa: BLE001
+        if _h3_real_file(target, H3_TURBO_EMBEDDER_MIN_BYTES):
+            return True           # landed while we waited for the lock
+        env = dict(os.environ)
+        hf_token = _active_hf_token()
+        if hf_token:
+            env["HF_TOKEN"] = hf_token
+            env["HUGGING_FACE_HUB_TOKEN"] = hf_token
+        # One small index JSON goes through the hub cache; keep it inside the
+        # H3 models tree instead of ~/.cache/huggingface.
+        env.setdefault("HF_HOME", str(H3_MODELS / "hf_home"))
+        env["PYTHONUNBUFFERED"] = "1"
+        push_log(f"[h3:turbo] fetching {H3_TURBO_EMBEDDER_FILE} (~60 MB, four "
+                 f"tensors range-read from MiniMaxAI/MiniMax-H3) for the "
+                 f"adapter's {resolved['adaln_pairs']} adaLN pairs…")
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            proc = (runner or subprocess.run)(
+                [str(python), str(fetcher), "--out", str(tmp)],
+                capture_output=True, text=True, env=env, timeout=1800)
+            if proc.returncode != 0:
+                raise RuntimeError((proc.stderr or proc.stdout or "")[-300:].strip()
+                                   or f"exit {proc.returncode}")
+            if not _h3_real_file(tmp, H3_TURBO_EMBEDDER_MIN_BYTES):
+                raise RuntimeError("fetch wrote no usable file")
+            tmp.replace(target)
+        except JobCancelled:
+            # The user stopped the job; that is not a failed download.
+            push_log(f"[h3:turbo] {H3_TURBO_EMBEDDER_FILE} fetch stopped")
+            raise
+        except Exception as e:  # noqa: BLE001
+            now = time.time()
+            _h3_turbo_embedder_failures[key] = {
+                "failed_at": now, "retry_at": now + H3_TURBO_EMBEDDER_RETRY_SEC,
+                "error": (str(e) or type(e).__name__)[:200]}
+            push_log(f"[h3:turbo] WARNING: {H3_TURBO_EMBEDDER_FILE} fetch failed "
+                     f"({e}) — Turbo still works, but its adaLN pairs are "
+                     f"skipped; next automatic try in "
+                     f"{H3_TURBO_EMBEDDER_RETRY_SEC // 3600} h, or press "
+                     f"Install Turbo to retry now")
+            return False
+        _h3_turbo_embedder_failures.pop(key, None)
+        push_log(f"[h3:turbo] adaLN companion installed → {target}")
+        return True
+    finally:
         try:
             tmp.unlink()
         except OSError:
             pass
-        push_log(f"[h3:turbo] WARNING: {H3_TURBO_EMBEDDER_FILE} fetch failed "
-                 f"({e}) — Turbo still works, but its adaLN pairs are skipped")
-        return False
-    push_log(f"[h3:turbo] adaLN companion installed → {target}")
-    return True
+        _h3_turbo_embedder_lock.release()
 
 
 def _h3_turbo_download_bg(target_dir, push_log, asset: dict | None = None) -> None:
@@ -3032,7 +3095,7 @@ def _h3_turbo_download_bg(target_dir, push_log, asset: dict | None = None) -> No
         target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / asset['file']
         if target.is_file():
-            _h3_turbo_fetch_embedder(target_dir, push_log)
+            _h3_turbo_fetch_embedder(target_dir, push_log, force=True)
             _set_h3_turbo_dl(status="done", mb=total_mb, total_mb=total_mb,
                              error=None)
             return
@@ -3070,7 +3133,7 @@ def _h3_turbo_download_bg(target_dir, push_log, asset: dict | None = None) -> No
                                "please retry")
         tmp.replace(target)
         push_log(f"[h3:turbo] adapter installed → {target}")
-        _h3_turbo_fetch_embedder(target_dir, push_log)
+        _h3_turbo_fetch_embedder(target_dir, push_log, force=True)
         _set_h3_turbo_dl(status="done", mb=total_mb, total_mb=total_mb,
                          error=None)
     except Exception as e:  # noqa: BLE001
@@ -3119,7 +3182,11 @@ def _h3_install_turbo(push_log, download_fn=None, embedder_fn=None) -> dict:
                                           total_mb=60, error=None)
 
             def _embedder_only():
-                ok = (embedder_fn or _h3_turbo_fetch_embedder)(target, push_log)
+                if embedder_fn is not None:
+                    ok = embedder_fn(target, push_log)
+                else:
+                    # The button is the explicit retry: past any cooldown.
+                    ok = _h3_turbo_fetch_embedder(target, push_log, force=True)
                 _set_h3_turbo_dl(status="done" if ok else "error", mb=60,
                                  total_mb=60,
                                  error=None if ok else
@@ -10533,6 +10600,9 @@ def h3_turbo_status() -> dict:
         "missing": paths["missing"],
         "note": h3_turbo_note(paths),
         "label": "Turbo",
+        # A remembered companion-fetch failure (and when Turbo retries it by
+        # itself); None when there is none. The install button retries now.
+        "adaln_fetch": _h3_turbo_embedder_retry_state(paths.get("dir")),
         "adaln": {"pairs": paths.get("adaln_pairs", 0),
                   "embedder": (str(paths["embedder"])
                                if paths.get("embedder") else None),
@@ -11456,6 +11526,101 @@ def _h3_lora_convert_kohya(path: Path) -> dict:
             "trigger_words": [trigger] if trigger else []}
 
 
+# Bumped when the meaning of a picked H3 LoRA strength changes. 2 = per-module
+# alphas are folded into lora_B (4.13.1), so a folded file reads as trained at
+# 1.0. make_job stamps it on every H3 job; a job without it was queued by an
+# older build, with the strength that build recommended.
+H3_LORA_SCALE_VERSION = 2
+
+
+def _h3_lora_scale_state(path: Path) -> str:
+    """How this file's PEFT scale is carried, from its header alone:
+      "folded"  the scale is inside lora_B (our conversions, exporters that say so)
+      "mixed"   per-module alphas that disagree — `_h3_lora_prepare` folds them
+      "plain"   anything else: the sidecar's strength applies as written
+    """
+    try:
+        header, buf_start = _safetensors_header(path)
+    except Exception:  # noqa: BLE001
+        return "plain"
+    try:
+        if _h3_lora_scale_report(path, header, buf_start)["source"] == "folded":
+            return "folded"
+        ratios = _h3_lora_alpha_ratios(path, header, buf_start)
+    except Exception:  # noqa: BLE001
+        return "plain"
+    if ratios and (max(ratios) - min(ratios)) >= 1e-6:
+        return "mixed"
+    return "plain"
+
+
+def _h3_lora_sidecar_json(path: Path) -> dict | None:
+    try:
+        data = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _h3_lora_migrate_sidecar(path: Path) -> float | None:
+    """Move a folded file's sidecar to strength 1.0, keeping what it said.
+
+    An adapter imported before its scale was folded into lora_B carries the
+    strength that USED to be right (alpha/rank, e.g. 0.5) next to a file that
+    now already contains it — applied again, the adapter is scaled twice. The
+    old number is kept as `recommended_strength_before_fold`, which is what
+    lets a job queued with it be recognised (see `_h3_lora_migrate_strength`).
+    Returns that pre-fold strength (None when there is none)."""
+    data = _h3_lora_sidecar_json(path)
+    if data is None:
+        return None
+    before = data.get("recommended_strength_before_fold")
+    if before is not None:
+        try:
+            return float(before)
+        except (TypeError, ValueError):
+            return None
+    try:
+        current = float(data.get("recommended_strength") or 1.0)
+    except (TypeError, ValueError):
+        return None
+    if math.isclose(current, 1.0, abs_tol=1e-6):
+        return None
+    if _h3_lora_scale_state(path) != "folded":
+        return None
+    data["recommended_strength_before_fold"] = current
+    data["recommended_strength"] = 1.0
+    data["strength_migrated_at"] = iso_now()
+    try:
+        atomic_write_text(path.with_suffix(".json"), json.dumps(data, indent=2))
+    except Exception as exc:  # noqa: BLE001
+        push(f"[h3:lora] WARN: could not update {path.with_suffix('.json').name} ({exc})")
+    push(f"[h3:lora] {path.name}: its scale is now inside the file, so its "
+         f"recommended strength is 1.0 (was {current:g})")
+    return current
+
+
+def _h3_lora_migrate_strength(path: Path, strength: float, params: dict) -> float:
+    """The strength to render a picked, already-prepared H3 LoRA at.
+
+    A job queued by a build before the fold (no `h3_lora_scale_v`) that still
+    carries the file's old automatic recommendation gets 1.0 — the same
+    adapter as trained, instead of that scale applied a second time. Any
+    other strength is the user's own choice and is kept."""
+    before = _h3_lora_migrate_sidecar(path)
+    if before is None or not math.isclose(strength, before, abs_tol=1e-4):
+        return strength
+    if params.get("h3_lora_scale_v"):
+        push(f"[h3:lora] note: {path.name} is picked at {strength:g}, its old "
+             f"recommended strength. The file now carries that scale itself and "
+             f"reads as trained at 1.0 — {strength:g} renders it weaker.")
+        return strength
+    push(f"[h3:lora] {path.name}: this job was queued at the file's old "
+         f"recommended strength {strength:g}; that scale is now inside the file, "
+         f"so it renders at 1.0 (the same adapter, not scaled twice)")
+    return 1.0
+
+
 def _h3_lora_prepare(path: Path) -> dict:
     """Make `path` loadable by the H3 runner, or raise saying why it can't be.
 
@@ -11464,6 +11629,17 @@ def _h3_lora_prepare(path: Path) -> dict:
     before a render (so a file dropped in by hand, or a pre-existing download,
     gets the same treatment instead of failing inside the runner). Idempotent:
     a bare-layout file is inspected and returned untouched."""
+    try:
+        return _h3_lora_prepare_file(path)
+    finally:
+        # A file whose scale is (now) inside lora_B keeps no stale strength.
+        try:
+            _h3_lora_migrate_sidecar(path)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _h3_lora_prepare_file(path: Path) -> dict:
     info = _h3_lora_layout(path)
     if info["ok"]:
         folded = _h3_lora_fold_mixed_alphas(path)
@@ -11598,6 +11774,7 @@ def _h3_lora_layout_cached(path: Path) -> dict:
     except Exception as exc:
         info = {"layout": "not_a_lora", "prefix": "", "pairs": 0, "ok": False,
                 "convertible": False, "reason": str(exc)}
+    info["scale_state"] = _h3_lora_scale_state(path)
     # Drop stale entries for the same path (an edited file leaves one behind).
     for stale in [k for k in _H3_LORA_LAYOUT_CACHE if k.split("|")[0] == str(path)]:
         _H3_LORA_LAYOUT_CACHE.pop(stale, None)
@@ -11648,12 +11825,16 @@ def list_h3_user_loras() -> list[dict]:
             "size_bytes": size_bytes,
             "lane": "h3",
             "trigger_words": list(meta.get("trigger_words") or []),
-            # A kohya file is always converted with alpha/rank folded into
-            # lora_B, so 1.0 is right. Imports before 2026-09-16 saved the
-            # trainer's alpha/rank here as well — a double scale — and are
-            # corrected on read rather than trusted.
-            "recommended_strength": (1.0 if meta.get("lora_layout") == "kohya"
-                                     else float(meta.get("recommended_strength") or 1.0)),
+            # A file whose scale is inside lora_B (a kohya conversion, a
+            # folded mixed-alpha file) or is about to be (mixed per-module
+            # alphas, folded at the next render) reads as trained at 1.0.
+            # Imports before 2026-09-16 saved alpha/rank here as well — a
+            # double scale — so the sidecar is corrected on read, not trusted.
+            "recommended_strength": (
+                1.0 if (meta.get("lora_layout") == "kohya"
+                        or info.get("layout") == "kohya"
+                        or info.get("scale_state") in ("folded", "mixed"))
+                else float(meta.get("recommended_strength") or 1.0)),
             "preview_url": preview_url,
             "preview_type": preview_type,
             "base_model": meta.get("base_model") or "MiniMax H3",
@@ -14259,16 +14440,27 @@ def _probe_video_frames(path: str) -> int:
         return 0
 
 
-def _video_has_audio(path: str) -> bool:
+def _probe_audio_state(path: str) -> str:
+    """"audio", "none", or "unknown" (ffprobe failed or could not read it).
+
+    The difference between the last two matters wherever the answer decides
+    whether a soundtrack is dropped: "none" is a fact about the file,
+    "unknown" is a fact about the probe."""
     try:
-        out = subprocess.run(
-            [str(FFPROBE), "-v", "error", "-select_streams", "a:0",
+        r = subprocess.run(
+            [str(FFPROBE), "-v", "error", "-select_streams", "a",
              "-show_entries", "stream=codec_type", "-of", "csv=p=0", path],
-            capture_output=True, text=True, timeout=10,
-        ).stdout.strip()
-        return "audio" in out
-    except Exception:
-        return False
+            capture_output=True, text=True, timeout=30,
+        )
+    except Exception:  # noqa: BLE001
+        return "unknown"
+    if r.returncode != 0:
+        return "unknown"
+    return "audio" if "audio" in (r.stdout or "") else "none"
+
+
+def _video_has_audio(path: str) -> bool:
+    return _probe_audio_state(path) == "audio"
 
 
 def ltx_grid_frames_up(frames: int) -> int:
@@ -14300,6 +14492,38 @@ def upscale_frame_plan(src_frames: int, form_frames=None) -> tuple[int, int]:
         grid = max(9, 1 + 8 * ((ceiling - 1) // 8))
         out_frames = grid
     return out_frames, grid
+
+
+# mlx_warm_helper._DECODE_MAX_ELEMENTS: the decoder's int32 limit, with headroom.
+UPSCALE_DECODE_MAX_ELEMENTS = int(0.9 * 2 ** 31)
+
+
+def _decode_min_group_frames(frames: int) -> int:
+    """Output frames of the longest temporal group when the decode is cut into
+    the SMALLEST temporal tiles the pinned tiler allows (2 latent frames, no
+    overlap): split_with_symmetric_overlaps + split_temporal_latents' causal
+    shift, in plain arithmetic. 17 for long clips, 9 for a 17-frame clip."""
+    f = max(1, (max(1, int(frames)) - 1) // 8 + 1)
+    size = 2
+    if f <= size:
+        return 1 + (f - 1) * 8
+    amount = (f + size - 1) // size
+    starts = [i * size for i in range(amount)]
+    ends = [s + size for s in starts]
+    ends[-1] = f
+    starts = starts[:1] + [s - 1 for s in starts[1:]]
+    return max(1 + (e - 1) * 8 - s * 8 for s, e in zip(starts, ends))
+
+
+def upscale_canvas_decodable(width: int, height: int, frames: int) -> bool:
+    """Whether ANY decode tiling keeps this canvas under the decoder's int32
+    limit. Tiling cannot shrink the accumulation buffer the tiler keeps per
+    temporal group — 3 × its frames × the full canvas — below what the
+    shortest temporal tiles give (`_decode_min_group_frames`); every other
+    tensor a spatial tile can shrink. Mirrors the refusal in the helper's
+    `_int32_safe_decode_tiling`."""
+    return (3 * _decode_min_group_frames(frames) * int(width) * int(height)
+            <= UPSCALE_DECODE_MAX_ELEMENTS)
 
 
 def _upscale_hold_tail_cmd(src: str, out: str, frames: int, grid: int) -> list[str]:
@@ -14347,36 +14571,66 @@ def _upscale_finish_cmd(video: str, audio_source: str | None, out: str, *,
 
 
 def _upscale_finish(video_path: Path, audio_source: str, *, frames: int,
-                    fps: float, trim: bool) -> bool:
+                    fps: float, trim: bool, job: dict | None = None) -> bool:
     """Bring the ×2 render back to the source clip's length and soundtrack.
 
     Returns whether the source's audio is on the result. The whole point of
     the H3 → LTX ×2 lane: H3 wrote the dialogue and the sound; the upscaler
-    must not throw them away, nor a single frame of the picture."""
-    has_audio = _video_has_audio(audio_source)
-    if not (has_audio or trim):
-        return False
+    must not throw them away, nor a single frame of the picture.
+
+    THE SOUND POLICY IS UNCONDITIONAL: the result carries the source's sound
+    or no sound. The IC pipeline writes a soundtrack of its own, and it used
+    to survive whenever the source was silent AND no trim was needed — so a
+    silent 121-frame clip came back with invented audio while a silent
+    124-frame clip came back silent. A source whose audio could not be
+    PROBED is not treated as silent: its sound is muxed in if it has any."""
+    state = _probe_audio_state(audio_source)
+    want_source = state in ("audio", "unknown")
     tmp = video_path.with_name(video_path.stem + ".mux.mp4")
-    cmd = _upscale_finish_cmd(str(video_path), audio_source if has_audio else None,
-                              str(tmp), frames=frames, fps=fps, trim=trim,
-                              codec=output_codec_settings())
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+    codec = output_codec_settings()
+
+    def _run(with_source: bool) -> tuple[bool, str]:
+        cmd = _upscale_finish_cmd(str(video_path),
+                                  audio_source if with_source else None,
+                                  str(tmp), frames=frames, fps=fps, trim=trim,
+                                  codec=codec)
+        if with_source and state == "unknown":
+            # Optional map: a source that really has no audio stream yields a
+            # silent result instead of an ffmpeg error.
+            cmd[cmd.index("1:a:0")] = "1:a:0?"
+        try:
+            r = run_tracked_subprocess(cmd, pgid_key="mux_pgid",
+                                       label="the ×2 finish", job=job,
+                                       timeout=900)
+        except subprocess.TimeoutExpired:
+            tmp.unlink(missing_ok=True)
+            return False, "timed out"
         if r.returncode != 0 or not tmp.is_file():
             tmp.unlink(missing_ok=True)
-            if trim:
-                raise RuntimeError("Upscale ×2: could not cut the render back to "
-                                   f"{frames} frames: {(r.stderr or '')[-200:].strip()}")
-            push(f"Upscale: audio mux failed ({(r.stderr or '')[-160:].strip()}); clip kept silent")
-            return False
+            return False, (r.stderr or "")[-200:].strip()
+        return True, ""
+
+    try:
+        ok, err = _run(want_source)
+        kept = want_source and ok
+        if ok and state == "unknown":
+            kept = _probe_audio_state(str(tmp)) == "audio"
+        if not ok and want_source:
+            push(f"Upscale ×2: could not carry the source sound over ({err}) — "
+                 "delivering the clip without sound")
+            ok, err = _run(False)
+        if not ok:
+            raise RuntimeError(
+                (f"Upscale ×2: could not cut the render back to {frames} frames: {err}"
+                 if trim else
+                 f"Upscale ×2: could not finish the clip (removing the model's own "
+                 f"soundtrack failed): {err}"))
         tmp.replace(video_path)
-        return has_audio
-    except subprocess.TimeoutExpired:
+        return kept
+    finally:
+        # Stop, a spawn error, anything: the half-written temp sits NEXT TO
+        # the output, where the gallery would list it.
         tmp.unlink(missing_ok=True)
-        if trim:
-            raise RuntimeError("Upscale ×2: cutting the render back to length timed out")
-        push("Upscale: audio mux timed out; clip kept silent")
-        return False
 
 
 def _native_render_for(src: Path) -> Path:
@@ -15564,6 +15818,23 @@ class WarmHelper:
             self._ensure()
             with self.lock:
                 assert self.proc is not None and self.proc.stdin is not None
+                # A Stop for THIS job that landed before the job reached the
+                # helper (stop_current_job kills the helper, and _ensure just
+                # respawned it) must not start the render anyway. Stop sets
+                # the flag before it kills, so a kill that lands after this
+                # check still ends the job the ordinary way.
+                with LOCK:
+                    _cur = STATE.get("current")
+                    _stopped = bool(_cur is not None and job_spec.get("id")
+                                    and _cur.get("id") == job_spec.get("id")
+                                    and _cur.get("cancel_requested"))
+                    # A child of the worker's queue job (a take part) carries
+                    # its own id; its owner is the job this thread runs.
+                    _owner = _thread_job()
+                    _stopped = _stopped or bool(_owner is not None
+                                                and _owner.get("cancel_requested"))
+                if _stopped:
+                    raise JobCancelled("Stopped before the render started.")
                 try:
                     self.proc.stdin.write(json.dumps(job_spec) + "\n")
                     self.proc.stdin.flush()
@@ -16099,23 +16370,128 @@ def compute_upscale_plan(w: int, h: int, mode: str | None,
     }
 
 
+class JobCancelled(RuntimeError):
+    """Stop reached the job before (or while) one of its subprocesses ran.
+
+    The worker already files any exception raised under `cancel_requested` as
+    `cancelled`; the type exists so a best-effort step (the Turbo companion
+    fetch) can tell "the user stopped this" apart from "the step failed" and
+    re-raise instead of carrying on to the GPU."""
+
+
+# The queue job the CURRENT THREAD is running, set by the worker around
+# run_job_inner. Cancellation belongs to that job only: editor proxies, film
+# assembly and other HTTP-thread work run outside the queue, and must not
+# inherit a Stop that was meant for whatever render happens to be current.
+_JOB_CTX = threading.local()
+
+
+def _thread_job() -> dict | None:
+    return getattr(_JOB_CTX, "job", None)
+
+
+def _cancel_requested(job: dict | None = None) -> bool:
+    """Whether Stop was pressed for `job` — or for the queue job this thread
+    is running, which OWNS every child it dispatches synchronously (a One
+    Shot take's parts and retakes are their own dicts with their own ids,
+    and Stop only marks the queued parent). No job = no cancellation owner."""
+    if job is None:
+        return False
+    owner = _thread_job()
+    with LOCK:
+        return bool(job.get("cancel_requested")
+                    or (owner is not None and owner is not job
+                        and owner.get("cancel_requested")))
+
+
+def _raise_if_cancelled(job: dict | None, before: str) -> None:
+    if _cancel_requested(job):
+        raise JobCancelled(f"Stopped before {before}.")
+
+
+def _register_job_pgid(key: str, pgid: int, job: dict | None = None) -> None:
+    """Publish a freshly spawned process group where Stop looks for it.
+
+    THE ORDERING IS THE FIX. `stop_current_job` sets `cancel_requested` and
+    reads every pgid inside one `LOCK` section; this registers the pgid and
+    reads the flag inside another. Whichever section runs first, the other
+    sees its effect: either Stop finds this pgid and kills it, or this finds
+    the flag and kills the group itself. Registering first and checking a
+    moment later outside the lock (the old shape) left a window where Stop
+    saw neither, and the render it had just cancelled started anyway."""
+    with LOCK:
+        STATE[key] = pgid
+        cancelled = _cancel_requested(job)
+    if cancelled:
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+        raise JobCancelled("Stopped before this step could start.")
+
+
+def _clear_job_pgid(key: str, pgid: int | None) -> None:
+    with LOCK:
+        if pgid is None or STATE.get(key) == pgid:
+            STATE[key] = None
+
+
+def run_tracked_subprocess(cmd: list[str], *, pgid_key: str, label: str,
+                           job: dict | None = None, timeout: float | None = None,
+                           **popen_kw) -> subprocess.CompletedProcess:
+    """`subprocess.run(capture_output=True, text=True)`, but Stop can end it.
+
+    Refuses to start after Stop, runs in its own process group registered
+    under `pgid_key` (which `stop_current_job` kills), and kills the whole
+    group on timeout (then re-raises TimeoutExpired, like `subprocess.run`).
+    A process that exits after Stop is returned as-is; callers that go on to
+    more work check `_raise_if_cancelled` themselves. Raises JobCancelled
+    when Stop ended the process."""
+    _raise_if_cancelled(job, label)
+    popen_kw.pop("capture_output", None)
+    popen_kw.pop("text", None)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, start_new_session=True, **popen_kw)
+    # start_new_session: the child is its own group leader, pgid == pid (and
+    # os.getpgid would race a child that has already exited).
+    pgid = proc.pid
+    try:
+        _register_job_pgid(pgid_key, pgid, job)
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+            proc.communicate()
+            raise
+    except BaseException:
+        if proc.poll() is None:
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+            try:
+                proc.wait(timeout=5)
+            except Exception:  # noqa: BLE001
+                pass
+        raise
+    finally:
+        _clear_job_pgid(pgid_key, pgid)
+    if proc.returncode != 0 and _cancel_requested(job):
+        raise JobCancelled(f"Stopped during {label}.")
+    return subprocess.CompletedProcess(cmd, proc.returncode, stdout or "", stderr or "")
+
+
 def run_postprocess_tracked(cmd: list[str], label: str) -> tuple[str, str]:
     """Run a post-process in its own process group so /stop can kill it."""
     push(f"{label}: " + " ".join(shlex.quote(c) for c in cmd))
     env = os.environ.copy()
     env["PATH"] = f"{FFMPEG_BIN}:{env.get('PATH', '')}"
-    proc = subprocess.Popen(
-        cmd, env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        start_new_session=True,
-    )
-    with LOCK:
-        STATE["mux_pgid"] = os.getpgid(proc.pid)
-    try:
-        stdout, stderr = proc.communicate()
-    finally:
-        with LOCK:
-            STATE["mux_pgid"] = None
+    proc = run_tracked_subprocess(cmd, pgid_key="mux_pgid", label=label,
+                                  job=_thread_job(), env=env)
+    stdout, stderr = proc.stdout, proc.stderr
     if proc.returncode != 0:
         push((stderr or stdout or "").strip())
         raise RuntimeError(f"{label.lower()} exited with code {proc.returncode}")
@@ -16168,11 +16544,15 @@ def stop_current_job(timeout: float = 5.0) -> None:
     subprocess). Worker advances."""
     with LOCK:
         cur = STATE["current"]
+        # Set BEFORE the pgids are read, in the same section: a worker that
+        # spawns right now either registers its pgid first (read below and
+        # killed) or sees this flag when it registers (and kills itself) —
+        # see _register_job_pgid.
+        if cur is not None:
+            cur["cancel_requested"] = True
         mux_pgid = STATE.get("mux_pgid")
         train_pgid = STATE.get("train_pgid")
         h3_pgid = STATE.get("h3_pgid")
-    if cur is not None:
-        cur["cancel_requested"] = True
     push("Stop requested — killing helper + ffmpeg post-process + training subprocess to abort current job.")
     HELPER.kill()
     # Image-engine subprocesses (HiDream's BF16 helper, mflux's per-family
@@ -22280,6 +22660,8 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                  "to spend it on your LoRA. Rendering at this shape's own "
                  f"{_h3_steps or H3_TIERS[_h3_tier]['steps']} sigma points.")
         _tier_cfg = H3_TIERS[_h3_tier]
+        # The picked LoRA strengths mean what this build's picker shows.
+        job["params"]["h3_lora_scale_v"] = H3_LORA_SCALE_VERSION
         # Portrait = the cell's own canvas, rotated. Identical pixel count and
         # packed-row count, so the tier's measured estimate stays honest.
         if _h3_orientation == "portrait":
@@ -23456,7 +23838,8 @@ def run_train_job_inner(job: dict) -> None:
             )
             with LOCK:
                 STATE["pid"] = proc.pid
-                STATE["train_pgid"] = os.getpgid(proc.pid)
+            # Registered and checked against Stop in one lock section.
+            _register_job_pgid("train_pgid", proc.pid, job)
             # Stream stdout. Each line is either JSON (a structured progress
             # event) or plain text (forwarded as-is to the log).
             assert proc.stdout is not None
@@ -23845,7 +24228,7 @@ def run_train_job_inner(job: dict) -> None:
         )
         with LOCK:
             STATE["pid"] = audio_proc.pid
-            STATE["train_pgid"] = os.getpgid(audio_proc.pid)
+        _register_job_pgid("train_pgid", audio_proc.pid, job)
         assert audio_proc.stdout is not None
         for raw in audio_proc.stdout:
             line = raw.rstrip("\n")
@@ -23918,6 +24301,8 @@ def run_train_job_inner(job: dict) -> None:
                                    f"{audio_rc}")
     except FileNotFoundError as e:
         audio_failed_reason = f"audio trainer not available: {e}"
+    except JobCancelled:
+        raise
     except Exception as e:
         audio_failed_reason = f"audio trainer raised: {e}"
     finally:
@@ -24255,6 +24640,7 @@ def run_h3_job_inner(job: dict) -> None:
     user_lora_stack: list[tuple[Path, float]] = []
     _h3_lora_root = _h3_loras_dir()
     _picked: list[tuple[Path, float]] = []
+    _picked_entries: list[dict] = []      # the recipe entry each pick came from
     _foreign: list[str] = []
     for _entry in (p.get("loras") or []):
         _raw = str((_entry or {}).get("path") or "").strip()
@@ -24278,6 +24664,7 @@ def run_h3_job_inner(job: dict) -> None:
         except (TypeError, ValueError):
             _st = 1.0
         _picked.append((_rp, max(-2.0, min(2.0, _st))))
+        _picked_entries.append(_entry)
     if _foreign:
         # Never silent: an LTX LoRA handed to H3's loader matches zero modules
         # and renders as though no adapter were attached at all.
@@ -24312,8 +24699,19 @@ def run_h3_job_inner(job: dict) -> None:
         # files never went through the download path); a diffusers-namespace
         # file raises with the sentence naming the alpha problem.
         _stack_layouts = []
-        for _pp, _ps in _picked:
+        for _i, (_pp, _ps) in enumerate(_picked):
             _stack_layouts.append(_h3_lora_prepare(_pp).get("layout"))
+            # After prepare, so a file folded just now is recognised too.
+            _new = _h3_lora_migrate_strength(_pp, _ps, p)
+            if _new != _ps and isinstance(_picked_entries[_i], dict):
+                # Into the recipe as well — THIS entry only (a stack may list
+                # the same file twice at different strengths): the sidecar
+                # copies `loras`, and Load Params / Finish replay it with this
+                # build's stamp, so a stale 0.5 there would read as deliberate.
+                _picked_entries[_i]["strength"] = _new
+            _picked[_i] = (_pp, _new)
+        # The recipe now means what this build means by a strength.
+        p["h3_lora_scale_v"] = H3_LORA_SCALE_VERSION
         user_lora, user_lora_strength = _picked[0]
         user_lora_stack = list(_picked)
         p["h3_lora_path"] = str(user_lora)
@@ -24375,11 +24773,17 @@ def run_h3_job_inner(job: dict) -> None:
                   f"folded v0.1 fallback) under {turbo_paths['dir']}.")
         if h3_turbo_adaln_state(turbo_paths) == "no_embedder":
             # An adapter downloaded before the adaLN companion came back.
-            # ~60 MB, once; a failure leaves the render running without the
-            # pairs, and the dispatch log below says so.
+            # ~60 MB, once: a failure is remembered (retried after a cooldown
+            # or from the Turbo install button), and the render runs without
+            # the pairs, which the dispatch log below says out loud. The fetch
+            # runs as a tracked process group, so Stop ends it — and a Stop
+            # that lands during it ends the JOB, not just the download.
             _h3_turbo_fetch_embedder(
                 turbo_paths["dir"], push,
-                runner=lambda *a, **kw: subprocess.run(*a, **{**kw, "timeout": 300}))
+                runner=lambda cmd, **kw: run_tracked_subprocess(
+                    cmd, pgid_key="h3_pgid", label="the Turbo companion download",
+                    job=job, **{**kw, "timeout": 300}))
+            _raise_if_cancelled(job, "the H3 render")
             turbo_paths = h3_turbo_paths()
         steps = h3_turbo_steps(turbo_paths)
 
@@ -24698,6 +25102,9 @@ def run_h3_job_inner(job: dict) -> None:
     _decode_est = (H3_DECODE_SEC_PER_PX_FRAME * int(width) * int(height)
                    * int(window_frames) * _hw_speed_factor("h3"))
     last_step, total_steps = 0, max(1, steps - 1)
+    # Last look before the GPU: a Stop pressed during any of the preparation
+    # above (the companion fetch, the reference crop) ends the job here.
+    _raise_if_cancelled(job, "the H3 render")
     try:
         proc = subprocess.Popen(
             cmd,
@@ -24713,7 +25120,9 @@ def run_h3_job_inner(job: dict) -> None:
         )
         with LOCK:
             STATE["pid"] = proc.pid
-            STATE["h3_pgid"] = os.getpgid(proc.pid)
+        # Registered and checked against Stop in ONE lock section, so a Stop
+        # racing this spawn either finds the pgid or is found by it.
+        _register_job_pgid("h3_pgid", proc.pid, job)
         # Crash guard — see reap_orphan_subprocesses(). start_new_session means
         # a SIGKILLed panel leaves this 40 GiB render running; the next boot
         # reaps it from this file before the queue resumes the same job.
@@ -26126,6 +26535,13 @@ def run_job_inner(job: dict) -> None:
         # The form's generation length is not an upscale control; it only
         # widens the ceiling past the length this lane is measured at.
         out_frames, frames = upscale_frame_plan(src_frames, p.get("frames"))
+        if not upscale_canvas_decodable(up_w, up_h, frames):
+            # The helper refuses this too, but only after the whole render.
+            raise RenderRefused(
+                "hardware_tier",
+                f"Upscale ×2 to {up_w}×{up_h} is past what the video decoder can "
+                f"write safely, even in tiles (the GPU kernels' 2^31-element "
+                f"limit). Use a smaller source clip.")
         if src_frames and out_frames < src_frames:
             push(f"Upscale ×2: {source.name} is {src_frames} frames; the ×2 covers "
                  f"its first {out_frames}")
@@ -26178,8 +26594,14 @@ def run_job_inner(job: dict) -> None:
         model_src = src
         if frames > (src_frames or frames):
             model_src = str(work_dir / f"{source.stem}_hold{frames}.mp4")
-            _r = subprocess.run(_upscale_hold_tail_cmd(src, model_src, src_frames, frames),
-                                capture_output=True, text=True, timeout=600)
+            try:
+                _r = run_tracked_subprocess(
+                    _upscale_hold_tail_cmd(src, model_src, src_frames, frames),
+                    pgid_key="mux_pgid", label="the ×2 preparation", job=job,
+                    timeout=600)
+            except BaseException:
+                shutil.rmtree(work_dir, ignore_errors=True)
+                raise
             if _r.returncode != 0 or _probe_video_frames(model_src) != frames:
                 shutil.rmtree(work_dir, ignore_errors=True)
                 raise RuntimeError(
@@ -26223,12 +26645,13 @@ def run_job_inner(job: dict) -> None:
              + (f"from the clip's own latent, {refine_steps}-step refine + Pixel Spatial Upscaler"
                 if start_from == "source" else "full re-render from noise + Pixel Spatial Upscaler"))
         try:
+            _raise_if_cancelled(job, "the ×2 render")
             result = HELPER.run(job_spec)
             if "seed_used" in result:
                 push(f"seed used: {result['seed_used']}")
                 p["seed_used"] = result["seed_used"]
             muxed = _upscale_finish(final_out, src, frames=out_frames, fps=src_fps,
-                                    trim=frames != out_frames)
+                                    trim=frames != out_frames, job=job)
         finally:
             shutil.rmtree(work_dir, ignore_errors=True)
         delivered = _probe_video_frames(str(final_out))
@@ -27669,7 +28092,11 @@ def worker_loop() -> None:
             # concurrently. Blocking acquire is correct here — the worker is
             # already serialized; it only waits if an inline image is mid-flight.
             with _GPU_LOCK:
-                run_job_inner(job)
+                _JOB_CTX.job = job
+                try:
+                    run_job_inner(job)
+                finally:
+                    _JOB_CTX.job = None
             job["status"] = "done"
             _CONSEC_FAIL.update(sig="", n=0)
         except JobStopped as stop:

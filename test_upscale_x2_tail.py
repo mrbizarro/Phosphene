@@ -48,7 +48,8 @@ except Exception:                                          # noqa: BLE001
 def _helper_ns() -> dict:
     tree = ast.parse(HELPER_SRC)
     names = {"_vae_decode_peak_elements", "_vae_decode_max_latent_frames",
-             "_int32_safe_decode_tiling"}
+             "_int32_safe_decode_tiling", "_decode_tiling_peak_elements",
+             "_decode_temporal_config"}
     picked = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
     assert {n.name for n in picked} == names
     consts = [n for n in tree.body if isinstance(n, ast.Assign)
@@ -181,6 +182,207 @@ class TheGuardIsWired(unittest.TestCase):
             import inspect
             src = inspect.getsource(_vv.VideoDecoder.decode_and_stream)
             self.assertIn("_compute_decode_tiling(", src)
+
+
+def _pure_tiling():
+    """The vendored tiler's config classes and split functions, exec'd from
+    source without its MLX import — so the tile-extent checks below run on any
+    machine, against the exact interval code the decoder uses."""
+    import dataclasses
+    import types
+    src_dir = None
+    for base in sys.path + [str(ROOT / "ltx-2-mlx" / "env" / "lib" / "python3.11" / "site-packages")]:
+        cand = Path(base) / "ltx_core_mlx" / "model" / "video_vae"
+        if (cand / "tiling.py").is_file():
+            src_dir = cand
+            break
+    if src_dir is None:
+        return None, None
+    names = {"SpatialTilingConfig", "TemporalTilingConfig", "TilingConfig",
+             "DimensionIntervals", "default_split_operation",
+             "split_with_symmetric_overlaps", "split_temporal_latents"}
+    tree = ast.parse((src_dir / "tiling.py").read_text(encoding="utf-8"))
+    body = [ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0)]
+    body += [n for n in tree.body if isinstance(n, (ast.ClassDef, ast.FunctionDef))
+             and n.name in names]
+    ns = {"dataclass": dataclasses.dataclass, "replace": dataclasses.replace,
+          "field": dataclasses.field}
+    exec(compile(ast.fix_missing_locations(ast.Module(body=body, type_ignores=[])),
+                 "tiling", "exec"), ns)
+    ns["DEFAULT_SPLIT_OPERATION"] = ns["default_split_operation"]
+    orig = [n for n in ast.parse((src_dir / "video_vae.py").read_text(encoding="utf-8")).body
+            if isinstance(n, ast.FunctionDef) and n.name == "_compute_decode_tiling"]
+    ons = {"os": os, "TilingConfig": ns["TilingConfig"],
+           "TemporalTilingConfig": ns["TemporalTilingConfig"]}
+    exec(compile(ast.Module(body=orig, type_ignores=[]), "orig", "exec"), ons)
+    return types.SimpleNamespace(**ns), ons["_compute_decode_tiling"]
+
+
+# (width, height, latent frames): the review's matrix plus the canvases the
+# 4.13.1 temporal-only guard got wrong (2 latent frames + the causal third).
+GUARD_CASES = [(2048, 1152, 17), (2688, 1536, 17), (4096, 2304, 17),
+               (4096, 4096, 4), (4096, 4096, 17), (4096, 4096, 31),
+               (4480, 4480, 17), (6144, 3456, 17), (1280, 768, 16),
+               (2048, 1152, 16), (4096, 4096, 1), (4096, 4096, 2), (4096, 4096, 3)]
+
+
+class TheGuardChecksTheTilesItReturns(unittest.TestCase):
+    """Ship review 2026-09-17, P2: `size = max(2, max_lat - 1)` returned
+    [2, 3]-latent tiles for a 4096×4096 decode — 2.56e9 elements, past the cap
+    the guard exists to keep."""
+
+    def setUp(self):
+        self.T, self.orig = _pure_tiling()
+        if self.T is None:
+            self.skipTest("vendored ltx_core_mlx tiling.py not found")
+        os.environ.pop("LTX2_VAE_DECODE_BUDGET_GB", None)
+        self.ns = _helper_ns()
+
+    def guard(self, shape):
+        return self.ns["_int32_safe_decode_tiling"](self.orig, shape, 24.0, T=self.T)
+
+    def extents(self, cfg, shape):
+        """Tile lengths per axis, straight from the tiler's split functions,
+        the way prepare_tiles_for_decoding derives them."""
+        T = self.T
+        _, _, f, h, w = shape
+        out = {"t": [(0, f)], "h": [(0, h)], "w": [(0, w)]}
+        sc = cfg.spatial_config
+        if sc is not None:
+            long_side, size, ov = max(h, w), sc.tile_size_in_pixels // 32, sc.tile_overlap_in_pixels // 32
+            for axis, n in (("h", h), ("w", w)):
+                iv = T.split_with_symmetric_overlaps(
+                    max(max(2, ov + 1), round(size * n / long_side)), ov)(n)
+                out[axis] = list(zip(iv.starts, iv.ends))
+        tc = cfg.temporal_config
+        iv = T.split_temporal_latents(tc.tile_size_in_frames // 8, tc.tile_overlap_in_frames // 8)(f)
+        out["t"] = list(zip(iv.starts, iv.ends))
+        return out
+
+    def test_the_4_13_1_answer_overflowed_on_a_square_4k_decode(self):
+        shape = (1, 128, 4, 128, 128)
+        max_lat = self.ns["_vae_decode_max_latent_frames"](128, 128)
+        self.assertEqual(max_lat, 2)
+        old = self.T.TilingConfig(temporal_config=self.T.TemporalTilingConfig(16, 0))
+        lengths = [e - s for s, e in self.extents(old, shape)["t"]]
+        self.assertEqual(lengths, [2, 3])
+        self.assertGreater(self.ns["_vae_decode_peak_elements"](3, 128, 128), INT32)
+        self.assertGreater(self.ns["_decode_tiling_peak_elements"](old, shape, self.T), INT32)
+
+    def test_every_returned_tiling_is_under_the_cap_on_every_tile(self):
+        cap = self.ns["_DECODE_MAX_ELEMENTS"]
+        peak = self.ns["_vae_decode_peak_elements"]
+        for w, h, f in GUARD_CASES:
+            shape = (1, 128, f, h // 32, w // 32)
+            cfg = self.guard(shape)
+            if cfg is None:
+                self.assertLessEqual(peak(f, h // 32, w // 32), cap, (w, h, f))
+                continue
+            ext = self.extents(cfg, shape)
+            for ts, te in ext["t"]:
+                out_frames = 1 + (te - 1) * 8 - ts * 8
+                self.assertLessEqual(3 * out_frames * h * w, cap, (w, h, f))  # the blend buffer
+                for hs, he in ext["h"]:
+                    for ws, we in ext["w"]:
+                        self.assertLessEqual(peak(te - ts, he - hs, we - ws), cap,
+                                             (w, h, f, (ts, te), (hs, he), (ws, we)))
+            # The whole clip and the whole canvas are covered.
+            self.assertEqual(ext["t"][0][0], 0)
+            self.assertEqual(ext["t"][-1][1], f)
+            for axis, n in (("h", h // 32), ("w", w // 32)):
+                covered = set()
+                for a, b in ext[axis]:
+                    covered.update(range(a, b))
+                self.assertEqual(covered, set(range(n)), (w, h, f, axis))
+
+    def test_the_canvases_4_13_1_got_right_keep_their_tiles(self):
+        # Same answers as the shipped guard where its tiles were blended.
+        for (w, h, f), frames in [((2048, 1152, 17), 96), ((2688, 1536, 17), 48)]:
+            cfg = self.guard((1, 128, f, h // 32, w // 32))
+            self.assertIsNone(cfg.spatial_config)
+            self.assertEqual(cfg.temporal_config.tile_size_in_frames, frames)
+
+    def test_unblended_temporal_tiles_give_way_to_blended_spatial_ones(self):
+        # 4096×2304: 4.13.1 cut 16-frame temporal tiles with no blend at all.
+        cfg = self.guard((1, 128, 17, 72, 128))
+        self.assertIsNotNone(cfg.spatial_config)
+        self.assertGreaterEqual(cfg.temporal_config.tile_size_in_frames, 32)
+        self.assertGreater(cfg.temporal_config.tile_overlap_in_frames, 0)
+        self.assertGreater(cfg.spatial_config.tile_overlap_in_pixels, 0)
+
+    def test_only_a_canvas_temporal_tiles_cannot_fit_is_tiled_in_space(self):
+        cfg = self.guard((1, 128, 17, 128, 128))
+        self.assertIsNotNone(cfg.spatial_config)
+        self.assertLess(cfg.spatial_config.tile_size_in_pixels, 4096)
+        self.assertGreaterEqual(cfg.temporal_config.tile_size_in_frames, 32)   # blended seams
+
+    def test_a_canvas_no_tiling_can_fit_is_refused(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            self.guard((1, 128, 17, 256, 256))              # 8192×8192
+        self.assertIn("too large", str(ctx.exception))
+        # The panel refuses the same canvas BEFORE the render, and admits the
+        # ones the helper can tile.
+        self.assertFalse(panel.upscale_canvas_decodable(8192, 8192, 129))
+        for w, h, f in GUARD_CASES:
+            self.assertTrue(panel.upscale_canvas_decodable(w, h, 8 * f - 7), (w, h, f))
+        for w, h in [(6144, 6144), (8192, 4608), (7680, 4320)]:
+            refused = not panel.upscale_canvas_decodable(w, h, 129)
+            try:
+                self.guard((1, 128, 17, h // 32, w // 32))
+                helper_refused = False
+            except RuntimeError:
+                helper_refused = True
+            if refused:
+                self.assertTrue(helper_refused, (w, h))       # never admit what the helper refuses
+            if not refused:
+                self.assertFalse(helper_refused, (w, h))
+
+    def test_admission_and_the_helper_agree_on_every_length(self):
+        # Codex hotfix review #4: a 17-frame clip's shortest groups are 9
+        # frames, not 17 — 8192×8192 × 17 tiles fine and must be admitted.
+        self.assertEqual(panel._decode_min_group_frames(17), 9)
+        self.assertEqual(panel._decode_min_group_frames(129), 17)
+        self.assertEqual(panel._decode_min_group_frames(9), 9)
+        self.assertEqual(panel._decode_min_group_frames(1), 1)
+        self.assertTrue(panel.upscale_canvas_decodable(8192, 8192, 17))
+        for w, h in [(8192, 8192), (6144, 6144), (8192, 4608), (9600, 9600),
+                     (12800, 7200), (16384, 16384)]:
+            for frames in (1, 9, 17, 25, 33, 41, 121, 129, 241):
+                f = (frames - 1) // 8 + 1
+                try:
+                    self.guard((1, 128, f, h // 32, w // 32))
+                    helper_ok = True
+                except RuntimeError:
+                    helper_ok = False
+                self.assertEqual(panel.upscale_canvas_decodable(w, h, frames), helper_ok,
+                                 (w, h, frames))
+
+    @unittest.skipUnless(HAVE_LTX, "ltx_core_mlx not importable (run with the repo venv)")
+    def test_the_real_tiler_cuts_what_the_check_measured(self):
+        cap = self.ns["_DECODE_MAX_ELEMENTS"]
+        peak = self.ns["_vae_decode_peak_elements"]
+        from ltx_core_mlx.model.video_vae import tiling as RT
+        for w, h, f in GUARD_CASES:
+            shape = (1, 128, f, h // 32, w // 32)
+            cfg = self.ns["_int32_safe_decode_tiling"](_vv._compute_decode_tiling, shape, 24.0)
+            if cfg is None:
+                continue
+            real = RT.TilingConfig(
+                spatial_config=(RT.SpatialTilingConfig(cfg.spatial_config.tile_size_in_pixels,
+                                                       cfg.spatial_config.tile_overlap_in_pixels)
+                                if cfg.spatial_config else None),
+                temporal_config=RT.TemporalTilingConfig(cfg.temporal_config.tile_size_in_frames,
+                                                        cfg.temporal_config.tile_overlap_in_frames))
+            worst = 0
+            for t in prepare_tiles_for_decoding(shape, real):
+                n = [t.in_coords[i].stop - t.in_coords[i].start for i in (2, 3, 4)]
+                worst = max(worst, peak(*n))
+                o = t.out_coords[2]
+                self.assertIsInstance(o.stop, int)          # tiled_decode needs a bounded slice
+                self.assertLessEqual(3 * (o.stop - o.start) * h * w, cap)
+            self.assertLessEqual(worst, cap, (w, h, f))
+            # The pure check never under-counts what the real tiler cuts.
+            self.assertLessEqual(worst, self.ns["_decode_tiling_peak_elements"](real, shape, RT))
 
 
 import mlx_ltx_panel as panel                                        # noqa: E402
@@ -320,6 +522,134 @@ class TheClipGoesInAndComesOutTheSameLength(unittest.TestCase):
         self.assertNotIn("-shortest", src[src.index("def _upscale_finish_cmd"):
                                           src.index("def _upscale_finish(")].split('"""', 2)[2])
 
+
+
+def _tiny(path, frames, tone):
+    cmd = [str(panel.FFMPEG), "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=32x32:rate=24"]
+    if tone:
+        cmd += ["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+                "-map", "0:v", "-map", "1:a", "-af", f"atrim=end={frames / 24 + 0.3:.4f}",
+                "-c:a", "aac"]
+    cmd += ["-frames:v", str(frames), "-c:v", "libx264", "-threads", "1",
+            "-pix_fmt", "yuv420p", str(path)]
+    subprocess.run(cmd, check=True, capture_output=True)
+    return path
+
+
+@unittest.skipUnless(Path(str(panel.FFMPEG)).is_file(), "ffmpeg not installed")
+class TheSoundIsTheSourcesOrNone(unittest.TestCase):
+    """Ship review 2026-09-17, P2: the ×2 model writes a soundtrack of its own.
+    A SILENT source kept it when no trim was needed (9/17/73/121/129 frames)
+    and lost it when one was (124) — the result's sound depended on the
+    frame count. And a failed probe read as "silent"."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="x2sound_"))
+        self.codec = unittest.mock.patch.object(
+            panel, "output_codec_settings",
+            return_value={"pix_fmt": "yuv420p", "crf": "18", "preset": "medium"})
+        self.codec.start()
+
+    def tearDown(self):
+        import shutil
+        self.codec.stop()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_a_silent_source_comes_back_silent_at_every_length(self):
+        for n in (1, 8, 9, 10, 17, 72, 73, 121, 124, 129, 130, 243):
+            src = _tiny(self.tmp / f"src{n}.mp4", n, tone=False)
+            deliver, grid = panel.upscale_frame_plan(n, 121)
+            model = _tiny(self.tmp / f"model{n}.mp4", grid, tone=True)   # the model's own sound
+            self.assertTrue(panel._video_has_audio(str(model)))
+            kept = panel._upscale_finish(model, str(src), frames=deliver, fps=24.0,
+                                         trim=grid != deliver)
+            self.assertFalse(kept, n)
+            self.assertFalse(panel._video_has_audio(str(model)), n)
+            self.assertEqual(panel._probe_video_frames(str(model)), deliver, n)
+            self.assertFalse(list(self.tmp.glob("*.mux.mp4")))
+
+    def test_a_source_with_sound_keeps_it_at_every_length(self):
+        for n in (9, 121, 124, 129):
+            src = _tiny(self.tmp / f"s{n}.mp4", n, tone=True)
+            deliver, grid = panel.upscale_frame_plan(n, 121)
+            model = _tiny(self.tmp / f"m{n}.mp4", grid, tone=False)
+            self.assertTrue(panel._upscale_finish(model, str(src), frames=deliver, fps=24.0,
+                                                  trim=grid != deliver), n)
+            self.assertTrue(panel._video_has_audio(str(model)), n)
+            self.assertEqual(panel._probe_video_frames(str(model)), deliver, n)
+
+    def test_a_failed_probe_does_not_throw_the_sound_away(self):
+        src = _tiny(self.tmp / "s.mp4", 121, tone=True)
+        model = _tiny(self.tmp / "m.mp4", 121, tone=True)
+        real = panel._probe_audio_state
+        with unittest.mock.patch.object(
+                panel, "_probe_audio_state",
+                side_effect=lambda p: "unknown" if p == str(src) else real(p)):
+            self.assertTrue(panel._upscale_finish(model, str(src), frames=121, fps=24.0,
+                                                  trim=False))
+        self.assertTrue(panel._video_has_audio(str(model)))
+        # ...and a silent source behind a failed probe still ends silent.
+        silent = _tiny(self.tmp / "q.mp4", 121, tone=False)
+        model2 = _tiny(self.tmp / "m2.mp4", 121, tone=True)
+        with unittest.mock.patch.object(
+                panel, "_probe_audio_state",
+                side_effect=lambda p: "unknown" if p == str(silent) else real(p)):
+            self.assertFalse(panel._upscale_finish(model2, str(silent), frames=121,
+                                                   fps=24.0, trim=False))
+        self.assertFalse(panel._video_has_audio(str(model2)))
+
+    def test_the_probe_tells_none_from_unknown(self):
+        self.assertEqual(panel._probe_audio_state(str(_tiny(self.tmp / "a.mp4", 9, True))), "audio")
+        self.assertEqual(panel._probe_audio_state(str(_tiny(self.tmp / "b.mp4", 9, False))), "none")
+        self.assertEqual(panel._probe_audio_state(str(self.tmp / "missing.mp4")), "unknown")
+        junk = self.tmp / "junk.mp4"
+        junk.write_bytes(b"not a video")
+        self.assertEqual(panel._probe_audio_state(str(junk)), "unknown")
+
+    def test_an_unmuxable_source_still_drops_the_models_sound(self):
+        src = _tiny(self.tmp / "s.mp4", 121, tone=True)
+        model = _tiny(self.tmp / "m.mp4", 121, tone=True)
+        broken = self.tmp / "broken.mp4"
+        broken.write_bytes(b"x")
+        with unittest.mock.patch.object(panel, "_probe_audio_state",
+                                        side_effect=lambda p: "audio" if p == str(broken)
+                                        else "none"):
+            self.assertFalse(panel._upscale_finish(model, str(broken), frames=121,
+                                                   fps=24.0, trim=False))
+        self.assertFalse(panel._video_has_audio(str(model)))
+        self.assertEqual(panel._probe_video_frames(str(model)), 121)
+
+    def test_a_stopped_finish_leaves_no_temp_file_for_the_gallery(self):
+        # Codex hotfix review #2: ffmpeg had opened <out>.mux.mp4 when Stop hit.
+        src = _tiny(self.tmp / "s.mp4", 9, tone=False)
+        model = _tiny(self.tmp / "m.mp4", 9, tone=True)
+
+        def stopped_mid_write(cmd, **kw):
+            Path(cmd[-1]).write_bytes(b"half an mp4")
+            raise panel.JobCancelled("Stopped during the ×2 finish.")
+
+        with unittest.mock.patch.object(panel, "run_tracked_subprocess", stopped_mid_write):
+            with self.assertRaises(panel.JobCancelled):
+                panel._upscale_finish(model, str(src), frames=9, fps=24.0, trim=False)
+        self.assertEqual(sorted(p.name for p in self.tmp.iterdir()), ["m.mp4", "s.mp4"])
+
+        def boom(cmd, **kw):
+            Path(cmd[-1]).write_bytes(b"x")
+            raise OSError("spawn failed")
+
+        with unittest.mock.patch.object(panel, "run_tracked_subprocess", boom):
+            with self.assertRaises(OSError):
+                panel._upscale_finish(model, str(src), frames=9, fps=24.0, trim=False)
+        self.assertFalse(list(self.tmp.glob("*.mux.mp4")))
+
+    def test_stop_ends_the_finish(self):
+        src = _tiny(self.tmp / "s.mp4", 9, tone=False)
+        model = _tiny(self.tmp / "m.mp4", 9, tone=True)
+        before = model.read_bytes()
+        with self.assertRaises(panel.JobCancelled):
+            panel._upscale_finish(model, str(src), frames=9, fps=24.0, trim=False,
+                                  job={"id": "x", "cancel_requested": True})
+        self.assertEqual(model.read_bytes(), before)
 
 
 if __name__ == "__main__":

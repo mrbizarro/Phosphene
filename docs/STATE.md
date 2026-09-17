@@ -1,6 +1,66 @@
 # Phosphene — project state, history, open work
 
-> **🚀 2026-09-16 — v4.13.1 released: the H3 + ×2 fix wave (owner's order: "fix it and ship it").**
+> **🛑 2026-09-17 — v4.13.2 released (public, tag `v4.13.2`): "Stop means stop" — five fixes from an independent review of 4.13.1.**
+> **Why:** Codex re-reviewed the shipped 4.13.1 (PM hub `notes/ship-review-0917/REVIEW.md`): NOT ship-safe, 1 P1 + 4 P2.
+> Each was reproduced on `efe5fcf` with CPU-only probes before fixing (`scratchpad/hotfix/repro_shipped.py`).
+> **Fixes (dev `0e4ec45` `f39222c` `d44d36c`; public = one release commit cherry-picked onto `efe5fcf`, same patch-id):**
+> - **P1 Stop.** `run_tracked_subprocess` (own group, registered, killed by Stop, timeout kills the group);
+>   `_register_job_pgid` publishes a pgid and reads the flag in ONE `LOCK` section, and `stop_current_job` sets the flag
+>   inside the section that reads the pgids. Used by the H3 renderer, both trainers, post-process mux, the Turbo
+>   companion fetch and the ×2 hold-tail/finish. Dispatch re-checks Stop after the fetch and before the spawn; the warm
+>   helper refuses a stopped job. Cancellation OWNER = the job the worker thread runs (`_JOB_CTX`, set around
+>   `run_job_inner`): children (One Shot parts `<take>-p1`, retakes) obey their take's Stop; off-queue work (editor
+>   proxies, film assembly) never inherits a render's Stop. `JobCancelled` lets best-effort steps re-raise.
+> - **P2 LoRA strength.** Files whose per-module alphas are (or will be) folded list at 1.0; `_h3_lora_prepare` moves the
+>   sidecar to 1.0 and keeps `recommended_strength_before_fold`; a job without `h3_lora_scale_v` (queued by an older
+>   build) at that old number renders at 1.0 and the migrated value is written back to ITS `params.loras` entry (so Load
+>   Params / Finish replay it). `make_job` stamps `h3_lora_scale_v = 2`. Other strengths are kept.
+> - **P3 int32 decode guard.** `_decode_tiling_peak_elements` checks the tiles the pinned tiler really cuts (causal extra
+>   frame, per-axis spatial size, last tile, 3×frames×canvas blend buffer). Temporal-only when its tiles are ≥4 latent
+>   frames; otherwise spatial + temporal (blended seams); refuse when nothing fits. ×2 admission refuses such canvases
+>   up front (`upscale_canvas_decodable`, `_decode_min_group_frames`). **Behaviour change:** 4096×2304 now decodes in
+>   2048 px spatial + 64-frame tiles instead of 16-frame unblended temporal tiles. CPU check, real LTX-2.5 VAE, 384×512
+>   latent: spatial 256 px + 32-frame tiles 40.5 dB vs single pass; 16-frame temporal 31.5 dB.
+> - **P4 companion fetch.** One fetch at a time (non-blocking lock, all callers), uuid temp file, failure remembered
+>   6 h per target (in memory; Install Turbo / the managed download retry at once), Stop is not a failure,
+>   `/status` `turbo.adaln_fetch`.
+> - **P5 ×2 sound.** The result always carries the source's sound or none (silent 121-frame sources kept the model's
+>   invented track before); `_probe_audio_state` tells "none" from "unknown" (unknown → optional-map mux + re-probe);
+>   the `.mux.mp4` temp is removed on every exit.
+> **Codex review of the exact diff (3 rounds, gpt-6-astra xhigh):** R1 NOT SHIP-SAFE (recipe kept 0.5; temp file on
+> Stop; editor proxy inherited a render's Stop; 17-frame admission too strict) → fixed. R2 NOT SHIP-SAFE (take parts
+> ignored Stop; repeated-path LoRA writeback) → fixed. **R3: "SHIP-SAFE … No new serious defect or remaining release
+> blocker was found in this diff."** Reports: PM hub `notes/ship-review-0917/HOTFIX_REVIEW{_R1,_R2,}.md`.
+> Known, not fixed: `_join_take_parts` still uses plain `subprocess.run` (CPU join, pre-existing); failure memory resets
+> on panel restart; a render meeting an in-flight companion fetch renders without it.
+> **Gates:** new `test_h3_stop_and_companion` 22, `test_h3_lora_strength_migration` 14, `test_upscale_x2_tail` 31.
+> Full `release_gates.sh` 95 PASS / 0 FAIL / 0 SKIP in the release worktree, MLX forced to the CPU (8199 rendering).
+> **Clean room:** fresh clone of the release commit, fresh GitHub clone of the engine, `ltx_checkout.sh` + `ltx_venv.sh`
+> + install's uv pip steps, no weights, empty state/outputs/HF; booted on :8398 → `/version` 4.13.2, UI 200, integrity
+> OK, no tracebacks; stopped by PID, removed. Runner unchanged (`codex/h3-engine-v2` tip `11b90a0`).
+> **Not run:** any render, update-path gate. **Pinokio post: NOT posted** — draft `launch/09_pinokio_4132_stop_fixes.md`
+> (covers 4.13.1 + 4.13.2; 4.13.1 was never posted). **Next promote:** parent on the v4.13.2 release commit.
+
+> **🧹 2026-09-17 — GitHub triage: PR #82 merged; #80 #81 closed (for the next release).**
+> **PR #82** (Viktorminator): the CivitAI modal's Search button used `.pill-btn` (`width:100%`), so the query field
+> shrank to 43 px and the button took 823 px of the row. Reproduced on 4.13.1 and verified fixed with static
+> servers on :8471/:8472/:8473: at 1017 px the field is 799 px and the button 67 px; at 375 px, 233/69; the
+> Hugging Face source is fine too; Enter and the button both call `/civitai/search`. `release_gates.sh --fast`
+> in the PR worktree: 87 PASS / 0 FAIL / 2 SKIP (MLX on the CPU). **Squash-merged on public main as `efe5fcf`**,
+> on top of the v4.13.1 release commit. VERSION is unchanged, so Pinokio users who press Update get this CSS fix
+> under the 4.13.1 label. Cherry-picked to dev as `13bfebd`. **Next promote:** the snapshot commit's parent is
+> `efe5fcf` (origin/main), and the dev tree already carries the change. **Release notes:** include "the CivitAI
+> search field is full width again (thanks @Viktorminator, #82)".
+> **Issues:** #80 and #81 are closed (fixed in 4.12.4; the reporter was silent after we asked). #62: Piotr's
+> package is reviewed. The spec is the High recipe, all 5200 steps ran, all 52 captions carry `cjhtrn`, and the
+> zip's `training_data/` is empty. Next step, promised on the thread: retrain his dataset here and measure
+> the adapter's identity-family delta_rms (his is 7.8e-04; working characters are ~1.7e-03). This needs about 6 h of
+> GPU time. Minor finding: `lora_lab/train_character.py` ignores the spec's `checkpoint_interval` and uses
+> steps//5 instead; this does not change what gets learned. #63: cross-linked to #83. The staged runner still
+> hardcodes `anchors = ("first",)`, so a last-frame anchor is not wired. #24: corrected the old Avoid description.
+> Left alone: #78 and #48 (nudged 09-16 and 09-08), #61 (asked 09-13), #83 (answered 09-16).
+
+> **🚀 2026-09-16 — v4.13.1 released (public `ba83d51`, tag `v4.13.1`): the H3 + ×2 fix wave (owner's order: "fix it and ship it").**
 > **Shipped (cherry-picked onto public 4.13.0, NOT a dev read-tree):** `3a5c5cc` autoplay only on click,
 > `85a7098` H3 reference image validated with PIL, `745dc9c` Turbo adaLN + provenance, `8eafdc5` High = 16
 > sigma points, `1e1ec51` ×2 int32 tail + full frame count, `3a4d9ad`, `a1c9808` the twelve round-2 fixes,
@@ -12,8 +72,15 @@
 > `minimax-h3-mlx codex/h3-engine-v2`, which is `11b90a0` (mux keeps every frame, LoRA accounting). So H3
 > users get the runner fix by pressing Update; no reinstall.
 > **Gates:** full `release_gates.sh` 93 PASS / 0 FAIL / 0 SKIP in the release worktree, MLX forced to the CPU
-> device via a `sitecustomize` shim (the GPU was rendering the owner's jobs on 8199). Clean-room boot of a
-> fresh clone on a spare port: see the release report in the PM hub.
+> device via a `sitecustomize` shim (the GPU was rendering the owner's jobs on 8199). **Clean room:** fresh clone of `ba83d51` in a temp dir; `ltx_checkout.sh` + `ltx_venv.sh` + the install's
+> uv pip steps (ltx25.7 packages) with no weights, empty `HF_HOME`/state/outputs; panel booted on :8397 — `/version`
+> 4.13.1 / `ba83d51`, UI 200 with the TEST PANEL badge, every High cell `steps 16 / forwards 15` (High 5 s ~34 min),
+> model integrity OK, no tracebacks; `install_h3.js` branch clone + `h3_checkout.sh` → `11b90a0`. Stopped by PID,
+> clone removed. **Not run:** update-path gate on a previous install and any render (no GPU tonight).
+> **Pinokio post: NOT posted** — draft in the PM hub `launch/08_pinokio_4131_h3_fixes.md`, waiting for the owner's go.
+> **Next promote:** public main is again a cherry-pick of dev; a later read-tree of dev is fine (it carries these
+> commits) but will ship the held Editor audio work — only on the owner's word after he has used it.
+
 
 > **🔎 2026-09-16 — H3 round-2 review: High runs 15 forwards, twelve bugs fixed (UNRELEASED, `dev`).**
 > **High = 16 points (`8eafdc5`).** The owner ran a matched gym A/B: High 1024×576 was clearly better at 15

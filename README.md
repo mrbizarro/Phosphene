@@ -19,7 +19,7 @@
 
 </p>
 
-> **Current release: v4.13.1.** **Hailuo H3 that looks right**: High clips run twice the sampler steps, so faces and motion come out sharp (a 5 s High clip now takes about 34 min instead of 19); every clip keeps its last frame; Turbo applies its whole adapter; Upscale ×2 no longer flashes white at the end; twelve more H3 fixes. Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
+> **Current release: v4.13.2.** **Stop means stop**: pressing Stop while Turbo is still preparing no longer lets the render start afterwards; H3 LoRAs imported before 4.13.1 are applied at their trained strength again; very large Upscale ×2 canvases decode safely (or are refused up front); a failed Turbo companion download is not retried by every job; a silent clip stays silent after Upscale ×2. Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
 
 ## Overview
 
