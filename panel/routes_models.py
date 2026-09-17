@@ -255,3 +255,25 @@ def post_models_repair(h, path, qs, ctype) -> None:
          f"({', '.join(deleted)}) — re-downloading.")
     P.threading.Thread(target=P._download_thread, args=(repo,), daemon=True).start()
     h._json({"ok": True, "deleted": deleted, "repo_id": repo["repo_id"]}, 202); return
+
+
+@post("/music/install")
+def post_music_install(h, path, qs, ctype) -> None:
+    # Audio → Compose's "Install music engine" / "Repair music engine". Runs
+    # install_music.js's own steps as a background task; progress rides
+    # /status.music_install. Resumable: every step skips finished work.
+    _rb = h._read_form_body()
+    if _rb is None:
+        return
+    _body, form = _rb
+    kind = "repair" if (form.get("kind", [""])[0] or "") == "repair" else "install"
+    code, payload = P.music_install_start(kind)
+    h._json(payload, code); return
+
+
+@post("/music/install/stop")
+def post_music_install_stop(h, path, qs, ctype) -> None:
+    if not P.music_install_stop():
+        h._json({"error": "no music engine install is running"}, 404); return
+    P.push("[music-install] stop requested")
+    h._json({"ok": True}); return

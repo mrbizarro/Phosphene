@@ -1865,16 +1865,19 @@ async function refreshModelsModal({ silent = false } = {}) {
   let musicRow = '';
   const music = (LAST_STATUS && LAST_STATUS.music) || BOOT.music;
   if (music && music.capable) {
+    const inst = (LAST_STATUS && LAST_STATUS.music_install) || {};
     const statusText = music.available
       ? `Ready · Compose unlocked in the Audio tab · ${escapeHtml(music.root || '')}`
+      : inst.active ? `Installing… ${inst.percent || 1}% · ${escapeHtml(inst.step_label || '')}`
       : music.repairable ? 'Weights on disk · engine needs repair'
-      : `Available to install · one click in the Pinokio sidebar · ~11 GB · needs ${music.min_ram_gb} GB unified memory`;
+      : `Available to install · one click here or in Audio → Compose · ~11 GB · needs ${music.min_ram_gb} GB unified memory`;
     musicRow = `<li class="${music.available ? 'ready' : 'missing'}">
       <span class="icon">♪</span><div class="meta">
         <span class="ttl">YuE2 · music engine</span>
         <span class="sub">Lyrics and a style description in, a finished song out — vocals and arrangement together</span>
         <span class="sub">${statusText}</span></div>
-      ${music.available ? '<button class="ghost" disabled>Installed</button>' : '<button onclick="openMusicInstallCard()">How to install</button>'}
+      ${music.available ? '<button class="ghost" disabled>Installed</button>'
+        : `<button onclick="openMusicInstallCard()">${inst.active ? 'Progress' : music.repairable ? 'Repair' : 'Install'}</button>`}
     </li>`;
   }
   list.innerHTML = (rows + h3Row + musicRow) || `<li class="empty-state">No model manifest found — required_files.json is missing or unreadable.</li>`;

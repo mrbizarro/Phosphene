@@ -7,6 +7,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
@@ -407,23 +408,63 @@ console.log(JSON.stringify({payload,lyrics:els.musicLyrics.value,AUDIO_STUDIO,su
 
 
 def test_compose_visibility_tracks_install_state():
+    """v4.14.1: Compose is always offered. Not installed, the form is greyed,
+    the install panel carries one primary button, and Compose opens the card."""
     src = (ROOT / "webapp/js/characters.js").read_text()
-    result = node_eval('''let audioModeChoice=null,musicBusy=false;
-const window={_ENGINE_PROBES:{music:{available:false,capable:true}}};
-const els=Object.fromEntries(['audioModeGroup','musicComposePane','audioDrivePane','musicInstrumental','musicLyrics','musicInstrumentalPill','musicMaxSeconds','musicMaxSecondsVal','musicQuality','musicEstimate','musicGenBtn'].map(id=>[id,{hidden:false,classList:{toggle:()=>{}}}]));
+    ids = ['audioModeGroup', 'musicComposePane', 'audioDrivePane', 'musicInstrumental', 'musicLyrics',
+           'musicInstrumentalPill', 'musicMaxSeconds', 'musicMaxSecondsVal', 'musicQuality', 'musicEstimate',
+           'musicGenBtn', 'musicInstallPanel', 'musicInstallModal', 'musicInstallBody', 'musicStyle', 'musicStatus']
+    funcs = "\n".join(extract_function(n, src) for n in (
+        "updateMusicAvailability", "musicFormChanged", "musicInstallRender", "openMusicInstallCard", "musicGenerate"))
+    result = node_eval("""let audioModeChoice=null,musicBusy=false,musicInstall={state:'idle',active:false},musicInstallSeenActive=false;
+const window={_ENGINE_PROBES:{music:{available:false,capable:true,min_ram_gb:24}}};
+const mk=()=>{const cl=new Set();return {hidden:false,innerHTML:'',value:'',classList:{toggle:(c,on)=>on?cl.add(c):cl.delete(c),has:c=>cl.has(c)}}};
+const els=Object.fromEntries(""" + json.dumps(ids) + """.map(id=>[id,mk()]));
+els.musicInstallModal.hidden=true;
 els.musicInstrumental.checked=false;els.musicMaxSeconds.value='240';els.musicQuality.value='final';
 const document={body:{dataset:{workflow:'audio'}},getElementById:id=>els[id],querySelectorAll:()=>[]};
-const renderEngineSwitch=()=>{};
-''' + extract_function("updateMusicAvailability", src) + extract_function("musicFormChanged", src) + '''
+const renderEngineSwitch=()=>{};const escapeHtml=s=>String(s);let fetched=0;const fetch=()=>{fetched++;};
+let toasts=0;const phosToast=()=>{toasts++;};
+""" + funcs + """
+const snap=()=>({strip:els.audioModeGroup.hidden,compose:els.musicComposePane.hidden,drive:els.audioDrivePane.hidden,
+  locked:els.musicComposePane.classList.has('music-locked'),panel:els.musicInstallPanel.hidden,
+  panelHtml:els.musicInstallPanel.innerHTML,btnDisabled:els.musicGenBtn.disabled});
+(async()=>{
 const states=[];
-for(const available of [false,true,false]) {
- updateMusicAvailability({music:{available,capable:true,estimates:{}}});
- states.push({strip:els.audioModeGroup.hidden,compose:els.musicComposePane.hidden,drive:els.audioDrivePane.hidden});
-}
-console.log(JSON.stringify(states));''')
-    assert result == [{"strip": True, "compose": True, "drive": False},
-                      {"strip": False, "compose": False, "drive": True},
-                      {"strip": True, "compose": True, "drive": False}]
+updateMusicAvailability({music:{available:false,capable:true,min_ram_gb:24,estimates:{}}});
+states.push(snap());
+audioModeChoice='compose';updateMusicAvailability();states.push(snap());
+await musicGenerate();
+const card={opened:!els.musicInstallModal.hidden,html:els.musicInstallBody.innerHTML,fetched};
+updateMusicAvailability({music:{available:false,capable:true,min_ram_gb:24,estimates:{}},
+  music_install:{active:true,state:'running',percent:42,step_index:5,steps:6,step_label:'Downloading the model (~10.5 GB)',bytes_done:4e9,bytes_total:10.4e9}});
+states.push(snap());
+updateMusicAvailability({music:{available:true,capable:true,min_ram_gb:24,estimates:{}},music_install:{active:false,state:'done'}});
+states.push(snap());
+updateMusicAvailability({music:{available:false,capable:false,min_ram_gb:24,estimates:{}},music_install:{active:false,state:'idle'}});
+states.push(snap());
+console.log(JSON.stringify({states,card,toasts}));
+})();""")
+    s = result["states"]
+    # Not installed, never chosen: the Compose chip is there; Drive stays the default pane.
+    assert s[0]["strip"] is False and s[0]["compose"] is True and s[0]["drive"] is False
+    # Compose chosen: greyed form, install panel with ONE primary button, Compose button live.
+    assert s[1]["compose"] is False and s[1]["locked"] and s[1]["panel"] is False
+    assert "Install music engine (YuE2, ~11 GB)" in s[1]["panelHtml"]
+    assert s[1]["panelHtml"].count('class="primary"') == 1
+    assert s[1]["btnDisabled"] is False
+    # Pressing Compose before install opens the same install card and queues nothing.
+    assert result["card"]["opened"] and "Install music engine (YuE2, ~11 GB)" in result["card"]["html"]
+    assert result["card"]["fetched"] == 0
+    # Installing: progress with the step and the bytes, and a Stop.
+    assert "42%" in s[2]["panelHtml"] and "Step 6 of 6" in s[2]["panelHtml"]
+    assert "4.0 of 10.4 GB" in s[2]["panelHtml"] and "musicInstallStop()" in s[2]["panelHtml"]
+    # Done: the form unlocks by itself (no reload), the panel goes away, one toast.
+    assert s[3]["locked"] is False and s[3]["panel"] is True and s[3]["compose"] is False
+    assert result["toasts"] == 1
+    # Not capable: no install button, Compose disabled.
+    assert "can't run on this Mac" in s[4]["panelHtml"] and "primary" not in s[4]["panelHtml"]
+    assert s[4]["btnDisabled"] is True
 
 
 # ---- review fixes (2026-09-17) ------------------------------------------------
@@ -618,3 +659,201 @@ def test_fetch_clears_abandoned_temporaries_and_does_not_credit_them():
     src = (ROOT / "scripts/pinokio/music_fetch.py").read_text()
     assert 'stage.rglob("*.incomplete")' in src and "leftover.unlink()" in src
     assert "partial_bytes" not in src
+
+
+# ---- in-panel install (v4.14.1: "Compose is always in Audio") ------------------
+
+def _install_js_messages():
+    src = (ROOT / "install_music.js").read_text()
+    import re as _re
+    return [json.loads('"' + m + '"') for m in _re.findall(r'shell\.run", params: \{\s*message: "((?:[^"\\]|\\.)*)"', src)]
+
+
+def test_panel_install_runs_exactly_the_sidebar_steps():
+    assert [cmd for *_, cmd in P.MUSIC_INSTALL_STEPS] == _install_js_messages()
+    assert len(P.MUSIC_INSTALL_STEPS) == 6
+
+
+FAKE_GIT = '''#!/bin/sh
+case "$1" in
+  clone) dest=""; for a in "$@"; do dest="$a"; done; mkdir -p "$dest/.git"; printf "[project]\\nname='fake'\\n" > "$dest/pyproject.toml";;
+  rev-parse) cat "$FAKE_PIN_FILE";;
+  *) :;;
+esac
+'''
+FAKE_UV = '''#!/bin/sh
+if [ "$1" = venv ]; then
+  for a in "$@"; do d="$a"; done
+  mkdir -p "$d/bin"; printf '#!/bin/sh\\nexec "%s" "$@"\\n' "$FAKE_PY" > "$d/bin/python"; chmod +x "$d/bin/python"
+  echo "pyvenv fake" > "$d/pyvenv.cfg"
+fi
+echo "uv $1 ok"
+'''
+FAKE_DF = '''#!/bin/sh
+echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+echo "fake 999999999 1 ${FAKE_FREE_KB:-99999999} 1% /"
+'''
+# The mocked download: grows a staged file (progress), waits while a hold file
+# exists (so a test can Stop it mid-download), then "downloads" the fixture pack.
+FAKE_FETCH = '''import os, shutil, sys, time
+from pathlib import Path
+models = Path(os.environ["LTX_MUSIC_MODELS"])
+stage = models / ".staging"
+stage.mkdir(parents=True, exist_ok=True)
+if os.environ.get("FAKE_FETCH_FAIL"):
+    print("YuE2 pack: network unreachable", file=sys.stderr, flush=True)
+    sys.exit(1)
+part = stage / "ar-bf16.safetensors.incomplete"
+with part.open("ab") as f:
+    f.write(b"x" * 1_000_000)
+print("Fetch generator/ar-bf16.safetensors from vanch007/mlx-Yue2-3B", flush=True)
+hold = Path(os.environ["FAKE_FETCH_HOLD"])
+while hold.exists():
+    time.sleep(0.05)
+part.unlink()
+for sub in ("generator", "vae", "pack_source.json"):
+    src = Path(os.environ["FAKE_PACK_SRC"]) / sub
+    (shutil.copytree if src.is_dir() else shutil.copyfile)(src, models / sub)
+print("YuE2 pack verified.", flush=True)
+'''
+
+
+@pytest.fixture
+def install_env(pack, tmp_path, monkeypatch):
+    models, engine = pack
+    src = tmp_path / "pack-src"
+    models.rename(src)
+    app = tmp_path / "app"
+    (app / "scripts/pinokio").mkdir(parents=True)
+    (app / "scripts/music").mkdir(parents=True)
+    for name in ("music_preflight.sh", "music_clone.sh", "music_checkout.sh", "music_venv.sh", "music_sync.sh"):
+        shutil.copy(ROOT / "scripts/pinokio" / name, app / "scripts/pinokio" / name)
+    shutil.copy(ROOT / "scripts/music/engine_pin.txt", app / "scripts/music/engine_pin.txt")
+    (app / "scripts/pinokio/music_fetch.py").write_text(FAKE_FETCH)
+    fakebin = tmp_path / "bin"
+    fakebin.mkdir()
+    for name, body in (("git", FAKE_GIT), ("uv", FAKE_UV), ("df", FAKE_DF),
+                       ("sysctl", "#!/bin/sh\necho 68719476736\n")):
+        (fakebin / name).write_text(body)
+        (fakebin / name).chmod(0o755)
+    new_models, new_engine = tmp_path / "new-models", tmp_path / "new-engine"
+    hold = tmp_path / "hold"
+    monkeypatch.setattr(P, "ROOT", app)
+    monkeypatch.setattr(P, "MUSIC_ROOT", new_engine)
+    monkeypatch.setattr(P, "MUSIC_MODELS", new_models)
+    monkeypatch.setattr(P, "_PROC_GUARDS", {"music_install": (tmp_path / "mi.json", "scripts/pinokio/music_")})
+    monkeypatch.delenv("PINOKIO_HOME", raising=False)
+    for k, v in {"PATH": f"{fakebin}:/usr/bin:/bin:/usr/sbin:/sbin", "LTX_MUSIC_ROOT": str(new_engine),
+                 "LTX_MUSIC_MODELS": str(new_models), "FAKE_PY": sys.executable,
+                 "FAKE_PIN_FILE": str(app / "scripts/music/engine_pin.txt"),
+                 "FAKE_PACK_SRC": str(src), "FAKE_FETCH_HOLD": str(hold)}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(P, "MUSIC_INSTALL", {"state": "idle", "active": False})
+    monkeypatch.setattr(P, "push", lambda line: None)
+    P._MUSIC_INSTALL_BYTES.update(ts=0.0, bytes=0)
+    return SimpleNamespace(hold=hold, models=new_models, engine=new_engine, fakebin=fakebin)
+
+
+def _wait(pred, timeout=30.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if pred():
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_install_from_the_panel_end_to_end_with_stop_and_resume(install_env):
+    env = install_env
+    assert P.music_status()["available"] is False
+    env.hold.touch()
+    code, body = P.music_install_start()
+    assert code == 202 and body["started"]
+    # Second click while it runs is refused, not a second downloader.
+    assert P.music_install_start()[0] == 409
+    # The mocked download is running: progress, byte counter, orphan guard.
+    assert _wait(lambda: P.music_install_status().get("step_key") == "fetch"
+                 and "Fetch generator" in (P.music_install_status().get("last_line") or ""))
+    P._MUSIC_INSTALL_BYTES["ts"] = 0.0
+    s = P.music_install_status()
+    assert s["active"] and s["step_index"] == 5 and s["steps"] == 6
+    assert s["bytes_done"] >= 1_000_000 and s["bytes_total"] > 10e9
+    assert 20 <= s["percent"] <= 99
+    guard = json.loads((env.hold.parent / "mi.json").read_text())
+    assert "scripts/pinokio/music_" in P._pid_cmdline(guard["pid"])
+    # A song can't start mid-install.
+    job = P.make_job({"mode": "music", "music_style": "piano"})
+    with pytest.raises(P.RenderRefused) as refused:
+        P.run_music_job_inner(job)
+    assert "still installing" in str(refused.value)
+    # Stop: the group dies, the state says stopped, the staged bytes stay.
+    pgid = P.MUSIC_INSTALL["pgid"]
+    assert P.music_install_stop()
+    assert _wait(lambda: not P.MUSIC_INSTALL["active"])
+    assert P.MUSIC_INSTALL["state"] == "stopped" and P.MUSIC_INSTALL["error"] is None
+    assert _wait(lambda: not P._pid_alive(pgid), 10)
+    assert not (env.hold.parent / "mi.json").exists()
+    assert P.music_status()["available"] is False
+    assert (env.engine / ".venv/bin/python").is_file()
+    # Resume: same button, finishes, and Compose is available with no restart.
+    env.hold.unlink()
+    code, _ = P.music_install_start()
+    assert code == 202
+    assert _wait(lambda: not P.MUSIC_INSTALL["active"])
+    assert P.MUSIC_INSTALL["state"] == "done", P.MUSIC_INSTALL
+    st = P.music_status()
+    assert st["available"] and st["reason"] == "ok"
+    assert P.music_install_start() == (200, {"ok": True, "nothing_to_do": True})
+    assert not (env.models / ".staging/ar-bf16.safetensors.incomplete").exists()
+
+
+def test_install_failure_names_the_reason_and_can_retry(install_env, monkeypatch):
+    monkeypatch.setenv("FAKE_FREE_KB", "1000")
+    assert P.music_install_start()[0] == 202
+    assert _wait(lambda: not P.MUSIC_INSTALL["active"])
+    assert P.MUSIC_INSTALL["state"] == "failed"
+    assert "14 GB free" in P.MUSIC_INSTALL["error"] and "Install again" in P.MUSIC_INSTALL["error"]
+    monkeypatch.delenv("FAKE_FREE_KB")
+    monkeypatch.setenv("FAKE_FETCH_FAIL", "1")
+    assert P.music_install_start()[0] == 202
+    assert _wait(lambda: not P.MUSIC_INSTALL["active"])
+    assert P.MUSIC_INSTALL["state"] == "failed"
+    assert "network unreachable" in P.MUSIC_INSTALL["error"]
+    assert "Downloading the model" in P.MUSIC_INSTALL["error"]
+
+
+def test_install_env_finds_pinokio_tools_and_drops_the_ltx_venv(monkeypatch, tmp_path):
+    home = tmp_path / "pinokio"
+    (home / "bin/miniforge/bin").mkdir(parents=True)
+    app = home / "api/phosphene.git"
+    app.mkdir(parents=True)
+    monkeypatch.setattr(P, "ROOT", app)
+    monkeypatch.delenv("PINOKIO_HOME", raising=False)
+    monkeypatch.setenv("VIRTUAL_ENV", "/x/ltx-2-mlx/env")
+    monkeypatch.setenv("PYTHONPATH", "/somewhere")
+    monkeypatch.setenv("PATH", f"{Path(sys.prefix) / 'bin'}:/usr/bin:/bin")
+    monkeypatch.setenv("HF_HOME", "/hf/home")
+    env = P._music_install_env()
+    parts = env["PATH"].split(":")
+    assert parts[0] == str(home / "bin/miniforge/bin")
+    assert str(Path(sys.prefix) / "bin") not in parts and "/usr/bin" in parts
+    assert "VIRTUAL_ENV" not in env and "PYTHONPATH" not in env
+    assert env["HF_HOME"] == "/hf/home" and env["GIT_TERMINAL_PROMPT"] == "0"
+
+
+def test_install_refusals(pack, monkeypatch, http_server):
+    monkeypatch.setattr(P, "MUSIC_INSTALL", {"state": "idle", "active": False})
+    # Installed: nothing to do, through the real route.
+    code, _, body = http_server("POST", "/music/install", "kind=install",
+                                {"Content-Type": "application/x-www-form-urlencoded"})
+    assert code == 200 and json.loads(body)["nothing_to_do"]
+    code, _, body = http_server("POST", "/music/install/stop", "", {"Content-Type": "application/x-www-form-urlencoded"})
+    assert code == 404
+    code, _, body = http_server("GET", "/status")
+    assert json.loads(body)["music_install"]["state"] == "idle"
+    monkeypatch.setattr(P, "SYSTEM_RAM_GB", 16.0)
+    code, body = P.music_install_start()
+    assert code == 400 and "24 GB" in body["error"]
+    monkeypatch.setattr(P, "SYSTEM_RAM_GB", 64.0)
+    monkeypatch.setitem(P.STATE, "current", {"params": {"engine": "music"}})
+    assert P.music_install_start()[0] == 409

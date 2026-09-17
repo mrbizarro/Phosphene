@@ -12511,6 +12511,237 @@ def music_status() -> dict:
                           for q in MUSIC_QUALITY_STEPS}}
 
 
+# ---- In-panel music engine install -----------------------------------------
+# "It kicks in when you try to use it": Audio → Compose installs YuE2 from the
+# panel itself. The panel runs the SAME six steps as the Pinokio sidebar's
+# install_music.js — the same command strings, from the app folder, so the
+# sidebar entry and this button can never drift apart (test_music_install.py
+# compares the two lists). Every step is idempotent, so Install again after a
+# Stop, a failure or a panel restart resumes: the clone and venv are kept and
+# music_fetch.py keeps every weight whose sha256 already matches.
+#
+# Each step runs in its own process group (Stop = killpg, SIGKILL after 8 s)
+# and is registered with the orphan reaper, so a panel that dies mid-install
+# does not leave a second downloader racing the next one.
+MUSIC_INSTALL_STEPS = (
+    ("preflight", "Checking memory and disk space", 1,
+     'bash scripts/pinokio/music_preflight.sh'),
+    ("clone", "Downloading the engine code", 3,
+     'bash scripts/pinokio/music_clone.sh'),
+    ("checkout", "Pinning the engine version", 2,
+     'bash scripts/pinokio/music_checkout.sh "${LTX_MUSIC_ROOT:-$PWD/yue2-mlx}"'),
+    ("venv", "Setting up Python 3.12", 4,
+     'bash scripts/pinokio/music_venv.sh "${LTX_MUSIC_ROOT:-$PWD/yue2-mlx}"'),
+    ("sync", "Installing the engine's packages", 10,
+     'bash scripts/pinokio/music_sync.sh "${LTX_MUSIC_ROOT:-$PWD/yue2-mlx}"'),
+    ("fetch", "Downloading the model (~10.5 GB)", 80,
+     '"${LTX_MUSIC_ROOT:-$PWD/yue2-mlx}/.venv/bin/python" scripts/pinokio/music_fetch.py --min-free-gb 14'),
+)
+MUSIC_INSTALL_LOCK = threading.Lock()
+MUSIC_INSTALL: dict = {"state": "idle", "active": False}
+_MUSIC_INSTALL_STOP = threading.Event()
+_MUSIC_INSTALL_BYTES = {"ts": 0.0, "bytes": 0}
+
+
+def _music_install_env() -> dict:
+    """The child env: the panel's own (HF_HOME, SSL certs, LTX_MUSIC_* all
+    carry over, exactly as Pinokio's shell merges them) minus the LTX venv's
+    activation, plus Pinokio's own tool folders in front of PATH. A panel
+    started outside Pinokio's shell has no `uv` on PATH at all."""
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("VIRTUAL_ENV", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "__PYVENV_LAUNCHER__")}
+    home = (Path(os.environ["PINOKIO_HOME"]).expanduser() if os.environ.get("PINOKIO_HOME")
+            else ROOT.parent.parent if ROOT.parent.name == "api" else None)
+    pinokio_bins = [home / d for d in ("bin/miniforge/bin", "bin/miniconda/bin", "bin/homebrew/bin")] if home else []
+    fallbacks = [Path.home() / ".local/bin", Path.home() / ".cargo/bin",
+                 Path("/opt/homebrew/bin"), Path("/usr/local/bin")]
+    venv_bin = str(Path(sys.prefix) / "bin")
+    parts = [p for p in env.get("PATH", "").split(os.pathsep) if p and p != venv_bin]
+    front = [str(d) for d in pinokio_bins if d.is_dir()]
+    back = [str(d) for d in fallbacks if d.is_dir()]
+    env["PATH"] = os.pathsep.join(dict.fromkeys(front + parts + back))
+    env.update({"PYTHONUNBUFFERED": "1", "GIT_TERMINAL_PROMPT": "0", "HF_HUB_DISABLE_PROGRESS_BARS": "1"})
+    return env
+
+
+def _music_install_bytes() -> int:
+    """Bytes of the pack on disk, staged downloads included — the download's
+    progress without parsing anything. Throttled: /status polls every 1.5 s."""
+    now = time.time()
+    if now - _MUSIC_INSTALL_BYTES["ts"] < 1.0:
+        return _MUSIC_INSTALL_BYTES["bytes"]
+    total = 0
+    try:
+        for f in MUSIC_MODELS.rglob("*"):
+            try:
+                if f.is_file() and not f.is_symlink():
+                    total += f.stat().st_size
+            except OSError:
+                pass
+    except OSError:
+        pass
+    _MUSIC_INSTALL_BYTES.update(ts=now, bytes=total)
+    return total
+
+
+def music_install_status() -> dict:
+    from scripts.pinokio.music_fetch import PACK_BYTES
+    with MUSIC_INSTALL_LOCK:
+        s = {k: v for k, v in MUSIC_INSTALL.items() if k not in ("pgid", "log")}
+        s["log"] = list(MUSIC_INSTALL.get("log") or [])[-6:]
+    s["steps"] = len(MUSIC_INSTALL_STEPS)
+    if s.get("active") and s.get("step_key") == "fetch":
+        done = min(_music_install_bytes(), PACK_BYTES)
+        s["bytes_done"], s["bytes_total"] = done, PACK_BYTES
+        frac = done / PACK_BYTES
+    else:
+        frac = 0.0
+    if s.get("active"):
+        weights = [w for _, _, w, _ in MUSIC_INSTALL_STEPS]
+        idx = int(s.get("step_index") or 0)
+        pct = (sum(weights[:idx]) + weights[idx] * frac) * 100 / sum(weights)
+        s["percent"] = max(1, min(99, round(pct)))
+    return s
+
+
+def music_install_start(kind: str = "install") -> tuple[int, dict]:
+    """Start the background install. Returns (http_status, body)."""
+    if not music_capable():
+        return 400, {"error": f"YuE2 needs about {MUSIC_MIN_RAM_GB:.0f} GB of unified memory; "
+                              f"this Mac reports {SYSTEM_RAM_GB:.0f} GB. The rest of Phosphene is unaffected."}
+    cur = STATE.get("current") or {}
+    if STATE.get("music_pgid") or (cur.get("params") or {}).get("engine") == "music":
+        return 409, {"error": "A song is being written right now. Install or repair the music engine after it finishes."}
+    with MUSIC_INSTALL_LOCK:
+        if MUSIC_INSTALL.get("active"):
+            return 409, {"error": "The music engine is already installing.", "install": True}
+        if not music_paths()["missing"]:
+            return 200, {"ok": True, "nothing_to_do": True}
+        _MUSIC_INSTALL_STOP.clear()
+        MUSIC_INSTALL.clear()
+        MUSIC_INSTALL.update({"state": "running", "active": True, "kind": kind,
+                              "step_index": 0, "step_key": MUSIC_INSTALL_STEPS[0][0],
+                              "step_label": MUSIC_INSTALL_STEPS[0][1],
+                              "started_ts": time.time(), "finished_ts": None,
+                              "error": None, "pgid": None,
+                              "log": collections.deque(maxlen=60)})
+    threading.Thread(target=_music_install_thread, daemon=True, name="music-install").start()
+    push("[music-install] started from the panel (same steps as the Pinokio sidebar entry)")
+    return 202, {"ok": True, "started": True}
+
+
+def music_install_stop() -> bool:
+    with MUSIC_INSTALL_LOCK:
+        if not MUSIC_INSTALL.get("active"):
+            return False
+        _MUSIC_INSTALL_STOP.set()
+        MUSIC_INSTALL["state"] = "stopping"
+        pgid = MUSIC_INSTALL.get("pgid")
+    if pgid:
+        _music_install_kill(pgid)
+    return True
+
+
+def _music_install_kill(pgid: int, grace: float = 8.0) -> None:
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        return
+
+    def force():
+        deadline = time.time() + grace
+        while time.time() < deadline:
+            try:
+                os.killpg(pgid, 0)
+            except (OSError, ProcessLookupError):
+                return
+            time.sleep(0.2)
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except (OSError, ProcessLookupError):
+            pass
+    threading.Thread(target=force, daemon=True, name="stop-music-install").start()
+
+
+def _music_install_thread() -> None:
+    env = _music_install_env()
+    error = None
+    for idx, (key, label, _w, command) in enumerate(MUSIC_INSTALL_STEPS):
+        if _MUSIC_INSTALL_STOP.is_set():
+            break
+        with MUSIC_INSTALL_LOCK:
+            MUSIC_INSTALL.update(step_index=idx, step_key=key, step_label=label)
+            MUSIC_INSTALL["log"].append(f"— {label}")
+        push(f"[music-install] step {idx + 1}/{len(MUSIC_INSTALL_STEPS)}: {label}")
+        tail: list[str] = []
+        try:
+            proc = subprocess.Popen(["bash", "-c", command], cwd=str(ROOT), env=env,
+                                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True, bufsize=1,
+                                    errors="replace", start_new_session=True)
+        except OSError as e:
+            error = f"Could not start step '{label}': {e}"
+            break
+        with MUSIC_INSTALL_LOCK:
+            MUSIC_INSTALL["pgid"] = proc.pid
+            stop_now = _MUSIC_INSTALL_STOP.is_set()
+        _proc_guard_write("music_install", proc.pid, proc.pid, note=key)
+        if stop_now:
+            _music_install_kill(proc.pid)
+        try:
+            for raw in proc.stdout:
+                for line in raw.replace("\r", "\n").splitlines():
+                    line = line.rstrip()
+                    if not line:
+                        continue
+                    tail = (tail + [line])[-8:]
+                    with MUSIC_INSTALL_LOCK:
+                        MUSIC_INSTALL["log"].append(line[:300])
+                        MUSIC_INSTALL["last_line"] = line[:300]
+            rc = proc.wait()
+        finally:
+            with MUSIC_INSTALL_LOCK:
+                MUSIC_INSTALL["pgid"] = None
+            _proc_guard_clear("music_install")
+        if _MUSIC_INSTALL_STOP.is_set():
+            break
+        if rc != 0:
+            if key == "clone" or key == "sync" or key == "venv":
+                missing_tool = next((t for t in ("uv", "git") if shutil.which(t, path=env["PATH"]) is None), None)
+                if missing_tool:
+                    error = (f"'{missing_tool}' was not found, so the panel cannot run this step. "
+                             "Use “Install the music engine” in the Phosphene sidebar in Pinokio instead.")
+                    break
+            reason = next((l for l in reversed(tail) if not l.startswith(("+", "Traceback"))), "")
+            error = f"{label} failed (exit {rc})" + (f": {reason}" if reason else "") + \
+                    ". Click Install again to resume — nothing already downloaded is lost."
+            break
+    stopped = _MUSIC_INSTALL_STOP.is_set()
+    ok = not stopped and error is None and not music_paths()["missing"]
+    if not stopped and error is None and not ok:
+        error = "The install finished but the engine still reports: " + "; ".join(music_paths()["missing"][:3])
+    with MUSIC_INSTALL_LOCK:
+        MUSIC_INSTALL.update(active=False, finished_ts=time.time(), pgid=None,
+                             state="stopped" if stopped else "done" if ok else "failed",
+                             error=None if (stopped or ok) else error)
+    push("[music-install] " + ("stopped — Install again resumes where it left off" if stopped
+                               else "done — Audio → Compose is ready" if ok else f"failed: {error}"))
+
+
+def _stop_music_install_at_exit() -> None:
+    with MUSIC_INSTALL_LOCK:
+        pgid = MUSIC_INSTALL.get("pgid") if MUSIC_INSTALL.get("active") else None
+    if pgid:
+        _MUSIC_INSTALL_STOP.set()
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except (OSError, ProcessLookupError):
+            pass
+
+
+atexit.register(_stop_music_install_at_exit)
+
+
 def music_params(form: dict) -> dict:
     """Explicit allowlist shared by queue construction and dispatch/replays."""
     def value(key, default=""):
@@ -12636,11 +12867,13 @@ def run_music_job_inner(job: dict) -> None:
     paths = music_paths()
     if not music_capable():
         raise RenderRefused("music_ram", f"YuE2 needs about {MUSIC_MIN_RAM_GB:.0f} GB of unified memory; this Mac reports {SYSTEM_RAM_GB:.0f} GB. The rest of Phosphene is unaffected.")
+    if MUSIC_INSTALL.get("active"):
+        raise RenderRefused("music_installing", "The music engine is still installing. Compose again when the install finishes.")
     if paths["missing"]:
         missing = "; ".join(paths["missing"])
         if paths["repairable"]:
-            raise RuntimeError(f"The YuE2 weights are on disk but the engine needs repair — missing: {missing}. Click 'Repair the music engine' in the Phosphene sidebar in Pinokio — it is idempotent and skips every weight already on disk, so this is a couple of minutes, NOT an 11 GB download.")
-        raise RuntimeError(f"The music engine isn't installed — missing: {missing}. Click 'Install the music engine' in the Phosphene sidebar in Pinokio (~11 GB, resumable).")
+            raise RuntimeError(f"The YuE2 weights are on disk but the engine needs repair — missing: {missing}. Open Audio → Compose and click 'Repair music engine' (or use the Phosphene sidebar in Pinokio) — it is idempotent and skips every weight already on disk, so this is a couple of minutes, NOT an 11 GB download.")
+        raise RuntimeError(f"The music engine isn't installed — missing: {missing}. Open Audio → Compose and click 'Install music engine' (or use the Phosphene sidebar in Pinokio) — ~11 GB, resumable.")
     if not p["music_style"] and not p["music_lyrics"] and not p["music_instrumental"]:
         raise RenderRefused("music_input", "Give it something to work with — lyrics, a style description, or both.")
     held = _music_external_gpu_lock()
@@ -16399,6 +16632,7 @@ def _kill_h3_proc() -> None:
 _PROC_GUARDS: dict[str, tuple[Path, str]] = {
     "h3": (STATE_DIR / "h3_running.json", "generate_staged"),
     "music": (STATE_DIR / "music_running.json", "yue2_run.py"),
+    "music_install": (STATE_DIR / "music_install_running.json", "scripts/pinokio/music_"),
     "helper": (STATE_DIR / "helper_running.json", "mlx_warm_helper"),
 }
 
@@ -25035,6 +25269,50 @@ def _h3_clip_is_complete(path: Path, started_at: float,
         return False
 
 
+def _h3_runner_error_message(metrics_path: Path) -> str | None:
+    """The runner's own readable failure, when it wrote one.
+
+    Runners with the integrity guard (2026-09-17) record `error_message` for
+    a render they refused to save — NaN/inf latents or a flat decode — so the
+    job shows that sentence instead of a traceback's last line."""
+    try:
+        data = json.loads(Path(metrics_path).read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError, TypeError):
+        return None
+    if data.get("status") != "error":
+        return None
+    msg = str(data.get("error_message") or "").strip()
+    return msg or None
+
+
+#: A clip whose luma never moves more than this many code values, first frame
+#: to last, is not a render — it is what NaN latents decode to.
+H3_BLANK_LUMA_SPREAD = 2
+
+
+def _h3_clip_is_blank(path: Path) -> bool:
+    """True when every frame of `path` is one flat colour.
+
+    The safety net for runners without the integrity guard: j-1a0b02ef0b0-002
+    (an F16 user LoRA overflowing inside the runtime adapter) delivered 124
+    frames of luma 16.0 and was reported done. Decodes a 64x36 grey thumbnail
+    stream — a fraction of a second for a 5 s clip. Unknown = not blank: an
+    unreadable file is `_h3_clip_is_complete`'s question, not this one."""
+    if not Path(str(FFMPEG)).is_file() and not shutil.which(str(FFMPEG)):
+        return False
+    try:
+        out = subprocess.run(
+            [str(FFMPEG), "-v", "error", "-i", str(path), "-an",
+             "-vf", "scale=64:36,format=gray", "-f", "rawvideo", "-"],
+            capture_output=True, timeout=60)
+    except Exception:                                       # noqa: BLE001
+        return False
+    if out.returncode != 0 or not out.stdout:
+        return False
+    data = out.stdout
+    return (max(data) - min(data)) <= H3_BLANK_LUMA_SPREAD
+
+
 # UPSCALE & FACE FIX — the user-facing name of the Upscale ×2 lane (owner,
 # 2026-09-17: "this thing we ship that fixes the faces has the wrong name").
 # Only the words changed: the mode is still `upscale`, the form keys are still
@@ -26086,6 +26364,11 @@ def run_h3_job_inner(job: dict) -> None:
                  f"keeping the file.")
             rc = 0
         if rc != 0:
+            _runner_msg = _h3_runner_error_message(metrics_path)
+            if _runner_msg:
+                # The runner refused a broken render and said why (NaN/inf
+                # latents, blank decode) — that sentence IS the diagnosis.
+                raise RuntimeError(_runner_msg)
             # Negative rc means the child died on a signal, and NAMING it is
             # the whole diagnosis: a jetsam kill during joint denoise (issue
             # #67 — the log just stops at "== w1_joint_denoise ==") used to
@@ -26141,6 +26424,22 @@ def run_h3_job_inner(job: dict) -> None:
     if not out_path.is_file():
         raise RuntimeError(
             f"H3 finished but no file landed at {out_path} — check the log.")
+    if _h3_clip_is_blank(out_path):
+        # Never report a flat black clip as done (older runners have no
+        # integrity guard). The file is kept, only hidden from the gallery.
+        try:
+            set_hidden(str(out_path), True)
+        except Exception:                                   # noqa: BLE001
+            pass
+        _loras = ", ".join(f"{Path(str(_pp)).name} @ {_ps:g}"
+                           for _pp, _ps in (user_lora_stack or []))
+        raise RuntimeError(
+            "H3 render failed: every frame came out one flat colour (black), "
+            "which is what broken latents decode to — usually a LoRA adapter "
+            "overflowing"
+            + (f" ({_loras}). Try again without it, or update the H3 runner."
+               if _loras else ". Please report it with the log.")
+            + f" (clip hidden: {out_path.name})")
 
     # ---- export pass: the SAME post-process an LTX render gets ------------
     # Most tiers write 768×448 (12:7), which is neither 720p nor 1080p and looks
@@ -32735,6 +33034,7 @@ def page(theme: str = "") -> str:
         # switcher knowing anything about H3 in particular.
         "h3": h3_status(),
         "music": music_status(),
+        "music_install": music_install_status(),
         # LTX's own (quality × length) table, in the SAME shape as `h3` above so
         # the two strips are rendered by one generalised function rather than
         # two that drift. Every LTX estimate the page prints is a lookup into

@@ -19,7 +19,7 @@
 
 </p>
 
-> **Current release: v4.14.0.** **Songs, faces and sound**: **Audio → Compose** writes whole songs with vocals from your lyrics and a style (YuE2 by Multimodal Art Projection, MLX port by vanch007; about real time on an M4 Max, 11 GB). **Upscale & Face Fix** sharpens faces and doubles the size of any clip in one click, from the player, Outputs, the queue or the Editor. The Editor gets **sound tracks**: A3, A4 and more, a Sound pool, and clip sound on two lanes so neighbouring shots can crossfade. Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
+> **Current release: v4.14.1.** **Compose is always in Audio**: install YuE2 from right there with one click (no more hunting in the Pinokio sidebar), and H3 renders that some community LoRAs turned black now work or fail with a clear message. **v4.14.0 — Songs, faces and sound**: **Audio → Compose** writes whole songs with vocals from your lyrics and a style (YuE2 by Multimodal Art Projection, MLX port by vanch007; about real time on an M4 Max, 11 GB). **Upscale & Face Fix** sharpens faces and doubles the size of any clip in one click, from the player, Outputs, the queue or the Editor. The Editor gets **sound tracks**: A3, A4 and more, a Sound pool, and clip sound on two lanes so neighbouring shots can crossfade. Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
 
 ## Overview
 
@@ -41,7 +41,7 @@ LTX, Hailuo H3 and YuE2 are peers with their own jobs and install sizes:
 | **Hailuo H3** | Video with dialogue and sound | ~75 GB; Q8 DiT adds ~22 GB | 36 GB+ with the Q8 DiT; 60 GB+ for full bf16 |
 | **YuE2** | Audio → Compose: vocals and arrangement from lyrics and a style | ~11 GB | 24 GB or more |
 
-YuE2 arrives through **Install the music engine** in the Pinokio sidebar.
+YuE2 installs from inside the panel: open **Audio → Compose** and click **Install music engine (YuE2, ~11 GB)** (the Pinokio sidebar entry **Install the music engine** does the same).
 Compose offers section-tagged lyrics, a prose style, an Instrumental pill,
 three score modes, Draft/Final quality and a maximum length. Songs appear as
 48 kHz stereo WAVs in the gallery; **Drive video** loads a song into the video

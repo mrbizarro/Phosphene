@@ -211,6 +211,7 @@ def get_status(h, parsed) -> None:
     # exactly like the Q8 download already does.
     payload["h3"] = P.h3_status()
     payload["music"] = P.music_status()
+    payload["music_install"] = P.music_install_status()
     payload["train_profile"] = P.TRAIN_PROFILE
     payload["train_presets"] = P.TRAIN_PRESETS
     payload["train_style_presets"] = P.TRAIN_STYLE_PRESETS

@@ -3063,6 +3063,7 @@
         <button type="button" class="mode-chip pill-btn" data-audio-mode="drive" onclick="audioModeSet('drive')">Drive video<span class="mc-sub sub">use a track you have</span></button>
       </div>
       <div id="musicComposePane" hidden>
+        <div class="composer-card music-install-panel" id="musicInstallPanel" role="status" hidden></div>
         <div class="composer-card">
           <label for="musicLyrics">Lyrics</label>
           <textarea id="musicLyrics" class="composer-prompt" rows="8" placeholder="[Verse]
@@ -5053,19 +5054,23 @@ The last line"></textarea>
   </div>
 </div>
 
+<!-- ============== MUSIC ENGINE (YuE2) INSTALL CARD ============== -->
+<!-- Opened by Compose before the engine exists, by the YuE2 row of the header
+     engine picker and by Settings → Models. The install runs from the panel
+     (the same steps as the Pinokio sidebar entry); see musicInstallRender. -->
+<div id="musicInstallModal" class="models-modal" role="dialog" aria-modal="true" aria-labelledby="musicInstallTitle" hidden onclick="if(event.target===this)closeMusicInstallCard()">
+  <div class="models-card">
+    <div class="models-head"><h2 id="musicInstallTitle">YuE2 · music engine</h2><button type="button" class="ghost-btn" onclick="closeMusicInstallCard()">Close</button></div>
+    <div id="musicInstallBody" class="music-install-body"></div>
+    <p class="hint">YuE2 license (CC BY-NC 4.0 + creator permission): individual creators may monetize their songs; companies need a license for the weights.</p>
+  </div>
+</div>
 <!-- ============== HAILUO H3 INSTALL CARD ============== -->
 <!-- Opened by clicking the H3 engine pill when the pack isn't installed, and
      by the H3 row in the Models modal. H3 installs through Pinokio (clone +
      venv + ~75 GB of weights), not through the panel's `hf download` path, so
      this card explains the one sidebar click — the same shape the Sharp and
      image-engine optional packs already use. -->
-<div id="musicInstallModal" class="models-modal" role="dialog" aria-modal="true" aria-labelledby="musicInstallTitle" hidden onclick="if(event.target===this)closeMusicInstallCard()">
-  <div class="models-card">
-    <div class="models-head"><h2 id="musicInstallTitle">YuE2 · music engine</h2><button type="button" onclick="closeMusicInstallCard()" aria-label="Close">×</button></div>
-    <p id="musicInstallBody"></p>
-    <p class="hint">YuE2 license (CC BY-NC 4.0 + creator permission): individual creators may monetize their songs; companies need a license for the weights.</p>
-  </div>
-</div>
 <div id="h3InstallModal" class="models-modal" style="display:none"
      role="dialog" aria-modal="true" aria-labelledby="h3InstallTitle"
      onclick="if(event.target===this) closeH3InstallCard()">

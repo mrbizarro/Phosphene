@@ -22,20 +22,37 @@ let audioModeChoice = null;
 let musicBusy = false;
 
 function musicComposeActive() {
-  return document.body.dataset.workflow === 'audio' && audioModeChoice === 'compose'
-    && !!window._ENGINE_PROBES.music.available;
+  // Compose is ALWAYS a real surface now — installed or not. Not installed, it
+  // is the place the install lives ("it kicks in when you try to use it").
+  return document.body.dataset.workflow === 'audio' && audioModeChoice === 'compose';
 }
 function musicInit() {
   try { audioModeChoice = localStorage.getItem('phos_audio_mode'); } catch (_) {}
   if (!['compose', 'drive'].includes(audioModeChoice)) audioModeChoice = null;
-  updateMusicAvailability({ music: BOOT.music });
+  updateMusicAvailability({ music: BOOT.music, music_install: BOOT.music_install });
 }
+// The install task's last snapshot (/status.music_install), and whether this
+// tab watched it run — "done" only earns a toast when we saw it happen.
+let musicInstall = { state: 'idle', active: false };
+let musicInstallSeenActive = false;
 function updateMusicAvailability(s) {
   if (s && s.music) window._ENGINE_PROBES.music = s.music;
-  const ready = !!window._ENGINE_PROBES.music.available;
-  if (audioModeChoice == null && ready) audioModeChoice = 'compose';
-  const compose = ready && audioModeChoice === 'compose';
-  document.getElementById('audioModeGroup').hidden = !ready;
+  if (s && s.music_install) {
+    const was = musicInstallSeenActive;
+    musicInstall = s.music_install;
+    if (musicInstall.active) musicInstallSeenActive = true;
+    else if (was) {
+      musicInstallSeenActive = false;
+      if (musicInstall.state === 'done' && typeof phosToast === 'function') {
+        phosToast('Music engine installed — Compose is ready.', { kind: 'success' });
+      }
+    }
+  }
+  const music = window._ENGINE_PROBES.music;
+  const ready = !!music.available;
+  if (audioModeChoice == null) audioModeChoice = ready ? 'compose' : 'drive';
+  const compose = audioModeChoice === 'compose';
+  document.getElementById('audioModeGroup').hidden = false;
   document.getElementById('musicComposePane').hidden = !compose;
   document.getElementById('audioDrivePane').hidden = compose;
   document.querySelectorAll('#audioModeGroup [data-audio-mode]').forEach(b => {
@@ -43,6 +60,17 @@ function updateMusicAvailability(s) {
     b.classList.toggle('active', active);
     b.setAttribute('aria-pressed', String(active));
   });
+  // Not installed: the form stays visible (so you can see what you are
+  // installing) but greyed, and the install panel sits on top of it.
+  const pane = document.getElementById('musicComposePane');
+  if (pane) pane.classList.toggle('music-locked', !ready);
+  const panel = document.getElementById('musicInstallPanel');
+  if (panel) {
+    panel.hidden = ready && !musicInstall.active;
+    if (!panel.hidden) musicInstallRender(panel, 'inline');
+  }
+  const modal = document.getElementById('musicInstallModal');
+  if (modal && !modal.hidden) musicInstallRender(document.getElementById('musicInstallBody'), 'modal');
   musicFormChanged();
   if (document.body.dataset.workflow === 'audio') renderEngineSwitch();
 }
@@ -72,7 +100,11 @@ function musicFormChanged() {
   const estimate = ((music.estimates || {})[quality] || {})[String(seconds)];
   document.getElementById('musicEstimate').textContent = estimate
     ? `≈ ${estimate.eta} at full length · estimate` : '';
-  document.getElementById('musicGenBtn').disabled = musicBusy || !music.available || !music.capable;
+  const btn = document.getElementById('musicGenBtn');
+  btn.disabled = musicBusy || !music.capable;
+  btn.title = music.available ? '' : (music.capable
+    ? 'The music engine is not installed yet — click to install it'
+    : `YuE2 needs ${music.min_ram_gb} GB of unified memory`);
 }
 function musicFormParams() {
   const instrumental = document.getElementById('musicInstrumental').checked;
@@ -89,6 +121,8 @@ function musicFormParams() {
 }
 async function musicGenerate() {
   if (musicBusy) return;
+  // Pressing Compose before the engine exists IS the request to install it.
+  if (!window._ENGINE_PROBES.music.available) { openMusicInstallCard(); return; }
   const fd = musicFormParams();
   const status = document.getElementById('musicStatus');
   if (!fd.get('music_style').trim() && !fd.get('music_lyrics').trim() && fd.get('music_instrumental') !== 'on') {
@@ -122,12 +156,65 @@ function useTrackInA2V(path) {
   audioStudioRenderSlots();
   phosToast('Track loaded — add a prompt and generate.');
 }
+// One renderer, two places: the panel on top of Compose and the modal card
+// (opened by Compose, the header engine picker and Settings → Models).
+function musicInstallRender(el, where) {
+  if (!el) return;
+  const music = window._ENGINE_PROBES.music || {};
+  const inst = musicInstall || {};
+  const size = 'YuE2, ~11 GB';
+  let html;
+  if (!music.capable) {
+    html = `<p class="mi-lead">YuE2 needs about ${escapeHtml(String(music.min_ram_gb || 24))} GB of unified memory, so it can't run on this Mac. The rest of Phosphene is unaffected.</p>`;
+  } else if (inst.active) {
+    const pct = inst.percent || 1;
+    const step = `Step ${(inst.step_index || 0) + 1} of ${inst.steps || 6} · ${escapeHtml(inst.step_label || '')}`;
+    const bytes = inst.bytes_total
+      ? ` · ${(inst.bytes_done / 1e9).toFixed(1)} of ${(inst.bytes_total / 1e9).toFixed(1)} GB` : '';
+    html = `<p class="mi-lead"><b>${inst.state === 'stopping' ? 'Stopping…' : 'Installing the music engine…'}</b> ${pct}%</p>
+      <div class="progress-bar"><div class="fill" style="width:${pct}%"></div></div>
+      <p class="mi-sub">${step}${bytes}</p>
+      <p class="mi-line">${escapeHtml(inst.last_line || '')}</p>
+      <div class="mi-actions"><button type="button" class="danger" onclick="musicInstallStop()" ${inst.state === 'stopping' ? 'disabled' : ''}>Stop</button>
+      <span class="mi-note">You can keep using Phosphene. Compose unlocks by itself when it finishes.</span></div>`;
+  } else if (music.available) {
+    html = `<p class="mi-lead"><b>The music engine is installed.</b> Write lyrics and a style, then press Compose.</p>
+      ${where === 'modal' ? '<div class="mi-actions"><button type="button" class="primary" onclick="closeMusicInstallCard();audioModeSet(\'compose\');workflowSwitch(\'audio\')">Start composing</button></div>' : ''}`;
+  } else {
+    const repair = !!music.repairable;
+    const failed = inst.state === 'failed' && inst.error;
+    const stopped = inst.state === 'stopped';
+    const label = repair ? 'Repair music engine (weights kept)' : `Install music engine (${size})`;
+    const lead = repair
+      ? 'The YuE2 weights are on disk but the engine needs repair. This takes a couple of minutes and re-downloads nothing.'
+      : 'Compose writes a whole song — vocals and arrangement — from your lyrics and a style. It needs the YuE2 music engine: a one-time ~11 GB download that resumes if interrupted.';
+    html = `<p class="mi-lead">${lead}</p>
+      ${failed ? `<p class="mi-error">${escapeHtml(inst.error)}</p>` : ''}
+      ${stopped ? '<p class="mi-sub">Install stopped. Click again to resume where it left off.</p>' : ''}
+      <div class="mi-actions"><button type="button" class="primary" onclick="musicInstallStart(${repair ? "'repair'" : ''})">${escapeHtml(failed || stopped ? (repair ? 'Try the repair again' : 'Resume install (YuE2, ~11 GB)') : label)}</button></div>
+      <p class="mi-note">Needs ${escapeHtml(String(music.min_ram_gb || 24))} GB unified memory and 14 GB free disk. Also available from the Phosphene sidebar in Pinokio.</p>`;
+  }
+  el.innerHTML = html;
+}
+async function musicInstallStart(kind) {
+  const fd = new URLSearchParams({ kind: kind === 'repair' ? 'repair' : 'install' });
+  try {
+    const r = await fetch('/music/install', { method: 'POST', body: fd });
+    const result = await r.json().catch(() => ({}));
+    if (!r.ok && !result.install) throw new Error(result.error || 'Could not start the install');
+    if (result.started || result.install) musicInstall = { ...musicInstall, active: true, state: 'running', percent: 1, step_index: 0 };
+  } catch (e) {
+    musicInstall = { state: 'failed', active: false, error: e.message || String(e) };
+  }
+  updateMusicAvailability();
+  if (typeof poll === 'function') poll();
+}
+async function musicInstallStop() {
+  try { await fetch('/music/install/stop', { method: 'POST' }); } catch (_) {}
+  if (typeof poll === 'function') poll();
+}
 function openMusicInstallCard() {
-  const music = window._ENGINE_PROBES.music;
-  const body = document.getElementById('musicInstallBody');
-  body.textContent = music.repairable
-    ? 'The YuE2 weights are on disk but the engine needs repair. Click “Repair the music engine (weights kept — no re-download)” in the Phosphene sidebar in Pinokio. It skips every intact weight.'
-    : `Click “Install the music engine (YuE2, ~11 GB)” in the Phosphene sidebar in Pinokio. Needs ${music.min_ram_gb} GB unified memory. The download resumes if interrupted. Compose appears in Audio when it is ready.`;
+  musicInstallRender(document.getElementById('musicInstallBody'), 'modal');
   document.getElementById('musicInstallModal').hidden = false;
 }
 function closeMusicInstallCard() {
@@ -2979,6 +3066,7 @@ document.querySelectorAll('#extendModeGroup .pill-btn').forEach(b => b.onclick =
 Object.assign(globalThis, {
   musicComposeActive, musicInit, updateMusicAvailability, audioModeSet, musicPick, musicFormChanged,
   musicFormParams, musicGenerate, useTrackInA2V, openMusicInstallCard, closeMusicInstallCard,
+  musicInstallRender, musicInstallStart, musicInstallStop,
   windowPromptsInput,
   audioStudioInit, audioStudioDurationChanged, audioStudioEnhancePrompt, audioStudioGenerate,
   trainRecommendedPreset, trainUpdatePresetButtons, trainUpdatePresetNote, downloadSampleCharacter,

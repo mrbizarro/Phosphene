@@ -1,5 +1,25 @@
 # Phosphene — project state, history, open work
 
+> **🎶 2026-09-17 — v4.14.1 released (public, tag `v4.14.1`): "Compose is always in Audio; H3 black renders fixed".**
+> Pinokio's author looked for YuE2 for an hour: Compose only appeared after a sidebar install. Owner: "do as the peanut says and ship".
+> **Music:** Audio always offers Compose. Not installed → greyed form + one button "Install music engine (YuE2, ~11 GB)"; Compose,
+> the header picker (YuE2 · 11 GB) and Settings → Models open the same card. `POST /music/install` runs `MUSIC_INSTALL_STEPS`
+> (= install_music.js's six commands, test-enforced) in the background; `/status.music_install` (step, percent, bytes, last line);
+> `POST /music/install/stop` (killpg, SIGKILL after 8 s); Install again resumes; orphan guard `music_install_running.json`;
+> no install during a song and vice versa; Pinokio's `bin/miniforge|miniconda|homebrew/bin` prepended (a manually started panel has
+> no uv). hf_xet writes whole files, so the byte counter moves per file. Dev commit `ee5827b`. Also: stray `=======` in panel.css.
+> **H3 black renders:** dev `39b828d` cherry-picked (panel fails a flat-colour clip, shows the runner's `error_message`); runner
+> `codex/h3-engine-v2` pushed 11b90a0 → `d39879b` (F16 adapters → bf16, NaN/flat guard; also carries 6bbed80/ccf532b, optional
+> `--sigma-subset`/`--vae-dtype`, defaults unchanged, unused by this panel — the Fast switch stays unreleased). Runner tests on CPU:
+> unittest 25 OK, test_sigma_subset 4 passed, mux frame count PASS; test_video_vae_smoke has 4 tiled FAILs that 11b90a0 shows
+> identically on CPU (pre-existing, not this change).
+> **Release:** cherry-pick of the two dev commits + VERSION/README on `fbc777c` (no Fast switch, room tone, Editor round 2 or
+> Face Fix placement). Gates `release_gates.sh --fast` 99 PASS / 0 FAIL / 2 SKIP (--fast), MLX on CPU. **Clean room:** fresh clone
+> in `<home>/api/phosphene.git` + install's LTX steps, no music engine, empty HF_HOME, PATH without uv, booted :8441 → 4.14.1
+> not dirty, music `not_installed`; Compose → card → Install ran clone, pin `9253ed1`, venv (3.12.13, mlx 0.32.2), frozen sync
+> and started the weight download; Stop left no process or guard. Not run: a full 10.5 GB download, any render, Codex (owner).
+> **Local dev checkout (8199's) is behind beta** by `ee5827b` + the merge — ff it at the next panel restart (new JS needs the new routes).
+
 > **🎵 2026-09-17 — v4.14.0 released (public, tag `v4.14.0`): "Songs, faces and sound".**
 > Owner's order: "Let's make a release because I think there are too many things to release at the moment." No further
 > Codex round for this release (owner). Ships everything on dev: **Audio → Compose (YuE2)**, **Upscale & Face Fix** (renamed

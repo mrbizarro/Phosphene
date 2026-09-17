@@ -2,9 +2,39 @@
 
 YuE2 by Multimodal Art Projection writes vocals and an arrangement together
 from lyrics and a style description. It sits beside LTX and Hailuo H3 as a
-peer engine. Install **the music engine (YuE2, ~11 GB)** from the Phosphene
-sidebar in Pinokio, then open **Audio → Compose**. Without its pack, Audio
-keeps its existing Drive video surface; Settings → Models offers the install.
+peer engine. Open **Audio → Compose**: Compose is always there. Until the
+engine is installed the form is greyed and one button, **Install music engine
+(YuE2, ~11 GB)**, installs it from the panel; pressing **Compose** does the
+same. The sidebar entry **Install the music engine** in Pinokio still works and
+runs the same steps. Settings → Models and the header engine picker (YuE2 ·
+11 GB) open the same install card.
+
+## Installing from the panel
+
+`POST /music/install` (`kind=install|repair`) starts a background task that
+runs `MUSIC_INSTALL_STEPS` in `mlx_ltx_panel.py`: the six `shell.run` commands
+of `install_music.js`, character for character, from the app folder
+(`test_music_engine.py` compares the two lists). Progress rides
+`/status.music_install` (`state` idle/running/stopping/done/failed/stopped,
+`step_index`, `step_label`, `percent`, `bytes_done`/`bytes_total` while the
+weights download, `last_line`, a short `log`). The byte counter reads the pack
+folder, so with hf_xet it moves as each large file lands.
+
+- **Environment:** the panel's own (HF_HOME, SSL certs, `LTX_MUSIC_*`) minus
+  the LTX venv activation, with Pinokio's `bin/miniforge/bin`,
+  `bin/miniconda/bin` and `bin/homebrew/bin` in front of PATH — a panel started
+  outside Pinokio's shell has no `uv` otherwise.
+- **Stop** (`POST /music/install/stop`) SIGTERMs the step's process group and
+  SIGKILLs it after 8 s. **Install again resumes**: the clone and venv are kept
+  and `music_fetch.py` keeps every file whose sha256 matches.
+- **Guards:** one install at a time (409); refused while a song is being
+  written; a song is refused while the install runs; each step is registered
+  with the orphan reaper (`state/music_install_running.json`), and the panel
+  stops the install when it exits.
+- **Disk:** `music_preflight.sh` (14 GB free) and `music_fetch.py` (space for
+  the missing bytes) refuse with a sentence the card shows verbatim.
+- Nothing restarts: `/status.music` flips to available and Compose unlocks on
+  the next poll.
 
 ## Memory, length and estimates
 

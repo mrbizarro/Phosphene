@@ -10643,7 +10643,24 @@ body[data-workflow="oneshot"] #audioSectionTab { display: none !important; }
 .music-card-note { position: absolute; inset: auto 0 22%; text-align: center; font-size: 40px; color: var(--muted); }
 .car-thumb-wrap:has(.music-card-player) { display: flex; align-items: flex-start; padding-top: 8px; }
 .music-info-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-=======
+/* Compose before the engine exists: the form stays readable but inert, and the
+   install panel on top carries the one action. The Compose button stays live —
+   pressing it opens the install card. */
+#musicInstallPanel[hidden] { display: none !important; }
+.music-install-panel { padding: 14px 16px; border-color: rgba(177,74,255,0.42); }
+#musicComposePane.music-locked > .composer-card:not(.music-install-panel),
+#musicComposePane.music-locked > .quick-settings,
+#musicComposePane.music-locked .queue-strip { opacity: .45; pointer-events: none; user-select: none; }
+.music-install-body, .music-install-panel { line-height: 1.5; }
+.music-install-body .mi-lead, .music-install-panel .mi-lead { margin: 0 0 10px; }
+.mi-sub, .mi-note { margin: 6px 0 0; color: var(--muted); font-size: var(--fs-sm, 12px); }
+.mi-line { margin: 4px 0 0; color: var(--muted); font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mi-error { margin: 0 0 10px; color: var(--danger, #ff6b6b); overflow-wrap: anywhere; }
+.mi-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+.mi-actions .mi-note { margin: 0; }
+.mi-actions .danger { width: auto; flex: 0 0 auto; padding-left: 18px; padding-right: 18px; }
+.mi-actions .mi-note { flex: 1 1 200px; }
     /* After-the-draft Upscale & Face Fix (H3 Customize → Upscale). A checkbox
        under the size pills: it is an extra job, not a size. While it is on,
        the draft ships as rendered, so the size pills step back. */
