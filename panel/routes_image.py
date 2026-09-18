@@ -429,6 +429,18 @@ def post_h3_turbo_install(h, path, qs, ctype) -> None:
     h._json(result, 202)
 
 
+# ====== Hailuo H3 Draft · fast 3-step — fetch TaoMate's 3-step adapter
+# (Kijai's 182 MB conversion, pinned revision + sha256, resumable).
+@post("/h3/tristep/install")
+def post_h3_tristep_install(h, path, qs, ctype) -> None:
+    P.h3_status_invalidate()
+    result = P._h3_install_tristep(P.push)
+    if not result.get("ok"):
+        h._json(result, 409 if "active" in result.get("error", "") else 400)
+        return
+    h._json(result, 202)
+
+
 # Image-engine config (pluggable: mock | bfl).
 @post("/agent/image/config")
 def post_agent_image_config(h, path, qs, ctype) -> None:

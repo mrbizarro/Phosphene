@@ -330,7 +330,11 @@ class TestH3LoraFileImport(unittest.TestCase):
                  + "\n" + (ROOT / "webapp" / "index.html").read_text(encoding="utf-8"))
         for _m in sorted((ROOT / "webapp" / "js").glob("*.js")):
             panel += "\n" + _m.read_text(encoding="utf-8")
-        self.assertIn("Import H3 LoRA", panel)
+        # The label itself is "Import" now (four buttons share one header row
+        # and the long labels wrapped it onto three lines); the control is
+        # identified by its id and the phrase lives in its tooltip.
+        self.assertIn("Import H3 LoRA", panel)          # tooltip
+        self.assertIn('id="h3LoraImportBtn"', panel)    # the control
         self.assertIn("/h3/loras/import", panel)
 
 

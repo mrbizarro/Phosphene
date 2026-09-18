@@ -124,10 +124,6 @@ function sbeTlRoof(small) {
 // remembered preference and the layout gate all stand on these.
 globalThis.SBE_TL_MIN_H = sbeTlFloor(false);
 globalThis.SBE_TL_MAX_H = sbeTlRoof(false);
-// How long the sound lanes wait, with nothing happening on sound, before they
-// make themselves small. Long enough that clicking off a strip to look at the
-// picture is not a flicker; short enough that it reads as the app noticing.
-const SBE_ASMALL_IDLE = 2400;
 // How far one arrow key moves the edge, and one arrow key with Shift.
 const SBE_TL_STEP = 12;
 const SBE_TL_STEP_BIG = 40;
@@ -288,12 +284,11 @@ window.SBE = {
   // the shot. `tgSliding` holds the heads still while a level slider moves.
   tracks: [], tsSet: [], tsDrag: null, tsDrop: null, selLane: '',
   tgBefore: null, tgSliding: false, tsGainBefore: null,
-  // THE SOUND AREA'S SIZE. `aPin` is this browser's own answer ('auto' — thin
-  // until you touch sound — or 'open' / 'small' pinned); `aSmall` is what is on
-  // screen; `aTouch` when sound was last worked on; `aHover` whether the pointer
-  // is on a lane or a head; `aTimer` the idle that makes them small and `aAnim`
-  // the brief transition. See sbeAudioPinRead.
-  aPin: sbeAudioPinRead(), aSmall: false, aTouch: 0, aHover: false,
+  // THE SPLIT AND THE PANELS, this browser's own: `mode` is 'picture' or
+  // 'sound' (see sbeSoundModeSet), `inspect` whether the rail is open, `srcOn`
+  // whether the Source monitor is on screen (ON unless this browser hid it —
+  // round 2: "the preview clip … is actually necessary").
+  mode: sbeModeRead(), inspect: sbeInspectRead(), srcOn: sbeSrcRead(),
   aTimer: null, aAnim: null,
 };
 
@@ -3302,26 +3297,37 @@ function sbeMonitorFit(width, budget, opts) {
   const maxR = sbeNum(o.maxRatio, SBE_MON_RATIO_MAX);
   const railMin = sbeNum(o.railMin, SBE_RAIL_MIN);
   const railMax = sbeNum(o.railMax, SBE_RAIL_MAX);
+  // WHICH NEIGHBOURS ARE ON SCREEN. The Source monitor and the Inspector are
+  // both guests now (see sbeSrcMonToggle, sbeInspectSet); with neither, the
+  // Program monitor alone is width-limited by the column and nothing else,
+  // which is how the picture gets big. Defaults are both on, so every caller
+  // that predates the toggles still gets the three-up it was written for.
+  const withSrc = o.src !== false;
+  const withRail = o.rail !== false;
+  const rMin = withRail ? railMin : 0;
+  const rMax = withRail ? railMax : 0;
+  const gaps = (withSrc ? 1 : 0) + (withRail ? 1 : 0);
   const A = 16 / 9;
-  const total = Math.max(2 * minH * A + railMin + 2 * gap, sbeNum(width));
+  const total = Math.max(minH * A * (withSrc ? 1 + pref : 1) + rMin + gaps * gap, sbeNum(width));
   const cap = Math.max(minH, sbeNum(budget));
   // The most the pair may ever take, and the height at which 40/60 fills it.
-  const pairMax = total - railMin - 2 * gap;
-  const wide = (pairMax - gap) / (A * (1 + pref));
+  const pairMax = total - rMin - gaps * gap;
+  const wide = withSrc ? (pairMax - gap) / (A * (1 + pref)) : pairMax / A;
   let h, r;
-  if (wide <= cap) { h = wide; r = pref; }
+  if (wide <= cap) { h = wide; r = withSrc ? pref : 0; }
   else {
     h = cap;
     // Widen the source only as far as the rail's own maximum allows: past
     // that the rail stops being leftover and starts being a panel.
-    const room = total - railMax - 2 * gap - gap;
-    r = Math.max(pref, Math.min(maxR, room / (A * h) - 1));
+    const room = total - rMax - gaps * gap - (withSrc ? gap : 0);
+    r = withSrc ? Math.max(pref, Math.min(maxR, room / (A * h) - 1)) : 0;
   }
   const progW = h * A;
-  const srcW = h * r * A;
-  const rail = Math.max(railMin, Math.min(railMax, total - progW - srcW - 2 * gap));
-  return { progH: h, progW: progW, srcH: h * r, srcW: srcW, ratio: r,
-           rail: rail, gap: gap, total: progW + srcW + rail + 2 * gap };
+  const srcW = withSrc ? h * r * A : 0;
+  const rail = withRail
+    ? Math.max(rMin, Math.min(rMax, total - progW - srcW - gaps * gap)) : 0;
+  return { progH: h, progW: progW, srcH: withSrc ? h * r : 0, srcW: srcW, ratio: r,
+           rail: rail, gap: gap, total: progW + srcW + rail + gaps * gap };
 }
 
 // ---------------------------------------------------------------------------
@@ -3391,193 +3397,242 @@ function sbeLaneHeights(tlH, small) {
 // snapshot lane for a number no renderer will ever read. localStorage is where
 // every other view preference in this panel already lives — `sbeMuted`, the
 // open document, the workflow tab.
+// ONE HEIGHT PER MODE. Picture mode starts at the floor of its (thin) lanes
+// and sound mode at the roof of its (full) lanes — "the sound very big and the
+// image very little" — and each keeps whatever the handle was last dragged to.
+function sbeTlPrefKey() { return sbeSoundMode() ? 'phos_sbe_tl_h_sound' : 'phos_sbe_tl_h'; }
 function sbeTlPrefRead() {
   let v = NaN;
-  try { v = parseInt(localStorage.getItem('phos_sbe_tl_h') || '', 10); } catch (e) {}
-  // Read and written against the FULL-height ends: the number the user dragged
-  // is what he asked for with the sound open, and making the lanes small must
-  // not quietly rewrite it to the smaller ceiling.
-  return (v === v) ? sbeTlClamp(v, SBE_TL_MAX_H, false) : SBE_TL_MIN_H;
+  try { v = parseInt(localStorage.getItem(sbeTlPrefKey()) || '', 10); } catch (e) {}
+  const small = sbeAudioSmall();
+  if (v !== v) return small ? sbeTlFloor(true) : sbeTlRoof(false);
+  return sbeTlClamp(v, small ? sbeTlRoof(true) : SBE_TL_MAX_H, small);
 }
 function sbeTlPrefWrite(px) {
   try {
-    localStorage.setItem('phos_sbe_tl_h',
-                         String(sbeTlClamp(px, SBE_TL_MAX_H, false)));
+    localStorage.setItem(sbeTlPrefKey(), String(Math.round(sbeNum(px, sbeTlFloor()))));
   } catch (e) {}
 }
 
 // ---------------------------------------------------------------------------
-// THE SOUND LANES MAKE THEMSELVES SMALL
+// PICTURE MODE AND SOUND MODE
 // ---------------------------------------------------------------------------
-// "Think of some way that is really seamless and user-friendly to maybe
-// compact all audio lanes when I am not working with them and make them little
-// (because I want to see the image also as I'm working sometimes)."
+// "I don't like that the audio editing mode is automatic and moves the screens
+// up. It's really weird… The automatic changing of the size of the timeline if
+// you are going around with audio is really bad. I think a button is warranted
+// where you can enter sound editing mode, and then you see the sound very big
+// and the image very little."
 //
-// So it is AUTOMATIC and it is also a button. Automatic is the default: the
-// sound area is thin until you go near it and full height for as long as you
-// are on it. The button (the ▾ on the A1 head, ⇧A) is for when you have an
-// opinion — it pins one answer, in THIS BROWSER, next to the timeline's height
-// and for the same reason: a window's shape is not the film's data. See the
-// comment above sbeTlPrefRead, which this follows exactly.
+// So the split has TWO STATES AND ONE SWITCH, and nothing else ever moves it.
+// Picture mode (the default): the sound lanes are thin strips, the timeline sits
+// at the height you last gave it, the picture takes the rest. Sound mode: every
+// sound lane at full height, the timeline as tall as the column allows, the
+// picture at its floor. The switch is the ⌁ button on the tool row, ⇧A, and the
+// ▾ on the A1 head — the same control three times. No hover, click, selection,
+// playback or timer changes it: the lanes that used to size themselves 2.4s
+// after the last touch were exactly the "weirdness" the owner named.
 //
-// THREE STATES, ONE KEY: 'auto' (the default), 'open', 'small'.
-function sbeAudioPinRead() {
+// The choice is THIS BROWSER'S, next to the timeline height and for the same
+// reason (see sbeTlPrefRead): a window's shape is not the film's data.
+function sbeModeRead() {
   let v = '';
-  try { v = localStorage.getItem('phos_sbe_audio') || ''; } catch (e) {}
-  return (v === 'open' || v === 'small') ? v : 'auto';
+  try { v = localStorage.getItem('phos_sbe_mode') || ''; } catch (e) {}
+  return v === 'sound' ? 'sound' : 'picture';
 }
-function sbeAudioPinWrite(v) {
-  try { localStorage.setItem('phos_sbe_audio', String(v || 'auto')); } catch (e) {}
-}
-function sbeAudioPinSet(v) {
-  const want = (v === 'open' || v === 'small') ? v : 'auto';
-  SBE.aPin = want;
-  sbeAudioPinWrite(want);
-  sbeAudioSync();
+function sbeModeWrite(v) {
+  try { localStorage.setItem('phos_sbe_mode', v === 'sound' ? 'sound' : 'picture'); } catch (e) {}
 }
 
-// IS THE SOUND AREA SMALL RIGHT NOW? Every height function asks this, including
-// the one the timeline's own preference is read through — which runs inside
-// SBE's initialiser, before SBE exists. Hence the guard: this may not throw.
-function sbeAudioSmall() {
-  try { return !!(SBE && SBE.aSmall); } catch (e) { return false; }
+// IS THE EDITOR IN SOUND MODE? Guarded because the height functions ask this
+// from inside SBE's own initialiser, before SBE exists — it may not throw.
+function sbeSoundMode() {
+  try { return !!(SBE && SBE.mode === 'sound'); } catch (e) { return false; }
 }
+// The lane table's second height is on screen whenever we are NOT in sound
+// mode. Every height function reads this, and it has exactly one input.
+function sbeAudioSmall() { return !sbeSoundMode(); }
 
-// IS SOMEBODY WORKING ON SOUND? Read off the state the audio gestures already
-// write, so no click path has to remember to announce itself: a selected strip,
-// a drag in progress, the pointer over a lane or a head, the Sound pool open,
-// a focused control in the sound heads. Playback and an open menu hold it open
-// too — a lane that collapsed mid-play or under an open menu would be the
-// "jumps" the request rules out.
-function sbeAudioBusy() {
-  if (SBE.audioDrag || SBE.musicDrag || SBE.tsDrag || SBE.kfDrag || SBE.tgSliding) return true;
-  if (SBE.tlDrag) return true;
-  if (SBE.playing) return true;
-  if (SBE.aHover) return true;
-  if (typeof sbePopAnyOpen === 'function' && sbePopAnyOpen()) return true;
-  const sel = String(SBE.sel || '');
-  if (sel === '@music' || sel.indexOf('@ts:') === 0) return true;
-  if (SBE.selLane) return true;
-  if (typeof ED === 'object' && ED && ED.src === 'sound') return true;
-  const f = (typeof document === 'object' && document) ? document.activeElement : null;
-  if (f && f.closest && f.closest('.sbe-gh-aud, .sbe-gh-mus, .sbe-gh-trk, .sbe-gh-add')) return true;
-  return false;
-}
-
-// What the area SHOULD be, right now. Pure decision, no DOM.
-function sbeAudioWant() {
-  if (SBE.aPin === 'open') return false;
-  if (SBE.aPin === 'small') return true;
-  if (sbeAudioBusy()) return false;
-  return (Date.now() - sbeNum(SBE.aTouch, 0)) >= SBE_ASMALL_IDLE;
-}
-
-// ASK AGAIN LATER. One timer, always the only one, and it is only ever armed
-// while the area is OPEN and unpinned — the way back the other direction is a
-// touch, which is immediate.
-function sbeAudioArm() {
-  if (SBE.aTimer) { clearTimeout(SBE.aTimer); SBE.aTimer = null; }
-  if (!SBE.open || SBE.aPin !== 'auto' || SBE.aSmall) return;
-  SBE.aTimer = setTimeout(() => { SBE.aTimer = null; sbeAudioSync(); }, SBE_ASMALL_IDLE);
-}
-
-function sbeAudioSync() {
-  const want = sbeAudioWant();
-  if (want !== SBE.aSmall) { sbeAudioSet(want); return; }
-  sbeAudioArm();
-}
-
-// SOMEBODY IS ON SOUND. Opens the area at once (that half may never wait) and
-// restarts the idle. `opts.open` also releases a `small` pin, because the two
-// gestures that carry it — clicking a thin lane, dragging the edge up past what
-// thin lanes can use — are the user asking for the sound back in so many words.
-function sbeAudioTouch(opts) {
-  SBE.aTouch = Date.now();
-  if (opts && opts.open && SBE.aPin === 'small') {
-    SBE.aPin = 'auto';
-    sbeAudioPinWrite('auto');
-  }
-  if (SBE.aSmall && SBE.aPin !== 'small') sbeAudioSet(false);
-  else sbeAudioArm();
-}
-
-// The pointer over a lane or a head is "working with it" for as long as it is
-// there — hovering a thin lane opens it, which is how you find out it opens.
-function sbeAudioOver(on) {
+// THE ONE WRITER of the mode. Nothing here resizes an element: it flips the
+// class the CSS reads, swaps in the mode's own remembered timeline height, and
+// sbeFitMonitors gives the difference to — or takes it from — the picture.
+function sbeSoundModeSet(on, opts) {
   const want = !!on;
-  if (SBE.aHover === want) return;
-  SBE.aHover = want;
-  if (want) sbeAudioTouch();
-  else sbeAudioArm();
-}
-
-// THE ONE WRITER of the area's size. Nothing here resizes an element either:
-// it moves the same lane table the drag handle moves, and sbeFitMonitors gives
-// the difference to the picture.
-function sbeAudioSet(small) {
-  const want = !!small;
-  if (SBE.aSmall === want) return;
-  SBE.aSmall = want;
+  const was = sbeSoundMode();
+  SBE.mode = want ? 'sound' : 'picture';
+  sbeModeWrite(SBE.mode);
   const plan = sbeEl('sbTimeline');
-  if (plan && plan.classList) plan.classList.toggle('is-asmall', want);
+  if (plan && plan.classList) {
+    plan.classList.toggle('is-asmall', !want);
+    plan.classList.toggle('is-sound', want);
+  }
   // A HEIGHT THAT JUMPS READS AS A BUG, so the lanes and their heads carry a
   // transition — but only while this class is on the body, so the drag handle,
-  // which moves the same numbers sixty times a second, stays instant.
-  if (typeof document === 'object' && document && document.body) {
+  // which moves the same numbers sixty times a second, stays instant. Not on
+  // the open of a document: there is nothing on screen yet to animate from.
+  const quiet = !!(opts && opts.quiet);
+  if (was !== want && !quiet && typeof document === 'object' && document && document.body) {
     document.body.classList.add('sbe-aanim');
+    if (SBE.aAnim) clearTimeout(SBE.aAnim);
+    SBE.aAnim = setTimeout(() => {
+      SBE.aAnim = null;
+      if (document.body) document.body.classList.remove('sbe-aanim');
+      // THE WAVEFORMS ARE DRAWN, NOT STYLED: the soundtrack's canvas carries a
+      // backing store and every strip's waveform is emitted at its own height,
+      // so both are re-issued at the height they actually landed on.
+      SBE.laneAt = -1;
+      sbePaint();
+    }, 220);
   }
-  if (SBE.aAnim) clearTimeout(SBE.aAnim);
-  SBE.aAnim = setTimeout(() => {
-    SBE.aAnim = null;
-    if (typeof document === 'object' && document && document.body) {
-      document.body.classList.remove('sbe-aanim');
-    }
-    // THE WAVEFORMS ARE DRAWN, NOT STYLED: the soundtrack's canvas carries a
-    // backing store and every strip's waveform is emitted at its own height, so
-    // both have to be re-issued at the height they actually landed on. Same
-    // reason sbeFitMonitors redraws them when the drag moves the number.
-    SBE.laneAt = -1;
-    sbePaint();
-  }, 220);
+  // Each mode remembers its own height: the picture mode's handle position is
+  // not what you want the moment you go to sound, and vice versa.
+  SBE.tlH = sbeTlPrefRead();
   sbeApplyTl(sbeTlClamp(SBE.tlH, SBE.tlMax));
-  if (want) sbeAudioSmallOnce();
-  sbePaint();
-  sbeAudioArm();
+  sbePaintPanels();
+  if (!quiet) sbePaint();
 }
 
-// THE FIRST TIME IT HAPPENS BY ITSELF, IT SAYS SO. An area that shrinks with no
-// explanation is a bug the user reports; one sentence turns it into a feature
-// he knows the handle for. Once per browser, next to the other view preferences.
-function sbeAudioSmallOnce() {
-  let seen = '';
-  try { seen = localStorage.getItem('phos_sbe_audio_seen') || ''; } catch (e) {}
-  if (seen) return;
-  try { localStorage.setItem('phos_sbe_audio_seen', '1'); } catch (e) {}
-  if (typeof phosToast !== 'function') return;
-  phosToast('Sound lanes made small so the picture gets the height — touch any sound and they '
-            + 'come straight back. The ▾ on the A1 head (⇧A) keeps them small, or open, for good.',
-            { duration: 9000 });
-}
-
-// THE BUTTON. Two answers, and neither of them is "auto": auto is what you have
-// until you have an opinion, and clicking a thin lane hands it back.
-function sbeAudioPinToggle() {
-  const want = sbeAudioSmall() ? 'open' : 'small';
-  SBE.aPin = want;
-  sbeAudioPinWrite(want);
-  sbeAudioSet(want === 'small');
+function sbeSoundModeToggle() {
+  const on = !sbeSoundMode();
+  sbeSoundModeSet(on);
   if (typeof phosToast === 'function') {
-    phosToast(want === 'small'
-      ? 'Sound lanes small — A1, A2 and every audio track stay thin and the picture keeps the '
-        + 'height. Click any sound to work on it; ⇧A brings them back for good.'
-      : 'Sound lanes at full height — they stay open while you work. ⇧A, or the ▾ on the A1 '
-        + 'head, makes them small again.', { duration: 6000 });
+    phosToast(on
+      ? 'Sound mode — every sound lane at full height, the picture small. ⇧A or the ⌁ button brings the picture back.'
+      : 'Picture mode — the picture takes the height, the sound lanes are thin. Click a sound to select it; ⇧A for sound mode.',
+      { duration: 4000 });
   }
 }
 
-// ONE CLICK ON A THIN LANE OPENS THE AREA AND SELECTS WHAT WAS CLICKED, which
-// is the whole gesture: you point at the sound you want and it is there, full
-// height, selected, ready for the second click to edit it.
+// THE VIEW GROUP'S OWN STATE, painted in one place: Source, Inspector, Sound
+// and Panels in the header. PRESSED MEANS SHOWING — every one of the four is
+// filled while its panel is on screen, and its tooltip says what a click will
+// make appear or disappear. Cheap, so sbePaintChrome calls it on every paint.
+function sbeViewTip(btn, pressed, name, onText, offText, keyId) {
+  if (!btn || !btn.classList) return;
+  btn.classList.toggle('is-on', pressed);
+  btn.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+  btn.title = name + ' — ' + (pressed ? onText : offText) + sbeKeyHint(keyId);
+}
+function sbePaintPanels() {
+  sbeViewTip(sbeEl('sbeSoundBtn'), sbeSoundMode(), 'Sound mode',
+    'on: the sound lanes are at full height and the picture is small. Click for picture mode — thin lanes, big picture.',
+    'off. Click to open every sound lane at full height; the picture gets small.',
+    'editor.soundMode');
+  sbeViewTip(sbeEl('sbeInspectBtn'), !!SBE.inspect, 'Inspector',
+    'showing on the right. Click to hide it; the monitors take the width.',
+    'hidden. Click to show the right-hand panel: speed, fades, brightness, zoom, transitions and titles for what is selected.',
+    'editor.inspector');
+  sbeViewTip(sbeEl('sbeSrcBtn'), sbeSrcShown(), 'Source monitor',
+    'showing on the left. Click to hide it; the Program monitor stays the size it is.',
+    'hidden. Click to show the left screen, where a clip from the media pool or the timeline plays before you cut it in.',
+    '');
+  sbeViewTip(sbeEl('sbePanelsBtn'),
+    !(document.body && document.body.classList.contains('ed-focus')), 'Side panels',
+    'showing: the tabs, the media pool and the queue. Click to hide them and give the cut the whole window.',
+    'hidden. Click to bring back the tabs, the media pool and the queue.',
+    'editor.panels');
+}
+
+// ---- THE INSPECTOR IS A PANEL YOU OPEN ------------------------------------
+// "I'm not sure how useful it is to have the right-side thingy… It shouldn't be
+// open like this all the time, only when it's necessary." ☰ under the picture,
+// ⌘I, or a double-click on a clip. Remembered per browser, never in the film.
+function sbeInspectRead() {
+  let v = '';
+  try { v = localStorage.getItem('phos_sbe_inspect') || ''; } catch (e) {}
+  return v === 'open';
+}
+function sbeInspectSet(on) {
+  SBE.inspect = !!on;
+  try { localStorage.setItem('phos_sbe_inspect', SBE.inspect ? 'open' : 'closed'); } catch (e) {}
+  const rail = sbeEl('sbeRail');
+  if (rail) rail.hidden = !SBE.inspect;
+  sbePaintPanels();
+  sbePaint();
+}
+function sbeInspectToggle() { sbeInspectSet(!SBE.inspect); }
+
+// ---- THE SOURCE MONITOR IS A GUEST ----------------------------------------
+// On screen while a pool clip is loaded, or while it was asked for; gone the
+// rest of the time, and the Program monitor takes the width back.
+function sbeSrcRead() {
+  let v = '';
+  try { v = localStorage.getItem('phos_sbe_src') || ''; } catch (e) {}
+  return v !== 'hidden';
+}
+function sbeSrcWrite(on) {
+  try { localStorage.setItem('phos_sbe_src', on ? 'shown' : 'hidden'); } catch (e) {}
+}
+function sbeSrcShown() { return !!(SBE.source || SBE.srcOn); }
+function sbeSrcMonToggle() {
+  if (sbeSrcShown()) { sbeSrcClose(); return; }
+  SBE.srcOn = true;
+  sbeSrcWrite(true);
+  sbePaintSource();
+  sbePaintPanels();
+  sbePaint();
+}
+function sbeSrcClose() {
+  sbeSrcStop();
+  SBE.source = null;
+  SBE.srcIndex = -1;
+  SBE.srcOn = false;
+  sbeSrcWrite(false);
+  const v = sbeEl('sbeSrcVideo');
+  if (v) { try { v.pause(); } catch (e) {} v.classList.remove('is-on'); }
+  const img = sbeEl('sbeSrcStill');
+  if (img) img.classList.remove('is-on');
+  const list = document.getElementById('edPoolList');
+  if (list && list.querySelectorAll) {
+    for (const el of list.querySelectorAll('.is-source')) el.classList.remove('is-source');
+  }
+  sbePaintSource();
+  sbePaintPanels();
+  sbePaint();
+}
+
+// ---- FULL SCREEN ------------------------------------------------------------
+// "There should be an option to see the video in full screen on the actual
+// screen." The browser's own Fullscreen API on the Program monitor; Esc, or
+// the key again, brings it back. Space and the arrows keep working there
+// because the keydown handler is on the document, not the stage.
+function sbeFullscreen() {
+  const stage = sbeEl('sbeStage');
+  if (!stage) return;
+  try {
+    if (document.fullscreenElement) { document.exitFullscreen(); return; }
+    if (stage.requestFullscreen) stage.requestFullscreen();
+    else if (stage.webkitRequestFullscreen) stage.webkitRequestFullscreen();
+  } catch (e) {}
+}
+
+// ---- THE APP'S OWN PANELS -----------------------------------------------------
+// Photoshop's Tab: hide the left column (workflow tabs, media pool, queue) so
+// the cut has the window. ` on the keyboard, the ▯ button in the header.
+function sbePanelsRead() {
+  let v = '';
+  try { v = localStorage.getItem('phos_sbe_panels') || ''; } catch (e) {}
+  return v === 'hidden';
+}
+function sbePanelsApply(hidden) {
+  if (typeof document !== 'object' || !document || !document.body) return;
+  document.body.classList.toggle('ed-focus', !!hidden);
+  try { localStorage.setItem('phos_sbe_panels', hidden ? 'hidden' : 'shown'); } catch (e) {}
+  sbePaintPanels();
+}
+function sbePanelsToggle() {
+  const hidden = !(document.body && document.body.classList.contains('ed-focus'));
+  sbePanelsApply(hidden);
+  sbePaint();
+  if (typeof phosToast === 'function' && hidden) {
+    phosToast('Side panels hidden — the media pool and the queue are out of the way. ` (or Panels in the View group) brings them back.',
+              { duration: 4000 });
+  }
+}
+
+// ONE CLICK ON A THIN LANE SELECTS WHAT WAS CLICKED — and nothing moves. The
+// verbs on the tool row (mute, delete sound, unlink, resync, duplicate) all act
+// on the selection, so most of what you do to a sound never needs the lanes
+// open. A double-click on a thin lane is sound mode.
 function sbeAudioOpenFrom(ev) {
   const blk = (ev && ev.target && ev.target.closest)
     ? ev.target.closest('.sbe-tstrip, .sbe-aclip, .sbe-music-clip') : null;
@@ -3589,7 +3644,7 @@ function sbeAudioOpenFrom(ev) {
     sbeSelectOne(blk.dataset.id);
     SBE.selLane = blk.dataset.id; SBE.tsSet = [];
   }
-  sbeAudioTouch({ open: true });
+  sbePaint();
   if (ev && ev.preventDefault) ev.preventDefault();
 }
 
@@ -3690,6 +3745,12 @@ function sbeOpen(id, opts) {
     ? ((((SB.payload || {}).board) || {}).title || '') : '') || SBE.title || 'Editor';
   sbeEl('sbeTitle').textContent = SBE.title;
   edShow('doc');
+  // The split, the inspector and the app's panels come up the way this
+  // browser left them — and stay that way until a toggle is pressed.
+  sbeSoundModeSet(sbeModeRead() === 'sound', { quiet: true });
+  const rail = sbeEl('sbeRail');
+  if (rail) rail.hidden = !SBE.inspect;
+  sbePanelsApply(sbePanelsRead());
   sbeSetState('loading…', '');
   sbeLoad();
   if (SBE.timer) clearInterval(SBE.timer);
@@ -3828,6 +3889,9 @@ function sbeAdopt(r, quiet) {
   SBE.txSel = '';
   SBE.clips = sbeAdoptGaps((SBE.edit.clips || []).map(c => Object.assign({}, c)));
   sbeLayout(SBE.clips);
+  // A loaded bed is as the document says; only a length change from here on
+  // refits it (sbeRtFollow).
+  SBE.rtLen = sbeFilmDuration(SBE.clips);
   SBE.dirty = false;
   SBE.conflict = 0;
   SBE.errors = {};
@@ -5105,6 +5169,16 @@ function sbePaintNotices() {
   // the lead unless the user clicks it open.
   const loud = open.filter(id => !((sbeEl(id).dataset || {}).quiet));
   let lead = open.indexOf(SBE.noticeLead) >= 0 ? SBE.noticeLead : loud[0];
+  // A QUIET NOTICE ALONE IS A CHIP IN THE HEADER, not a row of its own: the
+  // snapshot offer took a whole row under the header for as long as a backup
+  // existed, which was most of the time. The row appears when the chip is
+  // clicked (sbeNoticeOpen makes it the lead) or when something loud joins it.
+  // Only the snapshot has a header chip; any other quiet notice alone (the
+  // keyed receipt) keeps the row, folded, as it always did.
+  const chip = sbeEl('sbeRecoverChip');
+  const chipOnly = !lead && open.length === 1 && open[0] === 'sbeRecover';
+  if (chip) chip.hidden = !chipOnly;
+  if (chipOnly) wrap.hidden = true;
   for (const id of SBE_NOTICE_ORDER) {
     const el = sbeEl(id);
     if (!el || !el.classList) continue;
@@ -5271,9 +5345,12 @@ function sbePaint() {
   // paint, not on the next scrub — the review caught a deleted title still
   // painting over the picture.
   sbeOvPaint();
+  // ROOM TONE FOLLOWS THE FILM'S LENGTH, before the lanes are drawn.
+  sbeRtFollow();
   sbePaintTrack();
   sbePaintAudioLane();
   sbePaintTracks();
+  if (ED.src === 'sound') edRtPaint();
   sbePaintHead();
   sbePaintCbar();
   sbePaintInspector();
@@ -5288,7 +5365,6 @@ function sbePaint() {
   // EVERY EDIT AND EVERY SELECTION LANDS HERE, so this is where the sound
   // area's idle is restarted — a click that deselected the last strip has to
   // start the clock without every click path knowing that it did.
-  sbeAudioArm();
   // LAST, and after the inspector: the row's budget is what the column has
   // left once everything else has been laid out, and the inspector is the
   // one that changes height when a clip is selected.
@@ -5361,7 +5437,8 @@ function sbeFitMonitors() {
   const want = sbeTlClamp(SBE.tlH, SBE.tlMax);
   const budget = avail - want - extra;
   const apply = (b) => {
-    const fit = sbeMonitorFit(row.clientWidth, b);
+    const fit = sbeMonitorFit(row.clientWidth, b,
+                              { src: sbeSrcShown(), rail: !!SBE.inspect });
     row.style.setProperty('--sbe-prog-h', Math.round(fit.progH) + 'px');
     row.style.setProperty('--sbe-src-h', Math.round(fit.srcH) + 'px');
     row.style.setProperty('--sbe-rail-w', Math.round(fit.rail) + 'px');
@@ -5476,11 +5553,6 @@ function sbeTlGrabUp(ev) {
 // sbeFitMonitors (last inside sbePaint) gives the monitors what is left and
 // corrects tlNow for what the window could actually spare.
 function sbeTlSet(px) {
-  // PULLING THE EDGE UP PAST WHAT THIN LANES CAN USE IS "give me the sound
-  // back": there is no other height left in the box to ask for.
-  if (sbeAudioSmall() && sbeNum(px, 0) > sbeTlRoof(true) + 8) {
-    sbeAudioTouch({ open: true });
-  }
   SBE.tlH = sbeTlClamp(px, SBE.tlMax);
   sbeApplyTl(SBE.tlH);
   sbePaint();
@@ -5974,6 +6046,7 @@ function sbeBedGhost(ev) {
 // drag stays "move the music" — the gesture this lane already had — so the
 // control case is opt-in and the simple case is untouched.
 function sbeOnMusicDbl(ev) {
+  if (sbeAudioSmall()) { sbeSoundModeSet(true); return; }
   const el = sbeEl('sbeMusicClip');
   if (!el || el.hidden || !ev.target.closest('#sbeMusicClip')) return;
   if (ev.target.closest('.sbe-kf') || ev.target.closest('.sbe-fade-h')) return;
@@ -6432,7 +6505,6 @@ function sbeTsCommit(before) {
 }
 
 function sbeTrackAdd() {
-  sbeAudioTouch({ open: true });
   if (!SBE.open) return;
   if (sbeTsMutate(ts => sbeTsNewTrack(ts))) {
     phosToast(sbeTrackLabel(SBE.tracks.length - 1) + ' added — drag a sound from the media '
@@ -6799,6 +6871,7 @@ function sbeTsGhost(ev) {
 }
 
 function sbeOnTsDbl(ev) {
+  if (sbeAudioSmall()) { sbeSoundModeSet(true); return; }
   const at = sbeTsStripAt(ev);
   if (!at || ev.target.closest('.sbe-kf')) return;
   // SILENT WHEN A POINT IS ALREADY THERE — the first press of this very
@@ -6831,7 +6904,6 @@ function sbeOnTsMenu(ev) {
 // server probes the file (and brings it into the film's audio/ folder when
 // the preview could not play it where it is), the client places the strip.
 async function sbeTsAddSoundPath(path, tid, at) {
-  sbeAudioTouch({ open: true });
   if (!SBE.open || !SBE.id) {
     phosToast('Open a __SEQ__ first — a sound belongs to a timeline.', {});
     return false;
@@ -6881,6 +6953,451 @@ async function sbeAddSoundFile() {
     sbePopCloseAll('');
     if (inp) inp.value = '';
   }
+}
+
+// ---------------------------------------------------------------------------
+// ROOM TONE — a generated bed under the whole film
+// ---------------------------------------------------------------------------
+// "The cuts are very rough in terms of sound … if it was all over the timeline
+// as an ambient sound, not something really subtle." The client half of
+// `storyboard_editor.room_tone_*` and `room_tone.py`: a room-tone bed is an
+// ordinary audio track tagged `room_tone: {variant, seed, level, ref_lufs}`
+// with ONE locked strip from 0 to the film's end — so the preview, the render
+// and the export already play it. `level` is the label (LUFS); the track's
+// `gain` is the number the mix plays, `sbeRtGain(level, ref_lufs)`.
+const SBE_RT_NAME = 'Room tone';
+const SBE_RT_DEFAULT_LEVEL = -27;      // mirrors room_tone.DEFAULT_LEVEL
+const SBE_RT_LEVEL_MIN = -45;          // mirrors LEVEL_MIN / LEVEL_MAX
+const SBE_RT_LEVEL_MAX = -18;
+const SBE_RT_REF = -18;                // mirrors REF_LUFS
+const SBE_RT_STEP = 30;                // mirrors BED_STEP_S
+const SBE_RT_MAX = 1800;               // mirrors BED_MAX_S
+
+function sbeRtClampLevel(v) {
+  const x = Number(v);
+  if (v === null || v === undefined || v === '' || !(x === x) || !isFinite(x)) {
+    return SBE_RT_DEFAULT_LEVEL;
+  }
+  return Math.round(Math.max(SBE_RT_LEVEL_MIN, Math.min(SBE_RT_LEVEL_MAX, x)) * 100) / 100;
+}
+
+// The fader for a level — the mirror of `room_tone.level_gain`. Never boosts.
+function sbeRtGain(level, ref) {
+  const r = (ref === null || ref === undefined || !isFinite(Number(ref)))
+    ? SBE_RT_REF : Number(ref);
+  const g = Math.pow(10, (sbeRtClampLevel(level) - r) / 20);
+  return sbeRound(Math.max(0, Math.min(1, g)));
+}
+
+// The file length for a film — the mirror of `room_tone.bed_seconds`.
+function sbeRtBedSeconds(filmLen) {
+  const n = Math.max(0, sbeNum(filmLen)) + 0.5;
+  return Math.min(SBE_RT_MAX, Math.max(SBE_RT_STEP, Math.ceil(n / SBE_RT_STEP) * SBE_RT_STEP));
+}
+
+// {track, ti} of the film's room-tone track — the first tagged one — or null.
+function sbeRtFind(tracks) {
+  const list = tracks || [];
+  for (let ti = 0; ti < list.length; ti++) {
+    const t = list[ti];
+    if (t && t.room_tone && typeof t.room_tone === 'object') return { track: t, ti: ti };
+  }
+  return null;
+}
+
+function sbeRtLevelOf(track) {
+  const rt = (track || {}).room_tone || {};
+  return sbeRtClampLevel(rt.level);
+}
+
+// The level a room-tone track is ACTUALLY playing at: its own fader, read back
+// through the same curve `sbeRtGain` writes. `room_tone.level` is only the
+// number the bed was MADE with — the fader moves independently, and a rebuild
+// that trusted the metadata reset the user's mix.
+function sbeRtLevelOfTrack(track) {
+  const tr = track || {};
+  const rt = tr.room_tone || {};
+  const stored = sbeRtClampLevel(rt.level);
+  const g = sbeNum(tr.gain, 1);
+  if (!isFinite(g) || g <= 0) return stored;
+  const ref = isFinite(Number(rt.ref_lufs)) && rt.ref_lufs !== null
+    ? Number(rt.ref_lufs) : SBE_RT_REF;
+  // Unchanged fader (within rounding) → keep the stored level verbatim, so a
+  // bed that was never touched rebuilds bit-identically.
+  if (Math.abs(g - sbeRtGain(stored, ref)) < 5e-4) return stored;
+  return sbeRtClampLevel(ref + 20 * Math.log10(g));
+}
+
+// A room-tone track from the server's facts — the mirror of
+// `room_tone_new_track`: one locked strip, 0 → the film's end (bounded by the
+// file), the fader set for `level`.
+function sbeRtNewTrack(facts, filmLen, level, tid) {
+  const f = facts || {};
+  const dur = sbeRound(sbeNum(f.duration));
+  const end = sbeRound(Math.max(SBE_TRACK_STRIP_MIN, Math.min(sbeNum(filmLen), dur)));
+  const ref = isFinite(Number(f.ref_lufs)) && f.ref_lufs !== null ? Number(f.ref_lufs) : SBE_RT_REF;
+  const lvl = sbeRtClampLevel(level);
+  const label = String(f.label || '');
+  const t = {
+    id: tid || ('t' + sbeNewId().slice(1)),
+    name: SBE_RT_NAME,
+    room_tone: { variant: String(f.variant || 'film'), seed: Math.round(sbeNum(f.seed, 1)) || 1,
+                 level: lvl, ref_lufs: Math.round(ref * 100) / 100 },
+    strips: [{ id: sbeNewId(), path: String(f.path || ''), start: 0, end: end,
+               film_start: 0, duration: dur,
+               title: label ? SBE_RT_NAME + ' · ' + label : SBE_RT_NAME, locked: true }],
+  };
+  const g = sbeRtGain(lvl, ref);
+  if (Math.abs(g - 1) > 1e-9) t.gain = g;
+  return t;
+}
+
+// Put a room-tone track on the timeline: in the old one's lane (same id, same
+// mute) when there is one, else as a new track under the others.
+function sbeRtPlace(tracks, track) {
+  const out = sbeTsCopy(tracks);
+  const t = JSON.parse(JSON.stringify(track || {}));
+  const cur = sbeRtFind(out);
+  if (cur) {
+    t.id = cur.track.id;
+    if (cur.track.muted === true) t.muted = true;
+    out[cur.ti] = t;
+  } else {
+    out.push(t);
+  }
+  return { tracks: out, ok: true, added: t, track: t.id };
+}
+
+function sbeRtRemove(tracks) {
+  const cur = sbeRtFind(tracks);
+  if (!cur) return { tracks: tracks, ok: false, why: 'there is no room tone on this timeline' };
+  return { tracks: sbeTsCopy(tracks).filter((x, i) => i !== cur.ti), ok: true,
+           removed: cur.track };
+}
+
+// A new level: the label and the fader move together.
+function sbeRtSetLevel(tracks, level) {
+  const out = sbeTsCopy(tracks);
+  const cur = sbeRtFind(out);
+  if (!cur) return { tracks: tracks, ok: false, why: 'there is no room tone on this timeline' };
+  const lvl = sbeRtClampLevel(level);
+  cur.track.room_tone.level = lvl;
+  const g = sbeRtGain(lvl, cur.track.room_tone.ref_lufs);
+  if (Math.abs(g - 1) > 1e-9) cur.track.gain = g; else delete cur.track.gain;
+  return { tracks: out, ok: true };
+}
+
+// KEEP THE BED AS LONG AS THE FILM — the mirror of `room_tone_fit`. Only the
+// untouched case (one strip starting at 0) is fitted; a bed somebody split or
+// moved is an arrangement. `short` says the film outgrew the file.
+function sbeRtFit(tracks, filmLen) {
+  const cur = sbeRtFind(tracks);
+  if (!cur) return { tracks: tracks, changed: false, short: false };
+  const ss = cur.track.strips || [];
+  if (ss.length !== 1 || Math.abs(sbeNum(ss[0].film_start)) > 1e-6) {
+    return { tracks: tracks, changed: false, short: false };
+  }
+  const s = ss[0];
+  const want = Math.max(0, sbeNum(filmLen));
+  const st = sbeNum(s.start);
+  const dur = sbeNum(s.duration) || (want + st);
+  const end = sbeRound(st + Math.max(SBE_TRACK_STRIP_MIN, Math.min(want, dur - st)));
+  const short = want > dur - st + 1e-3;
+  if (Math.abs(sbeNum(s.end) - end) <= 1e-6) return { tracks: tracks, changed: false, short: short };
+  const out = sbeTsCopy(tracks);
+  out[cur.ti].strips[0].end = end;
+  return { tracks: out, changed: true, short: short };
+}
+
+// The picture clips a "From this film" bed listens to, in SOURCE seconds.
+function sbeRtClips(clips) {
+  return (clips || []).filter(c => c && c.path && sbeKind(c) === 'video')
+    .map(c => ({ path: c.path, start: sbeRound(c.start), end: sbeRound(c.end) }));
+}
+
+// ---- the card, and the requests behind it ---------------------------------
+async function sbeRtRequest(variant, seed, filmLen) {
+  const fd = new URLSearchParams();
+  fd.set('id', SBE.id);
+  fd.set('variant', variant);
+  fd.set('seed', String(seed));
+  fd.set('film_len', String(sbeRound(filmLen)));
+  fd.set('clips', JSON.stringify(sbeRtClips(SBE.clips)));
+  try {
+    return await (await fetch('/storyboard/edit/room-tone', { method: 'POST', body: fd })).json();
+  } catch (e) { return { ok: false, error: String(e) }; }
+}
+
+async function edRtLoad() {
+  if (ED.rtInfo) return ED.rtInfo;
+  try {
+    const r = await (await fetch('/storyboard/edit/room-tone')).json();
+    if (r && r.ok) ED.rtInfo = r;
+  } catch (e) { /* the card says it could not load */ }
+  return ED.rtInfo || null;
+}
+
+// The card on the Sound tab. Painted from the timeline: what is on, at what
+// level, and what the picker would change.
+function edRtPaint() {
+  const card = document.getElementById('edRoomTone');
+  if (!card) return;
+  card.hidden = (ED.src !== 'sound');
+  if (card.hidden) return;
+  const info = ED.rtInfo;
+  const pick = document.getElementById('edRtVariant');
+  const cur = (SBE.open ? sbeRtFind(SBE.tracks) : null);
+  const rt = cur ? cur.track.room_tone : null;
+  if (pick && info && pick.dataset.filled !== '1') {
+    pick.innerHTML = info.variants.map(v =>
+      '<option value="' + escapeHtml(v.id) + '" title="' + escapeHtml(v.blurb || '') + '">'
+      + escapeHtml(v.label) + '</option>').join('');
+    pick.dataset.filled = '1';
+    pick.value = (rt && rt.variant) || info.default_variant || 'film';
+  }
+  if (pick && rt && !ED.rtPicked) pick.value = rt.variant;
+  const level = cur ? sbeRtLevelOf(cur.track)
+    : sbeRtClampLevel(ED.rtLevel === undefined ? SBE_RT_DEFAULT_LEVEL : ED.rtLevel);
+  const slider = document.getElementById('edRtLevel');
+  if (slider && !ED.rtSliding) slider.value = String(level);
+  const out = document.getElementById('edRtLevelOut');
+  if (out) out.textContent = sbeRtFmtLevel(level);
+  const row = info ? (info.variants || []).find(v => pick && v.id === pick.value) : null;
+  if (pick) pick.title = row ? row.label + ' — ' + row.blurb : 'Which room tone';
+  const status = document.getElementById('edRtStatus');
+  const busy = !!ED.rtBusy;
+  if (status) {
+    let msg;
+    if (busy) msg = 'Making the room tone…';
+    else if (!SBE.open) msg = 'Open a __SEQ__ to lay room tone under it.';
+    else if (cur) {
+      const muted = cur.track.muted === true;
+      msg = sbeTrackLabel(cur.ti) + ' · ' + sbeRtVariantLabel(rt.variant) + ' · take '
+        + (rt.seed || 1) + (muted ? ' · muted' : '')
+        + ((cur.track.strips || []).length !== 1 ? ' · edited by hand' : '');
+    } else msg = 'Not on this __SEQ__ yet.';
+    status.textContent = msg;
+    status.classList.toggle('is-on', !!cur && !busy);
+  }
+  const note = document.getElementById('edRtNote');
+  if (note) {
+    const fb = ED.rtFallback || '';
+    note.textContent = fb;
+    note.hidden = !fb;
+  }
+  const add = document.getElementById('edRtAdd');
+  const take = document.getElementById('edRtTake');
+  const del = document.getElementById('edRtRemoveBtn');
+  const changed = !!(cur && pick && pick.value !== rt.variant);
+  if (add) {
+    add.textContent = cur ? (changed ? 'Use this sound' : 'Rebuild') : 'Add room tone';
+    add.disabled = busy || !SBE.open;
+    add.title = cur
+      ? (changed ? 'Swap the room tone for ' + (row ? row.label : 'this sound') + ', same level'
+                 : 'Make the bed again from the timeline as it is now (after a re-cut)')
+      : 'Lay this sound under the whole __SEQ__ on its own audio track — cuts stop dropping to silence';
+    add.classList.toggle('primary', !cur || changed);
+  }
+  if (take) { take.hidden = !cur; take.disabled = busy; }
+  if (del) { del.hidden = !cur; del.disabled = busy; }
+  const auto = document.getElementById('edRtAutoBox');
+  if (auto && info) auto.checked = info.auto !== false;
+}
+
+function sbeRtFmtLevel(v) {
+  return String(sbeRtClampLevel(v).toFixed(0)).replace('-', '−') + ' LUFS';
+}
+
+function sbeRtVariantLabel(id) {
+  const rows = ((ED.rtInfo || {}).variants) || [];
+  const r = rows.find(v => v.id === id);
+  return r ? r.label : String(id || '');
+}
+
+// ♪ menu → "Room tone…": the Sound tab, with the card in view.
+async function edRtOpen() {
+  if (typeof sbePopCloseAll === 'function') sbePopCloseAll('');
+  if (document.body && document.body.classList.contains('ed-focus')
+      && typeof sbePanelsApply === 'function') sbePanelsApply(false);
+  if (ED.src !== 'sound') edPoolSrc('sound');
+  await edRtLoad();
+  edRtPaint();
+  const card = document.getElementById('edRoomTone');
+  if (card && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  const pick = document.getElementById('edRtVariant');
+  if (pick) { try { pick.focus(); } catch (e) {} }
+}
+
+function edRtPick() { ED.rtPicked = true; edRtPaint(); }
+
+// Add / swap / rebuild (`kind` 'apply') or a new take ('take').
+async function edRtApply(kind) {
+  if (!SBE.open || !SBE.id) {
+    phosToast('Open a __SEQ__ first — room tone belongs to a timeline.', {});
+    return false;
+  }
+  if (ED.rtBusy) return false;
+  const filmLen = sbeFilmDuration(SBE.clips);
+  if (filmLen <= 0) {
+    phosToast('Put a clip on the timeline first — the room tone runs as long as the __SEQ__.', {});
+    return false;
+  }
+  await edRtLoad();
+  const cur = sbeRtFind(SBE.tracks);
+  const pick = document.getElementById('edRtVariant');
+  const variant = (pick && pick.value) || (cur && cur.track.room_tone.variant) || 'film';
+  let seed = 1;
+  if (cur) {
+    const was = Math.round(sbeNum(cur.track.room_tone.seed, 1)) || 1;
+    seed = kind === 'take' ? was + 1 : (cur.track.room_tone.variant === variant ? was : 1);
+  }
+  // THE FADER IS THE TRUTH, not the metadata. `room_tone.level` is written
+  // when the bed is made; dragging the track's fader afterwards writes
+  // `track.gain` and leaves that number stale. Rebuilding from the stale one
+  // threw the user's setting away — a bed pulled down to 10% came back at
+  // 35% (+11 dB) on a New take. Read the gain that is actually on the track
+  // and derive the level from it whenever the two disagree.
+  const level = cur ? sbeRtLevelOfTrack(cur.track)
+    : sbeRtClampLevel(ED.rtLevel === undefined ? SBE_RT_DEFAULT_LEVEL : ED.rtLevel);
+  // WHICH FILM ASKED. The request takes seconds; the user can open another
+  // __SEQ__ while it runs, and the response used to land on whatever was open
+  // when it came back — replacing THAT film's bed with this one's.
+  const askedFor = String(SBE.id || '');
+  ED.rtBusy = true;
+  edRtPaint();
+  const r = await sbeRtRequest(variant, seed, filmLen);
+  ED.rtBusy = false;
+  if (String(SBE.id || '') !== askedFor) {
+    edRtPaint();
+    phosToast('You opened another __SEQ__ while the room tone was being made, '
+              + 'so it was not placed.', { kind: 'warn', duration: 6000 });
+    return false;
+  }
+  if (!r || !r.ok) {
+    edRtPaint();
+    phosToast((r && r.error) || 'The room tone could not be made.', { kind: 'danger' });
+    return false;
+  }
+  // The timeline may have moved while the bed was being made.
+  const nowLen = sbeFilmDuration(SBE.clips);
+  const tr = sbeRtNewTrack(r, nowLen, level, cur ? cur.track.id : '');
+  const res = sbeTsMutate(ts => sbeRtPlace(ts, tr));
+  ED.rtPicked = false;
+  ED.rtFallback = r.fallback
+    ? ('Not enough quiet sound in these clips (' + r.fallback + ') — '
+       + (r.label || 'a preset') + ' stands in.')
+    : '';
+  SBE.rtLen = nowLen;
+  edRtPaint();
+  if (!res) return false;
+  const idx = (SBE.tracks || []).findIndex(t => String(t.id) === String(res.track));
+  phosToast(SBE_RT_NAME + ' on ' + sbeTrackLabel(idx) + ': ' + (r.label || variant)
+            + (kind === 'take' ? ', take ' + seed : '') + ', ' + sbeRtFmtLevel(level) + '.',
+            { kind: 'success', duration: 5000 });
+  return true;
+}
+
+function edRtRemove() {
+  if (!SBE.open) return;
+  if (sbeTsMutate(ts => sbeRtRemove(ts))) {
+    ED.rtFallback = '';
+    edRtPaint();
+    phosToast('Room tone removed — Undo brings it back.', { duration: 5000 });
+  }
+}
+
+// The level slider: live on input, one undo step on change (the rule every
+// slider here follows). With no room tone on yet it only sets what Add uses.
+function edRtLevelSlide(v) {
+  const out = document.getElementById('edRtLevelOut');
+  if (out) out.textContent = sbeRtFmtLevel(v);
+  ED.rtLevel = sbeRtClampLevel(v);
+  if (!SBE.open || !sbeRtFind(SBE.tracks)) return;
+  const r = sbeRtSetLevel(SBE.tracks, v);
+  if (!r.ok) return;
+  if (!ED.rtBefore) ED.rtBefore = sbeSnapshot();
+  ED.rtSliding = true;
+  SBE.tracks = r.tracks;
+  sbePaintTracks();
+  sbeStripSync();
+}
+
+function edRtLevelCommit(v) {
+  edRtLevelSlide(v);
+  ED.rtSliding = false;
+  const before = ED.rtBefore;
+  ED.rtBefore = null;
+  if (!before || JSON.stringify(JSON.parse(before).tracks || []) === JSON.stringify(SBE.tracks)) {
+    edRtPaint();
+    return;
+  }
+  sbeTsCommit(before);
+  edRtPaint();
+}
+
+// "Add room tone to automatic cuts" — a panel setting, not a film one.
+async function edRtAuto(on) {
+  const fd = new URLSearchParams();
+  fd.set('room_tone_auto', on ? '1' : '0');
+  try {
+    const r = await (await fetch('/settings', { method: 'POST', body: fd })).json();
+    if (r && r.ok === false) throw new Error(r.error || 'refused');
+    if (ED.rtInfo) ED.rtInfo.auto = !!on;
+    phosToast(on ? 'Automatic cuts get room tone from now on.'
+                 : 'Automatic cuts come without room tone from now on.', { duration: 4000 });
+  } catch (e) {
+    phosToast('That setting could not be saved: ' + e, { kind: 'danger' });
+  }
+  edRtPaint();
+}
+
+// FOLLOW THE FILM. Called from sbePaint: when the film's length changed since
+// the last look, the untouched bed is refit — part of the edit that changed
+// the length, not an undo step of its own — and a film that outgrew the file
+// gets a longer bed, made in the background and swapped in.
+function sbeRtFollow() {
+  const cur = sbeRtFind(SBE.tracks);
+  const len = sbeFilmDuration(SBE.clips);
+  if (!cur) { SBE.rtLen = len; return; }
+  if (SBE.rtLen !== undefined && Math.abs(SBE.rtLen - len) < 1e-6) return;
+  SBE.rtLen = len;
+  const r = sbeRtFit(SBE.tracks, len);
+  if (r.changed) {
+    SBE.tracks = r.tracks;
+    SBE.dirty = true;
+    sbeQueueSave();
+  }
+  if (r.short && len > 0) {
+    if (SBE.rtGrowTimer) clearTimeout(SBE.rtGrowTimer);
+    SBE.rtGrowTimer = setTimeout(sbeRtGrow, 900);
+  }
+}
+
+async function sbeRtGrow() {
+  SBE.rtGrowTimer = null;
+  const cur = sbeRtFind(SBE.tracks);
+  if (!SBE.open || !cur || ED.rtBusy) return;
+  const len = sbeFilmDuration(SBE.clips);
+  if (!sbeRtFit(SBE.tracks, len).short) return;
+  const rt = cur.track.room_tone;
+  const id = SBE.id;
+  ED.rtBusy = true;
+  edRtPaint();
+  const r = await sbeRtRequest(rt.variant, rt.seed, len);
+  ED.rtBusy = false;
+  edRtPaint();
+  if (!r || !r.ok || SBE.id !== id) return;
+  const now = sbeRtFind(SBE.tracks);
+  if (!now || (now.track.strips || []).length !== 1) return;
+  const out = sbeTsCopy(SBE.tracks);
+  const s = out[now.ti].strips[0];
+  s.path = r.path;
+  s.duration = sbeRound(sbeNum(r.duration));
+  const fit = sbeRtFit(out, sbeFilmDuration(SBE.clips));
+  SBE.tracks = fit.tracks;
+  SBE.dirty = true;
+  sbePaint();
+  sbeQueueSave();
 }
 
 // Where a pool row would land on the audio tracks: {tid, at}, or null.
@@ -7543,6 +8060,7 @@ function sbeAudioFadeMarks(c, w) {
 // stays "move the strip" — the gesture every lane on this timeline already
 // uses — so the control case is opt-in and the simple case is untouched.
 function sbeOnAudioDbl(ev) {
+  if (sbeAudioSmall()) { sbeSoundModeSet(true); return; }
   const blk = ev.target.closest ? ev.target.closest('.sbe-aclip') : null;
   if (!blk) return;
   if (ev.target.closest('.sbe-kf') || ev.target.closest('.sbe-fade-h')) return;
@@ -7824,7 +8342,6 @@ function sbeAudioLaneAtY(y) {
 // "ALTERNATE SOUND LANES" — the one click that re-lays an existing timeline's
 // clip sound A, B, A… without moving a picture or a sound. One undo step.
 function sbeAlternateSel() {
-  sbeAudioTouch({ open: true });
   sbePopCloseAll('');
   const ok = sbeMutate(cs => sbeAlternateLanes(cs));
   if (ok) {
@@ -7843,7 +8360,6 @@ function sbeSoundLaneSet(id, lane) {
 }
 
 function sbeToggleAudioLink() {
-  sbeAudioTouch({ open: true });
   const c = sbeById(SBE.clips, SBE.sel);
   if (!c) return;
   const w = sbeClipAudio(c);
@@ -7931,7 +8447,6 @@ function sbeToggleClipMute() {
 // inspector. An explicit `id` is a click on one flag and means that strip
 // alone; no id means the selection, which may be several.
 function sbeResyncSel(id) {
-  sbeAudioTouch({ open: true });
   if (!id) {
     const ids = sbeSelIds().filter(x => {
       const c = sbeById(SBE.clips, x);
@@ -8068,14 +8583,13 @@ function sbePaintHeads() {
   if (sz) {
     const small = sbeAudioSmall();
     const hint = (typeof shortcutHint === 'function')
-      ? shortcutHint('editor.soundLanes') : '';
+      ? shortcutHint('editor.soundMode') : '';
     sz.textContent = small ? '▸' : '▾';
     sz.setAttribute('aria-expanded', small ? 'false' : 'true');
     sz.title = (small
-      ? 'Sound lanes are small. Click to put them back at full height and keep them there'
-        + (SBE.aPin === 'small' ? '' : ' — or click any sound to open them while you work')
-      : 'Make the sound lanes small — A1, A2 and every audio track become thin strips so the '
-        + 'picture gets the height. They come back the moment you touch a sound') + '.' + hint;
+      ? 'Sound mode — A1, A2 and every audio track at full height, the picture small'
+      : 'Picture mode — the sound lanes become thin strips and the picture gets the height')
+      + '.' + hint;
   }
 }
 
@@ -8291,10 +8805,10 @@ function sbeCbarModel() {
     ? 'The soundtrack on A2 is selected, not a shot — its file, mode and level '
       + 'are on the A2 head, and Duplicate copies it onto an audio track. ' + pick
     : (!n && SBE.ovSel) ? 'A title or card is selected, not a shot '
-                  + '— its own controls are in the panel on the right, and '
+                  + '— its own controls are in the Inspector (⌘I), and '
                   + '⌫ removes it. ' + pick
               : ((!n && SBE.txSel) ? 'A cut is selected, not a shot — set its '
-                  + 'transition in the panel on the right. ' + pick
+                  + 'transition in the Inspector (⌘I). ' + pick
                  : pick);
   const rows = [
     { id: 'sbeCbSplit', act: 'sbeSplitHere()', label: 'Split',
@@ -8387,7 +8901,8 @@ function sbeCbarModel() {
       why: !n ? noSel
            : (many ? 'Pick one clip — each fix is its own render.'
               : (!vid ? 'Only a video clip can be upscaled — a still or a black '
-                        + 'slug has no frames to fix.' : '')),
+                        + 'slug has no frames to fix.'
+                 : (isUpscaledPath(c && c.path) ? 'This clip is already upscaled.' : ''))),
       title: 'Upscale & Face Fix — renders this clip again at twice the size with LTX-2.5 detail, '
              + 'keeping the face and the sound. It runs in the queue; when it '
              + 'lands, a line above the timeline offers to swap it in — same '
@@ -8429,6 +8944,9 @@ function sbePaintCbar() {
     if (lab && lab.textContent !== r.label) lab.textContent = r.label;
     el.disabled = !!r.why;
     el.title = r.why || r.title;
+    // ICONS ONLY on the row, so the tooltip leads with the name.
+    el.title = r.label + '\n' + el.title;
+    el.setAttribute('aria-label', r.label);
     el.classList.toggle('is-on', !!r.on);
     if (r.icon) {
       const use = el.querySelector('use');
@@ -9191,6 +9709,15 @@ function sbeFramingReset() {
   sbeApplyPreviewFraming(null);
 }
 
+// A play button is a triangle, a pause button two bars — the words are in the
+// tooltip. One helper for both monitors so they cannot drift apart.
+function sbePlayGlyph(btnId, useId, playing) {
+  const use = sbeEl(useId);
+  if (use && use.setAttribute) use.setAttribute('href', playing ? '#ic-pause' : '#ic-play');
+  const btn = sbeEl(btnId);
+  if (btn && btn.setAttribute) btn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+}
+
 function sbePaintChrome() {
   const board = sbeEl('sbeBoardBtn');
   if (board) board.hidden = !SBE.id;
@@ -9205,7 +9732,8 @@ function sbePaintChrome() {
     save.classList.toggle('primary', !!SBE.dirty && !SBE.saving);
     save.classList.toggle('ghost-btn', !(SBE.dirty && !SBE.saving));
   }
-  sbeEl('sbePlayBtn').textContent = SBE.playing ? 'Pause' : 'Play';
+  sbePlayGlyph('sbePlayBtn', 'sbePlayUse', SBE.playing);
+  sbePaintPanels();
   // The zoom slider is a VIEW of SBE.pps, not a second copy of it: the − / +
   // buttons, alt + wheel and a resize all move the handle by coming through
   // here, so the control can never disagree with the track it is scaling.
@@ -9240,6 +9768,13 @@ function sbePaintChrome() {
   const wrap = sbeEl('sbeUnplacedWrap');
   const list = SBE.unplaced || [];
   wrap.hidden = !list.length;
+  // With the rail closed the offer is a count on the bar under the picture;
+  // clicking it opens the rail, where Place lives.
+  const ub = sbeEl('sbeUnplacedBtn');
+  if (ub) {
+    ub.hidden = !list.length || !!SBE.inspect;
+    ub.textContent = list.length + ' rendered, not placed';
+  }
   if (list.length) {
     sbeEl('sbeUnplaced').innerHTML = list.map((u, i) => {
       const at = (u.slot && u.slot.film_start !== undefined)
@@ -9482,6 +10017,12 @@ function sbeOnTrackMove(ev) {
     const r = sbeReorderTo(SBE.clips, d.id, Math.max(0, d.t0 + dt));
     if (r.ok) SBE.clips = r.clips;
   } else {
+    // A SHOT DRAGGED UP ONTO THE SOURCE MONITOR loads there and the track
+    // stays exactly as it was — the block springs back while it is over it.
+    if (d.mode === 'move') {
+      d.toSrc = sbeSrcDropHover(ev, true);
+      if (d.toSrc) { SBE.clips = JSON.parse(d.before); sbePaint(); return; }
+    }
     // A move or a trim always works from the SNAPSHOT: the model clamps at
     // neighbours, and re-applying deltas to an already-clamped state would
     // let a pointer that kept going drag the clip through the wall.
@@ -9537,6 +10078,16 @@ function sbeOnTrackUp(ev) {
   if (!d) return;
   document.querySelectorAll('.sbe-clip.is-drag').forEach(el => el.classList.remove('is-drag'));
   const trk = sbeEl('sbeTrack'); if (trk) trk.classList.remove('is-ripple');
+  if (d.mode === 'move') sbeSrcDropHover(null, false);
+  if (d.toSrc) {
+    SBE.clips = JSON.parse(d.before);
+    const c = SBE.clips.find(x => String(x.id) === String(d.id));
+    sbePaint();
+    if (!sbeSrcLoadClip(c) && typeof phosToast === 'function') {
+      phosToast('Black has no picture to preview.', { duration: 3000 });
+    }
+    return;
+  }
   // A CLICK, NOT A DRAG — so the two modifiers this gesture shares with the
   // selection finally get to mean the selection. ⌘ could not be decided at
   // pointerdown (the same chord is ripple-drag) and a plain click inside a
@@ -9671,7 +10222,7 @@ async function sbeShowFrameAt(t) {
   if (!c) {
     v.classList.remove('is-on');
     if (img) img.classList.remove('is-on');
-    sbeEl('sbeBadge').textContent = SBE.clips.length ? 'nothing plays here' : 'no clips';
+    sbeProgInfo(SBE.clips.length ? 'nothing plays here' : 'no clips', '');
     return;
   }
   const kind = sbeKind(c);
@@ -9682,7 +10233,7 @@ async function sbeShowFrameAt(t) {
     // preview is not an approximation at all.
     v.classList.remove('is-on');
     if (img) img.classList.remove('is-on');
-    sbeEl('sbeBadge').textContent = 'black · ' + sbeLen(c).toFixed(2) + 's';
+    sbeProgInfo('black · ' + sbeLen(c).toFixed(2) + 's', '');
     sbePaintTrack();
     return;
   }
@@ -9696,18 +10247,17 @@ async function sbeShowFrameAt(t) {
       if (img.getAttribute('src') !== url) img.src = url;
       img.classList.add('is-on');
     }
-    sbeEl('sbeBadge').textContent =
-      (c.title || String(c.path || '').split('/').pop()) + ' · still · ' +
-      sbeLen(c).toFixed(2) + 's';
+    sbeProgInfo((c.title || String(c.path || '').split('/').pop()) + ' · still · ' +
+                sbeLen(c).toFixed(2) + 's', '');
     sbePaintTrack();
     return;
   }
   if (img) img.classList.remove('is-on');
   await sbeLoadInto(v, c, sbeNum(c.start) + (t - sbeNum(c.film_start)) * sbeSpeed(c));
   v.classList.add('is-on');
-  sbeEl('sbeBadge').textContent =
-    (c.title || c.path.split('/').pop()) + ' · ' + sbeNum(c.start).toFixed(2) + '–' +
-    sbeNum(c.end).toFixed(2) + ' · ' + (c.proxy ? 'proxy' : 'SOURCE (slow — run Prepare)');
+  sbeProgInfo((c.title || c.path.split('/').pop()) + ' · ' + sbeNum(c.start).toFixed(2) + '–' +
+              sbeNum(c.end).toFixed(2) + (c.proxy ? '' : ' · source'),
+              c.proxy ? '' : 'SOURCE — slow to seek. Run Prepare (A2 head ▾) for proxies.');
   // A SCRUB SHOWS THE TRUE OPACITY at the second it landed on, which is the
   // only way a fade can be judged without playing the whole clip.
   sbeFadePaint(t);
@@ -9825,7 +10375,24 @@ function sbeSrcAdd() {
   edPoolAdd(SBE.srcIndex);
 }
 
+// WHAT IS UNDER THE PLAYHEAD, in the strip under the picture. The badge on the
+// picture used to carry this and hid the top of the frame — "the name of the
+// clip in the full screen is hiding a part of what is visible". It now carries
+// only a WARNING (a clip with no proxy), and only on hover.
+function sbeProgInfo(text, warn) {
+  const el = sbeEl('sbeProgClip');
+  if (el) { el.textContent = text || ''; el.title = text || ''; }
+  const badge = sbeEl('sbeBadge');
+  if (badge) {
+    badge.textContent = warn || '';
+    badge.hidden = !warn;
+    if (badge.classList) badge.classList.toggle('is-warn', !!warn);
+  }
+}
+
 function sbePaintSource() {
+  const mon = sbeEl('sbeSrcMon');
+  if (mon) mon.hidden = !sbeSrcShown();
   const row = SBE.source;
   const name = sbeEl('sbeSrcName');
   const add = sbeEl('sbeSrcAddBtn');
@@ -9836,7 +10403,7 @@ function sbePaintSource() {
   if (!row) {
     name.textContent = 'Nothing loaded';
     if (add) add.disabled = true;
-    if (play) { play.disabled = true; play.textContent = 'Play'; }
+    if (play) { play.disabled = true; sbePlayGlyph('sbeSrcPlayBtn', 'sbeSrcPlayUse', false); }
     if (badge) badge.hidden = true;
     if (empty) empty.hidden = false;
     return;
@@ -9851,7 +10418,7 @@ function sbePaintSource() {
   if (add) add.disabled = !(SBE.open && SBE.id) || SBE.srcIndex < 0;
   if (play) {
     play.disabled = (row.kind === 'still');
-    play.textContent = SBE.srcPlaying ? 'Pause' : 'Play';
+    sbePlayGlyph('sbeSrcPlayBtn', 'sbeSrcPlayUse', SBE.srcPlaying);
   }
   if (empty) empty.hidden = true;
   if (badge) {
@@ -9915,8 +10482,6 @@ window.ED = { src: 'film', rows: [], films: [], film: '', loading: false,
 
 function edPoolSrc(name) {
   ED.src = name;
-  // Opening the Sound pool is somebody going to put a sound somewhere.
-  if (name === 'sound') sbeAudioTouch({ open: true });
   const tabs = document.getElementById('edPoolTabs');
   if (tabs) tabs.querySelectorAll('.pill-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.src === name));
@@ -9925,6 +10490,9 @@ function edPoolSrc(name) {
   // Upload belongs to the source that shows what was uploaded.
   const up = document.getElementById('edPoolUploadBtn');
   if (up) up.hidden = (name !== 'images');
+  // Black and titles are pictures; the Sound tab has the Room tone card there.
+  const make = document.querySelector('.ed-pool-make');
+  if (make) make.hidden = (name === 'sound');
   ED.limit = 60;
   edPoolRefresh();
 }
@@ -10059,6 +10627,7 @@ async function edPoolRefresh(force) {
   }
   ED.loading = false;
   edPoolPaint();
+  if (ED.src === 'sound') edRtLoad().then(edRtPaint); else edRtPaint();
 }
 
 async function edPoolLoadFilms() {
@@ -10119,6 +10688,8 @@ function edPoolPaint() {
           ? 'No generations yet. Render something in Video or Storyboard and it lands here.'
         : ED.src === 'images'
           ? 'No images yet — press Upload to bring one in from this Mac, or make one in the Image studio.'
+        : ED.src === 'sound'
+          ? 'No sound files yet. ♪ on the track heads adds one from this Mac — or lay Room tone above.'
         : ED.src === 'other'
           ? (ED.films && ED.films.length
               ? 'That __SEQ__ has no rendered clips yet.'
@@ -10307,6 +10878,59 @@ async function edPoolAdd(i, dropAt) {
 }
 
 // ---------------------------------------------------------------------------
+// DROP ON THE SOURCE MONITOR — a pool row or a timeline clip, to watch it
+// ---------------------------------------------------------------------------
+// "a place where you can drag the clips and see them." Both drags are pointer
+// gestures (see below), so the monitor is a rectangle the pointer is over, not
+// an HTML5 drop zone. `ev` null clears the highlight. Returns whether the
+// pointer is over the monitor and the thing dragged can play there (a sound
+// has no picture, so it never can). A hidden monitor comes back for the drag:
+// `is-drop-ready` dashes its border while any clip is in the air.
+function sbeSrcDropHover(ev, playable) {
+  const mon = sbeEl('sbeSrcMon');
+  if (!mon || !mon.classList) return false;
+  if (!ev) {
+    mon.classList.remove('is-drop-ready', 'is-drop-over');
+    return false;
+  }
+  const stage = sbeEl('sbeSrcStage');
+  let over = false;
+  if (playable && !mon.hidden && stage && stage.getBoundingClientRect) {
+    const r = stage.getBoundingClientRect();
+    over = r.width > 0 && ev.clientX >= r.left && ev.clientX <= r.right &&
+           ev.clientY >= r.top && ev.clientY <= r.bottom;
+  }
+  mon.classList.toggle('is-drop-ready', !!playable && !over);
+  mon.classList.toggle('is-drop-over', over);
+  return over;
+}
+
+// A TIMELINE CLIP IN THE SOURCE MONITOR: the file it plays, as a pool row. The
+// pool index is looked up by path so "Add to timeline" works when the clip is
+// also in the pool, and is off (-1) when it is not.
+function sbeSrcLoadClip(c) {
+  if (!c || !c.path || sbeKind(c) === 'slug') return false;
+  const list = document.getElementById('edPoolList');
+  const rows = (list || {})._rows || [];
+  const i = rows.findIndex(r => r && r.path === c.path);
+  const row = i >= 0 ? rows[i] : {
+    kind: sbeKind(c) === 'still' ? 'still' : 'video', path: c.path,
+    title: c.title || sbeNiceName(String(c.path).split('/').pop()),
+    duration_s: sbeNum(c.duration, 0) || undefined,
+  };
+  SBE.source = row;
+  SBE.srcIndex = i;
+  if (list && list.querySelectorAll) {
+    list.querySelectorAll('.ed-pool-row').forEach((el, k) => el.classList.toggle('is-source', k === i));
+  }
+  sbeSrcLoad(row);
+  sbePaintSource();
+  sbePaintPanels();
+  sbePaint();
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // DRAG: a pool row onto the track
 // ---------------------------------------------------------------------------
 // POINTER EVENTS, NOT HTML5 DRAG-AND-DROP. The track's own move/trim gestures
@@ -10352,7 +10976,17 @@ function edPoolDragMove(ev) {
   }
   d.ghost.style.left = (ev.clientX + 12) + 'px';
   d.ghost.style.top = (ev.clientY + 12) + 'px';
+  // THE SOURCE MONITOR IS A TARGET TOO: over it, the drop loads the clip
+  // there instead of cutting it in, and nothing on the tracks lights up.
+  const toSrc = sbeSrcDropHover(ev, d.row.kind !== 'sound');
+  d.toSrc = toSrc;
   const track = sbeEl('sbeTrack');
+  if (toSrc) {
+    if (track) track.classList.remove('is-dropping');
+    SBE.dropAt = null; SBE.tsDrop = null;
+    sbePaintTrack(); sbePaintTracks();
+    return;
+  }
   // A SOUND lands on an audio track only; a VIDEO dropped on one gives its
   // sound; anything dropped on the picture track is a clip, as before.
   const onTracks = edPoolOverTracks(ev);
@@ -10395,6 +11029,7 @@ async function edPoolDragEnd(ev) {
   SBE.dropAt = null;
   const tsDrop = SBE.tsDrop;
   SBE.tsDrop = null;
+  sbeSrcDropHover(null, false);
   sbePaintTrack();
   sbePaintTracks();
   if (!d.moved) return;                       // a press that never travelled
@@ -10405,6 +11040,7 @@ async function edPoolDragEnd(ev) {
   // a clip on the timeline, click another clip to preview it, and the source
   // monitor does nothing until you click a second time.
   ED.suppressClick = !!(d.el && ev.target && d.el.contains(ev.target));
+  if (d.toSrc) { edPoolPreview(d.index); return; }
   if (tsDrop) { await edPoolSound(d.index, tsDrop.tid, tsDrop.at); return; }
   if (at === null || at === undefined) return;   // dropped in open space
   await edPoolAdd(d.index, at);
@@ -10677,15 +11313,21 @@ function sbeSetMute(on, note, remember) {
   if (a) { a.muted = SBE.muted; }
   const b = sbeEl('sbeMuteBtn');
   if (b) {
-    b.textContent = SBE.muted ? '🔇' : '🔊';
+    const use = sbeEl('sbeMuteUse');
+    if (use && use.setAttribute) use.setAttribute('href', SBE.muted ? '#ic-mute' : '#ic-sound');
+    b.setAttribute('aria-label', SBE.muted ? 'Unmute the preview' : 'Mute the preview');
     b.classList.toggle('is-off', SBE.muted);
-    b.title = note || (SBE.muted ? 'Sound off — click to unmute (M)' : 'Sound on (M)');
+    b.title = note || (SBE.muted ? 'Sound off — click to unmute the preview (M)'
+                                 : 'Sound on — click to mute the preview (M)');
   }
   if (note) {
     const el = sbeEl('sbeApprox');
     if (el && el.dataset.muteNoted !== '1') {
       el.dataset.muteNoted = '1';
-      el.textContent = note + ' ' + el.textContent;
+      // The (i) stays a 16px circle on the tool row: the note goes into its
+      // tooltip and the circle turns amber to say there is one.
+      el.title = note + ' ' + el.title;
+      if (el.classList) el.classList.add('is-noted');
     }
     if (typeof phosToast === 'function' && !SBE.muteToasted) {
       SBE.muteToasted = true;
@@ -10874,8 +11516,9 @@ function sbeSyncMusic() {
     const el = sbeEl('sbeApprox');
     if (el && el.dataset.musicNoted !== '1') {
       el.dataset.musicNoted = '1';
-      el.textContent = el.textContent +
+      el.title = el.title +
         ' The soundtrack cannot be played from here (it lives outside mlx_outputs) — the waveform, the beat grid and the render still use it.';
+      if (el.classList) el.classList.add('is-noted');
     }
   });
   SBE.musicEl = a;
@@ -11765,11 +12408,25 @@ document.addEventListener('keydown', (ev) => {
   // they cannot be hit while reaching for L or R, and because the bare
   // letters are worth keeping free for the J/K/L transport this timeline does
   // not have yet.
-  // ⇧A — THE SOUND AREA'S SIZE, on a key, because it is the one thing on this
-  // screen you reach for with both hands already on the timeline.
+  // ⇧A — SOUND MODE, on a key, because it is the one thing on this screen you
+  // reach for with both hands already on the timeline.
   if (ev.shiftKey && !ev.metaKey && !ev.ctrlKey && !ev.altKey
       && (ev.key === 'A' || ev.key === 'a')) {
-    ev.preventDefault(); sbeAudioPinToggle(); return;
+    ev.preventDefault(); sbeSoundModeToggle(); return;
+  }
+  // ⌘I — the Inspector. F — the Program monitor full screen. ` — the app's
+  // own panels out of the way. All three are toggles and none moves anything
+  // else on the screen.
+  if ((ev.metaKey || ev.ctrlKey) && !ev.altKey && !ev.shiftKey
+      && (ev.key === 'i' || ev.key === 'I')) {
+    ev.preventDefault(); sbeInspectToggle(); return;
+  }
+  if (!ev.metaKey && !ev.ctrlKey && !ev.altKey && !ev.shiftKey && (ev.key === 'f' || ev.key === 'F')) {
+    ev.preventDefault(); sbeFullscreen(); return;
+  }
+  if (!ev.metaKey && !ev.ctrlKey && !ev.altKey && !ev.shiftKey
+      && (ev.key === '`' || ev.code === 'Backquote')) {
+    ev.preventDefault(); sbePanelsToggle(); return;
   }
   if (ev.shiftKey && !ev.metaKey && !ev.ctrlKey && (ev.key === 'L' || ev.key === 'l')) {
     ev.preventDefault(); sbeToggleAudioLink(); return;
@@ -11859,6 +12516,13 @@ document.addEventListener('click', (ev) => {
   if (!track) return;
   sbeSetMute(SBE.muted);   // the button must agree with the stored state on load
   track.addEventListener('pointerdown', sbeOnTrackDown);
+  // Double-click a clip: the Inspector, the way Premiere opens a clip's
+  // properties. Cuts (the transition mark) and titles are on their own paths.
+  track.addEventListener('dblclick', (ev) => {
+    if (!ev.target.closest || !ev.target.closest('.sbe-clip')) return;
+    if (ev.target.closest('.sbe-grip, .sbe-tx')) return;
+    sbeInspectSet(true);
+  });
   // THE SECOND PLACE EVERY EDITOR'S HAND GOES. Until now a right-click on the
   // picture lane got the browser's own menu — Reload, Save image as — over a
   // film somebody was cutting.
@@ -11916,8 +12580,6 @@ document.addEventListener('click', (ev) => {
     lane.addEventListener('pointerup', sbeOnMusicUp);
     lane.addEventListener('pointercancel', sbeOnMusicUp);
     lane.addEventListener('dblclick', sbeOnMusicDbl);
-    lane.addEventListener('pointerenter', () => sbeAudioOver(true));
-    lane.addEventListener('pointerleave', () => sbeAudioOver(false));
     // The ghost belongs to the pointer, so it goes when the pointer does.
     lane.addEventListener('pointerleave', () => {
       if (SBE.kfGhost && SBE.kfGhost.id === '@music') {
@@ -11929,17 +12591,8 @@ document.addEventListener('click', (ev) => {
   // THE POINTER ON THE SOUND AREA OPENS IT, which is also how anybody finds
   // out that it opens: the lanes answer before they are used. On the
   // CONTAINERS, which outlive every repaint of the strips inside them.
-  const gutter = document.getElementById('sbeGutter');
-  if (gutter) {
-    gutter.addEventListener('pointermove', (ev) => sbeAudioOver(
-      !!(ev.target.closest
-         && ev.target.closest('.sbe-gh-aud, .sbe-gh-mus, .sbe-gh-trk, .sbe-gh-add'))));
-    gutter.addEventListener('pointerleave', () => sbeAudioOver(false));
-  }
   const alane = document.getElementById('sbeAudioLane');
   if (alane) {
-    alane.addEventListener('pointerenter', () => sbeAudioOver(true));
-    alane.addEventListener('pointerleave', () => sbeAudioOver(false));
     alane.addEventListener('pointerdown', (ev) => { sbeStop(); sbeOnAudioDown(ev); });
     alane.addEventListener('dblclick', sbeOnAudioDbl);
     alane.addEventListener('pointermove', sbeOnAudioMove);
@@ -11959,8 +12612,6 @@ document.addEventListener('click', (ev) => {
     tlanes.addEventListener('pointerup', sbeOnTsUp);
     tlanes.addEventListener('pointercancel', sbeOnTsUp);
     tlanes.addEventListener('dblclick', sbeOnTsDbl);
-    tlanes.addEventListener('pointerenter', () => sbeAudioOver(true));
-    tlanes.addEventListener('pointerleave', () => sbeAudioOver(false));
     tlanes.addEventListener('contextmenu', sbeOnTsMenu);
     tlanes.addEventListener('pointerleave', () => {
       if (SBE.kfGhost && String(SBE.kfGhost.id).indexOf('@ts:') === 0) {
@@ -12257,12 +12908,18 @@ Object.assign(globalThis, {
   sbePaintTsInspector, sbeTsStripAt, sbeTsLaneAt, sbeTsEnvGain, sbeTsLevelClick,
   sbeOnTsDown, sbeOnTsMove, sbeOnTsUp, sbeTsGhost, sbeOnTsDbl, sbeOnTsMenu,
   sbeTsAddSoundPath, edPoolSound, sbeAddSoundFile, edPoolOverTracks,
+  sbeRtClampLevel, sbeRtGain, sbeRtBedSeconds, sbeRtFind, sbeRtLevelOf,
+  sbeRtNewTrack, sbeRtPlace, sbeRtRemove, sbeRtSetLevel, sbeRtFit, sbeRtClips,
+  sbeRtRequest, edRtLoad, edRtPaint, sbeRtFmtLevel, sbeRtVariantLabel, edRtOpen,
+  edRtPick, edRtApply, edRtRemove, edRtLevelSlide, edRtLevelCommit, edRtAuto,
+  sbeRtFollow, sbeRtGrow,
   // THE TWO CLIP-SOUND LANES — the model (for the harnesses) and the verbs the
   // head button and the right-click menu call.
   sbeSoundLane, sbeLaneName, sbeSetSoundLane, sbeAlternateLanes, sbeLaneAfter, sbeLaneFit,
   sbeExtraLanesH, sbeAudioLaneAtY, sbeAlternateSel, sbeSoundLaneSet,
-  sbeLaneBase, sbeLaneCap, sbeTlFloor, sbeTlRoof, sbeAudioSmall, sbeAudioBusy,
-  sbeAudioWant, sbeAudioSync, sbeAudioArm, sbeAudioSet, sbeAudioTouch,
-  sbeAudioOver, sbeAudioOpenFrom, sbeAudioPinRead, sbeAudioPinWrite,
-  sbeAudioPinSet, sbeAudioPinToggle, sbeAudioSmallOnce,
+  sbeLaneBase, sbeLaneCap, sbeTlFloor, sbeTlRoof, sbeAudioSmall,
+  sbeAudioOpenFrom, sbeModeRead, sbeSoundMode, sbeSoundModeSet, sbeSoundModeToggle,
+  sbeInspectRead, sbeInspectSet, sbeInspectToggle, sbeSrcMonToggle, sbeSrcClose,
+  sbeFullscreen, sbePanelsRead, sbePanelsApply, sbePanelsToggle, sbePaintPanels,
+  sbeProgInfo, sbePlayGlyph, sbeTlPrefKey,
 });

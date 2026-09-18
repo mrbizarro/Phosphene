@@ -8,6 +8,17 @@ have shipped broken (gated model needing a token, mflux not bundled, the missing
 upscaler "mosaic", the scary pip dependency block) were invisible on a warm dev
 box and only showed up from zero.
 
+> **Before any release, read the `phosphene-release` skill**
+> (`~/.claude/skills/phosphene-release/SKILL.md`). This file owns the **gates**;
+> that one owns the **environment** — what Pinokio injects into every app it
+> launches, where `uv`/python/ffmpeg/git come from when Pinokio starts the app
+> versus when a human does, and the "launch it the way Pinokio launches it" gate.
+> It exists because v4.14.0 shipped music broken for nearly every user: Pinokio's
+> kernel exports `PYTORCH_ENABLE_MPS_FALLBACK=1` and YuE2 refuses to construct
+> with it set, while our hand-started panel never had it. **From zero is not
+> enough on its own** — a clean room started by hand has the same wrong
+> environment this dev box does.
+
 Run these BEFORE promoting `dev`/`beta` → public `main`. All must pass.
 
 ## 0. The mechanical gates, in one command

@@ -1460,6 +1460,14 @@
       /* Anything that cannot survive 300px scrolls. */
       overflow-x: hidden;
     }
+    /* PANELS HIDDEN (` or the ▯ in the header): the left column — workflow
+       tabs, media pool, queue — is gone and the cut has the window. Photoshop's
+       Tab. The state is this browser's (phos_sbe_panels). */
+    body.ed-focus[data-workflow="editor"] main.layout {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    body.ed-focus[data-workflow="editor"] main.layout > aside.form-pane { display: none; }
+    body.ed-focus[data-workflow="editor"] main.layout > .stage-pane { grid-column: 1 / 2; }
     /* THE CUT SPANS BOTH ROWS, exactly as the base layout does for every
        other workflow. This rule said `grid-row: 1 / 2` for two releases, so
        row 2 — the bottomPane's own height, 170px measured at 1440x900 — was
@@ -1632,6 +1640,10 @@
        screen; the kebab is a square. */
     .sbe-draftchip { width: auto; gap: 6px; color: var(--muted); }
     .sbe-draftchip #sbeDraftName { color: var(--text); font-weight: 600; }
+    /* The draft's name yields with the title now that the View group shares
+       the header: it ellipsises past 200px instead of taking the title's room. */
+    .sbe-head .ghost-btn.sbe-draftchip { flex: 0 1 auto; min-width: 0; max-width: 220px; }
+    .sbe-head .sbe-draftchip #sbeDraftName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sbe-car { color: var(--muted); font-size: var(--fs-2xs); }
     .sbe-split { display: inline-flex; }
     .sbe-split > .primary:first-child {
@@ -1672,6 +1684,8 @@
       font-size: var(--fs-2xs); font-style: italic; cursor: help;
     }
     .sbe-info:hover { color: var(--text); border-color: var(--accent); }
+    /* Amber when its tooltip carries a note (the preview is muted, the soundtrack cannot play here). */
+    .sbe-info.is-noted { color: var(--warn, #d9a441); border-color: var(--warn, #d9a441); }
     /* ---- the lane gutter --------------------------------------------
        Its heads read the SAME variables the lanes do, so the two columns
        cannot drift apart at any height the handle is dragged to. The two
@@ -1904,6 +1918,40 @@
       .sbe-head .sbe-draftchip #sbeDraftName { display: none; }
       .sbe-head .sbe-draftchip { padding-inline: 8px; }
     }
+    /* ---- VIEW: the panel toggles, one labelled group ------------------
+       A segmented control. OFF is quiet (muted glyph, no fill); ON is the
+       accent fill with the accent glyph, so "which panels are showing" reads
+       across the room. Labels fold below 1360px unless the side panels are
+       hidden (the header is then as wide as the window). */
+    .sbe-view {
+      display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto;
+      height: var(--ctl-h-sm); box-sizing: border-box; padding: 2px; margin-right: 6px;
+      background: var(--bg-2); border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+    }
+    .sbe-vbtn {
+      width: auto; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px;
+      height: 22px; padding: 0 8px 0 6px; margin: 0;
+      background: transparent; border: 1px solid transparent; border-radius: var(--r-xs);
+      color: var(--muted); font-size: var(--fs-xs); font-weight: 500; line-height: 1;
+      cursor: pointer; white-space: nowrap;
+      transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+    }
+    .sbe-vbtn .sbe-cbar-i { width: 18px; height: 18px; }
+    .sbe-vbtn > b { font-weight: inherit; }
+    .sbe-vbtn:hover { color: var(--text); background: var(--panel-2); }
+    .sbe-vbtn:focus-visible { outline: none; box-shadow: var(--ring); }
+    .sbe-vbtn[aria-pressed="true"] {
+      background: var(--accent-dim); border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+      color: var(--accent-bright);
+    }
+    .sbe-vbtn[aria-pressed="true"]:hover { color: #fff; }
+    .sbe-vbtn-act { padding: 0 3px; }
+    .sbe-vsep { width: 1px; height: 16px; margin: 0 3px; background: var(--border); flex: 0 0 auto; }
+    @media (max-width: 1359px) {
+      body:not(.ed-focus) .sbe-vbtn > b { display: none; }
+      body:not(.ed-focus) .sbe-vbtn { padding: 0 3px; }
+    }
     .sbe-state {
       font-size: var(--fs-xs); color: var(--muted); display: inline-flex;
       align-items: center; gap: 6px; white-space: nowrap;
@@ -1977,12 +2025,76 @@
     }
     /* The two bars under the monitors and the transport share the header's
        rung: they are the same rank of control and were 29px against 28. */
-    .sbe-mon-bar .ghost-btn, .sbe-transport .ghost-btn,
-    .sbe-transport .primary {
+    .sbe-mon-bar .ghost-btn, .sbe-mon-bar .primary,
+    .sbe-toolrow .ghost-btn, .sbe-toolrow .primary {
       width: auto; flex: 0 0 auto; height: var(--ctl-h-sm);
       padding-block: 0; padding-inline: 10px; font-size: var(--fs-xs);
     }
+    /* THE STRIP UNDER THE PROGRAM MONITOR: transport on the left, what is
+       under the playhead in the middle, the panel toggles on the right. It
+       is the row Premiere and Resolve put there, and it is where the clip's
+       name went when it came off the picture. Fixed min-height, nowrap: the
+       budget in sbeFitMonitors reads this row's height as a constant. */
+    .sbe-mon-bar-prog { gap: 6px; }
+    .sbe-mon-bar-prog .sbe-time { flex: 0 0 auto; }
+    .sbe-mon-bar .sbe-mon-clip {
+      flex: 1 1 60px; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; color: var(--text); font-size: var(--fs-xs);
+      margin-left: 2px;
+    }
+    .sbe-mon-bar-prog .sbe-mon-name { flex: 0 1 auto; }
+    /* ICON BUTTONS on the strips: a 28px square, the glyph in currentColor.
+       `is-on` is the pressed state of a toggle (Inspector open, Source on). */
+    .sbe-ibtn, .sbe-mon-bar .sbe-ibtn.ghost-btn, .sbe-toolrow .sbe-ibtn.ghost-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; min-width: 28px; padding-inline: 0; flex: 0 0 auto;
+    }
+    .sbe-ibtn .sbe-cbar-i { width: 18px; height: 18px; }
+    .sbe-ibtn.is-on { background: var(--accent-dim); border-color: var(--accent); color: var(--accent-bright); }
+    /* A COUNT CHIP (rendered-not-placed, the snapshot in the header): a pill
+       that is also a button. */
+    .sbe-chipbtn {
+      display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto;
+      width: auto; height: 22px; padding: 0 9px;
+      background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: var(--r-pill); color: var(--muted);
+      font-size: var(--fs-2xs); line-height: 1; cursor: pointer;
+      white-space: nowrap;
+    }
+    .sbe-chipbtn:hover { border-color: var(--accent); color: var(--accent-bright); }
+    .sbe-chipbtn[hidden] { display: none !important; }
+    .sbe-chipbtn .sbe-cbar-i { width: 13px; height: 13px; }
+    .sbe-snapchip { color: var(--warn, #d9a441); border-color: color-mix(in srgb, var(--warn, #d9a441) 45%, var(--border)); }
+    /* THE MONITOR IN FULL SCREEN: the browser hands the stage the whole
+       screen; the ratio and the frame come off so the picture is the screen. */
+    .sbe-stage:fullscreen, .sbe-stage:-webkit-full-screen {
+      width: 100%; height: 100%; max-width: none; aspect-ratio: auto;
+      border: 0; border-radius: 0; box-shadow: none; background: #000;
+    }
+    /* Guests: the Source monitor and the rail are display:none while hidden,
+       whatever the flex rules above would otherwise give them. */
+    .sbe-mon-src[hidden], .sbe-rail[hidden] { display: none !important; }
     .sbe-mon-src .sbe-stage { height: var(--sbe-src-h); }
+    /* EACH MONITOR COLUMN IS EXACTLY ITS PICTURE'S WIDTH. Left to content,
+       the Program column's bar (time, clip name, chip) asked for more than
+       the picture, the row shrank the Source column to pay for it, and the
+       Source picture came out 499x315 — not 16:9. Stated widths, no shrink;
+       the bars ellipsise inside them. */
+    .sbe-monitors > .sbe-mon-src { flex: 0 0 auto; width: calc(var(--sbe-src-h) * 16 / 9); }
+    .sbe-monitors > .sbe-mon-prog { flex: 0 0 auto; width: calc(var(--sbe-prog-h) * 16 / 9); max-width: 100%; }
+    .sbe-mon-src .sbe-stage, .sbe-mon-prog .sbe-stage { width: 100%; }
+    /* THE DROP TARGET. Lit while a clip is dragged over it. */
+    .sbe-mon-src .sbe-stage { transition: border-color var(--t-fast), box-shadow var(--t-fast); }
+    .sbe-mon-src.is-drop-ready .sbe-stage { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); border-style: dashed; }
+    .sbe-mon-src.is-drop-over .sbe-stage {
+      border-color: var(--accent-bright); border-style: solid;
+      box-shadow: 0 0 0 3px var(--accent-dim), var(--shadow-1);
+    }
+    .sbe-src-empty { flex-direction: column; gap: 6px; }
+    .sbe-src-empty .sbe-cbar-i { width: 28px; height: 28px; stroke-width: 14; opacity: 0.55; }
+    .sbe-src-empty b { font-weight: 600; color: var(--text); font-size: var(--fs-sm); }
+    .sbe-src-empty span { font-size: var(--fs-xs); max-width: 260px; line-height: 1.4; }
+    .sbe-mon-src.is-drop-over .sbe-src-empty .sbe-cbar-i { opacity: 1; color: var(--accent-bright); }
     /* The rail takes an EXPLICIT height, never `stretch`. A stretched flex
        item still offers its content height as the line's hypothetical size,
        so a long inspector would have grown the row and pushed the picture
@@ -2064,6 +2176,12 @@
       object-fit: contain; opacity: 0; background: #000;
     }
     .sbe-stage img.sbe-still.is-on { opacity: 1; }
+    /* THE BADGE IS A WARNING, NOT A CAPTION. The clip's name is on the strip
+       under the picture (#sbeProgClip); this carries only "no proxy" and only
+       while the pointer is on the picture, so nothing sits on the frame. */
+    .sbe-stage-badge { opacity: 0; transition: opacity var(--t-fast); }
+    .sbe-stage:hover .sbe-stage-badge.is-warn, .sbe-stage:hover #sbeSrcBadge { opacity: 1; }
+    .sbe-stage-badge[hidden] { display: none !important; }
     .sbe-stage-badge {
       position: absolute; left: 8px; top: 8px; z-index: 3;
       background: rgba(0,0,0,0.62); border: 1px solid var(--border);
@@ -2150,9 +2268,12 @@
       background: var(--accent-dim); border-color: var(--accent);
       color: var(--accent-bright);
     }
+    /* THE GLYPHS ARE PHOSPHOR SYMBOLS on a 256-unit grid (the sprite in
+       index.html), so the stroke is in those units: 22 is 1.5px at 18px and
+       1.2px at the 14px of a menu row — Phosphor's own regular weight is 16. */
     .sbe-cbar-i {
-      flex: 0 0 auto; width: 13px; height: 13px;
-      fill: none; stroke: currentColor; stroke-width: 1.7;
+      flex: 0 0 auto; width: 14px; height: 14px; overflow: visible;
+      fill: none; stroke: currentColor; stroke-width: 22;
       stroke-linecap: round; stroke-linejoin: round;
     }
     /* THE FOLD, RESTATED. `display: inline-flex` on the class beats the UA's
@@ -2185,10 +2306,35 @@
       .sbe-cbar { flex-wrap: wrap; overflow: visible; }
     }
 
-    .sbe-transport {
-      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-      position: relative;
+    /* THE TOOL ROW: the clip bar plus the timeline's own controls, one row,
+       and the grab hanging below it. `position: relative` is for the grab;
+       the bar inside clips its own overflow (the More menu takes the rest),
+       so the grab cannot live inside the bar. */
+    .sbe-toolrow { position: relative; display: flex; min-width: 0; }
+    .sbe-toolrow > .sbe-cbar { flex: 1 1 auto; }
+    /* ICONS ONLY on the row: the label is in the tooltip (and in the More
+       and right-click menus, where the buttons are a list). 28px squares,
+       the glyph at 15px so it reads at arm's length. */
+    #sbeCbar > .sbe-cbar-btn > b { display: none; }
+    #sbeCbar > .sbe-cbar-btn, .sbe-tbtn {
+      width: 28px; min-width: 28px; padding: 0; justify-content: center;
     }
+    #sbeCbar > .sbe-cbar-btn .sbe-cbar-i, .sbe-tbtn .sbe-cbar-i { width: 18px; height: 18px; }
+    #sbeCbar > .sbe-cbar-more { width: auto; min-width: 0; padding: 0 8px; }
+    .sbe-tbtn {
+      flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px;
+      height: var(--ctl-h-sm); background: var(--panel-2);
+      border: 1px solid var(--border); color: var(--text); border-radius: var(--r-xs);
+      font-size: var(--fs-xs); line-height: 1; cursor: pointer; white-space: nowrap;
+      transition: background var(--t-base), border-color var(--t-base), color var(--t-base);
+    }
+    .sbe-tbtn > b { display: none; }
+    .sbe-tbtn:hover { background: var(--bg-2); border-color: var(--accent); color: var(--accent-bright); }
+    .sbe-tbtn:focus-visible { outline: none; box-shadow: var(--ring); }
+    .sbe-snap { margin: 0; font-size: 11px; flex: 0 0 auto; white-space: nowrap; }
+    /* The row must never clip its last button: the slider is the one thing on it that can give. */
+    .sbe-toolrow .sbe-zoom input[type="range"] { width: 88px; }
+    .sbe-toolrow > .sbe-cbar { padding-right: 2px; }
     /* ---- THE TIMELINE'S TOP EDGE, as a handle ------------------------
        "It needs to allow you to drag the upper side of the timeline, which
        will change the layout a little bit, enabling expansion in case you
@@ -3189,6 +3335,42 @@
       font-variant-numeric: tabular-nums; color: var(--text);
       min-width: 42px; text-align: right;
     }
+    /* ---- ROOM TONE: the card on the pool's Sound tab ------------------ */
+    .ed-rt {
+      display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; flex: 0 0 auto;
+      background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: var(--r-md); box-shadow: var(--shadow-1);
+    }
+    .ed-rt[hidden] { display: none !important; }
+    .ed-rt-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+    .ed-rt-title { font-size: var(--fs-md); font-weight: 600; color: var(--text); }
+    .ed-rt-status {
+      margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; color: var(--muted); font-size: var(--fs-xs);
+      font-variant-numeric: tabular-nums;
+    }
+    .ed-rt-status.is-on { color: var(--success); }
+    .ed-rt-sub, .ed-rt-note { margin: 0; color: var(--muted); font-size: var(--fs-xs); line-height: 1.4; }
+    .ed-rt-note[hidden] { display: none; }
+    .ed-rt-note { color: var(--warning); }
+    .ed-rt-pick { width: 100%; margin: 0; }
+    .ed-rt-level {
+      display: flex; align-items: center; gap: 8px; font-size: var(--fs-xs); color: var(--muted);
+    }
+    .ed-rt-level input[type=range] { flex: 1 1 auto; min-width: 0; margin: 0; accent-color: var(--accent); }
+    .ed-rt-level output {
+      flex: 0 0 auto; min-width: 62px; text-align: right; color: var(--text);
+      font-variant-numeric: tabular-nums; font-weight: 600;
+    }
+    .ed-rt-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+    .ed-rt-acts .ghost-btn { flex: 1 1 auto; width: auto; height: var(--ctl-h-sm); }
+    .ed-rt-acts .ghost-btn.primary {
+      background: var(--accent); border-color: var(--accent); color: #fff;
+    }
+    .ed-rt-acts .ghost-btn.primary:hover:not(:disabled) { background: var(--accent-bright); }
+    .ed-rt-acts .ghost-btn[hidden] { display: none; }
+    .ed-rt-auto { font-size: var(--fs-xs); color: var(--muted); margin: 0; }
+    .ed-pool-make[hidden] { display: none !important; }
     .ed-pool-make { display: flex; gap: 6px; align-items: center; }
     .ed-pool-make .sb-input { width: 66px; flex: 0 0 auto; }
     .ed-pool-make .ghost-btn { flex: 1 1 auto; }
@@ -5597,6 +5779,13 @@
        one stays clickable so it can explain the pending release asset. */
     .pill-btn.needs-download { opacity: .62; border-style: dashed; }
     .pill-btn.needs-download:hover { opacity: .9; }
+    /* H3 Speed switch (⚡ Fast | ✦ Best), above the Quality cards. */
+    .h3-speed { margin: 0 0 10px; }
+    .h3-speed .h3-speed-group .pill-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+    .h3-speed .h3-turbo-note { margin-top: 6px; }
+    /* Upscale & Face Fix beside Generate. */
+    .form-action-footer .h3-facefix-footer { margin: 2px 0 8px; font-size: 12px; }
+    .form-action-footer .h3-facefix-footer .cz-label-hint { display: inline; margin-left: 6px; }
     /* The honest one-liner under the Speed control. Shown only while Turbo is
        on, so it describes the render being queued rather than advertising.
        Shares .cz-note's metrics with the export note so the two sentences
@@ -7057,13 +7246,6 @@
     /* Upscale & Face Fix on video cards: the only chip a video card has
        besides Delete, so it takes the row. Ellipsis on a narrow card; the
        title carries the whole sentence. */
-    .car-card .card-chrome .card-action-facefix {
-      flex: 1 1 auto;
-      min-width: 0;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
     .car-card .card-chrome .card-action-danger {
       flex: 0 0 auto;
       width: 28px;
@@ -9879,8 +10061,18 @@
 
     /* Mode + Quality pickers as Linear's grouped panel: a subtle inset
        container with hairline border, then 4 buttons inside. */
+    /* cols-3 and cols-5 joined this list on 2026-09-18. They had never been in
+       it, so a three- or five-option group rendered with NO container at all:
+       transparent background, no border, no padding, and only the selected pill
+       painted — which is why "After the render" read as three loose words with
+       one box around the middle one while the METHOD row (cols-2) right beneath
+       it sat in a proper segmented trough. Owner: "the other stuff that is in
+       there doesn't look related to the design at all." One rule, every group
+       count, same control. */
     .pill-group.cols-2,
-    .pill-group.cols-4 {
+    .pill-group.cols-3,
+    .pill-group.cols-4,
+    .pill-group.cols-5 {
       gap: 6px;
       padding: 3px;
       background: rgba(140, 160, 220, 0.04);
@@ -10673,3 +10865,359 @@ body[data-workflow="oneshot"] #audioSectionTab { display: none !important; }
     .h3-facefix-after .cz-label-hint { display: block; margin-left: 0; }
     #h3UpscaleGroup.is-overridden .pill-btn { opacity: 0.45; }
     #h3UpscaleGroup.is-overridden .pill-btn[data-h3-upscale="off"] { opacity: 1; }
+
+/* ---- FAST TOOLTIPS (webapp/js/tips.js) ---------------------------------------
+   "The tooltips on the buttons are too slow." The OS tooltip waits ~1 s; this
+   one waits 150 ms, and none at all while you slide along a row of buttons.
+   One element for the whole page, position: fixed, never takes a click. */
+.phos-tip {
+  position: fixed; left: 0; top: 0; z-index: 10050; pointer-events: none;
+  max-width: 300px; padding: 7px 10px 8px;
+  background: rgba(10, 14, 32, 0.97); color: #eef2fb;
+  border: 1px solid rgba(160, 175, 230, 0.20); border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45), 0 1px 0 rgba(255,255,255,0.04) inset;
+  font-size: 12px; line-height: 1.4; letter-spacing: 0;
+  opacity: 0; transform: translateY(2px);
+  transition: opacity 90ms ease-out, transform 90ms ease-out;
+}
+.phos-tip.is-shown { opacity: 1; transform: none; }
+.phos-tip.is-warm { transition: none; }
+.phos-tip[hidden] { display: none !important; }
+.phos-tip-head { display: flex; align-items: center; gap: 8px; }
+.phos-tip-name { font-weight: 600; color: #fff; }
+.phos-tip-keys { margin-left: auto; display: inline-flex; gap: 3px; flex: 0 0 auto; padding-left: 10px; }
+.phos-tip-keys kbd {
+  font: 600 10.5px/1 var(--ph-font-mono, ui-monospace, Menlo, monospace);
+  padding: 3px 5px; min-width: 18px; text-align: center;
+  color: #dfe6f7; background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.14); border-bottom-width: 2px; border-radius: 4px;
+}
+.phos-tip-keys .phos-tip-or { color: #8b95b2; font-size: 10.5px; align-self: center; }
+.phos-tip-body { color: #b9c3dc; margin-top: 2px; white-space: pre-line; }
+.phos-tip-head + .phos-tip-body:empty { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .phos-tip, .phos-tip.is-shown { transition: none; transform: none; }
+}
+
+/* ============================================================================
+   RENDER FORM · THE THREE SECTIONS (layout pass, 2026-09-18)
+   Owner: "you have a pill for speed, quality, length, and all that. That should
+   be inside one section that you can compress and decompress … it should be
+   closed by default … I don't think it is easy to navigate between the options."
+   The form keeps FOUR things in the open — engine (header), mode (bar), the
+   composer (reference + prompt) and Generate (sticky footer) — and folds the
+   rest into three named disclosures: Shot setup, After the render, Advanced.
+   Everything below is chrome for that: no control changed size, class or id,
+   the rows only changed parent, so these rules re-home the margins the rows
+   used to get from sitting loose in the form.
+   ========================================================================== */
+
+/* The primary section of the three. A 2 px accent edge in the ACTIVE ENGINE's
+   colour (the same --eng-* variable the chips use) so the one section a user
+   opens on most renders is the one the eye lands on, and so switching engine
+   is visible even with every section shut. */
+.customize-section.shot-setup {
+  border-color: var(--eng-soft, var(--accent, #8b7bff));
+  box-shadow: inset 2px 0 0 0 var(--eng-accent, var(--accent, #8b7bff));
+}
+.customize-section.shot-setup > summary .cz-title { color: var(--text); }
+/* The shape, right-aligned, in the summary: the closed section still says what
+   will render. Let it use the room it needs before it ellipsises. */
+.cz-summary .cz-meta {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: right;
+}
+/* Three boxes in a row need air between them, and the first one needs to clear
+   the composer. */
+.quick-settings > .customize-section { margin-top: 0; }
+#sizingSection > .customize-section + .customize-section { margin-top: 6px; }
+
+/* ---- rows that moved INTO a .cz-body keep their own spacing ---------------
+   Each of these had a margin tuned for standing loose in the form; inside the
+   flex column (gap: 14px) that margin doubles up. */
+.cz-body .h3-speed { margin: 0; }
+.cz-body > .engine-hint { margin: 0; }
+.cz-body .eng-primary { margin-top: 0; gap: 14px; }
+.cz-body > #quickMetricsRow { margin: 0; }
+.cz-body > #quickMetricsRow .mini-fields { grid-template-columns: minmax(0, 220px); }
+/* #aspectRow carries an inline display:flex that setQuality() clears when it
+   shows the row again (it writes style.display = ''), which used to drop it to
+   the .mode-only.show `display: block` and stack the label above the pills.
+   State the row shape here so the class, not an inline style, owns it. */
+.cz-body > #aspectRow.mode-only.show { display: flex !important; align-items: center; gap: 10px; margin: 0; }
+/* The Quality/Length axis block (the unnamed wrapper around the strips). */
+.cz-body > div > .qs-label:first-child { margin-top: 0; }
+
+/* ---- the notes that deliberately stay OUTSIDE the disclosure -------------
+   #ltxTierNote / #h3TierNote warn about the render you are about to queue, so
+   they must not be foldable. They used to hug the strip above them with a
+   negative top margin; now they follow a box. */
+.quick-settings > .engine-hint { margin: 8px 0 0 0; }
+.quick-settings > .engine-note { margin-bottom: 8px; }
+
+/* ---- a narrow form pane --------------------------------------------------
+   The panel is a three-column desktop layout and does not reflow for a phone,
+   but the form pane itself is narrow on a 13" screen and narrower again when
+   the window is dragged in — and four fixed columns of chips stop being
+   readable long before they stop fitting. These are auto-fit tracks, not media
+   queries, so the strips answer to the PANE's width rather than the window's:
+   four across in the pane's usual ~470 px, two when it is squeezed, one when
+   it is tiny. At full width the grids are identical to the fixed ones they
+   replace. */
+.cz-body .quality-strip { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); }
+/* qs-label is name-left / meta-right with space-between and no wrap, so in a
+   squeezed pane "SPEED" and "Fast = 3 steps · Best = full steps" ran into each
+   other. Let the meta drop to its own line instead. */
+.quick-settings .qs-label { flex-wrap: wrap; column-gap: 10px; }
+.cz-body .pill-group.cols-4 { grid-template-columns: repeat(auto-fit, minmax(62px, 1fr)); }
+.cz-body .pill-group.cols-3 { grid-template-columns: repeat(auto-fit, minmax(94px, 1fr)); }
+.cz-body .pill-group.cols-2 { grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); }
+@media (max-width: 560px) {
+  .cz-summary { flex-wrap: wrap; row-gap: 2px; }
+  .cz-summary .cz-meta { margin-left: 22px; flex-basis: 100%; text-align: left; }
+  .cz-body { padding: 10px 10px 12px; }
+  .cz-body > #aspectRow.mode-only.show { flex-wrap: wrap; }
+}
+
+/* ---- the shot list, now a block of its own -------------------------------
+   #h3WindowPromptsRow left the render controls for the composer's side of the
+   form, where it has no .cz-body panel around it. Give it the same quiet
+   chrome the sections have so it reads as a block that belongs to the prompt,
+   and stop .cz-label's uppercase from shouting at the toggle inside it. */
+#genForm > .h3-winprompts {
+  margin: 10px 0 12px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: rgba(255,255,255,0.012);
+}
+.cz-label .toggle-pill {
+  text-transform: none; letter-spacing: 0; font-weight: 500;
+}
+#genForm > .h3-winprompts .cz-label { flex-wrap: wrap; row-gap: 6px; }
+#genForm > .h3-winprompts .cz-label > span:first-child { white-space: nowrap; }
+
+/* The LoRAs summary is the fourth section of the same stack now, and it was the
+   only one that could overflow: a chevron, a title, a count and FOUR action
+   buttons on one line, in a pane the user can drag down to 500 px. It printed
+   "27 installed" over two squeezed lines with "Check for updates" hanging off
+   the edge. Let the row wrap — the count stays on the title's line, the buttons
+   drop to their own right-aligned row — instead of shrinking the words. */
+.loras-summary { flex-wrap: wrap; row-gap: 8px; }
+.loras-summary .loras-title { flex: 0 0 auto; }
+.loras-summary .loras-meta { white-space: nowrap; }
+.loras-summary .loras-header-actions { margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+/* ...and they must not each take the whole line. A width:100% rule upstream
+   (every button inside the render form is full-width by default) made the
+   three header buttons 407 px each, so a CLOSED LoRAs section still cost
+   163 px of stacked blue buttons — the exact clutter the fold is for. Back to
+   their own widths: the row is ~380 px and sits on one line at panel width,
+   and still wraps instead of overflowing when the pane is dragged narrow. */
+.loras-summary .loras-browse-btn { width: auto; flex: 0 0 auto; }
+
+/* ---- Batch, as a section (2026-09-18) ----------------------------------
+   The count and the queue button share one row so the number you are about
+   to commit to is next to the button that commits it. The button is the
+   section's only primary; it greys out until there are at least two jobs,
+   because "Queue batch" on one prompt is just Generate with extra steps. */
+#batchDetails .batch {
+  width: 100%;
+  min-height: 132px;
+  resize: vertical;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+#batchDetails .batch-actions {
+  display: flex; align-items: center; gap: 10px;
+  justify-content: space-between;
+  margin: 10px 0 6px;
+}
+#batchDetails .batch-total {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px; color: var(--accent-bright);
+}
+#batchDetails .batch-queue-btn {
+  width: auto; flex: 0 0 auto;
+  padding: 7px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-size: 12.5px; font-weight: 600;
+  cursor: pointer;
+  transition: background 100ms, opacity 100ms;
+}
+#batchDetails .batch-queue-btn:hover:not(:disabled) { background: var(--accent-bright, #58a6ff); }
+#batchDetails .batch-queue-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+#batchDetails #batchCount,
+#batchDetails #batchSeedsHint {
+  margin-top: 6px;
+  font-family: var(--ph-font-mono);
+  font-size: 10.5px;
+  color: var(--ph-text-faint);
+}
+
+/* ---- checkbox rows inside a section (2026-09-18) ----------------------
+   A bare `label.check` beside a segmented control looks like a different
+   application. Same trough, same hairline, same radius as the pill groups,
+   so an option that happens to be a switch still reads as one of the
+   section's controls — and its hint takes the mono/faint treatment the
+   pills' own .sub uses instead of body text at full contrast. */
+#genForm .cz-body .check {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  gap: 10px;
+  align-items: flex-start;
+  background: rgba(140, 160, 220, 0.04);
+  border: 1px solid var(--ph-border-soft);
+  border-radius: 8px;
+  font-size: 12px;
+}
+#genForm .cz-body .check:hover { border-color: var(--eng-soft, var(--accent)); }
+#genForm .cz-body .check input { margin-top: 1px; }
+#genForm .cz-body .check .cz-label-hint {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--ph-font-mono);
+  font-size: 10.5px;
+  color: var(--ph-text-faint);
+  text-transform: none;
+  letter-spacing: 0;
+}
+/* The section's own note is a note, not a divider between two switches. */
+#genForm .cz-body .cz-note { margin: 8px 0 2px; }
+@media (max-width: 560px) {
+  .loras-summary { padding: 10px; }
+  .loras-summary .loras-header-actions { gap: 4px; }
+}
+
+
+/* ============ ONE CONTROL SCALE (2026-09-18) ==========================
+   Owner, with a screenshot of the LoRAs header: "all the buttons are
+   different. What the fuck? You need to really clean up the visuals so it looks
+   professional in general."
+
+   Measured in that one row before this rule: the rescan icon button 28 px tall,
+   "Browse CivitAI" 43 px (its inline-styled <svg> inflated the line box),
+   "Check for updates" 31 px; one line below, the queue chips 27 px with a pill
+   radius at 11 px text, a 35 px batch button at 12.5 px, and Generate at 46 px
+   / 13 px. Four heights, three radii and four type sizes inside a column
+   500 px wide — which is exactly what "all the buttons are different" looks
+   like from the outside.
+
+   THE SCALE: 30 px tall, 6 px radius, 12 px/600 text, 10 px side padding,
+   14 px icons with a 6 px gap, centred by flexbox rather than by line-height
+   (the inline vertical-align hacks existed to fight that line box). Icon-only
+   buttons are square at the same height. Generate keeps its own size: it is
+   the page's one big action and is meant to outrank everything here.
+
+   THE HIERARCHY, one per row: filled accent = the call to action
+   (Browse CivitAI, Queue batch); hairline = everything else; hover raises the
+   border to the engine accent. Nothing in a section header is filled twice. */
+#genForm .loras-summary .loras-icon-btn,
+#genForm .loras-summary .loras-browse-btn,
+#genForm .batch-queue-btn,
+.form-action-footer .queue-strip .qchip {
+  box-sizing: border-box;
+  height: 30px; min-height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 12px; font-weight: 600; line-height: 1;
+  letter-spacing: 0;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  width: auto; flex: 0 0 auto;
+}
+#genForm .loras-summary .loras-icon-btn { width: 30px; padding: 0; }
+#genForm .loras-summary button .ph,
+.form-action-footer .queue-strip .qchip .ph {
+  width: 14px; height: 14px; margin: 0; flex: 0 0 auto;
+}
+/* Secondary: the hairline. One border colour, one text colour, one hover. */
+#genForm .loras-summary .loras-icon-btn,
+#genForm .loras-summary .loras-browse-btn.is-ghost,
+.form-action-footer .queue-strip .qchip {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+#genForm .loras-summary .loras-icon-btn:hover,
+#genForm .loras-summary .loras-browse-btn.is-ghost:hover,
+.form-action-footer .queue-strip .qchip:hover {
+  color: var(--text);
+  border-color: var(--eng-soft, var(--accent));
+  background: rgba(47, 129, 247, 0.06);
+}
+/* Primary: filled, and the only filled thing in its row. */
+#genForm .loras-summary .loras-browse-btn:not(.is-ghost),
+#genForm .batch-queue-btn {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: #fff;
+}
+#genForm .loras-summary .loras-browse-btn:not(.is-ghost):hover,
+#genForm .batch-queue-btn:hover:not(:disabled) {
+  background: var(--accent-bright, #58a6ff);
+  border-color: var(--accent-bright, #58a6ff);
+}
+
+/* ---- the same scale, applied to the strays ---------------------------------
+   An audit of every visible button on the page found seven radii (4, 5, 6, 7,
+   8, 9, 10 px and full pills) and six type sizes (10.5 - 13 px) among controls
+   that do the same KIND of job. Families that genuinely differ keep their own
+   size — the tier chips are tall cards, the mode chips carry two lines,
+   Generate is the page's one big action, the dense card overlay actions stay
+   24 px — but a small action button is now one thing everywhere:
+
+     small action button   30 px tall, 6 px radius, 12 px text
+     dense/inline action   24-28 px tall, 6 px radius
+     a row of filters      stays a pill row (All / Videos / Photos / Audio):
+                           pills read as "pick one of these", buttons read as
+                           "do something", and that distinction is worth
+                           keeping — it just has to be the ONLY exception.
+
+   Sizes only. No colour, no border, no hover behaviour is touched here. */
+.icon-btn, .open-folder-btn {
+  height: 30px; min-height: 30px;
+  border-radius: 6px;
+  font-size: 12px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+/* The header is its own family and should be: bigger, borderless, 34 px — a
+   title bar is not a form. It just has to be ONE family, so the engine picker
+   and the icon buttons beside it share a height and a radius instead of
+   34/9 px next to 34/7 px. */
+body > header .icon-btn, .eng-trigger { border-radius: 8px; }
+.eng-trigger { height: 34px; min-height: 34px; }
+.icon-btn { width: 30px; padding: 0; }
+.ghost-btn { height: 30px; border-radius: 6px; font-size: 12px; }
+.lora-row .lora-icon-btn { width: 24px; height: 24px; border-radius: 6px; font-size: 12px; }
+.po-act { height: 28px; border-radius: 6px; }
+/* The segmented pair keeps its shared edge — a group, not two buttons. */
+.po-act:first-child { border-radius: 6px 0 0 6px; }
+.po-act:last-child { border-radius: 0 6px 6px 0; }
+.workflow-tabs button, .tabs button {
+  height: 28px; min-height: 28px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.stage-outputs-filter button { border-radius: 999px; font-size: 11.5px; height: 26px; }
+/* Generate and Stop are one pair and must not carry two radii (6 vs 10). */
+.form-action-footer .actions .primary,
+.form-action-footer .actions .danger { border-radius: 6px; }
+/* The last two: a header icon button that kept 7 px because its id carries
+   more weight than its class, and the Finder button in the carousel head at
+   8 px among 6 px siblings. Every visible button on the page is now 6 px
+   (controls), 8 px (the header family and the two-line cards) or a pill (the
+   one filter row). */
+body > header #settingsBtn { border-radius: 8px; }
+.carousel-head .open-folder-btn { border-radius: 6px; }
+.eng-trigger { font-size: 12px; }
+/* 99px was a typo-grade stray next to 999px pills — same shape, different number. */
+#healthChip { border-radius: 999px; }
+/* ---- one icon, one gap ----------------------------------------------------
+   Icons inside buttons and labels carried their geometry inline, with the gap
+   written by hand at 3, 4, 5, 6 and 8 px in different places (and a
+   vertical-align hack to fight the line box). Same two values, once, in CSS —
+   families that need another size keep their own, more specific, rule. */
+button .ph, label .ph, .qchip .ph { width: 14px; height: 14px; }
+button > .ph:first-child:not(:only-child),
+label > .ph:first-child:not(:only-child),
+.qchip > .ph:first-child:not(:only-child) { margin-right: 6px; vertical-align: -2px; }

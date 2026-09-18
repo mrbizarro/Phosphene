@@ -320,6 +320,52 @@ side watchdog SIGKILLs hung helper). Quality-level work still open:
    hang is now invisible; the artifact still requires the Q8/Q4
    TI2VidTwoStages route above.
 
+### `[ ]` Long films that hold together — continuity the panel writes, not the user
+
+H3 renders about 15 s at a time, so anything longer is a chain of shots, and
+what breaks first is not the picture — it is CONTINUITY. Today a user keeps a
+long film coherent by hand: re-stating wardrobe in every chained window,
+re-naming who is in frame, and hoping the shot text they cannot see says what
+they think it says. Three concrete pieces, in order:
+
+- **Name-scoped character sheets.** A character already carries a trigger, a
+  face LoRA and a voice; let it also carry a sheet line (pronoun, age,
+  wardrobe, two physical anchors). Every shot is then given the entries for
+  ONLY the people its beat names — nobody else, so a two-hander does not drag
+  a third character's wardrobe into frame. This is our own law
+  ("wardrobe drifts before faces do") moved out of the user's hands.
+- **Show the shot text, and the balance.** The storyboard path composes what
+  each shot is actually sent and never shows it. Surface it per shot, and warn
+  when the panel's own injected continuity outweighs the user's words — on a
+  short beat an injected clause set can be most of the prompt, which is why a
+  beat sometimes "does not render what I wrote".
+- **A line that reaches the model verbatim.** One marker inside a beat whose
+  text nothing reads, scopes, reorders or drops.
+
+Prior art, read for the method and NOT copied (its licence forbids
+redistribution): the ComfyUI node `Smite79/MiniMax-H3-Longvideos`, which chains
+shots exactly this way and reports that balance every run. Its settings match
+ours already (cfg 1.0, shift 12/3, res_multistep + simple, 1 MP, 6-8 steps on a
+distill adapter = our Fast). Its one finding we did not have: **ambience must be
+mixed, never prompted** — an open audio branch on a joint model invents a voice
+for the face to lip-sync to. That is the silent-mouthing failure we have hit,
+and it is the argument for Room tone being a track and not a prompt line.
+
+### `[ ]` Evaluate the FL2VA + Ref2VA hybrid checkpoints
+
+`smhfacct/Minimax-H3-fl2va-ref2va-hybrid-models` merges the first/last-frame
+branch with the reference branch (four int8 merges, block depths 15/20/25/30 of
+49). One checkpoint that takes BOTH a first frame and reference inputs would
+unlock two things already asked for: H3 first+last frame (#83), and the native
+character-voice route — Ref2VA is the branch that accepts an audio timbre
+reference, which is the honest way to get a character's trained voice into an
+H3 render instead of converting it afterwards.
+
+Not a drop-in: int8 safetensors in the ComfyUI layout (our runner loads its own
+Q8 pack), CUDA-oriented, and a merge always costs something. The test is a
+matched A/B against our Q8 pack on likeness, motion and lip-sync — the same
+canvas, the same seeds, the same prompts — before any of it is offered.
+
 ## Mid term
 
 ### `[ ]` In-panel "Report bug" button

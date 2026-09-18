@@ -11,11 +11,11 @@ The Editor is a timeline for the clips you make — from any engine, from a stor
 
 ## The layout {#layout}
 
-**The header** — the sequence's name, the draft chip, whether it is saved (*unsaved changes*, *saved · revision N*), **Undo**, **Redo**, **Save**, **Render** with its **▾**, and **⋯** (Drafts and versions, Media pool, Auto-edit, Storyboard, Close).
+**The header** — the sequence's name, the draft chip, whether it is saved (*unsaved changes*, *saved · revision N*), the **View** group (below), **Undo**, **Redo**, **Save**, **Render** with its **▾**, and **⋯** (Drafts and versions, Media pool, Auto-edit, Storyboard, Close).
 
 **The media pool** (left) — **This Sequence**, **Other sequences**, **Generations**, **Images** and **Sound**. Click a row to watch it in the Source monitor; **+** puts it at the end of the sequence; drag it onto the track to insert it where you drop it. On **Sound**, **+** puts the sound on an audio track at the playhead; on a video row, **♪** puts only its sound there — see [Audio tracks](#docs/editor/tracks). **Add black** adds that many seconds of black at the end, **Add title** puts a title at the playhead, **Filter by name** searches ([[sc:search.focus]]).
 
-**The monitors** — **Source** plays what you clicked in the pool (**Add to timeline** places it). **Program** plays the timeline. Beside them, the inspector (below) and *Rendered but not on the timeline*, with **Place** for each clip that finished but was never put on the track.
+**The monitors** — **Source** on the left, **Program** on the right. **Program** plays the timeline. Under it, left to right: **▶** / **⏸**, the speaker (mutes the preview only), the time, and what is under the playhead (the clip's name, its trim, *source* if it has no proxy yet); a chip counts clips that finished rendering but are not on the timeline and opens the Inspector. **Source** plays a clip before you cut it in: click a clip in the pool, or **drag a clip onto it** — from the media pool or from the timeline (dragging a shot from the track onto the Source monitor loads it there and leaves the timeline exactly as it was). Until something is loaded it says *Drop a clip here to preview*. **Add to timeline** places the clip; **×** hides the monitor. The **Inspector** opens beside the monitors when you ask for it and holds the clip's properties (below) and *Rendered but not on the timeline*, with **Place** for each clip that finished but was never put on the track. Nothing on this screen resizes itself: the monitors and the panels change only when you press a toggle, and what you chose is remembered in this browser.
 
 **The tracks**, top to bottom:
 
@@ -27,7 +27,17 @@ The Editor is a timeline for the clips you make — from any engine, from a stor
 | **A2 Music** | the soundtrack |
 | **A3, A4, …** | audio tracks — laugh tracks, stings, beds, any number of sounds; every track plays together |
 
-**The transport** — **Play**, 🔊 (mutes the preview only), the time, **Snap to beat**, zoom **−** / slider / **+**, the **i** (the preview is approximate at cuts; the render is exact) and **Keys**. Drag the timeline's top edge up for taller tracks; double-click it to reset. With the sound lanes small (below) the edge goes much further down, and the picture gets what it leaves.
+**The tool row** — directly above the tracks: the [clip bar](#docs/editor/clip-bar) on the left (icons; hover one for its name, what it does and its key), and on the right **Snap** (to the beat grid), zoom **−** / slider / **+**, the **i** (the preview is approximate at cuts; the render is exact — it turns amber when it has a note for you) and **Keys**. Drag the timeline's top edge (just below this row) up for taller tracks; double-click it to reset; each mode remembers its own height.
+
+**View** — the group of switches in the header decides what is on the screen. Each one is **highlighted while its panel is showing**; click to hide it, click again to bring it back:
+
+- **Source** — the Source monitor on the left.
+- **Inspector** ([[sc:editor.inspector]], or double-click a clip) — the properties panel on the right.
+- **Sound** ([[sc:editor.soundMode]]) — Sound mode: every sound lane at full height, the picture small. See [Picture mode and Sound mode](#docs/editor/compact).
+- **Panels** ([[sc:editor.panels]]) — the app's left column: the tabs, the media pool and the queue. Hide it to give the cut the whole window.
+- **Full screen** (the corners, [[sc:editor.fullscreen]]) — the Program monitor fills the screen; **Esc** or **F** brings it back.
+
+In a narrow window the group shows icons only. Every icon button in the Editor shows its name, what it does and its key a moment after you point at it (or tab to it).
 
 ## Selecting {#selecting}
 
@@ -47,9 +57,9 @@ The Editor is a timeline for the clips you make — from any engine, from a stor
 
 ## The clip bar {#clip-bar}
 
-The row of buttons directly above the tracks holds the actions you use all day. Left of them, the readout names what is selected (*3 clips selected*).
+The row of icons directly above the tracks holds the actions you use all day, in four groups: edit (**Split**, **Lift**, **Ripple delete**, **Duplicate**), sound (**Unlink / Link**, **Resync**, **Mute**, **Delete sound**, **Clear points**), **Lock**, and **Face Fix ×2**. Hover an icon for its name, what it does and its key. Left of them, the readout names what is selected (*3 clips selected*).
 
-Every button is always there. When it cannot act, it is greyed out and its tooltip says what would make it work.
+Every button is always there. When it cannot act, it is greyed out and its tooltip says what would make it work. When the pane is too narrow, the tail of the row moves into a **More** menu, with the names written out — as they are in the right-click menu.
 
 | Button | What it does | Greyed out when |
 |---|---|---|
@@ -69,7 +79,7 @@ When the pane is too narrow, the last buttons move into **More ▾**. **Right-cl
 
 ## The inspector (Advanced) {#inspector}
 
-The panel beside the monitors holds the **properties** of the selected clip — the settings you change occasionally. It has three sections:
+The panel beside the Program monitor holds the **properties** of the selected clip — the settings you change occasionally. It is closed until you open it: **Inspector** in the View group, [[sc:editor.inspector]], or a double-click on a clip; press again to close it. Whether it is open is remembered in this browser. It has three sections:
 
 - **Clip** — **Speed**, 0.25× to 4× (**0.5x**, **1x**, **2x** buttons); the clip's slot on the film changes and everything after it moves. **Retake** renders a new take of a storyboard shot — see [Replace a shot with a retake](#docs/editor/job-retake).
 - **Sound** — **Fade in** / **Fade out** in seconds, and **Add point at playhead** for the level line.
@@ -96,15 +106,13 @@ A **J-cut** starts the next shot's sound before its picture; an **L-cut** lets a
 - Everything else works the same on both lanes: unlink, trim, J-cut and L-cut, fades, level points, Mute, Resync, Duplicate, snapping (a dragged edge also snaps to the other sounds' edges).
 - The preview plays both lanes, the render mixes them under the same safety limiter as the music (and **Duck under dialogue** follows sound on either lane), and the export puts **Clip sound B** on its own audio track, right after the first.
 
-### Sound lanes small, so you can see the picture {#compact}
+### Picture mode and Sound mode {#compact}
 
-**A1**, **A2** and every audio track make themselves **small** — thin strips showing where each sound sits — while you are not working on sound, and come back to full height the moment you are. The picture and the monitors get the height they give up.
+The Editor has two layouts and one switch between them — **Sound** in the View group, [[sc:editor.soundMode]], or the **▾** on the **A1 Clip sound A** head; all three are the same control.
 
-- **They open by themselves** when you click, hover or drag any sound or its lane head, when a sound is selected, when you open **Sound** in the media pool, when you add a track or a sound file, and while the film is playing. They never shrink in the middle of a drag, during playback, or under an open menu.
-- **They make themselves small again** a couple of seconds after you leave the sound alone.
-- **A small lane is a picture, not a control**: the waveform shows where the sound is; the grips, the corner fades and the level line are not there. Moving the pointer onto the lanes is enough to open them, so by the time you click, the sound is at full height and behaves exactly as it always has.
-- **▾ on the A1 Clip sound A head** ([[sc:editor.soundLanes]]) pins it: press it once and the lanes stay small whatever you do; press it again (**▸**) and they stay at full height. Clicking a small lane hands the decision back to the automatic one. The choice is remembered in this browser, not in the film.
-- With them small, the timeline's top edge can be pushed much lower than before — the box is only as tall as what is in it.
+- **Picture mode** (the default) — the picture is big. **A1**, **A2** and every audio track are thin strips that show where each sound sits and what colour it is. A thin strip is a picture, not a control: click it to select it (the clip bar's sound verbs — mute, delete, unlink, resync, duplicate — all work on the selection), double-click it for sound mode. The timeline sits at the height you last dragged it to, as low as its thin lanes allow.
+- **Sound mode** — the sound is big and the picture is small. Every sound lane is at full height with its grips, corner fades, level line and points; the timeline takes the height and the Program monitor drops to its smallest size. Press the switch again for the picture.
+- **Nothing changes the split by itself.** No hover, click, selection, playback or timer moves a lane or a monitor — only the switch. Each mode remembers its own timeline height, and the mode itself is remembered in this browser, not in the film.
 
 ### When sound drifts: Resync {#resync}
 
@@ -142,6 +150,21 @@ Under **A2 Music** are the audio tracks — **A3**, **A4** and on. A track holds
 - The clip bar acts on it: **Split** cuts the selected sound at the playhead, **Lift** / **Delete sound** take it off, **Ripple delete** also closes the gap on that track, **Duplicate**, **Mute sound**, **Clear points**, **Lock**. **⇧-click** / **⌘-click** selects several. Right-click it for the same verbs. **Unlink** and **Resync** stay grey — a sound on a track has no picture to link to.
 - The inspector shows the selected sound's **Level**, **Fade in** / **Fade out** and **Add point at playhead**. The level you hear is the sound's level times its track's level.
 - Everything plays in the preview, mixes into the render under the same safety limiter as the music, and exports: each audio track becomes its own audio track in Premiere / Resolve and its own layers in After Effects, with trims, levels, fades and mutes editable there.
+
+### Room tone {#room-tone}
+
+**Room tone** is background noise — room noise, atmos, an ambience bed — that runs under the whole sequence on its own audio track, so a cut never drops to silence or jumps from one room to another. It is made for the sequence each time, in about a second, on the CPU.
+
+- **Add it:** media pool → **Sound** → the **Room tone** card, or **♪** beside **+ Add audio track** → **Room tone…**. Pick a sound and press **Add room tone**. It lands on its own track (named *Room tone*), locked, from the first frame to the last.
+- **From this film** (the default) listens to the quiet moments of your own clips — the room between the lines, tape hiss, hum — and makes a continuous bed of that sound. When the clips have too little quiet sound it says so on the card and **Quiet room** stands in.
+- **Other sounds:** Quiet room, Living room, Office, TV studio, Kitchen, Car interior, Outdoors day, Night outside, City street, Rain, VHS tape, Big hall, Plane cabin.
+- **New take** makes another version of the same sound — a new one every click. **Use this sound** swaps to what the picker shows, at the same level. **Rebuild** makes it again from the sequence as it is now (after a re-cut). **Remove** takes it off (Undo brings it back).
+- **Level** is in LUFS: **−27** by default — clearly there, under dialogue that sits around −16. The track head's level slider is the same control in percent. Every change is one Undo step.
+- **It follows the sequence.** Trim, add or delete shots and the bed stays as long as the sequence; when the sequence outgrows the sound file, a longer one is made in the background. A bed you split or moved by hand is left alone — to dip it somewhere, unlock it (**Lock** on the clip bar) and add level points.
+- **Automatic cuts** — the Editor's first cut of a Storyboard, **Auto-edit…**, and Storyboard's automatic film — get a *From this film* room tone by default. Turn **Add room tone to automatic cuts** off on the card to stop it. A music-video cut (the song replaces the clips' sound) and clips with no quiet sound get none.
+- It plays in the preview, mixes into the render and exports as its own audio track, like any other track. The file lives in the sequence's `audio/room_tone/` folder.
+
+**No clicks at cuts.** The render also puts a 12 ms fade on the start and end of every clip's sound, so a hard cut between two sounds cannot click. It is too short to hear as a fade. The preview does not do this, and an exported project leaves it to your editor.
 
 ## Titles, cards and black {#titles}
 
@@ -187,7 +210,7 @@ A transition borrows extra picture from beyond each clip's trim, so the cut does
 | **Size** | **As cut** · **1080p** · **4K** | only ever up, never a crop; 4K adds pixels, not detail |
 | **Finish** | **Clean** · **Grain** · **Heavy grain** | on the delivered file only — the preview and the export stay clean |
 
-**Export for Premiere / Resolve / AE** (in the same menu) writes a folder with an FCP7 XML (for Premiere and Resolve), an After Effects script and the media, and shows it in Finder. Sound comes out as separate stems, not the mixed track — the clips' sound (lane A, then lane B as its own track when it is used), the music, and one audio track per **A3, A4, …**. Cuts, trims, speed, fades, mutes and reframing travel into the project as editable settings; titles do not, and transitions arrive as plain cuts.
+**Export for Premiere / Resolve / AE** (in the same menu) writes a folder with an FCP7 XML (for Premiere and Resolve), an After Effects script and the media, and shows it in Finder. Sound comes out as separate stems, not the mixed track — the clips' sound (lane A, then lane B as its own track when it is used), the music, and one audio track per **A3, A4, …** (room tone included). Cuts, trims, speed, fades, mutes and reframing travel into the project as editable settings; titles do not, and transitions arrive as plain cuts.
 
 **Auto-edit…** (⋯) re-cuts the sequence from scratch and throws away this arrangement — it asks first.
 
@@ -225,6 +248,13 @@ For an L-cut, do the same with the **outgoing** shot and drag its strip's right 
 3. Drag the right corner handle of that strip for a fade out, and the left corner handle of the incoming sound for a fade in over the same seconds. (The incoming sound can reach back the same way: unlink it and drag its left end earlier.)
 4. Play across the cut — both sounds play together while they overlap.
 5. **Save**.
+
+### Smooth the sound between cuts {#job-room-tone}
+
+1. Media pool → **Sound**. The **Room tone** card is at the top.
+2. Leave **From this film** picked (or choose a room) and press **Add room tone**. A *Room tone* track appears under the other sounds, as long as the sequence.
+3. Play across a few cuts. Too loud or too quiet? Move **Level** (−27 LUFS is the default). Not the right texture? **New take**, or pick another sound and press **Use this sound**.
+4. **Save**.
 
 ### Replace a shot with a retake {#job-retake}
 

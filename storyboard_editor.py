@@ -88,6 +88,8 @@ __all__ = [
     "track_label", "track_gain", "track_muted", "strip_gain", "strip_muted",
     "strip_window", "track_strip_gain_points", "track_strip_gain_at",
     "track_render_strips",
+    "ROOM_TONE_NAME", "ROOM_TONE_KEYS", "room_tone_meta", "room_tone_track",
+    "room_tone_new_track", "room_tone_fit",
     "overlay_items", "overlay_kind", "OVERLAY_SUFFIXES",
     "blocking_errors", "WARNING_CODES", "repair_audio_overlaps",
     "edit_digest", "session_token_path", "claim_session", "current_session",
@@ -1356,6 +1358,97 @@ def track_render_strips(edit) -> list[dict]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# ROOM TONE — one tagged audio track under the whole film
+# ---------------------------------------------------------------------------
+# "If it was all over the timeline as an ambient sound, not something really
+# subtle." A room-tone bed IS an audio track — so the preview, the render mix
+# and the NLE export already play it, and there is no fourth mix path — with a
+# tag that says what made the file, so the Editor can offer Update / New take
+# and keep the strip as long as the film:
+#
+#   track["room_tone"] = {"variant", "seed", "level", "ref_lufs"}
+#
+# `level` is what the user picked (LUFS); `ref_lufs` is what the FILE is at;
+# the track's `gain` is the fader between them (`room_tone.level_gain`). The
+# gain is the number the mix plays — `level` is only the label on it.
+ROOM_TONE_NAME = "Room tone"
+ROOM_TONE_KEYS = ("variant", "seed", "level", "ref_lufs")
+
+
+def room_tone_meta(track) -> dict | None:
+    """The tag, cleaned, or None for an ordinary track."""
+    rt = track.get("room_tone") if isinstance(track, dict) else None
+    if not isinstance(rt, dict):
+        return None
+    out = {"variant": str(rt.get("variant") or "film")[:40]}
+    try:
+        out["seed"] = int(rt.get("seed") or 1)
+    except (TypeError, ValueError):
+        out["seed"] = 1
+    for k, d in (("level", -27.0), ("ref_lufs", -18.0)):
+        v = rt.get(k)
+        out[k] = round(float(v), 2) if _is_num(v) else d
+    return out
+
+
+def room_tone_track(edit) -> tuple[int, dict] | None:
+    """(index, track) of the film's room-tone track, or None. The first wins."""
+    for i, t in enumerate(audio_tracks(edit)):
+        if room_tone_meta(t) is not None:
+            return i, t
+    return None
+
+
+def room_tone_new_track(facts: dict, film_len: float, *, level: float = -27.0,
+                        track_id: str = "") -> dict:
+    """A room-tone track from `room_tone.make_bed`'s facts: one locked strip
+    from the film's first second to its last, the fader set for `level`."""
+    import room_tone as _rt                                          # noqa: PLC0415
+    dur = float(facts.get("duration") or 0.0)
+    end = round(max(TRACK_STRIP_MIN, min(float(film_len or 0.0), dur)), 6)
+    ref = float(facts.get("ref_lufs") or _rt.REF_LUFS)
+    lvl = _rt.clamp_level(level)
+    t = {"id": track_id or ("trt" + _clip_id(str(facts.get("path")), 0.0, 0.0)[:8]),
+         "name": ROOM_TONE_NAME,
+         "room_tone": {"variant": str(facts.get("variant") or "film"),
+                       "seed": int(facts.get("seed") or 1),
+                       "level": lvl, "ref_lufs": round(ref, 2)},
+         "strips": [{"id": "srt" + _clip_id(str(facts.get("path")), 0.0, 0.0)[:8],
+                     "path": str(facts.get("path") or ""), "start": 0.0,
+                     "end": end, "film_start": 0.0, "duration": round(dur, 6),
+                     "title": f"Room tone · {facts.get('label') or ''}".strip(" ·"),
+                     "locked": True}]}
+    g = _rt.level_gain(lvl, ref)
+    if abs(g - 1.0) > 1e-9:
+        t["gain"] = g
+    return t
+
+
+def room_tone_fit(edit) -> bool:
+    """Keep an untouched room-tone strip as long as the film. Mutates `edit`.
+
+    Only the plain case is fitted — ONE strip starting at 0 — because a bed
+    somebody split or moved by hand is an arrangement, not a default. The file
+    bounds the fit; a film that outgrew it needs a longer bed (the Editor asks
+    for one). True when something changed."""
+    found = room_tone_track(edit)
+    if not found:
+        return False
+    strips = track_strips(found[1])
+    if len(strips) != 1 or abs(_f(strips[0].get("film_start"))) > 1e-6:
+        return False
+    s = strips[0]
+    want = edit_duration(edit)
+    st = _f(s.get("start"))
+    dur = _f(s.get("duration"), 0.0) or (want + st)
+    end = round(st + max(TRACK_STRIP_MIN, min(want, dur - st)), 6)
+    if abs(_f(s.get("end")) - end) <= 1e-6:
+        return False
+    s["end"] = end
+    return True
+
+
 def _is_num(v) -> bool:
     return (isinstance(v, (int, float)) and not isinstance(v, bool)
             and v == v and v not in (float("inf"), float("-inf")))
@@ -1391,6 +1484,16 @@ def _validate_audio_tracks(edit, bad) -> None:
             elif not 0.0 <= float(g) <= 1.0:
                 bad("audio_track_gain_range",
                     f"audio track {who}: gain must be between 0 and 1")
+        rtag = t.get("room_tone")
+        if rtag is not None:
+            if not isinstance(rtag, dict):
+                bad("audio_track_room_tone",
+                    f"audio track {who}: room_tone must be an object or absent")
+            else:
+                for key in ("level", "ref_lufs"):
+                    if rtag.get(key) is not None and not _is_num(rtag.get(key)):
+                        bad("audio_track_room_tone",
+                            f"audio track {who}: room_tone.{key} must be a number")
         strips = t.get("strips")
         if strips is None:
             continue
@@ -1506,6 +1609,11 @@ def _normalise_audio_tracks(out: dict) -> None:
             t2["gain"] = g
         else:
             t2.pop("gain", None)
+        rtag = room_tone_meta(t2)
+        if rtag is None:
+            t2.pop("room_tone", None)
+        else:
+            t2["room_tone"] = rtag
         strips = []
         for s in track_strips(t2):
             s2 = {k: v for k, v in s.items() if not str(k).startswith("_")}

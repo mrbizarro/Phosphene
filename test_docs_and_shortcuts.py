@@ -127,6 +127,22 @@ class TheDocsShowTheTable(unittest.TestCase):
             for m in re.finditer(r"(?:sbeKeyHint|shortcutHint)\('([\w.-]+)'\)", f.read_text(encoding="utf-8")):
                 self.assertIn(m.group(1), self.ids, f"{f.name}: {m.group(0)}")
 
+    def test_the_view_group_names_real_keys_in_its_tips_and_its_docs(self):
+        # sbeViewTip takes the registry id as its last argument, which the
+        # sbeKeyHint regex above cannot see — so the View group is checked here.
+        js = (WEB / "js" / "editor.js").read_text(encoding="utf-8")
+        fn = js[js.index("function sbePaintPanels()"):]
+        fn = fn[:fn.index("\n}\n")]
+        keys = re.findall(r"'(editor\.[\w]+)'\);", fn)
+        self.assertEqual(sorted(keys), ["editor.inspector", "editor.panels", "editor.soundMode"])
+        for k in keys:
+            self.assertIn(k, self.ids)
+        md = (DOCS / "editor.md").read_text(encoding="utf-8")
+        view = md[md.index("**View**"):md.index("**The timeline**") if "**The timeline**" in md else None]
+        for k in ("editor.inspector", "editor.soundMode", "editor.panels", "editor.fullscreen"):
+            self.assertIn(f"[[sc:{k}]]", view, k)
+        self.assertIn("Drop a clip here to preview", md)
+
     def test_no_shortcut_claims_a_reserved_chord(self):
         reserved = set(self.r["reserved"])
         for c in ("mod+r", "mod+w", "mod+q", "mod+t", "mod+n", "mod+l", "mod+h", "mod+m",
@@ -145,7 +161,8 @@ class TheDocsShowTheTable(unittest.TestCase):
 _KEY = {"space": " ", "escape": "Escape", "backspace": "Backspace", "delete": "Delete",
         "arrowleft": "ArrowLeft", "arrowright": "ArrowRight", "arrowup": "ArrowUp",
         "arrowdown": "ArrowDown", "home": "Home", "end": "End", "plus": "+", "minus": "-",
-        "equals": "=", "underscore": "_", "backslash": "\\", "enter": "Enter"}
+        "equals": "=", "underscore": "_", "backslash": "\\", "enter": "Enter",
+        "backquote": "`"}
 
 # State each row needs for its branch to be the one that answers.
 _STATE = {

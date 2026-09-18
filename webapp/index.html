@@ -286,7 +286,7 @@
   <a class="creator-link" href="https://x.com/AIBizarrothe" target="_blank" rel="noopener" title="Follow Mr. Bizarro on X (the panel's creator)">
     <img src="/assets/bizarro-avatar.jpg" class="creator-avatar" alt="">
     <span>by Bizarro</span>
-    <span class="x-icon"><svg class="ph" aria-hidden="true" style="margin-right:3px;vertical-align:-2px"><use href="#ph-arrow-square-out"/></svg>X</span>
+    <span class="x-icon"><svg class="ph" aria-hidden="true"><use href="#ph-arrow-square-out"/></svg>X</span>
   </a>
 </header>
 
@@ -956,11 +956,83 @@
         <textarea class="avoid-textarea" name="negative_prompt" id="negative_prompt" placeholder="blurry hands, distorted fingers, extra fingers, smeared face, warped text"></textarea>
       </div>
 
-      <!-- ============== QUICK SETTINGS ==============
-           Quality picker (compact 4-up segmented strip) + Duration +
-           Frames + Seed in one dense block. Everything more advanced
-           (aspect, dims, speed, long-clips, export, audio source,
-           open-when-done) is folded into the Customize disclosure below. -->
+      <!-- ========== SHOT LIST · per-window prompts (chained lengths only) ====== -->
+      <!-- ========== PER-WINDOW PROMPTS (chained lengths only) ==========
+           The fix for the public report — @Wizard_1981, v3.6.0: "10s and
+           15s just repeat immediately after 5 seconds." The frames were
+           never duplicated (a 10 s render was checked frame by frame; the
+           background progresses continuously across the seam). What
+           repeated was the ACTION, because a 10 s clip is two chained 5 s
+           windows and BOTH were handed the same prompt. A continuous action
+           ("he walks") carries on fine; a discrete one ("he raises his arm",
+           a line of dialogue) is performed once per window and reads as a
+           loop. Our own tier note has warned about this in words since
+           v3.4.1 — and the runner has taken `--chain-prompts` the whole
+           time. This is the control that reaches it.
+
+           DEFAULT IS UNCHANGED. Off (the default) posts nothing and every
+           window gets the main prompt, exactly as before. On reveals one
+           small textarea per window, seeded with the main prompt so the
+           user EDITS a shot list instead of facing blank boxes, and a box
+           left empty falls back to the main prompt server-side.
+
+           Visible only when the selected Length is chained, and it follows
+           the Length strip live — 10 s shows two boxes, 15 s shows three
+           (renderH3WindowPrompts, called from _h3ApplyShape). Hidden
+           entirely when the INSTALLED runner has no `--chain-prompts`: that
+           user keeps the honest warning on the cell instead of being sent
+           looking for a control they don't have.
+
+           Sits with the PROMPT, above the render controls (layout pass,
+           2026-09-18). It is prompt content — one line per 5 s window — not
+           a render setting, and inside the collapsed Shot setup section a
+           user who had just chosen a 15 s length would never have found it.
+           Still hidden entirely unless the chosen Length chains windows. -->
+      <div class="cz-control h3-winprompts" id="h3WindowPromptsRow" data-h3-only hidden>
+        <div class="cz-label">
+          <span>Per-window prompts</span>
+          <!-- The `?`. The panel had no help idiom of its own — every
+               explanation lived in a title= tooltip, which is invisible on
+               a trackpad and unreachable on a touch screen. One round
+               button, one sentence revealed in place, text owned by Python
+               (H3_CHAIN_PROMPT_HELP) so it can't drift from the mechanism. -->
+          <button type="button" class="help-dot" id="h3WinHelpBtn"
+                  aria-expanded="false" aria-controls="h3WinHelpNote"
+                  title="What are windows?"
+                  onclick="toggleH3WindowHelp()">?</button>
+          <span class="cz-label-hint" id="h3WinPromptsHint"></span>
+          <span class="h3-winprompts-spacer"></span>
+          <label class="toggle-pill" id="h3WinPromptsPill"
+                 title="Give each 5 s window its own line. Off = one prompt for the whole clip.">
+            <input type="checkbox" id="h3WinPromptsToggle">
+            <span class="toggle-dot"></span>
+            <span>One line per window</span>
+          </label>
+        </div>
+        <div class="h3-winhelp" id="h3WinHelpNote" hidden></div>
+        <div class="h3-winlist" id="h3WinPromptsList" hidden></div>
+      </div>
+
+      <!-- ============== SHOT SETUP ==============
+           Owner, 2026-09-18: "The H3 layout is kind of a bit too much … you have
+           a pill for speed, quality, length, and all that. That should be inside
+           one section that you can compress and decompress, like we have LoRAs
+           and Customize, because it is very messy like that … it should be
+           closed by default."
+           What used to be five stacked pill rows, each with its own label —
+           Speed, Quality, Length, Steps, Orientation — plus a Seed field, all of
+           it open on every render, is now ONE disclosure holding all of them,
+           closed until you want it. The summary line carries the whole shape
+           (#shotSetupSummary, written by updateShotSetupSummary), so the closed
+           section still says what will render.
+           Nothing left the form and nothing was renamed: every id, every data-*
+           hook, every hidden input and every handler is the one it was. The
+           order inside is deliberate and tested — Speed BEFORE the Quality label
+           (test_h3_tristep_draft), then the two axis strips, then the knobs that
+           modify them, then orientation and seed.
+           The selected cell's honest notes (#ltxTierNote / #h3TierNote) stay
+           OUTSIDE it, visible: a warning about the render you are about to queue
+           must not be foldable. -->
       <div class="quick-settings">
         <!-- ============== ENGINE STATE ==============
              The PICKER lives in the header now (#engineSwitch, rendered from
@@ -997,6 +1069,11 @@
         <input type="hidden" name="h3_upscale" id="h3_upscale" value="fit_720p">
         <input type="hidden" name="h3_steps" id="h3_steps" value="auto">
         <input type="hidden" name="h3_turbo" id="h3_turbo" value="0">
+        <!-- Fast · 3-step (TaoMate's 3-step adapter + its sigma ladder). "1"
+             when the Fast · 3-step Speed pill is lit, "0" otherwise; make_job
+             re-resolves it (Draft/Standard/High only, never with Turbo). In
+             the make_job allowlist. -->
+        <input type="hidden" name="h3_tristep" id="h3_tristep" value="0">
         <!-- Which of H3's ONE adapter slots this render spends. Its runner's
              `--lora` takes a single path (default=None, not append), so Turbo
              and a picked LoRA cannot both run and something has to choose.
@@ -1016,309 +1093,297 @@
              listed there silently no-ops on /queue/add — the known trap). -->
         <input type="hidden" name="h3_chain_prompts" id="h3_chain_prompts" value="">
         <div class="engine-note" id="engineRowNote" hidden></div>
-        <!-- The engine's standing note. Second sentence added with the player
-             scoping (Part C): Extend is an LTX pipeline and is now hidden on
-             an H3 clip, so the surface has to say where length actually comes
-             from — the chained tiers, chosen BEFORE the render, not a post-hoc
-             action on the result. Said here, next to the tier strip where the
-             user can act on it, rather than as a tooltip on a button that no
-             longer exists. -->
-        <div class="engine-hint" id="h3Hint" hidden>
-          Dialogue + sound are generated jointly — write them into the prompt.
-          Length is chosen here, before the render: 10 s and 15 s chain 5 s
-          windows at render time, so there is no Extend afterwards.
-        </div>
-        <div>
-          <div class="qs-label">
-            <span class="qs-name" id="qualityLabelName">Quality</span>
-            <span class="qs-meta" id="qualityMeta"></span>
-          </div>
-          <!-- Compact 4-col strip. Each chip carries name + a single spec
-               line. Same data-quality wiring as before so setQuality()
-               keeps working unchanged. The .pill-btn class is preserved
-               for the click handler that filters by it.
-               When a character is selected in the Characters chip strip,
-               selectManualCharacter() hides this strip and reveals the
-               character-only strip below. Its Draft/Pro rows use q8 distilled,
-               while its High rows use the real q8 HQ lane; no character chip
-               ever falls through to the ordinary q4 quality strip. -->
-          <!-- LTX's CANVAS axis. Rendered by renderTierAxes('ltx') from
-               BOOT.ltx.qualities / .lengths / .tiers, exactly as H3's two
-               strips are, so the server-side table is the single source of
-               truth for geometry and every estimate.
-
-               These four chips used to be static markup carrying hand-written
-               subtitles ("Q4 · 5 min", "Q8 Pro · 7 min") kept up to date by two
-               separate JS updaters — numbers no measurement on 2.5 supported.
-               The table fills the third slot now, the way H3's already did, and
-               both updaters are deleted.
-
-               `data-quality` is UNCHANGED: five surfaces read it (the click
-               handler, setQuality's active toggle, applyTierTimes, the
-               trained-LoRA compatibility gate, the character-strip swap). -->
-          <div class="quality-strip pill-group" id="qualityGroup" data-ltx-only></div>
-          <!-- LTX's DURATION axis — the same second row H3 grew, for the same
-               reason: a canvas and a length are independent choices and one
-               strip cannot express both. Duration used to be a free numeric
-               field whose value one lane silently rounded away. The field
-               itself is not deleted (power users have shipped work with it);
-               it lives in Customize and a value off the axis lights no chip. -->
-          <div class="ltx-axes" id="ltxAxes" data-ltx-only>
-            <div class="qs-label h3-axis-label">
-              <span class="qs-name">Length</span>
-              <span class="qs-meta" id="ltxLengthMeta"></span>
+        <details id="shotSetupDetails" class="customize-section shot-setup">
+          <summary class="cz-summary">
+            <span class="cz-chevron" aria-hidden="true"><svg class="ph"><use href="#ph-caret-down-bold"/></svg></span>
+            <span class="cz-title">Shot setup</span>
+            <span class="cz-meta" id="shotSetupSummary">quality · length · speed</span>
+          </summary>
+          <div class="cz-body">
+            <!-- The engine's standing note. Second sentence added with the player
+                 scoping (Part C): Extend is an LTX pipeline and is now hidden on
+                 an H3 clip, so the surface has to say where length actually comes
+                 from — the chained tiers, chosen BEFORE the render, not a post-hoc
+                 action on the result. Said here, next to the tier strip where the
+                 user can act on it, rather than as a tooltip on a button that no
+                 longer exists. -->
+            <div class="engine-hint" id="h3Hint" hidden>
+              Dialogue + sound are generated jointly — write them into the prompt.
+              Length is chosen here, before the render: 10 s and 15 s chain 5 s
+              windows at render time, so there is no Extend afterwards.
             </div>
-            <div class="quality-strip pill-group" id="ltxLengthGroup"></div>
-          </div>
-          <!-- The selected cell's honest notes, joined — the mirror of
-               #h3TierNote. Empty and hidden when the combination has nothing
-               to warn about, which is most of them. -->
-          <div class="engine-hint" id="ltxTierNote" hidden></div>
-          <!-- Character-only quality strip — revealed by selectManualCharacter.
-               Rendered entirely from BOOT.ltx.character so the Manual surface
-               and Characters tab expose the same generation-specific tokens. -->
-          <!-- data-ltx-only for a reason the `hidden` attribute can't cover:
-               its visibility is owned by _applyCharacterQualityStripVisibility,
-               which only ever asks "is a character selected?". With a character
-               active, switching to H3 left this strip lit BESIDE the H3 tier
-               strip — two primary strips, both claiming to set the render. The
-               fold rule settles it declaratively, whatever the JS believes. -->
-          <div class="quality-strip pill-group" id="qualityGroupCharacter" hidden data-ltx-only></div>
-          <!-- Hailuo H3 render shape — TWO INDEPENDENT AXES, not one fixed tier
-               menu. This shipped as six baked combinations (Draft 3s, HQ 3s,
-               HQ 5s, Wide 5s, Long 10s, Long 15s) and the owner's report was
-               exact: "somebody may want to run the HQ 5s version for 10s, and
-               it's now not possible from the UI." The matrix was mostly empty —
-               our best canvas, the only true 16:9, could only produce 5-second
-               clips — and nothing technical said so. Chained windows keep memory
-               flat per window, so every canvas reaches every length.
-
-               So: Quality picks the CANVAS (Draft 640×384 · Standard 768×448
-               · High 1024×576 · Native 1344×768, the model's own ceiling),
-               Length picks the DURATION (3s · 5s · 10s · 15s), and they don't
-               know about each other. Both strips reuse the LTX
-               .quality-strip visual language (separate elements, so neither
-               engine's chips can ever be half-lit) and both are rendered by
-               renderH3Axes() from BOOT.h3.qualities / .lengths / .tiers — the
-               server-side tables stay the single source of truth for geometry,
-               steps and every estimate, so a change is one Python edit.
-
-               The outer id is UNCHANGED (#h3TierGroup): the engine registry row
-               names it as H3's `strip` and setEngine's generic surface-swap
-               hides it by id. It is now a wrapper around the two strips rather
-               than a strip itself. -->
-          <div class="h3-axes" id="h3TierGroup" hidden>
-            <div class="quality-strip pill-group" id="h3QualityGroup"></div>
-            <div class="qs-label h3-axis-label" id="h3LengthLabel">
-              <span class="qs-name">Length</span>
-              <span class="qs-meta" id="h3LengthMeta"></span>
+            <!-- H3 SPEED — one switch above the Quality cards: ⚡ Fast (TaoMate's
+                 3-step adapter, the default once installed) | ✦ Best (the shape's
+                 full sampler). The cards below re-price live for it. Turbo is
+                 folded in here (Fast replaces it). Rendered by renderH3Turbo();
+                 writes #h3_tristep. -->
+            <div class="h3-speed" id="h3SpeedRow" data-h3-only hidden>
+              <div class="qs-label">
+                <span class="qs-name">Speed</span>
+                <span class="qs-meta">Fast = 3 steps · Best = full steps</span>
+              </div>
+              <div class="pill-group cols-2 h3-speed-group" id="h3SpeedGroup">
+                <button type="button" class="pill-btn" data-h3-speed="fast"
+                        title="3 steps — about 4× faster, great for drafts and most shots.">
+                  <span>⚡ Fast</span><span class="sub" id="h3SpeedFastSub"></span>
+                </button>
+                <button type="button" class="pill-btn" data-h3-speed="best"
+                        title="Best: this shape's full sampler — the slower, most careful render.">
+                  <span>✦ Best</span><span class="sub" id="h3SpeedBestSub"></span>
+                </button>
+              </div>
+              <div class="h3-turbo-note" id="h3SpeedNote" hidden></div>
             </div>
-            <div class="quality-strip pill-group" id="h3LengthGroup"></div>
-          </div>
-          <!-- Honest artefact notes for the selected combination. Rendered from
-               the cell's `notes` list (server-side), so a Draft 10 s clip is
-               told BOTH that 0.25 MP doesn't resolve faces and that one prompt
-               is asked of every 5 s window. The chained warning now fires at any
-               quality, because chaining is now available at any quality. The
-               chained sentence now POINTS AT the control below instead of only
-               warning; h3_visible_tiers() swaps the old warning back in for a
-               pack whose runner has no --chain-prompts. -->
-          <div class="engine-hint" id="h3TierNote" data-h3-only hidden></div>
-          </div>
-
-          <!-- ========== PER-WINDOW PROMPTS (chained lengths only) ==========
-               The fix for the public report — @Wizard_1981, v3.6.0: "10s and
-               15s just repeat immediately after 5 seconds." The frames were
-               never duplicated (a 10 s render was checked frame by frame; the
-               background progresses continuously across the seam). What
-               repeated was the ACTION, because a 10 s clip is two chained 5 s
-               windows and BOTH were handed the same prompt. A continuous action
-               ("he walks") carries on fine; a discrete one ("he raises his arm",
-               a line of dialogue) is performed once per window and reads as a
-               loop. Our own tier note has warned about this in words since
-               v3.4.1 — and the runner has taken `--chain-prompts` the whole
-               time. This is the control that reaches it.
-
-               DEFAULT IS UNCHANGED. Off (the default) posts nothing and every
-               window gets the main prompt, exactly as before. On reveals one
-               small textarea per window, seeded with the main prompt so the
-               user EDITS a shot list instead of facing blank boxes, and a box
-               left empty falls back to the main prompt server-side.
-
-               Visible only when the selected Length is chained, and it follows
-               the Length strip live — 10 s shows two boxes, 15 s shows three
-               (renderH3WindowPrompts, called from _h3ApplyShape). Hidden
-               entirely when the INSTALLED runner has no `--chain-prompts`: that
-               user keeps the honest warning on the cell instead of being sent
-               looking for a control they don't have.
-
-               Sits between the Length strip and Speed on purpose — it only
-               exists because of a Length the user just chose, and it is about
-               WHAT renders, not how long it takes. -->
-          <div class="cz-control h3-winprompts" id="h3WindowPromptsRow" data-h3-only hidden>
-            <div class="cz-label">
-              <span>Per-window prompts</span>
-              <!-- The `?`. The panel had no help idiom of its own — every
-                   explanation lived in a title= tooltip, which is invisible on
-                   a trackpad and unreachable on a touch screen. One round
-                   button, one sentence revealed in place, text owned by Python
-                   (H3_CHAIN_PROMPT_HELP) so it can't drift from the mechanism. -->
-              <button type="button" class="help-dot" id="h3WinHelpBtn"
-                      aria-expanded="false" aria-controls="h3WinHelpNote"
-                      title="What are windows?"
-                      onclick="toggleH3WindowHelp()">?</button>
-              <span class="cz-label-hint" id="h3WinPromptsHint"></span>
-              <span class="h3-winprompts-spacer"></span>
-              <label class="toggle-pill" id="h3WinPromptsPill"
-                     title="Give each 5 s window its own line. Off = one prompt for the whole clip.">
-                <input type="checkbox" id="h3WinPromptsToggle">
-                <span class="toggle-dot"></span>
-                <span>One line per window</span>
-              </label>
-            </div>
-            <div class="h3-winhelp" id="h3WinHelpNote" hidden></div>
-            <div class="h3-winlist" id="h3WinPromptsList" hidden></div>
-          </div>
-
-          <!-- ========== H3 PRIMARY CONTROLS — Speed + Steps ==========
-               These two shipped inside the Customize disclosure and the owner
-               could not find Steps at all: "I see you removed the step options
-               we had before, no?" He hadn't lost a control, he'd lost a
-               control's VISIBILITY, and the diagnosis matters — the rule that
-               put them there was "LTX keeps its secondary knobs in Customize,
-               so H3 should too", applied without checking whether they are
-               secondary on this engine. They are not. Quality picks the canvas
-               and Length picks the duration; Turbo (4-step distill adapter) and
-               Steps (9 → 20 sigma points) are what decide how long you wait,
-               each worth about a 2× swing, and neither is implied by either
-               axis. A control that changes wall clock by 2× does not belong
-               behind a disclosure triangle.
-               So they sit here, directly under the two strips they modify,
-               in the same chip grammar as the rest of the form. Nothing else
-               moved: same ids, same .cz-* classes, same handlers, same hidden
-               inputs (#h3_turbo / #h3_steps, both in the make_job allowlist).
-               .eng-primary is only a CSS hook — the active-pill accent rules
-               were scoped to .cz-body, so leaving Customize would otherwise
-               have cost these chips their engine colour. Order is deliberate:
-               Speed first because Turbo OVERRULES Steps. -->
-          <div class="eng-primary" id="h3PrimaryControls" data-h3-only>
-            <!-- H3 Turbo — the 4-step distillation LoRA. Grouped with Steps
-                 because it is the same axis (how many denoise passes), and it
-                 WINS: with Turbo on the Steps pills go visibly dead and the
-                 sampler is pinned at 4. Rendered by renderH3Turbo() from
-                 BOOT.h3.turbo, so Python stays the single source of truth for
-                 availability, size and copy — including the tooltip's
-                 measured-vs-derived distinction. LightX2V v1.0 has a visual
-                 approval but no end-to-end timing receipt yet, so every Turbo
-                 figure honestly stays derived from the measured cost model.
-                 The whole control
-                 hides when the installed pack's runner has no --lora. -->
-            <div class="cz-control" id="h3TurboRow" data-h3-only hidden>
+            <!-- Speed — the LTX-2.5 distilled lane's REAL speed control
+                 (v4.0.5), replacing the dead one above. "Fast draft" selects
+                 the engine's named `fast` schedule preset: 5+2 forwards vs
+                 the tuned 8+2, ~13% faster, and it renders a DIFFERENT take
+                 (same prompt + seed land on a different shot) — which is why
+                 it sits next to draft affordances and never on a quality
+                 slider. Visibility is SERVER-OWNED: the row shows only when
+                 the current tier cell carries `fast_eta`, which the registry
+                 stamps only on 2.5 distilled cells — the UI never parses a
+                 version string. -->
+            <div id="schedPresetRow" class="cz-control" data-ltx-only hidden>
               <div class="cz-label">Speed
-                <span class="cz-label-hint">4-step distill adapter · overrules Steps</span>
+                <span class="cz-label-hint">draft schedule · changes the take</span>
               </div>
-              <div class="pill-group cols-2" id="h3TurboGroup">
-                <button type="button" class="pill-btn active" data-h3-turbo="0"
-                        title="This shape's own sampler — its tuned sigma points per window.">
-                  <span>Standard</span><span class="sub" id="h3StdPillSub"></span>
+              <div class="pill-group cols-2" id="schedPresetGroup">
+                <button type="button" class="pill-btn active" data-sched-preset=""
+                        title="The tuned schedule every graded 2.5 clip runs (8+2 forwards).">
+                  <span>Tuned</span>
+                  <span class="sub" id="schedTunedSub">default schedule</span>
                 </button>
-                <button type="button" class="pill-btn" data-h3-turbo="1" id="h3TurboPill">
-                  <span>Turbo</span><span class="sub" id="h3TurboPillSub"></span>
+                <button type="button" class="pill-btn" data-sched-preset="fast"
+                        title="The engine's fast draft schedule (5+2 forwards). Renders a DIFFERENT take — the same prompt and seed land on a different shot than Tuned, so use it to explore, then re-render keepers on Tuned.">
+                  <span>Fast draft</span>
+                  <span class="sub" id="schedFastSub">different take</span>
                 </button>
               </div>
-              <div class="h3-turbo-note" id="h3TurboNote" hidden></div>
+            </div>
+            <div>
+              <div class="qs-label">
+                <span class="qs-name" id="qualityLabelName">Quality</span>
+                <span class="qs-meta" id="qualityMeta"></span>
+              </div>
+              <!-- Compact 4-col strip. Each chip carries name + a single spec
+                   line. Same data-quality wiring as before so setQuality()
+                   keeps working unchanged. The .pill-btn class is preserved
+                   for the click handler that filters by it.
+                   When a character is selected in the Characters chip strip,
+                   selectManualCharacter() hides this strip and reveals the
+                   character-only strip below. Its Draft/Pro rows use q8 distilled,
+                   while its High rows use the real q8 HQ lane; no character chip
+                   ever falls through to the ordinary q4 quality strip. -->
+              <!-- LTX's CANVAS axis. Rendered by renderTierAxes('ltx') from
+                   BOOT.ltx.qualities / .lengths / .tiers, exactly as H3's two
+                   strips are, so the server-side table is the single source of
+                   truth for geometry and every estimate.
+
+                   These four chips used to be static markup carrying hand-written
+                   subtitles ("Q4 · 5 min", "Q8 Pro · 7 min") kept up to date by two
+                   separate JS updaters — numbers no measurement on 2.5 supported.
+                   The table fills the third slot now, the way H3's already did, and
+                   both updaters are deleted.
+
+                   `data-quality` is UNCHANGED: five surfaces read it (the click
+                   handler, setQuality's active toggle, applyTierTimes, the
+                   trained-LoRA compatibility gate, the character-strip swap). -->
+              <div class="quality-strip pill-group" id="qualityGroup" data-ltx-only></div>
+              <!-- LTX's DURATION axis — the same second row H3 grew, for the same
+                   reason: a canvas and a length are independent choices and one
+                   strip cannot express both. Duration used to be a free numeric
+                   field whose value one lane silently rounded away. The field
+                   itself is not deleted (power users have shipped work with it);
+                   it lives in Customize and a value off the axis lights no chip. -->
+              <div class="ltx-axes" id="ltxAxes" data-ltx-only>
+                <div class="qs-label h3-axis-label">
+                  <span class="qs-name">Length</span>
+                  <span class="qs-meta" id="ltxLengthMeta"></span>
+                </div>
+                <div class="quality-strip pill-group" id="ltxLengthGroup"></div>
+              </div>
+              <!-- Character-only quality strip — revealed by selectManualCharacter.
+                   Rendered entirely from BOOT.ltx.character so the Manual surface
+                   and Characters tab expose the same generation-specific tokens. -->
+              <!-- data-ltx-only for a reason the `hidden` attribute can't cover:
+                   its visibility is owned by _applyCharacterQualityStripVisibility,
+                   which only ever asks "is a character selected?". With a character
+                   active, switching to H3 left this strip lit BESIDE the H3 tier
+                   strip — two primary strips, both claiming to set the render. The
+                   fold rule settles it declaratively, whatever the JS believes. -->
+              <div class="quality-strip pill-group" id="qualityGroupCharacter" hidden data-ltx-only></div>
+              <!-- Hailuo H3 render shape — TWO INDEPENDENT AXES, not one fixed tier
+                   menu. This shipped as six baked combinations (Draft 3s, HQ 3s,
+                   HQ 5s, Wide 5s, Long 10s, Long 15s) and the owner's report was
+                   exact: "somebody may want to run the HQ 5s version for 10s, and
+                   it's now not possible from the UI." The matrix was mostly empty —
+                   our best canvas, the only true 16:9, could only produce 5-second
+                   clips — and nothing technical said so. Chained windows keep memory
+                   flat per window, so every canvas reaches every length.
+
+                   So: Quality picks the CANVAS (Draft 640×384 · Standard 768×448
+                   · High 1024×576 · Native 1344×768, the model's own ceiling),
+                   Length picks the DURATION (3s · 5s · 10s · 15s), and they don't
+                   know about each other. Both strips reuse the LTX
+                   .quality-strip visual language (separate elements, so neither
+                   engine's chips can ever be half-lit) and both are rendered by
+                   renderH3Axes() from BOOT.h3.qualities / .lengths / .tiers — the
+                   server-side tables stay the single source of truth for geometry,
+                   steps and every estimate, so a change is one Python edit.
+
+                   The outer id is UNCHANGED (#h3TierGroup): the engine registry row
+                   names it as H3's `strip` and setEngine's generic surface-swap
+                   hides it by id. It is now a wrapper around the two strips rather
+                   than a strip itself. -->
+              <div class="h3-axes" id="h3TierGroup" hidden>
+                <div class="quality-strip pill-group" id="h3QualityGroup"></div>
+                <div class="qs-label h3-axis-label" id="h3LengthLabel">
+                  <span class="qs-name">Length</span>
+                  <span class="qs-meta" id="h3LengthMeta"></span>
+                </div>
+                <div class="quality-strip pill-group" id="h3LengthGroup"></div>
+              </div>
+              </div>
+
+            <!-- ========== H3 PRIMARY CONTROLS — Speed + Steps ==========
+                 These two shipped inside the Customize disclosure and the owner
+                 could not find Steps at all: "I see you removed the step options
+                 we had before, no?" He hadn't lost a control, he'd lost a
+                 control's VISIBILITY, and the diagnosis matters — the rule that
+                 put them there was "LTX keeps its secondary knobs in Customize,
+                 so H3 should too", applied without checking whether they are
+                 secondary on this engine. They are not. Quality picks the canvas
+                 and Length picks the duration; Turbo (4-step distill adapter) and
+                 Steps (9 → 20 sigma points) are what decide how long you wait,
+                 each worth about a 2× swing, and neither is implied by either
+                 axis. A control that changes wall clock by 2× does not belong
+                 behind a disclosure triangle.
+                 So they sit here, directly under the two strips they modify,
+                 in the same chip grammar as the rest of the form. Nothing else
+                 moved: same ids, same .cz-* classes, same handlers, same hidden
+                 inputs (#h3_turbo / #h3_steps, both in the make_job allowlist).
+                 .eng-primary is only a CSS hook — the active-pill accent rules
+                 were scoped to .cz-body, so leaving Customize would otherwise
+                 have cost these chips their engine colour. Order is deliberate:
+                 Speed first because Turbo OVERRULES Steps. -->
+            <div class="eng-primary" id="h3PrimaryControls" data-h3-only>
+              <!-- The Standard | Turbo Speed row that lived here is folded into
+                   the Speed switch above the Quality cards (#h3SpeedRow): Fast
+                   replaces Turbo, Best is the shape's own sampler. -->
+
+              <!-- Adapter slot. Appears ONLY when the conflict is real — Turbo
+                   selected AND a LoRA picked — because H3's runner has exactly
+                   one `--lora` and there is nothing to decide until both want
+                   it. Rendered by renderH3LoraSlot() from BOOT.h3.loras so the
+                   sentence explaining the constraint comes from Python, next to
+                   the constant that encodes it. The alternative (silently
+                   preferring one) is the failure this control exists to
+                   prevent: a render that quietly ignored the LoRA you picked,
+                   or quietly dropped the Turbo you asked for. -->
+              <div class="cz-control" id="h3LoraSlotRow" data-h3-only hidden>
+                <div class="cz-label">Adapter
+                  <span class="cz-label-hint">one slot · Turbo or your LoRA</span>
+                </div>
+                <div class="pill-group cols-2" id="h3LoraSlotGroup">
+                  <button type="button" class="pill-btn active" data-h3-lora-slot="turbo"
+                          title="Spend the slot on Turbo. Your picked LoRA won't render — the job stops and says so rather than silently dropping it.">
+                    <span>Turbo</span>
+                  </button>
+                  <button type="button" class="pill-btn" data-h3-lora-slot="user" id="h3LoraSlotUserPill">
+                    <span>My LoRA</span><span class="sub" id="h3LoraSlotUserSub"></span>
+                  </button>
+                </div>
+                <div class="h3-turbo-note" id="h3LoraSlotNote"></div>
+              </div>
+
+              <!-- H3 sampler depth. Cells bake 9 steps (8 forwards per window),
+                   except High and dense 10 s, which bake 16 (15 forwards) — High
+                   since the 2026-09-16 gym A/B; the official
+                   reference recipe runs 20. Four honest pills beat an unbounded
+                   numeric box, and the chips above re-price live when one is
+                   pinned, so the multiplier does not have to live in a tooltip. -->
+              <div class="cz-control" id="h3StepsRow" data-h3-only>
+                <div class="cz-label">Steps
+                  <span class="cz-label-hint">Auto = this shape's tuned count</span>
+                </div>
+                <div class="pill-group cols-4" id="h3StepsGroup">
+                  <button type="button" class="pill-btn active" data-h3-steps="auto"
+                          title="This shape's tuned count — the validated speed/quality point.">Auto</button>
+                  <button type="button" class="pill-btn" data-h3-steps="12"
+                          title="More refinement — ~1.4× the render time. The Quality and Length chips re-price when you pin it.">12</button>
+                  <button type="button" class="pill-btn" data-h3-steps="16"
+                          title="~1.9× the render time. The Quality and Length chips re-price when you pin it.">16</button>
+                  <button type="button" class="pill-btn" data-h3-steps="20"
+                          title="The official reference recipe — ~2.4× the render time.">20</button>
+                </div>
+              </div>
             </div>
 
-            <!-- Adapter slot. Appears ONLY when the conflict is real — Turbo
-                 selected AND a LoRA picked — because H3's runner has exactly
-                 one `--lora` and there is nothing to decide until both want
-                 it. Rendered by renderH3LoraSlot() from BOOT.h3.loras so the
-                 sentence explaining the constraint comes from Python, next to
-                 the constant that encodes it. The alternative (silently
-                 preferring one) is the failure this control exists to
-                 prevent: a render that quietly ignored the LoRA you picked,
-                 or quietly dropped the Turbo you asked for. -->
-            <div class="cz-control" id="h3LoraSlotRow" data-h3-only hidden>
-              <div class="cz-label">Adapter
-                <span class="cz-label-hint">one slot · Turbo or your LoRA</span>
-              </div>
-              <div class="pill-group cols-2" id="h3LoraSlotGroup">
-                <button type="button" class="pill-btn active" data-h3-lora-slot="turbo"
-                        title="Spend the slot on Turbo. Your picked LoRA won't render — the job stops and says so rather than silently dropping it.">
-                  <span>Turbo</span>
+            <!-- ============== ORIENTATION (compact, top-level) ==============
+                 Lifted out of the Customize accordion so users don't have to
+                 dig for it. Compact 2-pill row reusing the same id="aspect"
+                 hidden input + id="aspectGroup" click delegation + id="aspectRow"
+                 container that setQuality() hides when quality=quick. -->
+            <div class="mode-only show" id="aspectRow" data-ltx-only style="display:flex;align-items:center;gap:10px;margin:6px 0 8px 0;padding:0 2px;">
+              <span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600;flex:0 0 auto;">Orientation</span>
+              <div class="pill-group" id="aspectGroup" style="display:flex;gap:4px;flex:0 0 auto;">
+                <button type="button" class="pill-btn active" data-aspect="landscape" title="Landscape 16:9" style="padding:4px 10px;font-size:12px;display:inline-flex;gap:6px;align-items:center;">
+                  <svg class="ph orient-icon" aria-hidden="true" style="width:14px;height:14px;transform:rotate(90deg);"><use href="#ph-device-mobile"/></svg><span>16:9</span>
                 </button>
-                <button type="button" class="pill-btn" data-h3-lora-slot="user" id="h3LoraSlotUserPill">
-                  <span>My LoRA</span><span class="sub" id="h3LoraSlotUserSub"></span>
+                <button type="button" class="pill-btn" data-aspect="vertical" title="Vertical 9:16" style="padding:4px 10px;font-size:12px;display:inline-flex;gap:6px;align-items:center;">
+                  <svg class="ph orient-icon" aria-hidden="true" style="width:14px;height:14px;"><use href="#ph-device-mobile"/></svg><span>9:16</span>
                 </button>
               </div>
-              <div class="h3-turbo-note" id="h3LoraSlotNote"></div>
+              <input type="hidden" name="aspect" id="aspect" value="landscape">
+            </div>
+            <!-- H3 orientation. Every H3 canvas ships landscape, which made
+                 vertical social formats unreachable on this engine. Portrait
+                 is the SAME canvas rotated — identical pixel count, identical
+                 packed rows, so the tier chip's measured estimate stays true
+                 and no new cell is invented. Applied where make_job stamps the
+                 cell's geometry; `h3_tier` (the wire format every sidecar
+                 carries) is untouched. -->
+            <div class="cz-control" id="h3OrientationRow" data-h3-only>
+              <div class="cz-label">Orientation
+                <span class="cz-label-hint">portrait rotates the tier's canvas — same cost</span>
+              </div>
+              <input type="hidden" name="h3_orientation" id="h3_orientation" value="landscape">
+              <div class="pill-group cols-2" id="h3OrientationGroup">
+                <button type="button" class="pill-btn active" data-h3-orientation="landscape"
+                        title="The tier's canvas as trained and measured — e.g. 1024×576.">
+                  <span>Landscape</span><span class="sub" id="h3OrientLandSub">16:9-ish</span>
+                </button>
+                <button type="button" class="pill-btn" data-h3-orientation="portrait"
+                        title="The same canvas rotated for vertical/social — e.g. 576×1024. Same pixel budget, same wall clock.">
+                  <span>Portrait</span><span class="sub" id="h3OrientPortSub">vertical / social</span>
+                </button>
+              </div>
             </div>
 
-            <!-- H3 sampler depth. Cells bake 9 steps (8 forwards per window),
-                 except High and dense 10 s, which bake 16 (15 forwards) — High
-                 since the 2026-09-16 gym A/B; the official
-                 reference recipe runs 20. Four honest pills beat an unbounded
-                 numeric box, and the chips above re-price live when one is
-                 pinned, so the multiplier does not have to live in a tooltip. -->
-            <div class="cz-control" id="h3StepsRow" data-h3-only>
-              <div class="cz-label">Steps
-                <span class="cz-label-hint">Auto = this shape's tuned count</span>
-              </div>
-              <div class="pill-group cols-4" id="h3StepsGroup">
-                <button type="button" class="pill-btn active" data-h3-steps="auto"
-                        title="This shape's tuned count — the validated speed/quality point.">Auto</button>
-                <button type="button" class="pill-btn" data-h3-steps="12"
-                        title="More refinement — ~1.4× the render time. The Quality and Length chips re-price when you pin it.">12</button>
-                <button type="button" class="pill-btn" data-h3-steps="16"
-                        title="~1.9× the render time. The Quality and Length chips re-price when you pin it.">16</button>
-                <button type="button" class="pill-btn" data-h3-steps="20"
-                        title="The official reference recipe — ~2.4× the render time.">20</button>
+            <div class="mode-only show" id="quickMetricsRow">
+              <div class="mini-fields">
+                <div class="mf-cell">
+                  <span class="mf-label">Seed <span class="mf-hint">-1 = random</span></span>
+                  <input name="seed" id="seed" value="-1" title="-1 picks a fresh random seed per render. Any integer locks the seed for repeatable output.">
+                </div>
               </div>
             </div>
           </div>
-
-          <!-- Export used to sit here too, as a third flat pill row with
-               hand-rolled inline styles and its note floating loose beneath
-               it. It is now a .cz-control inside the SAME Customize disclosure
-               LTX uses (grep h3ExportRow) — one information architecture, one
-               chip grammar, one summary line, so the two engines read as one
-               product. Export earns the demotion that Speed and Steps did not:
-               it is an ffmpeg scale-and-pad pass AFTER the render, so it costs
-               no wall clock and changes no pixel the model produced. The
-               hidden inputs for all three live up in the engine-state block;
-               every one is in the make_job allowlist, which is the only place
-               they could silently die. -->
-          <!-- The skip-step toggle (and its charSkipstepToggle legacy stub)
-               is gone as of v4.0.5 — the control was dead at the engine
-               boundary; see the HQ-speed removal note in Customize. -->
-        </div>
-
-        <!-- ============== ORIENTATION (compact, top-level) ==============
-             Lifted out of the Customize accordion so users don't have to
-             dig for it. Compact 2-pill row reusing the same id="aspect"
-             hidden input + id="aspectGroup" click delegation + id="aspectRow"
-             container that setQuality() hides when quality=quick. -->
-        <div class="mode-only show" id="aspectRow" data-ltx-only style="display:flex;align-items:center;gap:10px;margin:6px 0 8px 0;padding:0 2px;">
-          <span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600;flex:0 0 auto;">Orientation</span>
-          <div class="pill-group" id="aspectGroup" style="display:flex;gap:4px;flex:0 0 auto;">
-            <button type="button" class="pill-btn active" data-aspect="landscape" title="Landscape 16:9" style="padding:4px 10px;font-size:12px;display:inline-flex;gap:6px;align-items:center;">
-              <svg class="ph orient-icon" aria-hidden="true" style="width:14px;height:14px;transform:rotate(90deg);"><use href="#ph-device-mobile"/></svg><span>16:9</span>
-            </button>
-            <button type="button" class="pill-btn" data-aspect="vertical" title="Vertical 9:16" style="padding:4px 10px;font-size:12px;display:inline-flex;gap:6px;align-items:center;">
-              <svg class="ph orient-icon" aria-hidden="true" style="width:14px;height:14px;"><use href="#ph-device-mobile"/></svg><span>9:16</span>
-            </button>
-          </div>
-          <input type="hidden" name="aspect" id="aspect" value="landscape">
-        </div>
-
-        <div class="mode-only show" id="quickMetricsRow">
-          <div class="mini-fields">
-            <div class="mf-cell">
-              <span class="mf-label">Seed <span class="mf-hint">-1 = random</span></span>
-              <input name="seed" id="seed" value="-1" title="-1 picks a fresh random seed per render. Any integer locks the seed for repeatable output.">
-            </div>
-          </div>
-        </div>
+        </details>
+        <!-- The selected cell's honest notes, joined — the mirror of
+             #h3TierNote. Empty and hidden when the combination has nothing
+             to warn about, which is most of them. -->
+        <div class="engine-hint" id="ltxTierNote" hidden></div>
+        <!-- Honest artefact notes for the selected combination. Rendered from
+             the cell's `notes` list (server-side), so a Draft 10 s clip is
+             told BOTH that 0.25 MP doesn't resolve faces and that one prompt
+             is asked of every 5 s window. The chained warning now fires at any
+             quality, because chaining is now available at any quality. The
+             chained sentence now POINTS AT the control below instead of only
+             warning; h3_visible_tiers() swaps the old warning back in for a
+             pack whose runner has no --chain-prompts. -->
+        <div class="engine-hint" id="h3TierNote" data-h3-only hidden></div>
       </div>
 
       <!-- Characters picker MOVED to the top of the form (right after
@@ -1343,8 +1408,13 @@
 
            Collapsible because most users won't touch it on a given
            session, and inline because hiding it behind a modal makes
-           it easy to forget. Default open so first-time users see what's
-           inside without hunting for the disclosure triangle. -->
+           it easy to forget. CLOSED by default since the 2026-09-18 layout
+           pass — it shipped open, which meant an empty list and its
+           four-line "drop .safetensors files here" empty state were the
+           tallest thing on the form for every user who owns no LoRAs. The
+           summary still carries the state ("none active" / "2 active"), and
+           the paths that add one (Browse CivitAI, Import H3 LoRA) open the
+           section themselves. -->
       <div class="form-divider"></div>
       <!-- NOT `data-ltx-only` any more (2026-08-09): H3 takes LoRAs too, out
            of its own library, so the picker is shared and its visibility is
@@ -1353,7 +1423,7 @@
            "one engine" but not "any engine whose installed pack has --lora",
            which is the actual condition. -->
       <div id="loraPickerVideoSlot">
-        <details id="lorasDetails" open class="loras-section">
+        <details id="lorasDetails" class="loras-section">
           <summary class="loras-summary">
             <span class="loras-chevron" aria-hidden="true"><svg class="ph"><use href="#ph-caret-down-bold"/></svg></span>
             <span class="loras-title">LoRAs</span>
@@ -1372,12 +1442,12 @@
               <input type="file" id="h3LoraImportFile" accept=".safetensors,application/octet-stream" hidden
                      onchange="importH3Lora(this.files[0]); this.value = ''">
               <button type="button" class="loras-browse-btn is-ghost" id="h3LoraImportBtn" hidden
-                      title="Import a .safetensors H3 LoRA you already have"
-                      onclick="event.stopPropagation(); event.preventDefault(); document.getElementById('h3LoraImportFile').click()"><svg class="ph" aria-hidden="true" style="margin-right:6px;vertical-align:-2px"><use href="#ph-folder-simple"/></svg>Import H3 LoRA</button>
+                      title="Import H3 LoRA — a .safetensors file you already have"
+                      onclick="event.stopPropagation(); event.preventDefault(); document.getElementById('h3LoraImportFile').click()"><svg class="ph" aria-hidden="true"><use href="#ph-folder-simple"/></svg>Import</button>
               <button type="button" class="loras-browse-btn"
-                      onclick="event.stopPropagation(); event.preventDefault(); openCivitaiModal()"><svg class="ph" aria-hidden="true" style="margin-right:6px;vertical-align:-2px"><use href="#ph-magnifying-glass"/></svg>Browse CivitAI</button>
-              <button type="button" class="loras-browse-btn is-ghost" id="loraUpdatesBtn" title="Ask CivitAI whether any installed LoRA has a newer version"
-                      onclick="event.stopPropagation(); event.preventDefault(); checkLoraUpdates()">Check for updates</button>
+                      onclick="event.stopPropagation(); event.preventDefault(); openCivitaiModal()"><svg class="ph" aria-hidden="true"><use href="#ph-magnifying-glass"/></svg>Browse CivitAI</button>
+              <button type="button" class="loras-browse-btn is-ghost" id="loraUpdatesBtn" title="Check for updates — ask CivitAI whether any installed LoRA has a newer version"
+                      onclick="event.stopPropagation(); event.preventDefault(); checkLoraUpdates()">Updates</button>
             </span>
           </summary>
           <div class="loras-body" id="lorasBody">
@@ -1416,28 +1486,32 @@
 
       <input type="hidden" name="steps" id="steps" value="8">
 
-      <!-- ============== UNIFIED CUSTOMIZE DISCLOSURE ==============
-           Folds together the old "Customize" (aspect, dims, speed,
-           long-clips, export, method) and "Advanced" (audio source,
-           open-when-done) into ONE collapsed disclosure. Power users
-           open it; beginners ignore it. The summary line shows the
-           effective state so power users can scan at a glance.
 
-           Lives at form level (not mode-conditional) — its inner rows
-           manage their own visibility (e.g. dimsRow stays visible in all flows now;
-           i2vAudioModeSection only shows for I2V; method only shows
-           when an upscale is active). The wrapping #sizingSection
-           class kept for the mode-only show/hide that still toggles
-           it for Extend (Extend supplies its own duration/etc). -->
+      <!-- ============== AFTER THE RENDER · ADVANCED ==============
+           One "Customize" grab-bag used to hold H3 orientation, both engines'
+           export pills, the upscale method, width × height, duration/frames, the
+           schedule preset, STG, long clips, the I2V audio source and "open file
+           when done" — ten unrelated decisions behind one word. Split by what the
+           user is DECIDING, not by which engine owns the feature:
+             · After the render — what happens to the file once the model is
+               done: the export size on either engine, how the upscale is done,
+               the optional Upscale & Face Fix job, open when done. None of it
+               changes a pixel the model produced.
+             · Advanced — the overrides that DO change the render and that most
+               users should never touch: raw canvas, raw frames, detail guidance,
+               long-clip strategy, external I2V audio.
+           Orientation and the LTX schedule preset left for Shot setup (they are
+           part of the shape). Everything else kept its id, its field name, its
+           handler and its default. #sizingSection still wraps both, so the
+           mode-only show/hide that folds this away for Extend keeps working. -->
       <div class="mode-only" id="sizingSection">
-        <details id="customizeDetails" class="customize-section">
+        <details id="finishDetails" class="customize-section">
           <summary class="cz-summary">
             <span class="cz-chevron" aria-hidden="true"><svg class="ph"><use href="#ph-caret-down-bold"/></svg></span>
-            <span class="cz-title">Customize</span>
-            <span class="cz-meta" id="customizeSummary">16:9 · default speed</span>
+            <span class="cz-title">After the render</span>
+            <span class="cz-meta" id="finishSummary">native export</span>
           </summary>
           <div class="cz-body">
-
             <!-- ========== HAILUO H3 CONTROLS ==========
                  What is left of the H3 half of Customize is EXPORT, and only
                  export. Speed and Steps used to live here too, on the LTX-parity
@@ -1453,30 +1527,6 @@
                  .cz-control / .cz-label / .pill-group grammar as every LTX
                  control below it, folded away on any other engine by
                  data-h3-only (rule emitted from the ENGINES table). -->
-
-            <!-- H3 orientation. Every H3 canvas ships landscape, which made
-                 vertical social formats unreachable on this engine. Portrait
-                 is the SAME canvas rotated — identical pixel count, identical
-                 packed rows, so the tier chip's measured estimate stays true
-                 and no new cell is invented. Applied where make_job stamps the
-                 cell's geometry; `h3_tier` (the wire format every sidecar
-                 carries) is untouched. -->
-            <div class="cz-control" id="h3OrientationRow" data-h3-only>
-              <div class="cz-label">Orientation
-                <span class="cz-label-hint">portrait rotates the tier's canvas — same cost</span>
-              </div>
-              <input type="hidden" name="h3_orientation" id="h3_orientation" value="landscape">
-              <div class="pill-group cols-2" id="h3OrientationGroup">
-                <button type="button" class="pill-btn active" data-h3-orientation="landscape"
-                        title="The tier's canvas as trained and measured — e.g. 1024×576.">
-                  <span>Landscape</span><span class="sub" id="h3OrientLandSub">16:9-ish</span>
-                </button>
-                <button type="button" class="pill-btn" data-h3-orientation="portrait"
-                        title="The same canvas rotated for vertical/social — e.g. 576×1024. Same pixel budget, same wall clock.">
-                  <span>Portrait</span><span class="sub" id="h3OrientPortSub">vertical / social</span>
-                </button>
-              </div>
-            </div>
 
             <!-- H3 export canvas. Most tiers render 12:7 (768×448), which is
                  neither 720p nor 1080p; this runs the SAME lanczos-fit + pad +
@@ -1521,15 +1571,154 @@
                    it. Stored as h3_upscale = "ltx_x2" (sidecars, Load Params
                    and the API are unchanged); a checkbox because it is an
                    extra job, not a size. -->
-              <label class="check h3-facefix-after" id="h3FaceFixAfterRow"
+              <div class="cz-note" id="h3ExportNote" hidden></div>
+            <label class="check h3-facefix-after" id="h3FaceFixAfterRow"
                      title="Queues a second job right after the draft: the draft at twice the size with LTX-2.5 detail, the face and the sound kept. The draft itself stays as rendered, next to it. Needs the 0.3 GB Upscale adapter (Settings → Models).">
                 <input type="checkbox" id="h3FaceFixAfter" onchange="setH3FaceFixAfter(this.checked)">
                 <span>Also run <b>Upscale &amp; Face Fix</b> after the draft
-                  <span class="cz-label-hint">optional · 2× · face and sound kept · about the draft's time again</span></span>
+                  <span class="cz-label-hint" id="h3FaceFixEta">optional · 2× · face and sound kept · about the draft's time again</span></span>
               </label>
-              <div class="cz-note" id="h3ExportNote" hidden></div>
+              </div>
+            <!-- Export upscale — target dims after render. "720p fit"
+                 preserves aspect ratio (no crop, no distortion). 2× doubles
+                 each side. Native skips the upscale entirely. The "Method"
+                 row below picks how the upscaling is done. -->
+            <div class="cz-control" data-ltx-only>
+              <div class="cz-label">Export
+                <span class="cz-label-hint">post-render, no crop</span>
+              </div>
+              <div class="pill-group cols-3" id="upscaleGroup">
+                <button type="button" class="pill-btn active" data-upscale="off"><span>Native</span><span class="sub">as generated</span></button>
+                <button type="button" class="pill-btn" data-upscale="fit_720p"><span>720p fit</span><span class="sub">scale + pad</span></button>
+                <button type="button" class="pill-btn" data-upscale="x2"><span>2×</span><span class="sub">same ratio</span></button>
+              </div>
+            </div>
+            <!-- Upscale method. Hidden when Export = Native. Fast = ffmpeg
+                 Lanczos resize, no detail recovery, near-instant. Sharp =
+                 PiperSR/CoreML 2× post-upscale on Apple Neural Engine, then
+                 ffmpeg fit/export. The old LTX latent upscaler path remains
+                 hidden behind LTX_ENABLE_MODEL_UPSCALE for lab archaeology. -->
+            <div class="cz-control" id="upscaleMethodRow" data-ltx-only style="display:none;">
+              <div class="cz-label">Method
+                <span class="cz-label-hint">how the upscale is done</span>
+              </div>
+              <div class="pill-group cols-2" id="upscaleMethodGroup">
+                <button type="button" class="pill-btn active" data-method="lanczos"><span>Fast</span><span class="sub">ffmpeg Lanczos · instant</span></button>
+                <button type="button" class="pill-btn" data-method="pipersr"><span>Sharp</span><span class="sub">PiperSR ANE · +30-90 s</span></button>
+              </div>
+              <input type="hidden" name="upscale_method" id="upscale_method" value="lanczos">
+            </div>
+            <!-- Open file when done — minor convenience. Was its own row
+                 in the old Advanced disclosure; now folded inline. -->
+            <div class="cz-control">
+              <label class="check" style="margin:0">
+                <input type="checkbox" name="open_when_done" id="open_when_done"> Open file when done
+              </label>
+            </div>
+          <!-- Export used to sit here too, as a third flat pill row with
+               hand-rolled inline styles and its note floating loose beneath
+               it. It is now a .cz-control inside the SAME Customize disclosure
+               LTX uses (grep h3ExportRow) — one information architecture, one
+               chip grammar, one summary line, so the two engines read as one
+               product. Export earns the demotion that Speed and Steps did not:
+               it is an ffmpeg scale-and-pad pass AFTER the render, so it costs
+               no wall clock and changes no pixel the model produced. The
+               hidden inputs for all three live up in the engine-state block;
+               every one is in the make_job allowlist, which is the only place
+               they could silently die. -->
+          <!-- The skip-step toggle (and its charSkipstepToggle legacy stub)
+               is gone as of v4.0.5 — the control was dead at the engine
+               boundary; see the HQ-speed removal note in Customize. -->
+          </div>
+        </details>
+        <!-- ============== BATCH ==============
+             Owner, 2026-09-18: "batch is kind of hidden, and it should probably
+             be re-taught in a way that is more user-friendly and also more
+             highlighted. It should be a section, actually, after the render and
+             setup."
+
+             It was a 60-px pill in the queue strip that opened a modal holding
+             one textarea and the sentence "split prompts with --- on its own
+             line" — a power feature behind a door nobody opens, with a
+             convention nobody guesses. Now it is a row of the same stack, it
+             says how many jobs it is about to queue BEFORE you press anything,
+             and it offers the two things people actually batch:
+
+               Many prompts  — the --- paste, with a live count and the first
+                               line of each prompt listed back, so a paste that
+                               split wrong is visible instead of discovered in
+                               the queue.
+               Same prompt   — N takes of what is in the prompt box, each with
+                               its own random seed. This is what judging a
+                               prompt needs, and doing it by hand meant pasting
+                               the same paragraph N times.
+
+             Queue-all is inside the section, next to the count. The old pill
+             stays in the queue strip and now opens THIS, not a modal — one
+             door, two handles. -->
+        <details id="batchDetails" class="customize-section batch-section">
+          <summary class="cz-summary">
+            <span class="cz-chevron" aria-hidden="true"><svg class="ph"><use href="#ph-caret-down-bold"/></svg></span>
+            <span class="cz-title">Batch</span>
+            <span class="cz-meta" id="batchSummary">one render at a time</span>
+          </summary>
+          <div class="cz-body">
+            <div class="cz-label">What varies
+              <span class="cz-label-hint">one job per prompt, or one prompt many times</span>
+            </div>
+            <div class="pill-group cols-2" id="batchModeGroup">
+              <button type="button" class="pill-btn active" data-batch-mode="prompts"
+                      onclick="setBatchMode('prompts')">Many prompts
+                <span class="sub">one job per prompt</span></button>
+              <button type="button" class="pill-btn" data-batch-mode="seeds"
+                      onclick="setBatchMode('seeds')">Same prompt
+                <span class="sub">N takes, new seed each</span></button>
             </div>
 
+            <div id="batchPromptsWrap">
+              <textarea class="batch" id="batchPrompts" rows="7"
+                        oninput="updateBatchSummary()"
+                        placeholder="Paste your prompts here, with a line containing only three dashes between them:
+
+A wizard lights a lantern in a dark forest. Audio: wind, a match striking.
+
+---
+
+The same wizard walks out of frame. Audio: footsteps on leaves."></textarea>
+              <div class="hint" id="batchCount">Nothing pasted yet.</div>
+            </div>
+
+            <div id="batchSeedsWrap" hidden>
+              <div class="cz-label">Takes
+                <span class="cz-label-hint" id="batchTakesNote"></span>
+              </div>
+              <div class="pill-group cols-5" id="batchTakesGroup">
+                <button type="button" class="pill-btn" data-batch-takes="2" onclick="setBatchTakes(2)">2</button>
+                <button type="button" class="pill-btn active" data-batch-takes="3" onclick="setBatchTakes(3)">3</button>
+                <button type="button" class="pill-btn" data-batch-takes="4" onclick="setBatchTakes(4)">4</button>
+                <button type="button" class="pill-btn" data-batch-takes="6" onclick="setBatchTakes(6)">6</button>
+                <button type="button" class="pill-btn" data-batch-takes="8" onclick="setBatchTakes(8)">8</button>
+              </div>
+              <div class="hint" id="batchSeedsHint">Every take uses the prompt above with a fresh random seed.</div>
+            </div>
+
+            <div class="batch-actions">
+              <span class="batch-total" id="batchTotal"></span>
+              <button type="button" class="batch-queue-btn" id="batchQueueBtn"
+                      onclick="queueBatch()">Queue batch</button>
+            </div>
+            <div class="hint">Auto-open is forced off for a batch, and the queue
+              runs them one after another — you can keep working while it does.</div>
+          </div>
+        </details>
+
+        <details id="customizeDetails" class="customize-section">
+          <summary class="cz-summary">
+            <span class="cz-chevron" aria-hidden="true"><svg class="ph"><use href="#ph-caret-down-bold"/></svg></span>
+            <span class="cz-title">Advanced</span>
+            <span class="cz-meta" id="customizeSummary"></span>
+          </summary>
+          <div class="cz-body">
             <!-- Width × height. Setting custom dimensions makes the form
                  leave the active preset (the Quality pill stays highlighted
                  but the Customize summary shows "custom" so the user knows
@@ -1558,7 +1747,6 @@
                 <div><input name="height" id="height" value="576" type="number" min="64" step="64" aria-label="Height"></div>
               </div>
             </div>
-
             <!-- Duration / Frames — the power-user override, MOVED HERE in
                  v4.0 (spec §2.2). It used to sit in the primary form ~60 px
                  under the Length chips, which meant the panel showed a
@@ -1578,7 +1766,6 @@
                 <div><input name="frames" id="frames" value="121" type="number" min="1" aria-label="Frames" title="Must be 8k+1 (e.g., 121, 161, 201). Duration auto-syncs."></div>
               </div>
             </div>
-
             <!-- 2026-05-17 (Codex C+ pass 5): the Speed (Boost/Turbo)
                  acceleration row used to live here. Killed from the public
                  surface — it's a Q4-distilled-pipeline-only knob; the Q8
@@ -1598,7 +1785,6 @@
                 <button type="button" class="pill-btn" data-accel="turbo">Turbo</button>
               </div>
             </div>
-
             <!-- HQ speed (Fast/Exact) REMOVED in v4.0.5. The 2026-05-15
                  skip-step patch it described belongs to the pre-vendored
                  engine era: the pinned port's `generate_and_save` accepts
@@ -1610,35 +1796,6 @@
                  support exists (`MultiModalGuiderParams.skip_step`); if it is
                  ever wired for real, rebenchmark and bring the control back
                  with a measured number, not this one. -->
-
-            <!-- Speed — the LTX-2.5 distilled lane's REAL speed control
-                 (v4.0.5), replacing the dead one above. "Fast draft" selects
-                 the engine's named `fast` schedule preset: 5+2 forwards vs
-                 the tuned 8+2, ~13% faster, and it renders a DIFFERENT take
-                 (same prompt + seed land on a different shot) — which is why
-                 it sits next to draft affordances and never on a quality
-                 slider. Visibility is SERVER-OWNED: the row shows only when
-                 the current tier cell carries `fast_eta`, which the registry
-                 stamps only on 2.5 distilled cells — the UI never parses a
-                 version string. -->
-            <div id="schedPresetRow" class="cz-control" data-ltx-only hidden>
-              <div class="cz-label">Speed
-                <span class="cz-label-hint">draft schedule · changes the take</span>
-              </div>
-              <div class="pill-group cols-2" id="schedPresetGroup">
-                <button type="button" class="pill-btn active" data-sched-preset=""
-                        title="The tuned schedule every graded 2.5 clip runs (8+2 forwards).">
-                  <span>Tuned</span>
-                  <span class="sub" id="schedTunedSub">default schedule</span>
-                </button>
-                <button type="button" class="pill-btn" data-sched-preset="fast"
-                        title="The engine's fast draft schedule (5+2 forwards). Renders a DIFFERENT take — the same prompt and seed land on a different shot than Tuned, so use it to explore, then re-render keepers on Tuned.">
-                  <span>Fast draft</span>
-                  <span class="sub" id="schedFastSub">different take</span>
-                </button>
-              </div>
-            </div>
-
             <!-- STG (Spatio-Temporal Guidance) — "detail guidance". The Q8 HQ
                  res_2s guider adds stg_scale·(cond - perturbed) to the
                  prediction (guiders.py MultiModalGuider.calculate), which
@@ -1663,7 +1820,6 @@
                 <span class="characters-strength-value" id="stgScaleValue">Off</span>
               </div>
             </div>
-
             <!-- Long Clip Boost — asks LTX 2.3 to generate fewer semantic
                  frames at 12fps, then exports a normal 24fps file with
                  motion interpolation. This is explicit because dialogue,
@@ -1698,38 +1854,6 @@
                        placeholder="what must not change between windows — one man, a grey room, soft window light">
               </div>
             </div>
-
-            <!-- Export upscale — target dims after render. "720p fit"
-                 preserves aspect ratio (no crop, no distortion). 2× doubles
-                 each side. Native skips the upscale entirely. The "Method"
-                 row below picks how the upscaling is done. -->
-            <div class="cz-control" data-ltx-only>
-              <div class="cz-label">Export
-                <span class="cz-label-hint">post-render, no crop</span>
-              </div>
-              <div class="pill-group cols-3" id="upscaleGroup">
-                <button type="button" class="pill-btn active" data-upscale="off"><span>Native</span><span class="sub">as generated</span></button>
-                <button type="button" class="pill-btn" data-upscale="fit_720p"><span>720p fit</span><span class="sub">scale + pad</span></button>
-                <button type="button" class="pill-btn" data-upscale="x2"><span>2×</span><span class="sub">same ratio</span></button>
-              </div>
-            </div>
-
-            <!-- Upscale method. Hidden when Export = Native. Fast = ffmpeg
-                 Lanczos resize, no detail recovery, near-instant. Sharp =
-                 PiperSR/CoreML 2× post-upscale on Apple Neural Engine, then
-                 ffmpeg fit/export. The old LTX latent upscaler path remains
-                 hidden behind LTX_ENABLE_MODEL_UPSCALE for lab archaeology. -->
-            <div class="cz-control" id="upscaleMethodRow" data-ltx-only style="display:none;">
-              <div class="cz-label">Method
-                <span class="cz-label-hint">how the upscale is done</span>
-              </div>
-              <div class="pill-group cols-2" id="upscaleMethodGroup">
-                <button type="button" class="pill-btn active" data-method="lanczos"><span>Fast</span><span class="sub">ffmpeg Lanczos · instant</span></button>
-                <button type="button" class="pill-btn" data-method="pipersr"><span>Sharp</span><span class="sub">PiperSR ANE · +30-90 s</span></button>
-              </div>
-              <input type="hidden" name="upscale_method" id="upscale_method" value="lanczos">
-            </div>
-
             <!-- Audio source (I2V only) — folded in from the old separate
                  Advanced disclosure. Picker auto-hides when the current
                  mode isn't I2V (see updateDerived's mode-aware visibility). -->
@@ -1745,14 +1869,6 @@
                 <label class="lbl">Audio file path</label>
                 <input name="audio" id="audio" placeholder="/path/to/your/track.wav">
               </div>
-            </div>
-
-            <!-- Open file when done — minor convenience. Was its own row
-                 in the old Advanced disclosure; now folded inline. -->
-            <div class="cz-control">
-              <label class="check" style="margin:0">
-                <input type="checkbox" name="open_when_done" id="open_when_done"> Open file when done
-              </label>
             </div>
           </div>
         </details>
@@ -1779,12 +1895,21 @@
            primary touch target. -->
       <div class="form-action-footer" id="formActionFooter">
         <div class="queue-strip">
-          <button type="button" class="qchip" onclick="openBatch()" title="Paste many prompts at once and queue them">⊞ Batch</button>
-          <button type="button" class="qchip" id="pauseBtn" onclick="togglePause()" title="Pause / resume the render queue"><svg class="ph" aria-hidden="true" style="margin-right:6px;vertical-align:-2px"><use href="#ph-pause-fill"/></svg>Pause queue</button>
-          <button type="button" class="qchip" onclick="api('/queue/clear','POST').then(poll)" title="Clear all queued jobs (running job continues)"><svg class="ph" aria-hidden="true" style="margin-right:6px;vertical-align:-2px"><use href="#ph-x"/></svg>Clear</button>
+          <button type="button" class="qchip" onclick="openBatch()" title="Queue many prompts, or several takes of this one"><svg class="ph" aria-hidden="true"><use href="#ph-film-strip"/></svg>Batch</button>
+          <button type="button" class="qchip" id="pauseBtn" onclick="togglePause()" title="Pause / resume the render queue"><svg class="ph" aria-hidden="true"><use href="#ph-pause-fill"/></svg>Pause queue</button>
+          <button type="button" class="qchip" onclick="api('/queue/clear','POST').then(poll)" title="Clear all queued jobs (running job continues)"><svg class="ph" aria-hidden="true"><use href="#ph-x"/></svg>Clear</button>
           <span class="qchip-spacer"></span>
           <span class="qchip-derived" id="derivedFooter"></span>
         </div>
+        <!-- The after-render Upscale & Face Fix, beside Generate (same state as
+             the checkbox under Upscale: h3_upscale = "ltx_x2"). The footer line
+             to the right of the queue chips prices the pair. -->
+        <label class="check h3-facefix-after h3-facefix-footer" id="h3FaceFixFooterRow" data-h3-only hidden
+               title="Queues a second job right after this render: the clip at twice the size with LTX-2.5 detail, the face and the sound kept. The original stays as rendered, next to it. Needs the 0.3 GB Upscale adapter (Settings → Models).">
+          <input type="checkbox" id="h3FaceFixFooter" onchange="setH3FaceFixAfter(this.checked)">
+          <span>Also run <b>Upscale &amp; Face Fix</b>
+            <span class="cz-label-hint" id="h3FaceFixFooterEta"></span></span>
+        </label>
         <div class="actions">
           <button type="submit" class="primary" id="genBtn">Generate</button>
           <button type="button" class="danger" onclick="api('/stop', 'POST').then(poll)">Stop</button>
@@ -1897,10 +2022,10 @@
           <!-- Toolbar -->
           <div class="ideo-toolbar">
             <button type="button" class="qchip" id="ideoInsertTextBtn" onclick="ideoInsertBox('text')" title="Add a text box (or drag on an empty area of the frame)">
-              <svg class="ph" aria-hidden="true" style="margin-right:5px;vertical-align:-2px"><use href="#ph-pencil-simple"/></svg>Insert text
+              <svg class="ph" aria-hidden="true"><use href="#ph-pencil-simple"/></svg>Insert text
             </button>
             <button type="button" class="qchip" id="ideoInsertObjBtn" onclick="ideoInsertBox('obj')" title="Add an object region (something the model should draw)">
-              <svg class="ph" aria-hidden="true" style="margin-right:5px;vertical-align:-2px"><use href="#ph-image"/></svg>Insert object
+              <svg class="ph" aria-hidden="true"><use href="#ph-image"/></svg>Insert object
             </button>
             <span class="qchip-spacer"></span>
             <label class="ideo-toolbar-toggle" title="Snap boxes to thirds / center / other boxes">
@@ -1908,7 +2033,7 @@
               <span>Snap</span>
             </label>
             <button type="button" class="qchip" id="ideoUndoBtn" onclick="ideoUndo()" title="Undo (Cmd/Ctrl+Z)" disabled>
-              <svg class="ph" aria-hidden="true" style="margin-right:5px;vertical-align:-2px"><use href="#ph-arrow-clockwise" style="transform:scaleX(-1);transform-origin:center"/></svg>Undo
+              <svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise" style="transform:scaleX(-1);transform-origin:center"/></svg>Undo
             </button>
             <select id="ideoExamplePicker" class="ideo-example-picker" onchange="ideoLoadExample(this.value); this.value='';" title="Load an example layout">
               <option value="">Examples…</option>
@@ -1933,7 +2058,7 @@
             </div>
           </div>
           <div class="ideo-stage-note" id="ideoStageNote">
-            <svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-info"/></svg>
+            <svg class="ph" aria-hidden="true"><use href="#ph-info"/></svg>
             Placement preview — boxes show where words sit; Ideogram renders the final type, weight, and texture.
           </div>
 
@@ -1989,7 +2114,7 @@
               <span class="ideo-insp-bbox" id="ideoInspBbox" title="bbox [y_min, x_min, y_max, x_max], 0–1000 row-first">bbox …</span>
               <span class="qchip-spacer"></span>
               <button type="button" class="qchip ideo-danger" onclick="ideoDeleteSel()" title="Delete this box (Delete key)">
-                <svg class="ph" aria-hidden="true" style="margin-right:5px;vertical-align:-2px"><use href="#ph-trash-simple"/></svg>Delete
+                <svg class="ph" aria-hidden="true"><use href="#ph-trash-simple"/></svg>Delete
               </button>
             </div>
           </div>
@@ -2150,9 +2275,9 @@
            pills, never the primary touch target. -->
       <div class="form-action-footer" id="formActionFooterStudio">
         <div class="queue-strip">
-          <button type="button" class="qchip" onclick="openBatch()" title="Paste many prompts at once and queue them">⊞ Batch</button>
-          <button type="button" class="qchip" id="pauseBtnStudio" onclick="togglePause()" title="Pause / resume the render queue"><svg class="ph" aria-hidden="true" style="margin-right:6px;vertical-align:-2px"><use href="#ph-pause-fill"/></svg>Pause queue</button>
-          <button type="button" class="qchip" onclick="api('/queue/clear','POST').then(poll)" title="Clear all queued jobs (running job continues)"><svg class="ph" aria-hidden="true" style="margin-right:6px;vertical-align:-2px"><use href="#ph-x"/></svg>Clear</button>
+          <button type="button" class="qchip" onclick="openBatch()" title="Queue many prompts, or several takes of this one"><svg class="ph" aria-hidden="true"><use href="#ph-film-strip"/></svg>Batch</button>
+          <button type="button" class="qchip" id="pauseBtnStudio" onclick="togglePause()" title="Pause / resume the render queue"><svg class="ph" aria-hidden="true"><use href="#ph-pause-fill"/></svg>Pause queue</button>
+          <button type="button" class="qchip" onclick="api('/queue/clear','POST').then(poll)" title="Clear all queued jobs (running job continues)"><svg class="ph" aria-hidden="true"><use href="#ph-x"/></svg>Clear</button>
           <span class="qchip-spacer"></span>
         </div>
         <div class="actions">
@@ -2459,7 +2584,7 @@
           <span class="train-counter-hint" id="trainCounterHint">need at least 15 to train</span>
           <span class="train-caption-counter" id="trainCaptionCounter" hidden>0 captioned</span>
           <span class="qchip-spacer"></span>
-          <button type="button" class="qchip" id="trainClearAllBtn" onclick="trainClearAll()" hidden><svg class="ph" aria-hidden="true" style="margin-right:6px;vertical-align:-2px"><use href="#ph-x"/></svg>Clear all</button>
+          <button type="button" class="qchip" id="trainClearAllBtn" onclick="trainClearAll()" hidden><svg class="ph" aria-hidden="true"><use href="#ph-x"/></svg>Clear all</button>
         </div>
 
         <!-- ============== BULK BUNDLE DROP ============== -->
@@ -2479,7 +2604,7 @@
         <!-- ============== CAPTION FORMAT HINT ============== -->
         <details class="train-caption-hint" id="trainCaptionHint">
           <summary>
-            <svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-info-fill"/></svg>
+            <svg class="ph" aria-hidden="true"><use href="#ph-info-fill"/></svg>
             Caption format
             <span class="train-caption-hint-eyebrow">LTX <code>[VISUAL]:</code> / <code>[TEXT]:</code></span>
           </summary>
@@ -2508,7 +2633,7 @@
           <button type="button" id="trainAutoCaptionBtn"
                   class="train-autocaption-btn"
                   onclick="trainAutoCaption()" disabled>
-            <svg class="ph" aria-hidden="true" style="margin-right:8px;vertical-align:-2px"><use href="#ph-sparkle-fill"/></svg>
+            <svg class="ph" aria-hidden="true"><use href="#ph-sparkle-fill"/></svg>
             <span id="trainAutoCaptionLabel">Auto-caption with Gemma 3</span>
           </button>
           <span class="train-autocaption-hint" id="trainAutoCaptionHint">
@@ -2716,8 +2841,8 @@
       <!-- Sticky action footer — same chrome as the video/studio forms. -->
       <div class="form-action-footer" id="formActionFooterTrain">
         <div class="queue-strip">
-          <button type="button" class="qchip" id="pauseBtnTrain" onclick="togglePause()" title="Pause / resume the queue"><svg class="ph" aria-hidden="true" style="margin-right:6px;vertical-align:-2px"><use href="#ph-pause-fill"/></svg>Pause queue</button>
-          <button type="button" class="qchip" onclick="api('/queue/clear','POST').then(poll)" title="Clear all queued jobs"><svg class="ph" aria-hidden="true" style="margin-right:6px;vertical-align:-2px"><use href="#ph-x"/></svg>Clear</button>
+          <button type="button" class="qchip" id="pauseBtnTrain" onclick="togglePause()" title="Pause / resume the queue"><svg class="ph" aria-hidden="true"><use href="#ph-pause-fill"/></svg>Pause queue</button>
+          <button type="button" class="qchip" onclick="api('/queue/clear','POST').then(poll)" title="Clear all queued jobs"><svg class="ph" aria-hidden="true"><use href="#ph-x"/></svg>Clear</button>
           <span class="qchip-spacer"></span>
         </div>
         <div class="actions">
@@ -3331,6 +3456,37 @@ The last line"></textarea>
                 onclick="edAddTitle()"
                 title="Text over the picture, on the overlay lane at the playhead. Type it in the inspector; it is drawn by the render.">Add title</button>
       </div>
+      <!-- ROOM TONE. "The cuts are very rough in terms of sound." A bed under
+           the whole film, made for this film (or from a preset), on its own
+           audio track. Shown on the Sound tab only; painted by edRtPaint. -->
+      <section class="ed-rt" id="edRoomTone" hidden aria-labelledby="edRtTitle">
+        <div class="ed-rt-head">
+          <span class="ed-rt-title" id="edRtTitle">Room tone</span>
+          <span class="ed-rt-status" id="edRtStatus"></span>
+        </div>
+        <p class="ed-rt-sub">Background noise under the whole __SEQ__, so cuts never drop to silence.</p>
+        <select class="sb-input ed-rt-pick" id="edRtVariant" aria-label="Which room tone"
+                onchange="edRtPick()"></select>
+        <label class="ed-rt-level" title="How loud the bed plays, in LUFS. Dialogue sits around −16; −27 is clearly there without competing. The render applies exactly this.">
+          <span>Level</span>
+          <input type="range" id="edRtLevel" min="-45" max="-18" step="1" value="-27"
+                 aria-label="Room tone level in LUFS"
+                 oninput="edRtLevelSlide(this.value)" onchange="edRtLevelCommit(this.value)">
+          <output id="edRtLevelOut">−27 LUFS</output>
+        </label>
+        <div class="ed-rt-acts">
+          <button type="button" class="ghost-btn primary" id="edRtAdd" onclick="edRtApply('apply')">Add room tone</button>
+          <button type="button" class="ghost-btn" id="edRtTake" hidden onclick="edRtApply('take')"
+                  title="Another version of the same sound — a new take every click">New take</button>
+          <button type="button" class="ghost-btn" id="edRtRemoveBtn" hidden onclick="edRtRemove()"
+                  title="Take the room tone off this __SEQ__. Undo brings it back.">Remove</button>
+        </div>
+        <p class="ed-rt-note" id="edRtNote" hidden></p>
+        <label class="check ed-rt-auto" title="When the Editor cuts a __SEQ__ by itself (first open, Re-cut, Storyboard's automatic film) it lays a room tone made from the __SEQ__'s own clips.">
+          <input type="checkbox" id="edRtAutoBox" checked onchange="edRtAuto(this.checked)">
+          <span>Add room tone to automatic cuts</span>
+        </label>
+      </section>
       <select class="sb-input ed-pool-film" id="edPoolFilm" hidden
               onchange="edPoolPickFilm(this.value)"
               aria-label="Which __SEQ__ to take clips from"></select>
@@ -3837,7 +3993,53 @@ The last line"></textarea>
              AFTER losing something. This says it in the one place a person
              already looks to find out whether their work is safe. -->
         <span class="sbe-protected" id="sbeProtected" hidden></span>
+        <!-- THE SNAPSHOT, AS A CHIP. It used to be a whole row under the header
+             ("Unsaved snapshot · open") for as long as a backup existed, which
+             was most of the time. Now it is a chip in the status area; click
+             it and the full offer drops in below the header. -->
+        <button type="button" class="sbe-chipbtn sbe-snapchip" id="sbeRecoverChip" hidden
+                onclick="sbeNoticeOpen('sbeRecover')"
+                title="A snapshot of unsaved work exists — click to see it and open it from Drafts">
+          <svg class="sbe-cbar-i"><use href="#ic-history"/></svg><b>snapshot</b></button>
         <span class="ch-spacer" style="flex:1 1 auto"></span>
+        <!-- VIEW — WHAT IS ON THE SCREEN, in one place. "The on/off toggles for
+             the screen panels are a good idea but it's not clear." They were
+             four icons in three rows (under the picture, on the tool row, in
+             this header); now they are one labelled group, each a toggle that
+             is FILLED while its panel is showing, and a tooltip that names what
+             appears or disappears and the key. Full screen is the one action in
+             the group, so it has no label and no pressed state. -->
+        <span class="sbe-view" id="sbeView" role="group" aria-label="View">
+          <button type="button" class="sbe-vbtn" id="sbeSrcBtn" onclick="sbeSrcMonToggle()"
+                  aria-label="Source monitor" aria-pressed="false"
+                  title="Source monitor — the left screen, where a clip from the media pool plays before it goes on the timeline">
+            <svg class="sbe-cbar-i"><use href="#ic-source"/></svg><b>Source</b></button>
+          <button type="button" class="sbe-vbtn" id="sbeInspectBtn" onclick="sbeInspectToggle()"
+                  aria-label="Inspector" aria-pressed="false" data-shortcut="editor.inspector"
+                  title="Inspector — the right-hand panel: speed, fades, brightness, zoom, transitions and titles for what is selected">
+            <svg class="sbe-cbar-i"><use href="#ic-inspect"/></svg><b>Inspector</b></button>
+          <!-- SOUND MODE. The one control that changes the split: the timeline
+               takes the height, every sound lane is at full height, the picture
+               is small. Off again is picture mode: lanes thin, picture big. It
+               replaced the lanes that sized themselves — "the automatic changing
+               of the size of the timeline if you are going around with audio is
+               really bad. A button is warranted." -->
+          <button type="button" class="sbe-vbtn" id="sbeSoundBtn" onclick="sbeSoundModeToggle()"
+                  aria-label="Sound mode" aria-pressed="false" data-shortcut="editor.soundMode"
+                  title="Sound mode — the sound lanes at full height and the picture small">
+            <svg class="sbe-cbar-i"><use href="#ic-wave"/></svg><b>Sound</b></button>
+          <!-- PANELS. Photoshop's Tab: the app's left column (tabs, media pool,
+               queue) out of the way, and back. ` on the keyboard. -->
+          <button type="button" class="sbe-vbtn" id="sbePanelsBtn" onclick="sbePanelsToggle()"
+                  aria-label="Side panels" aria-pressed="true" data-shortcut="editor.panels"
+                  title="Side panels — the app's left column: the tabs, the media pool and the queue">
+            <svg class="sbe-cbar-i"><use href="#ic-panels"/></svg><b>Panels</b></button>
+          <span class="sbe-vsep" aria-hidden="true"></span>
+          <button type="button" class="sbe-vbtn sbe-vbtn-act" id="sbeFullBtn" onclick="sbeFullscreen()"
+                  aria-label="Full screen" data-shortcut="editor.fullscreen"
+                  title="Full screen — the Program monitor fills the whole screen. Esc brings it back">
+            <svg class="sbe-cbar-i"><use href="#ic-full"/></svg></button>
+        </span>
         <!-- One gesture, two directions: a segmented pair rather than two
              free-standing buttons that happen to sit next to each other. -->
         <span class="sbe-undogroup">
@@ -3967,6 +4169,11 @@ The last line"></textarea>
         <span class="sbe-pop-row">
           <button type="button" class="ghost-btn" onclick="sbeAddSoundFile()"
                   title=".wav, .m4a, .mp3, .aac — or a video, for its sound only">Add sound file</button>
+        </span>
+        <span class="sbe-pop-note">Or lay an ambience bed under the whole __SEQ__.</span>
+        <span class="sbe-pop-row">
+          <button type="button" class="ghost-btn" onclick="edRtOpen()"
+                  title="Room tone — generated background noise under every cut, on its own track">Room tone…</button>
         </span>
       </div>
 
@@ -4129,29 +4336,41 @@ The last line"></textarea>
            mute state of every element on this row, and only one of the two
            ever plays. -->
       <div class="sbe-monitors" id="sbeMonitors">
-        <div class="sbe-mon sbe-mon-src">
+        <!-- SOURCE IS ON SCREEN BY DEFAULT again (round 2): "you have two empty
+             dark spaces on the sides [of the Program monitor], so probably you
+             can still add the preview clip for a place where you can drag the
+             clips and see them. I think that is actually necessary." It sits
+             in the width the Program monitor could not use — the row is
+             height-limited, so the Program monitor keeps its size. It is a DROP
+             TARGET: a pool row or a timeline clip dragged onto it loads there.
+             Source in the View group (or × on its bar) hides it, per browser
+             (phos_sbe_src). -->
+        <div class="sbe-mon sbe-mon-src" id="sbeSrcMon">
           <div class="sbe-stage" id="sbeSrcStage">
             <!-- Same opacity rule as the program monitor, for the same
                  WebKit reason: a display:none <video> is never loaded. -->
             <video id="sbeSrcVideo" playsinline preload="auto"></video>
             <img id="sbeSrcStill" class="sbe-still" alt="">
             <div class="sbe-stage-badge" id="sbeSrcBadge" hidden></div>
-            <div class="sbe-stage-empty" id="sbeSrcEmpty">Click a clip to preview it.</div>
+            <div class="sbe-stage-empty sbe-src-empty" id="sbeSrcEmpty">
+              <svg class="sbe-cbar-i" aria-hidden="true"><use href="#ic-source"/></svg>
+              <b>Drop a clip here to preview</b>
+              <span>Drag one from the media pool or the timeline — or click a clip in the pool.</span>
+            </div>
           </div>
-          <!-- ONE bar per monitor, and both the same height, because the row
-               is as tall as the taller column and the budget maths in
-               sbeFitMonitors reads its overhead off the program side. The
-               label lives IN the bar rather than above the picture: two
-               captions per column is 38px of a budget that is already the
-               tightest thing on this screen. -->
           <div class="sbe-mon-bar">
             <span class="sbe-mon-label">Source</span>
-            <button type="button" class="ghost-btn" id="sbeSrcPlayBtn"
-                    onclick="sbeSrcToggle()" disabled>Play</button>
+            <button type="button" class="ghost-btn sbe-ibtn" id="sbeSrcPlayBtn"
+                    onclick="sbeSrcToggle()" disabled aria-label="Play the source" title="Play / pause the source">
+              <svg class="sbe-cbar-i"><use href="#ic-play" id="sbeSrcPlayUse"/></svg></button>
             <span class="sbe-mon-name" id="sbeSrcName">Nothing loaded</span>
             <button type="button" class="ghost-btn" id="sbeSrcAddBtn"
                     onclick="sbeSrcAdd()" disabled
                     title="Puts this clip at the end of the __SEQ__ — exactly what the + on its row does.">Add to timeline</button>
+            <button type="button" class="ghost-btn sbe-ibtn" id="sbeSrcCloseBtn"
+                    onclick="sbeSrcClose()" aria-label="Hide the Source monitor"
+                    title="Hide the Source monitor — Source in the View group brings it back">
+              <svg class="sbe-cbar-i"><use href="#ic-close"/></svg></button>
           </div>
         </div>
         <div class="sbe-mon sbe-mon-prog">
@@ -4181,25 +4400,37 @@ The last line"></textarea>
         <div class="sbe-stage-badge" id="sbeBadge">idle</div>
         <div class="sbe-stage-empty" id="sbeStageEmpty" hidden></div>
       </div>
-          <div class="sbe-mon-bar">
-            <span class="sbe-mon-label">Program</span>
+          <!-- THE STRIP UNDER THE PICTURE — where Premiere and Resolve keep the
+               transport, and where the clip's name now lives instead of on the
+               picture: "the name of the clip in the full screen is hiding a
+               part of what is visible". Left to right: play, mute, the time,
+               what is under the playhead, then the three panel toggles. -->
+          <div class="sbe-mon-bar sbe-mon-bar-prog">
+            <button type="button" class="ghost-btn sbe-ibtn" id="sbePlayBtn" onclick="sbeTogglePlay()"
+                    title="Play / pause" data-shortcut="editor.play" aria-label="Play">
+              <svg class="sbe-cbar-i"><use href="#ic-play" id="sbePlayUse"/></svg></button>
+            <button type="button" class="ghost-btn sbe-ibtn sbe-mute" id="sbeMuteBtn"
+                    onclick="SBE.muted ? sbeUnmuteFromRefusal() : sbeSetMute(true)" title="Sound on — click to mute the preview" data-shortcut="editor.mute"
+                    aria-label="Mute the preview">
+              <svg class="sbe-cbar-i"><use href="#ic-sound" id="sbeMuteUse"/></svg></button>
+            <span class="sbe-time" id="sbeTime">0:00.00 <span>/ 0:00.00</span></span>
+            <span class="sbe-mon-clip" id="sbeProgClip"></span>
             <span class="sbe-mon-name" id="sbeProgName"></span>
+            <button type="button" class="sbe-chipbtn" id="sbeUnplacedBtn" hidden
+                    onclick="sbeInspectSet(true)"
+                    title="Shots that finished rendering but are not on the timeline — open the panel to place them"></button>
           </div>
         </div>
 
-        <!-- THE RAIL, and why it exists. Two 16:9 monitors need 2.96px of
-             width for every px of height. Measured in this column, at
-             1440x900, there are 307px of height to spare and 1110px of width
-             — the pair can span 886 of them. Something has to hold the other
-             224, and the choice is between black page background (the exact
-             thing the owner circled) and the two panels that were sitting
-             under the timeline eating 46px of the height that made the
-             picture small in the first place. Resolve and Premiere both put
-             the inspector beside the monitors; so does this. Its width is
-             whatever the pair leaves — see sbeFitMonitors — clamped so it can
-             be neither a slot nor a second sidebar. Below the stacking
-             breakpoint it goes back to being a row. -->
-        <div class="sbe-rail" id="sbeRail">
+        <!-- THE RAIL IS A PANEL, NOT A FIXTURE. Resolve and Premiere put the
+             inspector beside the monitors, and so does this — but they let
+             you close it, and until now this one was open for every minute
+             of every session: "It shouldn't be open like this all the time,
+             only when it's necessary." ☰ under the picture, ⌘I, or a double-
+             click on a clip opens it; the state is this browser's
+             (phos_sbe_inspect). Width is whatever the monitors leave — see
+             sbeMonitorFit — clamped so it is neither a slot nor a sidebar. -->
+        <div class="sbe-rail" id="sbeRail" hidden>
           <div class="sbe-inspect" id="sbeInspect"></div>
           <div class="sbe-unplaced" id="sbeUnplacedWrap" hidden>
             <div class="sbe-unplaced-head">Rendered but not on the timeline</div>
@@ -4235,90 +4466,90 @@ The last line"></textarea>
            for it to work — a control that vanishes teaches nothing, and the
            inspector's habit of dropping a button it could not offer is
            exactly why "delete sound" read as a feature that did not exist. -->
-      <!-- THE ICON SPRITE. Defined once, referenced by <use>, stroked in
-           currentColor so one rule themes every glyph and the disabled state
-           dims the icon with its label. Geometric rather than pictorial: at
-           13px a drawing of a padlock is four grey pixels, and the label is
-           doing the naming anyway. -->
+      <!-- THE ICON SPRITE. Phosphor's geometry (the set the rest of the panel
+           uses, 256-unit grid), one <symbol> per glyph WITH ITS viewBox — the
+           first version used bare <g>s, so a 15px <svg> showed the top-left
+           15 units of a 24-unit drawing: "the icons are … deformed". Stroked in
+           currentColor at a width set once in .sbe-cbar-i. -->
       <svg class="sbe-icons" aria-hidden="true" focusable="false"><defs>
-        <g id="ic-split"><path d="M12 2v20"/><path d="M7 8 3.5 12 7 16"/><path d="M17 8l3.5 4-3.5 4"/></g>
-        <g id="ic-lift"><path d="M3 20h18"/><path d="M12 3v11"/><path d="M7.5 7.5 12 3l4.5 4.5"/></g>
-        <g id="ic-ripple"><path d="M3 20h18"/><path d="M20 9H7"/><path d="M11.5 4.5 7 9l4.5 4.5"/></g>
-        <g id="ic-dup"><rect x="3" y="3" width="12" height="12" rx="2"/><path d="M9 21h10a2 2 0 0 0 2-2V9"/></g>
-        <g id="ic-unlink"><path d="M9 7H6a5 5 0 0 0 0 10h3"/><path d="M15 7h3a5 5 0 0 1 0 10h-3"/><path d="M4 4l16 16"/></g>
-        <g id="ic-link"><path d="M9 7H6a5 5 0 0 0 0 10h3"/><path d="M15 7h3a5 5 0 0 1 0 10h-3"/><path d="M8 12h8"/></g>
-        <g id="ic-resync"><path d="M20 6v5h-5"/><path d="M20 11A8 8 0 0 0 5 8"/><path d="M4 18v-5h5"/><path d="M4 13a8 8 0 0 0 15 3"/></g>
-        <g id="ic-mute"><path d="M4 9v6h3l5 4V5L7 9H4z"/><path d="M17 9l4 6"/><path d="M21 9l-4 6"/></g>
-        <g id="ic-sound"><path d="M4 9v6h3l5 4V5L7 9H4z"/><path d="M16 9a4 4 0 0 1 0 6"/></g>
-        <g id="ic-delsound"><path d="M4 9v6h3l5 4V5L7 9H4z"/><path d="M15 12h6"/></g>
-        <g id="ic-points"><path d="M3 14h18"/><circle cx="8" cy="14" r="1.8"/><circle cx="15" cy="14" r="1.8"/><path d="M17 5l5 5"/><path d="M22 5l-5 5"/></g>
-        <g id="ic-lock"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></g>
-        <g id="ic-facefix"><path d="M4 20L20 4"/><path d="M13 4h7v7"/><path d="M4 13v7h7"/></g>
-        <g id="ic-unlock"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></g>
+        <symbol id="ic-split" viewBox="0 0 256 256"><circle cx="76" cy="68" r="28"/><circle cx="76" cy="188" r="28"/><path d="M96.9 86.6 200 200M96.9 169.4 200 56"/></symbol>
+        <symbol id="ic-lift" viewBox="0 0 256 256"><rect x="20" y="168" width="60" height="56" rx="8"/><rect x="176" y="168" width="60" height="56" rx="8"/><rect x="104" y="168" width="48" height="56" rx="6" stroke-dasharray="20 16"/><path d="M128 136V36M88 76l40-40 40 40"/></symbol>
+        <symbol id="ic-ripple" viewBox="0 0 256 256"><rect x="20" y="168" width="72" height="56" rx="8"/><rect x="112" y="168" width="124" height="56" rx="8"/><path d="M224 88H116M156 48l-40 40 40 40M80 44v88"/></symbol>
+        <symbol id="ic-dup" viewBox="0 0 256 256"><path d="M168 168h48V40H88v48"/><rect x="40" y="88" width="128" height="128" rx="8"/></symbol>
+        <symbol id="ic-link" viewBox="0 0 256 256"><path d="M108 84H76a44 44 0 0 0 0 88h32M148 84h32a44 44 0 0 1 0 88h-32M88 128h80"/></symbol>
+        <symbol id="ic-unlink" viewBox="0 0 256 256"><path d="M96 84H68a44 44 0 0 0 0 88h28M160 84h28a44 44 0 0 1 0 88h-28M128 32v36M128 188v36"/></symbol>
+        <symbol id="ic-resync" viewBox="0 0 256 256"><path d="M176 104h48V56M224 104l-28.3-28.3a96 96 0 0 0-135.4-.5M80 152H32v48M32 152l28.3 28.3a96 96 0 0 0 135.4.5"/></symbol>
+        <symbol id="ic-mute" viewBox="0 0 256 256"><path d="M48 40l160 176M80 168H32a8 8 0 0 1-8-8V96a8 8 0 0 1 8-8h48l72-56v115M152 179v45l-57.6-44.8"/></symbol>
+        <symbol id="ic-sound" viewBox="0 0 256 256"><path d="M80 168H32a8 8 0 0 1-8-8V96a8 8 0 0 1 8-8h48l72-56v192ZM80 88v80M192 106.9a32 32 0 0 1 0 42.3M221.7 80a72 72 0 0 1 0 96"/></symbol>
+        <symbol id="ic-delsound" viewBox="0 0 256 256"><path d="M216 56H40M168 56V40a16 16 0 0 0-16-16h-48a16 16 0 0 0-16 16v16M200 56v152a8 8 0 0 1-8 8H64a8 8 0 0 1-8-8V56M100 124v40M128 100v88M156 124v40"/></symbol>
+        <symbol id="ic-points" viewBox="0 0 256 256"><path d="M24 200l64-56 72 32 72-64M180 28l40 40M220 28l-40 40"/><circle cx="88" cy="144" r="20" fill="currentColor" stroke="none"/><circle cx="160" cy="176" r="20" fill="currentColor" stroke="none"/></symbol>
+        <symbol id="ic-lock" viewBox="0 0 256 256"><rect x="40" y="88" width="176" height="128" rx="10"/><path d="M92 88V56a36 36 0 0 1 72 0v32"/><circle cx="128" cy="152" r="16" fill="currentColor" stroke="none"/></symbol>
+        <symbol id="ic-unlock" viewBox="0 0 256 256"><rect x="40" y="88" width="176" height="128" rx="10"/><path d="M92 88V56a36 36 0 0 1 69.1-14"/><circle cx="128" cy="152" r="16" fill="currentColor" stroke="none"/></symbol>
+        <symbol id="ic-facefix" viewBox="0 0 256 256"><circle cx="112" cy="144" r="84"/><circle cx="84" cy="128" r="13" fill="currentColor" stroke="none"/><circle cx="140" cy="128" r="13" fill="currentColor" stroke="none"/><path d="M76 170a44 44 0 0 0 72 0"/><path d="M208 12l10 30 30 10-30 10-10 30-10-30-30-10 30-10z" fill="currentColor" stroke="none"/></symbol>
+        <symbol id="ic-play" viewBox="0 0 256 256"><path d="M240 128a15.7 15.7 0 0 1-7.6 13.5L88.3 229.7a16 16 0 0 1-16.2.3A15.9 15.9 0 0 1 64 216.1V39.9a15.9 15.9 0 0 1 8.1-13.8 16 16 0 0 1 16.2.3l144.1 88.1A15.7 15.7 0 0 1 240 128Z" fill="currentColor" stroke="none"/></symbol>
+        <symbol id="ic-pause" viewBox="0 0 256 256"><rect x="48" y="32" width="64" height="192" rx="16" fill="currentColor" stroke="none"/><rect x="144" y="32" width="64" height="192" rx="16" fill="currentColor" stroke="none"/></symbol>
+        <symbol id="ic-close" viewBox="0 0 256 256"><path d="M200 56 56 200M200 200 56 56"/></symbol>
+        <symbol id="ic-source" viewBox="0 0 256 256"><rect x="16" y="48" width="224" height="160" rx="14"/><path d="M128 48v160"/><path d="M60 100v56l44-28z" fill="currentColor" stroke="none"/></symbol>
+        <symbol id="ic-inspect" viewBox="0 0 256 256"><rect x="16" y="48" width="224" height="160" rx="14"/><path d="M160 48v160M186 92h28M186 128h28M186 164h28"/></symbol>
+        <symbol id="ic-panels" viewBox="0 0 256 256"><rect x="16" y="48" width="224" height="160" rx="14"/><path d="M96 48v160"/><path d="M30 48h66v160H30a14 14 0 0 1-14-14V62a14 14 0 0 1 14-14z" fill="currentColor" stroke="none" opacity=".4"/></symbol>
+        <symbol id="ic-full" viewBox="0 0 256 256"><path d="M168 40h48v48M88 216H40v-48M216 168v48h-48M40 88V40h48"/></symbol>
+        <symbol id="ic-wave" viewBox="0 0 256 256"><path d="M28 112v32M68 80v96M108 36v184M148 68v120M188 96v64M228 116v24"/></symbol>
+        <symbol id="ic-keys" viewBox="0 0 256 256"><rect x="20" y="56" width="216" height="144" rx="12"/><path d="M60 98h12M100 98h12M140 98h12M180 98h16M60 130h12M100 130h56M180 130h16M76 162h104"/></symbol>
+        <symbol id="ic-history" viewBox="0 0 256 256"><path d="M128 80v48l40 24M72 104H32V64M67.6 192a88 88 0 1 0-1.8-126.2L32 104"/></symbol>
       </defs></svg>
+      <!-- ONE ROW: the verbs, then the timeline's own controls, then the grab.
+           The verbs are ICONS — "the menu doesn't need to have the words on
+           each one … just when you hover over it, you see an explanation" —
+           and every tooltip carries the name, the consequence and the key.
+           The words come back in the More menu and the right-click menu, where
+           a list reads better than a row. The transport (play, mute, time)
+           moved under the Program monitor, which is where Premiere and Resolve
+           keep it, so this row and the old transport row are one row: 42px
+           back to the picture. `.sbe-toolrow` exists so the grab can hang
+           below a bar that clips its own overflow. -->
+      <div class="sbe-toolrow" id="sbeToolRow">
       <div class="sbe-cbar" id="sbeCbar">
         <!-- WHAT AM I ABOUT TO ACT ON. The bar's buttons are worth nothing
              without it: "Ripple delete" over an unnamed selection is the one
-             gesture nobody should have to guess at, and multi-select made the
-             question real rather than rhetorical. -->
+             gesture nobody should have to guess at. -->
         <span class="sbe-cbar-who" id="sbeCbarWho">Nothing selected</span>
         <span class="sbe-cbar-sep"></span>
-        <button type="button" class="sbe-cbar-btn" id="sbeCbSplit" onclick="sbeSplitHere()">
+        <button type="button" class="sbe-cbar-btn" id="sbeCbSplit" onclick="sbeSplitHere()" aria-label="Split">
           <svg class="sbe-cbar-i"><use href="#ic-split"/></svg><b>Split</b></button>
-        <button type="button" class="sbe-cbar-btn" id="sbeCbLift" onclick="sbeLiftSelected()">
+        <button type="button" class="sbe-cbar-btn" id="sbeCbLift" onclick="sbeLiftSelected()" aria-label="Lift">
           <svg class="sbe-cbar-i"><use href="#ic-lift"/></svg><b>Lift</b></button>
-        <button type="button" class="sbe-cbar-btn" id="sbeCbRipple" onclick="sbeRippleSelected()">
+        <button type="button" class="sbe-cbar-btn" id="sbeCbRipple" onclick="sbeRippleSelected()" aria-label="Ripple delete">
           <svg class="sbe-cbar-i"><use href="#ic-ripple"/></svg><b>Ripple delete</b></button>
-        <button type="button" class="sbe-cbar-btn" id="sbeCbDup" onclick="sbeDuplicateSel()">
+        <button type="button" class="sbe-cbar-btn" id="sbeCbDup" onclick="sbeDuplicateSel()" aria-label="Duplicate">
           <svg class="sbe-cbar-i"><use href="#ic-dup"/></svg><b>Duplicate</b></button>
         <span class="sbe-cbar-sep"></span>
-        <!-- THE SOUND GROUP, and it is second because it is the one he named:
-             "I find myself all the time un-syncing and syncing." Link and
-             Resync sit side by side because the difference between them is
-             the thing that is hard to hold in your head — one makes the pair
-             permanent, the other only slides the sound back under its frame
-             and leaves it free. -->
-        <button type="button" class="sbe-cbar-btn" id="sbeCbLink" onclick="sbeToggleAudioLink()">
+        <button type="button" class="sbe-cbar-btn" id="sbeCbLink" onclick="sbeToggleAudioLink()" aria-label="Unlink sound">
           <svg class="sbe-cbar-i"><use href="#ic-unlink" id="sbeCbLinkUse"/></svg><b>Unlink sound</b></button>
-        <button type="button" class="sbe-cbar-btn" id="sbeCbResync" onclick="sbeResyncSel()">
+        <button type="button" class="sbe-cbar-btn" id="sbeCbResync" onclick="sbeResyncSel()" aria-label="Resync sound">
           <svg class="sbe-cbar-i"><use href="#ic-resync"/></svg><b>Resync sound</b></button>
-        <button type="button" class="sbe-cbar-btn" id="sbeCbMute" onclick="sbeToggleClipMute()">
+        <button type="button" class="sbe-cbar-btn" id="sbeCbMute" onclick="sbeToggleClipMute()" aria-label="Mute sound">
           <svg class="sbe-cbar-i"><use href="#ic-mute" id="sbeCbMuteUse"/></svg><b>Mute sound</b></button>
-        <button type="button" class="sbe-cbar-btn" id="sbeCbDelSound" onclick="sbeDeleteStripSel()">
+        <button type="button" class="sbe-cbar-btn" id="sbeCbDelSound" onclick="sbeDeleteStripSel()" aria-label="Delete sound">
           <svg class="sbe-cbar-i"><use href="#ic-delsound"/></svg><b>Delete sound</b></button>
-        <!-- THE "DELETE BUTTON FOR THE ANCHORS OF THE AUDIO". The dots on the
-             yellow level line are the only anchors a person PLACES on a
-             sound, and until now the only ways to take them off were a
-             right-click on each one and a "Clear 4" button in the inspector
-             that appeared and disappeared. -->
-        <button type="button" class="sbe-cbar-btn" id="sbeCbPoints" onclick="sbeClearPoints()">
+        <button type="button" class="sbe-cbar-btn" id="sbeCbPoints" onclick="sbeClearPoints()" aria-label="Clear points">
           <svg class="sbe-cbar-i"><use href="#ic-points"/></svg><b>Clear points</b></button>
         <span class="sbe-cbar-sep"></span>
-        <button type="button" class="sbe-cbar-btn" id="sbeCbLock" onclick="sbeToggleLock()">
+        <button type="button" class="sbe-cbar-btn" id="sbeCbLock" onclick="sbeToggleLock()" aria-label="Lock">
           <svg class="sbe-cbar-i"><use href="#ic-lock" id="sbeCbLockUse"/></svg><b>Lock</b></button>
         <span class="sbe-cbar-sep"></span>
-        <!-- UPSCALE & FACE FIX on the selected clip: queues the face-safe 2×;
-             the swap is offered on the relink line when it lands. -->
-        <button type="button" class="sbe-cbar-btn" id="sbeCbFaceFix" onclick="sbeFaceFixSel()">
+        <button type="button" class="sbe-cbar-btn" id="sbeCbFaceFix" onclick="sbeFaceFixSel()" aria-label="Face Fix ×2">
           <svg class="sbe-cbar-i"><use href="#ic-facefix"/></svg><b>Face Fix ×2</b></button>
-        <span class="ch-spacer" style="flex:1 1 auto"></span>
-        <!-- OVERFLOW, NOT A DRAWER. It holds nothing of its own: whatever the
-             row cannot fit at this width moves into it, in reverse priority
-             order, and moves back out when the pane is widened. At the
-             Editor's normal width it is not even rendered. -->
+        <!-- OVERFLOW, NOT A DRAWER. Whatever the row cannot fit at this width
+             moves into it, in reverse priority order, and moves back out when
+             the pane is widened. At the Editor's normal width it is not even
+             rendered. -->
         <button type="button" class="sbe-cbar-btn sbe-cbar-more" id="sbeCbMoreBtn" hidden
                 onclick="sbePopToggle('sbeCbarMenu', 'sbeCbMoreBtn')"
                 aria-haspopup="menu" title="The verbs this pane is too narrow to show">More<span class="sbe-car">▾</span></button>
-      </div>
-
-      <div class="sbe-transport">
-        <button type="button" class="ghost-btn" id="sbePlayBtn" onclick="sbeTogglePlay()" title="Play / pause" data-shortcut="editor.play">Play</button>
-        <button type="button" class="ghost-btn sbe-mute" id="sbeMuteBtn"
-                onclick="SBE.muted ? sbeUnmuteFromRefusal() : sbeSetMute(true)" title="Mute / unmute the preview" data-shortcut="editor.mute">🔊</button>
-        <span class="sbe-time" id="sbeTime">0:00.00 <span>/ 0:00.00</span></span>
-        <label class="check" style="margin:0;font-size:11px" data-shortcut="editor.snap"
+        <span class="ch-spacer" style="flex:1 1 auto"></span>
+        <label class="check sbe-snap" data-shortcut="editor.snap"
                title="Clips you drag snap to the beat grid. ⌥ while dragging ignores it">
-          <input type="checkbox" id="sbeSnapOn" checked onchange="sbePaint()"> Snap to beat
+          <input type="checkbox" id="sbeSnapOn" checked onchange="sbePaint()"> Snap
         </label>
         <!-- The two sliders an editor expects: the scrollbar on the track
              below moves the view, this one changes the scale. All the way
@@ -4331,22 +4562,15 @@ The last line"></textarea>
                  oninput="sbeZoomSlide(this.value)">
           <button type="button" class="ghost-btn" onclick="sbeZoom(1)" title="Zoom in" data-shortcut="editor.zoom">+</button>
         </span>
-        <!-- PROSE DEMOTED TO AN AFFORDANCE. Two lines of explanation sat
-             across the middle of the transport for the life of the feature;
-             it is true, it is worth saying once, and it is not worth 220px of
-             the row every time. -->
         <span class="sbe-info" id="sbeApprox" tabindex="0"
               title="The preview is approximate: the browser lands within a few frames of each cut and freezes for about one there. The render is exact.">i</span>
-        <span style="flex:1 1 auto"></span>
-        <button type="button" class="ghost-btn" id="sbeKeysBtn"
+        <button type="button" class="sbe-tbtn" id="sbeKeysBtn"
                 onclick="sbePopToggle('sbeKeysPop', 'sbeKeysBtn')"
-                aria-haspopup="menu" title="Every gesture this timeline answers to">Keys</button>
-        <!-- THE TIMELINE'S TOP EDGE. It lives in the transport because the
-             transport is the element directly above the seam and an absolute
-             child costs the column nothing; what it drags is one number
-             (SBE.tlH), and the monitors are sized off whatever is left. Up is
-             more track, down is more picture, and neither element is resized
-             directly — see sbeFitMonitors. -->
+                aria-haspopup="menu" aria-label="Keys" title="Every gesture this timeline answers to">
+          <svg class="sbe-cbar-i"><use href="#ic-keys"/></svg></button>
+      </div>
+        <!-- THE TIMELINE'S TOP EDGE, as a handle. Positioned over the 8px gap
+             below this row so it costs the column no height of its own. -->
         <div class="sbe-tl-grab" id="sbeTlGrab" role="separator"
              aria-orientation="horizontal"
              aria-label="Resize the timeline — drag up for taller lanes"
@@ -4360,14 +4584,6 @@ The last line"></textarea>
              onkeydown="sbeTlGrabKey(event)"></div>
       </div>
 
-      <!-- NAMED TRACKS. A timeline whose lanes are unlabelled asks you to
-           infer which one is which from what happens to be on it, and the
-           soundtrack's whole control row was a full-width strip at the top of
-           the column, four inches from the lane it acts on. The gutter is
-           124px that says V2 / V1 / A1 / A2 and gives A2 the file it is
-           playing, the way it sits under the clips, and a ▾ for the rest.
-           Every head's height is the SAME variable its lane reads, so the two
-           columns cannot drift apart. -->
       <div class="sbe-tlwrap" id="sbeTlWrap">
       <div class="sbe-gutter" id="sbeGutter">
         <div class="sbe-gh sbe-gh-top"></div>
@@ -4387,7 +4603,7 @@ The last line"></textarea>
         <div class="sbe-gh sbe-gh-aud">
           <span class="sbe-gh-tag"><i>A1</i><b>Clip sound A</b>
             <button type="button" class="sbe-gh-more sbe-asize" id="sbeAudioSize"
-                    onclick="sbeAudioPinToggle()" aria-expanded="true"
+                    onclick="sbeSoundModeToggle()" aria-expanded="false"
                     title="Make the sound lanes small — A1, A2 and every audio track become thin strips so the picture gets the height. They come back the moment you touch a sound.">▾</button>
           </span>
           <span class="sbe-gh-sub" id="sbeHeadAud"></span>
@@ -4451,7 +4667,7 @@ The last line"></textarea>
           <button type="button" class="sbe-gh-more" id="sbeSoundMore"
                   onclick="sbePopToggle('sbeSoundMenu', 'sbeSoundMore')"
                   aria-haspopup="menu"
-                  title="Add sound file… — put a sound from anywhere on this Mac onto an audio track at the playhead">♪</button>
+                  title="Add sound file… or Room tone… — a sound from this Mac, or an ambience bed under the whole film">♪</button>
         </div>
         <div class="sbe-gh sbe-gh-foot"></div>
       </div>
@@ -5279,26 +5495,6 @@ The last line"></textarea>
   </div>
 </div>
 
-<div class="modal-bg" id="batchModal" onclick="if(event.target===this)closeBatch()">
-  <div class="modal">
-    <h3>Batch paste — split prompts with <code>---</code> on its own line</h3>
-    <textarea class="batch" id="batchPrompts" placeholder="First prompt here.
-
----
-
-Second prompt.
-
----
-
-Third prompt."></textarea>
-    <div class="hint" style="margin-top:6px">Each chunk between <code>---</code> lines becomes a queued job using the current form settings. Auto-open is forced off for batches.</div>
-    <div class="modal-actions">
-      <button class="small" onclick="closeBatch()">Cancel</button>
-      <button class="small primary" style="padding:6px 14px" onclick="queueBatch().then(closeBatch)">Queue all</button>
-    </div>
-  </div>
-</div>
-
 <!-- Re-plan. The one storyboard surface that needs a modal, because it needs a
      text field. Written HERE, at column 0, as a direct child of <body> and
      present at boot on purpose: the global _phosModalScaffold IIFE registers
@@ -5377,6 +5573,7 @@ Third prompt."></textarea>
 const BOOT = __BOOTSTRAP__;</script>
 <script type="module" src="/webapp/js/boot.js"></script>
 <script type="module" src="/webapp/js/shortcuts.js"></script>
+<script type="module" src="/webapp/js/tips.js"></script>
 <script type="module" src="/webapp/js/docs.js"></script>
 <script type="module" src="/webapp/js/stage.js"></script>
 <script type="module" src="/webapp/js/characters.js"></script>

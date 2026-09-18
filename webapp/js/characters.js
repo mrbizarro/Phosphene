@@ -2889,73 +2889,139 @@ function setAspect(a) {
   }
 }
 
-// Compose the right-aligned line in the Customize summary. Reflects the
-// current effective state: aspect, custom-dims callout, speed setting.
+// ============ THE THREE DISCLOSURE SUMMARIES ============
+// The render form is three collapsed sections now (Shot setup · After the
+// render · Advanced), and a section you cannot see into still owes you its
+// state — that is the whole price of folding it away. So each summary prints
+// what ITS section is hiding, and nothing that belongs to another one:
+//   Shot setup       → the shape: quality, length, orientation, speed, steps,
+//                      a locked seed, and the live estimate for all of it.
+//   After the render → what happens to the file afterwards.
+//   Advanced         → only the overrides that are OFF their default; a
+//                      default deserves no words, so it prints "defaults".
+// updateCustomizeSummary() keeps its name and stays the entry point (23 call
+// sites across five modules call it after every state change) and fans out.
 function updateCustomizeSummary() {
-  const el = document.getElementById('customizeSummary');
+  updateShotSetupSummary();
+  updateFinishSummary();
+  updateAdvancedSummary();
+  if (typeof updateBatchSummary === 'function') updateBatchSummary();
+}
+function updateShotSetupSummary() {
+  const el = document.getElementById('shotSetupSummary');
   if (!el) return;
-  // H3 renders on its own geometry and its own export control; every LTX knob
-  // summarised below is folded away in that state, so summarising them would
-  // describe a render that isn't happening.
+  const parts = [];
   if (document.body.dataset.engine === 'h3') {
-    const tier = h3CurrentCell();
+    let cell = null;
+    try { cell = h3CurrentCell(); } catch (_) {}
+    if (cell) {
+      parts.push(cell.quality_label || 'Hailuo H3');
+      if (cell.length_label) parts.push(cell.length_label);
+    } else {
+      parts.push('Hailuo H3');
+    }
+    if (((document.getElementById('h3_orientation') || {}).value) === 'portrait') {
+      parts.push('9:16');
+    }
+    let fast = false;
+    try { fast = h3TriStepOn(cell); } catch (_) {}
+    parts.push(fast ? 'Fast' : 'Best');
+    const st = (document.getElementById('h3_steps') || {}).value || 'auto';
+    if (st !== 'auto') parts.push(st + ' steps');
+    // Priced by the engine module's own helper, so the line can never
+    // disagree with the chips inside the section.
+    let eta = '';
+    try { eta = h3CellEta(cell); } catch (_) {}
+    if (eta) parts.push(eta);
+  } else {
+    let cell = null;
+    try { cell = ltxCellFor(ltxCurrentQuality(), ltxCurrentLength()); } catch (_) {}
+    const q = (document.getElementById('quality') || {}).value || 'standard';
+    parts.push((cell && cell.quality_label) || q);
+    // A custom duration lights no chip, so the summary says the frames rather
+    // than a length that isn't on the axis.
+    if (cell && cell.length_label) parts.push(cell.length_label);
+    else parts.push(((document.getElementById('frames') || {}).value || '?') + 'f');
+    if (q === 'quick') parts.push('10:7');
+    else parts.push(((document.getElementById('aspect') || {}).value === 'vertical') ? '9:16' : '16:9');
+    // ltxCellEta() already says "· fast draft" when that schedule is armed —
+    // which is exactly why the eta comes from it and not from cell.eta: a
+    // summary must not advertise the tuned wall clock for a draft render.
+    let eta = '';
+    try { eta = ltxCellEta(cell); } catch (_) {}
+    if (!eta && typeof schedPresetActive === 'function' && schedPresetActive()) eta = 'fast draft';
+    if (eta) parts.push(eta);
+  }
+  const seed = String((document.getElementById('seed') || {}).value || '-1').trim();
+  if (seed && seed !== '-1') parts.push('seed ' + seed);
+  el.textContent = parts.filter(Boolean).join(' · ');
+}
+function updateFinishSummary() {
+  const el = document.getElementById('finishSummary');
+  if (!el) return;
+  const parts = [];
+  if (document.body.dataset.engine === 'h3') {
     const up = (document.getElementById('h3_upscale') || {}).value || 'off';
-    const parts = [tier ? tier.spec : 'Hailuo H3'];
-    // Turbo and Steps used to be summarised here. They moved onto the primary
-    // surface (#h3PrimaryControls), and a disclosure summary exists to reveal
-    // what the disclosure is HIDING — restating two chips the user can see two
-    // inches above it makes the line longer and tells them nothing. What is
-    // actually folded away on H3 is the export target, so that is what it says.
     if (up === 'fit_720p') parts.push('720p export');
     else if (up === 'fit_1080p') parts.push('1080p export');
-    else if (up === 'ltx_x2') parts.push('native export + Upscale & Face Fix after');
+    else if (up === 'ltx_x2') parts.push('native + Upscale & Face Fix after');
     else parts.push('native export');
-    el.textContent = parts.join(' · ');
+  } else {
+    const up = (document.getElementById('upscale') || {}).value || 'off';
+    const method = (document.getElementById('upscale_method') || {}).value || 'lanczos';
+    const tag = (method === 'pipersr' || method === 'model') ? ' sharp' : '';
+    if (up === 'fit_720p') parts.push('720p export' + tag);
+    else if (up === 'x2') parts.push('2× export' + tag);
+    else parts.push('native export');
+  }
+  if ((document.getElementById('open_when_done') || {}).checked) parts.push('opens when done');
+  el.textContent = parts.join(' · ');
+}
+function updateAdvancedSummary() {
+  const el = document.getElementById('customizeSummary');
+  if (!el) return;
+  // H3 renders on the tier's own geometry and ignores every LTX override in
+  // this section (make_job neutralises them server-side), so summarising them
+  // would describe a render that isn't happening.
+  const adv = document.getElementById('customizeDetails');
+  if (document.body.dataset.engine === 'h3') {
+    // Every row in here is an LTX override that H3 ignores (make_job
+    // neutralises them server-side), so on H3 the section opened onto
+    // NOTHING — a row that says "Advanced · LTX only" and rewards a click
+    // with an empty box is exactly the clutter this redesign is removing.
+    // Hidden, not removed: the inputs stay in the form, so the posted
+    // FormData is byte-identical on both engines.
+    el.textContent = 'LTX only';
+    if (adv) { adv.open = false; adv.hidden = true; }
     return;
   }
-  const q = document.getElementById('quality').value;
-  const w = parseInt(document.getElementById('width').value || 0);
-  const h = parseInt(document.getElementById('height').value || 0);
-  const aspect = document.getElementById('aspect').value || 'landscape';
-  const accel = document.getElementById('accel').value || 'off';
-  const upscale = document.getElementById('upscale').value || 'off';
+  if (adv) adv.hidden = false;
   const parts = [];
-  // Aspect (Quick is fixed 4:3, no choice; Standard/High show landscape/vertical).
-  if (q === 'quick') parts.push('10:7 · 640×448');
-  else parts.push(aspect === 'vertical' ? '9:16' : '16:9');
-  // Flag custom dims if they don't match the preset.
+  const q = (document.getElementById('quality') || {}).value || 'standard';
+  const w = parseInt((document.getElementById('width') || {}).value || 0, 10);
+  const h = parseInt((document.getElementById('height') || {}).value || 0, 10);
   const preset = QUALITY_PRESETS[q] || QUALITY_PRESETS['standard'];
-  const vertical = (aspect === 'vertical' && q !== 'quick');
-  const expectedW = vertical ? preset.h : preset.w;
-  const expectedH = vertical ? preset.w : preset.h;
-  if (q !== 'quick' && (w !== expectedW || h !== expectedH)) {
-    parts.push(`${w}×${h} custom`);
+  const vertical = (((document.getElementById('aspect') || {}).value) === 'vertical' && q !== 'quick');
+  if (q !== 'quick' && (w !== (vertical ? preset.h : preset.w) || h !== (vertical ? preset.w : preset.h))) {
+    parts.push(w + '×' + h + ' custom');
   }
-  // Speed — say something ONLY when a non-default accel is set (an old
-  // sidecar restore). "exact speed" used to print whenever accel was off,
-  // while the separate HQ Speed control defaulted to Fast — the summary
-  // could contradict the open panel. That control is gone (v4.0.5, dead at
-  // the engine boundary), and a default deserves no words.
+  const accel = (document.getElementById('accel') || {}).value || 'off';
   if (accel === 'boost' || accel === 'turbo') parts.push(accel);
-  // The REAL speed control: the folded-away disclosure must name a
-  // non-default schedule, because it changes the take, not just the clock.
-  if (typeof schedPresetActive === 'function' && schedPresetActive()) {
-    parts.push('fast draft · different take');
+  const stg = parseFloat((document.getElementById('stgScale') || {}).value || '0');
+  if (stg > 0) parts.push('STG ' + stg.toFixed(1));
+  const temporal = (document.getElementById('temporal_mode') || {}).value || 'native';
+  if (temporal === 'fps12_interp24') parts.push('12→24fps long clip');
+  else if (temporal === 'windows') parts.push('chained windows');
+  if (currentMode === 'i2v'
+      && ((document.getElementById('i2vMode') || {}).value === 'i2v_clean_audio')) {
+    parts.push('external audio');
   }
-  // Inspire changes what the reference DOES; the folded-away summary owes
-  // that sentence as much as it owes the schedule.
-  if (typeof i2vInspireActive === 'function' && i2vInspireActive()
-      && currentMode === 'i2v') {
+  // Inspire changes what the reference DOES; it lives in the composer, but the
+  // sentence is worth carrying where the rest of the deviations are listed.
+  if (typeof i2vInspireActive === 'function' && i2vInspireActive() && currentMode === 'i2v') {
     parts.push('inspire · new shot from the image');
   }
-  if ((document.getElementById('temporal_mode')?.value || 'native') === 'fps12_interp24') {
-    parts.push('12→24fps long clip');
-  }
-  const method = (document.getElementById('upscale_method')?.value || 'lanczos');
-  const methodTag = method === 'pipersr' || method === 'model' ? ' sharp' : '';
-  if (upscale === 'fit_720p') parts.push('720p export' + methodTag);
-  else if (upscale === 'x2') parts.push('2× export' + methodTag);
-  el.textContent = parts.join(' · ');
+  el.textContent = parts.length ? parts.join(' · ') : 'defaults';
 }
 function setExtendMode(m) {
   // Fast = no-CFG path, fits in 64 GB at 1280×704. Quality = upstream
@@ -3079,6 +3145,7 @@ Object.assign(globalThis, {
   setQuality, _qualityUsesHq, setAccel, setTemporalMode,
   setUpscale, setUpscaleMethod, updateAccelAvailability, updateTemporalAvailability,
   setAspect, updateCustomizeSummary, updatePromptPlaceholder,
+  updateShotSetupSummary, updateFinishSummary, updateAdvancedSummary,
   // inline-handler targets: generated markup resolves these through the
   // global scope (the v4.9.0 regression, PR #69)
   audioStudioClearAudio, charactersPickChip, trainInstall, trainRemoveImage,

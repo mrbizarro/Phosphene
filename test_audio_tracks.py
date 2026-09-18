@@ -316,6 +316,51 @@ class TheRenderGraph(unittest.TestCase):
         self.assertIn("no sound file at /x/laugh.wav (audio track A3)", res["error"])
 
 
+class TheMixModeDefault(unittest.TestCase):
+    """A film with a bed over it must not come out with mute clips.
+
+    Saint Feld (2026-09-18): 13 shots of dialogue, a 20 s bed, and the
+    delivered film had 21 s of digital silence — every shot the bed did not
+    reach played nothing, because the default was `replace`. The Editor's own
+    selector has always read "under the clips".
+    """
+
+    def render(self, **kw):
+        cap = {}
+        doc = dict(_base())
+        info = {"w": 320, "h": 240, "duration": 6.0, "has_audio": True,
+                "sample_rate": 48000}
+        with tempfile.TemporaryDirectory() as d:
+            clip, bed = Path(d) / "a.mp4", Path(d) / "bed.m4a"
+            clip.write_bytes(b"x")
+            bed.write_bytes(b"x")
+            doc["clips"][0]["path"] = str(clip)
+            doc["audio"] = {"path": str(bed), "offset": 0.0, "duration": 20.0}
+            doc["audio"].update(kw.pop("audio", {}))
+            real_probe, real_assemble = panel._sb_probe_clip, panel._sb_assemble_film
+            panel._sb_probe_clip = lambda p: dict(info)
+            panel._sb_assemble_film = lambda *a, **k: cap.update(k) or {"ok": True}
+            try:
+                res = panel._sbe_render_edit(
+                    {"id": "b", "title": "t", "created_at": 0}, doc, **kw)
+            finally:
+                panel._sb_probe_clip = real_probe
+                panel._sb_assemble_film = real_assemble
+        return cap, res
+
+    def test_the_default_keeps_the_clips_and_ducks_the_bed(self):
+        cap, res = self.render()
+        self.assertEqual(cap["music_mode"], "under")
+        self.assertEqual(res["music_mode"], "under")
+
+    def test_the_document_and_the_caller_can_still_ask_for_replace(self):
+        cap, res = self.render(audio={"mode": "replace"})
+        self.assertEqual(cap["music_mode"], "replace")
+        self.assertEqual(res["music_mode"], "replace")
+        cap, res = self.render(music_mode="replace")
+        self.assertEqual(cap["music_mode"], "replace")
+
+
 class TheNleExport(unittest.TestCase):
     def export(self, tracks):
         d = Path(tempfile.mkdtemp(prefix="phos-nle-"))

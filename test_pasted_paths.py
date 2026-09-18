@@ -140,9 +140,53 @@ def test_failure_line_falls_back_to_the_last_real_line():
 
 def test_h3_failure_uses_it_and_keeps_a_deep_tail():
     src = Path(P.__file__).read_text()
-    assert "_last = failure_line(_h3_tail)" in src
-    assert "collections.deque(maxlen=14)" in src[src.index("_h3_tail: collections.deque"):
-                                                  src.index("_h3_tail: collections.deque") + 120]
+    assert "_last = failure_where(_h3_tail)" in src
+    i = src.index("_h3_tail: collections.deque")
+    assert "collections.deque(maxlen=40)" in src[i:i + 120]
+
+
+# ---- and WHERE it came from --------------------------------------------------
+
+NANOBIND_TAIL = [
+    "step 8/8",
+    "Traceback (most recent call last):",
+    '  File "/Users/somebody/minimax-h3-mlx/scripts/generate_staged.py", line 1204, in main',
+    "    frames = decode(latents)",
+    '  File "/Users/somebody/minimax-h3-mlx/minimax_h3_mlx/tiny_video_vae.py", line 42, in __call__',
+    "    return mx.repeat(mx.repeat(x, 2, axis=2), 2, axis=3)",
+    "TypeError: repeat(): incompatible function arguments. The following argument types are supported:",
+    "    1. repeat(array: array, repeats: int, axis: int, *, stream = None) -> array",
+    "    2. repeat(array: array, repeats: int, *, stream = None) -> array",
+    "Invoked with types: mlx.core.array, float, kwargs = { axis: int }",
+]
+
+
+def test_failure_frame_names_the_deepest_frame_by_basename_only():
+    assert P.failure_frame(NANOBIND_TAIL) == "tiny_video_vae.py:42 in __call__"
+    # A user's folder names are theirs; only the file is ours to report.
+    assert "somebody" not in P.failure_frame(NANOBIND_TAIL)
+    assert P.failure_frame(["killed by the sandbox"]) == ""
+    assert P.failure_frame([]) == ""
+
+
+def test_failure_where_is_the_exception_and_the_frame():
+    msg = P.failure_where(NANOBIND_TAIL)
+    assert msg.startswith("TypeError: repeat(): incompatible function arguments")
+    assert msg.endswith("(at tiny_video_vae.py:42 in __call__)")
+    # No traceback: unchanged from failure_line, no empty parenthetical.
+    assert P.failure_where(["killed by the sandbox"]) == "killed by the sandbox"
+    assert P.failure_where([]) == ""
+
+
+def test_helper_start_failure_names_the_frame_too():
+    msg = P._helper_start_failure(
+        {"event": "exit"},
+        ["Traceback (most recent call last):",
+         '  File "/x/mlx_warm_helper.py", line 12, in <module>',
+         "    import ltx_pipelines_mlx",
+         "ModuleNotFoundError: No module named 'ltx_pipelines_mlx'"])
+    assert "No module named 'ltx_pipelines_mlx'" in msg
+    assert "mlx_warm_helper.py:12 in <module>" in msg
 
 
 def test_helper_start_failure_says_what_happened_and_what_to_do():

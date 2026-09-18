@@ -45,6 +45,8 @@ ltx_windows.py          ← PURE: the sliding-window schedule and per-window
 storyboard_editor.py    ← the Editor's document model: clips, overlays
                           (cards and titles), transitions, the mix — every
                           accessor the preview, render and export share
+room_tone.py            ← PURE numpy: the Editor's room-tone beds (film-derived
+                          or preset ambience, periodic loop, BS.1770 level)
 panel_assets/
 └── stats.html          ← the /stats dashboard (predates webapp/; same
                           served-from-disk idea)

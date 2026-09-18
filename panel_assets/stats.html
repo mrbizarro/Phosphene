@@ -298,6 +298,15 @@
       -webkit-text-fill-color: transparent;
               color: transparent;
     }
+    /* A hero that cannot be answered must not look like a zero, and must not
+       wear the brand gradient as if it were a result: muted, plain, and its
+       caption carries the remedy rather than a unit. */
+    .kpi.is-hero.is-unknown .value {
+      background: none;
+      -webkit-text-fill-color: initial;
+      color: var(--muted, #8b93a7);
+    }
+    .kpi.is-unknown .delta { color: var(--warn, #d29922); }
     .kpi .deltas {
       display: flex; gap: 10px; flex-wrap: wrap;
       margin-top: 8px;
@@ -900,50 +909,6 @@
     <!-- ============================================================
          RIGHT NOW — KPI strip with sparklines + health pulse.
          ============================================================ -->
-    <section class="card" id="sec-now">
-      <div class="section-head">
-        <h2>Right now <span class="h2-sub">snapshot from latest fetch</span></h2>
-      </div>
-      <div class="kpi-grid" id="kpi-grid" aria-busy="true" aria-label="Current repository stats">
-        <div class="skel-kpi"><span class="skel label"></span><br><span class="skel value"></span><br><span class="skel delta"></span></div>
-        <div class="skel-kpi"><span class="skel label"></span><br><span class="skel value"></span><br><span class="skel delta"></span></div>
-        <div class="skel-kpi"><span class="skel label"></span><br><span class="skel value"></span><br><span class="skel delta"></span></div>
-        <div class="skel-kpi"><span class="skel label"></span><br><span class="skel value"></span><br><span class="skel delta"></span></div>
-        <div class="skel-kpi"><span class="skel label"></span><br><span class="skel value"></span><br><span class="skel delta"></span></div>
-        <div class="skel-kpi"><span class="skel label"></span><br><span class="skel value"></span><br><span class="skel delta"></span></div>
-      </div>
-    </section>
-
-    <!-- ============================================================
-         NEEDS ATTENTION — live board of the actual open issues + PRs.
-         Populated from the latest snapshot's `open_items` array (added
-         by scripts/fetch_repo_stats.py). Hidden entirely if the fetcher
-         predates the field (older snapshot) so old data degrades cleanly.
-         ============================================================ -->
-    <section class="card" id="sec-attention" hidden>
-      <div class="section-head">
-        <h2>Needs attention <span class="h2-sub">open issues &amp; pull requests · newest first</span></h2>
-        <a class="icon-btn" id="attention-repo-link"
-           href="https://github.com/mrbizarro/phosphene/issues"
-           target="_blank" rel="noopener"
-           title="Open the issues + PRs on GitHub">
-           <span class="ico">↗</span> on GitHub
-        </a>
-      </div>
-      <div class="board">
-        <div class="board-col">
-          <h3>Open issues <span class="count-pill" id="attn-issues-count">0</span></h3>
-          <ul class="board-list" id="attn-issues-list"></ul>
-          <div class="board-more" id="attn-issues-more" hidden></div>
-        </div>
-        <div class="board-col">
-          <h3>Open PRs <span class="count-pill" id="attn-prs-count">0</span></h3>
-          <ul class="board-list" id="attn-prs-list"></ul>
-          <div class="board-more" id="attn-prs-more" hidden></div>
-        </div>
-      </div>
-    </section>
-
     <!-- ============================================================
          USAGE — anonymous panel telemetry. Independent of /stats/data:
          it reads /stats/usage, which always answers (local aggregates
@@ -1015,7 +980,51 @@
     <!-- ============================================================
          FUNNEL — Views → Clones → Stars → Forks.
          ============================================================ -->
-    <section class="card" id="sec-funnel">
+        <section class="card" id="sec-now">
+      <div class="section-head">
+        <h2>Right now <span class="h2-sub">snapshot from latest fetch</span></h2>
+      </div>
+      <div class="kpi-grid" id="kpi-grid" aria-busy="true" aria-label="Current repository stats">
+        <div class="skel-kpi"><span class="skel label"></span><br><span class="skel value"></span><br><span class="skel delta"></span></div>
+        <div class="skel-kpi"><span class="skel label"></span><br><span class="skel value"></span><br><span class="skel delta"></span></div>
+        <div class="skel-kpi"><span class="skel label"></span><br><span class="skel value"></span><br><span class="skel delta"></span></div>
+        <div class="skel-kpi"><span class="skel label"></span><br><span class="skel value"></span><br><span class="skel delta"></span></div>
+        <div class="skel-kpi"><span class="skel label"></span><br><span class="skel value"></span><br><span class="skel delta"></span></div>
+        <div class="skel-kpi"><span class="skel label"></span><br><span class="skel value"></span><br><span class="skel delta"></span></div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         NEEDS ATTENTION — live board of the actual open issues + PRs.
+         Populated from the latest snapshot's `open_items` array (added
+         by scripts/fetch_repo_stats.py). Hidden entirely if the fetcher
+         predates the field (older snapshot) so old data degrades cleanly.
+         ============================================================ -->
+    <section class="card" id="sec-attention" hidden>
+      <div class="section-head">
+        <h2>Needs attention <span class="h2-sub">open issues &amp; pull requests · newest first</span></h2>
+        <a class="icon-btn" id="attention-repo-link"
+           href="https://github.com/mrbizarro/phosphene/issues"
+           target="_blank" rel="noopener"
+           title="Open the issues + PRs on GitHub">
+           <span class="ico">↗</span> on GitHub
+        </a>
+      </div>
+      <div class="board">
+        <div class="board-col">
+          <h3>Open issues <span class="count-pill" id="attn-issues-count">0</span></h3>
+          <ul class="board-list" id="attn-issues-list"></ul>
+          <div class="board-more" id="attn-issues-more" hidden></div>
+        </div>
+        <div class="board-col">
+          <h3>Open PRs <span class="count-pill" id="attn-prs-count">0</span></h3>
+          <ul class="board-list" id="attn-prs-list"></ul>
+          <div class="board-more" id="attn-prs-more" hidden></div>
+        </div>
+      </div>
+    </section>
+
+<section class="card" id="sec-funnel">
       <div class="section-head">
         <h2>Discovery funnel <span class="h2-sub">how the repo converts pageviews to commitment</span></h2>
       </div>
@@ -2606,15 +2615,36 @@
     // as "since the app existed".
     const firstDay = (((u.growth || {}).installs_by_day || [])[0] || {}).date;
     const since = firstDay ? 'since ' + firstDay : 'all time';
+    // THE FLEET IS THE HEADLINE (owner, 2026-09-18: "when I ask you for total
+    // renders, I mean total renders from the fleet too… one of the first
+    // windows I want to see is total renders for all the fleet"). One tile
+    // used to be called "Total renders" and mean the fleet's total or THIS
+    // MAC's depending on whether a query key happened to be configured — a
+    // number whose meaning moved under the same label. Now the hero is always
+    // the fleet, it reads "—" with a remedy when the fleet cannot be reached,
+    // and this machine's own total is its own tile that never pretends to be
+    // anything else.
+    const m = u.machine || {};
+    const blocked = String(u.fleet_blocked || '');
+    const fleetSub = blocked === 'no_key'
+      ? 'add a PostHog read key in Settings'
+      : (blocked ? 'PostHog query failed — check the key in Settings'
+                 : 'completed · all installs · ' + since);
     const tiles = [
-      { label: 'Total renders', value: fmt(t.total_renders),
-        sub: isFleet ? 'completed · all installs · ' + since : 'completed · this machine · ' + since, hero: true },
+      { label: 'Total renders · fleet', value: isFleet ? fmt(t.total_renders) : '—',
+        sub: fleetSub, hero: true, warn: !isFleet },
+      { label: 'Total renders · this Mac',
+        value: fmt(isFleet ? m.total_renders : t.total_renders),
+        sub: 'completed' + (m.first_day || (!isFleet && firstDay)
+             ? ' · since ' + (m.first_day || firstDay) : '') },
       { label: isFleet ? 'Total installs' : 'Installs',
-        value: fmt(t.total_installs), sub: isFleet ? 'ever booted · ' + since : 'this machine' },
+        value: isFleet ? fmt(t.total_installs) : '—',
+        sub: isFleet ? 'ever booted · ' + since : fleetSub },
       { label: isFleet ? 'Weekly active installs' : 'Active this week',
         value: fmt(t.weekly_active_installs),
         sub: isFleet ? 'unique installs · 7d' : 'this machine · 7d' },
-      { label: 'Renders', value: fmt(t.renders_7d), sub: 'completed + failed · 14d' },
+      { label: 'Renders', value: fmt(t.renders_7d),
+        sub: 'completed + failed · 14d · ' + (isFleet ? 'all installs' : 'this machine') },
       { label: 'H3 share', value: fmtPct(t.h3_share_pct), sub: 'of renders · 14d' },
       { label: 'Error rate', value: fmtPct(t.error_rate_pct), sub: 'failed renders · 14d' },
       { label: 'Refused', value: fmt(t.refusals_7d), sub: 'declined on purpose · 7d' },
@@ -2622,7 +2652,7 @@
     const grid = $('#usage-tiles');
     if (grid) {
       grid.innerHTML = tiles.map(k => `
-        <div class="kpi${k.hero ? ' is-hero' : ''}">
+        <div class="kpi${k.hero ? ' is-hero' : ''}${k.warn ? ' is-unknown' : ''}">
           <div class="label">${escapeHtml(k.label)}</div>
           <div class="value">${k.value}</div>
           <div class="delta">${escapeHtml(k.sub)}</div>

@@ -1,5 +1,51 @@
 # Phosphene — project state, history, open work
 
+> **🧹 2026-09-18 — The render form is four closed sections (UNRELEASED, dev; waits for owner use).**
+> Owner: "The H3 layout is kind of a bit too much … you have a pill for speed, quality, length, and all that. That
+> should be inside one section that you can compress and decompress, like we have LoRAs and Customize, because it is
+> very messy like that. I don't think it is easy to navigate between the options … it should be closed by default …
+> Think about what you can separate and what should be grouped together."
+> **What was open on every H3 render:** five labelled pill rows stacked down the form — Speed, Quality, Length, Steps,
+> Orientation — plus a Seed field, the engine's standing note, the cell note and an OPEN LoRA picker. Four of those
+> five rows are one decision each and none of them changes between renders.
+> **Now:** the form keeps four things visible — engine (header), mode (bar), the composer (reference + prompt) and
+> Generate (footer). Everything else is a `<details>` that ships CLOSED, in the same `.customize-section` /
+> `.cz-summary` chrome LoRAs and Customize already used (no second disclosure widget):
+> **Shot setup** (`#shotSetupDetails`, accented in the active engine's colour) = the shape — Speed (H3 Fast|Best,
+> LTX Tuned|Fast draft), Quality, Length, Steps, Adapter slot, Orientation (both engines' rows in one slot), Seed;
+> **LoRAs** (now closed too — it shipped open, so an empty list and its four-line empty state were the tallest thing
+> on the form for anyone who owns no LoRAs; Browse CivitAI and Import H3 LoRA open it themselves);
+> **After the render** (`#finishDetails`) = what happens to the file — H3 Upscale + "also run Upscale & Face Fix",
+> LTX Export + Method, open when done. None of it changes a pixel the model produced;
+> **Advanced** (`#customizeDetails`, was "Customize") = the overrides — width × height, duration/frames, STG,
+> long clips + per-window prompts, external I2V audio, accel.
+> **Each summary prints what its own section hides**, so a closed section still says what will render:
+> `Shot setup · High · 10s · 9:16 · Best · 16 steps · ~67 min · batch`. `updateCustomizeSummary()` keeps its name and
+> its 23 call sites and fans out to `updateShotSetupSummary` / `updateFinishSummary` / `updateAdvancedSummary`; the
+> H3 eta comes from the engine module's own `h3CellEta` (published for this) and the LTX one from `ltxCellEta`, so a
+> summary can never disagree with the chips inside it. `setH3Upscale` / `setH3Orientation` / `#seed` now refresh it —
+> the export target was stale in the old Customize line for the same reason and it mattered less there.
+> **Two things stay OUTSIDE the disclosures on purpose:** `#ltxTierNote` / `#h3TierNote` / `#engineRowNote` (a warning
+> about the render you are about to queue must not be foldable), and the per-window prompt list, which moved UP to sit
+> with the prompt — it is prompt content, one line per 5 s window, and inside a closed section a user who had just
+> chosen a 15 s length would never find it.
+> **Nothing was dropped, renamed or re-defaulted.** Every row only changed parent: same ids, same `data-*` hooks, same
+> handlers, same hidden inputs, same defaults. Proved on the live panel: `FormData(#genForm)` has the identical 59
+> keys before and after, on both engines, and every control still resolves inside `#genForm`.
+> **Also fixed while in there:** a stray `</div>` that closed `.quick-settings` early (Orientation and Seed were
+> siblings of the form, so the block's own label styles never reached them) — `webapp/index.html` now parses with no
+> unmatched tags, and a test keeps it that way. The tier strips and the chip rows are auto-fit tracks instead of fixed
+> column counts (measured 90 px floor): H3's four canvases stay one row across at the pane's real 386 px content box,
+> LTX's five wrap 4 + 1 instead of squeezing, and a dragged-in pane gives ground a column at a time instead of
+> clipping the last chip. The LoRAs header wraps instead of hanging "Check for updates" off the edge.
+> Tests: `test_render_form_sections.py` (26) — the four sections and their closed default, which control is in which
+> section, the Speed→Quality order, every form field name still present, the H3 fields still read server-side, the
+> notes not foldable, the summary fan-out, the markup balance. Full suite 2687 passed / 6 failed, and those six are
+> the known order-dependent `test_room_tone.py` / `test_routes.py` / `test_uploads.py` failures that pass when run
+> alone (unchanged by this work). Screenshots (before + after, dark, retina):
+> `~/AI/projects/phosphene/notes/h3-layout/`. **NOTE: `webapp/index.html` is read once at import
+> (`mlx_ltx_panel.py:33956`), so markup edits need a panel restart; CSS and JS are served from disk.**
+
 > **🩹 2026-09-17 — v4.14.3 released (public, tag `v4.14.3`): "songs that start, paths that paste".**
 > A fleet read (PostHog, last 48 h) rather than a report: four real-user failures, fixed and shipped the same day.
 > **1. YuE2 failed for nearly everyone.** Pinokio's shell exports `PYTORCH_ENABLE_MPS_FALLBACK=1` into every app it
@@ -64,7 +110,133 @@
 > in `<home>/api/phosphene.git` + install's LTX steps, no music engine, empty HF_HOME, PATH without uv, booted :8441 → 4.14.1
 > not dirty, music `not_installed`; Compose → card → Install ran clone, pin `9253ed1`, venv (3.12.13, mlx 0.32.2), frozen sync
 > and started the weight download; Stop left no process or guard. Not run: a full 10.5 GB download, any render, Codex (owner).
-> **Local dev checkout (8199's) is behind beta** by `ee5827b` + the merge — ff it at the next panel restart (new JS needs the new routes).
+> **Shipped:** public main `d8a7ca4` (FF from `fbc777c`), tag `v4.14.1`, release https://github.com/mrbizarro/Phosphene/releases/tag/v4.14.1 ;
+> merged back into dev. **Pinokio post: NOT made** (owner replies to peanut himself). **Local dev checkout (8199's) is behind beta** —
+> ff it at the next panel restart (new JS needs the new routes).
+
+> **🔊 2026-09-17 — Room tone: a generated ambience bed under the whole film, and no clicks at cuts (UNRELEASED, beta; waits for owner use).**
+> Owner: "for auto videos … the cuts are very rough in terms of sound … if it was all over the timeline as an ambient
+> sound, not something really subtle … generated for the video each time." Design: PM hub `notes/room-tone/DESIGN.md`.
+> **Model:** a room-tone bed is an ordinary audio track tagged `room_tone: {variant, seed, level, ref_lufs}` with ONE locked
+> strip 0 → film end, so preview, render mix and NLE export already carry it (no new mix path). `level` (LUFS) is the label,
+> the track `gain` = `room_tone.level_gain(level, ref_lufs)` is what plays. `storyboard_editor.room_tone_{meta,track,
+> new_track,fit}`; validate/normalise know the tag. **Generator** `room_tone.py` (numpy only, CPU, ~0.25 s preset / ~1.2 s
+> film): magnitude × random phase → one inverse FFT over a 40 s grid, so the loop is periodic by construction (hum on exact
+> bins, LFO/crickets/rain ticks in whole cycles); BS.1770 loudness computed from the spectrum (agrees with ffmpeg ebur128 within
+> 0.1–0.3 LU); written at −18 LUFS, peak ≤ −1 dBFS; file length rounded up to 30 s; deterministic name
+> `<film>/audio/room_tone/rt_<variant>_<seed>_<digest>_<secs>s.wav` (+ .json facts), so a repeat pick reuses it. **From this
+> film** = per-clip quiet windows (≤ p25, ≤ −30 dBFS, > −80, 2 windows from anything 10 dB louder) → unit-power spectra →
+> per-bin median; < 1.5 s of quiet → Quiet room + a stated reason. 13 presets (Quiet room … Plane cabin, VHS tape). New take =
+> seed + 1. YuE2/H3 audio rejected (minutes of GPU for a spectrum's job).
+> **UI:** media pool → Sound → **Room tone** card (variant picker, Level −45…−18 LUFS default −27, Add room tone → Rebuild /
+> Use this sound / New take / Remove, "Add room tone to automatic cuts"); ♪ menu on the track gutter → **Room tone…**
+> (`edRtOpen`). The Sound tab hides Add black / Add title and got its own empty sentence. `sbeRtFollow` (in `sbePaint`,
+> `SBE.rtLen` guard so a load never dirties) refits the untouched bed when the film length changes — part of that edit, not its
+> own undo step; a film that outgrew the file gets a longer bed in the background (`sbeRtGrow`, 900 ms debounce).
+> **Routes:** `GET/POST /storyboard/edit/room-tone` (POST takes the on-screen `clips` JSON + `film_len`). **Setting**
+> `room_tone_auto` (default on). **Auto cuts:** `_sbe_auto_edit` → `_sbe_room_tone_auto` (first Editor open, Re-cut,
+> Storyboard auto film) lays a "From this film" bed at −27; strict (no preset hiss when the clips have no quiet sound) and
+> skipped for a music-video cut (`audio.mode` replace). One Shot makes one take, not a cut — no bed.
+> **De-click:** `SB_DECLICK_S = 0.012` → `_sb_declick_term` on every clip-sound segment (both lanes), timeline render only
+> (`_sbe_render_edit` passes it; every other `_sb_assemble_film` caller builds the old graph).
+> **Measured** (scratch panel :8473 on APFS copies; DIVORCE v2 stretch 14.5–45.7 s, 7 cuts, before = no bed, no de-click):
+> mean floor step across a cut **13.0 → 2.7 dB**, worst 25.8 → 12.3 dB (that cut enters a clip whose own floor is −19 dBFS),
+> quietest 10 ms near a cut **−90.4 → −35.5 dBFS**, 10 ms frames under −50 dBFS within ±150 ms of cuts **116 → 0**, integrated
+> −12.8 → −13.0 LUFS. Listen: PM hub `notes/room-tone/divorce_{before,after}.{mp4,wav}`; every variant `variants/*.m4a`.
+> Browser (own headless Chrome): add 0.26 s (DIVORCE) / 1.0 s (Saint Feld, lands on A7 under its 4 tracks), ripple delete →
+> bed 101.40 → 96.23 s, undo → back, New take, swap to VHS tape keeps lane id, grow 120 → 150 s file after +30 s of black,
+> save clean, 0 console errors; auto-edit in-process on both films lays A3 at −27. Screens PM hub `notes/room-tone/*.png`.
+> **Tests:** `test_room_tone.py` 67 (loop seam, tiling, loudness vs ebur128 + BS.1770 sine, peaks, stereo, takes, film shape
+> from quiet not lines, median, fallback, make_bed length/reuse/strict, model/validate/fit, de-click graph on/off/split, a real
+> two-clip render measured, auto-cut on/off/music video/no quiet, setting, routes, client mirror in node, card/docs). Editor +
+> audio suites + geometry 1477 passed, lint clean. Not run: Codex (owner), full release_gates. **Live 8199 needs a restart**
+> (Python: routes, generator, auto cuts, de-click); until then its cached index.html has no card and the new JS is inert.
+
+> **⚡ 2026-09-17 — H3 Speed switch: ⚡ Fast (TaoMate 3-step adapter) | ✦ Best (UNRELEASED, beta; headline of the next release — waits for owner use).**
+> Owner: "3-step render plus 2.5 upscale … it works … a much better option for a draft", then "works well for image-to-video
+> too" → Fast at Standard/High as well, as ONE control ("finally fast generations"). Evidence: PM hub
+> `notes/h3-review/tristep-draft/` (640×384 I2V, bizarro 1.0 + vh5tape 0.8, seed 52010: 8-forward draft 6.9 min vs 3-step
+> 3.0; 768×448 4.8; Face Fix 1 step → 1280×768 ~2.5) and `notes/h3-review/comfy-vae-tristep/REPORT.md` (High I2V gym 9.0 vs
+> 35.1 at 15 forwards; T2V 8.4). Design: `docs/H3_ENGINE.md` → "Speed: ⚡ Fast | ✦ Best".
+> **Runner:** `--sigma-subset N:i,j,…` + `--vae-dtype` (default float32, bit-identical) on minimax-h3-mlx
+> `codex/h3-engine-v2` = `6bbed80` + tests `ccf532b` (`tests/test_sigma_subset.py`). **Fork branch NOT pushed yet** —
+> users get it via "Update Hailuo H3 runner" once it is; until then their Fast half says "update H3 runner". The owner's
+> beta panel runs `codex/live-preview` (`1d2e200` + `39ac145`, tree-identical), carried over by a 3-way merge-file that kept
+> that worktree's uncommitted Sep 10 `generate_staged.py` diff hunk-for-hunk.
+> **UI:** one two-half switch above the Quality cards (`#h3SpeedRow`; `renderH3Turbo()` paints it; `_h3ApplySpeed()` is the
+> one writer of `#h3_tristep` / `#h3_turbo` / `steps`); the cards and the footer re-price for the speed and the mode
+> (T2V/I2V); Fast is the default once installed (`phos_h3_speed`); the Fast half reads "Install (180 MB)" when the adapter
+> is missing and one click installs it; the Steps row shows only under Best; the old Standard | Turbo row is removed (Fast
+> replaces Turbo — the form posts `h3_turbo=0`, the server keeps API Turbo wherever Fast doesn't run); Upscale & Face Fix
+> checkbox beside Generate, footer "Draft · Fast + Face Fix ≈ 5.5 min". Native and the dense 10 s: Best only, one-line note.
+> Load Params / Finish restore the clip's speed (`h3SpeedOfParams`; a Turbo clip → Fast).
+> **Server:** job field `h3_tristep` (1/0/absent = default) in the make_job allowlist; `h3_cell_takes_tristep` (Draft + lab
+> preview, Standard, High; never dense/Native); never stacked with Turbo (make_job and `run_h3_job_inner`); a Steps pin
+> without an explicit 1 keeps Best; Fast = `--steps 4 --sigma-subset 50:0,16,33,49 --lora <adapter>:1.0` ahead of the user's
+> LoRAs, full VAE decode (never TAE). Cells carry `tristep_min/eta/measured` (+ `_i2v`), `tristep_forwards`,
+> `tristep_default`, `facefix_min` (receipts: draft i2v 3.0; standard 4.8 i2v / 4.9 t2v; high 9.0 / 8.4; Face Fix 2.5 /
+> ~4 interpolated / 9). Storyboard prices Fast cells at Fast. **Adapter:** Kijai's
+> `minimax_h3_taomate_3step_lora_avg_rank_19_bf16.safetensors` (182 MB, alpha == rank, ~87 % of the 2.48 GB official
+> delta: median B·A relative error 13 %) from `Kijai/MiniMax-H3_comfy` @ `098f8c4`, sha256 `de9663d9…`, into
+> `<H3 models>/turbo-lora/` via `POST /h3/tristep/install` (resumable Range fetch, size + digest, atomic rename). A
+> full-rank `taomate_h3_3step_ourlayout.safetensors` there wins. Never re-hosted. **Provenance:** `params.h3_tristep`,
+> `h3.tristep` (file, version, repo, revision, sha256, source repo, license, ladder, decode), `h3.schedule`,
+> `h3.lora_accounting`; ⓘ modal Speed row.
+> **Validated:** one real panel-queue render (first commit, `52d1ff8`) — DIVORCE v01, I2V draft 640×384/124f, seed 52010,
+> bizarrotrn_h3 1.0 + vh5tape 0.8: `mlx_outputs/tristep_validation_divorce_v01_h3.mp4` in **205 s** (denoise 139 s = 3 ×
+> ~46 s; text encode 13 s on a cold cache; VAE 44 s), schedule [1, .9612, .8533, 0] / [1, .8609, .5926, 0], 416 wrapped / 0
+> unaccounted, 124 frames + 5.167 s audio, max −1.3 dB; the chained Face Fix → 1280×768 in **171 s** (124 frames). Frame 70
+> matches the owner-approved full-rank clip (PM hub `tristep-draft/panel_validation_cmp70.png`). Real HF resume verified
+> (170 MB partial → 206 → digest OK); the real install ran through the route. The switch was clicked through on scratch :8471
+> (Draft/Standard/High/Native, T2V↔I2V re-pricing, Install state, Face Fix footer). Tests: `test_h3_tristep_draft.py`
+> (45); release_gates --fast 100/0/2. Not run: Codex (owner), from-zero install, a Native Fast render.
+
+> **🎛 2026-09-17 — Editor round 2: fast tooltips, Source monitor back as a drop target, real icons, a View group (UNRELEASED, beta; waits for owner use).**
+> Owner after using 32c9add: tooltips "too slow"; "two empty dark spaces" beside the Program monitor → bring back the Source
+> monitor "where you can drag the clips and see them"; icons "not very clear … deformed"; the panel toggles "not clear".
+> **Icons:** the cause of "deformed" — the sprite was bare `<g>`s on a 24-unit grid used from `<svg>`s with no viewBox, so a
+> 15px box drew the top-left 15 units. Now 24 `<symbol viewBox="0 0 256 256">` in Phosphor geometry (scissors, lift-out-of-gap,
+> gap-closing ripple, copy, link/unlink, arrows-clockwise, speaker/speaker-slash, trash+waveform, level line ×, lock/lock-open,
+> smiley+sparkle, waveform, sidebars, split-screen+play, corners-out, keyboard, clock), 18px, stroke 22/256 on `.sbe-cbar-i`;
+> the preview mute is an icon (`#sbeMuteUse`). **View group** (`#sbeView`, header): Source · Inspector · Sound · Panels · Full
+> screen, labelled (icons-only below a 1360px window unless panels are hidden), pressed = showing, `sbeViewTip` writes what a
+> click shows/hides + key. The toggles left the Program strip and the tool row. **Tooltips:** new `webapp/js/tips.js` — one
+> element, 150 ms delay (measured 0.16–0.17 s in headless Chrome), instant when sliding along a row (400 ms warm), focus-visible,
+> flipped/clamped 8px in the window, reduced-motion aware; painters still write `title`, which is moved to `data-tip` on
+> hover/focus and by a MutationObserver (no native tooltip; aria-label kept/filled). Scope: Editor icon/header buttons, chips,
+> `.po-act`. **Source monitor** on by default (`phos_sbe_src`; Source or × hides), each monitor column exactly its picture's
+> width (the old layout squeezed Source to 499×315, not 16:9), empty state "Drop a clip here to preview"; drop target for pool
+> rows (`edPoolDragMove/End`) and shots dragged off the track (`sbeOnTrackMove/Up`: track restored from the snapshot, no undo,
+> not dirty), `sbeSrcDropHover` lights it. **Measured** (scratch panel :8461 on an APFS clone of Saint Feld): Program stays
+> **681×383** at 1920×992 with Source **681×383** beside it; at 1512×945 Program **597×336** + Source **560×315**, row 1170/1182px.
+> Three-up (Inspector open) 681/492/380 and 567/379/212. Geometry gate now also asserts Source shown, both boxes 16:9, 5 View
+> buttons. Tests: `RoundTwoTipsSourceIcons` (8), audio_compact/face_fix/docs updated; editor suites + geometry 1083 passed,
+> lint clean. Not run: Codex (owner), full release_gates. Screens: PM hub `notes/editor-redesign/round2_*.png`.
+
+> **🎛 2026-09-17 — Editor layout redesign: Sound mode, panels on demand, icons (UNRELEASED, beta; waits for owner use).**
+> Owner, after cutting *Saint Feld*: the sound lanes resizing themselves is "really weird… really bad", the picture is small,
+> the clip name sits on the picture, the inspector is "open like this all the time", the clip bar is wordy, rows are wasted.
+> Design (PM hub `notes/editor-redesign/DESIGN.md`, before/after PNGs + `*_measure.json` beside it): **nothing resizes itself**.
+> **Sound mode** (⇧A · the ⌁ Sound button on the tool row · the ▾ on the A1 head; `sbeSoundModeSet` is the one writer,
+> `phos_sbe_mode` per browser) replaces the self-sizing lanes of e588b52/c48e3c8 — picture mode = thin lanes, big picture;
+> sound mode = full lanes, timeline at the roof, picture at its 120px floor; each mode keeps its own handle height
+> (`phos_sbe_tl_h` / `phos_sbe_tl_h_sound`). A thin lane selects on one click, is sound mode on a double-click. **Source
+> monitor** is a guest (`#sbeSrcMon` hidden until a pool row is clicked or ◫ pressed; × closes it). **Inspector** is a
+> collapsible rail (☰ under the picture, ⌘I, double-click a clip; `phos_sbe_inspect`); "rendered, not placed" is a count chip
+> under the picture while it is closed. `sbeMonitorFit(width, budget, {src, rail})` sizes one, two or three across. The
+> **clip name** moved off the picture to the strip under it (`#sbeProgClip`); the badge carries only the no-proxy warning, on
+> hover. **Transport** (▶/⏸, 🔊, time) sits under the Program monitor; the old transport row is gone — the **tool row** is the
+> icon-only clip bar (labels in tooltips, in More and the right-click menu) plus Sound · Snap · zoom · ⓘ · ⌨ Keys, with the
+> grab below it (`.sbe-toolrow`). **Full screen** (⛶ / F, Fullscreen API on `#sbeStage`). **Panels** (▯ in the header / `):
+> hides the app's left column (`body.ed-focus`, `phos_sbe_panels`). The **snapshot** offer is a header chip (`#sbeRecoverChip`),
+> not a row. Registry: `editor.soundLanes` → `editor.soundMode`; new `editor.inspector` ⌘I, `editor.fullscreen` F,
+> `editor.panels` `. Measured (headless Chrome, the owner's film, fresh browser): Program monitor **412×232 → 681×383** at a
+> 1920×992 window, **329×185 → 597×336** at 1512×945; the header+notice+transport rows 49+31+34 → 49+0+28. Sound mode: 213×120
+> picture, 545px timeline. Tests: `test_audio_compact.py` rewritten as the Sound-mode contract (nothing may move the split but
+> the switch); `test_storyboard_editor_ui.py` harness stubs `mode: 'sound'` and probes picture mode's own ends (166/246);
+> `scripts/measure_editor_layout.py` holds the lanes open via `sbeSoundModeSet`. Green: editor suites 1052 passed, geometry
+> gate 12 passed (browser run), lint clean. Not run: Codex (owner: skip). Live 8199 was NOT restarted (it caches index.html at
+> boot, so it still serves the old HTML until its next restart); verified on a scratch panel :8437 over an APFS clone of the film.
 
 > **🎵 2026-09-17 — v4.14.0 released (public, tag `v4.14.0`): "Songs, faces and sound".**
 > Owner's order: "Let's make a release because I think there are too many things to release at the moment." No further
@@ -81,6 +253,17 @@
 > dev then merges that snapshot (tree-identical), so `git log dev..origin/main` is empty.
 > **Credit:** YuE2 by Multimodal Art Projection (m-a-p), CC BY-NC 4.0 + individual-creator permission; MLX port by vanch007
 > (Apache-2.0). CivitAI search fix #82 by @Viktorminator.
+> **Shipped:** public main `fbc777c` (FF from `e1d500e`, parent = v4.13.2, tree == dev `3cf4662`), tag `v4.14.0`, release
+> https://github.com/mrbizarro/Phosphene/releases/tag/v4.14.0 ; dev/beta = `3cf4662` + tree-identical merge of `fbc777c`.
+> Leak check: 54 paths, all this release's (YuE2 pack + licences, face fix, editor sound, docs); public `dev` untouched.
+> **Gates:** full `release_gates.sh` 100 PASS / 0 FAIL / 0 SKIP in the release worktree, MLX forced to CPU (sitecustomize).
+> **Clean room:** fresh clone of `3cf4662`, fresh ltx-2-mlx clone → `ltx_checkout.sh` (ltx25.7 `bf419b6`) + `ltx_venv.sh` +
+> install's uv steps + codec patch; music path `music_preflight/clone/checkout` (pin `9253ed1`) `/venv` (3.12.13) `/sync`,
+> `music_fetch.py --check` = 1 (no weights, expected); H3 path `h3_preflight` + clone + `h3_checkout.sh` (`11b90a0`) + deps OK.
+> No weights, empty HF_HOME/state/outputs, analytics host blackholed. Booted on :8414 → `/version` 4.14.0 not dirty, UI 200,
+> integrity OK, `music` runner_ok/venv_ok with reason `missing_weights`, `h3` root resolved with only weights missing, no
+> tracebacks; stopped by PID, removed. **Not run:** any render, update-path gate, real 10.5 GB YuE2 download, Codex (owner).
+> **Pinokio post: NOT posted** — draft PM hub `launch/10_release_4140.md` (media post + X thread; covers 4.13.1/4.13.2 too).
 
 > **🧑‍🎨 2026-09-17 — "Upscale ×2 / LTX Upscale" is now Upscale & Face Fix, and a one-click clip action (UNRELEASED, beta; waits for owner use).**
 > Owner: the upscaler "that fixes the faces has the wrong name … should be optional and something you can do to an existing clip."

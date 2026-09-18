@@ -697,6 +697,18 @@ JS_MEASURE = r"""
   out.still_visible = on(still);
   out.stage_layers_both_visible = on(video) && on(still);
 
+  // THE TWO MONITORS (round 2). The Source monitor is on screen by default
+  // and both pictures must be 16:9 — the first cut of this layout let the
+  // Program column's bar squeeze the Source picture to 499x315. The View
+  // group must hold its five buttons on the header's one row (header_rows).
+  const box = (e) => { if (!e || e.offsetParent === null) return null;
+    const r = e.getBoundingClientRect(); return { w: num(r.width), h: num(r.height) }; };
+  const srcMon = el('sbeSrcMon');
+  out.source_shown = !!(srcMon && !srcMon.hidden && srcMon.offsetParent !== null);
+  out.program_box = box(el('sbeStage'));
+  out.source_box = box(el('sbeSrcStage'));
+  out.view_buttons = document.querySelectorAll('#sbeView .sbe-vbtn').length;
+
   // Put it back, so the next width does not start from a forced state.
   try {
     if (window.SBE) SBE.dirty = false;
@@ -719,12 +731,11 @@ JS_HANDLES = r"""
   const out = { blocks: {}, errors: [] };
 
   if (typeof sbeTlSet !== 'function') { out.errors.push('sbeTlSet missing'); return out; }
-  // THE HANDLES THIS GATE MEASURES LIVE ON THE SOUND LANES, and those lanes now
-  // make themselves small when nobody is working on sound — a grip inside an
-  // 18px strip is not the control this gate is about, and the page would have
-  // compacted underneath it a couple of seconds after it loaded. Hold them open
-  // the way a user does with the ▾ on the A1 head, through the app's own writer.
-  if (typeof sbeAudioPinSet === 'function') sbeAudioPinSet('open');
+  // THE HANDLES THIS GATE MEASURES LIVE ON THE SOUND LANES, which are thin
+  // strips in picture mode (the default) — a grip inside an 18px strip is not
+  // the control this gate is about. Sound mode, through the app's own writer,
+  // is how a user gets them at full height.
+  if (typeof sbeSoundModeSet === 'function') sbeSoundModeSet(true, { quiet: true });
   sbeTlSet(%(tl)s);
   if (typeof sbePaint === 'function') sbePaint();
   await settle();
@@ -917,6 +928,18 @@ def check(width: int, m: dict) -> list[str]:
                    f"(scrollHeight {m.get('timeline_scroll_height')} vs "
                    f"clientHeight {m.get('timeline_client_height')}, "
                    f"floor {m.get('timeline_floor_h')})")
+
+    if not m.get("stacked"):
+        if m.get("source_shown") is not True:
+            bad.append(f"{w}: the Source monitor is not on screen by default")
+        for name in ("program_box", "source_box"):
+            b = m.get(name) or {}
+            if not b.get("h"):
+                bad.append(f"{w}: {name} not measured")
+            elif abs(b["w"] / b["h"] - 16 / 9) > 0.02:
+                bad.append(f"{w}: {name} {b['w']}x{b['h']} is not 16:9")
+    if m.get("view_buttons") != 5:
+        bad.append(f"{w}: the View group has {m.get('view_buttons')} buttons, not 5")
 
     both = m.get("stage_layers_both_visible")
     if both is not False:

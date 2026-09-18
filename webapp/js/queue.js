@@ -156,7 +156,10 @@ function h3FinishFieldsFromSidecar(p, tierKey) {
     // as a different canvas. setH3Turbo re-checks availability, so a sidecar
     // from an install that has since lost the files lands on Standard, not on a
     // mode that would fail at queue time.
-    h3_turbo: !!p.h3_turbo,
+    // The Speed switch value the clip was made with (Fast = 3-step, or the
+    // retired Turbo; Best = the shape's full sampler). setH3Speed re-checks
+    // availability: a Fast clip on an install without the adapter lands on Best.
+    h3_speed: (p.h3_tristep || p.h3_turbo) ? 'fast' : 'best',
     // The shot list carries over, and it is safe to: Finish means SAME LENGTH,
     // higher quality, so the window count is identical by construction and
     // entry i still means window i. Dropping it would silently finish a
@@ -307,7 +310,7 @@ async function h3FinishActive() {
   if (typeof setH3Steps === 'function') setH3Steps(fields.h3_steps);
   // Turbo before the shape: setH3Turbo forces the Steps pills back to 'auto',
   // and setH3Tier below re-reads them when it stamps the resolved count.
-  if (typeof setH3Turbo === 'function') setH3Turbo(!!fields.h3_turbo);
+  if (typeof setH3Speed === 'function' && fields.h3_speed) setH3Speed(fields.h3_speed);
   // Shape LAST of the H3 controls: setH3Tier stamps width/height/frames/steps
   // from the cell table, so anything geometry-related set after it would be
   // fighting the source of truth. The LENGTH inside `fields.h3_tier` is the
@@ -432,8 +435,8 @@ function setEngine(engine, opts) {
     setH3Upscale((document.getElementById('h3_upscale') || {}).value
                  || H3.default_upscale || 'fit_720p');
     setH3Steps((document.getElementById('h3_steps') || {}).value || 'auto');
+    // Paints the Speed switch and writes #h3_tristep / #h3_turbo from it.
     renderH3Turbo();
-    setH3Turbo((document.getElementById('h3_turbo') || {}).value === '1');
     // After the shape, because the number of window boxes IS the shape.
     renderH3WindowPrompts();
     // LTX post-processing doesn't run on an H3 render (make_job neutralises
@@ -567,13 +570,22 @@ function updateH3Availability(s) {
                // this turns the dashed pill live as soon as it lands.
                || (((next.turbo || {}).available) !== ((H3.turbo || {}).available))
                || (((next.turbo || {}).supported) !== ((H3.turbo || {}).supported))
+               // Same for the Draft's fast 3-step adapter.
+               || (((next.tristep || {}).available) !== ((H3.tristep || {}).available))
+               || (((next.tristep || {}).supported) !== ((H3.tristep || {}).supported))
                || ((next.tiers || []).length !== (H3.tiers || []).length);
   // BOTH bindings, and they must stay the same object: the H3-specific code
   // reads `H3` on nearly every line, the registry reads the probe map. A
   // divergence here is a switcher showing "not installed" over a working
   // engine (or worse, the reverse).
+  const _triDl = !!((next.tristep || {}).installing || (H3.tristep || {}).installing);
   H3 = next;
   window._ENGINE_PROBES.h3 = next;
+  // A running 3-step download prints its progress on the pill.
+  if (_triDl && !changed && typeof renderH3Turbo === 'function'
+      && typeof currentEngine === 'function' && currentEngine() === 'h3') {
+    try { renderH3Turbo(); } catch (e) {}
+  }
   if (changed) {
     setEngine(currentEngine(), { persist: false });
     // The Finish button's label and its picker are both derived from H3.tiers,
@@ -869,6 +881,7 @@ function snapFramesTo8kPlus1() {
   }
 }
 
+let _h3DerivedMode = null;
 function updateDerived() {
   // The per-window hint counts windows for the CURRENT length, so it has to
   // move when the length does, not only when the pill is clicked.
@@ -913,7 +926,20 @@ function updateDerived() {
   // expanded Customize body).
   const derivedFooter = document.getElementById('derivedFooter');
   if (derivedFooter) {
-    derivedFooter.innerHTML = `<strong>${dur}s</strong> · ${finalRes}${temporalText}${accelText}`;
+    const onH3 = typeof currentEngine === 'function' && currentEngine() === 'h3'
+      && typeof h3EstimateLine === 'function';
+    // H3: the speed, the shape, the optional Face Fix, and what it all costs.
+    const h3Line = onH3 ? h3EstimateLine() : '';
+    derivedFooter.innerHTML = h3Line
+      ? `<strong>${escapeHtml(h3Line)}</strong> · ${dur}s`
+      : `<strong>${dur}s</strong> · ${finalRes}${temporalText}${accelText}`;
+    // The Fast estimate depends on the mode (Image mode encodes a keyframe),
+    // so a mode switch re-prices the H3 cards.
+    if (onH3 && _h3DerivedMode !== mode) {
+      _h3DerivedMode = mode;
+      if (typeof renderH3Axes === 'function') { try { renderH3Axes(); } catch (e) {} }
+      if (typeof renderH3Turbo === 'function') { try { renderH3Turbo(); } catch (e) {} }
+    }
   }
   // Also update the Quality strip's right-side meta line (e.g. "5s · 1024×576")
   // so the Quality picker block reads as a self-contained summary.
@@ -1052,6 +1078,11 @@ function updateDerived() {
     // appear/disappear as the user types away from the preset values.
     el.addEventListener('input', () => { updateCustomizeSummary(); updateDerived(); repaintTiers(); });
   }
+});
+// A locked seed is part of the shape the closed Shot setup summary prints, and
+// the field has never had a listener of its own (nothing else read it live).
+document.getElementById('seed')?.addEventListener('input', () => {
+  if (typeof updateCustomizeSummary === 'function') updateCustomizeSummary();
 });
 document.getElementById('keyframe_mid_seconds')?.addEventListener('input', () => {
   window._kfMidTouched = true;
@@ -2449,16 +2480,10 @@ async function poll() {
     // sometimes "ran out of RAM, want to retry as-is."
     const isRetryable = j.status === 'failed' || j.status === 'cancelled';
     const _p = j.params || {};
-    const canFaceFix = j.status === 'done' && j.output_path && _p.mode !== 'upscale'
-      && _p.mode !== 'train' && /\.(mp4|mov|m4v|webm|mkv)$/i.test(String(j.output_path));
     const actionHtml = isRetryable
       ? `<button class="retry-btn" type="button"
                  title="Re-submit this job with the same params"
                  onclick='retryJob(${JSON.stringify(j.id)})'>Retry</button>`
-      : canFaceFix
-      ? `<button class="retry-btn facefix-btn" type="button"
-                 title="Upscale &amp; Face Fix — queue a 2× re-render of this clip that keeps the face and the sound. The fixed clip lands next to it."
-                 onclick="faceFixClip(${escapeHtml(JSON.stringify(j.output_path))})">Face Fix</button>`
       : '';
     // Same film badge the queue rows carry, so a shot is identifiable
     // wherever the bottom pane shows it.
@@ -3049,11 +3074,8 @@ function renderCarousel() {
                  title="Re-run this prompt + seed + refs at Quality (auto-submits)"
                  onclick="event.stopPropagation(); remakeInQuality(${remakeArgs})">✦ Quality</button>`
       : '';
-    // Upscale & Face Fix — one click, on video cards only.
-    const faceFixChip = (isPhoto || isAudio) ? ''
-      : `<button class="card-action card-action-facefix" type="button"
-                 title="Upscale &amp; Face Fix — queue a 2× re-render of this clip that keeps the face and the sound. The fixed clip lands next to it; this one is not changed."
-                 onclick="event.stopPropagation(); faceFixClip(${escapeHtml(JSON.stringify(o.path))})">Upscale &amp; Face Fix</button>`;
+    // Upscale & Face Fix lives on the big player only (owner 2026-09-17: on the
+    // thumbnails it was clutter).
     return `
     <div class="car-card${o.path === activePath ? ' active' : ''}"
          data-path="${escapeHtml(o.path)}" onclick="selectOutput(${pathAttr})">
@@ -3067,7 +3089,6 @@ function renderCarousel() {
           ${remakeChip}
           ${animateChip}
           ${isAudio ? `<button class="card-action card-action-photo" type="button" title="Load this track into Audio → Video (does not auto-submit)" onclick="event.stopPropagation();useTrackInA2V(${pathAttr})">Drive video</button>` : ''}
-          ${faceFixChip}
           <button class="card-action card-action-danger" type="button" title="Move this file to the Trash — asks first"
                   onclick="event.stopPropagation(); deleteOutput(${pathAttr})"><svg class="ph" aria-hidden="true"><use href="#ph-trash-simple"/></svg></button>
         </div>
@@ -3364,7 +3385,8 @@ function selectOutput(path, options) {
   // Upscale & Face Fix is video-only but engine-agnostic: an H3 draft is
   // exactly the clip it was built for.
   const useUpBtn = document.getElementById('faceFixWrap');
-  if (useUpBtn) useUpBtn.style.display = (isPhoto || isAudio) ? 'none' : '';
+  // …and never on a clip that is already an upscale (owner 2026-09-17).
+  if (useUpBtn) useUpBtn.style.display = (isPhoto || isAudio || isUpscaledPath(o && o.path)) ? 'none' : '';
   if (animBtn) animBtn.style.display = isPhoto ? '' : 'none';
   // "Finish at …" — for a completed H3 render that has a higher canvas to be
   // committed at. Decided from o.engine / o.h3_tier (both sidecar-derived,
@@ -3585,6 +3607,12 @@ function useAsExtendSource() { if (!activePath) return alert('Pick an output fir
 // overwritten. `opts.board` + `opts.clip` = ordered from an Editor clip, which
 // makes the Editor offer the swap when it lands.
 const FACE_FIX_NAME = 'Upscale & Face Fix';
+// A clip that already went through Upscale & Face Fix (or an older ×2 pass):
+// the lane names its outputs <stem>_x2_<stamp>.mp4; hand-made finals carry
+// _x2f / x2_faithful / _bizvoice (built from an ×2) in the path.
+function isUpscaledPath(p) {
+  return /(_x2(_|f|\.)|x2_faithful|x2_levelled|_bizvoice)/i.test(String(p || ''));
+}
 async function faceFixClip(path, opts) {
   opts = opts || {};
   if (!path) { phosToast('Pick a clip first.', {}); return null; }
@@ -4026,8 +4054,9 @@ async function loadParams() {
     if (typeof setH3Orientation === 'function') {
       try { setH3Orientation(p.h3_orientation || 'landscape'); } catch (e) {}
     }
-    if (typeof setH3Turbo === 'function') {
-      try { setH3Turbo(!!Number(p.h3_turbo || 0)); } catch (e) {}
+    // The Speed the clip was made with (Fast = 3-step or the retired Turbo).
+    if (typeof setH3Speed === 'function' && typeof h3SpeedOfParams === 'function') {
+      try { setH3Speed(h3SpeedOfParams(p)); } catch (e) {}
     }
     if (typeof setH3Steps === 'function') {
       try { setH3Steps(Number(p.h3_steps || 0) > 0 ? String(p.h3_steps) : 'auto'); } catch (e) {}
@@ -4308,7 +4337,16 @@ function renderOutputInfoBody(path, data) {
     }
     // Turbo changed the sampler recipe, so it earns a row on every clip that
     // used it — it is the difference between two otherwise identical renders.
-    if (p.h3_turbo) {
+    if (p.h3_tristep) {
+      // The Draft sampler: which adapter file, and the ladder it ran.
+      const ti = (data && data.h3 && data.h3.tristep) || {};
+      const acc = (data && data.h3 && data.h3.lora_accounting) || null;
+      genRows.push(`<dt>Speed</dt><dd>Fast · 3-step · ${escapeHtml(String(ti.forwards || 3))} forwards`
+        + ` · TaoMate 3-step adapter${ti.adapter_version ? ' (' + escapeHtml(String(ti.adapter_version)) + ')' : ''}`
+        + ` · σ ${escapeHtml(String(ti.sigma_subset || '50:0,16,33,49'))}`
+        + (acc && acc.applied != null ? ' · ' + escapeHtml(String(acc.applied)) + ' modules wrapped' : '')
+        + '</dd>');
+    } else if (p.h3_turbo) {
       const tinfo = (data && data.h3 && data.h3.turbo) || null;
       const applied = tinfo && tinfo.applied && tinfo.applied.applied;
       genRows.push(`<dt>Turbo</dt><dd>on · ${escapeHtml(String(p.steps || 4))}-step `
@@ -4482,14 +4520,191 @@ document.querySelectorAll('.tabs button[data-tab]').forEach(b => b.onclick = () 
 });
 
 // ====== Batch modal ======
-function openBatch() { document.getElementById('batchModal').classList.add('show'); }
-function closeBatch() { document.getElementById('batchModal').classList.remove('show'); }
+// ====== Batch — a section of the form, not a modal (2026-09-18) ======
+//
+// It was a pill in the queue strip opening a modal with one textarea and the
+// instruction "split prompts with --- on its own line". Two problems, both the
+// owner's words: hidden, and taught badly. Now it is a row of the same stack
+// as Shot setup and After the render, it counts the jobs before you commit
+// them, and it does the thing people were doing by hand — N takes of one
+// prompt, each with its own seed.
+//
+// Nothing about the enqueue contract changed: both modes post the current form
+// to /queue/batch with a `prompts` field split on `---`, which is the route
+// that has always built one job per chunk (and is all-or-nothing on refusal).
+let _batchMode = 'prompts';
+let _batchTakes = 3;
+
+function setBatchMode(mode) {
+  _batchMode = (mode === 'seeds') ? 'seeds' : 'prompts';
+  document.querySelectorAll('#batchModeGroup [data-batch-mode]').forEach(b => {
+    b.classList.toggle('active', b.dataset.batchMode === _batchMode);
+  });
+  const pw = document.getElementById('batchPromptsWrap');
+  const sw = document.getElementById('batchSeedsWrap');
+  if (pw) pw.hidden = _batchMode !== 'prompts';
+  if (sw) sw.hidden = _batchMode !== 'seeds';
+  updateBatchSummary();
+}
+
+function setBatchTakes(n) {
+  _batchTakes = Math.max(2, Math.min(8, parseInt(n, 10) || 3));
+  document.querySelectorAll('#batchTakesGroup [data-batch-takes]').forEach(b => {
+    b.classList.toggle('active', parseInt(b.dataset.batchTakes, 10) === _batchTakes);
+  });
+  updateBatchSummary();
+}
+
+// The prompts a Queue-all would actually send, in the order it would send
+// them. One function, so the count on screen and the jobs in the queue cannot
+// disagree — the old modal showed no count at all and a paste that failed to
+// split arrived as one enormous job.
+//: `/queue/batch` splits its `prompts` field on a line of exactly three
+//: dashes. In "many prompts" that IS the contract; in "N takes" it is a hazard,
+//: because the user's own prompt may contain such a line — and then three
+//: advertised takes arrive as six jobs holding fragments of one prompt.
+const BATCH_SEP_RX = /^\s*---\s*$/m;
+
+function batchMainPrompt() {
+  return ((document.getElementById('prompt') || {}).value || '').trim();
+}
+
+function batchPrompts() {
+  if (_batchMode === 'seeds') {
+    const main = batchMainPrompt();
+    if (!main || BATCH_SEP_RX.test(main)) return [];
+    return Array(_batchTakes).fill(main);
+  }
+  const raw = (document.getElementById('batchPrompts') || {}).value || '';
+  return raw.split(/^\s*---\s*$/m).map(c => c.trim()).filter(Boolean);
+}
+
+// Minutes for ONE render at the current settings, from the engine module's own
+// numbers (the server ships them). Unknown stays unknown — a batch total is
+// not a place to invent a cost model.
+function batchPerRenderMin() {
+  try {
+    if (document.body.dataset.engine === 'h3') {
+      const cell = h3CurrentCell();
+      if (!cell) return 0;
+      let m = h3CellEtaMin(cell);
+      if (typeof h3FaceFixOn === 'function' && h3FaceFixOn() && cell.facefix_min != null) {
+        m += cell.facefix_min;
+      }
+      return m || 0;
+    }
+    const cell = ltxCellFor(ltxCurrentQuality(), ltxCurrentLength());
+    return (cell && typeof cell.eta_min === 'number') ? cell.eta_min : 0;
+  } catch (_) { return 0; }
+}
+
+function _batchFmtTotal(n, per) {
+  const jobs = n + (n === 1 ? ' job' : ' jobs');
+  if (!per) return jobs;
+  const total = n * per;
+  const t = total < 60 ? Math.round(total) + ' min'
+    : (Math.round(total / 6) / 10) + ' h';
+  return jobs + ' · about ' + t + ' in all';
+}
+
+function updateBatchSummary() {
+  const list = batchPrompts();
+  const per = batchPerRenderMin();
+  const meta = document.getElementById('batchSummary');
+  const count = document.getElementById('batchCount');
+  const total = document.getElementById('batchTotal');
+  const btn = document.getElementById('batchQueueBtn');
+  const note = document.getElementById('batchTakesNote');
+  if (count) {
+    // The first line of each prompt, listed back: a paste that split on the
+    // wrong lines is then visible HERE instead of in the queue ten minutes
+    // later. Five is enough to see the shape of it.
+    count.textContent = list.length
+      ? list.length + (list.length === 1 ? ' prompt: ' : ' prompts: ')
+        + list.slice(0, 5).map(p => {
+            const first = p.split('\n').find(l => l.trim()) || '';
+            return '"' + first.trim().slice(0, 42) + (first.trim().length > 42 ? '…' : '') + '"';
+          }).join(' · ') + (list.length > 5 ? ' · …' : '')
+      : 'Nothing pasted yet. One line of three dashes between prompts.';
+  }
+  if (note) note.textContent = per ? ('each ~' + (per < 10 ? Math.round(per * 2) / 2 : Math.round(per)) + ' min') : '';
+  const seedsHint = document.getElementById('batchSeedsHint');
+  if (seedsHint) {
+    const main = batchMainPrompt();
+    seedsHint.textContent = !main
+      ? 'Write a prompt above — every take renders that prompt.'
+      : (BATCH_SEP_RX.test(main)
+          ? 'This prompt contains a line of three dashes, which Batch uses to '
+            + 'separate prompts. Remove it, or use Many prompts instead.'
+          : 'Every take uses the prompt above with a fresh random seed.');
+  }
+  if (total) total.textContent = list.length ? _batchFmtTotal(list.length, per) : '';
+  if (btn) {
+    btn.disabled = list.length < 2;
+    btn.textContent = list.length > 1 ? ('Queue ' + list.length + ' jobs') : 'Queue batch';
+  }
+  if (meta) {
+    meta.textContent = !list.length ? 'one render at a time'
+      : (_batchMode === 'seeds'
+          ? _batchTakes + ' takes of this prompt' + (per ? ' · ' + _batchFmtTotal(list.length, per).split('· ')[1] : '')
+          : _batchFmtTotal(list.length, per));
+  }
+}
+
+// "Same prompt, N takes" reads #prompt, so the section has to hear it change:
+// without this the Queue button stayed disabled while the user typed the very
+// prompt it was waiting for, and only woke up when some other control moved.
+document.addEventListener('DOMContentLoaded', () => {
+  const p = document.getElementById('prompt');
+  if (p) p.addEventListener('input', () => {
+    if (typeof updateBatchSummary === 'function') updateBatchSummary();
+  });
+});
+
+// The queue-strip pill and any shortcut land on the section now.
+function openBatch() {
+  const d = document.getElementById('batchDetails');
+  if (!d) return;
+  d.open = true;
+  d.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const ta = document.getElementById('batchPrompts');
+  if (_batchMode === 'prompts' && ta) ta.focus();
+  updateBatchSummary();
+}
+function closeBatch() {
+  const d = document.getElementById('batchDetails');
+  if (d) d.open = false;
+}
+
 async function queueBatch() {
+  const list = batchPrompts();
+  if (list.length < 2) {
+    alert(_batchMode !== 'seeds'
+      ? 'Paste at least two prompts, separated by a line of three dashes.'
+      : (BATCH_SEP_RX.test(batchMainPrompt())
+          ? 'Your prompt contains a line of three dashes. Batch uses that to '
+            + 'separate prompts, so it cannot repeat this one — remove the '
+            + 'dashes, or switch to Many prompts.'
+          : 'Write a prompt above first — a batch of takes renders that prompt.'));
+    return;
+  }
   const fd = new FormData(document.getElementById('genForm'));
-  fd.set('prompts', document.getElementById('batchPrompts').value);
-  const r = await api('/queue/batch','POST',fd);
-  if (r && r.error) { alert('Batch error: '+r.error); return; }
-  if (r && r.added) { document.getElementById('batchPrompts').value = ''; poll(); }
+  fd.set('prompts', list.join('\n---\n'));
+  // Takes mode is N renders of ONE prompt, so the seed must be random per job
+  // or every take comes back identical. -1 is the panel's "random", resolved
+  // per job at render time and recorded as seed_used.
+  if (_batchMode === 'seeds') fd.set('seed', '-1');
+  const r = await api('/queue/batch', 'POST', fd);
+  if (r && r.error) { alert('Batch error: ' + r.error); return; }
+  if (r && r.added) {
+    if (_batchMode === 'prompts') {
+      const ta = document.getElementById('batchPrompts');
+      if (ta) ta.value = '';
+    }
+    updateBatchSummary();
+    closeBatch();
+    poll();
+  }
 }
 
 // ====== "No music" toggle pill ======
@@ -4881,8 +5096,9 @@ Object.assign(globalThis, {
   selectOutput, openExpandLightbox, closeExpandLightbox, phosToast,
   animateActive, hide, openOutputsFolder, hideActive,
   useAsExtendSource, useAsUpscaleSource, useAsUpscaleSourcePath, setUpscalePreset,
-  faceFixClip, faceFixActive, loadParams, _flashActionDone, closeOutputInfoModal,
+  faceFixClip, faceFixActive, isUpscaledPath, loadParams, _flashActionDone, closeOutputInfoModal,
   togglePause, openBatch, closeBatch, queueBatch,
+  setBatchMode, setBatchTakes, updateBatchSummary, batchPrompts, batchMainPrompt,
   // inline-handler targets: generated markup resolves these through the
   // global scope (the v4.9.0 regression, PR #69)
   _copyToClipboard, animateFromPhoto, deleteOutput, openOutputInfoModal,

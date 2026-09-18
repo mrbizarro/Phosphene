@@ -950,3 +950,33 @@ def test_the_panel_spawns_music_through_the_scrubbed_env():
     body = src[src.index("def run_music_job_inner"):src.index("ENGINE_DEFAULT = ")]
     assert "env=music_child_env()" in body
     assert "env={**os.environ" not in body
+
+
+# ---- the trainers get the same treatment (2026-09-18) ------------------------
+#
+# The release checklist's §0 listed the two `{**os.environ}` spreads in
+# mlx_ltx_panel.py — the character trainer and the audio trainer — as the last
+# raw ones in the repo, with the note "fix the trainers before anything
+# MPS-sensitive lands in them". lora_lab is MLX end to end, so Pinokio's
+# PyTorch switches mean nothing to it and are pure inherited accident.
+
+def test_trainer_child_env_drops_the_pinokio_torch_vars_and_malloc_noise():
+    env = P.trainer_child_env({
+        "PATH": "/bin", "HF_HOME": "/hf", "PYTHONPATH": "/panel",
+        "PYTORCH_ENABLE_MPS_FALLBACK": "1", "PYTORCH_MPS_FAST_MATH": "1",
+        "MallocStackLogging": "", "MallocNanoZone": "0",
+    })
+    assert "PYTORCH_ENABLE_MPS_FALLBACK" not in env
+    assert "PYTORCH_MPS_FAST_MATH" not in env
+    assert not [k for k in env if k.startswith("Malloc")]
+    # ...and everything the trainer actually needs survives untouched.
+    assert env["PATH"] == "/bin" and env["HF_HOME"] == "/hf"
+    assert env["PYTHONPATH"] == "/panel"      # scripts/lora_lab_run.sh owns it
+    assert env["PYTHONUNBUFFERED"] == "1"
+
+
+def test_no_trainer_spawns_the_raw_environment_any_more():
+    src = Path(P.__file__).read_text()
+    assert "env={**os.environ" not in src
+    assert "_train_env = trainer_child_env()" in src
+    assert src.count("env=trainer_child_env()") >= 1

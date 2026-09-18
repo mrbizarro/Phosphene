@@ -337,12 +337,26 @@ class TestUI(unittest.TestCase):
         self.assertNotIn(">LTX Upscale<", HTML)
         self.assertIn("getElementById('faceFixWrap')", QJS)
 
-    def test_card_and_history_buttons_post_to_the_route(self):
+    def test_face_fix_only_on_the_big_player(self):
+        # Owner 2026-09-17: no Face Fix on Outputs thumbnails or queue rows,
+        # and never on a clip that is already an upscale.
         self.assertIn("fetch('/queue/facefix'", QJS)
-        self.assertIn("card-action-facefix", QJS)
-        self.assertIn("faceFixClip(${escapeHtml(JSON.stringify(o.path))})", QJS)
-        self.assertIn("facefix-btn", QJS)
-        self.assertRegex(QJS, r"faceFixClip, faceFixActive")
+        self.assertNotIn("card-action-facefix", QJS)
+        self.assertNotIn("facefix-btn", QJS)
+        self.assertRegex(QJS, r"faceFixClip, faceFixActive, isUpscaledPath")
+        self.assertIn("isUpscaledPath(o && o.path)", QJS)
+        self.assertIn("This clip is already upscaled.",
+                      (Path(__file__).resolve().parent / "webapp/js/editor.js").read_text())
+
+    def test_is_upscaled_path_pattern(self):
+        import re
+        m = re.search(r"function isUpscaledPath\(p\) \{\n  return /(.+)/i\.test", QJS)
+        self.assertTrue(m)
+        rx = re.compile(m.group(1).replace('\\\\', '\\'), re.I)
+        for yes in ("a_h3_8_x2_20260917_120000.mp4", "x2_faithful_nolaugh/s01.mp4", "v01_x2f.mp4", "v01_bizvoice.mp4"):
+            self.assertTrue(rx.search(yes), yes)
+        for no in ("for_the_target_video_at_0_h3_55.mp4", "shot_1_live_h3_21.mp4", "max2_take.mp4"):
+            self.assertFalse(rx.search(no), no)
 
     def test_remix_lane_names_and_presets(self):
         self.assertIn('data-remix="upscale"', HTML)
@@ -394,7 +408,7 @@ class TestUI(unittest.TestCase):
         self.assertIn('id="sbeCbFaceFix" onclick="sbeFaceFixSel()"', HTML)
         self.assertIn("<b>Face Fix ×2</b>", HTML)
         self.assertIn("menuLabel: 'Upscale & Face Fix'", EDJS)
-        self.assertIn('<g id="ic-facefix">', HTML)
+        self.assertIn('<symbol id="ic-facefix" viewBox="0 0 256 256">', HTML)
         self.assertEqual(EDJS.count("id: 'sbeCbFaceFix'"), 2)  # picture + sound models
         fn = EDJS[EDJS.index("async function sbeFaceFixSel()"):]
         fn = fn[:fn.index("\n}\n")]

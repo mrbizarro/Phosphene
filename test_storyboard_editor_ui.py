@@ -101,6 +101,7 @@ FUNCTIONS = (
     # that is ON SCREEN, which is what lets the handle push a timeline with
     # small sound lanes 114px lower than one with tall ones.
     "sbeLaneBase", "sbeLaneCap", "sbeTlFloor", "sbeTlRoof", "sbeAudioSmall",
+    "sbeSoundMode", "sbeTlPrefKey",
     # The level line's geometry, which three gestures now share instead of
     # each carrying a copy of a 20px band.
     "sbeStripY", "sbeStripGain", "sbeStripEditable", "sbeKeysLegend",
@@ -351,6 +352,10 @@ const SBE = {
   // The timeline's height: the preference, what the window could give it, and
   // the ceiling the monitors impose.
   tlH: SBE_TL_MIN_H, tlNow: SBE_TL_MIN_H, tlMax: SBE_TL_MAX_H, tlDrag: null,
+  // SOUND MODE, so every lane is at its full height: the numbers below were
+  // written for the full lane set (floor 280, roof 638). Picture mode — the
+  // thin lanes — is probed where it is named (tlPref, test_audio_compact).
+  mode: 'sound',
 };
 // One fetch stub, scripted per case.
 let FETCHES = [];
@@ -2038,8 +2043,9 @@ out.rulerFixed = [out.lanesAtFloor.ruler, out.lanesAtCeiling.ruler];
 out.tlPref = (() => {
   const seen = {};
   STORE.clear();
+  SBE.mode = 'picture';                       // the default on a real screen
   seen.fresh = sbeTlPrefRead();               // nothing stored yet
-  sbeTlPrefWrite(392);
+  sbeTlPrefWrite(200);
   seen.stored = STORE.get('phos_sbe_tl_h');
   seen.restored = sbeTlPrefRead();            // ...as a new tab would read it
   STORE.set('phos_sbe_tl_h', '99999');
@@ -2047,7 +2053,18 @@ out.tlPref = (() => {
   STORE.set('phos_sbe_tl_h', 'not-a-height');
   seen.junk = sbeTlPrefRead();
   seen.keys = [...STORE.keys()];
+  sbeTlPrefWrite(200);                        // a real number again, over the junk
+  // SOUND MODE HAS ITS OWN KEY AND ITS OWN ENDS: fresh is the roof of the
+  // full lanes, and what it stores never touches picture mode's number.
+  SBE.mode = 'sound';
+  seen.soundFresh = sbeTlPrefRead();
+  sbeTlPrefWrite(400);
+  seen.soundKeys = [...STORE.keys()].sort();
+  seen.soundRestored = sbeTlPrefRead();
+  SBE.mode = 'picture';
+  seen.pictureAfter = sbeTlPrefRead();
   STORE.clear();
+  SBE.mode = 'sound';                         // back to the harness's default
   return seen;
 })();
 // AND IT IS NOT IN THE DOCUMENT. The save payload is the whole of what the
@@ -4284,7 +4301,14 @@ class OneNoticeSurface(unittest.TestCase):
         # worked on. It is an invitation to go and look.
         got = self.r["noticeQuietIsAlwaysAChip"]
         self.assertEqual(got["folded"], ["sbeRecover"])
-        self.assertFalse(got["wrapHidden"])
+        # ...and ALONE it is a chip in the HEADER (#sbeRecoverChip), not a row
+        # of its own under it: the row is hidden until the chip is clicked.
+        self.assertTrue(got["wrapHidden"])
+        self.assertIn('id="sbeRecoverChip"', self.src)
+        self.assertIn("onclick=\"sbeNoticeOpen('sbeRecover')\"", self.src)
+        paint = extract_function("sbePaintNotices", self.src)
+        self.assertIn("open[0] === 'sbeRecover'", paint)
+        self.assertIn("if (chipOnly) wrap.hidden = true;", paint)
         self.assertIn('data-quiet="1"', self.src)
         # ...and it points at the place versions live rather than acting.
         el = self.src[self.src.index('id="sbeRecover"'):]
@@ -5218,12 +5242,18 @@ class TheTimelineIsResizable(unittest.TestCase):
     # ---- where the preference lives -------------------------------------
     def test_the_height_survives_a_reload_and_is_clamped_on_the_way_back(self):
         p = self.r["tlPref"]
-        self.assertEqual(p["fresh"], 280)          # nothing stored → the floor
-        self.assertEqual(p["stored"], "392")
-        self.assertEqual(p["restored"], 392)       # what the next tab reads
-        self.assertEqual(p["absurd"], 638)         # a stored screenful is capped
-        self.assertEqual(p["junk"], 280)           # ...and junk is the floor
+        # PICTURE MODE (the default): the thin lanes' own ends — floor 166,
+        # roof 246 — not the full-height 280 / 638, which are sound mode's.
+        self.assertEqual(p["fresh"], 166)          # nothing stored → the floor
+        self.assertEqual(p["stored"], "200")
+        self.assertEqual(p["restored"], 200)       # what the next tab reads
+        self.assertEqual(p["absurd"], 246)         # a stored screenful is capped
+        self.assertEqual(p["junk"], 166)           # ...and junk is the floor
         self.assertEqual(p["keys"], ["phos_sbe_tl_h"])
+        self.assertEqual(p["soundFresh"], 638)     # sound mode starts at the roof
+        self.assertEqual(p["soundKeys"], ["phos_sbe_tl_h", "phos_sbe_tl_h_sound"])
+        self.assertEqual(p["soundRestored"], 400)
+        self.assertEqual(p["pictureAfter"], 200)   # untouched by sound mode's write
 
     def test_the_height_is_a_view_preference_and_NOT_sequence_data(self):
         # It is not in the save payload, so a drag cannot bump the document's
@@ -5231,8 +5261,9 @@ class TheTimelineIsResizable(unittest.TestCase):
         # else's screen. localStorage is where every other view preference in
         # this panel already lives.
         self.assertEqual(self.r["tlIsNotInTheSave"], [-1, -1, -1])
-        self.assertIn("localStorage.getItem('phos_sbe_tl_h')", self.src)
-        self.assertIn("localStorage.setItem('phos_sbe_tl_h'", self.src)
+        self.assertIn("localStorage.getItem(sbeTlPrefKey())", self.src)
+        self.assertIn("localStorage.setItem(sbeTlPrefKey()", self.src)
+        self.assertIn("'phos_sbe_tl_h_sound' : 'phos_sbe_tl_h'", self.src)
         # The server's document model has never heard of it.
         model = (Path(__file__).resolve().parent
                  / "storyboard_editor.py").read_text(encoding="utf-8")
@@ -5251,9 +5282,12 @@ class TheTimelineIsResizable(unittest.TestCase):
         # below it: sbeFitMonitors budgets against every child of the column
         # it can measure, so a grip with a height of its own would have been
         # paid for out of the picture.
-        transport = self.src[self.src.index('<div class="sbe-transport">'):]
-        transport = transport[:transport.index("<div class=\"sbe-tl\"")]
-        self.assertIn('id="sbeTlGrab"', transport)
+        # The grab hangs below the TOOL ROW (the clip bar and the timeline's
+        # own controls, one row) — the transport row it used to live in went
+        # under the Program monitor.
+        toolrow = self.src[self.src.index('<div class="sbe-toolrow" id="sbeToolRow">'):]
+        toolrow = toolrow[:toolrow.index("<div class=\"sbe-tl\"")]
+        self.assertIn('id="sbeTlGrab"', toolrow)
         css = self.src[self.src.index(".sbe-tl-grab {"):]
         css = css[:css.index(".sbe-tl-grab:focus-visible {")]
         self.assertIn("position: absolute", css)
@@ -5743,7 +5777,7 @@ class TheHeaderIsOneRow(unittest.TestCase):
         self.assertIn("classList.toggle('primary'", self.src)
         # ...and every editor row that hosts buttons cancels the stretch.
         for rule in (".sbe-head .ghost-btn, .sbe-head .primary {",
-                     ".sbe-transport .primary {",
+                     ".sbe-toolrow .ghost-btn, .sbe-toolrow .primary {",
                      ".sbe-recover .ghost-btn, .sbe-recover .primary {",
                      ".sbe-vers-new .primary {"):
             self.assertIn(rule, self.src, "%s is gone — the row it styled "
@@ -5755,15 +5789,14 @@ class TheHeaderIsOneRow(unittest.TestCase):
                           "button stretch" % rule)
 
     def test_the_two_rows_the_calm_layout_added_cannot_wrap_either(self):
-        # The transport is the other flex row that gained controls, and the
-        # gutter is a fixed column beside a scroller. Measured at 1100px: the
-        # transport is 34px and one row, the gutter 124px.
-        t = self.src[self.src.index("\n    .sbe-transport {"):]
+        # The tool row is the other flex row with controls on it, and the
+        # gutter is a fixed column beside a scroller. The tool row does NOT
+        # wrap: the clip bar inside it overflows into its More menu instead
+        # (see TheClipBar), so the row is 28px at every width.
+        t = self.src[self.src.index("\n    .sbe-toolrow {"):]
         t = t[:t.index("}")]
-        self.assertIn("flex-wrap: wrap", t)   # it MAY wrap: it is the row that
-        # has somewhere to go — nothing below it is pinned to the viewport, and
-        # sbeFitMonitors measures whatever height it ends up with. Stated here
-        # so the difference from the header is a decision, not an oversight.
+        self.assertIn("display: flex", t)
+        self.assertNotIn("flex-wrap: wrap", t)
         g = self.src[self.src.index("\n    .sbe-gutter {"):]
         g = g[:g.index("}")]
         self.assertIn("flex: 0 0 124px", g)
@@ -5912,7 +5945,7 @@ class TheClipBar(unittest.TestCase):
         cls.src = panel_source()
         cls.html = panel_html_render()
         cls.bar = cls.html[cls.html.index('id="sbeCbar"'):]
-        cls.bar = cls.bar[:cls.bar.index('class="sbe-transport"')]
+        cls.bar = cls.bar[:cls.bar.index('id="sbeTlWrap"')]
 
     # ---- the ten verbs ---------------------------------------------------
     VERBS = (
@@ -5955,8 +5988,8 @@ class TheClipBar(unittest.TestCase):
         # "we have an empty corner that we can use in the upper part of the
         # timeline".
         for a, b in (('id="sbeMonitors"', 'id="sbeCbar"'),
-                     ('id="sbeCbar"', 'class="sbe-transport"'),
-                     ('class="sbe-transport"', 'id="sbeTlWrap"')):
+                     ('id="sbeCbar"', 'id="sbeTlGrab"'),
+                     ('id="sbeTlGrab"', 'id="sbeTlWrap"')):
             self.assertLess(self.html.index(a), self.html.index(b), (a, b))
 
     def test_a_verb_that_cannot_fire_is_DISABLED_and_says_why(self):
@@ -6049,7 +6082,7 @@ class TheClipBar(unittest.TestCase):
         # `flex-wrap: wrap` would answer a narrow pane with a second row, and
         # a second row is height sbeFitMonitors then takes off the PICTURE.
         css = self.src[self.src.index("    .sbe-cbar {"):]
-        css = css[:css.index(".sbe-transport {")]
+        css = css[:css.index(".sbe-toolrow {")]
         self.assertIn("flex-wrap: nowrap", css)
         self.assertIn("overflow: hidden", css)
         # ...and the fold is restated, because `display: inline-flex` on the
@@ -6315,7 +6348,7 @@ class TimelineMarkup(unittest.TestCase):
         self.assertIn("c.proxy", fn)
         self.assertIn("proxy_url", panel_source()[:0] + "proxy_url")
         badge = extract_function("sbeShowFrameAt", self.src)
-        self.assertIn("SOURCE (slow", badge)
+        self.assertIn("SOURCE — slow to seek", badge)
 
     # The three below are SOURCE assertions, not behaviour, because the thing
     # under test is CSS and there is no way to run CSS in node. They are here
@@ -6361,12 +6394,12 @@ class TimelineMarkup(unittest.TestCase):
         # (the test above still counts exactly one video in it); the source is
         # a second element with its own video, still, badge and empty state.
         row = self.src[self.src.index('<div class="sbe-monitors" id="sbeMonitors">'):]
-        row = row[:row.index('<div class="sbe-transport">')]
+        row = row[:row.index('<!-- ============== THE CLIP BAR')]
         self.assertIn('id="sbeSrcVideo"', row)
         self.assertIn('id="sbeSrcStill"', row)
         self.assertIn('id="sbeSrcAddBtn"', row)
         self.assertIn('id="sbeStage"', row)                 # the program
-        self.assertIn("Click a clip to preview it.", row)
+        self.assertIn("Drop a clip here to preview", row)
         # Two monitors, two videos — and no third one that nobody owns.
         self.assertEqual(row.count("<video id="), 2)
         # The source is a player, not a second editor: no track, no trim.
@@ -7264,6 +7297,147 @@ def run_oneshot_contract() -> dict:
         path.unlink(missing_ok=True)
 
 
+class RoundTwoTipsSourceIcons(unittest.TestCase):
+    """Round 2 of the layout redesign (2026-09-17), the owner after using it:
+
+      "The tooltips on the buttons are too slow."
+      "You have two empty dark spaces on the sides … you can still add the
+       preview clip for a place where you can drag the clips and see them."
+      "The icons are not very clear, are really weird, and maybe deformed."
+      "The on/off toggles for the screen panels … it's not clear."
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.html = (ROOT / "webapp" / "index.html").read_text(encoding="utf-8")
+        cls.js = (ROOT / "webapp" / "js" / "editor.js").read_text(encoding="utf-8")
+        cls.tips = (ROOT / "webapp" / "js" / "tips.js").read_text(encoding="utf-8")
+        cls.css = (ROOT / "webapp" / "style" / "panel.css").read_text(encoding="utf-8")
+
+    # ---- icons ----------------------------------------------------------------
+    def test_every_editor_glyph_is_a_symbol_with_its_own_viewbox(self):
+        # THE DEFORMATION: bare <g>s drawn on a 24-unit grid, used from an <svg>
+        # with no viewBox, so a 15px box showed the top-left 15 units of each.
+        sprite = self.html[self.html.index('<svg class="sbe-icons"'):]
+        sprite = sprite[:sprite.index("</defs></svg>")]
+        self.assertNotIn("<g id=", sprite)
+        ids = re.findall(r'<symbol id="(ic-[\w-]+)" viewBox="0 0 256 256">', sprite)
+        self.assertEqual(len(ids), sprite.count("<symbol "))
+        used = set(re.findall(r'#(ic-[\w-]+)', self.html + self.js))
+        self.assertEqual(used - set(ids), set(), "an icon is used that the sprite does not define")
+        for want in ("ic-split", "ic-lift", "ic-ripple", "ic-dup", "ic-link", "ic-unlink",
+                     "ic-mute", "ic-sound", "ic-lock", "ic-unlock", "ic-facefix", "ic-wave",
+                     "ic-inspect", "ic-full", "ic-panels", "ic-source"):
+            self.assertIn(want, ids)
+        # scissors for split, the Phosphor geometry the panel already ships
+        split = sprite[sprite.index('id="ic-split"'):]
+        self.assertIn('<circle cx="76" cy="68" r="28"/>', split[:split.index("</symbol>")])
+
+    def test_the_stroke_is_set_once_in_symbol_units(self):
+        rule = self.css[self.css.index("    .sbe-cbar-i {"):]
+        rule = rule[:rule.index("}")]
+        self.assertIn("stroke-width: 22;", rule)
+        self.assertIn("#sbeCbar > .sbe-cbar-btn .sbe-cbar-i, .sbe-tbtn .sbe-cbar-i { width: 18px; height: 18px; }", self.css)
+        self.assertNotIn("'🔇' : '🔊'", self.js)
+        self.assertIn("SBE.muted ? '#ic-mute' : '#ic-sound'", extract_function("sbeSetMute", self.js))
+
+    # ---- the View group --------------------------------------------------------
+    def test_the_panel_toggles_are_one_labelled_group_in_the_header(self):
+        head = self.html[self.html.index('<header class="carousel-head sbe-head">'):]
+        head = head[:head.index("</header>")]
+        view = head[head.index('id="sbeView"'):]
+        view = view[:view.index("        </span>\n")]
+        for bid, label in (("sbeSrcBtn", "Source"), ("sbeInspectBtn", "Inspector"),
+                           ("sbeSoundBtn", "Sound"), ("sbePanelsBtn", "Panels")):
+            btn = view[view.index('id="%s"' % bid):]
+            btn = btn[:btn.index("</button>")]
+            self.assertIn("aria-pressed=", btn, bid)
+            self.assertIn("<b>%s</b>" % label, btn, bid)
+        self.assertIn('id="sbeFullBtn"', view)
+        # nowhere else: not under the picture, not on the tool row
+        rest = self.html.replace(view, "")
+        for bid in ("sbeSrcBtn", "sbeInspectBtn", "sbeSoundBtn", "sbePanelsBtn", "sbeFullBtn"):
+            self.assertNotIn('id="%s"' % bid, rest, bid)
+
+    def test_pressed_means_the_panel_is_showing_and_the_tip_says_what_a_click_does(self):
+        fn = extract_function("sbePaintPanels", self.js)
+        self.assertIn("!(document.body && document.body.classList.contains('ed-focus')), 'Side panels'", fn)
+        self.assertIn("sbeSrcShown(), 'Source monitor'", fn)
+        self.assertIn("!!SBE.inspect, 'Inspector'", fn)
+        tip = extract_function("sbeViewTip", self.js)
+        self.assertIn("(pressed ? onText : offText) + sbeKeyHint(keyId)", tip)
+        self.assertIn('.sbe-vbtn[aria-pressed="true"]', self.css)
+
+    # ---- the Source monitor ------------------------------------------------------
+    def test_the_source_monitor_is_on_screen_unless_this_browser_hid_it(self):
+        self.assertIn('<div class="sbe-mon sbe-mon-src" id="sbeSrcMon">', self.html)
+        self.assertIn("srcOn: sbeSrcRead(),", self.js)
+        self.assertIn("return v !== 'hidden';", extract_function("sbeSrcRead", self.js))
+        self.assertIn("sbeSrcWrite(false);", extract_function("sbeSrcClose", self.js))
+        self.assertIn("sbeSrcWrite(true);", extract_function("sbeSrcMonToggle", self.js))
+        # both columns are exactly their picture's width, so neither is squeezed out of 16:9
+        self.assertIn(".sbe-monitors > .sbe-mon-src { flex: 0 0 auto; width: calc(var(--sbe-src-h) * 16 / 9); }", self.css)
+
+    def test_the_source_monitor_is_a_drop_target_for_the_pool_and_the_track(self):
+        self.assertIn("Drop a clip here to preview", self.html)
+        move = extract_function("edPoolDragMove", self.js)
+        self.assertIn("sbeSrcDropHover(ev, d.row.kind !== 'sound')", move)
+        end = extract_function("edPoolDragEnd", self.js)
+        self.assertIn("if (d.toSrc) { edPoolPreview(d.index); return; }", end)
+        self.assertLess(end.index("d.toSrc"), end.index("edPoolSound("))
+        tmove = extract_function("sbeOnTrackMove", self.js)
+        self.assertIn("d.toSrc = sbeSrcDropHover(ev, true);", tmove)
+        tup = extract_function("sbeOnTrackUp", self.js)
+        # the track is restored BEFORE anything else happens: a drop on the monitor is never an edit
+        self.assertIn("SBE.clips = JSON.parse(d.before);", tup[tup.index("if (d.toSrc)"):])
+        self.assertLess(tup.index("if (d.toSrc)"), tup.index("SBE.undo.push"))
+        load = extract_function("sbeSrcLoadClip", self.js)
+        self.assertIn("sbeKind(c) === 'slug'", load)
+        self.assertIn(".sbe-mon-src.is-drop-over .sbe-stage", self.css)
+
+    # ---- the tooltips ---------------------------------------------------------------
+    def test_one_fast_tooltip_replaces_the_native_one_on_icon_buttons(self):
+        self.assertIn("const TIP_DELAY_MS = 150;", self.tips)
+        for sel in ("'.sbe-ibtn'", "'.sbe-vbtn'", "'#sbeCbar .sbe-cbar-btn'", "'.po-act'"):
+            self.assertIn(sel, self.tips)
+        adopt = extract_function("tipAdopt", self.tips)
+        self.assertIn("el.removeAttribute('title');", adopt)
+        self.assertIn("setAttribute('aria-label'", adopt)
+        self.assertIn("attributeFilter: ['title']", self.tips)
+        self.assertIn("matches(':focus-visible')", self.tips)
+        self.assertIn("prefers-reduced-motion: reduce", self.css[self.css.index(".phos-tip {"):])
+        place = extract_function("tipPlace", self.tips)
+        self.assertIn("vw - TIP_MARGIN - w", place)
+        self.assertIn("r.top - TIP_GAP - h", place)
+        # warm: the next tip along a row is immediate
+        arm = extract_function("tipArm", self.tips)
+        self.assertIn("if (warm) { tipShow(target); return; }", arm)
+
+    def test_the_tooltip_splits_name_body_and_keys(self):
+        if not shutil.which("node"):
+            self.skipTest("node not installed")
+        # the whole module, on a stub page: it must load with nothing but listeners
+        code = """
+globalThis.document = { addEventListener() {}, documentElement: {} };
+globalThis.window = { addEventListener() {} };
+globalThis.shortcutHint = (id) => ({ 'editor.inspector': '⌘I', 'editor.split': 'S or ⌘K or ⌘B' })[id] || '';
+""" + self.tips + """
+const el = (sc) => ({ getAttribute: (k) => k === 'data-shortcut' ? sc : null });
+console.log(JSON.stringify([
+  tipSplit(el('editor.inspector'), 'Inspector — hidden. Click to show it. (⌘I)'),
+  tipSplit(el(null), 'Ripple delete\\nTakes the clip off. (⇧⌫)'),
+  tipSplit(el('editor.split'), 'Split\\nCuts at the playhead (S or ⌘K or ⌘B)'),
+  tipSplit(el(null), 'Undo'),
+]));
+"""
+        out = subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True).stdout
+        a, b, c, d = json.loads(out)
+        self.assertEqual((a["name"], a["body"], a["keys"]), ("Inspector", "Hidden. Click to show it.", ["⌘I"]))
+        self.assertEqual((b["name"], b["body"], b["keys"]), ("Ripple delete", "Takes the clip off.", ["⇧⌫"]))
+        self.assertEqual(c["keys"], ["S", "⌘K", "⌘B"])
+        self.assertEqual((d["name"], d["body"], d["keys"]), ("Undo", "", []))
+
+
 class OneShotIsATab(unittest.TestCase):
     """Its own door: a tab beside Video, its own composer, one document to
     POST /oneshot, and the video form carries none of it any more."""
@@ -7387,3 +7561,27 @@ class OneShotIsATab(unittest.TestCase):
         m = self.r["statusMine"]
         self.assertIn("Queued, paused", m["title"]); self.assertIn("coast ride", m["title"])
         self.assertIn("1 ahead of it", m["meta"]); self.assertIn("paused", m["meta"])
+
+
+class RoomToneShipReview(unittest.TestCase):
+    """Codex ship review 2026-09-18, two confirmed defects in the room-tone
+    apply path. Source assertions, because both are async UI paths."""
+
+    JS = (Path(__file__).resolve().parent / "webapp" / "js" / "editor.js").read_text(encoding="utf-8")
+
+    def test_the_bed_lands_on_the_timeline_that_asked_for_it(self):
+        # Open film B while A's bed is being made and the response used to
+        # replace B's bed with A's file.
+        i = self.JS.index("async function edRtApply")
+        body = self.JS[i:i + 3000]
+        self.assertIn("const askedFor = String(SBE.id", body)
+        self.assertIn("!== askedFor", body)
+        self.assertLess(body.index("const askedFor"), body.index("await sbeRtRequest"))
+
+    def test_a_rebuild_keeps_the_fader_the_user_set(self):
+        # `room_tone.level` is the level the bed was MADE with; the fader writes
+        # `track.gain`. Rebuilding from the metadata reset a bed pulled down to
+        # 10% back to 35% (+11 dB).
+        self.assertIn("function sbeRtLevelOfTrack", self.JS)
+        i = self.JS.index("async function edRtApply")
+        self.assertIn("sbeRtLevelOfTrack(cur.track)", self.JS[i:i + 2000])

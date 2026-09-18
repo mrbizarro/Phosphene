@@ -189,20 +189,10 @@ function h3CurrentCell() {
   let savedSt = null;
   try { savedSt = localStorage.getItem('phos_h3_steps'); } catch (e) {}
   if (savedSt) st.value = h3NormalizeSteps(savedSt);
-  // And Turbo — but only restore an ON state when this install can actually
-  // serve it. A user who downloaded the adapter, deleted it and reloaded must
-  // come back on Standard, not on a mode that would fail at queue time.
+  // Turbo is folded into the Speed switch (Fast | Best): the form never posts
+  // it. renderH3Turbo() writes #h3_tristep from the saved speed.
   const tb = document.getElementById('h3_turbo');
-  if (!tb) return;
-  let savedTb = null;
-  try { savedTb = localStorage.getItem('phos_h3_turbo'); } catch (e) {}
-  // Turbo is the DEFAULT when the adapter is installed (owner's call): it is
-  // ~half the wall clock and graded better at the mouth than the full-step
-  // path, so the fast one should be the one you land on and Standard the one
-  // you reach for. An explicit "0" is still honoured — only the ABSENCE of a
-  // preference defaults on. Never defaults on when the adapter isn't there.
-  const turboOk = !!(H3.turbo && H3.turbo.available);
-  tb.value = (turboOk && savedTb !== '0') ? '1' : '0';
+  if (tb) tb.value = '0';
 })();
 
 // What the export pass will DO to the selected tier's canvas, in one line under
@@ -251,11 +241,19 @@ function setH3Upscale(mode) {
     b.classList.toggle('active', b.dataset.h3Upscale === shown));
   const box = document.getElementById('h3FaceFixAfter');
   if (box) box.checked = fix;
+  const box2 = document.getElementById('h3FaceFixFooter');
+  if (box2) box2.checked = fix;
+  _h3SyncFaceFixEta();
   const row = document.getElementById('h3FaceFixAfterRow');
   if (row) row.hidden = allowed.indexOf('ltx_x2') === -1;
   if (!fix) { try { localStorage.setItem('phos_h3_upscale', v); } catch (e) {} }
   _h3SyncExportNote();
   if (typeof updateDerived === 'function') { try { updateDerived(); } catch (e) {} }
+  // The export target is what the "After the render" summary SAYS, and that
+  // section is closed by default — so the line has to be rewritten here or it
+  // keeps advertising 720p for a render that ships 1080p. (It was stale in the
+  // old Customize summary for the same reason, where it mattered less.)
+  if (typeof updateCustomizeSummary === 'function') { try { updateCustomizeSummary(); } catch (e) {} }
 }
 function setH3FaceFixAfter(on) {
   if (on) { setH3Upscale('ltx_x2'); return; }
@@ -279,6 +277,8 @@ function setH3Orientation(v) {
   try { localStorage.setItem('phos_h3_orientation', val); } catch (e) {}
   _h3SyncOrientationSubs();
   if (typeof updateDerived === 'function') { try { updateDerived(); } catch (e) {} }
+  // Orientation is part of the shape the closed Shot setup summary prints.
+  if (typeof updateCustomizeSummary === 'function') { try { updateCustomizeSummary(); } catch (e) {} }
 }
 // Say the ACTUAL canvases the current cell would produce, both ways round.
 function _h3SyncOrientationSubs() {
@@ -348,49 +348,70 @@ document.querySelectorAll('#h3StepsGroup [data-h3-steps]').forEach(b => {
   b.onclick = () => setH3Steps(b.dataset.h3Steps);
 });
 
-// ---- Turbo: the 4-step distillation LoRA ------------------------------------
-// A speed MODE, not a tier: same model, same geometry, fewer denoise passes.
-// Three states, and the UI has to say which one it is in:
-//   runner has no --lora  → the whole row is hidden (an old pack never learns
-//                           Turbo exists, exactly like chained tiers)
-//   supported, not installed  → dashed pill; click explains/fetches the asset
-//   available             → a normal pill, and picking it pins steps at 4
+// ---- Speed: ⚡ Fast | ✦ Best ------------------------------------------------
+// ONE switch above the Quality cards (owner, 2026-09-17: "finally fast
+// generations", and no messy UI):
+//   ⚡ Fast — TaoMate's 3-step adapter on its own sigma ladder (3 forwards).
+//            Draft, Standard and High, T2V and I2V. Needs the 180 MB adapter
+//            and a runner with --sigma-subset; until then the Fast half says
+//            what one click does (install / update the runner).
+//   ✦ Best — the shape's own sampler, as before (Draft/Standard 8 forwards,
+//            High 15, Native as tuned), and the Steps override.
+// Default Fast once installed; remembered per browser (phos_h3_speed).
+// Native and the dense 10 s single pass have not been validated on 3 steps,
+// so they always render Best and say so under the switch.
+//
+// TURBO IS FOLDED IN. The old Standard | Turbo row is gone: Fast is the faster
+// AND the owner-preferred recipe, and two speed controls — or two adapters on
+// one render — is the confusion this switch exists to remove. The UI posts
+// h3_turbo=0 always; the server still honours h3_turbo from the API (and
+// never stacks it with Fast). A Turbo clip's Load Params / Finish maps to Fast.
 function h3TurboState() {
   return (H3 && H3.turbo) || { available: false, supported: false, downloaded: false };
 }
+function h3TriStepState() {
+  return (H3 && H3.tristep) || { available: false, supported: false, downloaded: false };
+}
+function h3SpeedPref() {
+  let v = null;
+  try { v = localStorage.getItem('phos_h3_speed'); } catch (e) {}
+  return v === 'best' ? 'best' : 'fast';
+}
+function _h3SetSpeedPref(v) {
+  try { localStorage.setItem('phos_h3_speed', v === 'best' ? 'best' : 'fast'); } catch (e) {}
+}
+function _h3IsI2V() {
+  return ((document.getElementById('mode') || {}).value || 't2v') === 'i2v';
+}
+// Would THIS cell render Fast, as things stand?
+function h3TriStepOn(cell) {
+  cell = cell || h3CurrentCell();
+  return !!(cell && cell.tristep_min != null
+            && h3TriStepState().available && h3SpeedPref() === 'fast');
+}
+function _h3TriStepMin(cell) {
+  if (!cell || cell.tristep_min == null) return null;
+  return (_h3IsI2V() && cell.tristep_min_i2v != null) ? cell.tristep_min_i2v : cell.tristep_min;
+}
+function _h3TriStepEta(cell) {
+  if (!cell || cell.tristep_min == null) return '';
+  return (_h3IsI2V() && cell.tristep_eta_i2v) ? cell.tristep_eta_i2v : cell.tristep_eta;
+}
 
-// The per-tier estimate comes from the server's tier table (turbo_eta), built
-// from that tier's own GEOMETRY — Turbo runs 3 forwards whatever the tier bakes
-// and the fixed per-window cost doesn't shrink, so there is no single ratio
-// that could be right for every tier (it is 0.45 on an 8-forward one and 0.59
-// on a 6-forward one). The retired adapter has end-to-end measurements in the
-// changelog, but LightX2V v1.0 does not yet; its active cells remain derived
-// rather than inheriting a measurement from different weights.
-// The pill's SECOND line, in the same grammar every other .pill-btn in
-// Customize uses (name on top, one spec line under it): the cost of turning it
-// on, or the cost of getting it at all.
-// Both Speed segments print an ABSOLUTE wall clock, in the same shape, so the
-// two are directly comparable. Two mistakes were baked into the old copy and
-// the owner hit both: the Standard segment described the sampler ("the tier's
-// own sampler") while Turbo quoted a number, so there was nothing to compare
-// against; and the number was rendered as "~4 min", whose tilde reads as a
-// MINUS at this size — he read "-4 min at this tier" as four minutes being
-// ADDED. No tildes here, and never a delta: just "8 min" vs "4 min".
+// "~9 min" → "9 min": a tilde at this size reads as a minus (the owner read
+// "-4 min" once). Estimates on the switch are plain.
 function _h3EtaPlain(s) {
-  // "~17-19 min" -> "17-19 min", "~4 min" -> "4 min", "~27 min · batch" kept.
   return String(s || '').replace(/[~≈]/g, '').trim();
 }
-// Minutes for a cell under the CURRENT sampler state. The server pre-computes
-// the two states that matter (the cell's own steps, and Turbo's 3 forwards) and
-// ships the two model outputs — per_forward_sec and fixed_sec — so a PINNED
-// Steps override can be priced in the browser through the same arithmetic
-// rather than through a second, drifting cost model.
+// Minutes for a cell under the CURRENT speed (or the one opts names). The
+// server ships every number (Best eta, Fast eta per mode, per-forward and
+// fixed seconds for a pinned Steps count); nothing here models anything.
 function h3CellEtaMin(cell, opts) {
   if (!cell) return 0;
   opts = opts || {};
-  const turbo = (opts.turbo != null) ? opts.turbo
-    : ((document.getElementById('h3_turbo') || {}).value === '1');
-  if (turbo) return cell.turbo_min;
+  const fast = (opts.fast != null) ? opts.fast : h3TriStepOn(cell);
+  if (fast && cell.tristep_min != null) return _h3TriStepMin(cell);
+  if (opts.turbo) return cell.turbo_min;
   const ov = (opts.steps != null) ? String(opts.steps)
     : ((document.getElementById('h3_steps') || {}).value || 'auto');
   if (ov !== 'auto' && /^\d+$/.test(ov)) {
@@ -403,51 +424,48 @@ function h3CellEtaMin(cell, opts) {
 function h3FmtEtaMin(m) {
   return '~' + Math.max(1, Math.round(m)) + ' min' + (m >= 25 ? ' · batch' : '');
 }
-// The eta STRING for a cell in the current state. Prefers the server's own
-// string whenever the state is one the server priced (default steps, or Turbo),
-// because that is where a MEASURED wall clock lives — "~8-9 min" on the one
-// Turbo run that has actually been rendered end to end is not a number this
-// function should be regenerating.
+// The eta STRING for a cell under the current speed; the server's own string
+// wherever it priced that state (that is where a MEASURED wall clock lives).
 function h3CellEta(cell, opts) {
   if (!cell) return '';
   opts = opts || {};
-  const turbo = (opts.turbo != null) ? opts.turbo
-    : ((document.getElementById('h3_turbo') || {}).value === '1');
-  if (turbo) return cell.turbo_eta;
+  const fast = (opts.fast != null) ? opts.fast : h3TriStepOn(cell);
+  if (fast && cell.tristep_min != null) return _h3TriStepEta(cell);
+  if (opts.turbo) return cell.turbo_eta;
   const ov = (document.getElementById('h3_steps') || {}).value || 'auto';
   if (ov === 'auto' || !/^\d+$/.test(ov)) return cell.eta;
-  return h3FmtEtaMin(h3CellEtaMin(cell, { turbo: false }));
+  return h3FmtEtaMin(h3CellEtaMin(cell, { fast: false }));
 }
+// Second line of each half of the switch.
 function h3SpeedSub(which) {
   const cell = h3CurrentCell();
-  if (which === 'standard') {
-    const eta = cell ? _h3EtaPlain(h3CellEta(cell, { turbo: false })) : '';
-    return eta || 'this shape as tuned';
+  if (which === 'best') {
+    return _h3EtaPlain(h3CellEta(cell, { fast: false })) || 'full steps';
   }
-  const t = h3TurboState();
-  if (!t.downloaded && !t.install_available) return 'adapter asset pending';
-  if (!t.downloaded) return (t.download_gb || 2.0) + ' GB download';
-  const eta = cell && cell.turbo_eta ? _h3EtaPlain(cell.turbo_eta) : '';
-  return eta || '4-step adapter';
+  const tri = h3TriStepState();
+  if (!tri.supported) return 'update H3 runner';
+  if (!tri.downloaded) {
+    if (tri.installing) {
+      const d = tri.download || {};
+      return 'installing ' + (d.mb || 0) + ' / ' + (d.total_mb || 173) + ' MB';
+    }
+    return 'Install (180 MB)';
+  }
+  if (!cell || cell.tristep_min == null) return 'Best only here';
+  return _h3EtaPlain(_h3TriStepEta(cell)) || '3 steps';
 }
-function h3TurboPillSub() {
-  return h3SpeedSub('turbo');
-}
-// Kept for anything (and anyone) still reading the one-line form.
-function h3TurboPillLabel() {
-  return 'Turbo · ' + h3TurboPillSub();
-}
+// Kept for callers of the pre-switch API.
+function h3TurboPillSub() { return h3SpeedSub('fast'); }
 
-// The sampler depth each shape runs is per CELL (High runs 16 sigma points,
-// Draft/Standard/Native 9, dense 10 s 16), so the Standard and Auto tooltips
-// read it from the cell rather than printing one number for every shape.
+// The sampler depth Best runs is per CELL (High 16 sigma points, Draft/
+// Standard/Native 9, dense 10 s 16), so the tooltips read it from the cell.
 function _h3SyncSamplerTitles() {
   const cell = h3CurrentCell();
   const pts = (cell && cell.steps) || 9;
   const fwd = Math.max(1, pts - 1);
-  const std = document.querySelector('#h3TurboGroup [data-h3-turbo="0"]');
-  if (std) std.title = "This shape's own sampler — " + pts + ' sigma points, '
-    + fwd + ' forwards per window.';
+  const best = document.querySelector('#h3SpeedGroup [data-h3-speed="best"]');
+  if (best) best.title = "Best: this shape's full sampler — " + fwd + ' steps per window. '
+    + 'The slower, most careful render.';
   const auto = document.querySelector('#h3StepsGroup [data-h3-steps="auto"]');
   if (auto) auto.title = "This shape's tuned count — " + pts + ' sigma points ('
     + fwd + ' forwards per window) at this canvas.';
@@ -455,7 +473,7 @@ function _h3SyncSamplerTitles() {
   document.querySelectorAll('#h3StepsGroup [data-h3-steps]').forEach(b => {
     const n = b.dataset.h3Steps;
     if (!/^\d+$/.test(n)) return;
-    const k = h3CellEtaMin(cell, { turbo: false, steps: n }) / cell.eta_min;
+    const k = h3CellEtaMin(cell, { fast: false, steps: n }) / cell.eta_min;
     const rel = Math.abs(k - 1) < 0.05 ? 'the same time as Auto at this shape'
       : '~' + k.toFixed(1) + '× Auto\'s render time at this shape';
     b.title = n + ' sigma points (' + (parseInt(n, 10) - 1) + ' forwards) — ' + rel
@@ -463,141 +481,179 @@ function _h3SyncSamplerTitles() {
   });
 }
 
+// Paint the switch for the current cell and apply it. Called from every place
+// that moves the shape, the steps, the mode or the install state.
 function renderH3Turbo() {
-  const row = document.getElementById('h3TurboRow');
-  const pill = document.getElementById('h3TurboPill');
-  const sub = document.getElementById('h3TurboPillSub');
+  const row = document.getElementById('h3SpeedRow');
   const t = h3TurboState();
-  if (row) row.hidden = !t.supported;
-  if (!pill) return;
-  if (sub) sub.textContent = h3SpeedSub('turbo');
-  const stdSub = document.getElementById('h3StdPillSub');
-  if (stdSub) stdSub.textContent = h3SpeedSub('standard');
+  const tri = h3TriStepState();
+  // An old pack with no --lora at all can do neither; the switch hides, as
+  // Turbo's row always did.
+  if (row) row.hidden = !(t.supported || tri.supported);
+  const cell = h3CurrentCell();
+  const fastBtn = document.querySelector('#h3SpeedGroup [data-h3-speed="fast"]');
+  const bestSub = document.getElementById('h3SpeedBestSub');
+  const fastSub = document.getElementById('h3SpeedFastSub');
+  if (fastSub) fastSub.textContent = h3SpeedSub('fast');
+  if (bestSub) bestSub.textContent = h3SpeedSub('best');
+  if (fastBtn) {
+    fastBtn.classList.toggle('needs-download', !tri.available);
+    fastBtn.title = !tri.supported
+      ? 'Fast needs a newer H3 runner — run "Update Hailuo H3 runner" in the Pinokio sidebar (weights stay).'
+      : !tri.downloaded
+        ? '3 steps — about 4× faster, great for drafts and most shots. One click installs the '
+          + '180 MB adapter (' + (tri.license || 'MiniMax H3 Community License') + ').'
+        : '3 steps — about 4× faster, great for drafts and most shots.';
+  }
   _h3SyncSamplerTitles();
-  pill.classList.toggle('needs-download', !t.downloaded);
-  // Two different kinds of number, and the tooltip must not blur them: the ONE
-  // shape that has actually been rendered with the adapter end to end says so,
-  // everything else says out loud that its figure is derived from geometry.
-  const tier = h3CurrentCell();
-  const basis = (tier && tier.turbo_measured)
-    ? ' Measured end to end at this exact canvas and length — not derived.'
-    : ' Estimated for this shape: Turbo runs ' + ((tier && tier.turbo_forwards) || 3)
-      + ' forwards instead of ' + ((tier && tier.forwards) || 8)
-      + ', over the same fixed load/decode time. Not measured at this canvas.';
-  const fallbackNote = (t.downloaded && t.fallback && t.adapter_version)
-    ? ' Running the ' + t.adapter_version + ' fallback adapter — the v1.0 '
-      + 'download replaces it.'
-    : '';
-  pill.title = t.downloaded
-    ? (t.note || '') + basis + fallbackNote
-    : (t.install_available
-      ? 'Downloads the LightX2V v1.0 runner-layout adapter (~'
-        + (t.download_gb || 2.0) + ' GB) into the H3 pack.'
-      : (t.install_note || 'The runner-layout adapter release asset is pending.'));
-  // The pack could have gone away (or arrived) since boot without a reload.
-  if (!t.available && (document.getElementById('h3_turbo') || {}).value === '1') {
-    setH3Turbo(false);
-  }
+  _h3ApplySpeed();
+  _h3SyncFaceFixEta();
 }
 
-// Steps and Turbo are the same axis, so only one of them can be in charge.
-// Turbo is, and the pills go visibly dead rather than silently ignored — the
-// server drops the override too (make_job), this just stops it looking live.
-function _h3SyncStepsEnabled() {
-  const on = (document.getElementById('h3_turbo') || {}).value === '1';
-  const row = document.getElementById('h3StepsRow');
-  document.querySelectorAll('#h3StepsGroup [data-h3-steps]').forEach(b => {
-    b.disabled = on;
-    b.classList.toggle('disabled', on);
-  });
-  if (row) {
-    row.style.opacity = on ? '.5' : '';
-    row.title = on ? ('Turbo pins the sampler at ' + (h3TurboState().steps || 7) + ' sigma points.') : '';
-  }
-}
-
-function setH3Turbo(on) {
-  const t = h3TurboState();
-  const v = (on && t.available) ? '1' : '0';
-  const inp = document.getElementById('h3_turbo');
-  if (inp) inp.value = v;
-  document.querySelectorAll('#h3TurboGroup [data-h3-turbo]').forEach(b =>
-    b.classList.toggle('active', b.dataset.h3Turbo === v));
-  const note = document.getElementById('h3TurboNote');
-  if (note) {
-    note.hidden = (v !== '1');
-    note.textContent = t.note || '';
-  }
-  if (v === '1') {
-    // ORDER IS LOAD-BEARING, and it was wrong until Steps became a primary
-    // control and the lie got visible: setH3Steps('auto') re-derives the
-    // shared hidden `steps` from the TIER (9), so running it after the pin
-    // overwrote the 4 and the derived line read "Steps 9" on a Turbo render.
-    // Release the pill override first, THEN pin. make_job stamps
-    // H3_TURBO_STEPS server-side either way — this only ever affected what the
-    // form told the user it was about to do, which is the whole reason Speed
-    // and Steps were moved out where the user can see them.
-    if (typeof setH3Steps === 'function') { try { setH3Steps('auto'); } catch (e) {} }
+// ONE writer for what this render does: both hidden inputs, the lit half, the
+// Steps row, the note. Guarded: setH3Steps re-enters through renderH3Turbo.
+let _h3SpeedBusy = false;
+function _h3ApplySpeed() {
+  if (_h3SpeedBusy) return;
+  _h3SpeedBusy = true;
+  try {
+    const cell = h3CurrentCell();
+    const tri = h3TriStepState();
+    const pref = h3SpeedPref();
+    const fastOn = h3TriStepOn(cell);
+    const triIn = document.getElementById('h3_tristep');
+    if (triIn) triIn.value = fastOn ? '1' : '0';
+    const tbIn = document.getElementById('h3_turbo');
+    if (tbIn) tbIn.value = '0';
+    // The lit half is the PREFERENCE (what you chose); the note says when this
+    // shape can't honour it.
+    const lit = (pref === 'fast' && tri.available) ? 'fast' : 'best';
+    document.querySelectorAll('#h3SpeedGroup [data-h3-speed]').forEach(b =>
+      b.classList.toggle('active', b.dataset.h3Speed === lit));
+    const note = document.getElementById('h3SpeedNote');
+    if (note) {
+      const bestOnly = lit === 'fast' && cell && cell.tristep_min == null;
+      note.textContent = bestOnly
+        ? cell.label + ' renders on Best — Fast is not validated at this shape yet.'
+        : '';
+      note.hidden = !bestOnly;
+    }
+    const stIn = document.getElementById('h3_steps');
     const s = document.getElementById('steps');
-    if (s) s.value = t.steps || 4;
+    if (fastOn) {
+      // Release a pinned Steps pill FIRST (it re-derives `steps` from the
+      // cell), THEN pin Fast's own count.
+      if (stIn && stIn.value !== 'auto' && typeof setH3Steps === 'function') {
+        try { setH3Steps('auto'); } catch (e) {}
+      }
+      if (s) s.value = tri.steps || 4;
+    } else if (s && cell) {
+      const ov = (stIn || {}).value || 'auto';
+      s.value = (ov !== 'auto' && /^\d+$/.test(ov)) ? parseInt(ov, 10) : cell.steps;
+    }
+    // Steps is a Best control: it only shows while Best is what renders.
+    const stepsRow = document.getElementById('h3StepsRow');
+    if (stepsRow) stepsRow.hidden = fastOn;
+    if (typeof renderH3LoraSlot === 'function') { try { renderH3LoraSlot(); } catch (e) {} }
+  } finally {
+    _h3SpeedBusy = false;
   }
-  _h3SyncStepsEnabled();
-  // Turbo is one half of the single-adapter-slot conflict, so the Adapter row
-  // appears / disappears with it.
-  if (typeof renderH3LoraSlot === 'function') { try { renderH3LoraSlot(); } catch (e) {} }
-  try { localStorage.setItem('phos_h3_turbo', v); } catch (e) {}
-  // Turbo roughly halves every cell, so the chips have to re-price — a strip
-  // still advertising the 9-step wall clock while Turbo is lit is the same lie
-  // the Speed pill's absolute times were added to kill.
+}
+function _h3SpeedRepriced() {
   if (typeof renderH3Axes === 'function') { try { renderH3Axes(); } catch (e) {} }
+  if (typeof renderH3Turbo === 'function') { try { renderH3Turbo(); } catch (e) {} }
   if (typeof updateDerived === 'function') { try { updateDerived(); } catch (e) {} }
   if (typeof updateCustomizeSummary === 'function') { try { updateCustomizeSummary(); } catch (e) {} }
 }
 
-// One click, two behaviours, because the pill has two jobs: select Turbo when
-// it is ready, or fetch it when it isn't. Never both — a click that starts a
-// download must not also arm a render that has nothing to render with.
-async function h3TurboClick() {
-  const t = h3TurboState();
-  if (t.available) { setH3Turbo(true); return; }
-  if (!t.supported) {
-    if (typeof phosToast === 'function') {
-      phosToast('This Hailuo H3 pack predates Turbo. Re-run "Install Hailuo H3" '
-                + 'in the Pinokio sidebar to update the clone — your weights stay.',
-                { kind: 'danger' });
-    }
-    return;
-  }
-  if (!t.install_available) {
-    if (typeof phosToast === 'function') {
-      phosToast(t.install_note || 'The H3 Turbo runner-layout adapter release asset is pending.',
-                { kind: 'danger' });
-    }
-    return;
-  }
-  const gb = t.download_gb || 2.0;
-  if (!confirm('Download the H3 Turbo adapter?\n\n'
-             + '~' + gb + ' GB, into the H3 pack’s models folder.\n'
-             + 'The LightX2V source adapter is Apache-2.0.\n\n'
-             + 'Progress streams to the log at the bottom of the page.')) return;
-  try {
-    const r = await fetch('/h3/turbo/install', { method: 'POST' });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
-    if (typeof phosToast === 'function') {
-      phosToast('Turbo download started — watch the log. The pill turns on by '
-                + 'itself when the adapter lands.', { kind: 'ok' });
-    }
-  } catch (e) {
-    if (typeof phosToast === 'function') {
-      phosToast('Turbo download: ' + (e.message || 'failed'), { kind: 'danger' });
-    }
-  }
+// Set the speed ('fast' | 'best'). Remembered per browser.
+function setH3Speed(v) {
+  _h3SetSpeedPref(v === 'best' ? 'best' : 'fast');
+  _h3ApplySpeed();
+  _h3SpeedRepriced();
+}
+// Pre-switch API: Turbo on meant "the fast one".
+function setH3Turbo(on) { if (on) setH3Speed('fast'); else _h3ApplySpeed(); }
+function setH3TriStep(on) { setH3Speed(on ? 'fast' : 'best'); }
+// What a saved clip was made with, as this switch's value.
+function h3SpeedOfParams(p) {
+  p = p || {};
+  return (p.h3_tristep || p.h3_turbo) ? 'fast' : 'best';
 }
 
-document.querySelectorAll('#h3TurboGroup [data-h3-turbo]').forEach(b => {
-  b.onclick = () => (b.dataset.h3Turbo === '1') ? h3TurboClick() : setH3Turbo(false);
+// The Fast half: select it when ready; otherwise the one click that makes it
+// ready (install the adapter, or say which update is needed).
+async function h3SpeedClick(which) {
+  if (which !== 'fast') { setH3Speed('best'); return; }
+  const tri = h3TriStepState();
+  if (tri.available) { setH3Speed('fast'); return; }
+  const toast = (m, kind) => { if (typeof phosToast === 'function') phosToast(m, { kind }); };
+  if (!tri.supported) {
+    toast('Fast needs a newer Hailuo H3 runner. Run "Update Hailuo H3 runner" in the Pinokio '
+          + 'sidebar — your weights stay.', 'danger');
+    return;
+  }
+  if (tri.installing) { toast('The Fast adapter is already installing — watch the log.', 'ok'); return; }
+  if (!confirm('Install Fast (3 steps)?\n\n'
+             + '180 MB adapter into the H3 models folder, from '
+             + (tri.repo || 'Kijai/MiniMax-H3_comfy') + ' (a conversion of '
+             + (tri.source_repo || 'TaoLiveAIGC/TaoMate-H3') + ').\n'
+             + 'License: ' + (tri.license || 'MiniMax H3 Community License')
+             + ' — the same terms as H3 itself.\n\n'
+             + 'Progress streams to the log. Fast switches on by itself when it lands.')) return;
+  try {
+    const r = await fetch('/h3/tristep/install', { method: 'POST' });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    _h3SetSpeedPref('fast');
+    toast(j.already_installed ? 'Fast is already installed.'
+      : 'Installing Fast (180 MB) — watch the log. It switches on by itself when it lands.', 'ok');
+  } catch (e) {
+    toast('Fast install: ' + (e.message || 'failed'), 'danger');
+  }
+}
+document.querySelectorAll('#h3SpeedGroup [data-h3-speed]').forEach(b => {
+  b.onclick = () => h3SpeedClick(b.dataset.h3Speed);
 });
+
+// The Upscale & Face Fix pair, priced from the cell's own numbers: the
+// checkbox beside Generate and the estimate line in the footer.
+function h3FaceFixOn() {
+  return ((document.getElementById('h3_upscale') || {}).value) === 'ltx_x2';
+}
+function _h3SyncFaceFixEta() {
+  const cell = h3CurrentCell();
+  const allowed = (H3.upscale_modes || []).indexOf('ltx_x2') !== -1;
+  const row = document.getElementById('h3FaceFixFooterRow');
+  if (row) row.hidden = !allowed;
+  const eta = document.getElementById('h3FaceFixFooterEta');
+  if (eta) {
+    eta.textContent = (cell && cell.facefix_min != null)
+      ? '+' + (Math.round(cell.facefix_min * 2) / 2) + ' min · 2× · face and sound kept'
+      : '2× · face and sound kept';
+  }
+  const legacy = document.getElementById('h3FaceFixEta');
+  if (legacy) {
+    legacy.textContent = 'optional · 2× · face and sound kept'
+      + ((cell && cell.facefix_min != null)
+        ? ' · +' + (Math.round(cell.facefix_min * 2) / 2) + ' min' : " · about the render's time again");
+  }
+}
+// The footer line: "Draft · Fast ≈ 3 min" / "High · Best + Face Fix ≈ 44 min".
+function h3EstimateLine() {
+  const cell = h3CurrentCell();
+  if (!cell) return '';
+  const fast = h3TriStepOn(cell);
+  let m = h3CellEtaMin(cell);
+  let txt = cell.quality_label + ' · ' + (fast ? 'Fast' : 'Best');
+  if (h3FaceFixOn()) {
+    txt += ' + Face Fix';
+    if (cell.facefix_min == null) return txt;
+    m += cell.facefix_min;
+  }
+  const r = m < 10 ? Math.round(m * 2) / 2 : Math.round(m);
+  return txt + ' ≈ ' + r + ' min';
+}
 
 // Adapter-slot pills. Bound at parse time like the Turbo / Steps groups —
 // the row itself is hidden until Turbo and a LoRA actually collide.
@@ -959,13 +1015,28 @@ function renderTierAxes(engine) {
   const curQ = E.currentQuality();
   const curL = E.currentLength();
 
-  qStrip.style.gridTemplateColumns = `repeat(${Math.max(1, qualities.length)}, 1fr)`;
+  // Both strips used to be fixed column counts, which squeezed and then
+  // CLIPPED: LTX ships five canvases (Quick · Balanced · Standard · High ·
+  // High 720p) whose specs wrapped to three lines in the pane's usual width,
+  // and H3's four ran off the right edge as soon as the window was dragged in.
+  // Auto-fit tracks answer to the strip's own width. The 90 px floor is
+  // measured, not guessed: the pane's content box is ~386 px, where four
+  // tracks + gaps fit and five do not — so H3's four canvases stay one row
+  // across (unchanged) and LTX's five wrap 4 + 1 instead of squeezing five
+  // into a row. Squeeze the pane and it gives ground a column at a time
+  // instead of clipping. An unfilled track collapses, so a 2-cell strip still
+  // stretches its two cells across the row.
+  qStrip.style.gridTemplateColumns = 'repeat(auto-fit, minmax(90px, 1fr))';
   qStrip.innerHTML = qualities.map(q =>
     _tierChipHtml(engine, 'quality', q, E.cellFor(q.key, curL), q.key === curQ)).join('');
   // Past four lengths (the lab dense pass turns a fifth on) the chips would
-  // squeeze; wrap to three per row and let the strip grow a line instead.
-  lStrip.style.gridTemplateColumns =
-    `repeat(${lengths.length > 4 ? 3 : Math.max(1, lengths.length)}, 1fr)`;
+  // squeeze; wrap to three per row and let the strip grow a line instead. The
+  // wider floor is what makes it three rather than four at the pane's usual
+  // width — same result the hard-coded 3 gave, and it keeps giving ground as
+  // the pane narrows instead of clipping.
+  lStrip.style.gridTemplateColumns = lengths.length > 4
+    ? 'repeat(auto-fit, minmax(118px, 1fr))'
+    : 'repeat(auto-fit, minmax(90px, 1fr))';
   lStrip.innerHTML = lengths.map(l =>
     _tierChipHtml(engine, 'length', l, E.cellFor(curQ, l.key), l.key === curL)).join('');
 
@@ -1478,6 +1549,16 @@ Object.assign(globalThis, {
   h3ResolveTierKey, h3TierByKey, h3CellFor, h3CurrentCell,
   setH3Upscale, setH3FaceFixAfter, setH3Orientation, setH3Steps, h3TurboPillSub,
   renderH3Turbo, setH3Turbo, syncModeStripToEngine, renderEngineSwitch,
+  setH3Speed, h3SpeedOfParams, h3EstimateLine, setH3TriStep, h3TriStepOn, h3TriStepState,
+  // Published for the Shot setup summary (characters.js): a closed section has
+  // to price the shape it is hiding, and it must do it with the SAME numbers
+  // the chips print — never a second cost model in a second module.
+  h3CellEta,
+  // ...and the two the Batch section needs to price N jobs: the MINUTES behind
+  // that string, and whether a Face Fix rides along. Private, they threw on
+  // first call and the catch swallowed it, so an H3 batch showed no total at
+  // all (lint_webapp: no-undef, queue.js:4579).
+  h3CellEtaMin, h3FaceFixOn,
   renderTierAxes, renderH3Axes, ltxCellFor, ltxCurrentQuality,
   ltxCurrentLength, ltxCurrentCell, ltxCellEta, ltxCellNeedsInstall,
   ltxCellInstallLabel, _ltxApplyShape, setH3Quality, _h3ApplyShape,

@@ -161,6 +161,11 @@ async function importH3Lora(file) {
     const data = await r.json();
     if (!r.ok || !data.ok) throw new Error(data.error || `HTTP ${r.status}`);
     await refreshLoras();
+    // The picker is closed by default since the 2026-09-18 layout pass, so the
+    // file that just landed has to be shown rather than filed away out of
+    // sight — the same thing the CivitAI install path does.
+    const _det = document.getElementById('lorasDetails');
+    if (_det) _det.open = true;
     const pairs = `${data.pairs} module pair${data.pairs === 1 ? '' : 's'}`;
     const converted = data.converted ? ' Key namespace converted safely.' : '';
     // The H3 loader applies no alpha, so when a file's own scale isn't 1.0 the
@@ -173,7 +178,7 @@ async function importH3Lora(file) {
   } catch (e) {
     alert(`H3 LoRA import failed: ${e.message || e}`);
   } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = original || 'Import H3 LoRA'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = original || 'Import'; }
   }
 }
 
@@ -774,7 +779,7 @@ function renderLorasList() {
         <div class="hint" style="padding:14px 8px;text-align:center;line-height:1.6;">
           <div style="margin-bottom:4px;color:var(--fg);"><strong>No Hailuo H3 LoRAs in your library.</strong></div>
           <div>H3 has its own library — your LTX LoRAs can't load here, and H3's can't load on LTX.</div>
-          <div style="margin-top:6px;">Already have one? <strong>Import H3 LoRA</strong> above takes a <code>.safetensors</code> file and checks it against your installed H3 transformer before it lands in the library.</div>
+          <div style="margin-top:6px;">Already have one? <strong>Import</strong> above takes a <code>.safetensors</code> file and checks it against your installed H3 transformer before it lands in the library.</div>
           <div style="margin-top:6px;">Drop a converted H3 <code>.safetensors</code> with <code>lora_A</code> / <code>lora_B</code> tensors into <code>${escapeHtml(_lorasDirs.h3 || 'the H3 pack’s loras/ folder')}</code>, then press Rescan — same result, no size limit.</div>
           <div style="margin-top:6px;">Or install one via <strong>Browse CivitAI</strong> above using the <strong>Hailuo H3</strong> CivitAI filter.</div>
         </div>`;

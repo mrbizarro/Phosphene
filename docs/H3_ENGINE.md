@@ -220,6 +220,62 @@ no raw-file fetch: it records the exact release-asset publication TODO and must
 gain a digest-checked fetch only after the repacked asset and its output digest
 exist.
 
+### Speed: ⚡ Fast | ✦ Best — TaoMate's 3-step adapter (2026-09-17)
+
+ONE switch above the Quality cards. **Fast** renders with TaoLiveAIGC's
+TaoMate-H3 3-step adapter on its own sigma ladder; **Best** is each shape's own
+sampler, unchanged (Draft/Standard 8 forwards, High 15, Native as tuned) and the
+only place the Steps override shows. Fast is the default once its adapter is
+installed; the choice is remembered per browser (`phos_h3_speed`). The cards'
+estimates follow the switch and the mode (T2V/I2V). Fast runs on **Draft,
+Standard and High** (5 s windows, chained too); **Native** and the dense 10 s
+single pass are not validated on 3 steps and always render Best — the switch
+says so under itself when one of them is picked.
+
+| Cell (5 s, M4 Max, char + style LoRA) | Best | Fast |
+|---|---:|---:|
+| Draft 640×384 | 6.9 min (8 fwd, full decode) | **3.0 min** I2V (panel, cold cache: 3.4) |
+| Standard 768×448 | ~9 min (8 fwd) | **4.8** I2V · **4.9** T2V |
+| High 1024×576 | 35.1 min (15 fwd) | **9.0** I2V · **8.4** T2V |
+
+- **Recipe.** TaoMate distils H3 onto points `(0, 16, 33, 49)` of the shifted
+  50-point sigma grid (video σ `[1, .96117, .85333, 0]`, audio σ
+  `[1, .86087, .59259, 0]`) — **3 forwards**. Runner spelling:
+  `--steps 4 --sigma-subset 50:0,16,33,49 --lora <adapter>:1.0` (`--steps 4`
+  alone would re-space a 4-point grid the adapter never saw). Needs a runner
+  with `--sigma-subset` (minimax-h3-mlx `codex/h3-engine-v2` from `ccf532b`)
+  and stacking `--lora`; on an older runner the Fast half says "update H3
+  runner". Stacks with character/style LoRAs (adapter first; 416 wrapped,
+  0 unaccounted on the validation render). Full VAE decode, never TAE.
+- **Install.** Not installed → the Fast half reads **Install (180 MB)**; one
+  click (confirm names the license) runs `POST /h3/tristep/install`: Kijai's
+  rank-resized conversion
+  `turbo-lora/minimax_h3_taomate_3step_lora_avg_rank_19_bf16.safetensors`
+  (alpha == rank, ~87 % of the full delta) from `Kijai/MiniMax-H3_comfy` @
+  `098f8c4…`, resumable (HTTP Range on the `.partial`), exact size + sha256
+  `de9663d9…` before the rename. Never re-hosted. License: MiniMax H3
+  Community License (same as H3). A full-rank runner-layout copy
+  `taomate_h3_3step_ourlayout.safetensors` in the same folder wins. The
+  official release is T2AV only; I2V is unofficial (owner-approved look).
+- **Turbo is folded in.** The old Standard | Turbo row is gone: Fast replaces
+  it (faster, and the owner's pick), and two speed controls or two adapters on
+  one render is what the switch removes. The form posts `h3_turbo=0`; the
+  server still honours `h3_turbo` from the API (Storyboard, One Shot, curl)
+  wherever Fast does not run, and drops it when Fast does. A Turbo clip's Load
+  Params / Finish maps to Fast.
+- **Job field** `h3_tristep`: `1` Fast, `0` Best, absent = default (Fast where
+  offered and installed, unless a Steps pin asks for a depth). make_job and
+  `run_h3_job_inner` both refuse it off Draft/Standard/High and never stack it
+  with Turbo.
+- **Upscale & Face Fix** sits beside Generate (same state as the checkbox under
+  Upscale); the footer line prices the pair from the cell, e.g.
+  `Draft · Fast + Face Fix ≈ 5.5 min`. Face Fix receipts: 640×384 → 2.5 min,
+  1024×576 → ~9 min; 768×448 ~4 min is interpolated.
+- **Provenance.** Sidecar `params.h3_tristep`, and `h3.tristep` = file,
+  version, repo, revision, sha256, source repo, license, steps, forwards,
+  sigma subset, decode; plus `h3.schedule` (the sigmas the runner ran) and
+  `h3.lora_accounting`. The ⓘ modal prints a Speed row.
+
 ### Chained windows (v3.4.1)
 
 Window *N*'s **last decoded frame** becomes window *N+1*'s first-frame keyframe

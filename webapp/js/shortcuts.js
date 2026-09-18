@@ -137,11 +137,21 @@ const SHORTCUTS = [
   { id: 'editor.mute', scope: 'editor', combos: ['m'], owner: 'editor.js',
     calls: ['sbeSetMute', 'sbeUnmuteFromRefusal'],
     label: 'Mute / unmute the preview — the film itself is not changed' },
-  // The sound area's size. It manages itself; this is the key for when you
-  // want one answer to stick — the ▾ on the A1 head is the same control.
-  { id: 'editor.soundLanes', scope: 'editor', combos: ['shift+a'], owner: 'editor.js',
-    calls: 'sbeAudioPinToggle',
-    label: 'Sound lanes small / full height — A1, A2 and the audio tracks (the ▾ on the A1 head does the same)' },
+  // THE SPLIT. Sound mode is the one thing that changes it: the sound lanes
+  // at full height and the picture small, or back. The ⌁ button on the tool
+  // row and the ▾ on the A1 head are the same control.
+  { id: 'editor.soundMode', scope: 'editor', combos: ['shift+a'], owner: 'editor.js',
+    calls: 'sbeSoundModeToggle',
+    label: 'Sound mode on / off — the sound lanes at full height and the picture small (the ⌁ Sound button and the ▾ on the A1 head do the same)' },
+  { id: 'editor.inspector', scope: 'editor', combos: ['mod+i'], owner: 'editor.js',
+    calls: 'sbeInspectToggle',
+    label: 'Inspector open / close — speed, fades, brightness, zoom, transitions, titles (double-clicking a clip opens it too)' },
+  { id: 'editor.fullscreen', scope: 'editor', combos: ['f'], owner: 'editor.js',
+    calls: 'sbeFullscreen',
+    label: 'Program monitor full screen — F or Esc brings it back' },
+  { id: 'editor.panels', scope: 'editor', combos: ['backquote'], display: [['`']], owner: 'editor.js',
+    calls: 'sbePanelsToggle',
+    label: 'Hide / show the media pool and the queue, so the cut has the window (Photoshop\'s Tab)' },
   { id: 'editor.undo', scope: 'editor', combos: ['mod+z'], owner: 'editor.js',
     calls: 'sbeUndo', label: 'Undo' },
   { id: 'editor.redo', scope: 'editor', combos: ['shift+mod+z'], owner: 'editor.js',

@@ -36,6 +36,19 @@ The test that applies to anything new is not "is this related to a clip" but
 **how many times an hour**. Rare, slow, or dialogue-opening stays in the rail
 (Retake is the example: it starts a render).
 
+## 2026-09-17: icons, one row, and the panels
+
+The bar is icons only now — "the menu doesn't need to have the words on each
+one… just when you hover over it, you see an explanation" — every tooltip
+leads with the name, then the consequence, then the key (`sbePaintCbar`), and
+the words come back in the More menu and the right-click menu, where a list
+reads better than a row. The transport (play, mute, time) moved under the
+Program monitor, so the bar and the timeline's own controls (Sound mode, Snap,
+zoom, ⓘ, Keys) share ONE row, `.sbe-toolrow`, with the grab below it. The
+inspector is a panel you open (☰ / ⌘I / double-click a clip), not a fixture.
+The sound lanes no longer size themselves: Sound mode (⇧A) is the switch. See
+`webapp/docs/editor.md` §layout and §compact.
+
 ## Where it is
 
 A row of its own, between the monitors and the transport, directly above the
@@ -186,6 +199,45 @@ documented as the manual save since `docs/EDITOR_SAVE_MODEL.md` §1 was written
 first, with no modifier guard. The one chord every person on a Mac presses to
 make their work safe cut their film in half. Gated now in
 `TheEverydayGesturesThatWereMissing`.
+
+## 2026-09-17 (round 2): fast tooltips, the Source monitor back, real icons
+
+Owner, after using the redesign: "the tooltips on the buttons are too slow",
+"you have two empty dark spaces on the sides [of the Program monitor] … a place
+where you can drag the clips and see them … is actually necessary", "the icons
+are not very clear, are really weird, and maybe deformed", and the panel
+toggles are "a good idea but it's not clear".
+
+* **Icons.** The sprite was bare `<g>`s on a 24-unit grid used from `<svg>`s
+  with no viewBox, so a 15px box drew only the top-left 15 units of each glyph
+  — that was the deformation. Every glyph is now a `<symbol viewBox="0 0 256
+  256">` in Phosphor's geometry (the set the rest of the panel uses): scissors
+  for split, a clip lifted out of its gap for lift, a gap closing for ripple
+  delete, Phosphor's copy / link / arrows-clockwise / speaker / speaker-slash /
+  lock / lock-open / corners-out / keyboard, a trash can with a waveform for
+  delete sound, a level line with an × for clear points, a smiley with a
+  sparkle for Face Fix, a waveform for Sound mode, sidebars for Inspector and
+  Panels, a split screen with a play mark for Source. 18px, stroke 22/256
+  (≈1.5px), set once on `.sbe-cbar-i`. The preview's mute is an icon too.
+* **View group.** Source · Inspector · Sound · Panels · Full screen are one
+  labelled segmented control in the header (`#sbeView`). Pressed = the panel is
+  showing (`aria-pressed`, accent fill); `sbeViewTip` writes a tooltip that
+  says what a click will show or hide, and the key. Labels fold below a
+  1360px window unless the side panels are hidden.
+* **Tooltips** (`webapp/js/tips.js`). One shared element: 150 ms after the
+  pointer settles, immediately while sliding along a row (400 ms warm window),
+  on keyboard focus-visible, flipped above / clamped 8px inside the window, no
+  transition under reduced motion. Name · body · keycaps (from `data-shortcut`
+  or a trailing "(⌘I)"). The painters keep writing `title`; a button in scope
+  has it moved to `data-tip` on hover/focus and by a MutationObserver on every
+  rewrite, so the OS tooltip never shows. Scope: the Editor's icon buttons,
+  header buttons, chips, and the player's `.po-act` pills.
+* **Source monitor** is on screen by default (`phos_sbe_src`, hide with Source
+  or ×). Each monitor column is exactly its picture's width, so neither is
+  squeezed out of 16:9. It is a drop target: a pool row (`edPoolDragMove` /
+  `edPoolDragEnd`) or a shot dragged from the track (`sbeOnTrackMove` /
+  `sbeOnTrackUp`, the track restored from the snapshot, no undo step) loads
+  there; `sbeSrcDropHover` lights it.
 
 ## Deliberately not built
 

@@ -869,6 +869,11 @@ def _settings_defaults() -> dict:
         # allowed them. On by default because a render is minutes long and
         # nobody watches a progress bar for eleven of them; one click off.
         "notify_done": True,
+        # Room tone on automatic cuts: the auto-editor lays a bed made from the
+        # film's own quiet sound under every cut it invents, so cuts do not
+        # drop to silence. On by default (owner, 2026-09-17); one switch off,
+        # in the Editor's Room tone card.
+        "room_tone_auto": True,
         # Memory/speed policy. Defaults to Auto so 5 s clips keep the fast
         # full-decode path while long/high-pressure renders stay protected.
         # Live preview. On by default: it costs ~0.2 % of the render,
@@ -999,8 +1004,15 @@ def _load_settings() -> dict:
         return _settings_defaults()
 
 
-def _save_settings(settings: dict) -> None:
+def _save_settings(settings: dict, *, _target: "Path | None" = None) -> None:
     """Atomic write so a Pinokio kill mid-write can't leave a half-file.
+
+    REFUSES to write an installed panel's own `state/panel_settings.json` from
+    inside a test process (2026-09-18: a whole-suite run replaced the owner's
+    PostHog and CivitAI keys with test fixtures, because STATE_DIR had already
+    been resolved to the real `state/` by an earlier test module's import).
+    `conftest.py` sandboxes the paths; this is the refusal that does not depend
+    on the paths being right.
 
     M3: matches the same O_EXCL temp + fsync + replace + explicit
     chmod 0o600 shape used by `atomic_write_text` (defined later in this
@@ -1013,8 +1025,20 @@ def _save_settings(settings: dict) -> None:
     security-review.md §M3.
     """
     import os as _os
-    tmp = SETTINGS_FILE.with_name(
-        f".{SETTINGS_FILE.name}.{_os.getpid()}.{threading.get_ident()}."
+    dest = Path(_target) if _target is not None else SETTINGS_FILE
+    if _os.environ.get("PYTEST_CURRENT_TEST"):
+        installed = Path(__file__).resolve().parent / "state" / "panel_settings.json"
+        try:
+            same = dest.resolve() == installed.resolve()
+        except OSError:
+            same = str(dest) == str(installed)
+        if same:
+            raise RuntimeError(
+                "refusing to write an installed panel's settings from a test "
+                f"({dest}) — set LTX_STATE_DIR to a temp dir (conftest.py does "
+                "this for the suite)")
+    tmp = dest.with_name(
+        f".{dest.name}.{_os.getpid()}.{threading.get_ident()}."
         f"{time.time_ns()}.tmp"
     )
     fd = _os.open(
@@ -1031,9 +1055,9 @@ def _save_settings(settings: dict) -> None:
             _os.chmod(tmp, 0o600)
         except OSError:
             pass
-        _os.replace(tmp, SETTINGS_FILE)
+        _os.replace(tmp, dest)
         try:
-            _os.chmod(SETTINGS_FILE, 0o600)
+            _os.chmod(dest, 0o600)
         except OSError:
             pass
     except Exception:
@@ -1140,6 +1164,13 @@ def _validate_settings_patch(patch: dict) -> tuple[dict, str | None]:
             out["notify_done"] = v
         else:
             out["notify_done"] = str(v).strip().lower() in ("1", "true", "yes", "on")
+
+    if "room_tone_auto" in patch:
+        v = patch["room_tone_auto"]
+        if isinstance(v, bool):
+            out["room_tone_auto"] = v
+        else:
+            out["room_tone_auto"] = str(v).strip().lower() in ("1", "true", "yes", "on")
 
 
     if "live_preview" in patch:
@@ -1291,6 +1322,7 @@ def get_settings_public() -> dict:
         "spicy_mode": bool(s.get("spicy_mode", False)),
         "live_preview": str(s.get("live_preview", "on")),
         "notify_done": bool(s.get("notify_done", True)),
+        "room_tone_auto": bool(s.get("room_tone_auto", True)),
         # Push: can the panel send at all, and how many browsers listen.
         "push_available": push_available(),
         "push_subscriptions": len(_push_subs()),
@@ -7973,6 +8005,85 @@ def h3_turbo_note(paths: dict | None = None) -> str:
         return H3_TURBO_NOTE
     return H3_TURBO_NOTE_V4 if (resolved or {}).get("version") == "v4-600-EMA" else H3_TURBO_NOTE
 
+
+# ---- TriStep: TaoMate-H3's 3-step adapter ("Fast" on the Speed switch) ----------
+# TaoLiveAIGC/TaoMate-H3 (Alibaba TaoLive, 2026-09-07) distils H3 onto FOUR
+# points of the shifted 50-point sigma grid — (0, 16, 33, 49), video
+# σ [1, .96117, .85333, 0], audio σ [1, .86087, .59259, 0] — so it runs THREE
+# forwards. That is `--steps 4 --sigma-subset 50:0,16,33,49` on the runner, NOT
+# `--steps 4` alone (which re-spaces a 4-point grid the adapter never saw).
+#
+# Owner ruling 2026-09-17, after a Bizarro I2V draft (640×384, character 1.0 +
+# vh5tape 0.8, seed 52010) at 3 forwards vs the 8-forward draft: "3-step render
+# plus 2.5 upscale … it works … a much better option for a draft."
+# Measured on the M4 Max: 8-forward draft 6.9 min vs TriStep 3.0 min, then
+# Upscale & Face Fix (1 refine step) → 1280×768 in ~2.5 min.
+#
+# The same evening he asked for it at higher quality too, and for ONE control:
+# the H3 composer's Speed switch, ⚡ Fast | ✦ Best. Fast = this adapter on
+# Draft 640×384 (3.0 min for 5 s), Standard 768×448 (4.8) and High 1024×576
+# (8.4 T2V / 9.0 I2V, vs ~35 min at 15 forwards), T2V and I2V; the DEFAULT on
+# all three once installed. Best = each shape's own sampler, unchanged. Native
+# and the dense 10 s single pass are not validated on 3 steps and always
+# render Best. The official release is T2AV only; I2V is unofficial, and its
+# look is owner-approved. Fast replaces Turbo in the UI (never stacked).
+#
+# THE FILE. The official adapter is 2.48 GB (rank 128, PEFT `lora_a`/`lora_b`
+# keys). Kijai's rank-resized conversion (avg rank 19, bf16, alpha == rank on
+# every module, bare runner keys under `diffusion_model.`) is 182 MB and keeps
+# ~87 % of the delta (median relative error of B·A 13 %, measured module by
+# module against the full adapter). It is fetched from its author's repo at a
+# pinned revision and digest — never re-hosted. The license is the MiniMax H3
+# Community License, the same as H3's own weights. A full-rank runner-layout
+# copy (`lora_a`→`lora_A.weight`, values untouched) is accepted FIRST when
+# someone put one there; the managed download is the small file.
+H3_TRISTEP_REPO = "Kijai/MiniMax-H3_comfy"
+H3_TRISTEP_REVISION = "098f8c48fccead9a93191c166ca31a130659d3bd"
+H3_TRISTEP_FILE = "minimax_h3_taomate_3step_lora_avg_rank_19_bf16.safetensors"
+H3_TRISTEP_URL = ("https://huggingface.co/" + H3_TRISTEP_REPO + "/resolve/"
+                  + H3_TRISTEP_REVISION + "/loras/" + H3_TRISTEP_FILE)
+H3_TRISTEP_SHA256 = "de9663d974a884b477556748239c6f28239f7ca1825be270f98f023ff5dab6a7"
+H3_TRISTEP_BYTES = 181697688
+H3_TRISTEP_FULL_FILE = "taomate_h3_3step_ourlayout.safetensors"
+H3_TRISTEP_SOURCE_REPO = "TaoLiveAIGC/TaoMate-H3"
+H3_TRISTEP_LICENSE = "MiniMax H3 Community License"
+# (filename, version label, size floor) — resolved in this order.
+H3_TRISTEP_CANDIDATES = (
+    (H3_TRISTEP_FULL_FILE, "r128-full", 2 * 1024 ** 3),
+    (H3_TRISTEP_FILE, "r19-kijai", 150 * 1024 * 1024),
+)
+H3_TRISTEP_STEPS = 4                       # sigma POINTS → 3 forwards
+H3_TRISTEP_FORWARDS = H3_TRISTEP_STEPS - 1
+H3_TRISTEP_SIGMA_SUBSET = "50:0,16,33,49"
+H3_TRISTEP_DOWNLOAD_GB = 0.2
+H3_TRISTEP_LABEL = "Fast"
+H3_TRISTEP_NOTE = ("Fast: 3 steps — about 4× faster, great for drafts and most "
+                   "shots (TaoMate's 3-step adapter on the same H3 model). "
+                   "Turbo is never stacked on it.")
+# Canvases that offer it, and the ones where it is the default once installed.
+H3_TRISTEP_QUALITIES = ("draft", "preview", "standard", "high")
+H3_TRISTEP_DEFAULT_QUALITIES = H3_TRISTEP_QUALITIES
+# End-to-end wall clocks for TriStep cells, M4 Max, keyed (quality, length).
+# Keyed (quality, length, mode). All with the character + vh5tape LoRAs on top
+# and the full VAE decode (notes/h3-review/tristep-draft/run.out and
+# notes/h3-review/comfy-vae-tristep/REPORT.md):
+#   draft i2v   640×384  v01           3.0 min (panel queue, cold cache: 3.4)
+#   standard    768×448  v01 i2v 4.8 · t2v 4.9
+#   high       1024×576  gym i2v 9.0 · walk/v01 t2v 8.4
+H3_TRISTEP_MEASURED_ETA: dict[tuple[str, str, str], tuple[float, str]] = {
+    ("draft", "5s", "i2v"): (3.0, "~3 min"),
+    ("standard", "5s", "i2v"): (4.8, "~5 min"),
+    ("standard", "5s", "t2v"): (4.9, "~5 min"),
+    ("high", "5s", "i2v"): (9.0, "~9 min"),
+    ("high", "5s", "t2v"): (8.4, "~8 min"),
+}
+# Upscale & Face Fix (1 refine step from the clip, ×2) after a 5 s render, by
+# source canvas. 640×384 → 1280×768 measured 2.5–2.8 min; 1024×576 measured
+# 8.2–9.9 min (panel history, 2026-09-16/17); 768×448 is interpolated between
+# them on output pixels (~4 min, not measured). Other lengths scale by frames.
+FACE_FIX_DRAFT_5S_MIN = 2.5
+FACE_FIX_5S_MIN = {"draft": 2.5, "preview": 2.0, "standard": 4.0, "high": 9.0}
+
 # ============================================================================
 # H3 RENDER SHAPE — two independent axes, priced by one measured cost model
 # ============================================================================
@@ -8693,6 +8804,31 @@ def _build_h3_tiers() -> dict[str, dict]:
             if hit and int(hit[2]) == H3_TURBO_FORWARDS:
                 turbo_min, turbo_measured = hit[0] * hw, True
                 turbo_eta = hit[1] if hw == 1.0 else _fmt_eta(turbo_min)
+            # TriStep prices only the cells that offer it (h3_cell_takes_tristep).
+            tristep = {}
+            if q["key"] in H3_TRISTEP_QUALITIES and not ln["dense"]:
+                tri_min = min(eta_min, h3_estimate_minutes(
+                    w, h, window_frames, windows, H3_TRISTEP_FORWARDS))
+                tristep = {
+                    "tristep_default": q["key"] in H3_TRISTEP_DEFAULT_QUALITIES,
+                    "tristep_forwards": windows * H3_TRISTEP_FORWARDS,
+                }
+                # T2V and I2V priced separately where a receipt says they differ;
+                # the model (no mode term) covers the rest.
+                for mode_key, suffix in (("t2v", ""), ("i2v", "_i2v")):
+                    m_min, m_eta, m_meas = tri_min, _fmt_eta(tri_min), False
+                    hit = H3_TRISTEP_MEASURED_ETA.get((q["key"], ln["key"], mode_key))
+                    if hit:
+                        m_min, m_meas = hit[0] * hw, True
+                        m_eta = hit[1] if hw == 1.0 else _fmt_eta(m_min)
+                    tristep["tristep_min" + suffix] = round(m_min, 2)
+                    tristep["tristep_eta" + suffix] = m_eta
+                    tristep["tristep_measured" + suffix] = m_meas
+                # The Upscale & Face Fix pass, priced beside the render so the
+                # checkbox can say what both cost together.
+                ff = FACE_FIX_5S_MIN.get(q["key"])
+                if ff:
+                    tristep["facefix_min"] = round(ff * hw * frames / 124.0, 2)
             spec = f"{w}×{h} · {frames}f"
             if windows > 1:
                 spec += f" · {windows}×5s"
@@ -8740,6 +8876,7 @@ def _build_h3_tiers() -> dict[str, dict]:
                 "draft": bool(q["draft"]),
                 "dense": bool(ln["dense"]),
                 "offered": bool(q["offered"] and ln["offered"]),
+                **tristep,
             }
     return tiers
 
@@ -10617,6 +10754,221 @@ def h3_turbo_status() -> dict:
     }
 
 
+# ---- TriStep (the Draft sampler) — resolver, argv, status, fetch ------------
+def h3_cell_takes_tristep(cell: dict) -> bool:
+    """Draft, Standard or High at a 5 s-window length (single or chained).
+    Native and the dense single-pass 10 s keep their own samplers: neither has
+    been looked at on 3 steps, and a 243-frame window is far past the chunks
+    TaoMate was distilled on."""
+    return (cell.get("quality") in H3_TRISTEP_QUALITIES
+            and not bool(cell.get("dense")))
+
+
+def h3_cell_tristep_default(cell: dict) -> bool:
+    """Where Fast is the DEFAULT once installed (every canvas that offers it)."""
+    return h3_cell_takes_tristep(cell) and cell.get("quality") in H3_TRISTEP_DEFAULT_QUALITIES
+
+
+def h3_supports_sigma_subset() -> bool:
+    """Whether the INSTALLED runner takes `--sigma-subset` (the TaoMate ladder).
+    TriStep also rides as one more `--lora` beside the user's, so it needs the
+    stacking runner too — every runner with `--sigma-subset` has it."""
+    return h3_supports_lora_stack() and _h3_runner_has_flag("--sigma-subset")
+
+
+def h3_tristep_paths() -> dict:
+    """The TriStep adapter that would run: the full-rank copy if someone put
+    one there, else the managed 182 MB download. Exact allowlist, no glob."""
+    directory = _h3_turbo_dir()
+    for filename, version, floor in H3_TRISTEP_CANDIDATES:
+        candidate = directory / filename
+        if _h3_real_file(candidate, floor):
+            return {"dir": directory, "lora": candidate, "version": version,
+                    "files_ok": True, "missing": []}
+    return {"dir": directory, "lora": None, "version": None, "files_ok": False,
+            "missing": [f"adapter ({H3_TRISTEP_FILE}, "
+                        f"~{H3_TRISTEP_DOWNLOAD_GB} GB)"]}
+
+
+def h3_tristep_argv(paths: dict | None = None) -> list[str]:
+    """The runner argv fragment: the TaoMate ladder and the adapter at 1.0.
+    `--steps` is stamped by the caller (H3_TRISTEP_STEPS) like every tier's."""
+    resolved = paths or h3_tristep_paths()
+    if not resolved.get("files_ok") or resolved.get("lora") is None:
+        raise RuntimeError("H3 fast 3-step adapter is not available")
+    return ["--sigma-subset", H3_TRISTEP_SIGMA_SUBSET,
+            "--lora", f"{resolved['lora']}:1.0"]
+
+
+_h3_tristep_dl_lock = threading.Lock()
+_h3_tristep_dl_state: dict = {"status": "idle", "mb": 0, "total_mb": 0,
+                              "error": None}
+
+
+def _set_h3_tristep_dl(**kw) -> None:
+    with _h3_tristep_dl_lock:
+        _h3_tristep_dl_state.clear()
+        _h3_tristep_dl_state.update(kw)
+
+
+def h3_tristep_status() -> dict:
+    """/status + BOOT block for the Draft sampler. Same three answers as
+    Turbo's: can the runner take it, is the file here, so is it offered."""
+    supported = h3_supports_sigma_subset()
+    paths = h3_tristep_paths()
+    downloaded = bool(paths["files_ok"])
+    return {
+        "available": bool(supported and downloaded),
+        "supported": supported,
+        "downloaded": downloaded,
+        "reason": ("runner_too_old" if not supported
+                   else "not_downloaded" if not downloaded else "ok"),
+        "steps": H3_TRISTEP_STEPS,
+        "forwards": H3_TRISTEP_FORWARDS,
+        "sigma_subset": H3_TRISTEP_SIGMA_SUBSET,
+        "download_gb": H3_TRISTEP_DOWNLOAD_GB,
+        "repo": H3_TRISTEP_REPO,
+        "source_repo": H3_TRISTEP_SOURCE_REPO,
+        "license": H3_TRISTEP_LICENSE,
+        "adapter": str(paths["lora"]) if paths["lora"] else None,
+        "adapter_version": paths["version"],
+        "install_available": bool(supported),
+        "installing": _h3_tristep_dl_state.get("status") == "downloading",
+        "download": dict(_h3_tristep_dl_state),
+        "dir": str(paths["dir"]),
+        "missing": paths["missing"],
+        "note": H3_TRISTEP_NOTE,
+        "label": H3_TRISTEP_LABEL,
+    }
+
+
+def _h3_tristep_download_bg(target_dir, push_log, asset: dict | None = None,
+                            opener=None) -> None:
+    """Fetch the pinned TriStep adapter into the H3 pack, RESUMABLY.
+
+    A `.partial` left by an interrupted fetch is continued with an HTTP Range
+    request (its bytes are re-hashed first); a server that ignores the Range
+    gets a fresh start. Exact size + sha256 before the atomic rename, so a
+    killed download never leaves a file h3_tristep_paths() would resolve."""
+    import contextlib
+    import hashlib
+    import urllib.request
+    asset = asset or {"file": H3_TRISTEP_FILE, "url": H3_TRISTEP_URL,
+                      "sha256": H3_TRISTEP_SHA256, "bytes": H3_TRISTEP_BYTES}
+    opener = opener or urllib.request.urlopen
+    total = int(asset["bytes"])
+    total_mb = total // (1 << 20)
+    target_dir = Path(target_dir)
+    target = target_dir / asset["file"]
+    tmp = target.with_name(target.name + ".partial")
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        if _h3_real_file(target, 1) and target.stat().st_size == total:
+            _set_h3_tristep_dl(status="done", mb=total_mb, total_mb=total_mb,
+                               error=None)
+            return
+        h = hashlib.sha256()
+        have = 0
+        if tmp.is_file():
+            have = tmp.stat().st_size
+            if have > total:
+                tmp.unlink()
+                have = 0
+            else:
+                with open(tmp, "rb") as fh:
+                    for chunk in iter(lambda: fh.read(1 << 20), b""):
+                        h.update(chunk)
+        headers = {"User-Agent": "Phosphene"}
+        if have:
+            headers["Range"] = f"bytes={have}-"
+            push_log(f"[h3:tristep] resuming {asset['file']} at "
+                     f"{have // (1 << 20)} / {total_mb} MB…")
+        else:
+            push_log(f"[h3:tristep] downloading {asset['file']} (~{total_mb} MB, "
+                     f"{H3_TRISTEP_REPO} @ {H3_TRISTEP_REVISION[:7]}, "
+                     f"{H3_TRISTEP_LICENSE})…")
+        written = have
+        last_log = 0.0
+        # A .partial that is already whole (killed between the last byte and
+        # the rename) needs no request at all — a Range past the end is a 416.
+        with (opener(urllib.request.Request(asset["url"], headers=headers),
+                     timeout=60) if have < total else contextlib.nullcontext()) as resp:
+            status = int(getattr(resp, "status", 200) or 200)
+            mode = "ab"
+            if resp is not None and have and status != 206:
+                # The server sent the whole file: start over, never append it.
+                push_log("[h3:tristep] server ignored the resume — restarting")
+                h = hashlib.sha256()
+                written = 0
+                mode = "wb"
+            with open(tmp, mode) as fh:
+                while resp is not None:
+                    chunk = resp.read(1 << 20)
+                    if not chunk:
+                        break
+                    fh.write(chunk)
+                    h.update(chunk)
+                    written += len(chunk)
+                    now = time.time()
+                    if now - last_log > 2.5:
+                        _set_h3_tristep_dl(status="downloading",
+                                           mb=written // (1 << 20),
+                                           total_mb=total_mb, error=None)
+                        push_log(f"[h3:tristep] {written // (1 << 20)} / "
+                                 f"{total_mb} MB")
+                        last_log = now
+        if written != total:
+            raise RuntimeError(f"size mismatch: got {written}, expected {total}"
+                               " — press the pill again to resume")
+        if h.hexdigest() != asset["sha256"]:
+            tmp.unlink()
+            raise RuntimeError("checksum mismatch (download corrupt) — please retry")
+        tmp.replace(target)
+        push_log(f"[h3:tristep] adapter installed → {target}")
+        _set_h3_tristep_dl(status="done", mb=total_mb, total_mb=total_mb,
+                           error=None)
+    except Exception as e:  # noqa: BLE001
+        # The .partial stays (unless it was corrupt): the next press resumes.
+        _set_h3_tristep_dl(status="error", mb=0, total_mb=total_mb,
+                           error=str(e)[:200])
+        push_log(f"[h3:tristep] FAILED: {e}")
+
+
+def _h3_install_tristep(push_log, download_fn=None) -> dict:
+    """On-demand fetch of the Draft sampler's adapter (one at a time)."""
+    paths = h3_paths()
+    if paths["missing"]:
+        return {"ok": False,
+                "error": "Fast (3 steps) is an add-on to the Hailuo H3 "
+                         "pack, and H3 isn't fully installed yet: "
+                         + "; ".join(paths["missing"])}
+    if not h3_supports_sigma_subset():
+        return {"ok": False,
+                "error": "This Hailuo H3 runner predates Fast (3 steps) "
+                         "(no --sigma-subset). Run 'Update Hailuo H3 runner' "
+                         "from the Phosphene sidebar in Pinokio — your weights "
+                         "stay."}
+    resolved = h3_tristep_paths()
+    target = resolved["dir"]
+    if resolved["files_ok"]:
+        return {"ok": True, "started": False, "already_installed": True,
+                "dir": str(target)}
+    with _h3_tristep_dl_lock:
+        if _h3_tristep_dl_state.get("status") == "downloading":
+            return {"ok": False,
+                    "error": "a Fast (3-step) adapter download is already active"}
+        _h3_tristep_dl_state.clear()
+        _h3_tristep_dl_state.update(status="downloading", mb=0,
+                                    total_mb=H3_TRISTEP_BYTES // (1 << 20),
+                                    error=None)
+    fn = download_fn or _h3_tristep_download_bg
+    threading.Thread(target=fn, args=(target, push_log), daemon=True,
+                     name="h3-tristep-download").start()
+    return {"ok": True, "started": True, "dir": str(target),
+            "asset": H3_TRISTEP_URL, "sha256": H3_TRISTEP_SHA256,
+            "bytes": H3_TRISTEP_BYTES, "license": H3_TRISTEP_LICENSE}
+
+
 # ============================================================================
 # H3 USER LoRAs — CivitAI adapters for the MiniMax H3 lane
 # ============================================================================
@@ -12109,7 +12461,10 @@ def _h3_export_notes(w: int, h: int) -> dict[str, str]:
             _tw, _th = ltx_floor_canvas(int(w * _sc), int(h * _sc))
             out[mode] = (f"{FACE_FIX_NAME}: after the draft, a second job re-renders it at "
                          f"{_tw}×{_th} with LTX-2.5 detail, keeps the face and the sound, and "
-                         "lands beside the draft. About the draft's time again."
+                         "lands beside the draft. "
+                         + (f"About {FACE_FIX_DRAFT_5S_MIN:g} min more for a 5 s Draft."
+                            if (int(w), int(h)) == (640, 384) else
+                            "About the draft's time again.")
                          + ("" if _adapter_ok else
                             " Needs the 0.3 GB Upscale adapter first — Settings → Models."))
             continue
@@ -12299,6 +12654,19 @@ def h3_status() -> dict:
                                    "pack — install H3 first.",
                    "dir": str(_h3_turbo_dir()), "missing": [],
                    "note": H3_TURBO_NOTE, "label": "Turbo"}),
+        # Speed switch "Fast" (TaoMate 3-step adapter). Same three-cause shape as Turbo.
+        "tristep": (h3_tristep_status() if available else
+                    {"available": False, "supported": False, "downloaded": False,
+                     "reason": "h3_" + paths["reason"],
+                     "steps": H3_TRISTEP_STEPS, "forwards": H3_TRISTEP_FORWARDS,
+                     "sigma_subset": H3_TRISTEP_SIGMA_SUBSET,
+                     "download_gb": H3_TRISTEP_DOWNLOAD_GB,
+                     "repo": H3_TRISTEP_REPO, "source_repo": H3_TRISTEP_SOURCE_REPO,
+                     "license": H3_TRISTEP_LICENSE, "adapter": None,
+                     "adapter_version": None, "install_available": False,
+                     "installing": False, "download": {}, "dir": str(_h3_turbo_dir()),
+                     "missing": [], "note": H3_TRISTEP_NOTE,
+                     "label": H3_TRISTEP_LABEL}),
         # User LoRAs — the CivitAI lane. A separate block from `turbo` for the
         # same reason turbo is separate from `first_frame`: "you can't pick a
         # LoRA" has three unrelated causes (H3 absent / runner predates --lora
@@ -12810,6 +13178,32 @@ def music_child_env(base: dict | None = None) -> dict:
            if k not in MUSIC_ENV_STRIP}
     env["PYTHONUNBUFFERED"] = "1"
     env["MLX_ENABLE_TF32"] = "0"
+    return env
+
+
+#: Vars the TRAINERS must not inherit. Both are PyTorch switches Pinokio's
+#: kernel exports into every app it launches; lora_lab is MLX end to end
+#: (`import mlx.core` in train_character / train_audio / preprocess_*), so they
+#: mean nothing to it and they are exactly the accident that killed music in
+#: 4.14.0. `Malloc*` goes for the reason image_engine strips it: macOS dev
+#: tooling exports empty MallocStackLogging vars and every child then prints a
+#: warning it cannot act on.
+TRAINER_ENV_STRIP = ("PYTORCH_ENABLE_MPS_FALLBACK", "PYTORCH_MPS_FAST_MATH")
+
+
+def trainer_child_env(base: dict | None = None) -> dict:
+    """The env a LoRA trainer child gets — decided here, not inherited whole.
+
+    The release checklist named the two `{**os.environ}` spreads in this file
+    (the character trainer and the audio trainer) as the last raw ones, and the
+    rule they broke is the one that cost 4.14.0 its music: never hand an engine
+    the shell's environment and hope. PYTHONPATH is deliberately left alone —
+    `scripts/lora_lab_run.sh` sets it for the child, and Pinokio deletes it on
+    the way in anyway.
+    """
+    env = {k: v for k, v in (base if base is not None else os.environ).items()
+           if k not in TRAINER_ENV_STRIP and not k.startswith("Malloc")}
+    env["PYTHONUNBUFFERED"] = "1"
     return env
 
 
@@ -14712,9 +15106,39 @@ def _usage_fleet_report() -> dict | None:
     }
 
 
+def _usage_attach_local(report: dict) -> dict:
+    """Ride this machine's own totals along with whatever we return.
+
+    Owner, 2026-09-18: "when I ask you for total renders, I mean total renders
+    from the fleet too… one of the first windows I want to see is total renders
+    for all the fleet." The dashboard used to show ONE number called
+    "Total renders" whose meaning silently changed with whether a query key was
+    configured — the fleet's total, or this Mac's. Two numbers, both labelled,
+    always: the fleet answers "how much is this app used", the machine answers
+    "how much have I used it", and neither can be mistaken for the other.
+    """
+    try:
+        local = _usage_local_report()
+    except Exception:
+        return report
+    report["machine"] = {
+        "total_renders": (local.get("tiles") or {}).get("total_renders"),
+        "renders_7d": (local.get("tiles") or {}).get("renders_7d"),
+        "error_rate_pct": (local.get("tiles") or {}).get("error_rate_pct"),
+        "first_day": (((local.get("growth") or {}).get("installs_by_day") or [{}])[0]
+                      or {}).get("date"),
+    }
+    return report
+
+
 def _usage_report(force: bool = False) -> dict:
     """What GET /stats/usage returns. Fleet when a query key is configured
-    and the 6 h cache is stale; otherwise the cache; otherwise local."""
+    and the 6 h cache is stale; otherwise the cache; otherwise local.
+
+    Either way the payload carries `machine` (this Mac) AND says whether the
+    fleet half is available — `fleet_blocked` is "no_key" or "query_failed",
+    so the dashboard can show the fleet tile as unknown with a remedy instead
+    of quietly substituting a local number under a fleet label."""
     with _USAGE_FLEET_LOCK:
         if _analytics_query_key():
             if not force:
@@ -14723,7 +15147,8 @@ def _usage_report(force: bool = False) -> dict:
                     if (time.time() - float(cached.get("_fetched_at") or 0)
                             < USAGE_FLEET_TTL_SEC):
                         cached["cached"] = True
-                        return cached
+                        cached["fleet_blocked"] = ""
+                        return _usage_attach_local(cached)
                 except (OSError, ValueError, json.JSONDecodeError):
                     pass
             fleet = None
@@ -14733,18 +15158,22 @@ def _usage_report(force: bool = False) -> dict:
                 fleet = None
             if fleet:
                 fleet["_fetched_at"] = time.time()
+                fleet["fleet_blocked"] = ""
                 try:
                     _ensure_state_dir()
                     atomic_write_text(USAGE_FLEET_CACHE,
                                       json.dumps(fleet, indent=2))
                 except Exception:
                     pass
-                return fleet
+                return _usage_attach_local(fleet)
             local = _usage_local_report()
+            local["fleet_blocked"] = "query_failed"
             local["warning"] = ("PostHog query failed - showing this machine "
                                 "only. Check the personal API key in Settings.")
-            return local
-    return _usage_local_report()
+            return _usage_attach_local(local)
+    local = _usage_local_report()
+    local["fleet_blocked"] = "no_key"
+    return _usage_attach_local(local)
 
 
 def _scale_dims_to_max(width: int, height: int, max_dim: int,
@@ -15972,7 +16401,9 @@ class WarmHelper:
         # single most-reported failure in the fleet (85 events, 7 installs in
         # a week) and names no cause, no remedy and nothing to search for.
         # These are the lines that do.
-        self._boot_tail: collections.deque = collections.deque(maxlen=14)
+        # Wide enough that a traceback's frames survive an argument dump
+        # printed under the exception (see failure_frame).
+        self._boot_tail: collections.deque = collections.deque(maxlen=40)
 
     def _ensure(self) -> None:
         with self.lock:
@@ -17900,6 +18331,14 @@ def _sb_h3_cost(quality_key: str, length_key: str):
         except Exception:
             turbo = False
         minutes = cell.get("turbo_min") if turbo else cell.get("eta_min")
+        # A Draft/Standard/High cell renders Fast when it is installed
+        # (make_job's default), whatever Turbo says.
+        if cell.get("tristep_min") and cell.get("tristep_default"):  # Fast by default
+            try:
+                if h3_tristep_status().get("available"):
+                    minutes = cell["tristep_min"]
+            except Exception:
+                pass
         return float(minutes) * 60.0 if minutes else None
     except Exception:
         return None
@@ -20300,6 +20739,25 @@ def _sb_music_head(music: dict | None, n_inputs: int) -> str:
     return head
 
 
+# THE DE-CLICK. A hard butt join between two clips' sound is a step in the
+# waveform, and a step is a click. 12 ms is under a frame (41.7 ms at 24 fps),
+# far too short to hear as a fade, and long enough to round the step off. It
+# is a RENDER-ONLY safety term, like the limiter: the browser preview sets an
+# element's volume per frame and cannot ramp inside 12 ms, and an NLE applies
+# its own. Owner, 2026-09-17: "the cuts are very rough in terms of sound".
+SB_DECLICK_S = 0.012
+
+
+def _sb_declick_term(d: float, length: float) -> str:
+    """`,afade=in…,afade=out…` for a sound `length` seconds long, or "" when
+    the de-click is off or the sound is too short to carry two fades."""
+    d = float(d or 0.0)
+    if d <= 0 or float(length) < 4 * d:
+        return ""
+    return (f",afade=t=in:d={d:g},"
+            f"afade=t=out:st={float(length) - d:.6f}:d={d:g}")
+
+
 def _sb_film_filtergraph(probes: list[tuple], target_w: int, target_h: int,
                          rate: int, pix_fmt: str,
                          cuts: dict | None = None,
@@ -20309,8 +20767,14 @@ def _sb_film_filtergraph(probes: list[tuple], target_w: int, target_h: int,
                          segments: list[dict] | None = None,
                          scale_to: int = 0, grain: int = 0,
                          sound_strips: list | None = None,
-                         sound_base: int = 0) -> tuple[str, str]:
+                         sound_base: int = 0,
+                         declick: float = 0.0) -> tuple[str, str]:
     """The concat FILTER graph for a mixed-geometry cut → (graph, video_label).
+
+    `declick` (seconds, 0 = off) fades the head and the tail of every clip's
+    sound by that much, so a butt join between two clips cannot click. The
+    timeline render passes `SB_DECLICK_S`; every other caller builds the graph
+    it always did.
 
     `sound_strips` are the audio TRACKS' strips (A3, A4, …), from
     `storyboard_editor.track_render_strips`, and `sound_base` the ffmpeg input
@@ -20485,6 +20949,7 @@ def _sb_film_filtergraph(probes: list[tuple], target_w: int, target_h: int,
                     f"asetpts=PTS-STARTPTS,{tempo}aresample={rate},"
                     f"aformat=sample_fmts=fltp:channel_layouts=stereo,"
                     f"apad,atrim=0:{L['len']:.6f},asetpts=PTS-STARTPTS"
+                    f"{_sb_declick_term(declick, L['len'])}"
                     f"{vtail}[a{idx}]")
             pads.append(f"[v{idx}]")
             continue
@@ -20498,6 +20963,7 @@ def _sb_film_filtergraph(probes: list[tuple], target_w: int, target_h: int,
                 f"{ahead}aresample={rate},"
                 f"aformat=sample_fmts=fltp:channel_layouts=stereo,"
                 f"apad,atrim=0:{dur},asetpts=PTS-STARTPTS"
+                f"{_sb_declick_term(declick, float(dur))}"
                 f"{vtail}[a{idx}]")
         else:
             # A still and a slug are silent by construction; a silent clip is
@@ -20925,7 +21391,8 @@ def _sb_assemble_film(clips: list, out_path, *, plan: list | None = None,
                       music_mode: str = "replace",
                       music_gain: list | None = None,
                       deliver: dict | None = None,
-                      sound_strips: list | None = None) -> dict:
+                      sound_strips: list | None = None,
+                      declick: float = 0.0) -> dict:
     """Concatenate the exported shots into ONE playable film.
 
     `sound_strips` (from `storyboard_editor.track_render_strips`) are the audio
@@ -21092,7 +21559,8 @@ def _sb_assemble_film(clips: list, out_path, *, plan: list | None = None,
                                          overlay_base=overlay_base,
                                          scale_to=scale_to, grain=dl["grain"],
                                          sound_strips=strip_rows,
-                                         sound_base=overlay_base + len(ov_inputs))
+                                         sound_base=overlay_base + len(ov_inputs),
+                                         declick=declick)
 
     cmd = [str(FFMPEG), "-y"]
     if segments is not None:
@@ -21319,11 +21787,19 @@ def _sbe_render_edit(board: dict, edit: dict, *, music=None,
     push(f"[timeline] rendering {len(cuts)} clip(s) → {name}"
          + (f" ({kinds.get('still', 0)} still, {kinds.get('slug', 0)} black)"
             if (kinds.get("still") or kinds.get("slug")) else ""))
-    # `under` keeps the clips' own audio and ducks the bed beneath it. It is
-    # the right default for anything with a voice in it, but `replace` stays
-    # the default HERE because a beat-cut music video wants the track and
-    # nothing else, and that is what this path has always done.
-    mmode = str(music_mode or audio.get("mode") or "replace").lower()
+    # `under` keeps the clips' own audio and ducks the bed beneath it;
+    # `replace` throws every clip's sound away and plays the bed alone.
+    #
+    # The DEFAULT IS `under`, and it was `replace` until 2026-09-18: Saint
+    # Feld (13 shots of dialogue, a 20 s bed) rendered with 21 seconds of
+    # DIGITAL SILENCE in it — every shot whose sound was not also a strip on
+    # a lane came out mute, because the bed replaced it and the bed is 20 s
+    # long. Meanwhile the Editor's own selector reads "under the clips"
+    # (editor.js: `sbeSetMusicMode(... || 'under')`) and only posts
+    # `music_mode` when there IS a soundtrack — so the screen said one thing
+    # and this function did another. A music video loses nothing by the
+    # change: ducking a bed under silent clips plays the bed.
+    mmode = str(music_mode or audio.get("mode") or "under").lower()
     # `timeline=` rather than `clips=` + `plan=`: the cut list is the film now,
     # kinds and all. A slug has no path, so it could never have appeared in the
     # `clips` argument, and a still's `-i` needs `-loop 1 -t` in front of it —
@@ -21338,7 +21814,7 @@ def _sbe_render_edit(board: dict, edit: dict, *, music=None,
         music_end=win["end"], music_delay=win["delay"], music_mode=mmode,
         music_gain=sedit.bed_render_gain(edit),
         overlays=sedit.overlay_items(edit),
-        deliver=dl, sound_strips=strips or None)
+        deliver=dl, sound_strips=strips or None, declick=SB_DECLICK_S)
     film["gaps"] = gaps
     if gaps:
         # An honest limitation, disclosed rather than discovered: this
@@ -21350,6 +21826,9 @@ def _sbe_render_edit(board: dict, edit: dict, *, music=None,
             f"concatenation — the film is that much shorter than the "
             f"timeline.")
     film["timeline_duration"] = sedit.edit_duration(edit)
+    # Say it out loud: `replace` means the clips are mute in the delivered
+    # file, and that must not be something a caller has to infer.
+    film["music_mode"] = mmode
     return film
 
 
@@ -22193,6 +22672,81 @@ def _sbe_add_sound(board: dict, path: str) -> dict:
             "imported": imported}
 
 
+def _sbe_room_tone_dir(board: dict) -> Path:
+    """Where the film's room-tone beds live: `<film>/audio/room_tone/`. Under
+    OUTPUT so the preview can play them, and one level below `audio/` so the
+    Sound pool (which lists `audio/` itself) is not filled with takes."""
+    return _sbe_sound_dir(board) / "room_tone"
+
+
+def _sbe_room_tone(board: dict, *, variant: str = "film", seed: int = 1,
+                   film_len: float = 0.0, clips: list | None = None,
+                   strict: bool = False) -> dict:
+    """Make (or reuse) a room-tone bed for this film → `room_tone.make_bed`'s
+    facts plus `ok`. `clips` are `[{path, start, end}]` in source seconds —
+    the timeline the user is looking at, which may be ahead of the saved one.
+    Only files that exist are read. CPU and about a second; no GPU, no queue."""
+    import room_tone as rt                                           # noqa: PLC0415
+    if variant not in rt.variant_ids():
+        return {"ok": False, "status": 400, "error": f"unknown room tone: {variant}"}
+    rows = []
+    for c in clips or []:
+        if not isinstance(c, dict):
+            continue
+        pth = str(c.get("path") or "")
+        try:
+            st = max(0.0, float(c.get("start") or 0.0))
+            en = float(c.get("end") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if pth and en > st and Path(pth).is_file():
+            rows.append({"path": pth, "start": st, "end": en})
+    t0 = time.time()
+    facts = rt.make_bed(_sbe_room_tone_dir(board), variant=variant, seed=seed,
+                        film_len=film_len, clips=rows, strict=strict)
+    if not facts.get("path"):
+        return {"ok": False, "status": 422, **facts,
+                "error": f"no room tone from this film: {facts.get('fallback')}"}
+    if not facts.get("reused"):
+        push(f"[timeline] room tone: {facts['label']} (take {facts['seed']}, "
+             f"{facts['duration']:g} s) in {time.time() - t0:.1f} s"
+             + (f" — {facts['fallback']}, so a preset stands in"
+                if facts.get("fallback") else ""))
+    return {"ok": True, **facts}
+
+
+def _sbe_room_tone_auto(board: dict, edit: dict, sedit) -> None:
+    """Lay a "From this film" bed under an automatic cut, when the setting is
+    on. Mutates `edit`. Best-effort: a bed that cannot be made is a log line,
+    never a failed cut."""
+    if not bool(get_settings().get("room_tone_auto", True)):
+        return
+    if sedit.room_tone_track(edit) or not (edit.get("clips") or []):
+        return
+    # A MUSIC VIDEO IS LEFT ALONE: a soundtrack in `replace` mode throws the
+    # clips' own sound away, so there are no cuts in the sound to smooth and a
+    # bed would only be hiss under the song.
+    aud = edit.get("audio") or {}
+    if aud.get("path") and str(aud.get("mode") or "replace").lower() == "replace":
+        return
+    clips = [{"path": c.get("path"), "start": c.get("start"), "end": c.get("end")}
+             for c in edit.get("clips") or []
+             if isinstance(c, dict) and sedit.clip_kind(c) == "video"]
+    film_len = sedit.edit_duration(edit)
+    try:
+        import room_tone as rt                                       # noqa: PLC0415
+        facts = _sbe_room_tone(board, variant="film", seed=1,
+                               film_len=film_len, clips=clips, strict=True)
+        if not facts.get("ok"):
+            push(f"[timeline] no automatic room tone: {facts.get('error')}")
+            return
+        track = sedit.room_tone_new_track(facts, film_len, level=rt.DEFAULT_LEVEL)
+    except Exception as exc:                                         # noqa: BLE001
+        push(f"[timeline] room tone skipped: {type(exc).__name__}: {exc}")
+        return
+    edit["audio_tracks"] = list(edit.get("audio_tracks") or []) + [track]
+
+
 def _sbe_proxy_now(board_dir: Path, paths: list[str], sedit) -> dict:
     """Build proxies for EXACTLY these paths, and prune nothing.
 
@@ -22275,13 +22829,16 @@ def _sbe_auto_edit(board: dict, *, music: str | None = None,
         audio = {"path": str(music), "offset": 0.0,
                  "peaks": "peaks.json" if peaks else None,
                  "duration": dur}
-    return sedit.edit_from_plan(
+    edit = sedit.edit_from_plan(
         plan, board_id=board["id"], audio=audio, beats=beats,
         proxies=_sbe_proxy_map(bdir, clips, sedit),
         labels={c["path"]: f"S{(c.get('n') or 0):02d} · {c['title']}"
                 for c in clips},
         settings={"target_seconds": target_seconds, "min_shot": min_shot,
                   "max_shot": max_shot})
+    # ROOM TONE UNDER EVERY CUT THE MACHINE MAKES (setting `room_tone_auto`).
+    _sbe_room_tone_auto(board, edit, sedit)
+    return edit
 
 
 def _sbe_relinks(board: dict, edit: dict) -> list[dict]:
@@ -22728,6 +23285,36 @@ def failure_line(tail) -> str:
     return lines[-1]
 
 
+#: `File "<path>", line N, in <func>` — one Python traceback frame.
+_TB_FRAME_RX = re.compile(r'^\s*File "([^"]+)", line (\d+), in (\S+)')
+
+
+def failure_frame(tail) -> str:
+    """`file.py:LINE in func` for the deepest frame in a traceback tail.
+
+    The exception sentence alone is not a diagnosis. Fleet 2026-09-18: two
+    `standard_15s` I2V renders on 4.14.3 died with
+    `TypeError: repeat(): incompatible function arguments` and nothing else —
+    and `repeat` appears in exactly one place in the engine, which is not
+    enough to tell a live-preview decode from a VAE upsample. The frame is
+    what turns that into a line of code. Basename only: a user's folder names
+    are theirs, and the file is ours.
+    """
+    frame = ""
+    for line in [str(t) for t in tail if str(t or "").strip()]:
+        m = _TB_FRAME_RX.match(line)
+        if m:
+            frame = f"{Path(m.group(1)).name}:{m.group(2)} in {m.group(3)}"
+    return frame
+
+
+def failure_where(tail) -> str:
+    """`failure_line` plus the frame that raised it, when there is one."""
+    cause = failure_line(tail)
+    frame = failure_frame(tail)
+    return f"{cause} (at {frame})" if cause and frame else cause
+
+
 def _helper_start_failure(ready: dict | None, tail) -> str:
     """The sentence the user gets when the render helper never comes up.
 
@@ -22738,7 +23325,7 @@ def _helper_start_failure(ready: dict | None, tail) -> str:
     `helper failed to start: {'event': 'exit', 'reason': 'python_normal_exit'}`
     — which means "it printed a traceback and exited" and told nobody that.
     """
-    cause = failure_line(tail)
+    cause = failure_where(tail)
     event = (ready or {}).get("event") if isinstance(ready, dict) else None
     if ready is None:
         what = "it never reported ready"
@@ -23279,6 +23866,15 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # or a curl must never reach the worker asking for an adapter this install
     # doesn't have).
     _h3_turbo = (f("h3_turbo", "") or "").strip().lower() in ("1", "true", "on", "yes")
+    # Speed switch: "1" = Fast (TaoMate 3-step adapter), "0" = Best (the
+    # shape's own sampler), absent/"auto" = the default: Fast on Draft,
+    # Standard and High when installed, unless a Steps pin says which sampler
+    # depth this render wants. Resolved against the FINAL cell below.
+    _h3_tristep_raw = (f("h3_tristep", "") or "").strip().lower()
+    _h3_tristep_want = (True if _h3_tristep_raw in ("1", "true", "on", "yes")
+                        else False if _h3_tristep_raw in ("0", "false", "off", "no")
+                        else None)
+    _h3_tristep = False
     # Which of the runner's ONE adapter slots this render spends. H3's
     # `--lora` is a single path (`default=None`, not `action="append"` — see
     # scripts/generate_staged.py), so a user LoRA and Turbo are mutually
@@ -23339,6 +23935,39 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                     + "; ".join(_turbo["missing"]) + ")."
                 ) + f" Rendering at this shape's own {H3_TIERS[_h3_tier]['steps']} steps.")
                 _h3_turbo = False
+        # Fast. The default on Draft/Standard/High; never on Native or the
+        # dense pass; only when installed; never together with Turbo (two
+        # step-distillation adapters on one render is a recipe nobody
+        # validated) — Fast wins when both arrive, and says so. A Steps pin
+        # keeps Best unless the form explicitly asked for Fast.
+        if _h3_tristep_want is not False and h3_available():
+            _tcell = H3_TIERS[_h3_tier]
+            if not h3_cell_takes_tristep(_tcell):
+                if _h3_tristep_want:
+                    push("Fast (3 steps) runs on Draft, Standard and High "
+                         f"(5 s windows) — rendering {_tcell['label']} at Best.")
+            elif not _h3_tristep_want and not h3_cell_tristep_default(_tcell):
+                pass            # a canvas where Fast is not the default
+            elif _h3_tristep_want or not _h3_steps:
+                _tri = h3_tristep_status()
+                if _tri["available"]:
+                    _h3_tristep = True
+                elif _h3_tristep_want:
+                    push("Fast (3 steps) requested but " + (
+                        "this H3 runner has no --sigma-subset — update the H3 "
+                        "runner." if not _tri["supported"] else
+                        "its adapter isn't downloaded ("
+                        + "; ".join(_tri["missing"]) + ").")
+                        + " Rendering at Best.")
+        if _h3_tristep:
+            if _h3_turbo:
+                push("Fast (3 steps): Turbo is not stacked on the 3-step "
+                     "adapter — Turbo is off for this render.")
+                _h3_turbo = False
+            if _h3_steps:
+                push(f"Fast runs {H3_TRISTEP_FORWARDS} forwards on "
+                     f"its own ladder — ignoring the {_h3_steps}-step override.")
+                _h3_steps = 0
         # Per-window prompts, matched to the cell that will ACTUALLY render.
         # Normalising after the fallback above is the whole point: a 15 s
         # request that degraded to 5 s has one window, and three prompts on a
@@ -23469,6 +24098,10 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # this dict — leaving `h3_turbo` out of here is how the control
             # would look wired, pass validation, and silently render at 9.
             "h3_turbo": _h3_turbo,
+            # Speed switch: Fast (TaoMate adapter + its sigma ladder) or not,
+            # resolved above. SAME allowlist trap: leave it out and the switch
+            # silently renders Best.
+            "h3_tristep": _h3_tristep,
             # Which of H3's ONE adapter slots this render spends: "turbo"
             # (default) or "user". SAME allowlist trap as every key in this
             # dict — leave `h3_lora_slot` out and the Turbo-vs-LoRA control
@@ -23693,6 +24326,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         # both ride the SAME path the tier default does (nothing downstream
         # branches on WHY the count is what it is).
         job["params"]["steps"] = int(
+            H3_TRISTEP_STEPS if _h3_tristep else
             h3_turbo_steps() if _h3_turbo else (_h3_steps or _tier_cfg["steps"]))
         job["params"]["h3_chain_windows"] = int(_tier_cfg.get("chain_windows") or 1)
         job["params"]["h3_window_frames"] = int(
@@ -24833,7 +25467,7 @@ def run_train_job_inner(job: dict) -> None:
     # be PLACED (#61): the caption encode is the phase that dies on some
     # chips, and the only one worth relaunching — see _train_encode_retry.
     _train_phase = "start"
-    _train_env = {**os.environ}
+    _train_env = trainer_child_env()
     _encode_retried = False
     try:
         while True:
@@ -25236,7 +25870,7 @@ def run_train_job_inner(job: dict) -> None:
             stderr=subprocess.STDOUT,
             text=True, errors="replace",
             bufsize=1,
-            env={**os.environ},
+            env=trainer_child_env(),
             # Same reasoning as the face trainer above — own pgid so
             # /stop can SIGTERM the whole audio tree at once.
             start_new_session=True,
@@ -26068,6 +26702,37 @@ def run_h3_job_inner(job: dict) -> None:
             turbo_paths = h3_turbo_paths()
         steps = h3_turbo_steps(turbo_paths)
 
+    # ---- Speed "Fast": TaoMate 3-step adapter + its sigma ladder ----------
+    # make_job resolved it; re-check here for the same reason as Turbo (a
+    # queued job outlives the file), and keep the two adapters exclusive even
+    # for a hand-edited queue entry.
+    tristep = bool(p.get("h3_tristep"))
+    tristep_paths: dict = {}
+    if tristep and not h3_cell_takes_tristep(tier):
+        tristep = False
+        p["h3_tristep"] = False
+        push(f"[h3] Fast (3 steps) runs on Draft, Standard and High — "
+             f"{tier['label']} renders at Best.")
+    if tristep:
+        if turbo:
+            turbo = False
+            p["h3_turbo"] = False
+            turbo_paths = {}
+            push("[h3] Turbo is not stacked on Fast (3 steps) — Turbo off.")
+        if not h3_supports_sigma_subset():
+            raise RuntimeError(
+                "Fast (3 steps) needs `--sigma-subset`: "
+                + _h3_runner_behind("--sigma-subset", paths["runner"],
+                                    "Or pick Best under Speed."))
+        tristep_paths = h3_tristep_paths()
+        if not tristep_paths["files_ok"]:
+            raise RuntimeError(
+                "Fast's 3-step adapter isn't on disk: "
+                + "; ".join(tristep_paths["missing"])
+                + f". Expected under {tristep_paths['dir']} — pick Best under "
+                  f"Speed, or click Fast to install it (180 MB).")
+        steps = H3_TRISTEP_STEPS
+
     # First-frame conditioning (Image mode). The flag landed on the runner
     # after the first public branch, so probe the INSTALLED script rather than
     # assuming; an older pack renders Text fine and must fail here with a
@@ -26261,7 +26926,9 @@ def run_h3_job_inner(job: dict) -> None:
     # delivery render can silently pick up a draft decoder.
     tae_used = False
     _tae = None
-    if tier.get("draft") and h3_supports_tae_draft():
+    # NOT on a Fast draft: its owner-approved look is the full VAE
+    # decode, and it is the clip an Upscale & Face Fix pass starts from.
+    if tier.get("draft") and not tristep and h3_supports_tae_draft():
         _tae = h3_tae_checkpoint()
         if _tae is not None:
             cmd += ["--draft-decode", "tae", "--tae-checkpoint", str(_tae)]
@@ -26293,6 +26960,11 @@ def run_h3_job_inner(job: dict) -> None:
         # CLI still requires PATH:SCALE; 1.0 means "as repacked". Never pass
         # the raw v0.1 file here — its missing alpha/rank fold renders noise.
         cmd += h3_turbo_argv(turbo_paths)
+    if tristep:
+        # The adapter first, then the user's stack — each `--lora` is one more
+        # delta on the same base layers (416 wrapped, 0 unaccounted measured
+        # with a character + a style LoRA on top).
+        cmd += h3_tristep_argv(tristep_paths)
     if user_lora is not None and (not turbo or h3_supports_lora_stack()):
         # The SAME flag Turbo rides. On a stacking runner every `--lora` is one
         # more adapter on the same base layers, Turbo first; on the single-slot
@@ -26315,6 +26987,8 @@ def run_h3_job_inner(job: dict) -> None:
          f"{steps} sigma points ({steps - 1} forwards) · seed {seed}"
          + (" · Q8 DiT (low-RAM)" if _dit_kind == "q8" else "")
          + (" · Turbo (4-step distill LoRA)" if turbo else "")
+         + (f" · Fast, 3 steps (TaoMate adapter {tristep_paths['version']}, "
+            f"σ subset {H3_TRISTEP_SIGMA_SUBSET})" if tristep else "")
          + (f" · LoRA {user_lora.name} @ {user_lora_strength:g}"
             if (user_lora is not None and not turbo) else "")
          + (" · fast draft decode (TAE)" if tae_used else "")
@@ -26452,7 +27126,11 @@ def run_h3_job_inner(job: dict) -> None:
         # see and users rarely paste). Traceback tails are what we want.
         # Deep enough to hold a whole Python traceback's tail: the line that
         # names the exception can sit several lines above the last one.
-        _h3_tail: collections.deque = collections.deque(maxlen=14)
+        # 40, not 14: nanobind prints its whole accepted-signature block
+        # under the exception, which pushed every `File "...", line N`
+        # frame out of the window — so the fleet got an exception with no
+        # line of code behind it (4.14.3 `repeat()` I2V crashes).
+        _h3_tail: collections.deque = collections.deque(maxlen=40)
         for raw in _h3_lines():
             line = raw.rstrip("\n")
             if not line.strip():
@@ -26598,7 +27276,7 @@ def run_h3_job_inner(job: dict) -> None:
                 raise RuntimeError(
                     f"H3 helper exited from {_sig} ({_hint}) — see the log "
                     f"above (metrics at {metrics_path}).")
-            _last = failure_line(_h3_tail)
+            _last = failure_where(_h3_tail)
             raise RuntimeError(
                 f"H3 render exited with code {rc}"
                 + (f" — last line: {_last[:220]}" if _last else "")
@@ -26728,6 +27406,8 @@ def run_h3_job_inner(job: dict) -> None:
             # Turbo") rather than an absence the reader has to guess about —
             # this is what Load Params, Draft → Finish and the ⓘ modal read.
             "h3_turbo": turbo,
+            # Same rule for the fast 3-step sampler (False = the shape's own).
+            "h3_tristep": tristep,
             "width": width, "height": height, "frames": frames, "steps": steps,
             "seed_used": seed,
             # The user's OWN reference, not the canvas crop made from it: the
@@ -26796,6 +27476,28 @@ def run_h3_job_inner(job: dict) -> None:
                        "accounting": (metrics.get("lora_accounting")
                                       or metrics.get("w1_lora_accounting"))}
                       if turbo else None),
+            # The fast 3-step sampler's provenance: which file, where it came from,
+            # under what license, and the schedule the runner actually ran.
+            "tristep": ({"lora": str(tristep_paths["lora"]),
+                         "adapter_version": tristep_paths["version"],
+                         "repo": H3_TRISTEP_REPO,
+                         "revision": H3_TRISTEP_REVISION,
+                         "sha256": (H3_TRISTEP_SHA256
+                                    if tristep_paths["version"] == "r19-kijai"
+                                    else None),
+                         "source_repo": H3_TRISTEP_SOURCE_REPO,
+                         "license": H3_TRISTEP_LICENSE,
+                         "scale": 1.0,
+                         "steps": steps,
+                         "forwards": H3_TRISTEP_FORWARDS,
+                         "sigma_subset": H3_TRISTEP_SIGMA_SUBSET,
+                         "decode": "full"}
+                        if tristep else None),
+            # The sigma ladder each window ran (runner's own record).
+            "schedule": (metrics.get("schedule") or metrics.get("w1_schedule")),
+            # Every adapter the runner wrapped, and the must-be-zero count.
+            "lora_accounting": (metrics.get("lora_accounting")
+                                or metrics.get("w1_lora_accounting")),
             "chain_windows": chain_windows,
             "window_frames": window_frames,
             # The RESOLVED shot list — blanks already filled from the main
