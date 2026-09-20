@@ -170,6 +170,59 @@ HELPER_SCRIPT = Path(os.environ.get("LTX_HELPER_SCRIPT", str(ROOT / "mlx_warm_he
 # at `env/bin/python3.11`. The warning + remediation line saves a
 # round-trip on every install variation that lands in a non-standard
 # layout.
+def engine_env_fault() -> str:
+    """"" when the engine environment can run a render, else the reason.
+
+    TWO SHAPES, and only the first one was ever checked. The interpreter can
+    be MISSING (a Reset that took the venv, a moved install) — that one has
+    been caught at boot since issue #5. Or the interpreter can be PRESENT with
+    the engine package never installed into it, which is what a pip step that
+    failed halfway leaves behind. The second shape looks healthy to every file
+    check we had, and it fails 30 seconds into a render instead: three installs
+    in the fleet on 4.13.0 / 4.14.3 / 4.15.0, one of them 28 renders in a row,
+    every one of them dying at helper start with
+
+        ModuleNotFoundError: No module named 'ltx_pipelines_mlx'
+
+    Checking the package DIRECTORY rather than importing keeps this cheap
+    enough to run at boot and before every helper spawn: pip writes that
+    directory last, so its absence is the same evidence an import would give.
+    """
+    if not HELPER_PYTHON.is_file():
+        return (f"the engine venv has no Python at {HELPER_PYTHON} — the "
+                f"ltx-2-mlx environment was never built, or something removed it")
+    root = HELPER_PYTHON.parent.parent
+    # ONLY JUDGE A VENV. `LTX_HELPER_PYTHON` exists so a developer can point
+    # the panel at an interpreter somewhere else entirely, and for
+    # /opt/homebrew/bin/python3.11 this arithmetic lands on /opt/homebrew —
+    # whose site-packages legitimately has no ltx_pipelines_mlx in it. Faulting
+    # there would block renders on a working machine. `pyvenv.cfg` is what
+    # makes a directory a venv, so its absence means "not ours to judge".
+    if not (root / "pyvenv.cfg").is_file():
+        return ""
+    try:
+        pkgs = [d for d in (root / "lib").glob("python*/site-packages") if d.is_dir()]
+    except OSError:
+        pkgs = []
+    if pkgs and not any((d / "ltx_pipelines_mlx").exists() for d in pkgs):
+        return ("the engine venv has a Python but no packages — "
+                "ltx_pipelines_mlx never finished installing into it")
+    return ""
+
+
+# Wording is load-bearing twice over. It must name the exact sidebar entry a
+# user has to click, and it must not contain a word that an EARLIER row of the
+# error taxonomy claims: "missing (" belongs to model_missing and "download" to
+# download_failed, and either one would file this fault under the wrong heading
+# in the fleet view, and "fetch" belongs to download_failed (checked against
+# the live classifier, not guessed). The phrase that has to survive is "venv",
+# which is how venv_broken finds it.
+ENGINE_ENV_REPAIR = (
+    "Fix it from the Pinokio sidebar: \"Repair Phosphene engine (models "
+    "kept)\" rebuilds the venv and keeps every model you have. Update works too. "
+    "Renders cannot run until it is repaired."
+)
+
 if not HELPER_PYTHON.is_file():
     sys.stderr.write(
         f"WARN: helper Python not found at {HELPER_PYTHON}\n"
@@ -177,24 +230,88 @@ if not HELPER_PYTHON.is_file():
         f"      Renders will fail until either path exists, or LTX_HELPER_PYTHON\n"
         f"      is exported pointing at a working python3.11 with mlx + ltx-pipelines.\n"
     )
-# ffmpeg: env var → PATH → Pinokio bundled → Homebrew → /usr/local. First match wins.
+else:
+    _env_fault = engine_env_fault()
+    if _env_fault:
+        sys.stderr.write(f"WARN: {_env_fault}.\n      {ENGINE_ENV_REPAIR}\n")
+def _pinokio_bin_dirs() -> list:
+    """Pinokio's own tool folders, newest layout first.
+
+    Pinokio's bootstrap installs `ffmpeg`, `git`, `node` and friends into a
+    conda prefix under its home (`bin/miniforge/bin`, `bin/miniconda/bin` on
+    older installs) and unpacks a private Homebrew beside it. None of those
+    are guaranteed to be on PATH when it launches an app — which is the whole
+    reason this helper exists."""
+    home = (Path(os.environ["PINOKIO_HOME"]).expanduser()
+            if os.environ.get("PINOKIO_HOME")
+            else ROOT.parent.parent if ROOT.parent.name == "api" else None)
+    dirs = []
+    for base in (home, Path.home() / "pinokio"):
+        if not base:
+            continue
+        dirs += [base / d for d in ("bin/ffmpeg-env/bin", "bin/miniforge/bin",
+                                    "bin/miniconda/bin", "bin/homebrew/bin")]
+    # PINOKIO_HOME is usually ~/pinokio, so both loops find the same folders.
+    # Deduped, order preserved, because this list is also printed to the user.
+    return list(dict.fromkeys(dirs))
+
+
+# ffmpeg: env var -> PATH -> Pinokio's own tool folders -> Homebrew -> /usr/local.
+# First match wins.
+#
+# THE MISS THIS EXISTS TO CLOSE (fleet, 2026-09-20): five installs across
+# 4.5.0 -> 4.15.0 failed their export with "ffmpeg not found on PATH", and the
+# H3 runner spawn has prepended FFMPEG_BIN to the child's PATH the whole time.
+# The bug was one level up: this resolver only knew `bin/ffmpeg-env`, while
+# Pinokio's bootstrap installs `ffmpeg=8.1.2` into its CONDA prefix
+# (`bin/miniforge/bin`) and unpacks a private Homebrew next to it. On a Mac
+# with no system ffmpeg the resolver fell through to a `/usr/local` path that
+# does not exist, and every engine that shells out to it died — a working
+# binary sitting two directories away the whole time.
+def _resolve_tool(name: str, env_var: str) -> Path:
+    override = os.environ.get(env_var)
+    if override and Path(override).exists():
+        return Path(override)
+    found = shutil.which(name)
+    if found:
+        return Path(found)
+    for d in _pinokio_bin_dirs() + [Path("/opt/homebrew/bin"),
+                                    Path("/usr/local/bin"),
+                                    Path("/opt/local/bin")]:
+        cand = d / name
+        if cand.exists():
+            return cand
+    return Path("/usr/local/bin") / name   # will fail at runtime if missing
+
+
 def _resolve_ffmpeg() -> Path:
-    candidates = [
-        os.environ.get("LTX_FFMPEG"),
-        shutil.which("ffmpeg"),
-        str(Path.home() / "pinokio/bin/ffmpeg-env/bin/ffmpeg"),
-        "/opt/homebrew/bin/ffmpeg",
-        "/usr/local/bin/ffmpeg",
-    ]
-    for c in candidates:
-        if c and Path(c).exists():
-            return Path(c)
-    return Path("/usr/local/bin/ffmpeg")  # last-resort default; will fail at runtime if missing
+    return _resolve_tool("ffmpeg", "LTX_FFMPEG")
+
+
+def _resolve_ffprobe(ffmpeg: Path) -> Path:
+    """ffprobe ships beside ffmpeg in every distribution we support, so that
+    is the first guess — but only if it is actually there. A Mac that got its
+    ffmpeg from one place and its ffprobe from another used to end up with a
+    path that never existed, and the panel's duration probe failed with a bare
+    "ffprobe failed:" (3 installs in the fleet)."""
+    beside = ffmpeg.parent / "ffprobe"
+    return beside if beside.exists() else _resolve_tool("ffprobe", "LTX_FFPROBE")
 
 
 FFMPEG = _resolve_ffmpeg()
 FFMPEG_BIN = FFMPEG.parent
-FFPROBE = FFMPEG.parent / "ffprobe"  # ships next to ffmpeg in every distribution we support
+FFPROBE = _resolve_ffprobe(FFMPEG)
+# Say it at boot, the way a missing helper venv is said above: an export that
+# dies 20 minutes into a render is a terrible place to learn this.
+if not FFMPEG.exists():
+    _looked = ", ".join(str(d) for d in _pinokio_bin_dirs())
+    sys.stderr.write(
+        "WARN: ffmpeg not found. Looked on PATH and in: "
+        + _looked + ", /opt/homebrew/bin, /usr/local/bin, /opt/local/bin.\n"
+        "      Renders will finish and then fail to export.\n"
+        "      Fix: install ffmpeg, or export LTX_FFMPEG=/path/to/ffmpeg.\n"
+    )
+
 
 Q4_LOCAL_PATH = MODELS_DIR / "ltx-2.3-mlx-q4"
 MODEL_ID = os.environ.get(
@@ -10167,6 +10284,87 @@ def h3_prune_prompt_cache(keep: int = H3_PROMPT_CACHE_KEEP) -> int:
     return dropped
 
 
+H3_MLX_MIN = (0, 32)
+
+
+def _venv_dist_version(python: Path, dist: str) -> tuple | None:
+    """Version of an installed distribution, read off its `.dist-info`
+    directory name. `None` when the package isn't there at all.
+
+    A directory listing rather than a subprocess on purpose: this runs on the
+    path to a render, and `python -c "import mlx"` costs a second and loads
+    Metal. pip writes the dist-info name from the wheel's own metadata, so it
+    is the same string `importlib.metadata.version()` would return."""
+    try:
+        for site in (python.parent.parent / "lib").glob("python*/site-packages"):
+            for d in site.glob(f"{dist}-*.dist-info"):
+                raw = d.name[len(dist) + 1:-len(".dist-info")]
+                parts = []
+                for chunk in raw.split(".")[:3]:
+                    # LEADING digits only. "0.33.0rc1" is 0.33.0, not 0.33.1 —
+                    # sweeping up every digit in the chunk turns a release
+                    # candidate into a higher version than the release.
+                    m = re.match(r"\d+", chunk)
+                    if not m:
+                        break
+                    parts.append(int(m.group(0)))
+                if parts:
+                    return tuple(parts)
+    except Exception:                                          # noqa: BLE001
+        return None
+    return None
+
+
+def h3_mlx_fault() -> str:
+    """"" when the H3 venv's MLX can run the H3 runner, else the reason.
+
+    THE FAILURE THIS CATCHES, from the fleet on 4.14.3 and 4.15.0:
+
+        TypeError: seed(): incompatible function arguments
+        TypeError: repeat(): incompatible function arguments
+
+    Both are MLX signature drift, and both arrive ~8 minutes into a render
+    with nothing in them that names MLX as the problem. H3 needs mlx>=0.32
+    while Phosphene's own engine pins mlx==0.31.1 (0.31.2 regresses LTX audio
+    by 22 dB) — which is exactly why H3 has a separate venv. A venv that ends
+    up holding the older MLX anyway — a stray `pip install` into it, a package
+    that pulled MLX down as a dependency — produces those two lines and
+    nothing else.
+
+    Phrasing note, same as engine_env_fault: the word "venv" is what files
+    this under venv_broken in the fleet view, and "missing (" / "download" /
+    "fetch" would file it somewhere wrong."""
+    py = _h3_python()
+    if py is None:
+        return ""     # not installed is h3_paths()'s story, not this one
+    got = _venv_dist_version(py, "mlx")
+    if got is None:
+        # UNKNOWN IS NOT BROKEN. `LTX_H3_PYTHON` can point at an interpreter
+        # in a layout this probe does not understand, and a dist-info we
+        # cannot find is not evidence of a package that is not there — it is
+        # the absence of evidence. Refusing here would block H3 on a machine
+        # where it works. Only say something when the venv is legible and the
+        # package is genuinely absent from it.
+        if not any((py.parent.parent / "lib").glob("python*/site-packages")):
+            return ""
+        return ("the Hailuo H3 venv has no MLX installed — its packages never "
+                "finished landing")
+    if got < H3_MLX_MIN:
+        have = ".".join(str(n) for n in got)
+        want = ".".join(str(n) for n in H3_MLX_MIN)
+        return (f"the Hailuo H3 venv has MLX {have}, and the H3 runner needs "
+                f"{want} or newer — on {have} it dies partway through a render "
+                f"with \"seed(): incompatible function arguments\"")
+    return ""
+
+
+H3_MLX_REPAIR = (
+    "Fix it from the Pinokio sidebar: \"Repair Hailuo H3\" reinstalls that "
+    "venv's packages and keeps every weight you have. LTX renders are "
+    "unaffected — the two engines keep separate venvs for this exact reason."
+)
+
+
 def h3_paths() -> dict:
     """Resolve every H3 component. Never raises — reports what's missing so
     the UI can render an honest install card instead of a stack trace."""
@@ -13633,15 +13831,27 @@ ANALYTICS_API_HOST_DEFAULT = "https://us.posthog.com"
 ANALYTICS_TIMEOUT_SEC = 2.0
 ANALYTICS_STR_MAX = 120
 
-# The value we put in the event's own $ip property so PostHog never writes the
-# connecting address there. It has to be a TRUTHY string: PostHog's ingest fills
-# properties.$ip from the socket only when the event didn't carry one
-# (`if (!properties['$ip'] && event.ip)`), so `None` — the obvious spelling — is
-# falsy and gets silently replaced by the real address. 0.0.0.0 is also chosen
-# over the more natural 127.0.0.1: the GeoIP transformation rewrites loopback
-# and 192.168.* to a real Swedish address for local-dev convenience, which would
-# manufacture a location if the disable flag below were ever dropped.
-ANALYTICS_IP_PLACEHOLDER = "0.0.0.0"
+# Location is DERIVED BY THE RECEIVER, on purpose, since 2026-09-19. The panel
+# still sends no location field of its own and never has — it doesn't have to:
+# PostHog resolves country and city from the connecting address, and the fleet
+# view wants them (which build is failing, and where). Two properties used to
+# suppress that, both shipped 2026-08-12 → 2026-09-19, and both are now gone
+# deliberately:
+#
+#   $geoip_disable: True    switched the receiver's GeoIP step off outright.
+#   $ip: "0.0.0.0"          occupied the property so the connecting address was
+#                           never copied onto the stored event — which ALSO
+#                           killed the lookup, because the step reads
+#                           properties.$ip and resolves nothing from 0.0.0.0.
+#
+# Reintroducing either silently empties the country and city columns for every
+# install, so neither may come back without changing docs/ANALYTICS.md in the
+# same commit. What replaces them is a PROJECT-side setting on the receiver
+# (PostHog → Project settings → *Discard client IP data*): PostHog runs the
+# GeoIP transformation first and discards the address afterwards, so country
+# and city are stored and the address is not. That is a setting on the project,
+# not a fact this source tree can assert — same discipline as everywhere else
+# in this module: state it, say who can check it, promise nothing.
 
 # Instructions to the receiver, attached to every event next to our own
 # properties. They are spread LAST in _analytics_post so no call site can
@@ -13650,8 +13860,6 @@ ANALYTICS_IP_PLACEHOLDER = "0.0.0.0"
 # turning red. See _analytics_post for what each one does and does not buy.
 _ANALYTICS_RECEIVER_DIRECTIVES = {
     "$process_person_profile": False,
-    "$geoip_disable": True,
-    "$ip": ANALYTICS_IP_PLACEHOLDER,
 }
 
 # Local mirror. Written for every captured event whether or not a PostHog
@@ -13683,8 +13891,17 @@ _ANALYTICS_FORBIDDEN_KEYS = frozenset({
 # Absolute-path shapes to redact from error signatures. Applied in order:
 # the anchored pass catches the macOS roots a Phosphene error is likely to
 # quote, the generic pass catches anything else with 2+ path segments.
+#
+# `~` ONLY COUNTS AS A HOME DIRECTORY WHEN A SLASH FOLLOWS IT. It used to
+# match on its own, and the casualty was our own prose: the fleet is full of
+# signatures reading "this engine needs <path>32 GB free RAM" and "H3 needs
+# about <path>64 GB", because "~32 GB" is how a person writes an approximate
+# number. Both of those are panel copy, both are the most useful line in the
+# report, and the redactor was quietly eating the tilde out of the middle of
+# them. A home path always continues with a separator; an approximation never
+# does.
 _ANALYTICS_PATH_RES = (
-    re.compile(r"(?:~|/(?:Users|home|private|var|tmp|opt|Volumes|Applications"
+    re.compile(r"(?:~(?=/)|/(?:Users|home|private|var|tmp|opt|Volumes|Applications"
                r"|Library|System))(?:/[^\s'\"<>,;)\]]*)*"),
     re.compile(r"(?:/[\w.+\-]+){2,}/?"),
 )
@@ -13835,6 +14052,15 @@ def _analytics_clean_props(props: dict) -> dict:
         k = str(key)
         if k.lower() in _ANALYTICS_FORBIDDEN_KEYS:
             continue
+        if k.startswith("$"):
+            continue   # the receiver's namespace belongs to
+                       # _ANALYTICS_RECEIVER_DIRECTIVES, not to a call site.
+                       # This mattered less while the directives occupied $ip
+                       # and $geoip_disable and could not be overridden; now
+                       # that they don't, a stray "$ip" from a params dict
+                       # would spoof the address the GeoIP step reads and a
+                       # stray "$geoip_city_name" would invent a location.
+                       # Ours are spread in _analytics_post, after this pass.
         if isinstance(val, bool) or isinstance(val, int) or isinstance(val, float):
             out[k] = val
         elif isinstance(val, str):
@@ -13995,31 +14221,25 @@ def _usage_log_append(record: dict) -> None:
 def _analytics_post(payload: dict) -> None:
     """Single-event POST to the PostHog capture API. Never raises.
 
-    Every event carries _ANALYTICS_RECEIVER_DIRECTIVES — three instructions
-    to the receiver, verified against PostHog's ingest source rather than
+    Every event carries _ANALYTICS_RECEIVER_DIRECTIVES — one instruction to
+    the receiver, verified against PostHog's ingest source rather than
     assumed:
 
       $process_person_profile: False
           Don't build a person record for the install id. We want counts,
           not people.
-      $geoip_disable: True
-          PostHog's GeoIP transformation returns immediately instead of
-          deriving country, city, subdivision, timezone and the city's
-          coordinates. Its first statement is literally
-          `if (event.properties?.$geoip_disable or empty(...$ip))`, and this
-          is the same property posthog-python sets for disable_geoip=True.
-      $ip: ANALYTICS_IP_PLACEHOLDER
-          Ingest copies the connecting address into properties.$ip only when
-          the event didn't bring its own, so sending one is the only way to
-          keep the real address off the stored event. It must be truthy —
-          see ANALYTICS_IP_PLACEHOLDER for why `None` silently does nothing.
 
-    What this does NOT do, and what docs/ANALYTICS.md is careful not to
-    claim: the request still arrives over TCP from a real address, and no
-    field inside a request body can change that. What the panel controls is
-    what the receiver is instructed to derive from it and store on the
-    event. Discarding it at the edge as well is a project-side setting, not
-    something this code can assert."""
+    What is deliberately NOT here any more, as of 2026-09-19: `$geoip_disable`
+    and a placeholder `$ip`. Both shipped from 2026-08-12 and both stopped the
+    receiver deriving a location — the first by switching the GeoIP step off,
+    the second because that step reads properties.$ip and resolves nothing from
+    0.0.0.0. The fleet view wants country and city, so the panel now lets the
+    lookup happen and adds no location field of its own.
+
+    What this does NOT do, and what docs/ANALYTICS.md is careful to say in the
+    same words: the panel cannot promise what the receiver keeps. The address
+    is dropped after enrichment by a project-side setting (*Discard client IP
+    data*), which is a setting on the project, not a field in this body."""
     key = _analytics_key()
     if not key:
         return  # only reachable if a fork blanks the shipped key; the guard
@@ -14084,6 +14304,12 @@ _ANALYTICS_EVENTS = (
     # v4.9.7
     "feature_used", "app_updated", "update_prompt", "broadcast_seen",
     "queue_paused_breaker",
+    # v4.16.0 — the dark half of the funnel. 577 installs in 14 days and only
+    # 44.5% of them ever rendered; 278 booted once and were never seen again.
+    # Between `app_installed` and the first `render_*` the panel said nothing
+    # at all, so "they tried and it was broken" and "they looked and left"
+    # were the same shape in the data. These two close that.
+    "install_step", "update_outcome",
 )
 
 
@@ -14185,8 +14411,104 @@ def _analytics_boot() -> None:
                         "pack": name, "from": was, "to": packs[name],
                     })
         _settings_set_internal(analytics_last_packs=packs)
+        # ---- the install funnel, evaluated where the answers live ---------
+        # Ordered the way a new user meets them: the panel came up, its engine
+        # environment is usable, its weights are on disk. A person who never
+        # renders now leaves a trail that says WHICH of those three was false.
+        _analytics_install_step("first_boot", "ok")
+        _env_fault = engine_env_fault()
+        _analytics_install_step(
+            "engine_env", "failed" if _env_fault else "ok",
+            _analytics_error_class(_env_fault) if _env_fault else "")
+        _analytics_install_step(
+            "weights_check", "ok" if _analytics_weights_ready() else "failed")
+        # ---- did the last Update actually land ---------------------------
+        _pressed = str(get_settings().get("analytics_update_pressed") or "")
+        if _pressed:
+            _settings_set_internal(analytics_update_pressed="")
+            if _pressed != running_version():
+                _analytics_update_outcome("running_new", "ok", _pressed)
+            else:
+                # Pressed Update, came back on the same build. Either the pull
+                # failed or the app never actually restarted into a new one —
+                # both are the hole this event exists to measure.
+                _analytics_update_outcome("restart_pending", "failed", _pressed)
     except Exception:
         pass
+
+
+# Closed vocabularies. A value outside these never reaches the network: the
+# emitter drops it, and the dry-run suite fails the build if a call site
+# invents one. This is the same discipline as the error taxonomy, for the same
+# reason — a free-text step name is a field nobody can chart and a string
+# nobody reviewed.
+_INSTALL_STEPS = ("first_boot", "engine_env", "weights_check", "first_queue")
+_INSTALL_OUTCOMES = ("started", "ok", "failed", "skipped")
+_UPDATE_STAGES = ("running_new", "restart_pending")
+_UPDATE_OUTCOMES = ("ok", "failed")
+
+
+def _analytics_install_step(step: str, outcome: str, error_class: str = "") -> None:
+    """One step of getting from "installed" to "rendered".
+
+    AT MOST ONCE PER STEP PER INSTALL, and for `engine_env` once more each
+    time the answer CHANGES — a broken venv that gets repaired is the single
+    most useful transition on this event, and re-reporting an unchanged `ok`
+    on every boot would turn a 4-event lifetime into a heartbeat. The panel
+    has no heartbeats and docs/ANALYTICS.md says so.
+
+    No paths, no file names, no URLs, no byte counts, no host names. The only
+    thing carried besides the two closed words is `error_class`, which is the
+    existing closed taxonomy — deliberately NOT `error_signature` and NOT
+    `error_fingerprint`: an install-time error line is the likeliest place in
+    the whole product for a username-bearing path to survive scrubbing, and
+    the class alone answers the question this event exists to ask."""
+    try:
+        if step not in _INSTALL_STEPS or outcome not in _INSTALL_OUTCOMES:
+            return
+        seen = get_settings().get("analytics_install_steps")
+        seen = dict(seen) if isinstance(seen, dict) else {}
+        if seen.get(step) == outcome:
+            return
+        seen[step] = outcome
+        _settings_set_internal(analytics_install_steps=seen)
+        props = {"step": step, "outcome": outcome, "version": running_version()}
+        if error_class:
+            props["error_class"] = error_class
+        _analytics_capture("install_step", props)
+    except Exception:                                          # noqa: BLE001
+        pass
+
+
+def _analytics_update_outcome(stage: str, outcome: str, from_version: str = "") -> None:
+    """Did pressing Update actually produce a new version?
+
+    139 people pressed it in 14 days, 116 ran something new afterwards, and
+    23 did not — and the panel could not tell "the pull failed" from "they
+    never restarted". The UI records the press; this is read on the NEXT boot,
+    where the version either moved or it didn't."""
+    try:
+        if stage not in _UPDATE_STAGES or outcome not in _UPDATE_OUTCOMES:
+            return
+        props = {"stage": stage, "outcome": outcome, "version": running_version()}
+        if from_version:
+            props["from_version"] = from_version
+        _analytics_capture("update_outcome", props)
+    except Exception:                                          # noqa: BLE001
+        pass
+
+
+def _analytics_weights_ready() -> bool:
+    """Can this install render at all — are the base weights on disk?
+
+    Deliberately a directory probe and not a load: this runs at boot, and the
+    question is "did the download finish", which the presence of the pack's
+    own files answers."""
+    try:
+        d = Path(base_model_dir())
+        return d.is_dir() and any(d.glob("*.safetensors"))
+    except Exception:                                          # noqa: BLE001
+        return False
 
 
 def _analytics_job_secrets(job: dict) -> list:
@@ -14390,7 +14712,23 @@ _ANALYTICS_ERROR_CLASSES = (
     ("refused", tuple(n for _, ns in _ANALYTICS_REFUSAL_REASONS for n in ns)),
     ("metal_watchdog", ("kiogpucommandbuffercallbackerrortimeout",
                         "caused gpu timeout error")),
-    ("cancelled_race", ("cancel",)),
+    # THE OTHER Metal command-buffer failure, and it is not the watchdog.
+    # `kIOGPUCommandBufferCallbackErrorOutOfMemory` means the GPU ran out of
+    # memory; the timeout above means one buffer took too long. Both print
+    # "[METAL] Command buffer execution failed", so the fleet had them in one
+    # heap — and 17 events across 6 installs sat in `other` (the largest
+    # people-class we have) rather than saying "this machine needs a smaller
+    # canvas". Different cause, different remedy, different class.
+    ("metal_oom", ("kiogpucommandbuffercallbackerroroutofmemory",
+                   "command buffer execution failed: insufficient memory")),
+    # WAS the bare substring `cancel`, which is a loaded gun: it sat third in
+    # this table, above oom_jetsam and native_crash, so ANY future message
+    # containing the word "cancelled" would have been filed as a cancel race.
+    # What the panel actually emits here is one shape — mflux's
+    # "cancelled by /stop (rc=-9)" — and the 12 events in 90 days are all it.
+    # The panel's own cancellations read "Stopped before/during ...".
+    ("cancelled_race", ("cancelled by /stop", "stopped before ",
+                        "stopped during ", "stopped early")),
     ("oom_jetsam", ("sigkill", "helper died mid-job")),
     ("native_crash", ("sigsegv", "sigbus", "sigabrt")),
     ("helper_start_timeout", ("helper failed to start", "handshake")),
@@ -14449,7 +14787,23 @@ _ANALYTICS_ERROR_CLASSES = (
                        "resume install", "hq add-on", "missing (",
                        "runner is behind this panel")),
     ("venv_broken", ("venv", "dangling", "runner missing",
-                     "no module named")),
+                     "no module named",
+                     # The engine tree itself is absent. The fleet's shape is
+                     # `[Errno 2] No such file or directory: 'ltx-2-mlx<path>'`
+                     # (67 events, 2 installs) — the scrubber leaves the
+                     # relative prefix, and that prefix is the whole diagnosis:
+                     # this is a broken install, not a stray missing file, so
+                     # it must win over `file_missing` below.
+                     "ltx-2-mlx/env", "ltx-2-mlx<path>", "'ltx-2-mlx")),
+    # Python's own `[Errno 2] No such file or directory` — 4 people in 30 days
+    # in `other`, plus 67 events on two installs where the missing path was
+    # `ltx-2-mlx/...` itself (an engine tree that is not there, which
+    # `venv_broken` above already claims by name). Anything still reaching
+    # here is the panel opening a file that has gone: its own class, so it
+    # stops padding `other`, and it is BELOW input_missing so a missing
+    # reference image keeps its more specific class.
+    ("file_missing", ("[errno 2] no such file or directory",
+                      "no usable temporary directory")),
     ("disk_full", ("enospc", "no space left")),
     # BELOW model_missing / download_failed / model_corrupt / disk_full ON
     # PURPOSE (review 2026-09-02): the subprocess-exit sentence wraps the
@@ -16409,6 +16763,15 @@ class WarmHelper:
         with self.lock:
             if self.proc is not None and self.proc.poll() is None:
                 return
+            # A broken environment is not a render fault, and it does not get
+            # better on the next attempt — the fleet's worst case retried 28
+            # times. Say it in one second with the fix in the sentence, rather
+            # than spawning a helper whose only job is to print an ImportError
+            # half a minute later.
+            fault = engine_env_fault()
+            if fault:
+                raise RuntimeError(f"engine venv is not usable: {fault}. "
+                                   f"{ENGINE_ENV_REPAIR}")
             env = os.environ.copy()
             env["PATH"] = f"{FFMPEG_BIN}:{env.get('PATH', '')}"
             env["LTX_MODEL"] = base_model_dir()
@@ -26809,6 +27172,14 @@ def run_h3_job_inner(job: dict) -> None:
                 "Couldn't write the per-window prompt list to "
                 f"{chain_prompts_path}: {exc}") from exc
 
+    # ---- the venv has to be able to run the runner at all ----------------
+    # Checked here, before the LTX helper is killed and before 8 minutes of
+    # GPU time, because the alternative is what the fleet saw: a TypeError
+    # deep in the sampler that names a function and never names MLX.
+    _mlx_fault = h3_mlx_fault()
+    if _mlx_fault:
+        raise RuntimeError(f"H3 cannot start: {_mlx_fault}. {H3_MLX_REPAIR}")
+
     # ---- memory safety: the warm helper cannot coexist with H3 -----------
     if HELPER.is_alive():
         push("[h3] stopping the LTX warm helper — H3 peaks around 40 GiB and "
@@ -30114,6 +30485,11 @@ def worker_loop() -> None:
             STATE["log"] = []
             caffeinate_on()
         persist_queue()
+        # The funnel's last rung, recorded where every path converges: eight
+        # call sites append to the queue, exactly one worker takes from it.
+        # "They pressed Render at least once" is the difference between an
+        # install that was broken and an install that was never tried.
+        _analytics_install_step("first_queue", "started")
 
         try:
             # Hold the process-wide GPU gate for the whole job (v3.0.7 P1) so

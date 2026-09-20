@@ -234,3 +234,56 @@ def test_no_subprocess_pipe_decodes_strict_utf8():
             if "errors=" not in window:
                 offenders.append(f"{name}:{i + 1}")
     assert not offenders, f"strict-utf8 subprocess pipes: {offenders}"
+
+
+# ---- the error taxonomy, against strings the FLEET actually sent -------------
+#
+# Every needle below was read out of PostHog on 2026-09-18, not invented here.
+# The audit that prompted this found three faults: two live failure families
+# sitting in `other` (our largest people-class), and one needle that was a
+# loaded gun.
+
+def test_metal_out_of_memory_is_not_the_watchdog():
+    """17 events / 6 installs in 30 days. Both print the same first line, so
+    they were one heap; they are different faults with different remedies."""
+    oom = ("[METAL] Command buffer execution failed: Insufficient Memory "
+           "(00000008:kIOGPUCommandBufferCallbackErrorOutOfMemory)")
+    timeout = ("[METAL] Command buffer execution failed: Caused GPU Timeout Error "
+               "(00000002:kIOGPUCommandBufferCallbackErrorTimeout)")
+    assert P._analytics_error_class(oom) == "metal_oom"
+    assert P._analytics_error_class(timeout) == "metal_watchdog"
+
+
+def test_a_missing_file_has_its_own_class():
+    assert P._analytics_error_class(
+        "[Errno 2] No such file or directory: '<path>'") == "file_missing"
+    assert P._analytics_error_class(
+        "[Errno 2] No usable temporary directory found in ['<path>']") == "file_missing"
+    # ...but the engine tree missing is still the install's fault, not a stray file,
+    # and a missing reference image keeps its more specific class.
+    assert P._analytics_error_class(
+        "[Errno 2] No such file or directory: 'ltx-2-mlx/env/bin/python'") == "venv_broken"
+    assert P._analytics_error_class(
+        "ref image not found: <path>") == "input_missing"
+
+
+def test_cancelled_race_matches_a_cancellation_not_the_word_cancel():
+    # What the fleet actually files under this class, all 12 events of it:
+    assert P._analytics_error_class(
+        "mflux-generate-qwen-edit cancelled by /stop (rc=-9)") == "cancelled_race"
+    # ...and the panel's own wording.
+    assert P._analytics_error_class("Stopped before the render started.") == "cancelled_race"
+    assert P._analytics_error_class("Stopped during joint denoise.") == "cancelled_race"
+    # The gun that was pointed at us: a bare "cancel" sat ABOVE oom_jetsam and
+    # native_crash, so any future message containing the word would have been
+    # filed as a cancel race rather than as the crash it is.
+    assert P._analytics_error_class(
+        "helper exited from SIGKILL (out of memory (jetsam) or external kill)") == "oom_jetsam"
+    assert P._analytics_error_class(
+        "the download was cancelled by the server mid-stream") != "cancelled_race"
+
+
+def test_the_documented_taxonomy_matches_the_code():
+    doc = (ROOT / "docs" / "ANALYTICS.md").read_text(encoding="utf-8")
+    for name, _ in P._ANALYTICS_ERROR_CLASSES:
+        assert "`%s`" % name in doc, name + " is classified but undocumented"

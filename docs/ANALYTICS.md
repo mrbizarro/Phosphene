@@ -18,7 +18,7 @@ character names.
 | **What identifies you** | One random UUID, generated on your Mac, tied to nothing |
 | **How often** | Once ever when the install is new, once per panel start, plus once per finished render. No heartbeats |
 | **Where it goes** | PostHog (`us.i.posthog.com`), or a self-hosted endpoint you choose |
-| **Location** | None sent, and every event tells the receiver not to derive one from your IP — [details](#location) |
+| **Location** | None sent. Country and city are *derived* from the address your computer connects from, and kept — [details](#location) |
 | **How to turn it off** | Settings → *Anonymous usage analytics* → **Turn off**, or `PHOSPHENE_ANALYTICS_DISABLED=1` |
 | **Default** | ON, and the shipped build carries a working key — see below |
 | **What you can inspect** | `state/usage-log.jsonl` — a plain-text copy of everything the panel sends |
@@ -89,35 +89,62 @@ Settings.
 ## Location
 
 The panel sends no location field of any kind — no country, no city, no region,
-no timezone, no coordinates, no locale. It never has.
+no timezone, no coordinates, no locale. It never has, and the guard suite fails
+the build if one ever appears in a payload.
 
-That on its own is not the whole promise, because a receiver can *derive* a
-location from where a request came from, and PostHog does that by default. So
-every event now also carries two instructions telling it not to:
+**That is not the whole story, and this page states the rest plainly.** A
+receiver can *derive* a location from the address a request arrives from, and
+PostHog does that by default. **Since 2026-09-19 — the first build after
+v4.15.0 — Phosphene lets it.** Every event is therefore stored with:
 
-| Property | Value | What it does |
-|---|---|---|
-| `$geoip_disable` | `true` | PostHog's GeoIP step returns immediately instead of deriving country, city, subdivision, timezone and the city's coordinates |
-| `$ip` | `"0.0.0.0"` | PostHog copies the connecting address into the event's `$ip` property only when the event didn't bring its own. Bringing one keeps the real address off the stored event |
+| Derived by the receiver | Example |
+|---|---|
+| `$geoip_country_code`, `$geoip_country_name` | `DE`, `Germany` |
+| `$geoip_city_name`, `$geoip_subdivision_1_name` | `Hamburg`, `Hamburg` |
+| `$geoip_postal_code` | `20095` |
+| `$geoip_latitude`, `$geoip_longitude` | the city's centre, not your building |
+| `$geoip_time_zone` | `Europe/Berlin` |
 
-**What that does not do, said plainly:** the request still arrives over TCP from
-a real address, and nothing inside a request body can change that — that is how
-HTTP works, for this panel and for every other program on your Mac. What the
-two flags control is what the receiver is instructed to *derive* from that
-address and *store* on the event. Discarding it at the edge as well is a
-setting on the receiving project, not something this source tree can promise
-you, so this page does not.
+**Why.** Phosphene is a Mac app that renders video locally, and the fleet view
+exists to answer "which build is broken, and on what hardware". *Where* turns
+out to belong to that question: a failure that is really a regional mirror, a
+Hugging Face route, or a locale-dependent path shows up as noise without it.
+The maintainer chose to keep it. This page's job is to tell you, not to talk
+you into it.
 
-If you want the connection itself gone: turn analytics off, or point
-`PHOSPHENE_ANALYTICS_HOST` at a receiver you run (below).
+**What is NOT stored: the address itself.** The receiving project has *Discard
+client IP data* turned on, which runs the GeoIP step first and then drops the
+address — so the country and city above are kept and the IP that produced them
+is not. Being honest about the shape of that promise: it is a setting on the
+receiving project, not a field inside a request body, so it is something this
+source tree can *state* and cannot *prove to you*. What the source tree can
+prove is the other half — that the panel itself sends nothing, and reads no
+locale, timezone or coordinate off your Mac to send. That is what the tests
+pin.
 
-**A note on `0.0.0.0`, since it looks arbitrary.** The obvious spelling —
-sending `$ip: null` — does nothing at all: PostHog's ingest fills the property
-in when the event's value is *falsy*, so a null is silently replaced by your
-real address. It has to be a non-empty string. `127.0.0.1` would be the natural
-choice and is the wrong one: PostHog rewrites loopback and `192.168.*` to a real
-address in Sweden as a local-development convenience, which would invent a
-location the day the disable flag ever went missing.
+**A person is still not built.** `$process_person_profile: false` rides on every
+event, so none of this accumulates into a person record. It is a property of an
+event, next to a random install id.
+
+> **Correction, 2026-09-18 — the history, which is not tidy.** An audit of the
+> receiving project found **1,304 stored events carrying a derived location**
+> across **85 installs**, from builds that shipped *before* the suppression flags
+> existed (chiefly 2026-08-09 → 2026-08-15, plus a reverted 2025-05 build).
+> Between **2026-08-12 and v4.15.0** the panel did suppress derivation, on every
+> event, with two properties: `$geoip_disable: true`, and `$ip: "0.0.0.0"` to
+> occupy the property PostHog would otherwise fill from the socket. Those flags
+> are **gone as of 2026-09-19**, deliberately and with this page rewritten in the
+> same commit — which is the only way a promise like this is worth anything. The
+> older rows were left in place. Three postures in thirteen months is the real
+> record, so it is written down instead of smoothed over.
+
+**If you don't want any of it**, there are three off switches and they are the
+same ones as for every other event on this page: the Settings toggle,
+`PHOSPHENE_ANALYTICS_DISABLED=1`, or `PHOSPHENE_ANALYTICS_HOST` pointed at a
+receiver you run. Turning analytics off means no request is made at all, which
+is the only thing that makes a connecting address a non-question — nothing
+inside a request body ever could, for this panel or for any other program on
+your Mac.
 
 ---
 
@@ -205,7 +232,7 @@ Same as `render_completed` (minus `first_render`), plus:
 
 | Field | Type | Example | Notes |
 |---|---|---|---|
-| `error_class` | string | `"metal_watchdog"` | **A closed 17-value taxonomy** (`refused`, `oom_jetsam`, `metal_watchdog`, `native_crash`, `helper_start_timeout`, `helper_exit`, `model_missing`, `model_corrupt`, `download_failed`, `venv_broken`, `bad_params`, `input_missing`, `disk_full`, `export_failed`, `timeout`, `cancelled_race`, `other`). Classification runs on the original error text locally; **only the class leaves the machine.** `refused` is in the taxonomy but never rides on a `render_failed` event — it is the value that routes the event to `render_refused` instead, below |
+| `error_class` | string | `"metal_watchdog"` | **A closed 19-value taxonomy** (`refused`, `oom_jetsam`, `metal_watchdog`, `metal_oom`, `native_crash`, `helper_start_timeout`, `helper_exit`, `model_missing`, `model_corrupt`, `download_failed`, `venv_broken`, `bad_params`, `input_missing`, `file_missing`, `disk_full`, `export_failed`, `timeout`, `cancelled_race`, `other`). Classification runs on the original error text locally; **only the class leaves the machine.** `refused` is in the taxonomy but never rides on a `render_failed` event — it is the value that routes the event to `render_refused` instead, below |
 | `error_fingerprint` | string | `"a3f09c21e7b4"` | Only when `error_class` is `other`: 12 hex chars of the SHA-256 of the already-scrubbed first line. Lets "the same unknown error, 17 times, all on M1 Max" be counted without transmitting the text — the readable line stays in your own `state/usage-log.jsonl` |
 | `error_signature` | string | `"RuntimeError: helper exited before first frame"` | **The only free-text field the panel sends**, see the scrubbing rules below. Kept for ONE transition release alongside `error_class`, then removed |
 
@@ -277,6 +304,52 @@ How the update pop-up and banner are answered — the only way to know whether t
 |---|---|---|---|
 | `action` | string | `"later"` | **Closed vocabulary**: `shown`, `update_now`, `later` (the pop-up), `banner_update`, `banner_later` (the banner), `restart_needed` (the "Restart to finish update" pill, once per page load) |
 | `version` | string | `"4.9.5"` | The version that was prompted |
+
+### `install_step` (v4.16.0)
+
+The dark half of the funnel. In the 14 days to 2026-09-19, **577 installs
+reported in and only 44.5% of them ever rendered** — 278 booted once and were
+never seen again. Between `app_installed` and the first `render_*` the panel
+said nothing, so *"they tried and it was broken"* and *"they looked and left"*
+were the same shape in the data. These events tell those apart.
+
+**At most one event per step per install, ever** — with one deliberate
+exception: `engine_env` reports again when its answer *changes*, because a
+broken environment that gets repaired is the most useful transition on this
+event. This is not a heartbeat and the panel still has none.
+
+| prop | type | example | why |
+|---|---|---|---|
+| `step` | string | `"engine_env"` | **Closed vocabulary**: `first_boot` (the panel came up), `engine_env` (its Python environment can run a render), `weights_check` (the base model is on disk), `first_queue` (a job reached the worker — someone pressed Render) |
+| `outcome` | string | `"failed"` | **Closed vocabulary**: `started`, `ok`, `failed`, `skipped` |
+| `error_class` | string | `"venv_broken"` | Only on `failed`, and only from the same closed taxonomy `render_failed` uses |
+| `version` | string | `"4.16.0"` | The build that reported it |
+
+**What this event deliberately does not carry**, and why: no path, no file
+name, no URL, no host, no byte count, and — unlike `render_failed` — **no
+`error_signature` and no `error_fingerprint`**. An install-time error line is
+the likeliest place in the whole product for a username-bearing path to
+survive scrubbing, and the class on its own answers the question the event
+exists to ask.
+
+### `update_outcome` (v4.16.0)
+
+Whether pressing **Update** actually produced a new version. 139 people
+pressed it in 14 days; 116 ran something new afterwards and **23 did not**, and
+nothing in the data could say whether the pull failed or the app never
+restarted. `app_updated` cannot answer it by construction — a failed update
+emits nothing at all.
+
+The panel records the version you pressed Update *on* (one string, in local
+settings) and reads it on the next boot: a different version means it landed,
+the same version means it didn't. The marker is cleared when it is read.
+
+| prop | type | example | why |
+|---|---|---|---|
+| `stage` | string | `"restart_pending"` | **Closed vocabulary**: `running_new` (a new version is running), `restart_pending` (same version came back) |
+| `outcome` | string | `"failed"` | **Closed vocabulary**: `ok`, `failed` |
+| `from_version` | string | `"4.15.0"` | The version Update was pressed on |
+| `version` | string | `"4.15.0"` | The version now running |
 
 ### `broadcast_seen` (v4.9.7)
 
@@ -577,8 +650,10 @@ refusal/fault fork (a refusal is `render_refused` and never a `render_failed`
 carrying `error_class: refused`; a real crash is untouched; refusals stay out
 of the local error rate), prompt/path
 non-leakage (including a prompt quoted inside an exception), forbidden-key
-dropping, the geo-disable and `$ip` flags riding on *every* event type and
-being un-overridable by a call site, bucketing, log rotation and the local
+dropping, the receiver directives riding on *every* event type, no `$ip` and no
+`$geoip_*` key leaving the panel (either would empty the country column or
+invent one) and the whole `$` namespace being unreachable from a call site,
+bucketing, log rotation and the local
 aggregates.
 
 To watch it live, tail the local log while you render:

@@ -170,6 +170,32 @@ def main() -> int:
         _emit("error", message=f"mlx_vlm not installed: {e}. "
                                 f"Run: pip install --no-deps 'mlx-vlm==0.4.4'")
         return 1
+    # WHICH GEMMA IS THIS. Two folders live side by side in mlx_models and
+    # only one of them can see an image:
+    #
+    #   gemma-3-12b-it-4bit    model_type "gemma3"          <- the VLM
+    #   gemma4-12b-ltx25-q4    model_type "gemma4_unified"  <- LTX-2.5's text
+    #                                                          encoder, no
+    #                                                          vision tower
+    #
+    # Handing the second one to mlx_vlm produces "Model type gemma4_unified
+    # not supported" — 19 captioning failures across 4 installs and five
+    # releases in the fleet, and nothing in that sentence says which folder
+    # was wrong or which one is right. One read of config.json does.
+    try:
+        _cfg = json.loads((gemma_path / "config.json").read_text())
+        _mtype = str(_cfg.get("model_type") or "")
+    except Exception:                                          # noqa: BLE001
+        _mtype = ""
+    if _mtype and not _mtype.startswith("gemma3"):
+        _emit("error",
+              message=f"{gemma_path.name} is not the captioning model — its "
+                      f"config says model_type \"{_mtype}\", which has no "
+                      f"vision tower (gemma4-12b-ltx25-q4 is LTX-2.5's text "
+                      f"encoder). Captioning needs gemma-3-12b-it-4bit. "
+                      f"Run /train/preflight from the panel to fetch it, or "
+                      f"point LTX_GEMMA_PATH at that folder.")
+        return 1
     try:
         model, processor = load(str(gemma_path))
     except Exception as e:

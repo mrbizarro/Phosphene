@@ -620,7 +620,15 @@ class TestEventSchemas(AnalyticsTestCase):
             "ffmpeg exited 1": "export_failed",
             "prompt required": "bad_params",
             "phase timed out after 300s": "timeout",
-            "cancel requested, landing as failed": "cancelled_race",
+            # A cancel race in the words the panel actually raises. This
+            # fixture used to read "cancel requested, landing as failed" and
+            # passed against a bare "cancel" needle — which also claimed every
+            # unrelated message with the word in it (see the negative below).
+            "H3 render stopped early at the next forward boundary":
+                "cancelled_race",
+            "cancelled by /stop (rc=-9)": "cancelled_race",
+            "stopped before the join": "cancelled_race",
+            "torch autograd cancellation hook raised": "other",
             "some brand new exploding thing": "other",
             # REFUSALS WIN OVER EVERYTHING. Each of these used to land as
             # `other` — the first one was the single largest render_failed
@@ -958,7 +966,11 @@ class TestReceiverDirectives(AnalyticsTestCase):
     def fire_every_event(self) -> dict[str, dict]:
         """One of each event the panel can emit → {event: properties}."""
         packs = dict(P._analytics_pack_state())
-        self.configure(analytics_last_packs=dict(packs, h3=not packs["h3"]))
+        # install_step is once-per-step-per-install BY DESIGN, and that memory
+        # lives in settings — which outlives a single test inside one process.
+        # A fresh install is the state this fixture is describing.
+        self.configure(analytics_last_packs=dict(packs, h3=not packs["h3"]),
+                       analytics_install_steps={})
         P._analytics_boot()      # app_installed + app_boot + pack_state_change
         P._analytics_render_event({
             "status": "done", "elapsed_sec": 120.0,
@@ -980,6 +992,12 @@ class TestReceiverDirectives(AnalyticsTestCase):
         P._analytics_capture("queue_paused_breaker", {"n_failed": 3, "queued": 2,
                                                        "error_class": "model_missing",
                                                        "version": "4.9.7"})
+        # v4.16.0 funnel events. install_step is once-per-step-per-install by
+        # design, and _analytics_boot() above already spent `first_boot`,
+        # `engine_env` and `weights_check` on this fixture install — so the
+        # step fired here is the one the worker owns.
+        P._analytics_install_step("first_queue", "started")
+        P._analytics_update_outcome("restart_pending", "failed", "4.15.0")
         # A refusal: the panel declining on purpose. Fired here for the same
         # reason as the rest — its payload has to carry the receiver
         # directives too, and it is the newest way to get an event out.
@@ -1006,56 +1024,59 @@ class TestReceiverDirectives(AnalyticsTestCase):
                 {k: props.get(k) for k in P._ANALYTICS_RECEIVER_DIRECTIVES},
                 dict(P._ANALYTICS_RECEIVER_DIRECTIVES),
                 f"{event} reached the wire without the directives intact")
-            self.assertIs(props["$geoip_disable"], True,
-                          f"{event} would be geolocated by the receiver")
             self.assertIs(props["$process_person_profile"], False,
                           f"{event} would build a person profile")
 
-    def test_no_location_property_is_sent_or_invited(self):
-        """We add no location field, and $geoip_disable is the only $geoip_*
-        key that may appear — everything else in that namespace is something
-        the receiver would have derived."""
+    def test_the_panel_still_sends_no_location_field_of_its_own(self):
+        """The receiver derives country and city from the connecting address
+        (deliberate, 2026-09-19). The PANEL still names no place: it reads no
+        locale, no timezone, no coordinates off this Mac, and it puts nothing
+        in the $geoip_* namespace. That distinction is the whole Location
+        section of docs/ANALYTICS.md — a derived country is a fact about a
+        connection, a sent one would be a fact this program went looking for."""
         for event, props in self.fire_every_event().items():
-            geo = sorted(k for k in props
-                         if k.startswith("$geoip_") and k != "$geoip_disable")
+            geo = sorted(k for k in props if k.startswith("$geoip_"))
             self.assertEqual(geo, [], f"{event} carried location data: {geo}")
         raw = self.spy.raw().lower()
         for word in ("country", "city", "latitude", "longitude", "timezone",
                      "time_zone", "subdivision", "locale", "continent"):
             self.assertNotIn(word, raw, f"a payload mentions {word!r}")
 
-    def test_the_ip_placeholder_is_truthy_and_not_a_spoof_trigger(self):
-        """Both ways of writing this so that it does nothing.
+    def test_no_ip_property_is_sent_so_the_receiver_can_resolve_one(self):
+        """The reversal that is easiest to make by accident.
 
-        PostHog's ingest fills properties.$ip from the socket only when the
-        event did not bring one — `if (!properties['$ip'] && event.ip)`. Any
-        falsy value (None, "", 0) is therefore not suppression, it is the
-        default with extra steps, and the real address lands on the event
-        anyway. Separately, the GeoIP transformation rewrites 127.0.0.1 and
-        192.168.* to a real address in Sweden as a local-dev convenience, so
-        a loopback placeholder would manufacture a location the day the
-        disable flag got dropped. Hence: truthy, and neither of those."""
-        ip = P.ANALYTICS_IP_PLACEHOLDER
-        self.assertIsInstance(ip, str)
-        self.assertTrue(ip, "a falsy $ip is silently replaced by the real one")
-        self.assertNotEqual(ip, "127.0.0.1")
-        self.assertFalse(ip.startswith("192.168."))
-        P._analytics_capture("app_boot", {"version": "3.7.0"})
-        drain()
-        self.assertEqual(self.spy.bodies[0]["properties"]["$ip"], ip,
-                         "the placeholder never reached the wire")
+        From 2026-08-12 every event carried `$ip: "0.0.0.0"` to keep the
+        connecting address off the stored event. PostHog's GeoIP step reads
+        `properties.$ip`, so that placeholder did not just hide the address —
+        it emptied the country and city columns, which is what the fleet view
+        needs. Sending ANY `$ip` brings that back: 0.0.0.0 resolves to nothing,
+        127.0.0.1 and 192.168.* are rewritten to a real address in Sweden as a
+        local-dev convenience and would invent a location outright. So: no $ip
+        at all, and the address is discarded after enrichment by the project's
+        own *Discard client IP data* setting."""
+        self.assertNotIn("$ip", P._ANALYTICS_RECEIVER_DIRECTIVES)
+        self.assertNotIn("$geoip_disable", P._ANALYTICS_RECEIVER_DIRECTIVES)
+        for event, props in self.fire_every_event().items():
+            self.assertNotIn("$ip", props,
+                             f"{event} sent an $ip, so it will have no country")
 
-    def test_a_call_site_cannot_override_a_directive(self):
-        """The directives are spread last for this reason. A props dict is
-        built from job params in places this module does not own."""
-        P._analytics_capture("app_boot", {"$geoip_disable": False,
-                                          "$ip": "203.0.113.7",
+    def test_a_call_site_cannot_reach_the_receiver_namespace(self):
+        """The directives are spread last for this reason, and a props dict is
+        built from job params in places this module does not own. While the
+        directives occupied $ip and $geoip_disable, spreading last was enough;
+        now that they don't, _analytics_clean_props drops the whole $ namespace
+        instead — a stray "$ip" would spoof the address the GeoIP step reads
+        and a stray "$geoip_city_name" would invent a location."""
+        P._analytics_capture("app_boot", {"$ip": "203.0.113.7",
+                                          "$geoip_disable": True,
+                                          "$geoip_city_name": "Atlantis",
                                           "$process_person_profile": True})
         drain()
         props = self.spy.bodies[0]["properties"]
-        self.assertIs(props["$geoip_disable"], True)
         self.assertIs(props["$process_person_profile"], False)
-        self.assertEqual(props["$ip"], P.ANALYTICS_IP_PLACEHOLDER)
+        self.assertNotIn("$ip", props)
+        self.assertNotIn("$geoip_disable", props)
+        self.assertNotIn("$geoip_city_name", props)
 
     def test_the_local_mirror_records_only_our_own_properties(self):
         """The directives are transport, not data: state/usage-log.jsonl is

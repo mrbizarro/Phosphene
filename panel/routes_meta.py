@@ -343,6 +343,14 @@ def post_analytics_ui(h, path, qs, ctype) -> None:
             h._json({"ok": False, "error": "unknown action"}, 400); return
         P._analytics_capture("update_prompt", {
             "action": action, "version": P.running_version()})
+        if action in ("update_now", "banner_update"):
+            # Remember the build they pressed it ON. The next boot compares:
+            # a different version means the update landed, the same version
+            # means it didn't — which is the 23-of-139 hole that `app_updated`
+            # alone can never show, because a failed update emits nothing.
+            # One local string, overwritten each press, cleared on read.
+            P._settings_set_internal(
+                analytics_update_pressed=P.running_version())
     elif event == "broadcast_seen":
         P._analytics_capture("broadcast_seen", {"version": P.running_version()})
     elif event == "feature_used":

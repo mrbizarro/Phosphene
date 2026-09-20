@@ -19,7 +19,7 @@
 
 </p>
 
-> **Current release: v4.15.0.** **Hailuo H3 has a Speed switch.** **Fast** runs a 3-step adapter, **Best** runs the full schedule — with **Upscale & Face Fix** after it, a finished HD clip is about **5 minutes** on an M4 Max (Draft 2.8 min + 2.5 min, 1280×768) instead of half an hour. **Room tone** puts one generated ambience bed under a whole film so cuts stop clicking. **The Editor stops rearranging itself**: Sound is a mode you choose, panels open when you ask, the Source monitor is a drop target again. **The render form is four closed sections** — Shot setup, LoRAs, After the render, Advanced — each printing what it hides (`Draft · 3s · Fast · ~2 min`), and **Batch is a section**: paste many prompts, or ask for N takes of one, each with its own seed. Fixed: a film with music over it no longer comes out with silent shots, and a crashed engine names the line of code. Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
+> **Current release: v4.15.1.** **The install fixes.** ffmpeg is found where Pinokio actually puts it, so a render that finished no longer fails to export. A **half-built engine environment** is caught at boot with a one-click repair instead of failing 30 seconds into every render. **Hailuo H3 checks its MLX before it starts** rather than dying eight minutes in. Captioning tells you when it was pointed at LTX-2.5's text encoder instead of the vision model. Under the hood, the panel now reports **which step of getting started failed** — because 55% of new installs never render and nothing said why. See [what is collected](docs/ANALYTICS.md). Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
 
 ## Overview
 
