@@ -251,7 +251,9 @@ class DistilledPathStaysNative(unittest.TestCase):
         self.assertEqual(
             src.count('_A2V_STATE["modality_scale"] = _a2v_modality_scale_value('),
             1)
-        self.assertIn("audio_conditioning_scale=float(", src)
+        # The distilled branch parses the value with its OWN <= 0 guard
+        # (`_a2v_distilled_scale_value`) rather than the guider staging.
+        self.assertIn("audio_conditioning_scale=_a2v_distilled_scale_value(", src)
 
 
 if __name__ == "__main__":

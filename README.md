@@ -19,7 +19,7 @@
 
 </p>
 
-> **Current release: v4.15.1.** **The install fixes.** ffmpeg is found where Pinokio actually puts it, so a render that finished no longer fails to export. A **half-built engine environment** is caught at boot with a one-click repair instead of failing 30 seconds into every render. **Hailuo H3 checks its MLX before it starts** rather than dying eight minutes in. Captioning tells you when it was pointed at LTX-2.5's text encoder instead of the vision model. Under the hood, the panel now reports **which step of getting started failed** — because 55% of new installs never render and nothing said why. See [what is collected](docs/ANALYTICS.md). Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
+> **Current release: v4.15.2.** **Lip-sync on LTX audio-to-video now actually follows the audio.** Since v4.8.1 the Audio tab's *Audio conditioning strength* started at 1.0 — and on the Q8 pipeline 1.0 switches audio guidance **off**, so the mouth moved without tracking the song. The slider now starts on **Auto** (the engine's own setting for your Mac: 3.0 on Q8, 1.0 on Q4), and a value you set by hand is kept exactly. Q8 audio-to-video renders take about a quarter longer again, because the audio pass that was being skipped runs. Also: the Pinokio sidebar now offers **Repair Phosphene engine** when the engine package never finished installing — promised in 4.15.1, delivered here. Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
 
 ## Overview
 

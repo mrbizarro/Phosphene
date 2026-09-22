@@ -223,6 +223,11 @@ function closeMusicInstallCard() {
 
 function audioStudioInit() {
   if (musicComposeActive()) setMainOutputsFilter('audio');
+  // Re-read every visit, not once: the tier is known by the time the pane is
+  // opened and the hint names a lane-specific number. A thumb the user has
+  // already dragged is left exactly where they put it.
+  const _acsEl = document.getElementById('audioConditioningScale');
+  if (!_acsEl || _acsEl.dataset.auto) audioConditioningScaleReset();
   if (AUDIO_STUDIO.wired) return;
   AUDIO_STUDIO.wired = true;
   const audioSlot = document.getElementById('audioStudioAudioSlot');
@@ -424,6 +429,43 @@ async function audioStudioEnhancePrompt() {
   finally { btn.disabled = false; btn.innerHTML = originalLabel; }
 }
 
+// --- Audio conditioning strength: AUTO until the user says otherwise -------
+// The Q8 two-stage lane and the Q4 distilled lane read this number with
+// OPPOSITE meanings at 1.0 — on Q8 it lands on the guider's modality_scale,
+// whose term is (value - 1) * …, so 1.0 switches audio guidance off, while on
+// Q4 it multiplies the audio tokens and 1.0 is the identity. The panel picks
+// the lane at queue time (and can fall back from Q8 to Q4 when the Q8 files
+// are missing), so the browser must not guess: while the control is on Auto
+// the field is simply not sent and the panel fills in the lane's own default.
+function a2vLaneAudioScale() {
+  return (window.PHOSPHENE_CAP_TIER === 'q4') ? 1.0 : 3.0;
+}
+
+function audioConditioningScaleChanged(el) {
+  if (!el) return;
+  el.dataset.auto = '';
+  const out = document.getElementById('audioConditioningScaleVal');
+  if (out) out.textContent = el.value;
+}
+
+function audioConditioningScaleReset() {
+  const el = document.getElementById('audioConditioningScale');
+  if (!el) return;
+  el.dataset.auto = '1';
+  el.value = String(a2vLaneAudioScale());
+  const out = document.getElementById('audioConditioningScaleVal');
+  if (out) out.textContent = 'Auto';
+  const hint = document.getElementById('audioConditioningScaleHint');
+  if (hint) {
+    hint.textContent = 'Auto is ' + a2vLaneAudioScale().toFixed(1)
+      + ' on this Mac (' + (window.PHOSPHENE_CAP_TIER === 'q4' ? 'Q4' : 'Q8')
+      + ' pipeline) — the engine\'s own setting. Higher = stronger audio '
+      + 'adhesion, lower visual flexibility.'
+      + (window.PHOSPHENE_CAP_TIER === 'q4' ? ''
+         : ' On this lane 1.0 switches audio guidance off.');
+  }
+}
+
 async function audioStudioGenerate() {
   if (AUDIO_STUDIO.busy) return;
   const status = document.getElementById('audioStudioStatus');
@@ -445,7 +487,11 @@ async function audioStudioGenerate() {
   const dur = parseInt(document.getElementById('audioStudioDuration').value || '7', 10);
   const frames = _a2vFramesForSeconds(dur);
   const seed = parseInt(document.getElementById('audioStudioSeed').value || '-1', 10);
-  const audioConditioningScale = parseFloat(document.getElementById('audioConditioningScale').value || '1.0');
+  // Auto = do not send the field at all; see audioConditioningScaleChanged.
+  const acsEl = document.getElementById('audioConditioningScale');
+  const audioConditioningScale = (acsEl && !acsEl.dataset.auto)
+    ? parseFloat(acsEl.value || String(a2vLaneAudioScale()))
+    : null;
   // Offset into the source file. Clamped at 0 here as well as server-side —
   // a negative start would be silently swallowed by load_audio.
   const audioStartEl = document.getElementById('audioStudioStart');
@@ -469,7 +515,9 @@ async function audioStudioGenerate() {
     fd.set('height', String(h));
     fd.set('frames', String(frames));
     fd.set('seed', String(seed));
-    fd.set('audio_conditioning_scale', String(audioConditioningScale));
+    if (audioConditioningScale !== null && !Number.isNaN(audioConditioningScale)) {
+      fd.set('audio_conditioning_scale', String(audioConditioningScale));
+    }
     fd.set('audio_start_time', String(audioStart));
     fd.set('quality', 'high');  // A2V is always pipeline-class (Q8 dev or Q4 distilled)
     // No accel, no enhance — A2V uses A2VidPipelineTwoStage's own walks.
@@ -3135,6 +3183,7 @@ Object.assign(globalThis, {
   musicInstallRender, musicInstallStart, musicInstallStop,
   windowPromptsInput,
   audioStudioInit, audioStudioDurationChanged, audioStudioEnhancePrompt, audioStudioGenerate,
+  audioConditioningScaleChanged, audioConditioningScaleReset,
   trainRecommendedPreset, trainUpdatePresetButtons, trainUpdatePresetNote, downloadSampleCharacter,
   charactersInit, charactersRenderChips, charactersOpenCompose, charactersBackToGrid,
   charactersHandleAudioUpload, charactersClearAudio, charactersUpdateStrengthDisplay, charactersSyncStrengthControls,

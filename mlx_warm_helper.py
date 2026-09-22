@@ -254,12 +254,32 @@ _A2V_STATE = {"modality_scale": None}
 
 def _a2v_modality_scale_value(raw):
     """Parse the slider off the job params: '14.0' -> 14.0; ''/None/0/'0'/
-    garbage/negative -> None (= keep the engine's own 3.0 default)."""
+    garbage/negative -> None (= keep the engine's own 3.0 default).
+
+    THE LANE DEFAULT IS NOT DECIDED HERE and cannot be: this function is the
+    Q8 half of a slider the Q4 pipeline reads with the opposite meaning at 1.0
+    (there it multiplies the audio tokens, so 1.0 is the identity; here it is
+    `(modality_scale - 1) * …`, so 1.0 is ZERO audio). The panel knows which
+    pipeline is about to run and resolves the default before the job is sent —
+    `mlx_ltx_panel.a2v_audio_scale()`. Blank still means "the engine's own
+    default" here, so a hand-written job spec that names nothing is safe.
+    """
     try:
         value = float(raw or 0)
     except (TypeError, ValueError):
         return None
     return value if value > 0 else None
+
+
+def _a2v_distilled_scale_value(raw) -> float:
+    """The Q4 distilled lane's audio_conditioning_scale: a positive number, or
+    1.0 (its identity) when the job names nothing usable. A negative value used
+    to reach the DiT and flip the sign of every audio token."""
+    try:
+        value = float(str(raw).strip())
+    except (TypeError, ValueError):
+        return 1.0
+    return value if value > 0 else 1.0
 
 
 def _a2v_stage1_guider_params(guider_params_cls, cfg_scale, stg_scale):
@@ -3939,8 +3959,13 @@ for line in sys.__stdin__:
                 # before the DiT. Its denoise is plain `denoise_loop` — no
                 # guiders — so the modality_scale patch has nothing to drive
                 # on this path and must not claim otherwise in the log.
-                audio_conditioning_scale=float(
-                    p.get("audio_conditioning_scale") or 1.0),
+                # Blank / 0 / negative -> 1.0, the identity, which on THIS
+                # pipeline is neutral-and-on (a2vid_distilled.py multiplies the
+                # audio tokens by it). Same "<= 0 means the engine's default"
+                # rule as `_a2v_modality_scale_value` above, so the two lanes
+                # cannot disagree about what a missing value means.
+                audio_conditioning_scale=_a2v_distilled_scale_value(
+                    p.get("audio_conditioning_scale")),
             )
             ref_image = p.get("image") or None
             if ref_image:

@@ -390,7 +390,16 @@ module.exports = {
     // what is already on disk. Nothing is re-fetched — hence "models kept".
     const ltx_python = onDisk("ltx-2-mlx/env/bin/python3.11") ||
                        onDisk("ltx-2-mlx/env/bin/python")
-    const ltx_repair = env_ready && !ltx_python
+    // ...and the OTHER half-built shape, which used to look perfectly healthy
+    // here (fleet, 2026-09-20): the interpreter is present but the engine
+    // package never landed in it, so every render dies at helper start with
+    // "ModuleNotFoundError: No module named 'ltx_pipelines_mlx'". Three
+    // installs on 4.13.0 / 4.14.3 / 4.15.0 hit it, one of them 28 times in a
+    // row — with no repair offered, because the file this menu looked at was
+    // exactly the file that existed. The package directory is the honest
+    // marker: pip writes it last.
+    const ltx_pkg = onDisk("ltx-2-mlx/env/lib/python3.11/site-packages/ltx_pipelines_mlx")
+    const ltx_repair = env_ready && (!ltx_python || !ltx_pkg)
     const pushLtxRepair = (m) => {
       if (ltx_repair) {
         m.push({ icon: "fa-solid fa-screwdriver-wrench",

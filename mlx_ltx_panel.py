@@ -23716,6 +23716,69 @@ PASTED_PATH_FIELDS = (
 )
 
 
+# --- A2V AUDIO GUIDANCE: THE TWO LANES DISAGREE ABOUT WHAT 1.0 MEANS --------
+# One slider, two engines, opposite meanings at the same number.
+#
+#   Q4 distilled (`a2vid_distilled.py:154`) multiplies the audio TOKENS by the
+#   value, so 1.0 is the identity — neutral, and the audio is fully on.
+#   Q8 two-stage has no such parameter at all; `mlx_warm_helper` reroutes the
+#   slider into the stage-1 guider's `modality_scale`, whose term is
+#   `(modality_scale - 1) * (cond - uncond_modality)` (ltx-core-mlx guiders.py).
+#   At 1.0 that term is EXACTLY ZERO — the model is told to ignore the audio.
+#   The vendored engine's own default there is 3.0.
+#
+# The panel stamped 1.0 on every a2v job, so every Q8 a2v clip this panel has
+# ever rendered at the default had audio guidance switched off in all but name.
+# Measured on one shot with the image, audio window, prompt and seed held
+# fixed, the per-second correlation between the inner-lip aperture and the
+# vocal-band energy went from -0.065 (worse than the same clip scored against
+# deliberately WRONG audio) to +0.128 by changing this number alone.
+#
+# So the default is now the lane's own neutral-but-ON value, and an explicit
+# value is passed through untouched — a saved job, a board or an API caller
+# that names a number keeps that number on both lanes.
+A2V_AUDIO_SCALE_ON = {"q8": 3.0, "q4": 1.0}
+
+
+def a2v_audio_scale(raw, *, q8: bool) -> float:
+    """The audio-guidance value for this lane: `raw` when it names one, else
+    the lane's engine default.
+
+    Blank / absent / unparseable / <= 0 all mean "the engine's own default",
+    which is the same rule `mlx_warm_helper._a2v_modality_scale_value` applies
+    one level down — stated here too because this is the layer that knows
+    WHICH LANE is about to run, and the helper never can.
+    """
+    lane = "q8" if q8 else "q4"
+    try:
+        value = float(str(raw).strip())
+    except (TypeError, ValueError):
+        return A2V_AUDIO_SCALE_ON[lane]
+    # nan/inf parse as floats; neither is a guidance scale a caller meant.
+    if not math.isfinite(value) or value <= 0:
+        return A2V_AUDIO_SCALE_ON[lane]
+    return value
+
+
+def a2v_requested_scale(params: dict):
+    """What the job ASKED for, with the one legacy value read as "no request".
+
+    Jobs made by v4.15.1 and earlier carry the old make_job's fabricated
+    default as a FLOAT 1.0 (it parsed the field with float() and a "1.0"
+    fallback) on every job, and the old slider sent 1.0 unless dragged. Those
+    jobs survive an Update in the saved queue, and /queue/retry copies them
+    verbatim, so honouring that 1.0 would keep audio guidance OFF on Q8 for
+    exactly the renders this fix is for. Today's make_job never stores a
+    float (form fields are strings: "" for Auto, "2.5" when a value was
+    sent), so a float 1.0 can only be the old default and is treated as
+    blank. Any other legacy float was a deliberate drag and is kept.
+    """
+    raw = params.get("audio_conditioning_scale")
+    if isinstance(raw, float) and raw == 1.0:
+        return ""
+    return raw
+
+
 def make_job(form: dict[str, list[str]] | dict[str, str], *,
              override_prompt: str | None = None) -> dict:
     def f(name: str, default: str = "") -> str:
@@ -24624,7 +24687,13 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # 48-79 GB tier to dodge boundary OOM). User can override
             # explicitly to "full" or "off" via this form field.
             "stage2_image_conditioning": f("stage2_image_conditioning", "") or "",
-            "audio_conditioning_scale": float(f("audio_conditioning_scale", "1.0") or 1.0),
+            # NOT defaulted to a number here, and that is the fix: a blank
+            # means "the lane's engine default" and is resolved by
+            # `a2v_audio_scale()` in the a2v branch, which is the only place
+            # that knows whether Q8 or Q4 is about to run. Stamping 1.0 here
+            # is what switched audio guidance OFF on every Q8 a2v render.
+            # A value the caller actually sent survives untouched.
+            "audio_conditioning_scale": f("audio_conditioning_scale", ""),
             # Where in the source file A2V starts reading. Both pipelines
             # (a2vid_two_stage / a2vid_distilled) have taken this since they
             # landed, and mlx_warm_helper forwards it on both actions — the
@@ -29592,7 +29661,8 @@ def run_job_inner(job: dict) -> None:
             "seed": p["seed"],
             "stage1_steps": int(p.get("stage1_steps", default_stage1)),
             "stage2_steps": int(p.get("stage2_steps", default_stage2)),
-            "audio_conditioning_scale": float(p.get("audio_conditioning_scale", 1.0)),
+            "audio_conditioning_scale": a2v_audio_scale(
+                a2v_requested_scale(p), q8=uses_q8),
             # Offset into the source audio. The helper reads this key on both
             # the Q8 and the Q4-distilled action and hands it to
             # load_audio(start_time=…); it defaulted to 0.0 here only because
@@ -29610,12 +29680,19 @@ def run_job_inner(job: dict) -> None:
         _start_note = ""
         if a2v_params["audio_start_time"]:
             _start_note = " start=%.2fs" % a2v_params["audio_start_time"]
+        # Say whose number this is. A user who never touched the slider used to
+        # read "scale=1.0" and have no way to know that on this lane 1.0 means
+        # the audio is ignored; now the line names the lane's default as a
+        # default, so the one number that decides whether the mouth moves is
+        # never anonymous.
+        _scale_note = "" if str(a2v_requested_scale(p) or "").strip() \
+            else " (%s default)" % ("Q8" if uses_q8 else "Q4")
         push(
             f"Run A2V ({'Q8' if uses_q8 else 'Q4-distilled'}) via helper: "
             f"id={job['id']} {width}x{height} {frames}f · "
             f"audio={Path(audio_src).name}"
             f"{' image=' + Path(ref_image_path).name if ref_image_path else ''}"
-            f" scale={a2v_params['audio_conditioning_scale']}"
+            f" scale={a2v_params['audio_conditioning_scale']}{_scale_note}"
             f"{_start_note}"
         )
         result = HELPER.run(job_spec)
@@ -29626,6 +29703,12 @@ def run_job_inner(job: dict) -> None:
             "output": str(out_path), "raw_output": str(out_path),
             "params": {**p, "command": action, "audio": audio_src,
                        "image": ref_image_path},
+            # The number the engine actually ran with. `params` keeps what
+            # the caller sent — blank when the slider was on Auto — so a
+            # re-run resolves against its own lane again; this line is the
+            # record of which lane default a clip was rendered at.
+            "audio_conditioning_scale_used":
+                a2v_params["audio_conditioning_scale"],
             "started": job.get("started_at"),
             "elapsed_sec": round(time.time() - job["started_ts"], 2)
             if job.get("started_ts") else None,

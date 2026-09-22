@@ -3371,12 +3371,17 @@ The last line"></textarea>
           </div>
           <div class="mf-cell" style="margin-top:8px">
             <span class="mf-label">Audio conditioning strength</span>
+            <!-- Starts on AUTO and stays there until the thumb is dragged:
+                 the two A2V pipelines read this number differently and only
+                 the panel knows which one this Mac will run, so an untouched
+                 control must send NOTHING rather than a number that means
+                 "audio off" on one lane and "audio on" on the other. -->
             <div class="range-strip">
-              <input type="range" id="audioConditioningScale" min="0.5" max="5.0" step="0.1" value="1.0"
-                     oninput="document.getElementById('audioConditioningScaleVal').textContent=this.value">
-              <span id="audioConditioningScaleVal" class="range-val">1.0</span>
+              <input type="range" id="audioConditioningScale" min="0.5" max="5.0" step="0.1" value="3.0"
+                     data-auto="1" oninput="audioConditioningScaleChanged(this)">
+              <span id="audioConditioningScaleVal" class="range-val">Auto</span>
             </div>
-            <div class="hint" style="margin-top:2px">Higher = stronger audio adhesion, lower visual flexibility</div>
+            <div class="hint" style="margin-top:2px" id="audioConditioningScaleHint">Higher = stronger audio adhesion, lower visual flexibility</div>
           </div>
         </div>
       </div>
