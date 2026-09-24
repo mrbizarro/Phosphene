@@ -30,6 +30,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -210,10 +211,75 @@ class TestSidebarOffersH3WhereTheCardSaysItIs(unittest.TestCase):
         self.assertNotIn(P.H3_BUILD_MENU_TEXT, items)
         self.assertIn("Update Hailuo H3 runner (weights kept — no re-download)", items)
 
+    def test_relocated_roots_with_spaces_are_read_from_environment(self):
+        """Codex INST-13: the sidebar's ENVIRONMENT parser took `(\\S+)`, so a
+        relocated root with a space — quoted or not — was dropped and the menu
+        probed the default location: an installed engine was offered as a
+        fresh 75 GB install. Pinokio itself parses the file with dotenv."""
+        shared = self.root / "Shared Drive" / "日本語"
+        ck, models = shared / "h3 engine", shared / "h3 weights"
+        rel = lambda p, pre: Path(p).relative_to(pre)                     # noqa: E731
+        for f in [self.h3["paths"][0], self.h3["venv_any"][0]]:
+            t = ck / rel(f, "minimax-h3-mlx")
+            t.parent.mkdir(parents=True, exist_ok=True)
+            t.write_bytes(b"x" * 10)
+        for f in self.h3["models"]:
+            t = models / f
+            t.parent.mkdir(parents=True, exist_ok=True)
+            t.write_bytes(b"x" * 10)
+        (self.root / "ENVIRONMENT").write_text(
+            f'LTX_H3_ROOT="{ck}"\nLTX_H3_MODELS={models}\n', encoding="utf-8")
+        items = _menu(self.root, GIB64, running=False)
+        self.assertNotIn(P.H3_INSTALL_MENU_TEXT, items)
+        self.assertIn("Update Hailuo H3 runner (weights kept — no re-download)", items)
+
+    def test_a_q8_pack_missing_indexed_shards_still_offers_the_build(self):
+        """Codex H3-04: 'config + quant_config + ANY shard' read a pack missing
+        four of five shards as built — H3 unlocked on it and Build vanished."""
+        self._install_h3(q8=False)
+        pack = self.root / "mlx_models/hailuo-h3/h3-dit-q8"
+        names = [f"model-0000{i}-of-00005.safetensors" for i in range(1, 6)]
+        for n in ("config.json", "quant_config.json", names[0]):
+            self.touch(f"mlx_models/hailuo-h3/h3-dit-q8/{n}", 10)
+        (pack / "model.safetensors.index.json").write_text(
+            json.dumps({"weight_map": {f"w{i}": n for i, n in enumerate(names)}}))
+        for running in (True, False):
+            self.assertIn(P.H3_BUILD_MENU_TEXT, _menu(self.root, GIB48, running=running))
+        for n in names[1:]:
+            self.touch(f"mlx_models/hailuo-h3/h3-dit-q8/{n}", 10)
+        self.assertNotIn(P.H3_BUILD_MENU_TEXT, _menu(self.root, GIB48, running=False))
+        self.touch(f"mlx_models/hailuo-h3/h3-dit-q8/{names[3]}", 0)     # truncated
+        self.assertIn(P.H3_BUILD_MENU_TEXT, _menu(self.root, GIB48, running=False))
+
     def test_32gb_is_never_offered_h3(self):
         for running in (True, False):
             items = _menu(self.root, GIB32, running=running)
             self.assertFalse([t for t in items if "Hailuo" in t], items)
+
+
+class TestPanelQ8PackIsComplete(unittest.TestCase):
+    """The panel half of H3-04: the resolver behind auto/explicit Q8 dispatch."""
+
+    def test_every_indexed_shard_must_be_present_and_non_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            d = root / P.H3_DIT_Q8_DIRNAME
+            d.mkdir()
+            names = [f"model-0000{i}-of-00005.safetensors" for i in range(1, 6)]
+            for n in ("config.json", "quant_config.json", names[0]):
+                (d / n).write_bytes(b"x")
+            (d / "model.safetensors.index.json").write_text(
+                json.dumps({"weight_map": {f"w{i}": n for i, n in enumerate(names)}}))
+            with unittest.mock.patch.object(P, "_h3_model_roots", lambda: [root]):
+                self.assertIsNone(P._h3_q8_dit_dir())
+                for n in names[1:]:
+                    (d / n).write_bytes(b"x")
+                self.assertEqual(P._h3_q8_dit_dir(), d)
+                (d / names[2]).write_bytes(b"")
+                self.assertIsNone(P._h3_q8_dit_dir())
+                (d / names[2]).write_bytes(b"x")
+                (d / "model.safetensors.index.json").unlink()   # a pre-index pack
+                self.assertEqual(P._h3_q8_dit_dir(), d)
 
 
 class TestPublicIdentity(unittest.TestCase):

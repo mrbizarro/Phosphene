@@ -213,6 +213,37 @@ def _storyboard_module():
         return None
 
 
+_SB_CACHE: Dict[str, Any] = {}
+
+
+def _sb():
+    """storyboard.py, cached, or None. The a2v prompt law lives there because
+    both planners AND the validator have to agree about it — this module must
+    not carry a second copy that can drift."""
+    if "mod" not in _SB_CACHE:
+        _SB_CACHE["mod"] = _storyboard_module()
+    return _SB_CACHE["mod"]
+
+
+# --------------------------------------------------------------------------------------
+# A2V — a shot whose mouth is driven by a waveform
+# --------------------------------------------------------------------------------------
+# The planner does not EMIT a2v shots (see `_PLANNABLE_MODES`), but it is the
+# module that assembles prompts, and an a2v shot reaches the assembler two
+# ways: a caller hands in a spec that names the mode, and the repair loop
+# re-assembles a shot that is already on a board. Both have to obey the a2v
+# law — because the stillness sentence this module writes mechanically is the
+# single documented cause of a singing shot rendering as a freeze frame.
+A2V_MODE = "a2v"
+
+#: What a locked camera is ALLOWED to say on an a2v shot. "Locked in place"
+#: is a fact about the tripod; "the frame never moves" is a claim about the
+#: whole scene, and the model applies it to the singer's lips.
+A2V_CAMERA_SENTENCE = (
+    "The camera is locked in place while the performer keeps moving - lips "
+    "and jaw work clearly with every word.")
+
+
 def _load_validator():
     """Return (validate_fn, storyboard_module).
 
@@ -2143,22 +2174,38 @@ def _stable_seed(concept: str) -> int:
     return int(h, 16) % 2147483647
 
 
-def _compose_body(desc: str, camera: Any, settle: str, face: str = "") -> str:
+def _compose_body(desc: str, camera: Any, settle: str, face: str = "",
+                  mode: str = "text") -> str:
     """description + the camera law + the face law + the settle law, in exemplar order.
 
     If the model already wrote a camera sentence or an end-state clause of its own, that is
     honoured rather than duplicated — a prompt with two camera instructions is worse than a
     prompt with the wrong one.
+
+    ON AN A2V SHOT TWO OF THOSE LAWS ARE INVERTED. `_CAMERA_SENTENCES["static"]`
+    says "the frame never moves - no pan, no push-in, no reframing" and the
+    settle law says "with no new movement of any kind"; the model reads both as
+    "nothing in this scene moves" and stops the singer's lips with everything
+    else. So a2v gets a camera sentence that locks the TRIPOD and explicitly
+    keeps the performer moving, no settle clause at all, and the stillness
+    scrubber on whatever the model wrote for itself.
     """
+    a2v = str(mode or "").strip().lower() == A2V_MODE
     body = _plain_punctuation(_SHOT_MARKER_RE.sub("", (desc or "").strip())).rstrip()
+    if a2v:
+        sb = _sb()
+        if sb is not None:
+            # Cleaned AND capped, here and not at the end: the cap belongs
+            # on the creative direction, never on the laws that follow it.
+            body = sb.a2v_direction(body)
     if body and body[-1] not in ".!?":
         body += "."
     if "the camera" not in body.lower():
-        body += " " + _camera_sentence(camera)
+        body += " " + (A2V_CAMERA_SENTENCE if a2v else _camera_sentence(camera))
     law = _FACE_LAWS.get(face or "", "")
     if law and "holds the exact angle" not in body:
         body += " " + law
-    if "completely finished before the shot ends" not in body.lower():
+    if not a2v and "completely finished before the shot ends" not in body.lower():
         s = _settle_sentence(_plain_punctuation(settle or ""))
         if s:
             body += " " + s
@@ -2168,10 +2215,11 @@ def _compose_body(desc: str, camera: Any, settle: str, face: str = "") -> str:
 
 
 def _assemble_h3_prompt(desc: str, sound: str, music: str,
-                        camera: Any = "static", settle: str = "", face: str = "") -> str:
+                        camera: Any = "static", settle: str = "", face: str = "",
+                        mode: str = "text") -> str:
     """The official three-field form. `[Shot 1]` carries no timestamp — every storyboard
     shot is one continuous take, so there is never a `[Shot 2]` inside a single prompt."""
-    body = _fix_unbalanced_d(_compose_body(desc, camera, settle, face))
+    body = _fix_unbalanced_d(_compose_body(desc, camera, settle, face, mode))
     sound = _plain_punctuation((sound or "").strip()) or "N/A"
     music = _plain_punctuation((music or "").strip()) or "N/A"
     return (
@@ -2182,10 +2230,12 @@ def _assemble_h3_prompt(desc: str, sound: str, music: str,
 
 
 def _assemble_ltx_prompt(desc: str, sound: str, style: str,
-                         camera: Any = "static", settle: str = "", face: str = "") -> str:
+                         camera: Any = "static", settle: str = "", face: str = "",
+                         mode: str = "text") -> str:
     """LTX 2.3 prose: one paragraph, master style suffix verbatim, one trailing `Audio:`
     line (the shape mlx_warm_helper's enhance addendum says LTX was trained on)."""
-    body = _strip_h3_markup(_compose_body(desc, camera, settle, face)).rstrip()
+    a2v = str(mode or "").strip().lower() == A2V_MODE
+    body = _strip_h3_markup(_compose_body(desc, camera, settle, face, mode)).rstrip()
     if body and body[-1] not in ".!?":
         body += "."
     st = _plain_punctuation((style or "").strip().rstrip("."))
@@ -2194,7 +2244,18 @@ def _assemble_ltx_prompt(desc: str, sound: str, style: str,
     snd = _plain_punctuation((sound or "").strip().rstrip("."))
     if snd and snd.upper() != "N/A":
         body += " Audio: %s." % snd
-    return body.strip()
+    body = body.strip()
+    if a2v:
+        # LAST, AFTER EVERY POLISH PASS. The style suffix and the Audio line
+        # are appended above; anything that ran before them could be softened
+        # or re-ordered by what came after. The sync contract is the one
+        # sentence that must survive verbatim, so it goes on at the end — and
+        # the same call caps the creative direction, because a long prompt
+        # renders a more static clip and buries the vocal verb.
+        sb = _sb()
+        if sb is not None:
+            body = sb.a2v_prompt(body, max_words=None)
+    return body
 
 
 def default_policy(max_dim: Optional[int] = None) -> Dict[str, Any]:
@@ -3413,7 +3474,12 @@ def _reassemble_prompt(shot: Dict[str, Any], style: str,
                 "%s The on-screen subject is %s." % (desc, char["trigger"]),
                 sound, music, camera, settle, face)
         return _assemble_h3_prompt(desc, sound, music, camera, settle, face)
-    prompt = _assemble_ltx_prompt(desc, sound, style, camera, settle, face)
+    # THE SHOT'S OWN MODE. A re-assembly is the planner's a2v seam: the
+    # planner never EMITS an a2v shot, but the repair loop re-composes shots
+    # that are already on a board — including a music video's singing shots,
+    # which must not collect the stillness sentence on the way back out.
+    prompt = _assemble_ltx_prompt(desc, sound, style, camera, settle, face,
+                                  shot.get("mode") or "text")
     if char:
         if sb is not None and hasattr(sb, "ensure_trigger"):
             prompt = sb.ensure_trigger(prompt, char["trigger"])

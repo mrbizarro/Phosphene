@@ -457,6 +457,26 @@ def post_version_pull(h, path, qs, ctype) -> None:
             raise RuntimeError(
                 (fetch_proc.stdout + fetch_proc.stderr).decode("utf-8", "replace").strip()
                 or f"git fetch exited {fetch_proc.returncode}")
+        # Step 1b: THE OBSTRUCTION GUARD — the sidebar Update's, run on the
+        # fetched origin/main, before anything can move the tree. `status
+        # -uno` above is blind to untracked and ignored files, and both
+        # moves below destroy them: `pull --ff-only` silently overwrites an
+        # IGNORED file where upstream now tracks one, and the reset
+        # overwrites untracked ones too (Codex INST-01, 2026-09-24).
+        guard = P.ROOT / "scripts" / "pinokio" / "update_obstruction_guard.sh"
+        if not guard.is_file():
+            raise RuntimeError(
+                "scripts/pinokio/update_obstruction_guard.sh is missing - "
+                "not updating. Nothing was changed or deleted; use the "
+                "Pinokio Update instead.")
+        guard_proc = P.subprocess.run(
+            ["bash", str(guard), "origin/main"],
+            cwd=str(P.ROOT), capture_output=True, timeout=60,
+        )
+        if guard_proc.returncode != 0:
+            raise RuntimeError(
+                (guard_proc.stdout + guard_proc.stderr).decode("utf-8", "replace").strip()
+                or "untracked or ignored files are in the way - nothing deleted")
         # Step 2: try a fast-forward pull. Happy path for fresh installs
         # whose local history lines up with origin/main.
         pull_proc = P.subprocess.run(
@@ -470,7 +490,25 @@ def post_version_pull(h, path, qs, ctype) -> None:
         # origin/main. Guards above already proved this is safe
         # (clean tree + on main + nothing ahead), so the reset just
         # snaps the diverged history back to upstream.
+        #
+        # ONLY ON PROVEN DIVERGENCE. Every other refusal — the commonest is
+        # git's own "untracked working tree files would be overwritten" —
+        # used to take this branch too and reset over the file git had just
+        # protected (INST-01). The pre-fetch `ahead` check was against the
+        # OLD origin/main, so it cannot prove anything here; count again
+        # against the fetched one. Zero means history did not diverge,
+        # whatever made the pull fail: stop and report git's message.
         if pull_proc.returncode != 0:
+            ahead_after = (P._git_capture(
+                ["rev-list", "--count", "origin/main..HEAD"]) or "0").strip()
+            try:
+                ahead_after_n = int(ahead_after)
+            except ValueError:
+                ahead_after_n = 0
+            if ahead_after_n <= 0:
+                raise RuntimeError(
+                    f"update blocked - history has NOT diverged, so nothing "
+                    f"was reset or deleted.\n{pull_out}")
             reset_proc = P.subprocess.run(
                 ["git", "-C", str(P.ROOT), "reset", "--hard", "origin/main"],
                 capture_output=True, timeout=30,
@@ -504,10 +542,18 @@ def post_version_pull(h, path, qs, ctype) -> None:
                 # them without the full Update ships new code onto old
                 # dependencies (review 2026-09-02).
                 "scripts/post_update.sh", "scripts/check_post_update.js",
+                # The wheel-build pin both installers read, and the YuE2
+                # engine SHA: only the full Update runs music_checkout.sh, so
+                # a pin-only pull used to say "Stop/Start is enough" and left
+                # new runner code on the old engine (Codex INST-12).
+                "pip-build-constraints.txt", "scripts/music/engine_pin.txt",
             )
             for line in diff_out.splitlines():
                 if (line in deps_signals or line.startswith("ltx-2-mlx/")
-                        or line.startswith("scripts/pinokio/")):
+                        or line.startswith("scripts/pinokio/")
+                        # install_h3.js / install_music.js / install_qwen.js …
+                        # carry their engines' pins the same way install.js does.
+                        or (line.startswith("install") and line.endswith(".js"))):
                     deps_touched = True
                     break
 

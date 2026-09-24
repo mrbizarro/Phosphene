@@ -109,5 +109,82 @@ class ItIsFiledUnderTheRightHeading(unittest.TestCase):
             self.assertNotIn("missing (", msg.lower())
 
 
+def _menu(root: Path, running: bool) -> list:
+    """Run the REAL pinokio.js menu against a fake install root."""
+    import json, subprocess
+    probe = (
+        "const path=require('path'),fs=require('fs');const root=process.argv[1];"
+        "const running=process.argv[2]==='1';"
+        "const mod=require(path.join(root,'pinokio.js'));"
+        "const info={path:(...a)=>path.join(root,...a),exists:p=>fs.existsSync(path.join(root,p)),"
+        "running:s=>running&&s==='start.js',local:s=>s==='start.js'?{url:'http://127.0.0.1:1'}:{}};"
+        "mod.menu({},info).then(m=>console.log(JSON.stringify(m.map(i=>({text:i.text,default:!!i.default})))))"
+    )
+    out = subprocess.run(["node", "-e", probe, str(root), "1" if running else "0"],
+                         capture_output=True, text=True, errors="replace", timeout=30)
+    if out.returncode != 0:
+        raise AssertionError(out.stderr[-800:])
+    return json.loads(out.stdout)
+
+
+@unittest.skipUnless(__import__("shutil").which("node"), "node not on PATH")
+class TheSidebarOffersTheRepairItsErrorNames(unittest.TestCase):
+    """Codex INST-05 (2026-09-24): complete weights, venv with a Python and no
+    ltx_pipelines_mlx. Start stayed `default: true` (auto-runs a panel that
+    cannot render), and once it ran both running menus hid the Repair entry
+    the render error tells the user to click."""
+
+    def setUp(self):
+        import json, shutil
+        self.tmp = TemporaryDirectory()
+        root = self.root = Path(self.tmp.name)
+        src = Path(__file__).resolve().parent
+        shutil.copy(src / "pinokio.js", root / "pinokio.js")
+        shutil.copy(src / "required_files.json", root / "required_files.json")
+        req = json.loads((src / "required_files.json").read_text())
+        minb = req.get("min_size_bytes", 1024)
+
+        def touch(rel, size=minb):
+            f = root / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            with open(f, "wb") as fh:
+                fh.truncate(size)
+        touch("ltx-2-mlx/env/pyvenv.cfg", 10)
+        touch("ltx-2-mlx/env/bin/python3.11", 10)
+        (root / "ltx-2-mlx/env/lib/python3.11/site-packages").mkdir(parents=True)
+        render = req["capabilities"]["render"]
+        for key in render["repos_by_version"][render["default_version"]]:
+            repo = next(r for r in req["repos"] if r["key"] == key)
+            for f in repo.get("files", []):
+                touch(f"{repo['local_dir']}/{f}")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _heal(self):
+        (self.root / "ltx-2-mlx/env/lib/python3.11/site-packages/ltx_pipelines_mlx").mkdir()
+
+    def test_stopped_broken_engine_does_not_auto_start(self):
+        m = _menu(self.root, running=False)
+        self.assertEqual(m[0]["text"], "Repair Phosphene engine (models kept)", m)
+        self.assertFalse([i for i in m if i["default"]], m)
+        self.assertIn("Start", [i["text"] for i in m])
+
+    def test_running_broken_engine_says_how_to_reach_the_repair(self):
+        texts = [i["text"] for i in _menu(self.root, running=True)]
+        hint = [t for t in texts if "Repair Phosphene engine" in t]
+        self.assertTrue(hint, texts)
+        self.assertIn("Stop the panel", hint[0])
+        self.assertIn("Stop Phosphene", P.ENGINE_ENV_REPAIR)
+
+    def test_healthy_engine_is_unchanged(self):
+        self._heal()
+        stopped = _menu(self.root, running=False)
+        self.assertEqual(stopped[0], {"text": "Start", "default": True})
+        self.assertFalse([i for i in stopped if "Repair Phosphene" in i["text"]])
+        running = [i["text"] for i in _menu(self.root, running=True)]
+        self.assertFalse([t for t in running if "Repair Phosphene" in t], running)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

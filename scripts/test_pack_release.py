@@ -233,6 +233,28 @@ def test_a_truncated_shard_resumes_instead_of_restarting(served):
     assert (dest / "big.safetensors").read_bytes() == (pack / "big.safetensors").read_bytes()
 
 
+def test_a_corrupted_partial_is_discarded_so_the_retry_can_recover(served):
+    """Codex INST-08: bytes already appended to a .partial went bad without
+    changing length. Resume trusted the progress sidecar, skipped those shards,
+    failed the whole-file hash — and kept both files, so every retry skipped
+    the same bytes and failed identically. The first attempt may fail; the
+    next one must refetch and finish."""
+    root, pack, _, dest, hits, manifest = served
+    spec = manifest["files"]["big.safetensors"]
+    dest.mkdir(parents=True, exist_ok=True)
+    first = spec["shards"][0]
+    good = bytearray((pack / "big.safetensors").read_bytes()[:first["bytes"]])
+    good[5] ^= 0xFF                                  # same length, one bad byte
+    partial = dest / "big.safetensors.partial"
+    partial.write_bytes(bytes(good))
+    fetcher._write_progress(partial, 1)
+
+    assert _fetch(root, dest, attempts=1) == 1
+    assert not partial.exists(), "a partial that failed its whole-file hash was kept"
+    assert _fetch(root, dest, attempts=1) == 0
+    assert (dest / "big.safetensors").read_bytes() == (pack / "big.safetensors").read_bytes()
+
+
 def test_a_complete_pack_is_not_downloaded_again(served):
     root, _, _, dest, hits, _ = served
     assert _fetch(root, dest) == 0

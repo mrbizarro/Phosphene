@@ -1948,9 +1948,47 @@ async function sbFilmLoad() {
   sbFilmPaint();
   sbRailPaint();
 }
+// A board planned in Music video carries the song it was planned against, and
+// that is the only thing that makes this button meaningful — so it is shown
+// off the board itself rather than off anything this screen remembers.
+function sbMusicVideoBlock() {
+  const board = ((SB.payload || {}).board) || {};
+  const mv = board.music_video;
+  return (mv && typeof mv === 'object' && mv.song) ? mv : null;
+}
+
+// Join the shots and lay the song under them, unbroken. The lip-sync survives
+// because each singing shot was rendered against its own `audio_start_time`
+// segment of this very file — the route's own docstring has the rest, and the
+// auto-editor is deliberately off there.
+async function sbFilmWithTheSong() {
+  const mv = sbMusicVideoBlock();
+  if (!mv) return;
+  const btn = sbEl('sbMusicFilmBtn');
+  if (btn && btn.dataset.busy === '1') return;
+  const prev = btn ? btn.textContent : '';
+  if (btn) { btn.dataset.busy = '1'; btn.disabled = true; btn.textContent = 'Assembling…'; }
+  const fd = new URLSearchParams(); fd.set('board_id', SB.id);
+  let r;
+  try { r = await (await fetch('/music/video/film', { method: 'POST', body: fd })).json(); }
+  catch (e) { r = { ok: false, error: String(e) }; }
+  finally { if (btn) { btn.dataset.busy = ''; btn.disabled = false; btn.textContent = prev; } }
+  if (!r.ok) { phosToast(r.error || 'The film could not be assembled.', { kind: 'danger' }); return; }
+  if (r.film_name) {
+    phosToast(`${r.film_name} — ${Math.round(r.film_duration || 0)} s with the song under it`,
+              { kind: 'success', duration: 8000 });
+    sbFilmOpen({ focus: r.film_name });
+  } else {
+    phosToast(`The clips and the shot list are in ${r.dir}, but the film could `
+              + `not be assembled: ${r.film_error || 'unknown reason'}`, { duration: 9000 });
+  }
+}
+
 function sbFilmPaint() {
   const body = sbEl('sbFilmBody');
   const status = sbEl('sbFilmStatus');
+  const songBtn = sbEl('sbMusicFilmBtn');
+  if (songBtn) songBtn.hidden = !sbMusicVideoBlock();
   if (!body) return;
   const film = sbFilmPick(SB.films, SB.filmOpen);
   if (!film) {
@@ -2335,6 +2373,7 @@ Object.assign(globalThis, {
   sbSetStage, sbRenderPlan, sbRenderRemaining, sbAddShot,
   sbTitleSave, sbRenderDrafts, sbFinish, sbRewrite,
   sbStopShot, sbStopFilm, sbExport, sbFilmOpen,
+  sbMusicVideoBlock, sbFilmWithTheSong,
   sbFilmPaint, sbBoardChip, sbRowAction, sbAddActiveToBoard,
   sbOpenFromClip, sbPollHook,
   // inline-handler targets: generated markup resolves these through the

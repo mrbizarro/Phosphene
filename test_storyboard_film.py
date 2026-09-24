@@ -62,12 +62,17 @@ class FilmDir(unittest.TestCase):
     def test_the_folder_is_date_and_slug_under_the_outputs_root(self):
         d = panel._sb_film_dir(_board())
         self.assertEqual(d.parent, panel.OUTPUT / "storyboards")
-        self.assertTrue(d.name.endswith("_the-last-dawn"), d.name)
+        # ...and the board: date + title alone was shared by every board made
+        # the same day under the same name (SB5-05). A board whose old
+        # date+title folder is already on disk keeps it — see
+        # test_storyboard_film_integrity.py.
+        self.assertTrue(d.name.endswith("_the-last-dawn_sb-film-test"), d.name)
         day = time.strftime("%Y-%m-%d", time.localtime(1_700_000_000))
         self.assertTrue(d.name.startswith(day), d.name)
 
     def test_an_untitled_board_still_gets_a_folder(self):
-        self.assertTrue(str(panel._sb_film_dir(_board(title=""))).endswith("_storyboard"))
+        self.assertTrue(str(panel._sb_film_dir(_board(title=""))).endswith(
+            "_storyboard_sb-film-test"))
 
     def test_the_export_writes_into_exactly_that_folder(self):
         # The whole point of the helper: the writer and the reader agree by
@@ -216,7 +221,9 @@ class Sidecar(unittest.TestCase):
             out = Path(tmp) / "x_film.mp4"
 
             def fake_ffmpeg(cmd, *a, **kw):
-                out.write_bytes(b"\0" * 4096)
+                # The encoder writes its OWN last argument — a hidden sibling
+                # that replaces the film only once it is whole (SB5-06).
+                Path(cmd[-1]).write_bytes(b"\0" * 4096)
 
             probe = {"w": 1024, "h": 576, "duration": 5.0,
                      "has_audio": True, "sample_rate": 48000}

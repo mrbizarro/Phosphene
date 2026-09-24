@@ -205,6 +205,9 @@ window.SBE = {
   // nothing has reached the disk for too long; `saveFailed` is the reason the
   // alarm is up, and it is a string precisely so it can be shown.
   savePending: false, dirtyAt: 0, saveFailed: '',
+  // The promise of the save in flight, follow-up included: what a second
+  // caller is handed instead of the old `'busy'` (see sbeSave).
+  saveFlight: null,
   // The quiet lane's own two facts, and the drafts this film has.
   backingUp: false, backedUpAt: 0,
   drafts: [], activeDraft: '', backup: null,
@@ -217,7 +220,7 @@ window.SBE = {
   // inspector, the preview and the strip player mean — and `selSet` is every
   // clip the verbs act on, always including `sel`. See sbeSelNormalise.
   selSet: [],
-  undo: [], redo: [], errors: {}, sentOrder: [],
+  undo: [], redo: [], errors: {}, sentOrder: [], loadGen: 0, musicFor: '',
   // THE ONE NOTICE SURFACE. `noticeLead` is the chip the user clicked open,
   // `backupHidden` is "Later" on the recovery offer (this session, this
   // offer), `errsOpen` is the validation list unfolded past its first line.
@@ -3809,6 +3812,10 @@ function sbeCloseDoc(opts) {
   SBE.id = '';
   SBE.clips = [];
   SBE.undo.length = 0; SBE.redo.length = 0;
+  // The soundtrack field belongs to the document that just closed (SB5-11).
+  SBE.musicFor = '';
+  const musicBox = sbeEl('sbeMusic');
+  if (musicBox) musicBox.value = '';
   window.removeEventListener('resize', sbePaint);
   if (!(opts && opts.quiet)) { edRemember(''); edShowPicker(); }
 }
@@ -3827,15 +3834,75 @@ function sbeGoToBoard() {
 // The document is gone and nothing about it is worth keeping.
 function sbeTeardown() { sbeCloseDoc({ quiet: true }); }
 
-async function sbeLoad(quiet) {
-  let r;
+// SWITCHING FILMS FROM INSIDE THE EDITOR. The document fills the stage, the
+// name in the header looked like a control and did nothing, and the only way
+// to another film was ⋯ → Close → the picker. The name drops the list now.
+// Picking a film goes through the one door (edOpenBoard → sbeOpen), which
+// closes this document the way Close does: unsaved work is backed up first.
+async function sbeFilmsToggle() {
+  const pop = sbeEl('sbeFilmsMenu');
+  if (!pop) return;
+  const opening = pop.hidden;
+  sbePopToggle('sbeFilmsMenu', 'sbeFilmsBtn');
+  if (!opening) return;
+  const list = sbeEl('sbeFilmsList');
+  const note = sbeEl('sbeFilmsNote');
+  list.innerHTML = '';
+  note.hidden = false;
+  note.textContent = 'reading your __SEQS__…';
+  let boards;
   try {
-    r = await (await fetch('/storyboard/edit?id=' + encodeURIComponent(SBE.id)
-              + '&session=' + encodeURIComponent(SBE.session))).json();
+    const r = await (await fetch('/storyboard/list')).json();
+    boards = ((r && r.boards) || []).filter(b => (b.clips || 0) > 0 || b.id === SBE.id);
   } catch (e) {
-    if (!quiet) sbeSetState('the panel did not answer', 'dirty');
+    note.textContent = 'The panel did not answer — try again.';
     return;
   }
+  if (pop.hidden) return;              // closed while the list was on its way
+  note.hidden = boards.length > 1;
+  if (boards.length <= 1) note.textContent = 'No other __SEQ__ has clips yet.';
+  list.innerHTML = boards.map(b => {
+    const cur = b.id === SBE.id;
+    const n = b.clips || 0;
+    return '<button type="button" role="menuitem" class="ghost-btn' +
+      (cur ? ' is-current' : '') + '"' + (cur ? ' aria-current="true"' : '') +
+      ' onclick="sbeFilmsPick(\'' + escapeHtml(b.id) + '\')"' +
+      ' title="' + escapeHtml(b.title || b.id) + '">' +
+      '<span class="name">' + escapeHtml(b.title || b.id) + '</span>' +
+      '<span class="sub">' + (cur ? 'open · ' : '') + n + ' clip' + (n === 1 ? '' : 's') +
+      '</span></button>';
+  }).join('');
+}
+
+function sbeFilmsPick(id) {
+  sbePopCloseAll('');
+  if (!id || id === SBE.id) return;
+  edOpenBoard(id);
+}
+
+// Every film, as the picker shows them: Close, said from where it is wanted.
+function sbeFilmsAll() {
+  sbePopCloseAll('');
+  sbeClose();
+}
+
+async function sbeLoad(quiet) {
+  // WHICH LOAD THIS IS, AND FOR WHICH FILM (SB5-03). A response used to be
+  // adopted whenever it arrived: open A, switch to B before A answered, and
+  // A's clips, revision and soundtrack landed under B's id — a Save then
+  // wrote A's arrangement into B. Only the newest load of the film still on
+  // screen may be adopted.
+  const id = SBE.id;
+  const gen = SBE.loadGen = (SBE.loadGen || 0) + 1;
+  let r;
+  try {
+    r = await (await fetch('/storyboard/edit?id=' + encodeURIComponent(id)
+              + '&session=' + encodeURIComponent(SBE.session))).json();
+  } catch (e) {
+    if (!quiet && SBE.id === id) sbeSetState('the panel did not answer', 'dirty');
+    return;
+  }
+  if (!SBE.open || SBE.id !== id || gen !== SBE.loadGen) return;
   if (!r || !r.ok) {
     // THE DOCUMENT IS GONE, not broken. A remembered id whose film was
     // deleted has to land on the picker — the Editor's own empty state — and
@@ -3855,7 +3922,38 @@ async function sbeLoad(quiet) {
       : ((r && r.error) || 'could not read this timeline'));
     return;
   }
+  // A QUIET RE-READ NEVER REPLACES UNSAVED WORK. Prepare finishing, a tab
+  // coming back into view and a clip landing all re-read the SAVED document
+  // to pick up proxies and new shots — and adopting it threw away every edit
+  // made since the last Save and marked the timeline clean. With work on
+  // screen, take the facts around the arrangement and leave the arrangement.
+  if (quiet && (SBE.dirty || SBE.saving || SBE.conflict)) { sbeAdoptMeta(r); return; }
   sbeAdopt(r, quiet);
+}
+
+// THE FACTS AROUND AN ARRANGEMENT, WITHOUT THE ARRANGEMENT. Everything a
+// re-read is FOR — proxies Prepare just built, shots rendered since, relink
+// offers, the Prepare state — and nothing the user edits: clips, overlays,
+// transitions, tracks, the soundtrack, the revision and the undo history all
+// stay exactly as they are on screen.
+function sbeAdoptMeta(r) {
+  SBE.proxyUrl = r.proxy_url || SBE.proxyUrl;
+  SBE.unplaced = r.unplaced || [];
+  SBE.pool = r.clips || [];
+  SBE.relink = r.relink || [];
+  SBE.sections = r.sections || SBE.sections || [];
+  SBE.prepare = r.prepare || {};
+  const px = {};
+  for (const c of (((r.edit || {}).clips) || []).concat(r.clips || [])) {
+    if (c && c.path && c.proxy) px[c.path] = c.proxy;
+  }
+  for (const c of (SBE.clips || [])) {
+    if (c && c.path && px[c.path]) c.proxy = px[c.path];
+  }
+  sbePaintRelink();
+  if (ED.src === 'film') edPoolRefresh();
+  sbeFetchPeaks();
+  sbePaint();
 }
 
 function sbeAdopt(r, quiet) {
@@ -3901,8 +3999,20 @@ function sbeAdopt(r, quiet) {
   // overlay id that is no longer in the document.
   if (typeof sbeKeyedDismiss === 'function') sbeKeyedDismiss();
   sbePaintNotices();
-  if (SBE.audio && SBE.audio.path && !sbeEl('sbeMusic').value) {
-    sbeEl('sbeMusic').value = SBE.audio.path;
+  // THE SOUNDTRACK FIELD FOLLOWS THE DOCUMENT (SB5-11). It used to be filled
+  // only when empty and never cleared, so after film A (song A) the field
+  // still held song A when film B opened: B previewed its own soundtrack and
+  // Render, Prepare and Auto-edit posted A's as an explicit override — and
+  // an explicit `music` outranks the document's own on the server. A new
+  // document (or draft) resets it to that document's track, or to nothing;
+  // a re-read of the same one keeps whatever the user typed.
+  const musicBox = sbeEl('sbeMusic');
+  const docKey = SBE.id + '\n' + (SBE.activeDraft || '');
+  if (SBE.musicFor !== docKey) {
+    SBE.musicFor = docKey;
+    musicBox.value = (SBE.audio && SBE.audio.path) || '';
+  } else if (SBE.audio && SBE.audio.path && !musicBox.value) {
+    musicBox.value = SBE.audio.path;
   }
   sbePaintMusicName();
   // The saved mode wins over the control's default, or reopening a film would
@@ -3928,10 +4038,15 @@ function sbeAdopt(r, quiet) {
 }
 
 async function sbeFetchPeaks() {
+  const id = SBE.id;
   try {
-    const res = await fetch('/storyboard/edit/peaks?id=' + encodeURIComponent(SBE.id));
+    const res = await fetch('/storyboard/edit/peaks?id=' + encodeURIComponent(id));
+    // Another film is on screen now: these peaks, and the track path they
+    // carry, are not its soundtrack.
+    if (SBE.id !== id) return;
     if (!res.ok) { SBE.peaks = null; SBE.peaksFor = ''; sbePaint(); return; }
     const doc = await res.json();
+    if (SBE.id !== id) return;
     SBE.peaks = sbeDecodePeaks(doc);
     SBE.peaksFor = String(doc.path || '');
     // THE WAVEFORM EXISTS BEFORE THE EDIT KNOWS ABOUT IT. `prepare` writes
@@ -4500,6 +4615,7 @@ async function sbeBackup(quiet) {
   try {
     const body = sbeSaveBody({ id: SBE.id, edit: SBE.edit, clips: SBE.clips,
                                overlays: SBE.overlays, tracks: SBE.tracks,
+                               transitions: SBE.transitions,
                                expect: null });
     // WHICH DRAFT THIS WAS COMPOSED FROM. The server files the backup under
     // the draft that is active when the write LANDS, and this one is
@@ -4561,33 +4677,47 @@ async function sbeBackup(quiet) {
 // session. `finally` is the whole fix, and it is the difference between an
 // error and a lost afternoon.
 async function sbeSave(quiet, force) {
-  if (!SBE.open) return;
-  // WHAT KIND OF WRITE IS PENDING, not just that one is. `sbeQueueSave` no
-  // longer saves — it schedules a crash BACKUP — so remembering a dropped
-  // save as a bare `true` and re-queuing through that lane turned the second
-  // of two rapid Save presses into a backup write, leaving edit.json at the
-  // older revision with the alarm reading clear.
-  if (SBE.saving) { SBE.savePending = quiet ? 'backup' : 'save'; return 'busy'; }
+  if (!SBE.open) return false;
+  // A SAVE ASKED FOR WHILE ANOTHER IS IN FLIGHT IS ANSWERED BY THE WRITE THAT
+  // CARRIES IT. This used to return the string 'busy', and every action that
+  // depends on the saved file reads its answer as `!(await sbeSave(true))` —
+  // 'busy' is truthy, so Render and the NLE export went straight to the
+  // server while the save was still on the wire and built the PREVIOUS cut,
+  // including when that save then failed or conflicted (SB5-14). The caller
+  // now gets the flight's own promise, which settles only once the follow-up
+  // write below has landed or failed.
+  //
+  // AND THE FOLLOW-UP IS ALWAYS A SAVE. A quiet request used to be remembered
+  // as a crash backup — a leftover from when the quiet save was the autosave.
+  // It is not any more: every `sbeSave(true)` left is an action that needs
+  // edit.json to hold what is on screen, and a backup does not do that.
+  if (SBE.saving) {
+    SBE.savePending = 'save';
+    return SBE.saveFlight || false;
+  }
   if (SBE.saveTimer) { clearTimeout(SBE.saveTimer); SBE.saveTimer = null; }
   SBE.saving = true;
-  let ok = false;
-  try {
-    ok = await sbeSaveInner(quiet, force);
-  } catch (e) {
-    // A throw here is the case that used to wedge the flag. It is also the
-    // one nothing on screen could have told you about.
-    sbeSaveAlarm('the editor could not build the save (' +
-                 ((e && e.message) || String(e)) + ')');
-  } finally {
-    SBE.saving = false;
+  const flight = (async () => {
+    let ok = false;
+    try {
+      ok = await sbeSaveInner(quiet, force);
+    } catch (e) {
+      // A throw here is the case that used to wedge the flag. It is also the
+      // one nothing on screen could have told you about.
+      sbeSaveAlarm('the editor could not build the save (' +
+                   ((e && e.message) || String(e)) + ')');
+    } finally {
+      SBE.saving = false;
+    }
     const again = SBE.savePending;
     SBE.savePending = false;
-    if (again && SBE.dirty && !SBE.conflict) {
-      if (again === 'save') sbeSave(quiet, force);
-      else sbeQueueSave();
-    }
-  }
-  return ok;
+    // `force` does not carry: it answered one conflict, and the revision it
+    // produced is the one the follow-up now expects.
+    if (again && SBE.dirty && !SBE.conflict && SBE.open) return sbeSave(quiet, false);
+    return ok;
+  })();
+  SBE.saveFlight = flight;
+  return flight;
 }
 
 // THE ALARM. A save that is not happening is not a status, it is an
@@ -4617,9 +4747,28 @@ function sbeSaveAlarmClear() {
 async function sbeSaveInner(quiet, force) {
   const order = SBE.clips.map(c => c.id);
   SBE.sentOrder = order;
+  // EVERY LIVE COLLECTION, BY NAME. `transitions` was missing from both of
+  // these calls while `sbeSaveBody` read `state.transitions`, so every Save
+  // and every crash backup wrote an empty list: the dissolve previewed, the
+  // render cut hard, and reopening lost it (2026-09-24 review, SB5-01).
   const body = sbeSaveBody({ id: SBE.id, edit: SBE.edit, clips: SBE.clips,
                              overlays: SBE.overlays, tracks: SBE.tracks,
+                             transitions: SBE.transitions,
                              expect: force ? null : SBE.revision });
+  // WHAT THIS REQUEST CARRIES, AND FOR WHICH DOCUMENT. The answer comes back
+  // later, and by then the user may have trimmed a clip or opened another
+  // film: the response is a receipt for THIS arrangement of THIS draft, and
+  // it used to be read as a receipt for whatever was on screen when it
+  // arrived — `dirty = false` over a trim made while it was in flight, so
+  // the trim was never written and closing did not even back it up (SB5-02).
+  const sentId = SBE.id;
+  const sentDraft = SBE.activeDraft || '';
+  const sentDoc = JSON.stringify(body.edit);
+  // ...AND THE SERVER CHECKS THE DRAFT TOO. A revision cannot tell drafts
+  // apart (a new draft restarts at 1), so without the name a stale tab saved
+  // draft A's arrangement into a draft another tab had just switched to, with
+  // no conflict (SB5-04). The backup has always said which draft it is from.
+  body.draft = sentDraft;
   let r;
   try {
     const res = await fetch('/storyboard/edit/save', {
@@ -4630,21 +4779,35 @@ async function sbeSaveInner(quiet, force) {
   } catch (e) {
     r = { ok: false, error: String(e), _status: 0 };
   }
+  // Another document is on screen now. Whatever this answer says is about a
+  // film or draft the user has left; nothing here may be touched by it.
+  if (SBE.id !== sentId || (SBE.activeDraft || '') !== sentDraft) return false;
   if (r.ok) {
     SBE.errors = {};
     sbeEl('sbeErrors').hidden = true;
+    const rev = sbeNum((r.edit || {}).revision, SBE.revision + 1);
+    // DID ANYTHING CHANGE WHILE THIS WAS ON THE WIRE? Asked of the same
+    // serialisation the request was built from, so there is no list of
+    // fields to fall out of date.
+    const now = sbeSaveBody({ id: SBE.id, edit: SBE.edit, clips: SBE.clips,
+                              overlays: SBE.overlays, tracks: SBE.tracks,
+                              transitions: SBE.transitions, expect: null });
+    const moved = JSON.stringify(now.edit) !== sentDoc;
     // Adopt the server's copy of the document, but NOT its clip array — the
     // user may have moved something in the milliseconds the save was in
     // flight, and throwing that away is the one thing an editor must never do.
-    SBE.edit = Object.assign({}, r.edit || {}, { clips: SBE.edit.clips || [] });
-    SBE.revision = sbeNum((r.edit || {}).revision, SBE.revision + 1);
+    // If the document itself moved, keep ALL of it and take only the number.
+    SBE.edit = moved ? Object.assign({}, SBE.edit, { revision: rev })
+                     : Object.assign({}, r.edit || {}, { clips: SBE.edit.clips || [] });
+    SBE.revision = rev;
     SBE.unplaced = r.unplaced || [];
     SBE.prepare = r.prepare || SBE.prepare;
-    SBE.dirty = false;
+    SBE.dirty = moved;
     SBE.conflict = 0;
     sbeEl('sbeConflict').hidden = true;
-  sbePaintNotices();
-    SBE.dirtyAt = 0;
+    sbePaintNotices();
+    if (!moved) SBE.dirtyAt = 0;
+    else if (!SBE.dirtyAt) SBE.dirtyAt = Date.now();
     // A SAVE IS THE USER ANSWERING THE OFFER. The server deletes the backup
     // on a successful save, so this follows it rather than deciding on its
     // own — and clearing it is what brings the crash lane back to life:
@@ -4658,19 +4821,29 @@ async function sbeSaveInner(quiet, force) {
     // thing a user checks after saving is the panel that reports on saving.
     if (r.drafts) { SBE.drafts = r.drafts; sbePaintDraft(); }
     sbeSaveAlarmClear();
-    sbeSetState('saved · revision ' + SBE.revision, 'saved');
+    if (moved) {
+      // The save that just landed deleted the crash backup, and what is on
+      // screen is newer than it: put the net back under the newer work.
+      sbeSetState('unsaved changes · revision ' + SBE.revision + ' is saved', 'dirty');
+      sbeQueueSave();
+    } else {
+      sbeSetState('saved · revision ' + SBE.revision, 'saved');
+    }
     sbePaint();
     return true;
   }
   if (r._status === 409 && r.conflict) {
     // Honest, and it does not choose for you: another tab is ahead, your
     // arrangement is still on this screen, and both ways out are one click.
-    SBE.conflict = sbeNum(r.revision, 0);
+    SBE.conflict = Math.max(1, sbeNum(r.revision, 0));
     sbeEl('sbeConflict').hidden = false;
     sbePaintNotices();
-    sbeEl('sbeConflictText').textContent =
-      'Another tab saved this timeline (it is at revision ' + SBE.conflict +
-      ', you started from ' + SBE.revision + '). Nothing here has been lost.';
+    sbeEl('sbeConflictText').textContent = r.draft_conflict
+      ? ('Another tab switched this __SEQ__ to the draft "' + (r.active_draft || '?') +
+         '". This arrangement belongs to "' + (sentDraft || '?') + '" and was not ' +
+         'written over it — its crash backup keeps it. Load theirs to follow the switch.')
+      : ('Another tab saved this timeline (it is at revision ' + SBE.conflict +
+         ', you started from ' + SBE.revision + '). Nothing here has been lost.');
     sbeSaveAlarm('another tab is at revision ' + SBE.conflict +
                  ' and this one is not being stored — choose which arrangement wins');
     return false;
@@ -4745,17 +4918,12 @@ async function sbeForceSave() {
 // notifications. The button is the opposite — it is pressed by somebody who
 // wants to be told it worked, so it says which revision they now have.
 async function sbeSaveNow() {
+  if (!SBE.open) { phosToast('Nothing to save yet.', {}); return; }
+  // A press while another save is on the wire no longer answers 'busy': it
+  // waits for the write that carries it (sbeSave), so the revision named here
+  // is the one that holds what was on screen when the button was pressed.
   const ok = await sbeSave(false);
-  if (ok) {
-    phosToast('Saved — revision ' + SBE.revision, { kind: 'success' });
-  } else if (ok === 'busy') {
-    // Two very different reasons used to arrive as the same `undefined`, and
-    // this is the one where telling somebody their work needed no saving is
-    // exactly wrong: it is unwritten and a save is on its way.
-    phosToast('A save is already on its way — this one will follow it.', {});
-  } else if (ok === undefined) {
-    phosToast('Nothing to save yet.', {});
-  }
+  if (ok) phosToast('Saved — revision ' + SBE.revision, { kind: 'success' });
 }
 
 // "4 minutes ago", in the smallest unit that still reads as a duration. Pure,
@@ -8499,7 +8667,7 @@ function sbePaintHead() {
 // close-all and any-open — so the clip bar's overflow and the track's context
 // menu would have been two more chances to add a panel that Escape and a
 // click elsewhere could not shut.
-const SBE_POPS = ['sbeRenderMenu', 'sbeMoreMenu', 'sbeKeysPop', 'sbeMusicMenu',
+const SBE_POPS = ['sbeFilmsMenu', 'sbeRenderMenu', 'sbeMoreMenu', 'sbeKeysPop', 'sbeMusicMenu',
                   'sbeCbarMenu', 'sbeCtxMenu', 'sbeSoundMenu'];
 
 function sbePopToggle(id, anchorId) {
@@ -12892,6 +13060,8 @@ Object.assign(globalThis, {
   sbeCbarModel, sbePaintCbar, sbeCbarFit, sbeCbarStamp,
   sbeSplitWhy, sbeCbarPlayhead,
   sbeCtxOpen, sbeReorderSel, sbeSplitHere, sbeGenOpen,
+  // The header's film switcher (index.html onclicks + generated rows).
+  sbeFilmsToggle, sbeFilmsPick, sbeFilmsAll,
   // THE AUDIO TRACKS — the model (for the harnesses) and every name the
   // generated heads, strips, inspector and pool rows call back into.
   sbeTrackLabel, sbeUnitGain, sbeTrackGain, sbeTsGain, sbeTsWindow, sbeTsGainPoints,

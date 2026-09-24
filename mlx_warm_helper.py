@@ -24,6 +24,8 @@ import math
 import os
 import random
 import sys
+
+import music_tags as _music_tags   # bare section tags, the way YuE2 reads them
 import threading
 import time
 import traceback
@@ -472,6 +474,7 @@ _a2v_lora_key: tuple | None = None  # LoRA fingerprint for current A2V cache
 _a2v_weight_key: tuple[str, str] | None = None  # (dev_transformer, distilled_lora) names
 _a2v_distilled_pipe = None   # A2VidDistilledPipeline (Q4 distilled, no CFG)
 _a2v_distilled_model_dir = None
+_a2v_distilled_lora_key: tuple | None = None
 _pipe_lock = threading.Lock()
 
 
@@ -1874,10 +1877,12 @@ def get_hq_pipe(model_dir: str, loras: list[dict] | None = None,
 _kf_pipe = None
 _kf_model_dir = None
 _kf_weight_key: tuple[str, str] | None = None
+_kf_lora_key: tuple | None = None
 
 
 def get_kf_pipe(model_dir: str, dev_transformer: str | None = None,
-                distilled_lora: str | None = None):
+                distilled_lora: str | None = None,
+                loras: list[dict] | None = None):
     """Returns the KeyframeInterpolationPipeline lazily.
 
     Keyframe REQUIRES explicit dev_transformer + distilled_lora at init time.
@@ -1889,8 +1894,13 @@ def get_kf_pipe(model_dir: str, dev_transformer: str | None = None,
     filename carries its alpha/rank and that number changes with the
     generation (2.3: 384, 2.5: 450). The literals remain as the fallback so a
     caller that does not name them behaves exactly as before.
+
+    User LoRAs ride the same `_pending_loras` hook as A2V's two-stage pipe (the
+    same TI2VidTwoStagesPipeline base); they were never passed here, so an
+    FFLF render with a style LoRA selected rendered without it while its
+    sidecar listed it. The cache is keyed on the set so a change rebuilds.
     """
-    global _kf_pipe, _kf_model_dir, _kf_weight_key
+    global _kf_pipe, _kf_model_dir, _kf_weight_key, _kf_lora_key
     from ltx_pipelines_mlx.keyframe_interpolation import KeyframeInterpolationPipeline
 
     # Install the same runtime patches that get_pipe / get_hq_pipe / get_a2v_pipe
@@ -1906,9 +1916,18 @@ def get_kf_pipe(model_dir: str, dev_transformer: str | None = None,
     dev_name = dev_transformer or "transformer-dev.safetensors"
     lora_name = distilled_lora or "ltx-2.3-22b-distilled-lora-384.safetensors"
     weight_key = (dev_name, lora_name)
+    fp = _lora_fingerprint(loras)
     with _pipe_lock:
         release_pipelines(keep_kind="keyframe")
-        if _kf_pipe is None or _kf_model_dir != model_dir or _kf_weight_key != weight_key:
+        if (_kf_pipe is None or _kf_model_dir != model_dir or _kf_weight_key != weight_key
+                or _kf_lora_key != fp):
+            if _kf_pipe is not None:
+                _kf_pipe = None
+                try:
+                    from ltx_core_mlx.utils.memory import aggressive_cleanup as _ac
+                    _ac()
+                except Exception:        # noqa: BLE001
+                    pass
             emit({"event": "log", "line": f"Loading Keyframe pipeline (Q8 dev model — {model_dir})..."})
             _kf_pipe = KeyframeInterpolationPipeline(
                 model_dir=model_dir,
@@ -1918,8 +1937,10 @@ def get_kf_pipe(model_dir: str, dev_transformer: str | None = None,
                 distilled_lora=lora_name,
                 distilled_lora_strength=1.0,
             )
+            _attach_loras(_kf_pipe, loras)
             _kf_model_dir = model_dir
             _kf_weight_key = weight_key
+            _kf_lora_key = fp
         return _kf_pipe
 
 
@@ -1994,13 +2015,19 @@ def get_a2v_pipe(model_dir: str, loras: list[dict] | None = None,
         return _a2v_pipe
 
 
-def get_a2v_distilled_pipe(model_dir: str):
+def get_a2v_distilled_pipe(model_dir: str, loras: list[dict] | None = None):
     """Returns A2VidDistilledPipeline lazily.
 
     Q4-compatible distilled pipeline — no dev transformer, no CFG, 8+3 steps.
     Cached on model_dir so switching between Q4 and Q8 paths rebuilds.
+
+    User LoRAs attach through `_pending_loras`, which its load() honours via
+    the native `_load_transformer_with_optional_streaming` — the same route
+    as a Q4 t2v render. They used to be dropped by the panel on this lane
+    only, so the same selection changed meaning when Q8 fell back to Q4. The
+    cache is keyed on the set (and the streaming decision it implies).
     """
-    global _a2v_distilled_pipe, _a2v_distilled_model_dir
+    global _a2v_distilled_pipe, _a2v_distilled_model_dir, _a2v_distilled_lora_key
     try:
         from a2vid_distilled import A2VidDistilledPipeline
     except ModuleNotFoundError:
@@ -2016,19 +2043,29 @@ def get_a2v_distilled_pipe(model_dir: str):
         _ac = lambda: None
     with _pipe_lock:
         release_pipelines(keep_kind="a2v_distilled")
-        if _a2v_distilled_pipe is None or _a2v_distilled_model_dir != model_dir:
+        fp = _lora_fingerprint(loras)
+        if (_a2v_distilled_pipe is None or _a2v_distilled_model_dir != model_dir
+                or _a2v_distilled_lora_key != fp):
             if _a2v_distilled_pipe is not None:
-                emit({"event": "log", "line": "model_dir changed; reloading A2V distilled pipeline."})
+                why = ("LoRA set changed" if _a2v_distilled_model_dir == model_dir
+                       else "model_dir changed")
+                emit({"event": "log", "line": f"{why}; reloading A2V distilled pipeline."})
                 _a2v_distilled_pipe = None
                 _ac()
             emit({"event": "log",
                   "line": f"Loading A2V distilled pipeline (Q4 — {model_dir})..."})
-            _a2v_distilled_pipe = A2VidDistilledPipeline(
+            # Streams like the t2v/i2v/extend constructors on a small Mac;
+            # a job with adapters keeps the unfused branch (_stream_for).
+            _a2v_distilled_pipe = _construct_pipeline(
+                A2VidDistilledPipeline,
                 model_dir=model_dir,
                 gemma_model_id=GEMMA_PATH,
                 low_memory=LOW_MEMORY,
+                low_ram_streaming=_stream_for(loras),
             )
+            _attach_loras(_a2v_distilled_pipe, loras)
             _a2v_distilled_model_dir = model_dir
+            _a2v_distilled_lora_key = fp
         return _a2v_distilled_pipe
 
 
@@ -3733,7 +3770,8 @@ for line in sys.__stdin__:
 
             pipe = get_kf_pipe(model_dir,
                                dev_transformer=p.get("dev_transformer"),
-                               distilled_lora=p.get("distilled_lora"))
+                               distilled_lora=p.get("distilled_lora"),
+                               loras=p.get("loras") or [])
             # Y1.037: short-clip VAE-streaming opt-out (Keyframe path).
             _apply_vae_streaming_decision(num_frames)
             kwargs = dict(
@@ -3940,7 +3978,7 @@ for line in sys.__stdin__:
             if not os.path.exists(audio_path):
                 raise RuntimeError(f"audio file not found: {audio_path}")
             num_frames = int(p["frames"])
-            pipe = get_a2v_distilled_pipe(model_dir)
+            pipe = get_a2v_distilled_pipe(model_dir, loras=p.get("loras") or [])
             _apply_vae_streaming_decision(num_frames)
             kwargs = dict(
                 prompt=p["prompt"],
@@ -4299,6 +4337,206 @@ for line in sys.__stdin__:
                 "output": str(out_path), "elapsed_sec": elapsed,
                 "seed_used": seed,
             })
+        except Exception as exc:
+            _last_activity = time.time()
+            emit({"event": "error", "id": job_id, "error": str(exc), "trace": traceback.format_exc()})
+        finally:
+            _is_busy = False
+        continue
+
+    if action == "write_lyrics":
+        # MUSIC STUDIO: Gemma writes lyrics from a concept. The same resident
+        # Gemma 3 the enhancer uses, the same `_enhance` chat call underneath —
+        # only the system prompt differs, and it is written around what YuE2
+        # actually reads: bracketed section tags, one sung line per row, a tag
+        # with nothing under it is an instrumental passage. The model is told
+        # the style so the words fit the tempo and the register, and told the
+        # target length so a 90-second song does not arrive with six verses.
+        #
+        # With `section` set it rewrites ONE section of a song the user already
+        # has: the editor sends the label and that section's current lines, and
+        # what comes back is the lines ALONE — no tag, no other sections —
+        # because the editor owns the tag and drops the answer straight back
+        # into the box it came from.
+        job_id = msg.get("id", "?")
+        p = msg.get("params", {}) or {}
+        concept = (p.get("concept") or "").strip()
+        style = (p.get("style") or "").strip()
+        seconds = int(p.get("seconds") or 150)
+        language = (p.get("language") or "").strip()
+        section = (p.get("section") or "").strip().strip("[]")
+        lines_in = (p.get("lines") or "").strip()
+        seed = int(p.get("seed", 10))
+        # A section rewrite can stand on the lines alone ("make this better"),
+        # so the concept is only mandatory when there is nothing else to go on.
+        if not concept and not (section and lines_in):
+            emit({"event": "error", "id": job_id, "error": "empty concept"})
+            continue
+        _is_busy = True
+        try:
+            t0 = time.time()
+            _mlx_mem_reset_run()
+            lm = get_gemma_lm()
+            verses = 2 if seconds < 120 else 3 if seconds < 210 else 4
+            # The half of the brief that is about the words rather than the
+            # shape — true whether we are writing the whole song or one part.
+            craft = [
+                "STYLE:",
+                "- Concrete images over abstractions. No clichés about hearts on fire,",
+                "  broken wings, or the night sky unless the user asked for them.",
+                "- The chorus is the hook: repeatable, memorable, the same words each",
+                "  time it returns.",
+                "- Rhyme when it lands naturally; never force a rhyme with a weak line.",
+                f"- Match this musical style: {style}." if style else "- Fit a contemporary song.",
+                f"- Write in {language}." if language else "- Write in the language of the concept.",
+            ]
+            if section:
+                system = "\n".join([
+                    "You are a professional lyricist reworking ONE section of a song.",
+                    f"Rewrite the [{section}] section. Nothing else in the song changes.",
+                    "",
+                    "FORMAT — follow exactly:",
+                    "- Output the sung lines only, one per row. No section tag, no square",
+                    "  brackets, no title, no commentary, no quotation marks.",
+                    "- Short lines: 4 to 9 words. Keep about as many lines as you were",
+                    "  given; one or two either way is fine.",
+                    "",
+                    *craft,
+                ])
+                user = "\n".join(x for x in [
+                    f"Concept: {concept}" if concept else "",
+                    f"The [{section}] section as it stands:",
+                    lines_in or "(empty — write it from nothing)",
+                ] if x)
+            else:
+                system = "\n".join([
+                    "You are a professional lyricist writing for a song generator.",
+                    "Write complete, singable lyrics for the concept the user gives you.",
+                    "",
+                    "FORMAT — follow exactly, the generator parses it:",
+                    "- Section tags on their own line in square brackets: [Intro], [Verse],",
+                    "  [Pre-Chorus], [Chorus], [Bridge], [Outro]. Use [Verse] and [Chorus]",
+                    "  as the tag text every time (no numbering like [Verse 2]).",
+                    "- Under each tag, the sung lines, one per row. Short lines: 4 to 9 words.",
+                    "- A tag with NO lines under it is an instrumental passage. Use that for",
+                    "  [Intro] and [Outro] unless the concept calls for words there.",
+                    f"- Length: about {verses} verses, a chorus that returns after each,",
+                    "  optionally one bridge. Nothing else.",
+                    "",
+                    *craft,
+                    "",
+                    "OUTPUT: only the lyrics with their tags. No title, no commentary,",
+                    "no quotation marks, no explanation before or after.",
+                ])
+                user = f"Concept: {concept}"
+            messages = [{"role": "system", "content": system},
+                        {"role": "user", "content": user}]
+            text = lm._enhance(messages, max_new_tokens=300 if section else 700, seed=seed)
+            # Strip a code fence or a leading title if the model added one.
+            lines = [ln.rstrip() for ln in text.strip().splitlines()]
+            lines = [ln for ln in lines if not ln.strip().startswith("```")]
+            if section:
+                # The editor owns the tag; one in the answer would end up
+                # doubled in the box the answer lands in.
+                lines = [ln for ln in lines
+                         if not (ln.strip().startswith("[") and ln.strip().endswith("]"))]
+                while lines and not lines[0].strip():
+                    lines.pop(0)
+            else:
+                while lines and not lines[0].strip().startswith("["):
+                    lines.pop(0)
+            lyrics = _music_tags.normalize_section_tags("\n".join(lines).strip())
+            _last_activity = time.time()
+            emit({"event": "done", "id": job_id, "lyrics": lyrics,
+                  "elapsed_sec": round(time.time() - t0, 2)})
+        except Exception as exc:
+            _last_activity = time.time()
+            emit({"event": "error", "id": job_id, "error": str(exc), "trace": traceback.format_exc()})
+        finally:
+            _is_busy = False
+        continue
+
+    if action == "write_song":
+        # MUSIC STUDIO, Simple mode: one description in, the whole brief out.
+        # YuE2 reads two things — a style SENTENCE (language, genre, the
+        # instruments, who sings and how, the tempo) and tagged lyrics — and a
+        # person describing a song says all of it in one breath. One Gemma call
+        # splits that breath into the two fields plus a title, and it answers
+        # with a JSON object so the split is the model's job rather than a
+        # regex's on this side: lyrics are multi-line, and every other
+        # separator we could ask for is a character a lyric may contain.
+        job_id = msg.get("id", "?")
+        p = msg.get("params", {}) or {}
+        description = (p.get("description") or "").strip()
+        instrumental = bool(p.get("instrumental"))
+        seconds = int(p.get("seconds") or 150)
+        seed = int(p.get("seed", 10))
+        if not description:
+            emit({"event": "error", "id": job_id, "error": "empty description"})
+            continue
+        _is_busy = True
+        try:
+            t0 = time.time()
+            _mlx_mem_reset_run()
+            lm = get_gemma_lm()
+            verses = 2 if seconds < 120 else 3 if seconds < 210 else 4
+            words = [
+                'lyrics: the words with their section tags, as ONE JSON string with',
+                '  \\n between lines. Tags alone on a line in square brackets:',
+                '  [Intro], [Verse], [Pre-Chorus], [Chorus], [Bridge], [Outro] — that',
+                '  exact text, never numbered. Under each tag the sung lines, one per',
+                '  row, 4 to 9 words each. A tag with no lines under it is an',
+                f'  instrumental passage. About {verses} verses and a chorus that',
+                '  returns after each of them.',
+            ] if not instrumental else [
+                'lyrics: "" — an empty string. This one has no singing at all, so',
+                '  the style sentence carries the whole song.',
+            ]
+            system = "\n".join([
+                "You are a music producer turning one sentence from a client into the",
+                "two things a song generator reads.",
+                "",
+                "Answer with ONE JSON object and nothing else — no code fence, no",
+                "commentary before or after:",
+                '{"title": "...", "style": "...", "lyrics": "..."}',
+                "",
+                "title: two to five words. No quotation marks inside it.",
+                "style: ONE sentence of prose, not a list of fields — the language, the",
+                "  genre, the lead instruments, who sings and how, and the tempo in BPM.",
+                '  Like: "English, warm piano pop, expressive female voice, acoustic',
+                '  piano, light drums, 88 BPM".',
+                *words,
+                "",
+                "Take what the client gave you and fill in the rest as a producer would:",
+                "concrete images over abstractions, a chorus that is the hook, rhyme",
+                "only where it lands. Write in the language the client used unless they",
+                "asked for another.",
+            ])
+            messages = [{"role": "system", "content": system},
+                        {"role": "user", "content": description}]
+            text = lm._enhance(messages, max_new_tokens=900, seed=seed)
+            # The object, however it is wrapped. A fence, a "Sure — here you
+            # go", a trailing note: all of it lives outside the braces.
+            i, j = text.find("{"), text.rfind("}")
+            data = json.loads(text[i:j + 1]) if i >= 0 and j > i else {}
+            if not isinstance(data, dict):
+                raise ValueError("the model did not answer with a JSON object")
+            style = str(data.get("style") or "").strip()
+            title = str(data.get("title") or "").strip().strip('"')
+            lyrics = "" if instrumental else str(data.get("lyrics") or "").strip()
+            if lyrics:
+                # Same rule as write_lyrics: anything before the first tag is a
+                # title or an apology, and the generator would sing it.
+                lines = [ln.rstrip() for ln in lyrics.splitlines()]
+                while lines and not lines[0].strip().startswith("["):
+                    lines.pop(0)
+                lyrics = "\n".join(lines).strip()
+            if not style:
+                raise ValueError("the model returned no style")
+            _last_activity = time.time()
+            emit({"event": "done", "id": job_id, "title": title, "style": style,
+                  "lyrics": _music_tags.normalize_section_tags(lyrics),
+                  "elapsed_sec": round(time.time() - t0, 2)})
         except Exception as exc:
             _last_activity = time.time()
             emit({"event": "error", "id": job_id, "error": str(exc), "trace": traceback.format_exc()})

@@ -398,7 +398,7 @@ const document={getElementById:id=>els[id]}; const AUDIO_STUDIO={};
 const findOutputByPath=()=>({clip_sec:120}); const audioModeSet=m=>{mode=m};
 const workflowSwitch=w=>{workflow=w};const audioStudioRenderSlots=()=>{}; const phosToast=()=>{};
 const fetch=()=>{submits++};
-''' + extract_function("musicFormParams", src) + extract_function("useTrackInA2V", src) + '''
+''' + extract_function("musicFormParams", src) + extract_function("musicCfgValue", src) + extract_function("useTrackInA2V", src) + '''
 const payload=Object.fromEntries(musicFormParams());useTrackInA2V('/tmp/song.wav');
 console.log(JSON.stringify({payload,lyrics:els.musicLyrics.value,AUDIO_STUDIO,submits,mode,workflow}));''')
     assert result["payload"]["music_instrumental"] == "on" and result["payload"]["music_lyrics"] == ""
@@ -407,22 +407,175 @@ console.log(JSON.stringify({payload,lyrics:els.musicLyrics.value,AUDIO_STUDIO,su
     assert result["AUDIO_STUDIO"]["audioPath"] == "/tmp/song.wav"
 
 
+def test_the_lyrics_editor_is_sections_and_the_brackets_stay_the_truth():
+    """The editor shows sections; #musicLyrics is still the only field the
+    rest of the form reads, so every structural edit has to land there."""
+    src = (ROOT / "webapp/js/music.js").read_text()
+    funcs = "\n".join(extract_function(n, src) for n in (
+        "_el", "_lyricsParse", "_lyricsText", "_lyricsLineCount", "_lyricsCountLabel",
+        "_lyricsSync", "_lyricsGrow", "musicLyricsRender", "musicLyricsType",
+        "musicLyricsRetag", "musicLyricsMove", "musicLyricsRemove", "musicLyricsAdd",
+        "musicLyricsSet", "musicLyricsView", "musicLyricsRawSync", "musicLyricsLock"))
+    ids = ["musicLyrics", "musicLyricsRaw", "musicLyricsEditor", "musicLyricsSections",
+           "musicLyricsAdd", "musicStatus", "musicConcept", "musicStyle", "musicMaxSeconds"]
+    result = node_eval("""
+const LYRIC_LABELS=['Intro','Verse','Pre-Chorus','Chorus','Bridge','Instrumental','Outro'];
+let LYRICS=[],lyricsView='sections',lyricsBusy=-1;
+const _esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+const mk=()=>{const cls=[];return {cls,value:'',hidden:false,innerHTML:'',disabled:false,style:{},
+  classList:{toggle:(c,on)=>{const i=cls.indexOf(c);if(on&&i<0)cls.push(c);if(!on&&i>=0)cls.splice(i,1);}},
+  querySelectorAll:()=>[],querySelector:()=>null,setAttribute(){},focus(){}};};
+const els=Object.fromEntries(""" + json.dumps(ids) + """.map(id=>[id,mk()]));
+const document={getElementById:id=>els[id]||null,querySelectorAll:()=>[]};
+const musicFormChanged=()=>{};
+""" + funcs + """
+const SONG='[Intro]\\n\\n[Verse]\\none line\\ntwo line\\n\\n[Chorus]\\nthe hook';
+musicLyricsSet(SONG);
+const afterSet=els.musicLyrics.value, html=els.musicLyricsSections.innerHTML;
+musicLyricsMove(1,-1); const afterMove=els.musicLyrics.value;
+musicLyricsMove(0,1); musicLyricsRetag(2,'Bridge'); const afterRetag=els.musicLyrics.value;
+musicLyricsRemove(0); musicLyricsAdd('Outro'); const afterAdd=els.musicLyrics.value;
+musicLyricsType(0,{value:'new words\\nhere',closest:()=>null,style:{},scrollHeight:0});
+const afterType=els.musicLyrics.value;
+musicLyricsView('text');
+const text={raw:els.musicLyricsRaw.value,editor:els.musicLyricsEditor.hidden,box:els.musicLyricsRaw.hidden};
+els.musicLyricsRaw.value='[Verse]\\ntyped by hand\\n\\n[Chorus]\\n';
+musicLyricsView('sections');
+const afterText=els.musicLyrics.value, backToSections=els.musicLyricsEditor.hidden;
+els.musicLyrics.disabled=true; musicLyricsRender();
+const locked=els.musicLyricsEditor.cls.includes('lyr-off');
+console.log(JSON.stringify({afterSet,html,afterMove,afterRetag,afterAdd,afterType,text,afterText,backToSections,locked}));
+""")
+    # Round trip: what the editor writes back is the same bracket text, tags
+    # unnumbered, an empty section still an instrumental passage.
+    assert result["afterSet"] == "[Intro]\n\n[Verse]\none line\ntwo line\n\n[Chorus]\nthe hook"
+    # Every section says what it costs, and a wordless one says so in place.
+    assert "2 lines" in result["html"] and "1 line" in result["html"]
+    assert "no words" in result["html"] and "wordless" in result["html"]
+    assert "instrumental passage" in result["html"]
+    # Structure is editable: reorder, retag, delete, add — all through the
+    # hidden field, because that is what musicFormParams sends.
+    assert result["afterMove"].startswith("[Verse]\none line")
+    assert "[Bridge]\nthe hook" in result["afterRetag"] and "[Chorus]" not in result["afterRetag"]
+    assert result["afterAdd"] == "[Verse]\none line\ntwo line\n\n[Bridge]\nthe hook\n\n[Outro]"
+    assert result["afterType"] == "[Verse]\nnew words\nhere\n\n[Bridge]\nthe hook\n\n[Outro]"
+    # Text mode is the same truth typed by hand, and it re-parses on the way back.
+    assert result["text"]["raw"] == result["afterType"]
+    assert result["text"]["editor"] is True and result["text"]["box"] is False
+    assert result["afterText"] == "[Verse]\ntyped by hand\n\n[Chorus]"
+    assert result["backToSections"] is False
+    # Instrumental: the words stay, the editor goes quiet — including the
+    # controls a re-render has just rebuilt.
+    assert result["locked"] is True
+
+
+def test_simple_mode_writes_the_brief_and_renders_nothing():
+    """Simple is one box. Compose in Simple asks Gemma for the style and the
+    words, fills the Custom fields with them and STOPS — the song itself is
+    minutes of GPU, so the second press is the user's."""
+    music = (ROOT / "webapp/js/music.js").read_text()
+    chars = (ROOT / "webapp/js/characters.js").read_text()
+    funcs = "\n".join(extract_function(n, music) for n in (
+        "_el", "_mmss", "_lyricsParse", "_lyricsText", "_lyricsLineCount", "_lyricsCountLabel",
+        "_lyricsSync", "_lyricsGrow", "musicLyricsRender", "musicLyricsLock", "musicLyricsSet",
+        "musicTaskSet", "musicSimpleActive", "musicSimpleMirror", "musicSimpleChanged",
+        "musicModeApply", "musicModeSet", "musicModeInit", "musicSimpleCompose",
+    )) + "\n" + extract_function("musicGenerate", chars)
+    ids = ["musicSimplePane", "musicCustomPane", "musicSimpleSeconds", "musicSimpleSecondsVal",
+           "musicSimpleInstrumental", "musicMaxSeconds", "musicInstrumental", "musicSimpleDescription",
+           "musicSimpleNotice", "musicGenBtn", "musicStatus", "musicTitle", "musicStyle", "musicConcept",
+           "musicTask", "musicCoverDetails", "musicLyrics", "musicLyricsRaw", "musicLyricsEditor",
+           "musicLyricsSections", "musicLyricsAdd", "musicSourceAudio", "musicCoverTask"]
+    result = node_eval("""
+const LYRIC_LABELS=['Intro','Verse','Pre-Chorus','Chorus','Bridge','Instrumental','Outro'];
+let LYRICS=[],lyricsView='sections',lyricsBusy=-1,musicMode='custom',musicBusy=false;
+const _esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+const cl=cls=>({toggle:(c,on)=>{const i=cls.indexOf(c);if(on&&i<0)cls.push(c);if(!on&&i>=0)cls.splice(i,1);}});
+const mk=()=>{const cls=[];return {cls,value:'',hidden:false,innerHTML:'',textContent:'',disabled:false,
+  checked:false,open:false,style:{},classList:cl(cls),querySelectorAll:()=>[],querySelector:()=>null,
+  setAttribute(){},focus(){focused=this;}};};
+let focused=null;
+const els=Object.fromEntries(""" + json.dumps(ids) + """.map(id=>[id,mk()]));
+const seg=v=>{const cls=[];return {cls,dataset:{value:v},classList:cl(cls),setAttribute(){}};};
+const groups={'#musicModeSeg .seg-btn':['simple','custom'].map(seg),
+              '#musicTaskPills .seg-btn':['write','cover','score'].map(seg)};
+const document={getElementById:id=>els[id]||null,querySelectorAll:s=>groups[s]||[]};
+const store={};
+const localStorage={getItem:k=>(k in store?store[k]:null),setItem:(k,v)=>{store[k]=v;}};
+const window={_ENGINE_PROBES:{music:{available:true,capable:true,estimates:{},cover:{ready:true}}}};
+let posts=[],queued=0;
+const fetch=(url,opt)=>{posts.push(url); if(url==='/queue/add')queued++;
+  return Promise.resolve({ok:true,json:async()=>({ok:true,title:'Leaving Town',
+    style:'English, slow piano ballad, low warm female voice, brushed drums, 72 BPM',
+    lyrics:'[Verse]\\nthe boxes by the door\\n\\n[Chorus]\\nyou are going',elapsed_sec:8})});};
+const musicFormChanged=()=>{};const poll=async()=>{};const setMainOutputsFilter=()=>{};
+const openMusicInstallCard=()=>{};const musicTranscribe=()=>{};
+""" + funcs + """
+(async()=>{
+els.musicMaxSeconds.value='240';
+musicModeInit();
+const start={active:musicSimpleActive(),simple:els.musicSimplePane.hidden,custom:els.musicCustomPane.hidden};
+musicModeSet('simple');
+const inSimple={active:musicSimpleActive(),simple:els.musicSimplePane.hidden,custom:els.musicCustomPane.hidden,
+  saved:store.phos_music_mode,secs:els.musicSimpleSeconds.value,label:els.musicSimpleSecondsVal.textContent,
+  on:groups['#musicModeSeg .seg-btn'].filter(b=>b.cls.includes('active')).map(b=>b.dataset.value)};
+els.musicSimpleSeconds.value='90';els.musicSimpleInstrumental.checked=true;musicSimpleChanged();
+const mirrored={max:els.musicMaxSeconds.value,inst:els.musicInstrumental.checked,label:els.musicSimpleSecondsVal.textContent};
+els.musicSimpleInstrumental.checked=false;musicSimpleChanged();
+els.musicSimpleDescription.value='a slow piano ballad for a friend moving away';
+await musicGenerate();
+const after={title:els.musicTitle.value,style:els.musicStyle.value,lyrics:els.musicLyrics.value,
+  concept:els.musicConcept.value,active:musicSimpleActive(),custom:els.musicCustomPane.hidden,
+  notice:els.musicSimpleNotice.hidden,noticeText:els.musicSimpleNotice.textContent,
+  posts,queued,btn:els.musicGenBtn.textContent,focusedGen:focused===els.musicGenBtn,saved:store.phos_music_mode};
+console.log(JSON.stringify({start,inSimple,mirrored,after}));
+})();""")
+    # Custom is the default, and the choice is remembered once it is made.
+    assert result["start"] == {"active": False, "simple": True, "custom": False}
+    assert result["inSimple"]["active"] is True
+    assert result["inSimple"]["simple"] is False and result["inSimple"]["custom"] is True
+    assert result["inSimple"]["saved"] == "simple" and result["inSimple"]["on"] == ["simple"]
+    # Simple's two knobs ARE Custom's two fields — one value, shown twice.
+    assert result["inSimple"]["secs"] == "240" and result["inSimple"]["label"] == "4:00"
+    assert result["mirrored"] == {"max": "90", "inst": True, "label": "1:30"}
+    # Compose in Simple writes the brief into the Custom fields and queues
+    # nothing: one POST, to /music/simple, and no job.
+    a = result["after"]
+    assert a["posts"] == ["/music/simple"] and a["queued"] == 0
+    assert a["title"] == "Leaving Town" and a["style"].startswith("English, slow piano ballad")
+    assert a["lyrics"] == "[Verse]\nthe boxes by the door\n\n[Chorus]\nyou are going"
+    assert a["concept"] == "a slow piano ballad for a friend moving away"
+    # …and hands over to Custom, with the reason said once and the button ready.
+    assert a["active"] is False and a["custom"] is False and a["saved"] == "custom"
+    assert a["notice"] is False and "edit anything, then Compose" in a["noticeText"]
+    assert a["btn"] == "Compose" and a["focusedGen"] is True
+
+
 def test_compose_visibility_tracks_install_state():
     """v4.14.1: Compose is always offered. Not installed, the form is greyed,
     the install panel carries one primary button, and Compose opens the card."""
     src = (ROOT / "webapp/js/characters.js").read_text()
     ids = ['audioModeGroup', 'musicComposePane', 'audioDrivePane', 'musicInstrumental', 'musicLyrics',
            'musicInstrumentalPill', 'musicMaxSeconds', 'musicMaxSecondsVal', 'musicQuality', 'musicEstimate',
-           'musicGenBtn', 'musicInstallPanel', 'musicInstallModal', 'musicInstallBody', 'musicStyle', 'musicStatus']
+           'musicGenBtn', 'musicInstallPanel', 'musicInstallModal', 'musicInstallBody', 'musicStyle', 'musicStatus',
+           'musicLoraList', 'musicLoraSummary', 'musicLoraInstall']
     funcs = "\n".join(extract_function(n, src) for n in (
-        "updateMusicAvailability", "musicFormChanged", "musicInstallRender", "openMusicInstallCard", "musicGenerate"))
+        "updateMusicAvailability", "musicFormChanged", "musicInstallRender",
+        "openMusicInstallCard", "musicGenerate",
+        # Compose's cover and LoRA sections keep their own summaries and
+        # install cards in step from inside musicFormChanged, so all of them
+        # have to be in scope here.
+        "musicCoverSummary", "musicCoverInstallCard",
+        "musicLoraPicks", "musicLoraRender", "musicLoraSummaryText", "musicLoraInstallCard"))
     result = node_eval("""let audioModeChoice=null,musicBusy=false,musicInstall={state:'idle',active:false},musicInstallSeenActive=false;
 const window={_ENGINE_PROBES:{music:{available:false,capable:true,min_ram_gb:24}}};
-const mk=()=>{const cl=new Set();return {hidden:false,innerHTML:'',value:'',classList:{toggle:(c,on)=>on?cl.add(c):cl.delete(c),has:c=>cl.has(c)}}};
+const mk=()=>{const cl=new Set();return {hidden:false,innerHTML:'',value:'',textContent:'',dataset:{},
+  classList:{toggle:(c,on)=>on?cl.add(c):cl.delete(c),has:c=>cl.has(c)},querySelectorAll:()=>[]}};
 const els=Object.fromEntries(""" + json.dumps(ids) + """.map(id=>[id,mk()]));
 els.musicInstallModal.hidden=true;
 els.musicInstrumental.checked=false;els.musicMaxSeconds.value='240';els.musicQuality.value='final';
 const document={body:{dataset:{workflow:'audio'}},getElementById:id=>els[id],querySelectorAll:()=>[]};
+const charactersEscapeHtml=s=>String(s==null?'':s);const charactersEscapeAttr=charactersEscapeHtml;
 const renderEngineSwitch=()=>{};const escapeHtml=s=>String(s);let fetched=0;const fetch=()=>{fetched++;};
 let toasts=0;const phosToast=()=>{toasts++;};
 """ + funcs + """
@@ -472,8 +625,12 @@ console.log(JSON.stringify({states,card,toasts}));
 def test_progress_eta_is_total_and_remaining_is_separate():
     src = Path(P.__file__).read_text()
     body = src[src.index("def run_music_job_inner"):src.index("ENGINE_DEFAULT = ")]
-    assert 'eta_sec=music_estimate(p["music_quality"], p["music_max_seconds"])["eta_sec"],' in body
-    assert "remaining_sec=max(0," in body
+    # The total is the song estimate (scaled for a variation: a re-recording
+    # is the NAR + decoder only) and the remaining is that total minus the
+    # clock — two fields, never one derived from the other on the client.
+    assert '_eta = music_estimate(p["music_quality"], p["music_max_seconds"])["eta_sec"] * _eta_scale' in body
+    assert "eta_sec=_eta," in body
+    assert "remaining_sec=max(0, _eta - elapsed)" in body
 
 
 def test_runner_reports_decode_and_never_publishes_after_stop():
@@ -529,25 +686,99 @@ def test_music_estimate_is_calibrated_and_scaled(monkeypatch):
 
 
 def test_external_gpu_lock_is_read_never_written(pack, monkeypatch, tmp_path):
+    """By default the panel only READS the shared locks: it waits (capped) and
+    refuses past the cap, and never creates or removes a lock."""
     stub = tmp_path / "never_runs.py"
     stub.write_text("raise SystemExit('the runner must not start while a lock exists')\n")
     monkeypatch.setattr(P, "MUSIC_RUNNER", stub)
     monkeypatch.setattr(P.HELPER, "kill", lambda: None)
+    monkeypatch.setattr(P, "MUSIC_GPU_WAIT_MAX_S", 0.3)
+    monkeypatch.setattr(P, "MUSIC_GPU_POLL_S", 0.05)
+    monkeypatch.setattr(P, "MUSIC_TAKES_GPU_LOCK", False)
     for lock, make in ((P.MUSIC_GPU_FILE_LOCK, lambda p: p.write_text("lab job")),
                        (P.MUSIC_GPU_DIR_LOCK, lambda p: p.mkdir())):
         make(lock)
         job = P.make_job({"mode": "music", "music_style": "test"})
         with pytest.raises(P.RenderRefused, match=lock.name):
             P.run_job_inner(job)
+        assert job["progress"]["phase"] == "waiting"  # it showed the wait before refusing
         assert lock.exists()  # left exactly as found
         if lock.is_dir():
             lock.rmdir()
         else:
             lock.unlink()
-    src = Path(P.__file__).read_text()
-    body = src[src.index("def run_music_job_inner"):src.index("ENGINE_DEFAULT = ")]
-    assert "MUSIC_GPU_DIR_LOCK.mkdir" not in src and "MUSIC_GPU_FILE_LOCK.open" not in src
-    assert "_music_take_gpu_locks" not in src and "_music_release_gpu_locks" not in src
+
+
+def test_music_waits_for_the_gpu_then_runs(pack, monkeypatch, tmp_path):
+    """A lock held by a command-line job delays the song; it does not fail it."""
+    import threading
+    stub = tmp_path / "stub_runner.py"
+    stub.write_text("""import sys,pathlib
+args=sys.argv[1:]; out=pathlib.Path(args[args.index('--output')+1])
+out.write_bytes(b'RIFF'); pathlib.Path(str(out)+'.json').write_text(args[args.index('--extra-json')+1])
+print('[music] done 5 '+str(out),flush=True)
+""")
+    monkeypatch.setattr(P, "MUSIC_RUNNER", stub)
+    monkeypatch.setattr(P.HELPER, "kill", lambda: None)
+    monkeypatch.setattr(P, "MUSIC_GPU_POLL_S", 0.05)
+    monkeypatch.setattr(P, "MUSIC_TAKES_GPU_LOCK", False)
+    P.MUSIC_GPU_FILE_LOCK.write_text("12345 lab job")
+    seen = []
+    def release():
+        time.sleep(0.3)
+        seen.append(dict(job.get("progress") or {}))
+        P.MUSIC_GPU_FILE_LOCK.unlink()
+    job = P.make_job({"mode": "music", "music_style": "test"})
+    P.STATE["current"] = job
+    t = threading.Thread(target=release); t.start()
+    P.run_job_inner(job)
+    t.join()
+    assert seen and seen[0]["phase"] == "waiting" and "gpu" in seen[0]["phase_label"].lower()
+    assert Path(job["output_path"]).is_file()
+    assert not P.MUSIC_GPU_FILE_LOCK.exists()
+
+
+def test_stop_ends_the_gpu_wait(pack, monkeypatch, tmp_path):
+    import threading
+    stub = tmp_path / "never_runs.py"
+    stub.write_text("raise SystemExit('must not start')\n")
+    monkeypatch.setattr(P, "MUSIC_RUNNER", stub)
+    monkeypatch.setattr(P.HELPER, "kill", lambda: None)
+    monkeypatch.setattr(P, "MUSIC_GPU_POLL_S", 0.05)
+    P.MUSIC_GPU_FILE_LOCK.write_text("12345 lab job")
+    job = P.make_job({"mode": "music", "music_style": "test"})
+    threading.Timer(0.2, lambda: job.__setitem__("cancel_requested", True)).start()
+    with pytest.raises(P.JobStopped):
+        P.run_job_inner(job)
+    assert P.MUSIC_GPU_FILE_LOCK.read_text() == "12345 lab job"  # a foreign lock is never touched
+
+
+def test_opt_in_panel_holds_the_lock_while_it_renders(pack, monkeypatch, tmp_path):
+    """PHOSPHENE_MUSIC_TAKES_GPU_LOCK=1: the panel creates the file lock atomically
+    while the runner works, so command-line jobs queue behind it, and removes only
+    the lock it wrote."""
+    probe = tmp_path / "lock_seen_by_runner"
+    stub = tmp_path / "stub_runner.py"
+    stub.write_text(f"""import sys,pathlib
+lock=pathlib.Path({str(P.MUSIC_GPU_FILE_LOCK)!r})
+pathlib.Path({str(probe)!r}).write_text(lock.read_text() if lock.exists() else 'NO LOCK')
+args=sys.argv[1:]; out=pathlib.Path(args[args.index('--output')+1])
+out.write_bytes(b'RIFF'); pathlib.Path(str(out)+'.json').write_text(args[args.index('--extra-json')+1])
+print('[music] done 5 '+str(out),flush=True)
+""")
+    monkeypatch.setattr(P, "MUSIC_RUNNER", stub)
+    monkeypatch.setattr(P.HELPER, "kill", lambda: None)
+    monkeypatch.setattr(P, "MUSIC_TAKES_GPU_LOCK", True)
+    job = P.make_job({"mode": "music", "music_style": "test"})
+    P.STATE["current"] = job
+    P.run_job_inner(job)
+    assert "phosphene-panel-music" in probe.read_text()  # held while the runner ran
+    assert not P.MUSIC_GPU_FILE_LOCK.exists()  # and released after
+    # A lock that is not ours is never removed, even if it appeared mid-run.
+    assert P._music_release_gpu("999 phosphene-panel-music other\n") is None
+    P.MUSIC_GPU_FILE_LOCK.write_text("someone else")
+    P._music_release_gpu("999 phosphene-panel-music other\n")
+    assert P.MUSIC_GPU_FILE_LOCK.read_text() == "someone else"
 
 
 def test_late_stop_leaves_nothing_behind(pack, monkeypatch, tmp_path):
@@ -898,7 +1129,13 @@ def test_music_child_env_drops_the_pinokio_torch_vars():
                              "PYTORCH_MPS_FAST_MATH": "1"})
     assert "PYTORCH_ENABLE_MPS_FALLBACK" not in env
     assert "PYTORCH_MPS_FAST_MATH" not in env
-    assert env["HF_HOME"] == "/hf" and env["PATH"] == "/bin"
+    assert env["HF_HOME"] == "/hf"
+    # PATH is no longer passed through untouched: a COVER decodes its source
+    # recording by shelling out to ffmpeg, and Pinokio's bundled binary is not
+    # on the default PATH (the 4.15.1 export bug, one engine over). The
+    # resolved one goes in front; everything the caller had is kept behind it.
+    assert env["PATH"].startswith(str(P.FFMPEG_BIN))
+    assert env["PATH"].endswith("/bin")
     assert env["MLX_ENABLE_TF32"] == "0" and env["PYTHONUNBUFFERED"] == "1"
 
 

@@ -549,6 +549,42 @@ class TestEventSchemas(AnalyticsTestCase):
         self.assertNotIn("error_fingerprint", p)
         self.assertEqual(p["audio_mode"], "h3_native")
 
+    def test_image_ref_paths_with_spaces_never_reach_the_signature(self):
+        """Codex UI-02: the image job's `refs` array was not in the secret
+        list and the path regex stops at whitespace, so a failed image job
+        sent "<path> Client Portrait.png"."""
+        from unittest import mock
+        self.configure(analytics_first_render_reported=True)
+        ref = "/Volumes/Photos/Private Client Portrait.png"
+        uni = "/Volumes/写真/秘密 の 顧客.png"
+        cases = [
+            (f"ref image not found: {ref}", {"refs": [ref]}),
+            (f"ref image not found: {uni}", {"refs": [{"path": uni}]}),
+            ("ref image not found: Private Client Portrait.png", {"refs": [ref]}),
+        ]
+        for err, extra in cases:
+            self.spy.bodies.clear()
+            P._analytics_render_event({
+                "status": "failed", "error": err, "elapsed_sec": 5.0,
+                "params": dict({"mode": "image", "engine": "mflux",
+                                "prompt": "x"}, **extra)})
+            drain()
+            sig = self.props_of("render_failed")["error_signature"]
+            for frag in ("Private", "Client", "Portrait", "秘密", "顧客", "写真"):
+                self.assertNotIn(frag, sig, (err, sig))
+        # an install root with a space in it
+        root = Path("/Users/someone/My Apps/phosphene.git")
+        with mock.patch.object(P, "ROOT", root), mock.patch.object(P, "UPLOADS", root / "panel_uploads"):
+            self.spy.bodies.clear()
+            P._analytics_render_event({
+                "status": "failed", "elapsed_sec": 5.0,
+                "error": f"ref image not found: {root}/panel_uploads/1700_face.png",
+                "params": {"mode": "image", "engine": "mflux", "prompt": "x"}})
+            drain()
+            sig = self.props_of("render_failed")["error_signature"]
+            self.assertNotIn("Apps", sig, sig)
+            self.assertNotIn("someone", sig, sig)
+
     def test_unknown_error_ships_class_other_plus_fingerprint(self):
         self.configure(analytics_first_render_reported=True)
         P._analytics_render_event({

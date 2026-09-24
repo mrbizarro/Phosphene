@@ -501,6 +501,16 @@ def post_prompt_enhance(h, path, qs, ctype) -> None:
     preserve_tokens = sorted(preserve_set)
     P.push(f"[enhance] {mode}: {user_prompt[:80]}…"
          + (f"  preserve={preserve_tokens}" if preserve_tokens else ""))
+    # THE GPU GATE, like every other GPU user (routes_music._helper_run). The
+    # queue unloads the LTX helper before an H3 or music render; an Enhance
+    # click mid-render respawned it and loaded Gemma beside that engine — two
+    # models on a Mac sized for one. The worker holds _GPU_LOCK for a whole
+    # job, so during any render this answers "busy" at once instead of
+    # queueing behind it until the enhance timeout.
+    if not P._GPU_LOCK.acquire(timeout=3.0):
+        P.push("[enhance] skipped: a render is using the GPU")
+        h._json({"error": "A render is using the GPU right now — Enhance "
+                          "works again when it finishes."}, 409); return
     try:
         result = P.HELPER.run({
             "action": "enhance_prompt",
@@ -511,6 +521,8 @@ def post_prompt_enhance(h, path, qs, ctype) -> None:
     except Exception as exc:
         P.push(f"[enhance] failed: {exc}")
         h._json({"error": str(exc)}, 500); return
+    finally:
+        P._GPU_LOCK.release()
     # A malformed terminal helper event must still become JSON. Before
     # this guard, None/non-string values raised after the only try/except
     # in the lane and BaseHTTPRequestHandler closed the socket empty.
@@ -610,9 +622,11 @@ def post_stop(h, path, qs, ctype) -> None:
         with P.LOCK:
             cur = P.STATE.get("current")
             job_id = (cur or {}).get("id")
+            # A One Shot's preview lives under the PART rendering now.
+            preview_id = P.live_preview_job_id(cur) if cur else ""
         if not job_id:
             h._json({"error": "nothing is rendering"}, 404); return
-        d = P.live_preview_dir(job_id)
+        d = P.live_preview_dir(preview_id)
         if not d.is_dir():
             h._json({"error": "this render has no live preview to stop "
                               "through — use Cancel."}, 409); return

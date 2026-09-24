@@ -140,17 +140,39 @@ except Exception:
     sys.exit(1)
 PY
 }
+# THE HOLD, AND WHY WAITING WAS NOT ENOUGH (Codex H3-02, 2026-09-24). Waiting
+# for the current job did nothing about the NEXT one: the panel kept taking
+# jobs, so a render queued after the idle check ran beside the ~20 GB load it
+# was supposed to avoid. So before anything waits or loads, this build writes
+# $STATE_DIR/h3_build.lock (pid + start time); the panel's worker starts no
+# new job while it is live (_external_build_hold() in mlx_ltx_panel.py), and
+# the trap removes it however the build ends. Order matters: hold first, then
+# wait for the job already running. A lock whose pid is gone, or which is
+# older than four hours, is ignored by the panel.
+HOLD="$STATE_DIR/h3_build.lock"
+hold_panel() {
+  mkdir -p "$STATE_DIR" 2>/dev/null
+  printf '{"pid": %d, "ts": %d, "what": "the Hailuo H3 compact-engine build"}\n' \
+    "$$" "$(date +%s)" > "$HOLD" 2>/dev/null \
+    || echo 'WARN: could not tell the panel to hold new renders during the build.'
+}
+trap 'rm -f "$HOLD"' EXIT
 wait_for_idle_panel() {
+  hold_panel
   WAITED=0
   while panel_rendering; do
     if [ "$WAITED" -eq 0 ]; then
       echo 'A Phosphene render is running. Waiting for it to finish before'
       echo 'loading the compact engine (it needs ~20 GB of memory briefly).'
+      echo 'The panel starts no new render until the build is done.'
     fi
     WAITED=$((WAITED + 1))
     if [ "$WAITED" -ge 120 ]; then
-      echo 'Still rendering after 60 minutes - continuing anyway.'
-      break
+      # Not "continuing anyway": loading ~20 GB beside a render is exactly
+      # what this wait exists to prevent. Nothing built is lost.
+      echo 'Still rendering after 60 minutes - not loading the compact engine'
+      echo 'on top of it. Run this again when the render has finished.'
+      exit 1
     fi
     sleep 30
   done

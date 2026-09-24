@@ -149,6 +149,8 @@ function h3FinishFieldsFromSidecar(p, tierKey) {
           .map(l => ({ path: String(l.path),
                        strength: (typeof l.strength === 'number') ? l.strength : 1.0 }))
       : [],
+    // Which meaning of "strength" the loras above were written in (H3-03).
+    h3_lora_scale_v: Number(p.h3_lora_scale_v) || 0,
     h3_orientation: (p.h3_orientation === 'portrait') ? 'portrait' : 'landscape',
     h3_lora_slot: (p.h3_lora_slot === 'user') ? 'user' : 'turbo',
     // Turbo carries over: a draft judged with the 4-step sampler should be
@@ -305,7 +307,7 @@ async function h3FinishActive() {
   if (fields.h3_upscale && typeof setH3Upscale === 'function') setH3Upscale(fields.h3_upscale);
   // The source's adapters, not whatever the picker holds now (an empty list
   // clears it), and its framing BEFORE the shape stamps geometry.
-  _restoreLoraPicker(fields.loras);
+  _restoreLoraPicker(fields.loras, fields.h3_lora_scale_v);
   if (typeof setH3Orientation === 'function') setH3Orientation(fields.h3_orientation);
   if (typeof setH3Steps === 'function') setH3Steps(fields.h3_steps);
   // Turbo before the shape: setH3Turbo forces the Steps pills back to 'auto',
@@ -2993,9 +2995,28 @@ function _fmtRenderTime(s) {
   return `rendered ${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} m`;
 }
 
+// A song's card reads like a song, not a file: the title it was given (or the
+// name minus the timestamp), and a chip for what it is — a new take, a
+// re-recording, a restyle, a cover. Everything else keeps its filename.
+function _songCardName(o) {
+  const m = o && o.music;
+  if (!m) return escapeHtml(o.name);
+  const title = m.title || o.name.replace(/\.wav$/i, '').replace(/^music_\d{8}_\d{6}_/, '').replace(/_/g, ' ');
+  const chip = m.variation ? ({take: 'take', sound: 're-roll', restyle: 'restyle'}[m.variation] || m.variation)
+             : m.cover ? 'cover' : '';
+  return `${escapeHtml(title)}${chip ? ` <span class="song-badge">${chip}</span>` : ''}`;
+}
 function renderCarousel() {
   const el = document.getElementById('carousel');
   const visible = filteredMainOutputs();
+  // Music Studio: songs are listed like songs — a list with cover art, a
+  // play button and a ⋯ menu — not a grid of thumbnails there is nothing to
+  // thumbnail. Any other filter gets the grid it always had.
+  el.classList.toggle('song-list', mainOutputsFilter === 'audio');
+  if (mainOutputsFilter === 'audio' && visible.length && typeof renderSongList === 'function') {
+    renderSongList(el, visible);
+    return;
+  }
   if (!visible.length) {
     const q = (typeof outputsQueryText === 'function') ? outputsQueryText() : '';
     const msg = q ? ('No matches for \u201c' + escapeHtml(q) + '\u201d.')
@@ -3100,13 +3121,13 @@ function renderCarousel() {
         <div class="card-chrome">
           ${remakeChip}
           ${animateChip}
-          ${isAudio ? `<button class="card-action card-action-photo" type="button" title="Load this track into Audio → Video (does not auto-submit)" onclick="event.stopPropagation();useTrackInA2V(${pathAttr})">Drive video</button>` : ''}
+          ${isAudio ? `<button class="card-action card-action-photo" type="button" title="Load this track into Music video (does not auto-submit)" onclick="event.stopPropagation();useTrackInA2V(${pathAttr})">Music video</button>` : ''}
           <button class="card-action card-action-danger" type="button" title="Move this file to the Trash — asks first"
                   onclick="event.stopPropagation(); deleteOutput(${pathAttr})"><svg class="ph" aria-hidden="true"><use href="#ph-trash-simple"/></svg></button>
         </div>
       </div>
       <div class="info">
-        <div class="name" title="${escapeHtml(o.name)}">${escapeHtml(o.name)}</div>
+        <div class="name" title="${escapeHtml(o.name)}">${_songCardName(o)}</div>
         <div class="sub" title="Render time · file size">
           ${o.sb ? `<span class="badge sb-badge" title="Shot ${o.sb.n} of a storyboard — click to open it"
                  onclick="event.stopPropagation(); sbOpenFromClip('${escapeHtml(o.sb.id)}')">S${String(o.sb.n).padStart(2,'0')}</span> · ` : ''}${_outputDurationLabel(o)} · ${o.size_mb.toFixed(1)} MB
@@ -3285,7 +3306,19 @@ function selectOutput(path, options) {
   // Photo viewer is a static <img> — no controls, no autoplay (would
   // be a no-op on an image element anyway). Video viewer keeps the
   // existing controls + autoplay behaviour.
-  if (isAudio) {
+  // Music Studio: the Song card under the player fills for a song and
+  // clears for anything else. Runs for every selection so a click from a
+  // song to a clip never leaves the previous song's score on screen.
+  if (typeof songCardRender === 'function') songCardRender(o);
+  if (isAudio && o && o.engine === 'music' && typeof songHero === 'function') {
+    // A song is not a black rectangle with a stock control in it: the
+    // surface shows the cover, the title and the style; playback is the
+    // bar's, which stays put while you browse.
+    // NO AUTOPLAY FOR SONGS, ever. Selecting a song is looking at it — the
+    // score, the words, the family. Sound starts on a play button and
+    // nowhere else, and it keeps going while you browse other songs.
+    wrap.innerHTML = songHero(o);
+  } else if (isAudio) {
     wrap.innerHTML = `<audio class="train-voice-audio" controls preload="metadata"${autoplay ? ' autoplay' : ''} src="${escapeHtml(playerSrc)}"></audio>`;
   } else if (isPhoto) {
     wrap.innerHTML = `<img src="${escapeHtml(playerSrc)}" alt="${o ? escapeHtml(o.name) : ''}">`;
@@ -3548,8 +3581,8 @@ async function animateActive() {
   }
 }
 
-async function hide(path) { await fetch('/output/hide?path='+encodeURIComponent(path),{method:'POST'}); currentOutputs = []; poll(); }
-async function unhide(path) { await fetch('/output/show?path='+encodeURIComponent(path),{method:'POST'}); currentOutputs = []; poll(); }
+async function hide(path) { await fetch('/output/hide?path='+encodeURIComponent(path),{method:'POST'}); outputsCacheMutated([path]); currentOutputs = []; poll(); }
+async function unhide(path) { await fetch('/output/show?path='+encodeURIComponent(path),{method:'POST'}); outputsCacheMutated([]); currentOutputs = []; poll(); }
 
 async function deleteOutput(path) {
   // Per-card × button. Moves the media (and any sibling sidecar JSON)
@@ -3579,6 +3612,8 @@ async function deleteOutput(path) {
         closeExpandLightbox();
       }
     }
+    // The Show-all cache too, or filteredMainOutputs() resurrects it (UI-06).
+    outputsCacheMutated([path]);
     currentOutputs = [];
     poll();
     phosToast('Moved to Trash · ' + base, { kind: 'success' });
@@ -3688,8 +3723,15 @@ function setUpscalePreset(btn) {
 // Put a saved {path, strength} list into the LoRA picker (Load Params and
 // Finish share this). Re-decorated with name + trigger words from
 // _knownUserLoras so the chips render nicely.
-function _restoreLoraPicker(list) {
+//
+// `scaleV` is the SOURCE recipe's h3_lora_scale_v (absent on sidecars written
+// before the stamp existed = 0). Each restored strength keeps it, so the
+// server can migrate an old automatic strength instead of reading it as a
+// deliberate modern pick (Codex H3-03); setLoraStrength drops it on an edit.
+function _restoreLoraPicker(list, scaleV) {
   if (!Array.isArray(list)) return;
+  const sv = (scaleV === undefined || scaleV === null) ? null
+    : (Number.isFinite(Number(scaleV)) ? Number(scaleV) : 0);
   _activeLoras = list.map(l => {
     const path = l && l.path;
     const strength = (l && typeof l.strength === 'number') ? l.strength : 1.0;
@@ -3699,6 +3741,7 @@ function _restoreLoraPicker(list) {
     return {
       path,
       strength,
+      ...(sv === null ? {} : { scale_v: sv }),
       name: meta.name || (path ? path.split('/').pop() : 'LoRA'),
       trigger_words: meta.trigger_words || [],
       compatible_modes: meta.compatible_modes || ['unknown'],
@@ -3739,6 +3782,32 @@ async function loadParams() {
       ta.value = JSON.stringify(_ideoSrc, null, 2);
       if (typeof ideoApplyRaw === 'function') { try { ideoApplyRaw(); } catch (_) {} }  // rehydrate boxes
     }
+    return;
+  }
+  // A One Shot reopens as One Shot, before any other branch reads `p` (a
+  // character One Shot must not land in the Characters tab as one clip).
+  // Takes rendered before 4.16 wrote the LAST PART's sidecar with the take
+  // block laid on top: `params` there is a short i2v of the final beats on a
+  // handoff frame, and a speech-handoff take had no `params` at all. The
+  // top-level take block and prompt are the take's own, so they win there.
+  if (data && data.take && data.take.seconds && !(p && p.take && p.take.seconds)
+      && typeof oneshotOpenFromParams === 'function') {
+    oneshotOpenFromParams(Object.assign({}, p || {}, {
+      take: data.take, engine: data.engine || (p && p.engine),
+      prompt: data.prompt || '', image: data.image || '',
+    }));
+    return;
+  }
+  if (p && p.take && p.take.seconds && typeof oneshotOpenFromParams === 'function') {
+    oneshotOpenFromParams(p);
+    return;
+  }
+  if (!p) return;
+  // An Audio → Video clip reopens in the Audio tab with its track (LTX-04);
+  // the video form below has no field that a2v reads.
+  if (p.mode === 'a2v' && typeof a2vLoadParams === 'function') {
+    a2vLoadParams(p);
+    if (Array.isArray(p.loras)) _restoreLoraPicker(p.loras);
     return;
   }
   // If this clip came from the Characters tab, restore the Characters
@@ -3839,7 +3908,23 @@ async function loadParams() {
   if (typeof setI2vRefMode === 'function') {
     try { setI2vRefMode(p.i2v_reference_mode || 'anchor'); } catch (e) {}
   }
-  if (p.temporal_mode) setTemporalMode(p.temporal_mode);
+  // SLIDING WINDOWS ARE STORED AS long_mode (LTX-05). make_job turns the
+  // form's temporal_mode=windows into long_mode=windows + temporal_mode=native,
+  // so restoring temporal_mode alone reopened a windowed clip as Native and
+  // dropped its per-window prompts and invariants — the next Generate asked
+  // for the whole length in one pass. The window text is always written, so
+  // a native clip clears whatever an earlier windowed one left in the box.
+  const _winText = document.getElementById('window_prompts_text');
+  const _winInv = document.getElementById('window_invariants');
+  const _windowed = p.long_mode === 'windows';
+  if (_winText) {
+    _winText.value = (_windowed && Array.isArray(p.window_prompts))
+      ? p.window_prompts.map(x => String(x || '')).join('\n') : '';
+  }
+  if (_winInv) _winInv.value = _windowed ? String(p.window_invariants || '') : '';
+  if (typeof windowPromptsInput === 'function') windowPromptsInput();
+  if (_windowed) setTemporalMode('windows');
+  else if (p.temporal_mode) setTemporalMode(p.temporal_mode);
   if (p.upscale) setUpscale(p.upscale);
   if (p.upscale_method) setUpscaleMethod(p.upscale_method);
   document.getElementById('prompt').value = p.prompt || '';
@@ -4044,7 +4129,9 @@ async function loadParams() {
   // without fusion (no face/style transfer). Wire shape on the sidecar is
   // a list of {path, strength}; we re-decorate with `name` + `trigger_words`
   // from _knownUserLoras when available so the chip renders nicely.
-  if (lorasForPicker) _restoreLoraPicker(lorasForPicker);
+  // An H3 recipe carries its strength meaning (H3-03); an LTX one has none.
+  if (lorasForPicker) _restoreLoraPicker(lorasForPicker,
+    (p.engine === 'h3') ? (Number(p.h3_lora_scale_v) || 0) : undefined);
 
   // ---- Engine + engine-specific settings ----------------------------------
   // Params restored geometry and prompt but NOT the engine, so loading an LTX

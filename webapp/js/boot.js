@@ -399,6 +399,27 @@ async function outputsLoadAll() {
   window._outputsLoadAllInFlight = p;
   return p;
 }
+// A delete / hide / unhide changed what /outputs would say. The poll
+// refreshes `currentOutputs`, but filteredMainOutputs() re-adds any path the
+// Show-all cache still holds — so a deleted clip came back as a 404 card and
+// a hidden one stayed visible until a reload (Codex UI-06). Drop the paths we
+// know about now, then refetch the full list (the server may have removed
+// companions too: an upscale's hidden native, its sidecars).
+function outputsCacheMutated(paths) {
+  const gone = new Set((paths || []).filter(Boolean));
+  if (gone.size) {
+    window._olderOutputs = (window._olderOutputs || []).filter(o => !gone.has(o.path));
+  }
+  if (window._showingAllOutputs && typeof outputsLoadAll === 'function') {
+    // A fetch already in flight began before this change and would put the
+    // old list back — refetch after it, not instead of it.
+    const inflight = window._outputsLoadAllInFlight;
+    try {
+      if (inflight) inflight.then(() => outputsLoadAll());
+      else outputsLoadAll();
+    } catch (_) {}
+  }
+}
 function _updateMainFilterChips() {
   const a = document.getElementById('mainOutputsFilterAll');
   const v = document.getElementById('mainOutputsFilterVideos');
@@ -894,7 +915,7 @@ Object.assign(globalThis, {
   applyTierTimes, setKeyframeMode, keyframeTimingSlots, renderKeyframeDynamicSlots,
   maybeScaleTouchedKeyframeTiming, syncKeyframeTiming, outputKind, isPhotoOutputMain, filteredMainOutputs,
   applyOutputsQuery, setOutputsQuery, paintOutputsCount, outputsTitleText, outputsQueryText,
-  outputsLoadAll, _updateMainFilterChips, _maybeAutoLoadAllForEmptyFilter, setMainOutputsFilter,
+  outputsLoadAll, outputsCacheMutated, _updateMainFilterChips, _maybeAutoLoadAllForEmptyFilter, setMainOutputsFilter,
   updateModelCredit, toggleAvoidRow, syncAvoidRowFromValue, ingredientsServed,
   _paintControlGenNote, defaultRemixMode, setMode, _portalLoraPicker,
 });

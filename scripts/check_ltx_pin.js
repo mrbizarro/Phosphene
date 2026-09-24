@@ -273,13 +273,16 @@ function probe(scenario) {
       fs.appendFileSync(path.join(clone, ".git", "info", "exclude"), "\nscratch/\n")
     }
     git(clone, ["commit", "-q", "--allow-empty", "-m", "local"])
-  } else if (scenario === "ignored_exact") {
+  } else if (scenario === "ignored_exact" || scenario === "ignored_exact_ff") {
+    // _ff: NO local commit. `git merge --ff-only` treats an ignored file as
+    // expendable and overwrites it without a word, so the guard has to stop
+    // the run before the merge, not only before the reset.
     fs.writeFileSync(path.join(up, "ignored.txt"), "upstream\n")
     git(up, ["add", "ignored.txt"]); git(up, ["commit", "-qm", "add ignored"])
     fs.appendFileSync(path.join(clone, ".git", "info", "exclude"), "\nignored.txt\n")
     fs.writeFileSync(path.join(clone, "ignored.txt"), "MINE\n")
     protectedPath = "ignored.txt"
-    git(clone, ["commit", "-q", "--allow-empty", "-m", "local"])
+    if (scenario === "ignored_exact") git(clone, ["commit", "-q", "--allow-empty", "-m", "local"])
   } else if (scenario === "dir_contains_nothing_conflicting"
              || scenario === "ignored_dir_contains_nothing_conflicting"
              || scenario === "deep_dir_contains_nothing_conflicting") {
@@ -327,13 +330,28 @@ function probe(scenario) {
     execFileSync("which", ["git"]).toString().trim() + ' "$@"\n')
   fs.chmodSync(path.join(bin, "git"), 0o755)
 
-  const script = updateDispatches()
-    .map((m, i) => `(\n${m}\n)\nrc=$?; [ $rc -eq 0 ] || exit $rc\n`).join("")
-  const r = spawnSync("bash", ["-c", script], {
-    cwd: clone, encoding: "utf8",
-    env: Object.assign({}, G.env, { PATH: bin + ":" + process.env.PATH }),
-  })
-  const outText = (r.stdout || "") + (r.stderr || "")
+  // PINOKIO'S STEP SEMANTICS, NOT A SHELL'S. This used to join the dispatches
+  // with `rc=$?; [ $rc -eq 0 ] || exit $rc`, a guarantee the real launcher
+  // does not give: Pinokio 8.2.0 (kernel/shells.js, the default `on` handlers)
+  // stops a run only when a step's OUTPUT matches /error:/i or /errno /i, and
+  // ignores its exit status. So a guard that printed "FATAL: ... obstruct
+  // Update" and exited 1 was followed by the converge step anyway, which
+  // reset over the very file the guard had refused to touch (Codex INST-02,
+  // 2026-09-24) — while this gate, holding a stricter launcher, passed.
+  // Each dispatch runs as its own shell, and the run continues unless the
+  // output trips one of those two patterns.
+  let outText = "", code = 0
+  for (const m of updateDispatches()) {
+    const r = spawnSync("bash", ["-c", m], {
+      cwd: clone, encoding: "utf8",
+      env: Object.assign({}, G.env, { PATH: bin + ":" + process.env.PATH }),
+    })
+    const o = (r.stdout || "") + (r.stderr || "")
+    outText += o
+    code = r.status
+    if (/error:/i.test(o) || /errno /i.test(o)) break
+  }
+  const r = { status: code }
   const protectedValue = fs.existsSync(path.join(clone, protectedPath))
     && fs.statSync(path.join(clone, protectedPath)).isFile()
     ? fs.readFileSync(path.join(clone, protectedPath), "utf8").trim() : null
@@ -373,6 +391,7 @@ if (probesRan) {
     ["file_blocks_directory", "untracked FILE obstructing an upstream DIRECTORY"],
     ["directory_blocks_file", "untracked DIRECTORY obstructing an upstream FILE"],
     ["ignored_exact", "ignored exact-path obstruction"],
+    ["ignored_exact_ff", "ignored exact-path obstruction, no divergence (ff-only would overwrite it)"],
     ["ignored_file_blocks_directory", "ignored FILE obstructing an upstream DIRECTORY"],
     ["ignored_directory_blocks_file", "ignored child beneath an upstream FILE"],
   ]) {

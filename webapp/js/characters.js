@@ -92,14 +92,32 @@ function musicPick(id, button) {
 function musicFormChanged() {
   const instrumental = document.getElementById('musicInstrumental').checked;
   document.getElementById('musicLyrics').disabled = instrumental;
+  // The lyrics editor (music.js) reads that same flag and goes quiet — the
+  // words stay in the boxes, they are just not used while this is on.
+  if (typeof musicLyricsLock === 'function') musicLyricsLock(instrumental);
   document.getElementById('musicInstrumentalPill').classList.toggle('on', instrumental);
   const seconds = Number(document.getElementById('musicMaxSeconds').value);
   document.getElementById('musicMaxSecondsVal').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
   const quality = document.getElementById('musicQuality').value;
+  const cfgEl = document.getElementById('musicCfg');
+  if (cfgEl) {
+    document.getElementById('musicCfgVal').textContent = Number(cfgEl.value).toFixed(1);
+    const prec = (document.getElementById('musicPrecision') || {}).value || '8bit';
+    const parts = [];
+    if (Math.abs(Number(cfgEl.value) - 1) >= 0.001) parts.push(`guidance ${Number(cfgEl.value).toFixed(1)}`);
+    if (prec !== '8bit') parts.push(prec);
+    const sum = document.getElementById('musicAdvancedSummary');
+    if (sum) sum.textContent = parts.length ? parts.join(' · ') : 'defaults';
+  }
   const music = window._ENGINE_PROBES.music;
   const estimate = ((music.estimates || {})[quality] || {})[String(seconds)];
   document.getElementById('musicEstimate').textContent = estimate
     ? `≈ ${estimate.eta} at full length · estimate` : '';
+  musicCoverSummary();
+  musicCoverInstallCard(music);
+  musicLoraRender(music);
+  musicLoraInstallCard(music);
+  musicLoraSummaryText();
   const btn = document.getElementById('musicGenBtn');
   btn.disabled = musicBusy || !music.capable;
   btn.title = music.available ? '' : (music.capable
@@ -110,6 +128,11 @@ function musicFormParams() {
   const instrumental = document.getElementById('musicInstrumental').checked;
   return new URLSearchParams({
     mode: 'music', engine: 'music',
+    // WHICH TASK WAS CHOSEN, in words the server can check (M6-07): a cover
+    // was represented only by a non-empty recording path, so Cover with the
+    // path left empty was indistinguishable from Write and composed a new
+    // song instead of refusing.
+    music_task: (document.getElementById('musicTask') || {}).value || 'write',
     music_lyrics: instrumental ? '' : document.getElementById('musicLyrics').value,
     music_style: document.getElementById('musicStyle').value,
     music_mode: document.getElementById('musicMode').value,
@@ -117,26 +140,261 @@ function musicFormParams() {
     music_max_seconds: document.getElementById('musicMaxSeconds').value,
     music_seed: document.getElementById('musicSeed').value,
     music_quality: document.getElementById('musicQuality').value,
+    // Cover: a path here changes the job's shape. Sent even when empty so a
+    // replay of a cover job and a replay of a prompt job differ in the field
+    // rather than in which fields exist.
+    // Only when Cover is the task. Switching back to Write closes the cover
+    // section but leaves the path in its box — and a path in the form is a
+    // cover, whatever the chips say (Codex review, 2026-09-20).
+    music_source_audio: (((document.getElementById('musicTask') || {}).value || 'write') === 'cover')
+      ? ((document.getElementById('musicSourceAudio') || {}).value || '') : '',
+    music_cover_task: (document.getElementById('musicCoverTask') || {}).value || 'melody-full',
+    music_title: (document.getElementById('musicTitle') || {}).value || '',
+    music_cfg_scale: musicCfgValue(),
+    music_precision: (document.getElementById('musicPrecision') || {}).value || '8bit',
+    // Adapters, as `id:strength` pairs. Instrumental pauses them: its own AR
+    // adapter is the recipe and a second AR delta would fight it. The picks
+    // stay checked in the form so turning Instrumental off brings them back.
+    music_loras: instrumental ? '' : musicLoraPicks(),
   });
+}
+
+// ---- Voice & style LoRA -----------------------------------------------------
+// The picker is a directory listing, not a registry: whatever is in the LoRA
+// folder (and in its user/ subfolder) is pickable. State lives in the DOM —
+// the checkbox and the slider ARE the selection — so a re-render has to carry
+// it across rather than reset it.
+// AS JSON, `[{id, strength}]` (M6-05). The picks went out as `id:strength`
+// joined with commas, and an id is a FILENAME: `Voice, warm.safetensors` was
+// split into two ids nobody has, both were dropped, and the song came back
+// without the voice the row showed ticked. The server's parser has always
+// read this JSON form, and the variation route already sends it.
+function musicLoraPicks() {
+  const list = document.getElementById('musicLoraList');
+  if (!list) return '';
+  const picks = Array.from(list.querySelectorAll('.music-lora-item'))
+    .filter(row => row.querySelector('input[type="checkbox"]').checked)
+    .map(row => ({ id: row.dataset.id,
+                   strength: Number(Number(row.querySelector('input[type="range"]').value).toFixed(2)) }));
+  return picks.length ? JSON.stringify(picks) : '';
+}
+
+function musicLoraRender(music) {
+  const list = document.getElementById('musicLoraList');
+  if (!list) return;
+  const adapters = ((music || {}).loras || {}).adapters || [];
+  // Carry the current selection across a re-render (/status polls every few
+  // seconds; a slider that snapped back every poll would be unusable).
+  const kept = {};
+  list.querySelectorAll('.music-lora-item').forEach(row => {
+    kept[row.dataset.id] = {
+      on: row.querySelector('input[type="checkbox"]').checked,
+      strength: row.querySelector('input[type="range"]').value,
+    };
+  });
+  const signature = adapters.map(a => a.id).join('|');
+  if (list.dataset.signature === signature && Object.keys(kept).length) {
+    musicLoraSummaryText();
+    return;
+  }
+  list.dataset.signature = signature;
+  if (!adapters.length) {
+    list.innerHTML = `<div class="music-lora-empty">No adapters yet. ` +
+      `<button type="button" class="ghost-btn" onclick="musicLoraInstall()">Download the LoRA pack</button></div>`;
+    musicLoraSummaryText();
+    return;
+  }
+  list.innerHTML = adapters.map(a => {
+    const state = kept[a.id] || {};
+    const strength = state.strength != null ? state.strength : '1.00';
+    const branch = a.branch === 'nar' ? 'sound' : 'writing';
+    return `<div class="music-lora-item${state.on ? ' active' : ''}" data-id="${charactersEscapeAttr(a.id)}">
+      <label class="music-lora-head">
+        <input type="checkbox" ${state.on ? 'checked' : ''} onchange="musicLoraToggled(this)">
+        <span class="music-lora-name">${charactersEscapeHtml(a.name)}</span>
+        <span class="music-lora-branch">${branch}</span>
+      </label>
+      <div class="range-strip">
+        <input type="range" min="0" max="1.5" step="0.05" value="${charactersEscapeAttr(String(strength))}"
+               oninput="musicLoraToggled(this)" title="Adapter strength">
+        <span class="range-val">${Number(strength).toFixed(2)}</span>
+      </div>
+      ${a.note ? `<div class="hint">${charactersEscapeHtml(a.note)}</div>` : ''}
+    </div>`;
+  }).join('');
+  musicLoraSummaryText();
+}
+
+function musicLoraToggled(el) {
+  const row = el.closest('.music-lora-item');
+  if (row) {
+    const on = row.querySelector('input[type="checkbox"]').checked;
+    row.classList.toggle('active', on);
+    const value = Number(row.querySelector('input[type="range"]').value);
+    row.querySelector('.range-val').textContent = value.toFixed(2);
+  }
+  musicFormChanged();
+}
+
+function musicLoraSummaryText() {
+  const el = document.getElementById('musicLoraSummary');
+  if (!el) return;
+  if (document.getElementById('musicInstrumental').checked) {
+    el.textContent = 'paused by Instrumental';
+    return;
+  }
+  const picks = musicLoraPicks();
+  if (!picks) { el.textContent = 'off'; return; }
+  const names = Array.from(document.querySelectorAll('.music-lora-item.active .music-lora-name'))
+    .map(n => n.textContent);
+  el.textContent = `${names.join(' · ')} @ ${JSON.parse(picks).map(p => p.strength.toFixed(2)).join(' / ')}`;
+}
+
+// Instrumental with no adapter still works — it falls back to the section-tag
+// prompt that shipped in v4.16 — so this offers the upgrade, never blocks.
+// A BACKGROUND DOWNLOAD SAYS WHAT IT IS DOING (M6-09). The two install cards
+// used to read only the 202 that started the fetch; the next /status tick
+// repainted the Download offer over it, and a fetch that then failed (a
+// dropped connection, a full disk) never said so. /status now carries each
+// fetch's `{running, line, error}` and this is the one painter both read.
+function musicFetchCard(fetch, what, retry) {
+  const f = fetch || {};
+  if (f.running) {
+    return `<b>Downloading ${what}…</b> <span class="hint">${charactersEscapeHtml(f.line || 'starting')}</span>`;
+  }
+  if (f.error) {
+    return `<b>The ${what} download failed:</b> ${charactersEscapeHtml(f.error)} ` +
+      `<button type="button" class="ghost-btn" onclick="${retry}()">Try again</button>`;
+  }
+  return '';
+}
+
+function musicLoraInstallCard(music) {
+  const box = document.getElementById('musicLoraInstall');
+  if (!box) return;
+  const loras = (music || {}).loras || {};
+  const wanted = document.getElementById('musicInstrumental').checked;
+  if (loras.instrumental_ready || !wanted) { box.hidden = true; box.innerHTML = ''; return; }
+  const mb = Math.round((loras.bytes || 0) / 1e6);
+  box.hidden = false;
+  box.innerHTML = musicFetchCard(loras.fetch, 'music LoRAs', 'musicLoraInstall') ||
+    `<b>Instrumental gets better with the music LoRA pack (~${mb} MB, once).</b> ` +
+    `Without it the model is only asked in words for a track with no vocal line. ` +
+    `<button type="button" class="ghost-btn" onclick="musicLoraInstall()">Download it</button>`;
+}
+
+async function musicLoraInstall() {
+  const box = document.getElementById('musicLoraInstall');
+  if (box) { box.hidden = false; box.innerHTML = 'Downloading the music LoRAs…'; }
+  try {
+    const r = await fetch('/music/lora/fetch', { method: 'POST' });
+    const result = await r.json();
+    if (!r.ok || result.error) throw new Error(result.error || 'Could not start the download');
+    if (box) box.innerHTML = 'Downloading the music LoRAs… this runs in the background.';
+  } catch (e) {
+    if (box) box.innerHTML = `Could not start the download: ${e.message || e}`;
+  }
+}
+
+// 1.0 is the engine's own default; sending nothing for it keeps the sidecar
+// honest ("cfg_scale": null = the default was used, not "1.0 was chosen").
+function musicCfgValue() {
+  const el = document.getElementById('musicCfg');
+  if (!el) return '';
+  const v = Number(el.value);
+  return Math.abs(v - 1) < 0.001 ? '' : String(v);
+}
+
+// The cover section says what it is doing without being opened, the way every
+// other closed section on this page does.
+function musicCoverSummary() {
+  const src = (document.getElementById('musicSourceAudio') || {}).value || '';
+  const el = document.getElementById('musicCoverSummary');
+  if (!el) return;
+  if (!src.trim()) { el.textContent = 'off'; return; }
+  const name = src.trim().split('/').pop();
+  const task = (document.getElementById('musicCoverTask') || {}).value || 'melody-full';
+  const words = {'melody-full': 'melody + chords', 'melody-vocal': 'the sung line',
+                 'full': 'everything'};
+  el.textContent = `${name} · ${words[task] || task}`;
+}
+
+// The two transcription models are an opt-in download, so the section says so
+// in place rather than letting a cover fail ten minutes in.
+function musicCoverInstallCard(music) {
+  const box = document.getElementById('musicCoverInstall');
+  if (!box) return;
+  const cover = (music || {}).cover || {};
+  const src = (document.getElementById('musicSourceAudio') || {}).value || '';
+  if (cover.ready || !src.trim()) { box.hidden = true; box.innerHTML = ''; return; }
+  const gb = ((cover.bytes || 0) / 1e9).toFixed(1);
+  box.hidden = false;
+  box.innerHTML = musicFetchCard(cover.fetch, 'cover models', 'musicCoverInstall') ||
+    `<b>Covering needs two more models (~${gb} GB).</b> They read the tune off ` +
+    `your recording; writing a song from a prompt never uses them. ` +
+    `<button type="button" class="ghost-btn" onclick="musicCoverInstall()">Download them</button>`;
+}
+
+async function musicCoverInstall() {
+  const box = document.getElementById('musicCoverInstall');
+  if (box) box.innerHTML = 'Downloading the cover models…';
+  try {
+    const r = await fetch('/music/cover/install', { method: 'POST' });
+    const result = await r.json();
+    if (!r.ok || result.error) throw new Error(result.error || 'Could not start the download');
+    if (box) box.innerHTML = 'Downloading the cover models… this runs in the background.';
+  } catch (e) {
+    if (box) box.innerHTML = `Could not start the download: ${e.message || e}`;
+  }
 }
 async function musicGenerate() {
   if (musicBusy) return;
   // Pressing Compose before the engine exists IS the request to install it.
   if (!window._ENGINE_PROBES.music.available) { openMusicInstallCard(); return; }
+  // Simple mode does not render: it asks Gemma for the style and the words
+  // and shows them in the Custom fields, because a song is minutes of this
+  // Mac's GPU and nobody should spend that on a brief they have not read.
+  if (typeof musicSimpleActive === 'function' && musicSimpleActive()) {
+    if (typeof musicSimpleCompose === 'function') await musicSimpleCompose();
+    return;
+  }
+  // Get the score is transcription only — a different route, no song.
+  const task = (document.getElementById('musicTask') || {}).value || 'write';
+  if (task === 'score') { if (typeof musicTranscribe === 'function') musicTranscribe(); return; }
   const fd = musicFormParams();
   const status = document.getElementById('musicStatus');
+  if (task === 'cover' && !fd.get('music_source_audio').trim()) {
+    const det = document.getElementById('musicCoverDetails');
+    if (det) det.open = true;
+    status.textContent = 'Cover needs a recording — pick or paste the one to cover.';
+    return;
+  }
   if (!fd.get('music_style').trim() && !fd.get('music_lyrics').trim() && fd.get('music_instrumental') !== 'on') {
     status.textContent = 'Give it something to work with — lyrics, a style description, or both.';
+    return;
+  }
+  // A cover with no transcription models is a ten-minute job that cannot
+  // succeed. Say it here, where the fix is one click away.
+  if (fd.get('music_source_audio').trim() &&
+      !(((window._ENGINE_PROBES.music || {}).cover || {}).ready)) {
+    document.getElementById('musicCoverDetails').open = true;
+    status.textContent = 'Covering needs the two transcription models first.';
     return;
   }
   musicBusy = true;
   musicFormChanged();
   status.textContent = 'Queueing…';
   try {
-    const r = await fetch('/queue/add', { method: 'POST', body: fd });
-    const result = await r.json();
-    if (!r.ok || result.error) throw new Error(result.error || 'Could not queue music');
-    status.textContent = 'Song queued.';
+    // Takes: N songs from one form, each with its own seed. A fixed seed
+    // applies to the first only — identical seeds would be identical songs.
+    const takes = Math.max(1, Math.min(8, Number((document.getElementById('musicTakes') || {}).value) || 1));
+    for (let i = 0; i < takes; i++) {
+      if (i > 0) fd.set('music_seed', '-1');
+      const r = await fetch('/queue/add', { method: 'POST', body: fd });
+      const result = await r.json();
+      if (!r.ok || result.error) throw new Error(result.error || 'Could not queue music');
+    }
+    status.textContent = takes > 1 ? `${takes} takes queued.` : 'Song queued.';
     setMainOutputsFilter('audio');
     await poll();
   } catch (e) {
@@ -154,7 +412,13 @@ function useTrackInA2V(path) {
   audioModeSet('drive');
   workflowSwitch('audio');
   audioStudioRenderSlots();
-  phosToast('Track loaded — add a prompt and generate.');
+  // The pane this lands on is Music video now, so the track has to land in
+  // ITS song slot as well as in the One-shot form underneath — a button that
+  // opens a screen and fills nothing on it reads as broken. Both, because the
+  // user may well have wanted the one clip.
+  if (typeof mvInit === 'function') mvInit();
+  if (typeof mvPickFromLibrary === 'function') mvPickFromLibrary(path);
+  phosToast('Song loaded — drop your pictures, then Plan the video.');
 }
 // One renderer, two places: the panel on top of Compose and the modal card
 // (opened by Compose, the header engine picker and Settings → Models).
@@ -223,6 +487,12 @@ function closeMusicInstallCard() {
 
 function audioStudioInit() {
   if (musicComposeActive()) setMainOutputsFilter('audio');
+  // The Drive-video pane is the Music video pane now (music.js owns it; the
+  // single-clip form this function wires is the "One shot" disclosure at the
+  // bottom of it). `mvInit` is idempotent and re-reads the song library every
+  // time, so it belongs BEFORE the wired guard — a song composed since the
+  // last visit has to appear in the select.
+  if (typeof mvInit === 'function') mvInit();
   // Re-read every visit, not once: the tier is known by the time the pane is
   // opened and the hint names a lane-specific number. A thumb the user has
   // already dragged is left exactly where they put it.
@@ -388,6 +658,20 @@ function audioStudioDurationChanged(val) {
   const w = parseInt((document.getElementById('audioStudioWidth') || {}).value || '1024', 10);
   const h = parseInt((document.getElementById('audioStudioHeight') || {}).value || '576', 10);
   const area = (w > 0 && h > 0) ? w * h : 1024 * 576;
+  // A MEMORY LIMIT COMES FIRST. On a Compact-tier Mac the panel refuses an
+  // a2v render past BOOT.a2v_max_frames (see a2v_max_frames() server-side):
+  // a 30 s clip on an 8 GB Mac died in the GPU watchdog instead. Say so here,
+  // before Generate, with the same number the worker refuses on.
+  const a2vCap = (BOOT && BOOT.a2v_max_frames) || 0;
+  if (a2vCap && frames > a2vCap) {
+    const capSec = Math.round((a2vCap - 1) / 24);
+    warn.style.display = '';
+    warn.innerHTML = 'This Mac renders Audio → Video up to <b>' + capSec
+      + ' s</b> per clip — longer ones outgrow its memory and are refused. '
+      + 'Render the song as ' + capSec + ' s clips (set <b>Start at</b> to 0, '
+      + capSec + ', ' + (2 * capSec) + ' …) and join them in the Editor.';
+    return;
+  }
   // THE CANVAS IS THE LEVER, NOT THE LENGTH. Below the knee the reports run
   // clean to 721 frames, so there is nothing to say; above it they give out
   // around frame 450 whatever the length asked for.
@@ -463,6 +747,64 @@ function audioConditioningScaleReset() {
       + 'adhesion, lower visual flexibility.'
       + (window.PHOSPHENE_CAP_TIER === 'q4' ? ''
          : ' On this lane 1.0 switches audio guidance off.');
+  }
+}
+
+// LOAD PARAMS ON AN AUDIO → VIDEO CLIP (LTX-04). The generic loader has no
+// a2v branch: it fell through to Text mode, copied the track into the Manual
+// form's #audio (which a2v never reads) and left the Audio tab untouched, so
+// Generate queued a different kind of video with no audio conditioning. This
+// puts the request back where it came from — the Audio tab's one-shot form,
+// read by audioStudioGenerate(): the track, the reference image, the canvas,
+// the length, the seed, the offset into the song and the conditioning
+// strength, with Auto kept as Auto (a blank in the sidecar) rather than
+// frozen at whichever lane default the clip happened to render on.
+function a2vLoadParams(p) {
+  p = p || {};
+  const audio = String(p.audio || '');
+  AUDIO_STUDIO.audioPath = audio || null;
+  AUDIO_STUDIO.audioName = audio ? audio.split('/').pop() : null;
+  AUDIO_STUDIO.audioDuration = null;
+  audioModeSet('drive');
+  if (typeof workflowSwitch === 'function') workflowSwitch('audio');
+  const det = document.getElementById('mvOneShotDetails');
+  if (det) det.open = true;
+  audioStudioRenderSlots();
+  const setVal = (id, v) => {
+    const el = document.getElementById(id);
+    if (el && v !== undefined && v !== null && v !== '') el.value = String(v);
+  };
+  setVal('audioStudioPrompt', p.prompt);
+  setVal('audioStudioWidth', p.width);
+  setVal('audioStudioHeight', p.height);
+  const seed = (p.seed_used != null && p.seed_used !== '') ? p.seed_used : p.seed;
+  setVal('audioStudioSeed', seed);
+  const startEl = document.getElementById('audioStudioStart');
+  if (startEl) startEl.value = String(Math.max(0, parseFloat(p.audio_start_time) || 0));
+  const frames = parseInt(p.frames, 10);
+  if (Number.isFinite(frames) && frames > 1) {
+    const slider = document.getElementById('audioStudioDuration');
+    const sec = Math.max(1, Math.round((frames - 1) / 24));
+    if (slider) slider.value = String(sec);
+    audioStudioDurationChanged(String(sec));
+  }
+  if (typeof pickerSetImage === 'function') {
+    pickerSetImage('a2v_image', p.image ? String(p.image) : '', { snapAspect: false });
+  }
+  const acs = p.audio_conditioning_scale;
+  const acsEl = document.getElementById('audioConditioningScale');
+  // A NUMBER 1 is the pre-4.15.2 default, not a choice: the old make_job
+  // stored a float 1.0 on every a2v job, and on Q8 1.0 switches audio
+  // guidance off. The server reads that float as Auto (a2v_requested_scale);
+  // restoring it here as an explicit "1" would undo that. Today's sidecars
+  // carry strings ("" = Auto, "2.5" = dragged), which are kept as they are.
+  const legacyDefault = (typeof acs === 'number' && acs === 1);
+  if (acsEl && !legacyDefault && acs !== undefined && acs !== null && String(acs).trim() !== ''
+      && Number.isFinite(parseFloat(acs))) {
+    acsEl.value = String(parseFloat(acs));
+    audioConditioningScaleChanged(acsEl);
+  } else {
+    audioConditioningScaleReset();
   }
 }
 
@@ -3181,9 +3523,14 @@ Object.assign(globalThis, {
   musicComposeActive, musicInit, updateMusicAvailability, audioModeSet, musicPick, musicFormChanged,
   musicFormParams, musicGenerate, useTrackInA2V, openMusicInstallCard, closeMusicInstallCard,
   musicInstallRender, musicInstallStart, musicInstallStop,
+  // Music Studio (cover): the install card's button is generated markup.
+  musicCoverInstall, musicCoverSummary, musicCoverInstallCard, musicCfgValue,
+  // Music Studio (LoRA): the picker's rows and the install card are generated markup.
+  musicLoraPicks, musicLoraRender, musicLoraToggled, musicLoraSummaryText,
+  musicLoraInstallCard, musicLoraInstall, musicFetchCard,
   windowPromptsInput,
   audioStudioInit, audioStudioDurationChanged, audioStudioEnhancePrompt, audioStudioGenerate,
-  audioConditioningScaleChanged, audioConditioningScaleReset,
+  audioConditioningScaleChanged, audioConditioningScaleReset, a2vLoadParams,
   trainRecommendedPreset, trainUpdatePresetButtons, trainUpdatePresetNote, downloadSampleCharacter,
   charactersInit, charactersRenderChips, charactersOpenCompose, charactersBackToGrid,
   charactersHandleAudioUpload, charactersClearAudio, charactersUpdateStrengthDisplay, charactersSyncStrengthControls,

@@ -188,9 +188,13 @@ class EditConflict(EditError):
     is what is actually on disk right now.
     """
 
-    def __init__(self, message: str, *, revision: int = 0) -> None:
+    def __init__(self, message: str, *, revision: int = 0,
+                 draft: str = "") -> None:
         super().__init__(message)
         self.revision = int(revision)
+        # Set when the conflict is about WHICH DRAFT edit.json is, not about
+        # its revision: the active draft's slug, right now.
+        self.draft = str(draft or "")
 
 
 def _f(x, default: float = 0.0) -> float:
@@ -3415,7 +3419,8 @@ def on_disk_revision(board_dir) -> int:
 
 
 def save_edit(board_dir, edit: dict, *, bump: bool = True,
-              origin: str = "manual", expect: int | None = None) -> Path:
+              origin: str = "manual", expect: int | None = None,
+              expect_draft: str | None = None) -> Path:
     """Validate, then write atomically. A bad edit NEVER lands on a good one.
 
     This is the whole reason `validate_edit` returns structured errors instead
@@ -3433,6 +3438,14 @@ def save_edit(board_dir, edit: dict, *, bump: bool = True,
 
     THE LOCK IS TAKEN WHETHER OR NOT `expect` IS. Two unguarded writers still
     must not interleave a history copy with a replace.
+
+    `expect_draft` is the other half of "the document the caller believes is
+    on disk": WHICH draft `edit.json` is. A revision alone cannot tell drafts
+    apart — a new or duplicated draft restarts at revision 1 — so a stale tab
+    holding draft A at revision 1 used to save straight into a just-created
+    draft B at revision 1 with no conflict at all (SB5-04). Checked in the
+    same critical section as the revision, and the draft verbs below take the
+    same lock, so a switch cannot land between the check and the write.
     """
     errs = blocking_errors(validate_edit(edit))
     if errs:
@@ -3441,12 +3454,20 @@ def save_edit(board_dir, edit: dict, *, bump: bool = True,
     doc = normalise_edit(edit)
     with board_write_lock(board_dir):
         return _save_edit_locked(board_dir, doc, bump=bump, origin=origin,
-                                 expect=expect)
+                                 expect=expect, expect_draft=expect_draft)
 
 
 def _save_edit_locked(board_dir, doc: dict, *, bump: bool, origin: str,
-                      expect: int | None) -> Path:
+                      expect: int | None,
+                      expect_draft: str | None = None) -> Path:
     """The critical section: compare, stamp, archive, replace. Lock held."""
+    if expect_draft:
+        active = load_draft_index(board_dir)["active"]
+        if str(expect_draft) != active:
+            raise EditConflict(
+                f"this film is on the draft {active!r} now, not "
+                f"{str(expect_draft)!r} — your arrangement was not written "
+                f"over it", revision=on_disk_revision(board_dir), draft=active)
     if expect is not None:
         current = on_disk_revision(board_dir)
         try:
@@ -5250,6 +5271,25 @@ def _stash_active(board_dir, idx: dict) -> None:
     _atomic_json(_draft_file(board_dir, idx["active"]), doc, prefix=".draft-")
 
 
+def _under_board_lock(fn):
+    """Run a draft verb inside the board's write lock.
+
+    Switching drafts is two writes — `edit.json` becomes the other draft, then
+    the index points at it — and a save checks `expect_draft` against that
+    index. Without the lock a save could pass its check, a switch could land,
+    and the save would then write the old draft's arrangement over the new
+    one. The lock is an RLock, so the `save_edit` calls inside nest.
+    """
+    import functools                                             # noqa: PLC0415
+
+    @functools.wraps(fn)
+    def inner(board_dir, *a, **kw):
+        with board_write_lock(board_dir):
+            return fn(board_dir, *a, **kw)
+    return inner
+
+
+@_under_board_lock
 def create_draft(board_dir, name: str, *, from_current: bool = False) -> dict:
     """A new draft, empty or copied from what is on screen. Becomes active.
 
@@ -5281,6 +5321,7 @@ def create_draft(board_dir, name: str, *, from_current: bool = False) -> dict:
     return _land_draft(board_dir, idx, slug, text, doc)
 
 
+@_under_board_lock
 def duplicate_draft(board_dir, slug: str, name: str = "") -> dict:
     """Copy a draft under a new name. The copy becomes active."""
     idx = load_draft_index(board_dir)
@@ -5327,6 +5368,7 @@ def _land_draft(board_dir, idx: dict, slug: str, text: str, doc: dict) -> dict:
     return {"slug": slug, "name": text}
 
 
+@_under_board_lock
 def rename_draft(board_dir, slug: str, name: str) -> dict:
     """A NAME CHANGE IS NOT A FILE MOVE. The slug is the identity and it stays
     put, so renaming can never orphan a draft's file or its backup."""
@@ -5342,6 +5384,7 @@ def rename_draft(board_dir, slug: str, name: str) -> dict:
     raise EditError("there is no draft by that name")
 
 
+@_under_board_lock
 def delete_draft(board_dir, slug: str) -> dict:
     """Remove a draft. The LAST one cannot go, and neither can the active one
     without something to land on — an editor with no document is not a state
@@ -5379,6 +5422,7 @@ def delete_draft(board_dir, slug: str) -> dict:
     return {"active": idx["active"], "deleted": target}
 
 
+@_under_board_lock
 def activate_draft(board_dir, slug: str) -> dict:
     """Switch which draft `edit.json` is. The outgoing one is stashed first."""
     idx = load_draft_index(board_dir)

@@ -2991,11 +2991,15 @@ class SavingCannotFailQuietly(unittest.TestCase):
         # `true` and re-queuing through that lane turned the second of two
         # rapid Save presses into a backup write, with edit.json left at the
         # older revision and the alarm reading clear.
-        self.assertEqual(self.r["midFlightRemembered"], "backup")
+        # 2026-09-24 (SB5-14): a QUIET request is a save too now. Every
+        # `sbeSave(true)` left is Render / export / relink waiting on edit.json,
+        # and downgrading it to a backup let them run against the previous
+        # cut. `test_editor_save_integrity.py` drives the interleaving itself.
+        self.assertEqual(self.r["midFlightRemembered"], "save")
         self.assertEqual(self.r["midFlightRemembersASave"], "save")
         fn = extract_function("sbeSave", self.src)
         self.assertIn("finally", fn)
-        self.assertIn("if (again === 'save') sbeSave(quiet, force);", fn)
+        self.assertIn("if (again && SBE.dirty && !SBE.conflict && SBE.open) return sbeSave(quiet, false);", fn)
 
     def test_the_in_flight_flag_cannot_stick_after_a_throw(self):
         self.assertFalse(self.r["flagClearedAfterThrow"])

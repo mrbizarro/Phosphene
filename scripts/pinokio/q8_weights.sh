@@ -42,7 +42,34 @@ esac
 echo "Fetching $LABEL (pack key: $REPO_KEY)…"
 
 PY=./ltx-2-mlx/env/bin/python3.11
-if $PY scripts/fetch_pack_release.py --repo-key "$REPO_KEY"; then
+
+# THE TRANSPORT COMES FROM THE REGISTRY, NOT FROM THE KEY. Only the 2.5 packs
+# are mirrored as GitHub release assets; LTX-2.3's q8 lives on Hugging Face
+# only, and handing its key to the release fetcher failed before a single
+# byte moved ("repo 'q8' is not mirrored through a GitHub release") — under a
+# banner blaming the network (Codex INST-06, 2026-09-24). An unmirrored pack
+# goes through `hf download` with the registry's own --include allowlist, the
+# same lane the in-panel Models page uses for it.
+fetch_pack() {
+  if $PY -c 'import json,sys
+r = next(x for x in json.load(open("required_files.json"))["repos"] if x["key"] == sys.argv[1])
+sys.exit(0 if (r.get("mirror") or {}).get("kind") == "github-release" else 1)' "$REPO_KEY"
+  then
+    $PY scripts/fetch_pack_release.py --repo-key "$REPO_KEY"
+    return
+  fi
+  ARGS=()
+  while IFS= read -r -d '' a; do ARGS+=("$a"); done < <($PY -c 'import json,sys
+r = next(x for x in json.load(open("required_files.json"))["repos"] if x["key"] == sys.argv[1])
+out = [r["repo_id"], "--local-dir", r["local_dir"]]
+for pat in r.get("download_include") or []:
+    out += ["--include", pat]
+sys.stdout.write("\0".join(out) + "\0")' "$REPO_KEY")
+  [ "${#ARGS[@]}" -gt 0 ] || return 1
+  HF_HUB_ENABLE_HF_TRANSFER=1 ./ltx-2-mlx/env/bin/hf download "${ARGS[@]}"
+}
+
+if fetch_pack; then
   echo "$LABEL ready (verified against the published manifest)."
 else
   echo '=================================================================='
@@ -50,7 +77,7 @@ else
   echo 'Nothing is broken - this pack is optional. The panel keeps rendering'
   echo 'on the base weights; trained characters and voices are what need Q8.'
   echo 'This is almost always a network problem (no connection, a VPN or'
-  echo "proxy, or GitHub blocked) or a full disk: the pack needs about $SIZE_GB GB."
+  echo "proxy, GitHub or Hugging Face blocked) or a full disk: the pack needs about $SIZE_GB GB."
   echo 'Fix that and click again - nothing already downloaded is fetched'
   echo 'twice, and a part-finished pack resumes where it stopped.'
   echo '=================================================================='

@@ -568,7 +568,28 @@ def validate_storyboard_detail(
         # warning, on the same principle as everything else here: the failure
         # it prevents is a finished clip of somebody babbling, and you only
         # find out after the render.
-        verb = shot_speech_problem(prompt)
+        #
+        # AN A2V SHOT IS EXEMPT, and that is not a loosening. The law asks
+        # "are there words for this mouth to say" and reads the prompt because
+        # on every other mode the prompt is the only place words can be. On
+        # a2v the words are a WAVEFORM — the pipeline drives the mouth from
+        # `audio` at `audio_start_time`, which is the whole mode — so a music
+        # video's "close-up, singing to camera" was refused for having no
+        # lyrics written in it while the lyrics were in the file next to it.
+        # Same reasoning for the pacing check below: a line's length is set by
+        # the recording, not by a word count in a sentence nobody will read.
+        # AN A2V SHOT IS NOT EXEMPT ANY MORE — it is judged by its own law.
+        # The stillness words are the documented cause of a freeze frame with
+        # no lip-sync, and our own planners used to write them mechanically.
+        if mode == "a2v":
+            for phrase in a2v_stillness_problems(prompt):
+                add("a2v_stillness",
+                    f"{where}: {phrase!r} tells the model that nothing moves — "
+                    f"and that includes the singer's lips. An audio-driven "
+                    f"shot renders as a freeze frame with a closed mouth. "
+                    f"Say what the performer DOES instead.",
+                    n=n_for_ui, field="prompt", phrase=phrase)
+        verb = shot_speech_problem(prompt) if mode != "a2v" else None
         if verb:
             add("speech_without_words",
                 f"{where}: {verb!r} implies someone is speaking, but no spoken "
@@ -580,7 +601,8 @@ def validate_storyboard_detail(
         # clock. Blocks the render for the same reason everything here does —
         # the defect (a sentence cut off mid-word) is only visible AFTER the
         # render time is spent.
-        pacing = shot_pacing_problem(prompt, s.get("duration_s") or 0)
+        pacing = (shot_pacing_problem(prompt, s.get("duration_s") or 0)
+                  if mode != "a2v" else None)
         if pacing:
             add("dialogue_does_not_fit",
                 f"{where}: {pacing}.",
@@ -1024,6 +1046,198 @@ _SUNG_READ_RE = re.compile(
 SPEECH_SETTLE_S = 1.0
 
 
+# --- THE A2V PROMPT LAW: A SINGING SHOT IS NOT A STILL ----------------------
+# An a2v shot is driven by a WAVEFORM. The one thing it must not be told is
+# that nothing moves - LTX reads a stillness word as "nothing in the scene
+# moves, INCLUDING the singer's lips", and the shot comes back as a freeze
+# frame with a closed mouth. Our own planners were writing exactly that:
+# `storyboard_planner._CAMERA_SENTENCES["static"]` is "The camera holds a
+# static shot, the frame never moves..." and the settle law adds "with no new
+# movement of any kind" - two documented lip-sync killers, as canonical
+# sentences PYTHON wrote, on every planned shot.
+#
+# Three rules, and they live HERE rather than in either planner because both
+# planners and the validator have to agree about them:
+#
+#   1. no stillness words, ever, on an a2v shot (an ERROR, not advice);
+#   2. a literal sync contract, appended AFTER all polish so a re-roll, an
+#      enhance pass or a hand edit cannot paraphrase it away;
+#   3. a SHORT prompt - the more set-dressing there is, the more static the
+#      clip becomes and the further the vocal verb sinks behind it.
+#
+# The contract's wording is deliberate: "lip-syncs" rather than "sings",
+# because a generic "sings" is read as unconstrained performance while the
+# written word binds the mouth to the file the shot was given.
+A2V_SYNC_CONTRACT = (
+    "The singer lip-syncs every vocal syllable to the supplied soundtrack, "
+    "with exact timing, natural mouth shapes and matching breaths.")
+
+#: A window with no vocal in it. Saying nothing is not neutral - the model
+#: keeps the mouth working through an instrumental bar - so a silent window
+#: gets its own contract instead of the singing one.
+A2V_SILENT_CONTRACT = (
+    "Nobody is singing in this moment: the mouth stays at rest with relaxed "
+    "closed lips.")
+
+#: The words that BIND the contract. A re-roll or a hand edit may rewrite the
+#: sentence; these are what `a2v_prompt` looks for before adding another.
+_A2V_CONTRACT_KEYS = ("lip-sync", "relaxed closed lips")
+
+#: How many words of creative direction an a2v shot gets. The contract rides
+#: ON TOP of this, because it is the one sentence that must survive.
+A2V_MAX_WORDS = 40
+
+#: Every stillness phrase, and what it becomes when it is rewritten in place.
+#: The order matters: the specific forms rewrite before the general ones.
+#:
+#: `still` on its own is deliberately absent. "the coffee is still hot" is an
+#: adverb, not a freeze frame, and this list drives a BLOCKING error - so the
+#: phrases are matched with their verbs, and the bare `is still` form only
+#: when nothing follows it inside the clause.
+_A2V_STILLNESS_FIXES = (
+    (r"\bholds? a static (?:shot|hold|frame)\b", "is locked in place"),
+    (r"\bstatic (?:shot|hold|camera|frame|framing)\b", "locked-off camera"),
+    (r"\bthe (?:frame|camera) never moves\b", "the camera is locked in place"),
+    (r"\bbarely mov(?:es|ing)\b", "moves clearly"),
+    (r"\bno new movement(?: of any kind)?\b", "the performance carries on"),
+    (r"\b(holds?|held|stays?|staying|remains?|sits?|sitting|stands?|standing"
+     r"|keeps?|keeping) (?:perfectly |completely |very |utterly |absolutely )?"
+     r"(?:still|motionless)\b", r"\1 steady"),
+    (r"\b(?:is|are|was|were) (?:perfectly |completely |very |utterly "
+     r"|absolutely )?still\b(?!\s+\w)", "is steady"),
+    (r"\b(?:perfectly|completely|utterly|absolutely) (?:still|motionless)\b",
+     "steady"),
+    (r"\bmotionless\b", "steady"),
+    (r"\bfreeze frame\b", "held frame"),
+    (r"\bnothing (?:in the (?:scene|frame) )?moves\b",
+     "the camera is locked in place"),
+    (r"\bwithout moving\b", "steadily"),
+    (r"\b(?:does not|doesn't|never) move\b", "stays steady"),
+)
+
+#: The union of the above - what `a2v_stillness_problems` reports and the
+#: validator refuses. Built from the same tuple so a phrase can never be
+#: refusable and unfixable at the same time.
+_A2V_STILLNESS_RE = re.compile(
+    "|".join(pat for pat, _ in _A2V_STILLNESS_FIXES), re.IGNORECASE)
+
+#: A clause that is NOTHING BUT a refusal of camera movement. Cleaned out of
+#: an a2v prompt but never an error on its own: one of these is a tripod
+#: instruction, and it is only STACKING them that compounds into no motion.
+_A2V_DEAD_CLAUSE_RE = re.compile(
+    r"^(?:and\s+|with\s+)?no\s+(?:new\s+)?"
+    r"(?:pan|push[- ]?in|pull[- ]?back|re-?fram\w+|zoom|drift"
+    r"|camera\s+\w+|movement|motion)\b",
+    re.IGNORECASE)
+
+#: A clause whose subject is the camera or the frame. On an a2v shot a clause
+#: like this is DELETED rather than rewritten: the shot does not need a camera
+#: restraint sentence at all, and rewriting "the camera holds a static shot"
+#: only produces a more polite way of saying the same fatal thing.
+_A2V_CAMERA_SUBJECT_RE = re.compile(r"\b(?:camera|frame|framing|shot)\b",
+                                    re.IGNORECASE)
+
+_A2V_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+def a2v_stillness_problems(prompt: str) -> list[str]:
+    """Every stillness phrase in `prompt`, in the order they appear.
+
+    Empty means the prompt is safe to hand to an audio-driven render.
+    """
+    return [m.group(0) for m in _A2V_STILLNESS_RE.finditer(prompt or "")]
+
+
+def _a2v_clean_clause(clause: str) -> str:
+    """One clause, made safe. Empty string when it should disappear."""
+    c = clause.strip()
+    if not c:
+        return ""
+    if _A2V_DEAD_CLAUSE_RE.match(c):
+        return ""
+    if not _A2V_STILLNESS_RE.search(c):
+        return c
+    if _A2V_CAMERA_SUBJECT_RE.search(c):
+        return ""
+    for pattern, replacement in _A2V_STILLNESS_FIXES:
+        c = re.sub(pattern, replacement, c, flags=re.IGNORECASE)
+    return c.strip()
+
+
+def a2v_clean_prompt(text: str) -> str:
+    """`text` with every stillness cue removed, clause by clause.
+
+    CLAUSE-LEVEL, not sentence-level, and the two treatments are different on
+    purpose: a clause about the CAMERA is deleted (an audio-driven shot does
+    not want a restraint sentence at all), a clause about a PERSON is rewritten
+    in place so it keeps its subject - "she stands still at the microphone,
+    singing" has to come out as a woman at a microphone, singing.
+    """
+    out = []
+    for sentence in _A2V_SENTENCE_SPLIT.split(str(text or "").strip()):
+        if not sentence.strip():
+            continue
+        tail = "." if sentence.rstrip()[-1:] in ".!?" else ""
+        kept = [k for k in (_a2v_clean_clause(c)
+                            for c in re.split(r"[,;]", sentence.rstrip(".!?")))
+                if k]
+        if kept:
+            out.append(", ".join(kept) + tail)
+    return " ".join(out).strip()
+
+
+def a2v_direction(line: str, max_words=A2V_MAX_WORDS) -> str:
+    """The CREATIVE DIRECTION of an a2v shot: stillness out, cap on, no
+    contract yet.
+
+    Split from `a2v_prompt` because the cap must fall on the direction and
+    never on the laws: the face law alone is sixty words, and a cap applied to
+    a finished prompt would delete it - along with the style suffix and the
+    sync contract, which are the two things that must survive.
+    """
+    return _a2v_cap_words(a2v_clean_prompt(line), max_words)
+
+
+def _a2v_cap_words(text: str, max_words) -> str:
+    """`text` cut to `max_words`, on a clause boundary when there is one.
+
+    Cutting mid-clause leaves a dangling "in the warm light of" that the model
+    finishes by inventing; a clause boundary always closes an idea.
+    """
+    raw = str(text or "").strip()
+    if max_words is None:
+        return raw
+    words = raw.split()
+    if len(words) <= max_words:
+        return raw
+    clipped = " ".join(words[:max_words])
+    cut = max(clipped.rfind(","), clipped.rfind(";"), clipped.rfind("."))
+    if cut > 0:
+        clipped = clipped[:cut]
+    return clipped.rstrip(" ,;.") + "."
+
+
+def a2v_prompt(line: str, *, silent: bool = False,
+               max_words=A2V_MAX_WORDS) -> str:
+    """One direction, made safe for an audio-driven render.
+
+    Stillness out, capped to `max_words` of creative direction, then the
+    contract LAST - after the cap, so a long prompt loses set-dressing and
+    never the one sentence that makes the mouth move. Idempotent: a prompt
+    that already carries a contract does not collect a second one.
+    `max_words=None` skips the cap, for a prompt whose direction was already
+    capped when it was written (see `a2v_direction`).
+    """
+    body = a2v_direction(line, max_words).strip()
+    contract = A2V_SILENT_CONTRACT if silent else A2V_SYNC_CONTRACT
+    low = body.lower()
+    if any(key in low for key in _A2V_CONTRACT_KEYS):
+        return body
+    if body and body[-1] not in ".!?":
+        body += "."
+    return (body + " " + contract).strip() if body else contract
+
+
 def is_slow_read(prompt: str) -> bool:
     """True when the voice descriptor asks for slow delivery."""
     return bool(_SLOW_READ_RE.search(prompt or ""))
@@ -1319,6 +1533,17 @@ def compose_shot_prompt(shot: dict, locations: dict[str, dict] | None = None,
     flipping an eyeline to fix the 180-degree line — re-flows every shot that
     uses it without rewriting anybody's text.
     """
+    # THE LAST PLACE A PROMPT CAN BE MADE SAFE. Every shot passes through here
+    # on its way to a render, so an a2v shot gets its sync contract here even
+    # if it was planned before this law existed, hand-edited since, or written
+    # by a caller who never heard of it. `a2v_prompt` is idempotent, so a
+    # planner that already appended the contract does not produce two.
+    if shot.get("mode") == "a2v":
+        # NO CAP HERE. The direction was capped when the shot was written; a
+        # cap applied to a finished prompt would delete the face law and the
+        # style along with the set-dressing, which is not this seam's job.
+        shot = dict(shot, prompt=a2v_prompt(shot.get("prompt") or "",
+                                            max_words=None))
     trigger = (shot.get("trigger") or shot.get("character_id") or "").strip()
     # H3's three-field prompt. The additions below describe the PICTURE, so
     # they belong in `integrated_multimodal_description` and nowhere after it:
@@ -1658,6 +1883,28 @@ def shot_to_job(shot: dict, policy_pass: dict, *,
     # made from the character's own frames (2026-09-10, the sitcom's jungle
     # shots lost the lead's face on every text-only render and kept it on
     # every render that started from a still).
+    # AUDIO -> VIDEO. The three fields `run_job_inner`'s a2v branch reads are
+    # `audio`, `audio_start_time` and `image`, and all three are in make_job's
+    # allowlist — but nothing here ever wrote them, so an a2v shot enqueued as
+    # a SILENT t2v from its prompt and the reference PNG make_job defaults to.
+    # (The refs note at the bottom is about `shot["refs"]`, which still is not
+    # mapped: a2v does not want a ref list, it wants one still and one file.)
+    if shot.get("mode") == "a2v" and shot.get("audio"):
+        job["audio"] = str(shot["audio"])
+        # Where in the song this shot is looking. The whole of the music-video
+        # lane rides on this number: the clip is rendered against the seconds
+        # of the track it will be playing under once the film is assembled.
+        job["audio_start_time"] = str(
+            max(0.0, float(shot.get("audio_start_time") or 0.0)))
+        # WHAT THE MODEL LISTENS TO, when that is not what the clip plays. A
+        # separated vocal stem conditions the mouth and the panel muxes the
+        # original song back, so the shot still carries `audio` as the file it
+        # is cut against — `audio_stem` only ever changes the conditioning.
+        # Same offset applies to both: the stem is the whole song, separated.
+        if shot.get("audio_stem"):
+            job["audio_stem"] = str(shot["audio_stem"])
+        if shot.get("still"):
+            job["image"] = str(shot["still"])
     if shot.get("still") and job["mode"] == "t2v" and (engine != "h3" or h3_first_frame):
         job["mode"] = "i2v"
         job["image"] = str(shot["still"])

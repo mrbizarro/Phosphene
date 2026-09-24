@@ -91,16 +91,34 @@ function loadRequired(installRoot) {
 // shipped behaviour.
 const ENV_KEYS = ["LTX_MODEL_VERSION", "LTX_H3_ROOT", "LTX_H3_MODELS", "LTX_MUSIC_ROOT", "LTX_MUSIC_MODELS"]
 
+//
+// THE SAME GRAMMAR PINOKIO USES. The launcher reads this file with
+// dotenv.parse (Pinokio 8.2.0 kernel/util.js parse_env), so the shell, the
+// panel and the installers see `LTX_MUSIC_ROOT=/Volumes/Media Drive/YuE` as
+// the whole path. This parser took `(\S+)` and silently dropped any value
+// with a space — quoted or not — so the sidebar probed the default location
+// and offered a fresh install of an engine that was installed, or the wrong
+// repair (Codex INST-13, 2026-09-24). DOTENV_LINE is dotenv's own line rule,
+// copied rather than required: pinokio.js runs in Pinokio's node, where the
+// app's node_modules are not on the resolution path. Last assignment wins,
+// as in dotenv.
+const DOTENV_LINE = /(?:^|^)\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?(?:$|$)/mg
+
 function readEnvironment(installRoot) {
   const out = {}
   try {
     const envPath = path.join(installRoot, "ENVIRONMENT")
     if (!fs.existsSync(envPath)) return out
-    const text = fs.readFileSync(envPath, "utf8")
-      .split("\n").filter(l => !/^\s*#/.test(l)).join("\n")
-    for (const key of ENV_KEYS) {
-      const m = text.match(new RegExp("^\\s*" + key + "\\s*=\\s*(\\S+)\\s*$", "m"))
-      if (m) out[key] = m[1].replace(/^["']|["']$/g, "")
+    const text = fs.readFileSync(envPath, "utf8").replace(/\r\n?/g, "\n")
+    let m
+    DOTENV_LINE.lastIndex = 0
+    while ((m = DOTENV_LINE.exec(text)) !== null) {
+      if (!ENV_KEYS.includes(m[1])) continue
+      const value = (m[2] || "").trim().replace(/^(['"`])([\s\S]*)\1$/, "$2")
+      // Pinokio drops an empty value rather than setting it (skill §1), so
+      // an empty one leaves the caller on its default here too.
+      if (value) out[m[1]] = value
+      else delete out[m[1]]
     }
   } catch (e) { /* unreadable ENVIRONMENT: every caller keeps its default */ }
   return out
@@ -323,13 +341,23 @@ module.exports = {
     // the weights are complete `h3_ready` is true — so the only entry left was
     // "Update Hailuo H3 runner", while the panel told the user to click an
     // "Install Hailuo H3" that was no longer there. Same markers as the panel's
-    // _h3_q8_dit_dir(): config + quant recipe + at least one shard.
+    // _h3_q8_dit_dir(): config + quant recipe + EVERY shard the index names
+    // (non-empty). "At least one shard" let a pack missing four of five read as
+    // built, hiding the Build entry that repairs it (Codex H3-04). A pack with
+    // no index predates it and keeps the one-shard rule.
     const h3_q8 = (capH3.model_roots || []).some(root => {
       try {
         const dir = h3Path(root + "/h3-dit-q8")
-        return fs.existsSync(path.join(dir, "config.json"))
-          && fs.existsSync(path.join(dir, "quant_config.json"))
-          && fs.readdirSync(dir).some(n => /^model-.*\.safetensors$/.test(n))
+        if (!fs.existsSync(path.join(dir, "config.json"))
+            || !fs.existsSync(path.join(dir, "quant_config.json"))) return false
+        const idx = path.join(dir, "model.safetensors.index.json")
+        if (!fs.existsSync(idx)) {
+          return fs.readdirSync(dir).some(n => /^model-.*\.safetensors$/.test(n))
+        }
+        const names = [...new Set(Object.values(JSON.parse(fs.readFileSync(idx, "utf8")).weight_map || {}))]
+        return names.length > 0 && names.every(n => {
+          try { const st = fs.statSync(path.join(dir, n)); return st.isFile() && st.size > 0 } catch (e) { return false }
+        })
       } catch (e) { return false }
     })
     let h3_small = false
@@ -455,6 +483,17 @@ module.exports = {
     // marker: pip writes it last.
     const ltx_pkg = onDisk("ltx-2-mlx/env/lib/python3.11/site-packages/ltx_pipelines_mlx")
     const ltx_repair = env_ready && (!ltx_python || !ltx_pkg)
+    // WHILE THE PANEL RUNS, the repair cannot be offered directly: install.js
+    // reinstalls into the venv the running panel (and its image engine) holds
+    // open. But the panel's render error names this sidebar entry, and both
+    // running menus used to hide it — the user was sent to a button that did
+    // not exist exactly when they needed it (Codex INST-05, 2026-09-24). So the
+    // running menu says what to do instead, and opens the terminal whose Stop
+    // button is the first half of it.
+    const ltxRepairWhileRunning = () => ltx_repair ? [{
+      icon: "fa-solid fa-screwdriver-wrench",
+      text: "Engine needs repair — Stop the panel, then click Repair Phosphene engine (models kept)",
+      href: "start.js" }] : []
     const pushLtxRepair = (m) => {
       if (ltx_repair) {
         m.push({ icon: "fa-solid fa-screwdriver-wrench",
@@ -585,6 +624,7 @@ module.exports = {
       if (local && local.url) {
         return [
           { default: true, icon: "fa-solid fa-rocket", text: "Open Panel", href: local.url },
+          ...ltxRepairWhileRunning(),
           { icon: "fa-solid fa-terminal", text: "Terminal",   href: "start.js" },
           { icon: "fa-solid fa-film",     text: "Outputs",    href: "mlx_outputs?fs=true" },
           { icon: "fa-solid fa-cube",     text: "Models",     href: "mlx_models?fs=true" },
@@ -597,19 +637,26 @@ module.exports = {
           ...h3Offer(),
         ]
       }
-      return [{ default: true, icon: "fa-solid fa-terminal", text: "Terminal", href: "start.js" }, ...musicMenu(), ...h3Offer()]
+      return [{ default: true, icon: "fa-solid fa-terminal", text: "Terminal", href: "start.js" }, ...ltxRepairWhileRunning(), ...musicMenu(), ...h3Offer()]
     }
 
     // Healthy install — Start path.
-    const baseMenu = [
-      { default: true, icon: "fa-solid fa-power-off", text: "Start",   href: "start.js" },
+    //
+    // UNLESS THE ENGINE IS BROKEN. `default: true` auto-runs Start, which boots
+    // a panel that cannot render and — see ltxRepairWhileRunning — used to hide
+    // the repair the moment it came up (INST-05). So a broken engine gets no
+    // auto-run at all: Repair goes FIRST, without `default` (auto-running
+    // install.js after a failed attempt is the respawn loop documented at
+    // install_attempted), and Start stays available below it for anyone who
+    // wants the panel anyway.
+    const baseMenu = []
+    if (ltx_repair) pushLtxRepair(baseMenu)
+    baseMenu.push(
+      { default: !ltx_repair, icon: "fa-solid fa-power-off", text: "Start",   href: "start.js" },
       { icon: "fa-solid fa-film",  text: "Outputs", href: "mlx_outputs?fs=true" },
       { icon: "fa-solid fa-cube",  text: "Models",  href: "mlx_models?fs=true" },
       { icon: "fa-solid fa-image", text: "Uploads", href: "panel_uploads?fs=true" },
-    ]
-    // Right under Start, because it is what the user reaches for when Start does
-    // nothing: base models and clone intact, interpreter gone. See ltx_repair.
-    pushLtxRepair(baseMenu)
+    )
     if (!q8_ready) {
       // ~30 GB and what it actually buys on 2.5: trained characters and voices.
       // High additionally needs the separate 29.5 GB add-on, which is offered

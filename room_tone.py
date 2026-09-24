@@ -318,8 +318,20 @@ def _synth(db: np.ndarray, rng, p: dict) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # FROM THIS FILM
 # ---------------------------------------------------------------------------
+#: The ffmpeg the PANEL resolved, set by the panel before it asks for a bed.
+#: The panel finds Pinokio's bundled tool folders, which need not be on this
+#: process's PATH; this module's own search below does not know them, so on
+#: such a Mac "From this film" could not decode a single clip (M6-08).
+FFMPEG: str | None = None
+
+
+class DecoderMissing(RuntimeError):
+    """ffmpeg could not be STARTED. Not the same fact as a clip with no quiet
+    sound, and it must not be reported as one."""
+
+
 def _ffmpeg() -> str:
-    for c in (os.environ.get("PHOSPHENE_FFMPEG"), shutil.which("ffmpeg"),
+    for c in (FFMPEG, os.environ.get("PHOSPHENE_FFMPEG"), shutil.which("ffmpeg"),
               "/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"):
         if c and Path(c).exists():
             return c
@@ -337,7 +349,9 @@ def decode_window(path, start: float, end: float, sr: int = SR) -> np.ndarray:
            "-ar", str(sr), "-f", "s16le", "-acodec", "pcm_s16le", "-"]
     try:
         r = subprocess.run(cmd, capture_output=True, timeout=300)
-    except (OSError, subprocess.SubprocessError):
+    except OSError as exc:
+        raise DecoderMissing(f"ffmpeg could not be started ({cmd[0]}: {exc})") from exc
+    except subprocess.SubprocessError:
         return np.zeros(0, dtype=np.float32)
     if r.returncode != 0:
         return np.zeros(0, dtype=np.float32)
@@ -393,6 +407,9 @@ def film_shape(clips, decoder=None) -> dict:
         seen.add(key)
         try:
             x = dec(path, float(c.get("start") or 0.0), float(c.get("end") or 0.0))
+        except DecoderMissing as exc:
+            # No decoder is no decoder for every clip: stop, and say so.
+            return {"db": None, "quiet_s": 0.0, "clips_used": 0, "error": str(exc)}
         except Exception:                                          # noqa: BLE001
             continue
         psd, secs = quiet_spectrum(x)
@@ -427,12 +444,16 @@ def build_loop(variant: str = DEFAULT_VARIANT, seed: int = 1, clips=None,
     n = LOOP_S * SR
     freqs = np.fft.rfftfreq(n, 1.0 / SR)
     used, fallback, quiet, nclips = variant, "", 0.0, 0
+    decoder_error = ""
     if variant == "film":
         shape = film_shape(clips, decoder)
+        decoder_error = shape.get("error") or ""
         quiet, nclips = shape["quiet_s"], shape["clips_used"]
         if shape["db"] is None or quiet < MIN_QUIET_S:
             used = FALLBACK_VARIANT
-            fallback = (f"only {quiet:.1f} s of quiet sound in the clips"
+            fallback = (f"the clips' sound could not be read — {shape['error']}"
+                        if shape.get("error")
+                        else f"only {quiet:.1f} s of quiet sound in the clips"
                         if nclips else "no clip with usable quiet sound")
         else:
             wf = np.fft.rfftfreq(WIN, 1.0 / SR)
@@ -453,7 +474,8 @@ def build_loop(variant: str = DEFAULT_VARIANT, seed: int = 1, clips=None,
     loop = (loop * g).astype(np.float32)
     ref = round(lufs + 20 * math.log10(g), 2)
     return {"loop": loop, "ref_lufs": ref, "peak": round(peak, 4), "variant": used,
-            "fallback": fallback, "quiet_s": quiet, "clips_used": nclips}
+            "fallback": fallback, "quiet_s": quiet, "clips_used": nclips,
+            "decoder_error": decoder_error}
 
 
 def tile(loop: np.ndarray, seconds: float) -> np.ndarray:
@@ -546,7 +568,10 @@ def make_bed(dest_dir, *, variant: str = DEFAULT_VARIANT, seed: int = 1,
              "label": variant_label(res["variant"]), "seed": seed,
              "fallback": res["fallback"], "quiet_s": res["quiet_s"],
              "clips_used": res["clips_used"]}
-    meta.write_text(json.dumps(facts, indent=1), encoding="utf-8")
+    # A bed that fell back because the DECODER could not run is not a fact
+    # about these clips — do not let the cache answer for them next time.
+    if not res.get("decoder_error"):
+        meta.write_text(json.dumps(facts, indent=1), encoding="utf-8")
     facts["reused"] = False
     return facts
 

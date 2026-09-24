@@ -877,13 +877,17 @@ class ExportSelection(unittest.TestCase):
     def clip(self, name: str) -> Path:
         return _write_fake_clip(self.src / name, name.encode() * 64)
 
-    def export(self, board, film=None):
+    def export(self, board, film=None, **export_kw):
         """Run the real _sb_export with the assembler mocked. -> (res, clips)."""
         seen = {}
 
-        def fake_assemble(clips, out):
+        def fake_assemble(clips, out, **kw):
             seen["clips"] = [Path(c) for c in clips]
             seen["out"] = Path(out)
+            # The soundtrack arguments are part of the call now (a music video
+            # exports whole clips WITH the song as the bed), so the fake has
+            # to see them or the thing under test cannot be asserted.
+            seen["kw"] = kw
             if film is None:
                 Path(out).write_bytes(b"film")
                 return {"ok": True, "path": str(out), "clips": len(clips),
@@ -892,7 +896,7 @@ class ExportSelection(unittest.TestCase):
             return film
 
         with mock.patch.object(panel, "_sb_assemble_film", side_effect=fake_assemble):
-            res = panel._sb_export(board)
+            res = panel._sb_export(board, **export_kw)
         return res, seen
 
     def test_shots_reach_the_film_in_n_order_however_the_board_stores_them(self):
@@ -903,6 +907,24 @@ class ExportSelection(unittest.TestCase):
                          ["S01_shot-1-happens.mp4", "S02_shot-2-happens.mp4",
                           "S03_shot-3-happens.mp4"])
         self.assertEqual(res["files"], [p.name for p in seen["clips"]])
+
+    def test_a_soundtrack_reaches_the_assembler_on_the_whole_clip_path(self):
+        # THE BUG THIS PINS: the whole-clip branch called the assembler with
+        # the clip list and nothing else, so `_sb_export(music=...)` without
+        # auto_edit accepted a soundtrack at the door and wrote a film with no
+        # soundtrack in it. That is the path a music video wants — its shots
+        # are already cut to the beat, and re-cutting them would slide every
+        # a2v clip off the seconds of the song it was rendered against.
+        song = _write_fake_clip(self.src / "song.wav", b"RIFF" * 64)
+        _res, seen = self.export(_board([_clip(1, self.clip("a.mp4"))]),
+                                 music=str(song), music_mode="replace")
+        self.assertEqual(seen["kw"].get("music"), str(song))
+        self.assertEqual(seen["kw"].get("music_mode"), "replace")
+        self.assertIsNone(seen["kw"].get("plan"))
+
+    def test_an_export_with_no_soundtrack_asks_for_none(self):
+        _res, seen = self.export(_board([_clip(1, self.clip("a.mp4"))]))
+        self.assertIsNone(seen["kw"].get("music"))
 
     def test_skipped_shots_are_excluded_from_the_film_and_the_folder(self):
         a, b = self.clip("a.mp4"), self.clip("b.mp4")
@@ -1026,10 +1048,16 @@ class ExportSelection(unittest.TestCase):
                                 "unreadable": []}
             res = panel._sb_export(_board([_clip(1, a)]))
         planner.assert_not_called()
-        # and the assembler is called EXACTLY as it was before the auto-editor
-        # existed — two positional arguments, no keywords.
+        # and the assembler is asked for EXACTLY what it was asked for before
+        # the auto-editor existed: the clips, where to write them, no plan and
+        # no soundtrack. (It used to be two positional arguments and no
+        # keywords at all; the soundtrack keywords are always passed now, and
+        # `music=None` builds the identical filtergraph — see the comment at
+        # the call site. The assertion is on the ASK, not on the argv shape,
+        # because the argv shape was never the promise.)
         self.assertEqual(len(asm.call_args.args), 2)
-        self.assertEqual(asm.call_args.kwargs, {})
+        self.assertIsNone(asm.call_args.kwargs.get("music"))
+        self.assertIsNone(asm.call_args.kwargs.get("plan"))
         self.assertFalse(res["auto_edit"])
         self.assertNotIn("Auto-edited",
                          (Path(res["dir"]) / "storyboard.md")
@@ -1073,7 +1101,11 @@ class ExportSelection(unittest.TestCase):
                                 "sample_rate": 48000, "duration": 5.0,
                                 "unreadable": []}
             res = panel._sb_export(_board([_clip(1, a)]), auto_edit=True)
-        self.assertEqual(asm.call_args.kwargs, {})     # the old call, exactly
+        # No plan reached the assembler — the whole-clip call. (The soundtrack
+        # keywords ride along on every call now; this export named no song, so
+        # they are empty and the filtergraph is the one that always ran.)
+        self.assertIsNone(asm.call_args.kwargs.get("plan"))
+        self.assertIsNone(asm.call_args.kwargs.get("music"))
         self.assertTrue(res["ok"])
         self.assertFalse(res["auto_edit"])
         md = (Path(res["dir"]) / "storyboard.md").read_text(encoding="utf-8")

@@ -3185,13 +3185,128 @@ The same wizard walks out of frame. Audio: footsteps on leaves."></textarea>
     <div id="audioSectionTab" style="display:none">
       <div class="mode-bar pill-group cols-2" id="audioModeGroup" hidden>
         <button type="button" class="mode-chip pill-btn" data-audio-mode="compose" onclick="audioModeSet('compose')">Compose<span class="mc-sub sub">write a song</span></button>
-        <button type="button" class="mode-chip pill-btn" data-audio-mode="drive" onclick="audioModeSet('drive')">Drive video<span class="mc-sub sub">use a track you have</span></button>
+        <button type="button" class="mode-chip pill-btn" data-audio-mode="drive" onclick="audioModeSet('drive')">Music video<span class="mc-sub sub">a song and your pictures</span></button>
       </div>
       <div id="musicComposePane" hidden>
+        <div class="studio-head">
+          <div class="studio-head-text">
+            <div class="studio-title">Music Studio</div>
+            <div class="studio-sub">Write a song, cover one, or read the score off a recording.</div>
+          </div>
+          <!-- SIMPLE or CUSTOM. Simple is one box: say what the song is and
+               Gemma writes the style and the words for you to read. Custom is
+               the studio — the same two fields, yours to type. The choice is
+               remembered (phos_music_mode); Custom is the default because it
+               is what the fields on this page already are. -->
+          <div class="studio-seg" id="musicModeSeg" role="group" aria-label="How much you fill in">
+            <button type="button" class="seg-btn" data-value="simple" onclick="musicModePick(this)">Simple</button>
+            <button type="button" class="seg-btn active" data-value="custom" onclick="musicModePick(this)">Custom</button>
+          </div>
+        </div>
+        <!-- The engine's install lives above both modes: it is about YuE2
+             being here, not about which form you are filling in. -->
         <div class="composer-card music-install-panel" id="musicInstallPanel" role="status" hidden></div>
+        <div id="musicSimplePane" hidden>
+          <div class="composer-card">
+            <label for="musicSimpleDescription">Describe the song</label>
+            <textarea id="musicSimpleDescription" class="composer-prompt" rows="4"
+                      placeholder="Who sings it, what it is about, how it sounds — e.g. a slow piano ballad for a friend moving away, a woman with a low warm voice, brushed drums, a little sad but not bitter"></textarea>
+            <div class="hint">One breath is enough. Gemma turns it into a style and the words, and shows you both before anything renders.</div>
+            <div class="composer-tools">
+              <label class="toggle-pill" id="musicSimpleInstrumentalPill" title="When on, the model is asked for a track with no vocal line — Gemma writes the style only, no words.">
+                <input type="checkbox" id="musicSimpleInstrumental" onchange="musicSimpleChanged()"><span class="dot"></span><span>Instrumental</span>
+              </label>
+            </div>
+          </div>
+          <div class="quick-settings">
+            <div class="range-strip">
+              <label for="musicSimpleSeconds">Max length</label>
+              <input type="range" id="musicSimpleSeconds" min="30" max="360" step="15" value="240" oninput="musicSimpleChanged()">
+              <span id="musicSimpleSecondsVal">4:00</span>
+            </div>
+            <div class="hint">How long the words are written for, and the ceiling on the song. It never stretches a short one.</div>
+          </div>
+        </div>
+        <div id="musicCustomPane">
+        <div class="music-notice" id="musicSimpleNotice" role="status" hidden></div>
+        <!-- THREE TASKS, one form. Write is the composer as it was; Cover
+             opens the cover section; Score is transcription only — listen
+             to a recording and get its sheet music, no song rendered. -->
+        <div class="studio-tasks studio-seg full" id="musicTaskPills" role="group" aria-label="What to make">
+          <button type="button" class="seg-btn active" data-value="write" onclick="musicTaskPick(this)">Write a song</button>
+          <button type="button" class="seg-btn" data-value="cover" onclick="musicTaskPick(this)">Cover a song</button>
+          <button type="button" class="seg-btn" data-value="score" onclick="musicTaskPick(this)">Get the score</button>
+        </div>
+        <input type="hidden" id="musicTask" value="write">
+        <!-- COVER. The engine can read a score off a record: SheetSage2
+             transcribes the source into ABC, and that becomes the plan the
+             generator realises under YOUR style and YOUR lyrics. Closed by
+             default because most songs start from a prompt, and the two
+             transcription models are an opt-in 2.8 GB on top of the pack. -->
+        <details class="customize-section" id="musicCoverDetails">
+          <summary class="cz-summary">
+            <span class="cz-chevron" aria-hidden="true"><svg class="ph"><use href="#ph-caret-down-bold"/></svg></span>
+            <span class="cz-title">Cover a song</span>
+            <span class="cz-meta" id="musicCoverSummary">off</span>
+          </summary>
+          <div class="cz-body">
+            <div class="music-cover-install" id="musicCoverInstall" role="status" hidden></div>
+            <label class="mf-label" for="musicSourceAudio">Source song</label>
+            <input id="musicSourceAudio" placeholder="/path/to/the/song.mp3 — drag a file in"
+                   oninput="musicFormChanged()">
+            <div class="hint">The tune comes off this recording. Everything else — style,
+              lyrics, voice — is still yours. Leave empty to write a song from your prompt.</div>
+            <div class="mf-label">Take from it</div>
+            <div class="pill-group cols-3" id="musicCoverTaskPills">
+              <button type="button" class="pill-btn active" data-value="melody-full"
+                      onclick="musicPick('musicCoverTask',this)">Melody + chords</button>
+              <button type="button" class="pill-btn" data-value="melody-vocal"
+                      onclick="musicPick('musicCoverTask',this)">The sung line</button>
+              <button type="button" class="pill-btn" data-value="full"
+                      onclick="musicPick('musicCoverTask',this)">Everything</button>
+            </div>
+            <input type="hidden" id="musicCoverTask" value="melody-full">
+            <div class="hint" id="musicCoverTaskHint">Melody and the chords under it, read from the
+              whole mix. <b>The sung line</b> takes the vocal only, so the arrangement is new.
+              <b>Everything</b> keeps the accompaniment too and needs the longest read.</div>
+          </div>
+        </details>
         <div class="composer-card">
-          <label for="musicLyrics">Lyrics</label>
-          <textarea id="musicLyrics" class="composer-prompt" rows="8" placeholder="[Verse]
+          <label for="musicTitle">Title <span class="sub">optional</span></label>
+          <input id="musicTitle" placeholder="What the song is called" maxlength="120" oninput="musicFormChanged()">
+          <label for="musicConcept">What is it about?</label>
+          <div class="concept-row">
+            <textarea id="musicConcept" class="composer-prompt" rows="2" placeholder="A concept, a story, a feeling — one or two sentences. Gemma writes the lyrics in the format YuE2 reads."></textarea>
+            <button type="button" class="ghost-btn" id="musicWriteLyricsBtn" onclick="musicWriteLyrics()" title="Gemma (local) writes section-tagged lyrics from the concept, in the style you gave below. Runs on this Mac.">Write lyrics</button>
+          </div>
+          <!-- THE LYRICS EDITOR. A song is sections, not a wall of text, so
+               the editor shows sections: a label you can change, the lines
+               under it, how many lines that is, and a Rewrite that asks Gemma
+               for THAT part only. The bracket text stays the truth underneath
+               — #musicLyrics is still the one field every caller reads — and
+               Text flips to it for anyone who would rather type brackets. -->
+          <div class="lyr-head">
+            <span class="lyr-title">Lyrics</span>
+            <div class="studio-seg" id="musicLyricsViewSeg" role="group" aria-label="How to edit the lyrics">
+              <button type="button" class="seg-btn active" data-value="sections" onclick="musicLyricsViewPick(this)">Sections</button>
+              <button type="button" class="seg-btn" data-value="text" onclick="musicLyricsViewPick(this)">Text</button>
+            </div>
+          </div>
+          <div class="lyr-editor" id="musicLyricsEditor">
+            <div class="lyr-sections" id="musicLyricsSections"></div>
+            <div class="lyr-add" id="musicLyricsAdd">
+              <span class="lyr-add-label">Add</span>
+              <button type="button" class="tag-chip" onclick="musicLyricsAdd('Intro')">Intro</button>
+              <button type="button" class="tag-chip" onclick="musicLyricsAdd('Verse')">Verse</button>
+              <button type="button" class="tag-chip" onclick="musicLyricsAdd('Pre-Chorus')">Pre-Chorus</button>
+              <button type="button" class="tag-chip" onclick="musicLyricsAdd('Chorus')">Chorus</button>
+              <button type="button" class="tag-chip" onclick="musicLyricsAdd('Bridge')">Bridge</button>
+              <button type="button" class="tag-chip" onclick="musicLyricsAdd('Instrumental')">Instrumental</button>
+              <button type="button" class="tag-chip" onclick="musicLyricsAdd('Outro')">Outro</button>
+            </div>
+          </div>
+          <textarea id="musicLyricsRaw" class="composer-prompt" rows="10" hidden
+                    aria-label="Lyrics as text" onblur="musicLyricsRawSync()" placeholder="[Verse]
 Write the words here, one line at a time
 
 [Pre-Chorus]
@@ -3205,7 +3320,11 @@ A different turn
 
 [Outro]
 The last line"></textarea>
-          <div class="hint">Tags in square brackets mark the sections. Everything else is sung. A tag with nothing under it is an instrumental passage.</div>
+          <!-- The source of truth. Hidden, never typed into: the editor above
+               writes it, musicFormParams reads it, and the restyle and score
+               verbs on a song read it too. -->
+          <textarea id="musicLyrics" hidden tabindex="-1" aria-hidden="true"></textarea>
+          <div class="hint">Square brackets mark the sections; everything else is sung. A section with no words is an instrumental passage.</div>
           <label for="musicStyle">Style</label>
           <textarea id="musicStyle" class="composer-prompt" rows="2" placeholder="Genre, instruments, vocal, language and tempo in plain words — e.g. English, warm piano pop, expressive female voice, acoustic piano, light drums, 88 BPM"></textarea>
           <div class="hint">Prose, not fields. Put the tempo, the language and the singer in the sentence.</div>
@@ -3214,6 +3333,10 @@ The last line"></textarea>
               <input type="checkbox" id="musicInstrumental" onchange="musicFormChanged()"><span class="dot"></span><span>Instrumental</span>
             </label>
           </div>
+          <!-- Instrumental is two recipes, and which one runs depends on one
+               140 MB file. Said here, in place, rather than after a song comes
+               back with a voice on it. -->
+          <div class="music-pack-note" id="musicLoraInstall" role="status" hidden></div>
         </div>
         <div class="quick-settings">
           <div class="mf-label">Score</div>
@@ -3240,166 +3363,286 @@ The last line"></textarea>
           <div class="mini-fields"><div class="mf-cell">
             <label class="mf-label" for="musicSeed">Seed</label>
             <input type="number" id="musicSeed" value="-1" min="-1" max="4294967295" step="1" placeholder="-1 = random" title="-1 = random">
+          </div><div class="mf-cell">
+            <label class="mf-label" for="musicTakes">Takes</label>
+            <input type="number" id="musicTakes" value="1" min="1" max="8" step="1" title="How many songs to queue from this form, each with its own seed">
           </div></div>
+          <details class="customize-section" id="musicLoraDetails">
+            <summary class="cz-summary"><span class="cz-chevron" aria-hidden="true"><svg class="ph"><use href="#ph-caret-down-bold"/></svg></span><span class="cz-title">Voice &amp; style LoRA</span><span class="cz-meta" id="musicLoraSummary">off</span></summary>
+            <div class="cz-body">
+              <div class="music-lora-list" id="musicLoraList"></div>
+              <div class="hint">Adapters change how the model writes and how it sounds. Drop your own
+                <code>.safetensors</code> into the LoRA folder's <code>user/</code> and it appears here.
+                Instrumental uses its own adapter and pauses these.</div>
+            </div>
+          </details>
+          <details class="customize-section" id="musicAdvancedDetails">
+            <summary class="cz-summary"><span class="cz-chevron" aria-hidden="true"><svg class="ph"><use href="#ph-caret-down-bold"/></svg></span><span class="cz-title">Advanced</span><span class="cz-meta" id="musicAdvancedSummary">defaults</span></summary>
+            <div class="cz-body">
+              <div class="mf-label">Guidance</div>
+              <div class="range-strip">
+                <label for="musicCfg">Text guidance</label>
+                <input type="range" id="musicCfg" min="0" max="3" step="0.1" value="1" oninput="musicFormChanged()">
+                <span id="musicCfgVal">1.0</span>
+              </div>
+              <div class="hint">How hard the song follows the style and the words. 1.0 is the model's own default; higher is more literal and can get stiff, lower is looser.</div>
+              <div class="mf-label">Precision</div>
+              <div class="pill-group cols-2" id="musicPrecisionPills">
+                <button type="button" class="pill-btn" data-value="bf16" onclick="musicPick('musicPrecision',this)">bf16<span class="sub">best, most memory</span></button>
+                <button type="button" class="pill-btn active" data-value="8bit" onclick="musicPick('musicPrecision',this)">8-bit<span class="sub">default</span></button>
+              </div>
+              <input type="hidden" id="musicPrecision" value="8bit">
+              <div class="hint">The composer model's weights. 8-bit is what every song so far was made with; bf16 needs roughly 8 GB more memory.</div>
+            </div>
+          </details>
         </div>
+        </div><!-- /musicCustomPane -->
         <div class="form-action-footer">
-          <div class="queue-strip"><span class="qchip-spacer"></span><span class="qchip-derived" id="musicEstimate" title="Estimated for a song that runs to Max length, from M4 Max timings (a 3-minute song took about 3 minutes on Final) scaled for this chip. Most songs end sooner; the first song after install also loads the models."></span></div>
+          <div class="queue-strip"><span class="qchip-derived" id="musicEstimate" title="Estimated for a song that runs to Max length, from M4 Max timings (a 3-minute song took about 3 minutes on Final) scaled for this chip. Most songs end sooner; the first song after install also loads the models."></span></div>
           <div class="actions">
             <button type="button" class="primary" id="musicGenBtn" onclick="musicGenerate()">Compose</button>
             <button type="button" class="danger" onclick="api('/stop', 'POST').then(poll)">Stop</button>
           </div>
           <div class="hint" id="musicStatus" role="status"></div>
-          <div class="hint" id="musicHint">Generated with YuE2 by Multimodal Art Projection · MLX port by vanch007</div>
+          <div class="music-credit" id="musicHint">Generated with YuE2 by Multimodal Art Projection · MLX port by vanch007</div>
         </div>
       </div>
       <div id="audioDrivePane">
+      <!-- ============== MUSIC VIDEO ================================
+           "I give it all the images, and then it creates a compelling video
+           out of them." The pieces were all here and none of them knew about
+           each other: a2v sings from one picture and one stretch of a
+           waveform, i2v moves a still, the beat map knows where the bars are,
+           and the Storyboard renders and assembles a list of shots. This pane
+           is the brief that joins them — the song, the pictures, and one line
+           about how it should look — and it ends by opening an ORDINARY
+           storyboard, because the first thing anybody wants after seeing a
+           shot list is to change shot 7.
+
+           The single-clip Audio -> Video form is untouched at the bottom,
+           inside "One shot": it is still the right tool for one talking head
+           and it is still the only way to drive a clip from a spoken take. -->
       <div class="composer-card">
         <div class="composer-refs">
           <div class="show">
-            <h2>Audio
-              <span class="h2-hint">drives the generation · WAV / MP3 / M4A / FLAC</span>
+            <h2>The song
+              <span class="h2-hint">drop a file, or pick one you have written</span>
             </h2>
             <div class="studio-ref-grid" style="grid-template-columns:1fr;">
-              <div class="studio-ref-slot" id="audioStudioAudioSlot" data-slot="audio" style="aspect-ratio:auto;min-height:96px;">
-                <span class="ref-tag">Audio</span>
+              <div class="studio-ref-slot" id="mvSongSlot" data-slot="song" style="aspect-ratio:auto;min-height:96px;">
+                <span class="ref-tag">Song</span>
                 <div class="hint" style="padding:24px 12px;text-align:center;color:var(--muted);font-size:12px;">
                   Drop a WAV / MP3 / M4A / FLAC here, or click to pick a file.
                 </div>
               </div>
             </div>
-            <input type="file" id="audioStudioAudioInput" accept=".wav,.mp3,.m4a,.flac,audio/*" style="display:none">
+            <input type="file" id="mvSongInput" accept=".wav,.mp3,.m4a,.flac,audio/*" style="display:none">
+            <div class="mf-cell" style="margin-top:10px">
+              <label class="mf-label" for="mvSongLibrary">Use a song from the library</label>
+              <select id="mvSongLibrary" onchange="mvPickFromLibrary(this.value)">
+                <option value="">Nothing composed yet</option>
+              </select>
+              <div class="hint" style="margin-top:4px">A song this panel wrote brings its own words and its own score, so the verses land where they really are instead of where the beat map guesses.</div>
+            </div>
           </div>
         </div>
 
         <div class="composer-refs">
           <div class="show">
-            <h2>Reference image
-              <span class="h2-hint">optional · anchors frame 0 like I2V</span>
+            <h2>The pictures
+              <span class="h2-hint">Singer sings to camera · Instrument and Room are the B-roll</span>
             </h2>
-            <!-- Y2.005 — use the shared .picker component (same as I2V /
-                 FFLF) instead of the bespoke studio-ref-slot. Mr Bizarro
-                 report: "image preview and managing kinda shit in audio
-                 to video make it like the others." The picker brings the
-                 drop tile, big centered preview, X-clear button, and
-                 Recent-uploads strip, all consistent with the rest of
-                 the panel. Wired via pickerWire('a2v_image'). -->
-            <div class="picker" data-key="a2v_image">
-              <div class="picker-drop" id="picker_drop_a2v_image">
+            <div class="picker">
+              <div class="picker-drop" id="mvImagesDrop">
                 <div class="picker-empty">
                   <div class="picker-icon"><svg class="ph"><use href="#ph-image"/></svg></div>
-                  <div class="picker-cta">Drop an image here, or <strong>click to browse</strong></div>
-                  <div class="hint">PNG / JPG / WEBP — anchors frame 0 of the audio-driven clip</div>
+                  <div class="picker-cta">Drop your pictures here, or <strong>click to browse</strong></div>
+                  <div class="hint">PNG / JPG / WEBP — as many as you like</div>
                 </div>
-                <img class="picker-preview" id="picker_preview_a2v_image" alt="" style="display:none">
-                <button type="button" class="picker-clear" id="picker_clear_a2v_image" title="Clear" style="display:none"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
               </div>
-              <input type="file" id="picker_file_a2v_image" accept="image/*" style="display:none">
-              <input type="hidden" name="a2v_image" id="a2v_image" value="">
-              <div class="picker-recent" id="picker_recent_a2v_image_wrap" style="display:none">
-                <div class="picker-recent-label">Recent uploads · click to use</div>
-                <div class="picker-recent-strip" id="picker_recent_a2v_image"></div>
-              </div>
+              <input type="file" id="mvImagesFile" accept="image/*" multiple style="display:none">
             </div>
-            <div class="hint" style="margin-top:6px">
-              Leave empty for pure Audio → Video. Add an image to open the clip on that frame (e.g. a portrait for a talking-head shot).
-            </div>
+            <div class="mv-cast" id="mvCast"></div>
           </div>
         </div>
 
-        <textarea id="audioStudioPrompt" class="composer-prompt" rows="4"
-                  placeholder="A photoreal medium close-up of a woman speaking to camera, soft daylight, shallow depth of field, natural skin pores"></textarea>
-        <div class="composer-tools">
-          <button type="button" class="ghost-btn" id="audioStudioEnhanceBtn" onclick="audioStudioEnhancePrompt()" title="Use Gemma to rewrite your prompt"><svg class="ph" aria-hidden="true" style="margin-right:6px"><use href="#ph-sparkle-fill"/></svg>Enhance</button>
-          <span class="ct-spacer"></span>
+        <div class="mf-cell" style="margin-top:6px">
+          <label class="mf-label" for="mvStyle">Look</label>
+          <input type="text" id="mvStyle" value="handheld 16mm documentary, warm tungsten light, shallow depth of field, MTV Unplugged">
+          <div class="hint" style="margin-top:4px">One line, on every shot. A picture with its own note below overrides only its own direction, never this.</div>
         </div>
       </div>
 
       <div class="studio-status-row" style="margin: 6px 0 -4px;">
-        <span id="audioStudioStatus" class="hint"></span>
+        <span id="mvStatus" class="hint" role="status"></span>
       </div>
 
-      <!-- Quick settings: width / height / duration / seed.
-           Width/height are free-form; the panel snaps to 32 px multiple.
-           Duration slider covers 1–30 s; JS rounds frames to 8k+1. -->
-      <div class="quick-settings">
-        <div>
-          <div class="mini-fields">
-            <div class="mf-cell">
-              <span class="mf-label">Width</span>
-              <input type="number" id="audioStudioWidth" value="1024" min="256" max="1920" step="32"
-                     oninput="audioStudioDurationChanged()">
-            </div>
-            <div class="mf-cell">
-              <span class="mf-label">Height</span>
-              <input type="number" id="audioStudioHeight" value="576" min="256" max="1920" step="32"
-                     oninput="audioStudioDurationChanged()">
-            </div>
-            <div class="mf-cell">
-              <span class="mf-label">Seed</span>
-              <input type="number" id="audioStudioSeed" value="-1" placeholder="-1 = random">
-            </div>
-            <!-- Start offset into the source file. The pipelines and the render
-                 helper have always taken this; the panel had no control for it,
-                 so every A2V render used the first N seconds of the file and the
-                 only workaround was trimming the audio beforehand (#46). -->
-            <div class="mf-cell">
-              <span class="mf-label">Audio start</span>
-              <input type="number" id="audioStudioStart" value="0" min="0" step="0.5"
-                     title="Seconds into the audio file where the clip starts reading. 0 = from the beginning.">
-            </div>
-          </div>
-          <div class="hint" style="margin-top:4px">
-            Audio start is an offset into the file you loaded — set it to 30 to drive the clip from 0:30 onward.
-          </div>
-          <div class="mf-cell" style="margin-top:8px">
-            <span class="mf-label">Duration</span>
-            <div class="range-strip">
-              <input type="range" id="audioStudioDuration" min="1" max="30" step="1" value="7"
-                     oninput="audioStudioDurationChanged(this.value)">
-              <span id="audioStudioDurationVal" class="range-val">7 s</span>
-            </div>
-            <!-- Length warning. Deliberately a warning and NOT a hard cap: the
-                 evidence for where A2V gives out is two independent field
-                 reports converging on ~257 frames (#46 — @blackest hit it here
-                 and on a separate MLX pipeline), not a measurement made here,
-                 and the diagnostic that would tell us whether it is a length
-                 ceiling at all is still outstanding. Silently deleting 11-30 s
-                 from the slider would be asserting a number nobody has measured.
-                 Showing the frame count and the reported wall lets the user
-                 decide with the same information the maintainer has. -->
-            <div class="hint" id="audioStudioDurationWarn" style="margin-top:4px; display:none"></div>
-          </div>
-          <div class="mf-cell" style="margin-top:8px">
-            <span class="mf-label">Audio conditioning strength</span>
-            <!-- Starts on AUTO and stays there until the thumb is dragged:
-                 the two A2V pipelines read this number differently and only
-                 the panel knows which one this Mac will run, so an untouched
-                 control must send NOTHING rather than a number that means
-                 "audio off" on one lane and "audio on" on the other. -->
-            <div class="range-strip">
-              <input type="range" id="audioConditioningScale" min="0.5" max="5.0" step="0.1" value="3.0"
-                     data-auto="1" oninput="audioConditioningScaleChanged(this)">
-              <span id="audioConditioningScaleVal" class="range-val">Auto</span>
-            </div>
-            <div class="hint" style="margin-top:2px" id="audioConditioningScaleHint">Higher = stronger audio adhesion, lower visual flexibility</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="hint" style="margin-top:8px" id="audioStudioHint">
-        Audio → Video uses audio conditioning during generation (not post-hoc mux). Some seeds may not work properly — retry if the mouth doesn't move.
-      </div>
-
-      <div class="form-action-footer" id="audioStudioFooter">
+      <div class="form-action-footer" id="mvFooter">
         <div class="queue-strip">
           <span class="qchip-spacer"></span>
-          <span class="qchip-derived" id="audioStudioEstimate"></span>
+          <span class="qchip-derived" id="mvSummary"></span>
         </div>
         <div class="actions">
-          <button type="button" class="primary" id="audioStudioGenBtn" onclick="audioStudioGenerate()">Generate</button>
-          <button type="button" class="danger" onclick="api('/stop', 'POST').then(poll)">Stop</button>
+          <button type="button" class="primary" id="mvPlanBtn" onclick="mvPlan()">Plan the video</button>
         </div>
+        <div class="hint">Planning is instant and costs nothing — it reads the beat, writes the shot list, and opens it in Storyboard. Render all, then Film with the song.</div>
       </div>
+
+      <details class="cz-section" id="mvOneShotDetails">
+        <summary class="cz-summary">
+          <span class="cz-title">One shot (audio &rarr; video)</span>
+          <span class="cz-sum">one clip, driven by one stretch of audio</span>
+        </summary>
+        <div class="cz-body">
+        <div class="composer-card">
+          <div class="composer-refs">
+            <div class="show">
+              <h2>Audio
+                <span class="h2-hint">drives the generation · WAV / MP3 / M4A / FLAC</span>
+              </h2>
+              <div class="studio-ref-grid" style="grid-template-columns:1fr;">
+                <div class="studio-ref-slot" id="audioStudioAudioSlot" data-slot="audio" style="aspect-ratio:auto;min-height:96px;">
+                  <span class="ref-tag">Audio</span>
+                  <div class="hint" style="padding:24px 12px;text-align:center;color:var(--muted);font-size:12px;">
+                    Drop a WAV / MP3 / M4A / FLAC here, or click to pick a file.
+                  </div>
+                </div>
+              </div>
+              <input type="file" id="audioStudioAudioInput" accept=".wav,.mp3,.m4a,.flac,audio/*" style="display:none">
+            </div>
+          </div>
+
+          <div class="composer-refs">
+            <div class="show">
+              <h2>Reference image
+                <span class="h2-hint">optional · anchors frame 0 like I2V</span>
+              </h2>
+              <!-- Y2.005 — use the shared .picker component (same as I2V /
+                   FFLF) instead of the bespoke studio-ref-slot. Mr Bizarro
+                   report: "image preview and managing kinda shit in audio
+                   to video make it like the others." The picker brings the
+                   drop tile, big centered preview, X-clear button, and
+                   Recent-uploads strip, all consistent with the rest of
+                   the panel. Wired via pickerWire('a2v_image'). -->
+              <div class="picker" data-key="a2v_image">
+                <div class="picker-drop" id="picker_drop_a2v_image">
+                  <div class="picker-empty">
+                    <div class="picker-icon"><svg class="ph"><use href="#ph-image"/></svg></div>
+                    <div class="picker-cta">Drop an image here, or <strong>click to browse</strong></div>
+                    <div class="hint">PNG / JPG / WEBP — anchors frame 0 of the audio-driven clip</div>
+                  </div>
+                  <img class="picker-preview" id="picker_preview_a2v_image" alt="" style="display:none">
+                  <button type="button" class="picker-clear" id="picker_clear_a2v_image" title="Clear" style="display:none"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+                </div>
+                <input type="file" id="picker_file_a2v_image" accept="image/*" style="display:none">
+                <input type="hidden" name="a2v_image" id="a2v_image" value="">
+                <div class="picker-recent" id="picker_recent_a2v_image_wrap" style="display:none">
+                  <div class="picker-recent-label">Recent uploads · click to use</div>
+                  <div class="picker-recent-strip" id="picker_recent_a2v_image"></div>
+                </div>
+              </div>
+              <div class="hint" style="margin-top:6px">
+                Leave empty for pure Audio → Video. Add an image to open the clip on that frame (e.g. a portrait for a talking-head shot).
+              </div>
+            </div>
+          </div>
+
+          <textarea id="audioStudioPrompt" class="composer-prompt" rows="4"
+                    placeholder="A photoreal medium close-up of a woman speaking to camera, soft daylight, shallow depth of field, natural skin pores"></textarea>
+          <div class="composer-tools">
+            <button type="button" class="ghost-btn" id="audioStudioEnhanceBtn" onclick="audioStudioEnhancePrompt()" title="Use Gemma to rewrite your prompt"><svg class="ph" aria-hidden="true" style="margin-right:6px"><use href="#ph-sparkle-fill"/></svg>Enhance</button>
+            <span class="ct-spacer"></span>
+          </div>
+        </div>
+
+        <div class="studio-status-row" style="margin: 6px 0 -4px;">
+          <span id="audioStudioStatus" class="hint"></span>
+        </div>
+
+        <!-- Quick settings: width / height / duration / seed.
+             Width/height are free-form; the panel snaps to 32 px multiple.
+             Duration slider covers 1–30 s; JS rounds frames to 8k+1. -->
+        <div class="quick-settings">
+          <div>
+            <div class="mini-fields">
+              <div class="mf-cell">
+                <span class="mf-label">Width</span>
+                <input type="number" id="audioStudioWidth" value="1024" min="256" max="1920" step="32"
+                       oninput="audioStudioDurationChanged()">
+              </div>
+              <div class="mf-cell">
+                <span class="mf-label">Height</span>
+                <input type="number" id="audioStudioHeight" value="576" min="256" max="1920" step="32"
+                       oninput="audioStudioDurationChanged()">
+              </div>
+              <div class="mf-cell">
+                <span class="mf-label">Seed</span>
+                <input type="number" id="audioStudioSeed" value="-1" placeholder="-1 = random">
+              </div>
+              <!-- Start offset into the source file. The pipelines and the render
+                   helper have always taken this; the panel had no control for it,
+                   so every A2V render used the first N seconds of the file and the
+                   only workaround was trimming the audio beforehand (#46). -->
+              <div class="mf-cell">
+                <span class="mf-label">Audio start</span>
+                <input type="number" id="audioStudioStart" value="0" min="0" step="0.5"
+                       title="Seconds into the audio file where the clip starts reading. 0 = from the beginning.">
+              </div>
+            </div>
+            <div class="hint" style="margin-top:4px">
+              Audio start is an offset into the file you loaded — set it to 30 to drive the clip from 0:30 onward.
+            </div>
+            <div class="mf-cell" style="margin-top:8px">
+              <span class="mf-label">Duration</span>
+              <div class="range-strip">
+                <input type="range" id="audioStudioDuration" min="1" max="30" step="1" value="7"
+                       oninput="audioStudioDurationChanged(this.value)">
+                <span id="audioStudioDurationVal" class="range-val">7 s</span>
+              </div>
+              <!-- Length warning. Deliberately a warning and NOT a hard cap: the
+                   evidence for where A2V gives out is two independent field
+                   reports converging on ~257 frames (#46 — @blackest hit it here
+                   and on a separate MLX pipeline), not a measurement made here,
+                   and the diagnostic that would tell us whether it is a length
+                   ceiling at all is still outstanding. Silently deleting 11-30 s
+                   from the slider would be asserting a number nobody has measured.
+                   Showing the frame count and the reported wall lets the user
+                   decide with the same information the maintainer has. -->
+              <div class="hint" id="audioStudioDurationWarn" style="margin-top:4px; display:none"></div>
+            </div>
+            <div class="mf-cell" style="margin-top:8px">
+              <span class="mf-label">Audio conditioning strength</span>
+              <!-- Starts on AUTO and stays there until the thumb is dragged:
+                   the two A2V pipelines read this number differently and only
+                   the panel knows which one this Mac will run, so an untouched
+                   control must send NOTHING rather than a number that means
+                   "audio off" on one lane and "audio on" on the other. -->
+              <div class="range-strip">
+                <input type="range" id="audioConditioningScale" min="0.5" max="5.0" step="0.1" value="3.0"
+                       data-auto="1" oninput="audioConditioningScaleChanged(this)">
+                <span id="audioConditioningScaleVal" class="range-val">Auto</span>
+              </div>
+              <div class="hint" style="margin-top:2px" id="audioConditioningScaleHint">Higher = stronger audio adhesion, lower visual flexibility</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="hint" style="margin-top:8px" id="audioStudioHint">
+          Audio → Video uses audio conditioning during generation (not post-hoc mux). Some seeds may not work properly — retry if the mouth doesn't move.
+        </div>
+
+        <div class="form-action-footer" id="audioStudioFooter">
+          <div class="queue-strip">
+            <span class="qchip-spacer"></span>
+            <span class="qchip-derived" id="audioStudioEstimate"></span>
+          </div>
+          <div class="actions">
+            <button type="button" class="primary" id="audioStudioGenBtn" onclick="audioStudioGenerate()">Generate</button>
+            <button type="button" class="danger" onclick="api('/stop', 'POST').then(poll)">Stop</button>
+          </div>
+        </div>
+        </div>
+      </details>
       </div>
     </div>
 
@@ -3759,6 +4002,50 @@ The last line"></textarea>
       <div class="expand-stage" id="expandStage"></div>
       <div class="expand-meta" id="expandMeta"></div>
     </div>
+    <!-- ============== MUSIC STUDIO — the Song card =====================
+         Under the player, for songs only. The song is the unit: its words,
+         its sheet music (drawn by abcjs from the score YuE2 wrote), where it
+         came from, and the four ways to get another one from it. Filled by
+         songCardRender() whenever a music output is selected; hidden for
+         everything else. -->
+    <div class="song-card" id="songCard" hidden>
+      <div class="song-head">
+        <div>
+          <div class="song-title" id="songTitle"></div>
+          <div class="song-style" id="songStyle"></div>
+        </div>
+        <div class="song-badges" id="songBadges"></div>
+      </div>
+      <div class="song-actions" id="songActions">
+        <button type="button" class="ghost-btn" onclick="musicVariation('take')" title="Same score, same words, a new performance — the singing and the playing are done again from the plan.">New take<span class="sub">same song, performed again</span></button>
+        <button type="button" class="ghost-btn" onclick="musicVariation('sound')" title="Same performance, recorded again: the notes and the words stay, the sound of it changes. A fraction of the time of a full song.">Re-roll the sound<span class="sub">same performance, new recording</span></button>
+        <button type="button" class="ghost-btn" onclick="musicRestyleFromSong()" title="Keep this song's score and put the form's style and lyrics on it.">New style on this score<span class="sub">uses the composer's style + lyrics</span></button>
+        <button type="button" class="ghost-btn" onclick="musicCoverFromSong()" title="Load this song as the source in Cover a song.">Cover it<span class="sub">read the tune, write it fresh</span></button>
+      </div>
+      <div class="song-lineage" id="songLineage"></div>
+      <div class="song-status" id="songStatus" role="status"></div>
+      <details class="song-section" id="songScoreSection" open>
+        <summary>Sheet music <span class="sum" id="songScoreSum"></span></summary>
+        <div class="song-score" id="songScore"></div>
+        <div class="song-score-editor" id="songScoreEditor" hidden>
+          <textarea id="songScoreText" spellcheck="false"></textarea>
+          <div class="row">
+            <button type="button" class="primary" onclick="musicRenderEditedScore()">Render this score</button>
+            <button type="button" class="ghost-btn" onclick="musicScorePreview()">Preview</button>
+            <button type="button" class="ghost-btn" onclick="musicScoreEditToggle(false)">Cancel</button>
+            <div class="hint">ABC notation. Change notes, chords or bars; the words come from the composer's Lyrics box (or this song's if that is empty).</div>
+          </div>
+        </div>
+        <div class="song-actions">
+          <button type="button" class="ghost-btn" id="songScoreEditBtn" onclick="musicScoreEditToggle(true)">Edit the score<span class="sub">change it, render it again</span></button>
+          <button type="button" class="ghost-btn" onclick="musicScoreCopy()">Copy ABC</button>
+        </div>
+      </details>
+      <details class="song-section" id="songLyricsSection">
+        <summary>Lyrics <span class="sum" id="songLyricsSum"></span></summary>
+        <div class="song-lyrics" id="songLyrics"></div>
+      </details>
+    </div>
     <!-- Hidden compatibility slot. selectOutput() writes #playerName here
          and toggles display on #playerMeta — both kept so external code
          and tests don't break. The visible name lives in playerOverlayName. -->
@@ -3935,6 +4222,15 @@ The last line"></textarea>
           <h3>The film</h3>
           <span class="sb-plan-status" id="sbFilmStatus"></span>
           <span class="ch-spacer"></span>
+          <!-- Only a board planned in Music video has a song to lay under it,
+               so this button appears only there. It is a second door onto the
+               same assembler Export uses — the difference is the bed: the
+               song replaces every clip's own audio and plays unbroken, which
+               the lip-sync survives because each singing shot was rendered
+               against its own seconds of this very file. -->
+          <button type="button" class="ghost-btn" id="sbMusicFilmBtn"
+                  onclick="sbFilmWithTheSong()" hidden
+                  title="Join the shots and lay the song under them, unbroken">Film with the song</button>
         </header>
         <div id="sbFilmBody"></div>
       </div>
@@ -3984,7 +4280,15 @@ The last line"></textarea>
            the screen and the one that LEAVES looked alike. Navigation nests
            under the ⋯; the only filled control on the screen is Render. -->
       <header class="carousel-head sbe-head">
-        <span class="sbe-title" id="sbeTitle">Editor</span>
+        <!-- WHICH FILM, AND THE WAY TO ANOTHER ONE. The name looked like a
+             control and did nothing, and the list of films sat behind the
+             full-screen Editor with ⋯ → Close as the only way to it. The name
+             IS the switcher: it drops the films that have clips, and opening
+             one keeps the work here the way closing does (backed up, never
+             discarded). -->
+        <button type="button" class="ghost-btn sbe-titlebtn" id="sbeFilmsBtn"
+                onclick="sbeFilmsToggle()" aria-haspopup="menu"
+                title="Switch to another __SEQ__ — nothing here is lost"><span class="sbe-title" id="sbeTitle">Editor</span><span class="sbe-car">▾</span></button>
         <!-- WHICH DOCUMENT AM I CUTTING, and which of its drafts. Identity, so
              it sits beside the name rather than among the verbs. -->
         <button type="button" class="ghost-btn sbe-draftchip" id="sbeKeepBtn"
@@ -4115,6 +4419,14 @@ The last line"></textarea>
         <button type="button" class="ghost-btn" id="sbeNleBtn" onclick="sbeExportNle()"
                 title="A folder with an FCP7 XML (Premiere + Resolve), an After Effects script, and hardlinked media. Audio comes out as stems, not the ducked mix.">Export for Premiere / Resolve / AE</button>
         <span class="sbe-pop-note" id="sbeRenderNote"></span>
+      </div>
+
+      <div class="sbe-pop sbe-films" id="sbeFilmsMenu" role="menu" hidden>
+        <span class="sbe-pop-note" id="sbeFilmsNote">reading your __SEQS__…</span>
+        <div class="sbe-films-list" id="sbeFilmsList"></div>
+        <span class="sbe-pop-sep"></span>
+        <button type="button" class="ghost-btn" id="sbeFilmsAllBtn" onclick="sbeFilmsAll()"
+                title="Close this timeline and show every __SEQ__. Nothing is deleted.">All __SEQS__…</button>
       </div>
 
       <div class="sbe-pop" id="sbeMoreMenu" hidden>
@@ -4791,6 +5103,27 @@ The last line"></textarea>
              other segs). -->
       </div>
       <div class="carousel" id="carousel"></div>
+      <!-- MUSIC STUDIO — the player bar. Sticks to the bottom of the outputs
+           column while you browse; one <audio> for every song, a real
+           waveform (decoded once per song, cached), click to seek, prev/next
+           through the list. Shown the first time a song is selected. -->
+      <div class="music-bar" id="musicBar" hidden>
+        <div class="music-bar-cover" id="musicBarCover" aria-hidden="true"></div>
+        <div class="music-bar-text">
+          <div class="music-bar-title" id="musicBarTitle"></div>
+          <div class="music-bar-style" id="musicBarStyle"></div>
+        </div>
+        <div class="music-bar-controls">
+          <button type="button" class="music-bar-btn" title="Previous" aria-label="Previous song" onclick="musicBarStep(-1)"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5v11M13 2.5 5 8l8 5.5z" fill="currentColor"/></svg></button>
+          <button type="button" class="music-bar-btn play" id="musicBarPlay" title="Play" aria-label="Play or pause" onclick="musicBarTogglePlay()"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5 L13.5 8 L4 13.5 Z" fill="currentColor"/></svg></button>
+          <button type="button" class="music-bar-btn" title="Next" aria-label="Next song" onclick="musicBarStep(1)"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 2.5v11M3 2.5 11 8l-8 5.5z" fill="currentColor"/></svg></button>
+        </div>
+        <canvas class="music-bar-wave" id="musicBarWave" onclick="musicBarSeek(event)" title="Click to seek"></canvas>
+        <div class="music-bar-time" id="musicBarTime">0:00 / 0:00</div>
+        <audio id="musicBarAudio" preload="metadata"></audio>
+      </div>
+      <!-- The ⋯ menu, one for every song row; positioned by musicMenuOpen(). -->
+      <div class="song-menu" id="songMenu" hidden role="menu"></div>
     </div>
   </section>
 
@@ -5582,7 +5915,12 @@ The last line"></textarea>
 
 <script>
 const BOOT = __BOOTSTRAP__;</script>
+<!-- abcjs draws the sheet music YuE2 writes for every song. Vendored (MIT,
+     webapp/vendor/abcjs/) so a score renders with the network off. Classic
+     script on purpose: it publishes `ABCJS` as a global for the studio module. -->
+<script src="/webapp/vendor/abcjs/abcjs-basic-min.min.js"></script>
 <script type="module" src="/webapp/js/boot.js"></script>
+<script type="module" src="/webapp/js/music.js"></script>
 <script type="module" src="/webapp/js/shortcuts.js"></script>
 <script type="module" src="/webapp/js/tips.js"></script>
 <script type="module" src="/webapp/js/docs.js"></script>

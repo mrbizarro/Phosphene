@@ -217,10 +217,14 @@ def engine_env_fault() -> str:
 # in the fleet view, and "fetch" belongs to download_failed (checked against
 # the live classifier, not guessed). The phrase that has to survive is "venv",
 # which is how venv_broken finds it.
+#
+# "Stop Phosphene first" because the entry only appears once the panel is
+# stopped — the repair reinstalls into the venv this process holds open. The
+# running sidebar says the same (INST-05).
 ENGINE_ENV_REPAIR = (
-    "Fix it from the Pinokio sidebar: \"Repair Phosphene engine (models "
-    "kept)\" rebuilds the venv and keeps every model you have. Update works too. "
-    "Renders cannot run until it is repaired."
+    "Fix it from the Pinokio sidebar: Stop Phosphene, then click \"Repair "
+    "Phosphene engine (models kept)\" — it rebuilds the venv and keeps every "
+    "model you have. Update works too. Renders cannot run until it is repaired."
 )
 
 if not HELPER_PYTHON.is_file():
@@ -997,6 +1001,13 @@ def _settings_defaults() -> dict:
         # never changes the result, and it is what makes Stop early
         # possible at all.
         "live_preview": "on",
+        # H3 FP16 VAE decode — ON since 4.16.0. See h3_vae_fp16_decode().
+        # Measured 2026-09-23 on a real 1152x640/124f latent: decode 105.1 s ->
+        # 90.2 s (-14 %), peak 11.1 -> 8.0 GiB, PSNR 72.8 dB against the float32
+        # decode (perf/vae-2026-09-23). The release A/B (2026-09-24, High 5 s
+        # Turbo, seed 42, through the panel): 90.1 s -> 77.4 s, peak 10.7 ->
+        # 9.5 GiB, no visible difference on any frame.
+        "h3_vae_fp16": True,
         # ---- Update banner + the one-time star ask -------------------------
         # `update_banner_dismissed` holds the VERSION the user dismissed, not a
         # boolean: dismissing 4.1.1 must not silence the banner for 4.2.0. The
@@ -1331,6 +1342,12 @@ def _validate_settings_patch(patch: dict) -> tuple[dict, str | None]:
             return {}, f"unknown h3_dit: {v} (auto | bf16 | q8)"
         out["h3_dit"] = v
 
+    # ---- H3 FP16 VAE decode (on by default since 4.16.0) ----------------
+    if "h3_vae_fp16" in patch:
+        _v = patch["h3_vae_fp16"]
+        out["h3_vae_fp16"] = (_v.strip().lower() in ("1", "true", "yes", "on")
+                              if isinstance(_v, str) else bool(_v))
+
     # ---- Anonymous usage analytics -------------------------------------
     # Additive only: three user-settable fields. `analytics_install_id`,
     # `analytics_last_packs` and `analytics_disclosed` are deliberately NOT
@@ -1447,6 +1464,7 @@ def get_settings_public() -> dict:
         # the GET never returned it, so any control would open showing "auto"
         # no matter what the user had chosen.
         "h3_dit": str(s.get("h3_dit", "auto") or "auto"),
+        "h3_vae_fp16": bool(s.get("h3_vae_fp16", True)),
         "update_banner_dismissed": str(s.get("update_banner_dismissed", "") or ""),
         "star_prompt_done": bool(s.get("star_prompt_done", False)),
         "broadcast_seen_ids": list(s.get("broadcast_seen_ids") or []),
@@ -1480,13 +1498,13 @@ def _settings_file_stamp() -> tuple[int, int] | None:
 _SETTINGS_STAMP: tuple[int, int] | None = _settings_file_stamp()
 
 
-def _settings_reload_if_changed() -> None:
+def _settings_reload_if_changed(force: bool = False) -> None:
     """Under _SETTINGS_LOCK. Re-read panel_settings.json when another process
     wrote it — two panels share one state dir on a dev box (the drive
     symlink), and a second panel's boot or Settings save must be visible here."""
     global _SETTINGS_STAMP
     stamp = _settings_file_stamp()
-    if stamp == _SETTINGS_STAMP:
+    if stamp == _SETTINGS_STAMP and not force:
         return
     try:
         with SETTINGS_FILE.open("r") as fh:
@@ -1511,10 +1529,34 @@ def _settings_write_delta(delta: dict) -> None:
     write. Merging the delta onto the file as it is now means a stale copy can
     only change the keys it is actually setting."""
     global _SETTINGS_STAMP
-    _settings_reload_if_changed()
-    _SETTINGS.update(delta)
-    _save_settings(_SETTINGS)
-    _SETTINGS_STAMP = _settings_file_stamp()
+    # ACROSS PROCESSES, TOO (Codex UI-04, 2026-09-24). _SETTINGS_LOCK is a
+    # thread lock: two panels on one state dir could both read the old file,
+    # and the later writer's merge — made on its stale copy — reverted the
+    # other's freshly saved key. An flock on a sibling lock file makes
+    # read-merge-replace one transaction between processes, and the reload
+    # is FORCED once it is held (an mtime/size stamp can miss a same-size
+    # write inside one clock tick). Fail-open: a filesystem without flock
+    # keeps the old, single-process behaviour rather than refusing to save.
+    import fcntl
+    lock_fh = None
+    try:
+        lock_fh = open(SETTINGS_FILE.with_name(".panel_settings.lock"), "a")
+        fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
+    except OSError:
+        if lock_fh is not None:
+            lock_fh.close()
+        lock_fh = None
+    try:
+        _settings_reload_if_changed(force=lock_fh is not None)
+        _SETTINGS.update(delta)
+        _save_settings(_SETTINGS)
+        _SETTINGS_STAMP = _settings_file_stamp()
+    finally:
+        if lock_fh is not None:
+            try:
+                fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
+            finally:
+                lock_fh.close()
 
 
 def get_settings() -> dict:
@@ -3040,12 +3082,9 @@ def _train_install_dev_transformer(push_log) -> dict:
             proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, errors="replace", bufsize=1, env=env, start_new_session=True)
-            with DOWNLOAD_LOCK:
-                DOWNLOAD["proc"] = proc
-                try:
-                    DOWNLOAD["pgid"] = os.getpgid(proc.pid)
-                except ProcessLookupError:
-                    DOWNLOAD["pgid"] = None
+            if not _download_register(proc):
+                push_log("[hf] dev transformer download cancelled.")
+                return
             buf = ""
             assert proc.stdout is not None
             while True:
@@ -3077,6 +3116,7 @@ def _train_install_dev_transformer(push_log) -> dict:
                 DOWNLOAD["last_line"] = ""
                 DOWNLOAD["proc"] = None
                 DOWNLOAD["pgid"] = None
+                DOWNLOAD["cancelled"] = False
 
     threading.Thread(target=_runner, daemon=True, name="hf-dev-download").start()
     return {"ok": True, "started": True, "repo_id": repo_id,
@@ -4857,7 +4897,19 @@ def parse_loras_from_form(form: dict) -> list[dict]:
         # Clamp; LoRA strengths beyond ±2 are usually nonsense and risk
         # numerical issues during fusion.
         strength = max(-2.0, min(2.0, strength))
-        out.append({"path": path, "strength": strength})
+        entry = {"path": path, "strength": strength}
+        # REPLAY PROVENANCE (Codex H3-03). Load Params / Finish restore an old
+        # recipe's strengths verbatim and tag each with the recipe's own
+        # h3_lora_scale_v (0 = written before the stamp existed). make_job
+        # stamps the CURRENT version on every H3 job, so without this an old
+        # automatic 0.5 read as a deliberate modern choice and the dispatch
+        # migration left the scale applied twice. Only an integer survives.
+        if "scale_v" in item:
+            try:
+                entry["scale_v"] = int(item.get("scale_v") or 0)
+            except (TypeError, ValueError):
+                entry["scale_v"] = 0
+        out.append(entry)
     return out
 
 
@@ -5331,6 +5383,22 @@ def ltx_floor_canvas(width, height) -> tuple[int, int]:
     """
     return (max(64, (int(width) // 64) * 64),
             max(64, (int(height) // 64) * 64))
+
+
+def ltx_fit_canvas(width, height, max_dim: int) -> tuple[int, int]:
+    """Fit a canvas under a hardware cap: ONE scale factor for both sides so
+    the long side is at most `max_dim` (0 = no cap), then ltx_floor_canvas.
+
+    Every hardware clamp goes through here. The A2V clamp capped each side on
+    its own, so a 1280x704 canvas under a 768 cap became a near-square
+    768x704 (LTX-06); the tier, keyframe and compact-profile clamps scaled
+    proportionally but rounded to /32, undoing make_job's /64 floor and
+    recording dimensions the two-stage engine does not deliver (LTX-10)."""
+    w, h = float(width), float(height)
+    if max_dim and max(w, h) > max_dim:
+        scale = max_dim / max(w, h)
+        w, h = w * scale, h * scale
+    return ltx_floor_canvas(w, h)
 
 
 def ltx_model_dir(quant: str, version_id: str | None = None) -> str:
@@ -6486,7 +6554,35 @@ DOWNLOAD: dict = {
     "last_line": "",       # most recent hf output line for UI display
     "proc": None,
     "pgid": None,
+    # Set by /models/cancel, cleared when the worker releases the slot. The
+    # worker used to read "still active?" as "not cancelled" — but Cancel never
+    # cleared `active` (the slot stays held until the worker's own cleanup), so
+    # a cancelled attempt looked like a failed one and was RETRIED, and a
+    # cancel during backoff did nothing at all (Codex INST-07 / JOB-05).
+    "cancelled": False,
 }
+
+
+def _download_register(proc) -> bool:
+    """Publish a freshly spawned downloader so Cancel can reach it.
+
+    False when a cancel landed first — in the window between Popen and here the
+    cancel had no process to signal — in which case the new process group is
+    killed on the spot and the caller must stop."""
+    with DOWNLOAD_LOCK:
+        DOWNLOAD["proc"] = proc
+        try:
+            DOWNLOAD["pgid"] = os.getpgid(proc.pid)
+        except ProcessLookupError:
+            DOWNLOAD["pgid"] = None
+        cancelled = DOWNLOAD.get("cancelled")
+    if cancelled:
+        _kill_active_download()
+        try:
+            proc.wait(timeout=10)
+        except Exception:
+            pass
+    return not cancelled
 
 
 def _download_thread(repo: dict) -> None:
@@ -6575,7 +6671,7 @@ def _download_thread(repo: dict) -> None:
     try:
         for attempt in range(1, max_attempts + 1):
             with DOWNLOAD_LOCK:
-                if not DOWNLOAD["active"]:
+                if not DOWNLOAD["active"] or DOWNLOAD["cancelled"]:
                     push(f"[{dl_tag}] {dl_label} cancelled before attempt {attempt}.")
                     break
             if attempt > 1:
@@ -6593,12 +6689,9 @@ def _download_thread(repo: dict) -> None:
             except Exception as exc:
                 push(f"[{dl_tag}] failed to spawn the downloader: {exc}")
                 break
-            with DOWNLOAD_LOCK:
-                DOWNLOAD["proc"] = proc
-                try:
-                    DOWNLOAD["pgid"] = os.getpgid(proc.pid)
-                except ProcessLookupError:
-                    DOWNLOAD["pgid"] = None
+            if not _download_register(proc):
+                push(f"[{dl_tag}] {dl_label} cancelled.")
+                break
             # Stream every line. hf emits a tqdm progress bar with carriage
             # returns; we split on \r as well as \n so progress updates show
             # up live in the panel log instead of being buffered until done.
@@ -6623,17 +6716,18 @@ def _download_thread(repo: dict) -> None:
                 push(f"[{dl_tag}] {dl_label} downloaded successfully.")
                 break
             with DOWNLOAD_LOCK:
-                still_active = DOWNLOAD["active"]
-            if not still_active:
+                cancelled = DOWNLOAD["cancelled"] or not DOWNLOAD["active"]
+            if cancelled:
                 push(f"[{dl_tag}] {dl_label} cancelled (exit {rc}).")
                 break
             if attempt < max_attempts:
                 push(f"[{dl_tag}] {dl_label} attempt {attempt} failed (exit {rc}). Retrying in {backoff_sec}s — the downloader resumes from where it stopped.")
-                # Sleep in 1-second slices so a cancel during backoff is responsive.
+                # Sleep in 1-second slices so a cancel during backoff is
+                # responsive; the check at the top of the loop then stops it.
                 for _ in range(backoff_sec):
                     time.sleep(1)
                     with DOWNLOAD_LOCK:
-                        if not DOWNLOAD["active"]:
+                        if DOWNLOAD["cancelled"]:
                             break
                 backoff_sec = min(backoff_sec * 2, 60)   # 5 → 10 → 20s cap by attempt 3
             else:
@@ -6649,6 +6743,7 @@ def _download_thread(repo: dict) -> None:
             DOWNLOAD["last_line"] = ""
             DOWNLOAD["proc"] = None
             DOWNLOAD["pgid"] = None
+            DOWNLOAD["cancelled"] = False
 
 
 def _kill_active_download() -> None:
@@ -7207,16 +7302,18 @@ def _hf_lora_download(repo_id: str, filename: str, meta: dict) -> dict:
     loras_dir.mkdir(parents=True, exist_ok=True)
     shutil.move(got, target)
     layout_info = {"layout": None, "converted": False, "prefix": ""}
+    strength = float(meta.get("recommended_strength") or 1.0)
     if lane == "h3":
         try:
             layout_info = _h3_lora_prepare(target)
         except Exception as exc:                                   # noqa: BLE001
             push(f"[huggingface] layout probe failed: {exc}")
+        strength = _h3_lora_browser_strength(target, meta, "huggingface")
     sidecar = target.with_suffix(".json")
     data = {
         "name": meta.get("name") or target.stem, "description": meta.get("description") or "",
         "trigger_words": list(meta.get("trigger_words") or []),
-        "recommended_strength": float(meta.get("recommended_strength") or 1.0),
+        "recommended_strength": strength,
         "preview_url": meta.get("preview_url"), "preview_type": meta.get("preview_type"),
         "base_model": meta.get("base_model") or ("MiniMax H3" if lane == "h3" else "LTXV 2.3"),
         "source": "huggingface", "hf_repo": repo_id,
@@ -7369,6 +7466,8 @@ def _civitai_download(download_url: str, meta: dict) -> dict:
                 pass
             push(f"[civitai] refused {target.name}: {exc}")
             raise RuntimeError(str(exc)) from exc
+    strength = (_h3_lora_browser_strength(target, meta, "civitai") if lane == "h3"
+                else float(meta.get("recommended_strength") or 1.0))
     # Write the sidecar — kept tolerant of meta gaps so a partial
     # payload still produces a usable picker entry.
     sidecar = target.with_suffix(".json")
@@ -7377,7 +7476,7 @@ def _civitai_download(download_url: str, meta: dict) -> dict:
         "description": meta.get("description") or "",
         "trigger_words": (list(meta.get("trigger_words") or [])
                           or list(layout_info.get("trigger_words") or [])),
-        "recommended_strength": float(meta.get("recommended_strength") or 1.0),
+        "recommended_strength": strength,
         "preview_url": meta.get("preview_url"),
         "base_model": (meta.get("base_model")
                        or ("MiniMax H3" if lane == "h3" else "LTXV 2.3")),
@@ -9736,6 +9835,18 @@ def live_preview_dir(job_id: str) -> Path:
     return STATE_DIR / "live" / _safe_job_id(job_id)
 
 
+def live_preview_job_id(job: dict | None) -> str:
+    """Whose preview folder the queue job's live preview is in right now.
+
+    A One Shot renders its parts as child jobs (`<id>-p1`, `-p1r`, …), and
+    each part's helper writes its preview under ITS id, while the queue — and
+    so /status and Stop early — only knows the parent. The take runner
+    publishes the active part as `preview_id` (LTX-09); every reader resolves
+    through here, so an ordinary job (no preview_id) is unchanged."""
+    job = job or {}
+    return str(job.get("preview_id") or job.get("id") or "")
+
+
 def _live_preview_params(job: dict, p: dict) -> dict:
     """The three job-spec keys that turn the preview on, or {}.
 
@@ -10465,11 +10576,34 @@ def h3_available() -> bool:
     return not h3_paths()["missing"]
 
 
+def _h3_q8_shards_complete(d: Path) -> bool:
+    """Every shard the pack's index names is on disk and non-empty.
+
+    The docstring below always said "all shards"; the code asked for ANY
+    `model-*.safetensors`, so a pack missing four of five shards unlocked H3,
+    was dispatched, and hid the Build action that would have fixed it (Codex
+    H3-04). The index is what h3_build_q8.sh checks too. A pack with no index
+    predates it and keeps the old rule rather than being declared broken."""
+    idx = d / "model.safetensors.index.json"
+    if not idx.is_file():
+        return any(d.glob("model-*.safetensors"))
+    try:
+        names = set((json.loads(idx.read_text(encoding="utf-8")).get("weight_map") or {}).values())
+    except (OSError, ValueError, AttributeError):
+        return False
+    try:
+        return bool(names) and all((d / n).is_file() and (d / n).stat().st_size > 0
+                                   for n in names)
+    except OSError:
+        return False
+
+
 def _h3_q8_dit_dir() -> Path | None:
     """The quantized DiT pack, if present: config + quant recipe + all shards."""
     for root in _h3_model_roots():
         d = root / H3_DIT_Q8_DIRNAME
-        if (d / "config.json").is_file() and (d / "quant_config.json").is_file()                 and any(d.glob("model-*.safetensors")):
+        if (d / "config.json").is_file() and (d / "quant_config.json").is_file() \
+                and _h3_q8_shards_complete(d):
             return d
     return None
 
@@ -10667,6 +10801,56 @@ def h3_ram_verdict() -> dict:
 
 
 _H3_FLAG_CACHE: dict[str, bool] = {}
+
+
+def h3_reference_image_error(src: Path) -> str:
+    """"" when H3 Image mode can read `src`, else the sentence to show.
+
+    Two different faults used to share one sentence. A file PIL cannot parse
+    is the user's to fix ("export it as a JPEG or PNG"). But a PANEL that
+    cannot import PIL at all is a half-installed engine venv — fleet 4.15.2,
+    one 128 GB Mac, six H3 Image renders in a row told to re-export a
+    perfectly good picture ("The reference image can't be read
+    (ModuleNotFoundError)") while its venv had no packages. That one is
+    ENGINE_ENV_REPAIR's, and the word "venv" files it under venv_broken."""
+    try:
+        from PIL import Image as _PilImg
+    except ImportError as exc:
+        return (f"The engine venv is not usable: it cannot load Pillow "
+                f"({exc.__class__.__name__}), so no image can be read. "
+                + ENGINE_ENV_REPAIR)
+    try:
+        with _PilImg.open(src):
+            pass
+    except Exception as exc:
+        return (f"The reference image can't be read ({exc.__class__.__name__}). "
+                "Export it as a JPEG or PNG and try again.")
+    return ""
+
+
+def h3_vae_fp16_decode() -> bool:
+    """Should the H3 runner decode video in FP16? ON unless turned off.
+
+    The ViT decoder's weights are FP16 in the compact checkpoint, but the
+    runner hands it FLOAT32 latents and MLX promotes the arithmetic to float32.
+    The runner's `--vae-dtype float16` (minimax-h3-mlx 6bbed80, or
+    H3_VAE_DTYPE) runs it at the reference's FP16 autocast precision with the
+    RMS/QK norms kept float32. Measured 2026-09-23 on a real 1152x640/124f
+    latent: decode 105.1 s -> 90.2 s, peak 11.1 -> 8.0 GiB, PSNR 72.8 dB
+    (max abs 0.33 in VAE units, so not bit-exact). The 4.16.0 release A/B
+    through the panel (High 5 s Turbo, seed 42, 1024x576/124f): decode 90.1 s
+    -> 77.4 s, peak 10.7 -> 9.5 GiB, no visible difference (RGB PSNR 42 dB
+    measured through the two h264 exports, i.e. below the encoder's own
+    noise), so the default flipped to on.
+
+    `PHOSPHENE_H3_VAE_FP16=1|0` (Pinokio ENVIRONMENT) overrides the
+    `h3_vae_fp16` setting either way."""
+    forced = (os.environ.get("PHOSPHENE_H3_VAE_FP16") or "").strip().lower()
+    if forced in ("1", "true", "yes", "on"):
+        return True
+    if forced in ("0", "false", "no", "off"):
+        return False
+    return bool(get_settings().get("h3_vae_fp16", True))
 
 
 def _h3_runner_has_flag(flag: str) -> bool:
@@ -11359,10 +11543,22 @@ def _h3_lora_import_name(filename: str) -> str:
     claiming `../../etc/x.safetensors` reduces to `x.safetensors` before the
     character filter ever runs."""
     raw_name = Path(str(filename or "")).name
-    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", raw_name).strip("._")
-    if not safe_name or not safe_name.lower().endswith(".safetensors"):
+    # THE EXTENSION IS CHECKED ON THE ORIGINAL, THE STEM SANITISED ALONE.
+    # Sanitising the whole name first turned `日本語.safetensors` into
+    # `_.safetensors` and `.strip("._")` then ate the stem AND the dot, leaving
+    # `safetensors` — refused as "wrong extension" (Codex H3-05). A stem with
+    # nothing ASCII left gets a stable name derived from the original, so two
+    # such files do not collide.
+    if not raw_name.lower().endswith(".safetensors"):
         raise ValueError("choose a .safetensors H3 LoRA file")
-    return safe_name
+    raw_stem = raw_name[: -len(".safetensors")]
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "_", raw_stem).strip("._")
+    if not stem:
+        if not raw_stem.strip():
+            raise ValueError("choose a .safetensors H3 LoRA file")
+        import hashlib
+        stem = "lora_" + hashlib.sha1(raw_stem.encode("utf-8")).hexdigest()[:10]
+    return stem + ".safetensors"
 
 
 def import_h3_lora_staged(filename: str, fill, *, size_hint: int = 0) -> dict:
@@ -11888,6 +12084,30 @@ def _h3_lora_scale_report(path: Path, header: dict, buf_start: int) -> dict:
                          f"ambiguous — starting at 1.0")}
 
 
+def _h3_lora_browser_strength(path: Path, meta: dict, tag: str) -> float:
+    """recommended_strength for an adapter installed from the HF / CivitAI browser.
+
+    The upload importer always wrote the file's own alpha/rank scale into the
+    sidecar; both browser installers wrote the listing's number or 1.0, and
+    `_h3_lora_prepare` folds only MIXED ratios. So a uniform alpha 8 / rank 128
+    adapter installed from a browser was recommended at 1.0 — 16x too strong,
+    because the runner applies no alpha — while the same file uploaded got
+    0.0625 (Codex H3-01, 2026-09-24). A listing's own strength is the
+    publisher's multiplier on an alpha-applying loader, so it multiplies the
+    training scale rather than replacing it. Never refuses: a header this
+    cannot read keeps the listing's number."""
+    listed = float(meta.get("recommended_strength") or 1.0)
+    try:
+        header, buf_start = _safetensors_header(path)
+        scale = _h3_lora_scale_report(path, header, buf_start)
+    except Exception as exc:                                       # noqa: BLE001
+        push(f"[{tag}] could not read the adapter's scale: {exc}")
+        return listed
+    if scale.get("evidence"):
+        push(f"[{tag}] {path.name}: {scale['evidence']}")
+    return listed * float(scale["strength"])
+
+
 def _h3_lora_validate_for_import(path: Path) -> dict:
     """The extra scrutiny an UPLOADED adapter gets, on top of `_h3_lora_prepare`.
 
@@ -12230,7 +12450,11 @@ def _h3_lora_migrate_strength(path: Path, strength: float, params: dict) -> floa
     before = _h3_lora_migrate_sidecar(path)
     if before is None or not math.isclose(strength, before, abs_tol=1e-4):
         return strength
-    if params.get("h3_lora_scale_v"):
+    try:
+        _scale_v = int(params.get("h3_lora_scale_v") or 0)
+    except (TypeError, ValueError):
+        _scale_v = 0
+    if _scale_v >= H3_LORA_SCALE_VERSION:
         push(f"[h3:lora] note: {path.name} is picked at {strength:g}, its old "
              f"recommended strength. The file now carries that scale itself and "
              f"reads as trained at 1.0 — {strength:g} renders it weaker.")
@@ -13078,6 +13302,17 @@ MUSIC_SECONDS_PER_AUDIO_SECOND = {"draft": 0.43, "final": 0.93}
 MUSIC_ROOT = ROOT / Path(os.environ.get("LTX_MUSIC_ROOT", "yue2-mlx")).expanduser()
 MUSIC_MODELS = ROOT / Path(os.environ.get("LTX_MUSIC_MODELS", "mlx_models/yue2")).expanduser()
 MUSIC_RUNNER = ROOT / "scripts/music/yue2_run.py"
+# The two transcription models that turn a real recording into a score. A
+# SEPARATE, OPTIONAL ~2.8 GB beside the 10 GB music pack: writing a song from a
+# prompt never touches them, and covering one cannot happen without them.
+MUSIC_COVER_MODELS = ROOT / Path(
+    os.environ.get("LTX_MUSIC_COVER_MODELS", "mlx_models/yue2-cover")).expanduser()
+# The LoRA pack: ~210 MB of adapters, opt-in like the cover models. The
+# Instrumental toggle upgrades itself the moment this is on disk (see
+# scripts/music/yue2_lora.py), and `user/` inside it is scanned for anything
+# the owner drops in — a community or AI-Toolkit adapter needs no install step.
+MUSIC_LORAS = ROOT / Path(
+    os.environ.get("LTX_MUSIC_LORAS", "mlx_models/yue2-loras")).expanduser()
 MUSIC_ENGINE_PIN = (ROOT / "scripts/music/engine_pin.txt").read_text().strip()
 # Env vars the music runner must NEVER inherit — see music_child_env().
 MUSIC_ENV_STRIP = ("PYTORCH_ENABLE_MPS_FALLBACK", "PYTORCH_MPS_FAST_MATH")
@@ -13087,6 +13322,15 @@ MUSIC_ENV_STRIP = ("PYTORCH_ENABLE_MPS_FALLBACK", "PYTORCH_MPS_FAST_MATH")
 # is what makes a stale or raced lock impossible on this side.
 MUSIC_GPU_DIR_LOCK = Path.home() / "AI/projects/hailuo-mlx/.gpu_lock"
 MUSIC_GPU_FILE_LOCK = Path("/tmp/phosphene_gpu.lock")
+# A music job WAITS for an external lock instead of refusing: the lab's command-line
+# jobs hold these for minutes, and "Retry when it has finished" asked a person to
+# poll by hand. The wait is capped, shows as its own phase, and Stop ends it.
+MUSIC_GPU_WAIT_MAX_S = float(os.environ.get("PHOSPHENE_MUSIC_GPU_WAIT_S", "3600") or 3600)
+MUSIC_GPU_POLL_S = 0.5
+# Opt-in, off by default: a panel that shares the machine with command-line GPU
+# jobs (a dev/test panel) can HOLD the file lock while a song renders, so those
+# jobs queue behind it. A user's panel never writes the shared lock unless told to.
+MUSIC_TAKES_GPU_LOCK = os.environ.get("PHOSPHENE_MUSIC_TAKES_GPU_LOCK", "") == "1"
 
 
 def _music_python() -> Path | None:
@@ -13124,6 +13368,231 @@ def music_paths() -> dict:
             "repairable": weights_ok and bool(missing)}
 
 
+MUSIC_ARTIFACTS = STATE_DIR / "music"
+
+
+def music_artifacts_dir(job_id: str) -> Path:
+    """Where a job's plan/tokens/latents live. The runner insists on an empty
+    folder, so a retried job id gets a fresh one rather than a refusal."""
+    base = MUSIC_ARTIFACTS / _safe_job_id(job_id)
+    d, n = base, 2
+    while d.exists() and any(d.iterdir()):
+        d = base.with_name(f"{base.name}_{n}")
+        n += 1
+    return d
+
+
+def music_artifacts_for(output_path: str | Path | None) -> Path | None:
+    """The artifact folder a finished song was made with, or None.
+
+    Read from the song's sidecar (the runner records `artifacts`), then
+    checked for the one file that proves it is complete. Nothing is guessed
+    from a filename — a song is varied from what it actually kept."""
+    if not output_path:
+        return None
+    try:
+        side = Path(str(output_path) + ".json")
+        meta = json.loads(side.read_text())
+        d = Path(str(meta.get("artifacts") or ""))
+        return d if d.is_dir() and (d / "result.json").is_file() else None
+    except (OSError, ValueError):
+        return None
+
+
+def music_cover_status() -> dict:
+    """Can this install cover a recording, and if not, what is missing.
+
+    Kept separate from music_status()'s own readiness because the answers are
+    independent: the music pack alone writes songs from prompts, and this pack
+    alone is useless. The Compose card reads both."""
+    try:
+        from scripts.pinokio.music_cover_fetch import COVER_BYTES, cover_problems
+        missing = cover_problems(MUSIC_COVER_MODELS)
+        return {"ready": not missing, "missing": missing,
+                "root": str(MUSIC_COVER_MODELS), "bytes": COVER_BYTES,
+                # THE DOWNLOAD'S OWN STATE RIDES ON EVERY POLL (M6-09). It was
+                # kept here and read by nothing: the card said "this runs in
+                # the background" on the 202 and then, on the next status
+                # tick, offered Download again — a failed fetch never said so.
+                "fetch": music_cover_fetch_state()}
+    except Exception as exc:                                    # noqa: BLE001
+        return {"ready": False, "missing": [str(exc)],
+                "root": str(MUSIC_COVER_MODELS), "bytes": 0,
+                "fetch": music_cover_fetch_state()}
+
+
+_MUSIC_COVER_FETCH = {"running": False, "line": "", "error": ""}
+
+
+def music_cover_fetch_state() -> dict:
+    return dict(_MUSIC_COVER_FETCH)
+
+
+def music_cover_fetch_start() -> tuple[int, dict]:
+    """Download the two transcription models in the background.
+
+    Deliberately NOT part of MUSIC_INSTALL_STEPS: that sequence is the engine
+    itself and a user who never covers anything should never pay for this. Two
+    files, ~2.8 GB, resumable by construction — the fetcher keeps whatever is
+    already on disk."""
+    if _MUSIC_COVER_FETCH["running"]:
+        return 409, {"error": "the cover models are already downloading"}
+    if music_cover_status()["ready"]:
+        return 200, {"ok": True, "ready": True}
+
+    def run():
+        _MUSIC_COVER_FETCH.update(running=True, line="starting", error="")
+        try:
+            python = _music_python() or sys.executable
+            # TWO STEPS, and the first one is the easy thing to forget.
+            # `lyra.transcription` imports mir_eval / mido / pretty_midi at
+            # module import time, and the venv is built with `uv sync --frozen
+            # --no-dev`, which installs no extras — so a venv that writes songs
+            # perfectly raises ModuleNotFoundError the instant a cover starts.
+            # Found by running one end to end, not by reading the manifest.
+            steps = (
+                ("the transcription libraries",
+                 ["bash", str(ROOT / "scripts/pinokio/music_cover_deps.sh"),
+                  str(MUSIC_ROOT)], _music_install_env()),
+                ("the transcription models",
+                 [str(python), str(ROOT / "scripts/pinokio/music_cover_fetch.py"),
+                  "--root", str(MUSIC_COVER_MODELS)], music_child_env()),
+            )
+            rc = 0
+            for label, cmd, env in steps:
+                _MUSIC_COVER_FETCH["line"] = f"installing {label}"
+                push(f"[cover] installing {label}")
+                proc = subprocess.Popen(
+                    cmd, cwd=str(ROOT), env=env, stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT, text=True, errors="replace", bufsize=1)
+                for line in proc.stdout or ():
+                    line = line.strip()
+                    if line:
+                        _MUSIC_COVER_FETCH["line"] = line[:200]
+                        push(line)
+                rc = proc.wait()
+                if rc != 0:
+                    _MUSIC_COVER_FETCH["error"] = f"{label} failed (exit {rc})"
+                    break
+        except Exception as exc:                                # noqa: BLE001
+            _MUSIC_COVER_FETCH["error"] = f"{type(exc).__name__}: {exc}"
+        finally:
+            _MUSIC_COVER_FETCH["running"] = False
+
+    threading.Thread(target=run, name="music-cover-fetch", daemon=True).start()
+    return 202, {"ok": True, "started": True}
+
+
+def music_lora_status() -> dict:
+    """What the LoRA picker can offer, and what a download would cost.
+
+    Two independent answers again: the pinned pack may be missing while the
+    owner's own `user/` folder already holds adapters, and a user LoRA is
+    usable on its own. `ready` means the two pinned ADAPTERS are usable;
+    `adapters` is everything pickable right now.
+
+    `complete` is the third answer and the one the Download button needs:
+    whether anything is still left to fetch, the tokenizer head included. They
+    were one answer, so a pack whose head never arrived — or whose adapter
+    arrived truncated — was "ready" and could never be repaired from the UI
+    (Codex review, 2026-09-22)."""
+    try:
+        from scripts.pinokio.music_lora_fetch import (LORA_BYTES, lora_problems,
+                                                      pack_adapters, pack_problems)
+        missing = lora_problems(MUSIC_LORAS)
+        incomplete = pack_problems(MUSIC_LORAS)
+        adapters = pack_adapters(MUSIC_LORAS)
+        return {"ready": not missing, "complete": not incomplete,
+                "missing": missing, "incomplete": incomplete,
+                "root": str(MUSIC_LORAS),
+                "bytes": LORA_BYTES, "adapters": adapters,
+                "instrumental_ready": any(a["instrumental"] for a in adapters),
+                "fetch": music_lora_fetch_state()}          # see music_cover_status
+    except Exception as exc:                                    # noqa: BLE001
+        return {"ready": False, "complete": False, "missing": [str(exc)],
+                "incomplete": [str(exc)], "root": str(MUSIC_LORAS),
+                "bytes": 0, "adapters": [], "instrumental_ready": False,
+                "fetch": music_lora_fetch_state()}
+
+
+_MUSIC_LORA_FETCH = {"running": False, "line": "", "error": ""}
+
+
+def music_lora_fetch_state() -> dict:
+    return dict(_MUSIC_LORA_FETCH)
+
+
+def music_lora_fetch_start() -> tuple[int, dict]:
+    """Download the two pinned adapters in the background (~210 MB).
+
+    Same shape as the cover pack and for the same reason: it is not part of
+    MUSIC_INSTALL_STEPS, because a user who never asks for an instrumental
+    should never pay for it. Checksummed, so a half-written file from a
+    dropped connection is replaced rather than trusted — and the gate below is
+    `complete`, not `ready`: a run that stops after the adapters and before
+    the tokenizer head has left work to do, and the button has to be able to
+    finish it (Codex review, 2026-09-22). The fetcher skips every file that is
+    already the pinned file, so pressing it again resumes rather than
+    re-downloads."""
+    if _MUSIC_LORA_FETCH["running"]:
+        return 409, {"error": "the music LoRAs are already downloading"}
+    if music_lora_status()["complete"]:
+        return 200, {"ok": True, "ready": True}
+
+    def run():
+        _MUSIC_LORA_FETCH.update(running=True, line="starting", error="")
+        try:
+            python = _music_python() or sys.executable
+            cmd = [str(python), str(ROOT / "scripts/pinokio/music_lora_fetch.py"),
+                   "--root", str(MUSIC_LORAS)]
+            proc = subprocess.Popen(
+                cmd, cwd=str(ROOT), env=music_child_env(), stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, text=True, errors="replace", bufsize=1)
+            for line in proc.stdout or ():
+                line = line.strip()
+                if line:
+                    _MUSIC_LORA_FETCH["line"] = line[:200]
+                    push(line)
+            if proc.wait() != 0:
+                _MUSIC_LORA_FETCH["error"] = f"the music LoRAs failed (exit {proc.returncode})"
+        except Exception as exc:                                # noqa: BLE001
+            _MUSIC_LORA_FETCH["error"] = f"{type(exc).__name__}: {exc}"
+        finally:
+            _MUSIC_LORA_FETCH["running"] = False
+
+    threading.Thread(target=run, name="music-lora-fetch", daemon=True).start()
+    return 202, {"ok": True, "started": True}
+
+
+def music_lora_picks(raw) -> list[dict]:
+    """Form value -> [{id, strength, path}], with every pick resolved INSIDE
+    the LoRA folder. A form can name a file; it can never name a path.
+
+    `parse_field`, not `parse_picks`: `raw` comes straight off `parse_qs`,
+    which wraps the studio's ONE comma-separated field in a list. Read as a
+    list of specs, two picked adapters became one filename nobody has and
+    both were dropped (Codex review, 2026-09-22). A job's own saved params
+    arrive here too, already normalised, and `parse_field` passes those
+    through unsplit."""
+    try:
+        from scripts.pinokio.music_lora_fetch import (adapter_meta, parse_field,
+                                                      resolve_in_pack)
+    except Exception:                                           # noqa: BLE001
+        return []
+    picks = []
+    for identifier, strength in parse_field(raw):
+        try:
+            path = resolve_in_pack(MUSIC_LORAS, identifier)
+        except (OSError, ValueError):
+            continue                # a pick we cannot resolve is simply not used
+        # A TRAINED VOICE CARRIES ITS OWN INSTRUCTIONS (M6-04): the trigger the
+        # runner adds to the style, and the dialect make_job holds the Score
+        # setting to. Read from the adapter's sidecar, never from the form.
+        picks.append({"id": identifier, "strength": strength, "path": str(path),
+                      **adapter_meta(path)})
+    return picks
+
+
 def music_estimate(quality: str, seconds: int) -> dict:
     """A fit to the M4 Max receipts above, scaled by chip. Never a measurement:
     songs usually end before Max length, and cold first loads are unmeasured."""
@@ -13137,6 +13606,8 @@ def music_status() -> dict:
                                     "weights_ok", "runner_ok", "venv_ok", "venv_broken")},
             "capable": music_capable(), "available": not paths["missing"],
             "installed": not paths["missing"], "min_ram_gb": MUSIC_MIN_RAM_GB,
+            "cover": music_cover_status(),
+            "loras": music_lora_status(),
             "eta_measured": False,
             "estimates": {q: {str(n): music_estimate(q, n) for n in range(30, 361, 15)}
                           for q in MUSIC_QUALITY_STEPS}}
@@ -13386,13 +13857,63 @@ def music_params(form: dict) -> dict:
         except (TypeError, ValueError):
             return default
     instrumental = value("music_instrumental").lower() in ("1", "true", "yes", "on")
+    lora_mode = value("music_lora_mode", "joint")
     quality = value("music_quality", "final")
     mode = value("music_mode", "full")
+    cover_task = value("music_cover_task", "melody-full")
+    source = normalize_pasted_path(value("music_source_audio"))
+    variation = value("music_variation")
+    task = value("music_task")
+    precision = value("music_precision", "8bit")
+    try:
+        cfg = float(value("music_cfg_scale", "")) if value("music_cfg_scale") else None
+        cfg = None if cfg is None or not (0.0 <= cfg <= 20.0) else cfg
+    except ValueError:
+        cfg = None
     return {"mode": "music", "engine": "music",
+            # THE STUDIO'S LINEAGE FIELDS. `music_parent` is the output path of
+            # the song this one comes from; `music_variation` says how:
+            #   take     same score and words, a new performance
+            #   sound    same performance, a new recording of it
+            #   restyle  the saved score under new words or style
+            #   cover    the tune read off a recording (music_source_audio)
+            #   score    transcription only — no song
+            # The worker turns the parent path into the artifact folder to
+            # restart from; the form never names a state directory.
+            "music_title": value("music_title")[:120],
+            "music_parent": normalize_pasted_path(value("music_parent")),
+            "music_variation": (variation if variation in
+                                ("take", "sound", "restyle", "score") else ""),
+            "music_cfg_scale": cfg,
+            "music_precision": precision if precision in ("bf16", "8bit", "4bit") else "8bit",
+            # An EDITED score. The studio writes the user's ABC into the
+            # artifacts tree and names it here; the worker refuses anything
+            # outside that tree, so a form field can never point the runner
+            # at an arbitrary file.
+            "music_abc_path": normalize_pasted_path(value("music_abc_path")),
+            # COVER. A path here changes the job's whole shape: the score comes
+            # off a record instead of out of the planner, and the task decides
+            # the planning mode (full transcription needs full planning). The
+            # engine validates both again — this is the panel's copy of the
+            # rule so a bad form never reaches a 10-minute job.
+            "music_source_audio": source,
+            "music_cover_task": (cover_task if cover_task in
+                                 ("full", "melody-full", "melody-vocal") else "melody-full"),
+            # The composer's TASK, as chosen — "" from a caller that predates
+            # it (the variation routes, a replayed job). make_job refuses a
+            # cover with no recording on this, not on the path alone.
+            "music_task": task if task in ("write", "cover", "score") else "",
             "music_lyrics": "" if instrumental else value("music_lyrics"),
             "music_style": value("music_style"),
             "music_mode": mode if mode in ("full", "melody", "off") else "full",
             "music_instrumental": instrumental,
+            # VOICE / STYLE LoRAs. The form posts `id:strength` pairs; every id
+            # is resolved against the LoRA folder HERE, so a pick that is not a
+            # file inside it simply does not exist by the time a job is built.
+            # Instrumental pauses them, the way Maestro's does — its own AR
+            # adapter is the recipe and a second AR delta would fight it.
+            "music_loras": [] if instrumental else music_lora_picks(form.get("music_loras")),
+            "music_lora_mode": (lora_mode if lora_mode in ("joint", "separate") else "joint"),
             "music_max_seconds": max(8, min(360, integer("music_max_seconds", 240))),
             "music_seed": max(-1, min(2**32 - 1, integer("music_seed", -1))),
             "music_quality": quality if quality in MUSIC_QUALITY_STEPS else "final"}
@@ -13404,8 +13925,13 @@ def music_argv(job: dict, paths: dict, output: Path) -> list[str]:
         sources = json.loads((MUSIC_MODELS / "pack_source.json").read_text())["sources"]
     except (OSError, ValueError, KeyError):
         sources = {}  # Manual packs have unknown provenance; never invent it.
+    artifacts = music_artifacts_dir(job["id"])
     provenance = {"job_id": job["id"], "engine": "music", "engine_pin": MUSIC_ENGINE_PIN,
-                  "pack_sources": sources, "params": p}
+                  "pack_sources": sources, "params": p,
+                  "artifacts": str(artifacts),
+                  # Lineage as the gallery reads it: which song, varied how.
+                  "lineage": ({"parent": p["music_parent"], "variation": p["music_variation"]}
+                              if p.get("music_parent") or p.get("music_variation") else None)}
     args = [str(paths["python"]), str(paths["runner"]),
             "--model-dir", str(paths["generator"]), "--vae-dir", str(paths["vae"]),
             "--output", str(output), "--sidecar", str(output) + ".json",
@@ -13413,9 +13939,53 @@ def music_argv(job: dict, paths: dict, output: Path) -> list[str]:
             "--style", p["music_style"], "--lyrics", p["music_lyrics"],
             "--mode", p["music_mode"], "--steps", str(MUSIC_QUALITY_STEPS[p["music_quality"]]),
             "--max-seconds", str(p["music_max_seconds"]), "--seed", str(p["music_seed"]),
-            "--precision", "8bit"]
+            "--precision", p.get("music_precision") or "8bit"]
+    if p.get("music_title"):
+        args += ["--title", p["music_title"]]
+    if p.get("music_cfg_scale") is not None:
+        args += ["--cfg-scale", str(p["music_cfg_scale"])]
+    # Every song keeps its artifacts — plan, tokens, latents, noise — because
+    # they are what every variation restarts from. One folder per job under
+    # state/, never under the outputs the user sees. A song made before this
+    # existed has no folder and the studio says so instead of failing.
+    args += ["--artifacts", str(artifacts)]
+    variation = p.get("music_variation") or ""
+    parent_dir = music_artifacts_for(p.get("music_parent")) if p.get("music_parent") else None
+    if variation in ("take", "sound"):
+        if parent_dir is None:
+            raise RuntimeError("That song has no saved artifacts to vary — songs made "
+                               "before v4.16 cannot be varied; compose it again first.")
+        args += ["--from-artifacts", str(parent_dir), "--variation", variation]
+    elif variation == "restyle":
+        if parent_dir is None or not (parent_dir / "score.abc").is_file():
+            raise RuntimeError("That song has no saved score to restyle.")
+        args += ["--abc-file", str(parent_dir / "score.abc")]
+    elif variation == "score":
+        args.append("--transcribe-only")
+    if p.get("music_abc_path") and not variation:
+        abc_path = Path(p["music_abc_path"]).resolve()
+        if not abc_path.is_relative_to(MUSIC_ARTIFACTS.resolve()) or not abc_path.is_file():
+            raise RuntimeError("An edited score has to come from the studio's own editor.")
+        args += ["--abc-file", str(abc_path)]
     if p["music_instrumental"]:
         args.append("--instrumental")
+    # The LoRA folder always goes along: with --instrumental the runner reads
+    # its AR adapter from there, and without it the flag is inert.
+    args += ["--lora-dir", str(MUSIC_LORAS)]
+    if p.get("music_loras"):
+        args += ["--lora-mode", p.get("music_lora_mode") or "joint"]
+        for pick in p["music_loras"]:
+            args += ["--lora", f"{pick['path']}:{pick['strength']:g}"]
+        # The runner pairs `--lora-trigger` with `--lora` BY POSITION, so once
+        # any pick has a trigger every pick gets one ("" = none).
+        if any(pick.get("trigger") for pick in p["music_loras"]):
+            for pick in p["music_loras"]:
+                args += ["--lora-trigger", str(pick.get("trigger") or "")]
+    if p.get("music_source_audio"):
+        args += ["--source-audio", p["music_source_audio"],
+                 "--cover-task", p["music_cover_task"],
+                 "--transcription-model", str(MUSIC_COVER_MODELS / "sheetsage2"),
+                 "--transcription-base-model", str(MUSIC_COVER_MODELS / "mert2")]
     return args
 
 
@@ -13438,6 +14008,12 @@ def music_child_env(base: dict | None = None) -> dict:
            if k not in MUSIC_ENV_STRIP}
     env["PYTHONUNBUFFERED"] = "1"
     env["MLX_ENABLE_TF32"] = "0"
+    # Cover decodes the source recording by SHELLING OUT TO ffmpeg
+    # (lyra/transcription/pipeline.py builds an ffmpeg argv and reads f32le off
+    # its stdout). Pinokio's bundled binary is not on the default PATH, which
+    # is the same trap that cost five installs their exports in 4.15.1 — so the
+    # music child gets the resolved one prepended, exactly like the H3 spawn.
+    env["PATH"] = f"{FFMPEG_BIN}:{env.get('PATH', '')}"
     return env
 
 
@@ -13511,6 +14087,55 @@ def _music_external_gpu_lock() -> Path | None:
     return None
 
 
+def _music_wait_for_gpu(job: dict) -> str | None:
+    """Wait until no external GPU lock is held, then return a release token.
+
+    Never refuses while the wait is short: the job shows a "waiting for the GPU"
+    phase naming the lock, Stop ends the wait, and only a wait past
+    MUSIC_GPU_WAIT_MAX_S refuses (a lock nobody releases is usually stale).
+    With MUSIC_TAKES_GPU_LOCK the file lock is then created atomically
+    (O_EXCL) and the returned token lets the job remove ONLY its own lock;
+    otherwise nothing is written and the token is None."""
+    started = time.time()
+    while True:
+        held = _music_external_gpu_lock()
+        if held is None and MUSIC_TAKES_GPU_LOCK:
+            token = f"{os.getpid()} phosphene-panel-music {job.get('id', '')}\n"
+            try:
+                fd = os.open(str(MUSIC_GPU_FILE_LOCK), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+            except FileExistsError:
+                held = MUSIC_GPU_FILE_LOCK  # lost the race to a command-line job; keep waiting
+            else:
+                with os.fdopen(fd, "w") as fh:
+                    fh.write(token)
+                return token
+        if held is None:
+            return None
+        if job.get("cancel_requested"):
+            raise JobStopped("Music stopped")
+        waited = time.time() - started
+        if waited > MUSIC_GPU_WAIT_MAX_S:
+            raise RenderRefused(
+                "gpu_busy",
+                f"The GPU was in use by another render for {waited / 60:.0f} min (lock {held}). "
+                f"If nothing is rendering, that lock was left behind by a command-line job — delete it and retry.")
+        with LOCK:
+            job["progress"] = {"phase": "waiting", "pct": 0, "elapsed_sec": waited,
+                               "phase_label": f"Waiting for the GPU — another render holds {held.name}"}
+        time.sleep(MUSIC_GPU_POLL_S)
+
+
+def _music_release_gpu(token: str | None) -> None:
+    """Remove the file lock only if it is still the one this job wrote."""
+    if not token:
+        return
+    try:
+        if MUSIC_GPU_FILE_LOCK.read_text(errors="replace") == token:
+            MUSIC_GPU_FILE_LOCK.unlink()
+    except OSError:
+        pass
+
+
 def _stop_music_proc(grace: float = 8.0, pgid: int | None = None) -> None:
     """SIGTERM a music runner group, SIGKILL it after `grace` if it is still the
     current one. Callers that decided to stop a SPECIFIC job pass its pgid, read
@@ -13553,14 +14178,15 @@ def run_music_job_inner(job: dict) -> None:
         if paths["repairable"]:
             raise RuntimeError(f"The YuE2 weights are on disk but the engine needs repair — missing: {missing}. Open Audio → Compose and click 'Repair music engine' (or use the Phosphene sidebar in Pinokio) — it is idempotent and skips every weight already on disk, so this is a couple of minutes, NOT an 11 GB download.")
         raise RuntimeError(f"The music engine isn't installed — missing: {missing}. Open Audio → Compose and click 'Install music engine' (or use the Phosphene sidebar in Pinokio) — ~11 GB, resumable.")
-    if not p["music_style"] and not p["music_lyrics"] and not p["music_instrumental"]:
+    if (not p["music_style"] and not p["music_lyrics"] and not p["music_instrumental"]
+            and p["music_variation"] not in ("take", "sound", "score")):
         raise RenderRefused("music_input", "Give it something to work with — lyrics, a style description, or both.")
-    held = _music_external_gpu_lock()
-    if held is not None:
-        raise RenderRefused(
-            "gpu_busy",
-            f"The GPU is in use by another render (lock {held}). Retry music when it has finished. "
-            f"If nothing is rendering, that lock was left behind by a command-line job — delete it and retry.")
+    if p["music_variation"] == "score" and not p["music_source_audio"]:
+        raise RenderRefused("music_input", "Getting the score needs a recording to listen to.")
+    if p["music_source_audio"] and not music_cover_status()["ready"]:
+        raise RenderRefused("pack_missing", "Covering a song needs the two transcription models "
+                                            "(~2.8 GB). Download them from Music Studio - Cover a song.")
+    gpu_token = _music_wait_for_gpu(job)
     proc = None
     output = None
     try:
@@ -13569,8 +14195,22 @@ def run_music_job_inner(job: dict) -> None:
         if job.get("cancel_requested"):
             raise JobStopped("Music stopped")
         OUTPUT.mkdir(parents=True, exist_ok=True)
-        slug = _sb_slug(p["music_style"] or p["music_lyrics"] or "instrumental")
-        output = _unique_output_path(OUTPUT, f"music_{time.strftime('%Y%m%d_%H%M%S')}_{slug}", ext=".wav")
+        variation = p.get("music_variation") or ""
+        parent = Path(p["music_parent"]) if p.get("music_parent") else None
+        if variation == "score":
+            # A transcription is not a song: it lives beside the artifacts, out
+            # of the gallery, and the studio fetches it by job id.
+            scores = MUSIC_ARTIFACTS / "scores"
+            scores.mkdir(parents=True, exist_ok=True)
+            slug = _sb_slug(Path(p["music_source_audio"]).stem)
+            output = _unique_output_path(scores, f"score_{time.strftime('%Y%m%d_%H%M%S')}_{slug}", ext=".abc")
+        elif variation and parent is not None:
+            # "<parent>_take", "<parent>_sound", "<parent>_restyle": the family
+            # reads off the filenames, and the sidecar carries the exact link.
+            output = _unique_output_path(OUTPUT, f"{parent.stem}_{variation}", ext=".wav")
+        else:
+            slug = _sb_slug(p["music_title"] or p["music_style"] or p["music_lyrics"] or "instrumental")
+            output = _unique_output_path(OUTPUT, f"music_{time.strftime('%Y%m%d_%H%M%S')}_{slug}", ext=".wav")
         job["raw_path"] = str(output)
         cmd = music_argv(job, paths, output)
         job["command"] = shlex.join(cmd)
@@ -13597,10 +14237,14 @@ def run_music_job_inner(job: dict) -> None:
             if parsed:
                 progress = parsed
                 elapsed = time.time() - t0
-                parsed.update(elapsed_sec=elapsed,
-                              eta_sec=music_estimate(p["music_quality"], p["music_max_seconds"])["eta_sec"],
-                              remaining_sec=max(0, music_estimate(p["music_quality"], p["music_max_seconds"])["eta_sec"] - elapsed),
-                              eta_measured=False)
+                # A re-recording skips planning and the whole semantic stage —
+                # the NAR and the decoder are roughly a third of a song's time.
+                # A take skips only the planning. Scale the whole-song estimate
+                # rather than inventing a second table.
+                _eta_scale = {"sound": 0.35, "take": 0.9}.get(p.get("music_variation") or "", 1.0)
+                _eta = music_estimate(p["music_quality"], p["music_max_seconds"])["eta_sec"] * _eta_scale
+                parsed.update(elapsed_sec=elapsed, eta_sec=_eta,
+                              remaining_sec=max(0, _eta - elapsed), eta_measured=False)
                 with LOCK:
                     job["progress"] = parsed
         rc = proc.wait()
@@ -13617,7 +14261,8 @@ def run_music_job_inner(job: dict) -> None:
         if rc != 0:
             raise RuntimeError(f"YuE2 exited with code {rc}: " + " · ".join(tail))
         if not output.is_file() or not Path(str(output) + ".json").is_file():
-            raise RuntimeError("YuE2 finished without the WAV and its sidecar. See the log.")
+            what = "the score" if variation == "score" else "the WAV"
+            raise RuntimeError(f"YuE2 finished without {what} and its sidecar. See the log.")
         job["output_path"] = str(output)
     finally:
         if proc is not None:
@@ -13636,6 +14281,7 @@ def run_music_job_inner(job: dict) -> None:
             STATE["pid"] = None
             STATE["music_pgid"] = None
         _proc_guard_clear("music")
+        _music_release_gpu(gpu_token)
 
 
 ENGINE_DEFAULT = "ltx"
@@ -14581,7 +15227,11 @@ def _analytics_job_secrets(job: dict) -> list:
     out = []
     for k in ("prompt", "negative_prompt", "image", "audio", "output",
               "first_frame", "last_frame", "character", "train_job_id",
-              "music_lyrics", "music_style"):
+              "music_lyrics", "music_style",
+              # A cover's source recording and a song's parent are the user's
+              # file names; the path regex strips the directory and left the
+              # basename standing ("<path> unreleased demo.wav" — Codex).
+              "music_source_audio", "music_parent", "music_abc_path"):
         v = p.get(k)
         if isinstance(v, str) and v.strip():
             out.append(v.strip())
@@ -14589,7 +15239,46 @@ def _analytics_job_secrets(job: dict) -> list:
         v = (job or {}).get(k)
         if isinstance(v, str) and v.strip():
             out.append(v.strip())
-    return out
+    # EVERY PATH-SHAPED STRING, WHEREVER IT SITS (Codex UI-02, 2026-09-24). The
+    # scalar list above missed the image job's `refs` array, LoRA stacks and any
+    # future list field; and the path regex stops at whitespace, so
+    # "ref image not found: /Volumes/Photos/Private Client Portrait.png" went
+    # out as "<path> Client Portrait.png". Each path is redacted whole, as its
+    # resolved form, and as its bare filename (errors often quote only that).
+    def _paths(v, depth=0):
+        if depth > 4:
+            return
+        if isinstance(v, str):
+            t = v.strip()
+            if t and ("/" in t or "\\" in t):
+                out.append(t)
+                name = Path(t).name
+                if name:
+                    out.append(name)
+                try:
+                    out.append(str(Path(t).expanduser().resolve()))
+                except (OSError, RuntimeError, ValueError):
+                    pass
+        elif isinstance(v, dict):
+            for x in v.values():
+                _paths(x, depth + 1)
+        elif isinstance(v, (list, tuple)):
+            for x in v:
+                _paths(x, depth + 1)
+    _paths(p)
+    # The install's own roots: a space anywhere in them ("…/My Apps/…") also
+    # stops the path regex half-way, leaving the tail of the directory behind.
+    # Only those — a root without whitespace is already caught by the regex,
+    # and redacting it here would re-key every fleet fingerprint that quotes it.
+    for base in (ROOT, OUTPUT, UPLOADS, STATE_DIR):
+        try:
+            for cand in (str(base), str(Path(base).resolve())):
+                if any(ch.isspace() for ch in cand):
+                    out.append(cand)
+        except (OSError, RuntimeError, ValueError):
+            pass
+    # Longest first, so a whole path is redacted before its own filename is.
+    return sorted({x for x in out if x}, key=len, reverse=True)
 
 
 # ---- Schema v2 render-event vocabulary (spec: analytics_spec_2026-08-11) ---
@@ -15592,17 +16281,6 @@ def _usage_report(force: bool = False) -> dict:
     return _usage_attach_local(local)
 
 
-def _scale_dims_to_max(width: int, height: int, max_dim: int,
-                       *, align: int = 32) -> tuple[int, int]:
-    """Scale dimensions down to max_dim while preserving aspect and alignment."""
-    if max_dim <= 0 or max(width, height) <= max_dim:
-        return width, height
-    scale = max_dim / float(max(width, height))
-    new_w = max(align, int(round((width * scale) / align)) * align)
-    new_h = max(align, int(round((height * scale) / align)) * align)
-    return new_w, new_h
-
-
 def _apply_generation_profile_to_job(job: dict) -> None:
     """Clamp new video jobs for the active generation profile.
 
@@ -15643,7 +16321,8 @@ def _apply_generation_profile_to_job(job: dict) -> None:
     # tier is still an HQ tier.
     if not ltx_quality_uses_hq(quality):
         max_dim = int(profile.get("max_dim") or 0)
-        new_w, new_h = _scale_dims_to_max(width, height, max_dim)
+        new_w, new_h = (ltx_fit_canvas(width, height, max_dim)
+                        if max_dim and max(width, height) > max_dim else (width, height))
         if (new_w, new_h) != (width, height):
             params["width"], params["height"] = new_w, new_h
             new_notes.append(f"resolution {width}x{height} -> {new_w}x{new_h}")
@@ -16312,6 +16991,12 @@ def list_uploads(limit: int = 40) -> list[dict]:
         try:
             if not p.is_file() or p.suffix.lower() not in exts:
                 continue
+            # Dot-files are the panel's own: H3 writes a fitted first frame per
+            # job as `.h3_<job>_firstframe_<w>x<h>.png`. Listed, 24 H3 renders
+            # pushed every real upload out of this strip, and picking one of
+            # them re-used an already-cropped frame (Codex H3-06).
+            if p.name.startswith("."):
+                continue
             files.append((p, p.stat().st_mtime, p.stat().st_size))
         except OSError:
             continue
@@ -16338,6 +17023,15 @@ def _output_search_text(meta: dict, params: dict) -> str:
     """The searchable words of one output, lower-cased, space-joined."""
     bits: list[str] = []
     try:
+        # TWO SIDECAR SHAPES. Video sidecars nest the recipe under `params`;
+        # Image Studio's write prompt / seed / width / height at the TOP level
+        # and often no params at all — so an image could not be found by its
+        # own prompt, seed or size (Codex UI-07). Top-level fields fill in
+        # whatever params does not carry; params wins where both exist.
+        params = dict(params or {})
+        for k in ("prompt", "seed", "seed_used", "width", "height", "mode", "label"):
+            if params.get(k) in (None, "", [], {}) and meta.get(k) not in (None, "", [], {}):
+                params[k] = meta.get(k)
         for k in ("prompt", "label", "preset_label", "mode", "quality", "engine",
                   "character_id", "trigger", "seed", "seed_used", "h3_tier"):
             v = params.get(k)
@@ -16575,6 +17269,7 @@ def list_outputs(
         # every clip that isn't part of a storyboard, which is most of them.
         sb_tag = None
         search = ""
+        music_meta = None
         sidecar = p.with_suffix(p.suffix + ".json")
         has_sidecar = sidecar.exists()
         if has_sidecar:
@@ -16585,6 +17280,36 @@ def list_outputs(
                     elapsed_sec = float(v)
                 if p.suffix.lower() == ".wav":
                     clip_sec = meta.get("audio_seconds")
+                    if meta.get("engine") == "music":
+                        # What the Song card needs without a second request:
+                        # the family link, whether a variation is possible
+                        # (artifacts kept), and whether there is sheet music
+                        # to draw. The score text itself is fetched on demand.
+                        _lin = meta.get("lineage") if isinstance(meta.get("lineage"), dict) else {}
+                        _art = str(meta.get("artifacts") or "")
+                        music_meta = {
+                            "title": meta.get("title") or "",
+                            "style": meta.get("style") or "",
+                            "instrumental": bool(meta.get("instrumental")),
+                            "mode": meta.get("mode"),
+                            "seed": meta.get("seed"),
+                            "variation": (meta.get("variation") or {}).get("kind")
+                                         if isinstance(meta.get("variation"), dict) else
+                                         (_lin.get("variation") or None),
+                            "parent": _lin.get("parent") or None,
+                            "cover": bool(meta.get("cover")),
+                            "has_score": bool(meta.get("score_abc")),
+                            "has_artifacts": bool(_art) and (Path(_art) / "result.json").is_file(),
+                            "ended_naturally": meta.get("ended_naturally"),
+                            # Which adapters made this song, for the card's
+                            # badge. Names and strengths only — the list is
+                            # rebuilt per output on every gallery poll.
+                            "loras": [{"name": a.get("file"), "strength": a.get("strength")}
+                                      for a in ((meta.get("lora") or {}).get("adapters") or [])
+                                      if isinstance(a, dict)],
+                            "instrumental_recipe": (meta.get("instrumental_recipe") or {}).get("recipe")
+                                                   if isinstance(meta.get("instrumental_recipe"), dict) else None,
+                        }
                 _sc_params = meta.get("params")
                 if not isinstance(_sc_params, dict):
                     _sc_params = {}
@@ -16671,6 +17396,8 @@ def list_outputs(
             # back to the film it belongs to — and invisible for every clip
             # that isn't part of one.
             "sb": sb_tag,
+            # Music Studio's song facts, None for everything that is not a song.
+            "music": music_meta,
             "hidden": is_hidden,
             # 'kind' lets the right-pane viewer + filter chips branch
             # without re-parsing the filename. Mirrors isPhotoOutput() on
@@ -16694,14 +17421,80 @@ def list_outputs(
     return sliced
 
 
-def write_sidecar(path: Path, payload: dict) -> None:
+SIDECAR_WARNING = ("The clip was saved, but its settings record ({name}) could not "
+                   "be written: {exc}. Load Params, Finish and re-render need it. "
+                   "Free some disk space — the panel writes it again before the "
+                   "next render starts, without rendering anything.")
+
+
+def write_sidecar(path: Path, payload: dict) -> bool:
+    """Write a clip's sidecar. Returns False when it could not be written.
+
+    A FAILED WRITE USED TO BE A LOG LINE. Every caller goes straight on to
+    publish the clip, the worker files the job as done, and the log is wiped
+    when the next job starts — so a full disk produced a "done" render with
+    no prompt/seed/settings record and nothing on screen saying so, and Load
+    Params / Finish on it failed later with no explanation. The failure now
+    lands on the queue job as a `warning` (the history row shows it) and the
+    payload is kept on the job, so retry_pending_sidecars() can write it once
+    there is space again — the video itself is never re-rendered for it."""
     try:
         atomic_write_text(path, json.dumps(payload, indent=2))
+        return True
     except Exception as exc:
         push(f"Sidecar write failed: {exc}")
+        job = _thread_job()
+        if job is not None:
+            with LOCK:
+                job["warning"] = SIDECAR_WARNING.format(name=Path(path).name, exc=exc)
+                # Only a filesystem failure is worth retrying, and only a
+                # payload that serializes can ride in the persisted queue.
+                if isinstance(exc, OSError):
+                    job.setdefault("sidecar_pending", []).append(
+                        {"path": str(path), "payload": payload})
+        return False
+
+
+def retry_pending_sidecars() -> int:
+    """Write the sidecars a full disk kept from finished jobs. Returns how
+    many landed. Never raises; a job whose writes all succeed loses its
+    sidecar warning."""
+    with LOCK:
+        jobs = [j for j in STATE["history"] if j.get("sidecar_pending")]
+    written = 0
+    for job in jobs:
+        left = []
+        for item in list(job.get("sidecar_pending") or []):
+            try:
+                atomic_write_text(Path(item["path"]), json.dumps(item["payload"], indent=2))
+                written += 1
+            except Exception:                                   # noqa: BLE001
+                left.append(item)
+        with LOCK:
+            if left:
+                job["sidecar_pending"] = left
+            else:
+                job.pop("sidecar_pending", None)
+                if str(job.get("warning") or "").startswith(SIDECAR_WARNING[:30]):
+                    job.pop("warning", None)
+    if written:
+        push(f"Wrote {written} settings record(s) the disk had no room for earlier.")
+    return written
 
 
 # ---- queue persistence -------------------------------------------------------
+
+# LAST WRITER WINS WAS THE WRONG RULE. Two callers (a route adding a job, the
+# worker finishing one) could each snapshot under LOCK and then race to the
+# write, so an OLDER snapshot could replace a newer one: an acknowledged job
+# vanished at the next restart, or a finished one came back and rendered
+# again. atomic_write_text stops a torn file, not a stale one. Each snapshot
+# now takes a sequence number under LOCK, and the write is skipped when a
+# newer one has already landed. The persist lock is never held while waiting
+# for LOCK, so a caller that persists from inside LOCK cannot deadlock it.
+_QUEUE_PERSIST_LOCK = threading.Lock()
+_QUEUE_PERSIST_SEQ = {"taken": 0, "written": 0}
+
 
 def persist_queue() -> None:
     with LOCK:
@@ -16711,10 +17504,23 @@ def persist_queue() -> None:
             "history": [_strip_for_disk(j) for j in STATE["history"][:HISTORY_PERSIST_LIMIT]],
             "paused": STATE["paused"],
         }
-    try:
-        atomic_write_text(QUEUE_FILE, json.dumps(snapshot, indent=2))
-    except Exception as exc:
-        push(f"Queue persist failed: {exc}")
+        # Serialized here too: the job dicts are shallow copies, and their
+        # nested params can still be mutated once LOCK is released.
+        try:
+            text = json.dumps(snapshot, indent=2)
+        except Exception as exc:                                  # noqa: BLE001
+            push(f"Queue persist failed: {exc}")
+            return
+        _QUEUE_PERSIST_SEQ["taken"] += 1
+        seq = _QUEUE_PERSIST_SEQ["taken"]
+    with _QUEUE_PERSIST_LOCK:
+        if seq < _QUEUE_PERSIST_SEQ["written"]:
+            return
+        try:
+            atomic_write_text(QUEUE_FILE, text)
+            _QUEUE_PERSIST_SEQ["written"] = seq
+        except Exception as exc:
+            push(f"Queue persist failed: {exc}")
 
 
 def _strip_for_disk(job: dict) -> dict:
@@ -16923,36 +17729,49 @@ class WarmHelper:
             # so _read_until's line buffer starts clean for this process.
             self._read_carry = b""
             self._boot_tail.clear()
-            ready = self._read_until(["ready", "error", "exit"], timeout=120,
-                                     collect_tail=self._boot_tail)
-            if not ready or ready.get("event") != "ready":
-                raise RuntimeError(_helper_start_failure(ready, self._boot_tail))
-            # v3.0.7 (P2): keep the version + model fields for /status.
-            self.ready_info = {
-                k: ready.get(k) for k in (
-                    "ltx_version", "ltx_version_expected", "ltx_version_match",
-                    "model", "gemma", "low_memory", "low_ram_stream",
-                    "mlx_version", "mlx_metal_version", "chip", "macos",
-                    # THIS ALLOWLIST IS THE SEAM. A key the helper emits and
-                    # this tuple does not name is dropped here, silently, and
-                    # every downstream reader sees None — which is exactly how
-                    # a capability the helper knew about never reached the UI.
-                    "live_preview_supported",
-                    "gemma4_tower_supported",
-                )
-            }
-            _vtag = ""
-            if ready.get("ltx_version") is not None:
-                _vtag = (f" · ltx-2-mlx={ready.get('ltx_version')}"
-                         + ("" if ready.get("ltx_version_match") else " SKEW"))
-            # Self-documenting env on the ready line — mlx + chip are the data we
-            # need on mosaic / garbled-output reports (an MLX numerical bug per
-            # chip/mlx, not a crash). ASCII only (emoji here can break stdout).
-            _env = (f" · mlx={ready.get('mlx_version')}" if ready.get("mlx_version") else "")
-            if ready.get("chip"):
-                _env += f" · {ready.get('chip')}"
-            push(f"helper ready · model={ready.get('model')} · "
-                 f"low_memory={ready.get('low_memory')}{_vtag}{_env}")
+            proc = self.proc
+        # THE HANDSHAKE RUNS OUTSIDE self.lock. It can take the full 120 s on a
+        # slow or stalled start, and kill() needs this lock to send its signal,
+        # so Stop pressed while the first render's helper was still importing
+        # blocked behind it for up to two minutes (JOB-08). run_lock (held by
+        # our caller) still serializes starts; a kill() that lands now closes
+        # the pipe, the read returns, and the identity check below refuses the
+        # helper it no longer owns.
+        ready = self._read_until(["ready", "error", "exit"], timeout=120,
+                                 collect_tail=self._boot_tail)
+        with self.lock:
+            stopped = self.proc is not proc          # kill() cleared it
+        if stopped:
+            _raise_if_cancelled(_thread_job(), "the helper finished starting")
+            raise RuntimeError("the warm helper was stopped while it was starting")
+        if not ready or ready.get("event") != "ready":
+            raise RuntimeError(_helper_start_failure(ready, self._boot_tail))
+        # v3.0.7 (P2): keep the version + model fields for /status.
+        self.ready_info = {
+            k: ready.get(k) for k in (
+                "ltx_version", "ltx_version_expected", "ltx_version_match",
+                "model", "gemma", "low_memory", "low_ram_stream",
+                "mlx_version", "mlx_metal_version", "chip", "macos",
+                # THIS ALLOWLIST IS THE SEAM. A key the helper emits and
+                # this tuple does not name is dropped here, silently, and
+                # every downstream reader sees None — which is exactly how
+                # a capability the helper knew about never reached the UI.
+                "live_preview_supported",
+                "gemma4_tower_supported",
+            )
+        }
+        _vtag = ""
+        if ready.get("ltx_version") is not None:
+            _vtag = (f" · ltx-2-mlx={ready.get('ltx_version')}"
+                     + ("" if ready.get("ltx_version_match") else " SKEW"))
+        # Self-documenting env on the ready line — mlx + chip are the data we
+        # need on mosaic / garbled-output reports (an MLX numerical bug per
+        # chip/mlx, not a crash). ASCII only (emoji here can break stdout).
+        _env = (f" · mlx={ready.get('mlx_version')}" if ready.get("mlx_version") else "")
+        if ready.get("chip"):
+            _env += f" · {ready.get('chip')}"
+        push(f"helper ready · model={ready.get('model')} · "
+             f"low_memory={ready.get('low_memory')}{_vtag}{_env}")
 
     def _read_until(self, target_events: list[str], timeout: float | None = None,
                     log_hook: callable | None = None,
@@ -17855,6 +18674,15 @@ def _cancel_requested(job: dict | None = None) -> bool:
 def _raise_if_cancelled(job: dict | None, before: str) -> None:
     if _cancel_requested(job):
         raise JobCancelled(f"Stopped before {before}.")
+
+
+def _image_job_cancelled() -> bool:
+    """image_engine's cancellation hook: Stop was pressed for the queue job
+    this thread runs. Inline /image/generate runs outside the queue -> False."""
+    return _cancel_requested(_thread_job())
+
+
+agent_image_engine._CANCEL_CHECK = _image_job_cancelled
 
 
 def _register_job_pgid(key: str, pgid: int, job: dict | None = None) -> None:
@@ -18945,6 +19773,18 @@ def _sb_reconcile(board: dict) -> bool:
     for s in (board.get("shots") or []):
         if not isinstance(s, dict):
             continue
+        # A CUT IS THE USER'S, NOT THE QUEUE'S (SB5-10). `status: "skipped"`
+        # is what scheduling and export read, and the queue history still
+        # holds the finished draft job of a shot cut after it rendered — so
+        # every poll turned the cut shot back into "done", and it returned to
+        # the delivery pass and the exported film with its grade still
+        # reading Cut. Outputs still fold (a job that lands after the cut is
+        # kept for an un-cut); the status never moves off "skipped", and a
+        # board an earlier build already revived is put back.
+        cut = s.get("status") == "skipped" or s.get("grade") == "cut"
+        if cut and s.get("status") != "skipped":
+            s["status"] = "skipped"
+            changed = True
         for key, out_key in (("draft_job_id", "draft_output"),
                              ("final_job_id", "final_output")):
             jid = s.get(key)
@@ -18961,6 +19801,8 @@ def _sb_reconcile(board: dict) -> bool:
                 if s.get(out_key) != job["output_path"]:
                     s[out_key] = job["output_path"]
                     changed = True
+                if cut:
+                    continue
                 if s.get("status") != "done":
                     s["status"] = "done"
                     s["error"] = None
@@ -18970,6 +19812,8 @@ def _sb_reconcile(board: dict) -> bool:
                     if isinstance(seed, int):
                         s["seed"] = seed
                         changed = True
+            elif cut:
+                continue
             elif st in ("failed", "error", "cancelled"):
                 if s.get("status") != "failed":
                     s["status"] = "failed"
@@ -19005,7 +19849,7 @@ def _sb_reconcile(board: dict) -> bool:
                     s["still_error"] = (job or {}).get("error") or "the still could not be made"
                     changed = True
         fj = s.get("final_job_id")
-        if fj and not s.get("final_output"):
+        if fj and not s.get("final_output") and not cut:
             fst = ((idx.get(fj) or {}).get("status") or "").lower()
             if fst in ("queued", "running"):
                 want = "rendering" if fst == "running" else "queued"
@@ -19013,6 +19857,19 @@ def _sb_reconcile(board: dict) -> bool:
                     s["status"] = want
                     changed = True
     return changed
+
+
+def _sb_new_id(seed: str = "") -> str:
+    """A fresh board id: `sb_<date>_<6 hex>`.
+
+    ONE minter, because the shape is a prefix `_sb_all_summaries`, the board
+    folder and the `sb:<id>#<n>` session tag all read, and it was written out
+    twice with different seeds. `seed` only stirs the hash — the collision
+    guard is the clock, not the concept.
+    """
+    return "sb_%s_%s" % (
+        time.strftime("%Y%m%d"),
+        hashlib.sha1((str(seed) + str(time.time())).encode()).hexdigest()[:6])
 
 
 def _sb_normalize(board: dict) -> dict:
@@ -19935,6 +20792,14 @@ def _sb_render_thread(board_id: str, pass_name: str, only: list | None) -> None:
     key = "draft_job_id" if pass_name == "draft" else "final_job_id"
     out_key = "draft_output" if pass_name == "draft" else "final_output"
     queued_total = 0
+    # ONE ATTEMPT PER SHOT PER RENDER (SB5-08). A shot whose job could not be
+    # queued, or whose job failed, is still "pending" by every test below —
+    # it has no output — so it was chosen again on the very next round: an
+    # enqueue refusal became a tight loop rewriting the board and the log,
+    # and a failing engine re-spent the render indefinitely while every later
+    # bucket waited. It stays failed, with its error on the card, until the
+    # user presses Render (or Retry) again, which is a new run.
+    attempted: set = set()
     try:
         while True:
             with _SB_LOCK:
@@ -19956,6 +20821,7 @@ def _sb_render_thread(board_id: str, pass_name: str, only: list | None) -> None:
             # A shot already carrying a live job id for this pass is in flight.
             pending = [s for s in pending
                        if s.get("status") not in ("queued", "rendering") or not s.get(key)]
+            pending = [s for s in pending if s.get("n") not in attempted]
             if not pending:
                 break
 
@@ -19977,6 +20843,10 @@ def _sb_render_thread(board_id: str, pass_name: str, only: list | None) -> None:
                 if need:
                     sids = []
                     for shot in need:
+                        # Stop can land while this loop runs: queue nothing
+                        # more once it has (SB5-09).
+                        if _sb_stopping(board_id):
+                            break
                         try:
                             form = _sb_still_job_form(shot, board, policy)
                             jid = _sb_enqueue({k: ("" if v is None else str(v)) for k, v in form.items()})
@@ -19987,6 +20857,15 @@ def _sb_render_thread(board_id: str, pass_name: str, only: list | None) -> None:
                             continue
                         shot["still_job_id"] = jid
                         sids.append(jid)
+                    if sids and _sb_stopping(board_id):
+                        # Stop read the board before these ids were saved, so
+                        # it could not withdraw them: this thread does.
+                        _sb_withdraw_jobs(sids)
+                        for shot in need:
+                            if shot.get("still_job_id") in sids:
+                                shot.pop("still_job_id", None)
+                        storyboard.save_storyboard(STATE_DIR, board)
+                        return
                     storyboard.save_storyboard(STATE_DIR, board)
                     if sids:
                         push(f"[storyboard] {len(sids)} anchor still(s) queued — {board.get('title')}")
@@ -20015,6 +20894,9 @@ def _sb_render_thread(board_id: str, pass_name: str, only: list | None) -> None:
                 chain_ok = False
             ids = []
             for shot in batch:
+                if _sb_stopping(board_id):
+                    break
+                attempted.add(shot.get("n"))
                 form = storyboard.shot_to_job(
                     shot, policy,
                     board_id=board_id, board_title=board.get("title") or "",
@@ -20041,6 +20923,16 @@ def _sb_render_thread(board_id: str, pass_name: str, only: list | None) -> None:
                 shot["error"] = None
                 ids.append(jid)
                 queued_total += 1
+            if ids and _sb_stopping(board_id):
+                # Same race as the stills: these ids were never on disk for
+                # Stop to find.
+                _sb_withdraw_jobs(ids)
+                for shot in batch:
+                    if shot.get(key) in ids:
+                        shot.pop(key, None)
+                        shot["status"] = "pending"
+                storyboard.save_storyboard(STATE_DIR, board)
+                return
             storyboard.save_storyboard(STATE_DIR, board)
             with _SB_LOCK:
                 entry = _SB_RENDERS.get(board_id)
@@ -20082,6 +20974,20 @@ def _sb_render_thread(board_id: str, pass_name: str, only: list | None) -> None:
                 _sb_lipsync_gate(board_id, batch, key, out_key, policy, h3_ok, chain_ok, _wait)
             except Exception as exc:                                  # noqa: BLE001
                 push(f"[storyboard] lip-sync gate skipped: {type(exc).__name__}: {exc}")
+        # The run is over. Say which shots it could not make, in the words
+        # the card uses, rather than going round again.
+        try:
+            _fb = storyboard.load_storyboard(STATE_DIR, board_id)
+            failed = [s for s in (_fb.get("shots") or [])
+                      if isinstance(s, dict) and s.get("n") in attempted
+                      and s.get("status") == "failed"]
+            if failed:
+                push(f"[storyboard] {len(failed)} shot(s) failed and were not "
+                     f"retried ({', '.join('S%02d' % (s.get('n') or 0) for s in failed)})"
+                     f" — fix the cause and press Render again: "
+                     f"{(failed[0].get('error') or 'no error recorded')[:160]}")
+        except Exception:                                          # noqa: BLE001
+            pass
     except Exception as exc:                                       # noqa: BLE001
         push(f"[storyboard] render dispatch stopped: {exc}")
     finally:
@@ -20159,6 +21065,32 @@ def _sb_auto_film(board: dict) -> dict | None:
     else:
         push(f"[storyboard] auto: the film could not be assembled: {film.get('error')}")
     return film
+
+
+def _sb_stopping(board_id: str) -> bool:
+    """Has Stop been pressed on this film's render (or has it gone away)?"""
+    with _SB_LOCK:
+        entry = _SB_RENDERS.get(board_id)
+        return not entry or bool(entry.get("stop"))
+
+
+def _sb_withdraw_jobs(job_ids) -> tuple[int, str | None]:
+    """Take this film's jobs back out of the queue, and cancel the one running.
+
+    ONLY these ids — through the same path removeJob(id) uses, never
+    /queue/clear, because another feature's jobs may be in there. Returns
+    (how many were removed from the queue, the id of the cancelled job).
+    """
+    mine = {j for j in (job_ids or ()) if j}
+    if not mine:
+        return 0, None
+    with QUEUE_COND:
+        before = len(STATE["queue"])
+        STATE["queue"] = [j for j in STATE["queue"] if j.get("id") not in mine]
+        removed = before - len(STATE["queue"])
+        QUEUE_COND.notify_all()
+    persist_queue()
+    return removed, _sb_cancel_running_shot(mine)
 
 
 def _sb_cancel_running_shot(job_ids) -> str | None:
@@ -20279,18 +21211,126 @@ def _sb_slug(text: str, words: int = 5) -> str:
     return "-".join(parts[:words]) or "shot"
 
 
+#: The file that says which board a film folder belongs to.
+_SB_FILM_OWNER = ".phosphene-board"
+
+
+def _sb_film_base(board: dict) -> str:
+    """`<created-date>_<slug>` — the folder name this function used to BE."""
+    title = board.get("title") or "storyboard"
+    day = time.strftime("%Y-%m-%d",
+                        time.localtime(board.get("created_at") or time.time()))
+    return f"{day}_{_sb_slug(title, 6)}"
+
+
+def _sb_film_owner(d: Path) -> str | None:
+    """Which board a film folder says it belongs to, or None if it says nothing.
+
+    The marker first (written by every film written since 4.16), then the
+    `storyboard.json` an Export has always dropped beside its films.
+    """
+    try:
+        v = (Path(d) / _SB_FILM_OWNER).read_text(encoding="utf-8").strip()
+        if v:
+            return v
+    except OSError:
+        pass
+    try:
+        data = json.loads((Path(d) / "storyboard.json").read_text(encoding="utf-8"))
+        v = str((data or {}).get("id") or "").strip() if isinstance(data, dict) else ""
+        if v:
+            return v
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+_SB_HEIRS: dict = {"key": None, "map": {}}
+
+
+def _sb_legacy_film_heir(base: str) -> str | None:
+    """The board an UNMARKED old-style folder belongs to: the oldest board
+    whose date and title give that folder name. It made the folder first;
+    every later board with the same name was writing into somebody else's.
+
+    CACHED, because the board list's two-second poll asks this for every
+    board whose old folder carries no marker: one pass over the boards per
+    change of the boards folder (a board made or deleted), and at most every
+    30 s for a rename, instead of one pass per board per poll."""
+    root = Path(STATE_DIR) / "storyboards"
+    try:
+        stamp = root.stat().st_mtime_ns
+    except OSError:
+        stamp = 0
+    key = (str(root), stamp, int(time.time() // 30))
+    if _SB_HEIRS["key"] != key:
+        try:
+            rows = storyboard.list_storyboards(STATE_DIR)
+        except Exception:                                        # noqa: BLE001
+            rows = []
+        heirs: dict = {}
+        for r in sorted(rows, key=lambda r: (r.get("created_at") or 0,
+                                              str(r.get("id") or ""))):
+            heirs.setdefault(_sb_film_base(r), str(r.get("id") or "") or None)
+        _SB_HEIRS.update(key=key, map=heirs)
+    return _SB_HEIRS["map"].get(base)
+
+
 def _sb_film_dir(board: dict) -> Path:
     """The ONE folder a board's finished films and shot copies land in.
 
     Three call sites computed this by hand — Export, `reveal`, and the
     timeline's render — which is three chances for a film to be written
     somewhere the screen that shows films does not look. One function, one
-    convention: `<OUTPUT>/storyboards/<created-date>_<slug>/`.
+    convention: `<OUTPUT>/storyboards/<created-date>_<slug>_<board>/`.
+
+    THE BOARD IS IN THE NAME (SB5-05). It used to be date + title slug alone,
+    so two boards made the same day with the same title — or the same first
+    six words, or any two titles in Japanese, which slug to "shot" — shared
+    one folder, one film name and `-y`: each export overwrote the other's
+    film, shot copies and manifests, and both Film screens listed the pair.
+
+    MIGRATION, without moving a file: a board whose old-style folder is
+    already on disk keeps it while the folder is its own — it says so (the
+    marker, or an Export's storyboard.json), or it says nothing and this is
+    the oldest board with that name. Every other board gets its own folder.
     """
-    title = board.get("title") or "storyboard"
-    day = time.strftime("%Y-%m-%d",
-                        time.localtime(board.get("created_at") or time.time()))
-    return OUTPUT / "storyboards" / f"{day}_{_sb_slug(title, 6)}"
+    base = _sb_film_base(board)
+    root = OUTPUT / "storyboards"
+    bid = str(board.get("id") or "")
+    legacy = root / base
+    if legacy.is_dir():
+        owner = _sb_film_owner(legacy)
+        if owner is None:
+            owner = _sb_legacy_film_heir(base) or bid
+        if owner == bid:
+            return legacy
+    if not bid:
+        return legacy
+    # The six hex digits are what makes a minted id unique (the date is
+    # already in the name); anything else is kept whole.
+    m = re.fullmatch(r"sb_\d{8}_([0-9a-f]+)", bid)
+    tag = m.group(1) if m else (re.sub(r"[^A-Za-z0-9-]+", "-", bid).strip("-")
+                                or hashlib.sha1(bid.encode()).hexdigest()[:8])
+    return root / f"{base}_{tag}"
+
+
+def _sb_film_dir_for_write(board: dict) -> Path:
+    """`_sb_film_dir`, created, and marked as this board's.
+
+    Every writer goes through here, so a folder that holds a film also says
+    whose film it is — which is what lets the next board with the same name
+    be told apart without guessing.
+    """
+    d = _sb_film_dir(board)
+    d.mkdir(parents=True, exist_ok=True)
+    bid = str(board.get("id") or "")
+    if bid and _sb_film_owner(d) is None:
+        try:
+            (d / _SB_FILM_OWNER).write_text(bid + "\n", encoding="utf-8")
+        except OSError:
+            pass
+    return d
 
 
 def _sb_display_path(p) -> str:
@@ -21634,9 +22674,17 @@ def _sb_timeline_segments(timeline: list) -> tuple[list[dict], list[str], list]:
             continue
         adjust = entry.get("adjust") if isinstance(entry.get("adjust"), dict) else None
         frame = entry.get("frame") if isinstance(entry.get("frame"), dict) else None
+        # PICTURE EFFECTS BELONG TO EVERY KIND (SB5-13). `edit_to_cuts` writes
+        # `fx` on a still and a slug exactly as on a video clip, and the graph
+        # reads `sg["fx"]` for all three — but only the video branch below
+        # copied it, so a faded still previewed its fade and rendered a hard
+        # cut in and out.
+        fx = dict(entry["fx"]) if isinstance(entry.get("fx"), dict) and entry["fx"] else None
         if kind == "slug":
             seg = {"kind": "slug", "input": None, "info": None,
                    "window": None, "adjust": adjust, "duration": length}
+            if fx:
+                seg["fx"] = fx
             if isinstance(entry.get("transition"), dict):
                 seg["transition"] = dict(entry["transition"])
             if entry.get("tx_in"):
@@ -21661,6 +22709,8 @@ def _sb_timeline_segments(timeline: list) -> tuple[list[dict], list[str], list]:
             seg = {"kind": "still", "input": len(inputs), "info": info,
                    "window": None, "adjust": adjust,
                    "duration": length, "path": path}
+            if fx:
+                seg["fx"] = fx
             if frame:
                 seg["frame"] = dict(frame)
             if tx:
@@ -21700,8 +22750,8 @@ def _sb_timeline_segments(timeline: list) -> tuple[list[dict], list[str], list]:
             seg["tx_in"] = tx_in
         if entry.get("mute") is True:
             seg["mute"] = True
-        if isinstance(entry.get("fx"), dict) and entry["fx"]:
-            seg["fx"] = dict(entry["fx"])
+        if fx:
+            seg["fx"] = fx
         if entry.get("gain"):
             seg["gain"] = [list(pt) for pt in entry["gain"]]
         if entry.get("lane") == 2:
@@ -22006,25 +23056,44 @@ def _sb_assemble_film(clips: list, out_path, *, plan: list | None = None,
     # only is not decoded for a picture nothing maps.
     for row in strip_rows:
         cmd += ["-vn", "-i", str(row["path"])]
+    # NEVER ENCODE OVER THE LAST GOOD FILM (SB5-06). There is one film name
+    # per board and delivery (`_sb_film_name`), so a re-render targets the
+    # file that already worked — and the failure branch below used to unlink
+    # it. A cancelled, crashed or disk-full re-render cost the user the film
+    # they already had. The encode goes to a hidden sibling (same folder, so
+    # the rename is atomic; same extension, so ffmpeg picks the same muxer)
+    # and only a finished, non-empty file replaces the old one.
+    part = out_path.with_name(
+        f".{out_path.stem}.part-{os.urandom(4).hex()}{out_path.suffix}")
     cmd += [
         "-filter_complex", graph,
         "-map", vlabel, "-map", "[aout]",
         *_sb_encode_args(dl, codec),
         "-ar", str(rate),
-        str(out_path),
+        str(part),
     ]
+
+    def _drop_part() -> None:
+        try:
+            part.unlink()
+        except OSError:
+            pass
+
     try:
         run_ffmpeg_tracked(cmd, "Storyboard film")
     except Exception as exc:                                       # noqa: BLE001
         # A half-written mp4 is worse than none — it looks like a finished film
-        # in Finder and plays for two seconds.
-        try:
-            out_path.unlink()
-        except OSError:
-            pass
+        # in Finder and plays for two seconds. Only OUR half goes.
+        _drop_part()
         return {"ok": False, "error": f"ffmpeg could not assemble the film: {exc}"}
-    if not out_path.is_file() or out_path.stat().st_size == 0:
+    if not part.is_file() or part.stat().st_size == 0:
+        _drop_part()
         return {"ok": False, "error": "ffmpeg exited cleanly but wrote no film"}
+    try:
+        os.replace(part, out_path)
+    except OSError as exc:
+        _drop_part()
+        return {"ok": False, "error": f"the film could not be put in place: {exc}"}
     # The SAME per-occurrence consumption the graph just did, so the reported
     # duration and the film agree even when one source is used twice — and, on
     # the timeline path, even when some of what played was never a file.
@@ -22199,8 +23268,7 @@ def _sbe_render_edit(board: dict, edit: dict, *, music=None,
     # so the render, the NLE export and the waveform on screen cannot disagree
     # about where the music starts.
     win = sedit.music_window(audio)
-    dest = _sb_film_dir(board)
-    dest.mkdir(parents=True, exist_ok=True)
+    dest = _sb_film_dir_for_write(board)
     dl = _sb_deliver((deliver or {}).get("format"), (deliver or {}).get("size"),
                      (deliver or {}).get("finish"))
     name = out_name or _sb_film_name(board, deliver=dl)
@@ -22287,8 +23355,7 @@ def _sb_export(board: dict, *, auto_edit: bool = False, music=None,
     the manifest, never a failed export.
     """
     title = board.get("title") or "storyboard"
-    dest = _sb_film_dir(board)
-    dest.mkdir(parents=True, exist_ok=True)
+    dest = _sb_film_dir_for_write(board)
     rows, cut, files = [], [], []
     cut_list: list = []                      # the copies, in `n` order
     for s in sorted((board.get("shots") or []), key=lambda x: x.get("n") or 0):
@@ -22360,11 +23427,26 @@ def _sb_export(board: dict, *, auto_edit: bool = False, music=None,
             # The default call is the call that always was — same arguments,
             # same argv, same bytes out. The auto-edit only ever ADDS kwargs,
             # and only when it actually produced a plan.
+            # `music` AND `music_mode` on BOTH calls. The auto-edit branch
+            # passed the soundtrack and dropped the mode, so a caller asking
+            # for `replace` got whatever the assembler defaulted to; the
+            # whole-clip branch passed NEITHER, so `_sb_export(music=...)`
+            # with auto_edit off silently produced a film with no soundtrack
+            # in it at all. Both are the same bug — a soundtrack that was
+            # accepted at the door and dropped on the way to ffmpeg — and it
+            # is the whole-clip path a music video wants: its shots are
+            # already cut to the grid, so re-cutting them here would slide
+            # every a2v clip off the seconds of the song it was rendered
+            # against. With `music=None` (every caller that predates this)
+            # `_sb_assemble_film` builds the identical graph it always did.
             if plan:
                 film = _sb_assemble_film(cut_list, dest / film_name,
-                                         plan=plan, music=music)
+                                         plan=plan, music=music,
+                                         music_mode=music_mode or "replace")
             else:
-                film = _sb_assemble_film(cut_list, dest / film_name)
+                film = _sb_assemble_film(cut_list, dest / film_name,
+                                         music=music,
+                                         music_mode=music_mode or "replace")
         except Exception as exc:                                   # noqa: BLE001
             film = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
     if film.get("ok"):
@@ -22541,6 +23623,10 @@ def _sb_films(board: dict, *, probe: bool = True) -> list[dict]:
         return out
     for p in entries:
         if p.suffix.lower() not in (".mp4", ".mov") or _SB_SHOT_COPY_RE.match(p.name):
+            continue
+        # A hidden name is an encode still in progress (`_sb_assemble_film`
+        # writes `.<film>.part-<hex>.mp4` and renames it when it is whole).
+        if p.name.startswith("."):
             continue
         try:
             st = p.stat()
@@ -23080,6 +24166,7 @@ def _sbe_add_sound(board: dict, path: str) -> dict:
     dest = src
     imported = False
     if not src.is_relative_to(OUTPUT.resolve()):
+        _sb_film_dir_for_write(board)          # a write claims the folder
         sdir = _sbe_sound_dir(board)
         sdir.mkdir(parents=True, exist_ok=True)
         dest = sdir / re.sub(r"[^A-Za-z0-9._-]+", "_", src.name)
@@ -23112,6 +24199,9 @@ def _sbe_room_tone(board: dict, *, variant: str = "film", seed: int = 1,
     the timeline the user is looking at, which may be ahead of the saved one.
     Only files that exist are read. CPU and about a second; no GPU, no queue."""
     import room_tone as rt                                           # noqa: PLC0415
+    # THE PANEL'S OWN ffmpeg (M6-08): room_tone's search does not know the
+    # Pinokio tool folders this process resolved at boot.
+    rt.FFMPEG = str(FFMPEG)
     if variant not in rt.variant_ids():
         return {"ok": False, "status": 400, "error": f"unknown room tone: {variant}"}
     rows = []
@@ -23127,6 +24217,7 @@ def _sbe_room_tone(board: dict, *, variant: str = "film", seed: int = 1,
         if pth and en > st and Path(pth).is_file():
             rows.append({"path": pth, "start": st, "end": en})
     t0 = time.time()
+    _sb_film_dir_for_write(board)          # a write claims the folder
     facts = rt.make_bed(_sbe_room_tone_dir(board), variant=variant, seed=seed,
                         film_len=film_len, clips=rows, strict=strict)
     if not facts.get("path"):
@@ -23221,6 +24312,9 @@ def _sbe_auto_edit(board: dict, *, music: str | None = None,
     import storyboard_edit as _se                                    # noqa: PLC0415
     bdir = _sbe_board_dir(board["id"])
     clips = _sbe_board_clips(board)
+    mv = board.get("music_video") if isinstance(board.get("music_video"), dict) else None
+    if mv and mv.get("song") and clips and not music:
+        return _sbe_music_video_edit(board, clips, mv, sedit, _se, bdir)
     cache = _sbe_prepare_cache(bdir)
     # THE DIRECTOR'S TRACK IS THE DEFAULT SOUNDTRACK. A board planned to a
     # beat grid opens in the Editor already cut to it; Prepare (a cached
@@ -23264,6 +24358,67 @@ def _sbe_auto_edit(board: dict, *, music: str | None = None,
     # ROOM TONE UNDER EVERY CUT THE MACHINE MAKES (setting `room_tone_auto`).
     _sbe_room_tone_auto(board, edit, sedit)
     return edit
+
+
+def _sbe_music_video_edit(board: dict, clips: list, block: dict, sedit, _se,
+                          bdir: Path) -> dict:
+    """A music video's first timeline is its PLAN, with the SONG under it.
+
+    THE EDITOR HANDOFF LOST THE SONG (SB5-12). The planner keeps the master
+    track at `board["music_video"]["song"]`, which `_sbe_auto_edit` never
+    read: a music-video board opened in the Editor was cut by `plan_cut` with
+    no audio — every shot trimmed to its "best window", the whole film slid
+    off the frames the planner laid out — and carried no soundtrack, so its
+    Render played each clip's own audio (B-roll had none of the song). The
+    edit it wrote is also what `/music/video/film` renders from afterwards
+    ("the timeline wins"), so opening the Editor once broke that route too.
+
+    So no re-cutting: every shot sits at the film second the planner gave it
+    (`music_video.film_start`), whole, trimmed only if the file is shorter
+    than planned — each a2v shot was rendered against exactly that stretch
+    of the song, so moving it is moving the mouth off the words. The song is
+    the bed in `replace` mode at the neutral mix (unity, no duck), the same
+    master `/music/video/film` lays down. No room tone: under a replaced mix
+    it would be noise on top of the song.
+    """
+    by_n = {s.get("n"): s for s in (board.get("shots") or []) if isinstance(s, dict)}
+    plan = []
+    cursor = 0.0
+    for c in clips:
+        shot = by_n.get(c.get("n")) or {}
+        mvs = shot.get("music_video") if isinstance(shot.get("music_video"), dict) else {}
+        try:
+            fs = float(mvs["film_start"])
+            want = max(0.0, float(mvs["film_end"]) - fs)
+        except (KeyError, TypeError, ValueError):
+            fs = cursor
+            want = max(0.0, float(c.get("duration_s") or 0.0))
+        fs = max(fs, cursor)            # never overlap the shot before it
+        dur = (_se.probe_media(c["path"]) or {}).get("duration")
+        length = min(want, float(dur)) if dur else want
+        if length <= 0:
+            continue
+        plan.append({"path": c["path"], "n": c.get("n"), "start": 0.0,
+                     "end": round(length, 6), "film_start": round(fs, 6),
+                     "window": {"source_duration": dur},
+                     "notes": ["placed where the music-video plan put it"]})
+        cursor = fs + length
+    song = str(block.get("song") or "")
+    audio = None
+    if song and Path(song).is_file():
+        peaks = sedit.load_peaks(bdir)
+        dur = (peaks or {}).get("duration")
+        if dur is None:
+            dur = (_se.probe_media(song) or {}).get("duration")
+        audio = {"path": song, "offset": 0.0,
+                 "peaks": "peaks.json" if peaks else None,
+                 "duration": dur, "mode": "replace"}
+    return sedit.edit_from_plan(
+        plan, board_id=board["id"], audio=audio, beats=None,
+        proxies=_sbe_proxy_map(bdir, clips, sedit),
+        labels={c["path"]: f"S{(c.get('n') or 0):02d} · {c['title']}"
+                for c in clips},
+        settings={"music_video": True})
 
 
 def _sbe_relinks(board: dict, edit: dict) -> list[dict]:
@@ -23404,6 +24559,32 @@ def _sbe_payload(board: dict, edit: dict) -> dict:
 
 class CharacterRequestError(ValueError):
     """A character request cannot preserve the face + voice contract."""
+
+
+class MusicRequestError(CharacterRequestError):
+    """A song request that would render something other than what was asked.
+
+    A subclass so every door that already answers a CharacterRequestError
+    with a polite 400 (/queue/add among them) answers this one too."""
+
+
+def music_lora_unresolved(raw) -> list[str]:
+    """Picked adapter ids that do not resolve inside the LoRA folder.
+
+    `music_lora_picks` drops such a pick in silence — right for a sidecar
+    replay of a deleted file, wrong for a request: a song rendered without the
+    voice whose row was ticked is a song nobody asked for (M6-05)."""
+    try:
+        from scripts.pinokio.music_lora_fetch import parse_field, resolve_in_pack
+    except Exception:                                           # noqa: BLE001
+        return []
+    bad = []
+    for identifier, _strength in parse_field(raw):
+        try:
+            resolve_in_pack(MUSIC_LORAS, identifier)
+        except (OSError, ValueError):
+            bad.append(identifier)
+    return bad
 
 
 def _engine_would_be_h3(requested: str, mode: str) -> bool:
@@ -23773,8 +24954,10 @@ def _helper_start_failure(ready: dict | None, tail) -> str:
 # make_job that names a file belongs here — the alternative is another
 # "<thing> not found: '<quoted path>'" in the fleet.
 PASTED_PATH_FIELDS = (
-    "image", "audio", "video_path", "restore_video_path", "upscale_source_path",
+    "image", "audio", "audio_stem", "video_path", "restore_video_path",
+    "upscale_source_path",
     "control_video_path", "start_image", "end_image", "ingredient_char_lora",
+    "music_source_audio",
 )
 
 
@@ -23800,6 +24983,201 @@ PASTED_PATH_FIELDS = (
 # value is passed through untouched — a saved job, a board or an API caller
 # that names a number keeps that number on both lanes.
 A2V_AUDIO_SCALE_ON = {"q8": 3.0, "q4": 1.0}
+
+
+# --- A2V LENGTH ON A COMPACT MAC ---------------------------------------------
+# Fleet 2026-09-24: 30-second Audio → Video renders on 8 GB Macs died in the
+# Metal GPU watchdog instead of being refused. Nothing stood in their way: the
+# slider goes to 30 s, the compact generation profile's temporal mitigation is
+# T2V/I2V only, and Long Clip Boost (12 fps → 24) is not an a2v path — so an
+# a2v job asks the model for every native frame it was given.
+#
+# The cap is not a new number. `_select_generation_profile` already says that
+# past `auto_temporal_after_frames` (241, the "10s" cell of LTX_LENGTHS) native
+# 24 fps puts a 48 GB Mac into MLX swap thrash — it was put there by a real one
+# — and T2V/I2V are reshaped to Long Clip Boost at that point. A Compact-tier
+# Mac has less memory than that 48 GB Mac, and a2v carries the audio stream on
+# top, with no 12 fps path to fall back to. So on the Compact tier an a2v
+# render past that frame count is refused up front, with the way through it:
+# consecutive clips, each on its own offset into the song. The two escape
+# hatches that lift the profile's cap (LTX_GENERATION_PROFILE=full, a
+# high/pro LTX_TIER_OVERRIDE) lift this one too.
+def a2v_max_frames() -> int:
+    """Longest a2v render (frames) this Mac is allowed; 0 means uncapped."""
+    if SYSTEM_TIER != "base":
+        return 0
+    profile = GENERATION_PROFILE or {}
+    if not profile.get("compact"):
+        return 0
+    return max(0, int(profile.get("auto_temporal_after_frames") or 0))
+
+
+def a2v_length_refusal(frames: int, cap: int) -> str:
+    cap_s = int(round(_frames_to_model_duration(cap)))
+    asked_s = round(_frames_to_model_duration(frames), 1)
+    return (
+        f"Audio → Video is limited to {cap_s} s per clip on the "
+        f"{SYSTEM_CAPS['label']} hardware tier: {asked_s:g} s ({frames} frames) "
+        f"outgrows this Mac's {SYSTEM_RAM_GB:.0f} GB of unified memory, and "
+        f"macOS stops a render that size partway through (a GPU timeout). "
+        f"Render the song as {cap_s} s clips instead — set Start at to 0, "
+        f"{cap_s}, {2 * cap_s} … — and join them in the Editor. Full-length "
+        f"clips work from {TIER_MIN_RAM_GB['standard']} GB.")
+
+
+# --- THE VOCAL-STEM SEAM ----------------------------------------------------
+# What the model LISTENS TO and what the clip PLAYS are two different files.
+#
+# Drums, bass and guitar reach the audio encoder as energy the model can read
+# as syllables, so it hedges: it opens the mouth a little, all the time, on
+# everything. Conditioning on a separated vocal stem removes that noise, and
+# the ORIGINAL song is muxed back over the finished clip, so nothing the
+# audience hears has changed. Measured on one shot (see the lip-sync study):
+# the stem is the only candidate with a positive zero-lag correlation, and its
+# mouth movement is DOUBLE every other candidate's - with the band removed
+# from the conditioning waveform the model stops hedging and articulates.
+#
+# `audio_stem` names a stem the caller already has (the music-video route
+# passes one for the whole film). `audio_stem_auto` asks the panel to make one
+# with demucs, and is allowed to fail: a missing optional tool becomes a NOTE,
+# never a refused render.
+A2V_STEM_DIR = "a2v_stems"
+A2V_STEM_TIMEOUT_S = 900
+A2V_STEM_MISSING_NOTE = (
+    "Auto vocal stem is on but demucs is not installed, so this clip was "
+    "conditioned on the full mix. Install the stems extra from the Pinokio "
+    "sidebar (scripts/pinokio/a2v_stems_deps.sh) to separate the vocal."
+)
+
+
+def _resolve_demucs() -> Path | None:
+    """The demucs executable this panel may use, or None.
+
+    ONLY TOOLS AN INSTALL SCRIPT CAN PROVIDE. The engine venv's own bin comes
+    first - that is where `scripts/pinokio/a2v_stems_deps.sh` puts it - then
+    the ordinary resolver (env override, PATH, Pinokio's tool folders,
+    Homebrew). Some other project's virtualenv on this Mac is not a dependency
+    of Phosphene and must never become one by accident, which is why nothing
+    here reaches outside those.
+
+    `_resolve_tool` returns a LAST-RESORT path that need not exist, so the
+    result is checked before it is believed: a separator that is not there has
+    to read as "not installed" at plan time, never as a command that dies
+    twenty minutes into a render.
+    """
+    beside = HELPER_PYTHON.parent / "demucs"
+    if beside.is_file():
+        return beside
+    cand = _resolve_tool("demucs", "PHOSPHENE_DEMUCS")
+    return cand if cand.is_file() else None
+
+
+def _a2v_stem_cache_path(audio_src: str) -> Path:
+    """Where this song's separated vocal lives. Keyed by path + size + mtime,
+    so a 12-shot music video separates ONCE and every shot after the first is
+    free, while an edited file is separated again."""
+    src = Path(audio_src)
+    try:
+        st = src.stat()
+        key = f"{src.resolve()}|{st.st_size}|{int(st.st_mtime)}"
+    except OSError:
+        key = str(src)
+    digest = hashlib.sha1(key.encode("utf-8", "replace")).hexdigest()[:16]
+    return STATE_DIR / A2V_STEM_DIR / digest / "vocals.wav"
+
+
+def _a2v_separate_vocals(audio_src: str, demucs: Path) -> Path:
+    """Separate the vocal out of `audio_src` with demucs. Cached; raises on
+    failure so the caller can turn it into a note.
+
+    TRACKED, because Stop has to reach it. Separation is minutes of CPU at the
+    front of a render, and a bare `subprocess.run` is invisible to
+    `stop_current_job`: pressing Stop killed the helper and left demucs
+    grinding on, with the queue held by a job the user had already cancelled,
+    until it finished or the 900 s timeout fired (Codex review, 2026-09-22).
+    `run_tracked_subprocess` registers the child's process group under the key
+    Stop already kills, refuses to start after Stop, and raises `JobCancelled`
+    when Stop ended it — which is NOT a separation failure and must not be
+    turned into one. It also states the text-mode trio itself, including
+    `errors="replace"`: a strict UTF-8 decode of another program's output
+    would end the render with a codec error no user could act on, and demucs
+    prints a progress bar (the fleet has 42 of those from ffmpeg alone).
+    """
+    cached = _a2v_stem_cache_path(audio_src)
+    if cached.is_file() and cached.stat().st_size > 0:
+        return cached
+    work = cached.parent / "work"
+    work.mkdir(parents=True, exist_ok=True)
+    try:
+        proc = run_tracked_subprocess(
+            [str(demucs), "--two-stems=vocals", "-o", str(work), str(audio_src)],
+            pgid_key="mux_pgid", label="the vocal separation",
+            job=_thread_job(), timeout=A2V_STEM_TIMEOUT_S)
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-1:]
+            raise RuntimeError(f"demucs failed: {tail[0] if tail else 'no output'}")
+        found = sorted(work.rglob("vocals.*"))
+        if not found:
+            raise RuntimeError("demucs wrote no vocals stem")
+        cached.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(found[0]), str(cached))
+    finally:
+        # Including on Stop: a killed separation leaves half a model's output
+        # behind, and the next attempt must not find it.
+        shutil.rmtree(work, ignore_errors=True)
+    return cached
+
+
+def a2v_conditioning_audio(params: dict, audio_src: str) -> tuple[str, str]:
+    """(the waveform the model listens to, a note for the user).
+
+    The note is empty when there is nothing to say. An explicit `audio_stem`
+    that is not a file RAISES - it is a typo in something the caller wrote,
+    and silently rendering the full mix would hide it. `audio_stem_auto` never
+    raises: the optional tool is optional.
+    """
+    stem = str(params.get("audio_stem") or "").strip()
+    if stem:
+        if not Path(stem).is_file():
+            raise RuntimeError(f"vocal stem not found: {stem}")
+        return stem, ""
+    want_auto = str(params.get("audio_stem_auto") or "").strip().lower() \
+        in ("1", "true", "on", "yes")
+    if not want_auto:
+        return audio_src, ""
+    demucs = _resolve_demucs()
+    if demucs is None:
+        return audio_src, A2V_STEM_MISSING_NOTE
+    try:
+        return str(_a2v_separate_vocals(audio_src, demucs)), ""
+    except JobCancelled:
+        # The user stopped the job. That is not a tool that failed, and
+        # degrading to the full mix here would start a twenty-minute render
+        # of a clip nobody asked for any more.
+        raise
+    except Exception as exc:                                     # noqa: BLE001
+        return audio_src, (f"Could not separate the vocal ({exc}), so this "
+                           f"clip was conditioned on the full mix.")
+
+
+def a2v_mux_original_audio(video: Path, audio_src: str, *,
+                           start: float, duration: float) -> None:
+    """Put the ORIGINAL song back over a clip rendered against a stem.
+
+    The pipeline muxes whatever it listened to, so a stem-conditioned clip
+    comes back playing an a-cappella. The video stream is COPIED, never
+    re-encoded: this is a container edit, not a second render, and re-encoding
+    here would cost quality the render already paid for.
+    """
+    tmp = video.with_suffix(video.suffix + ".mux.mp4")
+    cmd = [str(FFMPEG), "-y", "-i", str(video),
+           "-ss", f"{max(0.0, float(start)):.4f}", "-i", str(audio_src),
+           "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy",
+           "-af", f"apad,atrim=0:{duration},asetpts=PTS-STARTPTS",
+           "-c:a", "aac", "-b:a", "192k",
+           "-movflags", "+faststart", "-t", f"{duration}", str(tmp)]
+    run_ffmpeg_tracked(cmd, "Stem mux")
+    os.replace(str(tmp), str(video))
 
 
 def a2v_audio_scale(raw, *, q8: bool) -> float:
@@ -23863,6 +25241,34 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     mode_in = f("mode", "t2v")
     if mode_in == "music" or f("engine") == "music":
         params = music_params(form)
+        # REFUSE WHAT WOULD RENDER SOMETHING ELSE, before it is queued.
+        if params["music_task"] == "cover":
+            src = params["music_source_audio"]
+            if not src:
+                raise MusicRequestError(
+                    "Cover needs a recording — pick or paste the one to cover.")
+            if not Path(src).is_file():
+                raise MusicRequestError(f"There is no recording at {src}.")
+        if not params["music_instrumental"]:
+            missing = music_lora_unresolved(form.get("music_loras"))
+            if missing:
+                raise MusicRequestError(
+                    "These picked LoRAs are not in the music LoRA folder, so the "
+                    "song would be made without them: " + ", ".join(missing))
+            # A TRAINED VOICE IS TRAINED IN ONE DIALECT (M6-04). A `direct`
+            # voice never saw a score in its prefix and the engine refuses a
+            # score with `--mode off`; a `score` voice was trained with one.
+            # Rendering either the other way is a degraded voice nobody chose.
+            for pick in params["music_loras"]:
+                name = Path(str(pick.get("id") or "")).name
+                if pick.get("dialect") == "direct" and params["music_mode"] != "off":
+                    raise MusicRequestError(
+                        f"The voice {name} was trained without a score — set "
+                        f"Score to “No score” to sing with it.")
+                if pick.get("dialect") == "score" and params["music_mode"] == "off":
+                    raise MusicRequestError(
+                        f"The voice {name} was trained with a score — choose "
+                        f"“Melody only” or “Melody + chords” to sing with it.")
         params["prompt"] = params["music_style"] or params["music_lyrics"] or "Instrumental"
         params["label"] = params["prompt"][:80]
         return {"id": _new_job_id(), "status": "queued", "queued_at": iso_now(),
@@ -24630,6 +26036,13 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # default_reference_image() for why this used to be a phantom.
             "image": f("image", default_reference_image()),
             "audio": f("audio", str(AUDIO_DEFAULT)),
+            # A2V VOCAL STEM. What the model LISTENS to, when it should not be
+            # the same file the clip plays: `audio_stem` names a separated
+            # vocal and `audio_stem_auto` asks the panel to make one with
+            # demucs. Both live here or they silently no-op on /queue/add —
+            # the make_job allowlist trap this file warns about throughout.
+            "audio_stem": f("audio_stem", ""),
+            "audio_stem_auto": f("audio_stem_auto", ""),
             # extend mode params
             "video_path": f("video_path", ""),
             # restore (Colorize) mode — the B&W source clip to colorize. MUST
@@ -25504,6 +26917,12 @@ def run_image_job_inner(job: dict) -> None:
     # circuits before the subprocess even spawns). Bypass with
     # PHOSPHENE_SKIP_PREFLIGHT=1.
     _preflight_image_job(cfg, engine_override=engine_override)
+    # STOP DURING PREFLIGHT. Preflight can unload the helper and wait for
+    # memory to settle, and a Stop pressed then found no image process to
+    # kill; the engine started anyway and the job was filed done. Checked
+    # here, and again by the engine the moment it registers its process
+    # (image_engine._register_active_proc -> _image_job_cancelled).
+    _raise_if_cancelled(job, "the image engine started")
 
     # Same date-bucketed + per-request output dir scheme as /image/generate
     # so the library reader (and any downstream consumer) sees one shape.
@@ -25567,6 +26986,9 @@ def run_image_job_inner(job: dict) -> None:
         raise
     finally:
         _IMG_STUDIO_LOCK.release()
+    # A Stop that landed as the engine exited cleanly is still a Stop: the
+    # worker must not file an acknowledged cancellation as done.
+    _raise_if_cancelled(job, "the image was published")
     elapsed = round(time.time() - t0, 2)
 
     # Record the observed wall time so /image/engine_status can override
@@ -27110,8 +28532,15 @@ def run_h3_job_inner(job: dict) -> None:
         _stack_layouts = []
         for _i, (_pp, _ps) in enumerate(_picked):
             _stack_layouts.append(_h3_lora_prepare(_pp).get("layout"))
-            # After prepare, so a file folded just now is recognised too.
-            _new = _h3_lora_migrate_strength(_pp, _ps, p)
+            # After prepare, so a file folded just now is recognised too. An
+            # entry replayed from an older recipe carries that recipe's own
+            # scale version (parse_loras_from_form), which outranks the stamp
+            # make_job put on the job as a whole.
+            _entry_i = _picked_entries[_i] if isinstance(_picked_entries[_i], dict) else {}
+            _mig_params = ({**p, "h3_lora_scale_v": _entry_i["scale_v"]}
+                           if "scale_v" in _entry_i else p)
+            _new = _h3_lora_migrate_strength(_pp, _ps, _mig_params)
+            _entry_i.pop("scale_v", None)
             if _new != _ps and isinstance(_picked_entries[_i], dict):
                 # Into the recipe as well — THIS entry only (a stack may list
                 # the same file twice at different strengths): the sidecar
@@ -27241,15 +28670,9 @@ def run_h3_job_inner(job: dict) -> None:
         # Reject unreadable images before the H3 subprocess starts — the runner
         # also uses PIL and crashes with PIL.UnidentifiedImageError there instead
         # of a useful message (fleet: 4 installs, v4.12.2).
-        try:
-            from PIL import Image as _PilImg
-            with _PilImg.open(Path(src)):
-                pass
-        except Exception as _pil_err:
-            raise RuntimeError(
-                f"The reference image can't be read ({_pil_err.__class__.__name__}). "
-                "Export it as a JPEG or PNG and try again."
-            ) from None
+        _ref_err = h3_reference_image_error(Path(src))
+        if _ref_err:
+            raise RuntimeError(_ref_err) from None
         if not h3_supports_first_frame():
             raise RuntimeError(
                 "Image mode conditions on a first frame: "
@@ -27484,6 +28907,20 @@ def run_h3_job_inner(job: dict) -> None:
     # Pinokio's bundled binary is not on the default PATH.
     env["PATH"] = f"{FFMPEG_BIN}:{env.get('PATH', '')}"
     env["PYTHONUNBUFFERED"] = "1"
+    # FP16 VAE decode — the default (h3_vae_fp16_decode()). Passed as the runner's
+    # own flag so the argv says what ran; a runner that predates the flag
+    # would reject it, so that case is said out loud instead of passed.
+    _vae_fp16 = False
+    if h3_vae_fp16_decode():
+        if _h3_runner_has_flag("--vae-dtype"):
+            cmd += ["--vae-dtype", "float16"]
+            p["h3_vae_dtype"] = "float16"
+            _vae_fp16 = True
+        else:
+            push("[h3] This H3 runner predates the faster FP16 video decode — "
+                 "decoding in float32 (same picture, a little slower). Press "
+                 "Update in Pinokio, or \"Update Hailuo H3 runner\" in the "
+                 "sidebar, to get it.")
 
     push(f"[h3] {tier['label']} · {width}×{height} · {frames}f · "
          f"{steps} sigma points ({steps - 1} forwards) · seed {seed}"
@@ -27494,6 +28931,7 @@ def run_h3_job_inner(job: dict) -> None:
          + (f" · LoRA {user_lora.name} @ {user_lora_strength:g}"
             if (user_lora is not None and not turbo) else "")
          + (" · fast draft decode (TAE)" if tae_used else "")
+         + (" · FP16 VAE decode" if _vae_fp16 else "")
          + (" · live preview" if h3_preview_on else "")
          + (f" · {chain_windows} chained windows of {window_frames}f"
             if chain_windows > 1 else "")
@@ -27843,8 +29281,10 @@ def run_h3_job_inner(job: dict) -> None:
     if upscale_plan:
         codec = job_codec
         export_preset = os.environ.get("LTX_UPSCALE_PRESET", "medium")
-        upscaled_out = OUTPUT / (
-            f"{out_path.stem}_{upscale_plan['tag']}{out_path.suffix}")
+        # Unique, like every native output: `ffmpeg -y` on a bare
+        # "<stem>_<tag>" replaced an earlier render that already had it.
+        upscaled_out = _unique_output_path(
+            OUTPUT, f"{out_path.stem}_{upscale_plan['tag']}", out_path.suffix)
         run_ffmpeg_tracked([
             str(FFMPEG), "-y", "-i", str(out_path),
             "-vf", bt709_vf(upscale_plan["vf"]),
@@ -28029,6 +29469,15 @@ def run_h3_job_inner(job: dict) -> None:
         subprocess.run(["open", str(final_target)], check=False)
 
 
+def ffconcat_line(path) -> str:
+    """One `file` directive for ffmpeg's concat demuxer, quoted so any path
+    survives it. Inside single quotes the demuxer allows no escapes, so an
+    apostrophe closes the quote, is escaped, and reopens it ('\\''). A bare
+    f"file '{x}'" broke on "/Volumes/Artist's Drive/…": every window rendered,
+    then the final join could not open its pieces (LTX-07)."""
+    return "file '" + str(path).replace("'", "'\\''") + "'\n"
+
+
 def _run_windows_chain(job: dict, p: dict, plan: dict, first: Path,
                        raw_out: Path, total_frames: int) -> dict:
     """Windows 2..N as `extend` passes, each on ONLY the last window of the
@@ -28125,7 +29574,7 @@ def _run_windows_chain(job: dict, p: dict, plan: dict, first: Path,
     # 3. THE JOIN, trimmed to the asked length.
     keep = min(int(total_frames), int(plan["delivered_frames"]))
     lst = work / f"{raw_out.stem}_windows.txt"
-    lst.write_text("".join(f"file '{x}'\n" for x in pieces))
+    lst.write_text("".join(ffconcat_line(x) for x in pieces), encoding="utf-8")
     run_ffmpeg_tracked([
         str(FFMPEG), "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-t", f"{keep / fps:.6f}",
         "-c:v", "libx264", "-pix_fmt", codec["pix_fmt"], "-crf", codec["crf"],
@@ -28175,7 +29624,23 @@ def _gemma4_tower_supported() -> bool | None:
     return res
 
 
-def _join_take_parts(ff: str, parts: list[str], final: Path, fps: float = 24.0) -> None:
+def _take_ffmpeg(cmd: list[str], label: str, job: dict | None) -> None:
+    """A One Shot ffmpeg step that Stop can end (LTX-01).
+
+    These ran as bare `subprocess.run(check=True)`: no process group Stop
+    knew about, so Stop during the final join waited for the whole encode,
+    and the take was then published and filed done. Registered under
+    `mux_pgid` like every other post-process; raises JobCancelled when Stop
+    ended it and RuntimeError on any other non-zero exit (check=True)."""
+    r = run_tracked_subprocess(cmd, pgid_key="mux_pgid", label=label, job=job)
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout or "").strip()[-300:]
+        raise RuntimeError(f"{label} failed (ffmpeg exit {r.returncode})"
+                           + (f": {tail}" if tail else ""))
+
+
+def _join_take_parts(ff: str, parts: list[str], final: Path, fps: float = 24.0,
+                     job: dict | None = None) -> None:
     """Join the parts of a one-shot take with the sound locked to the picture.
 
     Every part's audio comes out of the model a few hundredths of a second
@@ -28187,9 +29652,10 @@ def _join_take_parts(ff: str, parts: list[str], final: Path, fps: float = 24.0) 
     shorter than its picture is padded with silence to the same length."""
     n = len(parts)
     if n == 1:
-        subprocess.run([ff, "-loglevel", "error", "-y", "-i", parts[0],
-                        "-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p",
-                        "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(final)], check=True)
+        _take_ffmpeg([ff, "-loglevel", "error", "-y", "-i", parts[0],
+                      "-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p",
+                      "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(final)],
+                     "One Shot join", job)
         return
     cmd = [ff, "-loglevel", "error", "-y"]
     graph = []
@@ -28206,7 +29672,17 @@ def _join_take_parts(ff: str, parts: list[str], final: Path, fps: float = 24.0) 
     cmd += ["-filter_complex", ";".join(graph), "-map", "[v]", "-map", "[a]",
             "-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(final)]
-    subprocess.run(cmd, check=True)
+    _take_ffmpeg(cmd, "One Shot join", job)
+
+
+def _take_preview_follows(job: dict, child: dict | None) -> None:
+    """Point the take's live preview (status + Stop early) at the part now
+    rendering, or at nothing. See live_preview_job_id."""
+    with LOCK:
+        if child is None:
+            job.pop("preview_id", None)
+        else:
+            job["preview_id"] = child["id"]
 
 
 def run_take_job_inner(job: dict) -> None:
@@ -28233,6 +29709,7 @@ def run_take_job_inner(job: dict) -> None:
     take_dir.mkdir(parents=True, exist_ok=True)
     ff = str(FFMPEG)
     outs: list[str] = []
+    rendered_out = ""
     tail_wav: str | None = None   # speech handoff: the previous part's last word, mixed over this part's head
     last_png: str | None = None
     # The continuity lock: "" when the user switched it off (then blank beats
@@ -28302,6 +29779,7 @@ def run_take_job_inner(job: dict) -> None:
                  "started_ts": time.time()}
         push(f"[take] beats {idxs[0] + 1}–{idxs[-1] + 1} of {take['beats']} · part {k + 1} of {n_parts}"
              + (" · continues from the last frame" if last_png else ""))
+        _take_preview_follows(job, child)
         render_part(child)
         out = child.get("output_path")
         if not out or not Path(out).is_file():
@@ -28323,6 +29801,7 @@ def run_take_job_inner(job: dict) -> None:
             retry = {"id": f"{job['id']}-p{k + 1}r", "params": retry_params,
                      "status": "running", "created_at": job.get("created_at"),
                      "started_ts": time.time()}
+            _take_preview_follows(job, retry)
             render_part(retry)
             out2 = retry.get("output_path")
             d2 = take_drift(out2) if out2 and Path(out2).is_file() else {"delta": 9.0}
@@ -28367,6 +29846,7 @@ def run_take_job_inner(job: dict) -> None:
             ls_retry = {"id": f"{job['id']}-p{k + 1}l" + (str(attempt) if attempt > 1 else ""),
                         "params": ls_params, "status": "running",
                         "created_at": job.get("created_at"), "started_ts": time.time()}
+            _take_preview_follows(job, ls_retry)
             render_part(ls_retry)
             out3 = ls_retry.get("output_path")
             ls2 = take_lipsync_score(out3) if out3 and Path(out3).is_file() else None
@@ -28386,6 +29866,7 @@ def run_take_job_inner(job: dict) -> None:
                         pass
         job.setdefault("take_lipsync", []).append(ls)
         outs.append(out)
+        rendered_out = out      # the part as rendered — the one with a sidecar
         # Parts are working files: kept, hidden from the gallery. The one shot
         # is the output.
         try:
@@ -28397,10 +29878,10 @@ def run_take_job_inner(job: dict) -> None:
             # silence (a J-cut): its sound tail is mixed onto the head of this
             # clip, at level, before this clip is cut or anchored.
             led = str(take_dir / f"part{k + 1}_lead.mp4")
-            subprocess.run([ff, "-loglevel", "error", "-y", "-i", out, "-i", tail_wav,
-                            "-filter_complex", "[1:a]apad[t];[0:a][t]amix=inputs=2:duration=first:normalize=0[a]",
-                            "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", led],
-                           check=True)
+            _take_ffmpeg([ff, "-loglevel", "error", "-y", "-i", out, "-i", tail_wav,
+                          "-filter_complex", "[1:a]apad[t];[0:a][t]amix=inputs=2:duration=first:normalize=0[a]",
+                          "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", led],
+                         "One Shot speech handoff", job)
             outs[-1] = led
             out = led
         tail_wav = None
@@ -28420,49 +29901,74 @@ def run_take_job_inner(job: dict) -> None:
                     dur = 0.0
                 if dur and 0.5 < cut < end <= dur:
                     trimmed = str(take_dir / f"part{k + 1}_speech.mp4")
-                    subprocess.run([ff, "-loglevel", "error", "-y", "-i", out, "-t", f"{cut:.3f}",
-                                    "-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p",
-                                    "-c:a", "aac", "-b:a", "192k", trimmed], check=True)
+                    _take_ffmpeg([ff, "-loglevel", "error", "-y", "-i", out, "-t", f"{cut:.3f}",
+                                  "-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p",
+                                  "-c:a", "aac", "-b:a", "192k", trimmed],
+                                 "One Shot speech handoff", job)
                     tail = str(take_dir / f"part{k + 1}_tail.wav")
-                    subprocess.run([ff, "-loglevel", "error", "-y", "-ss", f"{cut:.3f}", "-to", f"{end:.3f}",
-                                    "-i", out, "-vn", "-c:a", "pcm_s16le", tail], check=True)
+                    _take_ffmpeg([ff, "-loglevel", "error", "-y", "-ss", f"{cut:.3f}", "-to", f"{end:.3f}",
+                                  "-i", out, "-vn", "-c:a", "pcm_s16le", tail],
+                                 "One Shot speech handoff", job)
                     push(f"[take] part {k + 1}: hands off at {cut:.1f} s on a talking frame; the last word "
                          f"finishes over the next part ({dur - end:.1f} s of silent tail dropped)")
                     outs[-1] = trimmed
                     out = trimmed
                     tail_wav = tail
         last_png = str(take_dir / f"part{k + 1}_last.png")
-        subprocess.run([ff, "-loglevel", "error", "-y", "-sseof", "-0.05", "-i", out,
-                        "-frames:v", "1", "-update", "1", last_png], check=True)
+        _take_ffmpeg([ff, "-loglevel", "error", "-y", "-sseof", "-0.05", "-i", out,
+                      "-frames:v", "1", "-update", "1", last_png], "One Shot handoff frame", job)
         job["take_progress"] = {"part": k + 1, "parts": n_parts}
+    _take_preview_follows(job, None)          # the join has no preview
     if job.get("cancel_requested"):
         raise RuntimeError("stopped before the join")
     lst = take_dir / "concat.txt"
-    lst.write_text("".join(f"file '{o}'\n" for o in outs))
+    lst.write_text("".join(ffconcat_line(o) for o in outs), encoding="utf-8")
     final = _unique_output_path(
         OUTPUT, _descriptive_filename(label, p.get("prompt") or "", fallback="take") + f"_take{take['seconds']}s")
     push(f"[take] joining {n_parts} parts → {final.name}")
-    _join_take_parts(ff, outs, final)
+    _join_take_parts(ff, outs, final, job=job)
+    # Stop during the join ends it (JobCancelled above); a Stop that lands as
+    # the encode finishes must not be published and filed done either.
+    _raise_if_cancelled(job, "the one shot was published")
+    # THE TAKE'S SIDECAR IS THE TAKE'S, NOT ITS LAST PART'S (LTX-02). The
+    # technical fields (canvas, seed, model) still come from the last part as
+    # rendered — outs[-1] can be a speech-handoff remux with no sidecar of its
+    # own, which is why the rendered file is tracked separately. But Load
+    # Params reads `params`, and that used to be the last part's: a short i2v
+    # of the final beats on a handoff frame, so reopening a One Shot restored
+    # a different, smaller render. `params` is now the parent job's own
+    # intent with the full take block, and every output field names the take.
     side: dict = {}
     try:
-        side = json.loads(Path(outs[-1] + ".json").read_text())
+        side = json.loads(Path((rendered_out or outs[-1]) + ".json").read_text())
     except (OSError, ValueError):
         side = {}
+    take_block = {"seconds": take["seconds"], "beats": beats, "parts": outs, "engine": engine,
+                  "beats_per_part": take.get("beats_per_part")
+                  or (TAKE_H3_BEATS_PER_PART if engine == "h3" else TAKE_LTX_BEATS_PER_PART),
+                  "part_frames": take.get("part_frames"),
+                  "light_lock": lock, "retake": retake_allowed,
+                  "camera": take.get("camera") or "",
+                  "handoff": take.get("handoff") or "last"}
     side.update({
+        "output": str(final), "raw_output": str(final), "native_output": str(final),
         "mode": p.get("mode", "t2v"), "engine": engine, "prompt": p.get("prompt") or "",
         "label": label, "elapsed_sec": round(time.time() - t0, 1),
         "frames": take["frames"], "seconds": take["seconds"],
-        "take": {"seconds": take["seconds"], "beats": beats, "parts": outs, "engine": engine,
-                 "beats_per_part": take.get("beats_per_part")
-                 or (TAKE_H3_BEATS_PER_PART if engine == "h3" else TAKE_LTX_BEATS_PER_PART),
-                 "part_frames": take.get("part_frames"),
-                 "light_lock": lock, "retake": retake_allowed,
-                 "camera": take.get("camera") or "",
-                 "handoff": take.get("handoff") or "last"},
+        "take": take_block,
         "temporal_mode": "native", "long_mode": "native", "window_prompts": [],
+        "queue_id": job["id"], "started": job.get("started_at"),
+        "params": {**p, "take": {**(p.get("take") or {}), **take_block},
+                   "image": first_image or None,
+                   "temporal_mode": "native", "long_mode": "native",
+                   "window_prompts": []},
     })
+    if isinstance(side.get("upscale"), dict):
+        # Its `source` named the last part's native file, not this take.
+        side["upscale"] = {k: v for k, v in side["upscale"].items() if k != "source"}
     if engine == "h3":
         side["h3_chain_prompts"] = beats
+        side["params"]["h3_chain_prompts"] = beats
     # The last part's sidecar names ITS image — a handoff frame in the state
     # dir. The one shot's own image is the user's anchor, or nothing.
     if first_image:
@@ -28709,6 +30215,11 @@ def run_job_inner(job: dict) -> None:
                 "seed": p["seed"],
                 "steps": steps,
                 "cfg_scale": cfg_scale,
+                # The helper's extend lane attaches these (as the sliding-
+                # windows chain already relied on); this request never sent
+                # them, so a selected LoRA was dropped while the sidecar
+                # listed it (LTX-03).
+                "loras": list(p.get("loras") or []),
             },
         }
         push(f"Extend via helper: id={job['id']} src={Path(src).name} +{p['extend_frames']}f · "
@@ -29529,12 +31040,9 @@ def run_job_inner(job: dict) -> None:
         # during the upscale + VAE-encoder reload). On standard tier we
         # clamp to 768; on high tier we go to 1024; pro tier has no clamp.
         kf_max = tier_max_dim("keyframe")
-        KF_ALIGN = 32
         req_w, req_h = p["width"], p["height"]
         if kf_max and max(req_w, req_h) > kf_max:
-            scale = kf_max / max(req_w, req_h)
-            width = max(KF_ALIGN, int(round(req_w * scale / KF_ALIGN)) * KF_ALIGN)
-            height = max(KF_ALIGN, int(round(req_h * scale / KF_ALIGN)) * KF_ALIGN)
+            width, height = ltx_fit_canvas(req_w, req_h, kf_max)
             push(
                 f"Keyframe: clamping {req_w}×{req_h} → {width}×{height} "
                 f"({SYSTEM_CAPS['label']} tier — {kf_max} max-side keeps "
@@ -29603,6 +31111,8 @@ def run_job_inner(job: dict) -> None:
                 "cfg_scale": 3.0,
                 "memory_policy": memory_plan["effective"],
                 "vae_full_decode_max_frames": memory_plan["full_decode_max_frames"],
+                # Attached by get_kf_pipe (LTX-03: never sent before).
+                "loras": list(p.get("loras") or []),
             },
         }
         push(f"Run KEYFRAME via helper: id={job['id']} {width}x{height} {frames}f · Q8 two-stage (stage1=20)")
@@ -29660,16 +31170,34 @@ def run_job_inner(job: dict) -> None:
             model_dir = str(pack_path("q4"))
             default_stage1 = 8
             default_stage2 = 3
+        # Before any preparation: a refusal costs nothing (a2v_max_frames).
+        _a2v_cap = a2v_max_frames()
+        if _a2v_cap and int(p["frames"]) > _a2v_cap:
+            raise RenderRefused("hardware_tier",
+                                a2v_length_refusal(int(p["frames"]), _a2v_cap))
         ltx_pack_preflight("q8" if uses_q8 else "q4", "Audio to Video")
         audio_src = (p.get("audio") or "").strip()
         if not audio_src or not Path(audio_src).exists():
             raise RuntimeError(f"audio file not found: {audio_src}")
+        # THE TWO AUDIO FILES. `cond_audio` is what the model listens to and
+        # `audio_src` is what the finished clip plays; they are the same file
+        # unless a vocal stem was asked for.
+        cond_audio, stem_note = a2v_conditioning_audio(p, audio_src)
+        if stem_note:
+            push(f"[a2v] {stem_note}")
         width, height = int(p["width"]), int(p["height"])
-        # Clamp resolution by tier cap (no-op when tier_max_dim returns 0).
+        # Clamp resolution by tier cap (no-op when tier_max_dim returns 0):
+        # proportionally, on the /64 grid, and recorded on the job, so the
+        # helper, the sidecar and the history all name the canvas that
+        # rendered (LTX-06 — it used to cap each side on its own and keep
+        # the requested size in the metadata).
         max_dim = tier_max_dim("t2v")
-        if max_dim:
-            width = min(width, max_dim)
-            height = min(height, max_dim)
+        if max_dim and max(width, height) > max_dim:
+            new_w, new_h = ltx_fit_canvas(width, height, max_dim)
+            push(f"A2V: clamping {width}×{height} → {new_w}×{new_h} "
+                 f"({SYSTEM_CAPS['label']} tier, {max_dim} max side).")
+            width, height = new_w, new_h
+            p["width"], p["height"] = width, height
         frames = int(p["frames"])
         desc_stem = _descriptive_filename(
             p.get("label") or "", p.get("prompt") or "", fallback="a2v"
@@ -29714,7 +31242,7 @@ def run_job_inner(job: dict) -> None:
             "prompt": p["prompt"],
             "negative_prompt": p.get("negative_prompt", ""),
             "output_path": str(out_path),
-            "audio_path": audio_src,
+            "audio_path": cond_audio,
             "image": ref_image_path,
             "height": height,
             "width": width,
@@ -29731,10 +31259,13 @@ def run_job_inner(job: dict) -> None:
             # the key was absent (#46).
             "audio_start_time": max(0.0, float(p.get("audio_start_time", 0.0) or 0.0)),
         }
+        # Both lanes attach the stack. Only Q8 used to receive it, so the
+        # same selection silently vanished when this Mac (or a missing High
+        # add-on) put the render on the Q4 distilled lane (LTX-03).
+        a2v_params["loras"] = a2v_loras
         if uses_q8:
             a2v_params["cfg_scale"] = float(p.get("cfg_scale", 3.0))
             a2v_params["stg_scale"] = float(p.get("stg_scale", 1.0))
-            a2v_params["loras"] = a2v_loras
         job_spec = {"action": action, "id": job["id"], "params": a2v_params}
         # Only mention the offset when it is actually non-zero — a "start=0.00s"
         # on every line would be noise, but when it IS set the log is the only
@@ -29752,7 +31283,8 @@ def run_job_inner(job: dict) -> None:
         push(
             f"Run A2V ({'Q8' if uses_q8 else 'Q4-distilled'}) via helper: "
             f"id={job['id']} {width}x{height} {frames}f · "
-            f"audio={Path(audio_src).name}"
+            f"audio={Path(cond_audio).name}"
+            f"{' (stem; the song is muxed back)' if cond_audio != audio_src else ''}"
             f"{' image=' + Path(ref_image_path).name if ref_image_path else ''}"
             f" scale={a2v_params['audio_conditioning_scale']}{_scale_note}"
             f"{_start_note}"
@@ -29761,9 +31293,32 @@ def run_job_inner(job: dict) -> None:
         if "seed_used" in result:
             push(f"seed used: {result['seed_used']}")
             p["seed_used"] = result["seed_used"]
+        # The pipeline muxed whatever it listened to. When that was a stem the
+        # clip is playing an a-cappella, so the original goes back over it —
+        # video stream copied, same seconds of the song the shot was rendered
+        # against (Maestro's seam: condition on the stem, deliver the record).
+        if cond_audio != audio_src:
+            try:
+                a2v_mux_original_audio(
+                    out_path, audio_src,
+                    start=a2v_params["audio_start_time"],
+                    duration=video_duration(frames))
+                push("[a2v] the original song was muxed back over the clip")
+            except JobCancelled:
+                # Stop during the remux. What is on disk is the clip the model
+                # sang against - it plays the a-cappella until this step puts
+                # the record back - so a cancelled remux may not be filed as a
+                # finished take (Codex review, 2026-09-22).
+                push("[a2v] stopped before the original song was muxed back")
+                raise
+            except Exception as exc:                             # noqa: BLE001
+                push(f"[a2v] could not mux the original song back ({exc}) — "
+                     f"this clip plays the vocal stem")
         sidecar = {
             "output": str(out_path), "raw_output": str(out_path),
             "params": {**p, "command": action, "audio": audio_src,
+                       "audio_conditioning": cond_audio,
+                       "audio_stem_used": cond_audio != audio_src,
                        "image": ref_image_path},
             # The number the engine actually ran with. `params` keeps what
             # the caller sent — blank when the slider was on Auto — so a
@@ -29945,9 +31500,7 @@ def run_job_inner(job: dict) -> None:
     # Standard / high / pro tiers pass full user-requested W×H through.
     t2v_max = tier_max_dim("t2v" if mode == "t2v" else "i2v")
     if t2v_max and max(width, height) > t2v_max:
-        scale = t2v_max / max(width, height)
-        new_w = max(32, (int(round(width * scale)) // 32) * 32)
-        new_h = max(32, (int(round(height * scale)) // 32) * 32)
+        new_w, new_h = ltx_fit_canvas(width, height, t2v_max)
         push(
             f"{mode.upper()}: clamping {width}×{height} → {new_w}×{new_h} "
             f"({SYSTEM_CAPS['label']} tier — keeps you out of swap)."
@@ -30308,6 +31861,17 @@ def run_job_inner(job: dict) -> None:
         # while the take was still forming (the chain never removed it).
         # The chain writes `raw_out` itself once the last window is trimmed.
         job_spec["params"]["frames"] = windows_plan["window"]
+        # WINDOW 1 RENDERS ITS OWN LINE (LTX-08). The prompt list was only
+        # resolved inside _run_windows_chain, AFTER this pass, which then
+        # started at window 2 — so an opening line that differed from the
+        # main prompt was saved as prompts[0] and never rendered. Resolved
+        # here from the same inputs (window_prompts is a pure function), so
+        # this pass, the chain and the sidecar name the same list.
+        import ltx_windows as _lw                                    # noqa: PLC0415
+        job_spec["params"]["prompt"] = _lw.window_prompts(
+            p.get("prompt") or "", p.get("window_prompts") or [],
+            invariants=p.get("window_invariants") or "",
+            count=windows_plan["count"])[0]
         _w0_dir = OUTPUT / ".windows" / str(job.get("id") or "take")
         _w0_dir.mkdir(parents=True, exist_ok=True)
         job_spec["params"]["output_path"] = str(_w0_dir / (raw_out.stem + "_w0" + raw_out.suffix))
@@ -30400,9 +31964,13 @@ def run_job_inner(job: dict) -> None:
         upscale_method = (p.get("upscale_method", "lanczos") or "lanczos").strip().lower()
         if upscale_method == "model":
             upscale_method = "pipersr"
-        upscaled_out = OUTPUT / (
-            f"{final_target.stem}_{upscale_plan['tag']}{final_target.suffix}"
-        )
+        # UNIQUE, like the native path above it. The bare "<stem>_<tag>" name
+        # collided with any earlier output that already carried it — a
+        # "scene_720p" render, or a "scene" render's own export — and the
+        # `ffmpeg -y` below then overwrote that video, and write_sidecar its
+        # record: somebody else's clip and its provenance, gone (JOB-01).
+        upscaled_out = _unique_output_path(
+            OUTPUT, f"{final_target.stem}_{upscale_plan['tag']}", final_target.suffix)
         if upscale_method == "pipersr":
             push("Sharp upscale: PiperSR/CoreML 2× pass, then ffmpeg fit/export.")
             run_pipersr_tracked(
@@ -30614,12 +32182,56 @@ def _push_job_done(job: dict) -> None:
         push(f"[push] skipped: {exc}")
 
 
+def _external_build_hold() -> str:
+    """Why the worker must not start a job right now, or "".
+
+    scripts/pinokio/h3_build_q8.sh loads the ~20 GB compact H3 engine from a
+    Pinokio shell, outside this process, and the sidebar offers it while the
+    panel runs. It used to wait only for the job already running, so the next
+    queued render started beside that load on a 36-59 GB Mac (Codex H3-02).
+    The build now writes STATE_DIR/h3_build.lock for its whole duration. A
+    lock whose pid is gone (the build was killed past its trap) or that is
+    older than four hours holds nothing: a stale file must never wedge the
+    queue."""
+    lock = STATE_DIR / "h3_build.lock"
+    try:
+        raw = lock.read_text(encoding="utf-8")
+        age = time.time() - lock.stat().st_mtime
+    except OSError:
+        return ""
+    if age > 4 * 3600:
+        return ""
+    try:
+        rec = json.loads(raw)
+        pid = int(rec.get("pid") or 0)
+    except (ValueError, TypeError, AttributeError):
+        rec, pid = {}, 0
+    if pid > 0:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return ""
+        except OSError:
+            pass
+    return str(rec.get("what") or "an engine build")
+
+
 def worker_loop() -> None:
+    held_note = ""
     while True:
         with QUEUE_COND:
-            while not STATE["queue"] or STATE["paused"]:
+            while True:
                 if not STATE["queue"] and not STATE["current"]:
                     caffeinate_off()
+                if STATE["queue"] and not STATE["paused"]:
+                    hold = _external_build_hold()
+                    if not hold:
+                        held_note = ""
+                        break
+                    if hold != held_note:
+                        held_note = hold
+                        push(f"Queue held: {hold} is loading a large model. "
+                             f"The next render starts when it finishes.")
                 QUEUE_COND.wait(timeout=2)
             job = STATE["queue"].pop(0)
             job["status"] = "running"
@@ -30630,6 +32242,9 @@ def worker_loop() -> None:
             STATE["log"] = []
             caffeinate_on()
         persist_queue()
+        # A settings record a full disk kept from an earlier job (write_sidecar)
+        # is written now, before this render can fill the disk again.
+        retry_pending_sidecars()
         # The funnel's last rung, recorded where every path converges: eight
         # call sites append to the queue, exactly one worker takes from it.
         # "They pressed Render at least once" is the difference between an
@@ -30955,6 +32570,7 @@ def _auto_promote_image_engine_kind(
                     "lightx2v/Qwen-Image-Edit-2511-Lightning:Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
                 ]
                 overrides["mflux_lora_scales"] = [1.0]
+                overrides["mflux_guidance"] = 1.0   # Lightning recipe (UI-03)
             return agent_image_engine.ImageEngineConfig(
                 **{**cur.__dict__, **overrides}
             )
@@ -31045,6 +32661,9 @@ def _build_image_engine_config(
                 "lightx2v/Qwen-Image-Edit-2511-Lightning:Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
             ],
             mflux_lora_scales=[1.0],
+            # Lightning is distilled without CFG: 1.0, not the family's 4.0
+            # (Codex UI-03 — this preset sent --guidance 4.0).
+            mflux_guidance=1.0,
         )
     if engine_override == "qwen_edit_inline":
         # Qwen MEDIUM — 8-step Q6, no LoRA, no CFG. Sits between Fast's
@@ -31650,14 +33269,15 @@ from panel import routes_loras as _routes_loras
 from panel import routes_meta as _routes_meta
 from panel import routes_oneshot as _routes_oneshot
 from panel import routes_models as _routes_models
+from panel import routes_music as _routes_music
 from panel import routes_queue as _routes_queue
 from panel import routes_storyboard as _routes_storyboard
 from panel import routes_stats as _routes_stats
 from panel import routes_train as _routes_train
 
 for _routes_mod in (_routes_characters, _routes_files, _routes_image,
-                    _routes_loras, _routes_meta, _routes_models, _routes_oneshot,
-                    _routes_queue, _routes_stats, _routes_storyboard,
+                    _routes_loras, _routes_meta, _routes_models, _routes_music,
+                    _routes_oneshot, _routes_queue, _routes_stats, _routes_storyboard,
                     _routes_train):
     _routes_mod.P = sys.modules[__name__]
 
@@ -32082,8 +33702,23 @@ class Handler(BaseHTTPRequestHandler):
                 # THE MACHINE'S OWN CUT. It lands in the automatic lane so a
                 # user walking back through his work meets his decisions
                 # first, not the auto-editor's.
-                sedit.save_edit(bdir, edit, origin="auto")
+                #
+                # AND ONLY OVER NOTHING. The analysis above decodes every clip
+                # and can take a while; a second tab (or an API client) that
+                # finished its own first load and saved a cut by hand in that
+                # window used to be overwritten by this unguarded write. So
+                # it is a compare-and-swap against "no file": if somebody got
+                # there first, their document is the answer (SB5-07).
+                sedit.save_edit(bdir, edit, origin="auto", expect=0)
                 edit = sedit.load_edit(bdir)
+            except sedit.EditConflict:
+                fresh = False
+                try:
+                    edit = sedit.load_edit(bdir)
+                except sedit.EditError as exc:
+                    self._json({"ok": False, "error": str(exc),
+                                "corrupt": True}, 500)
+                    return True
             except sedit.EditError as exc:
                 self._json({"ok": False,
                             "error": f"auto-edit refused: {exc}"}, 500)
@@ -32148,10 +33783,7 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception:
                         bid = ""
                 if not bid:
-                    bid = "sb_%s_%s" % (time.strftime("%Y%m%d"),
-                                        hashlib.sha1(
-                                            (concept + str(time.time())).encode()
-                                        ).hexdigest()[:6])
+                    bid = _sb_new_id(concept)
                     board = storyboard.new_storyboard(bid, "Planning…")
                     # new_storyboard() hands back storyboard.DEFAULT_POLICY —
                     # 1024x576 delivery, no tier clamp, and not the user's saved
@@ -32534,28 +34166,36 @@ class Handler(BaseHTTPRequestHandler):
                 # Remove ONLY this board's queued jobs, through the same code
                 # path removeJob(id) uses. Never /queue/clear — another
                 # feature's jobs may be in there.
+                #
+                # THE ANCHOR STILLS ARE THIS FILM'S JOBS TOO (SB5-09). They
+                # were left out, so a Stop during the still batch left every
+                # image job queued and the running one on the GPU while the
+                # screen said the film had stopped.
                 mine = set()
+                stills = set()
                 for s in (board.get("shots") or []):
                     if not isinstance(s, dict):
                         continue
                     for k in ("draft_job_id", "final_job_id"):
                         if s.get(k):
                             mine.add(s[k])
-                removed = 0
-                with QUEUE_COND:
-                    before = len(STATE["queue"])
-                    STATE["queue"] = [j for j in STATE["queue"] if j.get("id") not in mine]
-                    removed = before - len(STATE["queue"])
-                    QUEUE_COND.notify_all()
-                persist_queue()
+                    sj = s.get("still_job_id")
+                    if sj and sj != "skipped" and not s.get("still"):
+                        mine.add(sj)
+                        stills.add(sj)
                 # ...and cancel the shot ALREADY RENDERING, through the panel's
                 # own /stop path. Dropping the queue alone left an H3 shot
                 # burning the GPU for another 20 minutes after the user had
                 # been told the film stopped.
-                cancelled = _sb_cancel_running_shot(mine)
+                removed, cancelled = _sb_withdraw_jobs(mine)
                 for s in (board.get("shots") or []):
                     if isinstance(s, dict) and s.get("status") in ("queued",):
                         s["status"] = "pending"
+                    # A withdrawn still is owed again: without this the next
+                    # Render would skip it ("already has a still job") and
+                    # render the shot unanchored.
+                    if isinstance(s, dict) and s.get("still_job_id") in stills:
+                        s.pop("still_job_id", None)
                 # The cancelled shot is deliberately NOT rewritten here. The
                 # worker is still unwinding the kill; its job goes terminal a
                 # moment later and _sb_reconcile() folds that verdict onto the
@@ -32629,8 +34269,7 @@ class Handler(BaseHTTPRequestHandler):
                     meta = {}
                 params = meta.get("params") or {}
                 if bid in ("", "new"):
-                    bid = "sb_%s_%s" % (time.strftime("%Y%m%d"),
-                                        hashlib.sha1(str(time.time()).encode()).hexdigest()[:6])
+                    bid = _sb_new_id()
                     board = storyboard.new_storyboard(bid, "Untitled film")
                     board["policy"] = _sb_policy_for(
                         get_settings().get("storyboard_draft_quality", "quick"),
@@ -33156,6 +34795,26 @@ class Handler(BaseHTTPRequestHandler):
                         current = {}
                     on_disk = int(current.get("revision") or 0)
                     expect = payload.get("expect_revision")
+                    # WHICH DRAFT the client believes it is saving. Revisions
+                    # restart per draft, so the revision alone let a stale tab
+                    # save draft A's arrangement into a just-duplicated draft
+                    # B (SB5-04). Absent or empty = a client that predates the
+                    # field: unchecked, as before.
+                    want_draft = payload.get("draft")
+                    want_draft = (want_draft.strip()
+                                  if isinstance(want_draft, str) else "") or None
+                    if want_draft:
+                        active = sedit.load_draft_index(
+                            _sbe_board_dir(bid))["active"]
+                        if want_draft != active:
+                            self._json({"ok": False, "conflict": True,
+                                        "draft_conflict": True,
+                                        "active_draft": active,
+                                        "revision": on_disk,
+                                        "error": f"this film is on the draft "
+                                                 f"{active!r} now, not "
+                                                 f"{want_draft!r}"}, 409)
+                            return
                     if expect is not None and int(expect) != on_disk:
                         self._json({"ok": False, "conflict": True,
                                     "revision": on_disk,
@@ -33194,15 +34853,18 @@ class Handler(BaseHTTPRequestHandler):
                              f"{on_disk} (last write wins)")
                     try:
                         sedit.save_edit(_sbe_board_dir(bid), incoming,
-                                        expect=expect)
+                                        expect=expect, expect_draft=want_draft)
                     except sedit.EditConflict as exc:
                         # THE RACE, CAUGHT AT THE WRITE. Same body the
                         # sequential case produces, because to the tab that
                         # lost it is the same event: somebody else is ahead,
                         # your arrangement is still on your screen.
-                        self._json({"ok": False, "conflict": True,
-                                    "revision": exc.revision,
-                                    "error": str(exc)}, 409)
+                        out = {"ok": False, "conflict": True,
+                               "revision": exc.revision, "error": str(exc)}
+                        if exc.draft:
+                            out.update(draft_conflict=True,
+                                       active_draft=exc.draft)
+                        self._json(out, 409)
                         return
                     except sedit.EditError as exc:
                         self._json({"ok": False, "error": str(exc)}, 400)
@@ -33463,8 +35125,7 @@ class Handler(BaseHTTPRequestHandler):
                                     "error": "there is no timeline to "
                                              "export"}, 404)
                         return
-                    dest = _sb_film_dir(board)
-                    dest.mkdir(parents=True, exist_ok=True)
+                    dest = _sb_film_dir_for_write(board)
                     audio = edit.get("audio") or None
                     if audio and not Path(str(audio.get("path") or "")).is_file():
                         audio = None
@@ -34188,7 +35849,7 @@ def _preview_progress(current: dict | None, remaining: float | None,
     trap — the user aborts a take that was going to be fine."""
     if not current:
         return {}
-    d = live_preview_dir(current.get("id") or "")
+    d = live_preview_dir(live_preview_job_id(current))
     try:
         st = json.loads((d / "status.json").read_text())
     except (OSError, ValueError):
@@ -34272,7 +35933,7 @@ def _h3_preview_progress(current: dict | None) -> dict:
     """
     if not current or not h3_live_preview_ready():
         return {}
-    d = live_preview_dir(current.get("id") or "")
+    d = live_preview_dir(live_preview_job_id(current))
     status_path = d / "status.json"
     try:
         st = json.loads(status_path.read_text())
@@ -34437,6 +36098,9 @@ def page(theme: str = "") -> str:
         "train_min_images": TRAIN_MIN_IMAGES,
         "train_max_images": TRAIN_MAX_IMAGES,
         "generation_profile": GENERATION_PROFILE,
+        # The longest a2v render this Mac accepts (0 = uncapped); the Audio
+        # tab warns against the same number the worker refuses on.
+        "a2v_max_frames": a2v_max_frames(),
         # Hardware-aware time estimates for the Quality pills. The pill HTML
         # ships with the Comfortable-tier defaults; on boot we rewrite the
         # subtext using the active tier's quality_times. Compact users see

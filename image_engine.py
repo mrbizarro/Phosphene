@@ -250,9 +250,44 @@ class ImageJobCancelled(RuntimeError):
     """
 
 
+# Set by the panel: "has Stop been pressed for the queue job this thread is
+# running?" None outside the panel (tests, scripts) = never cancelled.
+_CANCEL_CHECK = None
+
+
 def _register_active_proc(proc) -> None:
+    """Publish a fresh Popen where /stop looks, then honour a Stop that came
+    first.
+
+    THE ORDER IS THE FIX (same shape as the panel's _register_job_pgid). Stop
+    sets the job's cancel flag and then reads this registry; this adds to the
+    registry and then reads the flag. Whichever runs first, the other sees it:
+    Stop finds the process and kills it, or this finds the flag and kills the
+    process itself. Before, a Stop during the image job's preflight found no
+    process to kill, and the engine started anyway and published its image."""
     with _ACTIVE_PROC_LOCK:
         _ACTIVE_PROCS.add(proc)
+    check = _CANCEL_CHECK
+    try:
+        cancelled = bool(check and check())
+    except Exception:        # noqa: BLE001
+        cancelled = False
+    if cancelled:
+        import os
+        import signal
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            try:
+                proc.kill()
+            except Exception:        # noqa: BLE001
+                pass
+        try:
+            proc.wait(timeout=5)
+        except Exception:        # noqa: BLE001
+            pass
+        _unregister_active_proc(proc)
+        raise ImageJobCancelled("image engine stopped before it started (Stop)")
 
 
 def _unregister_active_proc(proc) -> None:
@@ -867,6 +902,15 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
     eff_guidance = (config.mflux_guidance
                     if config.mflux_guidance is not None
                     else fam_defaults["guidance"])
+    # A LIGHTNING ADAPTER RUNS AT GUIDANCE 1.0, whatever the family default.
+    # Lightning is a step distillation trained without CFG; the qwen_edit
+    # family default (4.0) is the 40-step Quality recipe's true-CFG. Reference
+    # Edit Fast, the dataclass default and the auto-promotion all carry the
+    # Lightning LoRA with guidance unset, so they sent `--guidance 4.0`
+    # (Codex UI-03, 2026-09-24). An explicit mflux_guidance still wins.
+    if (config.mflux_guidance is None
+            and any("lightning" in str(lp).lower() for lp in (config.mflux_lora_paths or []))):
+        eff_guidance = 1.0
 
     # Build the seed list. mflux's CLI loops `for seed in args.seed`
     # AFTER loading the model exactly once, so passing all seeds at

@@ -44,6 +44,10 @@
 // Published as a NEW branch: the histories diverged, and force-moving a
 // branch users' installs already track is how updates break mid-clone.
 const H3_BRANCH = "codex/h3-engine-v2"
+// Every step that works inside the checkout starts here: resolve the roots the
+// panel uses (LTX_H3_ROOT / LTX_H3_MODELS), then enter the checkout. See
+// scripts/pinokio/h3_roots.sh.
+const RH3 = ". scripts/pinokio/h3_roots.sh && cd \"$H3_CHECKOUT\" && "
 
 module.exports = {
   requires: { bundle: "ai" },
@@ -84,12 +88,19 @@ module.exports = {
     // ---- Clone the engine --------------------------------------------------
     // Guarded: `git clone` into an existing directory fails and would abort
     // the whole install on a re-run / resume.
+    //
+    // EVERY STEP BELOW RESOLVES ITS ROOTS THROUGH scripts/pinokio/h3_roots.sh —
+    // LTX_H3_ROOT / LTX_H3_MODELS, the overrides the panel and the sidebar
+    // already honour. The steps used to hardcode `minimax-h3-mlx` and
+    // `{{cwd}}/mlx_models/hailuo-h3`, so on a relocated install Repair fixed a
+    // second checkout the panel never uses and could fetch ~75 GB of duplicate
+    // weights (Codex INST-09). Hence no `path:` and no `when: exists(...)`:
+    // both can only name the default location.
     {
-      when: "{{!exists('minimax-h3-mlx/.git')}}",
       method: "shell.run",
       params: {
         message: [
-          "git clone --branch " + H3_BRANCH + " https://github.com/mrbizarro/minimax-h3-mlx.git minimax-h3-mlx"
+          ". scripts/pinokio/h3_roots.sh && { [ -d \"$H3_CHECKOUT/.git\" ] || git clone --branch " + H3_BRANCH + " https://github.com/mrbizarro/minimax-h3-mlx.git \"$H3_CHECKOUT\"; }"
         ]
       }
     },
@@ -131,13 +142,12 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        path: "minimax-h3-mlx",
         message: [
           // The pin itself lives in scripts/pinokio/h3_checkout.sh (#74: Update
           // must make the same move; one literal, two callers). H3_BRANCH above
           // is only the fresh-clone branch and must match it.
-          "bash ../scripts/pinokio/h3_checkout.sh \"$(pwd)\"",
-          "git rev-parse --short HEAD"
+          RH3 + "bash \"$APP_ROOT/scripts/pinokio/h3_checkout.sh\" \"$(pwd)\"",
+          RH3 + "git rev-parse --short HEAD"
         ]
       }
     },
@@ -171,20 +181,9 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        path: "minimax-h3-mlx",
         message: [
-          "echo '=== H3 venv check ==='",
-          [
-            "if .venv/bin/python -c 'import sys' >/dev/null 2>&1; then",
-            "  echo 'H3 venv healthy - reusing it'",
-            "else",
-            "  echo 'H3 venv missing or broken (dangling interpreter) - rebuilding, no weights are re-downloaded'",
-            "  which uv && uv --version || echo 'uv NOT FOUND'",
-            "  rm -rf .venv",
-            "  uv venv --python 3.11 --seed .venv",
-            "  .venv/bin/python --version || echo 'venv python NOT executable'",
-            "fi",
-          ].join("\n")
+          // The body is scripts/pinokio/h3_venv.sh (it was a 372-char dispatch).
+          RH3 + "bash \"$APP_ROOT/scripts/pinokio/h3_venv.sh\""
         ]
       }
     },
@@ -192,11 +191,10 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        path: "minimax-h3-mlx",
         message: [
           "echo '=== H3 dependencies ==='",
-          "uv pip install --python .venv/bin/python -r requirements.txt",
-          ".venv/bin/python -c \"import mlx.core as mx, numpy, PIL; print('H3 deps OK')\""
+          RH3 + "uv pip install --python .venv/bin/python -r requirements.txt",
+          RH3 + ".venv/bin/python -c \"import mlx.core as mx, numpy, PIL; print('H3 deps OK')\""
         ]
       }
     },
@@ -223,13 +221,17 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        path: "minimax-h3-mlx",
         env: {
           HF_HOME: "{{cwd}}/cache/HF_HOME",
           HF_XET_HIGH_PERFORMANCE: "1"
         },
         message: [
-          ".venv/bin/python scripts/download_selected.py --root '{{cwd}}/mlx_models/hailuo-h3'"
+          // A FLAT tree (see h3_roots.sh) cannot be written by this downloader
+          // — it appends models/ — so it is left alone instead of duplicated.
+          // An INCOMPLETE flat tree stops the install with the missing paths
+          // ("error:" is what Pinokio 8.2.0 stops on) instead of skipping it
+          // (h3_fetch_weights in h3_roots.sh; kept out of line for the width).
+          RH3 + "h3_fetch_weights"
         ]
       }
     },
@@ -258,9 +260,8 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        path: "minimax-h3-mlx",
         message: [
-          ".venv/bin/python '{{cwd}}/scripts/fetch_h3_turbo.py' --dir '{{cwd}}/mlx_models/hailuo-h3/models/turbo-lora' || echo 'TURBO FETCH FAILED - panel offers a one-click retry'"
+          RH3 + ".venv/bin/python \"$APP_ROOT/scripts/fetch_h3_turbo.py\" --dir \"$H3_LAYOUT/turbo-lora\" || echo 'TURBO FETCH FAILED - panel offers a one-click retry'"
         ]
       }
     },
@@ -276,19 +277,18 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        path: "minimax-h3-mlx",
         env: {
           HF_HOME: "{{cwd}}/cache/HF_HOME",
           HF_XET_HIGH_PERFORMANCE: "1"
         },
         message: [
-          "mkdir -p '{{cwd}}/mlx_models/hailuo-h3/models/tae'",
+          RH3 + "mkdir -p \"$H3_LAYOUT/tae\"",
           // The HF repo this used to come from (madebyollin/taeh3) was deleted
           // in 2026-09 and every H3 install died here with "Repository Not
           // Found" (Pinokio, @macstephen). The script fetches the same bytes
           // from a pinned commit of the author's GitHub repo, verifies the
           // sha256, and keeps HF as a fallback.
-          ".venv/bin/python ../scripts/pinokio/h3_fetch_tae.py '{{cwd}}/mlx_models/hailuo-h3/models/tae/taeh3.safetensors'"
+          RH3 + ".venv/bin/python \"$APP_ROOT/scripts/pinokio/h3_fetch_tae.py\" \"$H3_LAYOUT/tae/taeh3.safetensors\""
         ]
       }
     },
@@ -312,12 +312,11 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        path: "minimax-h3-mlx",
         // 3.8.3: body moved to scripts/pinokio/h3_build_q8.sh (595-char
-        // dispatch). {{cwd}} is substituted in the MESSAGE, so the app root
-        // is passed as $1 rather than written into the script.
+        // dispatch). The app root is passed as $1; h3_roots.sh has exported
+        // LTX_H3_MODELS as an absolute path, which the build reads.
         message: [
-          "bash ../scripts/pinokio/h3_build_q8.sh '{{cwd}}'"
+          RH3 + "bash \"$APP_ROOT/scripts/pinokio/h3_build_q8.sh\" \"$APP_ROOT\""
         ]
       }
     },

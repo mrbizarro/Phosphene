@@ -186,7 +186,7 @@ def test_take_runner_stops_between_parts(tmp_path, monkeypatch):
         job["cancel_requested"] = True                # Stop pressed during part 1
     monkeypatch.setattr(p, "run_h3_job_inner", fake_h3)
     job = p.make_job({"mode": "t2v", "engine": "h3", "prompt": "x", "take_seconds": "30"})
-    with pytest.raises(RuntimeError, match="stopped"):
+    with pytest.raises(RuntimeError, match="(?i)stopped"):
         p.run_take_job_inner(job)
 
 

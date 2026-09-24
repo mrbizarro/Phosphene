@@ -7,6 +7,9 @@
 # survive). See scripts/pinokio/README.md.
 #
 #   cwd : the app root, i.e. the panel repo
+#   $1  : the ref being updated TO, optional; defaults to @{u}. The in-panel
+#         Update (panel/routes_meta.py) passes origin/main — it runs the same
+#         guard rather than a second implementation of these rules.
 #
 # SEMANTICS: unchanged — one shell, NO `set -e`. Almost every command in here
 # exits non-zero as ordinary control flow (`git cat-file -e ... || continue`,
@@ -74,9 +77,17 @@
 # scripts/check_ltx_pin.js, which drives these real dispatches against real
 # throwaway clones.
 
-O=$(git diff --name-only --diff-filter=ADRT HEAD '@{u}' | while IFS= read -r f; do
+REF=${1:-'@{u}'}
+# An unresolvable ref would make the diff below print nothing and the guard
+# pass — fail closed instead.
+git rev-parse --verify -q "$REF^{commit}" >/dev/null || {
+  echo "FATAL error: cannot resolve $REF - not updating. Nothing deleted."
+  exit 1
+}
+
+O=$(git diff --name-only --diff-filter=ADRT HEAD "$REF" | while IFS= read -r f; do
   # Only paths the fetched tree actually writes, and only ones we don't track.
-  git cat-file -e "@{u}:$f" 2>/dev/null || continue
+  git cat-file -e "$REF:$f" 2>/dev/null || continue
   git cat-file -e "HEAD:$f" 2>/dev/null && continue
 
   # 1. The exact path. An empty directory holds no user data and git removes
@@ -104,8 +115,12 @@ O=$(git diff --name-only --diff-filter=ADRT HEAD '@{u}' | while IFS= read -r f; 
   done
 done)
 
+# "error:" IN THE REFUSAL IS LOAD-BEARING. Pinokio 8.2.0 ignores a step's exit
+# status; it stops a run only when the output matches /error:/i (or /errno /i).
+# "FATAL: ..." alone let the run continue into update_converge.sh (INST-02).
+# That script now repeats this guard before its reset as well — two defences.
 [ -z "$O" ] || {
   echo "$O"
-  echo 'FATAL: untracked/ignored paths obstruct Update. Move them; nothing deleted.'
+  echo 'FATAL error: untracked/ignored paths obstruct Update. Move them; nothing deleted.'
   exit 1
 }

@@ -140,6 +140,21 @@ class TestH3LoraFileImport(unittest.TestCase):
         self.assertEqual(names, ["raw-kohya.json", "raw-kohya.safetensors"])
         self.assertEqual(P._h3_lora_layout(self.dir / "raw-kohya.safetensors")["layout"], "bare")
 
+    def test_non_ascii_filenames_import(self):
+        """Codex H3-05: `日本語.safetensors` was refused as the wrong extension —
+        sanitising the whole name ate the stem and the dot with it."""
+        a = P.import_h3_lora_file("日本語.safetensors", _safetensors_lora())
+        self.assertTrue(a["filename"].endswith(".safetensors"), a)
+        self.assertTrue((self.dir / a["filename"]).is_file())
+        b = P.import_h3_lora_file("人物 LoRA.safetensors", _safetensors_lora())
+        self.assertEqual(b["filename"], "LoRA.safetensors")
+        c = P.import_h3_lora_file("別の人.safetensors", _safetensors_lora())
+        self.assertNotEqual(c["filename"], a["filename"], "two Japanese names collided")
+        for bad in ("日本語.bin", ".safetensors", "../x.ckpt"):
+            with self.assertRaises(ValueError):
+                P._h3_lora_import_name(bad)
+        self.assertEqual(P._h3_lora_import_name("../../etc/x.safetensors"), "x.safetensors")
+
     def test_refuses_non_safetensors_uploads(self):
         with self.assertRaisesRegex(ValueError, "\.safetensors"):
             P.import_h3_lora_file("adapter.zip", b"not an adapter")

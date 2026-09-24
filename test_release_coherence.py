@@ -73,6 +73,41 @@ class ReadmeVersionBanner(unittest.TestCase):
         )
 
 
+class ReadmeManualInstall(unittest.TestCase):
+    """The README's Manual install runs on a fresh machine (Codex INST-04).
+
+    It created the venv with `uv venv --seed` and then called `./env/bin/uv`,
+    which `--seed` never installs (pip, setuptools, wheel only) — so every
+    package step failed and the reader was left with a venv holding a Python
+    and nothing else. It also named a stale engine tag and skipped the
+    transformers cap and the dependency pass install.js runs.
+    """
+
+    def _section(self):
+        readme = _read("README.md")
+        start = readme.index("### Manual install")
+        end = readme.index("\n## ", start) if "\n## " in readme[start:] else len(readme)
+        return readme[start:end]
+
+    def test_no_venv_local_uv_or_pip(self):
+        sec = self._section()
+        self.assertNotRegex(sec, r"(?m)^\s*\S*env/bin/uv\b",
+                            "Manual install calls env/bin/uv — `uv venv --seed` does not put uv in the venv")
+        self.assertNotRegex(sec, r"(?m)^\s*\S*env/bin/pip\b",
+                            "Manual install mixes plain pip into a uv-managed install")
+
+    def test_pins_match_the_installer(self):
+        sec = self._section()
+        pin = re.search(r'LTX_PIN="([^"]+)"', _read("scripts/pinokio/ltx_checkout.sh")).group(1)
+        self.assertIn(f"git checkout {pin}", sec)
+        self.assertIn("'transformers>=5.0.0,<5.13.0'", sec)
+        # The dependency pass (no --no-deps) must precede the --reinstall pass.
+        dep = re.search(r"uv pip install --python env/bin/python \\\n\s*--build-constraints", sec)
+        rei = re.search(r"--reinstall --no-deps \\\n\s*--build-constraints", sec)
+        self.assertTrue(dep and rei and dep.start() < rei.start(),
+                        "vendored packages need a dependency pass, then the --reinstall --no-deps pass")
+
+
 class AgentRulesAreSymlinks(unittest.TestCase):
     """No agent reads a frozen copy of the manual."""
 

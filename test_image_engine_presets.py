@@ -26,6 +26,64 @@ def _cfg(override: str):
     return panel._build_image_engine_config(override, {})
 
 
+class _Spawned(Exception):
+    pass
+
+
+def _argv(cfg) -> list:
+    """The mflux argv _generate_mflux would spawn — nothing is spawned."""
+    import tempfile
+    from pathlib import Path
+    seen = {}
+
+    def popen(cmd, *a, **k):
+        seen["cmd"] = list(cmd)
+        raise _Spawned()
+    with tempfile.TemporaryDirectory() as tmp:
+        ref = Path(tmp) / "ref.png"
+        ref.write_bytes(b"x")
+        with mock.patch.object(image_engine, "_resolve_mflux_bin", lambda c: "/nonexistent/mflux-generate-qwen-edit"), \
+                mock.patch.object(image_engine, "repair_partial_hf_download", lambda *a, **k: None), \
+                mock.patch("subprocess.Popen", popen):
+            try:
+                image_engine._generate_mflux("a test", 1, 512, 512, Path(tmp), 1, cfg, refs=[str(ref)])
+            except _Spawned:
+                pass
+    return seen["cmd"]
+
+
+def _guidance(cfg) -> float:
+    cmd = _argv(cfg)
+    return float(cmd[cmd.index("--guidance") + 1])
+
+
+class LightningRunsWithoutCfg(unittest.TestCase):
+    """Codex UI-03: Reference Edit Fast paired the 4-step Lightning adapter with
+    `--guidance 4.0` (the qwen_edit family default, i.e. Quality's true-CFG)."""
+
+    def test_fast_sends_guidance_one(self):
+        cmd = _argv(_cfg("qwen_edit_lightning_inline"))
+        self.assertEqual(float(cmd[cmd.index("--guidance") + 1]), 1.0)
+        self.assertEqual(cmd[cmd.index("--steps") + 1], "4")
+        self.assertIn("--lora-paths", cmd)
+
+    def test_the_default_and_promoted_lightning_configs_send_guidance_one(self):
+        self.assertEqual(_guidance(image_engine.ImageEngineConfig(
+            kind="mflux", mflux_model="Qwen/Qwen-Image-Edit-2511", mflux_family="qwen_edit")), 1.0)
+        with mock.patch.object(image_engine, "_resolve_mflux_bin", lambda c: "/x"):
+            # a v2.x config: 8 steps, no LoRA — the branch that writes the recipe
+            promoted = panel._auto_promote_image_engine_kind(image_engine.ImageEngineConfig(
+                kind="mflux", mflux_family="qwen_edit", mflux_steps=8, mflux_lora_paths=[]))
+        self.assertEqual(promoted.mflux_guidance, 1.0)
+        self.assertEqual(_guidance(promoted), 1.0)
+
+    def test_quality_keeps_its_cfg_and_an_explicit_value_wins(self):
+        self.assertEqual(_guidance(_cfg("qwen_edit_high_inline")), 4.0)
+        cfg = _cfg("qwen_edit_lightning_inline")
+        cfg.mflux_guidance = 2.5
+        self.assertEqual(_guidance(cfg), 2.5)
+
+
 class PresetLoraContracts(unittest.TestCase):
     def test_quality_carries_no_lora(self):
         cfg = _cfg("qwen_edit_high_inline")

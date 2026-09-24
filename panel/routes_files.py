@@ -376,6 +376,31 @@ def get_library_images(h, parsed) -> None:
 # from disk. Containment check identical to /output/hide so the
 # endpoint can't be tricked into deleting arbitrary paths. Used
 # by the per-card × button in the Outputs gallery.
+def _reserve_trash_name(trash_dir, c, ts: str):
+    """A Trash destination nobody else holds, CLAIMED before the move.
+
+    The old rule checked only the plain name and fell back to one
+    timestamp-suffixed name without checking that one: same-seed image
+    batches share basenames (`cand_42_mflux.png`), so a second deletion in the
+    same second — two tabs, or two batches — picked the same suffixed name
+    and the move silently replaced the first trashed image (Codex UI-05).
+    Each candidate is created with O_EXCL, so a concurrent request cannot pick
+    it too; the move then lands on our empty placeholder."""
+    names = [c.name, f"{c.stem}-{ts}{c.suffix}"]
+    names += [f"{c.stem}-{ts}-{n}{c.suffix}" for n in range(2, 1000)]
+    for name in names:
+        dest = trash_dir / name
+        if dest.exists() or dest.is_symlink():
+            continue
+        try:
+            fd = P.os.open(str(dest), P.os.O_WRONLY | P.os.O_CREAT | P.os.O_EXCL, 0o600)
+        except FileExistsError:
+            continue
+        P.os.close(fd)
+        return dest
+    raise OSError(f"no free name in the Trash for {c.name}")
+
+
 @post("/output/delete")
 def post_output_delete(h, path, qs, ctype) -> None:
     _rb = h._read_form_body()
@@ -524,13 +549,18 @@ def post_output_delete(h, path, qs, ctype) -> None:
     trashed = []
     ts = P.time.strftime("%Y%m%d-%H%M%S")
     for c in candidates:
-        dest = trash_dir / c.name
-        if dest.exists():
-            dest = trash_dir / f"{c.stem}-{ts}{c.suffix}"
+        try:
+            dest = _reserve_trash_name(trash_dir, c, ts)
+        except OSError as e:
+            h._json({"error": f"move to Trash failed: {e}"}, 500); return
         try:
             P.shutil.move(str(c), str(dest))
             trashed.append(str(dest))
         except OSError as e:
+            try:
+                dest.unlink()          # our empty placeholder, never a user file
+            except OSError:
+                pass
             h._json({"error": f"move to Trash failed: {e}"}, 500); return
     # Drop every trashed-original from HIDDEN_PATHS so we don't
     # leak orphan entries into panel_hidden.json. The native

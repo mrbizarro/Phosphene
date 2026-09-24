@@ -31,6 +31,18 @@ class TheWords(unittest.TestCase):
         self.assertEqual(panel._output_search_text({}, {}), "")
         self.assertEqual(panel._output_search_text({"bad": object()}, {"prompt": None}), "")
 
+    def test_image_studio_sidecars_are_searchable_by_prompt_seed_and_size(self):
+        """Codex UI-07: image sidecars keep these at the top level."""
+        q = panel._output_search_text(
+            {"prompt": "a zebra on Mars", "seed": 42, "width": 1024, "height": 1024,
+             "engine": "mflux", "model": "qwen-image-edit-2511"}, {})
+        for w in ("a zebra on mars", "42", "1024x1024", "mflux"):
+            self.assertIn(w, q, w)
+        # params still wins where both exist
+        q2 = panel._output_search_text({"prompt": "top"}, {"prompt": "nested"})
+        self.assertIn("nested", q2)
+        self.assertNotIn("top", q2)
+
     def test_list_outputs_carries_q(self):
         with tempfile.TemporaryDirectory() as d:
             out = Path(d)

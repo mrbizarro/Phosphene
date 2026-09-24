@@ -61,5 +61,53 @@ class AWriteKeepsWhatOthersSaved(unittest.TestCase):
         self.assertEqual(json.loads(P.SETTINGS_FILE.read_text())["hf_token"], "")
 
 
+
+_WRITER = r"""
+import os, sys, time
+sys.path.insert(0, sys.argv[1])
+import mlx_ltx_panel as P
+P.get_settings()                                  # this process's copy, before either write
+real_save = P._save_settings
+def slow_save(settings, **kw):                    # widen the read-merge-replace window
+    time.sleep(0.6)
+    real_save(settings, **kw)
+P._save_settings = slow_save
+go = float(sys.argv[2])
+while time.time() < go:
+    time.sleep(0.005)
+if sys.argv[3] == "token":
+    cur, err = P.update_settings({"hf_token": "hf_saved_in_panel_a_0123456789"})
+    assert err is None, err
+else:
+    P._settings_set_internal(analytics_last_version="9.9.9")
+"""
+
+
+class TwoPanelsWritingAtOnce(unittest.TestCase):
+    """Codex UI-04: the merge above is only as good as its lock, and the lock
+    was a THREAD lock. Two processes that both read before either replaced the
+    file lost the first one's key. Two real processes, one temp state dir."""
+
+    def test_both_keys_survive_a_simultaneous_save(self):
+        import subprocess
+        import sys
+        root = str(Path(__file__).resolve().parent)
+        state = Path(tempfile.mkdtemp(prefix="phos-settings-2p-"))
+        env = dict(os.environ, LTX_STATE_DIR=str(state),
+                   LTX_OUTPUT_DIR=str(state / "out"), LTX_UPLOADS_DIR=str(state / "up"),
+                   PHOSPHENE_ANALYTICS_DISABLED="1", PHOSPHENE_DISABLE_VERSION_CHECK="1")
+        env.pop("PYTEST_CURRENT_TEST", None)
+        go = str(time.time() + 6.0)
+        procs = [subprocess.Popen([sys.executable, "-c", _WRITER, root, go, role], env=env,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                 for role in ("token", "bookkeeping")]
+        for pr in procs:
+            _, err = pr.communicate(timeout=120)
+            self.assertEqual(pr.returncode, 0, err.decode(errors="replace")[-800:])
+        on_disk = json.loads((state / "panel_settings.json").read_text())
+        self.assertEqual(on_disk.get("hf_token"), "hf_saved_in_panel_a_0123456789",
+                         "a concurrent bookkeeping write reverted a saved token")
+        self.assertEqual(on_disk.get("analytics_last_version"), "9.9.9")
+
 if __name__ == "__main__":
     unittest.main()

@@ -100,9 +100,9 @@ module.exports = {
       params: {
         message: [
           "U=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null)",
-          "[ -n \"$U\" ] || { echo 'FATAL: no upstream configured'; exit 1; }",
+          "[ -n \"$U\" ] || { echo 'FATAL error: no upstream configured'; exit 1; }",
           "echo \"updating $(git rev-parse --abbrev-ref HEAD) from $U\"",
-          "git fetch \"${U%%/*}\" || { echo 'FATAL: fetch failed (offline?) - nothing changed, re-run Update'; exit 1; }"
+          "git fetch \"${U%%/*}\" || { echo 'FATAL error: fetch failed (offline?) - nothing changed, re-run Update'; exit 1; }"
         ].join("\n")
       }
     },
@@ -175,13 +175,13 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        message: "if [ -f scripts/pinokio/update_obstruction_guard.sh ]; then bash scripts/pinokio/update_obstruction_guard.sh; else echo 'FATAL: scripts/pinokio/update_obstruction_guard.sh missing - repair with: git checkout -- scripts/pinokio'; exit 1; fi"
+        message: "if [ -f scripts/pinokio/update_obstruction_guard.sh ]; then bash scripts/pinokio/update_obstruction_guard.sh; else echo 'FATAL error: scripts/pinokio/update_obstruction_guard.sh missing - repair with: git checkout -- scripts/pinokio'; exit 1; fi"
       }
     },
     {
       method: "shell.run",
       params: {
-        message: "if [ -f scripts/pinokio/update_converge.sh ]; then bash scripts/pinokio/update_converge.sh; else echo 'FATAL: scripts/pinokio/update_converge.sh missing - repair with: git checkout -- scripts/pinokio'; exit 1; fi"
+        message: "if [ -f scripts/pinokio/update_converge.sh ]; then bash scripts/pinokio/update_converge.sh; else echo 'FATAL error: scripts/pinokio/update_converge.sh missing - repair with: git checkout -- scripts/pinokio'; exit 1; fi"
       }
     },
     // ---- 2. Everything else, from the tree we just pulled ------------------
@@ -199,7 +199,7 @@ module.exports = {
     {
       method: "shell.run",
       params: {
-        message: "if [ -f scripts/post_update.sh ]; then bash scripts/post_update.sh; else echo 'FATAL: scripts/post_update.sh missing - the repo pull above did not land. Re-run Update.'; exit 1; fi"
+        message: "if [ -f scripts/post_update.sh ]; then bash scripts/post_update.sh; else echo 'FATAL error: scripts/post_update.sh missing - the repo pull above did not land. Re-run Update.'; exit 1; fi"
       }
     }
   ]

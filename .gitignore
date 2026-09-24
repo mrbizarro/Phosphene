@@ -151,3 +151,12 @@ node_modules/
 
 # YuE2 engine checkout; weights live in the shared mlx_models tree.
 yue2-mlx/
+mlx_models/yue2-cover/
+state_studio/
+# 2026-09-20: `yue2-mlx/` and `node_modules/` ignore a DIRECTORY, not a symlink of the
+# same name. An agent worktree carried symlinks to the real trees, `git add -A`
+# committed them, and the merge replaced the real engine checkout + venv with a
+# self-referential link. Same trap as ltx-2-mlx above — ignore both spellings.
+yue2-mlx
+node_modules
+

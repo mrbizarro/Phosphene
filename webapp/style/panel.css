@@ -1643,6 +1643,27 @@
     /* The draft's name yields with the title now that the View group shares
        the header: it ellipsises past 200px instead of taking the title's room. */
     .sbe-head .ghost-btn.sbe-draftchip { flex: 0 1 auto; min-width: 0; max-width: 220px; }
+    /* THE FILM SWITCHER. The name is still prose — quiet until hovered, and
+       the item in the row that yields first — but it is a control now. */
+    .sbe-head .ghost-btn.sbe-titlebtn {
+      flex: 0 1 auto; min-width: 0; max-width: 360px; gap: 6px;
+      display: inline-flex; align-items: center;
+      background: transparent; border-color: transparent; padding-inline: 6px;
+    }
+    .sbe-head .ghost-btn.sbe-titlebtn:hover {
+      background: var(--panel-2); border-color: var(--border);
+    }
+    .sbe-films { min-width: 260px; }
+    .sbe-films-list {
+      display: flex; flex-direction: column; gap: 4px;
+      max-height: min(60vh, 420px); overflow-y: auto;
+    }
+    .sbe-films-list .ghost-btn { justify-content: space-between; gap: 10px; }
+    .sbe-films-list .ghost-btn .sub { color: var(--muted); flex: 0 0 auto; }
+    .sbe-films-list .ghost-btn .name {
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .sbe-films-list .ghost-btn.is-current { border-color: var(--accent); }
     .sbe-head .sbe-draftchip #sbeDraftName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sbe-car { color: var(--muted); font-size: var(--fs-2xs); }
     .sbe-split { display: inline-flex; }
@@ -10826,13 +10847,7 @@ body[data-workflow="oneshot"] #audioSectionTab { display: none !important; }
 /* Audio's two panes use the existing composer/strip grammar. */
 #audioModeGroup[hidden], #musicComposePane[hidden], #audioDrivePane[hidden],
 #musicInstallModal[hidden] { display: none !important; }
-#musicComposePane .composer-card > label { display: block; margin: 12px 14px 4px; }
-#musicComposePane .composer-card > .hint { margin: 4px 14px 12px; }
 #musicLyrics:disabled { opacity: .45; }
-#musicComposePane .quick-settings { display: block; }
-#musicComposePane .quick-settings > .hint { margin: 6px 0 14px; }
-#musicComposePane .range-strip { margin-top: 16px; }
-#musicHint { margin-top: 10px; }
 .music-card-player { width: calc(100% - 34px); margin-left: 4px; min-width: 0; position: relative; z-index: 1; }
 /* The player sits at the TOP of the thumb: the card's hover chrome slides up
    over the bottom edge and would otherwise cover the play button. */
@@ -10844,8 +10859,10 @@ body[data-workflow="oneshot"] #audioSectionTab { display: none !important; }
    pressing it opens the install card. */
 #musicInstallPanel[hidden] { display: none !important; }
 .music-install-panel { padding: 14px 16px; border-color: rgba(177,74,255,0.42); }
-#musicComposePane.music-locked > .composer-card:not(.music-install-panel),
-#musicComposePane.music-locked > .quick-settings,
+#musicComposePane.music-locked .composer-card:not(.music-install-panel),
+#musicComposePane.music-locked .quick-settings,
+#musicComposePane.music-locked .customize-section,
+#musicComposePane.music-locked .studio-tasks,
 #musicComposePane.music-locked .queue-strip { opacity: .45; pointer-events: none; user-select: none; }
 .music-install-body, .music-install-panel { line-height: 1.5; }
 .music-install-body .mi-lead, .music-install-panel .mi-lead { margin: 0 0 10px; }
@@ -11221,3 +11238,345 @@ button .ph, label .ph, .qchip .ph { width: 14px; height: 14px; }
 button > .ph:first-child:not(:only-child),
 label > .ph:first-child:not(:only-child),
 .qchip > .ph:first-child:not(:only-child) { margin-right: 6px; vertical-align: -2px; }
+
+/* ====== MUSIC STUDIO ======================================================
+   The song is the unit, not the file. Everything below serves one idea: a
+   song you can come back to — hear it, read its score, change one thing
+   about it and get another. Tokens only; nothing declares its own colour. */
+.studio-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between;
+  gap: 8px 16px; margin: 0 0 16px; }
+.studio-head-text { flex: 1 1 200px; min-width: 0; }
+.studio-head .studio-seg { flex: none; }
+.studio-head .studio-title { font-size: var(--fs-lg); font-weight: 650; letter-spacing: -0.01em; }
+.studio-head .studio-sub { display: block; margin-top: 2px; color: var(--muted); font-size: var(--fs-sm); }
+.studio-tasks { margin-bottom: 16px; }
+/* What Simple just wrote, said once, where the fields it wrote are. */
+.music-notice { margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--accent-dim);
+  border-left: 2px solid var(--accent); border-radius: var(--r-md); background: var(--accent-dim);
+  color: var(--accent-bright); font-size: var(--fs-sm); }
+.music-notice[hidden] { display: none; }
+.tag-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
+.tag-chip { height: var(--ctl-h-sm); padding: 0 10px; border-radius: var(--r-pill); border: 1px solid var(--border);
+  background: var(--panel-2); color: var(--muted); font-size: var(--fs-xs); font-weight: 600; cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast); }
+.tag-chip:hover { color: var(--text); border-color: var(--border-strong); }
+.concept-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+.concept-row textarea { min-height: 54px; }
+.concept-row .ghost-btn { height: var(--ctl-h); white-space: nowrap; }
+.concept-row .ghost-btn[disabled] { opacity: .55; cursor: progress; }
+
+/* The studio's one switch idiom: two or three mutually exclusive views of the
+   same surface. Anything that ACTS stays a button; this only ever chooses. */
+.studio-seg { display: inline-grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px;
+  width: auto; padding: 3px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-2); }
+.studio-seg.full { display: grid; width: 100%; }
+.studio-seg .seg-btn { width: auto; height: var(--ctl-h-sm); padding: 0 12px; border: 1px solid transparent;
+  border-radius: var(--r-xs); background: transparent; color: var(--muted); font-size: var(--fs-sm); font-weight: 600;
+  white-space: nowrap; cursor: pointer; transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast); }
+.studio-seg .seg-btn .sub { display: block; font-size: var(--fs-2xs); font-weight: 400; color: var(--muted); }
+.studio-seg .seg-btn:hover { color: var(--text); }
+.studio-seg .seg-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent-bright); }
+
+/* ---- the lyrics editor ---------------------------------------------------
+   A song is sections, so the editor is sections: a label, its lines, its line
+   count, and the two verbs that belong to a part rather than to the song. */
+.lyr-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 16px 0 8px; }
+.lyr-title { font-size: var(--fs-md); font-weight: 600; color: var(--text); }
+.lyr-editor { display: flex; flex-direction: column; gap: 8px; }
+.lyr-editor[hidden] { display: none; }
+.lyr-sections { display: flex; flex-direction: column; gap: 8px; }
+.lyr-blank { padding: 16px 12px; border: 1px dashed var(--border); border-radius: var(--r-md);
+  color: var(--muted); font-size: var(--fs-sm); line-height: 1.5; text-align: center; }
+.lyr-sec { padding: 8px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-2);
+  transition: border-color var(--t-fast); }
+.lyr-sec:focus-within { border-color: var(--accent); }
+/* Two zones that wrap as units: what the section IS on the left, what you can
+   do to it on the right. In a 215 px form pane the verbs drop to their own
+   row instead of the last one falling off the edge. */
+.lyr-sec-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.lyr-acts { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+/* The label is a pill, and the pill is the tag: what it reads is what sits in
+   the brackets underneath. Native select chrome would break that reading, so
+   the chevron is drawn in the wrapper's own colour. */
+.lyr-tag-wrap { position: relative; display: inline-flex; align-items: center; color: var(--accent-bright); }
+.lyr-tag-wrap::after { content: ""; position: absolute; right: 9px; top: 50%; margin-top: -1px; width: 0; height: 0;
+  border-left: 3.5px solid transparent; border-right: 3.5px solid transparent; border-top: 4px solid currentColor;
+  pointer-events: none; }
+.lyr-tag { width: auto; height: var(--ctl-h-sm); padding: 0 24px 0 10px; appearance: none; -webkit-appearance: none;
+  border: 1px solid var(--accent-dim); border-radius: var(--r-pill); background: var(--accent-dim); color: var(--accent-bright);
+  font-size: var(--fs-xs); font-weight: 700; letter-spacing: .03em; cursor: pointer; }
+.lyr-tag:focus { background: var(--accent-dim); border-color: var(--accent); }
+.lyr-count { font-size: var(--fs-2xs); font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted); white-space: nowrap; }
+.lyr-btn { width: auto; height: var(--ctl-h-sm); padding: 0 10px; border-radius: var(--r-sm); border: 1px solid var(--border);
+  background: var(--panel-2); color: var(--muted); font-size: var(--fs-xs); font-weight: 600; cursor: pointer;
+  transition: color var(--t-fast), border-color var(--t-fast); }
+.lyr-btn:hover:not([disabled]) { color: var(--text); border-color: var(--border-strong); }
+.lyr-ico { width: var(--ctl-h-sm); height: var(--ctl-h-sm); padding: 0; display: grid; place-items: center;
+  border: 1px solid transparent; border-radius: var(--r-sm); background: transparent; color: var(--muted);
+  font-size: var(--fs-sm); line-height: 1; cursor: pointer; transition: background var(--t-fast), color var(--t-fast); }
+.lyr-ico:hover:not([disabled]) { background: var(--panel-2); color: var(--text); }
+.lyr-ico.lyr-del:hover:not([disabled]) { color: var(--danger); }
+.lyr-btn[disabled], .lyr-ico[disabled] { opacity: .35; cursor: default; }
+/* The lines themselves: the section IS the field, so the box has no chrome of
+   its own and grows instead of scrolling. */
+.lyr-lines { width: 100%; margin-top: 8px; padding: 0 2px; min-height: 30px; overflow: hidden; resize: none;
+  border: 0; background: transparent; color: var(--text); font-family: inherit; font-size: var(--fs-md); line-height: 1.55; }
+.lyr-lines:focus { background: transparent; border: 0; box-shadow: none; }
+.lyr-wordless { display: none; margin-top: 6px; font-size: var(--fs-xs); color: var(--muted); }
+.lyr-sec.wordless .lyr-wordless { display: block; }
+.lyr-add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.lyr-add-label { font-size: var(--fs-2xs); font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+/* Buttons are width:100% app-wide; a chip row has to say otherwise or every
+   chip takes a line of its own. */
+.lyr-add .tag-chip { width: auto; }
+/* Instrumental: the words stay put, they are simply not used. */
+.lyr-off { opacity: .45; }
+
+/* ---- one rhythm, one rung ------------------------------------------------
+   The composer grew a surface at a time and ended up with four label styles,
+   five gaps and hints floating halfway between the control they explain and
+   the next one. Everything below is scoped to this pane: the rest of the app
+   keeps its own spacing, and nothing here declares a new value — 8 for "these
+   belong together", 12 for "related", 16 for "a new thing starts".
+
+   ONE LABEL RUNG. Every field label is the micro-caps the quick settings
+   already used, so a label can never read as a heading or a heading as a
+   label. .toggle-pill is a <label> wrapping a control and is not one of
+   these, which is why the rule asks for [for]. */
+#musicComposePane label[for],
+#musicComposePane .mf-label,
+#musicComposePane .lyr-title {
+  display: block; margin: 16px 0 8px;
+  font-size: var(--fs-2xs); font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--muted);
+}
+#musicComposePane label[for] .sub { text-transform: none; letter-spacing: 0; font-weight: 500; }
+#musicComposePane .composer-card > label[for]:first-child,
+#musicComposePane .quick-settings > .mf-label:first-child { margin-top: 0; }
+/* The range strip keeps its label on the row with the slider: no stacking
+   margin, and it does not give ground to the track. */
+#musicComposePane .range-strip label[for] { margin: 0; flex: none; }
+#musicComposePane .lyr-head { margin: 16px 0 8px; }
+#musicComposePane .lyr-head .lyr-title { margin: 0; }
+
+/* ONE GAP LADDER. The stack is explicit rather than an inherited gap, so a
+   hint sits ON the control it explains instead of midway to the next one. */
+#musicComposePane .composer-card,
+#musicComposePane .customize-section,
+#musicComposePane .quick-settings { margin-bottom: 16px; }
+#musicComposePane .customize-section { margin-top: 0; }
+/* A plain block stack, so the ladder below is the only thing setting gaps. */
+#musicComposePane .quick-settings { display: block; }
+#musicComposePane .quick-settings > * + * { margin-top: 16px; }
+#musicComposePane .quick-settings > .hint,
+#musicComposePane .composer-card > .hint { margin-top: 6px; }
+#musicComposePane .pill-group, #musicComposePane .studio-seg.full { margin-bottom: 0; }
+#musicComposePane .composer-tools { margin-top: 12px; }
+
+/* The footer: the estimate is about the button under it, so it starts where
+   the button starts. The credit is about the engine, not about this press —
+   a quieter rung, and last. */
+#musicComposePane .form-action-footer .queue-strip { margin-bottom: 8px; }
+#musicComposePane .form-action-footer #musicStatus { margin-top: 8px; min-height: 1.2em; }
+.music-credit { margin-top: 12px; font-size: var(--fs-2xs); color: var(--muted); opacity: .75; }
+
+/* The two optional packs say what they cost in place, in the section that
+   needs them — the cover models and the LoRAs read the same way. */
+.music-pack-note, .music-cover-install {
+  margin-top: 10px; padding: 9px 11px; border-radius: var(--r-md);
+  border: 1px solid var(--border-strong); background: var(--panel-2);
+  color: var(--muted); font-size: var(--fs-xs); line-height: 1.5;
+}
+.music-pack-note[hidden], .music-cover-install[hidden] { display: none; }
+.music-pack-note b, .music-cover-install b { color: var(--text); font-weight: 600; }
+.music-pack-note .ghost-btn, .music-cover-install .ghost-btn { margin-left: 6px; }
+
+/* The LoRA picker: the same row grammar as the video LoRA list, at the size
+   the composer's quick settings use. */
+.music-lora-list { display: flex; flex-direction: column; gap: 8px; }
+.music-lora-empty { color: var(--muted); font-size: var(--fs-xs); }
+.music-lora-item {
+  padding: 8px 10px; border-radius: var(--r-sm);
+  border: 1px solid var(--border-strong); background: var(--panel);
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+.music-lora-item.active { border-color: var(--accent-bright); background: var(--accent-dim); }
+.music-lora-head {
+  display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;
+}
+.music-lora-name { font-size: var(--fs-sm); font-weight: 600; color: var(--text); flex: 1 1 auto; }
+.music-lora-branch {
+  font-size: var(--fs-2xs); font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 2px 6px; border-radius: var(--r-pill); background: var(--panel-2); color: var(--muted);
+}
+.music-lora-item .range-strip { margin-top: 6px; }
+.music-lora-item .hint { margin-top: 4px; }
+
+/* The Song card: under the player, only for songs. */
+.song-card { margin: 10px 0 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-lg);
+  background: var(--panel); box-shadow: var(--shadow-1); }
+.song-card[hidden] { display: none; }
+.song-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.song-title { font-size: var(--fs-lg); font-weight: 650; letter-spacing: -0.01em; }
+.song-style { color: var(--muted); font-size: var(--fs-sm); max-width: 100%; }
+.song-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+.song-badge { font-size: var(--fs-2xs); font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 3px 7px; border-radius: var(--r-pill); background: var(--accent-dim); color: var(--accent-bright); }
+.song-badge.muted { background: var(--panel-2); color: var(--muted); }
+.song-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.song-actions .ghost-btn { height: var(--ctl-h); }
+.song-actions .ghost-btn .sub { display: block; font-size: var(--fs-2xs); color: var(--muted); font-weight: 500; }
+.song-lineage { margin-top: 8px; font-size: var(--fs-xs); color: var(--muted); }
+.song-lineage a { color: var(--accent-bright); cursor: pointer; text-decoration: none; }
+.song-lineage a:hover { text-decoration: underline; }
+.song-section { margin-top: 12px; }
+.song-section > summary { cursor: pointer; font-size: var(--fs-sm); font-weight: 600; color: var(--text); list-style: none; display: flex; align-items: center; gap: 8px; }
+.song-section > summary::-webkit-details-marker { display: none; }
+.song-section > summary::before { content: ""; width: 6px; height: 6px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted);
+  transform: rotate(-45deg); transition: transform var(--t-fast); }
+.song-section[open] > summary::before { transform: rotate(45deg); }
+.song-section .sum { color: var(--muted); font-weight: 400; }
+/* Sheet music. abcjs paints in black by default; the tokens win here so a
+   score reads on the void and on paper alike. */
+.song-score { margin-top: 8px; padding: 10px 6px; border-radius: var(--r-md); background: var(--panel-2); overflow: auto; max-height: 380px; }
+.song-score svg { max-width: 100%; height: auto; }
+.song-score svg path, .song-score svg text, .song-score svg rect, .song-score svg line, .song-score svg ellipse, .song-score svg polygon
+  { fill: var(--text); stroke: var(--text); }
+.song-score svg text { stroke: none; }
+.song-score svg .abcjs-staff path, .song-score svg .abcjs-bar path { fill: none; }
+.song-score svg .abcjs-staff-extra path { fill: var(--text); stroke: none; }
+.song-score .abcjs-container { color: var(--text); }
+.song-score-empty { color: var(--muted); font-size: var(--fs-sm); padding: 8px 4px; }
+.song-score-editor { margin-top: 8px; }
+.song-score-editor textarea { width: 100%; min-height: 180px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--fs-sm);
+  background: var(--bg-2); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px; resize: vertical; }
+.song-score-editor .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+.song-score-editor .row .hint { flex: 1 1 200px; margin: 0; }
+.song-lyrics { margin-top: 8px; white-space: pre-wrap; font-size: var(--fs-sm); line-height: 1.5; color: var(--text); padding: 8px 10px;
+  background: var(--panel-2); border-radius: var(--r-md); max-height: 260px; overflow: auto; }
+.song-lyrics .tag { color: var(--accent-bright); font-weight: 700; font-size: var(--fs-2xs); letter-spacing: .06em; }
+.song-status { margin-top: 8px; font-size: var(--fs-xs); color: var(--muted); min-height: 1.2em; }
+
+/* ---- Music Studio: the library ------------------------------------------ */
+.carousel.song-list { display: flex; flex-direction: column; gap: 4px; padding: 2px 0 8px; }
+.song-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto 32px 32px; align-items: center; gap: 12px;
+  padding: 6px 8px 6px 6px; border-radius: var(--r-md); border: 1px solid transparent; cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast); }
+.song-row:hover { background: var(--panel-2); }
+.song-row.active { background: var(--panel); border-color: var(--border-strong); }
+.song-row.child { margin-left: 28px; position: relative; }
+.song-row.child::before { content: ""; position: absolute; left: -16px; top: -6px; bottom: 50%; width: 10px;
+  border-left: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); border-bottom-left-radius: 6px; }
+.song-cover { width: 44px; height: 44px; border-radius: var(--r-sm); display: grid; place-items: center; color: rgba(255,255,255,.92);
+  font-weight: 800; font-size: 18px; letter-spacing: -.02em; box-shadow: var(--shadow-1); flex: none; }
+.song-row.child .song-cover { width: 36px; height: 36px; opacity: .85; }
+.song-main { min-width: 0; }
+.song-row-title { font-size: var(--fs-md); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; gap: 6px; align-items: center; }
+.song-row-sub { display: flex; gap: 4px; flex-wrap: nowrap; overflow: hidden; margin-top: 3px; }
+.song-chip { font-size: var(--fs-2xs); color: var(--muted); padding: 2px 7px; border-radius: var(--r-pill); background: var(--panel-2); border: 1px solid var(--border); white-space: nowrap; }
+.song-row:hover .song-chip, .song-row.active .song-chip { background: var(--bg-2); }
+.song-chip.score { color: var(--accent-bright); border-color: var(--accent-dim); }
+.song-dur { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.song-play, .song-more { width: 32px; height: 32px; border-radius: var(--r-pill); border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+  display: grid; place-items: center; cursor: pointer; transition: background var(--t-fast), border-color var(--t-fast), transform var(--t-fast); }
+.song-play:hover, .song-more:hover { border-color: var(--border-strong); background: var(--panel); }
+.song-play.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.song-more { font-weight: 700; letter-spacing: .05em; }
+
+/* the hero on the player surface */
+.player-wrap .song-hero { position: absolute; inset: 0; display: flex; align-items: center; gap: 28px; padding: 32px;
+  background: radial-gradient(120% 120% at 20% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%); }
+.song-hero-cover { width: 180px; height: 180px; border-radius: var(--r-lg); display: grid; place-items: center; color: rgba(255,255,255,.92);
+  font-weight: 800; font-size: 64px; letter-spacing: -.03em; box-shadow: var(--shadow-2); flex: none; }
+.song-hero-text { min-width: 0; }
+.song-hero-title { font-size: 26px; font-weight: 700; letter-spacing: -.02em; line-height: 1.15; }
+.song-hero-style { color: var(--muted); margin-top: 8px; font-size: var(--fs-md); max-width: 60ch; }
+.song-hero-meta { color: var(--muted); margin-top: 6px; font-size: var(--fs-sm); }
+.song-hero-play { margin-top: 16px; display: inline-flex; align-items: center; gap: 8px; height: var(--ctl-h-lg); padding: 0 18px; border-radius: var(--r-pill); }
+
+/* the player bar */
+.music-bar { position: sticky; bottom: 0; z-index: 5; margin-top: 8px; display: grid; grid-template-columns: 40px minmax(120px, 220px) auto minmax(120px, 1fr) auto; align-items: center; gap: 12px;
+  padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-lg); background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: var(--shadow-2); }
+.music-bar[hidden] { display: none; }
+.music-bar-cover { width: 40px; height: 40px; border-radius: var(--r-sm); box-shadow: var(--shadow-1); }
+.music-bar-text { min-width: 0; }
+.music-bar-title { font-size: var(--fs-sm); font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.music-bar-style { font-size: var(--fs-2xs); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.music-bar-controls { display: flex; gap: 4px; align-items: center; }
+.music-bar-btn { width: 30px; height: 30px; border-radius: var(--r-pill); border: 1px solid transparent; background: transparent; color: var(--text); display: grid; place-items: center; cursor: pointer; }
+.music-bar-btn:hover { background: var(--panel-2); }
+.music-bar-btn.play { width: 36px; height: 36px; background: var(--accent); color: #fff; }
+.music-bar-btn.play:hover { background: var(--accent-bright); }
+.music-bar-wave { width: 100%; height: 36px; display: block; cursor: pointer; }
+.music-bar-time { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* the ⋯ menu */
+.song-menu { position: fixed; z-index: 60; width: 260px; padding: 6px; border-radius: var(--r-md); border: 1px solid var(--border-strong);
+  background: var(--panel); box-shadow: var(--shadow-2); display: flex; flex-direction: column; }
+.song-menu[hidden] { display: none; }
+.song-menu-item { text-align: left; padding: 8px 10px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); font-size: var(--fs-sm); font-weight: 500; cursor: pointer; display: flex; flex-direction: column; gap: 1px; }
+.song-menu-item .sub { font-size: var(--fs-2xs); color: var(--muted); font-weight: 400; }
+.song-menu-item:hover:not([disabled]) { background: var(--panel-2); }
+.song-menu-item[disabled] { opacity: .45; cursor: not-allowed; }
+.song-menu-sep { height: 1px; background: var(--border); margin: 4px 6px; }
+
+/* ===== MUSIC VIDEO — the cast of pictures =================================
+   One row per picture: the thumbnail, what it is for, and an optional line
+   about what happens in its shot. Deliberately a LIST and not the gallery's
+   grid — a role is a decision per picture, and a decision needs a label
+   beside it, not a hover state. Built from the same tokens as everything
+   else, so it inherits both themes with no second palette. */
+.mv-cast { display: grid; gap: 8px; margin-top: 10px; }
+.mv-cast:empty { margin-top: 0; }
+.mv-pic {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 28px;
+  gap: 10px; align-items: center;
+  padding: 8px; border: 1px solid var(--border);
+  border-radius: var(--r-sm); background: var(--panel-2);
+}
+.mv-pic-thumb {
+  width: 72px; height: 48px; object-fit: cover;
+  border-radius: var(--r-xs); background: var(--bg-2);
+  border: 1px solid var(--border);
+}
+.mv-pic-body { display: grid; gap: 6px; min-width: 0; }
+.mv-pic-name {
+  font-size: var(--fs-xs); color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* auto-fit rather than three fixed columns: the Audio pane is draggable and
+   at its narrowest the three role buttons wrap instead of clipping the last
+   one — the same rule the render form's chip rows settled on. */
+.mv-roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); gap: 4px; }
+.mv-roles .pill-btn { min-height: var(--ctl-h-sm); font-size: var(--fs-xs); padding: 4px 6px; }
+.mv-pic-prompt {
+  width: 100%; min-height: var(--ctl-h-sm);
+  font-size: var(--fs-sm); padding: 4px 8px;
+  border-radius: var(--r-xs); border: 1px solid var(--border);
+  background: var(--bg-2); color: var(--text);
+}
+.mv-pic-prompt:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
+.mv-pic-x {
+  width: 24px; height: 24px; display: grid; place-items: center;
+  border: 1px solid var(--border); border-radius: var(--r-xs);
+  background: transparent; color: var(--muted); cursor: pointer;
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+.mv-pic-x:hover { color: var(--danger); border-color: var(--danger); }
+.mv-pic-x .ph { width: 12px; height: 12px; }
+
+/* A footer INSIDE a disclosure is not the pane's bottom bar. `.form-action-footer`
+   is written to break out of the form-pane's own padding and stick to its
+   bottom edge; One shot now lives inside a `<details>` halfway down the Music
+   video pane, where sticking to the viewport and reaching past its parent's
+   edge are both wrong. Same buttons, same order, laid out in place. */
+#mvOneShotDetails .form-action-footer {
+  position: static;
+  margin: 12px 0 0;
+  padding: 12px 0 0;
+  background: none;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+}

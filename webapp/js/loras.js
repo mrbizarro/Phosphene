@@ -262,8 +262,13 @@ function _serializeLoras() {
   const _inLane = (l) => (_tag === 'video:h3')
     ? _laneOf(l.path) === 'h3'
     : _laneOf(l.path) !== 'h3';
+  // `scale_v` rides along only on a strength replayed from an older recipe
+  // (Load Params / Finish, _restoreLoraPicker): it tells the server which
+  // meaning of "strength" that number was written in (Codex H3-03).
   const slim = _activeLoras.filter(_inLane)
-    .map(l => ({ path: l.path, strength: l.strength }));
+    .map(l => (typeof l.scale_v === 'number')
+      ? { path: l.path, strength: l.strength, scale_v: l.scale_v }
+      : { path: l.path, strength: l.strength });
   document.getElementById('lorasJson').value = JSON.stringify(slim);
   // Train-Character LoRAs are trained against the dev transformer (HQ
   // path) — Quick/Standard run the distilled model at 8 steps, which is
@@ -328,6 +333,7 @@ function setLoraStrength(path, strength) {
   const e = _activeLoras.find(l => l.path === path);
   if (!e) return;
   e.strength = Math.max(-2, Math.min(2, parseFloat(strength) || 0));
+  delete e.scale_v;   // chosen now, in this build's meaning — no longer a replay
   _serializeLoras();
 }
 

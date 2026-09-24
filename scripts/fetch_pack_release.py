@@ -297,11 +297,21 @@ def assemble_file(name: str, spec: dict, dest_dir: Path, mirror: dict,
         _write_progress(partial, idx + 1)
 
     size = partial.stat().st_size
-    if size != want_bytes:
-        raise RuntimeError(f"{name}: assembled {size} bytes, manifest declares {want_bytes}")
-    got = sha256_file(partial)
+    got = sha256_file(partial) if size == want_bytes else None
     if got != want_sha:
-        raise RuntimeError(f"{name}: assembled sha256 {got[:12]}… != manifest {want_sha[:12]}…")
+        # DISCARD THE ASSEMBLY, not just the attempt. Every shard verified on
+        # its way in, so a bad whole means bytes ALREADY in the partial went bad
+        # (a disk error, a copy of a half-synced tree) — and the progress
+        # sidecar only checks length. Kept, it made every retry skip the same
+        # shards and fail the same hash forever (Codex INST-08). Dropped, the
+        # next run refetches this one file; verified files are untouched.
+        partial.unlink(missing_ok=True)
+        _progress_path(partial).unlink(missing_ok=True)
+        if got is None:
+            raise RuntimeError(f"{name}: assembled {size} bytes, manifest declares "
+                               f"{want_bytes} — discarded; the next run refetches it")
+        raise RuntimeError(f"{name}: assembled sha256 {got[:12]}… != manifest "
+                           f"{want_sha[:12]}… — discarded; the next run refetches it")
     partial.replace(target)
     _progress_path(partial).unlink(missing_ok=True)
     log(f"[fetch] {name} — {size >> 20} MB, sha256 verified")

@@ -71,6 +71,9 @@ require() {
     echo ""
     echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
     echo "!! PHOSPHENE UPDATE FAILED: $what"
+    # "error:" is what Pinokio 8.2.0 reads as a failed step — it ignores the
+    # exit status below. Without it the run ended looking successful (INST-02).
+    echo "!! error: the Update did not complete"
     echo "!! This step is not optional — stopping here rather than reporting a"
     echo "!! successful update that did not happen. Nothing has been deleted."
     echo "!! Re-run Update; if it fails the same way, the message above it is"
@@ -165,6 +168,21 @@ require "the transformers <5.13.0 cap (5.13.0 breaks every generation)" -- \
 # pip drops inherited constraints inside the isolated build env on purpose
 # (`_PIP_IN_BUILD_IGNORE_CONSTRAINTS=1`), and its `--build-constraint` flag
 # does not exist on the older pips this fleet was seeded with.
+#
+# FIRST, THEIR DEPENDENCIES — the pass install.js has always run and Update
+# never did. The reinstall below is --no-deps, so on a venv step 0 has just
+# REBUILT (or one whose first install died half-way) nothing ever installs what
+# the three packages declare. `mlx-arsenal` is the one nothing else pulls in:
+# core and pipelines both import `mlx_arsenal.diffusion`, so such a venv had
+# Python, mlx and our packages and still could not render — and every further
+# Update repeated the same dependency-free install (Codex INST-03, 2026-09-24;
+# part of the fleet's "venv has a Python but no packages" signal). Resolved on
+# the SAME invocation as the mlx trio and the transformers cap so the solver
+# cannot move either; on a healthy venv everything is already satisfied and
+# this is a no-op. It links the workspace members editable — the --reinstall
+# --no-deps pass right after replaces those links with real copies, exactly
+# as install.js does.
+require "installing the vendored packages' dependencies (mlx-arsenal and the rest)" -- bash -c 'cd "$1/ltx-2-mlx" && shift && uv pip install --python env/bin/python --build-constraints ../pip-build-constraints.txt "$@" ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer' _ "$ROOT" 'mlx==0.31.1' 'mlx-lm==0.31.1' 'mlx-metal==0.31.1' 'transformers>=5.0.0,<5.13.0'
 require "re-installing the three vendored packages" -- bash -c 'cd "$1/ltx-2-mlx" && uv pip install --python env/bin/python --reinstall --no-deps --build-constraints ../pip-build-constraints.txt ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer' _ "$ROOT"
 
 # ---- 4. The codec patch — IMMEDIATELY after the reinstall -------------------
@@ -346,15 +364,24 @@ echo 'Trim done.'
 # so `check_post_update.js` can still tell them apart: the gate is the
 # comma-form line it must find wrapped in `require`. (A one-package probe let
 # a torn ltx_core_mlx skip the repair and fail the gate — review 2026-09-02.)
+# The repair resolves dependencies first, like step 3: a --no-deps-only repair
+# could never install a missing `mlx_arsenal`, so it failed the same way every
+# time (INST-03). mlx_arsenal is imported explicitly because the package roots
+# import without it — the failure used to surface only at Generate.
 echo 'Verifying the render engine actually imports…'
-if ! "$PY" -c "import ltx_core_mlx; import ltx_pipelines_mlx; import mlx" 2>/dev/null; then
+if ! "$PY" -c "import ltx_core_mlx; import ltx_pipelines_mlx; import mlx; import mlx_arsenal" 2>/dev/null; then
   echo 'Render engine did not import — repairing the vendored packages once…'
-  ( cd "$ROOT/ltx-2-mlx" && uv pip install --python env/bin/python --reinstall \
+  ( cd "$ROOT/ltx-2-mlx" && uv pip install --python env/bin/python \
+      --build-constraints ../pip-build-constraints.txt \
+      'mlx==0.31.1' 'mlx-lm==0.31.1' 'mlx-metal==0.31.1' 'transformers>=5.0.0,<5.13.0' \
+      ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer \
+    && uv pip install --python env/bin/python --reinstall \
       --no-deps --build-constraints ../pip-build-constraints.txt \
-      ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer ) \
+      ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer \
+    && "$PY" "$ROOT/patch_ltx_codec.py" ) \
     || true
 fi
-require "the render engine import gate" -- "$PY" -c "import ltx_core_mlx, ltx_pipelines_mlx, mlx"
+require "the render engine import gate" -- "$PY" -c "import ltx_core_mlx, ltx_pipelines_mlx, mlx, mlx_arsenal"
 
 # Music is independent of LTX. Update only an installed checkout; never pull
 # an 11 GB pack as a side effect of an ordinary panel update.

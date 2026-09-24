@@ -410,7 +410,7 @@ class TestBrowserReplay(unittest.TestCase):
     def test_finish_restores_before_the_shape(self):
         js = (ROOT / "webapp" / "js" / "queue.js").read_text(encoding="utf-8")
         body = js.split("async function h3FinishActive()", 1)[1]
-        self.assertLess(body.index("_restoreLoraPicker(fields.loras)"),
+        self.assertLess(body.index("_restoreLoraPicker(fields.loras"),
                         body.index("setH3Tier(fields.h3_tier)"))
         self.assertLess(body.index("setH3Orientation(fields.h3_orientation)"),
                         body.index("setH3Tier(fields.h3_tier)"))

@@ -704,12 +704,19 @@ setInterval(refreshVersionPill, 5 * 60 * 1000);
   // .modal-bg.show covers the batch modal (and any future modal that
   // uses the same .modal-bg + .show idiom). Including it here so Esc /
   // Tab focus-trap / body.modal-open scroll-lock all work for it too.
-  const MODAL_SEL = '.models-modal, .model-browser-modal, .expand-lightbox, .modal-bg.show';
+  //
+  // EVERY .modal-bg, not only the ones showing at startup (Codex UI-08). The
+  // selector said `.modal-bg.show`, so the observers below were registered
+  // only on dialogs already open when the page loaded — none — and isVisible()
+  // did not know the `show` class at all: Storyboard's re-plan dialog and the
+  // Editor's Generate-shot dialog open with classList.add('show'), so Escape,
+  // the Tab trap and the scroll lock all ignored them.
+  const MODAL_SEL = '.models-modal, .model-browser-modal, .expand-lightbox, .modal-bg';
   const isVisible = el => {
     const d = el.style.display;
-    // Some modals open by adding an .open class (.model-browser-modal);
-    // others toggle the inline style. Cover both.
-    if (el.classList.contains('open')) return true;
+    // Some modals open by adding an .open class (.model-browser-modal), the
+    // .modal-bg family by adding .show; others toggle the inline style.
+    if (el.classList.contains('open') || el.classList.contains('show')) return true;
     return d === 'flex' || d === 'block';
   };
   const visibleModals = () =>
@@ -726,12 +733,25 @@ setInterval(refreshVersionPill, 5 * 60 * 1000);
   // global subtree observer and avoids the cost of body-wide attribute
   // tracking. Lazy — modals added later (none today, but defensive)
   // need to re-register.
-  document.querySelectorAll(MODAL_SEL).forEach(el => {
+  const watched = new WeakSet();
+  const watch = el => {
+    if (watched.has(el)) return;
+    watched.add(el);
     new MutationObserver(refreshScrollLock).observe(el, {
       attributes: true,
       attributeFilter: ['style', 'class'],
     });
-  });
+  };
+  document.querySelectorAll(MODAL_SEL).forEach(watch);
+  // A modal appended to <body> later (the batch modal) registers itself.
+  // Direct children only — not the body-wide subtree observer ruled out above.
+  new MutationObserver(recs => {
+    for (const r of recs) {
+      for (const n of (r.addedNodes || [])) {
+        if (n.nodeType === 1 && n.matches && n.matches(MODAL_SEL)) { watch(n); refreshScrollLock(); }
+      }
+    }
+  }).observe(document.body, { childList: true });
   refreshScrollLock();
 
   // Esc closes the topmost modal. We find the close button inside it
@@ -744,12 +764,20 @@ setInterval(refreshVersionPill, 5 * 60 * 1000);
     if (!top) return;
     e.preventDefault();
     e.stopPropagation();
+    // Case-insensitive: sbCloseReplan() / sbeGenClose() are the class-based
+    // dialogs' own close functions and never matched a lower-case "close".
     const closeBtn =
       top.querySelector('button[onclick*="close"]') ||
+      Array.from(top.querySelectorAll('button[onclick]'))
+        .find(b => /close/i.test(b.getAttribute('onclick') || '')) ||
       top.querySelector('.close-btn') ||
       top.querySelector('.expand-close');
     if (closeBtn) closeBtn.click();
-    else { top.style.display = 'none'; top.classList.remove('open'); }
+    else if (top.classList.contains('show') || top.classList.contains('open')) {
+      // Class-opened: drop the class. An inline display:none here would
+      // outrank `.modal-bg.show` and the dialog could never open again.
+      top.classList.remove('show', 'open');
+    } else { top.style.display = 'none'; }
   });
 
   // Focus trap — when a modal is visible, Tab cycles inside it.

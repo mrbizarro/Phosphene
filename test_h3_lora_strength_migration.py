@@ -309,6 +309,30 @@ class TheRenderPathUsesIt(_LoraDir):
         replay["id"] = "lora-rt2"
         self.assertEqual(self._dispatch_argv(replay), 1.0)
 
+    def test_an_untouched_old_sidecar_replayed_is_migrated_not_stamped_current(self):
+        # Codex H3-03: Load Params / Finish of a clip made BEFORE the stamp
+        # existed restore its automatic 0.5 verbatim; make_job then stamped the
+        # current version on the job and the dispatch read 0.5 as deliberate —
+        # the scale applied twice. queue.js now sends each replayed entry with
+        # its recipe's scale version (0 = unstamped).
+        f = self.mixed()
+        replay = P.make_job({k: [v] for k, v in {
+            "mode": "t2v", "engine": "h3", "prompt": "a dancer", "h3_turbo": "0",
+            "loras": json.dumps([{"path": str(f), "strength": 0.5, "scale_v": 0}])}.items()})
+        self.assertEqual(replay["params"]["h3_lora_scale_v"], P.H3_LORA_SCALE_VERSION)
+        replay["id"] = "lora-old"
+        self.assertEqual(self._dispatch_argv(replay), 1.0)
+        entry = replay["params"]["loras"][0]
+        self.assertEqual(entry["strength"], 1.0)
+        self.assertNotIn("scale_v", entry, "the recipe is current after dispatch")
+        # control: the same 0.5 from a CURRENT recipe is someone's choice
+        cur = P.make_job({k: [v] for k, v in {
+            "mode": "t2v", "engine": "h3", "prompt": "a dancer", "h3_turbo": "0",
+            "loras": json.dumps([{"path": str(f), "strength": 0.5,
+                                  "scale_v": P.H3_LORA_SCALE_VERSION}])}.items()})
+        cur["id"] = "lora-cur"
+        self.assertEqual(self._dispatch_argv(cur), 0.5)
+
     def test_a_deliberate_strength_is_not_rewritten_in_the_recipe(self):
         f = self.mixed()
         job = {"id": "lora-keep", "params": {
@@ -325,6 +349,58 @@ class TheRenderPathUsesIt(_LoraDir):
         ltx = P.make_job({k: [v] for k, v in {
             "mode": "t2v", "engine": "ltx", "prompt": "a dancer"}.items()})
         self.assertNotIn("h3_lora_scale_v", ltx["params"])
+
+
+_RESTORE_JS = r"""
+const fs = require('fs'), vm = require('vm');
+function extract(file, name) {
+  const s = fs.readFileSync(file, 'utf8');
+  const start = s.indexOf('function ' + name + '(');
+  if (start < 0) throw new Error('missing ' + name);
+  return s.slice(start, s.indexOf('\n}', start) + 2);
+}
+const Q = process.argv[1] + '/webapp/js/queue.js', L = process.argv[1] + '/webapp/js/loras.js';
+const json = {value: ''};
+const ctx = {document: {getElementById: id => (id === 'lorasJson' ? json : null)},
+             _knownUserLoras: [{path: '/a.safetensors', lane: 'h3', name: 'A'}],
+             _currentLoraModeFilter: () => 'video:h3', _activeLoras: [], out: {}};
+vm.createContext(ctx);
+for (const [f, n] of [[Q, '_restoreLoraPicker'], [Q, 'h3FinishFieldsFromSidecar'],
+                      [L, '_serializeLoras'], [L, 'setLoraStrength']]) {
+  vm.runInContext(extract(f, n), ctx);
+}
+vm.runInContext(`
+  h3TierByKeyExact = key => ({key, quality: 'high', length: '5s'});
+  _h3FinishSteps = () => 'auto';
+  const old = {engine: 'h3', mode: 't2v', prompt: 'p', seed_used: 3,
+               loras: [{path: '/a.safetensors', strength: 0.5}]};
+  const f = h3FinishFieldsFromSidecar(old, 'high_5s');
+  _restoreLoraPicker(f.loras, f.h3_lora_scale_v);
+  _serializeLoras();
+  out.replayed = JSON.parse(document.getElementById('lorasJson').value);
+  setLoraStrength('/a.safetensors', 0.5);
+  out.edited = JSON.parse(document.getElementById('lorasJson').value);
+  _restoreLoraPicker([{path: '/a.safetensors', strength: 0.8}]);
+  _serializeLoras();
+  out.ltx = JSON.parse(document.getElementById('lorasJson').value);
+`, ctx);
+process.stdout.write(JSON.stringify(ctx.out));
+"""
+
+
+@unittest.skipUnless(__import__("shutil").which("node"), "node missing")
+class TheBrowserSendsTheRecipesMeaning(unittest.TestCase):
+    """The browser half of H3-03, executed rather than grepped."""
+
+    def test_replay_carries_scale_v_until_the_user_edits_it(self):
+        import subprocess
+        r = subprocess.run(["node", "-e", _RESTORE_JS, str(ROOT)], capture_output=True,
+                           text=True, errors="replace", timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertEqual(out["replayed"], [{"path": "/a.safetensors", "strength": 0.5, "scale_v": 0}])
+        self.assertEqual(out["edited"], [{"path": "/a.safetensors", "strength": 0.5}])
+        self.assertEqual(out["ltx"], [{"path": "/a.safetensors", "strength": 0.8}])
 
 
 if __name__ == "__main__":
