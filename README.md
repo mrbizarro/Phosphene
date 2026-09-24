@@ -19,7 +19,7 @@
 
 </p>
 
-> **Current release: v4.15.3.** **Hailuo H3 on a 36-59 GB Mac, said plainly.** The H3 install card told every Mac it needed 64 GB, a number no part of Phosphene has ever required: from 36 GB, H3 runs on its compact Q8 engine, which the install builds by itself. The card now states the real floor, says when this Mac runs H3, and the **Install Hailuo H3** entry is in the Pinokio sidebar while the panel is running (it used to appear only with the panel stopped). A Mac that already has the H3 weights but not the compact engine gets a **Build Hailuo H3 compact engine** entry instead of being sent to an install button that was not there. Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
+> **Current release: v4.15.4.** **Security fix: the image preview endpoint served files it should not have.** The local address Phosphene uses to show images could be asked for other files in its own folders, including the settings file that holds your saved Hugging Face, CivitAI and PostHog keys. It now serves image files only. Nothing leaves your Mac unless another program on it, or someone who can reach the panel over your network, asks for it; if you have ever exposed the panel beyond this Mac, rotate those keys. Press Update in Pinokio, then restart. Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
 
 ## Overview
 

@@ -83,6 +83,16 @@ def get_file(h, parsed) -> None:
     h._serve_video_with_range(path, ctype=ctype)
 
 
+#: What /image will serve. Every URL the panel mints for it points at one of
+#: these (uploads, outputs, previews, stills), and nothing secret has them.
+#: The picker takes `image/*`, so the less common raster formats a Mac hands
+#: over (BMP, TIFF, AVIF, HEIC) stay viewable as reference thumbnails. SVG is
+#: deliberately absent: opened from this origin it can run script.
+IMAGE_ROUTE_EXTS = frozenset({".png", ".jpg", ".jpeg", ".jpe", ".jfif",
+                              ".webp", ".gif", ".bmp", ".tif", ".tiff", ".avif",
+                              ".heic", ".heif"})
+
+
 @get("/image")
 def get_image(h, parsed) -> None:
     qs = P.parse_qs(parsed.query)
@@ -100,6 +110,16 @@ def get_image(h, parsed) -> None:
     except Exception:
         roots = []
     if not any(path.is_relative_to(r) for r in roots):
+        h.send_error(403); return
+    # IMAGES ONLY, checked before anything is opened. The roots above include
+    # STATE_DIR (live previews, character stills), and STATE_DIR also holds
+    # panel_settings.json — with the HF, CivitAI and PostHog keys that
+    # /settings deliberately never returns. Without this line
+    # `/image?path=<state>/panel_settings.json` answered 200 with the whole
+    # file as application/octet-stream (Codex UI-01, 2026-09-24). The same
+    # refusal covers queue, stats and every other non-image under the roots,
+    # and the thumbnail path below, which fell back to the original on error.
+    if path.suffix.lower() not in IMAGE_ROUTE_EXTS:
         h.send_error(403); return
     if not path.exists() or not path.is_file():
         h.send_error(404); return
@@ -130,7 +150,10 @@ def get_image(h, parsed) -> None:
     served_ext = served.suffix.lower()
     ctype = {
         ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-        ".webp": "image/webp", ".gif": "image/gif",
+        ".jpe": "image/jpeg", ".jfif": "image/jpeg",
+        ".webp": "image/webp", ".gif": "image/gif", ".bmp": "image/bmp",
+        ".tif": "image/tiff", ".tiff": "image/tiff", ".avif": "image/avif",
+        ".heic": "image/heic", ".heif": "image/heif",
     }.get(served_ext, "application/octet-stream")
     h.send_response(200)
     h.send_header("Content-Type", ctype)
