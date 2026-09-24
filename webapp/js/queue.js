@@ -633,7 +633,13 @@ function openH3InstallCard(source) {
     const _missing = (H3.missing || []).map(String);
     const _missVenv = _missing.some(m => m.includes('venv'));
     const _missRunner = _missing.some(m => m.includes('runner') || m.includes('scripts/'));
-    const diagnosis = H3.venv_broken
+    // The 36-59 GB Mac holding every weight but not the local Q8 build: its
+    // missing-list is EMPTY, so every branch below printed "What broke: a
+    // component the probe lists below" above a list that listed nothing. The
+    // server's sentence names the build and the sidebar entry that runs it.
+    const diagnosis = (H3.reason === 'missing_q8_dit' && H3.ram_note)
+        ? escapeHtml(H3.ram_note)
+        : H3.venv_broken
         ? 'What broke: H3’s Python environment points at a moved or deleted '
           + 'interpreter. Rebuilding the environment takes about two minutes.'
         : _missVenv
@@ -674,11 +680,17 @@ function openH3InstallCard(source) {
       <p style="margin:0 0 10px;color:var(--muted)">
         ${escapeHtml(H3.size_note || '')}
       </p>
+      ${H3.ram_lane === 'q8' ? `<p style="margin:0 0 10px">
+        <b>This Mac runs it.</b> With ${escapeHtml(String(Math.round(H3.ram_gb || 0)))} GB
+        of memory, H3 uses its compact Q8 engine, which the install builds by
+        itself at the end (about 5 more minutes, nothing extra to download).
+      </p>` : ''}
       <p style="margin:0 0 10px">
         Install it from Pinokio, not from here: open the <b>Phosphene</b> entry
         in the Pinokio sidebar and click
-        <b>“Install Hailuo H3 (second video engine, ~75 GB)”</b>. The panel
-        picks it up within a couple of seconds — no restart.
+        <b>“Install Hailuo H3 (second video engine, ~75 GB)”</b>. It is there
+        while the panel is running, too. The panel picks it up within a couple
+        of seconds — no restart.
       </p>`;
     // THE DIAGNOSTIC DUMP GOES BEHIND A DISCLOSURE. `missing` is a list of raw
     // absolute paths — indispensable when an install half-lands, and pure

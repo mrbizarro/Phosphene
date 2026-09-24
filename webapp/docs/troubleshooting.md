@@ -12,9 +12,12 @@ The health chip in the header shows memory at a glance; click it for the **Tier*
 
 ### Hailuo H3 on a 36–60 GB Mac {#h3-compact}
 
-H3's full engine needs 60 GB. From 36 GB it runs on its compact Q8 engine, which has to be built once:
+H3's full engine needs 60 GB. From 36 GB it runs on its compact Q8 engine, which is built on your Mac once:
 
-> *"Hailuo H3 runs on this Mac — on its reduced-RAM lane … Run 'Install Hailuo H3' from the Phosphene sidebar in Pinokio — it builds that engine locally (~5 minutes, ~22 GB on disk, no extra download)."*
+- **H3 not installed yet:** in Pinokio, open **Phosphene** in the sidebar and click **Install Hailuo H3 (second video engine, ~75 GB)**. The install builds the compact engine at the end by itself (about 5 more minutes).
+- **H3 installed, compact engine missing** — *"Hailuo H3 runs on this Mac — on its reduced-RAM lane … it is not built here yet"*: click **Build Hailuo H3 compact engine** in the same sidebar (~5 minutes, no download).
+
+Both entries are in the sidebar while the panel is running.
 
 Do that, then choose Settings → **Hailuo H3 model** → Automatic or Compact. Below 36 GB, H3 is not available: render on LTX, which serves every mode.
 

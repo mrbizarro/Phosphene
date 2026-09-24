@@ -121,6 +121,40 @@ load_dit(sys.argv[1], verbose=False)
 print(f"LOAD OK - pack valid ({time.time() - t0:.1f}s)", flush=True)
 PY
 }
+# DON'T LOAD ~20 GB ON TOP OF A RENDER. Since 4.15.3 the sidebar offers this
+# install while the panel runs (the panel's own install card sends people there
+# mid-session). The quantizer streams one tensor at a time on the CPU, but its
+# closing check and validate_pack_fresh() load the whole Q8 DiT, and on a 36-59
+# GB Mac that plus an LTX render can end in a jetsam kill of either. So wait
+# while the panel's persisted queue says a job is running. FAIL-OPEN: no queue
+# file, no panel process, or an unreadable file means "idle"; 60 min cap.
+STATE_DIR="${LTX_STATE_DIR:-$APP_ROOT/state}"
+panel_rendering() {
+  [ -f "$STATE_DIR/panel_queue.json" ] || return 1
+  pgrep -f mlx_ltx_panel.py > /dev/null 2>&1 || return 1
+  .venv/bin/python - "$STATE_DIR/panel_queue.json" <<'PY'
+import json, sys
+try:
+    sys.exit(0 if json.load(open(sys.argv[1])).get("current") else 1)
+except Exception:
+    sys.exit(1)
+PY
+}
+wait_for_idle_panel() {
+  WAITED=0
+  while panel_rendering; do
+    if [ "$WAITED" -eq 0 ]; then
+      echo 'A Phosphene render is running. Waiting for it to finish before'
+      echo 'loading the compact engine (it needs ~20 GB of memory briefly).'
+    fi
+    WAITED=$((WAITED + 1))
+    if [ "$WAITED" -ge 120 ]; then
+      echo 'Still rendering after 60 minutes - continuing anyway.'
+      break
+    fi
+    sleep 30
+  done
+}
 if [ -f "$PACK/.built_ok" ] && pack_shards_present; then
   echo 'Q8 engine already built - skipping'
 else
@@ -129,9 +163,11 @@ else
   else
     echo '=== Building the reduced-RAM Q8 engine (~5 min, one time) ==='
     rm -f "$PACK/.built_ok"
+    wait_for_idle_panel
     .venv/bin/python scripts/quantize_stream.py --src "$SRC" --out "$PACK"
     echo "quantizer exit $? (a kill during its own final validation is recovered below)"
   fi
+  wait_for_idle_panel
   if pack_shards_present && validate_pack_fresh; then
     : > "$PACK/.built_ok"
     echo 'Q8 engine built and validated'

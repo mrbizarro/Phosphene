@@ -10538,6 +10538,28 @@ def h3_capable() -> bool:
     return SYSTEM_RAM_GB >= H3_MIN_RAM_GB_Q8 and _h3_q8_dit_dir() is not None
 
 
+# The Pinokio sidebar entry's exact text. pinokio.js carries the same string
+# ("the panel's install card quotes this string verbatim -- change both"), and
+# test_h3_48gb_install_path.py holds the two files to it.
+H3_INSTALL_MENU_TEXT = "Install Hailuo H3 (second video engine, ~75 GB)"
+# The entry a 36-59 GB Mac sees when the weights are on disk and only the local
+# Q8 build is missing. The message used to say "Run 'Install Hailuo H3'" there,
+# an entry pinokio.js never shows once the pack is complete.
+H3_BUILD_MENU_TEXT = "Build Hailuo H3 compact engine (weights kept — no re-download)"
+H3_REPAIR_MENU_TEXT = "Repair Hailuo H3 (weights kept — no re-download)"
+
+
+def h3_size_note() -> str:
+    """The one line under every H3 install offer: download size, the memory
+    floor, the licence. Its floor read a literal sixty-four from
+    v3.4.0 to v4.15.2 — a floor no code ever gated on — and it sat right under
+    the install card's pitch, so a 48 GB owner read it as the verdict and gave
+    up (X, 2026-09-24). The floors come from the constants the gates use."""
+    return (f"~75 GB · needs {H3_MIN_RAM_GB_Q8:.0f} GB+ unified memory "
+            f"(compact Q8 engine; {H3_MIN_RAM_GB:.0f} GB+ also unlocks the full "
+            f"bf16 engine) · MiniMax Community License (territory restrictions apply)")
+
+
 def h3_ram_verdict() -> dict:
     """What this Mac's memory says about H3 — and, when it says no, WHY and
     WHAT TO DO. Three bands, and only one of them is a dead end.
@@ -10546,7 +10568,7 @@ def h3_ram_verdict() -> dict:
     a number the product stopped believing on two separate occasions: the
     bf16 floor is `H3_MIN_RAM_GB` = 60 (a 64 GB Mac reports ~63.x after
     firmware reservations), and the Q8 DiT lane's floor is
-    `H3_MIN_RAM_GB_Q8` = 46 — the whole point of building that pack was to
+    `H3_MIN_RAM_GB_Q8` = 36 (46 until 2026-08-29) — the whole point of building that pack was to
     "put H3 in reach of 48 GB Macs". So a 48 GB Mac, which CAN render H3, was
     told it needed 64 GB. That is not a slightly-off number; it is the kind
     of wrong that makes somebody give up on a feature their hardware runs,
@@ -10559,11 +10581,18 @@ def h3_ram_verdict() -> dict:
 
     Bands:
       * >= 60 GB                      → lane "bf16", not blocked.
-      * >= 46 GB, Q8 DiT pack present → lane "q8",   not blocked.
-      * >= 46 GB, no Q8 DiT pack      → lane "q8",   blocked, `needs_q8_dit`.
+      * >= 36 GB, Q8 DiT pack present → lane "q8",   not blocked.
+      * >= 36 GB, no Q8 DiT pack      → lane "q8",   blocked, `needs_q8_dit`.
         NOT a hardware verdict — a missing local build with a named step.
-      * <  46 GB                      → lane None,   blocked for real. State
-        46, the real floor, not 64.
+        Three sentences, one per pinokio.js menu state: a Mac that never
+        (fully) installed H3 is told to INSTALL it (a real download, the Q8
+        build is the install's last step); weights present but venv/runner
+        broken -> REPAIR; everything present but the Q8 pack -> BUILD,
+        minutes, downloads nothing.
+        4.15.2 said "no extra download" to both, beside a size note that
+        claimed a sixty-four floor (X report 2026-09-24, a 48 GB owner who gave up).
+      * <  36 GB                      → lane None,   blocked for real. State
+        36, the real floor, not 64.
 
     The peaks behind the floors are per-tier, not per-render: measured on the
     staged loader at 243 frames / 10.125 s the Q8 DiT peaks at 32.6 GB and
@@ -10579,6 +10608,40 @@ def h3_ram_verdict() -> dict:
         if _h3_q8_dit_dir() is not None:
             return {"lane": "q8", "blocked": False, "needs_q8_dit": False,
                     "floor_gb": H3_MIN_RAM_GB_Q8, "message": ""}
+        # THE SENTENCE FOLLOWS THE MENU. pinokio.js shows exactly one H3 entry
+        # per state, from the same manifest (required_files.json ->
+        # capabilities.h3): everything present -> Build; every weight present
+        # but venv/runner broken -> Repair; anything else -> Install, which
+        # resumes and skips what is on disk. Naming any other entry sends the
+        # user to a button that is not there.
+        _p = h3_paths()
+        if _p["missing"] and _p["weights_ok"]:
+            return {
+                "lane": "q8", "blocked": True, "needs_q8_dit": True,
+                "floor_gb": H3_MIN_RAM_GB_Q8,
+                "message": (
+                    f"Hailuo H3 runs on this Mac — on its reduced-RAM lane, "
+                    f"the compact Q8 engine, which needs "
+                    f"{H3_MIN_RAM_GB_Q8:.0f} GB ({ram}). Its weights are on "
+                    f"disk but the engine needs repair: in Pinokio, open "
+                    f"Phosphene in the sidebar and click "
+                    f"'{H3_REPAIR_MENU_TEXT}'. That also builds the compact "
+                    f"engine (about 5 minutes). Render on LTX until then."),
+            }
+        if _p["missing"]:
+            return {
+                "lane": "q8", "blocked": True, "needs_q8_dit": True,
+                "floor_gb": H3_MIN_RAM_GB_Q8,
+                "message": (
+                    f"Hailuo H3 runs on this Mac — on its reduced-RAM lane, "
+                    f"the compact Q8 engine, which needs "
+                    f"{H3_MIN_RAM_GB_Q8:.0f} GB ({ram}). It is not installed "
+                    f"yet: in Pinokio, open Phosphene in the sidebar and click "
+                    f"'{H3_INSTALL_MENU_TEXT}'. The install downloads what "
+                    f"is missing of ~75 GB and builds the compact engine at "
+                    f"the end (about 5 more minutes). Render on LTX until "
+                    f"then."),
+            }
         return {
             "lane": "q8", "blocked": True, "needs_q8_dit": True,
             "floor_gb": H3_MIN_RAM_GB_Q8,
@@ -10587,10 +10650,10 @@ def h3_ram_verdict() -> dict:
                 f"bf16 engine needs {H3_MIN_RAM_GB:.0f} GB and "
                 f"{ram}, but the Q8 engine's floor is "
                 f"{H3_MIN_RAM_GB_Q8:.0f} GB and it is not built here yet. "
-                f"Run 'Install Hailuo H3' from the Phosphene sidebar in "
-                f"Pinokio — it builds that engine locally (~5 minutes, "
-                f"~22 GB on disk, no extra download) and skips everything "
-                f"already present. Render on LTX until then."),
+                f"In Pinokio, open Phosphene in the sidebar and click "
+                f"'{H3_BUILD_MENU_TEXT}' — it builds that engine locally "
+                f"(~5 minutes, ~22 GB on disk, no extra download) and skips "
+                f"everything already present. Render on LTX until then."),
         }
     return {
         "lane": None, "blocked": True, "needs_q8_dit": False,
@@ -12939,8 +13002,7 @@ def h3_status() -> dict:
         "upscale_modes": list(H3_UPSCALE_MODES),
         "default_upscale": H3_UPSCALE_DEFAULT,
         "modes": list(H3_MODES),
-        "size_note": "~75 GB · needs 64 GB unified memory · "
-                     "MiniMax Community License (territory restrictions apply)",
+        "size_note": h3_size_note(),
     }
 
 

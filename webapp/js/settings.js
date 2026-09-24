@@ -145,13 +145,24 @@ function updateModelsCard(s) {
   // existed this Mac was `capable: false` and got no card, no switcher
   // segment, and — if it ever reached a render — a refusal claiming it needed
   // 64 GB. The server owns the sentence; this only places it.
+  //
+  // Two different Macs share this band. `missing_q8_dit` holds all ~75 GB and
+  // lacks only the local build: a warning, it installed H3 and cannot use it.
+  // Anything else never installed H3 at all — an offer, not a fault, and "its
+  // low-RAM engine isn't built yet" misread as "your Mac is not enough" beside
+  // a size note that said 64 GB (X, 2026-09-24).
   if (h3s.needs_q8_dit) {
+    const built = (h3s.reason === 'missing_q8_dit');
     card.style.display = '';
-    card.classList.add('state-warn');
-    icon.innerHTML = '<svg class="ph" aria-hidden="true"><use href="#ph-warning-fill"/></svg>';
-    title.textContent = 'Hailuo H3 runs on this Mac — its low-RAM engine isn’t built yet';
+    if (built) card.classList.add('state-warn');
+    icon.innerHTML = built
+      ? '<svg class="ph" aria-hidden="true"><use href="#ph-warning-fill"/></svg>'
+      : '<svg class="ph" aria-hidden="true"><use href="#ph-download-simple"/></svg>';
+    title.textContent = built
+      ? 'Hailuo H3 runs on this Mac — its low-RAM engine isn’t built yet'
+      : 'Hailuo H3 runs on this Mac — on its compact Q8 engine';
     sub.textContent = h3s.ram_note || '';
-    actions.innerHTML = `<button onclick="openH3InstallCard()">How to enable H3</button>`;
+    actions.innerHTML = `<button onclick="openH3InstallCard()">${built ? 'How to enable H3' : 'How to install H3'}</button>`;
     return;
   }
   if (h3s.capable && !h3s.available && h3s.repairable) {

@@ -19,7 +19,7 @@
 
 </p>
 
-> **Current release: v4.15.2.** **Lip-sync on LTX audio-to-video now actually follows the audio.** Since v4.8.1 the Audio tab's *Audio conditioning strength* started at 1.0 — and on the Q8 pipeline 1.0 switches audio guidance **off**, so the mouth moved without tracking the song. The slider now starts on **Auto** (the engine's own setting for your Mac: 3.0 on Q8, 1.0 on Q4), and a value you set by hand is kept exactly. Q8 audio-to-video renders take about a quarter longer again, because the audio pass that was being skipped runs. Also: the Pinokio sidebar now offers **Repair Phosphene engine** when the engine package never finished installing — promised in 4.15.1, delivered here. Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
+> **Current release: v4.15.3.** **Hailuo H3 on a 36-59 GB Mac, said plainly.** The H3 install card told every Mac it needed 64 GB, a number no part of Phosphene has ever required: from 36 GB, H3 runs on its compact Q8 engine, which the install builds by itself. The card now states the real floor, says when this Mac runs H3, and the **Install Hailuo H3** entry is in the Pinokio sidebar while the panel is running (it used to appear only with the panel stopped). A Mac that already has the H3 weights but not the compact engine gets a **Build Hailuo H3 compact engine** entry instead of being sent to an install button that was not there. Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
 
 ## Overview
 
@@ -69,7 +69,7 @@ Text-to-video, image-to-video, and audio-to-video, all delivered as MP4 with joi
 | **How you get it** | The base install (27.5 GB) | One click in the Pinokio sidebar (75 GB) |
 | **Modes** | Text, image, keyframes, extend, audio-to-video, character | Text and image |
 | **Character LoRAs** | Yes — trained in-panel, face + voice | Not yet |
-| **Memory** | Every tier in the table above; the surface adapts | 64 GB class, or 48 GB with the Q8 DiT pack on disk |
+| **Memory** | Every tier in the table above; the surface adapts | 36 GB+ on the compact Q8 engine (the install builds it); 60 GB+ also runs the full bf16 engine |
 | **Best at** | Breadth: every workflow the panel offers, plus your own trained faces | Dialogue: joint video + spoken lines + sound, from one prompt |
 | **Weights licence** | [LTX-2.x Community License](LICENSES/LTX-2.x-Community-License.md) (Lightricks) | MiniMax Community License — territory restrictions apply |
 

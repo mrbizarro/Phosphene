@@ -32,6 +32,9 @@ const path = require("path")
 // the preflight's behind, so a 36-48 GB Mac was told by the panel that H3 runs
 // and by this menu that H3 does not exist. One number, three files.
 const H3_MIN_BYTES = 36 * 1000 * 1000 * 1000
+// The full bf16 engine's floor (H3_MIN_RAM_GB = 60 in the panel). Below it the
+// compact Q8 engine is the only lane that renders, so its build is REQUIRED.
+const H3_BF16_BYTES = 60 * 1000 * 1000 * 1000
 
 function h3Capable() {
   try {
@@ -120,12 +123,21 @@ function repoComplete(installRoot, repo, minBytes) {
 
 module.exports = {
   version: "7.0",
-  title: "Phosphene BETA",
+  // PUBLIC IDENTITY. From v4.8.2 to v4.15.2 this said "Phosphene BETA" and
+  // "[BETA — unreleased builds, runs alongside the stable install on port
+  // 8199]": the private beta checkout's local edit got committed and rode
+  // every promote since. Pinokio 8.2.0 overlays pinokio.json's title and
+  // description on top of these (kernel/api meta(), Object.assign order), so
+  // the sidebar read "Phosphene" — but the text shipped to every user, indexed
+  // by Pinokio's app search and shown by any build without that overlay. The
+  // beta install names itself in its own local pinokio.json (skip-worktree);
+  // nothing beta-only belongs in this file.
+  title: "Phosphene",
   // The Pinokio store listing. It still said "via LTX 2.3 (MLX)" three weeks after 2.5
   // became the generation a fresh install renders with — the first sentence a prospective
   // user reads, naming the wrong engine, while a confused existing user hunting a "why
   // does it keep asking for LTX 2.3" answer finds it confirming their suspicion.
-  description: "[BETA — unreleased builds, runs alongside the stable install on port 8199] Local generative video panel for Apple Silicon. Joint audio+video via LTX-2.5 (MLX), with Hailuo H3 as a second engine. T2V, I2V, FFLF, Extend, trained characters. Lossless h264. Hardware-tier feature gating. Free, open source.",
+  description: "[MAC ONLY] Local generative video panel for Apple Silicon. Joint audio+video via LTX-2.5 (MLX), with Hailuo H3 as a second engine. T2V, I2V, FFLF, Extend, trained characters. Lossless h264. Hardware-tier feature gating. Free, open source.",
   icon: "icon.png",
   menu: async (kernel, info) => {
     // Resolve the install root. cocktailpeanut diagnosed that `info.path` is
@@ -306,6 +318,49 @@ module.exports = {
     // "install ~75 GB" when they already have the 75 GB is the thing that
     // made this look like data loss.
     const h3_repair = h3_weights && !h3_ready
+    // The compact Q8 engine, built locally at the end of install_h3.js. A 36-59
+    // GB Mac cannot render H3 without it (the panel's h3_capable()), and once
+    // the weights are complete `h3_ready` is true — so the only entry left was
+    // "Update Hailuo H3 runner", while the panel told the user to click an
+    // "Install Hailuo H3" that was no longer there. Same markers as the panel's
+    // _h3_q8_dit_dir(): config + quant recipe + at least one shard.
+    const h3_q8 = (capH3.model_roots || []).some(root => {
+      try {
+        const dir = h3Path(root + "/h3-dit-q8")
+        return fs.existsSync(path.join(dir, "config.json"))
+          && fs.existsSync(path.join(dir, "quant_config.json"))
+          && fs.readdirSync(dir).some(n => /^model-.*\.safetensors$/.test(n))
+      } catch (e) { return false }
+    })
+    let h3_small = false
+    try { h3_small = os.totalmem() < H3_BF16_BYTES } catch (e) {}
+    const h3_needs_build = h3_ready && !h3_q8 && h3_small && h3Capable()
+    // The ONE H3 offer for a machine that cannot render H3 yet, in every menu
+    // state that has a Start or an Open Panel. It used to exist only in the
+    // stopped-panel menu, while the panel's install card (the thing a user reads
+    // WHILE the panel runs) sends them to it: a 48 GB owner on X, 2026-09-24,
+    // "couldn't even install it from the UI". install_h3.js touches only
+    // minimax-h3-mlx/ and mlx_models/hailuo-h3/, its Q8 build streams one tensor
+    // at a time on the CPU, and the panel picks the engine up on its next
+    // /status tick — safe beside a running panel, like the music install.
+    const h3Offer = () => {
+      if (!h3Capable()) return []
+      if (!h3_ready) {
+        return [h3_repair
+          // Quoted verbatim by the panel (H3_REPAIR_MENU_TEXT) -- change both.
+          ? { icon: "fa-solid fa-screwdriver-wrench", text: "Repair Hailuo H3 (weights kept — no re-download)", href: "install_h3.js" }
+          // ENGINES ARE PEERS: "optional" told a user that half the panel's
+          // video capability was a side dish. The entry names what it IS.
+          // The panel's install card quotes this string verbatim -- change both
+          // (H3_INSTALL_MENU_TEXT in mlx_ltx_panel.py).
+          : { icon: "fa-solid fa-comments", text: "Install Hailuo H3 (second video engine, ~75 GB)", href: "install_h3.js" }]
+      }
+      if (h3_needs_build) {
+        // Quoted verbatim by the panel (H3_BUILD_MENU_TEXT) -- change both.
+        return [{ icon: "fa-solid fa-screwdriver-wrench", text: "Build Hailuo H3 compact engine (weights kept — no re-download)", href: "install_h3.js" }]
+      }
+      return []
+    }
 
     const musicRoot = underRoot(envFile.LTX_MUSIC_ROOT || "yue2-mlx", "")
     const musicModels = underRoot(envFile.LTX_MUSIC_MODELS || "mlx_models/yue2", "")
@@ -538,9 +593,11 @@ module.exports = {
           // has to exist while the panel runs. The install touches only
           // yue2-mlx/ and mlx_models/yue2/; the panel picks it up on /status.
           ...musicMenu(),
+          // Same reasoning for H3: the panel's install card points here.
+          ...h3Offer(),
         ]
       }
-      return [{ default: true, icon: "fa-solid fa-terminal", text: "Terminal", href: "start.js" }, ...musicMenu()]
+      return [{ default: true, icon: "fa-solid fa-terminal", text: "Terminal", href: "start.js" }, ...musicMenu(), ...h3Offer()]
     }
 
     // Healthy install — Start path.
@@ -574,17 +631,13 @@ module.exports = {
       baseMenu.push({ icon: "fa-solid fa-images", text: "Reinstall image engines (Ideogram 4 + Qwen-Edit)", href: "install_qwen.js" })
     }
     baseMenu.push(...musicMenu())
-    if (!h3_ready && h3Capable()) {
-      // Second VIDEO engine — joint picture + dialogue + sound. Opt-in only:
-      // ~75 GB, 36 GB+ Macs (H3_MIN_BYTES above), MiniMax Community License
-      // with territory restrictions. Hidden entirely on machines that can't
-      // run it, so it never reads as a missing piece of the base install.
-      baseMenu.push(h3_repair
-        ? { icon: "fa-solid fa-screwdriver-wrench", text: "Repair Hailuo H3 (weights kept — no re-download)", href: "install_h3.js" }
-        // ENGINES ARE PEERS: "optional" told a user that half the panel's
-        // video capability was a side dish. The entry names what it IS.
-        // The panel's install card quotes this string verbatim -- change both.
-        : { icon: "fa-solid fa-comments", text: "Install Hailuo H3 (second video engine, ~75 GB)", href: "install_h3.js" })
+    // Second VIDEO engine — joint picture + dialogue + sound. Opt-in only:
+    // ~75 GB, 36 GB+ Macs (H3_MIN_BYTES above), MiniMax Community License
+    // with territory restrictions. Hidden entirely on machines that can't
+    // run it, so it never reads as a missing piece of the base install.
+    const h3Entry = h3Offer()
+    if (h3Entry.length) {
+      baseMenu.push(...h3Entry)
     } else if (h3_ready) {
       // THE DOOR MUST NOT CLOSE BEHIND THE INSTALL. The panel's live-preview
       // note tells users with an older H3 runner to update it "from the

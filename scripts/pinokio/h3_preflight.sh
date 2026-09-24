@@ -32,7 +32,7 @@ if echo "$MEM_BYTES" | grep -qE '^[0-9]+$' && [ "$MEM_BYTES" -lt 36000000000 ]; 
   echo "HAILUO H3 NEEDS AT LEAST A 36 GB MAC (this Mac has ${MEM_GB} GB)"
   echo 'Even the reduced-RAM Q8 engine peaks around 25.6 GiB while rendering;'
   echo 'below 36 GB it swaps and a 3-second clip takes hours.'
-  echo 'Nothing was downloaded. Keep using the built-in LTX-2.3 engine.'
+  echo 'Nothing was downloaded. Keep using the built-in LTX engine.'
   echo '=================================================================='
   exit 1
 elif [ "$MEM_BYTES" -lt 60000000000 ]; then

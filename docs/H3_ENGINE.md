@@ -3,7 +3,7 @@
 MiniMax-H3 (FL2VA) takes one prompt and returns **picture, dialogue and sound
 generated together**. It is a **peer of LTX, not an add-on to it** — but it is
 too big to ship in the base install, so it arrives as **its own one-click
-install**: ~75 GB of weights, a 46 GB+ Mac, and a licence with territory
+install**: ~75 GB of weights, a 36 GB+ Mac, and a licence with territory
 restrictions. LTX remains the default engine and is completely untouched by
 any of this; whichever engines you have installed sit side by side in the
 switcher.
@@ -20,9 +20,9 @@ it can.
 | Band | Lane | State |
 |---|---|---|
 | **≥ 60 GB** (`H3_MIN_RAM_GB`) | bf16 master DiT | Renders. 64 GB Macs report ~63.x after firmware reservations, which is why the floor is 60. |
-| **≥ 46 GB** (`H3_MIN_RAM_GB_Q8`), Q8 DiT pack on disk | quantised Q8 DiT | Renders. |
-| **≥ 46 GB, Q8 DiT pack absent** | — | **Not a hardware verdict.** `scripts/pinokio/h3_build_q8.sh` builds that pack locally in ~5 min / ~22 GB with **no extra download**, and "Install Hailuo H3" runs it automatically below 60 GB. The switcher shows H3 as an offer, the inline card names the step, and `h3_status()` carries `needs_q8_dit: true` with the sentence in `ram_note`. |
-| **< 46 GB** | — | Genuinely out of reach. The refusal states 46, not 64. |
+| **≥ 36 GB** (`H3_MIN_RAM_GB_Q8`), Q8 DiT pack on disk | quantised Q8 DiT | Renders. |
+| **≥ 36 GB, Q8 DiT pack absent** | — | **Not a hardware verdict.** `scripts/pinokio/h3_build_q8.sh` builds that pack locally in ~5 min / ~22 GB with **no extra download**, and "Install Hailuo H3" runs it automatically below 60 GB. The switcher shows H3 as an offer, the inline card names the step, and `h3_status()` carries `needs_q8_dit: true` with the sentence in `ram_note`. The sentence depends on whether the ~75 GB is already on disk: never installed → the sidebar's **Install Hailuo H3** (a real download, the Q8 build is its last step); weights present → **Build Hailuo H3 compact engine** (minutes, no download). Both entries are in the Pinokio sidebar while the panel runs, too (4.15.3; before that they appeared only with the panel stopped). |
+| **< 36 GB** | — | Genuinely out of reach. The refusal states 36, not 64. |
 
 `h3_ram_verdict()` is the single place those bands are decided. The render
 refusal, the `make_job` fallback line, the switcher tooltip, the engine-row
@@ -548,7 +548,7 @@ restart. `GET /status` → `.h3` tells you what resolved:
 
 | Symptom | Cause |
 |---|---|
-| Engine switcher not visible at all | Under the **46 GB** floor. `h3.capable` is false, so there is only one engine left to choose between and the switcher hides with its divider. A 48 GB-class Mac whose reduced-RAM Q8 DiT pack is not on disk **no longer lands here** — see the RAM bands below. |
+| Engine switcher not visible at all | Under the **36 GB** floor. `h3.capable` is false, so there is only one engine left to choose between and the switcher hides with its divider. A 48 GB-class Mac whose reduced-RAM Q8 DiT pack is not on disk **no longer lands here** — see the RAM bands below. |
 | H3 pill dashed, "not installed" | `h3.missing` lists exactly which component didn't resolve |
 | Image mode snaps back to LTX | `h3.first_frame` false — the installed runner has no `--first-frame` |
 | `ffmpeg not found on PATH` | the runner pipes raw RGB into `ffmpeg`; the panel prepends `FFMPEG_BIN` to the subprocess PATH, so this means the bundled binary is missing |
