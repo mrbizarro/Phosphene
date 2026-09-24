@@ -1531,9 +1531,10 @@
             <!-- H3 export canvas. Most tiers render 12:7 (768×448), which is
                  neither 720p nor 1080p; this runs the SAME lanczos-fit + pad +
                  libx264 pass an LTX render gets, keeping the native file on
-                 disk but hidden from the gallery. Bars on 12:7 content are
-                 correct — no crop, no distortion — and the Wide tier
-                 (1024×576) is exactly 16:9, so it scales with no bars at all.
+                 disk but hidden from the gallery. Since 4.16.1 near-16:9
+                 content (12:7, 5:3) fills the frame with a small centre crop
+                 instead of black bars (EXPORT_FILL_MAX_TRIM), and the High
+                 tier (1024×576) is exactly 16:9, so it scales with neither.
                  Separate from the LTX Export control below so one pill never
                  means two things. -->
             <div class="cz-control" id="h3ExportRow" data-h3-only>
@@ -1543,7 +1544,7 @@
                    key and the sidecar all stay `h3_upscale`; only the human
                    label changed. -->
               <div class="cz-label">Upscale
-                <span class="cz-label-hint">after the render · no crop</span>
+                <span class="cz-label-hint">after the render · no bars</span>
               </div>
               <div class="pill-group cols-3" id="h3UpscaleGroup">
                 <button type="button" class="pill-btn" data-h3-upscale="off"
@@ -1551,17 +1552,17 @@
                   <span>Native</span><span class="sub">as rendered</span>
                 </button>
                 <button type="button" class="pill-btn active" data-h3-upscale="fit_720p"
-                        title="Scale to 1280×720 — no crop, no distortion. A 16:9 tier scales clean; anything else is padded.">
-                  <span>720p fit</span><span class="sub">scale + pad</span>
+                        title="Scale to 1280×720 — no bars, no distortion. A 16:9 tier scales clean; 12:7 and 5:3 fill the frame with a few pixels trimmed at the edges.">
+                  <span>720p fit</span><span class="sub">scale to fill</span>
                 </button>
                 <button type="button" class="pill-btn" data-h3-upscale="fit_1080p"
-                        title="Scale to 1920×1080 — no crop, no distortion. A 16:9 tier scales clean; anything else is padded.">
-                  <span>1080p fit</span><span class="sub">scale + pad</span>
+                        title="Scale to 1920×1080 — no bars, no distortion. A 16:9 tier scales clean; 12:7 and 5:3 fill the frame with a few pixels trimmed at the edges.">
+                  <span>1080p fit</span><span class="sub">scale to fill</span>
                 </button>
               </div>
               <!-- What THIS tier + THIS export target will actually do: "pure
-                   1.25× scale, no bars" or "12:7 fits to 1234×720 — 23 px bars
-                   left and right". The string is built server-side by
+                   1.25× scale, no bars" or "12:7 fills 1280×720 — 13 px trimmed
+                   top and bottom, no bars". The string is built server-side by
                    _h3_export_notes() from compute_upscale_plan itself, so the
                    sentence can never disagree with the ffmpeg command that
                    runs. Sits UNDER the control it describes now, instead of
@@ -1580,16 +1581,16 @@
               </label>
               </div>
             <!-- Export upscale — target dims after render. "720p fit"
-                 preserves aspect ratio (no crop, no distortion). 2× doubles
+                 preserves aspect ratio (no distortion; a near-16:9 canvas fills the frame with a few px trimmed, 4.16.1). 2× doubles
                  each side. Native skips the upscale entirely. The "Method"
                  row below picks how the upscaling is done. -->
             <div class="cz-control" data-ltx-only>
               <div class="cz-label">Export
-                <span class="cz-label-hint">post-render, no crop</span>
+                <span class="cz-label-hint">post-render, no bars</span>
               </div>
               <div class="pill-group cols-3" id="upscaleGroup">
                 <button type="button" class="pill-btn active" data-upscale="off"><span>Native</span><span class="sub">as generated</span></button>
-                <button type="button" class="pill-btn" data-upscale="fit_720p"><span>720p fit</span><span class="sub">scale + pad</span></button>
+                <button type="button" class="pill-btn" data-upscale="fit_720p"><span>720p fit</span><span class="sub">scale to fill</span></button>
                 <button type="button" class="pill-btn" data-upscale="x2"><span>2×</span><span class="sub">same ratio</span></button>
               </div>
             </div>

@@ -90,7 +90,24 @@ BT709_FLAGS = ["-color_primaries", "bt709", "-color_trc", "bt709",
                "-colorspace", "bt709"]
 
 
-def fit_filter(target_w: int, target_h: int) -> str:
+# Same rule, same number as EXPORT_FILL_MAX_TRIM in mlx_ltx_panel.py (this
+# script runs standalone, so it carries its own copy; a test holds the two
+# equal): a source within 8% of the target aspect is scaled to COVER the
+# canvas and centre-cropped instead of padded with black bars.
+EXPORT_FILL_MAX_TRIM = 0.08
+
+
+def fit_filter(target_w: int, target_h: int,
+               src_w: int | None = None, src_h: int | None = None) -> str:
+    if src_w and src_h:
+        a, b = src_w / float(src_h), target_w / float(target_h)
+        if 1.0 - min(a, b) / max(a, b) <= EXPORT_FILL_MAX_TRIM:
+            return (
+                f"scale={target_w}:{target_h}:"
+                "force_original_aspect_ratio=increase:flags=lanczos,"
+                f"crop={target_w}:{target_h},"
+                f"{BT709_SETPARAMS}"
+            )
     return (
         f"scale={target_w}:{target_h}:"
         "force_original_aspect_ratio=decrease:flags=lanczos,"
@@ -106,7 +123,7 @@ def make_lanczos(input_mp4: Path, output_mp4: Path, crf: str, pix_fmt: str, pres
     run([
         str(ffmpeg_path()), "-hide_banner", "-y",
         "-i", str(input_mp4),
-        "-vf", fit_filter(target_w, target_h),
+        "-vf", fit_filter(target_w, target_h, int(info["width"]), int(info["height"])),
         "-c:v", "libx264", "-pix_fmt", pix_fmt, "-crf", crf, "-preset", preset,
         *BT709_FLAGS,
         "-movflags", "+faststart",
@@ -211,7 +228,7 @@ def make_pipersr(input_mp4: Path, output_mp4: Path, crf: str, pix_fmt: str, pres
             "-i", str(frames_2x / "frame_%06d.png"),
             "-i", str(input_mp4),
             "-map", "0:v:0", "-map", "1:a?",
-            "-vf", fit_filter(target_w, target_h),
+            "-vf", fit_filter(target_w, target_h, int(info["width"]), int(info["height"])),
             "-c:v", "libx264", "-pix_fmt", pix_fmt, "-crf", crf, "-preset", preset,
             *BT709_FLAGS,
             "-movflags", "+faststart",

@@ -19,7 +19,7 @@
 
 </p>
 
-> **Current release: v4.16.0.** **The Music Studio, and more than 70 fixes.** A song is now something you keep working on: every song keeps what made it, so you can make a new take, re-roll the sound, put a new style on the same score, cover it or edit the score; a Song card shows the sheet music and lyrics; the Audio view is a song list with a player bar; the composer writes lyrics, edits them section by section, and turns one description into a song (Simple mode); a Voice & style LoRA picker and a music-video planner come with it. The same release fixes more than 70 bugs, most of them found by a review of seven user flows: Editor saves that dropped transitions, LoRAs that Extend, FFLF and Q4 Audio to Video ignored, Stop that did not stop, downloads that Cancel restarted, an Update that could not rebuild an empty engine, and more. Hailuo H3 decodes video in FP16 by default (same picture, about 14% faster decode). Press Update in Pinokio, then restart. Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
+> **Current release: v4.16.1.** **No more black bars on a 720p or 1080p export.** Hailuo H3's Draft and Standard canvases (and LTX's Standard) are close to 16:9 but not exactly, and the export used to pad the difference with black: 40 px down each side of a Draft clip at 720p. Now the picture fills the frame and a few pixels are trimmed at the edges instead; canvases far from 16:9 (square, 4:3) still get bars. 4.16.0 brought the Music Studio and more than 70 fixes. Full notes on the [releases page](https://github.com/mrbizarro/Phosphene/releases).
 
 ## Overview
 

@@ -8827,7 +8827,7 @@ def _h3_qualities() -> dict[str, dict]:
             "width": 768, "height": 448,
             "blurb": "The workhorse canvas — every chained-window measurement "
                      "on this Mac was taken here. 12:7, so a 720p/1080p export "
-                     "pads bars at the sides.",
+                     "trims a few pixels top and bottom to fill 16:9.",
             "offered": True,
         },
         # The only true-16:9 delivery canvas H3 can serve (see the block comment
@@ -8847,7 +8847,7 @@ def _h3_qualities() -> dict[str, dict]:
             "key": "high", "label": "High", "order": 2,
             "width": 1024, "height": 576,
             "blurb": "True 16:9 — the only canvas that exports to 720p as a "
-                     "pure 1.25× scale with no bars, and it resolves face "
+                     "pure 1.25× scale with nothing trimmed, and it resolves face "
                      "detail 768×448 cannot. Auto runs 15 forwards here, not 8: "
                      "at 8 faces in motion come out soft. The recommended "
                      "delivery canvas.",
@@ -8867,8 +8867,8 @@ def _h3_qualities() -> dict[str, dict]:
             "key": "native", "label": "Native", "order": 3,
             "width": 1344, "height": 768,
             "blurb": "The model's own canvas at its 1.03 MP ceiling — the most "
-                     "detail H3 can produce. 7:4, so an export adds thin bars "
-                     "top and bottom. Worth it with Turbo on; a long wait "
+                     "detail H3 can produce. 7:4, so a 1080p export trims a "
+                     "few pixels to fill 16:9. Worth it with Turbo on; a long wait "
                      "without.",
             "steps": H3_NATIVE_STEPS,
             "offered": True,
@@ -12959,7 +12959,13 @@ def _h3_export_notes(w: int, h: int) -> dict[str, str]:
             continue
         tw, th = int(plan["target_w"]), int(plan["target_h"])
         name = "1080p" if str(plan["tag"]).endswith("1080p") else "720p"
-        if not plan.get("pad"):
+        if plan.get("fill"):
+            cut = (f"{int(plan['trim_h']) // 2} px trimmed top and bottom"
+                   if int(plan["trim_h"]) >= int(plan["trim_w"]) else
+                   f"{int(plan['trim_w']) // 2} px trimmed left and right")
+            out[mode] = (f"{name}: {_h3_aspect(w, h)} fills {tw}×{th} — "
+                         f"{cut}, no bars.")
+        elif not plan.get("pad"):
             out[mode] = (f"{name}: pure {tw / float(w):g}× scale to {tw}×{th} — "
                          f"no bars, no padding.")
         else:
@@ -18537,6 +18543,30 @@ def bt709_vf(vf: str | None = None) -> str:
     return f"{vf},{BT709_SETPARAMS}" if vf else BT709_SETPARAMS
 
 
+# FILL, DON'T PAD, WHEN THE MISMATCH IS SMALL. A 720p/1080p export used to fit
+# every non-16:9 render inside the canvas and pad the rest with black. For H3's
+# Draft (640x384, 5:3) that is 40 px of black on each side of a 1280x720 file,
+# for Standard (768x448, 12:7) 23 px — measured on real exports with a luma
+# scan — and a user with a 48 GB Mac asked on X whether the bars were a bug
+# (2026-09-24). They were the design ("no crop, no distortion"), and the
+# design was wrong for a file whose job is to BE 720p: the same app already
+# cover-crops the H3 reference (_h3_fit_first_frame) and Extend's downscale
+# (≤31 px) rather than show bars, and LTX's default canvas is exact 16:9.
+# So a source whose aspect is within this fraction of the target's is scaled
+# to COVER the canvas and centre-cropped: 5:3 loses 6.25% of its height, 12:7
+# 3.6%, LTX's 1280x704 2.2% of its width. Anything further off (square, 4:3,
+# a portrait source into a landscape canvas) still pads — cropping a third of
+# the picture away is worse than bars.
+EXPORT_FILL_MAX_TRIM = 0.08
+
+
+def _export_trim_fraction(w: int, h: int, target_w: int, target_h: int) -> float:
+    """How much of the picture a cover-crop onto target_w x target_h would cut,
+    as a fraction of the cropped axis (0 = same aspect)."""
+    a, b = w / float(h), target_w / float(target_h)
+    return 1.0 - min(a, b) / max(a, b)
+
+
 def _fit_inside(w: int, h: int, target_w: int, target_h: int) -> tuple[int, int]:
     """The content size ffmpeg's `force_original_aspect_ratio=decrease` lands on
     — the source scaled to touch the canvas on its tighter axis. Used to say how
@@ -18598,9 +18628,25 @@ def compute_upscale_plan(w: int, h: int, mode: str | None,
         if eff_w >= target_w and eff_h >= target_h:
             return None
         exact_aspect = (eff_w * target_h == eff_h * target_w)
+        fill = False
+        trim_w = trim_h = 0
         if exact_aspect:
             fit_w, fit_h = target_w, target_h
             vf = f"scale={target_w}:{target_h}:flags=lanczos"
+        elif _export_trim_fraction(eff_w, eff_h, target_w, target_h) <= EXPORT_FILL_MAX_TRIM:
+            # Cover + centre-crop (see EXPORT_FILL_MAX_TRIM). The picture fills
+            # the whole canvas; `trim_w`/`trim_h` are the pixels cut in total
+            # at output scale, so the export note and the sidecar can say so.
+            s = max(target_w / float(eff_w), target_h / float(eff_h))
+            trim_w = max(0, int(round(eff_w * s)) - target_w)
+            trim_h = max(0, int(round(eff_h * s)) - target_h)
+            fit_w, fit_h = target_w, target_h
+            fill = True
+            vf = (
+                f"scale={target_w}:{target_h}:"
+                "force_original_aspect_ratio=increase:flags=lanczos,"
+                f"crop={target_w}:{target_h}"
+            )
         else:
             fit_w, fit_h = _fit_inside(eff_w, eff_h, target_w, target_h)
             vf = (
@@ -18608,7 +18654,7 @@ def compute_upscale_plan(w: int, h: int, mode: str | None,
                 "force_original_aspect_ratio=decrease:flags=lanczos,"
                 f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black"
             )
-        pad = not exact_aspect
+        pad = not (exact_aspect or fill)
         method = "ffmpeg_lanczos_downscale" if helper_did_model_upscale else "ffmpeg_lanczos"
     elif mode == "x2":
         # If the helper already did model x2, the file is already at the
@@ -18617,6 +18663,7 @@ def compute_upscale_plan(w: int, h: int, mode: str | None,
             return None
         target_w, target_h, tag = w * 2, h * 2, "up2x"
         fit_w, fit_h, pad = target_w, target_h, False
+        fill, trim_w, trim_h = False, 0, 0
         vf = f"scale={target_w}:{target_h}:flags=lanczos"
         method = "ffmpeg_lanczos"
     else:
@@ -18630,6 +18677,10 @@ def compute_upscale_plan(w: int, h: int, mode: str | None,
         # a pure scale; `fit_w`/`fit_h` are the content size inside the canvas,
         # so a sidecar reader can tell bars from picture without re-deriving it.
         "pad": pad,
+        # `fill` True: cover + centre-crop, `trim_w`/`trim_h` pixels cut.
+        "fill": fill,
+        "trim_w": trim_w,
+        "trim_h": trim_h,
         "fit_w": fit_w,
         "fit_h": fit_h,
         "tag": tag,
@@ -29262,11 +29313,11 @@ def run_h3_job_inner(job: dict) -> None:
     # ---- export pass: the SAME post-process an LTX render gets ------------
     # Most tiers write 768×448 (12:7), which is neither 720p nor 1080p and looks
     # like a bug next to LTX output in the gallery. Run the identical ffmpeg
-    # recipe: lanczos fit inside the canvas, pad the remainder, re-encode with
-    # the user's codec settings, audio copied through untouched. Pillarboxing
-    # 12:7 into 16:9 is the correct answer — no crop, no distortion. The
-    # `wide_5s` tier renders 1024×576, which IS 16:9, so the same call comes
-    # back with a pure-scale plan and no pad filter at all. The native file
+    # recipe: re-encode with the user's codec settings, audio copied through
+    # untouched. Since 4.16.1 a near-16:9 canvas (Draft 5:3, Standard 12:7)
+    # FILLS the frame with a small centre crop instead of pillarboxing — see
+    # EXPORT_FILL_MAX_TRIM. High (1024×576) IS 16:9, so the same call comes
+    # back with a pure-scale plan and neither a crop nor a pad. The native file
     # stays on disk but hidden from the gallery, exactly like the LTX path.
     native_path = out_path
     final_target = out_path
@@ -29300,8 +29351,10 @@ def run_h3_job_inner(job: dict) -> None:
         upscale_plan["method"] = "ffmpeg_lanczos"
         final_target = upscaled_out
         push(f"[h3] export done → {upscaled_out.name} "
-             f"({upscale_plan['target_w']}×{upscale_plan['target_h']}, no crop, "
-             + ("no bars — pure scale, " if not upscale_plan.get("pad") else
+             f"({upscale_plan['target_w']}×{upscale_plan['target_h']}, "
+             + (f"filled, {upscale_plan['trim_w'] or upscale_plan['trim_h']} px "
+                f"cropped at the edges, no bars, " if upscale_plan.get("fill") else
+                "no bars — pure scale, " if not upscale_plan.get("pad") else
                 f"{upscale_plan['fit_w']}×{upscale_plan['fit_h']} of picture "
                 f"+ bars, ")
              + f"{codec['pix_fmt']} crf {codec['crf']}, preset={export_preset})")
@@ -31509,6 +31562,18 @@ def run_job_inner(job: dict) -> None:
         p["width"], p["height"] = width, height
 
     pad_w, pad_h, pad_filter = compute_pad(width, height)
+    # The clean-audio mux pads 1280x704 to 1280x720 with 8 px of black. When
+    # the export will FILL that canvas (4.16.1, EXPORT_FILL_MAX_TRIM) the mux
+    # must not pad first: the export would then cover-crop a frame that
+    # already carries the bars, and the plan would report a fill that left
+    # them in place (Codex review, 4.16.1). With the export off, the pad stays.
+    if pad_filter and mode == "i2v_clean_audio":
+        try:
+            _fill_plan = compute_upscale_plan(width, height, p.get("upscale", "off"))
+        except RuntimeError:
+            _fill_plan = None
+        if _fill_plan and _fill_plan.get("fill"):
+            pad_w, pad_h, pad_filter = width, height, None
     suffix = f"{pad_w}x{pad_h}" if mode == "i2v_clean_audio" and pad_filter else f"{width}x{height}"
     tag = f"{mode}_hq" if ltx_quality_uses_hq(quality) else mode
     # Only `i2v_clean_audio` runs a panel-side mux (raw → final). For T2V / I2V /
@@ -31995,8 +32060,11 @@ def run_job_inner(job: dict) -> None:
         final_target = upscaled_out
         push(
             f"Upscale done → {upscaled_out.name} "
-            f"({upscale_plan['target_w']}×{upscale_plan['target_h']}, no crop, "
-            f"{upscale_plan['method']}, {mux_pix_fmt} crf {mux_crf}, preset={upscale_preset})"
+            f"({upscale_plan['target_w']}×{upscale_plan['target_h']}, "
+            + (f"filled, {upscale_plan.get('trim_w') or upscale_plan.get('trim_h')} px "
+               f"cropped at the edges, " if upscale_plan.get("fill") else
+               "no crop, ")
+            + f"{upscale_plan['method']}, {mux_pix_fmt} crf {mux_crf}, preset={upscale_preset})"
         )
         set_hidden(str(native_target), True)
         push(f"Native source kept but hidden from gallery → {native_target.name}")

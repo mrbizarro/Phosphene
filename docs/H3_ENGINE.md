@@ -36,6 +36,19 @@ at 1024×576 / 124f (27.3 GiB Q8, 42.8 GiB bf16). On the staged loader at
 10 s one, so a length-aware gate could open short H3 renders to smaller Macs.
 That gate does **not** exist; the floors are deliberately one number per lane.
 
+**Field data — 48 GB really runs it.** A user report (X, 2026-09-24, v4.15.3,
+M5 Pro 48 GB, the compact Q8 engine, Image mode, 3 s clips). Peak is the
+system memory the user read while rendering, not an MLX-internal number:
+
+| Tier | Clip | Peak memory | Wall |
+|---|---|---|---|
+| Draft (640×384) | 3 s | 37 GB | 2 m 32 s |
+| Standard (768×448) | 3 s | 36 GB | 3 m 53 s |
+| High (1024×576) | 3 s | 39 GB | 13 m 27 s |
+
+Consistent with the Q8 lane's 25.63 GiB run peak plus macOS and the panel, and
+with the 36 GB floor leaving headroom on a 48 GB Mac.
+
 ---
 
 ## How it plugs in
@@ -318,12 +331,29 @@ appended, and a fallback nobody asked for has to be the cheap one.
 
 ### Export pass — the same post-process LTX renders get
 
-Most tiers write 768×448 (12:7), which is neither 720p nor 1080p. The panel runs
-the identical ffmpeg recipe an LTX render gets: lanczos fit inside the canvas +
-pad the remainder + `libx264` with the user's codec settings (`yuv420p crf 18`
-by default) + `+faststart`, audio copied through untouched. Bars on 12:7 content
-are correct — no crop, no distortion — and they land at the **sides**
-(pillarbox: 23 px at 720p, 34 px at 1080p), because 12:7 is *taller* than 16:9.
+Draft writes 640×384 (5:3) and Standard 768×448 (12:7), neither of them 720p
+nor 1080p. The panel runs the identical ffmpeg recipe an LTX render gets:
+lanczos scale + `libx264` with the user's codec settings (`yuv420p crf 18` by
+default) + `+faststart`, audio copied through untouched.
+
+**Since 4.16.1 a near-16:9 canvas FILLS the frame instead of getting bars.**
+Until then a non-matching source was fitted inside the canvas and padded:
+Draft → 720p had **40 px of black on each side**, Standard 23 px (luma-scanned
+on real exports). A 48 GB user on X asked whether that was a bug (2026-09-24),
+and for a file whose job is to be 720p it was. Now a source within
+`EXPORT_FILL_MAX_TRIM` (8%) of the target aspect is scaled to **cover** the
+canvas and centre-cropped: 5:3 → 720p trims 24 px top and bottom, 12:7 13 px,
+Native 7:4 → 1080p 8 px. The same rule applies to LTX exports (1280×704 → 720p
+trims 14 px left and right instead of 8 px bars) and to the Sharp (PiperSR)
+path, which carries its own copy of the constant. A source further off —
+square, 4:3 — still pads: cutting a third of the picture is worse than bars.
+The plan reports `fill: True` plus `trim_w`/`trim_h`.
+
+The picture was never the problem: an Image-mode reference is already
+cover-cropped onto the tier canvas before conditioning (`_h3_fit_first_frame`,
+centre crop — no face detection ships with the base install), so the bars came
+only from this export pass. The High tier (1024×576) is exact 16:9 and gets
+neither a crop nor a pad.
 
 **A source that already matches the target aspect takes a pure-scale path**
 (2026-08-06). `compute_upscale_plan` compares `w·target_h == h·target_w`; on a match
@@ -331,12 +361,12 @@ it emits `scale=W:H:flags=lanczos` with **no pad filter at all** and reports
 `pad: False` on the plan (plus `fit_w`/`fit_h`, the content size inside the
 canvas, so a sidecar reader can tell bars from picture). `wide_5s` → 720p is a
 pure 1.25× and → 1080p a pure 1.875×. Everything that does not match keeps the
-fit-and-pad filtergraph byte-for-byte.
+fill-or-pad rule above.
 
 The panel says which one you are about to get: `_h3_export_notes()` generates one
 sentence per export mode **from `compute_upscale_plan` itself** — "720p: pure
-1.25× scale to 1280×720 — no bars, no padding." vs "720p: 12:7 fits to 1234×720
-inside 1280×720 — 23 px bars left and right." — ships it on each tier as
+1.25× scale to 1280×720 — no bars, no padding." vs "720p: 12:7 fills 1280×720 —
+13 px trimmed top and bottom, no bars." — ships it on each tier as
 `export_note`, and `_h3SyncExportNote()` prints it under the Export row. The copy
 can never disagree with the ffmpeg command because it is generated from it.
 

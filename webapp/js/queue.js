@@ -4499,7 +4499,11 @@ function renderOutputInfoBody(path, data) {
     const up = data.upscale || {};
     const target = up.target_w && up.target_h ? ` → ${up.target_w} × ${up.target_h}` : '';
     const isSharp = p.upscale_method === 'pipersr' || p.upscale_method === 'model' || (data.upscale && (data.upscale.method === 'pipersr_coreml' || data.upscale.pre_pass === 'pipersr_x2' || data.upscale.method === 'ltx_latent_x2' || data.upscale.pre_pass === 'ltx_latent_x2'));
-    const baseLabel = p.upscale === 'fit_720p' ? '720p fit (no crop)' : (p.upscale === 'x2' ? '2×' : p.upscale);
+    // What the export DID, from the sidecar's plan: since 4.16.1 a near-16:9
+    // source fills the canvas with a small trim, so "(no crop)" is only true
+    // for a pure scale or a padded one.
+    const fitHow = up.fill ? 'filled, edges trimmed' : (up.pad ? 'bars added' : 'no crop');
+    const baseLabel = p.upscale === 'fit_720p' ? `720p fit (${fitHow})` : (p.upscale === 'x2' ? '2×' : p.upscale);
     const label = isSharp ? `${baseLabel} · Sharp (PiperSR)` : `${baseLabel} · Fast (Lanczos)`;
     genRows.push(`<dt>Upscale</dt><dd>${escapeHtml(label + target)}</dd>`);
   }
@@ -4509,7 +4513,8 @@ function renderOutputInfoBody(path, data) {
   if (p.h3_upscale && p.h3_upscale !== 'off') {
     const up = data.upscale || {};
     const target = up.target_w && up.target_h ? ` → ${up.target_w} × ${up.target_h}` : '';
-    const base = p.h3_upscale === 'fit_1080p' ? '1080p fit (no crop)' : '720p fit (no crop)';
+    const fitHow = up.fill ? 'filled, edges trimmed' : (up.pad ? 'bars added' : 'no crop');
+    const base = (p.h3_upscale === 'fit_1080p' ? '1080p fit' : '720p fit') + ` (${fitHow})`;
     genRows.push(`<dt>Export</dt><dd>${escapeHtml(base + ' · Fast (Lanczos)' + target)}</dd>`);
   }
   // Chained windows — the honest shape of a 10 s / 15 s H3 clip.

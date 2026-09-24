@@ -121,7 +121,7 @@ After the render, the clip can be resized without cropping.
 **On Hailuo H3** (under Customize → **Upscale**):
 
 - **Native** — as rendered.
-- **720p fit** / **1080p fit** — scaled and padded to fit. 720p fit is the default.
+- **720p fit** / **1080p fit** — scaled to fill the frame. A canvas close to 16:9 (H3 Draft and Standard, LTX Standard) loses a few pixels at the edges instead of getting black bars; one far from it (square, portrait into landscape) is still padded. 720p fit is the default.
 Below the sizes, **Also run Upscale & Face Fix after the draft** is optional and off by default. When it is ticked, the draft ships as rendered and a second job re-renders it at twice the size with LTX-2.5, keeping the face and the sound; the fixed clip lands next to the draft. It needs the 0.3 GB Upscale adapter, downloaded from the Models window, and takes about the draft's time again.
 
 **On LTX** (under Customize → **Export**): **Native** (default), **720p fit**, or **2×**. When it is not Native, **Method** chooses **Fast** (instant) or **Sharp** (a sharper upscaler, +30–90 s).
