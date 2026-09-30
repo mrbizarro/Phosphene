@@ -202,7 +202,7 @@ def resolve_preset(preset: str, advanced: dict[str, Any] | None) -> dict[str, An
         # ~1 latent token at 512²") was silently dropped here and every
         # panel-driven training fell back to resolution×resolution. An
         # explicit allowlist instead: preset keys plus the geometry pair.
-        _extra_ok = ("width", "height")
+        _extra_ok = ("width", "height", "checkpoint_keep_last_n")
         for k, v in advanced.items():
             if v is not None and (k in cfg or k in _extra_ok):
                 cfg[k] = v
@@ -303,7 +303,7 @@ def load_spec(spec_path: Path) -> dict[str, Any]:
     if not isinstance(spec.get("advanced"), dict):
         spec["advanced"] = {}
     for k in ("rank", "alpha", "steps", "lr", "resolution",
-              "width", "height",
+              "width", "height", "checkpoint_keep_last_n",
               "target_modules", "caption_strategy", "crop_strategy"):
         if k in spec and k not in spec["advanced"]:
             spec["advanced"][k] = spec[k]
@@ -653,7 +653,10 @@ def build_trainer_config(
             # Save every ~10% of total steps so the user has fallbacks if a long
             # run is interrupted, but keep at least one mid-run checkpoint.
             "interval": max(1, int(cfg["steps"]) // 5),
-            "keep_last_n": 2,
+            # keep_last_n=2 left only the final checkpoint of the #62 v2/v3
+            # runs on disk, so "was it over-trained?" could not be answered
+            # after the fact. A spec may raise it (5 keeps every save).
+            "keep_last_n": int(cfg.get("checkpoint_keep_last_n") or 2),
         },
         "seed": 42,
         "output_dir": str(output_dir),
@@ -713,6 +716,13 @@ def run_training(
     # Roughly every ~2% of total steps, with bounds [10, 250].
     emit_every = max(10, min(250, total_steps // 50 or 10))
     last_loss: float | None = None
+    # Mean over the steps since the last emit. The emitted loss used to be
+    # the single most recent step's, i.e. one sample at a random sigma every
+    # ~2% of the run: timestep variance swamped any trend, and the #62 v2/v3
+    # curves could not say whether training converged. Batch 1 makes the
+    # per-step value this noisy; the interval mean is what is readable.
+    loss_sum = 0.0
+    loss_n = 0
 
     # Sniff per-step loss without forking the trainer: monkey-patch
     # TrainingProgress.update_training. It always gets called (even with
@@ -722,9 +732,11 @@ def run_training(
     _orig_update = tp_mod.TrainingProgress.update_training
 
     def _sniff_update(self, *, loss, lr, step_time, advance=True):  # noqa: ANN001
-        nonlocal last_loss
+        nonlocal last_loss, loss_sum, loss_n
         try:
             last_loss = float(loss)
+            loss_sum += last_loss
+            loss_n += 1
         except Exception:  # noqa: BLE001
             pass
         return _orig_update(self, loss=loss, lr=lr, step_time=step_time, advance=advance)
@@ -732,7 +744,7 @@ def run_training(
     tp_mod.TrainingProgress.update_training = _sniff_update
 
     def _cb(step: int, total: int, _videos: list[Path]) -> None:
-        nonlocal last_emit_step
+        nonlocal last_emit_step, loss_sum, loss_n
         if step - last_emit_step < emit_every and step != total:
             return
         last_emit_step = step
@@ -742,16 +754,22 @@ def run_training(
         if step > 0:
             per_step = elapsed / step
             eta = max(0, int(per_step * (total - step)))
-        loss_val = round(last_loss, 4) if last_loss is not None else None
+        if loss_n:
+            loss_val = round(loss_sum / loss_n, 4)
+        else:
+            loss_val = round(last_loss, 4) if last_loss is not None else None
+        n_val = loss_n
+        loss_sum, loss_n = 0.0, 0
         emit(
             "train_progress",
             step=step,
             loss=loss_val,
+            loss_n=n_val,
             eta_s=eta,
         )
         # Panel-side alias: mlx_ltx_panel.py parses {"event":"step"} with
         # {step, total, loss} fields and renders the progress bar from it.
-        emit("step", step=step, total=total, loss=loss_val, eta_s=eta)
+        emit("step", step=step, total=total, loss=loss_val, loss_n=n_val, eta_s=eta)
 
     # Silence the trainer's own logging to stdout — only our JSON-lines should
     # reach stdout. Send everything else to stderr so it's still capturable.
