@@ -58,6 +58,15 @@ back statistically identical to v2's (6.67e-4).** This is the strongest
 evidence yet that Bug B is not a data-quality problem at all — see
 [The v3 retrain](#the-v3-retrain-every-fixable-variable-corrected-still-no-identity-lock).
 
+**Current leading hypothesis (untested):** the "high" preset trains at
+512 px, which LTX's 32× VAE turns into a 16×16 latent grid — possibly too
+coarse for this face, and a ceiling that would hide any dataset or crop
+improvement. Weakened by `bizarrotrn`, an unseen face the same recipe did
+learn, so it is being tested as one variable, not assumed. The logged loss curves cannot confirm or refute this (single
+sampled steps, timestep noise dominates), and ID-LoRA turned out to be a
+zero-shot I2V+voice adapter rather than a training recipe. See
+[Loss curves, training resolution, and external guidance](#loss-curves-training-resolution-and-external-guidance).
+
 Other things checked and worth keeping on record, in the order they were
 investigated:
 
@@ -482,7 +491,9 @@ data point in an experiment the maintainer explicitly left open.
   42 images, matching `epochs × image_count`) / lr 1e-4 / 512px is byte-for-
   byte the "high" preset in `mlx_ltx_panel.py`, described in its own
   comments as "the only recipe ever graded on a face" and "everything that
-  has ever carried a face here was trained this way."
+  has ever carried a face here was trained this way." **Qualified later in
+  this session:** the preset's 512 px resolution is 16×16 latent tokens,
+  which may be marginal for a face — see [Loss curves, training resolution, and external guidance](#loss-curves-training-resolution-and-external-guidance).
 - **Digit-tokenizing trigger word** (the #62 fix shipped in v4.9.2) — ruled
   out. `valeriosan` is letters-only, the documented working shape.
 - **Panel-side generation routing** (Finding 1) — real, but ruled out as
@@ -592,6 +603,112 @@ branch entirely) behaves any differently — a sanity check that the unfused
 attach path itself isn't somehow the anomaly, since every render in this
 document has gone through it.
 
+## Loss curves, training resolution, and external guidance
+
+Read after the v3 retrain, before committing to another multi-hour run.
+
+### The logged loss curves cannot answer "did it converge"
+
+Both runs, bucketed into tenths of the run (`{"event":"step"}` lines):
+
+| | v2 (4200 steps) | v3 (3700 steps) |
+|---|---|---|
+| first-quarter mean | 0.557 | 0.561 |
+| last-quarter mean | 0.507 | 0.549 |
+| range | 0.23 – 0.96 | 0.25 – 1.14 |
+| final logged value | 0.406 | ~0.41 |
+
+Both are flat noise. That is **not** evidence of a failed fit, because of
+how the number is produced: `lora_lab/train_character.py:725-750` sniffs
+the most recent single-step loss out of `TrainingProgress.update_training`
+and emits it every ~`steps/50` steps. The curve is 50 single samples, each
+at a random `shifted_logit_normal` sigma, so timestep variance dominates
+and no trend is recoverable. An EMA or per-interval mean would be needed to
+read convergence from the log.
+
+The "final loss 0.01–0.05 means it learned, >0.1 means it struggled" rule
+that circulates in third-party LTX guides is an ai-toolkit figure and does
+not transfer to this trainer's flow-matching velocity MSE, where 0.4–0.6
+is the normal operating range.
+
+**Only the final checkpoint survives** in both runs
+(`train_output/checkpoints/lora_weights_step_04200.safetensors`,
+`..._03700.safetensors`). The trainer config writes one every `steps // 5`
+with `keep_last_n: 2`, so no early-stop comparison is possible on either
+run after the fact.
+
+### Configuration actually used (v3 `run.log` config table)
+
+rank 32 / alpha 32, dropout 0.0, targets `to_q/to_k/to_v/to_out` (576 video
+targets kept, 576 audio targets dropped), adamw, lr 1e-4, **constant**
+schedule, weight decay 0.0, batch 1, grad-accum 1, max-grad-norm 1.0,
+`shifted_logit_normal` timestep sampling, strategy `text_to_video`, audio
+off, `first_frame_conditioning_p=0.0` (forced by the image-only override in
+`lora_lab/train.py:267`), no validation.
+
+### Leading hypothesis: 512 px is 16×16 latent tokens
+
+The preprocess step prints `target latent shape per image: [128, 1, 16, 16]`.
+LTX's video VAE compresses **32× spatially**, so a 512 px training image is
+a 16×16 token grid, and a centre-cropped face occupies roughly 8–10 tokens
+across. In detail terms that is closer to training an 8×-VAE image model at
+~128 px than at 512 px. The external guides call 512 "the floor" for
+identity work and recommend 768–1024 when detail matters, without noting
+that LTX's compression makes 512 unusually coarse.
+
+This is consistent with every result above: dataset curation and the
+letterbox→center crop change moved neither `delta_rms_median` nor cross-seed
+PSNR, which is what a resolution ceiling applied equally to both datasets
+would predict. **Untested.**
+
+**What weakens it:** `bizarrotrn` is the owner's own face — not an identity
+the base model could already know — and it demonstrably carries that face
+on the graded 512 px rank-32 recipe (STATE.md 2026-09-07: fused with
+`eltrumpo`, *both* men rendered with Bizarro's face). So the recipe *has*
+learned an unseen identity at 16×16 at least once, and resolution cannot be
+the whole story on its own. It may still be the difference at the margin —
+`bizarrotrn_v2` measures 8.84e-4 against `valeriosan`'s ~6.6e-4, and how
+much of each source frame the face fills was never compared — which is what
+the single-variable retrain below is for. (An earlier draft of this section
+proposed a "celebrity confound" in the calibration table; the `bizarrotrn`
+evidence rules it out and it was withdrawn.)
+
+### External guidance, compared against the "high" preset
+
+| parameter | external recommendation | v2 / v3 |
+|---|---|---|
+| rank / alpha | 32, alpha = rank (Lightricks default); 64 only as a second pass when likeness is weak or soft | 32 / 32 |
+| learning rate | 1e-4; 5e-5 on oversaturation; 2e-4 only if nothing is learned by ~500 steps | 1e-4 |
+| steps | ~2000 (Lightricks default); 1000–3000 in third-party guides, with checkpoints at 500/750/1000 | 4200 / 3700 |
+| target modules | attention only by default; Lightricks: FFN modules can be added "to increase the LoRA's capacity" | attention only |
+| scheduler | linear (Lightricks default) | constant |
+| timestep sampling | `shifted_logit_normal` | same |
+| resolution | 512 floor; 768–1024 when detail matters | 512 |
+| caption dropout | ~0.05 | none |
+
+Nothing here is a smoking gun on its own. Lightricks' own trainer docs
+(`packages/ltx-trainer/docs/`) carry no identity-specific guidance; most of
+the numbers above come from third-party guides that partly repeat each
+other.
+
+### ID-LoRA is a different product path, not a training recipe
+
+`ID-LoRA/ID-LoRA` (ECCV 2026, Dahan, Yanuka et al. — **not Lightricks**;
+checkpoints `AviadDahan/LTX-2.3-ID-LoRA-CelebVHQ-3K` and `-TalkVid-3K`) is a
+**zero-shot** adapter: one LoRA, no per-person training. Inference takes a
+reference first-frame image, ~5 s of reference audio, and a
+`[VISUAL]/[SPEECH]/[SOUNDS]` prompt; the recommended pipeline is Two-Stage
+HQ. Rank 128, 3000 steps on LTX-2.3, ~3k CelebV-HQ (or ~11.5k TalkVid)
+pairs, ~1.1 GB weights, license listed as "other".
+
+Its target modules are audio self-attention, audio↔video cross-attention
+and audio FFN — **appearance comes from the first frame, the LoRA carries
+the voice.** It therefore cannot make a text trigger summon a face and does
+not answer Bug B. It is, however, a plausible alternative route for
+Characters (I2V from a reference photo plus a reference voice) that sidesteps
+per-identity training entirely; the license needs checking before any
+shipping decision.
+
 ## Recommended fixes
 
 **For Finding 3 (root cause of this report) — DONE, see
@@ -632,6 +749,16 @@ alone") and the full curated retrain (ruled out "dataset quality" and "crop
 strategy" — see
 [The v3 retrain](#the-v3-retrain-every-fixable-variable-corrected-still-no-identity-lock)).
 What's left, in priority order:
+
+0. **Resolution, single-variable (new top priority).** Retrain v3's exact
+   dataset, captions, crop and recipe at 768 or 1024 px with nothing else
+   changed, and raise `keep_last_n` so the intermediate `steps // 5`
+   checkpoints survive. Judge by the same cross-seed PSNR test (14.2 dB
+   today) on the final and an early checkpoint. If it moves, resolution is
+   the mechanism; if not, add FFN target modules next. See
+   [the resolution hypothesis](#leading-hypothesis-512-px-is-1616-latent-tokens).
+   Also worth doing cheaply beforehand: log a per-interval mean loss instead
+   of one sampled step, so the next curve is readable.
 
 1. **A rank/steps/lr sweep.** The one class of variable never varied across
    v2 or v3 — both used the exact "high" preset (rank 32, lr 1e-4, 100
