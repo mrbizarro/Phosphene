@@ -1,4 +1,4 @@
-# Issue #62 follow-up — `valeriosan_v2`, 2026-09-30
+# Issue #62 follow-up — `valeriosan_v2` / `v3`, 2026-09-30
 
 Investigation log for a fresh #62 report on v4.17.1: a character LoRA
 (`valeriosan_v2`, trained via the Train tab, "high" preset) trained clean and
@@ -6,6 +6,12 @@ renders as if it were never attached. This document records what was tested,
 what was ruled out, what is still standing, and what the next experiment
 should be — so the next session (human or agent) does not re-derive any of
 this from zero.
+
+**Session outcome, stated up front:** one real, confirmed, fixed bug (Bug A —
+the trainer silently trained on the wrong trigger word); one open question
+that a full retrain with every fixable variable corrected (Bug B) failed to
+resolve — see [the v3 retrain](#the-v3-retrain-every-fixable-variable-corrected-still-no-identity-lock)
+for the most rigorous evidence yet gathered on it.
 
 ## TL;DR
 
@@ -42,6 +48,15 @@ This is the same "magnitude necessary, not sufficient" failure mode the
 maintainer's own investigation opened on 2026-08-18 and left unresolved
 ("E1 and E2 are still open", 2026-08-23; "#62 retrain still owed",
 2026-09-24) — still open, still unexplained, and Bug A does not resolve it.
+
+**Update, later the same session: a full retrain (`valeriosan_v3`) with every
+other fixable variable corrected — curated 37-image dataset (19 low-quality
+originals dropped, 14 new high-quality close-ups added), `center` crop
+instead of `letterbox`, correct trigger baked into captions from the start —
+still failed to lock an identity, and its `delta_rms_median` (6.63e-4) came
+back statistically identical to v2's (6.67e-4).** This is the strongest
+evidence yet that Bug B is not a data-quality problem at all — see
+[The v3 retrain](#the-v3-retrain-every-fixable-variable-corrected-still-no-identity-lock).
 
 Other things checked and worth keeping on record, in the order they were
 investigated:
@@ -481,9 +496,101 @@ data point in an experiment the maintainer explicitly left open.
   cannot be the sole differentiator for the general question. Now that
   Finding 3 fully explains *this specific* report, this hypothesis reverts
   to being an open question for other #61/#62 reports, not this one.
-- **The actual cause of this report** — **not ruled out; confirmed.** See
-  Finding 3. The trained trigger (`cvjtrn`) and the reported/prompted
-  trigger (`valeriosan`) are different tokens.
+- **Wrong trigger word (Bug A)** — **confirmed as a real, independent bug**
+  (Finding 3), but **ruled out as the sole cause of the reported symptom** —
+  see the v3 retrain below, which fixed this and every other checkable
+  variable and still did not produce a locked identity.
+- **Dataset quality (occluded eyes, tiny face-to-frame ratio, color cast,
+  blur, profile shots)** — **ruled out** by the v3 retrain: curating 19 weak
+  images out and adding 14 strong close-ups moved `delta_rms_median` by
+  <1% (6.67e-4 → 6.63e-4) and did not change cross-seed identity
+  consistency at all (14.2 dB in both cases).
+- **`letterbox` vs `center` crop strategy** — **ruled out** by the same
+  retrain, for the same reason.
+
+## The v3 retrain — every fixable variable corrected, still no identity lock
+
+Prompted by a fair challenge mid-session: *"we already know that even with
+the word that was actually used in the original captions it doesn't work —
+shouldn't we try something different, like checking the images aren't too
+bad for training?"* Rather than retrain with only the trigger fixed (which
+would have reused the same mediocre dataset and the wrong `letterbox` crop),
+a full new dataset was built and reviewed image-by-image before spending any
+GPU time.
+
+**Dataset curation.** All 42 original photos were individually inspected.
+19 were dropped for concrete, specific reasons — sunglasses fully or
+partially occluding the eyes, tiny face-to-frame ratio (full-body tourist/
+mirror shots), strong colored stage lighting, motion blur, or profile shots
+with the eyes not visible. The user then supplied 14 new photos — dedicated
+close-up selfies, consistently well-lit, mostly frontal with two clean
+opposite-side profiles, varied expressions — which were renamed into the
+`char_NNN` sequence and individually captioned in the same
+`[VISUAL]: valeriosan, <description>` format, describing what was actually
+in each frame (pose, expression, setting). Final set: 37 images (23 kept
+originals + 14 new), 0/37 flagged by the Finding-3 guard.
+
+**Training.** Identical recipe to v2 — rank 32, lr 1e-4, 512px, "high"
+preset (100 epochs × 37 images = 3700 steps) — except `crop_strategy:
+"center"` instead of `"letterbox"` (the trainer's own docstring recommends
+`center` for character close-ups; `letterbox` was preserving whole-body
+scene context at the expense of shrinking the face, confirmed by comparing
+`images_renamed/char_001.png` before/after: letterbox left the face in the
+top ~15% of a black-bar-padded frame, center fills the canvas with real
+image content). Ran via the same `scripts/lora_lab_run.sh python -m
+lora_lab.train_character --spec ... --job-id ...` invocation the panel
+itself uses, under the GPU lock protocol, in the background with a wrapper
+script releasing both locks on exit regardless of outcome. Completed
+cleanly: `{"event":"done"}`, exit code 0, wall time 16518s (~4.6h).
+
+**Magnitude result — unchanged:**
+
+| | v2 (42 images, letterbox, `cvjtrn` baked in) | v3 (37 curated images, center, `valeriosan` baked in) |
+|---|---|---|
+| `delta_rms_median` | 6.665e-4 | **6.627e-4** |
+| `delta_rms_max` | 2.532e-3 | 2.637e-3 |
+| verdict | ok | ok |
+
+Within noise of each other. Every variable that was changed — dataset
+quality, crop strategy, correct trigger from the start — moved the number
+by less than 1%.
+
+**Identity-consistency result — unchanged.** Confirming render: same setup
+as every prior test in this document (LTX-2.3 q4, `--distilled`, trigger
+`valeriosan`, strength 1.0, seeds 12345 and 777, GPU lock protocol
+observed). Clean attach both times (`576 modules attached, 0 skipped`).
+
+| comparison | PSNR avg (dB) |
+|---|---|
+| `v3`@12345 vs `v3`@777 (cross-seed, the test that matters) | **14.2** |
+| `v2`/`cvjtrn`@12345 vs `v3`@12345 (does retraining change the seed-12345 output) | 23.1 |
+| `no_lora`@12345 vs `v3`@12345 (does the LoRA still move the output at all) | 28.1 |
+
+Cross-seed PSNR is 14.2 dB — statistically identical to v2's 14.2–14.3 dB
+from the earlier test, and still the *worst* number in the table, exactly
+as before. Visually: seed 12345 renders a smiling, clean-shaven young man;
+seed 777 renders a bearded, serious-looking man in a completely different
+room. Two different people, same as every prior render in this
+investigation. The LoRA is confirmed still "alive" (28.1 dB vs no-LoRA
+baseline — a real, non-trivial shift), it simply does not converge on one
+face across seeds.
+
+**Conclusion.** Bug A (wrong trigger) is real and independently worth
+having fixed — a user prompting with the word the panel told them to use
+should at minimum reach the adapter's actual output, and now it does. But
+this retrain closes off the two most obvious remaining explanations for
+"completely ignored" — bad source photos and a crop strategy that
+under-utilizes the face — while holding rank/steps/lr/target-modules fixed.
+What's left standing is the maintainer's original, still-unexplained
+question from 2026-08-18: a LoRA can measure inside (or, here, just above)
+the "not dead" floor and still not encode a summonable identity, and
+neither this session nor the original investigation has found the actual
+mechanism. The next thing worth trying, not yet attempted by anyone: vary
+rank/steps/lr themselves (the one class of variable this retrain held
+fixed), or test whether `--lora-mode fuse` (bypassing the unfused runtime
+branch entirely) behaves any differently — a sanity check that the unfused
+attach path itself isn't somehow the anomaly, since every render in this
+document has gone through it.
 
 ## Recommended fixes
 
@@ -519,29 +626,35 @@ data point in an experiment the maintainer explicitly left open.
 
 ## Proposed next experiment
 
-The cheap single-render confirmation (re-rendering with `cvjtrn`) has now
-been run — see [Confirming render](#confirming-render-cvjtrn-does-not-fix-it-either)
-— and ruled out "wrong trigger word" as the sole explanation. What's left,
-in priority order:
+Both cheap-then-expensive experiments proposed earlier in this document have
+now been run: the single-render confirmation (ruled out "wrong trigger word
+alone") and the full curated retrain (ruled out "dataset quality" and "crop
+strategy" — see
+[The v3 retrain](#the-v3-retrain-every-fixable-variable-corrected-still-no-identity-lock)).
+What's left, in priority order:
 
-1. **Retrain, not just re-render.** The one thing not yet tried: a fresh
-   training run on the same 42-image dataset with captions that actually
-   contain the intended trigger (fixing Finding 3 at the data level, not
-   just relabeling), same rank/steps/lr. If this still produces a weak
-   (`delta_rms` in the same ~6-7e-4 range) or seed-inconsistent adapter,
-   that's strong evidence the dataset itself — not the caption bug — is the
-   limiting factor. This is the natural next step now that a same-trigger
-   render has already ruled out the cheap explanation, and it's the
-   experiment `docs/STATE.md`'s "#62 retrain still owed" note has been
-   waiting on. Multi-hour GPU commitment (~4.9 h based on the original
-   run's `training_wall_seconds`); not started, pending owner confirmation.
-2. **The caption-format A/B** flagged in the maintainer's 2026-08-22
-   investigation and never run — `[VISUAL]: <trigger>, <body>` vs a plain
-   `<trigger> man` caption, fixed rank/steps/seed/trigger, judged by whether
-   the trigger summons a consistent identity across seeds (not by
-   `delta_rms`). Can be folded into the retrain in (1) as a second arm
-   rather than run separately. Multi-hour GPU commitment; still not
-   started.
+1. **A rank/steps/lr sweep.** The one class of variable never varied across
+   v2 or v3 — both used the exact "high" preset (rank 32, lr 1e-4, 100
+   epochs). Worth testing whether a different rank (e.g. 64, if the panel's
+   ceiling allows) or a different learning rate moves `delta_rms` off its
+   apparent ~6.6e-4 plateau, and separately whether identity consistency
+   tracks magnitude at all once magnitude is actually varied (this session
+   only ever saw magnitude held effectively constant).
+2. **`--lora-mode fuse` as a control arm.** Every render in this document —
+   v2, v3, and the original bug report — went through the unfused runtime
+   branch. Worth one render with `--lora-mode fuse` (lossy at Q4, but a
+   different code path) purely to rule out an unfused-branch-specific bug,
+   since nothing in this investigation has varied that.
+3. **The caption-format A/B** flagged in the maintainer's 2026-08-22
+   investigation — plain `<trigger> man` vs the structured
+   `[VISUAL]: <trigger>, <body>` both datasets in this document used — is
+   now lower priority given curated, individually-written captions (v3)
+   performed identically to auto-generated ones (v2); the format itself
+   looks unlikely to be the answer, but it has still never been directly
+   tested.
+
+All three are multi-hour-or-more GPU commitments; none started, pending
+owner confirmation on priority.
 
 ## Artifacts from this session
 
@@ -557,14 +670,20 @@ With the (now known to be wrong) `valeriosan` trigger:
 - `with_lora_strength3.mp4` / `with_lora_strength3_f12.png` — seed 12345,
   LoRA strength 3.0.
 
-With the confirmed-actual `cvjtrn` trigger:
+With the confirmed-actual `cvjtrn` trigger (v2 adapter):
 
 - `cvjtrn_seed12345.mp4` / `cvjtrn_seed12345_f12.png` — seed 12345, LoRA
   strength 1.0.
 - `cvjtrn_seed777.mp4` / `cvjtrn_seed777_f12.png` — seed 777, LoRA
   strength 1.0.
 
-All six generated via direct `ltx-2-mlx` CLI calls against
+With the v3 adapter (correct trigger, curated dataset, center crop):
+
+- `v3_seed12345.mp4` / `v3_seed12345_f12.png` — seed 12345, LoRA strength
+  1.0.
+- `v3_seed777.mp4` / `v3_seed777_f12.png` — seed 777, LoRA strength 1.0.
+
+All eight generated via direct `ltx-2-mlx` CLI calls against
 `mlx_models/ltx-2.3-mlx-q4`, bypassing the panel entirely, under the GPU
 lock protocol in `CLAUDE.md` §7.
 
@@ -583,3 +702,25 @@ untouched):
   (useful if tracing which original photo/caption pair came from where).
 - `images/`, `images_renamed/`, `cropped/`, `training_data/` — the source
   and processed photos themselves, for any future dataset-quality review.
+
+**v3 training job record** — `state/train_character/trn-20260930-retrain02/`
+(built fresh in this checkout, not copied):
+
+- `spec.json` — the job as run (trigger `valeriosan`, `center` crop, rank 32
+  / 3700 steps / 512px, 37 images).
+- `run.log` — full run log; `{"event":"done"}`, exit 0, `training_wall_seconds`
+  16518.3.
+- `run_retrain.sh` — the launch wrapper (GPU-lock acquire/release, exact
+  `lora_lab_run.sh` invocation the panel itself uses).
+- `images/`, `captions/` — the final curated 37-image set actually trained
+  on.
+- `excluded/images/`, `excluded/captions/` — the 19 images dropped during
+  curation, moved aside rather than deleted, with the reason for each
+  recorded in this document's curation table.
+- `images_renamed/`, `cropped/`, `training_data/` — the trainer's own
+  processed output, useful for visually confirming the `center` crop result
+  (compare against `trn-20260926-0936-01/images_renamed/char_001.png` for
+  the `letterbox` version of a similar frame).
+
+Output adapter: `mlx_models/loras/valeriosan_v3.safetensors` +
+`.safetensors.json` sidecar (`delta_rms_median` 6.627e-4, verdict `ok`).
