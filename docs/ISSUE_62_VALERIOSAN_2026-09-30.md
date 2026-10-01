@@ -71,9 +71,10 @@ v3 nor v4 holds an identity either, so the negative result stands — but the
 earlier PSNR tables could not have shown a face in any case. Prompting with
 a training caption verbatim adds zero cross-seed consistency over no LoRA
 (17.44 / 17.54 vs 17.40 dB), so the adapter is empty of identity rather than
-unreachable. New lead: the captions carry **no class noun** ("subject" 52×,
-"man" 0×), unlike the `class_word` captions behind every adapter known to
-work. See
+unreachable. A class-noun retrain (`valeriosan man,`, v5) is negative too
+(+0.6 dB over its baseline, the same seed-determined faces). Four
+interventions, one empty adapter: the next step is a reproduction control on
+a dataset known to work, which STATE.md's never-reported E2 started. See
 [The v4 retrain](#the-v4-retrain-768-px--resolution-ruled-out-and-the-test-method-was-blind).
 
 Other things checked and worth keeping on record, in the order they were
@@ -869,6 +870,64 @@ one. The class-word-caption retrain is the next single variable.
 (One render, v3 @777, took 2137 s instead of ~280 s; the release gates
 were running concurrently on CPU. Output unaffected.)
 
+## The v5 retrain (class-word captions) — also negative
+
+Job `state/train_character/trn-20261001-classword/`, output
+`mlx_models/loras/valeriosan_v5_classword.safetensors`. v3's 37 images,
+`center` crop, 512 px, rank 32 / lr 1e-4 / 3700 steps, no gradient
+checkpointing — **the only change: every caption's `[VISUAL]: valeriosan,`
+became `[VISUAL]: valeriosan man,`** (all 37 diffed; body text verbatim).
+`checkpoint_keep_last_n: -1` kept all five checkpoints. Wall 4 h 58 m
+(10:08 → 15:06), 42.3–42.9 GB footprint; one stretch ran at ~7.5 s/step
+instead of ~4.7 with no memory, thermal or competing-GPU cause visible
+without `sudo powermetrics`, then recovered on its own.
+
+**Magnitude is the same plateau again:** step 740 4.17e-4, step 1480
+4.88e-4 (v4 at the same steps: 4.10e-4 / 4.85e-4), final **6.28e-4**. Four
+datasets/captions/resolutions now land within 6% of each other — magnitude
+is set by lr × steps under Adam, not by what was learned.
+
+**Renders** — HQ path (Q8 `--two-stages-hq`, 704×384, 25 frames), each
+prompt with its **own** no-LoRA cross-seed baseline. All LoRA renders
+attached `576 modules, 0 skipped`.
+
+| cross-seed PSNR (12345 vs 777), dB | no-LoRA | v3 | v4 | **v5** |
+|---|---|---|---|---|
+| prompt A — *"A cinematic close-up portrait of valeriosan, a man, …"* | 18.89 | 18.92 | 18.54 | **19.51** |
+| prompt B — v5's own `char_030` caption verbatim | 17.44 | — | — | **17.67** |
+
+v5 is the first adapter to score above its baseline at all (+0.6 dB on A,
++0.2 on B), but that is a nudge, not an identity. By eye, on both prompts:
+at each seed v5 renders the **same man as no-LoRA** with small changes of
+expression and lighting; the two seeds are two different men; neither is
+the subject. **The class noun is ruled out as the missing piece on its
+own.** (The no-LoRA prompt-A pair also gives the earlier HQ v3/v4 table its
+missing baseline: 18.89 dB, so v3's 18.92 and v4's 18.54 were baseline
+too.)
+
+### What every failed run here has in common
+
+Trigger fix (v2→v3), curated dataset + center crop (v3), 768 px (v4), class
+noun (v5): four independent interventions, the same empty adapter. What
+none of them varied: the trainer code and vendored pin on this branch, this
+machine and its Q8 pack, the lr/steps/rank recipe, and the subject. The
+adapters known to carry a face (`bizarrotrn`, `elontrn`, `ariatrn`,
+`eltrumpo`) were trained earlier, elsewhere — and **the control that would
+separate "this trainer cannot bind a face today" from "this subject/recipe
+does not bind" was started and never reported**: STATE.md's E2
+(2026-08-22, retraining `eltrumpo` with the then-current recipe on the
+owner's 64 GB M4 Max, the old file backed up to
+`mlx_models/loras/_backup_20260822/`) is still listed open on 2026-08-23.
+Neither those datasets nor those adapters exist on this machine, so the
+control cannot be run here.
+
+Also noted, not chased: the sidecar labels the training base
+"full-precision", but the file is `ltx-2.3-mlx-q8/transformer-dev.safetensors`
+at 20.6 GB — roughly one byte per parameter for a ~22B model, i.e. the int8
+pack. Training a LoRA over a quantized base is normally fine (QLoRA), so this
+is a labelling question first; it is listed because it is one of the things
+every run here shares.
+
 ## Recommended fixes
 
 **For Finding 3 (root cause of this report) — DONE, see
@@ -918,11 +977,15 @@ baseline. What's left, in priority order:
 0. ~~**Prompt-shape probe.**~~ **Done 2026-10-01** — the adapter is empty
    of identity even prompted in its own training context; see
    [the probe](#prompt-shape-probe--the-adapter-holds-no-identity-even-in-its-own-training-context).
-1. **Class-word caption retrain, single-variable (now top priority).** v3's images, crop and
-   512 px recipe, captions rewritten as `valeriosan man, <body>` (or the
-   trainer's own `class_word` strategy), judged on the HQ path. 512 px fits
-   without gradient checkpointing (~4.6 h on this Mac). Set
-   `checkpoint_keep_last_n: -1`.
+1. ~~**Class-word caption retrain.**~~ **Done 2026-10-01 — negative**; see
+   [The v5 retrain](#the-v5-retrain-class-word-captions--also-negative).
+1a. **Reproduction control (new top priority).** Retrain a dataset whose
+   adapter is *known* to carry a face (`eltrumpo` or `bizarrotrn`) with the
+   current trainer and pin, unchanged recipe, and render it on the HQ path
+   with a no-LoRA cross-seed baseline. If it fails too, the trainer/pin
+   regressed and every recent #62 report is explained by that; if it works,
+   the cause is specific to this subject or dataset. Needs the owner's
+   datasets — and STATE.md's unreported E2 may already hold the answer.
 2. **Learning rate / steps.** The v4 loss and `delta_rms` were both still
    moving at 3700 steps; external guidance allows 2e-4 when a concept is
    not picked up after ~500 steps. Only worth it after (0)/(1), since
@@ -1047,3 +1110,15 @@ Output adapter: `mlx_models/loras/valeriosan_v4_768.safetensors` + sidecar
 - `ps_{nolora,v3,v4}_seed{12345,777}` — prompt-shape probe (`char_030.txt`
   verbatim as the prompt), `--two-stages-hq` Q8 704×384; `grid_promptshape.png`
   (no-LoRA | v3 | v4, rows = seeds).
+
+**v5 (class-word) training job record** — `state/train_character/trn-20261001-classword/`:
+`spec.json` (v3's, plus `checkpoint_keep_last_n: -1`), `captions/` (v3's 37
+with `valeriosan man,`), `run.log`, `run_retrain.sh`, and all five
+`train_output/checkpoints/lora_weights_step_{00740,…,03700}.safetensors`.
+Output adapter `mlx_models/loras/valeriosan_v5_classword.safetensors`
+(`delta_rms_median` 6.28e-4, verdict `ok`).
+
+**v5 renders** — `/tmp/lora_test_out/`: `hq_v5_seed{12345,777}`,
+`hq_nolora_seed777` (prompt A); `psm_{v5,nolora}_seed{12345,777}` (v5's
+`char_030` caption verbatim); `grid_v5.png` (rows = prompt A / B; columns =
+no-LoRA@12345 | v5@12345 | no-LoRA@777 | v5@777).
