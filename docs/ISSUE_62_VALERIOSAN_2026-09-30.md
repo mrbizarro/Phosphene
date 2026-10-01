@@ -58,14 +58,23 @@ back statistically identical to v2's (6.67e-4).** This is the strongest
 evidence yet that Bug B is not a data-quality problem at all — see
 [The v3 retrain](#the-v3-retrain-every-fixable-variable-corrected-still-no-identity-lock).
 
-**Current leading hypothesis (untested):** the "high" preset trains at
-512 px, which LTX's 32× VAE turns into a 16×16 latent grid — possibly too
-coarse for this face, and a ceiling that would hide any dataset or crop
-improvement. Weakened by `bizarrotrn`, an unseen face the same recipe did
-learn, so it is being tested as one variable, not assumed. The logged loss curves cannot confirm or refute this (single
-sampled steps, timestep noise dominates), and ID-LoRA turned out to be a
-zero-shot I2V+voice adapter rather than a training recipe. See
-[Loss curves, training resolution, and external guidance](#loss-curves-training-resolution-and-external-guidance).
+**Update 2026-10-01 — resolution ruled out; the test method was blind.** A
+single-variable retrain at 768 px (`valeriosan_v4_768`, 24×24 latent tokens
+vs 16×16) is indistinguishable from v3 on every measure: `delta_rms_median`
+6.34e-4, cross-seed PSNR 14.18 dB, the same seed-determined face. But every
+identity render in this document, including the original ones, used the
+`--distilled` CLI path at 320×320 — a two-stage pipeline whose first stage
+is a **5×5 latent grid** for the whole frame, on the path the panel itself
+says "barely locks identity" for 2.3 character LoRAs. Re-rendered on the
+panel's actual 2.3 character path (two-stage HQ, Q8 dev, 704×384), neither
+v3 nor v4 holds an identity either, so the negative result stands — but the
+earlier PSNR tables could not have shown a face in any case. Prompting with
+a training caption verbatim adds zero cross-seed consistency over no LoRA
+(17.44 / 17.54 vs 17.40 dB), so the adapter is empty of identity rather than
+unreachable. New lead: the captions carry **no class noun** ("subject" 52×,
+"man" 0×), unlike the `class_word` captions behind every adapter known to
+work. See
+[The v4 retrain](#the-v4-retrain-768-px--resolution-ruled-out-and-the-test-method-was-blind).
 
 Other things checked and worth keeping on record, in the order they were
 investigated:
@@ -648,6 +657,10 @@ off, `first_frame_conditioning_p=0.0` (forced by the image-only override in
 
 ### Leading hypothesis: 512 px is 16×16 latent tokens
 
+**Tested 2026-10-01 and ruled out** — see
+[The v4 retrain](#the-v4-retrain-768-px--resolution-ruled-out-and-the-test-method-was-blind).
+Kept as written for the record.
+
 The preprocess step prints `target latent shape per image: [128, 1, 16, 16]`.
 LTX's video VAE compresses **32× spatially**, so a 512 px training image is
 a 16×16 token grid, and a centre-cropped face occupies roughly 8–10 tokens
@@ -709,6 +722,153 @@ Characters (I2V from a reference photo plus a reference voice) that sidesteps
 per-identity training entirely; the license needs checking before any
 shipping decision.
 
+## The v4 retrain (768 px) — resolution ruled out, and the test method was blind
+
+Job `state/train_character/trn-20260930-res768/`, output
+`mlx_models/loras/valeriosan_v4_768.safetensors`. v3's 37 images, its 37
+matching captions (v3's `captions/` also held 17 orphans from the excluded
+photos; they were not copied), `center` crop, rank 32 / alpha 32 / lr 1e-4 /
+3700 steps / constant schedule — **only `width`/`height` changed, 512 →
+768**. Preprocess confirmed `target latent shape per image: [128, 1, 24, 24]`.
+
+### Two trainer findings on the way
+
+- **768 px does not fit a 64 GB Mac without gradient checkpointing.** The
+  first attempt reached a 49.7 GB physical footprint (peak 54.8 GB) with
+  ~31.5 GB of GPU memory swapped/compressed, ran at 17–40% CPU, and logged
+  no step in 28 minutes; it was stopped. `train_character.py` now accepts an
+  opt-in `enable_gradient_checkpointing` spec key (default off, so 512 px
+  jobs are unchanged). The per-block recompute lives in
+  `ltx_core_mlx/model/transformer/model.py` and passes the LoRA params into
+  `mx.checkpoint` explicitly, so they still receive gradients — confirmed:
+  the step-740 checkpoint measured 480/576 carrying modules, the same count
+  as v2. With it on: 39.8–40.3 GB footprint, ~11 s/step, 10.8 h wall.
+- **`checkpoint_keep_last_n: 5` kept 4 checkpoints, not 5.** When `steps` is
+  a multiple of the interval the final step is recorded twice (interval save
+  + end-of-run save, trainer `trainer.py:216/:285`), so 5 pruned
+  `step_00740`. `-1` is the trainer's documented "keep all". Its strength
+  was measured before it was pruned.
+
+### Training metrics
+
+| checkpoint | `delta_rms_median` | `delta_rms_max` |
+|---|---|---|
+| step 740 | 4.10e-4 | 7.69e-4 |
+| step 1480 | 4.85e-4 | 1.19e-3 |
+| step 2220 | 5.45e-4 | 1.65e-3 |
+| step 2960 | 5.84e-4 | 2.04e-3 |
+| **step 3700 (final)** | **6.34e-4** | 2.40e-3 |
+| *v3 final, 512 px* | *6.63e-4* | *2.64e-3* |
+
+The first readable loss curve (interval means of ~74 steps, new logging):
+0.582 (steps 74–370) → 0.551 → 0.561 → 0.543 → 0.539 → 0.545 → 0.532 →
+0.521 → 0.533 → **0.523** (3404–3700). A slow ~10% decline, still falling
+at the end; `delta_rms` is still rising linearly. **No sign of
+over-training — if anything this recipe is under-trained at a constant
+1e-4.** Note also that v2, v3 and v4 land within 5% of each other on
+`delta_rms` despite three different datasets and two resolutions: with
+Adam, update size is set by lr × steps far more than by the data, which is
+why magnitude cannot tell these runs apart and only renders can.
+
+### Renders on the doc's original method (`--distilled` Q4, 320×320)
+
+PSNR method re-validated first: it reproduces this document's published
+v3 cross-seed 14.21 dB, no-LoRA-vs-v3 28.09 dB and `cvjtrn` 14.24 dB
+exactly. All renders attached `576 modules, 0 skipped`.
+
+| comparison | PSNR avg (dB) |
+|---|---|
+| **v4 final @12345 vs @777 (cross-seed)** | **14.18** |
+| v4 step-1480 @12345 vs @777 (cross-seed) | 14.25 |
+| no-LoRA vs v4 final @12345 | 25.00 |
+| v3 vs v4 final @12345 / @777 | 24.78 / 29.97 |
+
+By eye: each seed renders the same man under v3, v4-1480 and v4-final; the
+two seeds are two different men; neither resembles the training subject.
+
+### Why that method could never have shown a face
+
+`--distilled` is a **two-stage** pipeline (half-resolution stage 1, upscale,
+distilled refine). At 320×320 stage 1 is 160×160 — a **5×5 latent grid for
+the whole frame** — and it runs the distilled checkpoint. The panel's own
+`character_render_quality()` says of 2.3: *"its character LoRAs are
+dev-trained and distilled inference barely locks identity, so the character
+strip forces the two-stage HQ path."* Every identity render in this
+document, v2 included, used exactly the path the panel avoids, at a size
+where no face can form. The relative numbers above stand as
+measurements; as an identity test they were blind.
+
+### Re-rendered on the panel's 2.3 character path
+
+`--two-stages-hq` on `mlx_models/ltx-2.3-mlx-q8` (the dev transformer the
+LoRA was trained against), 704×384 (the Draft character canvas), 25 frames,
+same prompt and seeds, ~4 min per render, LoRA attached unfused
+`576 modules, 0 skipped`.
+
+| comparison | PSNR avg (dB) |
+|---|---|
+| v4 @12345 vs @777 (cross-seed) | 18.54 |
+| v3 @12345 vs @777 (cross-seed) | 18.92 |
+| no-LoRA vs v4 / v3 @12345 | 22.23 / 24.87 |
+| v3 vs v4 @12345 / @777 | 21.98 / 22.93 |
+
+These are not comparable to the 320×320 table (different canvas and
+pipeline), and no no-LoRA cross-seed pair was rendered, so the cross-seed
+number has no baseline yet. By eye it is unambiguous anyway: at seed 12345
+the no-LoRA, v3 and v4 frames show the same dark-haired man with a goatee
+(the LoRA changes the background and details); seed 777 renders a different,
+older man; neither is the subject; v3 and v4 are indistinguishable.
+**Resolution is ruled out on the correct pipeline too.**
+
+Incidental, not chased: on this CLI path the HQ pipeline's *own* stage-2
+distilled LoRA (1660 modules) is fused into int8 weights and the CLI reports
+**43.4% of its delta destroyed** by re-quantization. That is the base
+pipeline's refine stage, not the character adapter (which stays unfused),
+and whether the panel's helper does the same was not checked.
+
+### New lead: the captions have no class noun
+
+The 37 v3/v4 captions are well-written — they describe scene, clothing,
+pose and lighting and avoid identity features (every "dark"/"gray" hit is
+clothing). But they never say what the trigger *is*: **"subject" 52×,
+"figure" 3×, "man" 0×.** The trigger is followed by "The subject…" in every
+caption. Every adapter known to carry a face here (`bizarrotrn`, `elontrn`,
+`ariatrn`, `eltrumpo`) was trained with the `class_word` strategy, whose
+caption is `<trigger> man, close-up portrait` — the same shape as the render
+prompt (`… of valeriosan, a man, …`). So the trigger was learned in a
+context the render prompt never reproduces, and is never bound to the class
+noun the render uses. This is the caption-format A/B the maintainer flagged
+on 2026-08-22, narrowed to a concrete, checkable difference. **Untested.**
+
+### Prompt-shape probe — the adapter holds no identity even in its own training context
+
+To separate "the adapter learned the face but `a man` cannot reach it" from
+"the adapter learned no face", v3 and v4 were rendered with a training
+caption **verbatim** as the prompt (`char_030.txt`: *"[VISUAL]: valeriosan,
+The subject is positioned in a close-up, slightly off-center framing,
+wearing a light blue button-down shirt…"*), on the HQ path (Q8,
+`--two-stages-hq`, 704×384, 25 frames), with a **no-LoRA arm at both seeds**
+so cross-seed PSNR finally has a baseline. All LoRA renders attached
+`576 modules, 0 skipped`.
+
+| comparison | PSNR avg (dB) |
+|---|---|
+| **cross-seed, no-LoRA (baseline)** | **17.40** |
+| cross-seed, v3 | 17.44 |
+| cross-seed, v4 | 17.54 |
+| no-LoRA vs v3 @12345 / @777 | 24.31 / 24.79 |
+| no-LoRA vs v4 @12345 / @777 | 24.13 / 24.60 |
+
+The adapters add **zero** cross-seed consistency over no LoRA at all (all
+three within 0.15 dB). By eye: at each seed, no-LoRA, v3 and v4 render the
+same man — the prompt is followed (light-blue button-down, close-up), the
+seed picks the face, and none is the subject. **The adapter is empty of
+identity, not unreachable**: this is a training failure, not a prompting
+one. The class-word-caption retrain is the next single variable.
+
+(One render, v3 @777, took 2137 s instead of ~280 s; the release gates
+were running concurrently on CPU. Output unaffected.)
+
 ## Recommended fixes
 
 **For Finding 3 (root cause of this report) — DONE, see
@@ -748,17 +908,27 @@ now been run: the single-render confirmation (ruled out "wrong trigger word
 alone") and the full curated retrain (ruled out "dataset quality" and "crop
 strategy" — see
 [The v3 retrain](#the-v3-retrain-every-fixable-variable-corrected-still-no-identity-lock)).
-What's left, in priority order:
+The 768 px resolution retrain has also been run and ruled resolution out
+(see [The v4 retrain](#the-v4-retrain-768-px--resolution-ruled-out-and-the-test-method-was-blind)).
+**Every experiment below must be judged on the panel's 2.3 character path
+(`--two-stages-hq`, Q8, ≥704×384), never `--distilled` at 320×320**, and
+should include a no-LoRA cross-seed pair so the cross-seed PSNR has a
+baseline. What's left, in priority order:
 
-0. **Resolution, single-variable (new top priority).** Retrain v3's exact
-   dataset, captions, crop and recipe at 768 or 1024 px with nothing else
-   changed, and raise `keep_last_n` so the intermediate `steps // 5`
-   checkpoints survive. Judge by the same cross-seed PSNR test (14.2 dB
-   today) on the final and an early checkpoint. If it moves, resolution is
-   the mechanism; if not, add FFN target modules next. See
-   [the resolution hypothesis](#leading-hypothesis-512-px-is-1616-latent-tokens).
-   Also worth doing cheaply beforehand: log a per-interval mean loss instead
-   of one sampled step, so the next curve is readable.
+0. ~~**Prompt-shape probe.**~~ **Done 2026-10-01** — the adapter is empty
+   of identity even prompted in its own training context; see
+   [the probe](#prompt-shape-probe--the-adapter-holds-no-identity-even-in-its-own-training-context).
+1. **Class-word caption retrain, single-variable (now top priority).** v3's images, crop and
+   512 px recipe, captions rewritten as `valeriosan man, <body>` (or the
+   trainer's own `class_word` strategy), judged on the HQ path. 512 px fits
+   without gradient checkpointing (~4.6 h on this Mac). Set
+   `checkpoint_keep_last_n: -1`.
+2. **Learning rate / steps.** The v4 loss and `delta_rms` were both still
+   moving at 3700 steps; external guidance allows 2e-4 when a concept is
+   not picked up after ~500 steps. Only worth it after (0)/(1), since
+   magnitude alone does not separate these runs.
+
+Retained from earlier, lower priority now:
 
 1. **A rank/steps/lr sweep.** The one class of variable never varied across
    v2 or v3 — both used the exact "high" preset (rank 32, lr 1e-4, 100
@@ -780,8 +950,8 @@ What's left, in priority order:
    looks unlikely to be the answer, but it has still never been directly
    tested.
 
-All three are multi-hour-or-more GPU commitments; none started, pending
-owner confirmation on priority.
+The three retained items are multi-hour-or-more GPU commitments; none
+started, pending owner confirmation on priority.
 
 ## Artifacts from this session
 
@@ -851,3 +1021,29 @@ untouched):
 
 Output adapter: `mlx_models/loras/valeriosan_v3.safetensors` +
 `.safetensors.json` sidecar (`delta_rms_median` 6.627e-4, verdict `ok`).
+
+**v4 (768 px) training job record** — `state/train_character/trn-20260930-res768/`:
+
+- `spec.json` — v3's spec with `width`/`height` 768, `checkpoint_keep_last_n`
+  5 (kept 4 — see the off-by-one above) and `enable_gradient_checkpointing`.
+- `run.log` — the completed run (interval-mean loss, `{"event":"done"}`,
+  `TRAINING_EXIT_CODE=0`); `run_attempt1_no_gradckpt_thrashed.log` — the
+  stopped first attempt.
+- `run_retrain.sh` — launch wrapper (GPU locks released on exit).
+- `train_output/checkpoints/lora_weights_step_{01480,02220,02960,03700}.safetensors`.
+
+Output adapter: `mlx_models/loras/valeriosan_v4_768.safetensors` + sidecar
+(`training_resolution` [768, 768], `delta_rms_median` 6.34e-4, verdict `ok`).
+
+**v4 and HQ renders** — `/tmp/lora_test_out/` (same reboot caveat):
+
+- `v4_768_seed{12345,777}`, `v4_768_s1480_seed{12345,777}` — `--distilled`
+  Q4 320×320, `.mp4` + `_f12.png` + `.log`.
+- `hq_v4_seed{12345,777}`, `hq_v3_seed{12345,777}`, `hq_nolora_seed12345` —
+  `--two-stages-hq` Q8 704×384, same file set.
+- `grid_v3_vs_v4.png` (distilled: v3 | v4-1480 | v4, rows = seeds),
+  `grid_hq.png` (HQ: no-LoRA | v3 | v4, rows = seeds),
+  `grid_nolora_v4_train.png` (no-LoRA, v4, two training crops).
+- `ps_{nolora,v3,v4}_seed{12345,777}` — prompt-shape probe (`char_030.txt`
+  verbatim as the prompt), `--two-stages-hq` Q8 704×384; `grid_promptshape.png`
+  (no-LoRA | v3 | v4, rows = seeds).
