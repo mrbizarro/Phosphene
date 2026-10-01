@@ -72,9 +72,12 @@ earlier PSNR tables could not have shown a face in any case. Prompting with
 a training caption verbatim adds zero cross-seed consistency over no LoRA
 (17.44 / 17.54 vs 17.40 dB), so the adapter is empty of identity rather than
 unreachable. A class-noun retrain (`valeriosan man,`, v5) is negative too
-(+0.6 dB over its baseline, the same seed-determined faces). Four
-interventions, one empty adapter: the next step is a reproduction control on
-a dataset known to work, which STATE.md's never-reported E2 started. See
+(+0.6 dB over its baseline, the same seed-determined faces). All four
+adapters measure 6.7–7.1e-4 on the identity family — the same "half
+strength" as another reporter's failing run on #62 (7.80e-4), against
+1.63–1.72e-3 for the adapters that work — which points at the trainer or
+recipe, not the data. The next step is a reproduction control on a dataset
+known to work; the maintainer committed to one on #62 (09-17). See
 [The v4 retrain](#the-v4-retrain-768-px--resolution-ruled-out-and-the-test-method-was-blind).
 
 Other things checked and worth keeping on record, in the order they were
@@ -833,13 +836,16 @@ The 37 v3/v4 captions are well-written — they describe scene, clothing,
 pose and lighting and avoid identity features (every "dark"/"gray" hit is
 clothing). But they never say what the trigger *is*: **"subject" 52×,
 "figure" 3×, "man" 0×.** The trigger is followed by "The subject…" in every
-caption. Every adapter known to carry a face here (`bizarrotrn`, `elontrn`,
+caption. ~~Every adapter known to carry a face here (`bizarrotrn`, `elontrn`,
 `ariatrn`, `eltrumpo`) was trained with the `class_word` strategy, whose
-caption is `<trigger> man, close-up portrait` — the same shape as the render
-prompt (`… of valeriosan, a man, …`). So the trigger was learned in a
-context the render prompt never reproduces, and is never bound to the class
-noun the render uses. This is the caption-format A/B the maintainer flagged
-on 2026-08-22, narrowed to a concrete, checkable difference. **Untested.**
+caption is `<trigger> man, close-up portrait`.~~ **Corrected 2026-10-01:
+that was inferred from the trainer's `class_word` code path, not checked,
+and it is wrong.** The maintainer stated on #62 (2026-09-02) that the
+validated reference dataset's captions "carry no class word either
+(`[VISUAL]: bizarrotrn, three-quarter studio portrait…`)" — the same shape
+as these. The class noun therefore never separated the working set from
+this one. v5 below still tests it as a single variable and is a valid
+negative; its stated rationale was not.
 
 ### Prompt-shape probe — the adapter holds no identity even in its own training context
 
@@ -914,12 +920,46 @@ machine and its Q8 pack, the lr/steps/rank recipe, and the subject. The
 adapters known to carry a face (`bizarrotrn`, `elontrn`, `ariatrn`,
 `eltrumpo`) were trained earlier, elsewhere — and **the control that would
 separate "this trainer cannot bind a face today" from "this subject/recipe
-does not bind" was started and never reported**: STATE.md's E2
-(2026-08-22, retraining `eltrumpo` with the then-current recipe on the
-owner's 64 GB M4 Max, the old file backed up to
-`mlx_models/loras/_backup_20260822/`) is still listed open on 2026-08-23.
-Neither those datasets nor those adapters exist on this machine, so the
-control cannot be run here.
+does not bind" has not been reported**: STATE.md's E2 (2026-08-22,
+retraining `eltrumpo` with the then-current recipe on the owner's 64 GB M4
+Max, the old file backed up to `mlx_models/loras/_backup_20260822/`) is
+still listed open on 2026-08-23. Neither those datasets nor those adapters
+exist on this machine, so the control cannot be run here.
+
+### Cross-check against the #62 thread (read 2026-10-01)
+
+The GitHub thread (56 comments) is further along than STATE.md, and two
+things in it bear directly on this document:
+
+- **The identity-family strength separates working from failing adapters,
+  and all four runs here are on the failing side.** The maintainer's
+  per-family measurement (`lora_compat.py`, video-attn identity family, 384
+  modules) puts the characters that render reliably at **1.72e-03
+  (`bizarrotrn_v2`) and 1.63e-03 (`ariatrn_v2`)**, and another reporter's
+  failing High run at **7.80e-04** — "half the strength of a working
+  adapter". Measured the same way here:
+
+  | adapter | change | identity-family median |
+  |---|---|---|
+  | `valeriosan_v2` | stale trigger, letterbox | 7.04e-4 |
+  | `valeriosan_v3` | correct trigger, curated, center | 7.11e-4 |
+  | `valeriosan_v4_768` | v3 at 768 px | 6.76e-4 |
+  | `valeriosan_v5_classword` | v3 with `valeriosan man,` | 6.73e-4 |
+
+  Four datasets/captions/resolutions, one band — and the same band as the
+  other reporter's run on a different machine and dataset. That is the
+  pattern a trainer- or recipe-level cause would produce and a data-level
+  one would not. (The earlier "magnitude cannot tell these runs apart" is
+  still true *among* these runs; against the reference adapters it is the
+  clearest signal there is.)
+- **The reproduction control is in progress on the maintainer's side.** The
+  08-31 test rendered the *existing* `eltrumpo_v2` (identity held, 2.5 Q8) —
+  it shows the render path works, not that today's trainer can produce such
+  an adapter. On 09-17 the maintainer committed to retraining the other
+  reporter's full dataset on their own machine "and measure the adapter …
+  I'll post the number here when it's done". As of 09-29 it has not been
+  posted. That run, plus E2, is the experiment this document's next step
+  names.
 
 Also noted, not chased: the sidecar labels the training base
 "full-precision", but the file is `ltx-2.3-mlx-q8/transformer-dev.safetensors`
@@ -986,6 +1026,8 @@ baseline. What's left, in priority order:
    regressed and every recent #62 report is explained by that; if it works,
    the cause is specific to this subject or dataset. Needs the owner's
    datasets — and STATE.md's unreported E2 may already hold the answer.
+   The maintainer committed on #62 (2026-09-17) to exactly this kind of run
+   on another reporter's dataset; its number is the first thing to ask for.
 2. **Learning rate / steps.** The v4 loss and `delta_rms` were both still
    moving at 3700 steps; external guidance allows 2e-4 when a concept is
    not picked up after ~500 steps. Only worth it after (0)/(1), since
