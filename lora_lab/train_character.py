@@ -202,7 +202,8 @@ def resolve_preset(preset: str, advanced: dict[str, Any] | None) -> dict[str, An
         # ~1 latent token at 512²") was silently dropped here and every
         # panel-driven training fell back to resolution×resolution. An
         # explicit allowlist instead: preset keys plus the geometry pair.
-        _extra_ok = ("width", "height", "checkpoint_keep_last_n")
+        _extra_ok = ("width", "height", "checkpoint_keep_last_n",
+                     "enable_gradient_checkpointing")
         for k, v in advanced.items():
             if v is not None and (k in cfg or k in _extra_ok):
                 cfg[k] = v
@@ -304,6 +305,7 @@ def load_spec(spec_path: Path) -> dict[str, Any]:
         spec["advanced"] = {}
     for k in ("rank", "alpha", "steps", "lr", "resolution",
               "width", "height", "checkpoint_keep_last_n",
+              "enable_gradient_checkpointing",
               "target_modules", "caption_strategy", "crop_strategy"):
         if k in spec and k not in spec["advanced"]:
             spec["advanced"][k] = spec[k]
@@ -632,6 +634,13 @@ def build_trainer_config(
             "max_grad_norm": 1.0,
             "weight_decay": 0.0,
             "scheduler_type": "constant",
+            # Per-block recompute (ltx_core_mlx transformer model.py, which
+            # passes the LoRA params into mx.checkpoint explicitly so they
+            # still get gradients). Off by default: 512 px fits without it.
+            # At 768x768 on a 64 GB Mac the uncheckpointed run hit a 54.8 GB
+            # footprint, swapped ~31 GB of GPU memory and logged no step in
+            # 28 minutes; recompute trades speed for that memory.
+            "enable_gradient_checkpointing": bool(cfg.get("enable_gradient_checkpointing") or False),
         },
         "data": {
             "preprocessed_data_root": str(data_root),
@@ -655,7 +664,10 @@ def build_trainer_config(
             "interval": max(1, int(cfg["steps"]) // 5),
             # keep_last_n=2 left only the final checkpoint of the #62 v2/v3
             # runs on disk, so "was it over-trained?" could not be answered
-            # after the fact. A spec may raise it (5 keeps every save).
+            # after the fact. A spec may raise it; use -1 to keep every save.
+            # NOT 5: when steps is a multiple of the interval the final step
+            # is recorded twice (interval save + end-of-run save, trainer.py
+            # :216/:285), so 5 silently pruned the first checkpoint.
             "keep_last_n": int(cfg.get("checkpoint_keep_last_n") or 2),
         },
         "seed": 42,
