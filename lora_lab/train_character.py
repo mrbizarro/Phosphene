@@ -52,7 +52,12 @@ Spec JSON schema (everything except `advanced` is required):
         "lr": null | float,
         "resolution": null | int,
         "caption_strategy": null | "class_word" | "trigger_only" | "auto_caption",
-        "crop_strategy": null | "center"   // "face_centered" not yet implemented
+        "crop_strategy": null | "center",  // "face_centered" not yet implemented
+        // iter7 recipe switches (RECIPE_SWITCHES; null = default):
+        "adam_bias_correction": null | true | false,
+        "scheduler_type": null | "linear" | "constant",
+        "image_audio": null | "skip_a2v" | "matched_sigma" | "clean_zero",
+        "lora_target_families": null | "video" | "all_attention"
       }
     }
 
@@ -139,8 +144,62 @@ TARGET_MODULES = ["to_q", "to_k", "to_v", "to_out"]
 
 # Bumped when the trainer's behaviour changes, so a sidecar dates its file.
 # "iter5" had been frozen in every sidecar since the yaml era regardless of
-# what changed; iter6 = truthful base_model + width/height honored.
-LORA_LAB_VERSION = "iter6"
+# what changed; iter6 = truthful base_model + width/height honored; iter7 =
+# adapters saved contiguous (train._patch_contiguous_checkpoint_save — every
+# earlier adapter on safetensors 0.8.0 was written scrambled, #62) plus the
+# RECIPE_SWITCHES below.
+LORA_LAB_VERSION = "iter7"
+
+# Training-recipe switches from the #62 comparison against the trainers known
+# to bind a face (Lightricks ltx-trainer, ostris ai-toolkit) — see
+# docs/ISSUE_62_VALERIOSAN_2026-09-30.md, "Comparison against known-working
+# trainers". Each maps to (default, allowed values). The DEFAULT is the legacy
+# recipe, the one every adapter before iter7 trained with: with the save fixed
+# it fits its training images and renders a learned person, and the screen
+# ("Screen results with the save fixed") found the reference-trainer values
+# halve fit at equal steps with no gain in trigger binding. The other values
+# stay available so a spec can A/B one switch at a time.
+#
+#   adam_bias_correction  PyTorch AdamW always bias-corrects; MLX's AdamW
+#                         defaults to not, and the vendored trainer never
+#                         asked (lora_lab.train._patch_adam_bias_correction).
+#   scheduler_type        Lightricks default: linear decay to 0.1x over the
+#                         run. ai-toolkit keeps it constant.
+#   image_audio           how the stand-in audio stream of an image-only run
+#                         reaches the video: skipped (Lightricks), at the
+#                         video's sigma (ai-toolkit) or clean at sigma 0 (old).
+#   lora_target_families  "all_attention" = the Lightricks default and
+#                         bizarrotrn_v2's 1152 modules. Under skip_a2v the
+#                         audio families get no gradient and stay exactly
+#                         zero; under the other two modes they train on the
+#                         stand-in audio — the 2026-05-15 Aria v2 lip-sync
+#                         breakage (the screen's arm C trained audio_attn2
+#                         hardest).
+RECIPE_SWITCHES: dict[str, tuple[Any, tuple[Any, ...]]] = {
+    "adam_bias_correction": (False, (True, False)),
+    "scheduler_type": ("constant", ("linear", "constant")),
+    "image_audio": ("clean_zero", ("skip_a2v", "matched_sigma", "clean_zero")),
+    "lora_target_families": ("video", ("all_attention", "video")),
+}
+
+
+def resolve_recipe(cfg: dict[str, Any]) -> dict[str, Any]:
+    """The recipe switches for one run: spec value if given, else the default.
+
+    Raises ValueError on a value outside the allowed set rather than guessing,
+    so a typo in a hand-edited spec cannot silently run the default arm.
+    """
+    out: dict[str, Any] = {}
+    for key, (default, allowed) in RECIPE_SWITCHES.items():
+        value = cfg.get(key)
+        if value is None:
+            value = default
+        if isinstance(default, bool) and isinstance(value, str):
+            value = value.strip().lower() in ("1", "true", "yes", "on")
+        if value not in allowed:
+            raise ValueError(f"{key} must be one of {list(allowed)}, got {value!r}")
+        out[key] = value
+    return out
 
 
 def _resolved_base_label() -> str:
@@ -203,7 +262,7 @@ def resolve_preset(preset: str, advanced: dict[str, Any] | None) -> dict[str, An
         # panel-driven training fell back to resolution×resolution. An
         # explicit allowlist instead: preset keys plus the geometry pair.
         _extra_ok = ("width", "height", "checkpoint_keep_last_n",
-                     "enable_gradient_checkpointing")
+                     "enable_gradient_checkpointing", *RECIPE_SWITCHES)
         for k, v in advanced.items():
             if v is not None and (k in cfg or k in _extra_ok):
                 cfg[k] = v
@@ -306,7 +365,8 @@ def load_spec(spec_path: Path) -> dict[str, Any]:
     for k in ("rank", "alpha", "steps", "lr", "resolution",
               "width", "height", "checkpoint_keep_last_n",
               "enable_gradient_checkpointing",
-              "target_modules", "caption_strategy", "crop_strategy"):
+              "target_modules", "caption_strategy", "crop_strategy",
+              *RECIPE_SWITCHES):
         if k in spec and k not in spec["advanced"]:
             spec["advanced"][k] = spec[k]
     cs = spec["advanced"].get("caption_strategy")
@@ -614,6 +674,7 @@ def build_trainer_config(
     output_dir: Path,
 ) -> dict[str, Any]:
     """Compose the LtxTrainerConfig dict from a resolved preset + paths."""
+    recipe = resolve_recipe(cfg)
     return {
         "model": {
             "model_path": DEFAULT_MODEL_PATH,
@@ -633,7 +694,10 @@ def build_trainer_config(
             "gradient_accumulation_steps": 1,
             "max_grad_norm": 1.0,
             "weight_decay": 0.0,
-            "scheduler_type": "constant",
+            # "constant" is the legacy default; "linear" uses the trainer's
+            # defaults, start 1.0 -> end 0.1 over `steps` — the Lightricks
+            # t2v_lora.yaml schedule (RECIPE_SWITCHES).
+            "scheduler_type": recipe["scheduler_type"],
             # Per-block recompute (ltx_core_mlx transformer model.py, which
             # passes the LoRA params into mx.checkpoint explicitly so they
             # still get gradients). Off by default: 512 px fits without it.
@@ -694,16 +758,31 @@ def run_training(
 
     config_dict = build_trainer_config(cfg=cfg, data_root=data_root, output_dir=output_dir)
     config = LtxTrainerConfig.model_validate(config_dict)
+    recipe = resolve_recipe(cfg)
 
     # Apply the same patches train.py uses: dev transformer + image-only safety
-    # + fps→frame_rate kwarg shim + audio-attn exclusion. These all run as
-    # cheap monkey-patches before LtxvTrainer is instantiated.
+    # + fps→frame_rate kwarg shim + audio-attn exclusion, then the iter7
+    # recipe switches. These all run as cheap monkey-patches before
+    # LtxvTrainer is instantiated.
     lab_train._patch_loader_prefer_dev_transformer()
     lab_train._patch_strategy_for_image_only()
     lab_train._patch_compute_video_positions_fps_kwarg()
     # Not a recipe switch: without it the saved adapter is scrambled (#62).
     lab_train._patch_contiguous_checkpoint_save()
-    lab_train._patch_lora_target_exclude_audio()
+    lab_train._patch_lora_target_exclude_audio(recipe["lora_target_families"] == "video")
+    lab_train._patch_adam_bias_correction(recipe["adam_bias_correction"])
+    lab_train._patch_image_only_audio(recipe["image_audio"])
+    emit("log", line="recipe: " + ", ".join(f"{k}={v}" for k, v in recipe.items()))
+    if recipe["lora_target_families"] == "all_attention" and recipe["image_audio"] == "skip_a2v":
+        emit(
+            "warning",
+            stage="config",
+            message=(
+                "lora_target_families=all_attention with image_audio=skip_a2v: "
+                "the audio-family and a2v adapters get no gradient and are saved "
+                "as exact zeros. Pair all_attention with matched_sigma to train them."
+            ),
+        )
 
     # Pin Python/numpy RNG before LtxvTrainer touches them. The upstream
     # trainer seeds `mx.random` with `cfg.seed=42` (see ltx_trainer_mlx/
@@ -916,6 +995,9 @@ def write_sidecar(
             int(cfg.get("height") or cfg.get("resolution") or 576),
         ],
         "lora_lab_version": LORA_LAB_VERSION,
+        # Which arm of the #62 recipe switches trained this file. Absent on
+        # anything before iter7, which all trained as the legacy values.
+        "recipe": resolve_recipe(cfg),
         "loadable_via": "ltx_core_mlx.loader.fuse_loras.apply_loras",
     }
     if strength is not None:
@@ -1020,9 +1102,15 @@ def run_pipeline(spec_path: Path) -> int:
 
     image_count = len(source_files)
 
+    try:
+        recipe = resolve_recipe(cfg)
+    except ValueError as exc:
+        emit_error_and_exit("config", str(exc))
+
     estimated_wall_s = estimate_wall_seconds(image_count, preset, advanced)
     emit(
         "plan",
+        recipe=recipe,
         preset=preset,
         rank=int(cfg["rank"]),
         alpha=int(cfg["alpha"]),
