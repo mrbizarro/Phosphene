@@ -701,6 +701,8 @@ def run_training(
     lab_train._patch_loader_prefer_dev_transformer()
     lab_train._patch_strategy_for_image_only()
     lab_train._patch_compute_video_positions_fps_kwarg()
+    # Not a recipe switch: without it the saved adapter is scrambled (#62).
+    lab_train._patch_contiguous_checkpoint_save()
     lab_train._patch_lora_target_exclude_audio()
 
     # Pin Python/numpy RNG before LtxvTrainer touches them. The upstream
