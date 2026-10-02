@@ -45,6 +45,28 @@ this from zero.
 > on scrambled files. See
 > [Root cause: every adapter was saved scrambled](#root-cause-every-adapter-was-saved-scrambled-2026-10-02).
 
+> **FILES MOVED 2026-10-02 — the `mlx_models/loras/` paths below are
+> historical.** Every `valeriosan*` file this document trained was moved, as
+> saved (still scrambled), to `state/issue62_trainer_regression/loras_as_saved/`:
+>
+> | adapter | was | now |
+> |---|---|---|
+> | v2 (`trn-20260926-0936-01`) | `mlx_models/loras/valeriosan_v2.safetensors` + `.json` + `.safetensors.json` | `loras_as_saved/valeriosan_v2.*` |
+> | v3 (`trn-20260930-retrain02`) | `mlx_models/loras/valeriosan_v3.safetensors` + `.safetensors.json` | `loras_as_saved/valeriosan_v3.*` |
+> | v4 (`trn-20260930-res768`) | `mlx_models/loras/valeriosan_v4_768.safetensors` + `.safetensors.json` | `loras_as_saved/valeriosan_v4_768.*` |
+> | v5 (`trn-20261001-classword`) | `mlx_models/loras/valeriosan_v5_classword.safetensors` + `.safetensors.json` | `loras_as_saved/valeriosan_v5_classword.*` |
+>
+> **`mlx_models/loras/valeriosan_v2.safetensors` is now the repaired v5, not
+> the v2 adapter.** It was written by
+> `python -m lora_lab.repair_scrambled_lora loras_as_saved/valeriosan_v5_classword.safetensors --out mlx_models/loras/valeriosan_v2.safetensors`
+> under the `<trigger>_v2` name the Characters tab scans for. It is bit-identical
+> to `adapters/valeriosan_v5_classword_unscrambled.safetensors`, the file behind
+> `grid_v5_unscrambled.png`. `lora_compat` reads it at identity-family median
+> 1.39e-3, verdict `ok`. Both of its sidecars carry a `repaired_scrambled_save`
+> block naming the source. Any command below that loads
+> `mlx_models/loras/valeriosan_v2.safetensors` therefore loads v5 repaired now.
+> To reproduce a v2 result, point it at `loras_as_saved/valeriosan_v2.safetensors`.
+
 **Session outcome, stated up front:** one real, confirmed, fixed bug (Bug A —
 the trainer silently trained on the wrong trigger word); one open question
 that a full retrain with every fixable variable corrected (Bug B) failed to
@@ -1675,8 +1697,11 @@ row-correlation, as-is / unscrambled reading):
 | the two unscrambled copies | 0.0118 / 0.0362 | 0.0010 / 0.0018 | ok |
 | DoctorDiffusion Colorizer (PyTorch, third-party) | 0.0256 | 0.0032 | ok |
 
-No file under `mlx_models/` was modified. Repaired copies live in
-`state/issue62_trainer_regression/adapters/`.
+Nothing under `mlx_models/` was modified while these were measured. Repaired
+copies live in `state/issue62_trainer_regression/adapters/`. *(Later on
+2026-10-02 the as-saved files were moved to `loras_as_saved/`, and the
+repaired v5 was installed as `mlx_models/loras/valeriosan_v2.safetensors`.
+See the "FILES MOVED" box at the top.)*
 
 **Not done:**
 
@@ -2007,8 +2032,10 @@ untouched):
   (compare against `trn-20260926-0936-01/images_renamed/char_001.png` for
   the `letterbox` version of a similar frame).
 
-Output adapter: `mlx_models/loras/valeriosan_v3.safetensors` +
-`.safetensors.json` sidecar (`delta_rms_median` 6.627e-4, verdict `ok`).
+Output adapter: `state/issue62_trainer_regression/loras_as_saved/valeriosan_v3.safetensors`
++ `.safetensors.json` sidecar (`delta_rms_median` 6.627e-4, verdict `ok`).
+It was written to `mlx_models/loras/` and moved on 2026-10-02. It is still
+scrambled as saved; unscrambled, it reads 1.49e-3.
 
 **v4 (768 px) training job record** — `state/train_character/trn-20260930-res768/`:
 
@@ -2020,8 +2047,10 @@ Output adapter: `mlx_models/loras/valeriosan_v3.safetensors` +
 - `run_retrain.sh` — launch wrapper (GPU locks released on exit).
 - `train_output/checkpoints/lora_weights_step_{01480,02220,02960,03700}.safetensors`.
 
-Output adapter: `mlx_models/loras/valeriosan_v4_768.safetensors` + sidecar
-(`training_resolution` [768, 768], `delta_rms_median` 6.34e-4, verdict `ok`).
+Output adapter: `state/issue62_trainer_regression/loras_as_saved/valeriosan_v4_768.safetensors`
++ sidecar (`training_resolution` [768, 768], `delta_rms_median` 6.34e-4,
+verdict `ok`). It was written to `mlx_models/loras/` and moved on 2026-10-02.
+It is still scrambled as saved; unscrambled, it reads 1.33e-3.
 
 **v4 and HQ renders** — `/tmp/lora_test_out/` (same reboot caveat):
 
@@ -2040,8 +2069,10 @@ Output adapter: `mlx_models/loras/valeriosan_v4_768.safetensors` + sidecar
 `spec.json` (v3's, plus `checkpoint_keep_last_n: -1`), `captions/` (v3's 37
 with `valeriosan man,`), `run.log`, `run_retrain.sh`, and all five
 `train_output/checkpoints/lora_weights_step_{00740,…,03700}.safetensors`.
-Output adapter `mlx_models/loras/valeriosan_v5_classword.safetensors`
-(`delta_rms_median` 6.28e-4, verdict `ok`).
+Output adapter `state/issue62_trainer_regression/loras_as_saved/valeriosan_v5_classword.safetensors`
+(`delta_rms_median` 6.28e-4, verdict `ok`). It was written to
+`mlx_models/loras/` and moved on 2026-10-02, still scrambled as saved. Its
+repaired copy is the live `mlx_models/loras/valeriosan_v2.safetensors`.
 
 **v5 renders** — `/tmp/lora_test_out/`: `hq_v5_seed{12345,777}`,
 `hq_nolora_seed777` (prompt A); `psm_{v5,nolora}_seed{12345,777}` (v5's
@@ -2129,6 +2160,15 @@ no-LoRA@12345 | v5@12345 | no-LoRA@777 | v5@777).
 - **`state/issue62_trainer_regression/adapters/`:**
   `valeriosan_v5_classword_unscrambled.safetensors` and
   `screen_L_step300_unscrambled.safetensors`.
+- **`state/issue62_trainer_regression/loras_as_saved/`:** v2, v3, v4_768 and
+  v5_classword exactly as the trainer wrote them (scrambled), with every
+  sidecar. The detector classifies all four as `scrambled`, so each can be
+  repaired exactly with `--out`.
+- **`mlx_models/loras/valeriosan_v2.safetensors`** (+ `valeriosan_v2.json`,
+  `valeriosan_v2.safetensors.json`): the repaired v5, installed for the panel.
+  The Characters tab, the LoRA picker and the Train list read it as
+  `valeriosan`, verdict `ok`. The `_v2` in the name is the panel's character
+  convention, not the training round.
 - **`state/issue62_trainer_regression/results/`:**
   - `screen_L_as_saved_scrambled.json`
   - `screen_L_unscrambled.json` (= `screen_L.json`)
