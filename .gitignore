@@ -74,6 +74,12 @@ ltx-2-mlx/
 # nested inside a vendored tree.
 /minimax-h3-mlx
 /minimax-h3-mlx/
+# Read-only sparse clones of other LTX-2 trainers (Lightricks' official
+# ltx-trainer, ostris ai-toolkit), kept next to the code so the #62 trainer
+# comparison in docs/ISSUE_62_VALERIOSAN_2026-09-30.md can be re-checked line
+# by line. Separate git repos with their own licences; never ours to commit.
+/reference_trainers
+/reference_trainers/
 .venv
 .venv/
 

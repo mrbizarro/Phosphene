@@ -22,6 +22,7 @@ import logging
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -216,7 +217,7 @@ def _patch_compute_video_positions_fps_kwarg() -> None:
             mod.compute_audio_token_count = patched_audio
 
 
-def _patch_lora_target_exclude_audio() -> None:
+def _patch_lora_target_exclude_audio(enabled: bool = True) -> None:
     """Exclude audio attention/FF layers from LoRA target matching.
 
     The trainer's ``_find_lora_targets`` (trainer.py:917) does suffix matching:
@@ -241,9 +242,21 @@ def _patch_lora_target_exclude_audio() -> None:
 
     Lora-lab CLAUDE rule 1 says don't mutate phosphene's tree — so we
     monkey-patch at runtime instead.
+
+    ``enabled=False`` restores the vendored matcher, which is the Lightricks
+    trainer's default target set: q/k/v/out on all six attention families,
+    1152 modules — the same set ``bizarrotrn_v2`` carries (#62 trainer
+    comparison). Idempotent either way.
     """
     import ltx_trainer_mlx.trainer as _trainer
-    _orig = _trainer._find_lora_targets
+    _orig = getattr(_trainer, "_phos_orig_find_lora_targets", None)
+    if _orig is None:
+        _orig = _trainer._find_lora_targets
+        _trainer._phos_orig_find_lora_targets = _orig
+    if not enabled:
+        _trainer._find_lora_targets = _orig
+        logger.info("lora target filter: off (all attention families, audio included)")
+        return
 
     EXCLUDE_SUBSTRINGS = ("audio_attn", "audio_ff")
 
@@ -261,6 +274,183 @@ def _patch_lora_target_exclude_audio() -> None:
         return filtered
 
     _trainer._find_lora_targets = patched
+
+
+def _patch_contiguous_checkpoint_save() -> None:
+    """Make every tensor the trainer saves C-contiguous. THE #62 root cause.
+
+    ``ltx_trainer_mlx.trainer._save_checkpoint`` converts each LoRA factor to
+    the ComfyUI layout with ``np.array(mx.transpose(param).astype(mx.float32))``.
+    The params are already float32, so ``astype`` is a no-op and the transpose
+    stays a VIEW: numpy receives a correctly-strided but non-contiguous array.
+    ``safetensors.numpy.save_file`` (0.8.0 in this venv) serializes
+    ``tensor.ctypes.data`` for ``tensor.nbytes`` — the raw buffer, strides
+    ignored; its own docstring says tensors "need to be contiguous". So every
+    ``lora_A.weight`` on disk is ``lora_a``'s bytes under the transposed shape,
+    not ``lora_a.T``, and likewise ``lora_B``.
+
+    The file keeps every element value, so it attaches cleanly and moves the
+    output, but its delta is unrelated to the trained one (cosine -0.0002 at
+    4096x32) and, on a trained adapter, about half its strength:
+    ``valeriosan_v2``-``v5`` read 6.7-7.1e-4 on the identity family as saved
+    and 1.33-1.49e-3 unscrambled — the band of the characters that work. That
+    is the #62 signature exactly — clean attach, "half strength", output
+    perturbed, no identity — and why ``probe_fit.py`` measured ~0 fit on
+    adapters whose training loss had fallen 37-68%: unscrambled, the same
+    2-image adapter fits its images by 41-83%. Character and voice LoRAs both
+    save through here.
+
+    Wrapping the trainer module's ``save_safetensors`` binding fixes every save
+    site at once and is a no-op on arrays that are already contiguous.
+    """
+    import numpy as np
+    import ltx_trainer_mlx.trainer as _trainer
+
+    orig = getattr(_trainer, "_phos_orig_save_safetensors", None)
+    if orig is None:
+        orig = _trainer.save_safetensors
+        _trainer._phos_orig_save_safetensors = orig
+
+    def save_contiguous(tensors: dict, filename: Any, metadata: Any = None) -> None:
+        tensors = {k: np.ascontiguousarray(v) for k, v in tensors.items()}
+        if metadata is None:
+            return orig(tensors, filename)
+        return orig(tensors, filename, metadata)
+
+    _trainer.save_safetensors = save_contiguous
+
+
+def _patch_adam_bias_correction(enabled: bool) -> None:
+    """Give the trainer's AdamW the bias correction every PyTorch AdamW has.
+
+    ``ltx_trainer_mlx.trainer._init_optimizer`` builds ``mlx.optimizers.AdamW``
+    with only ``learning_rate`` and ``weight_decay``, and MLX defaults
+    ``bias_correction`` to False (checked on mlx 0.31.1). PyTorch's AdamW —
+    which the Lightricks trainer and ai-toolkit (bitsandbytes AdamW8bit) both
+    use — always corrects. Uncorrected, Adam's step is
+    ``(1 - b1**t) / sqrt(1 - b2**t)`` times the corrected one: 3.2x at step 1,
+    6.5x around steps 10-15, 3.3x at 100, 1.6x at 500, 1.26x at 1000. So the
+    "lr 1e-4" recipe spent its first few hundred steps at several times that,
+    with batch-1 gradients that are ~92% noise draw (#62, trainer regression
+    check). ``enabled=False`` restores the old optimizer exactly; it is how a
+    run reproduces an adapter trained before iter7.
+    """
+    import ltx_trainer_mlx.trainer as _trainer
+
+    cls = _trainer.LtxvTrainer
+    orig = getattr(cls, "_phos_orig_init_optimizer", None)
+    if orig is None:
+        orig = cls._init_optimizer
+        cls._phos_orig_init_optimizer = orig
+
+    def patched(self) -> None:
+        orig(self)
+        # Adam.apply_single reads self.bias_correction on every step, so
+        # setting it after construction is the same as passing it in.
+        self._optimizer.bias_correction = bool(enabled)
+        logger.info("optimizer: AdamW bias_correction=%s", bool(enabled))
+
+    cls._init_optimizer = patched
+
+
+# Image-only training feeds the joint audio+video DiT a stand-in audio stream:
+# trainer.py `_build_loss_fn` builds ONE all-zero audio token with audio
+# timesteps of 0 — "clean, finished audio" — next to a noisy video. Neither
+# reference trainer does that (#62 trainer comparison):
+#   - Lightricks ltx-trainer passes audio=None, and ltx-core then skips the
+#     audio<->video cross-attention entirely (transformer.py run_a2v/run_v2a);
+#   - ai-toolkit passes a zero audio latent at the SAME sigma as the video, as
+#     every real render does.
+# The MLX model also drives the a2v gate from the VIDEO sigma where ltx-core
+# uses the audio one (transformer_args._prepare_cross_attention_timestep), so
+# clean-audio-plus-noisy-video is a combination the reference model never
+# computes. These are the three modes.
+IMAGE_AUDIO_MODES = ("skip_a2v", "matched_sigma", "clean_zero")
+
+
+class _ImageOnlyAudioTransformer:
+    """Stand-in for ``trainer._transformer`` inside one loss evaluation.
+
+    The vendored loss function looks ``self._transformer`` up at call time and
+    calls it with the dummy-audio kwargs. Swapping a plain forwarding object in
+    for the duration of that call lets us change only the audio arguments
+    without copying the vendored loss function. It is not an ``nn.Module``:
+    ``value_and_grad`` was built on the real model and still differentiates
+    its trainable parameters, which this object calls straight through to.
+    """
+
+    def __init__(self, model: Any, mode: str) -> None:
+        self._model = model
+        self._mode = mode
+
+    def __call__(self, **kwargs: Any) -> Any:
+        import mlx.core as mx
+
+        if self._mode == "skip_a2v":
+            from ltx_core_mlx.guidance.perturbations import (
+                BatchedPerturbationConfig,
+                Perturbation,
+                PerturbationConfig,
+                PerturbationType,
+            )
+
+            # Both directions, every block: the audio stream can no longer
+            # reach the video loss, which is what audio=None means upstream.
+            # The block multiplies the cross-attention output by 0, so values
+            # AND gradients match skipping it (a2v LoRAs stay at zero).
+            per_sample = PerturbationConfig([
+                Perturbation(PerturbationType.SKIP_A2V_CROSS_ATTN, None),
+                Perturbation(PerturbationType.SKIP_V2A_CROSS_ATTN, None),
+            ])
+            batch = int(kwargs["video_latent"].shape[0])
+            kwargs["perturbations"] = BatchedPerturbationConfig([per_sample] * batch)
+        elif self._mode == "matched_sigma":
+            # ai-toolkit: same zero latent, but at the video's noise level.
+            ats = kwargs["audio_timesteps"]
+            sigma = kwargs["timestep"].astype(ats.dtype).reshape(-1, 1)
+            kwargs["audio_timesteps"] = mx.broadcast_to(sigma, ats.shape)
+        return self._model(**kwargs)
+
+
+def _patch_image_only_audio(mode: str) -> None:
+    """Choose how image-only training handles the joint model's audio stream.
+
+    ``skip_a2v`` matches the Lightricks trainer, ``matched_sigma`` matches
+    ai-toolkit, ``clean_zero`` is the pre-iter7 behaviour (no patch). Applies
+    only to the dummy-audio branch: a run that trains real audio
+    (``generate_audio``) is left exactly as the vendored trainer builds it.
+    """
+    if mode not in IMAGE_AUDIO_MODES:
+        raise ValueError(f"image_audio must be one of {IMAGE_AUDIO_MODES}, got {mode!r}")
+    import ltx_trainer_mlx.trainer as _trainer
+
+    cls = _trainer.LtxvTrainer
+    orig = getattr(cls, "_phos_orig_build_loss_fn", None)
+    if orig is None:
+        orig = cls._build_loss_fn
+        cls._phos_orig_build_loss_fn = orig
+
+    if mode == "clean_zero":
+        cls._build_loss_fn = orig
+        return
+
+    def patched(self) -> Any:
+        loss_fn = orig(self)
+        if self._training_strategy.requires_audio:
+            return loss_fn
+
+        def image_only_loss_fn(batch: Any) -> Any:
+            real = self._transformer
+            self._transformer = _ImageOnlyAudioTransformer(real, mode)
+            try:
+                return loss_fn(batch)
+            finally:
+                self._transformer = real
+
+        return image_only_loss_fn
+
+    cls._build_loss_fn = patched
+    logger.info("image-only audio stream: %s", mode)
 
 
 def _patch_strategy_for_image_only() -> None:
@@ -311,6 +501,11 @@ def main() -> int:
     _patch_strategy_for_image_only()
     _patch_compute_video_positions_fps_kwarg()
     _patch_lora_target_exclude_audio()
+    _patch_contiguous_checkpoint_save()
+    # The defaults of train_character.RECIPE_SWITCHES (the legacy recipe),
+    # stated explicitly; the yaml still owns scheduler_type on this path.
+    _patch_adam_bias_correction(False)
+    _patch_image_only_audio("clean_zero")
 
     t0 = time.time()
     trainer = LtxvTrainer(config)

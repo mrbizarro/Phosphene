@@ -371,6 +371,9 @@ def run_training(
     lab_train._patch_loader_prefer_dev_transformer()
     lab_train._patch_strategy_for_image_only()
     lab_train._patch_compute_video_positions_fps_kwarg()
+    # The voice adapter saves through the same _save_checkpoint, so without
+    # this it is written scrambled exactly like the character one (#62).
+    lab_train._patch_contiguous_checkpoint_save()
     _restore_audio_lora_targets()
 
     total_steps = int(config_dict["optimization"]["steps"])

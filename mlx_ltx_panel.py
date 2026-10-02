@@ -3159,6 +3159,54 @@ def _suggest_trigger_token() -> str:
         return token
 
 
+def _caption_declared_trigger(text: str) -> str | None:
+    """Best-effort extraction of the trigger token a caption file actually
+    uses, for error messages when it disagrees with the job's configured
+    trigger (#62, 2026-09-30 — a dataset reused across training attempts
+    silently carried a DIFFERENT trigger's captions forward).
+
+    The canonical shape written by both the trainer's own fallback and
+    caption_with_gemma.py is `[VISUAL]: <trigger>, <body>`, so the token
+    right after `[VISUAL]: ` is authoritative when present. Anything else
+    (a naked `<trigger> man` caption, or free-form user text) falls back to
+    the first comma-separated segment, which is where every caption
+    convention this trainer has ever used puts the trigger.
+    """
+    m = re.match(r"\s*\[VISUAL\]:\s*([^\s,]+)", text)
+    if m:
+        return m.group(1)
+    first = text.split(",", 1)[0].strip()
+    return first or None
+
+
+def _caption_trigger_mismatches(
+    caption_files: list[Path], trigger: str
+) -> tuple[list[str], tuple[str, int] | None]:
+    """Which of ``caption_files`` do NOT contain ``trigger`` (case-insensitive
+    substring match), and what trigger they carry instead.
+
+    Returns ``(mismatched_tokens, dominant_other)`` — one entry in
+    ``mismatched_tokens`` per file that doesn't mention ``trigger`` (its own
+    declared trigger via :func:`_caption_declared_trigger`, or ``"?"`` if
+    none could be extracted), and ``dominant_other`` is the most common real
+    (non-``"?"``) token among them with its count, or ``None`` if every
+    mismatch was unparseable. Unreadable files are skipped, not counted as
+    mismatches — an I/O error here is not evidence about caption content.
+    """
+    mismatched: list[str] = []
+    for cap in caption_files:
+        try:
+            text = cap.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if trigger.lower() not in text.lower():
+            mismatched.append(_caption_declared_trigger(text) or "?")
+    dominant = collections.Counter(
+        t for t in mismatched if t != "?"
+    ).most_common(1)
+    return mismatched, (dominant[0] if dominant else None)
+
+
 def _train_estimate_seconds(preset: str, image_count: int, *,
                             steps_override: int | None = None,
                             is_style: bool = False) -> int:
@@ -31758,10 +31806,12 @@ def run_train_job_inner(job: dict) -> None:
 
     user_caps = 0
     auto_caps = 0
+    user_cap_files: list[Path] = []
     for img in image_files:
         cap = captions_dir / (img.stem + ".txt")
         if cap.exists():
             user_caps += 1
+            user_cap_files.append(cap)
             continue
         try:
             cap.write_text(fallback_text, encoding="utf-8")
@@ -31780,6 +31830,42 @@ def run_train_job_inner(job: dict) -> None:
     elif caption_strategy == "user_provided":
         push(f"[train] caption_strategy=user_provided but no .txt files found — "
              f"auto-filled all {total_imgs} images with '{fallback_summary}'")
+
+    # Trigger/caption consistency check (#62, Morac2 / valeriosan_v2, 2026-09-30).
+    # `user_provided` captions are trusted verbatim above — nothing before
+    # this point ever reads what's actually IN them. A dataset carried over
+    # from an earlier training attempt (same cropped photos, old caption
+    # .txt files still sitting in captions/) silently retrains a perfectly
+    # good identity under the OLD trigger while every surface a user can
+    # see (sidecar, Train tab, Characters picker) reports the NEW one.
+    # Measured on a real case: 42/42 existing captions carried a trigger
+    # different from the one the job was submitted with; the resulting
+    # LoRA attached cleanly (576/576 modules, healthy-looking delta_rms)
+    # and simply never responded to the word the user was told to prompt
+    # with. Refuse before burning GPU hours on a run nobody can use;
+    # matches the existing "0 modules attached" refusal shape in
+    # runtime_loras.py — a contract violation caught before it produces a
+    # plausible-looking, silently-wrong result.
+    if user_cap_files:
+        mismatched, other = _caption_trigger_mismatches(user_cap_files, trigger)
+        if mismatched:
+            other_desc = (f"; the dominant one instead is {other[0]!r} "
+                          f"({other[1]}/{len(mismatched)} mismatched files)"
+                          if other else "")
+            if len(mismatched) == len(user_cap_files):
+                raise RuntimeError(
+                    f"none of the {len(user_cap_files)} existing caption files "
+                    f"contain the trigger {trigger!r} this job was submitted "
+                    f"with{other_desc}. This dataset's captions/ almost "
+                    "certainly carries leftovers from an earlier training run "
+                    "on the same photos. Training would silently produce a "
+                    f"LoRA that never responds to {trigger!r} — delete or "
+                    "regenerate captions/ for this trigger before retrying."
+                )
+            push(f"[train] WARNING: {len(mismatched)} / {len(user_cap_files)} "
+                 f"existing caption files do not contain the trigger "
+                 f"{trigger!r}{other_desc}. Proceeding, but the resulting "
+                 "LoRA may only partially respond to the intended trigger.")
 
     # Output path for the trained LoRA. Going straight into
     # mlx_models/loras/ so the existing picker scan finds it.
