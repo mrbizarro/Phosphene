@@ -7,11 +7,50 @@ what was ruled out, what is still standing, and what the next experiment
 should be — so the next session (human or agent) does not re-derive any of
 this from zero.
 
+> **ROOT CAUSE FOUND 2026-10-02 — read this before anything below.** The
+> trainer **learns** the character; then `_save_checkpoint` writes the adapter
+> to disk **scrambled**, so every Train-tab LoRA is a different matrix from
+> the one that was trained.
+>
+> - **The mechanism.** Each factor is saved as
+>   `np.array(mx.transpose(param))`. That is a non-contiguous view, and
+>   safetensors **0.8.0** (released 2026-06-09) writes its raw buffer with the
+>   strides ignored.
+> - **Who is affected.** Every character and voice adapter trained on a venv
+>   carrying 0.8.0. The packages only require `safetensors>=0.4.0`, so any
+>   install or Update after 06-09 pulled it.
+> - **Why every gate passed.** The file keeps every element value, so it still
+>   attaches cleanly and moves the output, and `delta_rms` lands in a
+>   plausible-looking band. But the delta is unrelated to the trained one
+>   (cosine −0.0002), and on a trained adapter it is about **half** the
+>   magnitude. That half is the "7e-4 against 1.7e-3" this document
+>   attributed to the recipe: unscrambled, v2–v5 measure **1.33–1.49e-3**, in
+>   the band of the characters that work.
+> - **The proof.**
+>   - Unscrambling arm L's 300-step adapter takes its fit on its own training
+>     images from ±0.08% to **+41–83%**.
+>   - The same repair takes your v5 adapter's fit on its 37 images from −0.1%
+>     to **+5–35%**.
+>   - Rendered on the 2.3 HQ path, v5 unscrambled changes the person at both
+>     seeds. As saved, it is indistinguishable from no LoRA.
+> - **What shipped on this branch.**
+>   - `lora_lab.train._patch_contiguous_checkpoint_save`: future saves are
+>     correct.
+>   - `python -m lora_lab.repair_scrambled_lora`: existing adapters are
+>     repaired exactly, gated on a content check that never touches a correctly
+>     saved file.
+>
+> Much of what follows is superseded: every "fits nothing", "empty of
+> identity" and trigger-word, dataset, resolution and caption experiment ran
+> on scrambled files. See
+> [Root cause: every adapter was saved scrambled](#root-cause-every-adapter-was-saved-scrambled-2026-10-02).
+
 **Session outcome, stated up front:** one real, confirmed, fixed bug (Bug A —
 the trainer silently trained on the wrong trigger word); one open question
 that a full retrain with every fixable variable corrected (Bug B) failed to
 resolve — see [the v3 retrain](#the-v3-retrain-every-fixable-variable-corrected-still-no-identity-lock)
-for the most rigorous evidence yet gathered on it.
+for the most rigorous evidence yet gathered on it. *(2026-10-02: Bug B is
+the scrambled save — see the box above.)*
 
 ## TL;DR
 
@@ -112,6 +151,38 @@ Two data-path bugs also surfaced:
 
 See
 [Trainer regression check](#trainer-regression-check-2026-10-01-evening).
+
+**Update 2026-10-02 — compared line by line against two trainers known to
+bind a face; four untested differences, now spec switches.** The references
+are Lightricks' official `ltx-trainer`, which the MLX trainer is ported from,
+and ostris ai-toolkit, which trained the CivitAI LoRA Morac2 confirmed works in
+Phosphene. Most of the pipeline is identical in all three trainers: sampler,
+noising, loss, LoRA init and text path. Gradients through the int8 base were
+also checked: they match a dequantized float base to cosine 1.000000. The four
+differences are:
+
+- **Adam bias correction:** MLX `AdamW` defaults it off and the trainer never
+  turns it on, so the first few hundred steps run at 3–6.5× the nominal
+  learning rate.
+- **Learning-rate schedule:** Phosphene holds it constant; the official
+  trainer decays it linearly to 0.1×.
+- **The stand-in audio stream:** Phosphene feeds clean zero audio at σ=0. The
+  official trainer skips audio↔video cross-attention entirely; ai-toolkit puts
+  the audio at the video's σ.
+- **LoRA targets:** Phosphene trains 576 modules; the official default is 1152,
+  the same set `bizarrotrn_v2` carries.
+
+One related divergence lives in the model code itself: MLX drives the a2v gate
+from the video σ, where ltx-core uses the audio σ.
+
+All four are now `train_character` spec switches. They first defaulted to
+the reference behaviour; after the screen they were set back to the legacy
+recipe, and the other values remain opt-in. A 10-step run of the real DiT confirms the switches
+take effect. *(Later the same day: the first screen run exposed the real
+cause, a scrambled save — see the box at the top. The four differences are
+real but were not why adapters failed.)* See
+[Comparison against known-working trainers](#comparison-against-known-working-trainers-2026-10-02)
+and [The iter7 recipe switches](#the-iter7-recipe-switches-2026-10-02).
 
 Other things checked and worth keeping on record, in the order they were
 investigated:
@@ -1249,7 +1320,451 @@ nothing.
   reference adapter (`bizarrotrn_v2` on its own data) on a machine that has
   both, to calibrate what "positive" looks like.
 
+## Comparison against known-working trainers (2026-10-02)
+
+The regression check above showed that the trainer code has not changed
+between the pins. That leaves a different question: does the vendored trainer
+do what the trainers that *do* bind a face do? This section answers it from the
+source of two such trainers. Both are sparse clones in `reference_trainers/`,
+which is gitignored:
+
+| trainer | why it counts as working | snapshot |
+|---|---|---|
+| Lightricks `ltx-trainer` (`ltx-2-official/packages/ltx-trainer`) | the PyTorch reference `ltx_trainer_mlx` is ported from | `2d6e71c`, 2026-09-30 |
+| ostris ai-toolkit (`ai-toolkit/extensions_built_in/diffusion_models/ltx2`) | trained the CivitAI LoRA (`training_info: step 3400`, `software: ai-toolkit 0.9.8`) that Morac2 reports working in Phosphene on #62, 08-19/08-22; Ostris publishes an LTX-2.3 character tutorial | `ecee894`, 2026-09-27 |
+
+Sceneworks, the Mac trainer @saved-j reports a working character from, is
+closed source and was not compared. The authoring tree that trained
+`bizarrotrn_v2` is not on this machine.
+
+### Identical in all three (ruled out)
+
+- **Timestep sampler:** `timestep_samplers.py` is a line-for-line port of the
+  official one. It is a shifted logit-normal with stretching and a 10% uniform
+  fallback; the shift is 0.675 at 256 tokens.
+- **Noising, target and loss:** `x_t = (1−σ)x₀ + σε`, the velocity target
+  `ε − x₀`, and a masked MSE normalised by mask density.
+- **LoRA initialisation and scale:** `mlx_lm` `LoRALinear` starts A uniform in
+  ±1/√in and B at zero, with scale α/r = 1. That is PEFT's
+  `init_lora_weights=True`.
+- **Text conditioning:** training (`ltx_trainer_mlx/preprocess.py`) and
+  Phosphene's own inference (`ltx_pipelines_mlx/utils/blocks.py::PromptEncoder`)
+  build `GemmaFeaturesExtractorV2()` and load `connector.safetensors`
+  identically. Neither passes a text mask to the DiT.
+- **Data:** each latent pairs with its own condition by filename
+  (`datasets.py`), and the VAE latents are per-channel normalised
+  (`VideoEncoder.encode` → `normalize_latent`).
+- **Gradients through the int8 base.** These are new and were measured:
+
+  | setup | value |
+  |---|---|
+  | test chain | LoRA on an int8 `QuantizedLinear` (bits 8, group 64), then two more int8 layers |
+  | compared with | the same weights dequantized into plain `nn.Linear` |
+  | loss | identical |
+  | `lora_a` / `lora_b` gradient cosine | 1.000000 |
+  | `lora_a` / `lora_b` gradient norm ratio | 1.000000 |
+  | device | GPU, which is what training uses |
+
+  The quantized backward is not what corrupts training.
+
+### Differences
+
+| | Phosphene (MLX) | Lightricks official | ai-toolkit |
+|---|---|---|---|
+| Stand-in audio for image training | 1 all-zero token, **audio σ = 0**; a2v cross-attention runs | `audio=None`; ltx-core sets `run_a2v`/`run_v2a` false and **skips** it | 1 all-zero token at **audio σ = video σ** |
+| a2v gate driven by | video σ (`model.py:547-585`) | audio σ (`transformer_args.py::_prepare_cross_attention_timestep`) | equal σ on both streams |
+| Adam bias correction | **off**: `mlx.optimizers.AdamW` default, never set by `trainer.py:613` | on (torch `AdamW`) | on (bitsandbytes `AdamW8bit`) |
+| LR schedule | constant | linear 1.0 → 0.1 (`t2v_lora.yaml`) | constant |
+| LoRA targets | 576: q/k/v/out on `attn1`, `attn2`, `audio_to_video_attn` | 1152: q/k/v/`to_out.0` on all six attention families | 1632: every linear in the blocks, including `to_gate_logits` and both FFs (rank 48 on the CivitAI file) |
+| Training resolution | 512 only (16×16 = 256 tokens) | user-set buckets | 512 / 768 / 1024 buckets (up to 1024 tokens) |
+| Base weights | int8 | bf16 | qfloat8 (`quantize: true`) |
+| Weight decay / caption dropout | 0 / none | 0.01 (torch default) / none | 1e-4 / 5% |
+| Default steps | 100 × image count | 2000 | 3000 |
+
+The bias-correction gap is concrete. Uncorrected, Adam's step is
+`(1 − β₁ᵗ)/√(1 − β₂ᵗ)` times the corrected one:
+
+| step | uncorrected ÷ corrected |
+|---|---|
+| 1 | 3.2× |
+| 10–15 | 6.5× |
+| 100 | 3.3× |
+| 500 | 1.6× |
+| 1000 | 1.26× |
+
+So every lr in this document's tables is nominal. The descent check's "1e-4"
+ran its 25 steps at roughly 5e-4, and its diverging "1e-3" at roughly 5e-3.
+
+The a2v-gate divergence is in the model, not the trainer. It changes nothing
+when the two streams share a σ, which is every T2V and I2V render. It does
+change the result whenever they differ: the stand-in audio here, and probably
+clean-audio A2V and lipdub. Fixing it means editing vendored `ltx-core-mlx`
+under a pinned fork tag, with an output check on the A2V and lipdub lanes. The
+training fixes below avoid that dependency instead, because neither
+`skip_a2v` nor `matched_sigma` lets the two σ differ.
+
+Ranked by how plausibly each explains "the adapter moves a lot and fits
+nothing":
+
+1. **Bias correction.** A recipe that runs at several times its nominal lr
+   during the steps that set the adapter's direction would explain a lot.
+2. **Constant lr.** Per-step gradients are ~92% noise draw. A decaying lr
+   damps exactly that noise in the final iterate; a constant one keeps it.
+3. **The stand-in audio.** Clean audio next to noisy video, plus a gate at the
+   wrong σ, is a model state neither reference ever trains in. It adds a
+   constant a2v term to every video token in all 48 blocks.
+4. **Targets.** Fewer trainable modules, and the official default is exactly
+   `bizarrotrn_v2`'s set.
+
+Resolution and base precision rank lower. v4 ruled out 768 px, and ai-toolkit
+also trains on an 8-bit base.
+
+## The iter7 recipe switches (2026-10-02)
+
+All four differences are now switches. They live in `lora_lab` and nothing in
+the vendored `ltx-2-mlx` tree was edited.
+
+- **Where:** `RECIPE_SWITCHES` and `resolve_recipe` in
+  `lora_lab/train_character.py`, plus three patches in `lora_lab/train.py`.
+- **How they are set:** a spec may carry each key, flat or under `advanced`,
+  just like `rank`. A value outside the allowed set fails the job at plan time.
+  It is never defaulted, so a typo cannot silently run the wrong arm.
+- **Defaults:** the legacy recipe, set back after the
+  [screen](#screen-results-with-the-save-fixed-2026-10-02). The reference
+  values were the default for the first half of the day.
+- **Legacy value:** the last allowed value of each switch reproduces every
+  adapter trained before iter7.
+
+| switch | reference value | default = legacy (≤ iter6) | patch |
+|---|---|---|---|
+| `adam_bias_correction` | `true` | `false` | `_patch_adam_bias_correction`: sets `bias_correction` on the AdamW the vendored `_init_optimizer` builds |
+| `scheduler_type` | `linear` (1.0 → 0.1, the trainer's own linear defaults) | `constant` | config only |
+| `image_audio` | `skip_a2v` | `clean_zero` | `_patch_image_only_audio`, described below |
+| `lora_target_families` | `video` (576) | `video` | `_patch_lora_target_exclude_audio(enabled)`; `all_attention` = 1152 |
+
+How `_patch_image_only_audio` works:
+
+- It does not copy the vendored loss function. For the length of one loss
+  evaluation it swaps a forwarding object in for `trainer._transformer`, and
+  that object rewrites only the stand-in audio arguments.
+- `value_and_grad` was built on the real model, so gradients are unchanged in
+  kind.
+- `skip_a2v` passes a `SKIP_A2V_CROSS_ATTN` + `SKIP_V2A_CROSS_ATTN`
+  perturbation on every block. The block multiplies the cross-attention output
+  by exactly 0, so values and gradients both match ltx-core's skip.
+- `matched_sigma` sets the audio timesteps to the video σ, as ai-toolkit does.
+- A run that trains real audio (`requires_audio`) is never touched.
+
+**Why `all_attention` is opt-in rather than the default.** Under `skip_a2v`,
+the audio families get no gradient and are saved as exact zeros. That is what
+the official trainer does with images too, so arm C of the earlier plan was a
+no-op as written. Paired with `matched_sigma` or `clean_zero`, they train on
+the stand-in audio, which is the 2026-05-15 Aria v2 lip-sync breakage that
+`_patch_lora_target_exclude_audio` was written for. `run_training` warns on the
+`all_attention` + `skip_a2v` pairing.
+
+What else changed:
+
+- **Version:** `LORA_LAB_VERSION` is now `iter7`.
+- **Records:** the sidecar gains a `recipe` block and the `plan` event carries
+  the same dict.
+- **Standalone CLI:** `python -m lora_lab.train` applies the bias correction
+  and `skip_a2v` too; its yaml still owns the scheduler.
+
+**Verified:**
+
+- **`test_train_recipe_switches.py`, 15 tests, CPU-only so it needs no GPU
+  lock.** It runs the real vendored `_build_loss_fn` on a tiny two-block
+  `LTXModel` and checks:
+  - under `skip_a2v`, every `audio_to_video_attn`, `audio_attn1/2` and
+    `video_to_audio_attn` gradient is exactly 0, and `attn2` still trains;
+  - under `clean_zero` and `matched_sigma` the a2v gradients are non-zero, and
+    the two losses differ;
+  - `matched_sigma` hands the model audio timesteps equal to σ;
+  - a corrected first Adam step is lr-sized, against 3.16× uncorrected;
+  - linear decay runs 1.0 → 0.55 → 0.1;
+  - the target filter switches 24 ↔ 48 modules per two blocks.
+
+  The existing trainer, caption, manifest, `lora_compat` and duplicate-def
+  suites still pass.
+- **A real 10-step run through `train_character.run_training`** on the 2-image
+  control set, under both GPU locks. Scripts are
+  `state/issue62_trainer_regression/scripts/smoke_recipe.py` and
+  `run_smoke.sh`; each run took about a minute.
+
+  | arm | `audio_to_video_attn` | attn1 / attn2 median ΔRMS | interval loss |
+  |---|---|---|---|
+  | reference values (then default) | **192 / 192 exactly zero** | 1.18e-5 / 9.86e-6 | 0.517 |
+  | legacy (`false` / `constant` / `clean_zero`) | 96 / 192 zero (q/k: one-token softmax) | 7.90e-5 / 4.18e-5 | 0.518 |
+
+  The legacy arm moved the adapter 4–7× further in the same 10 steps. That fits
+  an uncorrected Adam step (3–6.5× here) and, in a 10-step run, a linear
+  schedule that decays almost immediately. It shows the switches act; it says
+  nothing yet about fit.
+- **Not done: `release_gates.sh --fast` finished.** It exceeded a 10-minute cap
+  on this machine and was stopped at `test_storyboard_assembly`, before the
+  `test_train_*` suites; those were run directly instead.
+  - 19 suites failed before the stop. None imports `lora_lab` or
+    `train_character`.
+  - The visible causes are `pytest` missing from the venv, the shipped
+    `bizarrotrn` character not installed here, an incomplete HQ weight
+    surface, and node harness failures.
+  - A full gate run is still owed before any commit.
+
+One more trainer defect surfaced on the way. `checkpoint_keep_last_n: 1`
+deletes the run's final checkpoint. When `steps` is a multiple of the
+checkpoint interval, the final path is recorded twice, and pruning to the last
+entry unlinks the file just written. This is the same double-record as the
+`keep_last_n: 5` off-by-one above. The panel default is 2, so no shipped run
+has hit it.
+
+## Root cause: every adapter was saved scrambled (2026-10-02)
+
+### How it surfaced
+
+Screen arm L ran the legacy recipe through the panel's own `run_training` on
+the 2-image control. Its training loss (interval means) fell from 0.518 to
+**0.167** over 300 steps. `probe_fit.py` then measured the saved adapter's fit
+on those same two images at ±0.08%. The 10-01 control runs had logged the same
+contradiction without anyone reading it (`run_queue.log`): first-quarter loss
+0.386, last-quarter 0.243, and probe fit under 0.1%.
+
+A model whose training loss drops by a third cannot have zero fit on its
+training images — unless the file being probed is not the model that trained.
+
+### Mechanism
+
+- **The save.** `ltx_trainer_mlx/trainer.py:812-818` writes each factor in
+  ComfyUI layout as `np.array(mx.transpose(param).astype(mx.float32))`.
+  - The params are already float32, so `astype` is a no-op and the transpose
+    stays a **view**.
+  - numpy receives a correctly strided but non-C-contiguous array. Its values
+    are right.
+- **The writer.** `safetensors.numpy` **0.8.0** serializes
+  `data_ptr=tensor.ctypes.data, data_len=tensor.nbytes` in `_flatten`. That is
+  the raw buffer with the strides ignored. Its own docstring says tensors "need
+  to be contiguous".
+  - 0.4.5, 0.5.3, 0.6.2 and 0.7.0 all wrote `tobytes()`, a C-order copy, and
+    were correct (checked in each wheel's `safetensors/numpy.py`).
+- **The result on disk.**
+  - `lora_A.weight` of shape `(r, in)` holds the bytes of `lora_a`'s
+    `(in, r)`.
+  - `lora_B.weight` of shape `(out, r)` holds the bytes of `lora_b`'s
+    `(r, out)`.
+  - With random factors at real shapes (4096×32), the file's delta has
+    **0.9996×** the trained norm at cosine **−0.0002**: uncorrelated in
+    direction.
+  - On trained adapters, whose factors are co-adapted, the scrambled product
+    is also smaller: `lora_compat` reads roughly **half** the trained
+    strength. The next subsection gives the numbers.
+- **Not affected.**
+  - Training latents: the bf16 → f32 `astype` is a real copy. A fresh encode
+    of a control image matches the saved latent at correlation 0.99992.
+  - Conditions: the probe's sanity check shows a diff of 0.0.
+
+### Why the code diff found nothing
+
+| when | what |
+|---|---|
+| ≤ 05-15 | `bizarrotrn_v2` and the other reference characters trained in the authoring tree, on a pre-0.8.0 safetensors: correct files |
+| 05-17 | trainer vendored, with the same `_save_checkpoint` |
+| **06-09** | **safetensors 0.8.0 released.** `ltx-core-mlx` and `ltx-trainer` require only `safetensors>=0.4.0`, so every new install or Update picks it up |
+| July | #35/#36: "near-zero LoRA" |
+| 08-17 → | #61, #62 and every report in that thread |
+| 09-25 | this machine's venv got 0.8.0 (dist-info mtime) |
+
+The [regression check](#trainer-regression-check-2026-10-01-evening) was right
+that the training math never changed. The regression is in a dependency's
+writer, below the code it diffed.
+
+### What it explains, and what it does not
+
+**Explained:**
+
+- clean attach, healthy `delta_rms`, an output that changes and no identity:
+  every adapter in this document and in the thread;
+- "magnitude is necessary, not sufficient" (@blackest, 5.36e-4);
+- Morac2's raw ltx-2-mlx runs failing the same way, because they used the same
+  save code;
+- **voice LoRAs that do nothing**: `lora_lab/train_audio.py` saves through the
+  same `LtxvTrainer`;
+- `probe_fit` reading ~0 on every adapter while training loss fell.
+- **The identity-family "half strength" against the characters that work.**
+  `lora_compat.py`, identity-family median:
+
+  | adapter | as saved | unscrambled |
+  |---|---|---|
+  | `valeriosan_v2` | 7.04e-4 | **1.35e-3** |
+  | `valeriosan_v3` | 7.11e-4 | **1.49e-3** |
+  | `valeriosan_v4_768` | 6.76e-4 | **1.33e-3** |
+  | `valeriosan_v5_classword` | 6.73e-4 | **1.39e-3** |
+  | screen arm L (300 steps) | 3.67e-4 | 6.86e-4 |
+  | *`ariatrn_v2` / `bizarrotrn_v2` (thread, 09-10)* | | *1.63e-3 / 1.72e-3* |
+
+  The other reporters' "half strength" numbers are the same artifact, e.g.
+  @PiotrAstroCamp's 7.80e-4. The Train-tab recipe produces adapters in the
+  working band; the save halved them on disk.
+
+**Not changed:**
+
+- **The other bugs this document found:** Bug A (wrong trigger), the EXIF crop
+  and caption re-pairing.
+- **The iter7 recipe switches.** They were chasing the wrong cause; the screen
+  below now decides whether they help.
+
+### Evidence
+
+`probe_fit.py`, basic arms; cells are fit at σ 0.3 / 0.6 / 0.85 / 0.97:
+
+| adapter | probed on | as saved | unscrambled |
+|---|---|---|---|
+| screen arm L (legacy recipe, 300 steps) | 2-image control | −0.03 / −0.01 / +0.06 / +0.08% | **+67.2 / +82.5 / +77.5 / +41.2%** |
+| `valeriosan_v5_classword` (3700 steps) | its own 37 images | −0.1 / −0.0 / −0.1 / −0.1% | **+18.3 / +35.5 / +26.5 / +5.4%** |
+
+Trigger binding stays near zero even unscrambled (v5: +0.00002 to −0.0044).
+Deleting `valeriosan ` from a caption does not undo the fit, so v5 learned the
+images as an always-on adapter rather than one keyed to its trigger. That is a
+recipe question, and with the save fixed the screen can measure it.
+
+**Render** (`state/issue62_trainer_regression/renders/grid_v5_unscrambled.png`):
+2.3 HQ path, Q8 dev, 704×384, 25 frames, the Test 1 prompt, seeds 12345 and
+777, attached unfused (576 modules).
+
+- **No LoRA vs v5 as saved:** near-identical frames at each seed. The
+  scrambled adapter barely moves the output, as every render in this document
+  found.
+- **v5 unscrambled:** a different man from the base model's, at both seeds,
+  with short dark hair and a stubbly beard, in casual phone-selfie framing like
+  the training photos. The two seeds now resemble each other.
+- Likeness to the subject is for the owner to judge from the grid.
+
+### Fix and repair (shipped on `issue-62`)
+
+- **`lora_lab.train._patch_contiguous_checkpoint_save`.**
+  - It wraps the trainer module's `save_safetensors` so every tensor is passed
+    through `np.ascontiguousarray`. That is a no-op on contiguous arrays.
+  - It is applied unconditionally by `train_character.run_training`,
+    `train_audio`, and the `lora_lab.train` CLI. It is not a recipe switch.
+  - `test_train_checkpoint_layout.py` runs the real `_setup_lora` and
+    `_save_checkpoint` on a tiny `LTXModel`. Patched, the reloaded file equals
+    the in-memory factors bit for bit. Unpatched, it is scrambled (|cos| < 0.5,
+    skipped on a safetensors that honours strides).
+- **`python -m lora_lab.repair_scrambled_lora FILE ... [--out F | --in-place]`.**
+  - Unscrambling is a pure reinterpretation, so the repair is exact:
+    `A = file_A.reshape(in, r).T`, `B = file_B.reshape(r, out).T`.
+  - Applied to a correctly saved file it would scramble it, so it is gated on a
+    content check rather than on dates. In a real adapter the rank rows of
+    `|lora_A|` share an input-channel magnitude profile; the scramble destroys
+    it.
+  - It scores both readings and acts only when one clears a noise floor and
+    beats the other by 3×.
+  - `--in-place` keeps `<file>.scrambled.bak` and notes the repair in the
+    sidecar.
+  - Report-only is the default. `test_repair_scrambled_lora.py` (5 tests) pins
+    exact repair, never touching a correct file, refusing to guess on noise,
+    and the backup and sidecar behaviour.
+
+Detector scores, read-only, on every adapter on this machine (median |A|
+row-correlation, as-is / unscrambled reading):
+
+| file | as-is | unscrambled | verdict |
+|---|---|---|---|
+| `valeriosan_v2` / `v3` / `v4_768` / `v5_classword` | 0.0014–0.0020 | 0.0360–0.0406 | scrambled |
+| 10-01 control adapters (`tiny_*`, `ab_*`) | 0.0009–0.0012 | 0.0118–0.0168 | scrambled |
+| screen arm L, as saved | 0.0012 | 0.0118 | scrambled |
+| the two unscrambled copies | 0.0118 / 0.0362 | 0.0010 / 0.0018 | ok |
+| DoctorDiffusion Colorizer (PyTorch, third-party) | 0.0256 | 0.0032 | ok |
+
+No file under `mlx_models/` was modified. Repaired copies live in
+`state/issue62_trainer_regression/adapters/`.
+
+**Not done:**
+
+- **The upstream fix in `ltx-2-mlx`'s `_save_checkpoint`:**
+  `np.ascontiguousarray`, or `mx.save_safetensors`. Users of the raw trainer
+  stay affected until then.
+- **Detection in `lora_compat`**, at measure or attach time, so the panel tells
+  a user their adapter needs the repair.
+- **Running the repair on voice adapters:** it uses the same transform, but no
+  voice adapter exists on this machine to check the detector on.
+- **Pinning `safetensors<0.8`:** unnecessary with the patch, though it would
+  also have prevented this.
+
+## Screen results with the save fixed (2026-10-02)
+
+**Setup.**
+
+- **Data and recipe:** the 2-image control, 300 steps per arm, rank 32,
+  lr 1e-4, through `train_character.run_training`.
+- **Shared between arms:** the LoRA init (`--init-seed 42`), the data order and
+  the noise draws.
+- **Scoring:** `probe_fit.py`, basic arms, samples 0 and 1, seeds 1–3, each arm
+  scored under the objective it trained on.
+- **Arm L:** the stopped first run's adapter, unscrambled. The repair is exact,
+  so that is the trained adapter.
+- **Tooling:** `scripts/run_screen.sh` and `scripts/summarize_screen.py`.
+
+Each cell is fit / trigger binding:
+
+| arm | recipe | σ 0.3 | σ 0.6 | σ 0.85 | σ 0.97 | mean fit |
+|---|---|---|---|---|---|---|
+| L | legacy (no bias correction, constant lr, clean-zero audio) | +67.2% / +0.0000 | +82.5% / −0.0001 | +77.5% / +0.0009 | +41.2% / +0.0021 | **67.1%** |
+| A | + bias correction, linear decay | +13.9% / −0.0000 | +33.3% / −0.0002 | +39.4% / +0.0002 | +31.2% / +0.0056 | 29.4% |
+| B | A + `skip_a2v` (the reference defaults, since reverted) | +12.6% / −0.0000 | +30.9% / +0.0001 | +36.5% / +0.0002 | +24.6% / +0.0003 | 26.1% |
+| B′ | A + `matched_sigma` | +12.7% / −0.0000 | +32.0% / +0.0002 | +36.8% / −0.0004 | +28.1% / +0.0010 | 27.4% |
+| C | B′ + `all_attention` (1152) | +12.8% / −0.0001 | +31.0% / +0.0002 | +38.2% / −0.0010 | +28.4% / −0.0013 | 27.6% |
+
+**What this shows.**
+
+- **Every arm fits** once the save is correct.
+- **The optimizer switches are the only ones that move fit:** bias correction
+  plus linear decay take it from 67% to ~29% at 300 steps, through a lower and
+  falling effective lr.
+- **The audio-stream and target switches change nothing measurable on top**
+  (26–28%).
+- **Trigger binding is ≈ 0 in every arm.** Deleting `valeriosan ` from the
+  caption does not undo the fit, so no recipe here makes the adapter keyed to
+  its trigger. Every caption in the set contains the trigger, which leaves the
+  trainer no signal to separate the trigger from the rest of the caption.
+  Binding probably needs regularisation data or caption dropout; it is not one
+  of these switches.
+- **Arm C trains the audio families,** `audio_attn2` most of all (median ΔRMS
+  1.1e-4). That is the May lip-sync risk, now confirmed to be live under
+  `matched_sigma`.
+
+**Recommendation.** Nothing here justifies the iter7 defaults over the legacy
+recipe. Legacy is the one that produced the adapters that render a learned
+person once saved correctly (v5, above); iter7 halves fit at equal steps with
+no gain in binding. **Done 2026-10-02:** the defaults are the legacy values
+again, and the switches stay for experiments. The real decision belongs to a
+full-length retrain judged by HQ renders, not to this control.
+
 ## Recommended fixes
+
+**For the scrambled save (the actual root cause, 2026-10-02), in priority
+order:**
+
+1. ~~Make every saved tensor contiguous.~~ **Done** on this branch:
+   `_patch_contiguous_checkpoint_save`. It ships with the next release, and
+   until then **every Train-tab adapter is broken on arrival**.
+2. **Upstream the one-line fix** to `ltx-2-mlx`'s
+   `ltx_trainer_mlx/trainer.py::_save_checkpoint`, as
+   `np.ascontiguousarray(...)` around the transposed factor. Fix the
+   `mrbizarro/ltx-2-mlx` fork tag and file it at `dgrauet/ltx-2-mlx`. It
+   affects every user of the raw `ltx-2-mlx train` command on safetensors
+   ≥ 0.8.0, not just Phosphene.
+3. **Tell #62.** Every reporter's existing adapters are almost certainly
+   repairable without retraining:
+   `python -m lora_lab.repair_scrambled_lora mlx_models/loras/<name>.safetensors --in-place`
+   reports first and refuses a file it cannot classify. Voice adapters
+   (`*.audio.safetensors`) use the same transform but are untested here.
+4. **Panel detection.** Have `lora_compat`'s measurement call
+   `repair_scrambled_lora.scramble_scores` and badge a scrambled adapter the
+   way WEAK and DEAD are badged, with the repair command as the action.
+5. **Re-grade every recipe decision taken since August** against unscrambled
+   adapters, including the iter7 switches and the "High is the only graded
+   recipe" advice. All of it was judged on files that could not carry an
+   identity.
 
 **For Finding 3 (root cause of this report) — DONE, see
 [Fix implemented](#fix-implemented-for-finding-3).** Item 1 below shipped
@@ -1282,8 +1797,9 @@ nothing.
    cross-generation LoRA today).
 
 **For the trainer (from the
-[regression check](#trainer-regression-check-2026-10-01-evening); none
-implemented yet):**
+[regression check](#trainer-regression-check-2026-10-01-evening) and the
+[trainer comparison](#comparison-against-known-working-trainers-2026-10-02);
+item 4 implemented as an iter7 default, the rest not yet):**
 
 1. `crop_and_caption`: call `ImageOps.exif_transpose` before cropping. Panel
    uploads are normalised at ingest since v4.17.0, but the trainer should not
@@ -1304,6 +1820,21 @@ implemented yet):**
    cross-attention for image-only training: `PerturbationType.SKIP_A2V_CROSS_ATTN`
    already exists in the block and is the MLX equivalent of upstream training
    with `audio=None`. Unvalidated, and not shown to cause the failure.
+   **Done 2026-10-02** as `image_audio: skip_a2v`, the iter7 default, together
+   with Adam bias correction and the linear schedule; see
+   [The iter7 recipe switches](#the-iter7-recipe-switches-2026-10-02). Still
+   ungraded by fit.
+5. **The a2v gate's σ (model, not trainer).** `LTXModel` drives the a2v gate
+   from the video σ, but ltx-core drives it from the audio σ. The legacy
+   default (`clean_zero`) still reaches it in training; `skip_a2v` and
+   `matched_sigma` do not. Clean-audio A2V and
+   lipdub renders probably still do. The fix belongs in vendored
+   `ltx-core-mlx`: a fork-tag move, with an output check on those lanes. Not
+   done.
+6. **`checkpoint_keep_last_n: 1` deletes the final checkpoint.** It is the
+   same double-record as the `keep_last_n: 5` off-by-one. Dedupe the path in
+   `_save_checkpoint`, or never prune the file just written. Not done; the
+   panel uses 2.
 
 ## Proposed next experiment
 
@@ -1341,13 +1872,42 @@ baseline. What's left, in priority order:
    recipe, rather than at a pin regression. Judge it with `probe_fit.py`
    (fit and trigger binding, about 10 minutes, no renders) before spending
    render time.
+1b. **The iter7 recipe-switch screen (runnable now, no owner datasets).** It
+   grades the four differences from the
+   [trainer comparison](#comparison-against-known-working-trainers-2026-10-02)
+   by fit and trigger binding.
+   - **First pass:** the 2-image control. Each 300-step run is about 25 min of
+     training plus a ~10 min `probe_fit.py`.
+   - **Confirmation:** repeat on v5's data at 740 steps (~1 h each).
+   - **Baseline:** the legacy arm is already measured — `tiny1000` and
+     `tr1000` in the regression check, fit under 0.1%.
+   - **How to run an arm:** `smoke_recipe.py --steps 300 --set key=value ...`
+     inside `run_smoke.sh`, with a cap above the run length. Then point
+     `probe_fit.py` at the saved adapter, as `run_queue2.sh`'s `ptiny1000` arm
+     does.
+
+   | arm | `adam_bias_correction` | `scheduler_type` | `image_audio` | `lora_target_families` |
+   |---|---|---|---|---|
+   | A | true | linear | clean_zero | video |
+   | B (reference values) | true | linear | skip_a2v | video |
+   | B′ | true | linear | matched_sigma | video |
+   | C | true | linear | matched_sigma | all_attention |
+
+   *(2026-10-02: the first run of this screen exposed the
+   [scrambled save](#root-cause-every-adapter-was-saved-scrambled-2026-10-02).
+   It was stopped and re-run with the save fixed. Every arm can now fit, so the
+   screen compares the size of the fit and of the trigger binding, rather than
+   looking for the one arm that fits at all. Results are in
+   [Screen results](#screen-results-with-the-save-fixed-2026-10-02).)* C carries
+   the May lip-sync risk, so render it with dialogue before shipping anything
+   trained that way.
 2. **Recipe variables, judged by fit rather than by delta-RMS.** Each of these
    can be screened in about 1 h with a 740-step run plus `probe_fit.py`.
    - **Effective batch size:** `gradient_accumulation_steps` 4–8. Each step's
      gradient is about 92% noise-draw-specific, and the shared signal is under
      1%.
-   - **The audio-family targets the reference adapters had:** drop
-     `_patch_lora_target_exclude_audio` for an experiment.
+   - **The audio-family targets the reference adapters had:** now
+     `lora_target_families: all_attention` (arm C of 1b).
    - **576 px**, the authoring-tree resolution.
    - **Learning rate:** 2e-4.
 
@@ -1522,3 +2082,61 @@ no-LoRA@12345 | v5@12345 | no-LoRA@777 | v5@777).
   - `tiny_avca{1000,1}_step300.safetensors`;
   - `ab_avca{1000,1}_step740.safetensors`, which share LoRA init, data order
     and noise seed and differ only in the multiplier.
+
+**Trainer comparison and iter7 switches (2026-10-02)**:
+
+- `reference_trainers/` (gitignored), sparse clones read for the comparison:
+  - `ltx-2-official/`: Lightricks/LTX-2 `2d6e71c`. It holds `ltx-trainer`
+    plus ltx-core's transformer, loader, text encoders and components.
+  - `ai-toolkit/`: ostris/ai-toolkit `ecee894`. It holds
+    `extensions_built_in/diffusion_models`, `toolkit`, `config/examples` and
+    the job-UI defaults.
+  - Refresh either with `git -C <dir> pull`.
+- Code:
+  - `lora_lab/train_character.py`: `RECIPE_SWITCHES`, `resolve_recipe`,
+    `LORA_LAB_VERSION = "iter7"`, and the sidecar `recipe` block.
+  - `lora_lab/train.py`: `_patch_adam_bias_correction`,
+    `_patch_image_only_audio`, and the now-switchable
+    `_patch_lora_target_exclude_audio(enabled)`.
+- Test: `test_train_recipe_switches.py` (15 tests, CPU).
+- `state/issue62_trainer_regression/scripts/` (gitignored):
+  - `smoke_recipe.py`: a few real steps through `run_training` on the 2-image
+    control set, then per-family zero counts read from the saved adapter.
+  - `run_smoke.sh`: the GPU-lock wrapper, with a 52 GB footprint watchdog and
+    a hard time cap.
+  - The 10-step smoke adapters themselves were written to the session's
+    scratch directory and are not kept.
+
+**Scrambled-save root cause (2026-10-02)**:
+
+- **Code:**
+  - `lora_lab/train.py::_patch_contiguous_checkpoint_save`, applied in
+    `train_character.run_training`, `train_audio.py` and the `lora_lab.train`
+    CLI.
+  - `lora_lab/repair_scrambled_lora.py`: detector plus exact repair.
+- **Tests:** `test_train_checkpoint_layout.py` (3) and
+  `test_repair_scrambled_lora.py` (5).
+- **`state/issue62_trainer_regression/scripts/`:**
+  - `unscramble_lora.py`: the bare transform, without the detector.
+  - `run_screen.sh`: the screen queue. Both GPU locks, a watchdog, and each
+    arm probed under its own training objective.
+  - `run_probe.sh`: a single locked probe.
+  - `run_validate.sh`: the unscrambled-v5 renders plus probe.
+  - `summarize_screen.py`: the fit and binding table.
+  - `probe_fit.py` gained `--image-audio` and `--targets`, and its `T` now
+    points here.
+  - `smoke_recipe.py` gained `--init-seed`, so every arm shares one LoRA init.
+- **`state/issue62_trainer_regression/adapters/`:**
+  `valeriosan_v5_classword_unscrambled.safetensors` and
+  `screen_L_step300_unscrambled.safetensors`.
+- **`state/issue62_trainer_regression/results/`:**
+  - `screen_L_as_saved_scrambled.json`
+  - `screen_L_unscrambled.json` (= `screen_L.json`)
+  - `probe_v5_unscrambled.json`
+  - `screen_{A,B,Bp,C}.json`
+- **`state/issue62_trainer_regression/renders/`:**
+  `hq_v5fixed_seed{12345,777}.mp4`, their `_f12.png` frames and logs, and
+  `grid_v5_unscrambled.png` (no LoRA | v5 as saved | v5 unscrambled | training
+  crop). The no-LoRA and as-saved frames (`hq_nolora_*`, `hq_v5_*`) were copied in from `/tmp/lora_test_out`.
+- **Logs:** `screen_batch1.log` is the stopped first run; `screen_batch2.log`
+  and `screen_batch3.log` are the re-run; `validate.log`.
