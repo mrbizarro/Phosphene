@@ -22,6 +22,7 @@ import logging
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -263,6 +264,50 @@ def _patch_lora_target_exclude_audio() -> None:
     _trainer._find_lora_targets = patched
 
 
+def _patch_contiguous_checkpoint_save() -> None:
+    """Make every tensor the trainer saves C-contiguous. THE #62 root cause.
+
+    ``ltx_trainer_mlx.trainer._save_checkpoint`` converts each LoRA factor to
+    the ComfyUI layout with ``np.array(mx.transpose(param).astype(mx.float32))``.
+    The params are already float32, so ``astype`` is a no-op and the transpose
+    stays a VIEW: numpy receives a correctly-strided but non-contiguous array.
+    ``safetensors.numpy.save_file`` (0.8.0 in this venv) serializes
+    ``tensor.ctypes.data`` for ``tensor.nbytes`` — the raw buffer, strides
+    ignored; its own docstring says tensors "need to be contiguous". So every
+    ``lora_A.weight`` on disk is ``lora_a``'s bytes under the transposed shape,
+    not ``lora_a.T``, and likewise ``lora_B``.
+
+    The file keeps every element value, so it attaches cleanly and moves the
+    output, but its delta is unrelated to the trained one (cosine -0.0002 at
+    4096x32) and, on a trained adapter, about half its strength:
+    ``valeriosan_v2``-``v5`` read 6.7-7.1e-4 on the identity family as saved
+    and 1.33-1.49e-3 unscrambled — the band of the characters that work. That
+    is the #62 signature exactly — clean attach, "half strength", output
+    perturbed, no identity — and why ``probe_fit.py`` measured ~0 fit on
+    adapters whose training loss had fallen 37-68%: unscrambled, the same
+    2-image adapter fits its images by 41-83%. Character and voice LoRAs both
+    save through here.
+
+    Wrapping the trainer module's ``save_safetensors`` binding fixes every save
+    site at once and is a no-op on arrays that are already contiguous.
+    """
+    import numpy as np
+    import ltx_trainer_mlx.trainer as _trainer
+
+    orig = getattr(_trainer, "_phos_orig_save_safetensors", None)
+    if orig is None:
+        orig = _trainer.save_safetensors
+        _trainer._phos_orig_save_safetensors = orig
+
+    def save_contiguous(tensors: dict, filename: Any, metadata: Any = None) -> None:
+        tensors = {k: np.ascontiguousarray(v) for k, v in tensors.items()}
+        if metadata is None:
+            return orig(tensors, filename)
+        return orig(tensors, filename, metadata)
+
+    _trainer.save_safetensors = save_contiguous
+
+
 def _patch_strategy_for_image_only() -> None:
     """Force `first_frame_conditioning_p=0.0` for image-only training.
 
@@ -311,6 +356,7 @@ def main() -> int:
     _patch_strategy_for_image_only()
     _patch_compute_video_positions_fps_kwarg()
     _patch_lora_target_exclude_audio()
+    _patch_contiguous_checkpoint_save()
 
     t0 = time.time()
     trainer = LtxvTrainer(config)
