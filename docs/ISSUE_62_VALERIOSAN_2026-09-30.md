@@ -80,6 +80,39 @@ recipe, not the data. The next step is a reproduction control on a dataset
 known to work; the maintainer committed to one on #62 (09-17). See
 [The v4 retrain](#the-v4-retrain-768-px--resolution-ruled-out-and-the-test-method-was-blind).
 
+**Update 2026-10-01 (evening) — no regression in the trainer code; the
+recipe fits nothing.** Every adapter known to carry a face was trained before
+the trainer was vendored into the panel (pre-05-15, in the authoring tree), and
+the trainer/model code is identical from `v0.14.0` to `v0.14.8`. A real
+training step under `v0.14.8` and under today's `v0.14.19+ltx25.7` is
+numerically identical: same loss to 6 decimals, gradient cosine 1.0000 in every
+module family. The one exception is `av_ca_timestep_scale_multiplier`, which
+since 0.14.11 is read from the checkpoint as 1000 instead of the old default
+of 1. That change rotates the per-step gradient through the trainer's one-token
+dummy audio stream, but in four controlled runs it changes neither adapter
+strength nor fit. The gradient path is correct: 25 AdamW steps on one fixed
+noise draw cut the loss 80%. The panel recipe still fits nothing:
+
+- v5, after 3700 steps, changes the loss on its **own training images** by
+  −0.1%.
+- A 2-image control, after 150 epochs per image, moves it by < 0.1%.
+- A 740-step A/B on v5's data moves it by ≤ 0.1%, at either multiplier.
+- None of them shows any trigger binding.
+
+Each step's gradient is about 92% specific to its noise draw and under 1%
+shared across images, so the LoRA random-walks.
+
+Two data-path bugs also surfaced:
+
+- **The crop ignores EXIF orientation:** 8 of 42 v2 faces were trained
+  sideways.
+- **v3–v5 have mismatched captions:** 20 of their 37 images were trained on
+  another photo's caption, so they were not the single-variable tests
+  described below.
+
+See
+[Trainer regression check](#trainer-regression-check-2026-10-01-evening).
+
 Other things checked and worth keeping on record, in the order they were
 investigated:
 
@@ -968,6 +1001,254 @@ pack. Training a LoRA over a quantized base is normally fine (QLoRA), so this
 is a labelling question first; it is listed because it is one of the things
 every run here shares.
 
+## Trainer regression check (2026-10-01, evening)
+
+The question was whether a code change between the runs that produced working
+character adapters and the runs reported in #62 broke training. It was answered
+from the code history, plus numerical experiments on this machine (64 GB M4
+Max). Every GPU run held both GPU locks per CLAUDE.md §7. Harness scripts, raw
+results, the 2-image control set and every control adapter are in
+`state/issue62_trainer_regression/` (gitignored).
+
+**Verdict.** There is no regression in the vendored trainer or model code
+between the pin that trained the working adapters and today's.
+
+- A training step under `v0.14.8` and under `v0.14.19+ltx25.7` is numerically
+  identical, except for `av_ca_timestep_scale_multiplier`. That value does not
+  change adapter strength, and it does not change whether the trainer fits its
+  data.
+- The gradient path is correct.
+
+What the experiments do show is that the panel's recipe, on this pipeline,
+does not fit its own training images at all, at either multiplier:
+
+- not the 37-image v5 set after 3700 steps;
+- not a 740-step rerun of it;
+- not a 2-image control after 150 epochs per image.
+
+The adapters that carry a face came out of a different pipeline (see the
+window below). On the evidence available, the vendored trainer has never been
+shown to bind an identity.
+
+### The regression window
+
+| period | `ltx-2-mlx` pin | trainer / model code | adapters trained |
+|---|---|---|---|
+| ≤ 2026-05-15 | authoring tree (`~/AI/projects/lora-lab/`), before vendoring | — | `bizarrotrn_v2` and the other reference characters. `bizarrotrn_v2` has 2304 tensors = **1152 modules**, LoRA on all six attentions per block, so it predates the audio-target filter |
+| 05-13 → 06-01 | `v0.14.0` | identical to `v0.14.8`. `git diff v0.14.0 v0.14.8` over `packages/ltx-trainer` and `ltx-core-mlx/.../transformer` is the version string only | the first vendored-trainer retrain of a reference character (05-18) came out **"worse"** than the original. Comment near `lora_lab/train_character.py:710`; attributed at the time to data-order RNG |
+| 06-01 → 08-12 | `v0.14.8` | — | — |
+| 08-12 → now | `v0.14.19+ltx25.x` | multiplier read from the checkpoint (1 → 1000) | #62 (v4.5.0), #61, the other reporter's runs, `valeriosan_v2`–`v5` |
+
+Other recipe differences between the two pipelines:
+
+- `_patch_lora_target_exclude_audio` (drops `audio_attn*` and
+  `video_to_audio_attn`) has been in `lora_lab/train.py` since the trainer was
+  vendored (`e9ce853`, 05-17). Every panel-trained adapter has 576 modules.
+- The lora_lab CLI's own "high" preset, which is the authoring-tree recipe, is
+  rank 32 / 5000 steps / **576 px** / class-word captions.
+- The panel's "high" is rank 32 / 100 epochs / 512 px / user captions.
+
+### Static diff, `v0.14.8` → `v0.14.19+ltx25.7`, as it applies to a 2.3 training run
+
+- `trainer.py`: the conditions branch now reads
+  `"video_prompt_embeds" not in conditions and feature_extractor is not None`.
+  Phosphene trains without validation prompts, so `feature_extractor` is
+  `None` and both versions take the same branch. The other changes (logging
+  cadence, `transformer_file`, opt-in gradient checkpointing) have no effect
+  on a default run.
+- `model.py`, `transformer.py` and `feed_forward.py`: every LTX-2.5
+  architecture flag defaults to its 2.3 value. In `utils/weights.py`,
+  `derive_quant_params` gives bits 8 / group 64 for the Q8 dev, the same as
+  before.
+- `LTXModel()` became `LTXModel(LTXModelConfig.from_checkpoint_dir(...))`.
+  Compared field by field against `ltx-2.3-mlx-q8/embedded_config.json`, the
+  **only** difference is `av_ca_timestep_scale_multiplier` 1 → 1000 (#37,
+  0.14.11). RoPE type, max positions, theta, eps and head counts are all
+  identical.
+- The installed site-packages equal the tag source, apart from the codec patch
+  (`video_vae.py:487`, ffmpeg args only).
+- The lora_lab changes over the same window do not touch training math: the
+  sidecar, the strength report, target-module plumbing and the dev-transformer
+  size guard.
+- The training base is `ltx-2.3-mlx-q8/transformer-dev.safetensors`. It is
+  **int8** (U32-packed weights, 8 bits, group 64), whatever the sidecar's
+  "full-precision" label says.
+
+### One training step, old code vs new code
+
+`scripts/grad_ab.py` runs the real `LtxvTrainer` with the four
+`lora_lab.train` patches and v5's config, with v5's adapter loaded into the
+LoRA params. It records the loss and every LoRA gradient for 5 samples × 2
+noise/sigma seeds. The `v0.14.8` arm imports `ltx-core-mlx`,
+`ltx-pipelines-mlx` and `ltx-trainer` from `git archive v0.14.8`.
+
+| comparison | loss | gradient cosine, mean / min | gradient norm ratio |
+|---|---|---|---|
+| `v0.14.8` vs current, both at multiplier 1 | identical to 6 decimals | **1.0000 / 1.0000** in every family | 1.000 |
+| current, multiplier 1000 vs 1 | \|Δ\| ≤ 0.002 | 0.687 / −0.027 (`attn2` 0.724 / −0.398; `audio_to_video_attn` 0.518) | 1.71 (`attn2` 2.29) |
+
+Cross-image gradient agreement under the two multipliers:
+
+| mean pairwise cosine | multiplier 1 | multiplier 1000 |
+|---|---|---|
+| same image, different noise + sigma | +0.081 | +0.087 |
+| different images | +0.011 | +0.003 |
+
+**Reproducing this requires `LTX2_DIT_EVAL_EVERY=0` and
+`LTX2_GEMMA_EVAL_EVERY=0`**, which `scripts/lora_lab_run.sh` exports for every
+training run. Without them the DiT forces an `mx.eval` every 8 blocks inside
+the autodiff graph. The footprint then reached 63 GB on this Mac and a step
+took 65 s instead of 2.5 s. The values are unaffected.
+
+#### Why the multiplier reaches training at all
+
+The trainer feeds the joint model a dummy audio stream: a zero latent with
+audio timesteps of 0 (`trainer.py`, `_build_loss_fn`). For a 1-frame image,
+`compute_audio_token_count` returns **one token**, so `audio_to_video_attn` is
+a softmax over a single key. Two consequences:
+
+- Its `to_q`/`to_k` get exactly zero gradient. These are the 96
+  non-carrying modules in every adapter here, verified zero in all five v5
+  checkpoints.
+- Its `to_v`/`to_out` learn a constant, text-independent vector that is added
+  to every video token.
+
+The multiplier feeds only the a2v/v2a gates (`t_emb_av_gate`). Measured on the
+Q8 dev weights:
+
+- the a2v gate changes 27–29% element-wise (cosine 0.96);
+- the v2a gate changes 5%;
+- mean |gate| is about 0.14 either way.
+
+At render time the audio stream has about 26 real, noisy tokens for 25 frames.
+That train/render mismatch exists at both multipliers.
+
+### The gradient path is correct
+
+`scripts/descent_check.py` holds one sample, sigma 0.6 and one noise draw
+fixed. It uses the trainer's own `loss_fn`, `nn.value_and_grad`,
+`clip_grad_norm(1.0)` and AdamW.
+
+| lr | steps | loss | result |
+|---|---|---|---|
+| 1e-4 | 25 | **0.412 → 0.082 (−80%)** | monotone; same at multiplier 1000 and 1 |
+| 1e-3 | 25 | +281% | diverges |
+
+The LoRA after the 25 lr-1e-4 steps measures delta-RMS 2.9e-4. Nothing in the
+loss, the targets or the backward pass is broken.
+
+### The shipped recipe does not fit its own training images
+
+`scripts/probe_fit.py` runs the trainer's own forward at a fixed sigma
+(0.3 / 0.6 / 0.85 / 0.97) and fixed noise draws. It pairs training samples by
+**filename**, because `PrecomputedDataset` discovers files with an unsorted
+glob, and it switches the LoRA on and off and the trigger in and out of the
+caption.
+
+- **fit** = loss(no LoRA) − loss(LoRA), on the image the adapter was trained
+  on.
+- **binding** = how much of that fit disappears when the trigger is deleted.
+
+A working character adapter must show both. These are render-free, take about
+10 minutes, and measure the objective the trainer actually optimised.
+
+| adapter | training | fit at σ 0.3 / 0.6 / 0.85 / 0.97 | trigger binding | identity-family RMS |
+|---|---|---|---|---|
+| `valeriosan_v5_classword` | 37 images, 3700 steps | −0.1% / −0.0% / −0.1% / −0.1% | ≈ 0 | 6.73e-4 |
+| v5 data, multiplier 1000 | 740 steps (fresh run) | −0.02% / −0.11% / −0.05% / −0.00% | ≈ 0 | 4.52e-4 |
+| v5 data, multiplier 1 | 740 steps (same init, order, noise) | −0.01% / −0.02% / +0.00% / −0.02% | ≈ 0 | 4.28e-4 |
+| 2 images, multiplier 1000 | 300 steps = 150 epochs/image | −0.03% / −0.01% / +0.06% / +0.08% | ≈ 0 | 3.67e-4 |
+| 2 images, multiplier 1 | 300 steps | −0.03% / −0.01% / +0.05% / −0.02% | ≈ 0 | 4.03e-4 |
+
+The 740-step multiplier-1000 arm reproduces v5's own step-740 checkpoint
+(4.27e-4), which validates the setup. Restoring the old multiplier gives
+neither a stronger adapter nor a fit. It does change the trajectory: the two
+740-step arms share init, data order and noise, and their deltas still overlap
+only +0.17.
+
+**The adapters move a lot and learn nothing.**
+
+- 300 real steps produce about the delta of 25 coherent ones (3.7e-4 vs 2.9e-4).
+- The 25 coherent steps cut their target loss by 80%.
+- The 300 real steps move the two training images by under 0.1%.
+
+The per-step gradients explain it. About 92% of a step is specific to its noise
+draw, and well under 1% is shared across images, which is where an identity
+would have to live. In the v5 checkpoints the two kinds of projection behave
+differently across successive 740-step increments:
+
+| projections | correlation of successive increments |
+|---|---|
+| `attn2.to_v` (carries text into the image) | cos 0.01–0.07 |
+| `attn2.to_k` (carries text into the image) | −0.01 … 0.16 |
+| `attn1.to_q`, `attn2.to_out` | ≈ 0.26, steady drift |
+
+With batch 1 and a constant lr, Adam random-walks.
+
+### Two data-path bugs found on the way, and what they do to v3–v5
+
+1. **The crop ignores EXIF orientation.** `lora_lab/train_character.py:441`
+   opens images with `Image.open(src).convert("RGB")`, with no
+   `ImageOps.exif_transpose`. The panel only started normalising orientation at
+   ingest in v4.17.0 (2026-09-29, `6cf2da2`). Every Train-tab run before that,
+   and every hand-built dataset since, trains phone photos as stored. Measured
+   from the crops (contact sheets: `results/sheet_v2.png`, `sheet_v5.png`):
+   - `valeriosan_v2`: **8 of 42** crops rotated 90°, and the `letterbox` crop
+     also shrinks most faces;
+   - v3/v4/v5: 4 of 37.
+2. **Captions pair with the wrong image when the source files are already
+   named `char_NNN` with gaps.** `crop_and_caption` looks up
+   `captions/char_{i:03d}.txt` (the new sequential stem) *before*
+   `captions/{src.stem}.txt`, then writes the result back to the sequential
+   stem.
+   - The curated v3 set (sources `char_002, char_004, char_005, char_008, …`)
+     trained **20 of 37 images on another photo's caption**. For example,
+     image `char_004` got the caption of `char_002`, and `char_008` got that of
+     `char_004`.
+   - v4 and v5 copied v3's rewritten captions, so they trained on the same
+     pairing. v5's log shows the duplicates this predicts: "Reusing cached
+     encoding" at items 2, 5, 10, 11 and 25.
+   - The "17 orphan captions" noted under v4 are actually the untouched
+     originals for source stems ≥ 038.
+   - Train-tab users are not exposed, because panel datasets are always
+     dense: `/train/upload` names files `char_{n+1:03d}`, and
+     `/train/remove-image` renumbers both images and captions.
+     `valeriosan_v2` (dense, `char_001…042`) was paired correctly.
+
+What this means for the rest of this document: v3, v4 and v5 were not the
+clean single-variable tests they were described as. The claim that curated,
+individually-written captions performed identically to auto-generated ones was
+never actually tested. Neither bug explains the fit result, though: the 2-image
+control uses two upright images with their own captions and still fits
+nothing.
+
+### What this leaves
+
+- **No regression in the vendored trainer or model code.** `v0.14.0`,
+  `v0.14.8` and the current pin compute the same training step, except for the
+  multiplier.
+- **The multiplier fix (1 → 1000) is correct for inference, and it does change
+  training.** Per-step gradients rotate (cosine 0.69) and cross-image
+  agreement drops 2–4× (0.017 → 0.009 on `lora_b` only, 0.011 → 0.003 over
+  all kept modules). But it does not explain the "half-strength" adapters:
+  at 740 steps, multiplier 1 is no stronger and fits no better.
+- **The reference adapters came from a different pipeline**, the authoring
+  tree before 05-15:
+  - LoRA on all six attention families, including the audio stream, which
+    gives the 1-token dummy audio a trainable path into the video;
+  - 576 px, class-word captions, 5000 steps;
+  - multiplier 1;
+  - base weights unrecorded.
+
+  The first retrain through the vendored trainer was already reported as
+  "worse".
+- **The reproduction control (1a below) can now be run without renders.**
+  Retrain a reference dataset through the current panel trainer and run
+  `probe_fit.py` on the result. A working adapter must show a clearly positive
+  fit and trigger binding. It is also worth running `probe_fit.py` against a
+  reference adapter (`bizarrotrn_v2` on its own data) on a machine that has
+  both, to calibrate what "positive" looks like.
+
 ## Recommended fixes
 
 **For Finding 3 (root cause of this report) — DONE, see
@@ -1000,6 +1281,30 @@ every run here shares.
    `ltx_compatible` check is structural-only and would also pass a
    cross-generation LoRA today).
 
+**For the trainer (from the
+[regression check](#trainer-regression-check-2026-10-01-evening); none
+implemented yet):**
+
+1. `crop_and_caption`: call `ImageOps.exif_transpose` before cropping. Panel
+   uploads are normalised at ingest since v4.17.0, but the trainer should not
+   depend on how a dataset reached the disk.
+2. `crop_and_caption`: look up the source-stem caption
+   (`captions/{src.stem}.txt`) **before** the sequential stem, or consult the
+   sequential stem only when `caption_map.json` maps a file to it. The current
+   order silently re-pairs any dataset whose files are already named
+   `char_NNN` with gaps.
+3. Report **fit** next to delta-RMS at the end of every run. That is
+   `probe_fit.py`'s measurement on a few training images at fixed sigma and
+   noise, taking about a minute. Delta-RMS has now been shown four times not to
+   separate a working adapter from an empty one; fit on the training images is
+   the quantity the optimiser was supposed to move.
+4. Image-only training feeds the joint model a one-token, all-zero audio
+   stream. The `audio_to_video_attn` LoRA then learns a constant
+   text-independent bias that does not exist at render. Consider skipping A2V
+   cross-attention for image-only training: `PerturbationType.SKIP_A2V_CROSS_ATTN`
+   already exists in the block and is the MLX equivalent of upstream training
+   with `audio=None`. Unvalidated, and not shown to cause the failure.
+
 ## Proposed next experiment
 
 Both cheap-then-expensive experiments proposed earlier in this document have
@@ -1028,10 +1333,26 @@ baseline. What's left, in priority order:
    datasets — and STATE.md's unreported E2 may already hold the answer.
    The maintainer committed on #62 (2026-09-17) to exactly this kind of run
    on another reporter's dataset; its number is the first thing to ask for.
-2. **Learning rate / steps.** The v4 loss and `delta_rms` were both still
-   moving at 3700 steps; external guidance allows 2e-4 when a concept is
-   not picked up after ~500 steps. Only worth it after (0)/(1), since
-   magnitude alone does not separate these runs.
+   **Revised by the
+   [regression check](#trainer-regression-check-2026-10-01-evening):** the
+   trainer/model code has not changed except for the multiplier, which does
+   not explain the failure. A failing reproduction would therefore point at the
+   vendored *pipeline and recipe*, compared with the pre-05-15 authoring-tree
+   recipe, rather than at a pin regression. Judge it with `probe_fit.py`
+   (fit and trigger binding, about 10 minutes, no renders) before spending
+   render time.
+2. **Recipe variables, judged by fit rather than by delta-RMS.** Each of these
+   can be screened in about 1 h with a 740-step run plus `probe_fit.py`.
+   - **Effective batch size:** `gradient_accumulation_steps` 4–8. Each step's
+     gradient is about 92% noise-draw-specific, and the shared signal is under
+     1%.
+   - **The audio-family targets the reference adapters had:** drop
+     `_patch_lora_target_exclude_audio` for an experiment.
+   - **576 px**, the authoring-tree resolution.
+   - **Learning rate:** 2e-4.
+
+   v4's loss and delta-RMS were still moving at 3700 steps, but those numbers
+   are no longer evidence that anything was being learned.
 
 Retained from earlier, lower priority now:
 
@@ -1053,7 +1374,9 @@ Retained from earlier, lower priority now:
    now lower priority given curated, individually-written captions (v3)
    performed identically to auto-generated ones (v2); the format itself
    looks unlikely to be the answer, but it has still never been directly
-   tested.
+   tested. *(2026-10-01 evening: that comparison was confounded. v3 trained 20
+   of its 37 images on another photo's caption; see the
+   [regression check](#trainer-regression-check-2026-10-01-evening).)*
 
 The three retained items are multi-hour-or-more GPU commitments; none
 started, pending owner confirmation on priority.
@@ -1164,3 +1487,38 @@ Output adapter `mlx_models/loras/valeriosan_v5_classword.safetensors`
 `hq_nolora_seed777` (prompt A); `psm_{v5,nolora}_seed{12345,777}` (v5's
 `char_030` caption verbatim); `grid_v5.png` (rows = prompt A / B; columns =
 no-LoRA@12345 | v5@12345 | no-LoRA@777 | v5@777).
+
+**Trainer regression check (2026-10-01, evening)**:
+`state/issue62_trainer_regression/` (gitignored, about 3.6 GB).
+
+- `scripts/`:
+  - `grad_ab.py`: one training step, old vs current code, and multiplier 1 vs
+    1000.
+  - `compare_ab.py`: compares the step outputs.
+  - `descent_check.py`: the gradient-path check.
+  - `probe_fit.py`: fit and trigger binding.
+  - `train_ab.py`: short real-trainer runs.
+  - `run_queue2.sh`: the GPU-lock wrapper. It exports
+    `LTX2_DIT_EVAL_EVERY=0` and `LTX2_GEMMA_EVAL_EVERY=0` as
+    `scripts/lora_lab_run.sh` does, and runs a 52 GB footprint watchdog.
+
+  The scripts' `T` constant points at the job scratch directory they were run
+  from. Repoint it at this folder before reuse. The `v0.14.8` arm expects
+  `git -C ltx-2-mlx archive v0.14.8 packages/ltx-core-mlx/src
+  packages/ltx-pipelines-mlx/src packages/ltx-trainer/src` extracted under
+  `$T/old/`.
+- `results/`:
+  - `ab_{old,cur}.{json,npz}`: losses, per-module gradient norms, and full
+    gradients for 56 kept modules.
+  - `descent_check.jsonl`.
+  - `probe_{v5,tiny1000,tiny1,tr1000,tr1}.json`: one row per sample × sigma ×
+    seed × arm.
+  - `run_queue.log`, `run_queue2.log`.
+  - `sheet_v2.png`, `sheet_v5.png`: the training crops, with the sideways
+    faces.
+- `tiny_dataset/`: the 2-image positive-control set. It is v5's
+  `char_024`/`char_029` latents, conditions, crops and their own captions.
+- `adapters/`:
+  - `tiny_avca{1000,1}_step300.safetensors`;
+  - `ab_avca{1000,1}_step740.safetensors`, which share LoRA init, data order
+    and noise seed and differ only in the multiplier.
