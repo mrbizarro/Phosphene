@@ -780,7 +780,7 @@ class UnloadBeaconsTheBackup(unittest.TestCase):
         cls.r = run(TWO_CLIPS + r"""
 twoClips();
 const beacons = [];
-global.navigator = { sendBeacon: (url, blob) => { beacons.push({ url, blob }); return true; } };
+Object.defineProperty(globalThis, "navigator", { value: { sendBeacon: (url, blob) => { beacons.push({ url, blob }); return true; } }, configurable: true, writable: true });
 SBE.open = true; SBE.id = 'F'; SBE.activeDraft = 'draft-1'; SBE.session = 'sess1';
 sbeBeaconBackup();
 out.count = beacons.length;

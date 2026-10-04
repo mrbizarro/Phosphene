@@ -96,7 +96,7 @@ class Editor1MarkersTravel(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.r = run(r"""
 const beacons = [];
-global.navigator = { sendBeacon: (url, blob) => { beacons.push({ url, blob }); return true; } };
+Object.defineProperty(globalThis, "navigator", { value: { sendBeacon: (url, blob) => { beacons.push({ url, blob }); return true; } }, configurable: true, writable: true });
 function filmA() {
   return { title: 'A', edit: { revision: 3, clips: [clip({ id: 'a', end: 2 })],
            markers: [{ id: 'm0', at: 0.5, kind: 'beat', label: 'drop' }] } };

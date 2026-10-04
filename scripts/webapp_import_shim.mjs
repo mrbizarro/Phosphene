@@ -91,7 +91,7 @@ export function installShim(globalsSeed = {}) {
     removeItem(k) { this._m.delete(k); },
   };
   globalThis.location = { href: "http://127.0.0.1/", reload() {} };
-  globalThis.navigator = { userAgent: "phosphene-test-shim", clipboard: { writeText: async () => {} } };
+  Object.defineProperty(globalThis, "navigator", { value: { userAgent: "phosphene-test-shim", clipboard: { writeText: async () => {} } }, configurable: true, writable: true });
   globalThis.fetch = async () => ({ ok: true, status: 200,
                                     json: async () => ({}),
                                     text: async () => "" });
