@@ -69,6 +69,10 @@ class _H:
 
 class _Env(unittest.TestCase):
     def setUp(self):
+        # run_sharp_export_job_inner writes its export to the real OUTPUT (kept
+        # on purpose: a failure to write there is a real failure). Remember what
+        # was there so tearDown removes only what this test created.
+        self._out_before = {q.name for q in Path(P.OUTPUT).glob("gym_draft_sharp_*")}
         self.dir = Path(tempfile.mkdtemp(prefix="mm-", dir=P.OUTPUT))  # UI-1: outputs/uploads only
         self.clip = self.dir / "gym_draft.mp4"
         self.clip.write_bytes(b"\0" * 64)
@@ -82,7 +86,10 @@ class _Env(unittest.TestCase):
             self._queue_before = list(P.STATE["queue"])
 
     def tearDown(self):
-        shutil.rmtree(self.dir, ignore_errors=True)   # a temp dir under the sandboxed OUTPUT
+        shutil.rmtree(self.dir, ignore_errors=True)   # a temp dir under OUTPUT
+        for q in Path(P.OUTPUT).glob("gym_draft_sharp_*"):   # exports this test made
+            if q.name not in self._out_before:
+                q.unlink(missing_ok=True)
         P.PIPERSR_UPSCALE_ENABLED, P.persist_queue = self._saved
         with P.QUEUE_COND:
             P.STATE["queue"] = self._queue_before
