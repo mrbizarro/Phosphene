@@ -333,7 +333,18 @@ class TestH3RamRefusalStatesTheRealFloor(unittest.TestCase):
         self.assertFalse(v["needs_q8_dit"])
 
     def test_a_48gb_mac_without_the_pack_is_told_it_CAN_run_h3(self):
-        v = self._band(48.0, False)
+        # Pin the install state: this asserts the never-installed sentence, so
+        # it must not read the real h3_paths() — on a fully installed Mac that
+        # takes the Build branch instead and the gate went red on good installs.
+        old_paths = P.h3_paths
+        P.h3_paths = lambda: {"missing": ["weights"], "reason": "missing",
+                              "root": "/x", "models": "/x",
+                              "repairable": False, "venv_broken": False,
+                              "weights_ok": False}
+        try:
+            v = self._band(48.0, False)
+        finally:
+            P.h3_paths = old_paths
         self.assertTrue(v["needs_q8_dit"])
         self.assertNotIn("64", v["message"])
         self.assertIn("runs on this Mac", v["message"])
