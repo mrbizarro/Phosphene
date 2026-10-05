@@ -90,13 +90,16 @@ def _prefixed_lora(prefix: str = "diffusion_model.",
 
 
 def _kohya_header() -> bytes:
+    # Each tensor declares 4 bytes (one F32), so the payload must carry them:
+    # a header whose offsets are [0, 0] but whose dtype/shape need data is
+    # malformed, and mx.load rejects it on newer MLX builds.
     header = {
-        "lora_unet_blocks_24_attn_qkv_proj.lora_down.weight": {"dtype": "F32", "shape": [1, 1], "data_offsets": [0, 0]},
-        "lora_unet_blocks_24_attn_qkv_proj.lora_up.weight": {"dtype": "F32", "shape": [1, 1], "data_offsets": [0, 0]},
-        "lora_unet_blocks_24_attn_qkv_proj.alpha": {"dtype": "F32", "shape": [1, 1], "data_offsets": [0, 0]},
+        "lora_unet_blocks_24_attn_qkv_proj.lora_down.weight": {"dtype": "F32", "shape": [1, 1], "data_offsets": [0, 4]},
+        "lora_unet_blocks_24_attn_qkv_proj.lora_up.weight": {"dtype": "F32", "shape": [1, 1], "data_offsets": [4, 8]},
+        "lora_unet_blocks_24_attn_qkv_proj.alpha": {"dtype": "F32", "shape": [1, 1], "data_offsets": [8, 12]},
     }
     encoded = json.dumps(header).encode("utf-8")
-    return len(encoded).to_bytes(8, "little") + encoded
+    return len(encoded).to_bytes(8, "little") + encoded + struct.pack("<fff", 1.0, 1.0, 1.0)
 
 
 def _diffusers_header() -> bytes:
