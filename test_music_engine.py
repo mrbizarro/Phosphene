@@ -368,7 +368,7 @@ def node_eval(source):
 
 def test_video_switcher_byte_identical_and_music_surface():
     current = (ROOT / "webapp/js/engines.js").read_text()
-    before = subprocess.check_output(["git", "show", "d616662:webapp/js/engines.js"], cwd=ROOT, text=True)
+    before = subprocess.check_output(["git", "show", "e1d500e36d2f1ee445a056811763d1b33b8f7d02:webapp/js/engines.js"], cwd=ROOT, text=True)
     names = ("engineStatus", "engineServesMode", "_currentSurface", "engineOnSurface", "engineRenderable", "_engineRowVisible", "_engineTooltip", "renderEngineSwitch")
     def render(source, engines, workflow, capable=True):
         funcs = '\n'.join(extract_function(n, source) for n in names)
