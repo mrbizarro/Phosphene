@@ -21,7 +21,9 @@ class SpeedFactor(unittest.TestCase):
             self.assertEqual(p._hw_speed_factor("h3"), 1.0)
 
     def test_m4_pro_is_slower_and_m5_max_faster(self):
-        with mock.patch.dict(os.environ, {"PHOSPHENE_SPEED_FACTOR": ""}):
+        # Bare chip factors: pin out this install's learned ETA correction.
+        with mock.patch.object(p, "_load_eta_calibration", lambda: {}), \
+             mock.patch.dict(os.environ, {"PHOSPHENE_SPEED_FACTOR": ""}):
             with mock.patch.object(p, "_hw_chip_family", lambda: "M4 Pro"):
                 self.assertGreater(p._hw_speed_factor("ltx"), 1.4)
                 self.assertGreater(p._hw_speed_factor("h3"), 1.8)
