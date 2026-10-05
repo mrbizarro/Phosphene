@@ -12,7 +12,10 @@ import mlx_ltx_panel as p
 
 class SpeedFactor(unittest.TestCase):
     def test_unknown_chip_prices_as_m4_max(self):
+        # No per-install calibration: this asserts the bare chip factor, so it
+        # must not read the running install's learned ETA correction.
         with mock.patch.object(p, "_hw_chip_family", lambda: "unknown"), \
+             mock.patch.object(p, "_load_eta_calibration", lambda: {}), \
              mock.patch.dict(os.environ, {"PHOSPHENE_SPEED_FACTOR": ""}):
             self.assertEqual(p._hw_speed_factor("ltx"), 1.0)
             self.assertEqual(p._hw_speed_factor("h3"), 1.0)
