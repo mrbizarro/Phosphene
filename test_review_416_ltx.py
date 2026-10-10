@@ -340,9 +340,20 @@ class TheHelperAttachesThem(unittest.TestCase):
         for name, attrs in fake_modules.items():
             mod = types.ModuleType(name)
             mod.__dict__.update(attrs)
+            # Put back what was there, not nothing (4.19.1): popping a stand-in
+            # for `ltx_core_mlx` dropped the REAL package, and the next
+            # `import ltx_core_mlx.utils.positions as m` in the same process
+            # (the trainer tests) got a fresh package with no `utils` on it.
+            self.addCleanup(self._restore_module, name, sys.modules.get(name))
             sys.modules[name] = mod
-            self.addCleanup(sys.modules.pop, name, None)
         return ns
+
+    @staticmethod
+    def _restore_module(name, prev):
+        if prev is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = prev
 
     def test_fflf_attaches_and_rebuilds_on_a_new_set(self):
         built = []

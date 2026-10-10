@@ -160,6 +160,32 @@ def _patch_loader_prefer_dev_transformer() -> None:
     ml_module.load_transformer = patched
 
 
+def training_weights_problem(model_dir: str | Path) -> str | None:
+    """What is missing for a training run, in one sentence, or None (4.19.1).
+
+    Checked before the crop and the caption encode. Without it a missing
+    LTX-2.3 base pack died ~10 s in inside the preprocessor's Hugging Face
+    lookup ("Repo id must be in the form 'repo_name'..."), and a missing
+    full-precision dev transformer died only after minutes of caption and
+    image encoding - both as a bare "exited with code 1". The Train tab shows
+    a download banner for these, but Start was never blocked by it.
+    Same locations and size floor as the loader patch above."""
+    model_dir = Path(model_dir)
+    if not model_dir.is_dir():
+        return (f"the LTX-2.3 base pack is not downloaded (no {model_dir.name}/ in the models "
+                "folder). Open the Train tab and click Download all, then start again.")
+    full_dev_min = 15 * 1000**3
+    for cand in (model_dir / "transformer-dev.safetensors",
+                 model_dir.parent / "ltx-2.3-mlx-q8" / "transformer-dev.safetensors"):
+        try:
+            if cand.is_file() and cand.stat().st_size >= full_dev_min:
+                return None
+        except OSError:
+            continue
+    return ("the full-precision LTX-2.3 dev transformer (~21 GB) is not downloaded, or "
+            "only partly. Open the Train tab and click Download all, then start again.")
+
+
 def _patch_compute_video_positions_fps_kwarg() -> None:
     """Translate ``fps=`` → ``frame_rate=`` across the trainer.
 

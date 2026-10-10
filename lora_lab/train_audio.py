@@ -72,6 +72,9 @@ from typing import Any
 
 import yaml
 
+from lora_lab.failure import (NAN_LOSS_ABORT_STEPS, NonFiniteLoss, classify_exception,
+                              is_finite_loss)
+
 logger = logging.getLogger(__name__)
 
 
@@ -117,8 +120,12 @@ def emit(event: str, **kwargs: Any) -> None:
     _REAL_STDOUT.flush()
 
 
-def emit_error_and_exit(stage: str, message: str, code: int = 1) -> None:
-    emit("error", stage=stage, message=message)
+def emit_error_and_exit(stage: str, message: str, code: int = 1,
+                        exc: BaseException | None = None) -> None:
+    # `error_class` is the closed word the panel may report (lora_lab.failure);
+    # `message` stays on this Mac (the Logs tab and <job>/train.log).
+    emit("error", stage=stage, message=message,
+         error_class=classify_exception(exc))
     sys.exit(code)
 
 
@@ -368,13 +375,7 @@ def run_training(
     # The audio-attn exclusion filter inside train.py drops audio_* matches —
     # but here we WANT those targets, so we deliberately re-monkey-patch the
     # filter AFTER lab_train's patch to restore the audio paths.
-    lab_train._patch_loader_prefer_dev_transformer()
-    lab_train._patch_strategy_for_image_only()
-    lab_train._patch_compute_video_positions_fps_kwarg()
-    # The voice adapter saves through the same _save_checkpoint, so without
-    # this it is written scrambled exactly like the character one (#62).
-    lab_train._patch_contiguous_checkpoint_save()
-    _restore_audio_lora_targets()
+    _apply_trainer_patches(lab_train)
 
     total_steps = int(config_dict["optimization"]["steps"])
     emit("train_start", total_steps=total_steps)
@@ -390,12 +391,25 @@ def run_training(
 
     _orig_update = tp_mod.TrainingProgress.update_training
 
+    nonfinite_streak = 0
+
     def _sniff_update(self, *, loss, lr, step_time, advance=True):  # noqa: ANN001
-        nonlocal last_loss
+        nonlocal last_loss, nonfinite_streak
         try:
-            last_loss = float(loss)
+            value = float(loss)
         except Exception:  # noqa: BLE001
-            pass
+            value = None
+        if value is not None:
+            if is_finite_loss(value):
+                last_loss = value
+                nonfinite_streak = 0
+            else:
+                # Same stop as the face phase (lora_lab.failure, 4.19.1).
+                nonfinite_streak += 1
+                if nonfinite_streak >= NAN_LOSS_ABORT_STEPS:
+                    raise NonFiniteLoss(
+                        f"the voice training loss stopped being a number for "
+                        f"{nonfinite_streak} steps in a row")
         return _orig_update(self, loss=loss, lr=lr, step_time=step_time, advance=advance)
 
     tp_mod.TrainingProgress.update_training = _sniff_update
@@ -444,16 +458,40 @@ def _restore_audio_lora_targets() -> None:
     The face-side patch drops any LoRA target whose path contains
     ``audio_attn`` or ``audio_ff`` — that's correct for face training (random
     gradients corrupt the audio path). For AUDIO training those are exactly
-    the targets we want to keep, so we re-bind ``_find_lora_targets`` to the
-    underlying upstream implementation.
+    the targets we want to keep, so ``_find_lora_targets`` goes back to the
+    upstream implementation.
+
+    4.19.1: this used to ``importlib.reload`` the trainer module. A reload
+    re-runs ``from safetensors.numpy import save_file as save_safetensors``,
+    which silently threw away the #62 contiguous-save patch applied just
+    before it — so every voice trained on 4.19.0 was still written scrambled.
+    The face patch keeps the upstream function (``_phos_orig_find_lora_targets``)
+    and switching it off rebinds that, touching nothing else.
     """
+    from lora_lab import train as lab_train
+
+    lab_train._patch_lora_target_exclude_audio(enabled=False)
+    logger.info("audio LoRA: restored upstream _find_lora_targets (audio paths preserved)")
+
+
+def _apply_trainer_patches(lab_train: Any) -> None:
+    """The patch set train.py / train_character.py apply, for a voice run.
+
+    The audio-target restore runs BEFORE the contiguous save, and the save
+    patch is checked afterwards: a voice adapter saved without it is
+    scrambled (#62), and nothing downstream would notice."""
     import ltx_trainer_mlx.trainer as _trainer
 
-    # The original was captured via closure in the face patch; we can't reach
-    # back into it, so re-import the upstream module fresh.
-    import importlib
-    importlib.reload(_trainer)
-    logger.info("audio LoRA: restored upstream _find_lora_targets (audio paths preserved)")
+    lab_train._patch_loader_prefer_dev_transformer()
+    lab_train._patch_strategy_for_image_only()
+    lab_train._patch_compute_video_positions_fps_kwarg()
+    _restore_audio_lora_targets()
+    # The voice adapter saves through the same _save_checkpoint, so without
+    # this it is written scrambled exactly like the character one (#62).
+    lab_train._patch_contiguous_checkpoint_save()
+    if getattr(_trainer.save_safetensors, "__name__", "") != "save_contiguous":
+        raise RuntimeError("the voice trainer's checkpoint save is not the "
+                           "contiguous one; refusing to write a scrambled voice (#62)")
 
 
 # ----------------------------------------------------------------------
@@ -545,7 +583,7 @@ def run_pipeline(spec_path: Path) -> int:
         )
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc(file=sys.stderr)
-        emit_error_and_exit("preprocess", str(exc))
+        emit_error_and_exit("preprocess", str(exc), exc=exc)
 
     # ---- phase 3: generate audio YAML ----
     audio_train_out_dir = dataset_dir / "audio_train_output"
@@ -562,7 +600,7 @@ def run_pipeline(spec_path: Path) -> int:
         emit("log", msg=f"wrote audio config: {audio_yaml_path}")
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc(file=sys.stderr)
-        emit_error_and_exit("config", str(exc))
+        emit_error_and_exit("config", str(exc), exc=exc)
 
     # ---- phase 4: train ----
     try:
@@ -572,7 +610,7 @@ def run_pipeline(spec_path: Path) -> int:
         )
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc(file=sys.stderr)
-        emit_error_and_exit("train", str(exc))
+        emit_error_and_exit("train", str(exc), exc=exc)
 
     # ---- phase 5: publish final checkpoint ----
     # trainer.train() already returns the last-saved checkpoint path; double-
@@ -582,13 +620,13 @@ def run_pipeline(spec_path: Path) -> int:
         if not checkpoint_path.exists():
             checkpoint_path = find_final_checkpoint(audio_train_out_dir, audio_steps)
     except Exception as exc:  # noqa: BLE001
-        emit_error_and_exit("publish", f"failed to locate checkpoint: {exc}")
+        emit_error_and_exit("publish", f"failed to locate checkpoint: {exc}", exc=exc)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         shutil.copy2(str(checkpoint_path), str(output_path))
     except Exception as exc:  # noqa: BLE001
-        emit_error_and_exit("publish", f"failed to copy checkpoint: {exc}")
+        emit_error_and_exit("publish", f"failed to copy checkpoint: {exc}", exc=exc)
 
     # Same honesty the image LoRA gets: say how much delta the voice adapter
     # carries. #62 reported the voice LoRA "equally ignored", and a run that
@@ -634,7 +672,8 @@ def main(argv: list[str] | None = None) -> int:
         raise
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc(file=sys.stderr)
-        emit("error", stage="unknown", message=str(exc))
+        emit("error", stage="unknown", message=str(exc),
+             error_class=classify_exception(exc))
         return 1
 
 

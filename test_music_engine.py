@@ -302,7 +302,7 @@ def test_fetch_stages_moves_and_skips_intact(pack, monkeypatch):
 
 
 def test_runner_help_and_empty_input():
-    music_python = Path.home() / "AI/projects/yue2-mlx/.venv/bin/python"
+    music_python = ROOT / Path(os.environ.get("LTX_MUSIC_ROOT", "yue2-mlx")).expanduser() / ".venv/bin/python"
     runner = ROOT / "scripts/music/yue2_run.py"
     result = subprocess.run([sys.executable, str(runner), "--model-dir", "/missing", "--vae-dir", "/missing", "--output", "/tmp/no-song.wav"], capture_output=True, text=True, timeout=30)
     assert result.returncode == 2 and "Give it something" in result.stdout

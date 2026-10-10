@@ -453,7 +453,26 @@ class TestEndToEnd:
         on_disk = json.loads((out_dir / "config.json").read_text())
         assert on_disk["transformer"]["ff_bias"] is False
 
-    def test_the_vendored_config_reader_accepts_the_result(self, tmp_path):
+    @pytest.fixture
+    def _own_ltx_core(self):
+        """The port checkout goes on sys.path for THIS test only (4.19.1).
+
+        It used to stay there, and whichever later test imported an
+        ltx_core_mlx submodule for the first time got the port's package
+        instead of the venv's - the full suite failed four trainer tests with
+        "cannot import name 'utils' from 'ltx_core_mlx' (.../ltx25-port/...)"
+        on any Mac that has the port checkout."""
+        saved_path = list(sys.path)
+        saved = {k: v for k, v in sys.modules.items()
+                 if k == "ltx_core_mlx" or k.startswith("ltx_core_mlx.")}
+        yield
+        sys.path[:] = saved_path
+        for k in [k for k in sys.modules if k == "ltx_core_mlx" or k.startswith("ltx_core_mlx.")]:
+            if k not in saved:
+                del sys.modules[k]
+        sys.modules.update(saved)
+
+    def test_the_vendored_config_reader_accepts_the_result(self, tmp_path, _own_ltx_core):
         """The real proof: our pack is readable by the code that will load it.
 
         Needs an ``ltx_core_mlx`` that carries the 2.5 config work (the

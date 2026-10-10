@@ -107,6 +107,9 @@ from typing import Any
 
 import yaml
 
+from lora_lab.failure import (NAN_LOSS_ABORT_STEPS, NonFiniteLoss, classify_exception,
+                              is_finite_loss)
+
 logger = logging.getLogger(__name__)
 
 
@@ -332,8 +335,12 @@ def emit(event: str, **kwargs: Any) -> None:
     _REAL_STDOUT.flush()
 
 
-def emit_error_and_exit(stage: str, message: str, code: int = 1) -> None:
-    emit("error", stage=stage, message=message)
+def emit_error_and_exit(stage: str, message: str, code: int = 1,
+                        exc: BaseException | None = None) -> None:
+    # `error_class` is the closed word the panel may report (lora_lab.failure);
+    # `message` stays on this Mac (the Logs tab and <job>/train.log).
+    emit("error", stage=stage, message=message,
+         error_class=classify_exception(exc))
     sys.exit(code)
 
 
@@ -825,14 +832,31 @@ def run_training(
 
     _orig_update = tp_mod.TrainingProgress.update_training
 
+    nonfinite_streak = 0
+
     def _sniff_update(self, *, loss, lr, step_time, advance=True):  # noqa: ANN001
-        nonlocal last_loss, loss_sum, loss_n
+        nonlocal last_loss, loss_sum, loss_n, nonfinite_streak
         try:
-            last_loss = float(loss)
-            loss_sum += last_loss
-            loss_n += 1
+            value = float(loss)
         except Exception:  # noqa: BLE001
-            pass
+            value = None
+        if value is not None:
+            if is_finite_loss(value):
+                last_loss = value
+                loss_sum += value
+                loss_n += 1
+                nonfinite_streak = 0
+            else:
+                # One NaN step poisons every LoRA parameter through the
+                # optimizer; every step after it is NaN as well. Stop instead
+                # of spending hours writing a file of NaNs (4.19.1: the fleet
+                # could not tell this from any other "exit 1").
+                nonfinite_streak += 1
+                if nonfinite_streak >= NAN_LOSS_ABORT_STEPS:
+                    raise NonFiniteLoss(
+                        f"the training loss stopped being a number for "
+                        f"{nonfinite_streak} steps in a row - the adapter "
+                        f"cannot learn from here")
         return _orig_update(self, loss=loss, lr=lr, step_time=step_time, advance=advance)
 
     tp_mod.TrainingProgress.update_training = _sniff_update
@@ -1026,6 +1050,13 @@ def run_pipeline(spec_path: Path) -> int:
 
     emit("start", job_id=job_id)
 
+    # Weights first: a missing pack is a ten-second answer, not a failure
+    # minutes into the caption encode (4.19.1, lora_lab.train).
+    from lora_lab import train as lab_train
+    _missing = lab_train.training_weights_problem(DEFAULT_MODEL_PATH)
+    if _missing:
+        emit_error_and_exit("models", _missing, exc=FileNotFoundError(_missing))
+
     # Resolve preset + overrides.
     cfg = resolve_preset(preset, advanced)
     cfg["preset_name"] = preset
@@ -1099,14 +1130,14 @@ def run_pipeline(spec_path: Path) -> int:
     try:
         source_files = list_source_images(images_dir)
     except Exception as exc:  # noqa: BLE001
-        emit_error_and_exit("ingest", str(exc))
+        emit_error_and_exit("ingest", str(exc), exc=exc)
 
     image_count = len(source_files)
 
     try:
         recipe = resolve_recipe(cfg)
     except ValueError as exc:
-        emit_error_and_exit("config", str(exc))
+        emit_error_and_exit("config", str(exc), exc=exc)
 
     estimated_wall_s = estimate_wall_seconds(image_count, preset, advanced)
     emit(
@@ -1147,7 +1178,7 @@ def run_pipeline(spec_path: Path) -> int:
         )
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc(file=sys.stderr)
-        emit_error_and_exit("crop", str(exc))
+        emit_error_and_exit("crop", str(exc), exc=exc)
 
     try:
         run_preprocess(
@@ -1160,7 +1191,7 @@ def run_pipeline(spec_path: Path) -> int:
         )
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc(file=sys.stderr)
-        emit_error_and_exit("preprocess", str(exc))
+        emit_error_and_exit("preprocess", str(exc), exc=exc)
 
     try:
         checkpoint_path, training_wall_s = run_training(
@@ -1171,14 +1202,14 @@ def run_pipeline(spec_path: Path) -> int:
         )
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc(file=sys.stderr)
-        emit_error_and_exit("train", str(exc))
+        emit_error_and_exit("train", str(exc), exc=exc)
 
     # Move the checkpoint to the spec's output path.
     output_lora_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         shutil.copy2(str(checkpoint_path), str(output_lora_path))
     except Exception as exc:  # noqa: BLE001
-        emit_error_and_exit("publish", f"failed to copy checkpoint: {exc}")
+        emit_error_and_exit("publish", f"failed to copy checkpoint: {exc}", exc=exc)
 
     # Measure before the sidecar so the strength verdict is on record even if
     # sidecar writing fails — the number is the part a stuck user needs.
@@ -1194,7 +1225,7 @@ def run_pipeline(spec_path: Path) -> int:
             strength=strength,
         )
     except Exception as exc:  # noqa: BLE001
-        emit_error_and_exit("sidecar", str(exc))
+        emit_error_and_exit("sidecar", str(exc), exc=exc)
 
     emit("done")
     return 0
@@ -1225,7 +1256,8 @@ def main(argv: list[str] | None = None) -> int:
         raise
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc(file=sys.stderr)
-        emit("error", stage="unknown", message=str(exc))
+        emit("error", stage="unknown", message=str(exc),
+             error_class=classify_exception(exc))
         return 1
 
 

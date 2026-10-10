@@ -21,6 +21,7 @@ import io
 import json
 import math
 import collections
+import errno
 import os
 import random
 import re
@@ -18679,6 +18680,11 @@ def _analytics_render_event(job: dict) -> None:
                 props["error_signature"] = scrubbed
                 if props["error_class"] == "other":
                     props["error_fingerprint"] = _analytics_error_fingerprint(scrubbed)
+                if mode == "train":
+                    # 4.19.1: why a TRAINING run failed, from the trainer's
+                    # own exception (lora_lab.failure) — never its text.
+                    te = str(job.get("train_error") or "")
+                    props["train_error"] = te if te in TRAIN_ERROR_CLASSES else "other"
         _analytics_capture(event, props)
     except Exception:
         pass
@@ -33136,6 +33142,45 @@ def _train_wipe_caption_conditions(dataset_dir: Path) -> int:
     return n
 
 
+#: Why a training job failed, one word (docs/ANALYTICS.md `train_error`).
+#: Mirrors lora_lab.failure.TRAIN_ERROR_CLASSES, which the trainer classifies
+#: into; the panel never forwards a word outside this list.
+TRAIN_ERROR_CLASSES = ("oom", "missing_file", "caption_check", "disk_full",
+                       "import_error", "nan_loss", "other")
+
+
+def train_error_from_event(payload: dict) -> dict:
+    """The trainer's `error` event, its class held to the closed list."""
+    cls = str(payload.get("error_class") or "other")
+    return {
+        "stage": str(payload.get("stage") or "unknown")[:40],
+        "message": str(payload.get("message") or "")[:2000],
+        "error_class": cls if cls in TRAIN_ERROR_CLASSES else "other",
+    }
+
+
+def train_error_for_exit(rc: int, trainer_error: dict | None) -> str:
+    """The class of a trainer that exited non-zero. The trainer's own word
+    wins; a process killed by SIGKILL without one is macOS reclaiming memory
+    (jetsam), the one signal death that has a single cause."""
+    if trainer_error and trainer_error.get("error_class") in TRAIN_ERROR_CLASSES:
+        return trainer_error["error_class"]
+    if rc == -9:
+        return "oom"
+    return "other"
+
+
+def _train_release_render_memory() -> None:
+    """Stop the warm render helper before a training run (4.19.1)."""
+    try:
+        if HELPER.is_alive():
+            push("[train] releasing the render engine's memory for training "
+                 "(it reloads on the next render)")
+            HELPER.kill()
+    except Exception as e:  # never let housekeeping fail a training run
+        push(f"[train] could not release the render engine: {e}")
+
+
 def run_train_job_inner(job: dict) -> None:
     """Run a Train Character job. Reads the dataset that /train/upload built
     under state/train_character/<train_job_id>/, writes a job-spec JSON the
@@ -33179,6 +33224,7 @@ def run_train_job_inner(job: dict) -> None:
     images_dir = dataset_dir / "images"
     captions_dir = dataset_dir / "captions"
     if not images_dir.is_dir():
+        job["train_error"] = "missing_file"
         raise RuntimeError(
             f"dataset images not found: {images_dir} — "
             "/train/upload should have created this. Re-upload your dataset.")
@@ -33299,6 +33345,7 @@ def run_train_job_inner(job: dict) -> None:
                           f"({other[1]}/{len(mismatched)} mismatched files)"
                           if other else "")
             if len(mismatched) == len(user_cap_files):
+                job["train_error"] = "caption_check"
                 raise RuntimeError(
                     f"none of the {len(user_cap_files)} existing caption files "
                     f"contain the trigger {trigger!r} this job was submitted "
@@ -33387,9 +33434,12 @@ def run_train_job_inner(job: dict) -> None:
     try:
         spec_path.write_text(json.dumps(spec, indent=2), encoding="utf-8")
     except OSError as e:
+        job["train_error"] = ("disk_full" if e.errno in (errno.ENOSPC, errno.EDQUOT)
+                              else "other")
         raise RuntimeError(f"could not write spec.json: {e}")
 
     if not LORA_LAB_RUN_SH.exists():
+        job["train_error"] = "missing_file"
         raise RuntimeError(
             f"lora-lab shim not found at {LORA_LAB_RUN_SH}. "
             "Train Character depends on the sibling lab at "
@@ -33427,6 +33477,11 @@ def run_train_job_inner(job: dict) -> None:
     _train_phase = "start"
     _train_env = trainer_child_env()
     _encode_retried = False
+    _trainer_error: dict | None = None
+    # A warm render helper keeps an LTX model resident (up to tens of GB) for
+    # HELPER_IDLE_TIMEOUT after the last render. The trainer needs that memory
+    # for the dev transformer and its activations; give it back first.
+    _train_release_render_memory()
     try:
         while True:
             proc = subprocess.Popen(
@@ -33520,7 +33575,20 @@ def run_train_job_inner(job: dict) -> None:
                         if last_step % 50 == 0 or last_step == total_steps:
                             push(f"[train] step {last_step}/{total_steps} loss={last_loss}")
                     elif evt == "log":
-                        push(f"[train] {payload.get('msg', '')}")
+                        # The trainer writes its log lines as `line`; `msg` is
+                        # the older key. Read both (4.19.0 showed an empty
+                        # "[train] " for the recipe line).
+                        push(f"[train] {payload.get('msg') or payload.get('line') or ''}")
+                    elif evt == "error":
+                        # The trainer's own account of why it stopped: the
+                        # stage, its message (stays on this Mac) and a closed
+                        # class (lora_lab.failure) — the only part analytics
+                        # may carry. Until 4.19.1 this fell through to the
+                        # generic branch and the class was lost: every one of
+                        # these reached the fleet as "exited with code 1".
+                        _trainer_error = train_error_from_event(payload)
+                        push(f"[train] stopped in {_trainer_error['stage']}: "
+                             f"{_trainer_error['message']} ({_trainer_error['error_class']})")
                     elif evt == "adapter_strength":
                         # A GREEN TALLY WAS NEVER PROOF THE FILE COULD DO
                         # ANYTHING. A LoRA can train to completion, write a
@@ -33605,10 +33673,12 @@ def run_train_job_inner(job: dict) -> None:
                      "trainer process (AGX_RELAX_CDM_CTXSTORE_TIMEOUT=1) — the "
                      "screen may feel less responsive until it finishes.")
                 _train_watchdog_seen = False
+                _trainer_error = None
                 _train_phase = "start"
                 continue
             break
         if rc != 0:
+            job["train_error"] = train_error_for_exit(rc, _trainer_error)
             # -6 is SIGABRT. With a watchdog signature in the log it is macOS
             # killing the GPU command buffer, not our code faulting — and the
             # lever is the canvas, not the preset. Reported in #61: 576x576
@@ -33653,6 +33723,7 @@ def run_train_job_inner(job: dict) -> None:
     elapsed = round(time.time() - t0, 2)
 
     if not final_lora_path.is_file():
+        job["train_error"] = "missing_file"
         raise RuntimeError(
             f"training finished but output .safetensors missing at {final_lora_path}")
 

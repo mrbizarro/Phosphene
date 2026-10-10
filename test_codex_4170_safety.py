@@ -338,10 +338,14 @@ def test_safety_4_a_queued_h3_job_restores_its_engine_and_h3_recipe(monkeypatch)
     assert out["prompt"] == "a hen skates"
 
 
-def test_safety_4_a_queued_ltx_job_restores_steps_and_export_method():
+def test_safety_4_a_queued_ltx_job_restores_steps_and_export_method(monkeypatch):
     # 4.17.4: on a DISTILLED quality make_job now clamps steps to 8 (the lane
     # cannot run anything else - clamp_distilled_steps), so a restorable,
     # non-default count has to live on an HQ quality, where `steps` is kept.
+    # 4.19.1: as a Mac WITH the PiperSR upscaler (#90 class) - make_job folds
+    # pipersr to lanczos where it is not installed, which is every fresh
+    # install, so this read the machine instead of testing the restore.
+    monkeypatch.setattr(p, "PIPERSR_UPSCALE_ENABLED", True)
     ltx = p.make_job({"mode": "t2v", "engine": "ltx", "prompt": "a fox", "steps": "12",
                       "upscale": "fit_720p", "upscale_method": "pipersr", "quality": "high"})["params"]
     assert ltx["steps"] == 12
