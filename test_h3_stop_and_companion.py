@@ -190,6 +190,15 @@ class TrackedProcessesObeyStop(unittest.TestCase):
             self.assertNotIn(f'STATE["{key}"] = os.getpgid', src, key)
 
 
+def _is_renderer(cmd) -> bool:
+    """The H3 renderer spawn, with or without the platform's keep-awake prefix."""
+    if not isinstance(cmd, list) or not any(str(a).endswith("generate_staged.py") for a in cmd):
+        return False
+    if sys.platform == "darwin":
+        assert cmd[:2] == ["caffeinate", "-i"]
+    return True
+
+
 def _h3_dispatch_patches(stack, fetch, popen):
     tmp = _TMP / "pack"
     paths = dict(missing=[], repairable=False, dit=tmp / "dit", python=sys.executable,
@@ -262,7 +271,7 @@ class TheTurboDispatchObeysStop(unittest.TestCase):
         spawned = []
 
         def popen(cmd, **kw):
-            if cmd and cmd[0] == "caffeinate":
+            if _is_renderer(cmd):
                 raise AssertionError("renderer spawned after Stop")
             p = real_popen(cmd, **kw)
             spawned.append(p)
@@ -283,7 +292,8 @@ class TheTurboDispatchObeysStop(unittest.TestCase):
         spawned = []
 
         def popen(cmd, **kw):
-            self.assertEqual(cmd[0], "caffeinate")
+            self.assertTrue(_is_renderer(cmd), cmd)
+            self.assertEqual(cmd[:2], ["caffeinate", "-i"])
             kw.pop("cwd", None)
             p = real_popen(["sleep", "30"], **{k: v for k, v in kw.items()
                                                if k in ("stdout", "stderr", "text",
@@ -294,6 +304,7 @@ class TheTurboDispatchObeysStop(unittest.TestCase):
             return p
 
         with ExitStack() as st, _CurrentJob(job):
+            st.enter_context(unittest.mock.patch.object(P.hostinfo, "IS_MAC", True))
             _h3_dispatch_patches(st, lambda *a, **k: True, popen)
             st.enter_context(unittest.mock.patch.object(
                 P, "h3_turbo_paths", lambda: dict(
@@ -402,7 +413,7 @@ class AOneShotPartBelongsToItsTake(unittest.TestCase):
         real_popen = subprocess.Popen
 
         def popen(cmd, **kw):
-            if cmd and cmd[0] == "caffeinate":
+            if _is_renderer(cmd):
                 raise AssertionError("renderer spawned after Stop")
             proc = real_popen(cmd, **kw)
             spawned.append(proc)

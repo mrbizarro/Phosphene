@@ -35,13 +35,15 @@ MLX="$ROOT/ltx-2-mlx"
 # documented local-dev path has been dead on every install — it printed "run
 # the install first" at someone who had a perfectly good one. `env` is checked
 # first because it is what the installer actually creates; `.venv` stays as a
-# fallback so a hand-rolled uv venv still works.
-for _cand in "$MLX/env/bin/python3.11" "$MLX/.venv/bin/python3.11"; do
+# fallback so a hand-rolled uv venv still works. Plain `python3` is the Linux
+# venv (scripts/linux/install.sh): omarchy-mlx ships wheels for the distro's
+# Python, not 3.11.
+for _cand in "$MLX/env/bin/python3.11" "$MLX/.venv/bin/python3.11" "$MLX/env/bin/python3" "$MLX/.venv/bin/python3"; do
   if [[ -x "$_cand" ]]; then PY="$_cand"; break; fi
 done
 
 if [[ -z "${PY:-}" ]]; then
-  echo "ERR: venv python3.11 not found at $MLX/env/bin/python3.11 (or .venv/)" >&2
+  echo "ERR: venv python not found at $MLX/env/bin/python3.11 (or .venv/, or python3 on Linux)" >&2
   echo "     Run the install (uv venv + uv pip install ...) first, or use Pinokio." >&2
   exit 1
 fi

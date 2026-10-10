@@ -3,9 +3,12 @@
   "private": true,
   "description": "Dev-only lint harness for the extracted frontend under webapp/ (docs/ARCHITECTURE.md). Not part of the shipped panel — the panel has no build step and no runtime node dependencies.",
   "scripts": {
-    "lint": "node scripts/lint_webapp.mjs"
+    "lint": "node scripts/lint_webapp.mjs",
+    "lint:anti-slop": "oxlint --config .oxlintrc.json ."
   },
   "devDependencies": {
-    "eslint": "^9.0.0"
+    "@oxlint/plugins": "^1.87.0",
+    "eslint": "^9.0.0",
+    "oxlint": "^1.87.0"
   }
 }

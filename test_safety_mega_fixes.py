@@ -477,12 +477,12 @@ def test_h3_chain_stop_after_window_publishes_finished_windows():
         # ITSELF implemented on top of Popen, and patching P.subprocess.Popen
         # patches the one process-wide `subprocess` module — so this sees
         # every Popen in the process, not just the H3 renderer's. Only the
-        # real cmd (caffeinate -i <python> <runner> <argv...>) gets swapped
-        # for the fake runner; everything else passes straight through.
-        if not (isinstance(cmd, list) and cmd and cmd[0] == "caffeinate"):
+        # renderer (<keep-awake prefix> <python> <fake runner> <argv...>; the
+        # runner IS the fake one, via h3_paths) is tracked; everything else
+        # passes straight through.
+        if not (isinstance(cmd, list) and str(_H3_TMP / "fake_h3_runner.py") in map(str, cmd)):
             return real_popen(cmd, **kw)
-        fake_cmd = [cmd[0], cmd[1], sys.executable, str(_write_fake_h3_runner())] + cmd[4:]
-        p_ = real_popen(fake_cmd, **kw)
+        p_ = real_popen(cmd, **kw)
         spawned.append(p_)
         return p_
 

@@ -207,22 +207,8 @@ def get_panel_bug_context(h, parsed) -> None:
             sha = (f"{sha or '?'} (RUNNING; disk is at "
                    f"{_live.get('disk_short') or '?'} — panel not "
                    f"restarted since the update)")
-        mac_ver = ""
-        try:
-            mac_ver = P.subprocess.run(
-                ["sw_vers", "-productVersion"],
-                capture_output=True, text=True, errors="replace", timeout=2,
-            ).stdout.strip()
-        except Exception:                                   # noqa: BLE001
-            pass
-        hw_model = ""
-        try:
-            hw_model = P.subprocess.run(
-                ["sysctl", "-n", "hw.model"],
-                capture_output=True, text=True, errors="replace", timeout=2,
-            ).stdout.strip()
-        except Exception:                                   # noqa: BLE001
-            pass
+        mac_ver = P.hostinfo.os_version()
+        hw_model = P.hostinfo.hw_model()
         mem = P.get_memory()
         ram_gb = round(float(mem.get("total_gb") or 0.0))
         with P.LOCK:

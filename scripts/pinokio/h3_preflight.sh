@@ -25,7 +25,8 @@
 # sync with `H3_MIN_BYTES` in pinokio.js and `H3_MIN_RAM_GB_Q8` in
 # mlx_ltx_panel.py — one number, three files.
 
-MEM_BYTES=$(sysctl -n hw.memsize 2>/dev/null)
+# Linux has no hw.memsize; MemTotal (kB) is the same number there.
+MEM_BYTES=$(sysctl -n hw.memsize 2>/dev/null || awk '/^MemTotal:/ {printf "%.0f\n", $2 * 1024}' /proc/meminfo 2>/dev/null)
 if echo "$MEM_BYTES" | grep -qE '^[0-9]+$' && [ "$MEM_BYTES" -lt 36000000000 ]; then
   MEM_GB=$((MEM_BYTES / 1000000000))
   echo '=================================================================='

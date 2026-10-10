@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Same 24 GB floor as MUSIC_MIN_RAM_GB and the sidebar. Unknown RAM/df is fail-open.
 set -u
-MUSIC_MEM=$(sysctl -n hw.memsize 2>/dev/null || true)
+# Linux has no hw.memsize; MemTotal (kB) is the same number there.
+MUSIC_MEM=$(sysctl -n hw.memsize 2>/dev/null || awk '/^MemTotal:/ {printf "%.0f\n", $2 * 1024}' /proc/meminfo 2>/dev/null || true)
 if [[ "$MUSIC_MEM" =~ ^[0-9]+$ ]] && [ "$MUSIC_MEM" -lt 24000000000 ]; then
   echo "YuE2 needs about 24 GB of unified memory; this Mac reports $((MUSIC_MEM / 1000000000)) GB. The rest of Phosphene is unaffected."
   exit 1

@@ -40,19 +40,21 @@ for _m in sorted((ROOT / "webapp" / "js").glob("*.js")):
 
 
 class _pinned_mac:
-    """This Mac's RAM and whether its H3 Q8 pack is built, pinned for a block."""
+    """Pin RAM, the Q8 pack, and the bf16 master for a block."""
 
-    def __init__(self, ram_gb: float, q8_dir: Path | None):
-        self.ram_gb, self.q8_dir = ram_gb, q8_dir
+    def __init__(self, ram_gb: float, q8_dir: Path | None,
+                 master: Path | None = None):
+        self.ram_gb, self.q8_dir, self.master = ram_gb, q8_dir, master
 
     def __enter__(self):
-        self.saved = (P.SYSTEM_RAM_GB, P._h3_q8_dit_dir)
+        self.saved = (P.SYSTEM_RAM_GB, P._h3_q8_dit_dir, P.h3_paths)
         P.SYSTEM_RAM_GB = self.ram_gb
         P._h3_q8_dit_dir = lambda: self.q8_dir
+        P.h3_paths = lambda: {"dit": self.master}
         return self
 
     def __exit__(self, *exc):
-        P.SYSTEM_RAM_GB, P._h3_q8_dit_dir = self.saved
+        P.SYSTEM_RAM_GB, P._h3_q8_dit_dir, P.h3_paths = self.saved
 
 
 class TheSettingRoundTrips(unittest.TestCase):
@@ -79,7 +81,8 @@ class TheSettingRoundTrips(unittest.TestCase):
         # reading the live RAM and the live pack made this pass or fail by
         # whose Mac ran it.
         P.update_settings({"h3_dit": "bf16"})
-        with _pinned_mac(ram_gb=128.0, q8_dir=Path("/tmp/pretend-q8")):
+        with _pinned_mac(ram_gb=128.0, q8_dir=Path("/tmp/pretend-q8"),
+                         master=Path("/tmp/pretend-master")):
             self.assertEqual(P.h3_dit_choice()[0], "bf16")
 
 
@@ -124,12 +127,13 @@ class AutoPrefersTheLightModel(unittest.TestCase):
 
     def test_bf16_can_still_be_forced(self):
         P.update_settings({"h3_dit": "bf16"})
-        real = P._h3_q8_dit_dir
+        real = (P._h3_q8_dit_dir, P.h3_paths)
         try:
             P._h3_q8_dit_dir = lambda: Path("/tmp/pretend-q8")
+            P.h3_paths = lambda: {"dit": Path("/tmp/pretend-master")}
             self.assertEqual(P.h3_dit_choice()[0], "bf16")
         finally:
-            P._h3_q8_dit_dir = real
+            P._h3_q8_dit_dir, P.h3_paths = real
             P.update_settings({"h3_dit": "auto"})
 
 
@@ -171,13 +175,18 @@ class BelowTheFullEngineFloor(unittest.TestCase):
     def setUp(self):
         self._ram = P.SYSTEM_RAM_GB
         self._q8 = P._h3_q8_dit_dir
+        self._paths = P.h3_paths
         self._pack = Path(tempfile.mkdtemp(prefix="phos-q8pack-"))
+        self._master = self._pack / "m.safetensors"
+        self._master.touch()
         P._h3_q8_dit_dir = lambda: self._pack
+        P.h3_paths = lambda: {"dit": self._master}
         P.update_settings({"h3_dit": "bf16"})
 
     def tearDown(self):
         P.SYSTEM_RAM_GB = self._ram
         P._h3_q8_dit_dir = self._q8
+        P.h3_paths = self._paths
         P.update_settings({"h3_dit": "auto"})
 
     def test_48gb_full_preference_renders_q8(self):
@@ -187,6 +196,11 @@ class BelowTheFullEngineFloor(unittest.TestCase):
     def test_64gb_full_preference_is_honoured(self):
         P.SYSTEM_RAM_GB = 64.0
         self.assertEqual(P.h3_dit_choice(), ("bf16", None))
+
+    def test_full_preference_without_a_master_renders_q8(self):
+        P.SYSTEM_RAM_GB = 64.0
+        P.h3_paths = lambda: {"dit": None}
+        self.assertEqual(P.h3_dit_choice(), ("q8", self._pack))
 
     def test_48gb_without_q8_is_not_silently_q8(self):
         P.SYSTEM_RAM_GB = 48.0

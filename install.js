@@ -31,7 +31,7 @@ module.exports = {
       when: "{{platform !== 'darwin' || arch !== 'arm64'}}",
       method: "notify",
       params: {
-        html: "<b>Phosphene requires an Apple Silicon Mac (M1 or newer).</b><br>It will not run on Intel Macs, Linux, or Windows."
+        html: "<b>Phosphene requires an Apple Silicon Mac (M1 or newer).</b><br>It will not run on Intel Macs or Windows. Linux on Apple Silicon (M1/M2) installs outside Pinokio: run <code>bash scripts/linux/install.sh</code> in the app folder."
       },
       next: null
     },

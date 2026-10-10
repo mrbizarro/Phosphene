@@ -1,0 +1,36 @@
+diff --git a/scripts/quantize_stream.py b/scripts/quantize_stream.py
+index 2b566cc..e38cac7 100644
+--- a/scripts/quantize_stream.py
++++ b/scripts/quantize_stream.py
+@@ -83,6 +83,7 @@ def main() -> None:
+     a.out.mkdir(parents=True, exist_ok=True)
+     src = mx.load(str(a.src))          # lazy, mmap-backed
+ 
++    probe_key = next(k for k, t, _, _ in plan if t == "q")   # kept for the dequant probe below
+     shard_idx, shard_bytes, shard = 1, 0, {}
+     names: list[str] = []
+     weight_map: dict[str, str] = {}
+@@ -103,13 +104,13 @@ def main() -> None:
+     with mx.stream(mx.cpu):            # CPU quant: deterministic and RAM-bounded
+         for k, kind, shape, bits in plan:
+             if kind == "q":
+-                w, sc, bi = mx.quantize(src[k], group_size=GROUP, bits=BITS)
++                w, sc, bi = mx.quantize(src[k] if k == probe_key else src.pop(k), group_size=GROUP, bits=BITS)
+                 base = k[: -len(".weight")]
+                 add = {base + ".weight": w,
+                        base + ".scales": sc.astype(mx.bfloat16),
+                        base + ".biases": bi.astype(mx.bfloat16)}
+             else:
+-                add = {k: src[k]}
++                add = {k: src[k] if k == probe_key else src.pop(k)}
+             mx.eval(list(add.values()))
+             nbytes = sum(t.nbytes for t in add.values())
+             if shard_bytes + nbytes > MAX_SHARD and shard:
+@@ -126,7 +127,6 @@ def main() -> None:
+          "adaln_bits": BITS, "writer": "quantize_stream", "source": a.src.name}, indent=1))
+ 
+     # ---- validation -----------------------------------------------------
+-    probe_key = next(k for k, t, _, _ in plan if t == "q")
+     base = probe_key[: -len(".weight")]
+     packed = mx.load(str(a.out / weight_map[base + ".weight"]))
+     deq = mx.dequantize(packed[base + ".weight"],

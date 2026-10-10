@@ -93,6 +93,10 @@ That runs the pin checks, the launcher payload gate, the codec check, the
 frontend lint and every panel test suite, and prints a PASS/FAIL table. It
 must exit 0. (`--fast` skips the two slowest gates while iterating.)
 
+Run `npm run lint:anti-slop` for the generic Oxlint rules. Fix findings your
+changes introduce; findings in untouched files remain outside your patch.
+These development dependencies do not affect the panel runtime.
+
 Tests are not a formality here. Several of them exist because a thing shipped
 broken in a way that looked fine — they encode the failure, not the feature.
 

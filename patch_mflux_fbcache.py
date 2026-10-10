@@ -55,11 +55,13 @@ before touching anything.
 from __future__ import annotations
 
 import sys
+import sysconfig
 from pathlib import Path
 
-# Walk the venv site-packages from the repo root. mflux always ends up
-# under the ltx-2-mlx env regardless of who installed it.
+# The running interpreter's site-packages first (the venv python runs this, on
+# any Python minor), then the repo-root venv paths for a run from elsewhere.
 VENV_ROOTS = [
+    sysconfig.get_paths()["purelib"],
     "ltx-2-mlx/env/lib/python3.11/site-packages",
     "ltx-2-mlx/.venv/lib/python3.11/site-packages",
 ]

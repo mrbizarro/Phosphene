@@ -63,6 +63,8 @@ mlx_models/
 # or an fs.link mapping, so each entry is spelled both ways.
 ltx-2-mlx
 ltx-2-mlx/
+# scripts/linux/install.sh unpacks wheels here (pip's TMPDIR); removed on success.
+.install-tmp/
 # The optional Hailuo H3 pack: install_h3.js clones minimax-h3-mlx INTO the
 # app directory (it has to — the panel resolves the runner relative to ROOT,
 # and mlx_models/hailuo-h3 is fs.link-mapped from here). It is a separate git

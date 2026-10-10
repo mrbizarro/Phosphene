@@ -75,6 +75,10 @@ Text-to-video, image-to-video, and audio-to-video, all delivered as MP4 with joi
 
 Neither engine is a fallback for the other. If only one is installed, the other appears in the switcher as an offer with its size on it — one click explains what it does and where to get it, and nothing about your existing renders changes when it lands.
 
+On Linux, H3 can use a complete Q8 DiT pack without the bf16 master.
+Both config files and all indexed shards must exist; a `.built_ok` marker alone is not enough.
+macOS still requires the bf16 master for install discovery.
+
 #### Remix — bring your own media
 
 Three IC-LoRA tools live under the **Remix** pill in the mode bar. All three run on the Q4 distilled checkpoint, so none of them needs the Q8 pack.

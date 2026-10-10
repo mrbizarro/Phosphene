@@ -71,6 +71,7 @@ SEQ_NOUN_CAP = "Sequence"
 # External agents drive Phosphene via the HTTP API documented in docs/API.md.
 # Pre-removal snapshot: git tag pre-agent-removal-2026-05-15.
 import image_engine as agent_image_engine
+import hostinfo
 
 # Agent-facing Ideogram 4 caption builder + validator (pure stdlib). Powers
 # the GET /image/agent/schema + POST /image/agent endpoints — a clean JSON
@@ -152,7 +153,9 @@ def _resolve_helper_python() -> Path:
     explicit = os.environ.get("LTX_HELPER_PYTHON")
     if explicit and Path(explicit).is_file():
         return Path(explicit)
-    for sub in (".venv/bin/python3.11", "env/bin/python3.11"):
+    # python3.11 is the Pinokio/macOS venv; plain python3 is a Linux venv
+    # (omarchy-mlx ships wheels for the distro's Python only).
+    for sub in (".venv/bin/python3.11", "env/bin/python3.11", ".venv/bin/python3", "env/bin/python3"):
         p = MLX / sub
         if p.is_file():
             return p
@@ -8714,8 +8717,11 @@ def caffeinate_on() -> None:
     global CAFFEINATE_PROC
     if CAFFEINATE_PROC and CAFFEINATE_PROC.poll() is None:
         return
+    argv = hostinfo.keep_awake_prefix()
+    if not argv:
+        return
     try:
-        CAFFEINATE_PROC = subprocess.Popen(["caffeinate", "-i"],
+        CAFFEINATE_PROC = subprocess.Popen(argv,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         push("caffeinate active — Mac won't idle-sleep while queue is running")
     except Exception as exc:
@@ -8908,14 +8914,7 @@ CAPABILITIES: dict[str, dict] = {
 
 def _detect_total_ram_gb() -> float:
     """Return physical unified memory in GiB, or 0.0 when unavailable."""
-    try:
-        out = subprocess.run(
-            ["sysctl", "-n", "hw.memsize"],
-            capture_output=True, text=True, errors="replace", timeout=1,
-        ).stdout.strip()
-        return int(out) / 1024**3
-    except Exception:
-        return 0.0
+    return hostinfo.total_ram_bytes() / 1024**3
 
 
 SYSTEM_RAM_GB = _detect_total_ram_gb()
@@ -10347,8 +10346,7 @@ def _hw_chip_family() -> str:
     if _HW_CHIP_FAMILY is None:
         fam = "unknown"
         try:
-            brand = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"],
-                                   capture_output=True, text=True, errors="replace", timeout=3).stdout.strip()
+            brand = hostinfo.chip_brand()
             m = re.search(r"Apple (M\d+)(?: (Pro|Max|Ultra))?", brand)
             if m:
                 fam = m.group(1) + (f" {m.group(2)}" if m.group(2) else "")
@@ -13124,10 +13122,10 @@ def h3_paths() -> dict:
     dit = compact_root = text_config = models_root = None
     for root in _h3_model_roots():
         cand_dit = root / "deepbeep-pruned-bf16" / H3_DIT_FILENAME
-        if not cand_dit.is_file():
+        if not _h3_holds_dit(root):
             continue
         models_root = root
-        dit = cand_dit
+        dit = cand_dit if cand_dit.is_file() else None
         # LTX_H3_COMPACT_DIR picks an alternate conditioning-encoder dir under the same
         # models root (e.g. "heretic-q8", an abliterated encoder re-quantized to the
         # ddalcu layout). Dev/testing override; default stays the shipped ddalcu-q8.
@@ -13151,7 +13149,7 @@ def h3_paths() -> dict:
         missing.append(f"runner {runner}")
     if python is None:
         missing.append(f"venv python under {H3_ROOT / '.venv'}")
-    if dit is None:
+    if dit is None and models_root is None:
         missing.append(f"pruned bf16 DiT ({H3_DIT_FILENAME})")
     if compact_root is None:
         missing.append("Q8 components (text_encoder / video_vae / audio_vae)")
@@ -13173,7 +13171,8 @@ def h3_paths() -> dict:
     # `repairable` is the load-bearing one: weights present + code/venv gone.
     # It is what stops the panel silently reporting "not installed" to a user
     # who has 75 GB of H3 weights sitting on their disk.
-    weights_ok = dit is not None and compact_root is not None and text_config is not None
+    weights_ok = (models_root is not None
+                  and compact_root is not None and text_config is not None)
     runner_ok = runner.is_file()
     venv_ok = python is not None
     venv_built = _h3_venv_present()
@@ -13194,9 +13193,6 @@ def h3_paths() -> dict:
         "runner": runner,
         "python": python,
         "dit": dit,
-        # bf16 master path stays canonical in `dit`; the render-time swap to
-        # the Q8 pack happens in the dispatch via h3_dit_choice(), so /status
-        # can always show BOTH what exists and what will be used.
         "compact_root": compact_root,
         "text_config": text_config,
         "missing": missing,
@@ -13238,12 +13234,17 @@ def _h3_q8_shards_complete(d: Path) -> bool:
         return False
 
 
+def _h3_q8_pack_complete(d: Path) -> bool:
+    return ((d / "config.json").is_file()
+            and (d / "quant_config.json").is_file()
+            and _h3_q8_shards_complete(d))
+
+
 def _h3_q8_dit_dir() -> Path | None:
     """The quantized DiT pack, if present: config + quant recipe + all shards."""
     for root in _h3_model_roots():
         d = root / H3_DIT_Q8_DIRNAME
-        if (d / "config.json").is_file() and (d / "quant_config.json").is_file() \
-                and _h3_q8_shards_complete(d):
+        if _h3_q8_pack_complete(d):
             return d
     return None
 
@@ -13262,12 +13263,8 @@ def h3_dit_choice() -> tuple[str, Path | None]:
     q8 = _h3_q8_dit_dir()
     if pref == "q8" and q8 is not None:
         return "q8", q8
-    # A bf16 preference below the bf16 floor, with the Q8 pack built, is not
-    # honoured: the master loads 38.6 GiB before the modulation cache and a
-    # 48 GB Mac died with Metal "Insufficient Memory" on every render, Draft
-    # included (Pinokio report, M5 Max 48 GB, Q8 engine built and skipped).
-    # Q8 is the only lane that fits there; the dispatch says so in the log.
-    if pref == "bf16" and (SYSTEM_RAM_GB >= H3_MIN_RAM_GB or q8 is None):
+    if pref == "bf16" and h3_paths()["dit"] is not None \
+            and (SYSTEM_RAM_GB >= H3_MIN_RAM_GB or q8 is None):
         return "bf16", None
     if pref == "q8" and q8 is None:
         pref = "auto"      # fall through, surfaced via /status
@@ -13590,6 +13587,13 @@ def h3_supports_lora() -> bool:
     return _h3_runner_has_flag("--lora")
 
 
+def _h3_holds_dit(root: Path) -> bool:
+    """Find the bf16 master, or a complete Linux Q8 pack."""
+    if (root / "deepbeep-pruned-bf16" / H3_DIT_FILENAME).is_file():
+        return True
+    return not hostinfo.IS_MAC and _h3_q8_pack_complete(root / H3_DIT_Q8_DIRNAME)
+
+
 def _h3_turbo_dir() -> Path:
     """Where Turbo's adapter lives: alongside the other weight components.
 
@@ -13597,7 +13601,7 @@ def _h3_turbo_dir() -> Path:
     DiT, so Turbo lands next to `deepbeep-pruned-bf16` / `ddalcu-q8` rather
     than in a third place."""
     for root in _h3_model_roots():
-        if (root / "deepbeep-pruned-bf16" / H3_DIT_FILENAME).is_file():
+        if _h3_holds_dit(root):
             return root / H3_TURBO_DIRNAME
     return H3_MODELS / H3_TURBO_DIRNAME
 
@@ -14171,7 +14175,7 @@ def _h3_loras_dir() -> Path:
     DiT — the identical rule `_h3_turbo_dir()` uses, so Turbo's adapter and a
     CivitAI adapter end up as siblings instead of in two different places."""
     for root in _h3_model_roots():
-        if (root / "deepbeep-pruned-bf16" / H3_DIT_FILENAME).is_file():
+        if _h3_holds_dit(root):
             return root / H3_LORAS_DIRNAME
     return H3_MODELS / H3_LORAS_DIRNAME
 
@@ -17672,10 +17676,7 @@ def _analytics_chip_family() -> str:
         return _CHIP_FAMILY_CACHE
     family = "unknown"
     try:
-        brand = subprocess.run(
-            ["sysctl", "-n", "machdep.cpu.brand_string"],
-            capture_output=True, text=True, errors="replace", timeout=2,
-        ).stdout.strip()
+        brand = hostinfo.chip_brand()
         m = _CHIP_FAMILY_RE.search(brand)
         if m:
             family = f"M{m.group(1)}" + (f" {m.group(2).title()}" if m.group(2) else "")
@@ -19605,32 +19606,12 @@ def ltx_mode_price_card(mode: str, steps: int | None = None, *,
 
 def get_memory() -> dict:
     info = {"total_gb": 0.0, "used_gb": 0.0, "pressure_pct": 0, "swap_gb": 0.0}
-    try:
-        total = int(subprocess.run(["sysctl", "-n", "hw.memsize"],
-            capture_output=True, text=True, errors="replace", timeout=1).stdout.strip())
-        info["total_gb"] = total / 1024**3
-        vm = subprocess.run(["vm_stat"], capture_output=True, text=True, errors="replace", timeout=1).stdout
-        m = re.search(r"page size of (\d+)", vm)
-        page_size = int(m.group(1)) if m else 16384
-
-        def pages(name: str) -> int:
-            mm = re.search(rf"{re.escape(name)}:\s+(\d+)", vm)
-            return int(mm.group(1)) if mm else 0
-
-        used_bytes = (pages("Pages active") + pages("Pages wired down")
-                      + pages("Pages occupied by compressor")) * page_size
-        info["used_gb"] = used_bytes / 1024**3
-        info["pressure_pct"] = round(used_bytes / total * 100) if total else 0
-
-        swap = subprocess.run(["sysctl", "-n", "vm.swapusage"],
-            capture_output=True, text=True, errors="replace", timeout=1).stdout
-        m = re.search(r"used\s*=\s*([\d.]+)([KMG])", swap)
-        if m:
-            v = float(m.group(1))
-            mult = {"K": 1 / 1024 / 1024, "M": 1 / 1024, "G": 1.0}[m.group(2)]
-            info["swap_gb"] = v * mult
-    except Exception:
-        pass
+    mem = hostinfo.memory_usage()
+    total = mem["total"]
+    info["total_gb"] = total / 1024**3
+    info["used_gb"] = mem["used"] / 1024**3
+    info["pressure_pct"] = round(mem["used"] / total * 100) if total else 0
+    info["swap_gb"] = mem["swap_used"] / 1024**3
     # SYS-19: `pressure_pct` above (active+wired+compressed / total) is a
     # USED ratio, not a pressure signal — plan_memory_policy() above
     # deliberately keeps using it exactly as-is (its 82%+swap>=4GB
@@ -19644,14 +19625,7 @@ def get_memory() -> dict:
     # jetsam-kill (1 normal / 2 warning / 3 critical) — a genuine pressure
     # level, not a used ratio. New field, additive; nothing that reads
     # pressure_pct changes.
-    try:
-        lvl = subprocess.run(
-            ["sysctl", "-n", "kern.memorystatus_vm_pressure_level"],
-            capture_output=True, text=True, errors="replace", timeout=1,
-        ).stdout.strip()
-        info["pressure_level"] = int(lvl) if lvl.isdigit() else 1
-    except Exception:
-        info["pressure_level"] = 1
+    info["pressure_level"] = hostinfo.pressure_level()
     return info
 
 
@@ -35338,7 +35312,7 @@ def run_h3_job_inner(job: dict) -> None:
     cmd = [
         # caffeinate keeps the Mac awake for the whole render; being the
         # process-group leader means /stop's killpg takes both down together.
-        "caffeinate", "-i",
+        *hostinfo.keep_awake_prefix(),
         str(paths["python"]), str(paths["runner"]),
     ]
     # The positional prompt and `--chain-prompts` are MUTUALLY EXCLUSIVE on the
@@ -35519,6 +35493,8 @@ def run_h3_job_inner(job: dict) -> None:
     # Pinokio's bundled binary is not on the default PATH.
     env["PATH"] = media_tool_path(env.get("PATH", ""))
     env["PYTHONUNBUFFERED"] = "1"
+    for _k, _v in hostinfo.h3_env_defaults().items():
+        env.setdefault(_k, _v)
     # FP16 VAE decode — the default (h3_vae_fp16_decode()). Passed as the runner's
     # own flag so the argv says what ran; a runner that predates the flag
     # would reject it, so that case is said out loud instead of passed.
