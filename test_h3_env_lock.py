@@ -279,7 +279,12 @@ class H3DepsRuns(unittest.TestCase):
         (tmp / "req.txt").write_text("six>=1.0\n")
         (tmp / "c.txt").write_text("six==1.16.0\n")
         r = uvr("pip", "install", "--offline", "--python", "v/bin/python", "-c", "c.txt", "-r", "req.txt")
-        if r.returncode != 0 and "offline" in (r.stderr + r.stdout).lower():
+        # uv words the same condition two ways: older builds say "offline", newer
+        # ones say "the network was disabled" (--offline). Either means the
+        # package is not in the local cache, which is a skip, not a failure.
+        _out = (r.stderr + r.stdout).lower()
+        if r.returncode != 0 and ("offline" in _out or "network was disabled" in _out
+                                  or "network is disabled" in _out):
             self.skipTest("six 1.16.0 not in the local uv cache")
         self.assertEqual(r.returncode, 0, r.stderr)
         freeze = uvr("pip", "freeze", "--python", "v/bin/python").stdout
