@@ -22,7 +22,10 @@ STAGE_JS = (ROOT / "webapp" / "js" / "stage.js").read_text(encoding="utf-8")
 PREVIEW_JS = (ROOT / "webapp" / "js" / "preview.js").read_text(encoding="utf-8")
 MAIN_JS = (ROOT / "webapp" / "js" / "main.js").read_text(encoding="utf-8")
 PINOKIO_JS = (ROOT / "pinokio.js").read_text(encoding="utf-8")
-PANEL_PY = (ROOT / "mlx_ltx_panel.py").read_text(encoding="utf-8")
+# The panel's server source now spans the panel file and the modules split out
+# of it (train_support.py holds the Train helpers these asserts look for).
+PANEL_PY = (ROOT / "mlx_ltx_panel.py").read_text(encoding="utf-8") + "\n" + (
+    ROOT / "train_support.py").read_text(encoding="utf-8")
 
 
 def test_sys08_settings_has_a_models_destination():

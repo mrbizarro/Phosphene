@@ -623,6 +623,7 @@ class AVerdictWithoutARemedyIsNotAnAnswer(unittest.TestCase):
         # Server source + the page (webapp/index.html since slice 2 of
         # the extraction — docs/ARCHITECTURE.md): the asserts span both.
         src = (root / "mlx_ltx_panel.py").read_text() + "\n" + (
+            root / "train_support.py").read_text() + "\n" + (
             root / "webapp" / "index.html").read_text()
         for _m in sorted((root / "webapp" / "js").glob("*.js")):
             src += "\n" + _m.read_text()
