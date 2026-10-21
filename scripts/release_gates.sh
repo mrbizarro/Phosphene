@@ -150,7 +150,7 @@ mark_skip() {
 echo "== compile =="
 # ---------------------------------------------------------------------------
 run_gate "py_compile (panel, image engine, helper)" \
-    "$VENV_PY" -m py_compile mlx_ltx_panel.py image_engine.py mlx_warm_helper.py civitai_client.py usage_stats.py train_support.py
+    "$VENV_PY" -m py_compile mlx_ltx_panel.py image_engine.py mlx_warm_helper.py civitai_client.py usage_stats.py train_support.py version_check.py
 
 # ---------------------------------------------------------------------------
 echo

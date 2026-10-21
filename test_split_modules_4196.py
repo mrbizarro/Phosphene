@@ -1,5 +1,5 @@
 """The modules split out of mlx_ltx_panel.py in 4.19.6 (#110 civitai_client,
-#111 usage_stats, #112 train_support, all by @blackest) stay wired.
+#111 usage_stats, #112 train_support, all by @blackest; version_check after them) stay wired.
 
 Each module spells panel globals as `P.<name>` and is handed the running panel
 module at import time. Two ways that could silently break later:
@@ -25,7 +25,7 @@ os.environ.setdefault("PHOSPHENE_DISABLE_VERSION_CHECK", "1")
 
 import mlx_ltx_panel as P  # noqa: E402
 
-SPLIT = ("civitai_client", "usage_stats", "train_support")
+SPLIT = ("civitai_client", "usage_stats", "train_support", "version_check")
 
 
 class TheSplitModulesAreWired(unittest.TestCase):

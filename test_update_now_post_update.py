@@ -196,8 +196,10 @@ class UpdateNowRunsPostUpdate(unittest.TestCase):
     def test_retry_route_and_status_field(self):
         from panel import routes as R                                 # noqa: PLC0415
         self.assertIs(R.POST_ROUTES["/version/finish"], routes_meta.post_version_finish)
-        src = (ROOT / "mlx_ltx_panel.py").read_text(encoding="utf-8")
-        self.assertIn('snap["post_update"] = post_update_status()', src)
+        # get_version_state lives in version_check.py now (it reaches the
+        # panel's post_update_status as P.post_update_status).
+        src = (ROOT / "version_check.py").read_text(encoding="utf-8")
+        self.assertIn('snap["post_update"] = P.post_update_status()', src)
 
 
 if __name__ == "__main__":
