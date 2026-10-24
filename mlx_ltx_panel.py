@@ -3821,7 +3821,7 @@ def _h3_turbo_download_bg(target_dir, push_log, asset: dict | None = None) -> No
         try:
             # Same as Fast's: the runner's per-head copy, retried by the
             # first Turbo render if this fails.
-            h3_bake_runner_layout(target, push_log)
+            h3_lora_for_runner(target, push_log)
         except Exception as e:  # noqa: BLE001
             push_log(f"[h3:turbo] qkv re-order deferred to the first render: {e}")
         _h3_turbo_fetch_embedder(target_dir, push_log, force=True)
@@ -14205,29 +14205,64 @@ def h3_turbo_argv(paths: dict | None = None) -> list[str]:
     return argv
 
 
-# ---- Speed adapters: fused qkv rows in THIS checkpoint's order -------------
-# H3's DiT stores `attn.qkv_proj` rows PER HEAD, (heads, 3, head_dim): a
-# one-way ANOVA on the Q8 DiT's row norms separates the q/k/v groups at
-# F 1362 (blocks.0) / 5006 (blocks.49) read that way, against 83 / 43 read
-# contiguously. Every speed adapter we resolve was trained or converted
-# through the ComfyUI/diffusers definition, whose rows are CONTIGUOUS,
-# (3, heads, head_dim): the same test on their B·A deltas reads contiguous at
-# blocks.49 for Kijai's TaoMate r19 (1897 vs 11), the official TaoMate r128
-# (1931 vs 10), larryvrh's v4-600 EMA (1038 vs 0) and LightX2V's v1.x
-# conversions (fetch_h3_turbo.py says so in its own docstring). The runner
-# re-orders those rows only under `--lora-qkv-permute`, OFF by default since
-# 2026-08-15 — so Fast and Turbo were writing the q update onto the first
-# 18.7 heads' q/k/v triplets, k onto the next, v onto the rest. That flag is
-# global to the run and would also hit a user LoRA stacked on top (one
-# lora-lab trains natively is already per-head), so the panel re-orders the
-# speed adapter's rows ITSELF, once, into a sibling file the runner reads
-# verbatim: `<adapter dir>/runner-layout/<same name>`. Pure byte moves of
-# whole rows — dtype-agnostic, no float maths, no new dependency — and the
-# source file (digest-pinned) is never touched.
+# ---- Every H3 LoRA: fused qkv rows in THIS checkpoint's order ---------------
+# H3's DiT stores `attn.qkv_proj` rows PER HEAD, (heads, 3, head_dim). A
+# one-way ANOVA on the base's per-row norms, q/k/v as the groups, separates
+# them at F 1362 (blocks.0) / 5006 (blocks.49) / 1549 (token_refiner.0) read
+# that way, against 83 / 43 / 10 read contiguously — identical on the bf16
+# pruned DiT and the Q8 pack built from it (H3_BASE_QKV_LAYOUT).
+#
+# The ComfyUI/diffusers definition everyone trains against splits them
+# CONTIGUOUSLY, (3, heads, head_dim), and every H3 LoRA measured on
+# 2026-10-22 is in that order: the speed adapters (Kijai's TaoMate r19, the
+# official TaoMate r128, larryvrh's v4-600 EMA, LightX2V's v1.x repacks) and
+# all ten user LoRAs in the library — ostris ai-toolkit 0.12.x, the fal
+# minimax-h3-trainer (bizarrotrn_h3, vh5tape), a kohya-style trainer, and
+# one with no metadata; 45-51 of 52 qkv modules each read contiguous. The
+# runner re-orders rows only under `--lora-qkv-permute`, OFF by default since
+# 2026-08-15 and global to a run, so since then every H3 LoRA has written its
+# q update onto the first 18.7 heads' q/k/v triplets, k onto the next, v onto
+# the rest. Nothing errors: the delta is ~1 % of the weight.
+#
+# So the order is decided PER FILE (h3_lora_qkv_layout: the same ANOVA on
+# each qkv module's B·A row norms, a module voting for the grouping with the
+# larger F) and a file whose order differs from the base's is handed to the
+# runner as a re-ordered sibling, `<dir>/runner-layout/<same name>` — byte
+# moves of whole rows, dtype-agnostic, no arithmetic. The source is never
+# touched, so a recipe still names it, and a per-head file (none exists yet)
+# runs as it is.
+#
+# Contiguous is the DEFAULT, not just the majority (2026-10-23): MiniMax's
+# own release is diffusers-shaped (separate to_q / to_k / to_v), and every
+# tool that fuses those into one `attn.qkv_proj` stacks them [q; k; v]. Only
+# a file that says it is per-head (our own runner-layout copies and fetch
+# builds stamp it; Viggle-lineage files say "interleaved") or that measures
+# per-head runs as it is. A file the vote cannot call ("unclear", or a dtype
+# it cannot read) is re-ordered like every other fused file, and the log
+# says so — applied as-is it would be wrong for every trainer we know of.
+#
+# fc1 is NOT in this class. The runner reads `mlp.fc1` as [gate; value], and
+# so does every fused-name lineage: Kijai's comfy repack of LightX2V v1.0
+# swaps diffusers' [value; gate] into it (his metadata says so; our own
+# repack agrees with his file as-is, +0.962), and his TaoMate r19 keeps the
+# official TaoMate r128's half order (per-block half-norm ratios identical).
+# Diffusers-format files are refused at import, so no fused file reaches the
+# runner in [value; gate]; `--lora-fc1-swap` stays off.
 H3_RUNNER_LAYOUT_DIRNAME = "runner-layout"
 H3_QKV_HEADS = 56
 H3_QKV_HEAD_DIM = 128
+H3_QKV_LORA_A_SUFFIX = ".attn.qkv_proj.lora_A.weight"
 H3_QKV_LORA_B_SUFFIX = ".attn.qkv_proj.lora_B.weight"
+H3_BASE_QKV_LAYOUT = "per-head"
+# Share of a file's trained qkv modules that must agree before its order is
+# called. Measured files sit at 0.87-0.98 for their order; below this the
+# file is "unclear" and re-ordered like any fused file (the default above).
+H3_QKV_LAYOUT_VOTE = 0.7
+# Metadata a per-head file declares itself with (checked before the vote):
+# our runner-layout copies, scripts/fetch_h3_v13.py builds, Viggle exports.
+_H3_QKV_DECLARED_PER_HEAD = (("phosphene_qkv_rows", "per-head"),
+                             ("qkv_layout", "per-head"),
+                             ("qkv_layout", "interleaved"))
 H3_RUNNER_LAYOUT_KEY = "phosphene_qkv_rows"
 H3_RUNNER_LAYOUT_VALUE = "per-head (heads, 3, head_dim), re-ordered from (3, heads, head_dim)"
 
@@ -14247,6 +14282,100 @@ def _st_header(path: Path) -> tuple[int, dict]:
 def h3_runner_layout_file(src: Path | str) -> Path:
     src = Path(src)
     return src.parent / H3_RUNNER_LAYOUT_DIRNAME / src.name
+
+
+def _st_tensor_f32(fh, hlen: int, info: dict):
+    """One safetensors tensor as a float32 numpy array (BF16 widened exactly)."""
+    import numpy as np
+    start, end = info["data_offsets"]
+    fh.seek(8 + hlen + start)
+    raw = fh.read(end - start)
+    dtype = info["dtype"]
+    if dtype == "BF16":
+        arr = (np.frombuffer(raw, "<u2").astype(np.uint32) << 16).view(np.float32)
+    elif dtype in ("F16", "F32", "F64"):
+        arr = np.frombuffer(raw, {"F16": "<f2", "F32": "<f4", "F64": "<f8"}[dtype]).astype(np.float32)
+    else:
+        raise ValueError(f"unsupported dtype {dtype}")
+    return arr.reshape(info["shape"])
+
+
+def _anova3_f(values, labels) -> float:
+    """One-way ANOVA F of `values` over three groups (labels 0/1/2)."""
+    import numpy as np
+    groups = [values[labels == g] for g in range(3)]
+    grand = values.mean()
+    between = sum(len(g) * (g.mean() - grand) ** 2 for g in groups) / 2
+    within = sum(((g - g.mean()) ** 2).sum() for g in groups) / (len(values) - 3)
+    return float(between / within) if within > 0 else float("inf")
+
+
+_H3_QKV_LAYOUT_CACHE: dict[tuple, dict] = {}
+
+
+def h3_lora_qkv_layout(path: Path | str) -> dict:
+    """Which order a LoRA's fused qkv rows are in: declared per-head, else measured.
+
+    For every `attn.qkv_proj` pair: the row norms of B·A (from B and the
+    rank×rank Gram matrix A·Aᵀ, so the 21504×5376 delta is never built), then
+    the ANOVA F with q/k/v grouped per head and grouped contiguously; the
+    module votes for the larger. Untrained (all-zero) modules abstain.
+    Returns {"layout": "contiguous" | "per-head" | "unclear" | "none",
+    "modules", "contiguous", "per_head", "declared"}. A file whose metadata
+    declares per-head rows (`_H3_QKV_DECLARED_PER_HEAD`) is per-head without
+    a vote. Cached per (path, size, mtime)."""
+    import numpy as np
+    path = Path(path)
+    st = path.stat()
+    key = (str(path), st.st_size, st.st_mtime_ns)
+    if key in _H3_QKV_LAYOUT_CACHE:
+        return _H3_QKV_LAYOUT_CACHE[key]
+    hlen, header = _st_header(path)
+    meta = header.get("__metadata__") or {}
+    declared = next((f"{k}={meta[k]}" for k, v in _H3_QKV_DECLARED_PER_HEAD
+                     if str(meta.get(k) or "").strip().lower().startswith(v)), "")
+    if declared:
+        out = {"layout": "per-head", "modules": 0, "contiguous": 0, "per_head": 0,
+               "declared": declared}
+        _H3_QKV_LAYOUT_CACHE[key] = out
+        return out
+    rows = 3 * H3_QKV_HEADS * H3_QKV_HEAD_DIM
+    idx = np.arange(rows)
+    per_head_labels = (idx // H3_QKV_HEAD_DIM) % 3
+    contiguous_labels = idx // (H3_QKV_HEADS * H3_QKV_HEAD_DIM)
+    votes = {"contiguous": 0, "per_head": 0}
+    with open(path, "rb") as fh:
+        for name in sorted(k for k in header if k.endswith(H3_QKV_LORA_B_SUFFIX)):
+            a_info = header.get(name[: -len(H3_QKV_LORA_B_SUFFIX)] + H3_QKV_LORA_A_SUFFIX)
+            b_info = header[name]
+            if a_info is None or int(b_info["shape"][0]) != rows:
+                continue
+            b = _st_tensor_f32(fh, hlen, b_info).astype(np.float64)
+            a = _st_tensor_f32(fh, hlen, a_info).astype(np.float64)
+            norms = np.sqrt(np.clip(((b @ (a @ a.T)) * b).sum(axis=1), 0, None))
+            if not norms.any():
+                continue
+            # A tie (both F infinite or equal: a module whose rows cannot tell
+            # the two orders apart) votes for the contiguous default, never
+            # for "leave the rows alone" (4.19.12 review).
+            if _anova3_f(norms, per_head_labels) > _anova3_f(norms, contiguous_labels):
+                votes["per_head"] += 1
+            else:
+                votes["contiguous"] += 1
+    modules = votes["contiguous"] + votes["per_head"]
+    if not modules:
+        layout = "none"
+    elif votes["contiguous"] >= H3_QKV_LAYOUT_VOTE * modules:
+        layout = "contiguous"
+    elif votes["per_head"] >= H3_QKV_LAYOUT_VOTE * modules:
+        layout = "per-head"
+    else:
+        layout = "unclear"
+    out = {"layout": layout, "modules": modules, **votes, "declared": ""}
+    if len(_H3_QKV_LAYOUT_CACHE) > 64:
+        _H3_QKV_LAYOUT_CACHE.clear()
+    _H3_QKV_LAYOUT_CACHE[key] = out
+    return out
 
 
 def _h3_runner_layout_current(src: Path, dst: Path) -> bool:
@@ -14277,8 +14406,19 @@ _h3_bake_locks: dict[str, threading.Lock] = {}
 _h3_bake_locks_guard = threading.Lock()
 
 
+def _h3_prune_runner_layout(directory: Path) -> None:
+    """Drop re-ordered copies whose source left the library (H3 LoRAs are
+    removed by hand; nothing else would ever reclaim the copy)."""
+    try:
+        for copy in directory.glob("*.safetensors"):
+            if not (directory.parent / copy.name).exists():
+                copy.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def h3_bake_runner_layout(src: Path | str, push=None) -> Path:
-    """Write (once) and return the per-head copy of a speed adapter.
+    """Write (once) and return the per-head copy of a contiguous-order LoRA.
 
     Re-made whenever the source's size or mtime changes; written to a
     `.partial` and renamed, so a killed bake never leaves a file the runner
@@ -14348,24 +14488,59 @@ def _h3_bake_runner_layout_locked(src: Path, dst: Path, push=None) -> Path:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+    _h3_prune_runner_layout(dst.parent)
     if push:
         push(f"[h3] {src.name}: {moved} qkv row-blocks re-ordered to the "
              f"checkpoint's per-head layout → {dst}")
     return dst
 
 
+def h3_lora_for_runner(src: Path | str, push=None) -> tuple[Path, str]:
+    """(the file the runner should read, what was done to its qkv rows).
+
+    "re-ordered"  a fused file in the contiguous order every trainer writes
+                  (measured, or unclear — see the note above) → its
+                  per-head copy
+    "as-trained"  already in the base's per-head order (declared or measured)
+    "none"        no trained qkv module (an MLP-only LoRA)
+    "runner"      a runner without `--lora-qkv-permute` predates 2026-08-15
+                  and re-orders every `--lora` itself — handing it a
+                  re-ordered copy would put the rows back in the wrong order
+    """
+    src = Path(src)
+    if not _h3_runner_has_flag("--lora-qkv-permute"):
+        return src, "runner"
+    try:
+        info = h3_lora_qkv_layout(src)
+    except (ValueError, KeyError) as e:
+        # Values the vote cannot read (an unusual dtype): the rows can still
+        # be moved, and contiguous is what every fused file is.
+        info = {"layout": "unclear", "modules": 0, "contiguous": 0,
+                "per_head": 0, "declared": "", "error": str(e)}
+    if info["layout"] == "none":
+        return src, "none"
+    if info["layout"] == H3_BASE_QKV_LAYOUT:
+        return src, "as-trained"
+    votes = (f"{info['contiguous']} of {info['modules']} qkv modules read contiguous"
+             if info["modules"] else f"order not measured: {info.get('error')}")
+    dst = h3_bake_runner_layout(src, push)
+    if push:
+        if info["layout"] == "unclear":
+            push(f"[h3] {src.name}: qkv row order unclear ({votes}) — re-ordered "
+                 f"to the base's per-head order, the order every H3 trainer writes")
+        else:
+            push(f"[h3] {src.name}: qkv rows re-ordered to the base's per-head order ({votes})")
+    return dst, "re-ordered"
+
+
 def h3_speed_adapter_for_runner(resolved: dict, push=None) -> dict:
     """The resolved Fast/Turbo paths with `lora` pointing at the file the
-    runner should read; the downloaded file moves to `lora_source`.
-
-    A runner without `--lora-qkv-permute` predates 2026-08-15 and re-orders
-    the rows of every `--lora` itself, so it gets the source file as-is —
-    re-ordering twice would put the rows back in the wrong order."""
+    runner should read; the downloaded file moves to `lora_source`."""
     src = resolved.get("lora")
-    if src is None or not _h3_runner_has_flag("--lora-qkv-permute"):
-        return {**resolved, "lora_source": src, "qkv_rows": "runner"}
-    return {**resolved, "lora": h3_bake_runner_layout(src, push),
-            "lora_source": src, "qkv_rows": "per-head"}
+    if src is None:
+        return {**resolved, "lora_source": None, "qkv_rows": None}
+    runner_file, qkv_rows = h3_lora_for_runner(src, push)
+    return {**resolved, "lora": runner_file, "lora_source": src, "qkv_rows": qkv_rows}
 
 
 def h3_turbo_status() -> dict:
@@ -14603,7 +14778,7 @@ def _h3_tristep_download_bg(target_dir, push_log, asset: dict | None = None,
         try:
             # The runner's per-head copy now, so the first Fast render does
             # not pay for it; a failure here is retried by that render.
-            h3_bake_runner_layout(target, push_log)
+            h3_lora_for_runner(target, push_log)
         except Exception as e:  # noqa: BLE001
             push_log(f"[h3:tristep] qkv re-order deferred to the first render: {e}")
         _set_h3_tristep_dl(status="done", mb=total_mb, total_mb=total_mb,
@@ -36494,8 +36669,8 @@ def run_h3_job_inner(job: dict) -> None:
                   f"Speed, or click Fast to install it (180 MB).")
         steps = H3_TRISTEP_STEPS
     # Both speed adapters store their qkv rows in the ComfyUI order; the runner
-    # gets the per-head copy (h3_speed_adapter_for_runner). User LoRAs never
-    # pass through here.
+    # gets the per-head copy (h3_speed_adapter_for_runner). User LoRAs take
+    # the same per-file decision where their --lora is built, below.
     if turbo:
         turbo_paths = h3_speed_adapter_for_runner(turbo_paths, push)
     if tristep:
@@ -36850,8 +37025,10 @@ def run_h3_job_inner(job: dict) -> None:
         cmd += h3_tristep_argv(tristep_paths)
     if v13:
         # Shift 6 + the adapter at 1.0 (alpha folded, qkv rows already in the
-        # DiT's order: no --lora-qkv-permute, so a user LoRA after it is
-        # applied exactly as trained).
+        # DiT's order: no --lora-qkv-permute). A user LoRA after it still
+        # needs its own re-order (h3_lora_for_runner, below): before
+        # 4.19.12 it was passed as trained and its q/k/v update landed on
+        # the wrong heads.
         cmd += h3_v13_argv(v13_paths, shift=v13_shift)
     if user_lora is not None and (not turbo or h3_supports_lora_stack()):
         # The SAME flag Turbo rides. On a stacking runner every `--lora` is one
@@ -36862,8 +37039,13 @@ def run_h3_job_inner(job: dict) -> None:
         # checkpoint that ships alpha == rank, which is the only namespace this
         # lane accepts (the diffusers/PEFT one, whose alpha is NOT in the file,
         # is refused upstream in _h3_lora_prepare).
+        # The runner reads each file in the base's qkv row order
+        # (h3_lora_for_runner); the recipe keeps naming the library file.
+        p["h3_lora_qkv"] = []
         for _pp, _ps in (user_lora_stack if h3_supports_lora_stack() else [(user_lora, user_lora_strength)]):
-            cmd += ["--lora", f"{_pp}:{_ps:g}"]
+            _run_pp, _qkv = h3_lora_for_runner(_pp, push)
+            p["h3_lora_qkv"].append({"path": str(_pp), "qkv_rows": _qkv})
+            cmd += ["--lora", f"{_run_pp}:{_ps:g}"]
 
     env = os.environ.copy()
     # The runner pipes raw RGB into `ffmpeg` from PATH (minimax_h3_mlx.media);

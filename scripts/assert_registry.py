@@ -162,6 +162,34 @@ def not_installed(quant, version_id):
     return ""
 
 
+def code_only():
+    """A reason string when this tree holds NO model file at all, else "".
+
+    A git worktree or a fresh clone is code only: start.js points the panel at
+    `{{cwd}}/mlx_models`, and nothing has ever downloaded into it (it may not
+    exist, or hold only empty folders other gates create, such as `loras/`).
+    The "this install" checks below (the default pack is complete, the text
+    encoder is there, the default pack carries its manifest) cannot be
+    answered on such a tree, and failing them made the gate red on every
+    release worktree that did not link a model folder in (4.19.10-4.19.12).
+    They SKIP here, named. Any file at all under the folder means a download
+    happened, so a missing or partial default pack is still a FAIL; so is a
+    dangling symlink (a moved install, an unplugged model drive)."""
+    d = p.MODELS_DIR
+    if d.is_symlink() and not d.exists():
+        return ""
+    if not d.exists():
+        return f"code-only tree: no model folder at {d}"
+    if d.is_symlink():
+        return ""
+    try:
+        if any(f.is_file() and f.name != ".DS_Store" for f in d.rglob("*")):
+            return ""
+    except OSError:
+        return ""
+    return f"code-only tree: no model file under {d}"
+
+
 def known_defect(tag, label, got, current, should_be):
     """Pin a WRONG behaviour so the gate stays green and the bug stays visible.
 
@@ -329,11 +357,14 @@ eq("q8_available_anywhere delegates", p.q8_available_anywhere(), p.pack_availabl
 eq("an unregistered quant invents no missing files", p.pack_missing_files("q9"), [])
 for vid in ("ltx23", "ltx25"):
     for q in ("q4", "q8"):
-        if not_installed(q, vid):
-            skip(f"this install is complete ({vid}/{q})", not_installed(q, vid))
+        if not_installed(q, vid) or code_only():
+            skip(f"this install is complete ({vid}/{q})", not_installed(q, vid) or code_only())
             continue
         eq(f"this install is complete ({vid}/{q})", p.pack_missing_files(q, vid), [])
-    eq(f"this install has {vid}'s text encoder", p.text_encoder_missing_files(vid), [])
+    if code_only():
+        skip(f"this install has {vid}'s text encoder", code_only())
+    else:
+        eq(f"this install has {vid}'s text encoder", p.text_encoder_missing_files(vid), [])
 if not_installed("q8", "ltx25"):
     skip("the HQ surface is complete on this box", not_installed("q8", "ltx25"))
 else:
@@ -405,8 +436,8 @@ p._canonical_layout = lambda: True
 try:
     for vid in ("ltx23", "ltx25"):
         for q in ("q4", "q8"):
-            if not_installed(q, vid):
-                skip(f"a complete pack passes ({vid}/{q})", not_installed(q, vid))
+            if not_installed(q, vid) or code_only():
+                skip(f"a complete pack passes ({vid}/{q})", not_installed(q, vid) or code_only())
                 continue
             no_raise(f"a complete pack passes ({vid}/{q})",
                      lambda vid=vid, q=q: p.ltx_pack_preflight(q, "X", vid))
@@ -442,9 +473,16 @@ try:
             ):
                 raises(f"the refusal {what}",
                        lambda: p.ltx_pack_preflight("q8", "Extend", "ltx23"), needle)
-            # ...and the OTHER generation is untouched by it.
-            no_raise("2.5 is unaffected by a broken 2.3 pack",
-                     lambda: p.ltx_pack_preflight("q8", "Extend", "ltx25"))
+            # ...and the OTHER generation is untouched by it. Only answerable
+            # where the 2.5 q8 pack is installed: it is opt-in (Settings ->
+            # Models), and with pack_available_anywhere forced off above, an
+            # install without it would fail here for a reason unrelated to 2.3.
+            if not_installed("q8", "ltx25") or code_only():
+                skip("2.5 is unaffected by a broken 2.3 pack",
+                     not_installed("q8", "ltx25") or code_only())
+            else:
+                no_raise("2.5 is unaffected by a broken 2.3 pack",
+                         lambda: p.ltx_pack_preflight("q8", "Extend", "ltx25"))
         finally:
             pack["path"] = saved
             p.pack_available_anywhere = _saved_anywhere
@@ -524,8 +562,11 @@ finally:
     p.ACTIVE_MODEL_VERSION = _saved_active
 eq("an unknown repo defaults to hf-api", p._pack_verify_source("ic_colorize"), "hf-api")
 eq("None defaults to hf-api", p._pack_verify_source(None), "hf-api")
-eq("the 2.5 q4 pack really does carry a manifest",
-   (p.pack_path("q4", "ltx25") / p.PACK_MANIFEST_NAME).exists(), True)
+if code_only():
+    skip("the 2.5 q4 pack really does carry a manifest", code_only())
+else:
+    eq("the 2.5 q4 pack really does carry a manifest",
+       (p.pack_path("q4", "ltx25") / p.PACK_MANIFEST_NAME).exists(), True)
 eq("the 2.3 q4 pack really does not",
    (p.pack_path("q4", "ltx23") / p.PACK_MANIFEST_NAME).exists(), False)
 

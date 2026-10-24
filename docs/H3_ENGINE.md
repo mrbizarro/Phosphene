@@ -357,33 +357,85 @@ says so under itself when one of them is picked.
   sigma subset, decode; plus `h3.schedule` (the sigmas the runner ran) and
   `h3.lora_accounting`. The ⓘ modal prints a Speed row.
 
-### Speed adapters run a per-head copy (2026-10-22)
+### Every H3 LoRA runs in the base's qkv row order (2026-10-22)
 
 H3's DiT stores the fused `attn.qkv_proj` rows **per head**, `(heads, 3,
-head_dim)`. Every speed adapter Phosphene resolves — Kijai's TaoMate r19, the
-official TaoMate r128, larryvrh's v4-600 EMA, the LightX2V v1.x repack — has
-its `lora_B` rows **contiguous**, `(3, heads, head_dim)`: the layout of the
-ComfyUI/diffusers definition it was trained or converted through. (One-way
-ANOVA on row norms, q/k/v as groups: base blocks.49 per-head F 5006 vs
-contiguous 43; the adapters' B·A deltas at blocks.49 read the other way,
-TaoMate 11 vs 1897, v4 0 vs 1038.) The runner only re-orders rows under
-`--lora-qkv-permute`, which has been OFF by default since 2026-08-15 and is
-global to a run, so it would also re-order a stacked user LoRA that lora-lab
-trained in the native layout.
+head_dim)`. The ComfyUI/diffusers definition the community trains against
+splits them **contiguously**, `(3, heads, head_dim)`, and every H3 LoRA
+measured is in that order: the speed adapters (Kijai's TaoMate r19, the
+official TaoMate r128, larryvrh's v4-600 EMA, the LightX2V v1.x repack) and
+every user LoRA in the library (ostris ai-toolkit, the fal
+`minimax-h3-trainer`, a kohya-style trainer). The runner only re-orders rows
+under `--lora-qkv-permute`, which has been OFF by default since 2026-08-15
+and is global to a run. So since then every H3 LoRA has added its q update
+to the wrong heads' rows.
 
-So the panel re-orders the speed adapter itself: `h3_bake_runner_layout()`
-writes `turbo-lora/runner-layout/<same name>` with each qkv `lora_B`'s 168
-blocks of 128 rows moved into per-head order. It is a byte move of whole rows
-(dtype-agnostic, no arithmetic), byte-identical to the runner's
-`_permute_qkv_rows` on all 52 modules of the real TaoMate file, stamped in the
-file's metadata with the source's size and mtime and re-made when either
-changes, and written through a `.partial` + rename. It runs right after a Fast
-or Turbo download and, for installs that already have the file, on the first
-render (0.25 s for the 182 MB TaoMate file on an M4 Max). The downloaded, digest-pinned file is never touched.
-A runner without `--lora-qkv-permute` predates 2026-08-15 and re-orders every
-`--lora` itself, so it is handed the source file. User LoRAs never go through
-this. Provenance: `h3.tristep` / `h3.turbo` carry `lora` (the file the runner
-read), `source` and `qkv_rows` (`per-head` or `runner`).
+**The test.** One-way ANOVA on per-row norms with q/k/v as the groups, read
+both ways. The base (bf16 pruned DiT and the Q8 pack alike) reads per head:
+blocks.0 F 1362 vs 83, blocks.49 5006 vs 43, token_refiner.0 1549 vs 10.
+`h3_lora_qkv_layout()` runs the same test on each of a LoRA's qkv modules —
+row norms of B·A via the rank×rank Gram matrix, so the full delta is never
+built — and each trained module votes for the larger F. 70 % agreement
+calls the file (measured files sit at 87-98 %); below that it is
+"unclear". A file whose metadata declares per-head rows (our own
+runner-layout copies, `fetch_h3_v13.py` builds, Viggle's "interleaved"
+exports) skips the vote. 0.03-0.9 s per file, cached per size + mtime.
+
+**Contiguous is the default (2026-10-23, 4.19.12 blocker).** MiniMax's own
+release is diffusers-shaped (separate `to_q` / `to_k` / `to_v`), and every
+tool that fuses them into one `attn.qkv_proj` stacks them `[q; k; v]`. So
+only a declared or measured per-head file runs as it is; "unclear" (or a
+dtype the vote cannot read) is re-ordered like every other fused file, with
+a log line. Before this, "unclear" ran as trained — wrong for every trainer
+we know of.
+
+**fc1 is not in this class.** The runner reads `mlp.fc1` as `[gate; value]`
+and so does every fused-name lineage: Kijai's comfy repack of LightX2V v1.0
+swaps diffusers' `[value; gate]` into it (his metadata says so, and our own
+diffusers repack agrees with his file as-is at +0.962), and his TaoMate r19
+keeps the official TaoMate r128's half order (per-block half-norm ratios
+identical: 0.014 / 0.014 / 0.206 at blocks 5 / 25 / 45). Diffusers-format
+files are refused at import, so `--lora-fc1-swap` stays off.
+
+**The fix.** `h3_lora_for_runner()` hands the runner, for a contiguous file,
+`<dir>/runner-layout/<same name>`: each qkv `lora_B`'s 168 blocks of 128 rows
+moved into per-head order by `h3_bake_runner_layout()` (whole-row byte moves,
+dtype-agnostic, no arithmetic; byte-identical to the runner's
+`_permute_qkv_rows` on the real TaoMate and bizarrotrn_h3 files). A per-head
+file runs as it is; an MLP-only LoRA has nothing to re-order. The copy is
+stamped with the source's size + mtime and re-made when either changes,
+written through `.partial` + rename, and pruned once its source leaves the
+library; the picker lists only the library's top level, so it never shows.
+The source file is never touched, so a recipe keeps naming it. Fast and
+Turbo get their copy right after download; everything else on first use. A
+runner without `--lora-qkv-permute` predates 2026-08-15 and re-orders every
+`--lora` itself, so it is handed the source.
+
+**Evidence.** Fast @ High 1024×576 5 s, seed 52031: the re-ordered TaoMate
+copy renders byte-identical to `--lora-qkv-permute`, and against the shipped
+order the mouth is 56 % sharper (Laplacian variance 26.4 → 41.1) with no
+added flicker. A character LoRA moves further: bizarrotrn_h3 at 1.0 on Fast
+@ High, seed 52032, ArcFace identity against its 42 training stills 0.399 →
+0.640, mouth region 24 % sharper, face 30 % steadier frame to frame — as
+shipped, the trigger's description (a waxed handlebar) won over the face the
+LoRA learned.
+
+**The 4.19.12 blocker (2026-10-23).** 4.19.11 shipped only the speed-adapter
+half (e1568d7): user LoRAs still went to the runner as trained, on every
+speed including Best at High with lightx2v v1.3 (its own file is per-head;
+a user LoRA stacked after it was not). Regression gates in
+`test_h3_tristep_draft.py`: the delta the runner applies, B'·A, equals the
+trained B·A with its rows moved (3, heads, head_dim) → (heads, 3,
+head_dim), derived from row indices, not from either implementation; and on
+the maintainer's Mac the bizarrotrn_h3 copy's tensor bytes match the copy
+that rendered the corrected clips (sha256 758e0096…). The fused block weight
+W + B'·A matches the pinned runner's own `--lora-qkv-permute` bit for bit
+(blocks 0 / 25 / 49); as 4.19.11 passed it, |Δ − Δref| / |Δref| ≈ 1.41,
+i.e. an orthogonal, unrelated update.
+
+**Provenance.** `h3.tristep` / `h3.turbo` carry `lora` (the file the runner
+read), `source` and `qkv_rows`; `params.h3_lora_qkv` lists each user LoRA
+with its `qkv_rows` (`re-ordered`, `as-trained`, `none`, `runner`).
 
 ### Best on High: lightx2v v1.3 (2026-10-22)
 
