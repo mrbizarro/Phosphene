@@ -96,9 +96,18 @@ fi
 release_lock() {
   [ "$(sed -n 1p "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -f "$LOCK/pid" && rmdir "$LOCK"
   [ -f "${LOG:-}" ] && rm -f "$LOG"
+  [ -n "${EC_COPY:-}" ] && rm -f "$EC_COPY"
   return 0
 }
 trap release_lock EXIT
+# uv 0.11 splits constraints arguments at spaces, even quoted shell arguments.
+# Keep the original EC assignment for the native bootstrap compatibility shim.
+# A relative temporary name works even when this engine lives in a spaced home.
+EC_COPY="$(mktemp env/.phosphene_constraints.XXXXXX)" || {
+  echo 'FATAL error: cannot prepare engine constraints - check disk space and retry Repair engine'; exit 1;
+}
+cp "$EC" "$EC_COPY" || { echo 'FATAL error: cannot copy engine constraints - retry Repair engine'; exit 1; }
+EC="$EC_COPY"
 
 # uv's own failure lines, defused for Pinokio's matcher (see above). The raw
 # text goes to $LOG first - install_cause reads it after a failed run.

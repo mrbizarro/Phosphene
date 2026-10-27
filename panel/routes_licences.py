@@ -37,7 +37,14 @@ def post_licences_accept(h, path, qs, ctype) -> None:
     if (form.get("accept", [""])[0] or "").strip() not in ("1", "true", "yes", "on"):
         h._json({"ok": False, "error": "tick the box to accept the licence first"}, 400)
         return
-    rec = model_licences.accept(P.STATE_DIR, key, P._read_local_version())
+    if form.get("version", [""])[0] != model_licences.LICENCES[key]["version"]:
+        h._json({"ok": False, "error": "The licence changed. Close this screen and open it again to read the current licence."}, 409)
+        return
+    try:
+        rec = model_licences.accept(P.STATE_DIR, key, P._read_local_version())
+    except OSError:
+        h._json({"ok": False, "error": "Could not save acceptance. Check that the app state folder is writable, then try again."}, 503)
+        return
     P.push(f"[licence] {model_licences.LICENCES[key]['licence']} accepted "
            f"({rec['version']})")
     try:

@@ -18,7 +18,8 @@ explicit "I accept"). The acceptance is stored on this Mac in
 `<state>/model_licences.json` - model, licence version, time, app version -
 and asked again when the licence version changes. A marker file
 `<state>/licence-<key>-<version>.accepted` is written alongside, because the
-Pinokio installer (scripts/pinokio/h3_licence_gate.sh) checks it from bash.
+Pinokio installer checks the same matching pair through this module from bash.
+Missing, corrupt or mismatched records require explicit acceptance again.
 
 Territory: Phosphene shows the H3 territory notice and the user confirms it in
 the accept box. It does not look up the user's location - the licence asks
@@ -34,6 +35,8 @@ Stdlib only; no import of the panel (the panel imports this).
 from __future__ import annotations
 
 import json
+import fcntl
+import uuid
 import os
 import threading
 import time
@@ -220,7 +223,17 @@ def is_accepted(state_dir, key: str) -> bool:
     if key not in LICENCES:
         return True
     rec = load(state_dir).get(key)
-    return bool(isinstance(rec, dict) and rec.get("version") == LICENCES[key]["version"])
+    if not isinstance(rec, dict) or rec.get("version") != LICENCES[key]["version"]:
+        return False
+    try:
+        marker = json.loads(marker_path(state_dir, key).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    # Both representations must describe the same explicit acceptance. Never
+    # repair either from weights or from an unpaired/stale record.
+    return bool(marker == rec and rec.get("accepted_at")
+                and rec.get("licence") == LICENCES[key]["licence"]
+                and rec.get("statement") == COPY[key]["accept_label"])
 
 
 def accept(state_dir, key: str, app_version: str | None = None) -> dict:
@@ -228,6 +241,7 @@ def accept(state_dir, key: str, app_version: str | None = None) -> dict:
     if key not in LICENCES:
         raise KeyError(f"unknown licence {key!r}")
     rec = {
+        "acceptance_id": uuid.uuid4().hex,
         "licence": LICENCES[key]["licence"],
         "version": LICENCES[key]["version"],
         "accepted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -240,18 +254,28 @@ def accept(state_dir, key: str, app_version: str | None = None) -> dict:
         # Two panels can share one state dir: lock the read-modify-write
         # across processes too, and give every writer its own temp file.
         with open(state / (STORE_NAME + ".lock"), "a") as lockf:
-            try:
-                import fcntl
-                fcntl.flock(lockf, fcntl.LOCK_EX)
-            except (ImportError, OSError):
-                pass
+            fcntl.flock(lockf, fcntl.LOCK_EX)
             data = load(state)
             data[key] = rec
-            tmp = state / f".{STORE_NAME}.{os.getpid()}.{threading.get_ident()}.tmp"
-            tmp.write_text(json.dumps(data, indent=1, sort_keys=True), encoding="utf-8")
-            os.replace(tmp, _store(state))
-            marker_path(state, key).write_text(json.dumps(rec) + "\n", encoding="utf-8")
+            # Publish the marker first and JSON last. A partial save cannot
+            # authorize: readers require an identical pair. Unique IDs keep
+            # same-second attempts distinct. Lock failure must fail closed.
+            _atomic_write(marker_path(state, key), rec)
+            _atomic_write(_store(state), data)
     return rec
+
+
+def _atomic_write(path: Path, data: dict) -> None:
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with tmp.open("x", encoding="utf-8") as f:
+            json.dump(data, f, indent=1, sort_keys=True)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def describe(state_dir, key: str) -> dict:
@@ -325,3 +349,12 @@ def refusal(state_dir, key: str | None) -> dict | None:
     return {"ok": False, "code": "licence_required", "licence": key,
             "error": tmpl.replace("{title}", info["model"]),
             "url": info["url"]}
+
+
+if __name__ == "__main__":
+    import sys
+    # Read-only shell gate. Unknown keys or interpreter/read failures refuse.
+    if len(sys.argv) != 4 or sys.argv[2] not in LICENCES:
+        sys.exit(1)
+    sys.exit(0 if (sys.argv[3] == LICENCES[sys.argv[2]]["version"]
+                   and is_accepted(sys.argv[1], sys.argv[2])) else 1)

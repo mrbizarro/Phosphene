@@ -47,7 +47,9 @@ else
   install_cause() { echo other; }
 fi
 LOG="$(mktemp -t phos_separator)" || LOG=/dev/null
-trap '[ -f "$LOG" ] && rm -f "$LOG"' EXIT
+EC_COPY=''
+PINS=''
+trap '[ ! -f "$LOG" ] || rm -f "$LOG"; [ -z "$EC_COPY" ] || rm -f "$EC_COPY"; [ -z "$PINS" ] || rm -f "$PINS"' EXIT
 # Raw output to $LOG (install_cause reads it); the screen gets it DEFUSED.
 # Pinokio stops Install/Update on any /error:/i or /errno /i line, and an
 # attempt that is about to be retried must not end the whole run (the same
@@ -99,15 +101,22 @@ RUNNER="$APP_ROOT/scripts/a2v_separate.py"
 # The engine venv's known-good set (4.19.4) rides along with the torch/numpy
 # pins below, so demucs can never move tokenizers / transformers / the mlx trio.
 EC="$APP_ROOT/scripts/pinokio/engine_constraints.txt"
+# All constraints arguments must be space-free, including the generated pins.
+# The engine interpreter stays absolute; only our small temporary files move.
+cd "$VENV" || { record failed no_venv; exit 1; }
 EC_ARGS=()
-[ -f "$EC" ] && EC_ARGS=(-c "$EC")
+if [ -f "$EC" ]; then
+  EC_COPY="$(mktemp .phosphene_constraints.XXXXXX)" || { record failed pip_failed disk; exit 1; }
+  cp "$EC" "$EC_COPY" || { record failed pip_failed disk; exit 1; }
+  EC_ARGS=(-c "$EC_COPY")
+fi
 PROBE='import demucs.pretrained, demucs.apply, torch'
 
 if "$PY" -c "$PROBE" >/dev/null 2>&1; then
   echo 'vocal separation: package already installed'
 else
   echo 'Installing vocal separation (demucs, ~15 MB + 80 MB weights)...'
-  PINS="$(mktemp -t phos_sep_pins)"
+  PINS="$(mktemp .phosphene_sep_pins.XXXXXX)" || { record failed pip_failed disk; exit 1; }
   "$PY" - > "$PINS" <<'PYPINS'
 import importlib.metadata as m
 for name in ("torch", "numpy"):

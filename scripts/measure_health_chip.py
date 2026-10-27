@@ -111,6 +111,8 @@ JS_MEASURE = r"""
     header: box(header), cluster: box(cl), chip: cb, hit,
     faceText: face ? (face.textContent || '').trim() : null,
     faceShort: face ? (face.dataset.short || '') : null,
+    memoryWarning: !!(mem && (mem.classList.contains('pill-warn') || mem.classList.contains('pill-danger'))),
+    chipWarning: !!(chip && (chip.classList.contains('is-warn') || chip.classList.contains('is-danger'))),
     shown,
     // What is PAINTED, not what the text says: a face squeezed to 0 px
     // still has its text (that was the narrow-width bug).
@@ -176,8 +178,14 @@ def check(dist: str, width: int, m: dict) -> list[str]:
         out.append(f"{tag}: the face is ellipsized at {width} px")
     shown = m.get("shown") or ""
     if width < NARROW:
-        if not shown.endswith("%"):
-            out.append(f"{tag}: narrow face should be the percentage, shows {shown!r}")
+        # A busy Mac intentionally names the warning at narrow widths. The
+        # percentage still has to exist in the Memory row; a bare label with
+        # no actual warning/readout must not make this visibility gate pass.
+        memory_warning = (shown == "memory" and m.get("memoryWarning")
+                          and m.get("chipWarning") and "GB" in (m.get("memText") or "")
+                          and "%" in (m.get("memText") or ""))
+        if not shown.endswith("%") and not memory_warning:
+            out.append(f"{tag}: narrow face should show the percentage or a confirmed memory warning, shows {shown!r}")
     else:
         if "GB" not in shown or "%" not in shown:
             out.append(f"{tag}: the face should carry the memory reading, shows {shown!r}")

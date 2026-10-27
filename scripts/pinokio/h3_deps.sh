@@ -55,7 +55,14 @@ if ! mkdir "$LOCK" 2>/dev/null; then
   echo 'An earlier H3 package install was interrupted - taking over.'
 fi
 echo "$$" > "$LOCK/pid"
-trap 'rm -f "$LOCK/pid"; rmdir "$LOCK" 2>/dev/null' EXIT
+HC_COPY=''
+trap 'rm -f "$LOCK/pid"; rmdir "$LOCK" 2>/dev/null; [ -z "$HC_COPY" ] || rm -f "$HC_COPY"' EXIT
+# uv splits even quoted constraints paths at spaces. Use a relative snapshot.
+HC_COPY="$(mktemp .venv/.phosphene_constraints.XXXXXX)" || {
+  echo 'FATAL error: cannot prepare H3 constraints - check disk space and retry Repair'; exit 1;
+}
+cp "$HC" "$HC_COPY" || { echo 'FATAL error: cannot copy H3 constraints - retry Repair'; exit 1; }
+HC="$HC_COPY"
 if ! uv pip install --python .venv/bin/python -c "$HC" -r requirements.txt; then
   echo 'FATAL error: the H3 packages did not install - the lines above say why (network, disk).'
   exit 1

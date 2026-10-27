@@ -1569,7 +1569,7 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
     # stdout/stderr:" - two Macs, 21 FLUX.2 failures since 4.16, and not one
     # word of why. The tail still follows in full for the user and the Logs.
     cause = _subprocess_cause_line(last_lines)
-    cause_note = f" — last line: {cause[:220]}" if cause else ""
+    cause_note = f"; last line: {cause[:220]}" if cause else ""
     # SIGTERM/SIGKILL → user hit /stop. Surface as a typed cancellation
     # so the queue worker marks the job 'cancelled' rather than 'failed'.
     if rc in (-15, 143, -9, 137):
@@ -1605,21 +1605,22 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
         )
         if looks_like_abort or looks_like_oom:
             hint = (
-                "GPU/Metal abort detected — almost always means the model "
-                "was too big for available memory."
-                if looks_like_oom or rc in (-6, 134)
-                else "GPU/Metal error from MLX. Could be OOM or a kernel limit."
+                "The engine reported that it ran out of memory."
+                if looks_like_oom
+                else "The image engine aborted in native code. Memory pressure "
+                "or a Metal error may be involved, but this log does not confirm the cause."
             )
+            signal_note = "SIGABRT; " if rc in (-6, 134) else ""
             raise RuntimeError(
-                f"{bin_name} aborted on batch of {n} seeds (exit {rc}){cause_note}. {hint}\n\n"
+                f"{bin_name} aborted on batch of {n} seeds ({signal_note}exit {rc}){cause_note}. {hint}\n\n"
                 f"Try one of:\n"
                 f"  - Smaller engine (FLUX.2 [klein] 4B / Z-Image-Turbo) "
                 f"if you picked a 9B/edit model.\n"
-                f"  - Lower resolution (1024×1024 instead of 1280×720).\n"
+                f"  - Choose a small canvas: 768×432 for wide images or 512×512 for square images.\n"
                 f"  - Lower quantization (Q4 instead of Q6/Q8) for tight RAM.\n"
                 f"  - Quit other big apps (browsers + IDEs eat 8-15 GB).\n"
-                f"A crash report was saved to ~/Library/Logs/DiagnosticReports/"
-                f"python3.11-*.ips — useful for a bug report.\n\n"
+                f"If it happens again, check ~/Library/Logs/DiagnosticReports/"
+                f"for a Python .ips crash report and attach it to your bug report.\n\n"
                 f"Tail of stdout/stderr:\n{stderr_tail[-800:]}"
             )
         # Generic non-zero exit — pass through the tail so the user sees

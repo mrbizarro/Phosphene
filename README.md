@@ -10,7 +10,7 @@ AI video with sound, songs and images, made locally on your Mac.
 
 [Website](https://phosphene.video) · [Docs](https://phosphene.video/docs/) · [Benchmarks](https://phosphene.video/benchmarks/) · [Changelog](https://phosphene.video/changelog/) · [@PhospheneAI](https://x.com/PhospheneAI)
 
-**Current release: v4.19.12.** See what's new in the [changelog](https://phosphene.video/changelog/).
+**Current release: v4.19.13.** See what's new in the [changelog](https://phosphene.video/changelog/).
 
 Phosphene is a free, open-source app for Apple Silicon Macs, built on Apple's MLX by Mr Bizarro.
 Renders run offline, and your prompts, pictures and videos stay on your Mac.

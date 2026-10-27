@@ -337,13 +337,10 @@ def build(source: Path, target: Path) -> int:
 
 
 def licence_accepted(state_dir: Path) -> bool:
-    """Whether the MiniMax H3 licence is accepted in Phosphene (the marker
-    scripts/pinokio/h3_licence_gate.sh and the panel both read)."""
-    gate = Path(__file__).resolve().parent / "pinokio" / "h3_licence_gate.sh"
-    m = re.search(r'^H3_LICENCE_VERSION="([^"]+)"', gate.read_text(), re.M) if gate.is_file() else None
-    if not m:
-        return any(state_dir.glob("licence-h3-*.accepted"))
-    return (state_dir / f"licence-h3-{m.group(1)}.accepted").is_file()
+    """Use the same explicit acceptance pair as the panel and shell gate."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    import model_licences
+    return model_licences.is_accepted(state_dir, "h3")
 
 
 def main() -> int:

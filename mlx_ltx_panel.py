@@ -19655,7 +19655,9 @@ _ANALYTICS_ERROR_CLASSES = (
     # people-class we have) rather than saying "this machine needs a smaller
     # canvas". Different cause, different remedy, different class.
     ("metal_oom", ("kiogpucommandbuffercallbackerroroutofmemory",
-                   "command buffer execution failed: insufficient memory")),
+                   "command buffer execution failed: insufficient memory",
+                   "metalalloc", "kioreturnnospace",
+                   "the engine reported that it ran out of memory")),
     # WAS the bare substring `cancel`, which is a loaded gun: it sat third in
     # this table, above oom_jetsam and native_crash, so ANY future message
     # containing the word "cancelled" would have been filed as a cancel race.
@@ -38057,6 +38059,30 @@ def _take_ffmpeg(cmd: list[str], label: str, job: dict | None,
                            + (f": {tail}" if tail else ""))
 
 
+def _take_last_frame(ff: str, source: str, output: str, job: dict) -> None:
+    """Carry the last decoded video frame, independent of audio duration/FPS."""
+    # Seeking 50 ms before container EOF selected an earlier frame at high
+    # FPS, or no frame when audio outlasted video. On resume, ffmpeg's empty
+    # success then silently reused the previous PNG. Stream all video frames
+    # into one scratch PNG (bounded memory/storage), keeping only the last;
+    # publish it only after a successful, nonempty decode. No resize or YUV
+    # intermediate: the reference stays at the source's native RGB canvas.
+    import tempfile
+    target = Path(output)
+    fd, scratch = tempfile.mkstemp(prefix=".handoff-", suffix=".png", dir=target.parent)
+    os.close(fd)
+    try:
+        _take_ffmpeg([ff, "-loglevel", "error", "-y", "-i", source,
+                      "-map", "0:v:0", "-an", "-vsync", "0",
+                      "-pix_fmt", "rgb24", "-compression_level", "0",
+                      "-update", "1", scratch], "One Shot handoff frame", job)
+        if not Path(scratch).stat().st_size:
+            raise RuntimeError("One Shot handoff frame: no video frame decoded")
+        os.replace(scratch, target)
+    finally:
+        Path(scratch).unlink(missing_ok=True)
+
+
 def _join_take_parts(ff: str, parts: list[str], final: Path, fps: float = 24.0,
                      job: dict | None = None, pgid_key: str = "mux_pgid") -> None:
     """Join the parts of a one-shot take with the sound locked to the picture.
@@ -38197,8 +38223,7 @@ def run_take_job_inner(job: dict) -> None:
             raise RuntimeError(f"part {start_k} of this take is no longer on disk — "
                                "it can't be resumed")
         last_png = str(take_dir / f"part{start_k}_last.png")
-        _take_ffmpeg([ff, "-loglevel", "error", "-y", "-sseof", "-0.05", "-i", resume_outs[-1],
-                      "-frames:v", "1", "-update", "1", last_png], "One Shot handoff frame", job)
+        _take_last_frame(ff, resume_outs[-1], last_png, job)
     if not resume_outs:
         push(f"[take] one shot · {take['seconds']} s · {take['beats']} beats · {n_parts} parts on "
              f"{'H3' if engine == 'h3' else 'LTX'}"
@@ -38412,8 +38437,7 @@ def run_take_job_inner(job: dict) -> None:
             # SAFETY-6: assigned only once the frame is on disk — a Stop inside
             # this ffmpeg left `last_png` naming a file that was never written.
             _png = str(take_dir / f"part{k + 1}_last.png")
-            _take_ffmpeg([ff, "-loglevel", "error", "-y", "-sseof", "-0.05", "-i", out,
-                          "-frames:v", "1", "-update", "1", _png], "One Shot handoff frame", job)
+            _take_last_frame(ff, out, _png, job)
             last_png = _png
             job["take_progress"] = {"part": k + 1, "parts": n_parts}
             # H3-11 / VA-17's chained-window ask: "stop after this part — keep
@@ -38789,6 +38813,15 @@ def run_job_inner(job: dict) -> None:
         if p.get("take"):
             return run_take_job_inner(job)
         return run_h3_job_inner(job)
+    # Refuse before generation setup can load a helper or prepare media.
+    # Saved jobs and API clients can bypass the browser's generation gate.
+    if mode == "ingredients":
+        if not ltx_generation_serves_ingredients():
+            raise RenderRefused(
+                "ingredients_generation",
+                "Ingredients needs the LTX-2.3 generation. Switch to LTX-2.3 "
+                "in Models, or use Image mode with Inspire on LTX-2.5. "
+                "Your reference images are kept.")
     # ONE TAKE on LTX: parts by last-frame handoff, each an ordinary render
     # back through this function with `take` cleared. Before the stale-engine
     # gate on purpose — the parts hit it one by one, with the same words.
@@ -39672,17 +39705,6 @@ def run_job_inner(job: dict) -> None:
         # collapses to prompt-only. The owner's report is exactly that: an
         # unrelated subject, produced at two-stage cost. Refuse at the door
         # with the reason instead of burning ~11 GPU-minutes on noise.
-        if not ltx_generation_serves_ingredients():
-            raise RenderRefused(
-                "ingredients_generation",
-                "Ingredients needs the LTX-2.3 generation. Its IC-LoRA is "
-                "2.3-trained and Lightricks has not published a 2.5 one, so "
-                "on "
-                f"{model_version()['label']} the reference sheet is ignored "
-                "and you get an unrelated clip at full two-stage cost. For "
-                "reference-guided work on 2.5, use Image mode with Inspire "
-                "— or install the 2.3 pack from the Train tab for "
-                "Ingredients.")
         try:
             image_paths = json.loads(p.get("ingredient_images_json") or "[]")
             if not isinstance(image_paths, list):

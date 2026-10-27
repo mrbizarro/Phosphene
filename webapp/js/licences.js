@@ -17,6 +17,7 @@
 // about licences.
 
 let _LIC = null;            // last GET /licences payload
+let _gateKey = null;        // the model shown by the current screen
 let _gateOpen = null;       // the promise of the screen currently shown
 const _nativeFetch = globalThis.fetch.bind(globalThis);
 
@@ -47,12 +48,16 @@ async function openLicence(key, opts) {
   opts = opts || {};
   await licencesLoad(true);
   const info = _licInfo(key);
-  if (!info) return true;                    // nothing to accept for this key
+  if (!info) return false;                    // no current licence was loaded
   if (info.accepted && !opts.readOnly && !opts.force) return true;
   // "Read the licence" on a licence nobody accepted yet IS the place to
   // accept it (the H3 credit line is the door for storyboard / API users).
   if (!info.accepted) opts = Object.assign({}, opts, { readOnly: false });
-  if (_gateOpen) return _gateOpen;
+  if (_gateOpen) {
+    if (_gateKey === key) return _gateOpen;
+    await _gateOpen;
+    return openLicence(key, opts);
+  }
   const ui = (_LIC && _LIC.ui) || {};
   const modal = document.getElementById('licenceModal');
   const body = document.getElementById('licenceBody');
@@ -103,6 +108,7 @@ async function openLicence(key, opts) {
         modal.style.display = 'none';
         modal.onclick = null;
         _gateOpen = null;
+        _gateKey = null;
       }
       resolve(ok);
     };
@@ -115,12 +121,13 @@ async function openLicence(key, opts) {
     if (fin) fin.onclick = () => done(!!info.accepted);
     modal.onclick = (ev) => { if (ev.target === modal) done(!!info.accepted && !opts.force); };
     if (acc) acc.onclick = async () => {
+      if (!box.checked) return;
       acc.disabled = true;
       try {
         const r = await _nativeFetch('/licences/accept', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ key, accept: '1' }),
+          body: new URLSearchParams({ key, version: info.version, accept: '1' }),
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
@@ -128,12 +135,14 @@ async function openLicence(key, opts) {
         licenceStatusRefresh();
         done(true);
       } catch (e) {
+        if (settled) return;
         const err = document.getElementById('licenceError');
         if (err) { err.hidden = false; err.textContent = 'Could not save: ' + e.message; }
-        acc.disabled = false;
+        acc.disabled = !box.checked;
       }
     };
   });
+  _gateKey = key;
   _gateOpen = promise;
   return promise;
 }

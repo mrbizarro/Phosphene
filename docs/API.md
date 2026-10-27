@@ -939,10 +939,14 @@ Every licence the panel asks about, with this Mac's acceptance state:
 
 ### `POST /licences/accept`
 
-Form fields `key=<licence key>` and `accept=1` (the box the user ticked). Records the acceptance for
+Form fields `key=<licence key>`, `version=<version shown by GET /licences>` and
+`accept=1` (the box the user ticked). Missing or stale versions return 409 without accepting.
+Persistence failures return 503 and can be retried after restoring write access. Records the acceptance for
 the licence's current `version` in `state/model_licences.json` (plus a marker file the H3 installer
 reads) and returns `{"ok": true, "key": ..., "record": {...}, "licence": {...}}`. A changed licence
-version asks again. Accepting on someone's behalf is accepting for them: an agent should show the
+version asks again. The panel and shell require matching JSON and marker records; cached weights
+do not bypass acceptance. An app update with the same licence version retains a matching acceptance.
+Accepting on someone's behalf is accepting for them: an agent should show the
 user the terms from `GET /licences` first.
 
 ## Helper / system
