@@ -4804,6 +4804,7 @@ function _displayPromptFor(prompt) {
 // (params.engine = "mflux/ideogram" etc.). Falls back to the raw token.
 function _imgEngineLabel(token) {
   const map = {
+    'flux3': 'FLUX 3 Klein by Black Forest Labs',
     'mflux/ideogram': 'Ideogram 4', 'mflux/hidream': 'HiDream',
     'mflux/qwen_edit': 'Qwen-Edit', 'mflux/flux2': 'FLUX.2', 'mflux': 'mflux'
   };

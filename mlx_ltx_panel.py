@@ -34113,6 +34113,9 @@ def _preflight_estimate_ram_gb(cfg) -> float:
     The `9b` variant gets a hard override — its Metal residency dwarfs
     every 4B sibling regardless of quantize.
     """
+    if cfg.kind == "flux3":
+        import flux3_engine
+        return flux3_engine.ram_need(cfg)
     if cfg.kind == "hidream":
         # 2026-05-31 review fix: HiDream-O1 BF16 was exempt from the RAM gate
         # (fell through to the 1.0 GB `!= mflux` branch). Its Metal residency
@@ -34373,10 +34376,10 @@ def run_image_job_inner(job: dict) -> None:
     refs_in = p.get("refs") or []
     if not isinstance(refs_in, list):
         raise RuntimeError(f"refs must be a list, got {type(refs_in).__name__}")
-    if len(refs_in) > 3:
-        raise RuntimeError(
-            "refs supports at most 3 images (Qwen-Edit-2509 limit)"
-        )
+    import flux3_engine
+    max_refs = 10 if engine_override in flux3_engine.PRESETS else 3
+    if len(refs_in) > max_refs:
+        raise RuntimeError(f"This engine supports at most {max_refs} reference images.")
     refs_resolved: list[str] = []
     for r in refs_in:
         if not isinstance(r, str) or not r.strip():
@@ -34397,6 +34400,10 @@ def run_image_job_inner(job: dict) -> None:
         cfg = _build_image_engine_config(engine_override, form=p)
     except ValueError as e:
         raise RuntimeError(str(e))
+
+    if cfg.kind == "flux3":
+        width, height = agent_image_engine.ASPECT_DIMS.get(aspect, (1280, 720))
+        flux3_engine.validate(cfg, width, height, refs_resolved, SYSTEM_RAM_GB)
 
     # User-picked LoRAs from the unified picker (same hidden #lorasJson
     # form field the video form uses). The job's `loras` param shape is
@@ -34492,6 +34499,7 @@ def run_image_job_inner(job: dict) -> None:
             refs=refs_resolved or None,
             config=cfg,
             on_log=lambda line: push(f"[image] {line}"),
+            **({"install_env": _music_install_env()} if cfg.kind == "flux3" else {}),
         )
     except Exception as _gen_exc:                                       # noqa: BLE001
         # Friendly message for the Ideogram 4 license gate: mflux 403s on the
@@ -34565,6 +34573,7 @@ def run_image_job_inner(job: dict) -> None:
             "generated_at": generated_at,
             "refs_ignored": c.get("refs_ignored", False),
             "source": "panel.queue.image",
+            **({"flux3": c} if cfg.kind == "flux3" else {}),
         }
         try:
             sidecar_path.write_text(json.dumps(sidecar, indent=2), encoding="utf-8")
@@ -42013,6 +42022,15 @@ def _build_image_engine_config(
     """
     engine_override = (engine_override or "auto").lower()
     form = form or {}
+    import flux3_engine
+    if engine_override in flux3_engine.PRESETS:
+        recipe = flux3_engine.PRESETS[engine_override]
+        pack = flux3_engine.PACKS[f"{recipe['variant']}-q{recipe['quantize']}"]
+        return agent_image_engine.ImageEngineConfig(
+            kind="flux3", flux3_variant=recipe["variant"],
+            mflux_model=pack["repo"], mflux_quantize=recipe["quantize"],
+            mflux_steps=recipe["steps"], mflux_guidance=recipe["guidance"],
+            mflux_lora_paths=[], mflux_lora_scales=[])
     if engine_override == "auto":
         return low_ram_auto_image_config(_load_agent_image_config(), form)
     # ===== Ideogram 4 (fp8) — typography & layout, text-in-image ===========

@@ -14,11 +14,11 @@
 
 Phosphene is a free, open-source AI video generator that runs locally on a Mac with M1, M2, M3, M4 or M5.
 It runs **LTX-2.5** and **MiniMax H3 (Hailuo H3)** for text-to-video and image-to-video with sound in the same pass,
-**YuE2** for songs from lyrics, and **Qwen-Image-Edit** and **FLUX.2** for images. It installs with one click through Pinokio
+**YuE2** for songs from lyrics, and **FLUX 3 Klein**, **Qwen-Image-Edit** and **FLUX.2** for images. It installs with one click through Pinokio
 and is built on Apple's MLX: no CUDA, no cloud GPU, no API key, no credits and no watermark.
 Your prompts, pictures and videos never leave your Mac.
 
-**Current release: v4.19.13.** Made by Mr Bizarro.
+**Current release: v4.19.14.** Made by Mr Bizarro.
 
 ## Why Phosphene
 
@@ -68,7 +68,7 @@ Its licence excludes the EU, UK, South Korea and US.
 
 ### Remix your own footage
 
-- **Motion Control:** copy the motion, camera move and pose of a clip you give it while your prompt paints a new subject and scene.
+- **Motion Control:** copy the motion, camera move and pose of a clip you give it while your prompt paints a new subject and scene ([guide](docs/MOTION_CONTROL.md)).
 - **Ingredients:** compose 2–8 reference pictures (a character, a prop, a place) into one clip.
 - **Colorize:** turn black-and-white footage into colour.
 
@@ -88,8 +88,9 @@ Make another take, cover a song, or get the score. About 11 GB, installed inside
 </p>
 <p align="center"><sub>“Neon Mile”, a Music Studio song sung with MiniMax H3, and “The bust sings”, LTX-2.5 lip-sync</sub></p>
 
-### AI image editing with Qwen-Image-Edit and FLUX.2
+### AI images with FLUX 3 Klein, Qwen-Image-Edit and FLUX.2
 
+New in 4.19.14: FLUX 3 Klein by Black Forest Labs makes an image from a sentence in about 50 seconds on an M4 Max, or edits the reference pictures you give it.
 Qwen-Image-Edit and FLUX.2 (via mflux) make images and edit them in words, like “make the jacket red”,
 with up to three reference pictures. Ideogram 4 puts readable words on a picture. Send any still straight to video.
 
@@ -151,6 +152,7 @@ Phosphene installs with one click through Pinokio (pinokio.computer), a free app
 
 To update, press **Update** in Pinokio, then restart Phosphene.
 The [docs](https://phosphene.video/docs/?utm_source=github&utm_medium=readme&utm_campaign=repo&utm_content=docs) have the step-by-step install, troubleshooting and every feature in detail.
+To install by hand instead, follow the [manual install](docs/MANUAL_INSTALL.md).
 Linux on Apple Silicon (`docs/LINUX.md`) is maintained by @joshuaswarren on a best-effort basis.
 
 ## What's coming
@@ -217,6 +219,7 @@ Contributors are credited in the release notes. See CONTRIBUTING.md.
 - Lightricks for LTX-Video 2.x, and @dgrauet for ltx-2-mlx, the MLX port Phosphene builds on.
 - MiniMax for Hailuo H3, and Apple ML research for MLX.
 - LightX2V for lightx2v v1.3, the adapter for Best on High; TaoLive (TaoMate-H3) and @kijai for the 3-step Fast adapter.
+- Black Forest Labs for FLUX 3 Klein, and mflux-community for its MLX conversions.
 - @filipstrand for mflux; Multimodal Art Projection for YuE2 and @vanch007 for its MLX port.
 - mlx-community for Gemma on MLX, and @cocktailpeanut for Pinokio.
 

@@ -387,6 +387,9 @@ def get_image_engine_status(h, parsed) -> None:
                 "license_url": ("https://huggingface.co/" + repo)
                                if (repo and engine == "ideogram4_inline") else None,
             })
+        import flux3_engine
+        out.extend(flux3_engine.status(key, float(P.SYSTEM_RAM_GB or 0))
+                   for key in flux3_engine.PRESETS)
         h._json({"engines": out,
                  "host_ram_gb": int(round(float(P.SYSTEM_RAM_GB or 0)))})
     except Exception as exc:                                # noqa: BLE001
@@ -762,8 +765,10 @@ def post_image_generate(h, path, qs, ctype) -> None:
     refs_in = payload.get("refs") or []
     if not isinstance(refs_in, list):
         h._json({"error": "refs must be a list of paths"}, 400); return
-    if len(refs_in) > 3:
-        h._json({"error": "refs supports at most 3 images (Qwen-Edit-2509 limit)"}, 400); return
+    import flux3_engine
+    max_refs = 10 if str(payload.get("engine_override") or "").lower() in flux3_engine.PRESETS else 3
+    if len(refs_in) > max_refs:
+        h._json({"error": f"This engine supports at most {max_refs} reference images."}, 400); return
     refs_resolved: list[str] = []
     for r in refs_in:
         if not isinstance(r, str) or not r.strip():
@@ -804,6 +809,13 @@ def post_image_generate(h, path, qs, ctype) -> None:
     if _lic:
         h._json(_lic, 451); return
 
+    if cfg.kind == "flux3":
+        try:
+            width, height = P.agent_image_engine.ASPECT_DIMS.get(aspect, (1280, 720))
+            flux3_engine.validate(cfg, width, height, refs_resolved, P.SYSTEM_RAM_GB)
+        except ValueError as e:
+            h._json({"error": str(e)}, 400); return
+
     # Output dir: panel_uploads/library/manual/<YYYYMMDD>/<unix_ms>/
     # — date-bucketed for directory hygiene PLUS a per-request
     # millisecond subdir so two generations in the same day don't
@@ -836,6 +848,8 @@ def post_image_generate(h, path, qs, ctype) -> None:
             # Stream mflux stdout into the panel log card so users
             # see step-by-step progress while the gen runs.
             # tqdm progress bars come through line-buffered.
+            if cfg.kind == "flux3":
+                P._preflight_image_job(cfg, engine_override=engine_override)
             candidates = P.agent_image_engine.generate(
                 prompt=prompt, n=n, aspect=aspect,
                 output_dir=out_dir,
@@ -843,6 +857,7 @@ def post_image_generate(h, path, qs, ctype) -> None:
                 refs=refs_resolved or None,
                 config=cfg,
                 on_log=lambda line: P.push(f"[image] {line}"),
+                **({"install_env": P._music_install_env()} if cfg.kind == "flux3" else {}),
             )
         except FileNotFoundError as e:
             h._json({"error": str(e)}, 404); return
@@ -886,6 +901,7 @@ def post_image_generate(h, path, qs, ctype) -> None:
             "generated_at": generated_at,
             "refs_ignored": c.get("refs_ignored", False),
             "source": "panel.image_studio",
+            **({"flux3": c} if cfg.kind == "flux3" else {}),
         }
         try:
             sidecar_path.write_text(P.json.dumps(sidecar, indent=2), encoding="utf-8")

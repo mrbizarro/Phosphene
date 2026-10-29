@@ -1,0 +1,13 @@
+FLUX 3 Klein by Black Forest Labs
+
+This FLUX Model is licensed by Black Forest Labs Inc. under the FLUX Kommunity License. Copyright Black Forest Labs Inc. IN NO EVENT SHALL BLACK FOREST LABS INC. BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH USE OF THIS MODEL.
+
+Rights to use this model are granted directly by Black Forest Labs Inc. to each recipient under the accompanying FLUX Kommunity License v1.0, not by Phosphene.
+
+The downloaded models were converted and quantized by mflux-community. They are modified versions of FLUX 3 Image Klein or Klein Base, not official Black Forest Labs products. Phosphene does not modify these weights. The app's MIT licence does not replace the model licence.
+
+Source: https://huggingface.co/black-forest-labs/flux-3-image-klein
+Base: https://huggingface.co/black-forest-labs/flux-3-image-klein-base
+Conversions: https://huggingface.co/mflux-community
+Licence: https://huggingface.co/black-forest-labs/flux-3-image-klein/blob/main/LICENSE.md
+The Qwen3-VL text encoder and mflux inference code have separate Apache-2.0 and MIT licences, respectively.

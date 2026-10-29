@@ -2322,7 +2322,7 @@ The same wizard walks out of frame. Audio: footsteps on leaves."></textarea>
                  here), but the hint now says text-only is a real option
                  too, in plain words. -->
             <h2>Make or change a picture
-              <span class="h2-hint">Drop a photo to edit it, or leave the slots empty and describe one in words below · Ideogram 4 makes pictures from text alone</span>
+              <span class="h2-hint">Drop a photo to edit it, or leave the slots empty and describe one in words below · FLUX 3 Klein and Ideogram 4 make pictures from text alone</span>
             </h2>
             <div class="studio-ref-grid" id="imgStudioRefs">
               <div class="studio-ref-slot" data-slot="0">
@@ -2599,6 +2599,12 @@ The same wizard walks out of frame. Audio: footsteps on leaves."></textarea>
               <option value="qwen_edit_lightning_inline" selected>Reference Edit &mdash; Fast (image-to-image, Lightning 4-step, ~1:20, default, multi-ref)</option>
               <option value="qwen_edit_inline">Reference Edit &mdash; Standard (image-to-image, 8-step Q6, ~2:05, no LoRA)</option>
               <option value="qwen_edit_high_inline">Reference Edit &mdash; Quality (image-to-image, 40-step Q8 + CFG, ~3:50, final renders)</option>
+              <option value="flux3_distilled_q8">FLUX 3 Q8 / Standard</option>
+              <option value="flux3_distilled_q6">FLUX 3 Q6 / Standard</option>
+              <option value="flux3_distilled_q4">FLUX 3 Q4 / Standard</option>
+              <option value="flux3_base_q8">FLUX 3 Q8 / Base Quality</option>
+              <option value="flux3_base_q6">FLUX 3 Q6 / Base Quality</option>
+              <option value="flux3_base_q4">FLUX 3 Q4 / Base Quality</option>
               <option value="ideogram4_inline">Ideogram 4 &mdash; typography &amp; layout (text-in-image; optional reference bridge)</option>
               <!-- HiDream-O1 hidden 2026-05-28 (issue #15): the engine expects a
                    standalone lab-repo clone at ~/HIDREAM-O1-MLX-LAB-active/.venv
@@ -2618,11 +2624,13 @@ The same wizard walks out of frame. Audio: footsteps on leaves."></textarea>
           </div>
         </div>
 
+        <p id="flux3Notice" class="hint" hidden>FLUX 3 Klein by Black Forest Labs. Free. Standard: 16 steps. Base Quality: 50 steps, separate download. Q8 recommended; Q6 uses less memory. 32 GB Mac recommended; 24 GB with small Q4 images and one reference. <button type="button" class="ghost-btn" onclick="openLicence('flux3', {readOnly:true})">FLUX Kommunity licence</button></p>
+
         <div>
           <div class="mini-fields">
             <div class="mf-cell">
               <span class="mf-label">Aspect</span>
-              <select id="imgStudioAspect" onchange="imgStudioUpdateEstimate();if(typeof ideoApplyAspect==='function')ideoApplyAspect()" style="padding:7px 9px;font-size:13px;">
+              <select id="imgStudioAspect" onchange="imgStudioUpdateValidity();imgStudioUpdateEstimate();if(typeof ideoApplyAspect==='function')ideoApplyAspect()" style="padding:7px 9px;font-size:13px;">
                 <option value="16:9" selected>16:9 — 1280×720</option>
                 <option value="4:3">4:3 — 1024×768</option>
                 <option value="1:1">1:1 — 1024×1024</option>

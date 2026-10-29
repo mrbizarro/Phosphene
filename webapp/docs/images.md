@@ -43,3 +43,13 @@ Keys on the canvas, with a box selected:
 [[shortcuts:canvas]]
 
 A Layout render needs at least one box.
+
+## FLUX 3 Klein
+
+Choose **FLUX 3 Q8 / Standard** to make an image from text, or add reference images to edit them. Describe the complete scene you want. Standard uses 16 steps. **Base Quality** uses a separate model at 50 steps and takes longer.
+
+Q8 is the recommended quality. Q6 uses less memory; Q4 supports 24 GB Macs with a small image size and one reference. 32 GB or more is recommended. The first run downloads about 9.9 GB for Q8, 7.6 GB for Q6 or 5.3 GB for Q4, plus the image engine. Stop cancels setup or rendering; a later run resumes downloads. After that, an image takes about 50 seconds on an M4 Max with 64 GB.
+
+The model uses the FLUX Kommunity License, separate from the app's MIT licence. Read and accept it on first use. Commercial output generation is permitted for users below USD 5 million gross annualized revenue including affiliates, subject to the full terms. Review images before sharing them and make any legally required AI disclosures.
+
+Your images appear in the gallery. Choose **Animate** to send one to image-to-video. FLUX.1 and Qwen LoRAs cannot be used with this model.

@@ -48,6 +48,7 @@ function _currentLoraModeFilter() {
   }
   // Image Studio: read the engine override + map to compat tag.
   const eng = (document.getElementById('imgStudioEngine')?.value || 'auto').toLowerCase();
+  if (eng.startsWith('flux3_')) return 'image:flux3';
   if (eng.startsWith('qwen_edit')) return 'image:qwen';
   if (eng.startsWith('ideogram'))  return 'image:ideogram';
   if (eng.startsWith('flux2_edit') || eng.startsWith('flux2'))  return 'image:flux2';
@@ -82,6 +83,7 @@ function _loraFilterLabel(tag) {
     case 'video':         return 'LTX-Video LoRAs (active video mode)';
     case 'video:h3':      return 'Hailuo H3 LoRAs (MiniMax H3 base — separate library)';
     case 'image':         return 'image LoRAs (any mflux family — auto engine)';
+    case 'image:flux3':   return 'FLUX 3: LoRAs are not available in this image engine yet';
     case 'image:qwen':    return 'Qwen-Image / Qwen-Image-Edit LoRAs';
     case 'image:ideogram': return 'Ideogram 4 LoRAs (community formats — none validated yet)';
     case 'image:flux2':   return 'FLUX.2 LoRAs';
@@ -301,7 +303,7 @@ function _serializeLoras() {
   // `scale_v` rides along only on a strength replayed from an older recipe
   // (Load Params / Finish, _restoreLoraPicker): it tells the server which
   // meaning of "strength" that number was written in (Codex H3-03).
-  const slim = _activeLoras.filter(_inLane)
+  const slim = _activeLoras.filter(l => _tag !== 'image:flux3' && _inLane(l))
     .map(l => (typeof l.scale_v === 'number')
       ? { path: l.path, strength: l.strength, scale_v: l.scale_v }
       : { path: l.path, strength: l.strength });
@@ -586,6 +588,7 @@ async function refreshLoras() {
 }
 
 function _loraGenerationCompatible(row, modeTag) {
+  if (modeTag === 'image:flux3') return false;
   return !(modeTag === 'video' && row && row.ltx_compatible === false);
 }
 

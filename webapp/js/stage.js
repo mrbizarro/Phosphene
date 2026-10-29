@@ -25,6 +25,9 @@ function imgStudioUpdateValidity() {
   const eng = document.getElementById('imgStudioEngine');
   const status = document.getElementById('imgStudioStatus');
   if (!btn || !eng) return;
+  const flux3 = eng.value.startsWith('flux3_');
+  const flux3Notice = document.getElementById('flux3Notice');
+  if (flux3Notice) flux3Notice.hidden = !flux3;
   const refsCount = IMG_STUDIO.refs.filter(r => r && r.path).length;
   const needsRefs = imgStudioRequiresRefs(eng.value);
   let invalidReason = '';
@@ -50,6 +53,12 @@ function imgStudioUpdateValidity() {
     // to drop yet), that's a dead end with no next step. Names the
     // engine that actually does this.
     invalidReason = 'This engine composes against a photo — drop one into a slot above, or switch Engine (below) to "Ideogram 4" to make a picture from words alone.';
+  }
+  if (!invalidReason && flux3 && _IMG_HOST_RAM_GB < 32) {
+    const aspect = (document.getElementById('imgStudioAspect') || {}).value || '';
+    if (!aspect.endsWith('s') || refsCount > 1) {
+      invalidReason = 'On a 24 GB Mac, choose Q4, a small image size and at most one reference.';
+    }
   }
   // Non-blocking notice (does NOT disable Generate): Ideogram is text-only,
   // so a loaded reference is silently dropped unless the reference bridge is
@@ -420,6 +429,12 @@ function imgStudioRenderEnginePill() {
                    'If it\'s still missing afterwards, the sidebar also shows\n' +
                    '"Reinstall image engines (Ideogram 4 + Qwen-Edit)" — ~30 s, ~150 MB.';
     }
+    return;
+  }
+  if (info.lazy_install && !info.worker_installed) {
+    pill.dataset.state = 'missing';
+    pill.textContent = 'sets up on first use';
+    pill.title = 'Generate installs the image engine, then downloads the selected model. Stop cancels either step.';
     return;
   }
   if (info.cached) {

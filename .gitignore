@@ -169,3 +169,6 @@ state_studio/
 yue2-mlx
 node_modules
 
+
+# FLUX 3 has a separate MLX environment.
+/flux3-worker/

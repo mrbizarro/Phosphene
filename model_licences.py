@@ -48,6 +48,15 @@ REPORT_MISUSE_URL = ("https://github.com/mrbizarro/Phosphene/issues/new"
 # Static facts per model. `version` is the licence's own date: change it when
 # the licence text changes and everyone is asked again.
 LICENCES: dict[str, dict] = {
+    "flux3": {
+        "model": "FLUX 3 Klein by Black Forest Labs",
+        "licence": "FLUX Kommunity License v1.0",
+        "licensor": "Black Forest Labs Inc.",
+        "version": "flux-kommunity-1.0",
+        "url": "https://huggingface.co/black-forest-labs/flux-3-image-klein/blob/main/LICENSE.md",
+        "non_commercial": False,
+        "covers": "FLUX 3 Image Klein and Klein Base, including quantized weights",
+    },
     "h3": {
         "model": "MiniMax H3 (Hailuo H3)",
         "licence": "MiniMax H3 Community License Agreement",
@@ -199,6 +208,19 @@ COPY: dict = {'modal_title': 'Model licence',
           'accept_label': 'I have read and accept the Bria FIBO licence for '
                           'non-commercial use only.'}}
 
+COPY["flux3"] = {
+    "title": "FLUX 3 Klein licence",
+    "summary": "The app is MIT. These model weights have a separate licence from Black Forest Labs.",
+    "badge": "Commercial outputs below USD 5M revenue",
+    "terms": [
+        "Commercial output generation is permitted only while your gross annualized revenue, including affiliates, is below USD 5 million. Otherwise obtain commercial terms from Black Forest Labs.",
+        "Review outputs for unlawful or infringing content before sharing or displaying them. Disclose AI generation or modification where the law requires it.",
+        "Follow the full licence, including its use restrictions. Rights to the model are granted directly to you by Black Forest Labs, not by Phosphene.",
+        "When sharing model weights, include the full licence and the Black Forest Labs attribution notice. The community quantizations are modified models, not official Black Forest Labs products.",
+    ],
+    "accept_label": "I have read and accept the FLUX Kommunity License and will review outputs before sharing them.",
+}
+
 STORE_NAME = "model_licences.json"
 _LOCK = threading.Lock()
 
@@ -298,6 +320,8 @@ def describe_all(state_dir) -> dict:
 # ---- which licence a piece of work needs --------------------------------------
 def licence_for_image_cfg(cfg) -> str | None:
     """The licence an image-engine config needs, from its mflux family/model."""
+    if cfg is not None and getattr(cfg, "kind", "") == "flux3":
+        return "flux3"
     if cfg is None or getattr(cfg, "kind", "") != "mflux":
         return None
     family = str(getattr(cfg, "mflux_family", "") or "").lower()

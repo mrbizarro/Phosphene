@@ -347,6 +347,9 @@ class ImageEngineConfig:
     # _load_agent_image_config in mlx_ltx_panel.py).
     kind: str = "mflux"                             # "mock" | "mflux" | "bfl" | "hidream"
 
+    # FLUX 3 always runs in its own worker environment.
+    flux3_variant: str = "distilled"
+
     # BFL (cloud)
     bfl_api_key: str = ""
     bfl_model: str = "flux-dev"                     # flux-dev | flux-pro | flux-pro-1.1 | flux-schnell
@@ -479,7 +482,8 @@ def generate(*, prompt: str, n: int, output_dir: Path,
              base_seed: int | None = None,
              refs: list[str] | None = None,
              config: ImageEngineConfig,
-             on_log: "callable | None" = None) -> list[dict]:
+             on_log: "callable | None" = None,
+             install_env: dict | None = None) -> list[dict]:
     """Generate `n` candidate images for one shot. Saves under `output_dir`.
 
     Args:
@@ -518,7 +522,7 @@ def generate(*, prompt: str, n: int, output_dir: Path,
     # Validate ref paths up-front so we fail fast — Qwen-Edit-2509 supports
     # 1-3 input images; more than 3 is unsupported by the model.
     if refs:
-        if len(refs) > 3:
+        if len(refs) > (10 if config.kind == "flux3" else 3):
             raise ValueError(
                 f"refs: Qwen-Image-Edit-2509 supports 1-3 input images, got {len(refs)}"
             )
@@ -526,6 +530,10 @@ def generate(*, prompt: str, n: int, output_dir: Path,
             if not Path(r).is_file():
                 raise FileNotFoundError(f"ref image not found: {r}")
 
+    if config.kind == "flux3":
+        import flux3_engine
+        return flux3_engine.generate(prompt, n, width, height, output_dir, base_seed,
+                                     config, refs, on_log, install_env)
     if config.kind == "mock":
         return _generate_mock(prompt, n, width, height, output_dir, base_seed, refs=refs)
     if config.kind == "mflux":
@@ -539,6 +547,10 @@ def generate(*, prompt: str, n: int, output_dir: Path,
 
 def health_check(config: ImageEngineConfig) -> tuple[bool, str]:
     """Light readiness probe for the configured backend."""
+    if config.kind == "flux3":
+        import flux3_engine
+        return True, ("FLUX 3 ready" if flux3_engine.worker_ready()
+                      else "FLUX 3 installs on first use")
     if config.kind == "mock":
         try:
             from PIL import Image  # noqa: F401

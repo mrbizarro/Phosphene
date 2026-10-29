@@ -1,0 +1,444 @@
+{
+  "distilled-q8": {
+    "repo": "mflux-community/flux-3-image-klein-mflux-q8",
+    "revision": "7e46237dea3999a9792959f5e000aeb1b9f9e7df",
+    "bytes": 9918472341,
+    "files": [
+      {
+        "path": "README.md",
+        "size": 2844,
+        "sha256": null
+      },
+      {
+        "path": "manifest.json",
+        "size": 78,
+        "sha256": null
+      },
+      {
+        "path": "text_encoder/0.safetensors",
+        "size": 2145931485,
+        "sha256": "600652856574e9f347866a481ab03ecf8a99086e7a84d0fcea5c1be339ea9032"
+      },
+      {
+        "path": "text_encoder/1.safetensors",
+        "size": 1699235116,
+        "sha256": "04fd5c383b8b41c3e0882c93d0def127370aa985847f24678945defdd6723707"
+      },
+      {
+        "path": "text_encoder/chat_template.jinja",
+        "size": 5292,
+        "sha256": null
+      },
+      {
+        "path": "text_encoder/model.safetensors.index.json",
+        "size": 45636,
+        "sha256": null
+      },
+      {
+        "path": "text_encoder/tokenizer.json",
+        "size": 11422650,
+        "sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506"
+      },
+      {
+        "path": "text_encoder/tokenizer_config.json",
+        "size": 692,
+        "sha256": null
+      },
+      {
+        "path": "transformer/0.safetensors",
+        "size": 2134962964,
+        "sha256": "35978e837374f61578ff7ab5cbb7084e24f2ff2fb03b5f2c11e007f1d34a7c4a"
+      },
+      {
+        "path": "transformer/1.safetensors",
+        "size": 2145827275,
+        "sha256": "c163baf4a4ab7ea8920a666557c8e711eb5077b8e5120a0c44af08ace7e4f1ee"
+      },
+      {
+        "path": "transformer/2.safetensors",
+        "size": 1614802516,
+        "sha256": "70c523328bec015552c712e803ff4982b712bf2876c368151b7dbde0eaa5026c"
+      },
+      {
+        "path": "transformer/model.safetensors.index.json",
+        "size": 61760,
+        "sha256": null
+      },
+      {
+        "path": "vae/0.safetensors",
+        "size": 166156486,
+        "sha256": "94068882f83f537035d4353c19a8fa0d0b9d0294ee3ad8834ef5e1eecc960861"
+      },
+      {
+        "path": "vae/model.safetensors.index.json",
+        "size": 17547,
+        "sha256": null
+      }
+    ]
+  },
+  "distilled-q6": {
+    "repo": "mflux-community/flux-3-image-klein-mflux-q6",
+    "revision": "ace05578b60f0185b0c1212d23fb13616d88d6c7",
+    "bytes": 7626137483,
+    "files": [
+      {
+        "path": "README.md",
+        "size": 2844,
+        "sha256": null
+      },
+      {
+        "path": "manifest.json",
+        "size": 78,
+        "sha256": null
+      },
+      {
+        "path": "text_encoder/0.safetensors",
+        "size": 2141676588,
+        "sha256": "f7b4b822cfa46ce3f90104c46d2131a93d0b4904bfcf4386c6c2eabd2ae002fc"
+      },
+      {
+        "path": "text_encoder/1.safetensors",
+        "size": 798847236,
+        "sha256": "1782697b7872c06f32aeb8ef104d4e5dae7c130982700a775b616e66f2c53d81"
+      },
+      {
+        "path": "text_encoder/chat_template.jinja",
+        "size": 5292,
+        "sha256": null
+      },
+      {
+        "path": "text_encoder/model.safetensors.index.json",
+        "size": 45636,
+        "sha256": null
+      },
+      {
+        "path": "text_encoder/tokenizer.json",
+        "size": 11422650,
+        "sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506"
+      },
+      {
+        "path": "text_encoder/tokenizer_config.json",
+        "size": 692,
+        "sha256": null
+      },
+      {
+        "path": "transformer/0.safetensors",
+        "size": 2131045447,
+        "sha256": "c4527024102c044a51ee7b3baab90e9f50fcabdeab2a47e4c4dd037fd9de8b3e"
+      },
+      {
+        "path": "transformer/1.safetensors",
+        "size": 2139354166,
+        "sha256": "dc9f263a727653cc6dd4c9f002dcdfb6a2ccbed893016bf2b36b225718e34fd9"
+      },
+      {
+        "path": "transformer/2.safetensors",
+        "size": 238025357,
+        "sha256": "61de173e22c8f76af20e96b5037d53355b7ce8b256bee0d07c7b254f0d87dc5d"
+      },
+      {
+        "path": "transformer/model.safetensors.index.json",
+        "size": 61760,
+        "sha256": null
+      },
+      {
+        "path": "vae/0.safetensors",
+        "size": 165632190,
+        "sha256": "c386146c9a2a5a0f12da2a7a184b8b8352f4ec88c00d58dc0c94d536a0247116"
+      },
+      {
+        "path": "vae/model.safetensors.index.json",
+        "size": 17547,
+        "sha256": null
+      }
+    ]
+  },
+  "distilled-q4": {
+    "repo": "mflux-community/flux-3-image-klein-mflux-q4",
+    "revision": "79c0034de040c460e9685bf0127f40af042a2abe",
+    "bytes": 5333802766,
+    "files": [
+      {
+        "path": "README.md",
+        "size": 2956,
+        "sha256": null
+      },
+      {
+        "path": "manifest.json",
+        "size": 78,
+        "sha256": null
+      },
+      {
+        "path": "text_encoder/0.safetensors",
+        "size": 2035881396,
+        "sha256": "d6621c1001e0d81a0bb5a9405610fe78d3aff1658ded8a851ef2d4906c300e84"
+      },
+      {
+        "path": "text_encoder/chat_template.jinja",
+        "size": 5292,
+        "sha256": null
+      },
+      {
+        "path": "text_encoder/model.safetensors.index.json",
+        "size": 45636,
+        "sha256": null
+      },
+      {
+        "path": "text_encoder/tokenizer.json",
+        "size": 11422650,
+        "sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506"
+      },
+      {
+        "path": "text_encoder/tokenizer_config.json",
+        "size": 692,
+        "sha256": null
+      },
+      {
+        "path": "transformer/0.safetensors",
+        "size": 2144245413,
+        "sha256": "2960aeb9ae939b9a61e0e500586e649e60b79688ff94f5f8d3387a9dc274bbdf"
+      },
+      {
+        "path": "transformer/1.safetensors",
+        "size": 977011458,
+        "sha256": "82c98e6e30cd3acdfb7d975358db76206a9cee8f3de22ff725f9668bf8833880"
+      },
+      {
+        "path": "transformer/model.safetensors.index.json",
+        "size": 61760,
+        "sha256": null
+      },
+      {
+        "path": "vae/0.safetensors",
+        "size": 165107888,
+        "sha256": "9c3376cde5b6f5166fbd4cead9d9e5d84f11702e2865149a2828378a14671b4b"
+      },
+      {
+        "path": "vae/model.safetensors.index.json",
+        "size": 17547,
+        "sha256": null
+      }
+    ]
+  },
+  "base-q8": {
+    "repo": "mflux-community/flux-3-image-klein-base-mflux-q8",
+    "revision": "f4555b2367dcad19c4dee1ddfb45ec1aeccdb857",
+    "bytes": 9907608869,
+    "files": [
+      {
+        "path": "README.md",
+        "size": 3071,
+        "sha256": null
+      },
+      {
+        "path": "manifest.json",
+        "size": 78,
+        "sha256": null
+      },
+      {
+        "path": "text_encoder/0.safetensors",
+        "size": 2145931485,
+        "sha256": "600652856574e9f347866a481ab03ecf8a99086e7a84d0fcea5c1be339ea9032"
+      },
+      {
+        "path": "text_encoder/1.safetensors",
+        "size": 1699235116,
+        "sha256": "04fd5c383b8b41c3e0882c93d0def127370aa985847f24678945defdd6723707"
+      },
+      {
+        "path": "text_encoder/chat_template.jinja",
+        "size": 5292,
+        "sha256": null
+      },
+      {
+        "path": "text_encoder/model.safetensors.index.json",
+        "size": 45636,
+        "sha256": null
+      },
+      {
+        "path": "text_encoder/tokenizer.json",
+        "size": 11422650,
+        "sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506"
+      },
+      {
+        "path": "text_encoder/tokenizer_config.json",
+        "size": 692,
+        "sha256": null
+      },
+      {
+        "path": "transformer/0.safetensors",
+        "size": 2124099655,
+        "sha256": "80928b5749afe060017fd68516c4d02126aef389170d7c71d68ead5d7b93dcdb"
+      },
+      {
+        "path": "transformer/1.safetensors",
+        "size": 2145827275,
+        "sha256": "f8492ea3c3c0f21c08f79b411509e736788a3a41b61391655709058abd9b630c"
+      },
+      {
+        "path": "transformer/2.safetensors",
+        "size": 1614802516,
+        "sha256": "54a7767a81b161d11230726b79d6a9c5b6c42929721e731028d7c938fca35fef"
+      },
+      {
+        "path": "transformer/model.safetensors.index.json",
+        "size": 61370,
+        "sha256": null
+      },
+      {
+        "path": "vae/0.safetensors",
+        "size": 166156486,
+        "sha256": "94068882f83f537035d4353c19a8fa0d0b9d0294ee3ad8834ef5e1eecc960861"
+      },
+      {
+        "path": "vae/model.safetensors.index.json",
+        "size": 17547,
+        "sha256": null
+      }
+    ]
+  },
+  "base-q6": {
+    "repo": "mflux-community/flux-3-image-klein-base-mflux-q6",
+    "revision": "2fcf00e02258e86b599e553db5b2234ae819c7c3",
+    "bytes": 7617829897,
+    "files": [
+      {
+        "path": "README.md",
+        "size": 3071,
+        "sha256": null
+      },
+      {
+        "path": "manifest.json",
+        "size": 78,
+        "sha256": null
+      },
+      {
+        "path": "text_encoder/0.safetensors",
+        "size": 2141676588,
+        "sha256": "f7b4b822cfa46ce3f90104c46d2131a93d0b4904bfcf4386c6c2eabd2ae002fc"
+      },
+      {
+        "path": "text_encoder/1.safetensors",
+        "size": 798847236,
+        "sha256": "1782697b7872c06f32aeb8ef104d4e5dae7c130982700a775b616e66f2c53d81"
+      },
+      {
+        "path": "text_encoder/chat_template.jinja",
+        "size": 5292,
+        "sha256": null
+      },
+      {
+        "path": "text_encoder/model.safetensors.index.json",
+        "size": 45636,
+        "sha256": null
+      },
+      {
+        "path": "text_encoder/tokenizer.json",
+        "size": 11422650,
+        "sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506"
+      },
+      {
+        "path": "text_encoder/tokenizer_config.json",
+        "size": 692,
+        "sha256": null
+      },
+      {
+        "path": "transformer/0.safetensors",
+        "size": 2122738024,
+        "sha256": "61a546b670faba54520c562f8932466e6ca8f653d6ee7b88c8a5eb19e212f85e"
+      },
+      {
+        "path": "transformer/1.safetensors",
+        "size": 2139354166,
+        "sha256": "f6febea718c82966c2086205b9740934daa0c3e01ac6ab32a367b023dbc2136b"
+      },
+      {
+        "path": "transformer/2.safetensors",
+        "size": 238025357,
+        "sha256": "2562fcd7e81e89327bbd52812c3f43507485354bf21f68f2dbbbb419706c68c9"
+      },
+      {
+        "path": "transformer/model.safetensors.index.json",
+        "size": 61370,
+        "sha256": null
+      },
+      {
+        "path": "vae/0.safetensors",
+        "size": 165632190,
+        "sha256": "c386146c9a2a5a0f12da2a7a184b8b8352f4ec88c00d58dc0c94d536a0247116"
+      },
+      {
+        "path": "vae/model.safetensors.index.json",
+        "size": 17547,
+        "sha256": null
+      }
+    ]
+  },
+  "base-q4": {
+    "repo": "mflux-community/flux-3-image-klein-base-mflux-q4",
+    "revision": "2c418dea6a9de1e4f545ace0a974312cdc6a68a9",
+    "bytes": 5328051020,
+    "files": [
+      {
+        "path": "README.md",
+        "size": 3071,
+        "sha256": null
+      },
+      {
+        "path": "manifest.json",
+        "size": 78,
+        "sha256": null
+      },
+      {
+        "path": "text_encoder/0.safetensors",
+        "size": 2035881396,
+        "sha256": "d6621c1001e0d81a0bb5a9405610fe78d3aff1658ded8a851ef2d4906c300e84"
+      },
+      {
+        "path": "text_encoder/chat_template.jinja",
+        "size": 5292,
+        "sha256": null
+      },
+      {
+        "path": "text_encoder/model.safetensors.index.json",
+        "size": 45636,
+        "sha256": null
+      },
+      {
+        "path": "text_encoder/tokenizer.json",
+        "size": 11422650,
+        "sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506"
+      },
+      {
+        "path": "text_encoder/tokenizer_config.json",
+        "size": 692,
+        "sha256": null
+      },
+      {
+        "path": "transformer/0.safetensors",
+        "size": 2143802722,
+        "sha256": "484985806f2d4a6937b17cf90dbe623724fe7be32d631a9907056ae290a12a14"
+      },
+      {
+        "path": "transformer/1.safetensors",
+        "size": 971702678,
+        "sha256": "693207ae0190d8665e5cc86a7a98bba898a19d918053f79a5d752993a39d2025"
+      },
+      {
+        "path": "transformer/model.safetensors.index.json",
+        "size": 61370,
+        "sha256": null
+      },
+      {
+        "path": "vae/0.safetensors",
+        "size": 165107888,
+        "sha256": "9c3376cde5b6f5166fbd4cead9d9e5d84f11702e2865149a2828378a14671b4b"
+      },
+      {
+        "path": "vae/model.safetensors.index.json",
+        "size": 17547,
+        "sha256": null
+      }
+    ]
+  }
+}
