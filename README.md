@@ -3,8 +3,9 @@
 **Run LTX-2.5 and MiniMax H3 (Hailuo) on your Apple Silicon Mac. Text-to-video and image-to-video with sound, lip-sync, songs and image editing. Offline: no cloud, no API key, no NVIDIA GPU.**
 
 <p align="center">
-  <a href="https://phosphene.video/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=repo&amp;utm_content=top"><img src="assets/readme/visit_website.svg" alt="Visit our official website: phosphene.video" width="520"></a>
+  <a href="https://phosphene.video/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=repo&amp;utm_content=top"><img src="assets/logo-readme.png" alt="Phosphene" width="360"></a>
 </p>
+<h3 align="center"><a href="https://phosphene.video/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=repo&amp;utm_content=top">Visit official site →</a></h3>
 
 <p align="center">
   <img src="assets/readme/low_tide_sleeper.webp" alt="The low-tide sleeper: a giant stone sleeper on a black-sand beach, an AI video made locally on a Mac with Phosphene and MiniMax H3" width="100%">
@@ -156,8 +157,8 @@ Linux on Apple Silicon (`docs/LINUX.md`) is maintained by @joshuaswarren on a be
 
 These open with **Phosphene 5.0**:
 
-- **A native Mac app,** so you won't need Pinokio. It can reuse the models your Pinokio install already downloaded.
-- **Pro,** for people who use Phosphene every day: new speed-ups first (MiniMax H3 renders about 1.6× faster today), Phosphene Remote to start and watch renders from your iPhone, and priority support. $15 a month or $120 a year.
+- **A Mac installer,** so you won't need Pinokio. It can reuse the models your Pinokio install already downloaded.
+- **Pro,** for people who use Phosphene every day: new features and speed-ups first, Phosphene Remote to start and watch renders from your iPhone, and priority support. $15 a month or $120 a year.
 - **Founding:** 3 years of Pro for one payment of $149, limited to 200 seats.
 
 Nothing is on sale yet. [Get Phosphene for Mac and join the list →](https://phosphene.video/?utm_source=github&utm_medium=readme&utm_campaign=repo&utm_content=coming)
