@@ -3,12 +3,13 @@
 **Run LTX-2.5 and MiniMax H3 (Hailuo) on your Apple Silicon Mac. Text-to-video and image-to-video with sound, lip-sync, songs and image editing. Offline: no cloud, no API key, no NVIDIA GPU.**
 
 <p align="center">
-  <img src="assets/the_commuter_hero.gif" alt="The Commuter: a 75-second AI video made offline on one Mac with Phosphene and MiniMax H3" width="100%">
+  <a href="https://phosphene.video/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=repo&amp;utm_content=top"><img src="assets/readme/visit_website.svg" alt="Visit our official website: phosphene.video" width="520"></a>
 </p>
 
-<p align="center"><sub>“The Commuter”: a 75-second One Shot rendered overnight on one Mac with MiniMax H3, from a single designed still.</sub></p>
-
-<p align="center"><a href="https://phosphene.video/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=repo&amp;utm_content=top"><b>Get Phosphene for Mac →</b></a></p>
+<p align="center">
+  <img src="assets/readme/low_tide_sleeper.webp" alt="The low-tide sleeper: a giant stone sleeper on a black-sand beach, an AI video made locally on a Mac with Phosphene and MiniMax H3" width="100%">
+</p>
+<p align="center"><sub>“The low-tide sleeper”, MiniMax H3, image to video. Every clip on this page was rendered on one Mac with Phosphene.</sub></p>
 
 Phosphene is a free, open-source AI video generator that runs locally on a Mac with M1, M2, M3, M4 or M5.
 It runs **LTX-2.5** and **MiniMax H3 (Hailuo H3)** for text-to-video and image-to-video with sound in the same pass,
@@ -34,6 +35,12 @@ Turn a prompt or a picture into a video clip with sound, using the MLX port of L
 **Extend** a clip, **Retake** one moment, or lip-sync a face to your own voice or song. Upscale & Face Fix is built in.
 Works from 16 GB of memory.
 
+<p align="center">
+  <img src="assets/readme/gold_tear.webp" alt="Stone eye with a gold tear, AI video made on a Mac with LTX-2.5" width="49%">
+  <img src="assets/readme/ember_hand.webp" alt="A burning ember in a marble palm, AI video made on a Mac with LTX-2.5" width="49%">
+</p>
+<p align="center"><sub>“Stone eye, gold tear” and “Ember in a marble palm”, LTX-2.5, image to video</sub></p>
+
 ### Run MiniMax H3 (Hailuo) locally on a Mac
 
 MiniMax H3, also called Hailuo H3, makes scenes where people talk, with lips that match their voices.
@@ -41,11 +48,22 @@ Use keyframes, extend a shot, lip-sync, or **Add sound** to give a silent clip i
 About 75 GB, one click from the Pinokio sidebar, from 36 GB of memory.
 Its licence excludes the EU, UK, South Korea and US.
 
+<p align="center">
+  <img src="assets/readme/mirror_blinks.webp" alt="A woman at a theatre mirror whose reflection blinks late, made with MiniMax H3 on a Mac" width="49%">
+  <img src="assets/readme/lung_mender.webp" alt="An old man whose chest is folded paper, in his workshop, made with MiniMax H3 on a Mac" width="49%">
+</p>
+<p align="center"><sub>“The mirror blinks late” and “The lung mender”, MiniMax H3, image to video</sub></p>
+
 ### Long AI films: One Shot, Storyboard and the Editor
 
 - **One Shot:** one continuous shot of 30 seconds to 2 minutes that never cuts.
 - **Storyboard:** turn one idea into a multi-shot film. Plan the shots, render them, keep the best takes, or turn on Auto. Add a song to cut a music video to the beat.
 - **Editor:** trim, split, J-cuts and L-cuts, music, titles and transitions. Render one file or send the timeline to DaVinci Resolve, Premiere Pro or After Effects.
+
+<p align="center">
+  <img src="assets/readme/app_editor.webp" alt="The Phosphene Editor: a timeline for AI video clips on a Mac" width="100%">
+</p>
+<p align="center"><sub>The Editor: trim the takes, add music and titles, then render or send the cut on.</sub></p>
 
 ### Remix your own footage
 
@@ -53,30 +71,47 @@ Its licence excludes the EU, UK, South Korea and US.
 - **Ingredients:** compose 2–8 reference pictures (a character, a prop, a place) into one clip.
 - **Colorize:** turn black-and-white footage into colour.
 
+<p align="center">
+  <img src="assets/readme/drowned_ballroom.webp" alt="A diver with a lamp in a flooded ballroom under a chandelier, text-to-video with LTX-2.5 on a Mac" width="100%">
+</p>
+<p align="center"><sub>“The Drowned Ballroom”, LTX-2.5, text to video</sub></p>
+
 ### Songs from lyrics with YuE2: a local Suno alternative
 
 Music Studio uses YuE2 to write a full song with vocals and instruments from your lyrics and a style, or an instrumental.
 Make another take, cover a song, or get the score. About 11 GB, installed inside the app, from 24 GB of memory.
+
+<p align="center">
+  <img src="assets/readme/neon_mile.webp" alt="A man singing at the wheel of a car at night, a Music Studio song with MiniMax H3 lip-sync" width="49%">
+  <img src="assets/readme/bust_sings.webp" alt="A marble bust singing, LTX-2.5 lip-sync to a song" width="49%">
+</p>
+<p align="center"><sub>“Neon Mile”, a Music Studio song sung with MiniMax H3, and “The bust sings”, LTX-2.5 lip-sync</sub></p>
 
 ### AI image editing with Qwen-Image-Edit and FLUX.2
 
 Qwen-Image-Edit and FLUX.2 (via mflux) make images and edit them in words, like “make the jacket red”,
 with up to three reference pictures. Ideogram 4 puts readable words on a picture. Send any still straight to video.
 
+<p align="center">
+  <img src="assets/readme/app_images.webp" alt="The Phosphene Images tab: AI image editing on a Mac with reference pictures" width="100%">
+</p>
+<p align="center"><sub>Images: describe the change, add up to three reference pictures, pick from four takes.</sub></p>
+
 ### Train a character LoRA on your Mac (face and voice)
 
 Train an LTX-2 character LoRA of an original character, or of yourself, on your Mac: face from your photos, voice from your recordings.
 Local Gemma writes the training captions for you. Browse and install LTX LoRAs from CivitAI inside the app.
+
+<p align="center">
+  <img src="assets/phosphene_app_mac.jpg" alt="The Phosphene AI video app on a Mac: LTX-2.5 text-to-video with a trained character LoRA" width="100%">
+</p>
+<p align="center"><sub>Bizarro, a trained character, in the Video tab: the prompt, the take and the outputs.</sub></p>
 
 ### Scripts and AI agents
 
 Everything the app does is reachable over a local HTTP API (`docs/API.md`), so Claude Code, Codex or your own script can queue renders.
 There is also an image layout API for agents (`docs/AGENT_API.md`).
 Gemma runs locally for prompt **Enhance**, captions and the storyboard planner.
-
-<p align="center">
-  <img src="assets/phosphene_app_mac.jpg" alt="The Phosphene AI video app on a Mac: LTX-2.5 text-to-video with a trained character LoRA" width="100%">
-</p>
 
 ## Mac requirements: M1 to M5, memory and disk
 
@@ -98,6 +133,11 @@ On an M4 Max with 64 GB, a 5-second LTX-2.5 clip at High takes about 6 minutes,
 a 5-second MiniMax H3 clip on Draft + Fast about 5 minutes, and a 3-minute song about 3 minutes.
 Smaller Macs take longer: across Phosphene users, a 5-second LTX-2.5 clip at Balanced (480p) took a median 10m40s on a 16 GB M4.
 Phosphene estimates the time before you press Generate. See render times by Mac.
+
+<p align="center">
+  <img src="assets/readme/lantern_fjord.webp" alt="A man in a rowing boat among floating lanterns in a fjord, made with MiniMax H3 on a Mac" width="100%">
+</p>
+<p align="center"><sub>“Lantern Fjord”, MiniMax H3, image to video</sub></p>
 
 ## One-click install with Pinokio
 
