@@ -4404,7 +4404,9 @@ function updateShotSetupSummary() {
     }
     let fast = false;
     try { fast = h3TriStepOn(cell); } catch (_) {}
-    parts.push(fast ? 'Fast' : 'Best');
+    let flex = false;
+    try { flex = !fast && typeof h3FlexOn === 'function' && h3FlexOn(cell); } catch (_) {}
+    parts.push(fast ? 'Fast' : (flex ? 'Pika H3 Flex' : 'Best'));
     const st = (document.getElementById('h3_steps') || {}).value || 'auto';
     if (st !== 'auto') parts.push(st + ' steps');
     // Priced by the engine module's own helper, so the line can never

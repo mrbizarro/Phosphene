@@ -5348,7 +5348,12 @@ def _check_remote_once() -> None:
         _local_v = (_VERSION_STATE.get("local_version") or "").strip()
     same_release = bool(more and remote_version and _local_v
                         and remote_version.strip() == _local_v)
-    if same_release:
+    # 4.19.15: a build NEWER than public main (a release between its version
+    # bump and its public tag, every beta install) was offered public main as
+    # an "update" - a downgrade ("Phosphene 4.19.14 is out - you're on
+    # 4.19.15"). Only a strictly greater remote VERSION is an update.
+    local_is_newer = _version_is_newer(_local_v, remote_version)
+    if same_release or local_is_newer:
         behind_by, more, ahead = 0, False, []
     # The maintainer broadcast rides the same 30-min cadence. Failures and
     # absence read as "no message" — _fetch_broadcast never raises.
@@ -5360,10 +5365,31 @@ def _check_remote_once() -> None:
         _VERSION_STATE["behind_by"] = behind_by
         _VERSION_STATE["behind_more_than"] = more
         _VERSION_STATE["local_unlisted_same_release"] = same_release
+        _VERSION_STATE["local_newer_than_remote"] = local_is_newer
         _VERSION_STATE["commits_ahead"] = ahead
         _VERSION_STATE["checked_ts"] = time.time()
         _VERSION_STATE["error"] = None
         _VERSION_STATE["broadcast"] = broadcast
+
+
+def _version_tuple(v) -> tuple[int, ...] | None:
+    """'4.19.15' -> (4, 19, 15). None for anything that is not dotted digits
+    (a missing VERSION file, a 'Y1.NNN' label from before semver)."""
+    parts = str(v or "").strip().lstrip("vV").split(".")
+    if not parts or not all(p.isdigit() for p in parts):
+        return None
+    return tuple(int(p) for p in parts)
+
+
+def _version_is_newer(local, remote) -> bool:
+    """True when LOCAL is strictly newer than REMOTE (numeric, per part:
+    4.19.15 > 4.19.14 and 4.10.0 > 4.9.9). Unparseable -> False, so the
+    commit-based answer stands."""
+    lt, rt = _version_tuple(local), _version_tuple(remote)
+    if lt is None or rt is None:
+        return False
+    width = max(len(lt), len(rt))
+    return lt + (0,) * (width - len(lt)) > rt + (0,) * (width - len(rt))
 
 
 def version_check_loop() -> None:
@@ -9282,6 +9308,67 @@ H3_V13_CREDIT = ("lightx2v v1.3 by LightX2V (ModelTC). Code: Apache-2.0; "
 H3_V13_MEASURED_ETA: dict[tuple[str, str, str], tuple[float, str]] = {
     ("high", "5s", "t2v"): (14.5, "~15 min"),
 }
+
+# ---- Pika H3 Flex: Pika Labs' six-step H3 student, natively on Apple Silicon --
+# Pika H3 Flex running natively on Apple Silicon (MLX) - the first Mac port we know of.
+# Pika Labs released it 2026-10-29 for NVIDIA only (H100 80 GB): a rank-128
+# LoRA on MiniMax H3 (base revision 42ed227, the same transformer weights this
+# pack runs) plus the sampler it was distilled for - six forwards at the base
+# knots 1000,750,500,250,100,40,0, video shift 12, audio shift 3, and a
+# "re-noise" step (predict the clean clip, re-noise it to the next knot with
+# fresh noise) instead of Euler. Phosphene's own MLX code runs it: the runner's
+# `--pika-flex` preset is the sampler, scripts/fetch_h3_flex.py builds the
+# adapter on this Mac. FL2VA only (Text and Image); Pika's Ref2VA adapter needs
+# the separate Ref2VA trunk this pack does not carry.
+#
+# THE FILE. Phosphene does not host it (an H3 Model Derivative, MiniMax H3
+# Community License; Pika's code is Apache-2.0). The fetch script downloads
+# the original from Pika's repo at a pinned commit + digest, with Pika's
+# LICENSE and NOTICE, and re-lays it out for the runner (per-head qkv, fc1
+# halves, float32 -> bfloat16, alpha == rank so no fold). The pins below MUST
+# match that script; test_h3_flex.py holds them together.
+#
+# Display requirements: the MiniMax H3 licence (IV.2) asks that "MiniMax H3"
+# be shown in the UI of a product that uses it, and encourages "Powered by
+# MiniMax H3" (III.3a); H3_FLEX_CREDIT carries both names wherever Flex shows.
+H3_FLEX_REPO = "Pika-Labs/Pika-H3-Flex"
+H3_FLEX_SOURCE_REVISION = "0ddf55ad7067ca1e76812253bd7b4600df87f759"
+H3_FLEX_SOURCE_FILE = "fl2va/adapter.safetensors"
+H3_FLEX_SOURCE_URL = ("https://huggingface.co/" + H3_FLEX_REPO + "/resolve/"
+                      + H3_FLEX_SOURCE_REVISION + "/" + H3_FLEX_SOURCE_FILE)
+H3_FLEX_SOURCE_SHA256 = "8ed6115d647ab11c1b38d04e63c4c6e1594128ae312f7b5635cd50563b7b9327"
+H3_FLEX_SOURCE_BYTES = 2767274120
+H3_FLEX_FILE = "pika_h3_flex_fl2va_phosphene.safetensors"
+H3_FLEX_SHA256 = "c71f527d0092dd43d368a20223d4aec41e7a1cca6abecdc457d54cee785f0327"
+H3_FLEX_BYTES = 1956166104
+H3_FLEX_DIRNAME = "pika-h3-flex"
+H3_FLEX_STEPS = 7                    # knots incl. the terminal 0 -> 6 forwards
+H3_FLEX_FORWARDS = H3_FLEX_STEPS - 1
+H3_FLEX_RUNNER_FLAG = "--pika-flex"
+# A forward with the runtime rank-128 adapter costs about what v1.3's does.
+H3_FLEX_FORWARD_COST = 1.03
+H3_FLEX_MODES = ("t2v", "i2v")
+H3_FLEX_DOWNLOAD_GB = 2.8
+# Free disk the build needs: the 2.8 GB source plus the 2.0 GB result while
+# both exist, plus a margin so a render's swap never meets a full disk.
+H3_FLEX_DISK_NEED_GB = 7.0
+H3_FLEX_LICENSE = "MiniMax H3 Community License"
+H3_FLEX_CODE_LICENSE = "Apache-2.0"
+H3_FLEX_NAME = "Pika H3 Flex"
+H3_FLEX_LABEL = "Pika H3 Flex (preview) · 6 steps"
+H3_FLEX_CREDIT = ("Pika H3 Flex by Pika Labs (Mellis, Inc.), running natively on "
+                  "Apple Silicon (MLX) in Phosphene. Powered by MiniMax H3. "
+                  "Weights: MiniMax H3 Community License; Pika code: Apache-2.0.")
+H3_FLEX_NOTICE = ("MiniMax H3 is licensed under the MiniMax H3 Community License "
+                  "Agreement, Copyright © 2026 MiniMax. All Rights Reserved.")
+# End-to-end wall clocks, M4 Max 64 GB, keyed (quality, length, mode); filled
+# from the port's validation renders (PM hub notes/flex-port-2026-10-30.md).
+# 2026-10-30: Draft 640x384 5 s 301 s (6 x 40.8 s); High 1024x576 5 s 976 s
+# (6 x 143 s, decode 92 s, peak 27.2 GiB on the Q8 DiT).
+H3_FLEX_MEASURED_ETA: dict[tuple[str, str, str], tuple[float, str]] = {
+    ("draft", "5s", "t2v"): (5.0, "~5 min"),
+    ("high", "5s", "t2v"): (16.3, "~16 min"),
+}
 # Upscale & Face Fix (1 refine step from the clip, ×2) after a 5 s render, by
 # source canvas. 640×384 → 1280×768 measured 2.5–2.8 min; 1024×576 measured
 # 8.2–9.9 min (panel history, 2026-09-16/17); 768×448 is interpolated between
@@ -9910,6 +9997,7 @@ def _job_fleet_baseline_min(job: dict) -> tuple[str, float] | None:
         # the full sampler's, or its ~2.3x speed would read as a fast Mac.
         hit = fleet_estimate_range("h3", "t2v", key, cell["frames"],
                                    speed="fast" if fast else
+                                   "flex" if p.get("h3_flex") else
                                    "v13" if p.get("h3_v13") else "best")
     else:
         if str(p.get("schedule_preset") or "").strip().lower() == "fast":
@@ -11168,6 +11256,20 @@ def _build_h3_tiers() -> dict[str, dict]:
                 v13 = {"v13_min": round(v_min, 2), "v13_eta": v_eta,
                        "v13_measured": v_meas, "v13_steps": H3_V13_STEPS,
                        "v13_forwards": windows * H3_V13_FORWARDS}
+            # Pika H3 Flex prices every cell it renders on (h3_cell_takes_flex):
+            # 6 forwards at about v1.3's per-forward cost.
+            flex = {}
+            if not ln["dense"] and not q.get("fast_hd"):
+                f_min = h3_estimate_minutes(
+                    w, h, window_frames, windows, H3_FLEX_FORWARDS) * H3_FLEX_FORWARD_COST
+                f_eta, f_meas = _fmt_eta(f_min), False
+                hit = H3_FLEX_MEASURED_ETA.get((q["key"], ln["key"], "t2v"))
+                if hit:
+                    f_min, f_meas = hit[0] * hw, True
+                    f_eta = hit[1] if hw == 1.0 else _fmt_eta(f_min)
+                flex = {"flex_min": round(f_min, 2), "flex_eta": f_eta,
+                        "flex_measured": f_meas, "flex_steps": H3_FLEX_STEPS,
+                        "flex_forwards": windows * H3_FLEX_FORWARDS}
             spec = f"{w}×{h} · {frames}f"
             if windows > 1:
                 spec += f" · {windows}×5s"
@@ -11221,6 +11323,7 @@ def _build_h3_tiers() -> dict[str, dict]:
                 "offered": bool(q["offered"] and ln["offered"]),
                 **tristep,
                 **v13,
+                **flex,
             }
             # Owner ruling (2026-09-29): real fleet ranges where there are
             # enough of them, one per speed this cell actually offers (H3's
@@ -12603,6 +12706,8 @@ def job_recipe_minutes(params: dict, *, calibration: bool = False) -> tuple[str,
                        else cell.get("tristep_min"))
         elif p.get("h3_turbo"):
             minutes = cell.get("turbo_min")
+        elif p.get("h3_flex") and cell.get("flex_min") is not None:
+            minutes = cell.get("flex_min")
         elif p.get("h3_v13") and cell.get("v13_min") is not None:
             # lightx2v v1.3 on Best at High: its own measured number, so a
             # 15-minute recipe never calibrates against the 33-minute one.
@@ -14828,6 +14933,181 @@ def _h3_install_tristep(push_log, download_fn=None) -> dict:
             "bytes": H3_TRISTEP_BYTES, "license": H3_TRISTEP_LICENSE}
 
 
+# ---- Pika H3 Flex — resolver, argv, status, fetch ------------------------------
+def h3_supports_flex() -> bool:
+    """Whether the INSTALLED runner has the Flex sampler (`--pika-flex`) and
+    stacks adapters. The built file's qkv rows are already per head, so the
+    runner must also be one that never re-orders a `--lora` itself."""
+    return (h3_supports_lora_stack() and _h3_runner_has_flag(H3_FLEX_RUNNER_FLAG)
+            and _h3_runner_has_flag("--lora-qkv-permute"))
+
+
+def h3_cell_takes_flex(cell: dict) -> bool:
+    """Every chained/single 5 s-window cell. The dense single pass and Fast HD
+    keep their own recipes (never rendered on Flex)."""
+    return not bool(cell.get("dense")) and not bool(cell.get("fast_hd"))
+
+
+def _h3_flex_dir() -> Path:
+    """Beside the other weight components, like Turbo's folder."""
+    for root in _h3_model_roots():
+        if _h3_holds_dit(root):
+            return root / H3_FLEX_DIRNAME
+    return H3_MODELS / H3_FLEX_DIRNAME
+
+
+def h3_flex_paths() -> dict:
+    """The built Flex adapter, if it is on disk at its exact size. No glob: the
+    upstream float32 source must never be read as the adapter."""
+    directory = _h3_flex_dir()
+    candidate = directory / H3_FLEX_FILE
+    try:
+        ok = candidate.is_file() and candidate.stat().st_size == H3_FLEX_BYTES
+    except OSError:
+        ok = False
+    if ok:
+        return {"dir": directory, "lora": candidate, "files_ok": True, "missing": []}
+    return {"dir": directory, "lora": None, "files_ok": False,
+            "missing": [f"adapter ({H3_FLEX_FILE}, built from a "
+                        f"~{H3_FLEX_DOWNLOAD_GB} GB download)"]}
+
+
+def h3_flex_argv(paths: dict | None = None) -> list[str]:
+    """The runner argv fragment: the Flex sampler preset (which owns `--steps`)
+    and the adapter at 1.0 (alpha == rank)."""
+    resolved = paths or h3_flex_paths()
+    if not resolved.get("files_ok") or resolved.get("lora") is None:
+        raise RuntimeError("the Pika H3 Flex adapter is not available")
+    return [H3_FLEX_RUNNER_FLAG, "--lora", f"{resolved['lora']}:1.0"]
+
+
+_h3_flex_dl_lock = threading.Lock()
+_h3_flex_dl_state: dict = {"status": "idle", "mb": 0, "total_mb": 0, "error": None}
+
+
+def _set_h3_flex_dl(**kw) -> None:
+    with _h3_flex_dl_lock:
+        _h3_flex_dl_state.clear()
+        _h3_flex_dl_state.update(kw)
+
+
+def h3_flex_status() -> dict:
+    """/status + BOOT block for Flex: can the runner take it, is the file here."""
+    supported = h3_supports_flex()
+    paths = h3_flex_paths()
+    downloaded = bool(paths["files_ok"])
+    return {
+        "available": bool(supported and downloaded),
+        "supported": supported,
+        "downloaded": downloaded,
+        "reason": ("runner_too_old" if not supported
+                   else "not_downloaded" if not downloaded else "ok"),
+        "steps": H3_FLEX_STEPS,
+        "forwards": H3_FLEX_FORWARDS,
+        "modes": list(H3_FLEX_MODES),
+        "download_gb": H3_FLEX_DOWNLOAD_GB,
+        "disk_need_gb": H3_FLEX_DISK_NEED_GB,
+        "repo": H3_FLEX_REPO,
+        "license": H3_FLEX_LICENSE,
+        "code_license": H3_FLEX_CODE_LICENSE,
+        "name": H3_FLEX_NAME,
+        "label": H3_FLEX_LABEL,
+        "credit": H3_FLEX_CREDIT,
+        "notice": H3_FLEX_NOTICE,
+        "adapter": str(paths["lora"]) if paths["lora"] else None,
+        "install_available": bool(supported),
+        "installing": _h3_flex_dl_state.get("status") in ("downloading", "building"),
+        "download": dict(_h3_flex_dl_state),
+    }
+
+
+def _h3_flex_fetch_bg(target_dir, push_log, runner=None) -> None:
+    """Run scripts/fetch_h3_flex.py (download from Pika's repo with its
+    LICENSE + NOTICE, verify, re-lay out, verify, rename). The script owns
+    every digest and the resume; this only relays its progress. It needs
+    numpy, which the panel's own interpreter carries."""
+    total_mb = H3_FLEX_SOURCE_BYTES // (1 << 20)
+    cmd = [sys.executable, str(ROOT / "scripts" / "fetch_h3_flex.py"),
+           "--dir", str(target_dir)]
+    try:
+        push_log(f"[h3:flex] fetching {H3_FLEX_SOURCE_FILE} from {H3_FLEX_REPO} @ "
+                 f"{H3_FLEX_SOURCE_REVISION[:7]} (~{total_mb} MB, {H3_FLEX_LICENSE})")
+        proc = (runner or subprocess.Popen)(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            errors="replace", env=_h3_v13_fetch_env())
+        tail: list[str] = []
+        for line in proc.stdout:
+            line = line.rstrip()
+            if line.startswith("PROGRESS "):
+                try:
+                    done = int(line.split()[1])
+                except (IndexError, ValueError):
+                    continue
+                _set_h3_flex_dl(status="downloading", mb=done // (1 << 20),
+                                total_mb=total_mb, error=None)
+                continue
+            if line.startswith("building "):
+                _set_h3_flex_dl(status="building", mb=total_mb, total_mb=total_mb,
+                                error=None)
+            if line:
+                tail = (tail + [line])[-4:]
+                push_log(f"[h3:flex] {line}")
+        rc = proc.wait()
+        if rc != 0 or not h3_flex_paths()["files_ok"]:
+            raise RuntimeError(" / ".join(tail[-2:]) or f"exit {rc}")
+        push_log(f"[h3:flex] adapter installed -> {Path(target_dir) / H3_FLEX_FILE}")
+        _set_h3_flex_dl(status="done", mb=total_mb, total_mb=total_mb, error=None)
+    except Exception as e:  # noqa: BLE001
+        _set_h3_flex_dl(status="error", mb=0, total_mb=total_mb, error=str(e)[:200])
+        push_log(f"[h3:flex] FAILED: {e}")
+
+
+def _h3_install_flex(push_log, fetch_fn=None) -> dict:
+    """On-demand fetch + local build of the Pika H3 Flex adapter (one at a time)."""
+    paths = h3_paths()
+    if paths["missing"]:
+        return {"ok": False,
+                "error": "Pika H3 Flex is an add-on to the Hailuo H3 pack, and "
+                         "H3 isn't fully installed yet: " + "; ".join(paths["missing"])}
+    if not h3_supports_flex():
+        return {"ok": False,
+                "error": _dist.say(
+                    "This Hailuo H3 runner predates Pika H3 Flex (its six-step "
+                    "sampler). Run 'Update Hailuo H3 runner' from the Phosphene "
+                    "sidebar in Pinokio - your weights stay.",
+                    "This Hailuo H3 runner predates Pika H3 Flex. Updating the "
+                    "runner isn't available in the Mac app yet.")}
+    resolved = h3_flex_paths()
+    target = resolved["dir"]
+    if resolved["files_ok"]:
+        return {"ok": True, "started": False, "already_installed": True,
+                "dir": str(target)}
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        free_gb = shutil.disk_usage(target).free / 1e9
+    except OSError:
+        free_gb = None
+    if free_gb is not None and free_gb < H3_FLEX_DISK_NEED_GB:
+        return {"ok": False,
+                "error": f"Pika H3 Flex needs about {H3_FLEX_DISK_NEED_GB:g} GB free "
+                         f"to prepare (2.8 GB download, 2 GB when ready). This "
+                         f"disk has {free_gb:.1f} GB free."}
+    with _h3_flex_dl_lock:
+        if _h3_flex_dl_state.get("status") in ("downloading", "building"):
+            return {"ok": False,
+                    "error": "a Pika H3 Flex download is already active"}
+        _h3_flex_dl_state.clear()
+        _h3_flex_dl_state.update(status="downloading", mb=0,
+                                 total_mb=H3_FLEX_SOURCE_BYTES // (1 << 20), error=None)
+    fn = fetch_fn or _h3_flex_fetch_bg
+    threading.Thread(target=fn, args=(target, push_log), daemon=True,
+                     name="h3-flex-fetch").start()
+    return {"ok": True, "started": True, "dir": str(target),
+            "source": H3_FLEX_SOURCE_URL, "sha256": H3_FLEX_SOURCE_SHA256,
+            "bytes": H3_FLEX_SOURCE_BYTES, "license": H3_FLEX_LICENSE,
+            "credit": H3_FLEX_CREDIT}
+
+
 # ---- lightx2v v1.3 (Best at High) — resolver, argv, status, fetch ------------
 def h3_supports_video_shift() -> bool:
     """Whether the INSTALLED runner takes `--video-shift` (v1.3's own shift 6;
@@ -16915,6 +17195,17 @@ def h3_status() -> dict:
                  "name": H3_V13_NAME, "label": H3_V13_LABEL, "credit": H3_V13_CREDIT,
                  "adapter": None, "install_available": False, "installing": False,
                  "download": {}, "dir": str(_h3_turbo_dir()), "missing": []}),
+        # Pika H3 Flex — a Speed choice of its own. Same three-cause shape.
+        "flex": (h3_flex_status() if available else
+                 {"available": False, "supported": False, "downloaded": False,
+                  "reason": "h3_" + paths["reason"], "steps": H3_FLEX_STEPS,
+                  "forwards": H3_FLEX_FORWARDS, "modes": list(H3_FLEX_MODES),
+                  "download_gb": H3_FLEX_DOWNLOAD_GB,
+                  "disk_need_gb": H3_FLEX_DISK_NEED_GB, "repo": H3_FLEX_REPO,
+                  "license": H3_FLEX_LICENSE, "code_license": H3_FLEX_CODE_LICENSE,
+                  "name": H3_FLEX_NAME, "label": H3_FLEX_LABEL, "credit": H3_FLEX_CREDIT,
+                  "notice": H3_FLEX_NOTICE, "adapter": None, "install_available": False,
+                  "installing": False, "download": {}}),
         # User LoRAs — the CivitAI lane. A separate block from `turbo` for the
         # same reason turbo is separate from `first_frame`: "you can't pick a
         # LoRA" has three unrelated causes (H3 absent / runner predates --lora
@@ -19943,6 +20234,7 @@ def _analytics_render_event(job: dict) -> None:
         if engine == "h3":
             props["h3_sampler"] = ("fast" if p.get("h3_tristep") else
                                    "turbo" if p.get("h3_turbo") else
+                                   "flex" if p.get("h3_flex") else
                                    "v13" if p.get("h3_v13") else "best")
         # 4.17.5: did this render run in short GPU steps (the Metal watchdog
         # path), and did a watchdog kill get re-run inside the same job?
@@ -33108,6 +33400,11 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # sampler, as a Steps pin does.
     _h3_v13_off = (f("h3_v13", "") or "").strip().lower() in ("0", "false", "off", "no")
     _h3_v13 = False
+    # Pika H3 Flex: an explicit Speed choice ("1"), never a default. When it
+    # can run it wins over Fast, Turbo, v1.3 and a Steps pin (it owns its own
+    # six-step ladder); where it cannot, the render says so and falls back.
+    _h3_flex_want = (f("h3_flex", "") or "").strip().lower() in ("1", "true", "on", "yes")
+    _h3_flex = False
     # Which of the runner's ONE adapter slots this render spends. H3's
     # `--lora` is a single path (`default=None`, not `action="append"` — see
     # scripts/generate_staged.py), so a user LoRA and Turbo are mutually
@@ -33227,7 +33524,29 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         # adapter is built. Never with Fast or Turbo, never under a Steps pin
         # (the pin IS the way to ask for the full sampler), never where it
         # was not validated (other canvases, the dense pass, media modes).
-        if (not _h3_v13_off and not _h3_tristep and not _h3_turbo and not _h3_steps
+        if _h3_flex_want and h3_available():
+            _fcell = H3_TIERS[_h3_tier]
+            _fst = h3_flex_status()
+            if mode_in not in H3_FLEX_MODES:
+                push(f"{H3_FLEX_NAME} renders Text and Image - this mode keeps "
+                     "its own sampler.")
+            elif not h3_cell_takes_flex(_fcell):
+                push(f"{H3_FLEX_NAME} runs on 5 s windows (single or chained) - "
+                     f"rendering {_fcell['label']} on its own sampler.")
+            elif not _fst["available"]:
+                push(f"{H3_FLEX_NAME} requested but " + (
+                    "this H3 runner has no --pika-flex sampler - update the H3 "
+                    "runner." if not _fst["supported"] else
+                    "its adapter isn't downloaded yet.") + " Rendering without it.")
+            else:
+                _h3_flex = True
+                if _h3_tristep or _h3_turbo or _h3_steps:
+                    push(f"{H3_FLEX_NAME} runs its own {H3_FLEX_FORWARDS}-step "
+                         "ladder - Fast, Turbo and any Steps pin are off for this render.")
+                _h3_tristep = _h3_turbo = _h3_clean_sound = False
+                _h3_steps = 0
+        if (not _h3_flex and not _h3_v13_off and not _h3_tristep and not _h3_turbo
+                and not _h3_steps
                 and mode_in in H3_V13_MODES and h3_available()
                 and h3_cell_takes_v13(H3_TIERS[_h3_tier])
                 and h3_v13_status()["available"]):
@@ -33370,6 +33689,8 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # lightx2v v1.3 on Best at High, resolved above. SAME allowlist
             # trap: leave it out and Best silently renders the full sampler.
             "h3_v13": _h3_v13,
+            # Pika H3 Flex, resolved above. SAME allowlist trap.
+            "h3_flex": _h3_flex,
             # Which of H3's ONE adapter slots this render spends: "turbo"
             # (default) or "user". SAME allowlist trap as every key in this
             # dict — leave `h3_lora_slot` out and the Turbo-vs-LoRA control
@@ -33666,6 +33987,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         # branches on WHY the count is what it is).
         job["params"]["steps"] = int(
             H3_TRISTEP_STEPS if _h3_tristep else
+            H3_FLEX_STEPS if _h3_flex else
             H3_V13_STEPS if _h3_v13 else
             h3_turbo_steps() if _h3_turbo else (_h3_steps or _tier_cfg["steps"]))
         job["params"]["h3_chain_windows"] = int(_tier_cfg.get("chain_windows") or 1)
@@ -36720,6 +37042,35 @@ def run_h3_job_inner(job: dict) -> None:
                   f"under Best, or get it from the Speed row.")
         steps = H3_V13_STEPS
 
+    # ---- Pika H3 Flex (6 forwards, re-noise sampler) ----------------------
+    # Pika H3 Flex running natively on Apple Silicon (MLX). make_job resolved
+    # it; re-check here (a queued job outlives the file) and never stack it
+    # with another step-distillation adapter.
+    flex = bool(p.get("h3_flex"))
+    flex_paths: dict = {}
+    if flex and (tristep or turbo or v13 or not h3_cell_takes_flex(tier)
+                 or mode not in H3_FLEX_MODES):
+        flex = False
+        p["h3_flex"] = False
+        push(f"[h3] {H3_FLEX_NAME} runs on Text and Image, alone - "
+             f"this render keeps its own sampler.")
+    if flex:
+        if not h3_supports_flex():
+            raise RuntimeError(
+                f"{H3_FLEX_NAME} needs the runner's six-step sampler: "
+                + _h3_runner_behind(H3_FLEX_RUNNER_FLAG, paths["runner"],
+                                    "Or pick Fast or Best under Speed."))
+        flex_paths = h3_flex_paths()
+        if not flex_paths["files_ok"]:
+            raise RuntimeError(
+                f"The {H3_FLEX_NAME} adapter isn't on disk: "
+                + "; ".join(flex_paths["missing"])
+                + f". Expected under {flex_paths['dir']} - pick Fast or Best "
+                  f"under Speed, or get it from the Speed row.")
+        steps = H3_FLEX_STEPS
+        push(f"[h3] {H3_FLEX_NAME}: Pika Labs' six-step H3 student, running "
+             f"natively on Apple Silicon (MLX). Powered by MiniMax H3.")
+
     # First-frame conditioning (Image mode). The flag landed on the runner
     # after the first public branch, so probe the INSTALLED script rather than
     # assuming; an older pack renders Text fine and must fail here with a
@@ -37041,6 +37392,10 @@ def run_h3_job_inner(job: dict) -> None:
         # 4.19.12 it was passed as trained and its q/k/v update landed on
         # the wrong heads.
         cmd += h3_v13_argv(v13_paths, shift=v13_shift)
+    if flex:
+        # The sampler preset (re-noise, knots 1000..40,0, shifts 12/3) and the
+        # adapter at 1.0; qkv rows already per head, so no runner re-order.
+        cmd += h3_flex_argv(flex_paths)
     if user_lora is not None and (not turbo or h3_supports_lora_stack()):
         # The SAME flag Turbo rides. On a stacking runner every `--lora` is one
         # more adapter on the same base layers, Turbo first; on the single-slot
@@ -37175,6 +37530,7 @@ def run_h3_job_inner(job: dict) -> None:
     _load_eta_seed_min = (
         (tier.get("tristep_min") if tristep and tier.get("tristep_min") is not None
          else tier.get("v13_min") if v13 and tier.get("v13_min") is not None
+         else tier.get("flex_min") if flex and tier.get("flex_min") is not None
          else tier.get("eta_min")) or 0.0)
     _load_eta_seed = max(0.0, float(_load_eta_seed_min)) * 60.0
     # H3-04: what one denoise forward SHOULD cost on this Mac, at this
@@ -37407,7 +37763,7 @@ def run_h3_job_inner(job: dict) -> None:
                         # card had no way to show this before) and, when the
                         # render is running meaningfully slower than even
                         # that speed's own estimate, why and what would help.
-                        "h3_speed": ("fast" if tristep else "best"),
+                        "h3_speed": ("fast" if tristep else "flex" if flex else "best"),
                         "h3_pace_warning": _pace_note,
                         "denoise_step": last_step,
                         "denoise_total": total_steps,
@@ -37674,6 +38030,7 @@ def run_h3_job_inner(job: dict) -> None:
             "h3_tristep": tristep,
             # And for lightx2v v1.3 on Best at High.
             "h3_v13": v13,
+            "h3_flex": flex,
             "width": width, "height": height, "frames": frames, "steps": steps,
             "seed_used": seed,
             # The user's OWN reference, not the canvas crop made from it: the
@@ -37759,6 +38116,25 @@ def run_h3_job_inner(job: dict) -> None:
                      "forwards": H3_V13_FORWARDS,
                      "video_shift": float(H3_V13_VIDEO_SHIFT) if v13_shift else 12.0}
                     if v13 else None),
+            # Pika H3 Flex provenance + the licence's notice text, so a clip
+            # carries "Powered by MiniMax H3" and its terms wherever it goes.
+            "flex": ({"lora": str(flex_paths["lora"]),
+                      "name": H3_FLEX_NAME,
+                      "repo": H3_FLEX_REPO,
+                      "revision": H3_FLEX_SOURCE_REVISION,
+                      "source_file": H3_FLEX_SOURCE_FILE,
+                      "source_sha256": H3_FLEX_SOURCE_SHA256,
+                      "sha256": H3_FLEX_SHA256,
+                      "license": H3_FLEX_LICENSE,
+                      "code_license": H3_FLEX_CODE_LICENSE,
+                      "credit": H3_FLEX_CREDIT,
+                      "notice": H3_FLEX_NOTICE,
+                      "sampler": "renoise",
+                      "knots": [1000, 750, 500, 250, 100, 40, 0],
+                      "video_shift": 12.0, "audio_shift": 3.0,
+                      "scale": 1.0, "steps": steps,
+                      "forwards": H3_FLEX_FORWARDS}
+                     if flex else None),
             # The fast 3-step sampler's provenance: which file, where it came from,
             # under what license, and the schedule the runner actually ran.
             "tristep": ({"lora": str(tristep_paths["lora"]),

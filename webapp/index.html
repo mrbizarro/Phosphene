@@ -1310,6 +1310,8 @@
              re-resolves it (Draft/Standard/High only, never with Turbo). In
              the make_job allowlist. -->
         <input type="hidden" name="h3_tristep" id="h3_tristep" value="0">
+        <!-- Pika H3 Flex (a Speed choice): "1" when the third pill renders. -->
+        <input type="hidden" name="h3_flex" id="h3_flex" value="0">
         <!-- Which of H3's ONE adapter slots this render spends. Its runner's
              `--lora` takes a single path (default=None, not append), so Turbo
              and a picked LoRA cannot both run and something has to choose.
@@ -1371,7 +1373,7 @@
                 <span class="qs-name">Speed</span>
                 <span class="qs-meta">Fast: ~4&times; quicker, a touch softer &middot; Best: sharpest faces, much slower</span>
               </div>
-              <div class="pill-group cols-2 h3-speed-group" id="h3SpeedGroup">
+              <div class="pill-group cols-3 h3-speed-group" id="h3SpeedGroup">
                 <button type="button" class="pill-btn" data-h3-speed="fast"
                         title="About 4× faster than Best, a touch softer on fine detail — great for drafts and most shots.">
                   <span>⚡ Fast</span><span class="sub" id="h3SpeedFastSub"></span>
@@ -1380,8 +1382,21 @@
                         title="This shape's full sampler — sharpest faces and detail, the slower, most careful render.">
                   <span>✦ Best</span><span class="sub" id="h3SpeedBestSub"></span>
                 </button>
+                <!-- Pika H3 Flex running natively on Apple Silicon (MLX): Pika
+                     Labs' six-step H3 student on our own MLX sampler. -->
+                <button type="button" class="pill-btn" data-h3-speed="flex"
+                        title="Pika H3 Flex (preview): Pika Labs' six-step version of H3, running natively on your Mac. New - feedback welcome. Powered by MiniMax H3.">
+                  <span>✧ Pika Flex (preview)</span><span class="sub" id="h3SpeedFlexSub"></span>
+                </button>
               </div>
               <div class="h3-turbo-note" id="h3SpeedNote" hidden></div>
+              <!-- Pika H3 Flex: credit + "Powered by MiniMax H3" while it is
+                   the choice, the one click that gets it before then
+                   (_h3RenderFlexNote). -->
+              <div class="h3-turbo-note h3-flex-note" id="h3FlexNote" hidden>
+                <span id="h3FlexNoteText"></span>
+                <button type="button" class="ghost-btn h3-flex-get" id="h3FlexGet" hidden></button>
+              </div>
               <!-- lightx2v v1.3 on Best at High: credit once it is in, the
                    one click that gets it before then (_h3RenderV13Note). -->
               <div class="h3-turbo-note h3-v13-note" id="h3V13Note" hidden>

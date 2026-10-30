@@ -163,7 +163,7 @@ function h3FinishFieldsFromSidecar(p, tierKey) {
     // The Speed switch value the clip was made with (Fast = 3-step, or the
     // retired Turbo; Best = the shape's full sampler). setH3Speed re-checks
     // availability: a Fast clip on an install without the adapter lands on Best.
-    h3_speed: (p.h3_tristep || p.h3_turbo) ? 'fast' : 'best',
+    h3_speed: (p.h3_tristep || p.h3_turbo) ? 'fast' : (p.h3_flex ? 'flex' : 'best'),
     // The shot list carries over, and it is safe to: Finish means SAME LENGTH,
     // higher quality, so the window count is identical by construction and
     // entry i still means window i. Dropping it would silently finish a
@@ -955,13 +955,18 @@ function updateH3Availability(s) {
                || (((next.v13 || {}).available) !== ((H3.v13 || {}).available))
                || (((next.v13 || {}).supported) !== ((H3.v13 || {}).supported))
                || (((next.v13 || {}).download || {}).status !== ((H3.v13 || {}).download || {}).status)
+               // And for Pika H3 Flex (the third Speed choice).
+               || (((next.flex || {}).available) !== ((H3.flex || {}).available))
+               || (((next.flex || {}).supported) !== ((H3.flex || {}).supported))
+               || (((next.flex || {}).download || {}).status !== ((H3.flex || {}).download || {}).status)
                || ((next.tiers || []).length !== (H3.tiers || []).length);
   // BOTH bindings, and they must stay the same object: the H3-specific code
   // reads `H3` on nearly every line, the registry reads the probe map. A
   // divergence here is a switcher showing "not installed" over a working
   // engine (or worse, the reverse).
   const _triDl = !!((next.tristep || {}).installing || (H3.tristep || {}).installing
-                    || (next.v13 || {}).installing || (H3.v13 || {}).installing);
+                    || (next.v13 || {}).installing || (H3.v13 || {}).installing
+                    || (next.flex || {}).installing || (H3.flex || {}).installing);
   H3 = next;
   window._ENGINE_PROBES.h3 = next;
   // A running 3-step download prints its progress on the pill.
@@ -3890,7 +3895,8 @@ async function poll() {
     // very first tick).
     const isH3 = cur.engine === 'h3';
     const h3Speed = isH3
-      ? ((prog && prog.h3_speed) ? (prog.h3_speed === 'fast' ? 'Fast' : 'Best')
+      ? ((prog && prog.h3_speed) ? (prog.h3_speed === 'fast' ? 'Fast'
+                                    : prog.h3_speed === 'flex' ? 'Pika H3 Flex' : 'Best')
                                   : (typeof h3JobSpeedLabel === 'function' ? h3JobSpeedLabel(cur) : ''))
       : '';
     const h3Shape = isH3 && typeof h3JobShapeLabel === 'function' ? h3JobShapeLabel(cur) : '';

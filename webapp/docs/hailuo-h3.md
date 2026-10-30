@@ -107,6 +107,19 @@ On **High**, **Best** can use **lightx2v v1.3**, an adapter by LightX2V. In our 
 - **Use the old Best:** choose a **Steps** count under Best to use the full sampler.
 - **Credit and licence:** lightx2v v1.3 is by [LightX2V](https://huggingface.co/lightx2v/Minimax-h3-Turbo). Code: Apache-2.0. Weights: MiniMax H3 Community License, the same as H3.
 
+## H3 Flex (preview) {#flex}
+
+**H3 Flex** is Pika H3 Flex by Pika Labs: a six-step version of H3, about 2.2× faster than Best at the same size. It is a **preview**: new on Mac, so tell us how it goes.
+
+- **Pick it:** choose **H3 Flex** in the engine picker at the top, right after Hailuo H3.
+- **Get it:** if its adapter is not on your Mac yet, the same click downloads it (2.8 GB, from Pika's own Hugging Face page at a fixed version) and prepares it on your Mac. The picker shows the progress. You need Hailuo H3 installed; if it isn't, the picker offers H3 first.
+- **What it makes:** Text and Image (first frame), with dialogue and sound, on every 5-second length (10 s and 15 s are 5 s pieces joined, and later pieces can drift).
+- **Times on an M4 Max, 64 GB, per 5 s:** Draft about 5 minutes, High about 16 minutes (Best: 36.5 minutes on the same shot). Full size (1344×768) runs; its timing is still to come.
+- **Tip:** name every person who should stay in the scene. Flex drops people the prompt doesn't mention.
+- **Back to H3's own Fast / Best:** pick **Hailuo H3** in the picker.
+
+Powered by MiniMax H3. Pika H3 Flex by Pika Labs (Mellis, Inc.): the weights are a MiniMax H3 Model Derivative under the MiniMax H3 Community License; Pika's code is Apache-2.0. Phosphene converts the file on your Mac and marks it as modified. Mac weights are also on Hugging Face: [Mrbizarro/Pika-H3-Flex-MLX](https://huggingface.co/Mrbizarro/Pika-H3-Flex-MLX).
+
 ## How long it takes {#times}
 
 Each quality and length option shows an estimated time for your Mac, based on completed videos from similar Macs. The table shows median times from Phosphene's anonymous usage counts: half finished sooner and half took longer. A dash means there are too few completed videos to give a time.

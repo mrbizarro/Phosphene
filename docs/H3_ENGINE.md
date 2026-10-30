@@ -486,6 +486,53 @@ Both digests are checked; a corrupt or partial build is deleted, never
 renamed into place. `test_h3_v13.py` pins script↔panel parity, the re-layout
 against an independent reference, the job rules, the argv and the prices.
 
+### Pika H3 Flex: Pika Labs' six-step H3, natively on Apple Silicon (2026-10-30)
+
+**Pika H3 Flex running natively on Apple Silicon (MLX) — the first Mac port we know of.**
+Pika Labs released [Pika H3 Flex](https://huggingface.co/Pika-Labs/Pika-H3-Flex)
+on 2026-10-29 for NVIDIA only (H100 80 GB, `--cpu-offload` for 768p/15 s). It is
+not a new base model: a rank-128 LoRA (alpha 128) on MiniMax H3, base revision
+`42ed227` — whose transformer shards are byte-identical (LFS sha256) to the
+release this pack's pruned/Q8 DiT was built from — plus the sampler it was
+distilled for. Phosphene implements that method in its own MLX code; nothing
+of Pika's code is copied.
+
+| piece | what |
+|---|---|
+| sampler | runner `--pika-flex` = `--sampler renoise --sigma-knots 1000,750,500,250,100,40,0 --video-shift 12 --audio-shift 3` (6 forwards). Each forward predicts `x0 = x_t + sigma*v`; the next state is `x0` re-noised to the next knot with fresh noise (not an Euler blend); the terminal knot is 0. Engine commit `bef6d03` on `phosphene/v4.19.15` (`MiniMaxH3RenoiseScheduler`, `tests/test_pika_flex.py`). |
+| adapter | `scripts/fetch_h3_flex.py` downloads Pika's `fl2va/adapter.safetensors` (float32, sha256 `8ed6115d…`, 2,767,274,120 B) at revision `0ddf55ad` with Pika's LICENSE, NOTICE and manifest, then builds `pika_h3_flex_fl2va_phosphene.safetensors` (sha256 `c71f527d…`, 1,956,166,104 B, deterministic): q/k/v fused block-diagonal in the DiT's per-head order, fc1 halves swapped to `[gate; value]`, float32 to bfloat16 round-to-nearest-even (Pika's own loader runs the adapter in bf16), alpha == rank so no fold. The metadata declares per-head rows and carries the licence notice and a modification notice (Licence III.2). |
+| panel | the third Speed pill, **✧ Pika Flex (preview)** (`h3_flex=1`, a preview since 4.19.15), never a default. Text and Image, every 5 s-window cell (Draft, Standard, High, Native; chained lengths too); it wins over Fast, Turbo, v1.3 and a Steps pin. The note under the switch and the sidecar's `flex` block carry the credit and "Powered by MiniMax H3". `POST /h3/flex/install` builds it (licence-gated like H3). Hidden until the runner has `--pika-flex`. |
+
+Measured on the M4 Max 64 GB, Q8 DiT (2026-10-30):
+
+| shape | forwards | per forward | wall | peak |
+|---|---:|---:|---:|---:|
+| Draft 640×384, 5 s (124 f), Text | 6 | 40.8 s | 301 s | 24.0 GiB denoise / 25.7 run |
+| same prompt + seed, base H3 at 9 points (prompt cached) | 8 | 39.2 s | 358 s | 22.2 GiB denoise |
+| High 1024×576, 5 s, Image | 6 | 143 s | 976 s | 26.6 GiB denoise / 27.2 run |
+| same shot + seed, base H3 Best (16 points) | 15 | 139 s | 2190 s | 24.8 GiB denoise |
+| High 1024×576, 15 s (3 chained 5 s windows, 17-frame carried context), Image | 3 × 6 | 143 / 172 / 172 s | 3293–3304 s | 27.3 GiB |
+| Native 1344×768, 5 s, Image (stopped after forward 1: disk) | 6 | 340 s | ~37 min projected | — |
+
+On the High 5 s A/B (same first frame, prompt, seed) Flex took 16.3 min against
+the full sampler's 36.5 min (2.2×) for a clip of the same staging and quality.
+Chained 15 s keeps each 5 s window as good as a single one, but windows 2-3 can
+drift on set and supporting characters (the sitcom chain changed the dog and the
+sofa; the table-tennis chain held). Pika's own 15 s showcases are ONE dense pass
+at 1344×768, which on a Mac is the dense 15 s cell Flex does not take yet.
+
+The adapter costs ~4% per forward (runtime low-rank matmul) and ~1.8 GiB.
+"Run" peak is the Q8 text encoder phase, which the prompt cache skips. Whisper reads the
+scripted lines back verbatim on both test clips. Ref2VA is not offered: Pika's
+Ref2VA adapter targets the separate Ref2VA trunk (`transformer_ref`, ~20 GB as
+Q8), which this pack does not carry.
+
+**Licence.** The adapter is a MiniMax H3 Model Derivative (copyright Mellis,
+Inc.) under the MiniMax H3 Community License — same territory exclusion (US,
+EU, UK, KR), AUP, "MiniMax H3" shown in the UI (IV.2), the NOTICE text with any
+distribution (III.4). Pika's code is Apache-2.0 (`LICENSE-CODE`). Phosphene
+never re-hosts the weights; each Mac fetches Pika's original.
+
 ### Chained windows (v3.4.1)
 
 Window *N*'s **last decoded frame** becomes window *N+1*'s first-frame keyframe

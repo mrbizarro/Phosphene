@@ -10582,6 +10582,14 @@
     /* Inert = real but unreachable right now; still listed, visibly muted. */
     .eng-opt.inert { opacity: .58; }
     .eng-opt.needs-install .eng-badge.offer { color: var(--eng-accent, currentColor); }
+    /* H3 Flex (4.19.15) is a preview: a quiet tag beside its name, in the menu
+       and on the trigger, never louder than the engine's own offer badge. */
+    .eng-badge.eng-preview, body > header .eng-badge.eng-preview {
+      text-transform: lowercase; letter-spacing: .02em; font-weight: 500;
+      color: var(--eng-accent, var(--muted)); background: transparent;
+      border: 1px dashed var(--eng-soft, var(--ph-border-soft)); margin-left: 6px;
+      font-size: 11px; line-height: 1.2; padding: 1px 5px; border-radius: 5px;
+    }
 
     body > header .engine-switch {
       flex-shrink: 0;

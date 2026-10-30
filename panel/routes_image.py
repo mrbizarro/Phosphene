@@ -467,6 +467,23 @@ def post_h3_v13_install(h, path, qs, ctype) -> None:
     h._json(result, 202)
 
 
+
+# ====== Hailuo H3 · Pika H3 Flex (a Speed choice) — fetch Pika's original FL2VA
+# adapter + LICENSE + NOTICE (pinned revision + sha256) and build the runner
+# layout locally. Pika H3 Flex running natively on Apple Silicon (MLX).
+@post("/h3/flex/install")
+def post_h3_flex_install(h, path, qs, ctype) -> None:
+    P.h3_status_invalidate()
+    # An H3 Model Derivative: the same licence screen as H3 itself.
+    _lic = P.licence_refusal_for("h3")
+    if _lic:
+        h._json(_lic, 451); return
+    result = P._h3_install_flex(P.push)
+    if not result.get("ok"):
+        h._json(result, 409 if "active" in result.get("error", "") else 400)
+        return
+    h._json(result, 202)
+
 # Image-engine config (pluggable: mock | bfl).
 @post("/agent/image/config")
 def post_agent_image_config(h, path, qs, ctype) -> None:

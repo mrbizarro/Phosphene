@@ -382,11 +382,23 @@ function _h3V13Mode() {
   const m = (document.getElementById('mode') || {}).value || 't2v';
   return m === 't2v' || m === 'i2v';
 }
+// Pika H3 Flex (Pika Labs' six-step H3 student, running natively on Apple
+// Silicon): the third Speed choice. Text and Image, every 5 s-window cell the
+// server prices (cell.flex_min); never a default — only when picked.
+function h3FlexState() {
+  return (H3 && H3.flex) || { available: false, supported: false, downloaded: false };
+}
+function h3FlexOn(cell) {
+  cell = cell || h3CurrentCell();
+  return !!(cell && cell.flex_min != null && _h3V13Mode()
+            && h3FlexState().available && h3SpeedPref() === 'flex');
+}
 // Would THIS cell's Best render on v1.3, as things stand?
 function h3V13On(cell, opts) {
   cell = cell || h3CurrentCell();
   if (!cell || cell.v13_min == null) return false;
   opts = opts || {};
+  if (opts.flex == null && typeof h3FlexOn === 'function' && h3FlexOn(cell)) return false;
   const fast = (opts.fast != null) ? opts.fast : h3TriStepOn(cell);
   if (fast) return false;
   const ov = (opts.steps != null) ? String(opts.steps)
@@ -397,10 +409,12 @@ function h3V13On(cell, opts) {
 function h3SpeedPref() {
   let v = null;
   try { v = localStorage.getItem('phos_h3_speed'); } catch (e) {}
-  return v === 'best' ? 'best' : 'fast';
+  return (v === 'best' || v === 'flex') ? v : 'fast';
 }
 function _h3SetSpeedPref(v) {
-  try { localStorage.setItem('phos_h3_speed', v === 'best' ? 'best' : 'fast'); } catch (e) {}
+  try {
+    localStorage.setItem('phos_h3_speed', (v === 'best' || v === 'flex') ? v : 'fast');
+  } catch (e) {}
 }
 function _h3IsI2V() {
   return ((document.getElementById('mode') || {}).value || 't2v') === 'i2v';
@@ -442,7 +456,10 @@ function h3CellEtaMin(cell, opts) {
   const fast = (opts.fast != null) ? opts.fast : h3TriStepOn(cell);
   if (fast && cell.tristep_min != null) return _h3TriStepMin(cell);
   if (opts.turbo) return cell.turbo_min;
-  if (h3V13On(cell, { fast: false, steps: opts.steps })) return cell.v13_min;
+  const flexOn = (opts.flex != null) ? opts.flex
+    : (typeof h3FlexOn === 'function' && h3FlexOn(cell));
+  if (flexOn && cell.flex_min != null) return cell.flex_min;
+  if (h3V13On(cell, { fast: false, steps: opts.steps, flex: false })) return cell.v13_min;
   const ov = (opts.steps != null) ? String(opts.steps)
     : ((document.getElementById('h3_steps') || {}).value || 'auto');
   if (ov !== 'auto' && /^\d+$/.test(ov)) {
@@ -479,9 +496,12 @@ function h3CellEta(cell, opts) {
   const fast = (opts.fast != null) ? opts.fast : h3TriStepOn(cell);
   if (fast && cell.tristep_min != null) return _h3TriStepEta(cell);
   if (opts.turbo) return cell.turbo_eta;
+  const flexOn = (opts.flex != null) ? opts.flex
+    : (typeof h3FlexOn === 'function' && h3FlexOn(cell));
+  if (flexOn && cell.flex_eta) return cell.flex_eta;
   const ov = (document.getElementById('h3_steps') || {}).value || 'auto';
   if (ov === 'auto' || !/^\d+$/.test(ov)) {
-    if (h3V13On(cell, { fast: false })) {
+    if (h3V13On(cell, { fast: false, flex: false })) {
       return (!_h3IsI2V() && cell.fleet_range_v13) ? cell.fleet_range_v13.eta_range : cell.v13_eta;
     }
     // Owner ruling (2026-09-29): Best's own real fleet range, same idea as
@@ -496,7 +516,21 @@ function h3CellEta(cell, opts) {
 function h3SpeedSub(which) {
   const cell = h3CurrentCell();
   if (which === 'best') {
-    return _h3EtaPlain(h3CellEta(cell, { fast: false })) || 'full steps';
+    return _h3EtaPlain(h3CellEta(cell, { fast: false, flex: false })) || 'full steps';
+  }
+  if (which === 'flex') {
+    const fx = h3FlexState();
+    if (!fx.supported) return 'update H3 runner';
+    if (!fx.downloaded) {
+      if (fx.installing) {
+        const d = fx.download || {};
+        return d.status === 'building' ? 'preparing…'
+          : 'installing ' + (d.mb || 0) + ' / ' + (d.total_mb || 2639) + ' MB';
+      }
+      return 'Install (' + (fx.download_gb || 2.8) + ' GB)';
+    }
+    if (!cell || cell.flex_min == null || !_h3V13Mode()) return 'not at this shape';
+    return _h3EtaPlain(h3CellEta(cell, { fast: false, flex: true })) || '6 steps';
   }
   const tri = h3TriStepState();
   if (!tri.supported) return 'update H3 runner';
@@ -573,10 +607,107 @@ function renderH3Turbo() {
           ? (cell.label || 'This shape') + ' has no Fast pass yet — it always renders on Best.'
           : '3 steps — about 4× faster, great for drafts and most shots.';
   }
+  const flexBtn = document.querySelector('#h3SpeedGroup [data-h3-speed="flex"]');
+  const flexSub = document.getElementById('h3SpeedFlexSub');
+  const fx = h3FlexState();
+  if (flexSub) flexSub.textContent = h3SpeedSub('flex');
+  if (flexBtn) {
+    // Hidden where the runner cannot take it at all (an older pack); dashed
+    // until the adapter is in, like Fast.
+    // 4.19.15: H3 Flex is its own entry in the top engine picker (owner:
+    // "selected in the ticker, like we select H3"). One obvious way in, so the
+    // Speed pill stays hidden; the Speed row is H3's own Fast / Best again.
+    flexBtn.hidden = true;
+    flexBtn.classList.toggle('needs-download', !fx.available);
+    flexBtn.classList.toggle('cell-only-best',
+      fx.available && !!cell && (cell.flex_min == null || !_h3V13Mode()));
+  }
+  const group = document.getElementById('h3SpeedGroup');
+  if (group && flexBtn) {
+    group.classList.toggle('cols-3', !flexBtn.hidden);
+    group.classList.toggle('cols-2', flexBtn.hidden);
+  }
+  // While H3 Flex is the engine, Fast / Best do not apply: the row shows the
+  // Flex note (credit, download, progress) instead of two unlit pills.
+  const flexPicked = h3SpeedPref() === 'flex';
+  if (group) group.hidden = flexPicked;
+  const speedMeta = document.querySelector('#h3SpeedRow .qs-meta');
+  if (speedMeta) speedMeta.hidden = flexPicked;
+  const speedName = document.querySelector('#h3SpeedRow .qs-name');
+  if (speedName) speedName.textContent = flexPicked ? 'H3 Flex (preview)' : 'Speed';
   _h3SyncSamplerTitles();
   _h3ApplySpeed();
+  _h3RenderFlexNote();
+  _h3FlexPickerSync();
   _h3RenderV13Note();
   _h3SyncFaceFixEta();
+}
+
+// The line under the switch for Pika H3 Flex: the credit (and "Powered by
+// MiniMax H3", which the H3 licence asks a product to show) while it is the
+// choice, the one click that gets it before then.
+function _h3RenderFlexNote() {
+  const box = document.getElementById('h3FlexNote');
+  if (!box) return;
+  const cell = h3CurrentCell();
+  const fx = h3FlexState();
+  const text = document.getElementById('h3FlexNoteText');
+  const btn = document.getElementById('h3FlexGet');
+  const show = h3SpeedPref() === 'flex' && !h3TriStepOn(cell);
+  box.hidden = !show;
+  if (!show || !text) return;
+  const name = fx.name || 'Pika H3 Flex';
+  const credit = 'By Pika Labs, running natively on your Mac. Powered by MiniMax H3 ('
+    + (fx.license || 'MiniMax H3 Community License') + ').';
+  // Preview (4.19.15): new on the Mac, so say so and ask for word back.
+  const preview = ' Preview: new on Mac, so tell us how it goes. Tip: name every person who should stay in the shot.';
+  let msg = '';
+  let canGet = false;
+  if (!fx.supported) {
+    msg = name + ' needs a newer H3 runner. ' + distText(
+      'Click "Update Hailuo H3 runner" in the Pinokio sidebar. Your weights stay.',
+      'Updating the runner isn\u2019t available in the Mac app yet.');
+  } else if (fx.installing) {
+    const d = fx.download || {};
+    msg = d.status === 'building' ? 'Preparing ' + name + ' on your Mac…'
+      : 'Downloading ' + name + ': ' + (d.mb || 0) + ' / ' + (d.total_mb || 2639) + ' MB';
+  } else if (!fx.downloaded) {
+    const e = (fx.download || {}).error;
+    msg = name + ': Pika Labs\u2019 six-step H3, about ' + _h3EtaPlain(cell && cell.flex_eta)
+      + ' here. ' + credit + preview + (e ? ' Last try failed: ' + e : '');
+    canGet = true;
+  } else if (h3FlexOn(cell)) {
+    msg = name + ' (' + (fx.forwards || 6) + ' steps). ' + credit + preview;
+  } else {
+    msg = name + ' renders Text and Image on 5-second windows; this shape uses Best.';
+  }
+  text.textContent = msg;
+  if (btn) {
+    btn.hidden = !canGet;
+    btn.textContent = 'Get it · ' + (fx.download_gb || 2.8) + ' GB';
+  }
+}
+async function h3FlexInstall() {
+  const toast = (m, kind) => { if (typeof phosToast === 'function') phosToast(m, { kind }); };
+  const btn = document.getElementById('h3FlexGet');
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch('/h3/flex/install', { method: 'POST' });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    _h3SetSpeedPref('flex');
+    toast(j.already_installed ? 'Pika H3 Flex is already installed.'
+      : 'Downloading Pika H3 Flex from Pika Labs (2.8 GB), then preparing it on your Mac. '
+        + 'It switches on by itself when ready.', 'ok');
+  } catch (e) {
+    toast('Pika H3 Flex: ' + (e.message || 'failed'), 'danger');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+{
+  const _flexBtn = document.getElementById('h3FlexGet');
+  if (_flexBtn) _flexBtn.onclick = (ev) => { ev.preventDefault(); h3FlexInstall(); };
 }
 
 // The line under the switch for lightx2v v1.3 on High: what it is and who
@@ -588,7 +719,9 @@ function _h3RenderV13Note() {
   const v = h3V13State();
   const text = document.getElementById('h3V13NoteText');
   const btn = document.getElementById('h3V13Get');
-  const show = !!(cell && cell.v13_min != null && _h3V13Mode() && !h3TriStepOn(cell));
+  // Not while Pika H3 Flex is the choice: its own note says what renders.
+  const show = !!(cell && cell.v13_min != null && _h3V13Mode() && !h3TriStepOn(cell)
+                  && h3SpeedPref() !== 'flex');
   box.hidden = !show;
   if (!show || !text) return;
   const name = v.name || 'lightx2v v1.3';
@@ -661,13 +794,16 @@ function _h3ApplySpeed() {
     if (triIn) triIn.value = fastOn ? '1' : '0';
     const tbIn = document.getElementById('h3_turbo');
     if (tbIn) tbIn.value = '0';
+    const flexOn = !fastOn && typeof h3FlexOn === 'function' && h3FlexOn(cell);
+    const fxIn = document.getElementById('h3_flex');
+    if (fxIn) fxIn.value = flexOn ? '1' : '0';
     // H3-13: the lit half used to be the PREFERENCE alone (pref === 'fast' &&
     // tri.available), so Native and the single-pass 10s — cells with no Fast
     // path at all (cell.tristep_min == null) — kept the Fast pill pink while
     // the render that actually queued ran Best, 8-25x slower. fastOn already
     // folds in per-cell availability (h3TriStepOn), so light whichever half
     // is really about to render; the note below still explains why.
-    const lit = fastOn ? 'fast' : 'best';
+    const lit = fastOn ? 'fast' : (flexOn ? 'flex' : 'best');
     document.querySelectorAll('#h3SpeedGroup [data-h3-speed]').forEach(b =>
       b.classList.toggle('active', b.dataset.h3Speed === lit));
     const note = document.getElementById('h3SpeedNote');
@@ -699,6 +835,12 @@ function _h3ApplySpeed() {
       // hasn't loaded yet.
       if (s) s.value = (cell && cell.tristep_forwards != null)
         ? cell.tristep_forwards : (tri.steps ? tri.steps - 1 : 3);
+    } else if (flexOn && s && cell) {
+      // Flex owns its six-step ladder: a pinned Steps pill does not apply.
+      if (stIn && stIn.value !== 'auto' && typeof setH3Steps === 'function') {
+        try { setH3Steps('auto'); } catch (e) {}
+      }
+      s.value = (cell.flex_forwards != null) ? cell.flex_forwards : (h3FlexState().forwards || 6);
     } else if (s && cell) {
       const ov = (stIn || {}).value || 'auto';
       s.value = (ov !== 'auto' && /^\d+$/.test(ov)) ? parseInt(ov, 10)
@@ -706,7 +848,7 @@ function _h3ApplySpeed() {
     }
     // Steps is a Best control: it only shows while Best is what renders.
     const stepsRow = document.getElementById('h3StepsRow');
-    if (stepsRow) stepsRow.hidden = fastOn;
+    if (stepsRow) stepsRow.hidden = fastOn || flexOn;
     if (typeof renderH3LoraSlot === 'function') { try { renderH3LoraSlot(); } catch (e) {} }
   } finally {
     _h3SpeedBusy = false;
@@ -721,7 +863,7 @@ function _h3SpeedRepriced() {
 
 // Set the speed ('fast' | 'best'). Remembered per browser.
 function setH3Speed(v) {
-  _h3SetSpeedPref(v === 'best' ? 'best' : 'fast');
+  _h3SetSpeedPref((v === 'best' || v === 'flex') ? v : 'fast');
   _h3ApplySpeed();
   _h3SpeedRepriced();
 }
@@ -731,7 +873,7 @@ function setH3TriStep(on) { setH3Speed(on ? 'fast' : 'best'); }
 // What a saved clip was made with, as this switch's value.
 function h3SpeedOfParams(p) {
   p = p || {};
-  return (p.h3_tristep || p.h3_turbo) ? 'fast' : 'best';
+  return (p.h3_tristep || p.h3_turbo) ? 'fast' : (p.h3_flex ? 'flex' : 'best');
 }
 // H3-04: "Fast" / "Best", for any place that shows a submitted or running
 // H3 job's params — the Now card, a queue row, the info modal. One
@@ -739,6 +881,7 @@ function h3SpeedOfParams(p) {
 function h3JobSpeedLabel(p) {
   if (!p || p.engine !== 'h3') return '';
   if (h3SpeedOfParams(p) === 'fast') return 'Fast';
+  if (h3SpeedOfParams(p) === 'flex') return 'Pika H3 Flex';
   return p.h3_v13 ? 'Best · lightx2v v1.3' : 'Best';
 }
 // "Hailuo H3 · Standard 10s" — the shape a submitted H3 job asked for,
@@ -755,6 +898,22 @@ function h3JobShapeLabel(p) {
 // The Fast half: select it when ready; otherwise the one click that makes it
 // ready (install the adapter, or say which update is needed).
 async function h3SpeedClick(which) {
+  if (which === 'flex') {
+    const fx = h3FlexState();
+    if (fx.available) { setH3Speed('flex'); return; }
+    const toastF = (m, kind) => { if (typeof phosToast === 'function') phosToast(m, { kind }); };
+    if (!fx.supported) {
+      toastF(distText('Pika H3 Flex needs a newer Hailuo H3 runner. Run "Update Hailuo H3 runner" in the '
+             + 'Pinokio sidebar — your weights stay.',
+             'Pika H3 Flex needs a newer Hailuo H3 runner. Updating the runner isn\u2019t available in the Mac app yet.'), 'danger');
+      return;
+    }
+    // Show the note (credit + the Get button) for the one explicit click.
+    _h3SetSpeedPref('flex');
+    _h3ApplySpeed();
+    _h3SpeedRepriced();
+    return;
+  }
   if (which !== 'fast') { setH3Speed('best'); return; }
   const tri = h3TriStepState();
   if (tri.available) { setH3Speed('fast'); return; }
@@ -863,7 +1022,8 @@ function h3EstimateLine() {
     return 'Fast HD · ' + cell.width + '×' + cell.height + ' → ' + cell.final_width + '×'
       + cell.final_height + ' ≈ ' + h3FmtEtaMin(m).replace(/^~/, '').replace(/ · batch$/, '');
   }
-  let txt = cell.quality_label + ' · ' + (fast ? 'Fast' : 'Best');
+  const flexLine = !fast && typeof h3FlexOn === 'function' && h3FlexOn(cell);
+  let txt = cell.quality_label + ' · ' + (fast ? 'Fast' : (flexLine ? 'Pika H3 Flex' : 'Best'));
   if (h3FaceFixOn()) {
     txt += ' + Face Fix';
     if (cell.facefix_min == null) return txt;
@@ -1020,6 +1180,98 @@ document.addEventListener('keydown', (ev) => {
 });
 window.addEventListener('resize', () => closeEngineMenu({ returnFocus: false }));
 
+// ---- H3 Flex: its own entry in the engine picker (4.19.15, preview) --------
+// Not a server engine: it renders on H3 (engine=h3, h3_flex=1, the Flex
+// adapter + its six-step sampler), so every H3 gate, price and queue path
+// stays the one H3 already has. The picker shows it as a sibling of H3 so it
+// can be found, downloaded and chosen the way an engine is.
+const H3FLEX_ID = 'h3flex';
+function h3FlexPicked() {
+  return currentEngine() === 'h3' && h3SpeedPref() === 'flex';
+}
+// The entry, built from H3's own row (accent, mark, surfaces), or null when
+// this Mac's H3 runner cannot take Flex at all (an older H3 pack).
+function h3FlexPickerEntry() {
+  const h3e = engineById('h3');
+  if (!h3e || !engineRenderable(h3e)) return null;
+  const fx = h3FlexState();
+  const h3st = engineStatus(h3e);
+  if (h3st.available && !fx.supported && !fx.downloaded) return null;
+  return Object.assign({}, h3e, {
+    id: H3FLEX_ID, label: 'H3 Flex', generation: '', preview: true, virtual: true,
+    sublabel: 'Pika H3 Flex · preview',
+    tagline: "Pika Labs' six-step H3: about 2.2× faster than Best. Preview.",
+  });
+}
+// Its state, in the same words the menu uses for every engine.
+function h3FlexPickerStatus() {
+  const h3st = engineStatus(engineById('h3'));
+  const fx = h3FlexState();
+  const d = fx.download || {};
+  return {
+    capable: !!h3st.capable,
+    h3_ready: !!h3st.available,
+    available: !!(h3st.available && fx.available),
+    installing: !!fx.installing,
+    progress: fx.installing
+      ? (d.status === 'building' ? 'preparing'
+        : Math.min(99, Math.round(100 * (d.mb || 0) / (d.total_mb || 2639))) + '%')
+      : '',
+    error: d.error || '',
+    download_gb: fx.download_gb || 2.8,
+  };
+}
+function _h3FlexBadge(st, h3e) {
+  if (!st.h3_ready) return (h3e.install_size || '').replace(/^~/, '');
+  if (st.installing) return st.progress;
+  if (!st.available) return st.download_gb + ' GB';
+  return '';
+}
+function _h3FlexTooltip(st, h3e) {
+  const credit = ' By Pika Labs, running on your Mac. Powered by MiniMax H3.';
+  if (!st.h3_ready) return 'H3 Flex (preview) — needs Hailuo H3 first ('
+    + (h3e.install_size || '') + '); then its 2.8 GB adapter. Click to get them.' + credit;
+  if (st.installing) return 'H3 Flex (preview) — downloading and preparing (' + st.progress + ').' + credit;
+  if (!st.available) return 'H3 Flex (preview) — click to download it (' + st.download_gb
+    + ' GB from Pika Labs, prepared on your Mac).' + credit;
+  return "H3 Flex (preview) — Pika Labs' six-step H3, about 2.2× faster than Best." + credit;
+}
+// Picking it: H3 with the Flex sampler. Missing pieces download on the same
+// click: H3 itself through its own install card (Flex follows on the first
+// status tick that finds H3 ready), else the Flex adapter right here.
+function h3FlexPickerClick() {
+  const h3e = engineById('h3');
+  const st = h3FlexPickerStatus();
+  if (!h3e || !st.capable) return;
+  _h3SetSpeedPref('flex');
+  try { localStorage.setItem('phos_h3flex_wanted', '1'); } catch (e) {}
+  if (!st.h3_ready) { engineSegClick('h3'); return; }
+  if (!engineServesMode(h3e, currentMode)) return;
+  setEngine('h3');
+  if (typeof setH3Speed === 'function') setH3Speed('flex');
+  if (!st.available && !st.installing) h3FlexInstall();
+  renderEngineSwitch();
+}
+// Status ticks: redraw the picker when Flex's state moves, and finish what
+// a click on H3 Flex asked for once H3 itself has arrived.
+let _h3FlexPickerSig = '';
+function _h3FlexPickerSync() {
+  const st = h3FlexPickerStatus();
+  let wanted = false;
+  try { wanted = localStorage.getItem('phos_h3flex_wanted') === '1'; } catch (e) {}
+  if (wanted && st.available) { try { localStorage.removeItem('phos_h3flex_wanted'); } catch (e) {} }
+  if (wanted && st.h3_ready && !st.available && !st.installing && !st.error
+      && h3FlexState().supported && h3SpeedPref() === 'flex' && !window._h3FlexAutoAsked) {
+    window._h3FlexAutoAsked = true;
+    h3FlexInstall();
+  }
+  const sig = [st.h3_ready, st.available, st.installing, st.progress, h3SpeedPref()].join('|');
+  if (sig !== _h3FlexPickerSig) {
+    _h3FlexPickerSig = sig;
+    if (typeof renderEngineSwitch === 'function') { try { renderEngineSwitch(); } catch (e) {} }
+  }
+}
+
 function renderEngineSwitch() {
   renderLtxGenSwitch();   // the Remix-row switch; independent of the header row below
   const box = document.getElementById('engineSwitch');
@@ -1030,9 +1282,17 @@ function renderEngineSwitch() {
   if (div) div.hidden = !show;
   if (!show) { box.innerHTML = ''; closeEngineMenu(); return; }
 
-  const active = _currentSurface() === 'music' ? 'music' : currentEngine();
   const surfaceMode = _currentSurface() === 'music' ? 'music' : currentMode;
   const list = ENGINES.filter(engineRenderable);
+  // H3 Flex sits right after H3 (preview; see h3FlexPickerEntry).
+  // typeof: harnesses that lift renderEngineSwitch alone (test_music_engine) run without it.
+  const flexEntry = (typeof h3FlexPickerEntry === 'function') ? h3FlexPickerEntry() : null;
+  if (flexEntry) {
+    const at = list.findIndex(e => e.id === 'h3');
+    list.splice(at + 1, 0, flexEntry);
+  }
+  const active = _currentSurface() === 'music' ? 'music'
+    : (flexEntry && h3FlexPicked() ? 'h3flex' : currentEngine());
 
   // ---- The trigger: the active engine, and nothing else ----
   const act = list.find(e => e.id === active) || list[0];
@@ -1040,10 +1300,12 @@ function renderEngineSwitch() {
     box.innerHTML = `<button type="button" class="eng-trigger" aria-haspopup="listbox"
         aria-expanded="false"
         style="--eng-accent:${escapeHtml(act.accent)};--eng-dim:${escapeHtml(act.accent_dim)};--eng-soft:${escapeHtml(act.accent_soft)}"
-        title="${escapeHtml(_engineTooltip(act, engineStatus(act), engineServesMode(act, surfaceMode)))}">
+        title="${escapeHtml(act.virtual ? _h3FlexTooltip(h3FlexPickerStatus(), engineById('h3'))
+          : _engineTooltip(act, engineStatus(act), engineServesMode(act, surfaceMode)))}">
       <span class="eng-mark"><svg class="ph" aria-hidden="true"><use href="#${escapeHtml(act.mark)}"/></svg></span>
       <span class="eng-seg-name">${escapeHtml(act.label)}</span>${
-      act.generation ? `<span class="eng-seg-gen">${escapeHtml(act.generation)}</span>` : ''}
+      act.generation ? `<span class="eng-seg-gen">${escapeHtml(act.generation)}</span>` : ''}${
+      act.preview ? '<span class="eng-badge eng-preview">preview</span>' : ''}
       <svg class="ph eng-caret" aria-hidden="true"><use href="#ph-caret-down-bold"/></svg>
     </button>`;
     const t = box.querySelector('.eng-trigger');
@@ -1053,6 +1315,28 @@ function renderEngineSwitch() {
   // ---- The menu: every engine, each stating its own state ----
   const menu = _engineMenuEl();
   menu.innerHTML = list.map(e => {
+    if (e.virtual) {
+      const fst = h3FlexPickerStatus();
+      const fBadge = _h3FlexBadge(fst, engineById('h3'));
+      const fOffer = !fst.available;
+      const fOk = engineServesMode(e, surfaceMode);
+      const fCls = 'eng-opt eng-opt-flex' + (e.id === active ? ' active' : '')
+        + (fOffer ? ' needs-install' : '') + (fst.available && !fOk ? ' inert' : '');
+      return `<button type="button" class="${fCls}" data-engine="${H3FLEX_ID}"
+          role="option" aria-selected="${e.id === active ? 'true' : 'false'}"
+          style="--eng-accent:${escapeHtml(e.accent)};--eng-dim:${escapeHtml(e.accent_dim)};--eng-soft:${escapeHtml(e.accent_soft)}"
+          title="${escapeHtml(_h3FlexTooltip(fst, engineById('h3')))}">
+        <span class="eng-mark"><svg class="ph" aria-hidden="true"><use href="#${escapeHtml(e.mark)}"/></svg></span>
+        <span class="eng-opt-body">
+          <span class="eng-opt-top">
+            <span class="eng-seg-name">${escapeHtml(e.label)}</span><span class="eng-badge eng-preview">preview</span>${
+            fBadge ? `<span class="eng-badge offer">${escapeHtml(fBadge)}</span>` : ''}
+          </span>
+          <span class="eng-opt-sub">${escapeHtml(e.tagline)}</span>
+        </span>${
+        e.id === active ? '<svg class="ph eng-tick" aria-hidden="true"><use href="#ph-check-bold"/></svg>' : ''}
+      </button>`;
+    }
     const st = engineStatus(e);
     const offer = !e.builtin && !st.announced && st.capable && !st.available;
     const modeOk = engineServesMode(e, surfaceMode);
@@ -1101,7 +1385,15 @@ function renderEngineSwitch() {
   menu.querySelectorAll('.eng-opt').forEach(b => {
     b.onclick = () => {
       closeEngineMenu();
+      if (b.dataset.engine === 'h3flex') { h3FlexPickerClick(); return; }
+      // Plain H3 from the picker means H3's own Speed, not Flex.
+      if (b.dataset.engine === 'h3' && h3SpeedPref() === 'flex'
+          && typeof setH3Speed === 'function') {
+        try { localStorage.removeItem('phos_h3flex_wanted'); } catch (e) {}
+        setH3Speed('fast');
+      }
       engineSegClick(b.dataset.engine);
+      renderEngineSwitch();
     };
   });
 
@@ -2128,7 +2420,7 @@ Object.assign(globalThis, {
   setH3Upscale, setH3FaceFixAfter, setH3Orientation, setH3Steps, h3TurboPillSub,
   h3V13State, h3V13On,
   renderH3Turbo, setH3Turbo, syncModeStripToEngine, renderEngineSwitch,
-  setH3Speed, h3SpeedOfParams, h3EstimateLine, setH3TriStep, h3TriStepOn, h3TriStepState,
+  setH3Speed, h3SpeedOfParams, h3FlexOn, h3FlexState, h3EstimateLine, setH3TriStep, h3TriStepOn, h3TriStepState,
   h3JobSpeedLabel, h3JobShapeLabel, ltxCellEtaBasis, h3CellEtaBasis,
   // Published for the Shot setup summary (characters.js): a closed section has
   // to price the shape it is hiding, and it must do it with the SAME numbers

@@ -18,7 +18,7 @@ It runs **LTX-2.5** and **MiniMax H3 (Hailuo H3)** for text-to-video and image-t
 and is built on Apple's MLX: no CUDA, no cloud GPU, no API key, no credits and no watermark.
 Your prompts, pictures and videos never leave your Mac.
 
-**Current release: v4.19.14.** Made by Mr Bizarro.
+**Current release: v4.19.15.** Made by Mr Bizarro.
 
 ## Why Phosphene
 
@@ -46,6 +46,7 @@ Works from 16 GB of memory.
 
 MiniMax H3, also called Hailuo H3, makes scenes where people talk, with lips that match their voices.
 Use keyframes, extend a shot, lip-sync, or **Add sound** to give a silent clip its own soundscape.
+**New, preview:** Pika H3 Flex, Pika Labs' six-step H3, as a Speed choice: about 2.2× faster than Best at the same size. As far as we know, the first Mac port.
 About 75 GB, one click from the Pinokio sidebar, from 36 GB of memory.
 Its licence excludes the EU, UK, South Korea and US.
 
@@ -219,6 +220,7 @@ Contributors are credited in the release notes. See CONTRIBUTING.md.
 - Lightricks for LTX-Video 2.x, and @dgrauet for ltx-2-mlx, the MLX port Phosphene builds on.
 - MiniMax for Hailuo H3, and Apple ML research for MLX.
 - LightX2V for lightx2v v1.3, the adapter for Best on High; TaoLive (TaoMate-H3) and @kijai for the 3-step Fast adapter.
+- Pika Labs (Mellis, Inc.) for Pika H3 Flex, a MiniMax H3 Model Derivative, downloaded from Pika's own Hugging Face repo at a pinned revision and converted on your Mac. Powered by MiniMax H3.
 - Black Forest Labs for FLUX 3 Klein, and mflux-community for its MLX conversions.
 - @filipstrand for mflux; Multimodal Art Projection for YuE2 and @vanch007 for its MLX port.
 - mlx-community for Gemma on MLX, and @cocktailpeanut for Pinokio.
