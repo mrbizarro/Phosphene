@@ -1,27 +1,42 @@
 {
   "title": "Phosphene",
-  "description": "Local generative video, image, and character training on Apple Silicon. Train face + voice LoRAs in-app. Q8 HQ for character clips. MLX native — no cloud, no API key.",
+  "description": "On your Mac, make AI video with sound. Free and open source. Run LTX-2.5, Hailuo H3 and H3 Flex locally on Apple Silicon: text or image to video, lip-sync, songs, images and character training. AI agents like Claude Code and Codex can drive it too. No cloud or API key.",
   "icon": "icon.png",
-  "links": [{
-    "title": "Phosphene (panel by Mr. Bizarro)",
-    "links": [{
-      "title": "X / Twitter",
-      "value": "https://x.com/PhospheneAI"
-    }, {
-      "title": "GitHub",
-      "value": "https://github.com/mrbizarro/phosphene"
-    }]
-  }, {
-    "title": "Upstream MLX port (by @dgrauet)",
-    "links": [{
-      "title": "GitHub",
-      "value": "https://github.com/dgrauet/ltx-2-mlx"
-    }]
-  }, {
-    "title": "Original LTX Video model (by Lightricks)",
-    "links": [{
-      "title": "GitHub",
-      "value": "https://github.com/Lightricks/LTX-Video"
-    }]
-  }]
+  "links": [
+    {
+      "title": "Phosphene by Mr Bizarro",
+      "links": [
+        {
+          "title": "Website",
+          "value": "https://phosphene.video"
+        },
+        {
+          "title": "X / Twitter",
+          "value": "https://x.com/PhospheneAI"
+        },
+        {
+          "title": "GitHub",
+          "value": "https://github.com/mrbizarro/phosphene"
+        }
+      ]
+    },
+    {
+      "title": "Upstream MLX port (by @dgrauet)",
+      "links": [
+        {
+          "title": "GitHub",
+          "value": "https://github.com/dgrauet/ltx-2-mlx"
+        }
+      ]
+    },
+    {
+      "title": "Original LTX Video model (by Lightricks)",
+      "links": [
+        {
+          "title": "GitHub",
+          "value": "https://github.com/Lightricks/LTX-Video"
+        }
+      ]
+    }
+  ]
 }
