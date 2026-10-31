@@ -139,7 +139,11 @@
         "audio_vae.safetensors",
         "vocoder.safetensors",
         "spatial_upscaler_x2_v1_1.safetensors"
-      ]
+      ],
+      "sidecars": [
+        "spatial_upscaler_x2_v1_1_config.json"
+      ],
+      "_sidecars_comment": "Loader sidecars (2026-10-30, fleet #206): the latent upscalers are built from <stem>_config.json BEFORE their weights load, and a missing config builds the module with the library default (mid_channels 512) while the x2 weights are 1024 wide - the render dies with 'Expected shape (512,3,3,3,128) but received (1024,...) initial_conv.weight'. These small JSONs were fetched by the *.json include / the release manifest but never CHECKED, so a pack missing one read complete. Every completeness check now requires each sidecar present and non-empty (JSON files are below min_size_bytes, so they are checked here and not in files)."
     },
     {
       "key": "gemma",
@@ -185,7 +189,11 @@
         "audio_vae.safetensors",
         "vocoder.safetensors",
         "spatial_upscaler_x2_v1_1.safetensors"
-      ]
+      ],
+      "sidecars": [
+        "spatial_upscaler_x2_v1_1_config.json"
+      ],
+      "_sidecars_comment": "Loader sidecars (2026-10-30, fleet #206): the latent upscalers are built from <stem>_config.json BEFORE their weights load, and a missing config builds the module with the library default (mid_channels 512) while the x2 weights are 1024 wide - the render dies with 'Expected shape (512,3,3,3,128) but received (1024,...) initial_conv.weight'. These small JSONs were fetched by the *.json include / the release manifest but never CHECKED, so a pack missing one read complete. Every completeness check now requires each sidecar present and non-empty (JSON files are below min_size_bytes, so they are checked here and not in files)."
     },
     {
       "key": "ic_colorize",
@@ -310,7 +318,25 @@
         "spatial_upscaler_x2_v1_1.safetensors",
         "temporal_upscaler_x2_v1_0.safetensors",
         "duration_head.safetensors"
-      ]
+      ],
+      "sidecars": [
+        "spatial_upscaler_x2_v1_1_config.json",
+        "temporal_upscaler_x2_v1_0_config.json"
+      ],
+      "_sidecars_comment": "Loader sidecars (2026-10-30, fleet #206): the latent upscalers are built from <stem>_config.json BEFORE their weights load, and a missing config builds the module with the library default (mid_channels 512) while the x2 weights are 1024 wide - the render dies with 'Expected shape (512,3,3,3,128) but received (1024,...) initial_conv.weight'. These small JSONs were fetched by the *.json include / the release manifest but never CHECKED, so a pack missing one read complete. Every completeness check now requires each sidecar present and non-empty (JSON files are below min_size_bytes, so they are checked here and not in files).",
+      "file_sizes": {
+        "transformer-distilled.safetensors": 11320074467,
+        "connector.safetensors": 6344495432,
+        "vae_decoder.safetensors": 814349496,
+        "vae_encoder.safetensors": 637885234,
+        "audio_vae.safetensors": 106509004,
+        "vocoder.safetensors": 258313296,
+        "spatial_upscaler_x2_v1_1.safetensors": 995745088,
+        "temporal_upscaler_x2_v1_0.safetensors": 261945600,
+        "duration_head.safetensors": 3808330,
+        "phosphene_quant_manifest.json": 3628
+      },
+      "_file_sizes_comment": "Exact byte counts from this pack's release manifest (weights-ltx25-v1, immutable). A declared file whose size differs is reported missing, so a truncated or mixed-generation file (a pack change that left another build's file behind) reads incomplete and Repair refetches it, instead of loading and failing on a tensor shape."
     },
     {
       "_comment": "LTX-2.5 Q8 - the HQ tier, same relationship to q4_25 that the 2.3 q8 pack has to the 2.3 q4 pack. Built 2026-08-12 by scripts/quantize_ltx.py --bits 8 from the same MLX-layout bf16 transformer the q4 pack came from; 20,595,260,317 B against the 2.3 q8 pack's 20,597,189,549 B, and every byte of the -1,929,232 B difference is 2.5's 96 absent FFN biases (-1,966,080), its one extra keyframe embedding (+8,192) and header growth (+28,656). The eight non-transformer components are sha256-identical to the q4 pack's copies - verified file by file - because quantisation touches only transformer.transformer_blocks.*, exactly as in 2.3. Same GitHub-release mirror lane as q4_25, so verify_source is 'manifest' and phosphene_quant_manifest.json is a required file. 2026-08-12 THIRD PASS, THE SPLIT: transformer-dev.safetensors and ltx-2.5-22b-distilled-lora-450.safetensors were briefly listed HERE (e870061) and now live in the hq_25 add-on entry below. They are not part of this pack - they are a separate, later build (the dev transformer is 42 GB upstream and was still downloading), and listing them here made a pack that is COMPLETE ON DISK both unpublishable and un-installable. The gate e870061 bought by listing them is NOT lost: the panel asks hq_surface_missing(), which unions this pack with the add-on, so High / Extend / Keyframe / A2V still refuse by name. Only the owning download unit changed.",
@@ -350,7 +376,25 @@
         "release_repo": "mrbizarro/Phosphene",
         "tag": "weights-ltx25-v1",
         "manifest_asset": "q8_25__phosphene_release_manifest.json"
-      }
+      },
+      "sidecars": [
+        "spatial_upscaler_x2_v1_1_config.json",
+        "temporal_upscaler_x2_v1_0_config.json"
+      ],
+      "_sidecars_comment": "Loader sidecars (2026-10-30, fleet #206): the latent upscalers are built from <stem>_config.json BEFORE their weights load, and a missing config builds the module with the library default (mid_channels 512) while the x2 weights are 1024 wide - the render dies with 'Expected shape (512,3,3,3,128) but received (1024,...) initial_conv.weight'. These small JSONs were fetched by the *.json include / the release manifest but never CHECKED, so a pack missing one read complete. Every completeness check now requires each sidecar present and non-empty (JSON files are below min_size_bytes, so they are checked here and not in files).",
+      "file_sizes": {
+        "transformer-distilled.safetensors": 20595260317,
+        "connector.safetensors": 6344495432,
+        "vae_decoder.safetensors": 814349496,
+        "vae_encoder.safetensors": 637885234,
+        "audio_vae.safetensors": 106509004,
+        "vocoder.safetensors": 258313296,
+        "spatial_upscaler_x2_v1_1.safetensors": 995745088,
+        "temporal_upscaler_x2_v1_0.safetensors": 261945600,
+        "duration_head.safetensors": 3808330,
+        "phosphene_quant_manifest.json": 4550
+      },
+      "_file_sizes_comment": "Exact byte counts from this pack's release manifest (weights-ltx25-v1, immutable). A declared file whose size differs is reported missing, so a truncated or mixed-generation file (a pack change that left another build's file behind) reads incomplete and Repair refetches it, instead of loading and failing on a tensor shape."
     },
     {
       "_comment": "LTX-2.5 HQ add-on - the two-stage HQ FEATURE surface, not a model pack. High, Extend, Keyframe and A2V reach past model_dir and load these two files BY NAME; the panel names them per generation via MODEL_VERSIONS[...]['hq_weights'], because the number in the LoRA filename is its alpha/rank (2.3 ships 384, 2.5 ships 450) and the names are NOT interchangeable between generations. WHY A SEPARATE ENTRY AND NOT PART OF q8_25: it is a separate build that finishes later, and a download unit has to be publishable the moment its bytes exist. Folding these into q8_25 held a complete 20.6 GB pack hostage to a 42 GB download. WHY local_dir IS THE q8 DIRECTORY: these files are loaded out of the q8 pack BY NAME, so they must land beside it. Two entries, one directory, deliberately - the entry is a download unit, not a directory. MIRROR BLOCK LANDED 2026-08-12, in the same commit as the assets - the rule this entry was written to demonstrate. The dev transformer (20,595,256,595 B, ltx-dit q8) and the LoRA (8,899,889,568 B, verbatim bf16) are published to weights-ltx25-v1 and both carry sha256 rows in the in-pack phosphene_quant_manifest.json, so deep-verify (verify_source 'manifest') can check them. publish_scope 'files' keeps this add-on from claiming the q8 pack's sidecars.",
@@ -375,7 +419,12 @@
       "download_include": [
         "transformer-dev.safetensors",
         "ltx-2.5-22b-distilled-lora-450.safetensors"
-      ]
+      ],
+      "file_sizes": {
+        "transformer-dev.safetensors": 20595256595,
+        "ltx-2.5-22b-distilled-lora-450.safetensors": 8899889568
+      },
+      "_file_sizes_comment": "Exact byte counts from this pack's release manifest (weights-ltx25-v1, immutable). A declared file whose size differs is reported missing, so a truncated or mixed-generation file (a pack change that left another build's file behind) reads incomplete and Repair refetches it, instead of loading and failing on a tensor shape."
     },
     {
       "_comment": "LTX-2.5's text encoder is NOT the stock Gemma 3 the 2.3 pack uses: it is a custom Gemma 4 12B fine-tune declaring model_type gemma4_unified, and the DiT's dual text projection was moved out of connector.safetensors and into it (we route that back into the connector at conversion time). Falling back to Gemma 3 would load, run, and quietly encode wrongly, so the loader refuses instead.",

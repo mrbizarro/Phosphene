@@ -18,7 +18,7 @@ It runs **LTX-2.5** and **MiniMax H3 (Hailuo H3)** for text-to-video and image-t
 and is built on Apple's MLX: no CUDA, no cloud GPU, no API key, no credits and no watermark.
 Your prompts, pictures and videos never leave your Mac.
 
-**Current release: v4.19.15.** Made by Mr Bizarro.
+**Current release: v4.19.16.** Made by Mr Bizarro.
 
 ## Why Phosphene
 
@@ -112,7 +112,14 @@ Local Gemma writes the training captions for you. Browse and install LTX LoRAs f
 
 ### Scripts and AI agents
 
-Everything the app does is reachable over a local HTTP API (`docs/API.md`), so Claude Code, Codex or your own script can queue renders.
+Add Phosphene to Claude Code, Codex or any MCP client in one line (Phosphene running in Pinokio):
+
+```bash
+claude mcp add phosphene -- ~/pinokio/api/phosphene.git/ltx-2-mlx/env/bin/python ~/pinokio/api/phosphene.git/agents/phosphene_mcp.py
+```
+
+There is also a `phosphene` command (`agents/phosphene_cli.py`); both are in [`docs/AGENT_TOOLS.md`](docs/AGENT_TOOLS.md).
+Under them, everything the app does is reachable over a local HTTP API (`docs/API.md`), so your own script can queue renders too.
 There is also an image layout API for agents (`docs/AGENT_API.md`).
 Gemma runs locally for prompt **Enhance**, captions and the storyboard planner.
 

@@ -1032,7 +1032,7 @@ function _drawWave(o, frac) {
   g.clearRect(0, 0, W, H);
   const cs = getComputedStyle(document.documentElement);
   const accent = cs.getPropertyValue('--accent-bright').trim() || '#58a6ff';
-  const muted = cs.getPropertyValue('--border-strong').trim() || '#3d477a';
+  const muted = cs.getPropertyValue('--border-strong').trim() || '#3a3a40';
   const n = 160, bw = W / n;
   for (let i = 0; i < n; i++) {
     let v = 0.15;

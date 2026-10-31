@@ -93,13 +93,27 @@ def repo_missing(root: Path, repo: dict, min_b: int = 1024) -> list:
     """Declared files absent or under min_b bytes - the same rule pinokio.js's
     repoComplete() and the panel's _repo_missing() apply."""
     base = Path(root) / str(repo.get("local_dir") or "")
+    sizes = repo.get("file_sizes") or {}
+    sidecars = list(repo.get("sidecars") or [])
     out = []
-    for name in repo.get("files") or []:
+    for name in list(repo.get("files") or []) + sidecars:
+        if name in out:
+            continue
         try:
             st = (base / name).stat()
-            if st.st_size < min_b:
-                out.append(name)
         except OSError:
+            out.append(name)
+            continue
+        want = sizes.get(name)
+        # Same rule as the panel's pack_file_ok (fleet #206): an exact size when
+        # the registry declares one, any bytes for a loader sidecar, else min_b.
+        if isinstance(want, (int, float)) and want > 0:
+            bad = st.st_size != int(want)
+        elif name in sidecars:
+            bad = st.st_size <= 0
+        else:
+            bad = st.st_size < min_b
+        if bad:
             out.append(name)
     return out
 

@@ -6693,7 +6693,7 @@ function sbePaintWave(span, width) {
   const p = SBE.peaks;
   const win = sbeMusicWindow(SBE.audio, p.duration);
   const w = Math.max(1, SBE.pps / p.rate);
-  const strong = (css.getPropertyValue('--border-strong') || '#3d477a').trim();
+  const strong = (css.getPropertyValue('--border-strong') || '#3a3a40').trim();
   // THE TRIMMED-AWAY PART IS STILL DRAWN, faintly. A trim you cannot see the
   // other side of is a trim you cannot pull back — the seconds are not gone,
   // they are outside the window, and the picture should say which.

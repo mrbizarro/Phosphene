@@ -88,6 +88,7 @@ import model_licences
 # user-facing sentence that names Pinokio picks its Mac-app variant through
 # distribution.say(); unset (Pinokio) keeps every sentence as it was.
 import distribution as _dist
+import agent_discovery
 
 # Storyboard — the layer ABOVE the video modes: one concept in, a film's worth
 # of shots out. `storyboard` is the spine (schema, validation, scheduling,
@@ -5891,14 +5892,47 @@ def _repo_missing(repo: dict) -> list[str]:
     """Files missing or zero-byte for one repo, expressed as bare filenames
     (relative to the repo's local_dir). Bare names are friendlier in the UI
     than full paths."""
-    base = repo_dir(repo)
+    return pack_files_missing(repo_dir(repo), repo)
+
+
+def pack_file_ok(path: Path, fname: str, repo: dict) -> bool:
+    """THE per-file completeness rule, for every checker in this file.
+
+    A declared file counts as present when it exists and:
+      - its size EQUALS the registry's `file_sizes` entry, when one is declared
+        (the LTX-2.5 mirror packs: an immutable release manifest). A truncated
+        file, or another build's file left behind by a pack change, is missing;
+      - otherwise it holds at least `min_size_bytes` (the old rule).
+    A `sidecars` entry (the small loader configs, below min_size_bytes) counts
+    when it exists and is not empty.
+
+    Fleet #206 (30 Oct 2026): the size floor alone let a pack without its
+    upscaler config read complete, and the loader then built the upscaler at the
+    library default width and died on "Expected shape (512,...) but received
+    (1024,...) initial_conv.weight"."""
+    try:
+        st = path.stat()
+    except OSError:
+        return False
+    if not path.is_file():
+        return False
+    sizes = repo.get("file_sizes") or {}
+    want = sizes.get(fname)
+    if isinstance(want, (int, float)) and want > 0:
+        return st.st_size == int(want)
+    if fname in (repo.get("sidecars") or ()):
+        return st.st_size > 0
+    return st.st_size >= _MIN_FILE_BYTES
+
+
+def pack_files_missing(base: Path, repo: dict) -> list[str]:
+    """Declared files AND loader sidecars of `repo` that are not usable in
+    `base`, as bare names (pack_file_ok decides)."""
     missing = []
-    for fname in repo.get("files", []):
-        p = base / fname
-        try:
-            if not p.exists() or p.stat().st_size < _MIN_FILE_BYTES:
-                missing.append(fname)
-        except OSError:
+    for fname in list(repo.get("files", [])) + list(repo.get("sidecars") or []):
+        if fname in missing:
+            continue
+        if not pack_file_ok(Path(base) / fname, fname, repo):
             missing.append(fname)
     return missing
 
@@ -5986,16 +6020,8 @@ def _repo_missing_in_cache(repo: dict) -> list[str] | None:
     cache_dir = _repo_hf_cache_dir(repo["repo_id"])
     if cache_dir is None:
         return None
-    missing = []
-    for fname in repo.get("files", []):
-        p = cache_dir / fname
-        try:
-            actual = p.resolve()
-            if not actual.exists() or actual.stat().st_size < _MIN_FILE_BYTES:
-                missing.append(fname)
-        except OSError:
-            missing.append(fname)
-    return missing
+    # pack_file_ok follows the snapshot's ../blobs/<hash> symlinks itself.
+    return pack_files_missing(cache_dir, repo)
 
 
 def base_missing() -> list[str]:
@@ -6166,15 +6192,7 @@ def pack_missing_files(quant: str, version_id: str | None = None) -> list[str]:
         override = repo.copy()
         override["local_dir"] = str(base.relative_to(ROOT))
         return _repo_missing(override)
-    missing = []
-    for fname in repo.get("files", []):
-        p = base / fname
-        try:
-            if not p.exists() or p.stat().st_size < _MIN_FILE_BYTES:
-                missing.append(fname)
-        except OSError:
-            missing.append(fname)
-    return missing
+    return pack_files_missing(base, repo)
 
 
 def pack_available_anywhere(quant: str, version_id: str | None = None) -> bool:
@@ -6305,16 +6323,7 @@ def hq_addon_missing(version_id: str | None = None) -> list[str]:
     repo = next((r for r in _repos() if r.get("key") == key), None)
     if not repo:
         return []
-    base = pack_path("q8", version_id)
-    missing = []
-    for fname in repo.get("files", []):
-        fpath = base / fname
-        try:
-            if not fpath.exists() or fpath.stat().st_size < _MIN_FILE_BYTES:
-                missing.append(fname)
-        except OSError:
-            missing.append(fname)
-    return missing
+    return pack_files_missing(pack_path("q8", version_id), repo)
 
 
 def hq_surface_missing(version_id: str | None = None) -> list[str]:
@@ -6429,6 +6438,118 @@ def _canonical_layout() -> bool:
     return any(mid == str(pack_path("q4", v["id"])) for v in MODEL_VERSIONS)
 
 
+#: How long a render waits for its own pack's download before it gives up and
+#: names the missing files (fleet #206). Generous: a 20 GB pack on a slow line.
+PACK_DOWNLOAD_WAIT_MAX_S = float(os.environ.get("LTX_PACK_DOWNLOAD_WAIT_S", str(4 * 3600)))
+PACK_DOWNLOAD_POLL_S = 2.0
+
+
+def _pack_fetcher_pid(folder) -> int | None:
+    """PID of a live scripts/fetch_pack_release.py writing `folder`, or None.
+
+    Read from the one-writer lock file (the fetcher writes its pid there) and
+    confirmed by the process's own command line, so a stale file or a recycled
+    pid never reads as a download. Never takes the lock itself: a probe that
+    held it for an instant could make a starting fetcher exit busy."""
+    try:
+        real = Path(os.path.realpath(str(folder)))
+        raw = (real.parent / f".{real.name}{PACK_LOCK_SUFFIX}").read_text(errors="replace")
+        pid = int(raw.strip().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+    if pid <= 1 or pid == os.getpid():
+        return None
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return None
+    try:
+        cmd = subprocess.run(["ps", "-o", "command=", "-p", str(pid)],
+                             capture_output=True, text=True, errors="replace",
+                             timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return pid if "fetch_pack_release" in cmd else None
+
+
+def pack_download_activity(quant: str, version_id: str | None = None) -> dict | None:
+    """Is this pack being downloaded right now, and how far along?
+
+    None when nothing is writing it. Otherwise {by, pct, done_gb, total_gb}:
+    `by` is "panel" (the Models window or the post-install background fetcher,
+    both through the one DOWNLOAD slot), "app" (the Mac app's own download) or
+    "fetcher" (any other process running the release fetcher on this folder).
+    Bytes count finished files and the fetcher's half-assembled `.partial`."""
+    repo = pack_repo(quant, version_id)
+    if not repo:
+        return None
+    by = None
+    with DOWNLOAD_LOCK:
+        if DOWNLOAD.get("active") and DOWNLOAD.get("key") == repo.get("key"):
+            by = "panel"
+    if by is None:
+        try:
+            if app_models_owns(repo):
+                by = "app"
+        except Exception:                                   # noqa: BLE001
+            pass
+    if by is None and _pack_fetcher_pid(pack_path(quant, version_id)) is not None:
+        by = "fetcher"
+    if by is None:
+        return None
+    plan = dict(repo)
+    plan["local_dir"] = str(pack_path(quant, version_id))
+    total = install_plan.expected_bytes(repo)
+    try:
+        left = install_plan.remaining_bytes(Path("/"), plan, _MIN_FILE_BYTES)
+    except Exception:                                       # noqa: BLE001
+        left = total
+    done = max(0, total - left)
+    pct = int(min(99, max(0, round(100.0 * done / total)))) if total else 0
+    return {"by": by, "pct": pct, "done_gb": round(done / 1e9, 1),
+            "total_gb": round(total / 1e9, 1)}
+
+
+def _pack_wait_for_download(quant: str, feature: str, version_id: str | None = None,
+                            job: dict | None = None) -> bool:
+    """Hold a render while its own pack is still downloading (fleet #206).
+
+    A fresh install that was rendered before its LTX download finished failed
+    every job with "model is incomplete" (4 failures in a minute on one Mac).
+    Now the job waits in the Now card - "Waiting for the LTX-2.5 base download
+    to finish (63%)" - and starts on its own when the files land. Stop ends
+    the wait. Returns True when it waited (the caller re-checks the pack),
+    False when no download is running (the caller refuses as before)."""
+    act = pack_download_activity(quant, version_id)
+    if act is None:
+        return False
+    if job is None:
+        job = getattr(_JOB_CTX, "job", None)
+    ver = model_version(version_id)
+    t0 = time.time()
+    push(f"[models] {feature} waits for the {ver['label']} {quant.upper()} download "
+         f"({act['pct']}%) - it starts by itself when the files are in.")
+    try:
+        while act is not None:
+            if not pack_missing_files(quant, version_id):
+                break
+            if job is not None and job.get("cancel_requested"):
+                raise JobCancelled("Stopped while the model was downloading.")
+            if time.time() - t0 > PACK_DOWNLOAD_WAIT_MAX_S:
+                break
+            if job is not None:
+                job["waiting_note"] = (
+                    f"Waiting for the {ver['label']} model download to finish "
+                    f"({act['pct']}%, {act['done_gb']} of {act['total_gb']} GB). "
+                    f"This render starts by itself when it is done.")
+            time.sleep(PACK_DOWNLOAD_POLL_S)
+            act = pack_download_activity(quant, version_id)
+    finally:
+        if job is not None:
+            job.pop("waiting_note", None)
+    return True
+
+
 def ltx_pack_preflight(quant: str, feature: str,
                        version_id: str | None = None) -> None:
     """Refuse a render whose weights are incomplete, and NAME the file.
@@ -6456,6 +6577,13 @@ def ltx_pack_preflight(quant: str, feature: str,
     missing = pack_missing_files(quant, version_id)
     if not missing:
         return
+    # Still downloading? Wait for it instead of failing the render (#206).
+    if _pack_wait_for_download(quant, feature, version_id):
+        if pack_available_anywhere(quant, version_id):
+            return
+        missing = pack_missing_files(quant, version_id)
+        if not missing:
+            return
     ver = model_version(version_id)
     shown = ", ".join(missing[:3]) + (" …" if len(missing) > 3 else "")
     raise RuntimeError(
@@ -9348,6 +9476,15 @@ H3_FLEX_RUNNER_FLAG = "--pika-flex"
 # A forward with the runtime rank-128 adapter costs about what v1.3's does.
 H3_FLEX_FORWARD_COST = 1.03
 H3_FLEX_MODES = ("t2v", "i2v")
+
+
+def h3_cell_takes_flex(cell: dict) -> bool:
+    """Every chained/single 5 s-window cell. The dense single pass and Fast HD
+    keep their own recipes (never rendered on Flex). Defined here, before
+    _build_h3_tiers, because every cell carries the answer as `takes_flex`."""
+    return not bool(cell.get("dense")) and not bool(cell.get("fast_hd"))
+
+
 H3_FLEX_DOWNLOAD_GB = 2.8
 # Free disk the build needs: the 2.8 GB source plus the 2.0 GB result while
 # both exist, plus a margin so a render's swap never meets a full disk.
@@ -10701,6 +10838,101 @@ def metal_watchdog_way(mode: str | None, phase: str | None = None) -> str:
     return "Try a shorter extension or section, or a shorter source clip"
 
 
+# ---- small-Mac memory hold after a prompt-encoding watchdog kill (#206) -----
+# Fleet 28-30 Oct 2026: every Metal-watchdog kill on a 16 GB Mac (31 of 31
+# whose phase is known: one M3, one M2 Pro, one M6) was in PROMPT ENCODING,
+# already in short GPU steps - and most 16 GB Macs render fine (an M4 16 GB:
+# 626 done, 26 failed in 14 days). It is the state of that Mac, not the size:
+# the text encoder needs the memory other apps are holding. The per-setting
+# memory above pauses only the size that died, so the M3 tried four other
+# sizes and was killed in encoding each time, minutes apart. Now, on a Mac
+# with LOW_RAM_STREAM_RAM_GB or less, an encode-phase kill marks the WHOLE Mac
+# for ENCODE_HOLD_WINDOW_S: the next LTX render first checks memory and, while
+# macOS reports pressure above normal or less than ENCODE_HOLD_NEED_GB
+# available, waits (the Now card says what to close) and then refuses plainly
+# instead of starting a render that would be killed the same way.
+ENCODE_HOLD_WINDOW_S = 30 * 60
+ENCODE_HOLD_NEED_GB = float(os.environ.get("LTX_ENCODE_HOLD_NEED_GB") or 8.0)
+ENCODE_HOLD_WAIT_S = float(os.environ.get("LTX_ENCODE_HOLD_WAIT_S") or 90.0)
+_ENCODE_HOLD_KEY = "__mac_encode_kill__"
+
+
+def small_mac_for_encode_hold() -> bool:
+    try:
+        return 0 < float(SYSTEM_RAM_GB or 0) <= LOW_RAM_STREAM_RAM_GB
+    except (TypeError, ValueError):
+        return False
+
+
+def metal_watchdog_mark_mac_encode_kill(now: float | None = None) -> None:
+    """Remember that macOS stopped prompt encoding on this (small) Mac."""
+    with _METAL_WATCHDOG_LOCK:
+        data = _metal_watchdog_load()
+        data["settings"][_ENCODE_HOLD_KEY] = {
+            "last_ts": int(now if now is not None else time.time())}
+        _metal_watchdog_save(data)
+
+
+def metal_watchdog_recent_mac_encode_kill(now: float | None = None) -> bool:
+    with _METAL_WATCHDOG_LOCK:
+        ent = _metal_watchdog_load()["settings"].get(_ENCODE_HOLD_KEY) or {}
+    last = int(ent.get("last_ts") or 0)
+    return bool(last) and (now if now is not None else time.time()) - last <= ENCODE_HOLD_WINDOW_S
+
+
+def memory_snapshot() -> dict:
+    """{level, avail_gb}: macOS's pressure level (1 normal, 2 warning,
+    4 critical) and the kernel's available memory. Cheap; never raises."""
+    try:
+        level = int(hostinfo.pressure_level())
+    except Exception:                                       # noqa: BLE001
+        level = 1
+    try:
+        avail = hostinfo.available_bytes() / 1024**3
+    except Exception:                                       # noqa: BLE001
+        avail = 0.0
+    return {"level": level, "avail_gb": round(avail, 1)}
+
+
+def _encode_hold_ok(snap: dict) -> bool:
+    return int(snap.get("level") or 1) <= 1 and (
+        not snap.get("avail_gb") or float(snap["avail_gb"]) >= ENCODE_HOLD_NEED_GB)
+
+
+def ltx_encode_memory_hold(job: dict | None) -> None:
+    """Before an LTX render on a small Mac whose prompt encoding macOS stopped
+    in the last ENCODE_HOLD_WINDOW_S: wait for memory, else refuse plainly."""
+    if not small_mac_for_encode_hold() or not metal_watchdog_recent_mac_encode_kill():
+        return
+    if HELPER.is_alive():
+        return          # a warm engine already holds its encoder; nothing to load
+    snap = memory_snapshot()
+    t0 = time.time()
+    try:
+        while not _encode_hold_ok(snap):
+            if job is not None and job.get("cancel_requested"):
+                raise JobCancelled("Stopped while waiting for memory.")
+            if time.time() - t0 > ENCODE_HOLD_WAIT_S:
+                raise RenderRefused(
+                    "memory_low",
+                    f"Not enough free memory to read the prompt: this "
+                    f"{SYSTEM_RAM_GB:.0f} GB Mac has {snap['avail_gb']:.1f} GB "
+                    f"available and the last render was stopped by macOS while "
+                    f"reading the prompt. Quit other apps (browsers with many "
+                    f"tabs, games, other AI apps), then press Retry.")
+            if job is not None:
+                job["waiting_note"] = (
+                    f"Waiting for memory - {snap['avail_gb']:.1f} GB available, "
+                    f"about {ENCODE_HOLD_NEED_GB:.0f} GB needed to read the prompt "
+                    f"on this {SYSTEM_RAM_GB:.0f} GB Mac. Quit other apps and it "
+                    f"starts by itself.")
+            time.sleep(2.0)
+            snap = memory_snapshot()
+    finally:
+        if job is not None:
+            job.pop("waiting_note", None)
+
+
 def metal_watchdog_refusal(key: str, now: float | None = None,
                            mode: str | None = None) -> str | None:
     """The refusal for a setting the watchdog killed even on short steps, for
@@ -11257,9 +11489,13 @@ def _build_h3_tiers() -> dict[str, dict]:
                        "v13_measured": v_meas, "v13_steps": H3_V13_STEPS,
                        "v13_forwards": windows * H3_V13_FORWARDS}
             # Pika H3 Flex prices every cell it renders on (h3_cell_takes_flex):
-            # 6 forwards at about v1.3's per-forward cost.
-            flex = {}
-            if not ln["dense"] and not q.get("fast_hd"):
+            # 6 forwards at about v1.3's per-forward cost. `takes_flex` is the
+            # same rule handed to the browser, which greys every cell Flex
+            # cannot render while Flex is the pick (never a JS copy of it).
+            takes_flex = h3_cell_takes_flex({"dense": ln["dense"],
+                                             "fast_hd": q.get("fast_hd")})
+            flex = {"takes_flex": takes_flex}
+            if takes_flex:
                 f_min = h3_estimate_minutes(
                     w, h, window_frames, windows, H3_FLEX_FORWARDS) * H3_FLEX_FORWARD_COST
                 f_eta, f_meas = _fmt_eta(f_min), False
@@ -11267,9 +11503,9 @@ def _build_h3_tiers() -> dict[str, dict]:
                 if hit:
                     f_min, f_meas = hit[0] * hw, True
                     f_eta = hit[1] if hw == 1.0 else _fmt_eta(f_min)
-                flex = {"flex_min": round(f_min, 2), "flex_eta": f_eta,
-                        "flex_measured": f_meas, "flex_steps": H3_FLEX_STEPS,
-                        "flex_forwards": windows * H3_FLEX_FORWARDS}
+                flex.update({"flex_min": round(f_min, 2), "flex_eta": f_eta,
+                             "flex_measured": f_meas, "flex_steps": H3_FLEX_STEPS,
+                             "flex_forwards": windows * H3_FLEX_FORWARDS})
             spec = f"{w}×{h} · {frames}f"
             if windows > 1:
                 spec += f" · {windows}×5s"
@@ -14940,12 +15176,6 @@ def h3_supports_flex() -> bool:
     runner must also be one that never re-orders a `--lora` itself."""
     return (h3_supports_lora_stack() and _h3_runner_has_flag(H3_FLEX_RUNNER_FLAG)
             and _h3_runner_has_flag("--lora-qkv-permute"))
-
-
-def h3_cell_takes_flex(cell: dict) -> bool:
-    """Every chained/single 5 s-window cell. The dense single pass and Fast HD
-    keep their own recipes (never rendered on Flex)."""
-    return not bool(cell.get("dense")) and not bool(cell.get("fast_hd"))
 
 
 def _h3_flex_dir() -> Path:
@@ -19895,6 +20125,15 @@ _ANALYTICS_REFUSAL_REASONS = (
     # before it is downloaded or first run - a one-time prompt, not a fault
     # (4.19.8). Every message model_licences.refusal() builds carries it.
     ("licence_required", ("accept the licence once",)),
+    # A render on an LTX pack that is not completely on disk (ltx_pack_preflight):
+    # the install or a download is unfinished, and the message names the files
+    # and offers Repair. Counted as a failure until 4.19.16 (fleet #206: a fresh
+    # install that rendered before its download finished made 4 "failures").
+    # A pack that is still DOWNLOADING no longer refuses at all: the job waits.
+    ("pack_incomplete", ("model is incomplete. missing",)),
+    # #206: a small Mac whose prompt encoding macOS stopped minutes ago, still
+    # short of memory after a wait (ltx_encode_memory_hold).
+    ("memory_low", ("not enough free memory to read the prompt",)),
 )
 
 _ANALYTICS_REFUSAL_SLUGS = tuple(s for s, _ in _ANALYTICS_REFUSAL_REASONS)
@@ -20181,7 +20420,11 @@ def _analytics_render_event(job: dict) -> None:
         if status not in ("done", "failed"):
             return
         p = (job or {}).get("params") or {}
-        engine = str(p.get("engine") or "ltx").strip().lower()
+        # An image job that failed before its engine was known has no
+        # params["engine"]; defaulting it to "ltx" filed every failed image
+        # render (FLUX 3 included) under LTX and hid it from the image fail
+        # rate (fleet, 30 Oct 2026). Name it "image" instead.
+        engine = str(p.get("engine") or ("image" if p.get("mode") == "image" else "ltx")).strip().lower()
         try:
             width, height = int(p.get("width") or 0), int(p.get("height") or 0)
         except (TypeError, ValueError):
@@ -20252,6 +20495,20 @@ def _analytics_render_event(job: dict) -> None:
             props["gpu_abort_retry"] = True
         if isinstance(job.get("helper_warm"), bool):
             props["helper_warm"] = job["helper_warm"]
+        # #206: macOS memory pressure level (1/2/4) and available memory, in
+        # whole-GB buckets, when an LTX render started - the fact the 16 GB
+        # watchdog kills never carried.
+        _mem = job.get("mem_at_start")
+        if isinstance(_mem, dict):
+            if int(_mem.get("level") or 0) in (1, 2, 4):
+                props["mem_pressure"] = int(_mem["level"])
+            try:
+                _av = float(_mem.get("avail_gb") or 0)
+                if _av > 0:
+                    props["mem_avail_gb"] = next(
+                        b for b in (64, 32, 24, 16, 12, 8, 6, 4, 2, 0) if _av >= b)
+            except (TypeError, ValueError):
+                pass
         # 4.19.2: a helper that died from a signal - what its last native
         # line was (closed class) and how far it got. Failures only.
         if status != "done":
@@ -23219,6 +23476,8 @@ class WarmHelper:
                 # fact the fleet has never had about this failure.
                 if job is not None and self._last_phase in WATCHDOG_PHASES:
                     job["watchdog_phase"] = self._last_phase
+                if self._last_phase == "encode" and small_mac_for_encode_hold():
+                    metal_watchdog_mark_mac_encode_kill()
                 with LOCK:
                     cancelled = bool(job is not None
                                      and job.get("cancel_requested"))
@@ -34722,6 +34981,9 @@ def run_image_job_inner(job: dict) -> None:
         cfg = _build_image_engine_config(engine_override, form=p)
     except ValueError as e:
         raise RuntimeError(str(e))
+    # Record the engine now, not only when the job succeeds: a job that fails
+    # from here on must report the engine it ran on (render_failed.engine).
+    p["engine"] = cfg.kind + (f"/{cfg.mflux_family}" if cfg.kind == "mflux" else "")
 
     if cfg.kind == "flux3":
         width, height = agent_image_engine.ASPECT_DIMS.get(aspect, (1280, 720))
@@ -39230,6 +39492,10 @@ def run_job_inner(job: dict) -> None:
             "the panel, click it once more: an update started by an old "
             "version updates itself first.")
     _apply_generation_profile_to_job(job)
+    # #206: memory at the start of every LTX render (closed values, for the
+    # fleet), and the small-Mac hold after a prompt-encoding watchdog kill.
+    job["mem_at_start"] = memory_snapshot()
+    ltx_encode_memory_hold(job)
     for note in p.get("generation_clamp_notes") or []:
         push(f"[generation] {p.get('generation_profile_label')}: {note}")
     quality = p.get("quality", "standard")
@@ -43102,6 +43368,7 @@ def _unique_output_path(base: Path, stem: str, ext: str = ".mp4") -> Path:
 # module would execute the whole file a second time, port bind and all).
 # Handlers resolve P.<name> at request time, so wiring here — after most
 # definitions, before the server starts — is safe for every name they use.
+from panel import routes_agents as _routes_agents
 from panel import routes_characters as _routes_characters
 from panel import routes_files as _routes_files
 from panel import routes_image as _routes_image
@@ -43116,7 +43383,7 @@ from panel import routes_storyboard as _routes_storyboard
 from panel import routes_stats as _routes_stats
 from panel import routes_train as _routes_train
 
-for _routes_mod in (_routes_characters, _routes_files, _routes_image,
+for _routes_mod in (_routes_agents, _routes_characters, _routes_files, _routes_image,
                     _routes_licences, _routes_loras, _routes_meta, _routes_models, _routes_music,
                     _routes_oneshot, _routes_queue, _routes_stats, _routes_storyboard,
                     _routes_train, _civitai_client):
@@ -46940,6 +47207,12 @@ if __name__ == "__main__":
             print("─" * 64, flush=True)
             sys.exit(1)
         raise
+    # Agent tools (agents/phosphene_cli.py, agents/phosphene_mcp.py) find this studio by the
+    # record it writes once its listener is bound: the port differs per wrapper (8198 Pinokio,
+    # 8199 dev, 8930-8999 Mac app), the HOME folder does not. Removed again on the way out.
+    agent_discovery.announce(PORT, {"version": running_version(), "distribution": _dist.distribution(),
+                                    "profile": PROFILE, "root": str(ROOT), "outputs_dir": str(OUTPUT),
+                                    "agents_dir": str(ROOT / "agents")})
     print(f"LTX MLX Studio: http://127.0.0.1:{PORT}", flush=True)
     print(f"queue: {len(STATE['queue'])} pending, hidden: {len(HIDDEN_PATHS)}", flush=True)
     # Boot-time weight integrity scan. A truncated/corrupt safetensors decodes
@@ -46998,5 +47271,6 @@ if __name__ == "__main__":
     try:
         server.serve_forever()
     finally:
+        agent_discovery.withdraw(PORT)
         HELPER.kill()
         caffeinate_off()

@@ -345,7 +345,13 @@ function setH3Steps(v) {
   if (typeof updateCustomizeSummary === 'function') { try { updateCustomizeSummary(); } catch (e) {} }
 }
 document.querySelectorAll('#h3StepsGroup [data-h3-steps]').forEach(b => {
-  b.onclick = () => setH3Steps(b.dataset.h3Steps);
+  b.onclick = () => {
+    if (b.classList.contains('flex-locked')) {
+      if (typeof phosToast === 'function') phosToast(H3_FLEX_SPEED_TIP, { kind: 'info' });
+      return;
+    }
+    setH3Steps(b.dataset.h3Steps);
+  };
 });
 
 // ---- Speed: ⚡ Fast | ✦ Best ------------------------------------------------
@@ -390,8 +396,154 @@ function h3FlexState() {
 }
 function h3FlexOn(cell) {
   cell = cell || h3CurrentCell();
-  return !!(cell && cell.flex_min != null && _h3V13Mode()
+  return !!(cell && cell.flex_min != null && (typeof h3FlexServesMode !== 'function' || h3FlexServesMode(null, 'flex'))
             && h3FlexState().available && h3SpeedPref() === 'flex');
+}
+
+// ---- What H3 Flex can render, from the server (owner, 31 Oct 2026) ---------
+// H3 Flex renders Text and Image only, and only on 5 s-window cells
+// (not the dense single pass, not Fast HD). Anywhere else make_job quietly
+// renders H3's own sampler and only says so after submit, so while Flex is the
+// pick every control it cannot honour is greyed and refuses the click: the
+// mode chips, the Quality/Length cells, Fast/Best and the Steps pills.
+// Both facts are the server's: `modes` on the Flex status block (H3_FLEX_MODES)
+// and `takes_flex` on every cell (h3_cell_takes_flex). No copy lives here, so a
+// new Flex mode or cell lights up with no JS change. make_job keeps its own
+// fallback as the safety net.
+const H3_FLEX_LOCK_TIP = 'H3 Flex makes videos from text or an image. Switch to H3 for this.';
+const H3_FLEX_CELL_TIP = 'H3 Flex runs on 5-second windows. Switch to H3 for this.';
+const H3_FLEX_SPEED_TIP = 'H3 Flex runs its own steps. Switch to H3 to pick Fast, Best or Steps.';
+// H3 Flex is what this form will ask for.
+function h3FlexPickedAny() {
+  const pref = h3SpeedPref();
+  return currentEngine() === 'h3' && pref === 'flex';
+}
+// The modes the picked Flex renders (null = the server did not say: no lock,
+// make_job decides).
+function h3FlexModes(which) {
+  const st = h3FlexState();
+  return Array.isArray(st.modes) ? st.modes : null;
+}
+function h3FlexServesMode(mode, which) {
+  if (mode == null) mode = (document.getElementById('mode') || {}).value || 't2v';
+  if (mode === 'oneshot') mode = 't2v';
+  const modes = h3FlexModes(which);
+  return !modes || modes.indexOf(mode) !== -1;
+}
+// Would Flex render THIS cell? The server's own answer; an older server that
+// predates `takes_flex` still prices exactly the cells it takes.
+function h3CellTakesFlex(cell) {
+  if (!cell) return false;
+  if (typeof cell.takes_flex === 'boolean') return cell.takes_flex;
+  return cell.flex_min != null;
+}
+// The supported cell nearest to one Flex cannot render: same canvas at the
+// closest duration first (10 s single pass -> 10 s in two windows), else, at
+// this length, the biggest picture that is not bigger than what the cell
+// delivers (Fast HD's 1280x768 -> High, never the far slower Native), like
+// _h3FallbackCell never goes longer than asked; else any cell Flex takes.
+function _h3FlexNearestCell(cell) {
+  const tiers = (H3.tiers || []).filter(t => h3CellTakesFlex(t) && t.available !== false);
+  if (!tiers.length) return null;
+  const secs = c => Number((h3LengthByKey(c.length) || {}).seconds || c.seconds || 0);
+  const qIdx = k => (H3.qualities || []).findIndex(q => q.key === k);
+  const want = secs(cell);
+  const sameQ = tiers.filter(t => t.quality === cell.quality);
+  if (sameQ.length) {
+    return sameQ.sort((a, b) => Math.abs(secs(a) - want) - Math.abs(secs(b) - want)
+                                || secs(a) - secs(b))[0];
+  }
+  let pool = tiers.filter(t => t.length === cell.length);
+  if (!pool.length) {
+    const gap = Math.min(...tiers.map(t => Math.abs(secs(t) - want)));
+    pool = tiers.filter(t => Math.abs(secs(t) - want) === gap);
+  }
+  const px = c => (c.final_width || c.width || 0) * (c.final_height || c.height || 0);
+  const want_px = px(cell);
+  const fits = pool.filter(t => px(t) <= want_px);
+  if (fits.length) return fits.sort((a, b) => px(b) - px(a) || qIdx(a.quality) - qIdx(b.quality))[0];
+  return pool.sort((a, b) => px(a) - px(b) || qIdx(a.quality) - qIdx(b.quality))[0];
+}
+// The supported mode nearest to one Flex cannot render: a mode that starts
+// from a picture goes to Image, everything else to Text, whichever of the two
+// the server lists (else its first).
+function _h3FlexNearestMode(mode) {
+  const modes = h3FlexModes() || [];
+  // i2v_clean_audio is LTX's Image-with-your-audio, left in the Image select
+  // by an earlier LTX render: still a picture mode.
+  const fromPicture = mode === 'keyframe' || mode === 'a2v' || mode === 'i2v_clean_audio';
+  const order = fromPicture ? ['i2v', 't2v'] : ['t2v', 'i2v'];
+  return order.find(m => modes.indexOf(m) !== -1) || modes[0] || null;
+}
+// Picking Flex while the form points somewhere Flex cannot go moves the form to
+// the nearest place it can (and says so, once per move) rather than greying
+// Flex itself: the user asked for Flex, and the move is one visible step that
+// a click on H3 undoes. Runs after the click, and after any repaint that left a
+// picked Flex on an unsupported mode or cell (a restore, a status tick).
+// setMode('i2v') copies the Image select (#i2vMode) into #mode, and that select
+// may still hold LTX's 'i2v_clean_audio' from an earlier render: Image would
+// snap straight back. Pin it first, as Load Params does for an H3 i2v sidecar.
+function _h3FlexPinImageSelect(to) {
+  if (to !== 'i2v') return;
+  const sel = document.getElementById('i2vMode');
+  if (sel && sel.value !== 'i2v') sel.value = 'i2v';
+}
+let _h3FlexFitBusy = false;
+function h3FlexFit() {
+  if (_h3FlexFitBusy || !h3FlexPickedAny()) return;
+  _h3FlexFitBusy = true;
+  try {
+    const name = 'H3 Flex';
+    let movedMode = '', movedCell = null;
+    const mode = (document.getElementById('mode') || {}).value || 't2v';
+    if (!h3FlexServesMode(mode)) {
+      const to = _h3FlexNearestMode(mode);
+      if (to && typeof setMode === 'function') {
+        _h3FlexPinImageSelect(to);
+        setMode(to);
+        // A plain Image click that only lost a leftover LTX audio variant is
+        // not a move worth announcing.
+        if (mode !== 'i2v_clean_audio') movedMode = to === 'i2v' ? 'Image' : 'Text';
+      }
+    }
+    const cell = h3CurrentCell();
+    if (cell && !h3CellTakesFlex(cell)) {
+      const to = _h3FlexNearestCell(cell);
+      if (to) { _h3ApplyShape(to.quality, to.length); movedCell = to; }
+    }
+    const msg = movedMode && movedCell
+      ? name + ' makes videos from text or an image, on 5-second windows: you are on '
+        + movedMode + ' at ' + movedCell.label + ' now.'
+      : movedMode ? name + ' makes videos from text or an image: you are on ' + movedMode + ' now.'
+      : movedCell ? name + ' runs on 5-second windows: the shape is ' + movedCell.label + ' now.'
+      : '';
+    if (msg && typeof phosToast === 'function') {
+      phosToast(msg + ' Pick H3 to go back.', { kind: 'info', duration: 4200 });
+    }
+  } finally {
+    _h3FlexFitBusy = false;
+  }
+}
+// Generate while H3 Flex is the pick but not ready yet (still downloading, or
+// never fetched) used to post h3_flex=0 and render plain H3, the same "thought
+// it was Flex" trap. Returns the plain reason to refuse with, or ''.
+function h3FlexSubmitBlock() {
+  if (!h3FlexPickedAny()) return '';
+  const st = h3FlexState();
+  if (st.available) return '';
+  const name = 'H3 Flex';
+  if (st.installing) {
+    return name + ' is still downloading. It can render as soon as it is ready, or pick H3 to render now.';
+  }
+  return name + ' is not on this Mac yet. Pick it in the model menu to get it, or pick H3 to render now.';
+}
+let _h3FlexFitQueued = false;
+function _h3FlexFitSoon() {
+  if (_h3FlexFitQueued || _h3FlexFitBusy || !h3FlexPickedAny()) return;
+  const cell = h3CurrentCell();
+  if (h3FlexServesMode() && (!cell || h3CellTakesFlex(cell))) return;
+  _h3FlexFitQueued = true;
+  setTimeout(() => { _h3FlexFitQueued = false; h3FlexFit(); }, 0);
 }
 // Would THIS cell's Best render on v1.3, as things stand?
 function h3V13On(cell, opts) {
@@ -550,6 +702,9 @@ function h3TurboPillSub() { return h3SpeedSub('fast'); }
 // The sampler depth Best runs is per CELL (High 16 sigma points, Draft/
 // Standard/Native 9, dense 10 s 16), so the tooltips read it from the cell.
 function _h3SyncSamplerTitles() {
+  // Under H3 Flex the Best / Steps pills carry the Flex reason, not their own
+  // description (renderH3Turbo / _h3ApplySpeed set it; never overwrite it).
+  if (typeof h3FlexPickedAny === 'function' && h3FlexPickedAny()) return;
   const cell = h3CurrentCell();
   const pts = (cell && cell.steps) || 9;
   const fwd = Math.max(1, pts - 1);
@@ -627,10 +782,27 @@ function renderH3Turbo() {
     group.classList.toggle('cols-3', !flexBtn.hidden);
     group.classList.toggle('cols-2', flexBtn.hidden);
   }
-  // While H3 Flex is the engine, Fast / Best do not apply: the row shows the
-  // Flex note (credit, download, progress) instead of two unlit pills.
+  // While H3 Flex is the engine, Fast / Best do not apply. 4.19.15 hid them;
+  // owner, 31 Oct 2026: show what Flex cannot do, greyed, so nobody believes a
+  // Fast or Best choice still counts. The Flex note (credit, download,
+  // progress) sits under them. _h3ApplySpeed greys the Steps pills the same way.
   const flexPicked = h3SpeedPref() === 'flex';
-  if (group) group.hidden = flexPicked;
+  if (group) {
+    group.hidden = false;
+    group.classList.toggle('flex-locked', flexPicked);
+    group.querySelectorAll('[data-h3-speed="fast"], [data-h3-speed="best"]').forEach(b => {
+      if (flexPicked) {
+        if (b.dataset.flexTitle == null) b.dataset.flexTitle = b.getAttribute('title') || '';
+        b.setAttribute('title', H3_FLEX_SPEED_TIP);
+        b.setAttribute('aria-disabled', 'true');
+      } else if (b.dataset.flexTitle != null) {
+        b.setAttribute('title', b.dataset.flexTitle);
+        delete b.dataset.flexTitle;
+        b.removeAttribute('aria-disabled');
+      }
+      b.classList.toggle('flex-locked', flexPicked);
+    });
+  }
   const speedMeta = document.querySelector('#h3SpeedRow .qs-meta');
   if (speedMeta) speedMeta.hidden = flexPicked;
   const speedName = document.querySelector('#h3SpeedRow .qs-name');
@@ -641,6 +813,10 @@ function renderH3Turbo() {
   _h3FlexPickerSync();
   _h3RenderV13Note();
   _h3SyncFaceFixEta();
+  // The mode chips grey / un-grey with the Flex pick, whatever changed it
+  // (the picker, Load Params, a status tick).
+  if (typeof currentEngine === 'function' && currentEngine() === 'h3') { try { syncModeStripToEngine(); } catch (e) {} }
+  if (typeof _h3FlexFitSoon === 'function') _h3FlexFitSoon();
 }
 
 // The line under the switch for Pika H3 Flex: the credit (and "Powered by
@@ -803,6 +979,7 @@ function _h3ApplySpeed() {
     // the render that actually queued ran Best, 8-25x slower. fastOn already
     // folds in per-cell availability (h3TriStepOn), so light whichever half
     // is really about to render; the note below still explains why.
+    const flexPicked = pref === 'flex';
     const lit = fastOn ? 'fast' : (flexOn ? 'flex' : 'best');
     document.querySelectorAll('#h3SpeedGroup [data-h3-speed]').forEach(b =>
       b.classList.toggle('active', b.dataset.h3Speed === lit));
@@ -846,9 +1023,35 @@ function _h3ApplySpeed() {
       s.value = (ov !== 'auto' && /^\d+$/.test(ov)) ? parseInt(ov, 10)
         : (h3V13On(cell, { fast: false }) ? cell.v13_steps : cell.steps);
     }
-    // Steps is a Best control: it only shows while Best is what renders.
+    // Steps is a Best control: hidden under Fast; under H3 Flex it shows
+    // greyed with the reason (Flex runs its own steps), like Fast / Best.
     const stepsRow = document.getElementById('h3StepsRow');
-    if (stepsRow) stepsRow.hidden = fastOn || flexOn;
+    if (stepsRow) {
+      stepsRow.hidden = fastOn && !flexPicked;
+      stepsRow.classList.toggle('flex-locked', flexPicked);
+      const stHint = stepsRow.querySelector('.cz-label-hint');
+      if (stHint && flexPicked) {
+        if (stHint.dataset.flexText == null) stHint.dataset.flexText = stHint.textContent;
+        stHint.textContent = 'H3 Flex runs its own steps';
+      } else if (stHint && stHint.dataset.flexText != null) {
+        stHint.textContent = stHint.dataset.flexText;
+        delete stHint.dataset.flexText;
+      }
+      stepsRow.querySelectorAll('[data-h3-steps]').forEach(b => {
+        if (flexPicked) {
+          if (b.dataset.flexTitle == null) b.dataset.flexTitle = b.getAttribute('title') || '';
+          b.setAttribute('title', H3_FLEX_SPEED_TIP);
+          b.setAttribute('aria-disabled', 'true');
+          b.classList.remove('active');
+        } else if (b.dataset.flexTitle != null) {
+          b.setAttribute('title', b.dataset.flexTitle);
+          delete b.dataset.flexTitle;
+          b.removeAttribute('aria-disabled');
+          b.classList.toggle('active', b.dataset.h3Steps === ((stIn || {}).value || 'auto'));
+        }
+        b.classList.toggle('flex-locked', flexPicked);
+      });
+    }
     if (typeof renderH3LoraSlot === 'function') { try { renderH3LoraSlot(); } catch (e) {} }
   } finally {
     _h3SpeedBusy = false;
@@ -964,7 +1167,13 @@ async function h3SpeedClick(which) {
   el.appendChild(a);
 }
 document.querySelectorAll('#h3SpeedGroup [data-h3-speed]').forEach(b => {
-  b.onclick = () => h3SpeedClick(b.dataset.h3Speed);
+  b.onclick = () => {
+    if (b.classList.contains('flex-locked')) {
+      if (typeof phosToast === 'function') phosToast(H3_FLEX_SPEED_TIP, { kind: 'info' });
+      return;
+    }
+    h3SpeedClick(b.dataset.h3Speed);
+  };
 });
 
 // The Upscale & Face Fix pair, priced from the cell's own numbers: the
@@ -1071,8 +1280,13 @@ function _engineRowVisible() {
 function syncModeStripToEngine() {
   const e = engineById(currentEngine());
   if (!e) return;
+  // H3 Flex picked: a mode H3 renders but Flex does not is greyed AND refuses
+  // the click (modeChipEngineClick), with the plain reason as its tooltip.
+  // It stays in place (not folded like another engine's mode) so the user
+  // sees what Flex cannot do.
+  const flexPicked = e.id === 'h3' && typeof h3FlexPickedAny === 'function' && h3FlexPickedAny();
   document.querySelectorAll('#modeGroup .mode-chip').forEach(chip => {
-    const mode = chip.dataset.mode;
+    const mode = chip.dataset.lipsync ? 'a2v' : chip.dataset.mode;
     if (!mode) return;
     let ok;
     if (mode === 'remix') {
@@ -1082,8 +1296,35 @@ function syncModeStripToEngine() {
     } else {
       ok = engineServesMode(e, mode);
     }
-    chip.classList.toggle('eng-foreign', !ok);
+    const flexLocked = ok && flexPicked && !(mode === 'remix'
+      ? ((typeof REMIX_MODES !== 'undefined' && REMIX_MODES) ? REMIX_MODES : []).some(m => h3FlexServesMode(m))
+      : h3FlexServesMode(mode));
+    chip.classList.toggle('flex-locked', flexLocked);
+    if (flexLocked) {
+      if (chip.dataset.flexTitle == null) chip.dataset.flexTitle = chip.getAttribute('title') || '';
+      chip.setAttribute('title', H3_FLEX_LOCK_TIP);
+      chip.setAttribute('aria-disabled', 'true');
+    } else if (chip.dataset.flexTitle != null) {
+      if (chip.dataset.flexTitle) chip.setAttribute('title', chip.dataset.flexTitle);
+      else chip.removeAttribute('title');
+      delete chip.dataset.flexTitle;
+      chip.removeAttribute('aria-disabled');
+    }
+    // The lip-sync chip has no data-mode and was never folded; keep it so.
+    if (!chip.dataset.lipsync) chip.classList.toggle('eng-foreign', !ok);
   });
+}
+// Runs in the capture phase ahead of the chip's own handler (main.js), so a
+// mode greyed because H3 Flex is the pick never switches; the reason shows.
+function modeChipEngineClick(ev) {
+  const chip = ev.target.closest('#modeGroup .mode-chip.flex-locked');
+  if (!chip) return;
+  // Greyed because H3 Flex is the pick: nothing switches; the reason shows.
+  if (chip.classList.contains('flex-locked')) {
+    ev.stopImmediatePropagation(); ev.preventDefault();
+    if (typeof phosToast === 'function') phosToast(H3_FLEX_LOCK_TIP, { kind: 'info' });
+    return;
+  }
 }
 
 // function has no idea which engines exist. Re-run on: boot, every setEngine,
@@ -1236,6 +1477,21 @@ function _h3FlexTooltip(st, h3e) {
     + ' GB from Pika Labs, prepared on your Mac).' + credit;
   return "H3 Flex (preview) — Pika Labs' six-step H3, about 2.2× faster than Best." + credit;
 }
+// Flex picked from a mode H3 itself does not render (an LTX-only one): move
+// to the nearest mode Flex renders first, instead of a click that does nothing.
+// h3FlexFit says so once the engine has switched.
+function _h3FlexEnterMode(h3e) {
+  if (engineServesMode(h3e, currentMode)) return true;
+  const to = _h3FlexNearestMode(currentMode);
+  if (!to || !engineServesMode(h3e, to) || typeof setMode !== 'function') return false;
+  _h3FlexPinImageSelect(to);
+  setMode(to);
+  if (typeof phosToast === 'function') {
+    phosToast('H3 Flex makes videos from text or an image, so the form is on '
+              + (to === 'i2v' ? 'Image' : 'Text') + ' now.', { kind: 'info', duration: 4200 });
+  }
+  return engineServesMode(h3e, currentMode);
+}
 // Picking it: H3 with the Flex sampler. Missing pieces download on the same
 // click: H3 itself through its own install card (Flex follows on the first
 // status tick that finds H3 ready), else the Flex adapter right here.
@@ -1246,9 +1502,10 @@ function h3FlexPickerClick() {
   _h3SetSpeedPref('flex');
   try { localStorage.setItem('phos_h3flex_wanted', '1'); } catch (e) {}
   if (!st.h3_ready) { engineSegClick('h3'); return; }
-  if (!engineServesMode(h3e, currentMode)) return;
+  if (typeof _h3FlexEnterMode === 'function' ? !_h3FlexEnterMode(h3e) : !engineServesMode(h3e, currentMode)) return;
   setEngine('h3');
   if (typeof setH3Speed === 'function') setH3Speed('flex');
+  if (typeof h3FlexFit === 'function') h3FlexFit();
   if (!st.available && !st.installing) h3FlexInstall();
   renderEngineSwitch();
 }
@@ -1639,7 +1896,11 @@ const TIER_ENGINES = {
 
 function _tierChipHtml(engine, kind, item, cell, active) {
   const E = TIER_ENGINES[engine] || TIER_ENGINES.h3;
-  const ok = !cell ? false : (cell.available !== false);
+  // While H3 Flex is the pick, a cell it cannot render is greyed like an
+  // unavailable one, with the plain reason (h3CellTakesFlex is the server's).
+  const flexLocked = engine === 'h3' && !!cell && cell.available !== false
+    && typeof h3FlexPickedAny === 'function' && h3FlexPickedAny() && !h3CellTakesFlex(cell);
+  const ok = !cell ? false : (cell.available !== false && !flexLocked);
   // NEEDS-INSTALL is a third state, distinct from unavailable: the cell is
   // renderable on this Mac, the weights just aren't here yet. It reads as a
   // CTA (dashed + download glyph via .needs-install) and its third slot names
@@ -1647,10 +1908,12 @@ function _tierChipHtml(engine, kind, item, cell, active) {
   const needsInstall = ok && E.needsInstall ? !!E.needsInstall(cell) : false;
   const cls = 'q-chip pill-btn pill-quality'
     + (active ? ' active' : '') + (ok ? '' : ' unavailable')
+    + (flexLocked ? ' flex-locked' : '')
     + (needsInstall ? ' needs-install' : '');
   const spec = (kind === 'quality') ? E.qualitySpec(item, cell)
                                     : E.lengthSpec(item, cell);
-  const foot = !ok ? 'unavailable'
+  const foot = flexLocked ? 'H3 only'
+             : !ok ? 'unavailable'
              : needsInstall ? E.installLabel(cell)
              : E.eta(cell);
   // Owner ruling (2026-09-29): the tooltip says WHERE the time on the chip
@@ -1660,7 +1923,8 @@ function _tierChipHtml(engine, kind, item, cell, active) {
   const basisFn = kind === 'quality' && !needsInstall
     ? (engine === 'h3' ? h3CellEtaBasis : ltxCellEtaBasis) : null;
   const basis = (ok && basisFn) ? basisFn(cell) : '';
-  const title = ok
+  const title = flexLocked ? H3_FLEX_CELL_TIP
+    : ok
     ? ([(cell && cell.blurb) || item.blurb || '', basis].filter(Boolean).join(' — '))
     : (cell && cell.unavailable_reason) || 'Not available on this install.';
   const attr = (kind === 'quality') ? (E.qAttr || `${engine}-quality`)
@@ -2026,6 +2290,14 @@ function _h3ApplyShape(qualityKey, lengthKey, opts) {
       note.hidden = false;
     }
     cell = fb;
+  }
+  // A cell H3 Flex cannot render, clicked while Flex is the pick: refused like
+  // an unavailable one (the chip is greyed with the reason). A restore lands
+  // and h3FlexFit (queued from renderH3Turbo) moves it to the nearest cell.
+  if (!opts.fallback && typeof h3FlexPickedAny === 'function' && h3FlexPickedAny() && !h3CellTakesFlex(cell)) {
+    if (typeof phosToast === 'function') phosToast(H3_FLEX_CELL_TIP, { kind: 'info' });
+    renderH3Axes();
+    return;
   }
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
   set('h3_quality', cell.quality);
@@ -2419,7 +2691,7 @@ Object.assign(globalThis, {
   h3ResolveTierKey, h3TierByKey, h3CellFor, h3CurrentCell,
   setH3Upscale, setH3FaceFixAfter, setH3Orientation, setH3Steps, h3TurboPillSub,
   h3V13State, h3V13On,
-  renderH3Turbo, setH3Turbo, syncModeStripToEngine, renderEngineSwitch,
+  renderH3Turbo, setH3Turbo, syncModeStripToEngine, modeChipEngineClick, renderEngineSwitch, h3FlexSubmitBlock,
   setH3Speed, h3SpeedOfParams, h3FlexOn, h3FlexState, h3EstimateLine, setH3TriStep, h3TriStepOn, h3TriStepState,
   h3JobSpeedLabel, h3JobShapeLabel, ltxCellEtaBasis, h3CellEtaBasis,
   // Published for the Shot setup summary (characters.js): a closed section has

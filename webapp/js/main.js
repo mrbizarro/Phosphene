@@ -34,6 +34,9 @@ function _wireModeGroupTabSemantics() {
 installLicenceGate();
 musicInit();
 _wireModeGroupTabSemantics();
+// A mode greyed because H3 Flex is the pick refuses the click (capture phase,
+// ahead of the chip's own handler) and says why.
+document.getElementById('modeGroup')?.addEventListener('click', modeChipEngineClick, true);
 // VC-34: the Tier quick-link next to the Quality label. Tier is fixed at
 // boot (RAM doesn't change at runtime), so this is a one-time read of the
 // bootstrap payload — no reason to wait for the first /status poll.

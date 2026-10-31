@@ -2,6 +2,9 @@
 
 External agents (Claude Code, Codex, OSS, or anything that speaks HTTP) drive Phosphene through this API. The in-panel chat was removed 2026-05-15 — there's no agent embedded inside the panel anymore. Everything that the chat used to do can be done by an external agent through these endpoints.
 
+**Ready-made tools on top of this API:** the `phosphene` CLI and an MCP server for Claude Code,
+Codex or any MCP client, in `agents/` — [`AGENT_TOOLS.md`](AGENT_TOOLS.md).
+
 ## Server
 
 - **Base URL:** `http://127.0.0.1:8198` on a normal install. **`8199` is the DEV
@@ -10,6 +13,10 @@ External agents (Claude Code, Codex, OSS, or anything that speaks HTTP) drive Ph
   (`mlx_ltx_panel.py:275`): `DEFAULT_PORT = 8199 if PROFILE == "dev" else 8198`,
   overridable with `LTX_PORT`. If a request here returns nothing, you are
   almost certainly talking to a port that has no panel on it — try the other one.
+  **The Mac app** runs the same studio on a free port in **8930–8999**. Every studio
+  writes `~/.phosphene/servers/<port>.json` while it runs and answers
+  `GET /agents/info` with `"app": "phosphene"`; the `phosphene` CLI and the MCP server
+  in `agents/` find it that way — see [`AGENT_TOOLS.md`](AGENT_TOOLS.md).
 - **Process:** `mlx_ltx_panel.py` (in the repo root)
 - **Wire format:** form-encoded `POST` bodies; JSON exceptions are noted
   per-endpoint. Responses are **HTTP/1.0** — `BaseHTTPRequestHandler`'s

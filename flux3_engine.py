@@ -183,7 +183,7 @@ def _redact(line):
     return re.sub(r"hf_[A-Za-z0-9]+", "[redacted]", line)
 
 
-def _run(cmd, env, on_log, request=None, timeout=7200, guard=()):
+def _run(cmd, env, on_log, request=None, timeout=7200, guard=(), tail_out=None):
     """Stream progress and share the studio's cancellation registry, including install."""
     import image_engine
     events = queue.Queue()
@@ -223,14 +223,23 @@ def _run(cmd, env, on_log, request=None, timeout=7200, guard=()):
                 continue
             if line is None:
                 break
-            if line.startswith("FLUX3_RESULT "):
-                receipts.append(json.loads(line[len("FLUX3_RESULT "):]))
+            # Anywhere in the line, not only at its start: a progress bar
+            # left on the same line (stderr shares this pipe) must not hide a
+            # finished image's receipt (fleet #206).
+            mark = line.find("FLUX3_RESULT ")
+            if mark >= 0:
+                try:
+                    receipts.append(json.loads(line[mark + len("FLUX3_RESULT "):]))
+                except ValueError:
+                    tail = (tail + [_redact(line[:200])])[-15:]
             else:
                 line = _redact(line)
                 tail = (tail + [line])[-15:]
                 if on_log:
                     on_log(line)
         rc = proc.wait(timeout=10)
+        if tail_out is not None:
+            tail_out[:] = tail
         if rc < 0:
             raise image_engine.ImageJobCancelled("FLUX 3 stopped.")
         if rc:
@@ -267,11 +276,44 @@ def generate(prompt, n, width, height, output_dir, base_seed, config, refs, on_l
     request = dict(prompt=prompt, seeds=[first_seed + i for i in range(n)],
                    width=width, height=height, output_dir=str(output_dir), refs=refs,
                    variant=config.flux3_variant, quantize=config.mflux_quantize)
+    tail = []
     result = _run([str(worker_python()), str(ROOT / "scripts/flux3_worker.py")], env, on_log, request,
                   timeout=1800 + 3600 * n,
                   # The worker guards its own downloads with RESERVE; here only
                   # the output volume matters, so a full disk still stops it.
-                  guard=[(output_dir, OUTPUT_HEADROOM)])
-    if len(result) != n or any(not Path(r["png_path"]).is_file() for r in result):
-        raise RuntimeError("FLUX 3 returned no complete image. Check the log and retry.")
-    return result
+                  guard=[(output_dir, OUTPUT_HEADROOM)], tail_out=tail)
+    return _complete_receipts(result, request, output_dir, tail)
+
+
+def _complete_receipts(result, request, output_dir, tail=()):
+    """The finished images, one per requested seed, or a precise error.
+
+    Fleet #206 (4.19.15, one M5 Max, 3 of 9): "FLUX 3 returned no complete
+    image" after full-length renders with the worker exiting cleanly. The
+    worker writes `<png>.flux3.json` (the same receipt) BEFORE it prints the
+    FLUX3_RESULT line, so a receipt the pipe lost is recovered from disk for
+    every requested seed whose verified image is there. Anything still missing
+    names how many images came back and the worker's last lines, so the next
+    report says why instead of "check the log"."""
+    seeds = list(request.get("seeds") or [])
+    got = {int(r.get("seed", -1)): r for r in result
+           if isinstance(r, dict) and Path(str(r.get("png_path") or "")).is_file()}
+    for seed in seeds:
+        if seed in got:
+            continue
+        for meta in sorted(Path(output_dir).glob(f"flux3_*_{seed}.flux3.json")):
+            try:
+                rec = json.loads(meta.read_text())
+            except (OSError, ValueError):
+                continue
+            if int(rec.get("seed", -1)) == seed and Path(str(rec.get("png_path") or "")).is_file():
+                got[seed] = rec
+                break
+    if seeds and all(s in got for s in seeds):
+        return [got[s] for s in seeds]
+    done = sum(1 for s in seeds if s in got)
+    last = "\n".join(str(x) for x in list(tail)[-6:])
+    raise RuntimeError(
+        f"FLUX 3 returned no complete image ({done} of {len(seeds)} finished; "
+        f"the worker exited without an error). Check the log and retry."
+        + (f" Last lines:\n{last}" if last else ""))

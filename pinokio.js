@@ -134,13 +134,25 @@ function readEnvironment(installRoot) {
 }
 
 function repoComplete(installRoot, repo, minBytes) {
-  // A repo is "complete" iff every listed file exists at >= minBytes under
-  // its local_dir. Mirrors the Python-side _repo_missing in mlx_ltx_panel.py.
-  for (const fname of (repo.files || [])) {
+  // A repo is "complete" iff every listed file exists under its local_dir at
+  // its declared exact size (file_sizes) or else >= minBytes, and every loader
+  // sidecar (small upscaler configs) exists and is not empty. Mirrors the
+  // Python-side pack_file_ok in mlx_ltx_panel.py (fleet #206).
+  const sizes = repo.file_sizes || {}
+  const sidecars = repo.sidecars || []
+  for (const fname of (repo.files || []).concat(sidecars)) {
     try {
       const abs = path.join(installRoot, repo.local_dir, fname)
       const st = fs.statSync(abs)
-      if (!st.isFile() || st.size < minBytes) return false
+      if (!st.isFile()) return false
+      const want = sizes[fname]
+      if (typeof want === "number" && want > 0) {
+        if (st.size !== want) return false
+      } else if (sidecars.includes(fname)) {
+        if (st.size <= 0) return false
+      } else if (st.size < minBytes) {
+        return false
+      }
     } catch (e) {
       return false
     }

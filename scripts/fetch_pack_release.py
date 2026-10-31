@@ -419,11 +419,21 @@ def fetch_pack(repo_key: str, root: Path, dest: Path | None,
     # The manifest is the mirror's word for what a pack is; required_files.json
     # is the app's. They must not drift, and a drift found HERE (before 21 GB is
     # pulled) is worth far more than one found by a loader at render time.
-    missing = [f for f in repo.get("files", []) if f not in files]
+    declared = list(repo.get("files", [])) + list(repo.get("sidecars") or [])
+    missing = [f for f in declared if f not in files]
     if missing:
         raise SystemExit(
             f"release manifest for {repo_key} is missing files that "
             f"required_files.json declares mandatory: {', '.join(missing)}"
+        )
+    # The app checks a declared size EXACTLY (fleet #206), so a size that
+    # drifted from the manifest would leave a finished pack reading incomplete.
+    drift = [f for f, n in (repo.get("file_sizes") or {}).items()
+             if f in files and int(files[f].get("bytes", -1)) != int(n)]
+    if drift:
+        raise SystemExit(
+            f"release manifest for {repo_key} disagrees with required_files.json "
+            f"file_sizes for: {', '.join(drift)}"
         )
 
     dest_dir.mkdir(parents=True, exist_ok=True)

@@ -451,6 +451,8 @@ try:
             if f == "spatial_upscaler_x2_v1_1.safetensors":
                 continue          # the actual June 2026 casualty
             (fake / f).write_bytes(b"x" * 4096)
+        for f in repo.get("sidecars") or []:      # loader configs (#206)
+            (fake / f).write_text('{"config": {}}')
         pack = p.version_pack("q8", "ltx23")
         saved = pack["path"]
         pack["path"] = fake

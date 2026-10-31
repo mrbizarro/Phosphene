@@ -8525,6 +8525,16 @@ document.getElementById('genForm').addEventListener('submit', async e => {
     return;
   }
 
+  // H3 Flex picked but not ready: refuse rather than quietly render plain H3.
+  if ((fd.get('engine') || 'ltx') === 'h3' && typeof h3FlexSubmitBlock === 'function') {
+    const _flexMsg = h3FlexSubmitBlock();
+    if (_flexMsg) {
+      if (typeof phosToast === 'function') phosToast(_flexMsg, { kind: 'warn', duration: 6000 });
+      else alert(_flexMsg);
+      return;
+    }
+  }
+
   // Disable the Generate button while we POST to /queue/add so a fast
   // double-click doesn't queue the same job twice. The button is
   // re-enabled after poll() returns (or on error). Keep this ABOVE the
