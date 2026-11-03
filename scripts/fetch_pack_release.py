@@ -291,6 +291,43 @@ def sha256_file(path: Path) -> str:
 # --------------------------------------------------------------------------- #
 # Assembly
 # --------------------------------------------------------------------------- #
+def _pack_path(root: Path, name: str) -> Path:
+    """Confine a publisher's flat filename to the chosen pack directory.
+
+    The destination itself may be a user-selected symlink (Pinokio's shared
+    models). Children must not be symlinks, including dangling ones: partials
+    and progress files are opened for writing, and shards may be resumed.
+    This checks existing paths; it is not a sandbox against another local
+    process replacing paths concurrently.
+    """
+    if (not isinstance(name, str) or not name or name in (".", "..")
+            or any(c in name for c in ("/", "\\", ":"))
+            or any(ord(c) < 32 or ord(c) == 127 for c in name)):
+        raise ValueError(f"unsafe pack filename: {name!r}")
+    path = root / name
+    if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()):
+        raise ValueError(f"unsafe pack path: {path}")
+    return path
+
+
+def _validate_file_paths(name: str, spec: dict, dest_dir: Path) -> None:
+    if name == PARTS_DIRNAME:
+        raise ValueError(f"reserved pack filename: {name!r}")
+    _pack_path(dest_dir, name)
+    partial = _pack_path(dest_dir, name + ".partial")
+    _pack_path(dest_dir, _progress_path(partial).name)
+    parts_dir = _pack_path(dest_dir, PARTS_DIRNAME)
+    for shard in spec["shards"]:
+        _pack_path(parts_dir, shard["asset"])
+
+
+def _validate_pack_paths(files: dict, dest_dir: Path) -> None:
+    # Validate the whole manifest before writing anything, even if an unsafe
+    # entry follows valid ones. Extra sidecars are legitimate publisher output.
+    for name, spec in files.items():
+        _validate_file_paths(name, spec, dest_dir)
+
+
 def _progress_path(partial: Path) -> Path:
     return partial.with_suffix(partial.suffix + ".progress")
 
@@ -329,7 +366,8 @@ def assemble_file(name: str, spec: dict, dest_dir: Path, mirror: dict,
     the difference between +1.9 GB and +11.3 GB on the transformer, on machines
     that are already tight enough that we quantised the model for them.
     """
-    target = dest_dir / name
+    _validate_file_paths(name, spec, dest_dir)
+    target = _pack_path(dest_dir, name)
     want_sha = spec["sha256"]
     want_bytes = int(spec["bytes"])
 
@@ -339,9 +377,9 @@ def assemble_file(name: str, spec: dict, dest_dir: Path, mirror: dict,
             return
         log(f"[fetch] {name} — present but does not match the manifest, refetching")
 
-    parts_dir = dest_dir / PARTS_DIRNAME
+    parts_dir = _pack_path(dest_dir, PARTS_DIRNAME)
     parts_dir.mkdir(parents=True, exist_ok=True)
-    partial = dest_dir / (name + ".partial")
+    partial = _pack_path(dest_dir, name + ".partial")
     shards = spec["shards"]
     done = _read_progress(partial)
     if done:
@@ -354,7 +392,7 @@ def assemble_file(name: str, spec: dict, dest_dir: Path, mirror: dict,
             continue
         asset = shard["asset"]
         label = f"{name} [{idx + 1}/{len(shards)}]"
-        shard_path = parts_dir / asset
+        shard_path = _pack_path(parts_dir, asset)
         download_shard(asset_url(mirror, asset), shard_path,
                        int(shard["bytes"]), shard["sha256"],
                        attempts=attempts, timeout=timeout, label=label)
@@ -391,6 +429,7 @@ def assemble_file(name: str, spec: dict, dest_dir: Path, mirror: dict,
 # --------------------------------------------------------------------------- #
 def check_pack(manifest: dict, dest_dir: Path) -> list[str]:
     """Names of declared files that are missing or do not match the manifest."""
+    _validate_pack_paths(manifest["files"], dest_dir)
     bad: list[str] = []
     for name, spec in manifest["files"].items():
         path = dest_dir / name
@@ -415,6 +454,7 @@ def fetch_pack(repo_key: str, root: Path, dest: Path | None,
     files = manifest.get("files")
     if not isinstance(files, dict) or not files:
         raise SystemExit(f"release manifest for {repo_key} declares no files")
+    _validate_pack_paths(files, dest_dir)
 
     # The manifest is the mirror's word for what a pack is; required_files.json
     # is the app's. They must not drift, and a drift found HERE (before 21 GB is
@@ -464,6 +504,7 @@ def fetch_pack(repo_key: str, root: Path, dest: Path | None,
 
 def _fetch_locked(repo_key: str, files: dict, dest_dir: Path, mirror: dict,
                   *, attempts: int, timeout: int) -> int:
+    _validate_pack_paths(files, dest_dir)
     total_gb = sum(int(s["bytes"]) for s in files.values()) / 1e9
     log(f"[fetch] {len(files)} file(s), {total_gb:.2f} GB — resumable, sha256-verified")
 
