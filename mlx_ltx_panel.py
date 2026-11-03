@@ -3376,6 +3376,7 @@ def _new_train_job_id() -> str:
 # even while it is still importing.
 import train_support as _train_support
 from train_support import (  # noqa: F401  (re-exported on purpose)
+    _big_enough,
     _train_caption_map_path,
     _train_dataset_dir,
     _train_encode_retry_wanted,
@@ -3393,8 +3394,14 @@ from train_support import (  # noqa: F401  (re-exported on purpose)
     _train_weak_advice,
     _train_wipe_caption_conditions,
     _train_write_caption_map,
+    TRAIN_WEIGHTS_REFUSAL_PREFIX,
+    train_class_from_exception_name,
     train_error_for_exit,
     train_error_from_event,
+    train_exception_from_tail,
+    train_failure_message,
+    train_stage_word,
+    train_weights_refusal,
 )
 _train_support.P = sys.modules[__name__]
 
@@ -20045,6 +20052,109 @@ def _analytics_feature(feature: str, detail: str = "") -> None:
     _analytics_capture("feature_used", props)
 
 
+# ---- "Star us on GitHub" ask (owner, 2 Nov 2026) ----------------------------
+# One small card, once per Mac, after the fifth finished render. Kept in the
+# panel's own settings file so it survives restarts and updates; it is not
+# per session and it is independent of analytics being on. States:
+#   (no key)  never counted yet
+#   counting  fewer than five finished renders
+#   due       the card should show (set by a finished render)
+#   shown     the card was put on screen; it will not be put up again
+#   done      the person answered (star, waitlist, not now or close)
+# Existing users with five or more renders already in their history are
+# seeded from it the first time, so they see it once after their next render.
+# Someone who already starred from the header icon or the update banner
+# (star_prompt_done) never sees the card.
+STAR_PROMPT_THRESHOLD = 5
+STAR_PROMPT_URL = "https://github.com/mrbizarro/Phosphene"
+STAR_PROMPT_ACTIONS = ("shown", "star", "waitlist", "not_now")
+_STAR_PROMPT_LOCK = threading.Lock()
+
+
+def _star_prompt_counts(job: dict) -> bool:
+    """A finished render from any engine or mode. Training is not a render,
+    and failed, stopped or cancelled jobs produced nothing."""
+    if not isinstance(job, dict) or job.get("status") != "done":
+        return False
+    return ((job.get("params") or {}).get("mode") or "") != "train"
+
+
+def _star_prompt_next(settings: dict, job: dict, history: list) -> dict:
+    """Pure: the settings delta a finished job causes (empty = nothing)."""
+    if not _star_prompt_counts(job):
+        return {}
+    state = settings.get("star_prompt_state") or ""
+    if state in ("due", "shown", "done"):
+        return {}
+    try:
+        n = int(settings["star_prompt_renders"])
+    except (KeyError, TypeError, ValueError):
+        # First count on this Mac: start from the renders it already made.
+        n = sum(1 for j in (history or []) if _star_prompt_counts(j)
+                and j.get("id") != job.get("id"))
+    n += 1
+    return {"star_prompt_renders": n,
+            "star_prompt_state": "due" if n >= STAR_PROMPT_THRESHOLD else "counting"}
+
+
+def _star_prompt_after_job(job: dict) -> None:
+    """worker_loop's finally. Never raises: it must not touch a render."""
+    try:
+        with _STAR_PROMPT_LOCK:
+            with LOCK:
+                hist = list(STATE.get("history") or [])
+            delta = _star_prompt_next(get_settings(), job, hist)
+            if delta:
+                _settings_set_internal(**delta)
+    except Exception:
+        pass
+
+
+def star_prompt_due() -> bool:
+    """Whether the page should put the card up now. Someone who already
+    starred from the header icon or the update banner (star_prompt_done) is
+    never asked again here."""
+    try:
+        s = get_settings()
+        return s.get("star_prompt_state") == "due" and not s.get("star_prompt_done")
+    except Exception:
+        return False
+
+
+def _star_prompt_transition(state: str, action: str) -> str | None:
+    """Pure: the new state for an action, or None when it changes nothing
+    (a second answer, or `shown` once it was already shown)."""
+    if action == "shown":
+        return "shown" if state == "due" else None
+    if action in ("star", "waitlist", "not_now"):
+        return "done" if state in ("due", "shown") else None
+    return None
+
+
+def star_prompt_answer(action: str) -> bool:
+    """Record what the page did with the card. Returns whether it changed
+    anything; the anonymous count goes out only on a real change, so a
+    double click cannot count twice."""
+    if action not in STAR_PROMPT_ACTIONS:
+        raise ValueError("unknown action")
+    with _STAR_PROMPT_LOCK:
+        new = _star_prompt_transition(
+            get_settings().get("star_prompt_state") or "", action)
+        if new is None:
+            return False
+        delta = {"star_prompt_state": new}
+        if new == "done":
+            delta["star_prompt_choice"] = action
+            # Any answer also retires the update banner's star row: one ask.
+            delta["star_prompt_done"] = True
+        _settings_set_internal(**delta)
+    # The same anonymous `star_prompt` event as the banner and the header
+    # icon (via link / already), with the card's own closed values.
+    _analytics_capture("star_prompt", {"via": "card_" + action})
+    return True
+
+
+
 def _analytics_canvas_class(width: int, height: int) -> str:
     """Coarse canvas grouping by megapixels — the percentile dimension."""
     try:
@@ -20134,6 +20244,28 @@ _ANALYTICS_REFUSAL_REASONS = (
     # #206: a small Mac whose prompt encoding macOS stopped minutes ago, still
     # short of memory after a wait (ltx_encode_memory_hold).
     ("memory_low", ("not enough free memory to read the prompt",)),
+    # A training run whose LTX-2.3 weights are not on this Mac (fleet 2 Nov
+    # 2026: 25 of 31 failed runs in a day, one Mac 22 times in an hour). The
+    # message names the download and the Train tab offers it. Prefix:
+    # train_support.TRAIN_WEIGHTS_REFUSAL_PREFIX.
+    ("train_models", ("training can't start yet:",)),
+    # 4.19.17: an Image render with a FLUX.2 LoRA made for another FLUX.2 size
+    # (a [klein] 9B / [dev] adapter on the [klein] 4B), refused before the
+    # engine starts. It used to die mid-denoise with mflux's "[matmul] Last
+    # dimension of first input" (render_failed). Remedy: un-pick the LoRA.
+    # The needle is the sentence's own join ("... and cannot load on FLUX.2 ...");
+    # a bare "cannot load on" would file an unrelated engine error as a refusal.
+    ("lora_mismatch", ("and cannot load on flux.2",)),
+    # 4.19.17: an Image render with more reference images than its engine
+    # takes (3; FLUX 3 10). The second needle is the old wording, raised as a
+    # render_failed until 4.19.17, so replayed usage logs still classify.
+    ("image_refs", ("image engine takes at most",
+                    "this engine supports at most")),
+    # 4.19.17: an Image engine whose first download does not fit on the disk.
+    # The second needle is the old "pre-flight: only N GB free on the HF cache
+    # volume" wording (a render_failed until 4.19.17), for replayed logs.
+    ("image_disk", ("not enough disk space for",
+                    "free on the hf cache volume")),
 )
 
 _ANALYTICS_REFUSAL_SLUGS = tuple(s for s, _ in _ANALYTICS_REFUSAL_REASONS)
@@ -20577,6 +20709,20 @@ def _analytics_render_event(job: dict) -> None:
                     # own exception (lora_lab.failure) — never its text.
                     te = str(job.get("train_error") or "")
                     props["train_error"] = te if te in TRAIN_ERROR_CLASSES else "other"
+                    # Fleet 2 Nov 2026: the card now carries the trainer's own
+                    # sentence, which may quote the user's trigger or file
+                    # names. The fleet gets a fixed line built from the two
+                    # closed words instead, so "code 1" stops hiding the cause
+                    # and no typed text can ride along.
+                    ts = str(job.get("train_stage") or "unknown")
+                    props["train_stage"] = ts if ts in _TRAIN_STAGES else "unknown"
+                    if not str(job.get("error") or "").startswith("training exited with code"):
+                        props["error_signature"] = (
+                            f"training stopped: {props['train_error']} "
+                            f"(stage {props['train_stage']})")
+                        if props["error_class"] == "other":
+                            props["error_fingerprint"] = _analytics_error_fingerprint(
+                                props["error_signature"])
         _analytics_capture(event, props)
     except Exception:
         pass
@@ -23819,6 +23965,15 @@ def _kill_train_proc() -> None:
         pgid = None
     if not pgid:
         return
+    # The panel quitting is not the training run failing: mark it like a Stop
+    # so the worker files it as cancelled. Fleet 2 Nov 2026: "training exited
+    # with code -15" was counted as a failed render three times on one Mac.
+    try:
+        cur = STATE.get("current")
+        if cur is not None:
+            cur["cancel_requested"] = True
+    except Exception:
+        pass
     try:
         os.killpg(pgid, signal.SIGTERM)
     except (OSError, ProcessLookupError):
@@ -32965,6 +33120,62 @@ def _raise_if_licence_missing(key: str | None) -> None:
         raise RenderRefused("licence_required", ref["error"])
 
 
+#: Reference images an Image engine takes: Qwen Reference Edit / FLUX.2
+#: Klein-Edit take up to 3 (mflux --image-paths; the Studio has 3 slots),
+#: FLUX 3 up to 10 (docs/FLUX3.md; API only).
+IMAGE_MAX_REFS = 3
+IMAGE_MAX_REFS_FLUX3 = 10
+
+
+def image_max_refs(engine_override) -> int:
+    """How many reference images `engine_override` takes. One answer for the
+    queue worker, /queue/add, /image/generate and the Studio (engine_status)."""
+    import flux3_engine
+    eng = str(engine_override or "auto").strip().lower()
+    return IMAGE_MAX_REFS_FLUX3 if eng in flux3_engine.PRESETS else IMAGE_MAX_REFS
+
+
+def image_refs_refusal(engine_override, refs) -> str | None:
+    """The too-many-references sentence, or None. Its opening phrase is the
+    `image_refs` refusal needle - keep them together."""
+    n = len(refs or [])
+    cap = image_max_refs(engine_override)
+    if n <= cap:
+        return None
+    return (f"This image engine takes at most {cap} reference images, and this "
+            f"render has {n}. Remove {n - cap} of them, then generate again.")
+
+
+def image_job_input_refusal(p: dict) -> str | None:
+    """job_input_refusal for an Image job: what can only fail, said before it
+    is queued.
+
+    4.19.17 (fleet 4.19.16): a picked LoRA whose file had gone reached the
+    engine, which exited 2 with "error: LoRA file not found" - 13 failed
+    renders on one Mac over two days, each retry the same. The chip came back
+    from a draft / Load Params after the LoRA was deleted or renamed. The
+    worker asks the same question again (image_engine.mflux_lora_problem) for
+    a file that goes away while the job waits.
+
+    Also (fleet 4.19.16, an Image job with more than 3 references): too many
+    reference images for the engine - the worker used to discover it after
+    the job's turn and file it as a failed render."""
+    refs = p.get("refs") or []
+    if isinstance(refs, list):
+        why = image_refs_refusal(p.get("engine_override"), refs)
+        if why:
+            return why
+    for entry in (p.get("loras") or []):
+        lp = str((entry or {}).get("path") or "").strip() if isinstance(entry, dict) else ""
+        if not lp or not lp.startswith(("/", "~")):
+            continue                     # a Hugging Face id: the engine fetches it
+        if not Path(lp).expanduser().is_file():
+            return (f"The LoRA {Path(lp).name} is no longer on disk ({lp}). It was "
+                    "moved, renamed or deleted after it was picked - un-pick it in "
+                    "the LoRA list (or pick it again), then generate again.")
+    return None
+
+
 def job_input_refusal(params: dict) -> str | None:
     """Why this job can only fail for want of an input, or None.
 
@@ -32974,7 +33185,9 @@ def job_input_refusal(params: dict) -> str | None:
     whose file goes away while they wait)."""
     p = params or {}
     m = str(p.get("mode") or "t2v").strip().lower()
-    if m in ("music", "image", "train"):
+    if m == "image":
+        return image_job_input_refusal(p)
+    if m in ("music", "train"):
         return None
     if m not in QUEUEABLE_VIDEO_MODES:
         return (f"Unknown render mode {m!r} - nothing was queued. Pick a mode "
@@ -34745,6 +34958,65 @@ def _preflight_disk_free_gb(path: Path) -> float:
         return 0.0
 
 
+#: What an Image engine's first render downloads, per Hugging Face repo: the
+#: files mflux 0.18 fetches (each family's get_download_patterns()), from the
+#: Hub's file sizes on 2026-11-02. The disk pre-flight and the Studio's
+#: "one-time download" line both read it. A repo not listed keeps the old
+#: 10 GB floor.
+IMAGE_REPO_DOWNLOAD = {
+    KLEIN_4B_Q4_MODEL: ("FLUX.2 [klein] 4B", 4.6),
+    "Qwen/Qwen-Image-Edit-2511": ("Reference Edit (Qwen-Image-Edit)", 57.7),
+    IDEOGRAM_REPO_UNGATED: ("Ideogram 4", 27.6),
+    "filipstrand/Z-Image-Turbo-mflux-4bit": ("Z-Image Turbo", 5.9),
+}
+#: Left free after the download, for swap and the render's own output.
+IMAGE_DISK_HEADROOM_GB = 2.0
+IMAGE_DISK_UNKNOWN_FLOOR_GB = 10.0
+
+
+def image_repo_download_gb(repo_id, default=None):
+    row = IMAGE_REPO_DOWNLOAD.get(str(repo_id or ""))
+    return row[1] if row else default
+
+
+def image_disk_refusal(cfg, engine_override: str, free_gb: float,
+                       where) -> str | None:
+    """The disk pre-flight for an engine whose weights are not on disk yet,
+    or None when they fit. Its opening phrase is the `image_disk` needle.
+
+    4.19.17 (fleet 4.19.16, three in a row on one Mac): it said "only 5.9 GB
+    free on the HF cache volume ... isn't cached yet. Free at least 10 GB or
+    set PHOSPHENE_SKIP_PREFLIGHT=1" - jargon, a developer switch, and a flat
+    10 GB that was wrong both ways: FLUX.2 [klein] 4B (Auto) is a 4.6 GB
+    download, Reference Edit 57.7 GB. Now the real size of THIS model, less
+    what an interrupted download already left, plus 2 GB to spare."""
+    repo = str(getattr(cfg, "mflux_model", "") or "")
+    row = IMAGE_REPO_DOWNLOAD.get(repo)
+    if row is None:
+        need = IMAGE_DISK_UNKNOWN_FLOOR_GB
+        name = _IMAGE_ENGINE_LABELS.get(engine_override, engine_override)
+        dl_txt = "its model has to be downloaded first"
+    else:
+        name, size = row
+        left = size
+        try:
+            part = agent_image_engine.hf_repo_partial_download(repo)
+            if part:
+                left = max(0.0, size - float(part.get("on_disk_gb") or 0.0))
+        except Exception:                                      # noqa: BLE001
+            pass
+        need = left + IMAGE_DISK_HEADROOM_GB
+        dl_txt = (f"it still has {left:.1f} GB of model files to download"
+                  if left < size else
+                  f"its first render downloads {size:.1f} GB of model files (once)")
+    if free_gb >= need:
+        return None
+    return (f"Not enough disk space for {name}: {dl_txt}, and "
+            f"the disk that holds the image models has {free_gb:.1f} GB free "
+            f"({where}). Free at least {need - free_gb:.1f} GB more - empty the "
+            f"Trash or delete renders you no longer need - then try again.")
+
+
 def _preflight_model_cached(cfg) -> bool:
     """True if the model's HF cache snapshot already exists on disk.
 
@@ -34817,7 +35089,7 @@ def _preflight_image_job(cfg, *, engine_override: str = "auto") -> None:
 
     Checks (in order):
       1. Free RAM (vm_stat) ≥ per-engine need.
-      2. Free disk on HF cache volume ≥ 10 GB if model isn't cached.
+      2. Free disk for the model's first download (image_disk_refusal).
 
     Bypass with `PHOSPHENE_SKIP_PREFLIGHT=1`. We log every preflight result
     (pass or skip) so post-mortems can tell the difference between "preflight
@@ -34904,12 +35176,12 @@ def _preflight_image_job(cfg, *, engine_override: str = "auto") -> None:
     cache_root.mkdir(parents=True, exist_ok=True)
     free_disk_gb = _preflight_disk_free_gb(cache_root)
     cached = _preflight_model_cached(cfg)
-    if not cached and free_disk_gb < 10.0:
-        raise RuntimeError(
-            f"pre-flight: only {free_disk_gb:.1f} GB free on the HF cache volume "
-            f"({cache_root}) and this engine ({engine_override}) isn't cached yet. "
-            f"Free at least 10 GB or set PHOSPHENE_SKIP_PREFLIGHT=1 to override."
-        )
+    if not cached:
+        # A deliberate stop before any download or GPU work: a refusal
+        # (`image_disk`), not a failed render (fleet 4.19.16 counted 3).
+        _no_room = image_disk_refusal(cfg, engine_override, free_disk_gb, cache_root)
+        if _no_room:
+            raise RenderRefused("image_disk", _no_room)
 
     push(
         f"[preflight] OK · engine={engine_override} need~{need_gb:.0f}G "
@@ -34958,9 +35230,11 @@ def run_image_job_inner(job: dict) -> None:
     if not isinstance(refs_in, list):
         raise RuntimeError(f"refs must be a list, got {type(refs_in).__name__}")
     import flux3_engine
-    max_refs = 10 if engine_override in flux3_engine.PRESETS else 3
-    if len(refs_in) > max_refs:
-        raise RuntimeError(f"This engine supports at most {max_refs} reference images.")
+    # A deliberate stop, not a fault (fleet 4.19.16: it was a render_failed):
+    # nothing ran. /queue/add refuses it first (image_job_input_refusal).
+    _too_many = image_refs_refusal(engine_override, refs_in)
+    if _too_many:
+        raise RenderRefused("image_refs", _too_many)
     refs_resolved: list[str] = []
     for r in refs_in:
         if not isinstance(r, str) or not r.strip():
@@ -35035,6 +35309,18 @@ def run_image_job_inner(job: dict) -> None:
                "mflux_lora_paths": preset_paths,
                "mflux_lora_scales": preset_scales}
         )
+
+    # A LoRA that cannot load stops before the engine starts (4.19.17, fleet
+    # 4.19.16) - image_job_input_refusal said it at /queue/add; this catches a
+    # file that went away while the job waited, and every preset LoRA too.
+    # A FLUX.2 LoRA made for another FLUX.2 size ("mismatch": the matmul
+    # ValueError mid-denoise, fleet 4.19.16) is a refusal - nothing ran, and
+    # the way out is a different pick, not a retry.
+    _lora_problem = agent_image_engine.mflux_lora_problem(cfg)
+    if _lora_problem:
+        if _lora_problem[0] == "mismatch":
+            raise RenderRefused("lora_mismatch", _lora_problem[1])
+        raise RuntimeError(_lora_problem[1])
 
     # Pre-flight: refuse the job up-front when we can predict it will OOM
     # mid-Metal-render (commit bc818a5 covers the post-mortem; this short-
@@ -35210,6 +35496,10 @@ _TRAIN_ABORT_RX = re.compile(
 #: into; the panel never forwards a word outside this list.
 TRAIN_ERROR_CLASSES = ("oom", "missing_file", "caption_check", "disk_full",
                        "import_error", "nan_loss", "other")
+#: Where the trainer stopped (docs/ANALYTICS.md `train_stage`); mirrors
+#: lora_lab.failure.TRAIN_STAGES.
+_TRAIN_STAGES = ("models", "caption", "config", "ingest", "crop", "preprocess",
+                 "train", "publish", "sidecar", "validate", "verify", "unknown")
 
 
 
@@ -35264,7 +35554,7 @@ def run_train_job_inner(job: dict) -> None:
     images_dir = dataset_dir / "images"
     captions_dir = dataset_dir / "captions"
     if not images_dir.is_dir():
-        job["train_error"] = "missing_file"
+        job["train_error"], job["train_stage"] = "missing_file", "ingest"
         raise RuntimeError(
             f"dataset images not found: {images_dir} — "
             "/train/upload should have created this. Re-upload your dataset.")
@@ -35385,7 +35675,7 @@ def run_train_job_inner(job: dict) -> None:
                           f"({other[1]}/{len(mismatched)} mismatched files)"
                           if other else "")
             if len(mismatched) == len(user_cap_files):
-                job["train_error"] = "caption_check"
+                job["train_error"], job["train_stage"] = "caption_check", "caption"
                 raise RuntimeError(
                     f"none of the {len(user_cap_files)} existing caption files "
                     f"contain the trigger {trigger!r} this job was submitted "
@@ -35476,14 +35766,25 @@ def run_train_job_inner(job: dict) -> None:
     except OSError as e:
         job["train_error"] = ("disk_full" if e.errno in (errno.ENOSPC, errno.EDQUOT)
                               else "other")
+        job["train_stage"] = "config"
         raise RuntimeError(f"could not write spec.json: {e}")
 
     if not LORA_LAB_RUN_SH.exists():
-        job["train_error"] = "missing_file"
+        job["train_error"], job["train_stage"] = "missing_file", "models"
         raise RuntimeError(
             f"lora-lab shim not found at {LORA_LAB_RUN_SH}. "
             "Train Character depends on the sibling lab at "
             f"{LORA_LAB_ROOT}. Make sure it's checked out.")
+
+    # Fleet 2 Nov 2026: a run whose weights are not on disk is refused here,
+    # before the training lock is taken, the render engine is released or a trainer spawned - the same
+    # check the trainer makes first, so a queued run whose download vanished
+    # (or was never made) is a refusal with the fix, not "exited with code 1".
+    _weights = train_weights_refusal()
+    if _weights:
+        job["train_error"] = "missing_file"
+        job["train_stage"] = "models"
+        raise RenderRefused("train_models", _weights)
 
     # Serialise training runs against each other. We use a non-blocking
     # acquire here because the queue worker already serialises jobs; this
@@ -35518,6 +35819,8 @@ def run_train_job_inner(job: dict) -> None:
     _train_env = trainer_child_env()
     _encode_retried = False
     _trainer_error: dict | None = None
+    # The trainer's last plain lines, for a crash before its own `error` event.
+    _train_tail: collections.deque = collections.deque(maxlen=40)
     # A warm render helper keeps an LTX model resident (up to tens of GB) for
     # HELPER_IDLE_TIMEOUT after the last render. The trainer needs that memory
     # for the dev transformer and its activations; give it back first.
@@ -35668,6 +35971,7 @@ def run_train_job_inner(job: dict) -> None:
                         push(f"[train] {line}")
                 else:
                     push(f"[train] {line}")
+                    _train_tail.append(line)
                 # The trainer dies by SIGABRT when macOS kills its GPU command
                 # buffer, and `code -6` on its own tells the user nothing. Watch
                 # the same signatures the render helper watches (#61).
@@ -35718,7 +36022,8 @@ def run_train_job_inner(job: dict) -> None:
                 continue
             break
         if rc != 0:
-            job["train_error"] = train_error_for_exit(rc, _trainer_error)
+            job["train_error"] = train_error_for_exit(rc, _trainer_error, _train_tail)
+            job["train_stage"] = train_stage_word(_trainer_error)
             # -6 is SIGABRT. With a watchdog signature in the log it is macOS
             # killing the GPU command buffer, not our code faulting — and the
             # lever is the canvas, not the preset. Reported in #61: 576x576
@@ -35743,8 +36048,11 @@ def run_train_job_inner(job: dict) -> None:
                     f"training aborted (SIGABRT, code {rc}). No Metal-watchdog "
                     "signature was logged, so this is a crash rather than a "
                     "GPU timeout — please attach the Logs tail to an issue.")
-            raise RuntimeError(
-                f"training exited with code {rc} — see Logs for stack trace")
+            # The trainer's own sentence (or the crash's last traceback line),
+            # never a bare exit code: fleet 2 Nov 2026, 31 runs failed as
+            # "code 1" while the trainer had said "the dev transformer is not
+            # downloaded" every time.
+            raise RuntimeError(train_failure_message(rc, _trainer_error, _train_tail))
     finally:
         if proc is not None:
             try:
@@ -35763,7 +36071,7 @@ def run_train_job_inner(job: dict) -> None:
     elapsed = round(time.time() - t0, 2)
 
     if not final_lora_path.is_file():
-        job["train_error"] = "missing_file"
+        job["train_error"], job["train_stage"] = "missing_file", "publish"
         raise RuntimeError(
             f"training finished but output .safetensors missing at {final_lora_path}")
 
@@ -42355,6 +42663,9 @@ def worker_loop() -> None:
             # analytics section's contract; it must never be able to turn
             # a finished render into a failed one.
             _analytics_render_event(job)
+            # The one-time "star us on GitHub" card counts finished renders
+            # here for the same reason. Local only, never raises.
+            _star_prompt_after_job(job)
             # Per-install self-calibration (VC-01 / H3-03) — local only,
             # independent of analytics being on. Same never-raise contract.
             _record_eta_calibration_from_job(job)

@@ -3662,7 +3662,15 @@ async function trainStart() {
     const r = await fetch('/train/start', { method: 'POST', body: fd });
     const j = await r.json();
     if (!r.ok || !j.ok) {
-      if (status) status.textContent = 'Failed to enqueue: ' + (j.error || r.status);
+      // Fleet 2 Nov 2026: the training weights are not downloaded. The
+      // server's sentence already says what to do; bring the Download all
+      // banner back up so the fix is one click away, not another Start.
+      if (j && j.code === 'train_models') {
+        if (status) status.textContent = j.error;
+        trainCheckPreflight();
+      } else if (status) {
+        status.textContent = 'Failed to enqueue: ' + (j.error || r.status);
+      }
       if (btn) { btn.disabled = false; restoreLabel(); }
       return;
     }

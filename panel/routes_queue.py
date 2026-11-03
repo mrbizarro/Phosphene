@@ -48,6 +48,9 @@ def get_status(h, parsed) -> None:
     payload["outputs"] = _outs
     payload["outputs_total"] = _outs_total
     payload["hidden_count"] = hidden_count
+    # The one-time "star us on GitHub" card (owner, 2 Nov 2026): true only
+    # between the fifth finished render and the page putting the card up.
+    payload["star_prompt_due"] = P.star_prompt_due()
     # Storyboards — one line per board. Three jobs, all of them cheap:
     # the `S03/12` badge on a queue card needs the denominator, the tab
     # count during an overnight run needs `running`, and `To film` in
@@ -492,6 +495,12 @@ def post_queue_retry(h, path, qs, ctype) -> None:
     refusal = P.job_input_refusal(new_job["params"])
     if refusal:
         h._json({"error": refusal, "code": "input_missing"}, 400); return
+    # Fleet 2 Nov 2026: Retry on a failed training run re-queued the same run
+    # the trainer had just refused for want of its weights. Say it here.
+    if str(new_job["params"].get("mode") or "") == "train":
+        _weights = P.train_weights_refusal()
+        if _weights:
+            h._json({"error": _weights, "code": "train_models"}, 409); return
     _lic = P.job_licence_refusal(new_job["params"])
     if _lic:
         h._json(_lic, 451); return

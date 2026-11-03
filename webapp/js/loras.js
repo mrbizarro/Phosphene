@@ -320,6 +320,28 @@ function _serializeLoras() {
   if (typeof renderH3LoraSlot === 'function') { try { renderH3LoraSlot(); } catch (_) {} }
 }
 
+// The LoRAs an Image Studio render posts: the active ones the image picker
+// shows for the chosen engine (_loraRowMatchesMode), never the rest of
+// _activeLoras. That list survives every mode switch on purpose, so it can
+// hold LTX / H3 video adapters and chips hidden for another image family;
+// the Studio submit used to post all of it (4.19.16), handing mflux files it
+// could never load. FLUX 3 takes no LoRAs at all.
+function imageLorasForSubmit() {
+  const tag = _currentLoraModeFilter();
+  if (tag === 'image:flux3') return [];
+  const known = Array.isArray(_knownUserLoras) ? _knownUserLoras : [];
+  return (Array.isArray(_activeLoras) ? _activeLoras : []).filter(l => {
+    if (!l || !l.path) return false;
+    const u = known.find(x => x.path === l.path) || {};
+    return _loraRowMatchesMode({
+      path: l.path, name: l.name, filename: u.filename,
+      kind: !u.path ? 'remote' : (u.kind === 'train_character' ? 'trained' : 'user'),
+      lane: u.lane || l.lane || 'ltx',
+      compatible_modes: u.compatible_modes || l.compatible_modes || ['unknown'],
+    }, tag);
+  }).map(l => ({ path: l.path, strength: l.strength }));
+}
+
 function updateQualityChipsForLora() {
   const trained = Array.isArray(_activeLoras) && _activeLoras.some(a => {
     const meta = Array.isArray(_knownUserLoras)
@@ -572,9 +594,19 @@ async function refreshLoras() {
   }
   // If a row was previously active but the file is gone (deleted on
   // disk), drop it from the active set so we don't submit a stale path.
+  // 4.19.17 (fleet 4.19.16): the old test kept every path containing '/' -
+  // meant to spare Hugging Face ids ("org/repo"), it spared every absolute
+  // path too, so a deleted LoRA restored from a draft or Load Params stayed
+  // picked forever and every Image render failed "LoRA file not found". A
+  // filesystem path (leading / or ~) must be in the library; an id is kept.
+  // Only on a real listing: an error body without `user` must not unpick all.
   const knownPaths = new Set(_knownUserLoras.map(l => l.path));
-  _activeLoras = _activeLoras.filter(l =>
-    knownPaths.has(l.path) || l.path.includes('/'));   // keep HF ids (no dir slash)
+  if (Array.isArray(data.user)) {
+    _activeLoras = _activeLoras.filter(l => {
+      const p = String((l && l.path) || '');
+      return knownPaths.has(p) || !(p.startsWith('/') || p.startsWith('~'));
+    });
+  }
   renderLorasList();
   _serializeLoras();
   // The picker's own visibility depends on the H3 gate we just refreshed.
@@ -590,6 +622,52 @@ async function refreshLoras() {
 function _loraGenerationCompatible(row, modeTag) {
   if (modeTag === 'image:flux3') return false;
   return !(modeTag === 'video' && row && row.ltx_compatible === false);
+}
+
+// Does a picker row belong to the active (mode + engine) lane? The ONE rule,
+// shared by the picker's filter (renderLorasList) and the Image Studio submit
+// (imageLorasForSubmit), so what the picker shows and what is posted agree.
+function _loraRowMatchesMode(r, modeTag) {
+  if (!modeTag) return true;
+  // Heuristic: trained character bundles (e.g. bizarrotrn_v2.safetensors,
+  // .audio.safetensors, .voice.wav) are video-only conditioning even
+  // when their sidecar tagged them ['unknown']. Without this rule, the
+  // 'unknown' branch below would surface them in image-mode pickers —
+  // exactly the LTX-LoRA-leakage Mr Bizarro complained about:
+  // "they show the LTX LoRA's. You need to separate both galleries."
+  const _looksVideoOnly = (r) => {
+    if (r.kind === 'trained') return true;
+    const path = (r.path || r.filename || r.name || '').toLowerCase();
+    if (/_v2\.safetensors$/.test(path)) return true;       // character convention
+    if (/\.audio\.safetensors$/.test(path)) return true;   // character audio companion
+    if (/\.voice\./.test(path)) return true;               // character voice clip
+    if (/\.style\.safetensors$/.test(path)) return true;   // style LoRA convention
+    return false;
+  };
+  const tags = r.compatible_modes || ['unknown'];
+  const isImageMode = (modeTag === 'image' || modeTag.startsWith('image:'));
+  if (isImageMode) {
+    // Image modes only accept LoRAs whose sidecar declared an
+    // image:* family. The 'unknown' branch is still permissive
+    // (sidecar-less drops should still surface) but EXCLUDES
+    // anything that looks like a character/style video bundle.
+    if (tags.some(t => typeof t === 'string' && t.startsWith('image:'))) return true;
+    if (tags.includes('unknown') && !_looksVideoOnly(r)) return true;
+    return false;
+  }
+  // ---- Video lanes: LTX and Hailuo H3, by DIRECTORY -----------------
+  // 2026-08-09: the video side stopped being one family the moment H3
+  // learned to take LoRAs, and the two are not interchangeable in
+  // either direction — an LTX adapter handed to H3's loader matches
+  // zero modules (silent no-op), an H3 one handed to LTX fails inside
+  // the fuser. The 'unknown' escape hatch above is what makes this a
+  // lane check rather than a tag check: a sidecar-less .safetensors
+  // dropped into mlx_models/loras/ classifies as 'unknown' and would
+  // otherwise surface in the H3 picker, which is the exact
+  // cross-gallery leakage the image split was built to stop.
+  if (modeTag === 'video:h3') return r.lane === 'h3';
+  if (r.lane === 'h3') return false;
+  return tags.includes(modeTag) || tags.includes('unknown');
 }
 
 function renderLorasList() {
@@ -690,47 +768,7 @@ function renderLorasList() {
   let hiddenCount = 0;
   const showOtherModes = !!window._loraShowOtherModes;
   if (modeTag) {
-    // Heuristic: trained character bundles (e.g. bizarrotrn_v2.safetensors,
-    // .audio.safetensors, .voice.wav) are video-only conditioning even
-    // when their sidecar tagged them ['unknown']. Without this rule, the
-    // 'unknown' branch below would surface them in image-mode pickers —
-    // exactly the LTX-LoRA-leakage Mr Bizarro complained about:
-    // "they show the LTX LoRA's. You need to separate both galleries."
-    const _looksVideoOnly = (r) => {
-      if (r.kind === 'trained') return true;
-      const path = (r.path || r.filename || r.name || '').toLowerCase();
-      if (/_v2\.safetensors$/.test(path)) return true;       // character convention
-      if (/\.audio\.safetensors$/.test(path)) return true;   // character audio companion
-      if (/\.voice\./.test(path)) return true;               // character voice clip
-      if (/\.style\.safetensors$/.test(path)) return true;   // style LoRA convention
-      return false;
-    };
-    const _matches = (r) => {
-      const tags = r.compatible_modes || ['unknown'];
-      const isImageMode = (modeTag === 'image' || modeTag.startsWith('image:'));
-      if (isImageMode) {
-        // Image modes only accept LoRAs whose sidecar declared an
-        // image:* family. The 'unknown' branch is still permissive
-        // (sidecar-less drops should still surface) but EXCLUDES
-        // anything that looks like a character/style video bundle.
-        if (tags.some(t => typeof t === 'string' && t.startsWith('image:'))) return true;
-        if (tags.includes('unknown') && !_looksVideoOnly(r)) return true;
-        return false;
-      }
-      // ---- Video lanes: LTX and Hailuo H3, by DIRECTORY -----------------
-      // 2026-08-09: the video side stopped being one family the moment H3
-      // learned to take LoRAs, and the two are not interchangeable in
-      // either direction — an LTX adapter handed to H3's loader matches
-      // zero modules (silent no-op), an H3 one handed to LTX fails inside
-      // the fuser. The 'unknown' escape hatch above is what makes this a
-      // lane check rather than a tag check: a sidecar-less .safetensors
-      // dropped into mlx_models/loras/ classifies as 'unknown' and would
-      // otherwise surface in the H3 picker, which is the exact
-      // cross-gallery leakage the image split was built to stop.
-      if (modeTag === 'video:h3') return r.lane === 'h3';
-      if (r.lane === 'h3') return false;
-      return tags.includes(modeTag) || tags.includes('unknown');
-    };
+    const _matches = (r) => _loraRowMatchesMode(r, modeTag);
     rows = allRows.filter(r => {
       // A model-family mismatch may be revealed with "Show other modes";
       // an adapter proven unable to attach to the active LTX generation may
@@ -1496,7 +1534,7 @@ function renderCharacterStrip() {
 Object.assign(globalThis, {
   checkLoraUpdates, updateLora, writeLoraGuide,
   _currentLoraModeFilter, _syncLoraPickerForEngine, importH3Lora, renderH3LoraSlot,
-  setH3LoraSlot, _serializeLoras, enhanceLoraPaths, addLoraToActive, populateIngredientCharLoras,
+  setH3LoraSlot, _serializeLoras, imageLorasForSubmit, enhanceLoraPaths, addLoraToActive, populateIngredientCharLoras,
   onIngredientCharChange, onIngredientCharStrength, refreshLoras, _loraGenerationCompatible,
   renderLorasList, appendTriggerToPrompt, _updateCharsPickerVisibility, refreshManualCharacters,
   _renderManualCharactersList, _renderCharsAppliedNote, renderCharacterStrip,

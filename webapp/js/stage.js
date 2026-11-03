@@ -47,6 +47,12 @@ function imgStudioUpdateValidity() {
   } else if (engInfo && engInfo.fits_mac === false) {
     invalidReason = 'This engine needs a ' + engInfo.mac_gb_needed + ' GB Mac — this one has '
       + (_IMG_HOST_RAM_GB || '?') + ' GB. Auto (the 4B FLUX engine) fits here.';
+  } else if (refsCount > ((engInfo && engInfo.max_refs) || 3)) {
+    // The server's cap (image_max_refs, via /image/engine_status). Fleet
+    // 4.19.16: a job over it was queued and failed on its turn.
+    const cap = (engInfo && engInfo.max_refs) || 3;
+    invalidReason = 'This engine takes at most ' + cap + ' reference images — remove '
+      + (refsCount - cap) + ' to generate.';
   } else if (needsRefs && refsCount === 0) {
     // SYS-14: "Pick a reference image" was the whole message -- for
     // someone who came here to make a FIRST picture from words (no photo
@@ -1835,13 +1841,19 @@ async function imgStudioGenerate() {
     // imgStudioGenerate doesn't go through FormData(genForm), so we
     // attach it explicitly from _activeLoras here. Stacks on top of any
     // preset LoRA the chosen engine_override pinned (Lightning, etc.) —
-    // run_image_job_inner does the merge.
-    if (typeof _activeLoras !== 'undefined' && Array.isArray(_activeLoras) && _activeLoras.length) {
-      const slim = _activeLoras.map(l => ({ path: l.path, strength: l.strength }));
-      fd.set('loras', JSON.stringify(slim));
-    }
+    // run_image_job_inner does the merge. Only the LoRAs the image picker
+    // shows for this engine (imageLorasForSubmit) - not every chip a video
+    // mode left in _activeLoras.
+    const slim = (typeof imageLorasForSubmit === 'function') ? imageLorasForSubmit() : [];
+    if (slim.length) fd.set('loras', JSON.stringify(slim));
     const r = await fetch('/queue/add', { method: 'POST', body: fd });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    if (!r.ok) {
+      // A refusal (400 input_missing, ...) carries its reason - show it, not
+      // the status code (4.19.17).
+      let why = `HTTP ${r.status}`;
+      try { const j = await r.json(); if (j && j.error) why = j.error; } catch (_) {}
+      throw new Error(why);
+    }
     // The job is queued — if the Ideogram canvas is holding the right stage,
     // flip it to Result so the player (with its inline job-progress overlay) is
     // visible the moment the render starts.

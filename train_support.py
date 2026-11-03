@@ -20,6 +20,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 import os
+import re
 import threading
 import time
 
@@ -275,6 +276,13 @@ def _train_weak_advice(verdict: str, preset: str = "", is_style: bool = False) -
     )
 
 
+def _big_enough(path: Path, min_bytes: int) -> bool:
+    try:
+        return path.exists() and path.stat().st_size >= min_bytes
+    except OSError:
+        return False
+
+
 def _train_required_models() -> list[dict]:
     """Return the list of model files Train Character needs and whether each
     is present locally. Surfaces missing models to the UI so the user can
@@ -300,7 +308,8 @@ def _train_required_models() -> list[dict]:
 
     def _file_present(local_dir: Path, repo_id: str, filename: str,
                       *, extra_dirs: list[Path] | None = None,
-                      min_bytes: int = P._MIN_FILE_BYTES) -> bool:
+                      min_bytes: int = P._MIN_FILE_BYTES,
+                      caches: bool = True) -> bool:
         """Check known locations for a model file in this order:
 
           1. The primary local_dir (where the helper expects it by default).
@@ -320,6 +329,8 @@ def _train_required_models() -> list[dict]:
         candidates: list[Path] = [local_dir / filename]
         for d in (extra_dirs or []):
             candidates.append(d / filename)
+        if not caches:      # the file must be where its loader reads it
+            return any(_big_enough(c, min_bytes) for c in candidates)
         cache_dir = P._repo_hf_cache_dir(repo_id)
         if cache_dir is not None:
             candidates.append(cache_dir / filename)
@@ -344,7 +355,7 @@ def _train_required_models() -> list[dict]:
                 continue
         return False
 
-    # Mirror of lora_lab/train.py FULL_DEV_MIN_BYTES: anything smaller is a
+    # Mirror of lora_lab.failure.FULL_DEV_MIN_BYTES: anything smaller is a
     # quantized transformer-dev, which the trainer refuses. The preflight
     # must not show green on a file the trainer will reject (#35).
     _FULL_DEV_MIN_BYTES = 15 * 1000**3
@@ -368,8 +379,12 @@ def _train_required_models() -> list[dict]:
             "filename": "vae_decoder.safetensors",
             "local_dir": str(q4_local_dir),
             "size_gb": 20.48,
+            # Local folder only: the trainer loads 2.3 from
+            # mlx_models/ltx-2.3-mlx-q4 and nowhere else (lora_lab.failure.
+            # training_weights_problem). A Hugging Face cache copy used to
+            # read "ready" here while every Start died in a second.
             "ready": _file_present(q4_local_dir, "dgrauet/ltx-2.3-mlx-q4",
-                                   "vae_decoder.safetensors"),
+                                   "vae_decoder.safetensors", caches=False),
         },
         {
             "key": "ltx_dev_transformer",
@@ -390,10 +405,15 @@ def _train_required_models() -> list[dict]:
             # Size-gated: an 11 GB quantized dev (the old preflight's Q4
             # download, still on many disks) must show NOT-ready, because
             # the trainer refuses it and the LoRA comes out dead (#35).
+            # The trainer's own two places, never a Hugging Face cache: fleet
+            # 2 Nov 2026, a Train tab that read "ready" (or a Start that was
+            # never gated) let one Mac fail 22 runs in an hour, each in under
+            # a second, on "the dev transformer is not downloaded".
             "ready": _file_present(q8_local_dir, "dgrauet/ltx-2.3-mlx-q8",
                                    "transformer-dev.safetensors",
                                    extra_dirs=[q4_local_dir],
-                                   min_bytes=_FULL_DEV_MIN_BYTES),
+                                   min_bytes=_FULL_DEV_MIN_BYTES,
+                                   caches=False),
         },
         {
             "key": "gemma_text_encoder",
@@ -575,15 +595,125 @@ def train_error_from_event(payload: dict) -> dict:
     }
 
 
-def train_error_for_exit(rc: int, trainer_error: dict | None) -> str:
+def train_error_for_exit(rc: int, trainer_error: dict | None, tail=None) -> str:
     """The class of a trainer that exited non-zero. The trainer's own word
     wins; a process killed by SIGKILL without one is macOS reclaiming memory
-    (jetsam), the one signal death that has a single cause."""
+    (jetsam), the one signal death that has a single cause. A trainer that
+    crashed before it could send its word is classed from its last traceback
+    line (an ImportError at startup is `import_error`, not `other`)."""
     if trainer_error and trainer_error.get("error_class") in P.TRAIN_ERROR_CLASSES:
         return trainer_error["error_class"]
     if rc == -9:
         return "oom"
+    exc = train_exception_from_tail(tail)
+    if exc:
+        return train_class_from_exception_name(*exc)
     return "other"
+
+
+def train_stage_word(trainer_error: dict | None) -> str:
+    """The stage the trainer stopped in, from lora_lab.failure.TRAIN_STAGES
+    only (it rides on analytics as `train_stage`); "unknown" without one."""
+    from lora_lab.failure import TRAIN_STAGES
+    st = str((trainer_error or {}).get("stage") or "unknown")
+    return st if st in TRAIN_STAGES else "unknown"
+
+
+#: Opens every "can't start" refusal for a training run. The analytics
+#: refusal table matches on it (slug `train_models`), so it must not change
+#: without that table.
+TRAIN_WEIGHTS_REFUSAL_PREFIX = "Training can't start yet: "
+
+
+def train_weights_refusal() -> str | None:
+    """Why a training run cannot start on this Mac, or None (fleet 2 Nov 2026).
+
+    The SAME question the trainer asks first (lora_lab.failure.
+    training_weights_problem), asked before a run is queued, retried or
+    spawned. Until now only the trainer asked it: the run was queued, the
+    trainer stopped in under a second, the card said "training exited with
+    code 1", and the same Start (or Retry) did it again - 22 times in an hour
+    on one Mac, 31 failed runs from 3 people in a day."""
+    from lora_lab.failure import training_weights_problem
+    problem = training_weights_problem(P.MODELS_DIR / "ltx-2.3-mlx-q4")
+    if not problem:
+        return None
+    return TRAIN_WEIGHTS_REFUSAL_PREFIX + problem[0].upper() + problem[1:]
+
+
+_TRAIN_STAGE_WORDS = {
+    "models": "before it started",
+    "caption": "while preparing the captions",
+    "config": "while reading the settings",
+    "ingest": "while reading the photos",
+    "crop": "while cropping the photos",
+    "preprocess": "while encoding the photos and captions",
+    "train": "while training",
+    "publish": "while saving the result",
+    "sidecar": "while saving the result",
+    "validate": "while checking the voice clip",
+    "verify": "while checking the result",
+}
+
+# The last exception line of a Python traceback: "SomeError: text" or
+# "pkg.mod.SomeError: text", at the start of the line.
+_EXC_LINE = re.compile(r"^((?:[A-Za-z_][\w]*\.)*[A-Za-z_]\w*(?:Error|Exception|Exit|Interrupt))(?::\s*(.*))?$")
+
+
+def train_exception_from_tail(lines) -> tuple[str, str] | None:
+    """(type name, message) of the last traceback line in the trainer's plain
+    output, or None. For a trainer that died before it could send its own
+    `error` event (an import that failed, a crash in setup)."""
+    for line in reversed(list(lines or [])):
+        m = _EXC_LINE.match(str(line).strip())
+        if m:
+            return m.group(1).rsplit(".", 1)[-1], (m.group(2) or "").strip()
+    return None
+
+
+def train_class_from_exception_name(name: str, message: str = "") -> str:
+    """lora_lab.failure's closed class from a bare exception type name and its
+    text - the same reading classify_exception makes of a live exception."""
+    from lora_lab.failure import _DISK_FRAGMENTS, _OOM_FRAGMENTS
+    text = (message or "").lower()
+    if name == "MemoryError" or any(f in text for f in _OOM_FRAGMENTS):
+        return "oom"
+    if any(f in text for f in _DISK_FRAGMENTS):
+        return "disk_full"
+    if name in ("ImportError", "ModuleNotFoundError"):
+        return "import_error"
+    if name == "FileNotFoundError":
+        return "missing_file"
+    return "other"
+
+
+def train_failure_message(rc: int, trainer_error: dict | None, tail=None) -> str:
+    """What the failed training card says (fleet 2 Nov 2026).
+
+    The trainer already says why it stopped, in a sentence written for the
+    user; the panel used to drop that and show "training exited with code 1 -
+    see Logs for stack trace", the only text the user and the fleet ever saw.
+    The message stays on this Mac like every job error: analytics sends the
+    closed class and stage (train_error, train_stage), never this text."""
+    # A message of only spaces falls through to the exit-code paths below
+    # (msg[0] on an empty string would turn the card into "string index out of range").
+    if trainer_error and str(trainer_error.get("message") or "").strip():
+        where = _TRAIN_STAGE_WORDS.get(str(trainer_error.get("stage") or ""), "")
+        msg = str(trainer_error["message"]).strip()
+        msg = msg[0].upper() + msg[1:]
+        if trainer_error.get("stage") == "models":
+            return TRAIN_WEIGHTS_REFUSAL_PREFIX + msg
+        return f"Training stopped{(' ' + where) if where else ''}: {msg}"
+    if rc == -15:
+        return ("Training was stopped from outside the app (SIGTERM): Phosphene "
+                "or the Mac was shutting down, or another program ended it. "
+                "Nothing is wrong with your photos; start it again.")
+    exc = train_exception_from_tail(tail)
+    if exc:
+        name, text = exc
+        return (f"Training stopped (code {rc}): {name}"
+                f"{(': ' + text) if text else ''}. The full trace is in Logs.")
+    return f"training exited with code {rc} — see Logs for stack trace"
 
 
 def _train_release_render_memory() -> None:

@@ -6513,6 +6513,47 @@ The last line"></textarea>
 <!-- Per-model licence screen (4.19.8). Filled by webapp/js/licences.js from
      GET /licences; opened when the server answers 451 licence_required, from
      the H3 install card, and from the H3 credit line. -->
+<!-- STAR_CARD_START: the one-time "star us on GitHub" card (owner, 2 Nov
+     2026). A sibling of the Pro lamp card ("Help us keep the lights on"): the
+     same lamp, header and palette. Not modal and never over the clip: it sits
+     in the corner beside the result after the fifth finished render, once per
+     Mac, and any answer ends it for good. Driven by starCardPoll (health.js). -->
+<aside id="starCard" class="star-card" role="dialog" aria-modal="false" aria-labelledby="starCardTitle" hidden>
+  <button type="button" class="star-card-close" aria-label="Close" title="Close" onclick="starCardAnswer('not_now')">&times;</button>
+  <section class="lights-on-header star-card-head">
+    <div class="lights-on-wash" aria-hidden="true"></div>
+  <svg class="lights-on-lamp star-card-lamp" viewBox="0 0 140 156" width="112" height="125" fill="none" aria-hidden="true">
+    <ellipse class="lamp-pool" cx="75" cy="141" rx="54" ry="8" fill="#ffd391"/>
+    <path d="M28 135h69M42 131c0-7 6-11 16-11h17c10 0 16 4 16 11" stroke="#8e8e96" stroke-width="2" stroke-linecap="round"/>
+    <path d="M63 120 36 82 66 43M70 120 43 82 72 46" stroke="#b14aff" stroke-opacity=".72" stroke-width="2" stroke-linejoin="round"/>
+    <path d="m44 87 10-3m-5 10 10-3m-5 10 10-3" stroke="#8e8e96" stroke-width="1.4" stroke-linecap="round"/>
+    <circle cx="39" cy="82" r="6" fill="#121214" stroke="#5eeaff" stroke-opacity=".75" stroke-width="2"/>
+    <circle cx="67" cy="123" r="4" fill="#121214" stroke="#8e8e96" stroke-width="2"/>
+    <path d="M91 134c20 0 6 14 26 14h9" stroke="#8e8e96" stroke-width="1.5" stroke-linecap="round"/>
+    <g class="lamp-head">
+      <path class="lamp-beam" d="m83 62-20 69 75-15-27-65Z" fill="#ffd391"/>
+      <path d="m68 43 14-7" stroke="#5eeaff" stroke-opacity=".75" stroke-width="2"/>
+      <path d="M78 28c8-5 17-3 22 5l14 20c-9 8-21 12-34 10l-3-25c-1-4-1-7 1-10Z" fill="#121214" stroke="#b4b4bb" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M81 32c5-3 10-2 13 3" stroke="#5eeaff" stroke-opacity=".7" stroke-width="1.5" stroke-linecap="round"/>
+      <path class="lamp-rim" d="M80 63c12 1 25-3 34-10" stroke="#ffd391" stroke-width="2" stroke-linecap="round"/>
+      <path class="lamp-bulb" d="M91 63c1 7 12 5 12-3" fill="#ffe5b4" stroke="#ffe5b4" stroke-width="2"/>
+      <path class="lamp-chain" d="m108 59 3 19" stroke="#b4b4bb" stroke-width="1.4" stroke-linecap="round"/>
+      <circle class="lamp-chain" cx="111" cy="81" r="2.5" fill="#b4b4bb"/>
+    </g>
+  </svg>
+    <div class="lights-on-copy">
+      <p class="lights-on-eyebrow">FREE AND OPEN SOURCE</p>
+      <h2 id="starCardTitle">Help keep<br>the lights on</h2>
+      <p class="lights-on-lead">I'm Mr Bizarro, the one person behind Phosphene. A star on GitHub costs nothing and helps the next person find it.</p>
+    </div>
+  </section>
+  <div class="star-card-actions">
+    <button type="button" class="star-card-primary" onclick="starCardAnswer('star')"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M8 1.2l2.1 4.3 4.7.7-3.4 3.3.8 4.7L8 12l-4.2 2.2.8-4.7L1.2 6.2l4.7-.7z" fill="currentColor"/></svg>Star Phosphene on GitHub</button>
+    <button type="button" class="star-card-later" onclick="starCardAnswer('not_now')">Not now</button>
+  </div>
+</aside>
+<!-- STAR_CARD_END -->
+
 <div id="licenceModal" class="models-modal" style="display:none"
      role="dialog" aria-modal="true" aria-labelledby="licenceTitle">
   <div class="models-card licence-card">

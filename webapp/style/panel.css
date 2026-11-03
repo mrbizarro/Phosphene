@@ -12978,3 +12978,67 @@ body[data-engine="h3"][data-vmode="v2a"] #h3LengthLabel { display: none !importa
 .h3-speed .h3-v13-note { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .h3-speed .h3-v13-note .h3-v13-get { padding: 2px 10px; font-size: 12px; }
 .h3-speed .h3-v13-note .h3-v13-get[hidden] { display: none !important; }
+
+/* LIGHTS_ON_CSS_START */
+/* The Pro lamp header, the same block as the 5.0 line (shared there with
+   the Mac app's bundled header, docs/PRO_LAMP.md). Here it dresses the
+   one-time "star us on GitHub" card. */
+.lights-on-header { position: relative; isolation: isolate; display: flex; align-items: center; gap: 22px; padding: 30px 26px; overflow: hidden; border: 1px solid #2a2a2f; border-radius: 12px; background: #0b0b0c; color: #f4f4f5; font-family: Archivo, -apple-system, BlinkMacSystemFont, sans-serif; box-sizing: border-box; }
+.lights-on-header * { box-sizing: border-box; }
+.lights-on-copy { position: relative; min-width: 0; z-index: 1; }
+.lights-on-eyebrow { margin: 0 0 12px; color: #b4b4bb; font-size: 13px; font-weight: 600; letter-spacing: 1.8px; line-height: 1.3; }
+.lights-on-header h2 { text-transform: none; font-variation-settings: "wdth" 86; margin: 0; color: #f4f4f5; font-size: 40px; font-weight: 760; font-stretch: 86%; letter-spacing: -.8px; line-height: 1.02; animation: lamp-title 2.8s ease-out both; }
+.lights-on-lead { max-width: 49ch; margin: 16px 0 0; color: #b4b4bb; font-size: 14px; line-height: 1.55; }
+.lights-on-lamp { position: relative; z-index: 1; width: 112px; height: 125px; flex: 0 0 112px; overflow: visible; }
+.lights-on-wash { pointer-events: none; position: absolute; inset: 0; background: radial-gradient(ellipse at 28% 55%, rgba(255,199,115,.13), transparent 69%); opacity: 1; animation: lamp-bloom 2.8s ease-out both; }
+.lamp-head { transform-origin: 70px 43px; animation: lamp-stutter 2.8s linear both; }
+.lamp-chain { animation: lamp-pull 2.8s ease-out both; }
+.lamp-bulb, .lamp-rim { animation: lamp-ignite 2.8s linear both; }
+.lamp-beam { opacity: .08; animation: lamp-beam 2.8s ease-out both; }
+.lamp-pool { opacity: .12; animation: lamp-pool 2.8s ease-out both; }
+@keyframes lamp-ignite { 0%, 15% { opacity: .12; } 19%, 24% { opacity: .85; } 29%, 40% { opacity: .12; } 45%, 51% { opacity: .65; } 56%, 62% { opacity: .25; } 72%, 100% { opacity: 1; } }
+@keyframes lamp-stutter { 0%, 12% { transform: rotate(-7deg); } 20% { transform: rotate(3deg); } 28%, 40% { transform: rotate(-2deg); } 43% { transform: rotate(-.6deg); } 46% { transform: rotate(-2deg); } 49% { transform: rotate(-.6deg); } 52% { transform: rotate(-2deg); } 75%, 100% { transform: rotate(0); } }
+@keyframes lamp-pull { 0%, 7%, 30%, 100% { transform: translateY(0); } 16% { transform: translateY(6px); } 23% { transform: translateY(-2px); } }
+@keyframes lamp-bloom { 0%, 58% { opacity: 0; } 73% { opacity: .3; } 100% { opacity: 1; } }
+@keyframes lamp-beam { 0%, 58% { opacity: 0; } 73% { opacity: .025; } 100% { opacity: .08; } }
+@keyframes lamp-pool { 0%, 58% { opacity: 0; } 100% { opacity: .12; } }
+@keyframes lamp-title { 0%, 58% { color: #f4f4f5; text-shadow: none; } 100% { color: #fff0d8; text-shadow: 0 0 32px rgba(255,199,115,.13); } }
+@media (max-width: 560px) {
+  .lights-on-header { gap: 12px; padding: 24px 18px; }
+  .lights-on-lamp { width: 76px; height: 85px; flex-basis: 76px; }
+  .lights-on-header h2 { font-size: 32px; }
+  .lights-on-lead { font-size: 13px; }
+}
+/* Native accessibilityReduceMotion is also applied before the first paint. */
+.lights-on-reduced .lights-on-header *, .lights-on-reduced .lights-on-header h2 { animation: none !important; }
+.lights-on-reduced .lights-on-header h2 { color: #fff0d8; text-shadow: 0 0 32px rgba(255,199,115,.13); }
+@media (prefers-reduced-motion: reduce) {
+  .lights-on-header *, .lights-on-header h2 { animation: none !important; }
+  .lights-on-header h2 { color: #fff0d8; text-shadow: 0 0 32px rgba(255,199,115,.13); }
+}
+/* LIGHTS_ON_CSS_END */
+
+/* STAR_CARD_CSS_START: the one-time "star us on GitHub" card (owner, 2 Nov
+   2026). The Pro lamp header at card size; nothing new in the palette. */
+.star-card { position: fixed; right: 20px; bottom: 20px; z-index: 900; width: min(400px, calc(100vw - 32px)); border: 1px solid #2a2a2f; border-radius: 14px; background: #0b0b0c; color: #f4f4f5; box-shadow: 0 24px 60px rgba(0,0,0,.55), 0 0 0 1px rgba(255,211,145,.04); overflow: hidden; animation: star-card-in .42s cubic-bezier(.2,.8,.2,1) both; }
+.star-card[hidden] { display: none; }
+.star-card .star-card-head { border: 0; border-radius: 0; background: transparent; gap: 14px; padding: 24px 22px 8px 18px; }
+.star-card .star-card-lamp { width: 76px; height: 85px; flex-basis: 76px; }
+.star-card .star-card-head h2 { font-size: 27px; letter-spacing: -.4px; }
+.star-card .lights-on-eyebrow { margin-bottom: 9px; font-size: 11px; letter-spacing: 1.6px; }
+.star-card .lights-on-lead { margin-top: 10px; font-size: 13px; line-height: 1.5; }
+.star-card-actions { display: flex; align-items: center; gap: 6px; padding: 12px 22px 18px; }
+.star-card-primary { display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 4px; padding: 11px 15px; background: #f4f4f5; color: #0b0b0c; font: inherit; font-size: 13px; font-weight: 650; white-space: nowrap; cursor: pointer; }
+.star-card-primary svg { color: #c98a2b; flex: 0 0 auto; }
+.star-card-primary:hover { background: #fff0d8; }
+.star-card-later { border: 0; background: transparent; color: #b4b4bb; font: inherit; font-size: 13px; padding: 11px 8px; cursor: pointer; }
+.star-card-later:hover { color: #f4f4f5; }
+.star-card-quiet { display: block; padding: 0 22px 18px; margin-top: -6px; color: #8e8e96; font-size: 12px; text-decoration: none; }
+.star-card-quiet:hover { color: #b4b4bb; text-decoration: underline; }
+.star-card-close { position: absolute; top: 8px; right: 10px; z-index: 2; width: 28px; height: 28px; border: 0; border-radius: 4px; background: transparent; color: #8e8e96; font-size: 20px; line-height: 1; cursor: pointer; }
+.star-card-close:hover { color: #f4f4f5; background: #19191c; }
+.star-card button:focus-visible, .star-card a:focus-visible { outline: 2px solid #ffd391; outline-offset: 2px; }
+@keyframes star-card-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .star-card { animation: none; } }
+@media (max-width: 560px) { .star-card { right: 16px; bottom: 16px; } .star-card .star-card-head h2 { font-size: 24px; } }
+/* STAR_CARD_CSS_END */

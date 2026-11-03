@@ -583,6 +583,27 @@ def post_analytics_ui(h, path, qs, ctype) -> None:
     h._json({"ok": True})
 
 
+@post("/star-prompt")
+def post_star_prompt(h, path, qs, ctype) -> None:
+    """The one-time "star us on GitHub" card (owner, 2 Nov 2026). The page
+    says `shown` when it puts the card up, then what the person chose:
+    `star`, `waitlist` or `not_now` (closing it is `not_now`). Any choice
+    ends it for good on this Mac. Opening the link is the page's job,
+    through /external/open; nothing here touches the network except the
+    anonymous count, and only when analytics is on."""
+    _rb = h._read_form_body()
+    if _rb is None:
+        return
+    body, form = _rb
+    v = form.get("action", [""])
+    action = str((v[0] if isinstance(v, list) else v) or "").strip()
+    try:
+        changed = P.star_prompt_answer(action)
+    except ValueError:
+        h._json({"ok": False, "error": "unknown action"}, 400); return
+    h._json({"ok": True, "changed": changed, "due": P.star_prompt_due()})
+
+
 @post("/version/pull")
 def post_version_pull(h, path, qs, ctype) -> None:
     # The "magic button" path — when the pill is in the behind

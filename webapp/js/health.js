@@ -1021,3 +1021,52 @@ Object.assign(globalThis, {
   // Stop's confirm-with-cost (queue.js) reuses this rather than inventing one.
   _phModalShow, _phModalClose,
 });
+
+// ---- The one-time "star us on GitHub" card (owner, 2 Nov 2026) -------------
+// After the fifth finished render the server sets `star_prompt_due` on
+// /status (see _star_prompt_after_job). The card goes up once, only while
+// the page is actually visible, and tells the server `shown` so it is never
+// put up again on this Mac. Any answer (star, waitlist, Not now, the close
+// button or Escape) ends it for good. No counters on screen; the only
+// network call is opening the link the person chose.
+const STAR_CARD_URL = 'https://github.com/mrbizarro/Phosphene';
+let _starCardUp = false;
+function _starCardPost(action) {
+  try {
+    return fetch('/star-prompt', {method: 'POST', body: new URLSearchParams({action}),
+                                  keepalive: true}).catch(() => {});
+  } catch (_) { return Promise.resolve(); }
+}
+function starCardPoll(s) {
+  if (_starCardUp || !s || !s.star_prompt_due) return;
+  if (document.hidden) return;                 // wait until someone can see it
+  const el = document.getElementById('starCard');
+  if (!el) return;
+  _starCardUp = true;
+  el.hidden = false;
+  _starCardPost('shown');
+}
+function starCardAnswer(action) {
+  const el = document.getElementById('starCard');
+  if (el) el.hidden = true;
+  if (!_starCardUp) return;
+  _starCardUp = false;
+  if (action === 'star') {
+    document.getElementById('starLink')?.classList.remove('is-calling');
+    if (typeof openExternal === 'function') openExternal(STAR_CARD_URL);
+    else window.open(STAR_CARD_URL, '_blank', 'noopener');
+  } else if (action === 'waitlist') {
+    const url = 'https://phosphene.video/pricing/';
+    if (typeof openExternal === 'function') openExternal(url);
+    else window.open(url, '_blank', 'noopener');
+  } else {
+    action = 'not_now';
+  }
+  _starCardPost(action);
+}
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !_starCardUp) return;
+  const el = document.getElementById('starCard');
+  if (el && el.contains(document.activeElement)) starCardAnswer('not_now');
+});
+Object.assign(globalThis, { starCardPoll, starCardAnswer });

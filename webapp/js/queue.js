@@ -3464,6 +3464,7 @@ async function poll() {
   try {
     s = await (await fetch(url)).json();
     notifyJobsDone(s);
+    if (typeof starCardPoll === 'function') { try { starCardPoll(s); } catch (_) {} }
     _POLL_FAILS = 0;
     _setOfflineBanner(false);
   } catch (e) {
@@ -4678,6 +4679,14 @@ async function retryJob(jobId, opts) {
     let data = {};
     try { data = await r.json(); } catch (e) { /* keep empty */ }
     if (!r.ok || !data.ok) {
+      // Fleet 2 Nov 2026: a training run whose weights are not downloaded
+      // cannot work however often it is retried. Say why and take the user
+      // to the Train tab, where Download all is.
+      if (data.code === 'train_models') {
+        alert(data.error);
+        if (typeof workflowSwitch === 'function') workflowSwitch('train');
+        return;
+      }
       alert('Retry failed: ' + (data.error || ('HTTP ' + r.status)));
       return;
     }

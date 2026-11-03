@@ -845,6 +845,184 @@ def mflux_env_fault(bin_path) -> str:
     return ""
 
 
+# ---- LoRAs: what reaches mflux, and what must stop before it ----------------
+def mflux_lora_stack(config: ImageEngineConfig, fam: str | None = None,
+                     on_log=None) -> tuple[list[str], list[float]]:
+    """The LoRA paths + scales the mflux CLI will really be handed.
+
+    One function for the command builder AND the pre-launch check, so the
+    two can never disagree about which adapters ride along.
+
+    2026-05-31 review fix (C2): the default config ships the Qwen-Edit
+    Lightning LoRA (qwen_edit is the UI default). If the engine is switched
+    to a FLUX family (e.g. via engine_override="auto") while that LoRA is
+    still in the config, mflux would load a Qwen-architecture LoRA onto a
+    FLUX transformer — a ~50s model load followed by a no-op or crash. A
+    Qwen LoRA cannot apply to a non-Qwen model, so drop cross-family LoRAs
+    (and their paired scales, kept index-aligned) up front and log it."""
+    fam = fam or _resolve_mflux_family(config)
+    paths = list(config.mflux_lora_paths or [])
+    scales = list(config.mflux_lora_scales or [])
+
+    def _log(msg: str) -> None:
+        if on_log is not None:
+            try: on_log(msg)
+            except Exception:  # noqa: BLE001
+                pass
+
+    if fam == "ideogram" and paths:
+        # Ideogram 4 CANNOT consume external LoRAs: its transformer key
+        # names share zero overlap with Qwen/FLUX LoRA keys, so mflux's
+        # loader matches 0/2304 keys yet prints "applied successfully" — a
+        # silent no-LoRA render that makes users blame Ideogram for ignoring
+        # their character. Drop ALL user LoRAs (not just Qwen ones) and log
+        # honestly. This one chokepoint covers every entry path: the picker,
+        # a selection carried over from an engine switch, and /image/agent.
+        for lp in paths:
+            _log(f"[lora] Ideogram cannot use external LoRAs — ignoring: {lp}")
+        return [], []
+    if fam != "qwen_edit" and paths:
+        kept_p: list = []
+        kept_s: list = []
+        for i, lp in enumerate(paths):
+            if "qwen" in str(lp).lower():
+                _log(f"[lora] skipping Qwen LoRA on {fam} family (incompatible): {lp}")
+                continue
+            kept_p.append(lp)
+            if i < len(scales):
+                kept_s.append(scales[i])
+        paths, scales = kept_p, kept_s
+    return paths, scales
+
+
+def _mflux_lora_resolvable(path: str) -> bool:
+    """Would mflux's own LoRA resolver find `path`? Mirrors the rule table of
+    mflux 0.18 (models/common/resolution/lora_resolution.py) minus the
+    in-process registry, which no Phosphene caller fills: a file on disk; a
+    `repo:file` / `hf:` collection; an `org/repo` id. Anything else — above
+    all an absolute path whose file has gone — is
+    `error: LoRA file not found`, raised by the CLI's argparse (exit 2)."""
+    s = str(path or "").strip()
+    if not s:
+        return False
+    try:
+        if Path(s).expanduser().exists():
+            return True
+    except (OSError, ValueError):
+        return False
+    if s.startswith(("/", "~", "./", "../")):
+        return False                    # a filesystem path, and it is not there
+    if s.startswith("hf:"):
+        rest = s[3:]
+        return (":" in rest and "/" in rest) or rest.count("/") == 2
+    if ":" in s and "/" in s:
+        return True                     # repo:filename collection
+    return s.count("/") == 1            # org/repo
+
+
+#: How wide the FLUX.2 transformers are (attention heads x 128), from mflux
+#: 0.18 model_config.py `transformer_overrides`: [klein] 4B 24 heads, [klein]
+#: 9B 32 heads; FLUX.2 [dev] 48 heads.
+FLUX2_WIDTH_NAMES = {3072: "FLUX.2 [klein] 4B", 4096: "FLUX.2 [klein] 9B",
+                     6144: "FLUX.2 [dev]"}
+
+
+def flux2_transformer_width(config: ImageEngineConfig) -> int | None:
+    """The width of the FLUX.2 transformer this config runs, or None when it
+    is not a FLUX.2 config or the variant cannot be told from its names."""
+    fam = _resolve_mflux_family(config)
+    if fam not in ("flux2", "flux2_edit"):
+        return None
+    base = (config.mflux_base_model
+            or MFLUX_FAMILY_DEFAULTS.get(fam, {}).get("base_model") or "")
+    for name in (str(config.mflux_model or ""), str(base)):
+        s = name.lower()
+        if "9b" in s:
+            return 4096
+        if "4b" in s or "klein" in s:
+            return 3072
+        if "flux.2-dev" in s or "flux2-dev" in s:
+            return 6144
+    return None
+
+
+def lora_input_width(path) -> int | None:
+    """The width a LoRA was trained on: the most common input size of its
+    down/A matrices (attention q/k/v/out and the MLP input all read the
+    model's hidden width, so it dominates any full or attention-only
+    adapter). Reads the safetensors header only. None when the file has no
+    plain lora_A/lora_down pairs (LoKr, LoHa) or no width clearly leads."""
+    import lora_compat
+    header = lora_compat.read_tensor_header(path)
+    counts: dict[int, int] = {}
+    for key, meta in header.items():
+        if not key.endswith((".lora_A.weight", ".lora_down.weight")):
+            continue
+        shape = meta.get("shape") if isinstance(meta, dict) else None
+        if isinstance(shape, list) and len(shape) == 2:
+            try:
+                w = int(shape[1])
+            except (TypeError, ValueError):
+                continue
+            counts[w] = counts.get(w, 0) + 1
+    if not counts:
+        return None
+    width, hits = max(counts.items(), key=lambda kv: kv[1])
+    return width if hits * 5 >= sum(counts.values()) * 2 else None   # >= 40 %
+
+
+def mflux_lora_problem(config: ImageEngineConfig) -> tuple[str, str] | None:
+    """Why the LoRAs on this config would make mflux fail, or None.
+
+    Returns (kind, message); kind is "missing", "damaged" or "mismatch".
+    Checked BEFORE the engine starts, because each of these failed after it
+    had (fleet 4.19.16):
+
+    - "missing": an absolute LoRA path whose file has gone (a chip restored
+      from a draft or Load Params after the LoRA was deleted or renamed).
+      mflux-generate-qwen-edit / run_mflux_with_teacache.py exited 2 with
+      "error: LoRA file not found" — 13 renders on one Mac in two days.
+    - "damaged": a download cut short (the header says more bytes follow).
+    - "mismatch": a FLUX.2 LoRA trained on a different FLUX.2 size. mflux
+      attaches it by key name without comparing shapes, then the first
+      denoise step dies with "ValueError: [matmul] Last dimension of first
+      input ..." (a [klein] 9B or [dev] adapter, 4096/6144 wide, on the
+      3072-wide [klein] 4B that Auto and Klein-Edit run).
+    """
+    if config.kind != "mflux":
+        return None
+    paths, _ = mflux_lora_stack(config)
+    want = flux2_transformer_width(config)
+    for lp in paths:
+        s = str(lp or "").strip()
+        name = Path(s).name or s
+        if not _mflux_lora_resolvable(s):
+            return ("missing",
+                    f"The LoRA {name} is no longer on disk ({s}). It was moved, "
+                    "renamed or deleted after it was picked - un-pick it in the "
+                    "LoRA list (or pick it again), then generate again.")
+        p = Path(s).expanduser()
+        if not (p.is_file() and p.suffix.lower() == ".safetensors"):
+            continue
+        try:
+            have = lora_input_width(p)
+        except Exception as exc:                               # noqa: BLE001
+            if type(exc).__name__ == "LoraCompatibilityError":
+                return ("damaged", str(exc))
+            continue
+        if want and have and have != want:
+            made_for = FLUX2_WIDTH_NAMES.get(have)
+            runs = FLUX2_WIDTH_NAMES[want]
+            made = (f"was made for {made_for}" if made_for else
+                    f"was made for a different model (its layers are {have} "
+                    f"wide, {runs}'s are {want})")
+            return ("mismatch",
+                    f"The LoRA {name} {made} and cannot load on {runs}, the "
+                    f"model this image engine runs. Un-pick it in the LoRA "
+                    f"list, or pick a LoRA made for {runs}.")
+    return None
+
+
 # ---- Backends ---------------------------------------------------------------
 def _generate_mock(prompt: str, n: int, width: int, height: int,
                    output_dir: Path, base_seed: int | None,
@@ -1202,43 +1380,16 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
     # with "Could not find LoRA file ... in downloaded files". Paths that
     # look like real files or that don't contain a colon are passed
     # through untouched.
-    # 2026-05-31 review fix (C2): the default config ships the Qwen-Edit
-    # Lightning LoRA (qwen_edit is the UI default). If the engine is switched
-    # to a FLUX family (e.g. via engine_override="auto") while that LoRA is
-    # still in the config, mflux would load a Qwen-architecture LoRA onto a
-    # FLUX transformer — a ~50s model load followed by a no-op or crash. A
-    # Qwen LoRA cannot apply to a non-Qwen model, so drop cross-family LoRAs
-    # (and their paired scales, kept index-aligned) up front and log it.
-    _lora_paths_in = list(config.mflux_lora_paths or [])
-    _lora_scales_in = list(config.mflux_lora_scales or [])
-    if fam == "ideogram" and _lora_paths_in:
-        # Ideogram 4 CANNOT consume external LoRAs: its transformer key
-        # names share zero overlap with Qwen/FLUX LoRA keys, so mflux's
-        # loader matches 0/2304 keys yet prints "applied successfully" — a
-        # silent no-LoRA render that makes users blame Ideogram for ignoring
-        # their character. Drop ALL user LoRAs (not just Qwen ones) and log
-        # honestly. This one chokepoint covers every entry path: the picker,
-        # a selection carried over from an engine switch, and /image/agent.
-        for _lp in _lora_paths_in:
-            if on_log is not None:
-                try: on_log(f"[lora] Ideogram cannot use external LoRAs — ignoring: {_lp}")
-                except Exception:  # noqa: BLE001
-                    pass
-        _lora_paths_in, _lora_scales_in = [], []
-    elif fam != "qwen_edit" and _lora_paths_in:
-        _kept_p: list = []
-        _kept_s: list = []
-        for _i, _lp in enumerate(_lora_paths_in):
-            if "qwen" in str(_lp).lower():
-                if on_log is not None:
-                    try: on_log(f"[lora] skipping Qwen LoRA on {fam} family (incompatible): {_lp}")
-                    except Exception:  # noqa: BLE001
-                        pass
-                continue
-            _kept_p.append(_lp)
-            if _i < len(_lora_scales_in):
-                _kept_s.append(_lora_scales_in[_i])
-        _lora_paths_in, _lora_scales_in = _kept_p, _kept_s
+    # Which adapters ride along (cross-family drops) is mflux_lora_stack's
+    # call, shared with the pre-launch check below so the two cannot drift.
+    _lora_paths_in, _lora_scales_in = mflux_lora_stack(config, fam, on_log)
+    # 4.19.17 (fleet 4.19.16): a LoRA that cannot load stops HERE, before the
+    # engine spends a model load on it - see mflux_lora_problem. The panel's
+    # queue worker asks the same question first and answers as a refusal; this
+    # is the backstop for every other caller (/image/generate, agents).
+    _lora_problem = mflux_lora_problem(config)
+    if _lora_problem:
+        raise ValueError(_lora_problem[1])
     if _lora_paths_in:
         resolved_paths: list[str] = []
         for lp in _lora_paths_in:

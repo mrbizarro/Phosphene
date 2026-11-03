@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import errno
 import math
+from pathlib import Path
 
 #: The closed vocabulary. docs/ANALYTICS.md, `render_failed.train_error`.
 TRAIN_ERROR_CLASSES = ("oom", "missing_file", "caption_check", "disk_full",
@@ -96,3 +97,49 @@ def is_finite_loss(value) -> bool:
         return math.isfinite(float(value))
     except (TypeError, ValueError):
         return False
+
+
+#: Minimum size of the full-precision LTX-2.3 dev transformer. Anything smaller
+#: is the Q4 repo's quantized copy, which trains a near-zero LoRA (#35).
+FULL_DEV_MIN_BYTES = 15 * 1000**3
+
+#: The stages the trainers report an `error` event from (train_character,
+#: train_audio). Closed, like TRAIN_ERROR_CLASSES: the panel forwards the
+#: stage word to analytics, never anything outside this list.
+TRAIN_STAGES = ("models", "caption", "config", "ingest", "crop", "preprocess",
+                "train", "publish", "sidecar", "validate", "verify", "unknown")
+
+
+def dev_transformer_candidates(model_dir: str | Path) -> tuple[Path, Path]:
+    """The two places the trainer loads the dev transformer from, in order.
+    The trainer reads nothing else (lora_lab.train's loader override), so a
+    check that accepts any other place (a Hugging Face cache) says "ready"
+    for a run that cannot start."""
+    model_dir = Path(model_dir)
+    return (model_dir / "transformer-dev.safetensors",
+            model_dir.parent / "ltx-2.3-mlx-q8" / "transformer-dev.safetensors")
+
+
+def training_weights_problem(model_dir: str | Path) -> str | None:
+    """What is missing for a training run, in one sentence, or None (4.19.1).
+
+    Checked before the crop and the caption encode. Without it a missing
+    LTX-2.3 base pack died ~10 s in inside the preprocessor's Hugging Face
+    lookup ("Repo id must be in the form 'repo_name'..."), and a missing
+    full-precision dev transformer died only after minutes of caption and
+    image encoding - both as a bare "exited with code 1". The Train tab shows
+    a download banner for these, but Start was never blocked by it.
+    Same locations and size floor as lora_lab.train's loader override; the
+    panel asks this before it queues a run (train_support.train_weights_refusal)."""
+    model_dir = Path(model_dir)
+    if not model_dir.is_dir():
+        return (f"the LTX-2.3 base pack is not downloaded (no {model_dir.name}/ in the models "
+                "folder). Open the Train tab and click Download all, then start again.")
+    for cand in dev_transformer_candidates(model_dir):
+        try:
+            if cand.is_file() and cand.stat().st_size >= FULL_DEV_MIN_BYTES:
+                return None
+        except OSError:
+            continue
+    return ("the full-precision LTX-2.3 dev transformer (~21 GB) is not downloaded, or "
+            "only partly. Open the Train tab and click Download all, then start again.")

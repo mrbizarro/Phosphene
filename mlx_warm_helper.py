@@ -1378,9 +1378,61 @@ def _install_split_prompt_encode_patch() -> None:
             self._text_encoder.load(self.gemma_model_id)
             _blocks.aggressive_cleanup()
 
+    def _read_connector_now(fx):
+        """4.19.17 - read the connector's weights into memory BEFORE the GPU
+        needs them (the fleet's #1 failure, the GPU watchdog in prompt
+        encoding).
+
+        Symptom: SIGABRT, kIOGPUCommandBufferCallbackErrorTimeout /
+        ImpactingInteractivity, always in phase "encode" (196 of 203 known
+        phases in 30 days; 37 of 37 on 4.19.15/16), at any size down to
+        128x128 x41, already on one-op command buffers, and a 256-token
+        Gemma encode dies the same way (#44).
+
+        Cause: the engine loads the Gemma tower and the DiT eagerly, but the
+        connector (6.3 GB BF16 on LTX-2.5) only LAZILY - load_weights builds
+        Load nodes and nothing reads the file. MLX runs Load on the CPU
+        stream only, so the first GPU op of the feature extractor (the
+        video_aggregate_embed projection, ONE 1,541 MB tensor; then 771 MB
+        for audio) sits in a committed Metal command buffer waiting on an
+        event until the CPU has read that tensor from disk. A command buffer
+        that waits that long is what macOS's watchdog kills: a slow or busy
+        disk (external drive, cold cache, a 16 GB Mac re-reading the file
+        under memory pressure) turns a 0.5 s read into 6+ s. No other lazy
+        weight comes close (largest: VAE decoder 226 MB, upscaler 76 MB,
+        VAE encoder 57 MB), which is why only this phase dies.
+
+        Fix: evaluate the connector's parameters right after load_weights.
+        Those are Load nodes only, so the reads run on the CPU stream with
+        no GPU work queued behind them - there is nothing for the watchdog
+        to time. Same bytes, same values (bit-identical embeddings), same
+        peak (the encode needed them resident anyway); only the moment of
+        the read moves."""
+        if fx is None or getattr(fx, "_phos_weights_resident", False):
+            return
+        params = getattr(fx, "parameters", None)
+        if not callable(params):
+            return
+        import sys as _sys
+        import time as _time
+        import mlx.core as _mx
+        from mlx.utils import tree_flatten as _flatten
+        arrays = [v for _k, v in _flatten(params()) if isinstance(v, _mx.array)]
+        t0 = _time.monotonic()
+        getattr(_mx, "eval")(arrays)            # MLX graph evaluation, not Python eval
+        dt = _time.monotonic() - t0
+        fx._phos_weights_resident = True
+        mb = sum(int(a.nbytes) for a in arrays) / 1e6
+        # Never a phase or crash word here: the panel reads every raw line.
+        print(f"[text-connector] {mb:.0f} MB of connector weights read in "
+              f"{dt:.1f} s ({mb / max(dt, 1e-3):.0f} MB/s) before the prompt "
+              f"is encoded", file=_sys.stderr, flush=True)
+
     def load(self):
         if not split_prompt_encode_wanted():
-            return _orig_load(self)
+            _orig_load(self)
+            _read_connector_now(getattr(self, "_feature_extractor", None))
+            return None
         # Text model only: the connector loads after it is gone (encode).
         # Callers that read the tokenizer (Prompt Relay) still find it here.
         _load_text_model(self)
@@ -1402,6 +1454,7 @@ def _install_split_prompt_encode_patch() -> None:
                                                  prefix="connector.")
         fx.connector.load_weights(list(weights.items()))
         del weights
+        _read_connector_now(fx)                  # read now, not inside fx()
         _blocks.aggressive_cleanup()
         self._feature_extractor = fx
         video, audio = fx(hidden, attention_mask=mask)

@@ -187,6 +187,14 @@ def post_train_start(h, path, qs, ctype) -> None:
         h._json({"error": f"Training needs at least {P.TRAIN_MIN_RAM_GB} GB of memory; this Mac has "
                           f"{float(P.SYSTEM_RAM_GB):.0f} GB. On this machine the trainer runs out of memory "
                           f"before it finishes."}, 409); return
+    # Fleet 2 Nov 2026: Start was never gated on the training weights, so a
+    # Mac without them queued run after run that the trainer stopped in under
+    # a second (22 in an hour on one Mac). Same check the trainer makes first;
+    # the code tells the Train tab to show its Download all banner.
+    _weights = P.train_weights_refusal()
+    if _weights:
+        P._analytics_feature("train_refused", "models")
+        h._json({"error": _weights, "code": "train_models"}, 409); return
     P._analytics_feature("train_start")
     try:
         train_job_id = P._safe_job_id(train_job_id)

@@ -366,8 +366,12 @@ def get_image_engine_status(h, parsed) -> None:
             except Exception:                              # noqa: BLE001
                 _need = 8.0
             _fits, _mac_gb = P._image_engine_fit(_need)
+            # The one download-size table (IMAGE_REPO_DOWNLOAD) wins over the
+            # row's literal: Reference Edit read "24 GB" for a 57.7 GB fetch.
+            dl_gb = P.image_repo_download_gb(repo, dl_gb)
             out.append({
                 "engine": engine,
+                "max_refs": P.image_max_refs(engine),
                 "repo_id": repo or "",
                 "cached": cached,
                 "ram_need_gb": round(float(_need), 1),
@@ -388,7 +392,8 @@ def get_image_engine_status(h, parsed) -> None:
                                if (repo and engine == "ideogram4_inline") else None,
             })
         import flux3_engine
-        out.extend(flux3_engine.status(key, float(P.SYSTEM_RAM_GB or 0))
+        out.extend({**flux3_engine.status(key, float(P.SYSTEM_RAM_GB or 0)),
+                    "max_refs": P.image_max_refs(key)}
                    for key in flux3_engine.PRESETS)
         h._json({"engines": out,
                  "host_ram_gb": int(round(float(P.SYSTEM_RAM_GB or 0)))})
@@ -783,9 +788,9 @@ def post_image_generate(h, path, qs, ctype) -> None:
     if not isinstance(refs_in, list):
         h._json({"error": "refs must be a list of paths"}, 400); return
     import flux3_engine
-    max_refs = 10 if str(payload.get("engine_override") or "").lower() in flux3_engine.PRESETS else 3
-    if len(refs_in) > max_refs:
-        h._json({"error": f"This engine supports at most {max_refs} reference images."}, 400); return
+    _too_many = P.image_refs_refusal(payload.get("engine_override"), refs_in)
+    if _too_many:
+        h._json({"error": _too_many, "code": "image_refs"}, 400); return
     refs_resolved: list[str] = []
     for r in refs_in:
         if not isinstance(r, str) or not r.strip():
