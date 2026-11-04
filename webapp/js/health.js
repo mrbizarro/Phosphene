@@ -1022,35 +1022,105 @@ Object.assign(globalThis, {
   _phModalShow, _phModalClose,
 });
 
-// ---- The one-time "star us on GitHub" card (owner, 2 Nov 2026) -------------
+// ---- The one-time "star us on GitHub" card (owner, 2 Nov 2026; v2 4 Nov) --
 // After the fifth finished render the server sets `star_prompt_due` on
-// /status (see _star_prompt_after_job). The card goes up once, only while
-// the page is actually visible, and tells the server `shown` so it is never
-// put up again on this Mac. Any answer (star, waitlist, Not now, the close
-// button or Escape) ends it for good. No counters on screen; the only
-// network call is opening the link the person chose.
+// /status (see _star_prompt_after_job). v2, learned from how T3 Code asks
+// (our own code):
+//   1. Ask the server first (/star-prompt/github): if this Mac's GitHub CLI
+//      says the account already starred us, the card is retired unseen.
+//   2. Wait until the person has been idle 30 s with the page visible and
+//      focused. Any pointer, key, wheel or typing restarts the wait, so it
+//      never lands mid-typing or mid-drag.
+//   3. One button, "Star on GitHub | <live count>" (no number when unknown).
+//      Where gh is signed in it stars in place and the card says thank you
+//      with a short burst, then closes; otherwise it opens GitHub.
+// The quiet close X and Escape record `not_now`. The card says `shown` when
+// it really goes up, so it is never put up again on this Mac.
 const STAR_CARD_URL = 'https://github.com/mrbizarro/Phosphene';
-let _starCardUp = false;
+const STAR_CARD_IDLE_MS = 30000;
+const STAR_CARD_THANKS_MS = 5000;
+const STAR_CARD_ACTIVITY = ['pointerdown', 'pointermove', 'keydown', 'wheel',
+                            'touchstart', 'input', 'compositionstart', 'focus'];
+let _starCardUp = false;       // on screen
+let _starCardArmed = false;    // due seen this session: checking or waiting
+let _starCardDone = false;     // answered; the card only closes now
+let _starCardInfo = null;      // {gh, starred, stars} from the server
 function _starCardPost(action) {
   try {
     return fetch('/star-prompt', {method: 'POST', body: new URLSearchParams({action}),
                                   keepalive: true}).catch(() => {});
   } catch (_) { return Promise.resolve(); }
 }
-function starCardPoll(s) {
-  if (_starCardUp || !s || !s.star_prompt_due) return;
-  if (document.hidden) return;                 // wait until someone can see it
+function _starCardCheck() {
+  try {
+    return fetch('/star-prompt/github', {cache: 'no-store'})
+      .then((r) => (r && r.ok ? r.json() : null)).catch(() => null);
+  } catch (_) { return Promise.resolve(null); }
+}
+function _starCardCount(n) {
+  if (typeof n !== 'number' || !isFinite(n) || n < 0) return '';
+  if (n < 1000) return String(Math.round(n));
+  const k = n / 1000;
+  return (k < 10 ? k.toFixed(1).replace(/\.0$/, '') : String(Math.round(k))) + 'k';
+}
+function _starCardSetCount(n) {
+  const c = document.getElementById('starCardCount');
+  if (!c) return;
+  const t = _starCardCount(n);
+  c.textContent = t;
+  c.hidden = !t;
+}
+// Resolves once the page has been idle STAR_CARD_IDLE_MS while visible and
+// focused. A timer that ends while the page is hidden or unfocused waits for
+// the next focus / visibility change and starts over.
+function _starCardWaitIdle() {
+  return new Promise((resolve) => {
+    let timer = null;
+    const restart = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (document.hidden || (typeof document.hasFocus === 'function' && !document.hasFocus())) return;
+        for (const t of STAR_CARD_ACTIVITY) window.removeEventListener(t, restart, true);
+        document.removeEventListener('visibilitychange', restart, true);
+        resolve();
+      }, STAR_CARD_IDLE_MS);
+    };
+    for (const t of STAR_CARD_ACTIVITY) window.addEventListener(t, restart, {capture: true, passive: true});
+    document.addEventListener('visibilitychange', restart, true);
+    restart();
+  });
+}
+function _starCardShow() {
   const el = document.getElementById('starCard');
-  if (!el) return;
+  if (!el || _starCardUp || _starCardDone) return;
+  _starCardSetCount(_starCardInfo && _starCardInfo.stars);
   _starCardUp = true;
   el.hidden = false;
   _starCardPost('shown');
 }
-function starCardAnswer(action) {
+function starCardPoll(s) {
+  if (_starCardArmed || _starCardUp || !s || !s.star_prompt_due) return;
+  if (!document.getElementById('starCard')) return;
+  _starCardArmed = true;
+  return _starCardCheck().then((info) => {
+    _starCardInfo = info || null;
+    if (info && info.starred === true) {           // they already starred
+      _starCardDone = true;
+      return _starCardPost('already');
+    }
+    return _starCardWaitIdle().then(_starCardShow);
+  });
+}
+function _starCardClose() {
   const el = document.getElementById('starCard');
-  if (el) el.hidden = true;
-  if (!_starCardUp) return;
+  if (el) { el.hidden = true; el.classList.remove('is-thanks'); }
   _starCardUp = false;
+}
+function starCardAnswer(action) {
+  if (!_starCardUp) { _starCardClose(); return; }
+  if (_starCardDone) { _starCardClose(); return; }  // the thank-you, closed early
+  _starCardDone = true;
+  _starCardClose();
   if (action === 'star') {
     document.getElementById('starLink')?.classList.remove('is-calling');
     if (typeof openExternal === 'function') openExternal(STAR_CARD_URL);
@@ -1064,9 +1134,96 @@ function starCardAnswer(action) {
   }
   _starCardPost(action);
 }
+// The one button. In place where gh is signed in, GitHub otherwise (and on
+// any failure). Only ever on the person's click.
+async function starCardStar() {
+  if (!_starCardUp || _starCardDone) return;
+  const btn = document.getElementById('starCardStar');
+  if (_starCardInfo && _starCardInfo.gh) {
+    const label = btn && btn.querySelector('.star-card-label');
+    if (btn) btn.disabled = true;
+    if (label) label.textContent = 'Starring…';
+    let r = null;
+    try {
+      r = await fetch('/star-prompt/star', {method: 'POST',
+        headers: {'Content-Type': 'application/json'}, body: '{}'})
+        .then((x) => x.json()).catch(() => null);
+    } catch (_) { r = null; }
+    if (btn) btn.disabled = false;
+    if (label) label.textContent = 'Star on GitHub';
+    if (r && r.ok) { _starCardThank(r.stars); return; }
+  }
+  starCardAnswer('star');
+}
+function _starCardThank(stars) {
+  _starCardDone = true;                           // the server recorded star_inapp
+  const el = document.getElementById('starCard');
+  if (!el) return;
+  _starCardSetCount(stars);
+  el.classList.add('is-thanks');
+  const ask = el.querySelector('.star-card-ask');
+  if (ask) ask.hidden = true;
+  const ty = document.getElementById('starCardThanks');
+  if (ty) ty.hidden = false;
+  _starCardBurst(el);
+  setTimeout(_starCardClose, STAR_CARD_THANKS_MS);
+}
+// A short burst of little stars and sparks out of the lamp's bulb (the lamp
+// lights up as the card says thank you), drawn on the card's own canvas, no
+// library. Skipped under prefers-reduced-motion.
+function _starCardBurst(card) {
+  const reduce = typeof matchMedia === 'function'
+    && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const cv = document.getElementById('starCardBurst');
+  if (reduce || !cv || !cv.getContext) return false;
+  const rect = card.getBoundingClientRect();
+  const bulb = card.querySelector && card.querySelector('.lamp-bulb');
+  const bb = bulb && bulb.getBoundingClientRect ? bulb.getBoundingClientRect() : null;
+  const b = bb && bb.width ? bb : {left: rect.left + rect.width / 2 - 1, top: rect.top + rect.height / 2 - 1, width: 2, height: 2};
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.round(rect.width * dpr); cv.height = Math.round(rect.height * dpr);
+  const ctx = cv.getContext('2d');
+  if (!ctx) return false;
+  ctx.scale(dpr, dpr);
+  const ox = b.left - rect.left + b.width / 2, oy = b.top - rect.top + b.height / 2;
+  const colors = ['#ffd391', '#ffe5b4', '#5eeaff', '#b14aff', '#f4f4f5'];
+  const parts = [];
+  for (let i = 0; i < 44; i++) {
+    const a = (Math.PI * 2 * i) / 44 + Math.random() * 0.3;
+    const v = 1.8 + Math.random() * 3.6;
+    parts.push({x: ox, y: oy, vx: Math.cos(a) * v * 1.25, vy: Math.sin(a) * v - 1.6,
+                r: 1.2 + Math.random() * 2, c: colors[i % colors.length],
+                star: i % 3 === 0, spin: Math.random() * 6});
+  }
+  const t0 = performance.now(), life = 1400;
+  const star = (x, y, r, rot) => {
+    ctx.beginPath();
+    for (let k = 0; k < 10; k++) {
+      const rr = k % 2 ? r * 0.45 : r, an = rot + (Math.PI * k) / 5;
+      ctx.lineTo(x + Math.cos(an) * rr, y + Math.sin(an) * rr);
+    }
+    ctx.closePath(); ctx.fill();
+  };
+  const frame = (now) => {
+    const t = (now - t0) / life;
+    ctx.clearRect(0, 0, rect.width, rect.height);
+    if (t >= 1) return;
+    ctx.globalAlpha = 1 - t * t;
+    for (const p of parts) {
+      p.vy += 0.16; p.vx *= 0.985; p.vy *= 0.985;
+      p.x += p.vx; p.y += p.vy;
+      ctx.fillStyle = p.c;
+      if (p.star) star(p.x, p.y, p.r * 1.9, p.spin + t * 6);
+      else { ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); }
+    }
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+  return true;
+}
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || !_starCardUp) return;
   const el = document.getElementById('starCard');
   if (el && el.contains(document.activeElement)) starCardAnswer('not_now');
 });
-Object.assign(globalThis, { starCardPoll, starCardAnswer });
+Object.assign(globalThis, { starCardPoll, starCardAnswer, starCardStar });

@@ -20067,7 +20067,12 @@ def _analytics_feature(feature: str, detail: str = "") -> None:
 # (star_prompt_done) never sees the card.
 STAR_PROMPT_THRESHOLD = 5
 STAR_PROMPT_URL = "https://github.com/mrbizarro/Phosphene"
-STAR_PROMPT_ACTIONS = ("shown", "star", "waitlist", "not_now")
+# star_inapp: starred in place through the Mac's own GitHub CLI (v2, 4 Nov).
+# already: the gh check says this GitHub account starred us; closes it with
+# no count (the owner: no analytics change except card_star_inapp).
+STAR_PROMPT_ACTIONS = ("shown", "star", "star_inapp", "waitlist", "not_now",
+                       "already")
+STAR_PROMPT_REPO = "mrbizarro/Phosphene"
 _STAR_PROMPT_LOCK = threading.Lock()
 
 
@@ -20121,12 +20126,99 @@ def star_prompt_due() -> bool:
         return False
 
 
+# The live star count on the card's button (owner, 4 Nov 2026: "Star on
+# GitHub | 294"). A real number or nothing: the page hides the count whenever
+# this returns None, so a stranger never sees a made-up figure. Two sources,
+# in order: the daily GitHub snapshot the owner's own stats dashboard already
+# keeps (state/stats-data.jsonl, no network), then one anonymous GET of the
+# public repo, the same github.com the update check already talks to and off
+# under the same PHOSPHENE_DISABLE_VERSION_CHECK. Asked only while the card is
+# up (once per Mac), cached for an hour, a failure cached for ten minutes.
+STAR_COUNT_TTL_OK = 3600.0
+STAR_COUNT_TTL_FAIL = 600.0
+STAR_COUNT_SNAPSHOT_MAX_DAYS = 3
+_STAR_COUNT_CACHE: dict = {"at": 0.0, "stars": None, "checked": False}
+_STAR_COUNT_LOCK = threading.Lock()
+
+
+def _star_count_valid(v) -> int | None:
+    """A star count is a non-negative int (bools and floats are not)."""
+    if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+        return None
+    return v
+
+
+def _star_count_from_snapshot(path: Path, today=None) -> int | None:
+    """The newest row of the stats archive, if it is recent. Rows are one
+    JSON object per UTC day, oldest first; a stale archive says nothing."""
+    import datetime as _dt
+    try:
+        if not path.is_file():
+            return None
+        with path.open("rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            fh.seek(max(0, size - 256 * 1024))
+            tail = fh.read().decode("utf-8", "replace")
+    except OSError:
+        return None
+    today = today or _dt.datetime.now(_dt.timezone.utc).date()
+    for line in reversed(tail.splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+            day = _dt.date.fromisoformat(str(row.get("date") or ""))
+        except (ValueError, TypeError, AttributeError):
+            continue
+        if (today - day).days > STAR_COUNT_SNAPSHOT_MAX_DAYS:
+            return None
+        return _star_count_valid(row.get("stars"))
+    return None
+
+
+def _star_count_from_github(timeout: float = 5.0) -> int | None:
+    """stargazers_count of the public repo, or None on any failure."""
+    import urllib.request as _urlreq
+    url = (f"https://api.github.com/repos/{_VERSION_REPO_OWNER}/"
+           f"{_VERSION_REPO_NAME}")
+    req = _urlreq.Request(url, headers={
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "phosphene-panel-version-check",
+    })
+    try:
+        with _urlreq.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read(512 * 1024).decode("utf-8", "replace"))
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    return _star_count_valid(data.get("stargazers_count"))
+
+
+def star_prompt_stars(now: float | None = None) -> int | None:
+    """The repo's star count for the card, or None when it is not known."""
+    now = time.time() if now is None else now
+    with _STAR_COUNT_LOCK:
+        c = _STAR_COUNT_CACHE
+        if c["checked"]:
+            ttl = STAR_COUNT_TTL_OK if c["stars"] is not None else STAR_COUNT_TTL_FAIL
+            if now - c["at"] < ttl:
+                return c["stars"]
+        stars = _star_count_from_snapshot(STATS_DATA_FILE)
+        if stars is None and VERSION_CHECK_ENABLED:
+            stars = _star_count_from_github()
+        c.update(at=now, stars=stars, checked=True)
+        return stars
+
+
 def _star_prompt_transition(state: str, action: str) -> str | None:
     """Pure: the new state for an action, or None when it changes nothing
     (a second answer, or `shown` once it was already shown)."""
     if action == "shown":
         return "shown" if state == "due" else None
-    if action in ("star", "waitlist", "not_now"):
+    if action in ("star", "star_inapp", "waitlist", "not_now", "already"):
         return "done" if state in ("due", "shown") else None
     return None
 
@@ -20149,9 +20241,118 @@ def star_prompt_answer(action: str) -> bool:
             delta["star_prompt_done"] = True
         _settings_set_internal(**delta)
     # The same anonymous `star_prompt` event as the banner and the header
-    # icon (via link / already), with the card's own closed values.
-    _analytics_capture("star_prompt", {"via": "card_" + action})
+    # icon (via link / already), with the card's own closed values. A card
+    # retired because GitHub says they already starred is not counted.
+    if action != "already":
+        _analytics_capture("star_prompt", {"via": "card_" + action})
     return True
+
+
+# ---- Star card v2: one click, only where the Mac is signed in to GitHub ----
+# (owner, 4 Nov 2026; the method learned from T3 Code's star prompt, our own
+# code.) If the GitHub CLI `gh` is installed and signed in to github.com, the
+# card can star in place: the person's click runs
+#   gh api -X PUT /user/starred/mrbizarro/Phosphene
+# from this server. gh keeps its own login; we never read, store or send a
+# token, and we never look at `gh auth status` output, only its exit code.
+# Nothing here runs unless the card is due or up, and the PUT only on the
+# explicit click (post_star_prompt_star, which also refuses other websites).
+# No gh, not signed in, or any failure: the page opens GitHub as before.
+_STAR_GH_TIMEOUT = 8
+_STAR_GH_CACHE: dict = {"at": 0.0, "value": None}
+
+
+def _star_gh_bin() -> str | None:
+    """`gh` on PATH, or in the two Homebrew places a hand-started or
+    Pinokio-started panel may not have on PATH."""
+    found = shutil.which("gh")
+    if found:
+        return found
+    home = os.path.expanduser("~")
+    for cand in ("/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/opt/local/bin/gh",
+                 os.path.join(home, "bin", "gh"), os.path.join(home, ".local", "bin", "gh")):
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return cand
+    return None
+
+
+def _star_gh_env() -> dict:
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV")}
+    env["GH_PROMPT_DISABLED"] = "1"
+    env["GH_NO_UPDATE_NOTIFIER"] = "1"
+    env["GH_SPINNER_DISABLED"] = "1"
+    env["NO_COLOR"] = "1"
+    env.pop("GH_HOST", None)             # always github.com
+    return env
+
+
+def _star_gh_run(args: list, capture: bool = False):
+    """Run gh with `args`; (returncode, stdout, stderr) or None when gh is
+    missing or did not answer. stdout/stderr are only read when asked."""
+    gh = _star_gh_bin()
+    if not gh:
+        return None
+    try:
+        r = subprocess.run(
+            [gh, *args], env=_star_gh_env(), stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
+            stderr=subprocess.PIPE if capture else subprocess.DEVNULL,
+            text=True, errors="replace", timeout=_STAR_GH_TIMEOUT, check=False)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    return r.returncode, (r.stdout or ""), (r.stderr or "")
+
+
+def _star_gh_signed_in() -> bool:
+    r = _star_gh_run(["auth", "status", "--hostname", "github.com"])
+    return bool(r) and r[0] == 0
+
+
+def _star_gh_starred() -> bool | None:
+    """True = this GitHub account starred us (204), False = it has not
+    (404), None = unknown."""
+    r = _star_gh_run(["api", f"/user/starred/{STAR_PROMPT_REPO}"], capture=True)
+    if not r:
+        return None
+    if r[0] == 0:
+        return True
+    return False if "404" in r[2] else None
+
+
+def star_github_check(force: bool = False) -> dict:
+    """What the card needs before it goes up: whether gh can star in place,
+    whether they already starred, and the live star count (None = unknown,
+    the button then shows no number). Cached for ten minutes."""
+    now = time.time()
+    cached = _STAR_GH_CACHE.get("value")
+    if cached is not None and not force and now - _STAR_GH_CACHE["at"] < 600:
+        return dict(cached)
+    signed_in = _star_gh_signed_in()
+    starred = _star_gh_starred() if signed_in else None
+    try:
+        stars = star_prompt_stars()
+    except Exception:
+        stars = None
+    out = {"gh": bool(signed_in), "starred": starred, "stars": stars}
+    _STAR_GH_CACHE.update(at=now, value=dict(out))
+    return out
+
+
+def star_github_star() -> bool:
+    """Star the repo in place for the GitHub account `gh` is signed in as.
+    Only ever called from the person's click on the card."""
+    if not _star_gh_signed_in():
+        return False
+    r = _star_gh_run(["api", "-X", "PUT", f"/user/starred/{STAR_PROMPT_REPO}"])
+    ok = bool(r) and r[0] == 0
+    if ok:
+        cached = _STAR_GH_CACHE.get("value") or {}
+        stars = cached.get("stars")
+        _STAR_GH_CACHE.update(at=time.time(), value={
+            "gh": True, "starred": True,
+            "stars": (stars + 1) if isinstance(stars, int) and not cached.get("starred") else stars})
+    return ok
 
 
 
@@ -33029,6 +33230,44 @@ def a2v_mux_original_audio(video: Path, audio_src: str, *,
     os.replace(str(tmp), str(video))
 
 
+LIPSYNC_ALIGN_ENV = "PHOSPHENE_LIPSYNC_ALIGN"   # "0" = deliver lip-sync clips as rendered
+
+
+def a2v_align_lipsync(video: Path, audio, start: float, *, crf="18",
+                      pix_fmt="yuv420p") -> dict:
+    """Hold a lip-sync clip's picture back by the lead its mouth has on the voice.
+
+    Both engines' lip-sync renders move the mouth 0-6 frames BEFORE the voice
+    they were conditioned on (measured 4 Nov 2026; typical 2, different on
+    every clip, the same habit their own talking clips have, so it is the
+    models' and not a rounding in the conditioning path - see lipsync_align).
+    Each clip is measured against the voice it followed (`audio` from `start`,
+    the vocal stem when one was used) and, when the measurement is clear, its
+    first frame is held for that many frames and as many are cut from the end:
+    the sound, the length and the clip's place on the song's clock do not
+    move. Never raises; returns the sidecar's `lipsync_align` record.
+    """
+    rec = {"shift_frames": 0}
+    if os.environ.get(LIPSYNC_ALIGN_ENV, "1").strip() == "0":
+        rec["reason"] = f"off ({LIPSYNC_ALIGN_ENV}=0)"
+        return rec
+    try:
+        import lipsync_align as _la                               # noqa: PLC0415
+        _la.FFPROBE = str(FFPROBE) if FFPROBE else None
+        m = _la.measure(str(FFMPEG), video, audio, audio_start=float(start or 0.0))
+        shift, why = _la.plan_shift(
+            None if m is None else (m["lag"], m["sub"], m["peak"], m["at0"]))
+        rec.update(reason=why, measured=m)
+        if shift and _la.hold_picture(str(FFMPEG), video, shift, m["frames"],
+                                      crf=str(crf), pix_fmt=str(pix_fmt)):
+            rec["shift_frames"] = shift
+        elif shift:
+            rec["reason"] = why + " - the re-encode failed, delivered as rendered"
+    except Exception as exc:                                     # noqa: BLE001
+        rec["reason"] = f"skipped ({exc})"
+    return rec
+
+
 def a2v_audio_scale(raw, *, q8: bool) -> float:
     """The audio-guidance value for this lane: `raw` when it names one, else
     the lane's engine default.
@@ -35382,6 +35621,12 @@ def run_image_job_inner(job: dict) -> None:
         # (_resolve_model_path / snapshot_download / PathResolution) survive in
         # the tail and only appear when the weights can't be fetched (gate /
         # token / network), all of which the setup message addresses.
+        # 4.19.18: an engine failure that already names its unfinished
+        # download (image_engine._download_stopped_note: the model, how far it
+        # got, the engine's own last line) passes through; the generic text
+        # below hid it, and its traceback words matched every time.
+        if _m.startswith("The model download for"):
+            raise
         if engine_override == "ideogram4_inline" and any(
             k in _m for k in ("GatedRepo", "Access denied", "requires approval",
                               "awaiting", "403", "401", "Forbidden", "gated",
@@ -37160,6 +37405,7 @@ def h3_media_plan(job: dict, p: dict, mode: str, tier: dict, width: int,
             out["notes"].append(note)
         out["argv"] += ["--audio-drive", str(drive),
                         "--audio-drive-offset", f"{start_t:.3f}"]
+        out["drive_audio"], out["drive_start"] = str(drive), start_t
         if str(drive) != audio:
             out["argv"] += ["--audio-mux", audio]
         image = str(p.get("image") or "").strip()
@@ -38487,6 +38733,15 @@ def run_h3_job_inner(job: dict) -> None:
     if mode == "extend":
         _h3_drop_runner_wavs(out_path, t0)
 
+    h3_lipsync_align = None
+    if mode == "a2v":
+        h3_lipsync_align = a2v_align_lipsync(
+            out_path, plan.get("drive_audio"), plan.get("drive_start") or 0.0,
+            crf=native_codec["crf"], pix_fmt=native_codec["pix_fmt"])
+        push(f"[h3] lip-sync timing: {h3_lipsync_align.get('reason')}"
+             + (f" - picture held back {h3_lipsync_align['shift_frames']} frame(s)"
+                if h3_lipsync_align.get("shift_frames") else ""))
+
     if mode == "v2a":
         # The delivery is the source's own stream: record ITS size, not the
         # canvas the picture was read at for conditioning.
@@ -38578,6 +38833,9 @@ def run_h3_job_inner(job: dict) -> None:
             "extend_audio_master": h3_splice_report.get("audio_master"),
             "extend_source": plan.get("extend_source")}
            if h3_splice_report else {}),
+        # Lip-sync: how far the mouth led the voice and how many frames the
+        # picture was held back for it (a2v_align_lipsync).
+        **({"lipsync_align": h3_lipsync_align} if h3_lipsync_align else {}),
         "params": {
             **p,
             "engine": "h3",
@@ -41329,6 +41587,16 @@ def run_job_inner(job: dict) -> None:
             except Exception as exc:                             # noqa: BLE001
                 push(f"[a2v] could not mux the original song back ({exc}) — "
                      f"this clip plays the vocal stem")
+        # The mouth leads the voice by a few frames on this engine too: hold
+        # the picture back by the measured lead, against the voice the model
+        # followed (the stem when one was used), before the verdict below.
+        ltx_lipsync_align = a2v_align_lipsync(
+            out_path, cond_audio, a2v_params["audio_start_time"],
+            crf=output_codec_settings().get("crf", "18"),
+            pix_fmt=output_codec_settings().get("pix_fmt", "yuv420p"))
+        push(f"[a2v] lip-sync timing: {ltx_lipsync_align.get('reason')}"
+             + (f" - picture held back {ltx_lipsync_align['shift_frames']} frame(s)"
+                if ltx_lipsync_align.get("shift_frames") else ""))
         # VA-14: the lip-sync verdict. Scores the FINAL delivered file (the
         # audience's own audio — the original song when a stem was muxed
         # back, the conditioning file otherwise), not the stage-1 conditioning
@@ -41350,6 +41618,7 @@ def run_job_inner(job: dict) -> None:
         sidecar = {
             "output": str(out_path), "raw_output": str(out_path),
             "lipsync_score": a2v_lipsync_score,
+            "lipsync_align": ltx_lipsync_align,
             "params": {**p, "command": action, "audio": audio_src,
                        "audio_conditioning": cond_audio,
                        "audio_stem_used": cond_audio != audio_src,

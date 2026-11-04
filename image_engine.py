@@ -177,6 +177,76 @@ def hf_repo_partial_download(repo_id: str, env: "dict | None" = None) -> "dict |
             "repo_dir": repo_dir}
 
 
+def clear_download_litter(repo_id: str, env: "dict | None", before: float) -> int:
+    """Delete `.incomplete` blobs untouched since `before`; returns how many.
+
+    Call ONLY after an engine run on this repo exited 0: the model loaded, so
+    every file this revision needs is complete, and a leftover the run never
+    touched belongs to no file it wants (an older revision, a renamed file).
+    Left alone, it keeps hf_repo_partial_download() reporting the model as
+    unfinished forever (fleet: "stuck at 4.6 GB" about a 4.6 GB model). The
+    mtime guard keeps a download another process is running right now."""
+    blobs = _hf_hub_root(env) / ("models--" + str(repo_id).replace("/", "--")) / "blobs"
+    n = 0
+    try:
+        entries = list(blobs.iterdir())
+    except OSError:
+        return 0
+    for p in entries:
+        if not p.name.endswith(".incomplete"):
+            continue
+        try:
+            if p.stat().st_mtime < before:
+                p.unlink()
+                n += 1
+        except OSError:
+            pass
+    if n:
+        _REPAIR_MEMO.pop(str(repo_id), None)
+    return n
+
+
+def download_progress_step(prev_gb: float, now_gb: float) -> "tuple[bool, str | None]":
+    """One 15-second sample of a model download folder: (moved, log line).
+
+    `moved` is any change of more than 1 MB either way - a download that
+    restarts an unfinished file is alive. huggingface_hub's Xet downloader
+    (hf_xet, which every repo uploaded since 2025 uses) cannot resume: it
+    truncates the file's `.incomplete` to 0 and fetches it again, so the
+    folder SHRINKS when a retry starts. -1 means the folder does not exist."""
+    if now_gb < 0.0:
+        return False, None
+    if prev_gb < 0.0:
+        return now_gb > 0.001, None             # the folder appeared: alive, nothing to compare
+    if now_gb > prev_gb + 0.001:
+        return True, f"[download] model weights: {now_gb:.1f} GB"
+    if now_gb < prev_gb - 0.001:
+        return True, (f"[download] an unfinished file is being fetched again from "
+                      f"its start (the Hugging Face downloader cannot resume it), "
+                      f"so the model folder dropped to {now_gb:.1f} GB")
+    return False, None
+
+
+def _download_stopped_note(repo_id, env, cause: str = "") -> "str | None":
+    """The first line of an engine failure whose model download is unfinished,
+    or None. Names the model, how far it got and the engine's own last line,
+    and says the next Generate continues it (it does - the repair is never
+    refused, see repair_partial_hf_download)."""
+    if not _is_hf_repo_id(repo_id):
+        return None
+    try:
+        info = hf_repo_partial_download(str(repo_id), env)
+    except Exception:  # noqa: BLE001
+        info = None
+    if not info:
+        return None
+    why = f" The engine's last line: {cause[:220]}." if cause else ""
+    return (f"The model download for {repo_id} stopped at "
+            f"{float(info.get('on_disk_gb') or 0.0):.1f} GB before it finished "
+            f"({info.get('incomplete')} file(s) unfinished).{why} Generate again to "
+            f"continue it; if it stops again, check the network and free disk space.")
+
+
 _REPAIR_MEMO: dict = {}   # repo_id -> on_disk_gb at the last repair attempt
 
 
@@ -198,46 +268,36 @@ def repair_partial_hf_download(repo_id: str, env: "dict | None" = None) -> "dict
     if not info:
         _REPAIR_MEMO.pop(str(repo_id), None)
         return None
-    # Bounded (review 2026-09-02): if the previous attempt in this process
-    # left the download exactly where it was, wiping and re-fetching again
-    # on every render just burns time — say what's stuck instead.
+    # 4.19.18 (fleet, incident fw-20261102-1838): this used to REFUSE the
+    # render when the size had not moved since the previous repair ("The
+    # download for X is stuck at N GB - it did not grow on the last try") and
+    # it never forgot that verdict, so every later Generate in the same panel
+    # session failed in under a second without trying the download at all,
+    # while the message told the user to "Generate again to resume it". One
+    # M2 Max hit it 16 times on Ideogram 4 (16.7 -> 23.3 -> 30.1 GB): the
+    # download only moved after a panel restart cleared the memo. Two facts
+    # made the verdict wrong in the first place:
+    #   - a pass that was Stopped (or killed) before the downloader wrote a
+    #     byte is not a stalled download; cancelled jobs are not even reported;
+    #   - the Hub's Xet downloader (hf_xet, every repo uploaded since 2025)
+    #     cannot resume: it truncates an unfinished `.incomplete` to 0 and
+    #     fetches that file again, so the folder's size is not a progress
+    #     meter (measured on cocktailpeanut/ideogram-4-fp8: 58.7 MB -> 0 ->
+    #     the whole file).
+    # So a repair is never refused before it runs. The run itself says what
+    # went wrong: a network or disk error from the engine, and, when it
+    # exits with the download unfinished, `_download_stopped_note` names the
+    # download on the error's first line.
+    # Leftover `.incomplete` files that belong to no file this revision
+    # needs used to be deleted here when the previous pass had re-linked
+    # `snapshots/`. That proves only that the pass reached the Hub and
+    # finished ONE file: a Stop after the first small file, or a blocked Xet
+    # server, deleted partials the model still needed, the cache then read
+    # complete, and mflux crashed in its weight loader on every render (#73).
+    # Only a render that SUCCEEDED proves the download is whole; the litter
+    # is cleared there (clear_download_litter, called by _generate_mflux).
     on_disk = round(float(info.get("on_disk_gb") or 0.0), 2)
     import time as _time
-    prev = _REPAIR_MEMO.get(str(repo_id))
-    if prev is not None and prev[0] == on_disk:
-        # A whole download pass ran since the last repair. huggingface_hub
-        # resumes a blob it needs by APPENDING to its `.incomplete`, so a
-        # leftover older than that pass belongs to no file this revision wants
-        # (an older revision, a renamed file) — IF the pass actually reached
-        # the Hub, which is what a re-linked `snapshots/` proves. Then the
-        # download is complete and the leftovers are litter. Without that proof
-        # (offline, Hub down) nothing is deleted and the stall is reported.
-        try:
-            leftovers = [p for p in (info["repo_dir"] / "blobs").iterdir()
-                         if p.name.endswith(".incomplete")]
-        except OSError:
-            leftovers = []
-
-        def _mtime(p):
-            try:
-                return p.stat().st_mtime
-            except OSError:
-                return None
-        untouched = [p for p in leftovers if (_mtime(p) or 0.0) < prev[1]]
-        if (leftovers and len(untouched) == len(leftovers)
-                and (info["repo_dir"] / "snapshots").is_dir()):
-            for p in untouched:
-                try:
-                    p.unlink()
-                except OSError:
-                    pass
-            _REPAIR_MEMO.pop(str(repo_id), None)
-            return None
-        raise RuntimeError(
-            f"The download for {repo_id} is stuck at {on_disk:.1f} GB — it did "
-            f"not grow on the last try. Check free disk space and the network, "
-            f"then Generate again to resume it."
-        )
     _REPAIR_MEMO[str(repo_id)] = (on_disk, _time.time())
     snaps = info["repo_dir"] / "snapshots"
     if snaps.is_dir():
@@ -971,6 +1031,38 @@ def lora_input_width(path) -> int | None:
     return width if hits * 5 >= sum(counts.values()) * 2 else None   # >= 40 %
 
 
+_SHAPE_ERROR_MARKS = ("[broadcast_shapes]", "[matmul]", "[addmm]", "Shapes (")
+
+
+def _lora_shape_note(config: ImageEngineConfig, lora_paths, cause: str) -> "str | None":
+    """The first line of an engine failure that a picked LoRA caused, or None.
+
+    mflux attaches LoRAs by key name and never compares shapes, so a LoRA made
+    for another model dies mid-denoise with an MLX shape error. The pre-launch
+    check (mflux_lora_problem) reads the width of plain lora_A/lora_down
+    adapters; LoKr/LoHa and full-delta files have none and pass it. Fleet
+    4.19.16: "ValueError: [broadcast_shapes] Shapes (1,1024,18432) ..." five
+    times on one Mac, every time with a style LoRA picked on Auto (18432 is
+    [klein] 4B's feed-forward width, 3072 x 3 x 2). The card said only
+    "mflux-generate-flux2 failed (exit 1)"; it now names the LoRA."""
+    # The engine presets' own step-distillation adapters (Lightning) are made
+    # for their model and are never the user's pick: they are not blamed.
+    picked = [lp for lp in (lora_paths or [])
+              if not any(k in str(lp).lower() for k in ("lightning", "lightx2v"))]
+    if not picked or not cause or not any(m in cause for m in _SHAPE_ERROR_MARKS):
+        return None
+    names = [Path(str(lp)).name or str(lp) for lp in picked]
+    want = flux2_transformer_width(config)
+    model = FLUX2_WIDTH_NAMES.get(want) if want else None
+    model = model or str(getattr(config, "mflux_model", "") or "this model")
+    which = (f"the LoRA {names[0]}" if len(names) == 1 else
+             "one of the LoRAs you picked (" + ", ".join(names) + ")")
+    return (f"The render stopped on a layer-size mismatch, most likely because {which} "
+            f"does not fit {model} (the engine said: {cause[:160]}). Un-pick it"
+            f"{'' if len(names) == 1 else ', one at a time to find which'}, or pick a "
+            f"LoRA made for {model}.")
+
+
 def mflux_lora_problem(config: ImageEngineConfig) -> tuple[str, str] | None:
     """Why the LoRAs on this config would make mflux fail, or None.
 
@@ -1545,8 +1637,9 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
             try:
                 on_log(f"[download] {config.mflux_model} was interrupted at "
                        f"{_partial['on_disk_gb']} GB ({_partial['incomplete']} files "
-                       f"unfinished) — resuming it before this render; nothing "
-                       f"already downloaded is fetched again.")
+                       f"unfinished) — continuing it before this render. "
+                       f"Finished files are kept; an unfinished one may start "
+                       f"again from its beginning.")
             except Exception:  # noqa: BLE001
                 pass
 
@@ -1555,6 +1648,7 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
     last_lines: collections.deque[str] = collections.deque(maxlen=64)
     stderr_tail = ""
     timed_out = False
+    _spawned_at = time.time()
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -1590,8 +1684,9 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
         # read loop stamps `_alive` on each render line (render alive). It kills
         # the subprocess only on a GENUINE stall — neither disk nor stdout for
         # stall_budget — and emits a GB readout. (HiDream uses the same idea.)
-        _hf_home = env.get("HF_HOME") or os.path.expanduser("~/.cache/huggingface")
-        dl_dir = ((Path(_hf_home) / "hub"
+        # Same hub root as the repair (HF_HUB_CACHE, then HF_HOME, then the
+        # default): it used to read HF_HOME only.
+        dl_dir = ((_hf_hub_root(env)
                    / ("models--" + config.mflux_model.replace("/", "--")))
                   if getattr(config, "mflux_model", None) else None)
         def _dl_gb() -> float:
@@ -1617,13 +1712,19 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
             _last = _dl_gb()
             while not _wd_stop.wait(15.0):
                 _sz = _dl_gb()
-                if _sz > _last + 0.001:                  # >1 MB on disk → download alive
+                # Compared with the LAST SAMPLE, not the largest one seen
+                # (4.19.18): the Xet downloader restarts an unfinished file
+                # from 0, the folder shrinks by gigabytes, and a max-so-far
+                # test showed no progress (and stamped no liveness) until
+                # the file had grown back past its old size.
+                _moved, _line = download_progress_step(_last, _sz)
+                if _moved:
                     _alive[0] = time.time()
-                    if _last >= 0.0 and on_log is not None:
-                        try: on_log(f"[download] model weights: {_sz:.1f} GB")
+                    if _line and on_log is not None:
+                        try: on_log(_line)
                         except Exception:  # noqa: BLE001
                             pass
-                    _last = max(_last, _sz)
+                _last = _sz
                 if (time.time() - _alive[0] > stall_budget) or (time.time() > hard_cap):
                     _wd_killed[0] = True
                     try: os.killpg(os.getpgid(proc.pid), 15)   # SIGTERM tree → readline EOFs
@@ -1786,6 +1887,18 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
                 f"for a Python .ips crash report and attach it to your bug report.\n\n"
                 f"Tail of stdout/stderr:\n{stderr_tail[-800:]}"
             )
+        # The engine exited with its model download unfinished (4.19.18):
+        # say THAT on the first line - the line the user reads and the
+        # fleet keeps - not only whatever mflux printed last.
+        _dl_note = _download_stopped_note(getattr(config, "mflux_model", None),
+                                          env, cause)
+        if _dl_note:
+            raise RuntimeError(
+                f"{_dl_note}\n\nTail of stdout/stderr:\n{stderr_tail[-1200:]}")
+        _shape_note = _lora_shape_note(config, _lora_paths_in, cause)
+        if _shape_note:
+            raise RuntimeError(
+                f"{_shape_note}\n\nTail of stdout/stderr:\n{stderr_tail[-1200:]}")
         # Generic non-zero exit — pass through the tail so the user sees
         # whatever mflux printed last. Keep the END of the tail: a Python
         # traceback puts the exception on its last line, and the head-slice
@@ -1794,6 +1907,13 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
             f"{bin_name} failed (exit {rc}) on batch of {n} seeds{cause_note}. "
             f"Tail of stdout/stderr:\n{stderr_tail[-1200:]}"
         )
+
+    # The run loaded the model, so its download is whole: clear leftovers.
+    if _is_hf_repo_id(getattr(config, "mflux_model", None)):
+        try:
+            clear_download_litter(config.mflux_model, env, _spawned_at)
+        except Exception:  # noqa: BLE001
+            pass
 
     # Build results from whatever files actually landed. If the
     # subprocess errored partway through (e.g. one seed's generation

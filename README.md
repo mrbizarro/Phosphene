@@ -18,7 +18,7 @@ It runs **LTX-2.5** and **MiniMax H3 (Hailuo H3)** for text-to-video and image-t
 and is built on Apple's MLX: no CUDA, no cloud GPU, no API key, no credits and no watermark.
 Your prompts, pictures and videos never leave your Mac.
 
-**Current release: v4.19.17.** Made by Mr Bizarro.
+**Current release: v4.19.18.** Made by Mr Bizarro.
 
 ## Why Phosphene
 

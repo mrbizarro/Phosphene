@@ -101,4 +101,12 @@ Updating an existing install downloads and removes nothing.
 - To repair the music engine, open **Audio → Compose** and click **Repair music engine**. Hailuo H3 is not available in the Mac app yet.
 [[/mac-app]]
 
+## The thank-you card {#star}
+
+After your fifth finished render, once you have left Phosphene alone for 30 seconds, a small card in the corner asks for a star on GitHub. It never covers your clip and never comes back once you close it (the **×** or Escape).
+
+- **One-click GitHub star:** if this Mac is signed in to GitHub with the `gh` command, **Star on GitHub** stars Phosphene right there and the card says thank you. Phosphene only asks `gh` to do it when you click; it never reads or keeps your GitHub login.
+- Otherwise the button opens Phosphene's GitHub page in your browser.
+- If you already starred (from the star in the header, the update banner, or GitHub itself as `gh` sees it), you never see the card.
+
 > **Tip** Press [[sc:docs.open]] anywhere to open these docs on the shortcuts page, and use the search box on the left to find any button by the word written on it.

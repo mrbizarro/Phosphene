@@ -604,6 +604,52 @@ def post_star_prompt(h, path, qs, ctype) -> None:
     h._json({"ok": True, "changed": changed, "due": P.star_prompt_due()})
 
 
+def _star_state_open() -> bool:
+    """The card is due or up: the only time the GitHub routes do anything."""
+    try:
+        return (P.get_settings().get("star_prompt_state") or "") in ("due", "shown")
+    except Exception:
+        return False
+
+
+@get("/star-prompt/github")
+def get_star_prompt_github(h, parsed) -> None:
+    """Star card v2 (owner, 4 Nov 2026): before the card goes up, the page
+    asks whether this Mac's GitHub CLI can star in place, whether that
+    account already starred, and the live star count. Does nothing (no gh,
+    no network) unless the card is due or up."""
+    if not _star_state_open():
+        h._json({"ok": True, "open": False, "gh": False, "starred": None,
+                 "stars": None}); return
+    out = P.star_github_check()
+    h._json({"ok": True, "open": True, **out})
+
+
+@post("/star-prompt/star")
+def post_star_prompt_star(h, path, qs, ctype) -> None:
+    """The card's Star click, one click where gh is signed in. Runs only on
+    the person's click: the page sends JSON (another website cannot without
+    a preflight this server never answers) and same-origin fetch metadata,
+    and only while the card is due or up. On any failure the page opens
+    GitHub instead and records `star` as before."""
+    site = (h.headers.get("Sec-Fetch-Site") or "").strip().lower()
+    if site and site not in ("same-origin", "none"):
+        h._json({"ok": False, "error": "refused"}, 403); return
+    _ct = (ctype or h.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+    if _ct != "application/json":
+        h._json({"ok": False, "error": "refused"}, 415); return
+    _rb = h._read_form_body()
+    if _rb is None:
+        return
+    if not _star_state_open():
+        h._json({"ok": False, "fallback": True, "error": "card not up"}, 409); return
+    if not P.star_github_star():
+        h._json({"ok": False, "fallback": True}); return
+    P.star_prompt_answer("star_inapp")
+    h._json({"ok": True, "starred": True,
+             "stars": (P.star_github_check().get("stars"))})
+
+
 @post("/version/pull")
 def post_version_pull(h, path, qs, ctype) -> None:
     # The "magic button" path — when the pill is in the behind

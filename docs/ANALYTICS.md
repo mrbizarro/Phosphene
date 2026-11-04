@@ -524,7 +524,7 @@ ignored or dismissed.
 
 | Field | Type | Example |
 |---|---|---|
-| `via` | string | `"link"` — one of `link` (opened the repo) or `already` (said they had already starred) from the update banner and the header star; or, from the one-time card after the fifth finished render (2 Nov 2026), `card_shown`, `card_star`, `card_waitlist` (the quiet Pro waitlist link, 5.0 line only) or `card_not_now` (Not now, the close button or Escape) |
+| `via` | string | `"link"` — one of `link` (opened the repo) or `already` (said they had already starred) from the update banner and the header star; or, from the one-time card after the fifth finished render (2 Nov 2026), `card_shown`, `card_star` (opened GitHub), `card_star_inapp` (starred in place with one click, through the Mac's own signed-in GitHub CLI; 4 Nov 2026), `card_waitlist` (the quiet Pro waitlist link, 5.0 line only) or `card_not_now` (the close button or Escape). A card retired unseen because GitHub says that account already starred sends nothing |
 
 The banner's two values are coerced in their handler: anything else becomes
 `link`. The card's values come from `POST /star-prompt`, which refuses
