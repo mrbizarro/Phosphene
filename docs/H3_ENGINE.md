@@ -869,6 +869,28 @@ is hidden entirely on a pack that predates it.
 
 ---
 
+## P-H3-Image (Pruna) — the image lane on the H3 runner
+
+Pruna AI's P-H3-Image (`PrunaAI/P-H3-Image` @ 7f98acef, adapter from `PrunaAI/P-H3-Image-Comfy` @ 44a0fb73) is MiniMax-H3 FL2VA
+plus a rank-128 adapter (208 modules, scale 1.0: proven tensor by tensor against our pruned base), run as ONE latent frame
+(two throw-away audio latents) over 8 forwards, no guidance. It reuses the H3 Q8 DiT already on disk; its own parts are a
+five-tap Qwen3-VL-4B text encoder + connector and a new single-frame ViT image decoder.
+
+- Runner: `scripts/generate_image.py PROMPT -o OUT --root <models>/p-h3-image --dit <q8> --aspect A --mp 2|4|8 --seed N --metrics M`
+  (engine ref `phosphene/v4.19.19-image`, pin 4df59c7: the 4.19.15 engine plus only the image commits). Staged: text encoder out, then DiT + adapter,
+  then the decoder (tiled, 16x16 tokens).
+- Adapter layout: qkv rows permuted to our per-head layout, fc1 as published (NOT `--lora-fc1-swap`, unlike Flex). The load logs
+  `208 applied, 0 skipped`.
+- Fetch: `scripts/fetch_ph3_image.py --dir D --accepted`: pinned files (bytes + sha256), upstream LICENSE / LICENSE-APACHE / NOTICE
+  beside them, the decoder converted locally (renames + re-fused tensors, values unchanged, MODIFICATION_NOTICE in its metadata)
+  and checked against `DECODER_SHA256` 0415dda9; the 5.6 GB original is deleted after and never fetched again.
+- Studio: `image_engine.kind = "ph3image"`, engines `ph3image_draft_inline` / `ph3image_standard_inline` / `ph3image_inline`
+  (2 / 4 / 8 MP), `POST /image/ph3image/install` (H3 licence gate), `/status` block `ph3image`.
+- Measured, M4 Max 64 GB: 2 MP 75 s, 4 MP 146 s (15.4 s/step),
+  8 MP 312 s; peak 24.2 / 24.7 / 25.5 GB. Real-weight parity vs Pruna's code: text taps cos >= 0.99994, connector 1.000,
+  decoder fp32 126.8 dB.
+- Not ported: edit mode (1-8 reference images; needs the VAE encoder mapping and the vision tower), the 19 GB prompt rewriter.
+
 ## What H3 does *not* do
 
 - **Modes**: Remix and Character are LTX-pipeline-specific; the picker snaps

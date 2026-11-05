@@ -322,6 +322,8 @@ def licence_for_image_cfg(cfg) -> str | None:
     """The licence an image-engine config needs, from its mflux family/model."""
     if cfg is not None and getattr(cfg, "kind", "") == "flux3":
         return "flux3"
+    if cfg is not None and getattr(cfg, "kind", "") == "ph3image":
+        return "h3"      # a MiniMax H3 Model Derivative: the same screen as H3 itself
     if cfg is None or getattr(cfg, "kind", "") != "mflux":
         return None
     family = str(getattr(cfg, "mflux_family", "") or "").lower()

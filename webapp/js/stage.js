@@ -36,7 +36,10 @@ function imgStudioUpdateValidity() {
   // the job die deep in the helper with a buried error.
   const engInfo = (typeof _IMG_ENGINE_STATUS === 'object' && _IMG_ENGINE_STATUS)
     ? _IMG_ENGINE_STATUS[eng.value] : null;
-  if (engInfo && engInfo.family_installed === false) {
+  const ph3Why = (eng.value.startsWith('ph3image') && engInfo) ? ph3imageNotReady(engInfo) : '';
+  if (ph3Why) {
+    invalidReason = ph3Why;
+  } else if (engInfo && engInfo.family_installed === false) {
     // The install-gate is generic across mflux engines; the human-readable
     // add-on name differs per family. Ideogram 4 ships as part of mflux
     // 0.18+, so its "missing" case is really "update mflux", not a Qwen hint.
@@ -388,6 +391,12 @@ function imgStudioRenderEnginePill() {
   if (!pill || !eng) return;
   try { ideoUpdateSetupNote(); } catch (_) {}
   const v = eng.value;
+  if (!v.startsWith('ph3image')) {
+    // A P-H3-Image chip state must never leak to another engine's chip (a stale "download"
+    // flag would start an 18 GB download from someone else's chip).
+    pill.dataset.ph3 = '';
+    if (_PH3IMAGE_POLL) { clearInterval(_PH3IMAGE_POLL); _PH3IMAGE_POLL = null; }
+  }
   // 'auto' resolves to whatever the user saved in Settings — we don't try
   // to second-guess that here, just show a neutral pill.
   if (v === 'auto') {
@@ -402,6 +411,9 @@ function imgStudioRenderEnginePill() {
     pill.textContent = '…';
     pill.title = 'Checking weights…';
     return;
+  }
+  if (v.startsWith('ph3image') && info.ph3image_reason) {
+    if (ph3imageRenderPill(pill, info)) return;
   }
   // Family-install gate (issue #12): the mflux family binary itself
   // needs to be installed BEFORE the user can submit. Distinct from
@@ -555,8 +567,76 @@ function imgStudioMarkRecentInUse() {
 // pre-emptive `hf download` here: the queue worker already triggers one
 // on first render, and a separate code path would risk drift between the
 // prefetch + render configs.)
+// ---- P-H3-Image (Pruna, on MiniMax H3): its own one-time download -------------
+// The weights are fetched from Pruna's repository at pinned revisions by the H3 engine
+// (POST /image/ph3image/install, licence-gated: the fetch wrapper shows the MiniMax H3
+// licence on a 451). The chip says what is missing in plain words and starts the download.
+function ph3imageNotReady(info) {
+  const r = info.ph3image_reason;
+  if (info.installing) return 'P-H3-Image is downloading (about 18 GB, once). Generate unlocks when it is done.';
+  if (r === 'h3_missing') return 'P-H3-Image runs on the Hailuo H3 video pack. Install Hailuo H3 first, then come back.';
+  if (r === 'engine_too_old') return distText('P-H3-Image needs the newer Hailuo H3 runner: click "Update Hailuo H3 runner" in Pinokio\'s Phosphene sidebar (your weights stay).',
+                                              'P-H3-Image needs a newer Hailuo H3 runner than this Mac app has.');
+  if (r === 'not_downloaded') return 'P-H3-Image needs its one-time download (about 18 GB from Pruna). Click the download chip next to Engine.';
+  return '';
+}
+
+let _PH3IMAGE_POLL = null;
+function ph3imageRenderPill(pill, info) {
+  const warn = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-bold"/></svg>';
+  const dl = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-download-simple"/></svg>';
+  const r = info.ph3image_reason;
+  pill.dataset.ph3 = '';
+  if (info.installing) {
+    pill.dataset.state = 'missing';
+    pill.dataset.ph3 = 'downloading';
+    pill.innerHTML = dl + 'downloading…';
+    pill.title = (info.install_step ? 'Now: ' + info.install_step + '\n' : '') + (info.credit || '');
+    if (!_PH3IMAGE_POLL) _PH3IMAGE_POLL = setInterval(() => { imgStudioRefreshEngineStatus(); }, 5000);
+    return true;
+  }
+  if (_PH3IMAGE_POLL) { clearInterval(_PH3IMAGE_POLL); _PH3IMAGE_POLL = null; }
+  if (r === 'h3_missing' || r === 'engine_too_old') {
+    pill.dataset.state = 'missing-engine';
+    pill.innerHTML = warn + (r === 'h3_missing' ? 'needs Hailuo H3' : 'update the H3 runner');
+    pill.title = ph3imageNotReady(info);
+    return true;
+  }
+  if (r === 'not_downloaded') {
+    pill.dataset.state = 'missing';
+    pill.dataset.ph3 = 'download';
+    pill.innerHTML = dl + (info.install_error ? 'download failed: try again' : 'download ~' + Math.round(info.download_gb || 18) + ' GB');
+    pill.title = (info.install_error ? 'Last try: ' + info.install_error + '\n' : '')
+      + 'Click to download P-H3-Image once from Pruna (pinned and checked, never re-hosted).\n' + (info.credit || '');
+    return true;
+  }
+  return false;   // ready: the generic "ready" chip below
+}
+
+async function ph3imageInstall() {
+  const s = document.getElementById('imgStudioStatus');
+  try {
+    const r = await fetch('/image/ph3image/install', { method: 'POST' });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.ok === false) {
+      if (s) s.textContent = (j && (j.error || j.message)) || ('Download did not start (HTTP ' + r.status + ').');
+    } else if (s) {
+      s.textContent = j.already_installed ? 'P-H3-Image is already downloaded.' : 'Downloading P-H3-Image from Pruna (about 18 GB, once)…';
+    }
+  } catch (e) {
+    if (s) s.textContent = 'Download did not start: ' + e.message;
+  }
+  imgStudioRefreshEngineStatus();
+}
+
 function imgStudioOnPillClick() {
   const pill = document.getElementById('imgStudioEnginePill');
+  if (pill && pill.dataset.ph3 === 'download') { ph3imageInstall(); return; }
+  if (pill && pill.dataset.ph3 === 'downloading') {
+    const st = document.getElementById('imgStudioStatus');
+    if (st) st.textContent = 'P-H3-Image is still downloading (about 18 GB, once). Generate unlocks when it is done.';
+    return;
+  }
   if (!pill || pill.dataset.state !== 'missing') return;
   const btn = document.getElementById('imgStudioGenBtn');
   if (!btn) return;

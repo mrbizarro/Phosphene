@@ -505,6 +505,15 @@ class ImageEngineConfig:
     hidream_fb_threshold: float = 0.15
     hidream_fb_keep_last: int = 8
 
+    # P-H3-Image (Pruna, on MiniMax H3), run by the H3 engine's own runner as a subprocess.
+    # The panel fills the paths (it owns the H3 install); `ph3image_mp` is the quality tier:
+    # 2 / 4 / 8 megapixels (the model is trained for 8).
+    ph3image_python_path: str = ""
+    ph3image_script_path: str = ""
+    ph3image_root: str = ""          # folder made by fetch_ph3_image.py
+    ph3image_dit: str = ""           # MiniMax-H3 FL2VA transformer (our Q8 pack)
+    ph3image_mp: float = 8.0
+
     def to_public_dict(self) -> dict:
         d = asdict(self)
         if d.get("bfl_api_key"):
@@ -602,6 +611,8 @@ def generate(*, prompt: str, n: int, output_dir: Path,
         return _generate_bfl(prompt, n, width, height, output_dir, base_seed, config)
     if config.kind == "hidream":
         return _generate_hidream(prompt, n, width, height, output_dir, base_seed, config, refs=refs, on_log=on_log)
+    if config.kind == "ph3image":
+        return _generate_ph3image(prompt, n, aspect, output_dir, base_seed, config, refs=refs, on_log=on_log)
     raise ValueError(f"unknown image engine kind: {config.kind!r}")
 
 
@@ -637,6 +648,11 @@ def health_check(config: ImageEngineConfig) -> tuple[bool, str]:
             return False, (f"HiDream model not found at {config.hidream_model_path or HIDREAM_DEFAULT_MODEL}. "
                            "Run the lab's converter or override hidream_model_path.")
         return True, f"HiDream ready: model={Path(model).name}, steps={config.hidream_steps}"
+    if config.kind == "ph3image":
+        missing = ph3image_missing(config)
+        if missing:
+            return False, "P-H3-Image is not installed: " + "; ".join(missing)
+        return True, f"P-H3-Image ready ({config.ph3image_mp:g} MP, 8 steps)"
     return False, f"unknown engine kind: {config.kind!r}"
 
 
@@ -2394,4 +2410,117 @@ def _generate_hidream(prompt: str, n: int, width: int, height: int,
             "height": aligned_h,
         })
 
+    return results
+
+
+# ---------------------------------------------------------------------------------------------
+# P-H3-Image (Pruna), on MiniMax H3. One subprocess per image: the H3 engine's generate_image.py
+# runs staged (text encoder, then the DiT with the adapter, then the decoder) so a 64 GB Mac
+# never holds all three. Text-to-image only for now; refs fall back to a warning, like the other
+# backends without multi-ref support.
+# ---------------------------------------------------------------------------------------------
+
+# Aspect keys of the Image Studio -> the seven ratios the model was trained at.
+PH3IMAGE_RATIOS = {"1:1": "1:1", "4:3": "4:3", "3:4": "3:4", "3:2": "3:2", "2:3": "2:3",
+                   "16:9": "16:9", "9:16": "9:16"}
+PH3IMAGE_ADAPTER = "loras/p-h3-image_lora_bf16.safetensors"
+# Megapixel tiers: Draft (2), Standard (4), High (8). Below 8 the author warns of more artifacts.
+PH3IMAGE_TIERS = (2.0, 4.0, 8.0)
+
+
+def ph3image_missing(config: ImageEngineConfig) -> list[str]:
+    """What is not on disk yet, in plain words ([] = ready)."""
+    out: list[str] = []
+    py, script = config.ph3image_python_path, config.ph3image_script_path
+    if not py or not Path(py).exists():
+        out.append("the H3 engine is not installed")
+    if not script or not Path(script).is_file():
+        out.append("this H3 engine build has no image runner")
+    root = Path(config.ph3image_root) if config.ph3image_root else None
+    if root is None or not (root / PH3IMAGE_ADAPTER).is_file():
+        out.append("the P-H3-Image adapter is not downloaded")
+    if root is None or not (root / "vae" / "decoder.safetensors").is_file():
+        out.append("the image decoder is not downloaded")
+    if root is None or not (root / "text_encoder").is_dir():
+        out.append("the text encoder is not downloaded")
+    if not config.ph3image_dit or not Path(config.ph3image_dit).exists():
+        out.append("the H3 video engine weights are missing")
+    return out
+
+
+def _ph3image_aspect(aspect: str) -> str:
+    return PH3IMAGE_RATIOS.get(aspect, "16:9")
+
+
+def _generate_ph3image(prompt: str, n: int, aspect: str, output_dir: Path, base_seed: int | None,
+                       config: ImageEngineConfig, refs: list[str] | None = None,
+                       on_log: "callable | None" = None) -> list[dict]:
+    import json as _json
+    import os
+    import random
+    import subprocess
+
+    missing = ph3image_missing(config)
+    if missing:
+        raise FileNotFoundError("P-H3-Image is not ready: " + "; ".join(missing))
+    if refs and on_log:
+        on_log("[p-h3-image] reference images are not used yet (text-to-image only); rendering from the prompt")
+    mp = float(config.ph3image_mp or 8.0)
+    ratio = _ph3image_aspect(aspect)
+    results: list[dict] = []
+    ts = int(time.time() * 1000)
+    for i in range(n):
+        seed = (base_seed + i) if base_seed is not None else random.randint(0, 2**31 - 1)
+        png = output_dir / f"cand_{i:02d}_ph3image_{ts}.png"
+        metrics = output_dir / f"cand_{i:02d}_ph3image_{ts}.json"
+        cmd = [config.ph3image_python_path, config.ph3image_script_path, prompt,
+               "-o", str(png), "--root", config.ph3image_root, "--dit", config.ph3image_dit,
+               "--aspect", ratio, "--mp", f"{mp:g}", "--seed", str(seed), "--metrics", str(metrics)]
+        if on_log:
+            on_log(f"[p-h3-image] image {i + 1}/{n}: {ratio} at {mp:g} MP, seed {seed}")
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                errors="replace", env=_clean_subprocess_env(), start_new_session=True)
+        _register_active_proc(proc)
+        deadline = float(os.environ.get("PHOSPHENE_PH3IMAGE_TIMEOUT_S", "3600"))
+        timed_out = {"v": False}
+
+        def _kill():
+            timed_out["v"] = True
+            try:
+                os.killpg(os.getpgid(proc.pid), 9)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+
+        wd = threading.Timer(deadline, _kill)
+        wd.daemon = True
+        wd.start()
+        try:
+            if proc.stdout is not None:
+                for line in proc.stdout:
+                    line = line.rstrip()
+                    if line and on_log:
+                        on_log(f"[p-h3-image] {line}")
+            rc = proc.wait()
+        finally:
+            wd.cancel()
+            _unregister_active_proc(proc)
+        if timed_out["v"]:
+            raise RuntimeError(f"P-H3-Image exceeded its {deadline:.0f}s deadline and was stopped")
+        if rc in (-15, 143, -9, 137):
+            raise ImageJobCancelled(f"P-H3-Image cancelled by /stop (rc={rc})")
+        if rc != 0:
+            raise RuntimeError(f"P-H3-Image failed with rc={rc}")
+        if not png.exists():
+            raise RuntimeError(f"P-H3-Image finished but no PNG at {png}")
+        info: dict = {}
+        try:
+            info = _json.loads(metrics.read_text())
+        except Exception:
+            pass
+        results.append({"png_path": str(png), "seed": seed, "engine": "p-h3-image",
+                        "width": int(info.get("width") or 0), "height": int(info.get("height") or 0),
+                        "seconds": float(info.get("total_seconds") or 0.0)})
     return results

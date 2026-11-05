@@ -1,6 +1,6 @@
 # Images
 
-The Images tab makes stills. Two kinds of engine live here: **Reference Edit**, which reworks an image you give it, and **Ideogram 4**, which puts words on a picture.
+The Images tab makes stills. Engines here: **Reference Edit**, which reworks an image you give it, **Ideogram 4**, which puts words on a picture, **FLUX 3 Klein**, and **P-H3-Image**, which makes large photographs and posters from words alone.
 
 ## Choosing the engine {#engines}
 
@@ -11,6 +11,7 @@ The Images tab makes stills. Two kinds of engine live here: **Reference Edit**, 
 | **Reference Edit — Standard** | 8 steps, about 2:05, no LoRA |
 | **Reference Edit — Quality** | 40 steps, about 3:50 — for final renders |
 | **Ideogram 4 — typography & layout** | text in the image, with an optional reference |
+| **P-H3-Image** (Draft / Standard / High) | big photographs, film frames and posters from text, words spelled right; about 2.5 min at 4 MP |
 
 The pill next to the menu says whether that engine is downloaded. An engine that needs more memory than this Mac has is greyed out and labelled *needs a N GB Mac*.
 
@@ -53,3 +54,21 @@ Q8 is the recommended quality. Q6 uses less memory; Q4 supports 24 GB Macs with 
 The model uses the FLUX Kommunity License, separate from the app's MIT licence. Read and accept it on first use. Commercial output generation is permitted for users below USD 5 million gross annualized revenue including affiliates, subject to the full terms. Review images before sharing them and make any legally required AI disclosures.
 
 Your images appear in the gallery. Choose **Animate** to send one to image-to-video. FLUX.1 and Qwen LoRAs cannot be used with this model.
+
+## P-H3-Image — large images from text, on MiniMax H3 {#p-h3-image}
+
+P-H3-Image is Pruna AI's image model, built on MiniMax H3, the same model behind Hailuo H3 video. It makes one picture from a text prompt in 8 steps, with nothing to tune. It is strongest at photographs, film frames, crowds and posters whose quoted words must be spelled exactly. Hands and very small faces in the background can still go wrong. It does not use reference images yet: anything in the slots is ignored.
+
+Pick a size in **Engine**:
+
+| Choice | Size | Time on an M4 Max, 64 GB |
+|---|---|---|
+| **P-H3-Image** (Standard) | 4 megapixels, e.g. 2368×1760 | about 2.5 min |
+| **P-H3-Image Draft** | 2 megapixels | about 1.3 min |
+| **P-H3-Image High** | 8 megapixels, e.g. 3360×2496 | about 5 min |
+
+**Aspect** sets the shape; the size comes from the choice. It needs about 26 GB of free memory, so a Mac with 48 GB or more.
+
+**First use.** It runs on the Hailuo H3 video pack, so install Hailuo H3 first. Then the chip next to **Engine** reads *download ~18 GB*: click it. Phosphene shows the MiniMax H3 licence, then downloads P-H3-Image's own parts (adapter, text encoder, image decoder) once, from Pruna's repository at a pinned version, and checks every file. It needs about 24 GB free on the disk while it prepares, and keeps about 15 GB. The chip says *ready* when it is done. If it reads *update the H3 runner*, update Hailuo H3 first (your weights stay).
+
+*P-H3-Image by Pruna AI, based on MiniMax-H3 by MiniMax, under the MiniMax H3 Community License; its text encoder is based on Qwen3-VL-4B (Apache-2.0). Powered by MiniMax H3. Fetched from Pruna's repository, never re-hosted; the only change made on your Mac is re-arranging the image decoder's tensors for the MLX runner (renamed and re-fused, values unchanged), noted inside the file. MiniMax H3 is licensed under the MiniMax H3 Community License Agreement, Copyright (c) 2026 MiniMax. All Rights Reserved.*

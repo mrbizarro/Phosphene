@@ -15345,6 +15345,268 @@ def _h3_install_flex(push_log, fetch_fn=None) -> dict:
             "credit": H3_FLEX_CREDIT}
 
 
+# ---- P-H3-Image (Pruna, on MiniMax H3) - Images lane -------------------------
+# An image model that is MiniMax-H3's FL2VA transformer plus a 2 GB adapter, run as one latent
+# frame over eight forwards. The weights are fetched from PrunaAI at pinned revisions (never
+# re-hosted) by the H3 engine's own scripts/fetch_ph3_image.py; the engine renders it as a
+# subprocess (image_engine.kind == "ph3image"). R&D L18, port folder ports/p-h3-image-pruna.
+PH3IMAGE_DIRNAME = "p-h3-image"
+PH3IMAGE_REPO = "PrunaAI/P-H3-Image"
+PH3IMAGE_REVISION = "7f98acef503cf2bcfba821a78cb1cf1a9928b2df"
+PH3IMAGE_COMFY_REPO = "PrunaAI/P-H3-Image-Comfy"
+PH3IMAGE_COMFY_REVISION = "44a0fb73f299da1bb715bdb5ff59ce3fd3c6f543"
+PH3IMAGE_ADAPTER_FILE = "loras/p-h3-image_lora_bf16.safetensors"
+PH3IMAGE_ADAPTER_BYTES = 1_956_195_360
+PH3IMAGE_ADAPTER_SHA256 = "0e9013ae2873e3415dcb7bb59a9677293bdbdb6f663e138a79bb9bdced00ea61"
+PH3IMAGE_ENCODER_LAST_SHARD = "text_encoder/model-00002-of-00002.safetensors"
+PH3IMAGE_ENCODER_LAST_BYTES = 3_884_897_208
+PH3IMAGE_DECODER_FILE = "vae/decoder.safetensors"
+PH3IMAGE_STEPS = 9            # sigma points; `--steps` counts points
+PH3IMAGE_FORWARDS = 8
+PH3IMAGE_DOWNLOAD_GB = 17.5   # adapter 2.0 + text encoder 8.9 + image decoder 5.6 (+1 for the original VAE while converting)
+# Peak disk while preparing: adapter 1.96 + text encoder 8.9 + the publisher's decoder 5.56 + our converted
+# decoder 4.5 = 20.9 GB (the 5.56 GB original is deleted right after); plus ~3 GB headroom.
+PH3IMAGE_DISK_NEED_GB = 24.0
+PH3IMAGE_LICENSE = "MiniMax H3 Community License"
+PH3IMAGE_NAME = "P-H3-Image"
+PH3IMAGE_LABEL = "P-H3-Image (Pruna, on MiniMax H3)"
+PH3IMAGE_CREDIT = ("P-H3-Image by Pruna AI, based on MiniMax-H3 by MiniMax "
+                   "(MiniMax H3 Community License; the text encoder is based on Qwen3-VL-4B, Apache-2.0). "
+                   "Powered by MiniMax H3. Fetched from Pruna's repository, never re-hosted.")
+PH3IMAGE_NOTICE = ("MiniMax H3 is licensed under the MiniMax H3 Community License Agreement, "
+                   "Copyright (c) 2026 MiniMax. All Rights Reserved.")
+PH3IMAGE_TIERS = {"draft": 2.0, "standard": 4.0, "high": 8.0}
+# Peak Metal residency the pre-flight gate prices a render at. MEASURED (port bench, 4-5 Nov 2026,
+# M4 Max 64 GB, Q8 DiT + runtime adapter): 24.2 GB at 2 MP, 24.7 at 4 MP, 25.5 at 8 MP; rounded up.
+PH3IMAGE_PEAK_GB = 26.0
+# Whole-image wall seconds per tier on that Mac (model load + text + 8 forwards + decode), from the
+# same bench (ports/p-h3-image-pruna/bench/RESULT.md). The engine table starts from these and then
+# follows the user's own renders.
+PH3IMAGE_SEC_PER_IMAGE = {"draft": 75.0, "standard": 146.0, "high": 312.0}
+_ph3image_dl_lock = threading.Lock()
+_ph3image_dl_state: dict = {}
+
+
+def _ph3image_dir() -> Path:
+    """Beside the other H3 weight components."""
+    for root in _h3_model_roots():
+        if _h3_holds_dit(root):
+            return root / PH3IMAGE_DIRNAME
+    return H3_MODELS / PH3IMAGE_DIRNAME
+
+
+def _ph3image_script() -> Path:
+    return H3_ROOT / "scripts" / "generate_image.py"
+
+
+def _ph3image_fetch_script() -> Path:
+    return H3_ROOT / "scripts" / "fetch_ph3_image.py"
+
+
+def ph3image_supported() -> bool:
+    """Whether the INSTALLED H3 engine carries the image runner (feature-detected by file, so the
+    lane stays hidden until the engine pin moves)."""
+    return _ph3image_script().is_file() and _ph3image_fetch_script().is_file() \
+        and (H3_ROOT / "minimax_h3_mlx" / "ph3_image.py").is_file()
+
+
+def ph3image_paths() -> dict:
+    """What is on disk at its exact size. No glob."""
+    root = _ph3image_dir()
+
+    def _size_ok(rel: str, size: int) -> bool:
+        try:
+            return (root / rel).is_file() and (root / rel).stat().st_size == size
+        except OSError:
+            return False
+
+    missing = []
+    if not _size_ok(PH3IMAGE_ADAPTER_FILE, PH3IMAGE_ADAPTER_BYTES):
+        missing.append("the adapter")
+    if not _size_ok(PH3IMAGE_ENCODER_LAST_SHARD, PH3IMAGE_ENCODER_LAST_BYTES):
+        missing.append("the text encoder")
+    if not (root / PH3IMAGE_DECODER_FILE).is_file():
+        missing.append("the image decoder")
+    return {"dir": root, "files_ok": not missing, "missing": missing}
+
+
+def ph3image_dit_path() -> Path | None:
+    """The H3 video engine weights the adapter is applied to: the Q8 pack where it exists."""
+    choice, q8 = h3_dit_choice()
+    if q8 is not None:
+        return q8
+    return h3_paths().get("dit")
+
+
+def ph3image_status() -> dict:
+    """/status block: can the engine run it, are the files here, what does it cost."""
+    supported = ph3image_supported()
+    paths = ph3image_paths()
+    downloaded = bool(paths["files_ok"])
+    h3_ready = not h3_paths()["missing"]
+    return {
+        "available": bool(supported and downloaded and h3_ready),
+        "supported": supported,
+        "downloaded": downloaded,
+        "h3_ready": h3_ready,
+        "reason": ("h3_missing" if not h3_ready else "engine_too_old" if not supported
+                   else "not_downloaded" if not downloaded else "ok"),
+        "steps": PH3IMAGE_STEPS, "forwards": PH3IMAGE_FORWARDS,
+        "tiers": dict(PH3IMAGE_TIERS),
+        "download_gb": PH3IMAGE_DOWNLOAD_GB, "disk_need_gb": PH3IMAGE_DISK_NEED_GB,
+        "repo": PH3IMAGE_REPO, "license": PH3IMAGE_LICENSE,
+        "name": PH3IMAGE_NAME, "label": PH3IMAGE_LABEL,
+        "credit": PH3IMAGE_CREDIT, "notice": PH3IMAGE_NOTICE,
+        "missing": list(paths["missing"]),
+        "install_available": bool(supported and h3_ready),
+        "installing": _ph3image_dl_state.get("status") in ("downloading", "building"),
+        "download": dict(_ph3image_dl_state),
+    }
+
+
+def ph3image_engine_config(tier: str = "high"):
+    """The image-engine config for a quality tier (draft 2 MP, standard 4 MP, high 8 MP)."""
+    py = _h3_python()
+    dit = ph3image_dit_path()
+    return agent_image_engine.ImageEngineConfig(
+        kind="ph3image",
+        ph3image_python_path=str(py) if py else "",
+        ph3image_script_path=str(_ph3image_script()),
+        ph3image_root=str(_ph3image_dir()),
+        ph3image_dit=str(dit) if dit else "",
+        ph3image_mp=float(PH3IMAGE_TIERS.get(str(tier).lower(), 8.0)),
+    )
+
+
+def ph3image_engine_rows() -> list[dict]:
+    """The three quality tiers as /image/engines rows (the Image Studio's engine table).
+
+    `sec_per_image` is the bench's measured time per tier (M4 Max 64 GB) until the user has two
+    renders of their own on a tier; then it is the mean of those, like every other image engine."""
+    status = ph3image_status()
+    need = PH3IMAGE_PEAK_GB
+    try:
+        fits, mac_gb = _image_engine_fit(need)
+    except Exception:                                              # noqa: BLE001
+        fits, mac_gb = True, 0
+    rows = []
+    for engine, tier in (("ph3image_draft_inline", "draft"), ("ph3image_standard_inline", "standard"),
+                         ("ph3image_inline", "high")):
+        sec, samples = PH3IMAGE_SEC_PER_IMAGE[tier], "bench-m4max-64gb"
+        observed = _IMG_ENGINE_TIMING.get(engine) or []
+        if len(observed) >= 2:
+            sec = round(sum(max(1.0, el / max(1, n)) for (n, el) in observed) / len(observed), 1)
+            samples = f"observed-{len(observed)}"
+        rows.append({
+            "engine": engine, "max_refs": 0, "repo_id": PH3IMAGE_REPO,
+            "cached": bool(status["downloaded"]), "ram_need_gb": round(float(need), 1),
+            "mac_gb_needed": int(mac_gb), "fits_mac": bool(fits), "partial": False, "partial_gb": 0,
+            "family_installed": bool(status["supported"] and status["h3_ready"]),
+            "download_gb": PH3IMAGE_DOWNLOAD_GB, "sec_per_image": sec, "cold_start_sec": 0.0,
+            "samples_source": samples, "gated": False, "megapixels": PH3IMAGE_TIERS[tier],
+            "license": PH3IMAGE_LICENSE, "label": PH3IMAGE_LABEL, "credit": PH3IMAGE_CREDIT,
+            # The Image Studio's chip reads these: why it cannot run yet, and the one-time download.
+            "ph3image_reason": status["reason"], "installing": bool(status["installing"]),
+            "install_error": (status["download"] or {}).get("error"),
+            "install_step": (status["download"] or {}).get("step"),
+        })
+    return rows
+
+
+def _ph3image_sidecar_credit() -> dict:
+    """What a P-H3-Image picture's sidecar records: the pinned model, adapter and credits."""
+    return {"model": f"{PH3IMAGE_REPO}@{PH3IMAGE_REVISION[:7]}",
+            "p_h3_image": {"repo": PH3IMAGE_REPO, "revision": PH3IMAGE_REVISION,
+                           "adapter": f"{PH3IMAGE_COMFY_REPO}@{PH3IMAGE_COMFY_REVISION[:7]}/{PH3IMAGE_ADAPTER_FILE}",
+                           "adapter_sha256": PH3IMAGE_ADAPTER_SHA256, "license": PH3IMAGE_LICENSE,
+                           "credit": PH3IMAGE_CREDIT, "notice": PH3IMAGE_NOTICE}}
+
+
+def _ph3image_available() -> bool:
+    try:
+        return bool(ph3image_status()["available"])
+    except Exception:                                              # noqa: BLE001
+        return False
+
+
+def _ph3image_fetch_bg(target_dir, push_log, runner=None) -> None:
+    """Run the engine's scripts/fetch_ph3_image.py in the H3 interpreter: pinned downloads,
+    upstream LICENSE + NOTICE beside them, decoder conversion. Resumable; it owns every digest."""
+    py = _h3_python()
+    cmd = [str(py), str(_ph3image_fetch_script()), "--dir", str(target_dir), "--accepted"]
+    try:
+        push_log(f"[image:p-h3-image] fetching {PH3IMAGE_REPO} @ {PH3IMAGE_REVISION[:7]} "
+                 f"(~{PH3IMAGE_DOWNLOAD_GB:g} GB, {PH3IMAGE_LICENSE})")
+        proc = (runner or subprocess.Popen)(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            errors="replace", env=_h3_v13_fetch_env())
+        tail: list[str] = []
+        for line in proc.stdout:
+            line = line.rstrip()
+            if line:
+                tail = (tail + [line])[-6:]
+                _ph3image_dl_state.update(step=line[:160])
+                if line.startswith("decoder converting"):
+                    _ph3image_dl_state.update(status="building")
+        rc = proc.wait()
+        if rc != 0:
+            raise RuntimeError(" | ".join(tail) or f"fetch exited with {rc}")
+        _ph3image_dl_state.clear()
+        _ph3image_dl_state.update(status="done", error=None)
+        push_log("[image:p-h3-image] downloaded and ready")
+    except Exception as exc:                                       # noqa: BLE001
+        _ph3image_dl_state.clear()
+        _ph3image_dl_state.update(status="error", error=str(exc)[:400])
+        push_log(f"[image:p-h3-image] download failed: {exc}")
+    finally:
+        h3_status_invalidate()
+
+
+def _ph3image_install(push_log, fetch_fn=None) -> dict:
+    """On-demand fetch of P-H3-Image (one at a time). The route has already checked the licence."""
+    paths = h3_paths()
+    if paths["missing"]:
+        return {"ok": False,
+                "error": "P-H3-Image runs on the Hailuo H3 pack, and H3 isn't fully installed yet: "
+                         + "; ".join(paths["missing"])}
+    if not ph3image_supported():
+        return {"ok": False,
+                "error": _dist.say(
+                    "This Hailuo H3 runner predates P-H3-Image. Run 'Update Hailuo H3 runner' from the "
+                    "Phosphene sidebar in Pinokio - your weights stay.",
+                    "This Hailuo H3 runner predates P-H3-Image. Updating the runner isn't available "
+                    "in the Mac app yet.")}
+    resolved = ph3image_paths()
+    target = resolved["dir"]
+    if resolved["files_ok"]:
+        return {"ok": True, "started": False, "already_installed": True, "dir": str(target)}
+    with _ph3image_dl_lock:
+        if _ph3image_dl_state.get("status") in ("downloading", "building"):
+            return {"ok": False, "error": "a P-H3-Image download is already active"}
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+            free_gb = shutil.disk_usage(target).free / 1e9
+        except OSError:
+            free_gb = None
+        # What is already in the folder (a resumed or partial download) counts against the need.
+        try:
+            have_gb = sum(f.stat().st_size for f in target.rglob("*") if f.is_file()) / 1e9
+        except OSError:
+            have_gb = 0.0
+        need_gb = max(4.0, PH3IMAGE_DISK_NEED_GB - have_gb)
+        if free_gb is not None and free_gb < need_gb:
+            return {"ok": False,
+                    "error": f"P-H3-Image needs about {need_gb:.0f} GB free to finish preparing "
+                             f"({PH3IMAGE_DOWNLOAD_GB:g} GB download in all). This disk has {free_gb:.1f} GB free."}
+        _ph3image_dl_state.clear()
+        _ph3image_dl_state.update(status="downloading", error=None)
+    fn = fetch_fn or _ph3image_fetch_bg
+    threading.Thread(target=fn, args=(target, push_log), daemon=True, name="ph3image-fetch").start()
+    return {"ok": True, "started": True, "dir": str(target), "repo": PH3IMAGE_REPO,
+            "revision": PH3IMAGE_REVISION, "license": PH3IMAGE_LICENSE, "credit": PH3IMAGE_CREDIT,
+            "download_gb": PH3IMAGE_DOWNLOAD_GB}
+
+
 # ---- lightx2v v1.3 (Best at High) — resolver, argv, status, fetch ------------
 def h3_supports_video_shift() -> bool:
     """Whether the INSTALLED runner takes `--video-shift` (v1.3's own shift 6;
@@ -17432,6 +17694,8 @@ def h3_status() -> dict:
                  "name": H3_V13_NAME, "label": H3_V13_LABEL, "credit": H3_V13_CREDIT,
                  "adapter": None, "install_available": False, "installing": False,
                  "download": {}, "dir": str(_h3_turbo_dir()), "missing": []}),
+        # P-H3-Image (Images lane). Its own block: the lane needs the H3 pack but is not a video choice.
+        "ph3image": ph3image_status(),
         # Pika H3 Flex — a Speed choice of its own. Same three-cause shape.
         "flex": (h3_flex_status() if available else
                  {"available": False, "supported": False, "downloaded": False,
@@ -33821,6 +34085,10 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         if engine_override.startswith("hidream") and not _hidream_available():
             push(f"[image] {engine_override} is not installed on this Mac — rendering with Auto instead.")
             engine_override = "auto"
+        if engine_override.startswith("ph3image") and not _ph3image_available():
+            push(f"[image] {engine_override} is not ready on this Mac (it needs the Hailuo H3 pack and its "
+                 "own download) - rendering with Auto instead.")
+            engine_override = "auto"
         aspect = f("aspect", "16:9") or "16:9"
         # refs comes as a JSON-encoded list (e.g. '["panel_uploads/foo.png"]').
         # Plain form fields can't carry a list cleanly; the panel JS already
@@ -35149,6 +35417,8 @@ def _preflight_estimate_ram_gb(cfg) -> float:
     if cfg.kind == "flux3":
         import flux3_engine
         return flux3_engine.ram_need(cfg)
+    if cfg.kind == "ph3image":
+        return PH3IMAGE_PEAK_GB
     if cfg.kind == "hidream":
         # 2026-05-31 review fix: HiDream-O1 BF16 was exempt from the RAM gate
         # (fell through to the 1.0 GB `!= mflux` branch). Its Metal residency
@@ -35284,6 +35554,9 @@ _IMAGE_ENGINE_LABELS = {
     "hidream_fast_inline": "HiDream Fast",
     "hidream_inline": "HiDream Medium",
     "hidream_quality_inline": "HiDream Quality",
+    "ph3image_inline": "P-H3-Image (High, 8 MP)",
+    "ph3image_standard_inline": "P-H3-Image (Standard, 4 MP)",
+    "ph3image_draft_inline": "P-H3-Image (Draft, 2 MP)",
 }
 
 # Fleet Mac sizes, for "needs a 32 GB Mac" copy. The pre-flight compares
@@ -35349,6 +35622,12 @@ def _preflight_image_job(cfg, *, engine_override: str = "auto") -> None:
     # with "HiDream venv python not found", counted as a failed render: 81
     # times from 12 installs in the week to 2026-09-09. Say no at the door,
     # as a refusal, with the engine that does the same job.
+    if str(engine_override or "").lower().startswith("ph3image") and not _ph3image_available():
+        raise RenderRefused(
+            "pack_missing",
+            "P-H3-Image isn't ready on this Mac: it runs on the Hailuo H3 pack and needs its own "
+            "download. Pick it in Image Studio and click its download chip, or use FLUX 3 Klein "
+            "to make a picture from text now.")
     if str(engine_override or "").lower().startswith("hidream") and not _hidream_available():
         raise RenderRefused(
             "pack_missing",
@@ -35689,6 +35968,7 @@ def run_image_job_inner(job: dict) -> None:
             "refs_ignored": c.get("refs_ignored", False),
             "source": "panel.queue.image",
             **({"flux3": c} if cfg.kind == "flux3" else {}),
+            **(_ph3image_sidecar_credit() if cfg.kind == "ph3image" else {}),
         }
         try:
             sidecar_path.write_text(json.dumps(sidecar, indent=2), encoding="utf-8")
@@ -35704,7 +35984,8 @@ def run_image_job_inner(job: dict) -> None:
     p["candidate_paths"] = candidate_paths
     p["elapsed_seconds"] = elapsed
     p["engine"] = cfg.kind + (f"/{cfg.mflux_family}" if cfg.kind == "mflux" else "")
-    p["model"] = getattr(cfg, "mflux_model", None) or cfg.kind
+    p["model"] = (f"{PH3IMAGE_REPO}@{PH3IMAGE_REVISION[:7]}" if cfg.kind == "ph3image"
+                  else getattr(cfg, "mflux_model", None) or cfg.kind)
     p["output_dir"] = str(out_dir)
     push(f"Image job done: {len(candidate_paths)} candidate(s) in {elapsed}s "
          f"→ {out_dir}")
@@ -43397,6 +43678,11 @@ def _build_image_engine_config(
             hidream_fb_threshold=0.10,
             hidream_fb_keep_last=12,
         )
+    if engine_override in ("ph3image_inline", "ph3image_draft_inline", "ph3image_standard_inline"):
+        # P-H3-Image: High = 8 MP (what it was trained for), Standard 4 MP, Draft 2 MP.
+        return ph3image_engine_config(
+            "draft" if engine_override == "ph3image_draft_inline"
+            else "standard" if engine_override == "ph3image_standard_inline" else "high")
     if engine_override == "mock_inline":
         return agent_image_engine.ImageEngineConfig(kind="mock")
     raise ValueError(f"unknown engine_override: {engine_override!r}")

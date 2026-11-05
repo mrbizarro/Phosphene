@@ -395,6 +395,7 @@ def get_image_engine_status(h, parsed) -> None:
         out.extend({**flux3_engine.status(key, float(P.SYSTEM_RAM_GB or 0)),
                     "max_refs": P.image_max_refs(key)}
                    for key in flux3_engine.PRESETS)
+        out.extend(P.ph3image_engine_rows())
         h._json({"engines": out,
                  "host_ram_gb": int(round(float(P.SYSTEM_RAM_GB or 0)))})
     except Exception as exc:                                # noqa: BLE001
@@ -488,6 +489,22 @@ def post_h3_flex_install(h, path, qs, ctype) -> None:
         h._json(result, 409 if "active" in result.get("error", "") else 400)
         return
     h._json(result, 202)
+
+# ====== Images lane · P-H3-Image (Pruna, on MiniMax H3) - fetch Pruna's adapter, text encoder and
+# image decoder at pinned revisions (never re-hosted) and build the decoder layout locally.
+@post("/image/ph3image/install")
+def post_image_ph3image_install(h, path, qs, ctype) -> None:
+    P.h3_status_invalidate()
+    # A MiniMax H3 Model Derivative: the same licence screen as H3 itself.
+    _lic = P.licence_refusal_for("h3")
+    if _lic:
+        h._json(_lic, 451); return
+    result = P._ph3image_install(P.push)
+    if not result.get("ok"):
+        h._json(result, 409 if "active" in result.get("error", "") else 400)
+        return
+    h._json(result, 202)
+
 
 # Image-engine config (pluggable: mock | bfl).
 @post("/agent/image/config")
@@ -935,6 +952,7 @@ def post_image_generate(h, path, qs, ctype) -> None:
         "candidates": candidates,
         "elapsed_seconds": elapsed,
         "engine": cfg.kind + (f"/{cfg.mflux_family}" if cfg.kind == "mflux" else ""),
-        "model": getattr(cfg, "mflux_model", None) or cfg.kind,
+        "model": (f"{P.PH3IMAGE_REPO}@{P.PH3IMAGE_REVISION[:7]}" if cfg.kind == "ph3image"
+                  else getattr(cfg, "mflux_model", None) or cfg.kind),
         "output_dir": str(out_dir),
     })
