@@ -223,6 +223,8 @@ def get_panel_bug_context(h, parsed) -> None:
         # the macOS username is often the person's real name. Scrub before
         # it ever reaches the browser, not after.
         tail = [P._bug_report_scrub_line(line) for line in tail]
+        import image_diagnostics
+        tail += image_diagnostics.bundle_lines(P.STATE_DIR, P._analytics_enabled)
         # Crash count — the modal hides the "Include crash reports"
         # checkbox when zero so the user doesn't see an empty zip.
         # SYS-12: counted every .ips on the Mac, regardless of which process
@@ -340,13 +342,8 @@ def post_star_click(h, path, qs, ctype) -> None:
 
 @post("/version/finish")
 def post_version_finish(h, path, qs, ctype) -> None:
-    # Re-run post_update.sh after a failed in-panel finish (the banner's
-    # "Try again"). Same background run, same refusals.
-    if P._dist.is_mac_app():
-        h._json({"ok": False, "app_updates": True,
-                 "error": P._dist.MAC_APP_UPDATES}, 409); return
-    code, payload = P.post_update_start("retry")
-    h._json(payload, code); return
+    # Retry resumes the pinned transaction, including an interrupted fetch.
+    return post_version_pull(h, path, qs, ctype)
 
 
 def restart_refusal():
@@ -383,6 +380,12 @@ def reexec_panel(h) -> None:
     The caller has already passed restart_refusal(). See post_restart for why
     os.execv is the right restart: same pid, same port, running what is on disk
     now, and the queue/settings live on disk so nothing is lost."""
+    try:
+        if P._root_is_checkout():
+            P.update_transaction.Transaction(P.ROOT).request_restart()
+    except P.update_transaction.UpdateError as exc:
+        h._json({"ok": False, "error": str(exc)}, 409)
+        return
     P.persist_queue()
     h._json({"ok": True, "restarting": True})
     try:
@@ -652,264 +655,47 @@ def post_star_prompt_star(h, path, qs, ctype) -> None:
 
 @post("/version/pull")
 def post_version_pull(h, path, qs, ctype) -> None:
-    # The "magic button" path — when the pill is in the behind
-    # state and the user clicks it, this endpoint runs git pull
-    # on the panel repo and reports back. The user still has to
-    # restart phosphene in Pinokio to load the new code (we can't
-    # restart ourselves from inside our own process), but we
-    # surface that clearly via the pull_state field.
-    #
-    # If the pulled diff touches dependency manifests / patch
-    # scripts (anything that update.js does in addition to
-    # `git pull`), we set pull_requires_full_update=True and the
-    # UI nudges the user toward Pinokio's full Update flow
-    # instead of just Stop+Start.
-    # Server-side guards run BEFORE we mutate _VERSION_STATE so a
-    # rejected 409 doesn't leave pull_state="pulling" stuck on
-    # disk for the UI poller to chew on forever. Previously the
-    # state was set first and the guards lived inside the try
-    # block; a guarded return would skip the cleanup branch in
-    # the bottom finally clause and never reset pull_state. Codex
-    # caught this on the second pre-ship review.
-    #
-    # The UI already refuses to surface the magic Update button
-    # unless the local repo is clean + on main + with no local
-    # commits ahead, but a malicious POST could otherwise bypass
-    # that and silently trigger `reset --hard`. Re-validate here.
-    #
-    # Inside the Mac app there is no checkout to pull, and `git` run in its
-    # folder could act on whatever repo encloses it. The app updates the
-    # studio (Phosphene -> Check for Updates...); this route never runs git.
     if P._dist.is_mac_app():
         h._json({"ok": False, "app_updates": True,
                  "error": P._dist.MAC_APP_UPDATES}, 409)
         return
-    cur_branch = (P._git_capture(
-        ["rev-parse", "--abbrev-ref", "HEAD"]) or "").strip()
-    if cur_branch != "main":
-        h._json({
-            "ok": False,
-            "error": (
-                f"refusing to pull: local repo is on '{cur_branch}', "
-                f"not 'main'. Switch to main or run a fresh Pinokio "
-                f"install if you didn't intend to be on a side branch."
-            ),
-        }, 409)
+    branch = (P._git_capture(["rev-parse", "--abbrev-ref", "HEAD"]) or "").strip()
+    if branch != "main":
+        h._json({"ok": False, "error": f"Update needs main; this copy is on '{branch}'. Keep local branch work before switching."}, 409)
         return
-    # `git status --porcelain -uno` is empty iff no TRACKED file is
-    # modified. Same probe (and same -uno reasoning) as
-    # _detect_local_install_state — see the long note there: the
-    # installers legitimately leave untracked dirs in this tree
-    # (minimax-h3-mlx/, cache/, logs/) and refusing to pull because
-    # of them is what left every H3 user unable to update (#52).
-    dirty = (P._git_capture(["status", "--porcelain", "-uno"]) or "").strip()
-    if dirty:
-        h._json({
-            "ok": False,
-            "error": (
-                "refusing to pull: local working tree has "
-                "uncommitted changes to tracked files. Commit, "
-                "stash, or discard them, then click Update again."
-            ),
-            "dirty_files": dirty.splitlines()[:20],
-        }, 409)
-        return
-    # Block if there are local commits ahead of origin — those
-    # would be wiped by the reset --hard fallback below.
-    ahead = (P._git_capture(
-        ["rev-list", "--count", "origin/main..HEAD"]) or "0").strip()
     try:
-        ahead_n = int(ahead)
-    except ValueError:
-        ahead_n = 0
-    if ahead_n > 0:
-        h._json({
-            "ok": False,
-            "error": (
-                f"refusing to pull: local has {ahead_n} commit(s) "
-                f"ahead of origin/main. Push them or reset manually "
-                f"if you don't need them."
-            ),
-        }, 409)
-        return
-
-    # All guards passed — claim the pulling state and proceed.
-    with P._VERSION_LOCK:
-        P._VERSION_STATE["pull_state"] = "pulling"
-        P._VERSION_STATE["pull_message"] = None
-        P._VERSION_STATE["pull_pulled_to_short"] = None
-        P._VERSION_STATE["pull_pulled_to_version"] = None
-        P._VERSION_STATE["pull_requires_full_update"] = False
-    try:
-        # Capture HEAD before the pull so we can diff afterwards.
-        pre_sha = P._git_capture(["rev-parse", "HEAD"]) or ""
-        # Step 1: fetch — populates origin/main without touching HEAD.
-        fetch_proc = P.subprocess.run(
-            ["git", "-C", str(P.ROOT), "fetch", "origin"],
-            capture_output=True, timeout=60,
-        )
-        if fetch_proc.returncode != 0:
-            raise RuntimeError(
-                (fetch_proc.stdout + fetch_proc.stderr).decode("utf-8", "replace").strip()
-                or f"git fetch exited {fetch_proc.returncode}")
-        # Step 1b: THE OBSTRUCTION GUARD — the sidebar Update's, run on the
-        # fetched origin/main, before anything can move the tree. `status
-        # -uno` above is blind to untracked and ignored files, and both
-        # moves below destroy them: `pull --ff-only` silently overwrites an
-        # IGNORED file where upstream now tracks one, and the reset
-        # overwrites untracked ones too (Codex INST-01, 2026-09-24).
-        guard = P.ROOT / "scripts" / "pinokio" / "update_obstruction_guard.sh"
-        if not guard.is_file():
-            raise RuntimeError(
-                "scripts/pinokio/update_obstruction_guard.sh is missing - "
-                "not updating. Nothing was changed or deleted; use the "
-                "Pinokio Update instead.")
-        guard_proc = P.subprocess.run(
-            ["bash", str(guard), "origin/main"],
-            cwd=str(P.ROOT), capture_output=True, timeout=60,
-        )
-        if guard_proc.returncode != 0:
-            raise RuntimeError(
-                (guard_proc.stdout + guard_proc.stderr).decode("utf-8", "replace").strip()
-                or "untracked or ignored files are in the way - nothing deleted")
-        # Step 2: try a fast-forward pull. Happy path for fresh installs
-        # whose local history lines up with origin/main.
-        pull_proc = P.subprocess.run(
-            ["git", "-C", str(P.ROOT), "pull", "--ff-only", "origin", "main"],
-            capture_output=True, timeout=60,
-        )
-        pull_out = (pull_proc.stdout + pull_proc.stderr).decode("utf-8", "replace").strip()
-        # Step 3: if the fast-forward refused (history diverged from
-        # origin — e.g. because of a past force-push that scrubbed
-        # commit identities), fall back to a hard reset onto
-        # origin/main. Guards above already proved this is safe
-        # (clean tree + on main + nothing ahead), so the reset just
-        # snaps the diverged history back to upstream.
-        #
-        # ONLY ON PROVEN DIVERGENCE. Every other refusal — the commonest is
-        # git's own "untracked working tree files would be overwritten" —
-        # used to take this branch too and reset over the file git had just
-        # protected (INST-01). The pre-fetch `ahead` check was against the
-        # OLD origin/main, so it cannot prove anything here; count again
-        # against the fetched one. Zero means history did not diverge,
-        # whatever made the pull fail: stop and report git's message.
-        if pull_proc.returncode != 0:
-            ahead_after = (P._git_capture(
-                ["rev-list", "--count", "origin/main..HEAD"]) or "0").strip()
-            try:
-                ahead_after_n = int(ahead_after)
-            except ValueError:
-                ahead_after_n = 0
-            if ahead_after_n <= 0:
-                raise RuntimeError(
-                    f"update blocked - history has NOT diverged, so nothing "
-                    f"was reset or deleted.\n{pull_out}")
-            reset_proc = P.subprocess.run(
-                ["git", "-C", str(P.ROOT), "reset", "--hard", "origin/main"],
-                capture_output=True, timeout=30,
-            )
-            reset_out = (reset_proc.stdout + reset_proc.stderr).decode("utf-8", "replace").strip()
-            if reset_proc.returncode != 0:
-                raise RuntimeError(
-                    f"fast-forward refused and reset --hard failed.\n"
-                    f"pull: {pull_out}\nreset: {reset_out}")
-            pull_out = (
-                f"history diverged from origin (likely a past force-push); "
-                f"recovered via reset --hard origin/main\n{reset_out}"
-            )
-        # Refresh local fields (HEAD, version) before computing the diff.
+        tx = P.update_transaction.Transaction(P.ROOT)
+        before = P._git_capture(["rev-parse", "HEAD"])
+        rec = tx.prepare()
         P._detect_local_install_state()
-        post_sha = P._git_capture(["rev-parse", "HEAD"]) or ""
-
-        # 4.17.5 (fleet): NOTHING NEW IS NOT AN UPDATE. Two installs pressed
-        # "Update now" on 4.17.4 itself; the pull moved nothing, the panel
-        # still said "restart to finish", and the restart came back on the
-        # same build - reported as a failed update (update_outcome
-        # restart_pending 4.17.4 -> 4.17.4). When HEAD did not move and this
-        # process already runs what is on disk, there is nothing to restart:
-        # say so, and drop the "pressed Update" marker so the next boot does
-        # not count a no-op as a failure.
-        moved = bool(pre_sha and post_sha and pre_sha != post_sha)
-        if not moved and not P.get_version_state().get("stale_process"):
+        current = rec["phase"] in ("current", "succeeded") and not P.get_version_state().get("stale_process")
+        changed = tx.git("diff", "--name-only", before, rec["candidate"]).splitlines()
+        deps_changed = any(name.startswith(("scripts/", "ltx-2-mlx/", "install"))
+                           or name in ("update.js", "pinokio.js", "patch_ltx_codec.py",
+                                       "required_files.json", "pip-build-constraints.txt",
+                                       "requirements.txt", "pyproject.toml", "setup.py")
+                           for name in changed)
+        with P._VERSION_LOCK:
+            P._VERSION_STATE.update(
+                pull_state="current" if current else "pulled",
+                pull_message="Already up to date - nothing to restart." if current else "Update prepared; waiting for the new version to start.",
+                pull_pulled_to_short=rec["candidate"][:7],
+                pull_pulled_to_version=P._read_local_version(),
+                pull_requires_full_update=deps_changed)
+        if current:
             P._settings_set_internal(analytics_update_pressed="")
-            with P._VERSION_LOCK:
-                P._VERSION_STATE["pull_state"] = "current"
-                P._VERSION_STATE["pull_message"] = (
-                    "Already up to date - nothing to restart.")
-            try:
-                P._check_remote_once()
-            except Exception:
-                pass
-            h._json({"ok": True, "moved": False, "state": P.get_version_state()})
-            return
-
-        # Did the pull touch anything that needs the heavier Pinokio
-        # Update.js (pip reinstalls + patch reapply)? If so, flag it.
-        deps_touched = False
-        if pre_sha and post_sha and pre_sha != post_sha:
-            diff_out = P._git_capture(
-                ["diff", "--name-only", f"{pre_sha}..{post_sha}"]
-            ) or ""
-            deps_signals = (
-                "install.js", "update.js", "pinokio.js", "download_q8.js",
-                "patch_ltx_codec.py", "required_files.json",
-                "requirements.txt", "pyproject.toml", "setup.py",
-                # Since v4.0 every pin, patch and weight step lives in
-                # post_update.sh and scripts/pinokio/ — a pull that touches
-                # them without the full Update ships new code onto old
-                # dependencies (review 2026-09-02).
-                "scripts/post_update.sh", "scripts/check_post_update.js",
-                # The wheel-build pin both installers read, and the YuE2
-                # engine SHA: only the full Update runs music_checkout.sh, so
-                # a pin-only pull used to say "Stop/Start is enough" and left
-                # new runner code on the old engine (Codex INST-12).
-                "pip-build-constraints.txt", "scripts/music/engine_pin.txt",
-            )
-            for line in diff_out.splitlines():
-                if (line in deps_signals or line.startswith("ltx-2-mlx/")
-                        or line.startswith("scripts/pinokio/")
-                        # install_h3.js / install_music.js / install_qwen.js …
-                        # carry their engines' pins the same way install.js does.
-                        or (line.startswith("install") and line.endswith(".js"))):
-                    deps_touched = True
-                    break
-
+        elif rec["phase"] in ("source_ready", "dependencies", "dependencies_failed"):
+            code, payload = P.post_update_start("update_now")
+            if code >= 400:
+                h._json(payload, code)
+                return
+        h._json({"ok": True, "moved": before != rec["candidate"], "state": P.get_version_state()})
+    except P.update_transaction.UpdateError as exc:
         with P._VERSION_LOCK:
-            P._VERSION_STATE["pull_state"] = "pulled"
-            P._VERSION_STATE["pull_message"] = (pull_out.splitlines() or ["pulled"])[-1]
-            # _VERSION_STATE, not the /version snapshot: these two
-            # mean "what we pulled TO", which is a fact about the tree.
-            # The snapshot's local_* deliberately means the opposite —
-            # the build this process is still running.
-            P._VERSION_STATE["pull_pulled_to_short"] = P._VERSION_STATE["local_short"]
-            P._VERSION_STATE["pull_pulled_to_version"] = P._VERSION_STATE["local_version"]
-            P._VERSION_STATE["pull_requires_full_update"] = deps_touched
-
-        # Finish the update the way Pinokio's Update does: post_update.sh,
-        # after every pull that moved HEAD (beta, after 4.17.4 - see
-        # post_update_start). Restart stays refused until it is done.
-        if pre_sha and post_sha and pre_sha != post_sha:
-            P.post_update_start("update_now")
-
-        # Re-run the remote check so behind_by recalculates to 0
-        # (normally) or to whatever new commits landed in the
-        # window since we pulled.
-        try:
-            P._check_remote_once()
-        except Exception:
-            pass
-
-        h._json({"ok": True, "moved": moved, "state": P.get_version_state()})
-    except P.subprocess.TimeoutExpired:
-        with P._VERSION_LOCK:
-            P._VERSION_STATE["pull_state"] = "error"
-            P._VERSION_STATE["pull_message"] = "git pull timed out (60s)"
-        h._json({"ok": False, "error": "git pull timed out", "state": P.get_version_state()}, 504)
+            P._VERSION_STATE.update(pull_state="error", pull_message=str(exc))
+        h._json({"ok": False, "error": str(exc), "state": P.get_version_state()}, 409)
     except Exception as exc:
-        with P._VERSION_LOCK:
-            P._VERSION_STATE["pull_state"] = "error"
-            P._VERSION_STATE["pull_message"] = str(exc)
-        h._json({"ok": False, "error": str(exc), "state": P.get_version_state()}, 500)
+        h._json({"ok": False, "error": str(exc)}, 500)
 
 
 @post("/settings")

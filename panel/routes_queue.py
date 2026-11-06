@@ -39,6 +39,14 @@ def get_status(h, parsed) -> None:
             "pid": P.STATE["pid"], "pgid": P.STATE["pgid"],
         })
         hidden_count = len(P.HIDDEN_PATHS)
+    # Human title per job, derived at read time (old history included).
+    for _j in ([payload["current"]] if payload.get("current") else []) + \
+            list(payload.get("queue") or []) + list(payload.get("history") or []):
+        try:
+            _p = _j.get("params") or {}
+            _j["title"] = P.clip_title.display_title(_p.get("prompt"), _p.get("label") or _j.get("label"))
+        except Exception:
+            pass
     # Polling fast path — newest 60 only. outputs_total tells the
     # carousel header "X older outputs not shown" so the "Show all"
     # button can surface them via the /outputs endpoint.
@@ -98,6 +106,8 @@ def get_status(h, parsed) -> None:
             return priced
         if params.get("engine") == "music":
             return P.music_estimate(params["music_quality"], params["music_max_seconds"])["eta_sec"]
+        if params.get("engine") == "speech":
+            return P.speech_estimate(params.get("speech_text") or "", params.get("speech_speed") or 1.0)["eta_sec"]
         if params.get("mode") == "image":
             return float(avg_image) if avg_image else 90.0
         return float(avg_video) if avg_video else 420.0
@@ -138,7 +148,7 @@ def get_status(h, parsed) -> None:
                 "phase": "waiting", "pct": 0, "phase_label": str(_waiting),
                 "elapsed_sec": max(0.0, P.time.time() - _started) if _started else 0,
             }
-        elif _mode != "train" and _engine not in ("h3", "music"):
+        elif _mode != "train" and _engine not in ("h3", "music", "speech"):
             payload["current"]["progress"] = P._compute_progress(
                 payload["current"], payload.get("log") or [],
             )
@@ -199,6 +209,9 @@ def get_status(h, parsed) -> None:
     payload["q8_path"] = str(P.pack_path("q8"))
     payload["base_available"] = not _base_missing
     payload["base_missing"] = _base_missing
+    path_errors = [P.model_path_problem(P._deferred_repo(k), write=bool(_base_missing))
+                   for k in P.capability_repo_keys("render")]
+    payload["model_path_error"] = next((e for e in path_errors if e), "")
     # Repo-level counts for the header pill — granular view that
     # matches the modal's per-repo rows (Q4 + Gemma + Q8 = 3 in the
     # default manifest). Avoids the pill claiming "2/2 ready" while
@@ -268,6 +281,8 @@ def get_status(h, parsed) -> None:
     payload["h3"] = P.h3_status()
     payload["music"] = P.music_status()
     payload["music_install"] = P.music_install_status()
+    payload["speech"] = P.speech_status()
+    payload["speech_install"] = P.speech_install_status()
     # 4.17.4: can a render start at all (the engine venv), and the one-click
     # repair's progress. File checks only - cheap enough for every poll.
     payload["engine_env"] = P.engine_env_status()
@@ -291,15 +306,15 @@ def get_status(h, parsed) -> None:
                 "repo_id": P.DOWNLOAD["repo_id"],
                 "started_ts": P.DOWNLOAD["started_ts"],
                 "last_line": P.DOWNLOAD["last_line"],
-                # 4.20: the post-install background fetcher, not a click.
+                # A bundle request uses the shared background queue.
                 "background": bool(P.DOWNLOAD.get("background")),
                 "name": _dl_repo.get("name") or P.DOWNLOAD["key"],
                 "size_gb": _dl_repo.get("size_gb"),
+                **P.model_download_progress(_dl_repo),
             }
         else:
             payload["download"] = {"active": False}
-    # 4.20: what install.js left for after Start, and where the background
-    # fetcher is with it (empty and idle on every install it never queued).
+    # Requested model packs and progress. Empty on a fresh first open.
     payload["deferred_downloads"] = P.deferred_status()
     # Mac app review #11: the process-wide GPU gate. `current` shows the queued
     # job; an inline image render, a character sheet, Enhance, a lyrics request

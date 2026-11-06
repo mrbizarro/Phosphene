@@ -63,7 +63,6 @@ const optional = [
   ["litellm", /litellm>=/],
   ["smolagents", /smolagents>=/],
   ["the mosaic upscaler fetch", /spatial_upscaler_x2_v1_1/],
-  ["the LTX-2.5 weight fetch", /fetch_pack_release\.py/],
   ["the H3 compact-engine build", /h3_build_q8\.sh/],
   ["the model trim", /^rm -f /],
 ]
@@ -263,13 +262,9 @@ for (const [rel, pkg] of pinSites) {
 }
 if (!seenPins.size) failures.push("no mlx/mflux pin found in any install path — the coupling gate is not looking at anything.")
 
-// --- and the optional ones must NOT be fatal --------------------------------
-// An Update that a network hiccup can brick is worse than one that warns.
-for (const [label, re] of [["the IC-LoRA fetches", /IC-LoRA-Colorizer/], ["the LTX-2.5 weight fetch", /fetch_pack_release\.py/]]) {
-  const hit = code.find((l) => re.test(l.t))
-  const guarded = hit && (/\|\|/.test(hit.t) || /\|\|/.test((code[code.indexOf(hit) + 1] || {}).t || ""))
-  if (!guarded) failures.push(`${label} (line ${hit && hit.n}) is not guarded with \`|| echo WARN\` — an Update must not be brickable by a network hiccup.`)
-  else console.log(`  ok    ${label} is best-effort`)
+// Updates must never opt a model-free install into video or adapter weights.
+for (const re of [/IC-LoRA-Colorizer/, /fetch_pack_release\.py/, /DeepBeepMeep\/LTX-2/, /a2v_stems_deps\.sh/]) {
+  if (code.some(l => re.test(l.t))) failures.push("Update must leave model downloads to explicit feature requests.")
 }
 
 // --- 4. EVERY INSTALL INTO THE ENGINE VENV CARRIES THE KNOWN-GOOD SET -------

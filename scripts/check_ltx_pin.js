@@ -196,11 +196,12 @@ if (/git pull --ff-only \s*\$/.test(updCode)) {
 //    success path); update.js dispatches `bash scripts/pinokio/update_fetch.sh`.
 //    So look for the guard where it now is, falling back to update.js for an
 //    older tree being mutation-tested through the optional argv[2] path.
+const journalUpdater = /update_transaction\.sh/.test(updCode)
 const fetchScript = path.join(root, "scripts/pinokio/update_fetch.sh")
 const fetchCode = /update_fetch\.sh/.test(updCode) && fs.existsSync(fetchScript)
   ? fs.readFileSync(fetchScript, "utf8")
   : updCode
-if (!/git fetch/.test(fetchCode) || !/git fetch[^\n]*\|\|[\s\S]*?exit 1/.test(fetchCode)) {
+if (!journalUpdater && (!/git fetch/.test(fetchCode) || !/git fetch[^\n]*\|\|[\s\S]*?exit 1/.test(fetchCode))) {
   fail("the update does not make a failed `git fetch` fatal. Without it a network or auth failure becomes: failed fetch -> failed pull -> 'successful' reset onto the stale tracking ref -> post_update against old code -> Update reports success.")
 } else {
   ok("a failed fetch aborts the update")
@@ -402,7 +403,14 @@ try {
   ok("SKIPPED the updater behaviour probes — git is not available here")
 }
 
-if (probesRan) {
+if (probesRan && journalUpdater) {
+  const result = spawnSync(process.env.PYTHON || "python3",
+    ["-m", "unittest", "-q", "test_update_transaction"],
+    { cwd: root, env: process.env, encoding: "utf8", timeout: 120000 })
+  if (result.status !== 0) fail(`durable updater fixtures failed: ${result.stdout} ${result.stderr}`)
+  else ok("durable updater: interrupted source/repair/restart, edits and retries preserved")
+}
+if (probesRan && !journalUpdater) {
   const mixed = probe("mixed")
   if (mixed.reset || mixed.protectedValue !== "MINE") {
     fail(`update.js RESET on a diverged clone whose untracked file is tracked upstream — the file is destroyed. Divergence and obstruction are independent; the destructive step must clear BOTH. (reset=${mixed.reset}, value=${JSON.stringify(mixed.protectedValue)})`)

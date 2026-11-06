@@ -29,13 +29,18 @@ function _wireModeGroupTabSemantics() {
 }
 
 // ====== Init ======
+studioMotionInit();
 // Licence screens (4.19.8): wrap fetch() first, so a 451 licence_required
 // from any later call opens the model's licence instead of a bare error.
 installLicenceGate();
+// Grey out what the picked model cannot do (model_capabilities.py rows).
+capInstall();
+proStatusRefresh();
 musicInit();
+speechInit();
 _wireModeGroupTabSemantics();
-// A mode greyed because H3 Flex is the pick refuses the click (capture phase,
-// ahead of the chip's own handler) and says why.
+// Option A (redesign v2.1): a dimmed mode chip switches to the model that
+// makes it. Capture phase, so it runs before the chip's own onclick.
 document.getElementById('modeGroup')?.addEventListener('click', modeChipEngineClick, true);
 // VC-34: the Tier quick-link next to the Quality label. Tier is fixed at
 // boot (RAM doesn't change at runtime), so this is a one-time read of the
@@ -197,3 +202,15 @@ initStagePlayerFit();
 // install_step `first_use`: one report the first time anyone clicks or types
 // on the page (health.js).
 try { armFirstUseReport(); } catch (e) {}
+// `/?open_film=<id>` opens that film in the Editor — the link an imported
+// cut answers with (`POST /storyboard/edit/import`), and what the Panel's
+// "Open in editor" sends. An identifier only, never a path; the editor's one
+// door (edOpenBoard) does the rest after the page has loaded.
+(() => {
+  let id = '';
+  try { id = new URLSearchParams(window.location.search).get('open_film') || ''; } catch (e) {}
+  if (!/^sb_[A-Za-z0-9_-]{1,100}$/.test(id)) return;
+  const go = () => { try { if (typeof edOpenBoard === 'function') edOpenBoard(id); } catch (e) {} };
+  if (document.readyState === 'complete') setTimeout(go, 0);
+  else window.addEventListener('load', go, { once: true });
+})();

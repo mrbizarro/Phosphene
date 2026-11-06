@@ -28,7 +28,7 @@ function musicComposeActive() {
 }
 function musicInit() {
   try { audioModeChoice = localStorage.getItem('phos_audio_mode'); } catch (_) {}
-  if (!['compose', 'drive'].includes(audioModeChoice)) audioModeChoice = null;
+  if (!['compose', 'drive', 'speech'].includes(audioModeChoice)) audioModeChoice = null;
   updateMusicAvailability({ music: BOOT.music, music_install: BOOT.music_install });
 }
 // The install task's last snapshot (/status.music_install), and whether this
@@ -52,11 +52,17 @@ function updateMusicAvailability(s) {
   const ready = !!music.available;
   if (audioModeChoice == null) audioModeChoice = ready ? 'compose' : 'drive';
   const compose = audioModeChoice === 'compose';
+  // Speech (speech.js) is the third Audio surface: its own pane, its own
+  // install card; this function only decides which pane is showing.
+  const speech = audioModeChoice === 'speech';
   document.getElementById('audioModeGroup').hidden = false;
   document.getElementById('musicComposePane').hidden = !compose;
-  document.getElementById('audioDrivePane').hidden = compose;
+  document.getElementById('audioDrivePane').hidden = compose || speech;
+  const speechPane = document.getElementById('speechPane');
+  if (speechPane) speechPane.hidden = !speech;
+  if (speech && typeof speechShow === 'function') speechShow();
   document.querySelectorAll('#audioModeGroup [data-audio-mode]').forEach(b => {
-    const active = b.dataset.audioMode === (compose ? 'compose' : 'drive');
+    const active = b.dataset.audioMode === audioModeChoice;
     b.classList.toggle('active', active);
     b.setAttribute('aria-pressed', String(active));
   });
@@ -75,11 +81,11 @@ function updateMusicAvailability(s) {
   if (document.body.dataset.workflow === 'audio') renderEngineSwitch();
 }
 function audioModeSet(mode) {
-  audioModeChoice = mode === 'compose' ? 'compose' : 'drive';
+  audioModeChoice = ['compose', 'speech'].includes(mode) ? mode : 'drive';
   try { localStorage.setItem('phos_audio_mode', audioModeChoice); } catch (_) {}
   updateMusicAvailability();
-  // Compose shows the songs (the Audio chip); Video modes switch back to Videos.
-  if (audioModeChoice === 'compose') setMainOutputsFilter('audio');
+  // Compose and Speech show the Audio chip; Video modes switch back to Videos.
+  if (audioModeChoice === 'compose' || audioModeChoice === 'speech') setMainOutputsFilter('audio');
 }
 function musicPick(id, button) {
   document.getElementById(id).value = button.dataset.value;
@@ -429,7 +435,7 @@ function musicInstallRender(el, where) {
   const size = 'YuE2, ~11 GB';
   let html;
   if (!music.capable) {
-    html = `<p class="mi-lead">YuE2 needs about ${escapeHtml(String(music.min_ram_gb || 24))} GB of unified memory, so it can't run on this Mac. The rest of Phosphene is unaffected.</p>`;
+    html = `<p class="mi-lead">YuE2 needs about ${escapeHtml(String(music.min_ram_gb || 16))} GB of unified memory, so it can't run on this Mac. The rest of Phosphene is unaffected.</p>`;
   } else if (inst.active) {
     const pct = inst.percent || 1;
     const step = `Step ${(inst.step_index || 0) + 1} of ${inst.steps || 6} · ${escapeHtml(inst.step_label || '')}`;
@@ -456,7 +462,7 @@ function musicInstallRender(el, where) {
       ${failed ? `<p class="mi-error">${escapeHtml(inst.error)}</p>` : ''}
       ${stopped ? '<p class="mi-sub">Install stopped. Click again to resume where it left off.</p>' : ''}
       <div class="mi-actions"><button type="button" class="primary" onclick="musicInstallStart(${repair ? "'repair'" : ''})">${escapeHtml(failed || stopped ? (repair ? 'Try the repair again' : 'Resume install (YuE2, ~11 GB)') : label)}</button></div>
-      <p class="mi-note">Needs ${escapeHtml(String(music.min_ram_gb || 24))} GB unified memory and 14 GB free disk.${distText(' Also available from the Phosphene sidebar in Pinokio.', '')}</p>`;
+      <p class="mi-note">Needs ${escapeHtml(String(music.min_ram_gb || 16))} GB unified memory and 14 GB free disk.${distText(' Also available from the Phosphene sidebar in Pinokio.', '')}</p>`;
   }
   el.innerHTML = html;
 }
@@ -552,6 +558,8 @@ function renderA2vEngineRow() {
   const offered = a2vH3Offered();
   if (row) row.hidden = !offered;
   const active = a2vEngineActive();
+  const sceneSoundPanel = document.getElementById('audioStudioSceneSoundPanel');
+  if (sceneSoundPanel) sceneSoundPanel.hidden = active !== 'ltx' || !BOOT.a2v_scene_sound_supported;
   if (det) det.dataset.a2vEngine = active;
   document.querySelectorAll('#a2vEngineGroup [data-a2v-engine]').forEach(b => {
     const on = b.dataset.a2vEngine === active;
@@ -756,6 +764,8 @@ async function audioStudioUploadAudio(file) {
     AUDIO_STUDIO.audioPath = data.path || null;
     AUDIO_STUDIO.audioName = file.name;
     AUDIO_STUDIO.audioDuration = (data.duration_sec != null) ? Number(data.duration_sec) : null;
+    const sceneEl = document.getElementById('audioStudioSceneSound');
+    if (sceneEl) sceneEl.checked = false;
     audioStudioRenderSlots();
     audioStudioDurationFromFile();
     if (status) status.textContent = '';
@@ -791,6 +801,13 @@ function audioStudioDurationFromFile() {
 // browser reading the file's own header.
 function audioStudioUseAudio(path, durationSec, url) {
   if (!path) return;
+  const sceneEl = document.getElementById('audioStudioSceneSound');
+  const output = typeof findOutputByPath === 'function' ? findOutputByPath(path) : null;
+  if (sceneEl) sceneEl.checked = !!(output && (output.mode === 'speech' || output.engine === 'speech')) || /^speech_/.test(String(path).split('/').pop());
+  const stemEl = document.getElementById('audioStudioStemAuto');
+  if (stemEl && sceneEl && sceneEl.checked) stemEl.checked = false;
+  const soundPrompt = document.getElementById('audioStudioScenePrompt');
+  if (soundPrompt) soundPrompt.value = '';
   AUDIO_STUDIO.audioPath = path;
   AUDIO_STUDIO.audioName = String(path).split('/').pop();
   const d = Number(durationSec);
@@ -964,7 +981,8 @@ function a2vUpdateEstimate(frames, w, h) {
       if (seq !== _a2vEstimateSeq) return;
       if (!d.ok) { el.textContent = ''; return; }
       const pack = d.pack === 'q8' ? 'Q8' : 'Q4';
-      el.textContent = `${d.width}×${d.height} · ${pack} · about ${String(d.eta).replace(/^~\s*/, '')} on this Mac`;
+      const soundExtra = (document.getElementById('audioStudioSceneSound') || {}).checked ? ' + a scene sound pass' : '';
+      el.textContent = `${d.width}×${d.height} · ${pack} · about ${String(d.eta).replace(/^~\s*/, '')} on this Mac${soundExtra}`;
     } catch (e) {
       if (seq === _a2vEstimateSeq) el.textContent = '';
     }
@@ -1327,6 +1345,10 @@ function a2vLoadParams(p) {
   // shot) also means the model listened to the voice alone. A sidecar
   // without the field predates the control and rendered the full mix.
   const stemEl = document.getElementById('audioStudioStemAuto');
+  const sceneEl = document.getElementById('audioStudioSceneSound');
+  if (sceneEl) sceneEl.checked = ['1', 'true', 'on', 'yes'].includes(String(p.a2v_scene_sound || '').toLowerCase()) || ((p.a2v_scene_sound || 'auto') === 'auto' && /^speech_/.test(String(p.audio || '').split('/').pop()));
+  const scenePromptEl = document.getElementById('audioStudioScenePrompt');
+  if (scenePromptEl) scenePromptEl.value = p.a2v_scene_prompt || '';
   if (stemEl) {
     const autoOn = ['1', 'true', 'on', 'yes'].includes(String(p.audio_stem_auto ?? '').trim().toLowerCase());
     stemEl.checked = autoOn || !!String(p.audio_stem || '').trim();
@@ -1481,6 +1503,8 @@ async function _a2vSplitChain(capSec, totalDur, fromSec, n) {
       fd.set('audio_conditioning_scale', String(audioConditioningScale));
     }
     fd.set('audio_start_time', String(nextStart));
+    fd.set('a2v_scene_sound', (document.getElementById('audioStudioSceneSound') || {}).checked ? 'on' : 'off');
+    fd.set('a2v_scene_prompt', (document.getElementById('audioStudioScenePrompt') || {}).value || '');
     if (stemAuto) fd.set('audio_stem_auto', 'on');
     fd.set('quality', 'high');
     fd.set('accel', 'off');
@@ -1649,6 +1673,11 @@ async function audioStudioGenerate(opts) {
       fd.set('audio_conditioning_scale', String(audioConditioningScale));
     }
     fd.set('audio_start_time', String(audioStart));
+    if (!_onH3) {
+      const sceneEl = document.getElementById('audioStudioSceneSound');
+      fd.set('a2v_scene_sound', sceneEl && sceneEl.checked ? 'on' : 'off');
+      fd.set('a2v_scene_prompt', (document.getElementById('audioStudioScenePrompt') || {}).value || '');
+    }
     // VA-21: vocal-stem seam, exposed on the manual form for the first time.
     const stemAutoEl = document.getElementById('audioStudioStemAuto');
     if (stemAutoEl && stemAutoEl.checked) fd.set('audio_stem_auto', 'on');

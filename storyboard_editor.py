@@ -70,6 +70,10 @@ __all__ = [
     "CLIP_KINDS", "BRIGHTNESS_LIMIT",
     "proxy_dir", "proxy_fingerprint", "proxy_name", "proxy_cmd",
     "plan_proxies", "prune_proxies",
+    "OVERLAY_PREVIEW_RECIPE_VERSION", "OVERLAY_PREVIEW_PREFIX",
+    "overlay_preview_name", "overlay_preview_cmd", "plan_overlay_previews",
+    "pix_fmt_has_alpha",
+    "CUT_SPEC_VERSION", "CUT_FIT_SLOWEST", "edit_from_cut",
     "peaks_path", "compute_peaks", "save_peaks", "load_peaks",
     "clip_peaks_path", "clip_peaks", "prune_clip_peaks",
     "edit_path", "load_edit", "save_edit", "validate_edit", "normalise_edit",
@@ -1952,10 +1956,124 @@ def plan_proxies(clips, board_dir, *, width: int = PROXY_WIDTH) -> dict:
     stale = []
     if d.is_dir():
         for f in sorted(d.iterdir()):
+            # An OVERLAY'S preview lives in the same folder (the proxy route
+            # is the one door that serves this folder) but is not a clip's:
+            # the clip prune must never delete it. `plan_overlay_previews`
+            # prunes its own.
+            if f.name.startswith(OVERLAY_PREVIEW_PREFIX):
+                continue
             if f.is_file() and f.suffix == ".mp4" and f.name not in wanted:
                 stale.append(f)
     return {"dir": d, "width": int(width), "build": build,
             "reuse": reuse, "stale": stale}
+
+
+# ---------------------------------------------------------------------------
+# OVERLAY PREVIEWS — a video on the overlay lane, in a form the stage can play
+# ---------------------------------------------------------------------------
+# THE DEFECT THIS CLOSES: the stage painted EVERY overlay through one <img>,
+# so a video overlay (a spinning logo as a ProRes 4444 .mov with alpha, the
+# normal way a branded sting arrives) was handed to `/image`, failed, and
+# WebKit drew its broken-image glyph — a "?" in the middle of every frame,
+# over the film, while the render composited the same file perfectly.
+#
+# A video overlay gets a PREVIEW COPY, made the way a clip gets its proxy:
+# beside the proxies, named by the source's fingerprint, built once. Two
+# recipes, decided by whether the source carries alpha:
+#
+# * ALPHA — HEVC with an alpha layer through VideoToolbox (`hvc1`), which is
+#   the transparency WebKit (the Mac app, Safari, the iPhone Remote) decodes
+#   natively. Measured on the SUNDAY MASS sting: 95.6 MB ProRes 4444 ->
+#   4.9 MB, 64 s of 1280x720 in 5.5 s, corners decoded fully transparent in
+#   WebKit. A GOP of 12 keeps a seek to half a second of decode.
+# * OPAQUE — the clip proxy's own all-intra H.264 recipe, picture only.
+#
+# The render never reads the preview: it composites the ORIGINAL, exactly as
+# it always has. The preview is only ever an approximation for the stage.
+OVERLAY_PREVIEW_RECIPE_VERSION = 1
+OVERLAY_PREVIEW_PREFIX = "ov-"
+OVERLAY_PREVIEW_GOP = "12"
+OVERLAY_PREVIEW_ALPHA_QUALITY = "0.75"
+OVERLAY_PREVIEW_Q = "55"
+
+
+def pix_fmt_has_alpha(pix_fmt) -> bool:
+    """Does an ffprobe `pix_fmt` carry an alpha plane? (`yuva444p12le`,
+    `rgba`, `bgra`, `argb`, `gbrap`, `ya8`, `pal8` is palette-alpha too.)"""
+    f = str(pix_fmt or "").lower()
+    if not f:
+        return False
+    return (f.startswith(("yuva", "gbrap", "ya")) or f in ("pal8",)
+            or any(k in f for k in ("rgba", "bgra", "argb", "abgr")))
+
+
+def overlay_preview_name(src) -> str:
+    """`ov-<slug>_<fingerprint>.mp4`. Same identity rule as `proxy_name`
+    (path + mtime + size + recipe), its own recipe number, and the prefix
+    that keeps the clip prune's hands off it."""
+    p = Path(str(src))
+    try:
+        st = p.stat()
+        mtime_ns, size = st.st_mtime_ns, st.st_size
+    except OSError:
+        mtime_ns, size = 0, 0
+    raw = (f"{p.resolve() if p.exists() else p}\0{mtime_ns}\0{size}"
+           f"\0ov{OVERLAY_PREVIEW_RECIPE_VERSION}")
+    fp = hashlib.sha1(raw.encode("utf-8", "replace")).hexdigest()[:12]
+    return f"{OVERLAY_PREVIEW_PREFIX}{_slug(p.stem)}_{fp}.mp4"
+
+
+def overlay_preview_cmd(ffmpeg, src, dest, *, alpha: bool,
+                        width: int = PROXY_WIDTH) -> list[str]:
+    """The argv for ONE overlay preview. No sound either way: the overlay
+    lane is picture only (the render maps no audio from it)."""
+    scale = f"scale='min({int(width)},iw)':-2:flags=bicubic"
+    head = [str(ffmpeg), "-y", "-v", "error", "-nostdin", "-i", str(src),
+            "-map", "0:v:0", "-an", "-sn", "-dn"]
+    if alpha:
+        return head + [
+            # bgra in, so VideoToolbox receives the alpha plane it encodes
+            # into the second layer; `hvc1` is the tag WebKit insists on.
+            "-vf", scale + ",format=bgra",
+            "-c:v", "hevc_videotoolbox",
+            "-alpha_quality", OVERLAY_PREVIEW_ALPHA_QUALITY,
+            "-q:v", OVERLAY_PREVIEW_Q, "-g", OVERLAY_PREVIEW_GOP,
+            "-tag:v", "hvc1", "-movflags", "+faststart", str(dest)]
+    return head + [
+        "-vf", scale, "-c:v", "libx264",
+        "-g", "1", "-keyint_min", "1", "-sc_threshold", "0", "-bf", "0",
+        "-crf", PROXY_CRF, "-preset", PROXY_PRESET, "-pix_fmt", PROXY_PIX_FMT,
+        "-movflags", "+faststart", str(dest)]
+
+
+def plan_overlay_previews(overlays, board_dir) -> dict:
+    """What to build, what to reuse, what is junk — for the overlay lane's
+    VIDEO items only (a still is painted from its file, a title is drawn).
+    Same shape as `plan_proxies`; `stale` is every `ov-` file no live video
+    overlay points at."""
+    d = proxy_dir(board_dir)
+    build: list[dict] = []
+    reuse: list[dict] = []
+    wanted: set[str] = set()
+    for o in overlays or []:
+        if not isinstance(o, dict) or overlay_kind(o) != "video":
+            continue
+        raw = o.get("path")
+        if not raw:
+            continue
+        name = overlay_preview_name(raw)
+        if name in wanted:
+            continue
+        wanted.add(name)
+        row = {"path": str(raw), "name": name, "preview": str(d / name)}
+        (reuse if (d / name).is_file() else build).append(row)
+    stale = []
+    if d.is_dir():
+        for f in sorted(d.iterdir()):
+            if (f.is_file() and f.name.startswith(OVERLAY_PREVIEW_PREFIX)
+                    and f.name not in wanted):
+                stale.append(f)
+    return {"dir": d, "build": build, "reuse": reuse, "stale": stale}
 
 
 def prune_proxies(stale) -> int:
@@ -2207,6 +2325,280 @@ def new_clip(path, start: float, end: float, film_start: float, *,
 def _clip_id(path, start: float, film_start: float) -> str:
     raw = f"{path}\0{start:.6f}\0{film_start:.6f}\0{time.time_ns()}"
     return "k" + hashlib.sha1(raw.encode("utf-8", "replace")).hexdigest()[:10]
+
+
+# ---------------------------------------------------------------------------
+# AN AGENT'S CUT -> A FILM IN THE EDITOR
+# ---------------------------------------------------------------------------
+# THE GAP THIS CLOSES: an agent (or a script) that has cut a film by hand —
+# clips with in and out points, laid at film seconds, a score under them,
+# a logo over them, clip sound at 0.9 — had no way to give that cut to a
+# person to keep editing. Recreating SUNDAY MASS on the timeline took about
+# twenty API calls (add-shot per clip, then an edit.json written by hand with
+# start/end/film_start, speeds, the soundtrack window and the overlay) and
+# knowledge of half a dozen document rules nobody should need.
+#
+# A CUT SPEC is the agent's own vocabulary — `in`, `out`, `at`, `gain` — and
+# this is the one place it becomes an edit document. Pure: no disk, no
+# ffmpeg. The caller probes the media and passes the durations, so the rules
+# below are testable with numbers alone.
+#
+#   {"phosphene_cut": 1, "title": "SUNDAY MASS", "fps": 24,
+#    "clips": [{"path", "in", "out"?, "at"?, "length"?, "speed"?, "gain"?,
+#               "title"?}],
+#    "clip_gain": 0.9,                       # default for every clip
+#    "clip_fades": [0.04, 0.06],             # sound fade in/out, every clip
+#    (a clip row also takes "mute": true, "fade_in", "fade_out")
+#    "soundtrack": {"path", "at"?, "in"?, "out"?, "gain"?},
+#    "overlays": [{"path", "at", "end", "in"?} | {"text", "at", "end", ...}],
+#    "sounds": [{"path", "at", "in"?, "out"?, "gain"?, "title"?}]}
+#
+# THE SLOT RULE is the one an assembler like `cut.py` uses: a clip plays from
+# its `at` to the NEXT clip's `at` (the last one for its `length`, else its
+# own material). Times snap to whole frames, so every cut is a frame boundary
+# and two neighbours always touch — no sub-frame holes for the heal to find.
+# `out`, when given, caps the material; the take's own length always does.
+#
+# WHEN A SLOT IS LONGER THAN ITS MATERIAL (a talking shot whose silent head
+# was skipped, a slot rounded up), an assembler holds the last frame. The
+# timeline has no "hold"; it has speed. Down to CUT_FIT_SLOWEST the clip is
+# slowed to fill its slot exactly (the render's setpts + atempo, the
+# preview's playbackRate — the same retime a person would make), and the
+# note says so. Past that the clip keeps its material and the slot ends
+# early, which the editor shows as a hole: honest, visible, fixable.
+CUT_SPEC_VERSION = 1
+CUT_FIT_SLOWEST = 0.9
+
+
+def edit_from_cut(spec, durations: dict, *, board_id: str = "") -> dict:
+    """`{"edit": <edit.json>, "notes": [str], "errors": [str]}` from a cut spec.
+
+    `durations` maps every media path in the spec to its probed length in
+    seconds (a path the caller could not probe is absent, and is an error).
+    `errors` non-empty means do not save: the edit is incomplete.
+    """
+    errors: list[str] = []
+    notes: list[str] = []
+    sp = spec if isinstance(spec, dict) else {}
+    fps = _f(sp.get("fps"), 0.0) or float(NLE_FPS)
+    frame = 1.0 / fps
+
+    def snap(t: float) -> float:
+        return round(round(_f(t) * fps) / fps, 6)
+
+    rows = sp.get("clips")
+    if not isinstance(rows, list) or not rows:
+        return {"edit": None, "notes": notes,
+                "errors": ["the cut has no clips"]}
+    default_gain = _f(sp.get("clip_gain"), 1.0)
+    cf = sp.get("clip_fades")
+    if isinstance(cf, (list, tuple)) and len(cf) == 2:
+        default_fades = (max(0.0, _f(cf[0])), max(0.0, _f(cf[1])))
+    else:
+        default_fades = (0.0, 0.0)
+    have_at = all(isinstance(r, dict) and r.get("at") is not None for r in rows)
+    order = list(range(len(rows)))
+    if have_at:
+        order.sort(key=lambda i: _f(rows[i].get("at")))
+    clips: list[dict] = []
+    cursor = 0.0
+    for pos, i in enumerate(order):
+        r = rows[i] if isinstance(rows[i], dict) else {}
+        who = f"clip {i + 1}"
+        path = str(r.get("path") or "").strip()
+        if not path:
+            errors.append(f"{who}: needs a path")
+            continue
+        if _looks_like_a_still(path):
+            # A STILL holds for its slot: no in-point, no speed, no sound.
+            fs = snap(r.get("at")) if have_at else snap(cursor)
+            nxt = order[pos + 1] if pos + 1 < len(order) else None
+            if have_at and nxt is not None:
+                fe = snap(rows[nxt].get("at"))
+            else:
+                fe = snap(fs + max(frame, _f(r.get("length"), 3.0)))
+            if fe - fs < frame - 1e-9:
+                errors.append(f"{who}: its slot is shorter than one frame")
+                continue
+            clip = new_clip(path, 0.0, round(fe - fs, 6), fs, source="human",
+                            title=str(r.get("title") or Path(path).stem)[:80],
+                            kind="still", duration=None)
+            clips.append(clip)
+            cursor = fe
+            continue
+        dur = durations.get(path)
+        if not dur or _f(dur) <= 0:
+            errors.append(f"{who}: {Path(path).name} could not be read")
+            continue
+        dur = _f(dur)
+        speed = max(SPEED_MIN, min(SPEED_MAX, _f(r.get("speed"), 1.0) or 1.0))
+        t_in = max(0.0, _f(r.get("in")))
+        if t_in >= dur - frame:
+            errors.append(f"{who}: in-point {t_in:g}s is past the end of "
+                          f"{Path(path).name} ({dur:g}s)")
+            continue
+        material_end = dur
+        if r.get("out") is not None:
+            material_end = min(dur, max(t_in + frame, _f(r.get("out"))))
+        fs = snap(r.get("at")) if have_at else snap(cursor)
+        # The slot: to the next clip's `at`, else this clip's `length`, else
+        # its own material at its speed.
+        nxt = order[pos + 1] if pos + 1 < len(order) else None
+        if have_at and nxt is not None:
+            fe = snap(rows[nxt].get("at"))
+        elif r.get("length") is not None:
+            fe = snap(fs + _f(r.get("length")))
+        else:
+            fe = snap(fs + (material_end - t_in) / speed)
+        if fe - fs < frame - 1e-9:
+            errors.append(f"{who}: its slot is shorter than one frame")
+            continue
+        want = (fe - fs) * speed
+        avail = material_end - t_in
+        title = str(r.get("title") or Path(path).stem)[:80]
+        if want > avail + 1e-6:
+            fit = math.floor(avail / (fe - fs) * 1e6) / 1e6
+            if fit >= CUT_FIT_SLOWEST * speed - 1e-9 and fit >= SPEED_MIN:
+                notes.append(f"{title}: {avail:.2f}s of picture for a "
+                             f"{fe - fs:.2f}s slot, slowed to {fit:g}x to fill it")
+                speed = fit
+                want = (fe - fs) * speed
+            else:
+                short = round(fe - fs - avail / speed, 3)
+                notes.append(f"{title}: only {avail:.2f}s of picture for a "
+                             f"{fe - fs:.2f}s slot; it ends {short:g}s early "
+                             f"(a hole on the timeline)")
+                fe = snap(fs + avail / speed)
+                if fe - fs > avail / speed + 1e-6:
+                    fe = round(fe - frame, 6)
+                want = (fe - fs) * speed
+        end = min(round(t_in + want, 6), material_end)
+        clip = new_clip(path, t_in, end, fs, source="human",
+                        title=title, duration=round(dur, 6))
+        clip["film_end"] = round(fe, 6)
+        if abs(speed - 1.0) > 1e-6:
+            clip["speed"] = round(speed, 6)
+        g = _f(r.get("gain"), default_gain) if r.get("gain") is not None \
+            else default_gain
+        g = max(0.0, min(1.0, g))
+        afx: dict = {}
+        if abs(g - 1.0) > 1e-6:
+            # A LEVEL IS A FLAT ENVELOPE — the one curve the preview, the
+            # render and the export all read (`audio_gain_points`).
+            afx["points"] = [[0.0, round(g, 6)]]
+        # EDGE FADES, the assembler's 40/60 ms: a clip's own sound starting
+        # or stopping on a hard cut is a click, and an agent that faded its
+        # edges must hand over a timeline that does too.
+        for key, dflt in (("fade_in", default_fades[0]),
+                          ("fade_out", default_fades[1])):
+            v = max(0.0, _f(r.get(key), dflt) if r.get(key) is not None
+                    else dflt)
+            if v > 1e-9:
+                afx[key] = round(v, 6)
+        if afx:
+            clip["afx"] = afx
+        # MUTE drops the take's own sound (a lip-sync shot whose voice is
+        # already in the score: two copies phase and clip). The document's
+        # own clip mute, so the preview, the render and the export agree.
+        if r.get("mute") is True:
+            clip["mute"] = True
+        clips.append(clip)
+        cursor = fe
+    for k, c in enumerate(clips):
+        c["n"] = k + 1
+    edit = {"version": EDIT_VERSION, "board_id": str(board_id or ""),
+            "revision": 0, "origin": "manual", "fps": fps,
+            "clips": clips, "beats": None, "settings": {},
+            # Stamped current: this document was written today, with every
+            # level on it chosen, so neither one-time heal has anything to do
+            # (the mix heal would otherwise put the legacy 0.20 bed back).
+            "audio_repair": AUDIO_REPAIR_VERSION,
+            "mix_repair": MIX_REPAIR_VERSION}
+
+    st = sp.get("soundtrack")
+    if isinstance(st, dict) and st.get("path"):
+        path = str(st["path"])
+        dur = _f(durations.get(path))
+        if dur <= 0:
+            errors.append(f"soundtrack: {Path(path).name} could not be read")
+        else:
+            at, t_in = max(0.0, _f(st.get("at"))), max(0.0, _f(st.get("in")))
+            aud = {"path": path, "duration": round(dur, 6),
+                   # `offset` is the track second at film zero; a late
+                   # entrance is a negative one (silence in front).
+                   "offset": round(t_in - at, 6), "mode": "under",
+                   "mix": {"bed_gain": round(max(0.0, min(1.0, _f(
+                       st.get("gain"), 1.0))), 6), "duck": False}}
+            if t_in > 0:
+                aud["trim_start"] = round(t_in, 6)
+            if st.get("out") is not None and _f(st.get("out")) < dur:
+                aud["trim_end"] = round(max(t_in, _f(st.get("out"))), 6)
+            edit["audio"] = aud
+    else:
+        edit["audio"] = {}
+
+    ovs = []
+    for j, o in enumerate(sp.get("overlays") or []):
+        if not isinstance(o, dict):
+            continue
+        at = snap(o.get("at"))
+        endf = snap(o.get("end")) if o.get("end") is not None else None
+        if o.get("text"):
+            if endf is None or endf <= at:
+                errors.append(f"overlay {j + 1}: a title needs an end after its start")
+                continue
+            row = {"id": f"ov{j + 1}", "kind": "text", "text": str(o["text"])[:400],
+                   "film_start": at, "film_end": endf, "source": "human"}
+            if isinstance(o.get("style"), dict):
+                row["style"] = dict(o["style"])
+            ovs.append(row)
+            continue
+        path = str(o.get("path") or "")
+        dur = _f(durations.get(path))
+        if not path or dur <= 0:
+            errors.append(f"overlay {j + 1}: {Path(path).name or 'no file'} "
+                          f"could not be read")
+            continue
+        kind = overlay_kind({"path": path, "kind": o.get("kind")})
+        t_in = max(0.0, _f(o.get("in")))
+        if endf is None:
+            endf = snap(at + max(frame, dur - t_in))
+        row = {"id": f"ov{j + 1}", "kind": kind, "path": path,
+               "film_start": at, "film_end": endf,
+               "start": round(t_in, 6), "end": round(t_in + (endf - at), 6),
+               "source": "human", "locked": False}
+        ovs.append(row)
+    if ovs:
+        edit["overlays"] = ovs
+
+    strips = []
+    for j, a in enumerate(sp.get("sounds") or []):
+        if not isinstance(a, dict) or not a.get("path"):
+            continue
+        path = str(a["path"])
+        dur = _f(durations.get(path))
+        if dur <= 0:
+            errors.append(f"sound {j + 1}: {Path(path).name} could not be read")
+            continue
+        t_in = max(0.0, _f(a.get("in")))
+        t_out = min(dur, _f(a.get("out"), dur)) if a.get("out") is not None else dur
+        if t_out - t_in < frame:
+            errors.append(f"sound {j + 1}: shorter than one frame")
+            continue
+        s2 = {"id": f"snd{j + 1}", "path": path, "start": round(t_in, 6),
+              "end": round(t_out, 6), "film_start": snap(a.get("at")),
+              "duration": round(dur, 6),
+              "title": str(a.get("title") or Path(path).stem)[:80]}
+        g = _f(a.get("gain"), 1.0)
+        if abs(g - 1.0) > 1e-6:
+            s2["gain"] = round(max(0.0, min(1.0, g)), 6)
+        strips.append(s2)
+    if strips:
+        edit["audio_tracks"] = [{"id": "trk_cut", "name": "Sounds",
+                                 "strips": strips}]
+    edit["duration"] = round(max([c["film_end"] for c in clips] or [0.0]), 6)
+    return {"edit": edit if not errors else None, "notes": notes,
+            "errors": errors}
 
 
 def edit_from_plan(plan, *, board_id: str = "", audio: dict | None = None,
@@ -2955,10 +3347,15 @@ def validate_edit(edit) -> list[dict]:
                         bad(f"overlay_{key}_range",
                             f"overlay {j + 1}: fx.{key} must be >= 0")
             if ofe > ofs:
-                ospans.append((ofs, ofe, j))
+                ospans.append((overlay_kind(o) == "text", ofs, ofe, j))
+        # ONE LANE PER LAYER (2 Nov). A title may sit over a picture overlay
+        # (a logo bug that runs the whole film is where titles have to go);
+        # two pictures, or two titles, may still never share a second. The
+        # render composites every title after every picture, so a title is
+        # always on top.
         ospans.sort()
-        for (a_s, a_e, a_i), (b_s, b_e, b_i) in zip(ospans, ospans[1:]):
-            if b_s < a_e - TOUCH_TOLERANCE:
+        for (a_t, a_s, a_e, a_i), (b_t, b_s, b_e, b_i) in zip(ospans, ospans[1:]):
+            if a_t == b_t and b_s < a_e - TOUCH_TOLERANCE:
                 bad("overlays_overlap",
                     f"overlays {a_i + 1} and {b_i + 1} overlap "
                     f"({a_s:.3f}-{a_e:.3f}s and {b_s:.3f}-{b_e:.3f}s) — one "
@@ -4165,18 +4562,62 @@ def quantise_gap(gap: float, frame: float) -> float:
     return 0.0 if g < frame - 1e-9 else round(g, 9)
 
 
+# THE MOST A SHORT CLIP IS SLOWED TO FILL ITS OWN SLOT (2 Nov). A clip whose
+# take runs out a hair before its slot ends is held to the slot by playing
+# its source fractionally slower — the parity test on SUNDAY MASS measured
+# the 3 % the editor already applied to three short shots as inaudible and
+# invisible. Beyond this the clip is left as it was rather than stretched.
+SLOT_FIT_MAX_SLOW = 0.10
+
+
+def _fit_slot(c: dict, film_start: float, film_end: float) -> bool:
+    """Make clip `c` fill exactly [film_start, film_end) on the film WITHOUT
+    touching any other clip. The source start never moves; the tail grows or
+    shrinks, and a video whose take has no more source is slowed (at most
+    SLOT_FIT_MAX_SLOW) instead. Returns False, changing nothing, when the
+    slot cannot be filled that way. Stills and slugs take any slot."""
+    fs, fe = float(film_start), float(film_end)
+    if fe - fs <= 1e-9:
+        return False
+    if clip_kind(c) != "video":
+        c["film_start"], c["film_end"] = round(fs, 6), round(fe, 6)
+        c["end"] = round(max(0.0, fe - fs), 6)
+        return True
+    sp = clip_speed(c)
+    st = _f(c.get("start"))
+    want_end = st + (fe - fs) * sp
+    dur = c.get("duration")
+    if isinstance(dur, (int, float)) and dur > 0 and want_end > float(dur) + 1e-6:
+        avail = float(dur) - st
+        new_sp = avail / (fe - fs)
+        if avail <= 0 or new_sp < sp * (1.0 - SLOT_FIT_MAX_SLOW) - 1e-9:
+            return False
+        c["speed"] = round(new_sp, 6)
+        want_end = float(dur)
+    c["end"] = round(want_end, 6)
+    c["film_start"], c["film_end"] = round(fs, 6), round(fe, 6)
+    return True
+
+
 def heal_subframe_gaps(edit: dict) -> list[dict]:
-    """Close every sub-frame hole, rippling what follows. Mutates `edit`.
+    """Close every sub-frame hole WITHOUT MOVING ANYTHING AFTER IT. Mutates
+    `edit`. Returns one row per hole closed, so a caller can say what it did.
 
-    Returns one row per hole closed, so a caller can say what it did. A LOCKED
-    clip is an anchor and is never moved — the hole before it stays, because
-    the alternative is honouring a pin by breaking it — and the ripple restarts
-    from there so nothing downstream of an anchor inherits a shift the anchor
-    did not take.
+    A hole under one frame is closed by the clip BEFORE it reaching across it
+    (its tail grows, or it plays fractionally slower when its take has no
+    more source: `_fit_slot`). Nothing downstream moves.
 
-    An unlinked sound strip travels with its picture by the SAME delta, so a
-    J-cut's offset is exactly what it was: `clip_audio_drift` is a difference
-    of two constants and moving both by one number leaves it alone.
+    WHY NOT RIPPLE (2 Nov). This used to close the hole by pulling every later
+    clip earlier, and the shift accumulated: on SUNDAY MASS three takes that
+    came out a hair short slid the lip-sync shots off their music cues, 39.0 s
+    to 38.917 s and 55.0 s to 54.908 s — two frames, enough to see the mouth
+    miss the voice. A cut placed on the music must stay on the music.
+
+    When the clip before cannot reach (no source left even slowed 10 %), the
+    clip after the hole moves back by the sub-frame amount ALONE, its tail
+    held where it was — again nothing else moves. A LOCKED clip is never
+    moved or resized from its start; it may still grow its tail to close a
+    hole behind it, which does not move it.
     """
     if not isinstance(edit, dict):
         return []
@@ -4184,29 +4625,41 @@ def heal_subframe_gaps(edit: dict) -> list[dict]:
     clips.sort(key=lambda c: _f(c.get("film_start")))
     frame = frame_seconds(edit)
     closed: list[dict] = []
-    cursor, delta = 0.0, 0.0
+    prev = None
+    cursor = 0.0
     for i, c in enumerate(clips):
-        length = _f(c.get("film_end")) - _f(c.get("film_start"))
-        if c.get("locked"):
-            # An anchor does not move, so nothing after it is carrying a shift.
-            cursor = max(cursor, _f(c.get("film_end")))
-            delta = 0.0
-            continue
-        fs = _f(c.get("film_start")) - delta
+        fs = _f(c.get("film_start"))
         gap = fs - cursor
-        if 1e-9 < gap < frame - 1e-9:
-            closed.append({"after": i - 1, "film_start": round(cursor, 6),
-                           "duration": round(gap, 6),
-                           "frames": round(gap / frame, 4)})
-            delta += gap
-            fs = cursor
-        if delta > 1e-9:
-            c["film_start"] = round(fs, 6)
-            c["film_end"] = round(fs + length, 6)
-            aud = c.get("audio")
-            if isinstance(aud, dict) and aud.get("film_start") is not None:
-                aud["film_start"] = round(_f(aud.get("film_start")) - delta, 6)
-        cursor = _f(c.get("film_end"))
+        # A hole right before a LOCKED clip is left alone, as it always was:
+        # the lock may sit between frames, and the length heal stops the clip
+        # before it on the last whole frame on purpose (heal_subframe_lengths).
+        if 1e-9 < gap < frame - 1e-9 and not c.get("locked"):
+            row = {"after": i - 1, "film_start": round(cursor, 6),
+                   "duration": round(gap, 6), "frames": round(gap / frame, 4)}
+            done = False
+            if prev is not None:
+                done = _fit_slot(prev, _f(prev.get("film_start")), fs)
+            if not done:
+                fe = _f(c.get("film_end"))
+                was = dict(c)
+                # The clip after the hole starts earlier by the hole, keeping
+                # its own tail: its source start moves back when it can.
+                sp = clip_speed(c)
+                st = _f(c.get("start"))
+                if clip_kind(c) != "video" or st - gap * sp >= -1e-9:
+                    if clip_kind(c) == "video":
+                        c["start"] = round(max(0.0, st - gap * sp), 6)
+                    c["film_start"] = round(cursor, 6)
+                    c["film_end"] = round(fe, 6)
+                    if clip_kind(c) != "video":
+                        c["end"] = round(fe - cursor, 6)
+                    done = True
+                else:
+                    c.clear(); c.update(was)
+            if done:
+                closed.append(row)
+        prev = c
+        cursor = max(cursor, _f(c.get("film_end")))
     return closed
 
 
@@ -4266,83 +4719,66 @@ def heal_subframe_lengths(edit: dict) -> list[dict]:
     # magnitude larger (up to half a frame, ~20 ms at 24 fps).
     NOISE = 1e-4
 
-    def _plan(run: list[dict], floor: bool) -> list[tuple]:
-        """What healing `run` would do, WITHOUT touching it: one row per
-        clip — (clip, new source end or None, film start, film length,
-        length change, frames, old length, old start)."""
-        rows: list[tuple] = []
-        shift = 0.0
-        for c in run:
-            fs0, fe0 = _f(c.get("film_start")), _f(c.get("film_end"))
-            length = fe0 - fs0
-            if length <= 0:
-                continue
-            if floor:
-                frames = max(1, math.floor(length / frame + NOISE / frame))
-            else:
-                frames = max(1, round(length / frame))
-            length_q = frames * frame
-            d = length_q - length
-            new_end = None
-            # NEVER PAST THE TAKE'S OWN END. A correction that would ask for
-            # source the file does not have is skipped rather than clamped — a
-            # clamp would silently leave the stored film length and the source
-            # window disagreeing by the very sub-frame amount this pass exists
-            # to remove. Skipping costs nothing downstream: `shift` (below)
-            # still carries whatever earlier clips already corrected, so this
-            # clip's POSITION stays right even when its own length does not.
-            if abs(d) > NOISE and clip_kind(c) == "video":
-                sp = clip_speed(c)
-                ne = _f(c.get("start")) + length_q * sp
-                dur = c.get("duration")
-                if isinstance(dur, (int, float)) and dur > 0 and ne > float(dur) + 1e-6:
-                    d, length_q = 0.0, length
-                else:
-                    new_end = ne
-            rows.append((c, new_end, fs0 + shift, length_q, d, frames, length, fs0))
-            shift += d
-        return rows
+    # ON THE FILM'S OWN FRAME GRID, NOT A RUNNING SHIFT (2 Nov). Each clip's
+    # two edges are rounded to the nearest frame of the FILM's clock, so a
+    # cut moves by at most half a frame and never by the sum of the
+    # corrections before it. The old pass rounded each LENGTH and slid every
+    # later clip by the running total: on SUNDAY MASS three takes a hair
+    # short pulled the lip-sync shots two frames off their music cues.
+    # Two clips that touched still touch (the same number rounds the same
+    # way). A clip whose take cannot reach its rounded tail is held to it by
+    # playing fractionally slower (`_fit_slot`); past SLOT_FIT_MAX_SLOW its
+    # tail rounds DOWN instead, leaving one frame of black, never a shift.
+    # A LOCKED clip is not rounded at all and nothing may cross into it.
+    def q(t: float) -> float:
+        return round(round(t / frame) * frame, 6)
 
-    # A LOCKED CLIP IS AN ANCHOR, and the clips between two anchors are one
-    # run: their corrections accumulate as a `shift` that moves everything
-    # after them in the run, and the next anchor does not move. EDITOR-3
-    # (Codex 4.17.0): that shift used to be reset at the anchor WITHOUT ever
-    # being checked against it, so two 0.98 s clips before a clip locked at
-    # 1.96 s (24 fps) each grew to 1.0 s and the second one ran 40 ms INTO
-    # the locked clip — a `clips_overlap` document, written by Save after
-    # validation had passed, that the render then refused. A run whose
-    # rounded-to-nearest lengths would cross the next anchor is healed by
-    # rounding DOWN instead: every length change is then ≤ 0, so nothing in
-    # the run moves later and nothing can reach the anchor.
     fixed: list[dict] = []
-    runs: list[tuple[list[dict], float | None]] = []
-    cur: list[dict] = []
-    for c in clips:
+    order = clips
+    for i, c in enumerate(order):
         if c.get("locked"):
-            runs.append((cur, _f(c.get("film_start"))))
-            cur = []
-        else:
-            cur.append(c)
-    runs.append((cur, None))
-    for run, anchor in runs:
-        if not run:
             continue
-        rows = _plan(run, floor=False)
-        if anchor is not None and rows and \
-                max(r[2] + r[3] for r in rows) > max(anchor, max(r[7] + r[6] for r in rows)) + NOISE:
-            rows = _plan(run, floor=True)
-        for c, new_end, fs, length_q, d, frames, length, fs0 in rows:
-            if new_end is not None:
-                c["end"] = round(new_end, 6)
-            if abs(d) > NOISE:
-                fixed.append({"id": c.get("id"), "was": round(length, 6),
-                             "now": round(length_q, 6), "frames": frames})
-            if abs(fs - fs0) > NOISE or abs(d) > NOISE:
-                c["film_start"] = round(fs, 6)
-                c["film_end"] = round(fs + length_q, 6)
-                aud = c.get("audio")
-                if isinstance(aud, dict) and aud.get("film_start") is not None:
-                    aud["film_start"] = round(_f(aud.get("film_start")) + (fs - fs0), 6)
+        fs0, fe0 = _f(c.get("film_start")), _f(c.get("film_end"))
+        length = fe0 - fs0
+        if length <= 0:
+            continue
+        fs, fe = q(fs0), q(fe0)
+        prev_end = max([_f(x.get("film_end")) for x in order[:i]] or [0.0])
+        if fs < prev_end - NOISE:
+            fs = prev_end
+        nxt = order[i + 1] if i + 1 < len(order) else None
+        if nxt is not None and nxt.get("locked"):
+            # Never into a locked clip; and on the grid even when the lock
+            # itself sits between frames (its own position is not ours to
+            # round), so the tail stops at the last frame before it.
+            anchor = _f(nxt.get("film_start"))
+            fe = min(fe, round(math.floor(anchor / frame + NOISE / frame) * frame, 6))
+        if fe - fs < frame - NOISE:
+            fe = fs + frame
+            if nxt is not None and fe > _f(nxt.get("film_start")) + NOISE:
+                continue                       # no room for even one frame: leave it
+        if abs(fs - fs0) <= NOISE and abs(fe - fe0) <= NOISE:
+            continue
+        was = dict(c)
+        if not _fit_slot(c, fs, fe):
+            # The take is too short even slowed: round the tail DOWN to the
+            # last whole frame it can reach. One frame of black at most.
+            sp = clip_speed(c)
+            dur = c.get("duration")
+            avail = (float(dur) - _f(c.get("start"))) / sp if isinstance(dur, (int, float)) and dur > 0 else length
+            frames_ok = math.floor((min(avail, fe - fs) + NOISE) / frame)
+            if frames_ok < 1 or not _fit_slot(c, fs, fs + frames_ok * frame):
+                c.clear(); c.update(was)
+                continue
+        d = (_f(c.get("film_start")) - fs0)
+        aud = c.get("audio")
+        if isinstance(aud, dict) and aud.get("film_start") is not None and abs(d) > NOISE:
+            aud["film_start"] = round(_f(aud.get("film_start")) + d, 6)
+        new_len = _f(c.get("film_end")) - _f(c.get("film_start"))
+        if abs(new_len - length) > NOISE or abs(d) > NOISE:
+            fixed.append({"id": c.get("id"), "was": round(length, 6),
+                          "now": round(new_len, 6),
+                          "frames": int(round(new_len / frame))})
     return fixed
 
 

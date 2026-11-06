@@ -394,6 +394,7 @@ function _scVisible(el) {
 
 // The same list health.js's Esc scaffold closes, plus the Docs.
 function shortcutTopModal() {
+  if (typeof window.phosTopModal === 'function') return window.phosTopModal();
   const sel = '.models-modal, .model-browser-modal, .expand-lightbox, .modal-bg.show';
   const open = Array.from(document.querySelectorAll(sel)).filter(el =>
     el.classList.contains('open') || el.classList.contains('show')
@@ -417,6 +418,7 @@ function shortcutFocusSearch() {
 }
 
 function shortcutGenerateFrom(t) {
+  if (shortcutTopModal()) return false;
   const id = t && t.id;
   if (id === 'prompt') {
     const form = document.getElementById('genForm');

@@ -1,19 +1,20 @@
 # Images
 
-The Images tab makes stills. Engines here: **Reference Edit**, which reworks an image you give it, **Ideogram 4**, which puts words on a picture, **FLUX 3 Klein**, and **P-H3-Image**, which makes large photographs and posters from words alone.
+The Images tab makes stills. Pick the model first: **Model**, at the top of the column, is the same picker the Video tab uses. Models here: **FLUX.2 [klein]**, the recommended first model, **FLUX 3 Klein**, **Reference Edit**, which reworks an image you give it, **Ideogram 4**, which puts words on a picture, and **P-H3-Image**, which makes large photographs and posters from words alone.
 
-## Choosing the engine {#engines}
+## Choosing the model {#engines}
 
-| Engine | Use it for |
-|---|---|
-| **Auto (use Settings)** | whatever Settings picks for this Mac |
-| **Reference Edit — Fast** | image-to-image in 4 steps, about 1:20, several references — the default |
-| **Reference Edit — Standard** | 8 steps, about 2:05, no LoRA |
-| **Reference Edit — Quality** | 40 steps, about 3:50 — for final renders |
-| **Ideogram 4 — typography & layout** | text in the image, with an optional reference |
-| **P-H3-Image** (Draft / Standard / High) | big photographs, film frames and posters from text, words spelled right; about 2.5 min at 4 MP |
+| Model | Use it for | Versions (under the prompt) |
+|---|---|---|
+| **FLUX.2 [klein]** | pictures from words, edits from your photos; a ~4.3 GB first download. The default | one |
+| **FLUX 3 Klein** | sharper pictures from words or references | Q8, Q6, Q4, each at Standard or Base Quality |
+| **Reference Edit** | changing a picture you give it: a background, an outfit, several references combined | Fast (4 steps, about 1:20), Standard (8 steps, about 2:05, no LoRA), Quality (40 steps, about 3:50, for final renders) |
+| **Ideogram 4** | text in the image, placed where you want it, with an optional reference | one |
+| **P-H3-Image** | big photographs, film frames and posters from text, words spelled right; about 2.5 min at 4 MP | Draft, Standard, High |
 
-The pill next to the menu says whether that engine is downloaded. An engine that needs more memory than this Mac has is greyed out and labelled *needs a N GB Mac*.
+The model's versions sit in **Version**, under the prompt; a model with one version just names it there. Phosphene remembers the version you last used for each model.
+
+The pill next to **Version** says whether that version is downloaded. A version that needs more memory than this Mac has is greyed out and labelled *needs a N GB Mac*; a model none of whose versions fit is dimmed in the **Model** menu with the memory it needs.
 
 On Macs with 16 GB of memory or less, **Auto** uses FLUX.2 [klein] 4B at 4-bit for a render without references if the engine chosen in Settings needs a bigger Mac; your Settings stay the same. Renders with reference images keep the Settings engine because Klein does not use references. If that engine cannot fit, remove the references so Auto can use Klein, or choose a lighter engine in Settings.
 
@@ -47,7 +48,7 @@ A Layout render needs at least one box.
 
 ## FLUX 3 Klein
 
-Choose **FLUX 3 Q8 / Standard** to make an image from text, or add reference images to edit them. Describe the complete scene you want. Standard uses 16 steps. **Base Quality** uses a separate model at 50 steps and takes longer.
+Choose **FLUX 3 Klein** under **Model** and **FLUX 3 Q8 / Standard** in **Version** to make an image from text, or add reference images to edit them. Describe the complete scene you want. Standard uses 16 steps. **Base Quality** uses a separate model at 50 steps and takes longer.
 
 Q8 is the recommended quality. Q6 uses less memory; Q4 supports 24 GB Macs with a small image size and one reference. 32 GB or more is recommended. The first run downloads about 9.9 GB for Q8, 7.6 GB for Q6 or 5.3 GB for Q4, plus the image engine. Stop cancels setup or rendering; a later run resumes downloads. After that, an image takes about 50 seconds on an M4 Max with 64 GB.
 
@@ -59,7 +60,7 @@ Your images appear in the gallery. Choose **Animate** to send one to image-to-vi
 
 P-H3-Image is Pruna AI's image model, built on MiniMax H3, the same model behind Hailuo H3 video. It makes one picture from a text prompt in 8 steps, with nothing to tune. It is strongest at photographs, film frames, crowds and posters whose quoted words must be spelled exactly. Hands and very small faces in the background can still go wrong. It does not use reference images yet: anything in the slots is ignored.
 
-Pick a size in **Engine**:
+Choose **P-H3-Image** under **Model**, then a size in **Version**:
 
 | Choice | Size | Time on an M4 Max, 64 GB |
 |---|---|---|
@@ -69,6 +70,6 @@ Pick a size in **Engine**:
 
 **Aspect** sets the shape; the size comes from the choice. It needs about 26 GB of free memory, so a Mac with 48 GB or more.
 
-**First use.** It runs on the Hailuo H3 video pack, so install Hailuo H3 first. Then the chip next to **Engine** reads *download ~18 GB*: click it. Phosphene shows the MiniMax H3 licence, then downloads P-H3-Image's own parts (adapter, text encoder, image decoder) once, from Pruna's repository at a pinned version, and checks every file. It needs about 24 GB free on the disk while it prepares, and keeps about 15 GB. The chip says *ready* when it is done. If it reads *update the H3 runner*, update Hailuo H3 first (your weights stay).
+**First use.** It runs on the Hailuo H3 video pack, so install Hailuo H3 first. Then the chip next to **Version** reads *download ~18 GB*: click it. Phosphene shows the MiniMax H3 licence, then downloads P-H3-Image's own parts (adapter, text encoder, image decoder) once, from Pruna's repository at a pinned version, and checks every file. It needs about 24 GB free on the disk while it prepares, and keeps about 15 GB. The chip says *ready* when it is done. If it reads *update the H3 runner*, update Hailuo H3 first (your weights stay).
 
 *P-H3-Image by Pruna AI, based on MiniMax-H3 by MiniMax, under the MiniMax H3 Community License; its text encoder is based on Qwen3-VL-4B (Apache-2.0). Powered by MiniMax H3. Fetched from Pruna's repository, never re-hosted; the only change made on your Mac is re-arranging the image decoder's tensors for the MLX runner (renamed and re-fused, values unchanged), noted inside the file. MiniMax H3 is licensed under the MiniMax H3 Community License Agreement, Copyright (c) 2026 MiniMax. All Rights Reserved.*

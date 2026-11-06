@@ -27,21 +27,6 @@ def _safe(fn, default=None):
         return default
 
 
-def _pro() -> dict:
-    # 5.0 studios answer pro_status(); a 4.19 studio has only the _pro_active() verdict, and the
-    # public Free tree has neither (always Free).
-    status = getattr(P, "pro_status", None)
-    if callable(status):
-        return _safe(status, {"active": False})
-    active = getattr(P, "_pro_active", None)
-    return {"active": bool(_safe(active, False)) if callable(active) else False}
-
-
-def _speech_available() -> bool:
-    status = getattr(P, "speech_status", None)
-    return bool(callable(status) and _safe(lambda: status()["available"], False))
-
-
 def agents_payload() -> dict:
     agents_dir = P.ROOT / "agents"
     py = sys.executable
@@ -59,7 +44,7 @@ def agents_payload() -> dict:
         "distribution": P._dist.distribution(),
         "edition": _safe(P._dist.edition),
         "profile": P.PROFILE,
-        "pro": _pro(),
+        "pro": _safe(P.pro_status, {"active": False}),
         "engines": {
             "ltx": {"available": not _safe(lambda: P.capability_missing("render"), ["?"]),
                     "default": True,
@@ -68,7 +53,7 @@ def agents_payload() -> dict:
             "h3": {"available": h3_on,
                    "qualities": [k for k, q in P.H3_QUALITIES.items() if q.get("offered", True)],
                    "lengths": [k for k, l in P.H3_LENGTHS.items() if l.get("offered", True)]},
-            "speech": {"available": _speech_available()},
+            "speech": {"available": bool(_safe(lambda: P.speech_status()["available"], False))},
             "music": {"available": bool(_safe(lambda: not P.music_paths()["missing"], False))},
             "image": {"available": True, "note": "the engine chosen in Settings; it downloads on first use"},
         },

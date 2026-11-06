@@ -16,7 +16,7 @@ character names.
 | | |
 |---|---|
 | **What identifies you** | One random UUID, generated on your Mac, tied to nothing |
-| **How often** | Once ever when the install is new, once per panel start, plus once per finished render. No heartbeats |
+| **How often** | Once ever when the install is new, once per panel start, plus once per finished render, and Phosphene Bench results only when you press Submit ([`bench_result`](#bench_result)). No heartbeats |
 | **Where it goes** | PostHog (`us.i.posthog.com`), or a self-hosted endpoint you choose |
 | **Location** | None sent. Country and city are *derived* from the address your computer connects from, and kept — [details](#location) |
 | **How to turn it off** | Settings → *Anonymous usage analytics* → **Turn off**, or `PHOSPHENE_ANALYTICS_DISABLED=1` |
@@ -199,8 +199,8 @@ including image and training jobs.
 
 | Field | Type | Example | Notes |
 |---|---|---|---|
-| `engine` | string | `"ltx"` | `ltx`, `h3`, `music`, an image engine (`flux3`, `mflux/<family>`), or `image` for an image job that failed before its engine was chosen (before 4.19.16 failed image jobs said `ltx`) |
-| `mode` | string | `"i2v"` | `t2v`, `i2v`, `extend`, `keyframe`, `a2v`, `restore`, `ingredients`, `control`, `upscale`, `image`, `train` |
+| `engine` | string | `"ltx"` | `ltx`, `h3`, `music`, `speech`, an image engine (`flux3`, `mflux/<family>`), or `image` for an image job that failed before its engine was chosen (before 4.19.16 failed image jobs said `ltx`) |
+| `mode` | string | `"i2v"` | `t2v`, `i2v`, `extend`, `keyframe`, `a2v`, `restore`, `ingredients`, `control`, `upscale`, `image`, `train`, `music`, `speech` (a Speech job sends only the counts every render sends: never the script, the voice, a character name or the clip) |
 | `tier` | string | `"standard"` | LTX quality (`quick`/`balanced`/`standard`/`high`) or the H3 composite cell (`standard_5s`, `high_10s`, …) |
 | `duration_bucket` | string | `"5-15m"` | Legacy 5-value bucket, kept one more release for dashboard continuity, then removed in favour of `wall_sec_bucket` |
 | `wall_sec_bucket` | int | `480` | The lower edge of a log-spaced ladder (`15, 30, 45, 60, 90, 120, 180, 240, 300, 420, 600, 900, 1200, 1800, 2400, 3600, 5400`). Sharp enough to see a performance regression, far too coarse to be a timing fingerprint. Absent when the wall clock is unknown |
@@ -223,7 +223,7 @@ including image and training jobs.
 | `lora_kinds` | string | `"style"` | Closed vocabulary: `none` / `style` / `character` / `mixed` |
 | `character_used` | bool | `true` | A cast character drove this render |
 | `audio_mode` | string | `"joint"` | `joint` / `none` (external audio replaces the generated track) / `a2v_dub` / `h3_native` |
-| `h3_sampler` | string | `"v13"` | 4.19.11 — H3 renders only: which sampler ran. **Closed vocabulary**: `best` (the full sampler), `fast`, `turbo`, `v13` (lightx2v v1.3 on Best at High), `flex` (Pika H3 Flex, its six-step re-noise sampler). Keeps the timing lanes apart, which `steps` alone cannot |
+| `h3_sampler` | string | `"v13"` | 4.19.11 — H3 renders only: which sampler ran. **Closed vocabulary**: `best` (the full sampler), `fast`, `turbo`, `v13` (lightx2v v1.3 on Best at High), `flex` (Pika H3 Flex, its six-step re-noise sampler), `flex_turbo` (5.0: H3 Flex Turbo, Pro, four euler steps). Keeps the timing lanes apart, which `steps` alone cannot |
 | `first_render` | bool | `true` | Present once per install, on its first successful render ever — the activation funnel without a join |
 | `gpu_steps` | string | `"short"` | 4.17.5 — present only when the render ran in **short GPU steps** (one Metal op per command buffer), the path a macOS GPU-watchdog kill switches a setting to. Closed vocabulary: `short`. Absent = default steps. Answers "does the short path stop the watchdog loop" |
 | `watchdog_retry` | bool | `true` | 4.17.5 — present only when a GPU-watchdog kill was re-run inside the same job (once, on short steps). On `render_completed` it means the retry saved the render |
@@ -232,7 +232,7 @@ including image and training jobs.
 | `helper_warm` | bool | `false` | 4.19.6 — LTX renders that ran in the warm engine process: `true` when the (last) run started in a process that had already finished a render, `false` when it started fresh. Absent for engines that do not use it. Tells whether prompt-encoding GPU aborts follow a warm process |
 | `mem_pressure` | int | `1` | 4.19.16 — LTX renders: macOS's memory pressure level when the render started (`1` normal, `2` warning, `4` critical). Absent when unread. Tells memory pressure apart from the render itself in the 16 GB Metal-watchdog kills |
 | `mem_avail_gb` | int | `8` | 4.19.16 — LTX renders: the memory the kernel reported available when the render started, as the lower edge of `0, 2, 4, 6, 8, 12, 16, 24, 32, 64` GB. Absent when unread |
-| `source` | string | `"storyboard"` | v4.9.7 — which surface queued the job. **Closed vocabulary**: `form`, `batch`, `storyboard`, `characters`, `image_studio`, `retry`, `api`, `chain` (an Upscale ×2 queued automatically behind an H3 draft), `unknown`. Makes "how much of the rendering is Storyboard" a one-click breakdown |
+| `source` | string | `"storyboard"` | v4.9.7 — which surface queued the job. **Closed vocabulary**: `form`, `batch`, `storyboard`, `characters`, `image_studio`, `retry`, `api`, `chain` (an Upscale ×2 queued automatically behind an H3 draft), `bench` (a Phosphene Bench step, see [`bench_result`](#bench_result)), `unknown`. Makes "how much of the rendering is Storyboard" a one-click breakdown |
 
 ### `render_failed`
 
@@ -426,7 +426,7 @@ Once per job the panel **declined on purpose**. Same fields as
 
 | Field | Type | Example | Notes |
 |---|---|---|---|
-| `refusal` | string | `"ingredients_generation"` | **A closed vocabulary** — `ingredients_generation`, `hardware_tier`, `h3_ram`, `h3_mode`, `h3_lora_slots`, `stale_engine` (v4.9+: a 2.5 render refused because the vendored engine predates the Gemma 4 tower — remedy is a second Update click). `image_ram` (v4.9.3+: the Image Studio memory guard — the engine holds more weights than this Mac can hold, or too little is free right now). `pack_missing` (v4.9.3+: High / Keyframes / Extend chosen on a Mac that has not downloaded the Q8 add-on — remedy is Settings → Models). `vocal_separator` (4.17.x+: Lip-sync with "Listen to the voice only" on an install whose vocal separation is missing — remedy is the form's own Install button). `licence_required` (4.19.8+: a model whose licence asks for an "I accept" - Hailuo H3, Ideogram 4, YuE2, FLUX.1 Krea [dev], Bria FIBO - before it was accepted on this Mac; remedy is the licence screen, once). `pack_incomplete` (4.19.16+: an LTX render on a pack that is not completely on disk and is not downloading, named file by file; remedy is Repair. Before 4.19.16 these were `render_failed`; a pack that is still downloading now waits instead). `memory_low` (4.19.16+: a Mac with 24 GB or less whose prompt encoding macOS stopped in the last 30 minutes, still short of memory after a 90 s wait; remedy is quitting other apps). `train_models` (4.19.17+: a training run whose LTX-2.3 weights - the base pack or the full-precision dev transformer - are not on this Mac; refused at Start, at Retry and before the trainer spawns, with the Train tab's Download all. Before 4.19.17 these were `render_failed` with `train_error: missing_file`, one Mac 22 times in an hour). `lora_mismatch` (4.19.17+: an Image render with a FLUX.2 LoRA made for another FLUX.2 size - a [klein] 9B or [dev] adapter on the [klein] 4B that Auto and Klein-Edit run - stopped before the engine starts; remedy is un-picking it. Before 4.19.17 these were `render_failed` with mflux's `[matmul] Last dimension of first input`). `image_refs` (4.19.17+: an Image render with more reference images than its engine takes - 3, FLUX 3 10 - reaching the worker; /queue/add refuses it first. Before 4.19.17 these were `render_failed`, "This engine supports at most 3 reference images."). `image_disk` (4.19.17+: an Image engine whose first download does not fit on the disk that holds the image models - the model's real download size, less what an interrupted download left, plus 2 GB; remedy is freeing space. Before 4.19.17 these were `render_failed`, "pre-flight: only N GB free on the HF cache volume", against a flat 10 GB). Which guard said no. No free text, no fingerprint: the message is our own copy, so there is nothing to scrub and nothing unknown to count |
+| `refusal` | string | `"ingredients_generation"` | **A closed vocabulary** — `ingredients_generation`, `hardware_tier`, `h3_ram`, `h3_mode`, `h3_lora_slots`, `stale_engine` (v4.9+: a 2.5 render refused because the vendored engine predates the Gemma 4 tower — remedy is a second Update click). `image_ram` (v4.9.3+: the Image Studio memory guard — the engine holds more weights than this Mac can hold, or too little is free right now). `pack_missing` (v4.9.3+: High / Keyframes / Extend chosen on a Mac that has not downloaded the Q8 add-on — remedy is Settings → Models). `vocal_separator` (4.17.x+: Lip-sync with "Listen to the voice only" on an install whose vocal separation is missing — remedy is the form's own Install button). `licence_required` (4.19.8+: a model whose licence asks for an "I accept" - Hailuo H3, Ideogram 4, YuE2, FLUX.1 Krea [dev], Bria FIBO - before it was accepted on this Mac; remedy is the licence screen, once). `speech_ram`, `speech_installing`, `speech_consent` (Audio → Speech: a Mac under the 16 GB floor, a line queued while Speech installs, a cloned voice without the voice-owner confirmation). `pack_incomplete` (4.19.16+: an LTX render on a pack that is not completely on disk and is not downloading, named file by file; remedy is Repair. Before 4.19.16 these were `render_failed`; a pack that is still downloading now waits instead). `memory_low` (4.19.16+: a Mac with 24 GB or less whose prompt encoding macOS stopped in the last 30 minutes, still short of memory after a 90 s wait; remedy is quitting other apps). `train_models` (4.19.17+: a training run whose LTX-2.3 weights - the base pack or the full-precision dev transformer - are not on this Mac; refused at Start, at Retry and before the trainer spawns, with the Train tab's Download all. Before 4.19.17 these were `render_failed` with `train_error: missing_file`, one Mac 22 times in an hour). `lora_mismatch` (4.19.17+: an Image render with a FLUX.2 LoRA made for another FLUX.2 size - a [klein] 9B or [dev] adapter on the [klein] 4B that Auto and Klein-Edit run - stopped before the engine starts; remedy is un-picking it. Before 4.19.17 these were `render_failed` with mflux's `[matmul] Last dimension of first input`). `image_refs` (4.19.17+: an Image render with more reference images than its engine takes - 3, FLUX 3 10 - reaching the worker; /queue/add refuses it first. Before 4.19.17 these were `render_failed`, "This engine supports at most 3 reference images."). `image_disk` (4.19.17+: an Image engine whose first download does not fit on the disk that holds the image models - the model's real download size, less what an interrupted download left, plus 2 GB; remedy is freeing space. Before 4.19.17 these were `render_failed`, "pre-flight: only N GB free on the HF cache volume", against a flat 10 GB). Which guard said no. No free text, no fingerprint: the message is our own copy, so there is nothing to scrub and nothing unknown to count |
 
 #### The rule — a refusal is not a failure
 
@@ -447,6 +447,17 @@ adding a chart:
 count, and is not in the engine mix — neither numerator nor denominator.** A
 refusal did not render, so counting it as a render (successful *or* failed)
 makes both numbers lie.
+
+The capture boundary checks known refusal signatures as well as the worker's
+typed refusal. This applies to both asynchronous and synchronous capture,
+before the local log or network delivery, and removes fault fields from a
+refusal event. Ingredients on an incompatible generation is refused before
+generation setup. Existing events on the server are not rewritten by this fix.
+
+An image subprocess exiting with SIGABRT is a `native_crash` unless its log
+explicitly reports an allocation failure, in which case it is `metal_oom`.
+A download progress line alone does not establish either a network fault or
+an out-of-memory fault.
 
 **Why a separate event rather than an `error_class` value.** Both were built
 and the event won. A class value keeps one event and one funnel, but it makes
@@ -535,6 +546,51 @@ answer rate measurable. No account, no username, no repo state — the panel can
 a star was actually given, and does not ask GitHub. `via` exists only to keep
 "a click we caused" separate from "a click that told us we did not need to
 ask", which is the whole question the ask was added to answer.
+
+### `bench_result`
+
+**Only on a click.** Sent when someone presses *Submit to the leaderboard* in
+Phosphene Bench (Settings → Phosphene Bench) and confirms. Never sent by a run
+on its own, never sent while analytics is off (the button says so instead), and
+never sent for an incomplete run. One event per run: a submit sends **every**
+complete run of the current suite stored on the Mac that has not been sent
+before (`state/bench/`, `submitted.json` records which), so the leaderboard can
+take each install's median rather than its best run. The panel delivers these on the click itself and marks a run as sent only when the receiver accepted it, so an offline click leaves the run for the next one.
+
+Unlike `render_completed`, times here are exact seconds, not buckets: the person
+asked for them to be published. Everything is still a hardware class or a
+measurement; no prompt (the suite's prompts are fixed and are not sent anyway),
+no seed, no path, no file name, no clip.
+
+| Field | Type | Example |
+|---|---|---|
+| `schema` | string | `"phosphene-bench/1"` |
+| `suite_id`, `suite_fp` | string | `"PB1"`, `"170df0bdfe5a"` — the frozen suite and the hash of its settings |
+| `run_id` | string | `"9185f62deeec4ab4"` — random per run, so a re-sent run is counted once |
+| `run_index`, `runs_total` | int | `2`, `3` — this run's place in the submit batch |
+| `version`, `edition`, `distribution` | string | `"4.19.12"`, `"free"`, `"pinokio"` |
+| `chip_family` | string | `"M4 Max"` |
+| `gpu_cores`, `cpu_p`, `cpu_e` | int | `40`, `12`, `4` |
+| `ram_gb` | int | `64` |
+| `model_id` | string | `"Mac16,9"` — the model identifier, a hardware class shared by every Mac of that model |
+| `os_version` | string | `"26.4"` (major.minor) |
+| `power` | string | `"ac"`, `"battery"` or `"unknown"` |
+| `low_power` | bool | `false` |
+| `thermal_worst` | string | `"nominal"`, `"fair"`, `"serious"`, `"critical"` or `"unknown"` |
+| `warmup_sec` | float | `42.0` — the untimed engine warm-up |
+| `complete`, `eligible` | bool | `true`, `true` |
+| `st_<step>` | string | `"done"`, `"failed"`, `"skipped"` or `"cancelled"` |
+| `s_<step>` | float or null | `139.4` — wall seconds, the same job timer as `render_completed` |
+| `mem_<step>`, `add_<step>` | float or null | `36.0`, `18.0` — GB of the Mac's memory in use at the step's peak, and how much the step added |
+| `cv_<step>` | string | `"1024×576"` — the canvas that ran |
+
+`<step>` is one of `ltx_quick_5s`, `ltx_balanced_5s`, `image_klein`,
+`h3_draft_5s`. The full local record (the JSON file the Bench saves) has a few
+more fields — macOS build, swap, the engine's own memory peak — that are **not**
+sent. The public page (phosphene.video/bench) shows per chip and memory size
+the median of each install's median, and how many installs; never an install
+id. The renders a Bench run makes are ordinary renders and send their own
+`render_completed` with `source: "bench"`.
 
 ### `engine_selected` — not implemented, on purpose
 

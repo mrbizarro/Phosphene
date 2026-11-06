@@ -5,7 +5,7 @@
 // ====== Inline models card (top of form) ======
 // Displays what the current install needs RIGHT WHERE the user is about
 // to act. Beats burying the download CTA in a header modal. State picked
-// from /status: base missing → red blocker, current-mode-needs-Q8 →
+// from /status: base missing → first-download offer, current-mode-needs-Q8 →
 // amber prompt, downloading → animated progress, all-good → hidden.
 function updateModelsCard(s) {
   const card     = document.getElementById('modelsInline');
@@ -17,6 +17,13 @@ function updateModelsCard(s) {
   const last     = document.getElementById('modelsInlineLast');
   const actions  = document.getElementById('modelsInlineActions');
   if (!card) return;
+  const setActions = html => {
+    if (actions._html === html) return;
+    const focused = actions.contains(document.activeElement);
+    actions._html = html;
+    actions.innerHTML = html;
+    if (focused) actions.querySelector('button')?.focus();
+  };
 
   const baseOk = !!s.base_available;
   const q8Ok   = !!s.q8_available;
@@ -25,8 +32,18 @@ function updateModelsCard(s) {
   const dismissed = !!(s.settings && s.settings.models_card_dismissed);
 
   // Reset state classes — we set the right one below.
-  card.classList.remove('state-missing', 'state-warn', 'state-downloading', 'dismissible');
+  card.classList.remove('state-missing', 'state-warn', 'state-downloading', 'dismissible', 'is-ready');
   progress.style.display = 'none';
+
+  if (s.model_path_error) {
+    card.style.display = '';
+    card.classList.add('state-warn');
+    icon.textContent = '!';
+    title.textContent = 'Model folder needs attention';
+    sub.textContent = s.model_path_error;
+    setActions('<button class="ghost" onclick="openModelsModal()">Check models</button>');
+    return;
+  }
 
   // ----- A Pinokio-side H3 build/install is running RIGHT NOW --------------
   // H3-19: install/build only ever runs as a Pinokio script — there is no
@@ -45,39 +62,38 @@ function updateModelsCard(s) {
     icon.textContent = '↓';
     title.textContent = `Building ${extBuild.what || 'an H3 engine'} in Pinokio`;
     sub.textContent = 'Running in the Pinokio sidebar — Generate resumes here automatically when it finishes. No need to keep that tab open.';
-    actions.innerHTML = '';
+    setActions('');
     return;
   }
 
-  // ----- 4.20: the post-install background downloads ----------------------
-  // A fresh install starts with the renderer only; Gemma 3 and the IC-LoRAs
-  // follow in the background. That is not a problem to fix, so the card says
-  // so calmly: you can render now, this is what is arriving and what it
-  // unlocks. Cancel skips that one pack (Settings -> Models still offers it).
+  // Requested video packs share one queue and one progress display.
+  // Stop keeps partial files and clears every remaining pack in that request.
   const bgq = s.deferred_downloads || {};
   if (dl && dl.background) {
     card.style.display = '';
     card.classList.add('state-downloading');
     icon.textContent = '↓';
     const rest = Math.max(0, (bgq.pending || []).length - 1);
-    title.textContent = `Finishing setup in the background — you can render now`;
+    title.textContent = 'Downloading your video model';
     sub.textContent = `Downloading ${dl.name || dl.key}${dl.size_gb ? ` (~${dl.size_gb} GB)` : ''}`
       + (rest ? ` · ${rest} more after this (${bgq.left_gb} GB left in all)` : '')
       + ' · resumes if interrupted';
     progress.style.display = '';
     const m = (dl.last_line || '').match(/\b(\d{1,3})%/);
-    fill.style.width = m ? `${Math.min(100, parseInt(m[1]))}%` : '15%';
-    last.textContent = dl.last_line || 'starting…';
-    actions.innerHTML = `<button class="ghost" onclick="cancelDownload()">Skip this one</button>`;
+    fill.style.width = dl.bytes_total ? `${Math.min(99, 100 * dl.bytes_done / dl.bytes_total)}%` : m ? `${Math.min(99, parseInt(m[1]))}%` : '0%';
+    last.textContent = dl.bytes_total ? `${(dl.bytes_done / 1e9).toFixed(2)} of about ${(dl.bytes_total / 1e9).toFixed(2)} GB · ${dl.last_line || 'Connecting'} ` : dl.last_line || 'Connecting';
+    setActions(`<button class="ghost" onclick="cancelDownload()">Stop download</button>`);
     return;
   }
-  if (!dl && bgq.state === 'waiting_disk' && bgq.message && baseOk) {
+  if (!dl && bgq.active && bgq.message) {
     card.style.display = '';
     card.classList.add('state-warn');
     icon.innerHTML = '<svg class="ph" aria-hidden="true"><use href="#ph-download-simple"/></svg>';
-    title.textContent = 'Background downloads paused — the disk is nearly full';
+    const failed = bgq.state === 'retry_wait' || bgq.state === 'failed';
+    title.textContent = bgq.state === 'waiting_disk' ? 'Download paused: more disk space needed' : failed ? 'Download needs another try' : 'Download waiting';
     sub.textContent = bgq.message;
-    actions.innerHTML = `<button class="ghost" onclick="openModelsModal()">Models</button>`;
+    setActions((failed ? `<button onclick="downloadFirstVideo()">Try again</button>` : '')
+      + `<button class="ghost" onclick="cancelDownload()">Stop download</button><button class="ghost" onclick="openModelsModal()">Models</button>`);
     return;
   }
 
@@ -93,18 +109,26 @@ function updateModelsCard(s) {
     progress.style.display = '';
     // Try to extract a percent from the last hf line (tqdm format).
     const m = (dl.last_line || '').match(/\b(\d{1,3})%/);
-    fill.style.width = m ? `${Math.min(100, parseInt(m[1]))}%` : '15%';
-    last.textContent = dl.last_line || 'starting…';
-    actions.innerHTML = `<button class="danger" onclick="cancelDownload()">Cancel</button>`;
+    fill.style.width = dl.bytes_total ? `${Math.min(99, 100 * dl.bytes_done / dl.bytes_total)}%` : m ? `${Math.min(99, parseInt(m[1]))}%` : '0%';
+    last.textContent = dl.bytes_total ? `${(dl.bytes_done / 1e9).toFixed(2)} of about ${(dl.bytes_total / 1e9).toFixed(2)} GB · ${dl.last_line || 'Connecting'} ` : dl.last_line || 'Connecting';
+    setActions(`<button class="danger" onclick="cancelDownload()">Cancel</button>`);
     return;
   }
 
-  // ----- Base missing — hard block, the panel can't render anything --------
-  if (!baseOk) {
+  // Image and song readiness belong to their own forms. Falling through to
+  // the video card's quiet state would falsely say all weights are installed.
+  if (currentMode === 'image' || document.body.dataset.workflow === 'audio') {
+    card.style.display = 'none';
+    setActions('');
+    return;
+  }
+
+  // ----- Offer the active video model on a first run ----------------------
+  if (!baseOk && currentMode !== 'image' && document.body.dataset.engine !== 'h3' && document.body.dataset.workflow !== 'audio') {
     card.style.display = '';
-    card.classList.add('state-missing');
+    card.classList.add('state-warn');
     icon.innerHTML = '<svg class="ph" aria-hidden="true"><use href="#ph-warning-fill"/></svg>';
-    title.textContent = 'Base models needed before you can render';
+    title.textContent = 'Get the video model';
     // Mac app: the app is fetching the base set itself (app_models.json).
     // Say so and offer no second Download - two fetchers on one pack is not
     // safe, and the server refuses it anyway. Absent under Pinokio.
@@ -120,11 +144,10 @@ function updateModelsCard(s) {
         fill.style.width = `${Math.min(100, Math.round(100 * appDl.done_bytes / appDl.total_bytes))}%`;
         last.textContent = '';
       }
-      actions.innerHTML = '';
+      setActions('');
       return;
     }
     const missingList = s.base_missing || [];
-    const missing = missingList.length;
     // REGISTRY-DRIVEN, for the ACTIVE generation. `base_missing` is already
     // version-scoped, so offering `q4` here downloaded 2.3's base to fix a
     // broken 2.5 install: 20 GB spent, still broken.
@@ -140,20 +163,13 @@ function updateModelsCard(s) {
       || missingList.some(f => String(f).includes(p.local_dir));
     const needBase = packNeeded(pBase), needEnc = packNeeded(pEnc);
     const parts = [];
-    if (needBase) parts.push(`${escapeHtml(pBase ? pBase.name : 'The base model')} (~${escapeHtml(pBase ? pBase.size : '?')})`);
-    if (needEnc) parts.push(`${escapeHtml(pEnc ? pEnc.name : 'its text encoder')} (~${escapeHtml(pEnc ? pEnc.size : '?')})`);
-    sub.innerHTML = (parts.join(' and ') || 'A required model')
-      + ` ${parts.length > 1 ? 'are' : 'is'} required. Click below — downloads resume if interrupted.${
-      // VC-10: was always "(N files left)" — grammatically wrong for the
-      // single-file case the review actually hit ("1 files left").
-      missing ? ` <span style="color:var(--muted)">(${missing} file${missing === 1 ? '' : 's'} left)</span>` : ''
-    }`;
-    // A mirrored pack does not need `hf` at all — the same per-row question the
-    // Models modal already asks, answered from the same registry field.
-    const baseNeedsHf = pBase ? (pBase.needs_hf !== false) : true;
-    actions.innerHTML = ((s.hf_available ?? true) || !baseNeedsHf)
-      ? `<button onclick="startDownload('${escapeHtml(pBase ? pBase.key : 'q4')}')">Download ${escapeHtml(pBase ? pBase.name : 'base')} (${escapeHtml(pBase ? pBase.size : '?')})</button>`
-      : `<button disabled title="${escapeHtml(distText('hf binary not found — reinstall via Pinokio', 'hf not found — quit Phosphene and open it again to rerun setup'))}">hf missing</button>`;
+    if (needBase) parts.push(`${pBase ? pBase.name : 'The base model'} (~${pBase ? pBase.size : '?'})`);
+    if (needEnc) parts.push(`${pEnc ? pEnc.name : 'its text encoder'} (~${pEnc ? pEnc.size : '?'})`);
+    sub.textContent = 'Recommended for your first video. ' + parts.join(' and ')
+      + '. Download once, then make videos locally. Images and songs have their own models.';
+    setActions(`<button onclick="downloadFirstVideo()">Download video models</button>`
+      + `<button class="ghost" onclick="setMode('image')">Try images</button>`
+      + `<button class="ghost" onclick="openModelsModal()">All models</button>`);
     return;
   }
 
@@ -205,9 +221,9 @@ function updateModelsCard(s) {
       + (missing && missing < 8
           ? ` <span style="color:var(--muted)">(${missing} files left — partial install detected)</span>` : '');
     const wantNeedsHf = (want.needs_hf !== false);
-    actions.innerHTML = ((s.hf_available ?? true) || !wantNeedsHf)
+    setActions(((s.hf_available ?? true) || !wantNeedsHf)
       ? `<button onclick="startDownload('${escapeHtml(want.key)}')">Download ${escapeHtml(want.name)} (${escapeHtml(want.size)})</button>`
-      : `<button disabled>hf missing</button>`;
+      : `<button disabled>hf missing</button>`);
     return;
   }
 
@@ -261,7 +277,7 @@ function updateModelsCard(s) {
     sub.textContent = built
       ? 'Its compact engine just needs building — no download.'
       : 'Needs its compact (Q8) engine, built during install.';
-    actions.innerHTML = `<button onclick="openH3InstallCard()">Set up H3 →</button>`;
+    setActions(`<button onclick="openH3InstallCard()">Set up H3 →</button>`);
     return;
   }
   if (h3s.capable && !h3s.available && h3s.repairable) {
@@ -283,7 +299,7 @@ function updateModelsCard(s) {
       ? 'H3’s code checkout is missing or incomplete. Restoring it takes ~1 '
         + 'minute and <b>re-downloads nothing</b>.'
       : 'Missing: ' + escapeHtml(_miss[0] || 'see the repair card') + '.';
-    actions.innerHTML = `<button onclick="openH3InstallCard()">How to repair H3</button>`;
+    setActions(`<button onclick="openH3InstallCard()">How to repair H3</button>`);
     return;
   }
 
@@ -296,7 +312,7 @@ function updateModelsCard(s) {
   const allReady = baseOk && q8Ok;
   if (allReady) {
     card.style.display = 'none';
-    actions.innerHTML = '';
+    setActions('');
     return;
   }
   // ----- Partial-OK quiet state ---------------------------------------------
@@ -304,7 +320,11 @@ function updateModelsCard(s) {
   // picked a Q8-needing mode — gentle nudge in neutral colours, dismissible.
   if (dismissed) { card.style.display = 'none'; return; }
   card.style.display = '';
-  card.classList.add('dismissible');
+  // `is-ready`: nothing is wrong here, so it is ONE quiet line under the Model
+  // picker, never a card that competes with it (owner, 5 Nov 2026: on rc.2 this
+  // card sat above "Model" and pushed it down). The × stays and the dismissal
+  // persists (settings.models_card_dismissed), so once closed it stays closed.
+  card.classList.add('dismissible', 'is-ready');
   icon.innerHTML = '<svg class="ph" aria-hidden="true"><use href="#ph-check-bold"/></svg>';
   // SYS-17: "Models ready · 3/12" read as "25% ready" -- the denominator
   // counts every optional add-on, most of which nobody needs. Also
@@ -319,7 +339,7 @@ function updateModelsCard(s) {
     ? `Ready to render ✓ · ${addons} add-on${addons === 1 ? '' : 's'} available`
     : 'Ready to render ✓';
   sub.textContent = 'All the weights this Mac renders with are installed.';
-  actions.innerHTML = '';
+  setActions('');
 }
 
 // Persist the "user dismissed the models card" flag. POSTs to /settings
@@ -746,76 +766,43 @@ async function refreshStorageSection() {
   const foot = document.getElementById('storageFoot');
   if (!sec || !list || !foot) return;
   let d;
-  try { d = await api('/storage'); } catch (e) { sec.style.display = 'none'; return; }
+  try { d = await api('/storage'); } catch (e) { sec.style.display = ''; foot.textContent = 'Could not read storage. Close Settings and try again.'; return; }
   const rows = d.rows || [];
-  // Rule 5: nothing to reclaim -> the section and its <h3> are both absent. A
-  // single-generation install never sees it.
-  // GATED ON WHAT CAN ACTUALLY BE RECLAIMED, not on row count. Rule 5 says a
-  // single-generation install never sees this section — and it didn't, on the
-  // box §7c was proved on, which happened to hold q8 + the add-on. On a genuine
-  // fresh install /storage returns exactly ONE row: Gemma 3, removable false,
-  // 0 GB reclaimable — and `rows.length` is 1, so the whole section rendered,
-  // <h3> and all, to say that nothing can be freed. A "kept, and here is why"
-  // row earns its place BESIDE something actionable; on its own it is a section
-  // about nothing.
-  const actionable = rows.filter(r => r.removable && (r.bytes || 0) > 0);
-  if (!actionable.length) { sec.style.display = 'none'; return; }
   sec.style.display = '';
-  list.innerHTML = rows.map(r => {
-    // A KEPT FILE IS NOT A PROBLEM. `partial` painted an amber border and
-    // #ph-warning-fill on a perfectly healthy Gemma 3, under a heading about
-    // weights this build does not render with — three signals of trouble on a
-    // file that is working exactly as intended. A lock reads as "deliberate";
-    // a warning triangle reads as "you have a problem".
-    const icon = r.removable
-      ? '<svg class="ph" aria-hidden="true"><use href="#ph-check-bold"/></svg>'
-      : '<svg class="ph" aria-hidden="true"><use href="#ph-info"/></svg>';
-    const btn = r.removable
-      ? `<button class="ghost" onclick="removeStoragePack('${escapeHtml(r.key)}')">Remove</button>`
-      : '';
-    return `
-      <li class="${r.removable ? 'ready' : 'kept'}">
-        <span class="icon">${icon}</span>
-        <div class="meta">
-          <span class="ttl">${escapeHtml(r.name)}<span style="float:right">${escapeHtml(r.size)}</span></span>
-          <span class="sub">${escapeHtml((r.paths || []).join(' + '))}</span>
-          <span class="sub">${escapeHtml(r.note)}</span>
-        </div>
-        ${btn}
-      </li>`;
-  }).join('');
-  foot.innerHTML = escapeHtml(
-      `${d.reclaimable_label} reclaimable · ${d.free_label} free on this disk`)
-    + `<br>Removing a pack never touches <code>mlx_outputs/</code> — your clips stay where they are.`;
+  list.innerHTML = rows.map(r => `
+    <li class="kept"><div class="meta">
+      <span class="ttl">${escapeHtml(r.name)} (${escapeHtml(r.size)})</span>
+      <span class="sub">${escapeHtml((r.paths || []).join(' + '))}</span>
+      <span class="sub">${escapeHtml(r.note)}</span>
+    </div></li>`).join('');
+  if (!rows.length) list.textContent = d.message || 'No model folders found.';
+  foot.textContent = d.message || `${d.reclaimable_label} superseded · ${d.free_label} free on this disk`;
+  const button = document.getElementById('storageCleanup');
+  button.textContent = `Free up ${d.reclaimable_label}`;
+  button.disabled = !d.reclaimable;
+
 }
 
-// Native confirm(), the house rule, and it names the size AND the consequence.
-// No modal: this dialog is a .models-modal with no focus trap (see the spec's
-// §11-D), and stacking a custom confirm inside it would be a worse experience
-// than the browser's own.
-async function removeStoragePack(key) {
-  let d;
-  try { d = await api('/storage'); } catch (e) { return; }
-  const row = (d.rows || []).find(r => r.key === key);
-  if (!row) return;
-  const consequence = row.note ? row.note + '\n' : '';
-  if (!confirm(`Remove ${row.name}?\n\n`
-      + `Frees ${row.size} from mlx_models/.\n`
-      + consequence
-      + `Nothing you have already rendered is affected.`)) return;
-  let res;
+async function cleanupSupersededModels() {
+  const button = document.getElementById('storageCleanup');
+  const returnFocus = document.activeElement === button;
+  button.disabled = true;
   try {
-    res = await api('/models/remove', 'POST',
-      new URLSearchParams({ repo_key: key }));
+    const d = await api('/storage');
+    if (!d.reclaimable) return;
+    const folders = d.rows.filter(r => r.superseded_bytes).map(r => r.name).join('\n');
+    if (!confirm(`Free up ${d.reclaimable_label}?\n\nRemove superseded model files in:\n${folders}\n\nThis cannot be undone. Current models, outputs and LoRAs stay on disk.`)) return;
+    const res = await api('/storage/cleanup', 'POST', new URLSearchParams({
+      confirmed: 'yes', confirmation: d.confirmation
+    }));
+    phosToast(`Freed ${res.freed_label}.`, { kind: 'success' });
   } catch (e) {
     phosToast(String((e && e.message) || e), { kind: 'danger', duration: 6000 });
-    return;
-  }
-  phosToast(`Removed ${res.label} — ${res.freed_label} free.`,
-            { kind: 'success', duration: 6000 });
-  refreshStorageSection();
-  if (document.getElementById('modelsModal').style.display !== 'none') {
-    refreshModelsModal({ silent: true });
+  } finally {
+    await refreshStorageSection();
+    if (returnFocus && document.activeElement === document.body) {
+      (button.disabled ? document.querySelector('#settingsModal button') : button)?.focus();
+    }
   }
 }
 
@@ -1580,7 +1567,38 @@ _applyHdrPillAvailability();
 // ---- published to the page --------------------------------------------------
 // Inline handlers in the markup and the other files resolve these through
 // the global scope; everything NOT listed here is private to this module.
+// Every hidden -> visible visit starts the CSS entrance once. Status polls and
+// repeated open calls leave it alone. The modal scaffold owns Escape and Tab.
+let proReturnFocus = null;
+function openProModal(opener = null) {
+  const modal = document.getElementById('proModal');
+  if (modal.style.display !== 'none') return;
+  proReturnFocus = opener || document.activeElement;
+  modal.style.display = 'flex';
+  modal.querySelector('button').focus();
+}
+// The PRO mark: one GET /pro/status at boot. Free is the default state of the page; nothing nags.
+async function proStatusRefresh() {
+  let st = null;
+  try { const r = await fetch('/pro/status', { cache: 'no-store' }); if (r.ok) st = await r.json(); } catch (_) { st = null; }
+  const mark = document.getElementById('proMark');
+  const active = !!(st && st.active);
+  document.documentElement.dataset.pro = active ? (st.plan || 'pro') : '';
+  // The header "Pro" door is for Free in Pinokio only: a Pro member sees the PRO mark by the logo
+  // instead, and the Mac app has its own Pro chip in the top bar.
+  const btn = document.getElementById('proBtn');
+  if (btn) btn.hidden = active || isMacApp();
+  if (mark) { mark.hidden = !active; mark.textContent = ''; const d = document.createElement('span'); d.className = 'pro-mark-dash'; d.setAttribute('aria-hidden', 'true'); mark.append(d, active && st.label ? st.label.toUpperCase() : 'PRO'); }
+  return st;
+}
+function closeProModal() {
+  document.getElementById('proModal').style.display = 'none';
+  if (proReturnFocus && proReturnFocus.isConnected) proReturnFocus.focus();
+}
+
 Object.assign(globalThis, {
+  downloadFirstVideo,
+  openProModal, closeProModal, proStatusRefresh,
   pushSubscription, pushToggle, pushTest,
   appearanceGet, applyAppearance, setAppearance,
   renderNotifyState, toggleNotify, askNotifyPermission,
@@ -1591,5 +1609,15 @@ Object.assign(globalThis, {
   clearToken, closeSettingsModal, applySettings, _applyHdrPillAvailability,
   // inline-handler targets: generated markup resolves these through the
   // global scope (the v4.9.0 regression, PR #69)
-  removeStoragePack,
+  cleanupSupersededModels,
 });
+
+async function downloadFirstVideo() {
+  try {
+    const response = await fetch('/models/video', {method: 'POST'});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Download did not start. Try again.');
+    phosToast('Video models queued. Progress appears here.');
+    poll();
+  } catch (e) { phosToast(e.message || String(e), {kind: 'danger'}); }
+}

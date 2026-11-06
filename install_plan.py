@@ -1,31 +1,10 @@
-"""What a fresh install downloads before Start, what it leaves for later, and
-whether this Mac has the room. Stdlib only.
+"""Runtime-only install preflight and persistent, requested model queues.
 
-WHY THIS EXISTS (4.20). Until 4.20, install.js downloaded every weight pack
-(~38 GB: the LTX-2.5 engine and its text encoder, Gemma 3 for Enhance and the
-Storyboard planner, four IC-LoRAs) before Start appeared. On a 100 Mbps line
-that is close to an hour of a scrolling terminal, with no size, no time and no
-disk check up front - and the fleet says about 4 in 5 Pinokio install starts
-never reach a first panel boot. Now:
-
-  * `before_start` (required_files.json -> install) is all install.js fetches:
-    what a first render needs, ~27.5 GB.
-  * `after_start` is fetched by the panel in the background after the first
-    boot (mlx_ltx_panel.py, deferred_fetch_*), resumable, one pack at a time.
-  * install.js runs `preflight` FIRST: needed GB against free GB, in plain
-    words, and it stops in second one instead of minute forty when the disk
-    cannot hold the download.
-
-Two callers, one module:
-  * install.js, before the engine venv exists, under Pinokio's conda Python
-    (3.10): `python3 install_plan.py preflight` and, at the end,
-    `install_plan.py defer`. Keep this file importable on 3.8+.
-  * the panel imports it for the marker and the disk numbers.
-
-The marker (`<state>/install_deferred.json`) is the ONLY thing that makes the
-panel download in the background. install.js writes it; Update never does. So
-an existing install that updates behaves exactly as before: nothing is
-fetched, nothing removed.
+The registry's before_start and after_start lists are empty: opening the app
+never opts into model downloads. A feature request writes the queue; restart
+resumes that request. Legacy install.js markers are retained but ignored.
+The compatibility `defer` command never adds models to a queue.
+Stdlib only, so Pinokio can run the preflight before creating the venv.
 """
 from __future__ import annotations
 
@@ -123,7 +102,7 @@ def remaining_bytes(root: Path, repo: dict, min_b: int = 1024) -> int:
 
     Only the pack's DECLARED files count as present, so three IC-LoRAs sharing
     one directory never credit each other. Partial downloads in a downloader's
-    own cache are not counted - the estimate errs toward asking for more room.
+    own local staging cache count toward resumable progress.
     """
     if not repo_missing(root, repo, min_b):
         return 0
@@ -135,7 +114,13 @@ def remaining_bytes(root: Path, repo: dict, min_b: int = 1024) -> int:
         # The mirror fetcher appends shards to `<name>.partial` and resumes
         # from it, so a half-downloaded file's bytes are bytes NOT to fetch
         # again (Codex, ov-install: Resume was asked for the whole file).
-        for cand in (base / name, base / (name + ".partial")):
+        rel = Path(name)
+        # Hugging Face stages local-dir files beside their download metadata.
+        # Count that resumable file too, or a multi-GB transfer reads as 0 GB.
+        cache = base / ".cache" / "huggingface" / "download" / rel.parent
+        candidates = [base / name, base / (name + ".partial")]
+        candidates.extend(cache.glob(rel.name + ".*.incomplete"))
+        for cand in candidates:
             try:
                 n = max(n, cand.stat().st_size)
             except OSError:
@@ -154,13 +139,13 @@ def peak_overhead(repo: dict) -> int:
     return SHARD_BYTES if (repo.get("mirror") or {}).get("kind") == "github-release" else 0
 
 
-def models_volume_probe(root: Path) -> Path:
+def models_volume_probe(root: Path, *, models_dir: Path | None = None) -> Path:
     """The nearest existing directory on the volume the weights land on.
 
     mlx_models/ is an fs.link symlink into Pinokio's drive on a real install,
     which may sit on another volume than the app folder - measure THAT one.
     """
-    p = Path(root) / "mlx_models"
+    p = Path(models_dir) if models_dir is not None else Path(root) / "mlx_models"
     try:
         p = p.resolve()
     except OSError:
@@ -170,9 +155,9 @@ def models_volume_probe(root: Path) -> Path:
     return p
 
 
-def free_bytes(root: Path) -> int | None:
+def free_bytes(root: Path, *, models_dir: Path | None = None) -> int | None:
     try:
-        return int(shutil.disk_usage(str(models_volume_probe(root))).free)
+        return int(shutil.disk_usage(str(models_volume_probe(root, models_dir=models_dir))).free)
     except OSError:
         return None
 
@@ -257,7 +242,9 @@ def preflight_report(p: dict) -> tuple[int, list]:
     names_before = ", ".join(f"{r['name']} {fmt_gb(r['size'])}" for r in p["before"])
     names_after = ", ".join(r["name"] for r in p["after"])
     lines = [bar, "PHOSPHENE INSTALL - what downloads, how long, how much room"]
-    if not p["before_left"]:
+    if not p["before"]:
+        lines.append("Before Start: no model downloads. Choose a feature inside the app.")
+    elif not p["before_left"]:
         lines.append(f"Before Start: already on disk ({names_before})")
     elif p["before_left"] < p["before_total"]:
         lines.append(f"Before Start: {fmt_gb(p['before_left'])} still to download "
@@ -349,6 +336,22 @@ def write_marker(sdir: Path, data: dict) -> None:
         raise
 
 
+def request_packs(sdir: Path, keys: list) -> list:
+    """Persist only explicit choices. Old automatic queues are not consent."""
+    with MARKER_LOCK:
+        old = read_marker(sdir) or {}
+        pending = old.get("pending", []) if old.get("created_by") == "feature-request" else []
+        pending = list(dict.fromkeys(pending + keys))
+        write_marker(sdir, {"schema": 1, "created_by": "feature-request",
+                            "created_ts": time.time(), "pending": pending})
+        return pending
+
+
+def stop_requested_packs(sdir: Path) -> None:
+    with MARKER_LOCK:
+        write_marker(sdir, {"schema": 1, "created_by": "feature-request", "pending": []})
+
+
 def drop_from_marker(sdir: Path, key: str) -> list:
     """Remove one key; the marker file goes when nothing is left. Returns pending."""
     with MARKER_LOCK:
@@ -378,41 +381,12 @@ def prioritize_in_marker(sdir: Path, key: str) -> bool:
 
 
 def defer(root: Path | str | None = None, sdir: Path | None = None) -> list:
-    """install.js's last step: mark the after_start packs that are not on disk.
+    """Compatibility for an older install.js already loaded by Pinokio.
 
-    Merges with an existing marker (a second Install keeps what the first one
-    queued) and keeps the registry's order.
+    No automatic downloads, and no changes to a queue the user requested.
     """
-    root = Path(root) if root else HERE
-    reg = load_registry(root)
-    blk = install_block(reg)
-    by_key = repos_by_key(reg)
-    mb = min_bytes(reg)
-    sdir = Path(sdir) if sdir else state_dir(root)
-    old = read_marker(sdir) or {}
-    # Union with what an earlier Install queued, re-checked against the disk:
-    # a pack that landed since (a click, an Update) is not queued again.
-    wanted = set(old.get("pending") or []) | set(blk["after_start"])
-    pending = [k for k in blk["after_start"]
-               if k in wanted and k in by_key and repo_missing(root, by_key[k], mb)]
-    if not pending:
-        try:
-            (sdir / MARKER_NAME).unlink()
-        except OSError:
-            pass
-        return []
-    try:
-        version = (root / "VERSION").read_text(encoding="utf-8").strip()
-    except OSError:
-        version = ""
-    write_marker(sdir, {
-        "schema": 1,
-        "created_by": "install.js",
-        "created_ts": old.get("created_ts") or time.time(),
-        "version": version,
-        "pending": pending,
-    })
-    return pending
+    marker = read_marker(Path(sdir) if sdir else state_dir(root)) or {}
+    return marker.get("pending", []) if marker.get("created_by") == "feature-request" else []
 
 
 # ---- CLI ---------------------------------------------------------------------
@@ -440,15 +414,12 @@ def _main(argv: list) -> int:
                   "background after Start: " + ", ".join(by_key[k].get("name") or k
                                                           for k in pending if k in by_key))
         else:
-            print("Every optional pack is already on disk - nothing to download after Start.")
+            print("Models download when you choose a feature inside Phosphene.")
         return 0
     try:
         p = plan(root)
     except Exception as exc:  # noqa: BLE001 - fail open
         print(f"Install preflight skipped - could not read the install plan ({exc}).")
-        return 0
-    if not p["before"]:
-        print("Install preflight skipped - required_files.json has no install plan.")
         return 0
     if a.command == "show":
         print(json.dumps(p, indent=2))

@@ -72,11 +72,11 @@ Every render also writes a small sidecar file beside it with its settings. That 
 ## The first start {#first-start}
 
 [[pinokio]]
-On a new install, 27.5 GB downloads before **Start** appears: the LTX-2.5 engine, its text encoder and the preview decoder. The installer checks disk space first: you need about 32.5 GB free, and it tells you if there is not enough.
+Start appears once the runtime is ready. No models download before the app opens. Setup needs about 18 GB free, including 15 GB kept free for your work.
 
-After **Start**, 10.7 GB more downloads in the background, one at a time: Gemma 3 (what **Enhance** and the **Storyboard planner** run on) and the adapters for **Upscale & Face Fix**, **Control**, **Ingredients** and **Colorize**.
+For video, click **Download video models**. The default is **LTX-2.5 Q4**, about 27.5 GB with its prompt encoder. It supports your first text or image video without the larger Q8 pack. Both parts download in order, with progress in the panel. **Stop download** keeps partial files; click the download button again to resume.
 
-You can follow progress in the panel. The background download keeps 10 GB free on the drive and waits if there is less. Until a model arrives, the feature that needs it says it is downloading and offers **Download now**.
+You can also choose **Images** or **Audio**. They have their own models, and do not need the video download. Enhance, the Storyboard planner and optional adapters offer a download when you use them. Nothing else starts downloading just because you opened the app.
 [[/pinokio]]
 [[mac-app]]
 The base set is about 28 GB: the LTX-2.5 engine, its text encoder and the preview decoder. Before anything downloads, the app shows every item and its size, the space needed and your free space. If the studio fits but the models don't, you can set up the studio now and download models later from inside it.

@@ -1,0 +1,453 @@
+---
+// HOME (was /lab/one v3): "THE CUTTING ROOM". A full-screen showcase in Phosphene's Editor language
+// (scroll = playhead, Space plays the page with sound), ending on LAST TAKE's last line,
+// then the normal site: every shot as text, numbers, memory, plans, open source, FAQ.
+// Drop-in ready for src/pages/index.astro (see LAB_REPORT for the exact diff).
+import Base from '../layouts/Base.astro';
+import Numbers from '../components/Numbers.astro';
+import DownloadCTA from '../components/DownloadCTA.astro';
+import GetStarted from '../components/GetStarted.astro';
+import Plans from '../components/Plans.astro';
+import MoreMade from '../components/MoreMade.astro';
+import MemoryPicker from '../components/MemoryPicker.astro';
+import MORE from '../data/more.json';
+import '../lab/one/one.css';
+import Tunnel from '../components/tunnel/Tunnel.astro';
+import TunnelGate from '../components/tunnel/TunnelGate.astro';
+import TunnelPanel from '../components/tunnel/TunnelPanel.astro';
+import T from '../components/tunnel/copy.json';
+import PC from '../data/pricing-copy.json';
+import C from '../lab/copy/one.json';
+import E from '../lab/one/edit.json';
+import { CREDITS, UPSTREAM, SITE, STATS, FAQ, GALLERY } from '../data/site';
+// The home page. Title and description are the home's own (unchanged); the canonical is SITE.url + '/'.
+const homeTitle = 'Phosphene · Free AI video with sound, on your Mac. Offline.';
+const homeDescription = 'Your Mac can make AI video with sound. Phosphene is a free, open-source local AI video generator for Apple Silicon. Run LTX-2.5 and Hailuo H3 offline. Nothing uploaded.';
+
+const TITLES = C.titles as any[];
+const TOTAL = TITLES[TITLES.length - 1].end;
+const pad = (n: number) => String(n).padStart(2, '0');
+const clock = (s: number) => `${Math.floor(s / 60)}:${pad(Math.floor(s % 60))}.${pad(Math.round((s % 1) * 100) % 100)}`;
+const trackOf = (eng: string) => (eng.includes('H3') ? 'v2' : 'v1');
+const MUSIC = new Set(['lt_pushin', 'lt_lights', 'neonmile', 'lt_projector', 'lt_lastline']);
+const notes = C.clips as Record<string, string>;
+const A = C.app as Record<string, string>;
+const hero = TITLES[0];
+const AG = C.agent as any;
+// The agent demo replays a real job: "Order up" (Hailuo H3 image to video, High + Fast, 10 s, seed 72001, 1133 s on an
+// M4 Max). Prompt excerpts are cut from the exact payload (overnight-2026-10-19/site/showcase2/diner_jobs_snapshot.json).
+const DINER = {
+  prompt: "Live-action, cinematic, a medium close-up inside a 1950s all-night diner at three in the morning. A short-order cook with curly dark hair, a thick black handlebar mustache and a pointed black goatee, wearing a white short-sleeved cook's shirt and a red neckerchief, stands behind a hot steel griddle where a burger patty sizzles, a metal spatula in his right hand. Behind him: mint-green tiles, chrome, cherry-red stools and a dark window streaked with rain, under flat fluorescent light with steam rising from the griddle. He faces the camera the whole time. The camera pushes in toward his face with small amplitude at slow speed. He is the only person in the shot. No text appears at any point. Every line is spoken in a natural talking voice, not sung. Every hand in the shot is bare, with no rings or jewellery on any finger.",
+  w1: "…(S1), in a dry, deadpan baritone, says: <d>[English] Your order's almost ready.</d> …",
+  w2: "…(S1) says flatly: <d>[English] It's been almost ready since nineteen fifty-six.</d> …",
+};
+const short = (t: string, n: number) => (t.length > n ? t.slice(0, n).replace(/\s+\S*$/, '') + '…' : t);
+const API_DOCS = `${SITE.repo}/blob/main/docs/API.md`;
+const AGENT_DOCS = `${SITE.repo}/blob/main/docs/AGENT_API.md`;
+const v2n = E.cuts.filter((c) => trackOf(c.engine) === 'v2').length;
+const v1n = E.cuts.length - v2n;
+// ---------- SEO ----------
+const abs = (p: string) => `${SITE.url}${p}`;
+const iso = (s: number) => `PT${Math.round(s)}S`;
+const uploaded = (src: string) => (src.includes('last_take') ? '2026-10-11' : src.includes('/sc_') || src.startsWith('mac/') ? '2026-10-20' : '2026-10-19');
+const description = homeDescription;
+const jsonld = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: 'Phosphene',
+    applicationCategory: 'MultimediaApplication',
+    applicationSubCategory: 'AI video generator',
+    operatingSystem: 'macOS (Apple Silicon)',
+    softwareVersion: SITE.version,
+    datePublished: STATS.firstRelease,
+    dateModified: SITE.versionDate,
+    description,
+    url: SITE.url,
+    downloadUrl: `${SITE.url}/download/`,
+    codeRepository: SITE.repo,
+    license: 'https://opensource.org/licenses/MIT',
+    isAccessibleForFree: true,
+    offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+    author: { '@type': 'Person', name: SITE.author },
+    image: `${SITE.url}/og/home.jpg`,
+    screenshot: `${SITE.url}/media/ui/panel_418.webp`,
+    featureList: 'Text to video, image to video, keyframes, extend, lip-sync, add sound, songs with vocals, image generation and editing, character LoRA training, timeline editor, local HTTP API for agents',
+    memoryRequirements: '16 GB unified memory minimum',
+    storageRequirements: '40 GB',
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'VideoObject',
+    name: 'LAST TAKE, a Phosphene film',
+    description: 'A 64-second film made entirely on one Mac with Phosphene: LTX-2.5 and Hailuo H3 for picture and sound, the Music Studio for the song.',
+    thumbnailUrl: `${SITE.url}/media/posters/last_take_cover.webp`,
+    contentUrl: `${SITE.url}/media/last_take.mp4`,
+    uploadDate: '2026-10-11',
+    duration: 'PT1M5S',
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: FAQ.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'VideoObject',
+    name: 'The Cutting Room: a Phosphene cut made on one Mac',
+    description: TITLES.map((t) => t.h).join(' '),
+    thumbnailUrl: abs('/lab/one/poster.webp'),
+    contentUrl: abs('/lab/one/edit_960.mp4'),
+    uploadDate: '2026-10-20',
+    duration: iso(E.duration),
+    hasPart: E.cuts.map((c) => ({ '@type': 'Clip', name: c.name, startOffset: Math.round(c.start), endOffset: Math.round(c.end) })),
+  },
+  ...E.cuts.map((c) => ({
+    '@context': 'https://schema.org',
+    '@type': 'VideoObject',
+    name: c.name,
+    description: `${notes[c.id] || ''} ${c.engine} · ${c.mode}. Rendered locally on a Mac with Phosphene.`.trim(),
+    thumbnailUrl: abs(`/lab/one/bin_${c.id}.webp`),
+    contentUrl: abs(`/media/${c.src}`),
+    uploadDate: uploaded(c.src),
+    duration: iso(c.end - c.start),
+  })),
+  ...(MORE.items as any[]).map((m) => ({
+    '@context': 'https://schema.org',
+    '@type': 'VideoObject',
+    name: m.title,
+    description: `${m.line} ${m.engine} · ${m.mode}, rendered locally on a Mac with Phosphene in ${m.render}.`,
+    thumbnailUrl: abs(`/media/mac/${m.id}.webp`),
+    contentUrl: abs(`/media/mac/${m.id}.mp4`),
+    uploadDate: '2026-10-20',
+    duration: iso(m.sec),
+  })),
+];
+---
+<Base title={homeTitle} description={description} jsonld={jsonld}>
+  <Fragment slot="head">
+    <link rel="preload" href="/fonts/archivo-latin-wdth-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" as="image" href="/lab/one/poster.webp" media="(min-width: 821px)" fetchpriority="high" />
+    <link rel="preload" as="image" href="/lab/one/poster_m.webp" media="(max-width: 820px)" fetchpriority="high" />
+    <script is:inline>
+      (function () { var d = document.documentElement; if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) { d.classList.add('ed-on'); if (window.innerWidth > 820 && window.scrollY < 50) d.classList.add('in-cut'); } })();
+    </script>
+  </Fragment>
+
+  <!-- ============ THE SHOWCASE: a full-screen editor, scroll = playhead ============ -->
+  <section class="cr" id="cut" style={`--total:${TOTAL}`} aria-label="Phosphene video demo. Scroll to preview, or press Play.">
+    <div class="cr-pin">
+      <div class="ed" id="ed">
+        <div class="ed-head">
+          <a href="/" class="ed-logo" aria-label="Phosphene home">
+            <svg class="ed-mark" width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
+              <g fill="none" transform="rotate(-90 13 13)">
+                <circle cx="13" cy="13" r="11" stroke="#5EEAFF" stroke-width="2" stroke-dasharray="1.15 1.73" />
+                <circle cx="13" cy="13" r="7.7" stroke="#B14AFF" stroke-width="2.1" stroke-dasharray="1.1 1.59" />
+                <circle cx="13" cy="13" r="4.5" stroke="#FF2E9F" stroke-width="2" stroke-dasharray="1 1.36" />
+              </g>
+              <circle cx="13" cy="13" r="1.5" fill="#FFD23F" />
+            </svg>
+            <img class="ed-word" src="/brand/wordtext@2x.webp" srcset="/brand/wordtext@2x.webp 2x, /brand/wordtext@3x.webp 3x" width="120" height="20" alt="Phosphene" />
+          </a>
+          <span class="chip chip-seq">LAST TAKE</span>
+          <span class="sent pill"><i class="pdot" aria-hidden="true"></i>{C.app.sent} <b>0 B</b></span>
+          <span class="grow"></span>
+          <nav class="ed-nav" aria-label="Site">
+            <a href="/features/">Features</a><a href="/gallery/">Gallery</a><a href="/docs/">Docs</a><a href="/changelog/">Changelog</a><a href="/pricing/">Pricing</a>
+            <a class="gh" href={SITE.repo} rel="noopener" aria-label={`Phosphene on GitHub, ${STATS.stars} stars`}><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><b data-gh="stars">{STATS.stars.toLocaleString('en-US')}</b></a>
+          </nav>
+          <a class="gbtn" href="/gallery/">{A.textVersion}</a>
+          <a class="primary" href="/download/"><span>{A.render}</span></a>
+        </div>
+
+        <aside class="pool" aria-label={A.pool}>
+          <div class="pool-h"><span class="cap">{A.pool}</span><span class="chip is-on">{A.poolTab}</span></div>
+          <ul class="pool-list">
+            {E.cuts.map((c) => (
+              <li>
+                <button class="pcard" data-seek={c.start} data-clip={c.id}>
+                  <img src={`/lab/one/bin_${c.id}.webp`} alt="" width="48" height="27" loading="lazy" decoding="async" />
+                  <span class="pn">{c.name}</span>
+                  <span class="pm">{c.engine.replace('Hailuo ', '')} · {(c.end - c.start).toFixed(1)}s</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p class="pool-note">{A.poolNote}</p>
+          <div class="now" aria-live="polite">
+            <div class="now-tabs"><span class="tab is-on">{A.now}</span></div>
+            <div class="now-card idle" id="nowCard">
+              <div class="ttl" id="nowTtl">{A.idle}</div>
+              <div class="pbar"><i id="nowBar"></i></div>
+              <div class="meta" id="nowMeta">{A.idleMeta}</div>
+            </div>
+          </div>
+        </aside>
+
+        <section class="mon" id="mon" aria-label={A.program}>
+          <div class="frame" id="frame">
+            <picture>
+              <source media="(max-width: 820px)" srcset="/lab/one/poster_m.webp" />
+              <img class="poster" id="poster" src="/lab/one/poster.webp" width="960" height="540" alt="Bizarro under stage lights in LAST TAKE, a film made with Phosphene" fetchpriority="high" />
+            </picture>
+            <video id="vid" muted playsinline preload="none" aria-hidden="true" tabindex="-1"></video>
+            <i class="vig" aria-hidden="true"></i>
+          </div>
+          <div class="titles" id="titles">
+            {TITLES.map((t, i) => (
+              <article class={`ti ti--${t.style}${i === 0 ? ' on' : ''}`} data-id={t.id} data-start={t.start} data-end={t.end}>
+                {t.style === 'hero' ? (
+                  <>
+                    <h1 class="display">{t.h}</h1>
+                    <p class="ti-p">{t.p}</p>
+                    <div class="ti-act">
+                      <DownloadCTA label={t.cta} />
+                      <a class="get-started-link" href="#get-started">Get started <span aria-hidden="true">↓</span></a>
+                      <span class="hint-chip"><kbd>Scroll</kbd><kbd>Space</kbd><span class="h-desk">{t.hint}</span><span class="h-touch">{t.hintTouch}</span></span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p class="display">{t.h}</p>
+                    {t.p && <p class="ti-p">{t.p}</p>}
+                  </>
+                )}
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <aside class="insp" aria-label={C.app.inspector}>
+          <div class="pool-h"><span class="cap">{C.app.inspector}</span></div>
+          <div class="icard">
+            <div class="i-name" id="iName">{E.cuts[0].name}</div>
+            <dl class="kv">
+              <div><dt>{C.app.engine}</dt><dd id="iEng">{E.cuts[0].engine}</dd></div>
+              <div><dt>{C.app.mode}</dt><dd id="iMode">{E.cuts[0].mode}</dd></div>
+              <div><dt>{C.app.length}</dt><dd id="iLen">{(E.cuts[0].end - E.cuts[0].start).toFixed(2)}s</dd></div>
+              <div id="iRenderRow" hidden><dt>{(C.app as any).renderTime}</dt><dd id="iRender"></dd></div>
+              <div><dt>{C.app.rendered}</dt><dd>{C.app.renderedValue}</dd></div>
+              <div><dt>{C.app.uploaded}</dt><dd class="ok">{C.app.uploadedValue}</dd></div>
+            </dl>
+            <p class="i-note" id="iNote">{notes[E.cuts[0].id]}</p>
+          </div>
+          <div class="icard rendered">
+            <div class="cap">Demo viewed</div>
+            <div class="pbar brand"><i id="rbar"></i></div>
+            <div class="meta"><b id="rpct">0%</b> · {A.onMac}</div>
+          </div>
+        </aside>
+
+        <nav class="toolrow" aria-label="Playback controls">
+          <button class="gbtn tb-play" id="play" data-act="play" aria-label={C.hints.playLabel}><svg class="i-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2l10 6-10 6z"/></svg><svg class="i-pause" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2h3v12H4zM9 2h3v12H9z"/></svg><span>{C.hints.playLabel}</span></button>
+          <span class="tgroup">
+            <button class="gbtn ib" data-act="home" aria-label="Go to start"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h2v10H3zM13 3v10L6 8z"/></svg></button>
+            <button class="gbtn ib" data-act="prev" aria-label="Previous shot"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10L2 8zM14 3v10L8 8z"/></svg></button>
+            <button class="gbtn ib" data-act="next" aria-label="Next shot"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10l6-5zM2 3v10l6-5z"/></svg></button>
+            <button class="gbtn ib" data-act="end" aria-label="Go to the last shot"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11 3h2v10h-2zM3 3v10l7-5z"/></svg></button>
+          </span>
+          <output class="time mono" id="tc" aria-label="Timecode">00:00:00:00</output>
+          <span class="tclip"><span class="cap">{A.program}</span> <b id="monClip">{E.cuts[0].name}</b> <span class="mono dimx" id="monTc">{clock(0)} / {clock(TOTAL)}</span></span>
+          <span class="hint"><b>{C.hints.scrub}</b> · {C.hints.play} <span class="keys">· {C.hints.keys}</span></span>
+          <a class="gbtn ib txt" href="/gallery/" aria-label={A.textVersion}>Aa</a>
+        </nav>
+
+        <div class="tl" id="tl" aria-hidden="true">
+          <div class="heads">
+            <div class="h-ruler"></div>
+            <div class="h t1"><span class="tid">T1</span><span class="tn">{C.tracks.t1}</span></div>
+            <div class="h v2"><span class="tid">V2</span><span class="tn">{C.tracks.v2}<small>{v2n} clips</small></span></div>
+            <div class="h v1"><span class="tid">V1</span><span class="tn">{C.tracks.v1}<small>{v1n} clips</small></span></div>
+            <div class="h a1"><span class="tid">A1</span><span class="tn">{C.tracks.a1}</span></div>
+            <div class="h a2"><span class="tid">A2</span><span class="tn">{C.tracks.a2}</span></div>
+          </div>
+          <div class="lanes" id="lanes">
+            <div class="tl-in" id="tlin">
+              <div class="ruler" id="ruler"><div class="rbar"><b id="rdone"></b></div></div>
+              <div class="lane t1">
+                {TITLES.map((t) => <div class="clip c-title" data-s={t.start} data-e={t.end}><span class="cn">{t.h}</span></div>)}
+              </div>
+              <div class="lane v2">
+                {E.cuts.filter((c) => trackOf(c.engine) === 'v2').map((c) => (
+                  <div class="clip c-vid" data-s={c.start} data-e={c.end} data-clip={c.id} data-thumb={`/lab/one/bin_${c.id}.webp`}><span class="cn">{c.name}</span><span class="cm">{c.srcIn.toFixed(2)}→{(c.srcIn + ((c as any).srcLen ?? (c.end - c.start))).toFixed(2)} · {(c.end - c.start).toFixed(2)}s</span></div>
+                ))}
+              </div>
+              <div class="lane v1">
+                {E.cuts.filter((c) => trackOf(c.engine) === 'v1').map((c) => (
+                  <div class="clip c-vid" data-s={c.start} data-e={c.end} data-clip={c.id} data-thumb={`/lab/one/bin_${c.id}.webp`}><span class="cn">{c.name}</span><span class="cm">{c.srcIn.toFixed(2)}→{(c.srcIn + ((c as any).srcLen ?? (c.end - c.start))).toFixed(2)} · {(c.end - c.start).toFixed(2)}s</span></div>
+                ))}
+              </div>
+              <div class="lane a1"><canvas id="wave"></canvas></div>
+              <div class="lane a2">
+                {E.cuts.filter((c) => MUSIC.has(c.id)).map((c) => <div class="clip c-mus" data-s={c.start} data-e={c.end}><span class="cn">Song · Music Studio</span></div>)}
+              </div>
+            </div>
+            <div class="playhead" id="ph"><i></i></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ THE NORMAL SITE ============ -->
+  <div class="after">
+    <GetStarted />
+
+    <Tunnel>
+      <TunnelGate to="tunnel" entry kicker={T.gates.entry.kicker} caption={T.gates.entry.line} />
+      <TunnelPanel scene="tunnel" bleed>
+    <Numbers />
+      </TunnelPanel>
+
+      <TunnelGate to="maze" kicker={T.gates.maze.kicker} caption={T.gates.maze.line} />
+
+      <TunnelPanel scene="maze">
+    <MemoryPicker idx="01 / 06" />
+      </TunnelPanel>
+
+      <TunnelGate to="maze" kicker={T.gates.pricing.kicker} caption={T.gates.pricing.line} />
+      <TunnelPanel scene="maze">
+    <section class="sec plans" id="pricing" aria-labelledby="pricing-h">
+      <div class="wrap">
+        <div class="sec-head">
+          <div class="idx"><b>02</b> / 06</div>
+          <h2 class="h-m" id="pricing-h">Free app.<br/>Support open source.</h2>
+          <p class="aside lead">{PC.lead}</p>
+        </div>
+        <Plans source="home" />
+      </div>
+    </section>
+      </TunnelPanel>
+
+
+      <TunnelGate to="maze" kicker={T.gates.agent.kicker} caption={T.gates.agent.line} />
+      <TunnelPanel scene="maze">
+    <section class="sec agent" id="agent" aria-labelledby="agent-h">
+      <div class="wrap">
+        <div class="sec-head">
+          <div class="idx"><b>03</b> / 06</div>
+          <h2 class="h-m" id="agent-h">{AG.h}</h2>
+          <p class="aside lead">{AG.p}</p>
+        </div>
+        <div class="ag" data-agent>
+          <div class="term" role="group" aria-label="An agent session driving Phosphene">
+            <div class="term-bar" aria-hidden="true"><i></i><i></i><i></i><span>agent · ~/films</span></div>
+            <ol class="term-lines">
+              <li class="l-ask"><span class="pr" aria-hidden="true">›</span><span>{AG.ask}</span></li>
+              <li class="l-note"><span class="pr" aria-hidden="true">⏺</span><span>{AG.reading}</span></li>
+              <li class="l-cmd"><span class="pr" aria-hidden="true">$</span><code>curl -s 127.0.0.1:8198/status</code></li>
+              <li class="l-out"><code>{'{"running": false, "current": null, "queue": [], …}'}</code></li>
+              <li class="l-cmd"><span class="pr" aria-hidden="true">$</span><code>curl -s -X POST 127.0.0.1:8198/queue/add \
+  -d mode=i2v -d engine=h3 -d h3_quality=high -d h3_tristep=1 -d h3_length=10s -d seed=72001 \
+  --data-urlencode image=$HOME/films/diner.png \
+  --data-urlencode "prompt={short(DINER.prompt, 120)}" \
+  --data-urlencode "h3_chain_prompts=[\"{DINER.w1}\", \"{DINER.w2}\"]"</code></li>
+              <li class="l-out"><code>{'{"ok": true, "id": "j-7f3c…"}'}</code></li>
+              <li class="l-cmd"><span class="pr" aria-hidden="true">$</span><code>curl -s 127.0.0.1:8198/status <span class="dimx"># {AG.poll}</span></code></li>
+              <li class="l-out l-prog"><code>"phase_label": "Window <b data-step data-max="2">1</b>/2 · Denoising video + audio", "pct": <b data-pct>41</b></code></li>
+              <li class="l-out"><code>{'{"status": "done", "elapsed_sec": 1133, "output_path": "…/mlx_outputs/Live_action_cinematic_a_medium_close_h3_720p.mp4"}'}</code></li>
+              <li class="l-done"><span class="pr" aria-hidden="true">⏺</span><span>{AG.done}</span></li>
+            </ol>
+            <button class="term-replay" type="button" data-agent-replay>{AG.replay}</button>
+          </div>
+          <figure class="ag-out">
+            <div class="ag-frame">
+              <video data-agent-vid muted playsinline loop preload="none" poster="/media/posters/sc_diner.webp" width="960" height="540" aria-label={`${AG.result}: ${AG.clip}`}>
+                <source src="/media/clips/sc_diner.mp4" type="video/mp4" />
+              </video>
+              <button class="ag-sound" type="button" data-agent-sound aria-pressed="false">{AG.sound}</button>
+            </div>
+            <figcaption><span class="mono dim">{AG.result}</span> <b>{AG.clip}</b> <span class="mono dim">· Hailuo H3 · image to video · 10 s</span></figcaption>
+          </figure>
+        </div>
+        <div class="doors">
+          <h3 class="doors-h">{AG.doorsH}</h3>
+          <ul>
+            {AG.doors.map((d: any) => <li><code>{d.code}</code><p>{d.t}</p></li>)}
+          </ul>
+          <p class="manuals">{AG.manuals}</p>
+          <p class="act"><a class="btn ghost" href={API_DOCS} rel="noopener">{AG.docs}</a> <a class="link" href={AGENT_DOCS} rel="noopener">{AG.docs2}</a></p>
+        </div>
+      </div>
+    </section>
+      </TunnelPanel>
+
+      <TunnelGate to="room" kicker={T.gates.room.kicker} caption={T.gates.room.line} />
+      <TunnelPanel scene="room">
+    <section class="sec os" id="open-source" aria-labelledby="os-h">
+      <div class="wrap grid">
+        <div class="osl">
+          <div class="idx"><b>04</b> / 06</div>
+          <h2 class="display h-l" id="os-h">Free and<br/>open source.</h2>
+          <p class="stand">Mr Bizarro made Phosphene. People trying things on their own Macs keep making it better. The app is open source under MIT. Read the code, fix a bug, or take it somewhere unexpected.</p>
+          <dl class="nums mono">
+            <div><dt>GitHub stars</dt><dd data-gh="stars">{STATS.stars.toLocaleString('en-US')}</dd></div>
+            <div><dt>code forks</dt><dd data-gh="forks">{STATS.forks.toLocaleString('en-US')}</dd></div>
+            <div><dt>releases</dt><dd>{STATS.releases}</dd></div>
+            <div><dt>licence</dt><dd>MIT</dd></div>
+          </dl>
+          <div class="act">
+            <a class="btn ghost" href={SITE.repo} rel="noopener">Take a look on GitHub</a>
+            <a class="link" href="/open-source/">How to contribute</a>
+          </div>
+        </div>
+        <div class="roll" aria-label="Community credits">
+          <div class="roll-in">
+            <p class="mono dim rh">contributors</p>
+            <ul>{CREDITS.map((c) => <li><b>{c.handle}</b><span>{c.did}</span></li>)}</ul>
+            <p class="mono dim rh">models and tools</p>
+            <ul>{UPSTREAM.map((u) => <li><b>{u.who}</b><span>{u.what}</span></li>)}</ul>
+            <p class="mono dim rh">created by</p>
+            <ul><li><b>Mr Bizarro</b><span>creator of Phosphene</span></li></ul>
+          </div>
+        </div>
+      </div>
+    </section>
+      </TunnelPanel>
+
+      <TunnelPanel scene="room">
+    <section class="sec faq" id="faq" aria-labelledby="faq-h">
+      <div class="wrap grid">
+        <div class="fq-h">
+          <div class="idx"><b>05</b> / 06</div>
+          <h2 class="h-m" id="faq-h">Frequently asked questions</h2>
+        </div>
+        <div class="fq">
+          {FAQ.map((f) => (
+            <details>
+              <summary>{f.q}</summary>
+              <p>{f.a}</p>
+            </details>
+          ))}
+        </div>
+      </div>
+    </section>
+      </TunnelPanel>
+      <TunnelGate to="room" />
+    </Tunnel>
+
+    <MoreMade />
+
+    <section class="end-cta">
+      <div class="wrap">
+        <p class="display h-xl">{C.after.endH}</p>
+        <div class="act">
+          <a class="btn" href="/download/">{C.after.endCta} <span class="mono">{C.after.endCtaSub}</span></a>
+          <a class="link" href="/gallery/">{C.after.endLink}</a>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    import { boot } from '../lab/one/editor';
+    boot();
+  </script>
+</Base>
+
+<style>
+  .get-started-link { font-size: 14px; font-weight: 600; text-underline-offset: 5px; }
+  .ti--hero .hint-chip { flex-basis: auto; }
+  .ti--hero .ti-p { max-width: 52ch; }
+</style>

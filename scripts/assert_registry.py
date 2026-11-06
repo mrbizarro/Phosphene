@@ -180,8 +180,6 @@ def code_only():
         return ""
     if not d.exists():
         return f"code-only tree: no model folder at {d}"
-    if d.is_symlink():
-        return ""
     try:
         if any(f.is_file() and f.name != ".DS_Store" for f in d.rglob("*")):
             return ""

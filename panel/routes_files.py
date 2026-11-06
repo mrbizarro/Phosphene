@@ -823,6 +823,8 @@ def post_external_open(h, path, qs, ctype) -> None:
     _ALLOWED_HOSTS = {
         "huggingface.co", "civitai.com", "github.com",
         "ideogram.ai", "pinokio.co", "pinokio.computer",
+        # The Docs live on the website (owner, 1 Nov 2026).
+        "phosphene.video",
     }
     try:
         _pp = P.urllib.parse.urlparse(url)
@@ -1001,7 +1003,12 @@ def get_asset(h, parsed) -> None:
     ctype = {
         ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
         ".webp": "image/webp", ".gif": "image/gif", ".svg": "image/svg+xml",
+        ".mp4": "video/mp4", ".json": "application/json",
     }.get(ext, "application/octet-stream")
+    if ext == ".mp4":
+        # WKWebView's <video> needs byte ranges (the Remote page's film).
+        h._serve_video_with_range(path)
+        return
     h.send_response(200)
     h.send_header("Content-Type", ctype)
     h.send_header("Content-Length", str(path.stat().st_size))
@@ -1032,6 +1039,7 @@ def get_webapp_file(h, parsed) -> None:
         ".mjs": "text/javascript; charset=utf-8",
         ".html": "text/html; charset=utf-8",
         ".svg": "image/svg+xml",
+        ".woff2": "font/woff2",
         # The Docs pages (webapp/docs/*.md), rendered in the browser.
         ".md": "text/markdown; charset=utf-8",
     }.get(ext, "application/octet-stream")

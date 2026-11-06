@@ -34,6 +34,7 @@ webapp/                 ← the frontend, as plain files served from disk
 │   ├── storyboard.js   ← the Storyboard tab
 │   ├── editor.js       ← the timeline editor
 │   ├── oneshot.js      ← the One Shot tab (its own composer; posts to /oneshot)
+│   ├── bench.js        ← the Phosphene Bench window (paints /bench/plan + /bench/status)
 │   └── main.js         ← the kickoff sequence — ALWAYS the last tag (see below)
 └── style/
     └── panel.css       ← ALL panel CSS (slice 1, landed)

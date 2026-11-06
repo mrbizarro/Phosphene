@@ -1,0 +1,2 @@
+qrcode-generator 1.4.4, Kazuhiko Arase, MIT licence (header in qrcode.js).
+"QR Code" is a registered trademark of DENSO WAVE INCORPORATED.

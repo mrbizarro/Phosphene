@@ -163,7 +163,12 @@ function h3FinishFieldsFromSidecar(p, tierKey) {
     // The Speed switch value the clip was made with (Fast = 3-step, or the
     // retired Turbo; Best = the shape's full sampler). setH3Speed re-checks
     // availability: a Fast clip on an install without the adapter lands on Best.
-    h3_speed: (p.h3_tristep || p.h3_turbo) ? 'fast' : (p.h3_flex ? 'flex' : 'best'),
+    h3_speed: (p.h3_tristep || p.h3_turbo) ? 'fast' : (p.h3_flex ? 'flex' : (p.h3_flex_turbo ? 'flex_turbo' : 'best')),
+    // Clean up sound rides with Fast: a clip made with it is remade with it.
+    // Absent on sidecars before 4.20 (= leave the current preference alone).
+    h3_clean_sound: (p.h3_clean_sound === true || p.h3_clean_sound === false) ? p.h3_clean_sound : null,
+    // Face to keep carries over (same person in the finish).
+    h3_reference: (typeof p.h3_reference === 'string') ? p.h3_reference : '',
     // The shot list carries over, and it is safe to: Finish means SAME LENGTH,
     // higher quality, so the window count is identical by construction and
     // entry i still means window i. Dropping it would silently finish a
@@ -340,6 +345,10 @@ async function h3FinishActive() {
   // Turbo before the shape: setH3Turbo forces the Steps pills back to 'auto',
   // and setH3Tier below re-reads them when it stamps the resolved count.
   if (typeof setH3Speed === 'function' && fields.h3_speed) setH3Speed(fields.h3_speed);
+  if (typeof setH3CleanSound === 'function' && fields.h3_clean_sound != null) setH3CleanSound(fields.h3_clean_sound);
+  if (typeof pickerSetImage === 'function' && document.getElementById('h3_reference')) {
+    try { pickerSetImage('h3_reference', fields.h3_reference || '', { snapAspect: false }); } catch (e) {}
+  }
   // Shape LAST of the H3 controls: setH3Tier stamps width/height/frames/steps
   // from the cell table, so anything geometry-related set after it would be
   // fighting the source of truth. The LENGTH inside `fields.h3_tier` is the
@@ -682,6 +691,9 @@ function _h3ServesMode(mode) {
 
 function setEngine(engine, opts) {
   if (engine === 'music') { audioModeSet('compose'); workflowSwitch('audio'); return; }
+  // Re-grey after this switch lands, clicked or not (loading a clip's
+  // settings switches engine with no click; capabilities.js).
+  if (typeof capSyncSoon === 'function') capSyncSoon();
   opts = opts || {};
   const fallback = defaultEngine();
   const note = document.getElementById('engineRowNote');
@@ -959,6 +971,11 @@ function updateH3Availability(s) {
                || (((next.flex || {}).available) !== ((H3.flex || {}).available))
                || (((next.flex || {}).supported) !== ((H3.flex || {}).supported))
                || (((next.flex || {}).download || {}).status !== ((H3.flex || {}).download || {}).status)
+               // And H3 Flex Turbo: a finished download must flip the form's
+               // h3_flex_turbo to 1 without another click.
+               || (((next.flex_turbo || {}).available) !== ((H3.flex_turbo || {}).available))
+               || (((next.flex_turbo || {}).supported) !== ((H3.flex_turbo || {}).supported))
+               || (((next.flex_turbo || {}).download || {}).status !== ((H3.flex_turbo || {}).download || {}).status)
                || ((next.tiers || []).length !== (H3.tiers || []).length);
   // BOTH bindings, and they must stay the same object: the H3-specific code
   // reads `H3` on nearly every line, the registry reads the probe map. A
@@ -966,7 +983,8 @@ function updateH3Availability(s) {
   // engine (or worse, the reverse).
   const _triDl = !!((next.tristep || {}).installing || (H3.tristep || {}).installing
                     || (next.v13 || {}).installing || (H3.v13 || {}).installing
-                    || (next.flex || {}).installing || (H3.flex || {}).installing);
+                    || (next.flex || {}).installing || (H3.flex || {}).installing
+                    || (next.flex_turbo || {}).installing || (H3.flex_turbo || {}).installing);
   H3 = next;
   window._ENGINE_PROBES.h3 = next;
   // A running 3-step download prints its progress on the pill.
@@ -1812,6 +1830,13 @@ function updateDerived() {
   // Colorize (restore) shows its own source-video picker. Unlike Extend it
   // KEEPS the sizing + quick-metrics rows below (the source's own dims/length
   // drive the output, but the prompt + seed still apply).
+  // Face to keep (H3, Text/Image, a runner with --reference).
+  const _h3Ref = document.getElementById('h3RefSection');
+  if (_h3Ref) {
+    const _ref = (globalThis.H3 && globalThis.H3.reference) || {};
+    _h3Ref.classList.toggle('show', document.body.dataset.engine === 'h3' && !!_ref.supported
+      && (currentMode === 't2v' || currentMode === 'i2v'));
+  }
   const _restoreSection = document.getElementById('restoreSection');
   if (_restoreSection) _restoreSection.classList.toggle('show', currentMode === 'restore');
   // Upscale ×2 — its own source picker + "keep the shot" slider. The source
@@ -2046,6 +2071,7 @@ globalThis.PICKERS = [
   'keyframe_05_image',
   'end_image',
   'a2v_image',
+  'h3_reference',
 ];
 
 function pickerEls(key) {
@@ -3414,8 +3440,8 @@ function notifyJobsDone(s) {
 }
 function notifyOneJob(j) {
   const failed = j.status === 'failed';
-  const what = (j.params && (j.params.label || j.params.preset_label)) ||
-               (j.params && j.params.prompt ? String(j.params.prompt).slice(0, 60) : '') ||
+  const what = (j.params && j.params.preset_label && !j.params.label ? j.params.preset_label : '') ||
+               rowTitle(j, j.params && j.params.prompt, j.params && j.params.label) ||
                (j.params && j.params.mode) || 'a render';
   playDoneChime(failed);
   try {
@@ -3595,11 +3621,11 @@ async function poll() {
   if (dl) {
     const elapsed = Math.max(0, Math.round(s.server_now - (dl.started_ts || s.server_now)));
     mp.innerHTML = dl.background
-      ? `<span class="dot"></span>↓ extras · ${escapeHtml(String(dl.key))}`
+      ? `<span class="dot"></span>↓ models · ${escapeHtml(String(dl.key))}`
       : `<span class="dot"></span>↓ ${dl.key} · ${elapsed}s`;
     mp.className = 'pill pill-running';
-    mp.title = (dl.background ? `Background download after install (you can render meanwhile): ${dl.name || dl.repo_id}`
-                              : `Downloading ${dl.repo_id}`) + ` — ${dl.last_line || 'starting…'}`;
+    mp.title = (dl.background ? `Requested model download: ${dl.name || dl.repo_id}`
+                              : `Downloading ${dl.repo_id}`) + ` · ${dl.last_line || 'starting…'}`;
   } else {
     // Per-repo ready/total counts, scoped server-side (VC-32) to repos that
     // are actually relevant to THIS generation — never another generation's
@@ -3639,6 +3665,7 @@ async function poll() {
   // pack lands (or disappears), same live-unlock contract Q8 already has.
   if (typeof updateH3Availability === 'function') updateH3Availability(s);
   updateMusicAvailability(s);
+  if (typeof speechStatusUpdate === 'function') speechStatusUpdate(s);
   // The pack-incomplete gate, BEFORE the render rather than 30 s into it.
   if (typeof applyPackIncompleteGate === 'function') {
     try { applyPackIncompleteGate(s); } catch (e) {}
@@ -3874,7 +3901,7 @@ async function poll() {
       timing = `<strong>${fmtMin(elapsed)}</strong> elapsed${avg ? ' / ~'+fmtMin(avg)+' avg' : ''}`;
     }
     fill.style.width = pct + '%';
-    nowCard.querySelector('.ttl').textContent = snippet(s.current.params.label || s.current.params.prompt, 80);
+    nowCard.querySelector('.ttl').textContent = rowTitle(s.current, s.current.params.prompt, s.current.params.label);
     // Image jobs don't have width/height/frames; show n × aspect instead.
     // Falls through to the video shape when those fields ARE present.
     //
@@ -3923,9 +3950,10 @@ async function poll() {
         ? `<span class="now-clamp-note" title="${escapeHtml(clampNotes.join('; '))}">⚠ ${escapeHtml(clampNotes[0])}</span>`
         : '',
     ].filter(Boolean).join('<br>');
-    nowCard.querySelector('.meta').innerHTML = underline
+    const proNow = cur.pro_profile ? `<span class="pro-chip" title="This render runs the ${escapeHtml(String(cur.pro_profile))} Pro speed profile">Pro speed · ${escapeHtml(String(cur.pro_profile))}</span>` : '';
+    nowCard.querySelector('.meta').innerHTML = (underline
       ? `${baseMeta}<br>${underline}`
-      : baseMeta;
+      : baseMeta) + (proNow ? ` ${proNow}` : '');
     livePreviewData = normalizeLivePreview(s, prog);
     renderNowPreview(s, prog, livePreviewData);
   } else {
@@ -3964,7 +3992,7 @@ async function poll() {
       // _h3InstallCardContent). `details` is a fixed string we compose
       // ourselves (never user/engine-supplied), so it's safe unescaped.
       nowCard.querySelector('.meta').innerHTML =
-        `<span style="color: var(--muted)">${escapeHtml(snippet(last.params.label || last.params.prompt, 80))}</span>` +
+        `<span style="color: var(--muted)">${escapeHtml(rowTitle(last, last.params.prompt, last.params.label))}</span>` +
         ` <span style="color: var(--muted)">· ${escapeHtml(last.params.mode)} · ${last.params.width}×${last.params.height}</span>` +
         `<br><span style="color: var(--text)">${escapeHtml(hint)}</span>` +
         // SYS-33: errors rarely linked to Docs even where a section already
@@ -4002,7 +4030,7 @@ async function poll() {
       nowCard.classList.add('stopped');
       nowCard.querySelector('.ttl').textContent = 'Stopped early';
       nowCard.querySelector('.meta').innerHTML =
-        `<span style="color: var(--muted)">${escapeHtml(snippet(last.params.label || last.params.prompt, 80))}</span>` +
+        `<span style="color: var(--muted)">${escapeHtml(rowTitle(last, last.params.prompt, last.params.label))}</span>` +
         `<br><span style="color: var(--text)">Nothing was saved.</span>`;
       if (actionsEl) {
         actionsEl.dataset.jobId = String(last.id);
@@ -4034,6 +4062,8 @@ async function poll() {
       }
     }
   }
+
+  if (typeof studioProgress === 'function') studioProgress(s);
 
   // Y2.001 — bottom-pane live dot mirrors worker state. Tooltip sets
   // a one-line status for accessibility / hover. The dot animates
@@ -4140,9 +4170,9 @@ async function poll() {
       const editable = !j.params.take && j.params.engine !== 'music'
         && !['image', 'train', 'upscale', 'sharp_export'].includes(j.params.mode);
       return `
-      <li${editable ? ` class="q-row-editable" onclick="editQueuedJob('${j.id}')" title="Click to edit this queued job"` : ''}>
+      <li data-job-id="${escapeHtml(j.id)}"${editable ? ` class="q-row-editable" onclick="editQueuedJob('${j.id}')" title="Click to edit this queued job"` : ''}>
         <span class="pos">#${i+1}</span>
-        <span class="ttl" title="${escapeHtml(j.params.prompt)}">${escapeHtml(j.params.label || snippet(j.params.prompt, 60))}</span>
+        <span class="ttl" title="${escapeHtml(j.params.prompt)}">${escapeHtml(rowTitle(j, j.params.prompt, j.params.label))}</span>
         ${sbBadge}
         <span class="params">${params}${clampBadge}${etaChip}</span>
         <span class="q-reorder">${upBtn}${downBtn}</span>
@@ -4186,7 +4216,7 @@ async function poll() {
     hl.innerHTML = `<li class="empty-state"><span></span><span>${empty}</span><span></span><span></span></li>`;
   }
   else hl.innerHTML = filtered.slice(0, 20).map(j => {
-    const titleText = escapeHtml(j.params.label || snippet(_displayPromptFor(j.params.prompt), 60));
+    const titleText = escapeHtml(rowTitle(j, _displayPromptFor(j.params.prompt), j.params.label));
     const titleAttr = escapeHtml(_displayPromptFor(j.params.prompt));
     let titleHtml;
     if (j.status === 'failed' && j.error) {
@@ -4420,7 +4450,7 @@ function applyFirstRunCard(s) {
   // rendered hundreds of clips would still be greeted as brand new. A
   // gallery with anything in it is not a first run.
   const hasOutputs = (s.outputs || []).length > 0;
-  const show = !(dismissed || everFinished || hasOutputs);
+  const show = !!s.base_available && !(dismissed || everFinished || hasOutputs);
   card.style.display = show ? '' : 'none';
   const etaEl = document.getElementById('firstRunEta');
   if (show && etaEl && !etaEl.textContent) {
@@ -4815,6 +4845,58 @@ function _displayPromptFor(prompt) {
   const cap = _parseIdeoCaption(prompt);
   return cap ? cap.high_level_description : (prompt || '');
 }
+// Display-only title for a clip/job. SAME RULE as clip_title.display_title()
+// (Python, which the server uses to send `title`): a user label wins; else strip
+// the H3 scaffolding (field labels, [Shot N], At MM:SS, <d>..</d>, (S1), <Picture N>,
+// alignment line), skip a bare style/trigger lead-in, take the first sentence, trim
+// to ~60 chars at a word boundary. Never used for stored prompts or file names.
+function displayTitle(prompt, label, limit) {
+  limit = limit || 60;
+  const squash = (t) => String(t == null ? '' : t).replace(/\s+/g, ' ').trim();
+  const trim = (t) => {
+    if (t.length <= limit) return t;
+    let cut = t.slice(0, limit + 1); const sp = cut.lastIndexOf(' ');
+    cut = sp >= limit * 0.5 ? cut.slice(0, sp) : t.slice(0, limit);
+    return cut.replace(/[ ,;:\-.]+$/, '') + '\u2026';
+  };
+  const lab = squash(label);
+  if (lab) return trim(lab);
+  const orig = String(prompt == null ? '' : prompt);
+  const clean = (t) => t
+    .replace(/^\s*For the target video, at 0(?:\.0+)? seconds[^\n]*\n?/i, ' ')
+    .replace(/\b(?:integrated_multimodal_description|overall_soundscape|non_diegetic_music|summary|high_level_description)\s*:/gi, ' ')
+    .replace(/\[\s*Shot\s*\d+\s*\]/gi, ' ')
+    .replace(/\bAt\s+\d{1,2}:\d{2}(?:\.\d+)?\s*,/gi, ' ')
+    .replace(/\(\s*S\d+\s*\)/g, ' ')
+    .replace(/<\s*(?:Picture|Image|Audio|Video)\s*\d+\s*>(?:\s*\(from[^)]*\))?/gi, ' ')
+    .replace(/\s+/g, ' ').trim().replace(/^[ :;-]+|[ :;-]+$/g, '');
+  let t = clean(orig.replace(/<d>[\s\S]*?<\/d>/gi, ' '));
+  if (!t) {
+    const inner = [...orig.matchAll(/<d>([\s\S]*?)<\/d>/gi)].map(m => m[1]).join(' ')
+      .replace(/^\s*\[[A-Za-z ]+\]\s*/, '');
+    t = clean(inner);
+  }
+  if (!t) return '';
+  const sents = t.split(/(?<=[.!?])\s+/).map(x => x.trim()).filter(Boolean);
+  const styleLead = /^(?:live-action(?:-style [a-z]+)?|cinematic|animated|photorealistic|vintage film|warm film look|film look)\s*,\s*/i;
+  const styleOnly = /(?:shot on [A-Za-z0-9 ]{2,20}|film look|film grain|vhs look|tape damage|tape recording)$/i;
+  const trigger = /^[A-Za-z]*\d[A-Za-z0-9_]*\s*,|^[a-z0-9_]*trn\s*,/i;
+  let first = '';
+  for (let i = 0; i < sents.length; i++) {
+    let c = sents[i].replace(/[.!?]+$/, '');
+    while (styleLead.test(c)) c = c.replace(styleLead, '');
+    c = c.replace(trigger, '').trim();
+    if (i < sents.length - 1 && (styleOnly.test(c) || c.length < 12)) continue;
+    first = c; break;
+  }
+  first = first || sents[0].replace(/[.!?]+$/, '');
+  if (first && first[0] === first[0].toLowerCase() && first[0] !== first[0].toUpperCase()) first = first[0].toUpperCase() + first.slice(1);
+  return trim(first);
+}
+// Title for a job/output row: the server's `title` when it sent one, else derived here.
+function rowTitle(r, prompt, label) {
+  return (r && r.title) || displayTitle(prompt, label);
+}
 // Friendly engine label from the internal token stamped on image jobs
 // (params.engine = "mflux/ideogram" etc.). Falls back to the raw token.
 function _imgEngineLabel(token) {
@@ -4910,11 +4992,9 @@ function _songCardName(o) {
 // or a file with no sidecar).
 function _cardTitleText(o) {
   if (o && o.music) return _songCardName(o);
-  const p = (o && o.prompt || '').trim();
+  const p = rowTitle(o, (o && o.prompt || '').trim(), '');
   if (!p) return escapeHtml(o.name);
-  const words = p.split(/\s+/);
-  const head = words.slice(0, 8).join(' ');
-  return escapeHtml(head) + (words.length > 8 ? '…' : '');
+  return escapeHtml(p);
 }
 
 // VC-36: the "Balanced · 1280×720" / "t2v · 1280×720" chip row — quality
@@ -4941,6 +5021,15 @@ function _posterVersionQuery(o) {
 // mp4 header), never the quality preset's or H3 tier's default canvas — those
 // labelled a square, portrait, native-export or Sharp-exported clip with the
 // preset's landscape delivery size. Unknown dimensions print no size at all.
+// "Pro speed · saved ~N min": only from the sidecar's receipt (write_sidecar stamps it when a Pro speed profile ran).
+// A Free render has no receipt and no chip; nothing here estimates or nags.
+function _proSpeedChip(o) {
+  const p = o && o.pro;
+  if (!p || !(Number(p.saved_sec) > 0)) return '';
+  const m = Math.round(Number(p.saved_sec) / 60);
+  const txt = m >= 1 ? `Pro speed · saved ~${m} min` : `Pro speed · saved ~${Math.round(Number(p.saved_sec))} s`;
+  return `<span class="pro-chip" title="Ran the ${escapeHtml(String(p.profile || 'Pro'))} profile: ${escapeHtml(String(Math.round(p.elapsed_sec)))} s instead of ~${escapeHtml(String(Math.round(p.free_equivalent_sec)))} s on the Free path (${escapeHtml(String(p.speedup))}×, measured on ${escapeHtml(String(p.measured_on || 'the reference Mac'))})">${txt}</span>`;
+}
 function _cardModeSizeChip(o) {
   const bits = [];
   if (o && o.mode) bits.push(o.mode);
@@ -5098,7 +5187,7 @@ function renderCarousel() {
           ${o.sb ? `<span class="badge sb-badge" title="Shot ${o.sb.n} of a storyboard — click to open it"
                  onclick="event.stopPropagation(); sbOpenFromClip('${escapeHtml(o.sb.id)}')">S${String(o.sb.n).padStart(2,'0')}</span> · ` : ''}${_outputDurationLabel(o)} · ${o.size_mb.toFixed(1)} MB
         </div>
-        ${(() => { const chip = _cardModeSizeChip(o); return chip ? `<div class="card-chip-row">${escapeHtml(chip)}</div>` : ''; })()}
+        ${(() => { const chip = _cardModeSizeChip(o), pro = _proSpeedChip(o); return chip || pro ? `<div class="card-chip-row">${escapeHtml(chip)}${pro}</div>` : ''; })()}
       </div>
     </div>`;
   }).join('');
@@ -7140,6 +7229,7 @@ async function loadParams(recipe) {
     if (eng) {
       eng.value = 'ideogram4_inline';
       if (typeof ideoSyncVisibility === 'function') ideoSyncVisibility();   // reveal the canvas
+      if (typeof renderEngineSwitch === 'function') renderEngineSwitch();   // top picker: Ideogram 4
     }
     const pe = document.getElementById('imgStudioPrompt');
     if (pe) pe.value = _ideoSrc.high_level_description || '';
@@ -7604,6 +7694,18 @@ async function loadParams(recipe) {
     if (typeof setH3Speed === 'function' && typeof h3SpeedOfParams === 'function') {
       try { setH3Speed(h3SpeedOfParams(p)); } catch (e) {}
     }
+    // 4.20: Clean up sound and Face to keep come back with the clip; a sidecar
+    // without a reference clears a stale pick (never render another person).
+    if (typeof setH3CleanSound === 'function'
+        && (p.h3_clean_sound === true || p.h3_clean_sound === false)) {
+      try { setH3CleanSound(p.h3_clean_sound); } catch (e) {}
+    }
+    if (typeof pickerSetImage === 'function' && document.getElementById('h3_reference')) {
+      try {
+        pickerSetImage('h3_reference', typeof p.h3_reference === 'string' ? p.h3_reference : '',
+                       { snapAspect: false });
+      } catch (e) {}
+    }
     if (typeof setH3Steps === 'function') {
       // A Best clip made on the full sampler, where Best would now run
       // lightx2v v1.3 (High, Text/Image): pin the count it ran, so Load
@@ -7945,6 +8047,15 @@ function renderOutputInfoBody(path, data) {
         + ` · σ ${escapeHtml(String(ti.sigma_subset || '50:0,16,33,49'))}`
         + (acc && acc.applied != null ? ' · ' + escapeHtml(String(acc.applied)) + ' modules wrapped' : '')
         + '</dd>');
+      if (p.h3_clean_sound) {
+        // The re-voice pass's own record: one per window (w1_revoice...).
+        const rv = (data && data.h3 && data.h3.revoice) || {};
+        const first = Object.values(rv)[0] || {};
+        const secs = Object.values(rv).reduce((a, r) => a + (Number(r && r.seconds) || 0), 0);
+        genRows.push(`<dt>Sound</dt><dd>Cleaned up · made again with the full model`
+          + (first.forwards ? ' · ' + escapeHtml(String(first.forwards)) + ' sound steps' : '')
+          + (secs ? ' · ' + escapeHtml(String(Math.round(secs))) + ' s' : '') + '</dd>');
+      }
     } else if (p.h3_turbo) {
       const tinfo = (data && data.h3 && data.h3.turbo) || null;
       const applied = tinfo && tinfo.applied && tinfo.applied.applied;
@@ -9074,3 +9185,119 @@ Object.assign(globalThis, {
   // "Continue from here" (VA-38) — the player button's inline onclick target.
   windowsContinueFromPartial,
 });
+
+// ===== Studio presentation motion =====
+// Presentation only. The existing status poll owns all job state and timing.
+// No extra polling, speculative progress, or changes to generation controls.
+let studioReducedMotion = null;
+const studioAnimations = new Set();
+function studioAnimate(el, frames, duration = 240) {
+  if (!el || studioReducedMotion.matches || document.hidden) return;
+  const a = el.animate(frames, { duration, easing: 'cubic-bezier(.4,0,.2,1)' });
+  studioAnimations.add(a);
+  a.finished.catch(() => {}).finally(() => studioAnimations.delete(a));
+}
+let studioJob = null, studioCompletion = null, studioLastPercent = null;
+function studioPercent(value, visible) {
+  const el = document.getElementById('studioProgressValue');
+  if (!el) return;
+  el.hidden = !visible;
+  if (!visible) { studioLastPercent = null; return; }
+  const n = Math.round(value);
+  if (n === studioLastPercent) return;
+  const digits = el.firstElementChild;
+  digits.textContent = `${n}%`;
+  // A fixed-width counter slides to each reported value. It never counts
+  // beyond server progress, and accessibility gets the exact value at once.
+  if (studioLastPercent !== null) studioAnimate(digits, [
+    { opacity: .3, transform: 'translateY(35%)' }, { opacity: 1, transform: 'translateY(0)' }
+  ], 320);
+  studioLastPercent = n;
+}
+function studioProgress(status) {
+  const card = document.getElementById('nowCard');
+  const fill = document.getElementById('progressFill');
+  if (!card || !fill) return;
+  const bar = fill.parentElement;
+  // --p rides with the scale so the CSS can pin the brand gradient to the
+  // track (the fill uncovers it rather than squashing it into its width).
+  const setFill = (x) => { fill.style.transform = `scaleX(${x})`; fill.style.setProperty('--p', String(x)); };
+  const current = status.running && status.current;
+  if (current) {
+    if (studioCompletion) { clearTimeout(studioCompletion); studioCompletion = null; }
+    card.classList.remove('is-complete');
+    const changed = studioJob !== current.id;
+    studioJob = current.id;
+    card.classList.add('is-rendering');
+    const pct = Math.min(99, Math.max(0, parseFloat(fill.style.width) || 0));
+    // Do not animate backwards across two unrelated jobs.
+    if (changed) { fill.style.transition = 'none'; studioLastPercent = null; }
+    setFill(pct / 100);
+    if (changed) requestAnimationFrame(() => { fill.style.transition = ''; });
+    bar.setAttribute('aria-valuenow', String(Math.round(pct)));
+    studioPercent(pct, true);
+    return;
+  }
+  card.classList.remove('is-rendering');
+  const completed = studioJob && (status.history || []).find(j => j.id === studioJob && j.status === 'done');
+  studioJob = null;
+  if (completed) {
+    card.classList.add('is-complete');
+    setFill(1);
+    bar.setAttribute('aria-valuenow', '100');
+    studioPercent(100, true);
+    studioCompletion = setTimeout(() => {
+      card.classList.remove('is-complete'); setFill(0);
+      bar.setAttribute('aria-valuenow', '0'); studioPercent(0, false); studioCompletion = null;
+    }, studioReducedMotion.matches ? 300 : 1100);
+  } else if (!studioCompletion) {
+    setFill(0); bar.setAttribute('aria-valuenow', '0'); studioPercent(0, false);
+  }
+}
+
+
+function studioMotionInit() {
+  if (studioReducedMotion) return;
+  studioReducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  studioReducedMotion.addEventListener('change', () => {
+    if (studioReducedMotion.matches) studioAnimations.forEach(a => a.cancel());
+  });
+  // Workflow changes reveal only the active working surface. The existing
+  // workflowSwitch function continues to own visibility, focus and persistence.
+  let studioWorkflow = document.body.dataset.workflow;
+  new MutationObserver(() => {
+    const next = document.body.dataset.workflow;
+    if (next === studioWorkflow) return;
+    studioWorkflow = next;
+    const ids = {manual:'genForm',studio:'studioSection',audio:'audioSectionTab',storyboard:'sbSectionTab',editor:'edSectionTab',oneshot:'oneshotSectionTab',train:'trainSection'};
+    studioAnimate(document.getElementById(ids[next]), [
+      {opacity:.45,transform:'translateY(4px)'},{opacity:1,transform:'translateY(0)'}
+    ]);
+  }).observe(document.body,{attributes:true,attributeFilter:['data-workflow']});
+
+  // queue.js replaces rows when its signature changes. Compare stable job ids
+  // so a poll never re-animates the entire queue. Reorders get one small settle.
+  const studioQueue = document.getElementById('queueList');
+  let studioRows = new Map();
+  if (studioQueue) new MutationObserver(() => {
+    const next = new Map();
+    [...studioQueue.children].forEach((row,i) => {
+      const id = row.dataset.jobId;
+      if (!id) return;
+      const state = `${i}:${row.textContent}`;
+      if (studioRows.get(id) !== state) studioAnimate(row,[
+        {opacity:.45,transform:'translateY(4px)'},{opacity:1,transform:'translateY(0)'}
+      ]);
+      next.set(id,state);
+    });
+    studioRows = next;
+  }).observe(studioQueue,{childList:true});
+
+  // Native fields keep native keyboard behaviour; feedback never moves the caret.
+  document.addEventListener('focusin', event => {
+    if (event.target.matches('input:not([type="hidden"]),textarea,select'))
+      studioAnimate(event.target, [{opacity:.82},{opacity:1}], 180);
+  });
+
+}
+Object.assign(globalThis, {studioMotionInit, studioProgress});

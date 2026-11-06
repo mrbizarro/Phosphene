@@ -469,10 +469,18 @@ def main(argv=None):
     lora_runtime = yue2_lora.LoRARuntime(adapters)
 
     config = GenerationConfig(ode_steps=int(args.steps))
-    pipe = YuE2Pipeline(
-        args.model_dir, args.vae_dir, precision=args.precision, generation_config=config,
-        memory_budget_gib=budget, vae_core_frames=args.vae_core_frames, progress=False,
-    )
+    # The constructor starts the memory guard and samples at once: a Mac that
+    # is already short (a 16 GB Mac with a browser open) stops HERE, and that
+    # is the same memory-guard stop as one mid-song - exit 3, so the panel
+    # says what to do instead of a generic "exited with code 1" (4.19.12).
+    try:
+        pipe = YuE2Pipeline(
+            args.model_dir, args.vae_dir, precision=args.precision, generation_config=config,
+            memory_budget_gib=budget, vae_core_frames=args.vae_core_frames, progress=False,
+        )
+    except MemoryError as exc:
+        say("error", f"memory guard: {exc}")
+        return 3
     # Surface the NAR / VAE progress the pipeline only reports when its own
     # stderr progress is enabled.
     from lyra import nar as _nar

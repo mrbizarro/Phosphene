@@ -148,6 +148,15 @@ def cmd_stop(args, ph: Phosphene) -> int:
     return 0
 
 
+def cmd_open_cut(args, ph: Phosphene) -> int:
+    spec = json.loads(Path(args.spec).read_text(encoding="utf-8"))
+    doc = ph.open_cut(spec, wait=not args.no_wait)
+    lines = [f"Opened {doc.get('title')!r} in the Editor: {doc.get('clips')} clips, {doc.get('duration')} s",
+             f"  {doc.get('editor_url')}"] + [f"  note: {n}" for n in doc.get("notes") or []]
+    _print(args, doc, "\n".join(lines))
+    return 0 if doc.get("ok") else 1
+
+
 def mcp_entry() -> dict:
     return {"mcpServers": {"phosphene": {"command": sys.executable, "args": [str(HERE / "phosphene_mcp.py")]}}}
 
@@ -223,6 +232,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", required=True)
     p = make("stop", cmd_stop, "stop the running job")
     p.add_argument("job", nargs="?")
+    p = make("open-cut", cmd_open_cut, "turn a cut spec (JSON) into a film in the Editor, ready to edit by hand")
+    p.add_argument("spec", help="the cut spec file (phosphene_cut: 1; see docs/API.md)")
+    p.add_argument("--no-wait", action="store_true", help="answer before the proxies are built")
     make("mcp-config", cmd_mcp_config, "the MCP server entry for agent tools")
     return ap
 

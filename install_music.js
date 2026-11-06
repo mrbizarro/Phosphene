@@ -8,7 +8,7 @@ module.exports = {
   requires: { bundle: "ai" },
   run: [
     { method: "notify", params: {
-      html: "<b>Installing YuE2 (the music engine, ~11 GB).</b><br>Writes a full song — vocals, arrangement and all — from lyrics and a style description, and sits beside LTX and Hailuo H3 as a peer. Needs a 24 GB+ Apple Silicon Mac. Resumable if interrupted."
+      html: "<b>Installing YuE2 (the music engine, ~11 GB).</b><br>Writes a full song — vocals, arrangement and all — from lyrics and a style description, and sits beside LTX and Hailuo H3 as a peer. Needs a 16 GB+ Apple Silicon Mac. Resumable if interrupted."
     } },
     // Pinokio 8.2 ignores a step's exit code and stops only on /error:/i or
     // /errno /i in its output: every script here (and music_fetch.py, in its

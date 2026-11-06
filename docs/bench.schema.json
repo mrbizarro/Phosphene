@@ -1,0 +1,404 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://phosphene.video/bench/schema/phosphene-bench-1.json",
+  "title": "Phosphene Bench result",
+  "type": "object",
+  "required": [
+    "schema",
+    "suite",
+    "run_id",
+    "started_at",
+    "finished_at",
+    "app",
+    "mac",
+    "conditions",
+    "steps",
+    "summary",
+    "warnings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "type": "string",
+      "enum": [
+        "phosphene-bench/1"
+      ]
+    },
+    "suite": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "fingerprint"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^PB\\d+$"
+        },
+        "name": {
+          "type": "string"
+        },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{12}$"
+        }
+      }
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "started_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ$"
+    },
+    "finished_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ$"
+    },
+    "app": {
+      "type": "object",
+      "required": [
+        "version",
+        "edition",
+        "distribution"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "edition": {
+          "type": "string",
+          "enum": [
+            "free",
+            "pro"
+          ]
+        },
+        "distribution": {
+          "type": "string",
+          "enum": [
+            "pinokio",
+            "mac-app"
+          ]
+        },
+        "generation": {
+          "type": "string"
+        }
+      }
+    },
+    "mac": {
+      "type": "object",
+      "required": [
+        "chip",
+        "chip_family",
+        "cpu_cores",
+        "gpu_cores",
+        "ram_gb",
+        "model_id",
+        "macos",
+        "macos_build",
+        "tier"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "chip": {
+          "type": "string"
+        },
+        "chip_family": {
+          "type": "string"
+        },
+        "cpu_cores": {
+          "type": "object",
+          "required": [
+            "performance",
+            "efficiency"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "performance": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "efficiency": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "gpu_cores": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ram_gb": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "model_id": {
+          "type": "string"
+        },
+        "macos": {
+          "type": "string"
+        },
+        "macos_build": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "string"
+        }
+      }
+    },
+    "conditions": {
+      "type": "object",
+      "required": [
+        "power",
+        "low_power_mode",
+        "thermal_start",
+        "thermal_worst"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "power": {
+          "type": "string",
+          "enum": [
+            "ac",
+            "battery",
+            "unknown"
+          ]
+        },
+        "low_power_mode": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "thermal_start": {
+          "type": "string",
+          "enum": [
+            "nominal",
+            "fair",
+            "serious",
+            "critical",
+            "unknown"
+          ]
+        },
+        "thermal_worst": {
+          "type": "string",
+          "enum": [
+            "nominal",
+            "fair",
+            "serious",
+            "critical",
+            "unknown"
+          ]
+        },
+        "mem_used_start_gb": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "swap_start_gb": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "warmup_sec": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "output_preset": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output_preset_default": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "status",
+          "core",
+          "timed",
+          "wall_sec"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "warmup",
+              "ltx_quick_5s",
+              "ltx_balanced_5s",
+              "image_klein",
+              "h3_draft_5s"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "ltx",
+              "image",
+              "h3"
+            ]
+          },
+          "core": {
+            "type": "boolean"
+          },
+          "timed": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "failed",
+              "skipped",
+              "cancelled"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "canvas": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d+×\\d+$"
+          },
+          "frames": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "images": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "wall_sec": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "peak_mem_gb": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "added_mem_gb": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "swap_peak_gb": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "engine_peak_gb": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "thermal_worst": {
+            "type": "string",
+            "enum": [
+              "nominal",
+              "fair",
+              "serious",
+              "critical",
+              "unknown"
+            ]
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "complete",
+        "eligible",
+        "core_total_sec",
+        "headline_step",
+        "headline_sec"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "eligible": {
+          "type": "boolean"
+        },
+        "core_total_sec": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "headline_step": {
+          "type": "string",
+          "enum": [
+            "warmup",
+            "ltx_quick_5s",
+            "ltx_balanced_5s",
+            "image_klein",
+            "h3_draft_5s"
+          ]
+        },
+        "headline_sec": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

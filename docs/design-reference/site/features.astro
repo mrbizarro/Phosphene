@@ -1,0 +1,124 @@
+---
+import Base from '../../layouts/Base.astro';
+import FeatureClip from '../../components/FeatureClip.astro';
+---
+<Base title="Features · Phosphene" description="Make a shot, plan a film and cut it in the Editor. Video, songs, images and character training, running locally on your Apple Silicon Mac.">
+  <section class="features-intro wrap">
+    <div class="intro-top"><span class="idx"><b>Features</b> / the free app</span><span class="mono local"><i class="dot"></i> On your Mac</span></div>
+    <div class="intro-grid">
+      <h1 class="display">From the first idea<br />to the final cut.</h1>
+      <p class="stand">Make a shot. Write a song. Put the pieces together in Phosphene, a free, MIT-licensed app for Apple Silicon.</p>
+    </div>
+    <nav class="contents mono" aria-label="Features on this page">
+      <a href="#editor">Editor</a><a href="#storyboard">Storyboard</a><a href="#video">Video</a><a href="#music">Music &amp; images</a><a href="#tools">Characters &amp; tools</a><a href="#local">Local &amp; private</a>
+    </nav>
+  </section>
+
+  <section id="editor" class="editor wrap feature-section">
+    <div class="section-line"><span class="idx"><b>01</b> / Editor</span><a class="link small" href="/docs/editor/">Editor guide</a></div>
+    <div class="editor-head">
+      <h2 class="h-m">The film is in the cut.</h2>
+      <p>Trim the ends. Split a clip. Drag the shots into order. Add music, titles and transitions, then render one film or send the timeline to Resolve, Premiere or After Effects.</p>
+    </div>
+    <FeatureClip name="editor" caption="Editor · trimming a shot, scrubbing the timeline and opening export options" width={1140} height={800} />
+    <p class="plate-note mono">Your generations, your own footage, or the keepers from a Storyboard. One timeline.</p>
+  </section>
+
+  <section id="storyboard" class="feature-section storyboard wrap">
+    <div class="section-line"><span class="idx"><b>02</b> / Storyboard</span><a class="link small" href="/docs/storyboard/">Storyboard guide</a></div>
+    <div class="board-layout">
+      <div class="board-ui"><FeatureClip name="storyboard" caption="Storyboard · write the brief, choose six shots and turn on Auto" width={968} height={1360} /></div>
+      <div class="board-copy">
+        <h2 class="display h-l">Give it<br />the whole idea.</h2>
+        <p class="stand">Storyboard turns your idea into a multi-shot film. Set the look, choose the cast and tell it what needs to happen.</p>
+        <p>Turn on <b>Auto</b> to plan the shots, render them, cut them together and make the film. Or review the plan first, mark takes <b>KEEP</b>, <b>RE-ROLL</b> or <b>CUT</b>, and take the keepers into the Editor.</p>
+        <p>Add a soundtrack to plan a music video cut to the beat.</p>
+        <div class="board-result"><FeatureClip name="result-fjord" caption="A finished shot · Lantern fjord, from the gallery" width={1140} height={642} /></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="video" class="feature-section video-section">
+    <div class="wrap">
+      <div class="section-line"><span class="idx"><b>03</b> / Video</span><a class="link small" href="/docs/video/">Video guide</a></div>
+      <div class="video-head"><h2 class="display h-l">Start with words.<br />Or a picture.</h2><p class="stand">LTX-2.5 and MiniMax H3 generate video with sound, right here on your Mac.</p></div>
+      <FeatureClip name="video" caption="Video · writing a prompt and switching from Text to Image" width={1140} height={538} />
+      <dl class="capabilities">
+        <div><dt>Text &amp; Image</dt><dd>Describe a scene, or give a still picture something to do. Choose LTX-2.5 or MiniMax H3.</dd></div>
+        <div><dt>Start &amp; end frame · Keyframes</dt><dd>Set where a shot begins and ends. In LTX-2.5, use 3–8 keyframes to guide the moments between.</dd></div>
+        <div><dt>Extend</dt><dd>Pick a clip and describe what happens next. Continue it in LTX-2.5.</dd></div>
+        <div><dt>Lip-sync &amp; Add sound</dt><dd>Make a picture talk or sing from your audio. Use MiniMax H3’s Add sound to give a silent clip its own soundscape.</dd></div>
+      </dl>
+      <p class="small more-video"><a class="link" href="/docs/one-shot/">One Shot</a> makes a longer continuous take. <a class="link" href="/docs/remix/">Remix</a> adds Ingredients, Motion Control and Colorize.</p>
+    </div>
+  </section>
+
+  <section id="music" class="feature-section wrap">
+    <div class="section-line"><span class="idx"><b>04</b> / Music &amp; images</span></div>
+    <div class="music-layout">
+      <div class="music-ui"><FeatureClip name="music" caption="Audio → Compose · describe a song, or switch to Custom" width={968} height={1360} /></div>
+      <div class="music-copy"><h2 class="h-m">A song to go with it.</h2><p class="stand">In <b>Music Studio</b>, describe the song you want or write your own lyrics. YuE2 makes the vocals and the instruments.</p><p>Open <b>Audio → Compose</b>. Use <b>Simple</b> for an idea in plain words, or <b>Custom</b> for lyrics, style and song sections. Make an instrumental, try several takes, or cover a song you have permission to use.</p><p><a class="link" href="/docs/music/">Music Studio guide</a></p><div class="song"><span class="mono">Listen · Forty frames to go</span><audio controls preload="none" src="/media/song_forty_frames.m4a" aria-label="Forty frames to go, a song made in Music Studio"></audio></div></div>
+    </div>
+    <div class="images-layout"><div><h2 class="h-m">Make the picture first.</h2><p>Open <b>Images</b> to create a picture or change one you already have. Bring reference images for a face, a place or a style. Try a few candidates, then use <b>Animate</b> to turn a favourite into a shot.</p><p><a class="link" href="/docs/images/">Images guide</a></p></div><FeatureClip name="images" caption="Images · a prompt, three candidates and a picture from the library" width={1140} height={538} /></div>
+  </section>
+
+  <section id="tools" class="feature-section wrap">
+    <div class="section-line"><span class="idx"><b>05</b> / Characters &amp; tools</span></div>
+    <div class="character-layout">
+      <div class="character-ui"><FeatureClip name="character" caption="Video → Character · the Bizarro sample character" width={968} height={1180} /></div>
+      <div class="character-copy"><h2 class="display h-l">A familiar face.<br />A different scene.</h2><p>Choose <b>Character</b> in Video to put a trained face into an LTX-2.5 shot. Try the <b>Bizarro</b> sample character before training your own. LoRAs let you add a character or a visual style; use the strength control to adjust the result.</p><FeatureClip name="result-diner" caption="Bizarro in Order up · an existing gallery clip" width={1140} height={642} /></div>
+    </div>
+    <div class="tool-list">
+      <article><div class="tool-copy"><h3 class="h-m">Upscale &amp; Face Fix</h3><p>Give a clip twice the size with new detail. Use <b>Face Fix</b> to keep the face and the sound. Open it under <b>Video → Remix</b>, or from a finished clip.</p><a class="link small" href="/docs/remix/">Upscale &amp; Face Fix guide</a></div><FeatureClip name="upscale" caption="Remix → Upscale & Face Fix · choosing a preset" /></article>
+      <article><div class="tool-copy"><h3 class="h-m">Train Character</h3><p>Train your own character LoRA from photos. Add captions, choose a trigger word and set the training quality. Training runs locally and needs at least 24 GB of memory.</p><a class="link small" href="/docs/train-character/">Training guide</a></div><FeatureClip name="training" caption="Train Character · trigger word and quality preset" /></article>
+      <article><div class="tool-copy"><h3 class="h-m">Batch &amp; Queue</h3><p>Try a list of prompts or several seeds. Queue videos and songs, then let them run one at a time. See what is next and pause the queue when you need your Mac.</p><a class="link small" href="/docs/video/">Video controls</a></div><FeatureClip name="batch" caption="Batch · variations from seeds or a list of prompts" /></article>
+      <article><div class="tool-copy"><h3 class="h-m">Browse CivitAI</h3><p>Find LoRAs from inside the app. Search by name or style, check which engine they fit, then add one to your collection.</p><a class="link small" href="/docs/loras/">LoRA guide</a></div><FeatureClip name="loras" caption="LoRAs → Browse CivitAI · searching the browser" width={1140} height={654} /></article>
+    </div>
+  </section>
+
+  <section id="local" class="local-section"><div class="wrap local-grid"><span class="idx"><b>06</b> / Local &amp; private</span><h2 class="display h-l">Your Mac.<br />Your files.</h2><div><p class="stand">Generation is 100% local. Your prompts, pictures, songs and videos stay on your Mac.</p><p>Download the models once, then work offline. Browsing CivitAI and downloading models need an internet connection. Anonymous usage analytics can be switched off in Settings.</p><p>Phosphene is free and MIT licensed. Made by Mr Bizarro.</p><a class="btn" href="/download/">Get Phosphene free</a><p class="privacy-link small"><a class="link" href="/privacy/">Privacy details</a></p></div></div></section>
+</Base>
+
+<style>
+  .features-intro { padding-top: 130px; padding-bottom: 36px; }
+  .intro-top, .section-line { display: flex; justify-content: space-between; gap: 20px; align-items: baseline; }
+  .local { color: var(--mute); white-space: nowrap; }.local .dot { margin-right: 8px; }
+  .intro-grid { display: grid; grid-template-columns: 1.6fr 1fr; align-items: end; gap: 7%; margin: 30px 0 32px; }
+  h1 { font-size: clamp(54px, 6.5vw, 104px); }
+  .intro-grid .stand { max-width: 27ch; font-size: clamp(20px, 1.8vw, 26px); }
+  .contents { display: flex; flex-wrap: wrap; gap: 12px 26px; padding-top: 23px; border-top: 1px solid var(--line); }
+  .contents a { text-decoration-color: var(--line); }
+  .feature-section { padding-top: 70px; padding-bottom: 70px; scroll-margin-top: 75px; }
+  .section-line { border-top: 1px solid var(--line); padding-top: 15px; margin-bottom: 34px; }
+  .editor { padding-top: 14px; }.editor-head { display: grid; grid-template-columns: 1fr 1fr; gap: 8%; margin-bottom: 28px; }
+  .editor-head p { margin: 0; max-width: 59ch; color: var(--mute); }
+  .editor :global(figure) { max-width: 1140px; margin-left: auto; }
+  .plate-note { color: var(--dim); margin: 18px 0 0; text-align: right; }
+  .board-layout { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 9%; }
+  .board-copy { padding-top: 24px; }.board-copy h2 { margin-bottom: 30px; font-size: clamp(46px, 5.6vw, 86px); }
+  .board-copy .stand { margin-bottom: 25px; }.board-copy > p:not(.stand) { max-width: 55ch; color: var(--mute); }
+  .board-result { margin-top: 35px; }
+  .video-section { background: var(--void-2); border-block: 1px solid var(--line-soft); }
+  .video-head { display: grid; grid-template-columns: 1.6fr 1fr; align-items: end; gap: 8%; margin-bottom: 38px; }
+  .video-head h2 { font-size: clamp(48px, 6vw, 94px); }
+  .capabilities { display: grid; grid-template-columns: 1fr 1fr; column-gap: 8%; margin: 32px 0 0; }
+  .capabilities div { padding: 20px 0; border-top: 1px solid var(--line); }
+  dt { font-weight: 700; font-size: 20px; }dd { margin: 8px 0 0; color: var(--mute); max-width: 48ch; }
+  .more-video { margin-top: 20px; }
+  .music-layout { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 9%; align-items: center; }
+  .music-copy h2 { margin-bottom: 28px; }.music-copy > p { max-width: 49ch; }.music-copy .stand { margin-bottom: 24px; }.music-copy > p:not(.stand) { color: var(--mute); }
+  .song { border-top: 1px solid var(--line); margin-top: 32px; padding-top: 20px; }.song span { color: var(--mute); }audio { display: block; width: 100%; max-width: 440px; margin-top: 16px; }
+  .images-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 8fr); align-items: center; gap: 6%; margin-top: 86px; }.images-layout h2 { margin-bottom: 22px; }.images-layout p { color: var(--mute); }
+  .character-layout { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 9%; }.character-copy h2 { font-size: clamp(45px, 5vw, 80px); margin: 14px 0 25px; }.character-copy > p { max-width: 53ch; color: var(--mute); margin-bottom: 28px; }
+  .tool-list { margin-top: 80px; }.tool-list article { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10%; border-top: 1px solid var(--line); padding: 38px 0; align-items: center; }.tool-copy h3 { margin-bottom: 22px; font-size: clamp(30px, 3.4vw, 48px); }.tool-copy p { max-width: 39ch; color: var(--mute); }.tool-list :global(figure) { width: 100%; max-width: 360px; justify-self: end; }.tool-list article:last-child :global(figure) { max-width: 580px; }
+  .local-section { background: var(--panel); padding: 72px 0; scroll-margin-top: 80px; }.local-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px 8%; }.local-grid > .idx { grid-column: 1 / -1; }.local-grid h2 { font-size: clamp(56px, 7vw, 108px); }.local-grid .stand { margin-bottom: 26px; }.local-grid p:not(.stand) { color: var(--mute); max-width: 54ch; }.local-grid .btn { margin-top: 12px; }.privacy-link { margin: 16px 0 0; }
+  @media (min-width: 1600px) { .features-intro { padding-top: 150px; } }
+  @media (max-width: 800px) {
+    .features-intro { padding-top: 105px; }.intro-grid, .editor-head, .video-head { grid-template-columns: 1fr; gap: 24px; }.intro-grid .stand { max-width: 36ch; }.intro-top > .local { font-size: 10px; }.contents { gap: 10px 19px; font-size: 11px; }
+    .feature-section { padding-block: 42px; }.editor { padding-top: 8px; }.section-line { margin-bottom: 26px; }.section-line .small { font-size: 12px; }.plate-note { text-align: left; font-size: 10px; }
+    .board-layout, .music-layout, .character-layout { grid-template-columns: minmax(0, 1fr); gap: 28px; }.board-copy, .music-copy, .character-copy { grid-row: 1; padding-top: 0; }.board-ui, .music-ui, .character-ui { max-width: 420px; width: 100%; }.board-copy h2 { margin-top: 0; }.board-result { margin-top: 24px; }
+    .capabilities { grid-template-columns: 1fr; }.capabilities div { padding-block: 17px; }dt { font-size: 18px; }dd { font-size: 16px; }
+    .images-layout { grid-template-columns: 1fr; gap: 20px; margin-top: 48px; }.tool-list { margin-top: 45px; }.tool-list article { grid-template-columns: 1fr; gap: 26px; padding-block: 32px; }.tool-list :global(figure) { justify-self: start; max-width: 420px; }
+    .local-grid { grid-template-columns: 1fr; gap: 28px; }.local-section { padding-block: 44px; }
+  }
+</style>

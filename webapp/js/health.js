@@ -47,6 +47,7 @@ async function refreshVersionPill() {
   // landing under a long-lived panel) is untouched and still shows.
   if (_versionRestartPending && _versionState
       && !_versionState.stale_process
+      && !(_versionState.post_update && _versionState.post_update.outcome === 'pending')
       && !(((_versionState.behind_by) | 0) > 0)) {
     _versionRestartPending = false;
   }
@@ -100,6 +101,14 @@ function renderVersionPill() {
     pill.title = `Phosphene ${_versionBuildLabel(s.local_version, s.local_short)}. `
       + 'To update, use Phosphene \u2192 Check for Updates\u2026'
       + '\nClick to copy your build details for a bug report.';
+    return;
+  }
+
+  const repair = s.post_update || {};
+  if (repair.outcome === 'pending' && repair.state !== 'done') {
+    pill.classList.add('pill-busy');
+    pill.textContent = repair.state === 'failed' ? 'Retry update' : 'Preparing update';
+    pill.title = repair.error || 'Waiting for dependency repair to finish.';
     return;
   }
 
@@ -188,7 +197,9 @@ function renderVersionPill() {
   // Current with origin/main.
   if (s.checked_ts && (s.behind_by | 0) === 0) {
     pill.classList.add('pill-current');
-    pill.innerHTML = `<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-check-bold"/></svg>Up to date · ${local}`;
+    // The words sit in their own span so a narrow title bar can drop them and
+    // keep the tick and the number (the tick already says "up to date").
+    pill.innerHTML = `<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-check-bold"/></svg><span class="vp-state">Up to date · </span>${local}`;
     pill.title = `You're on ${local}, the latest version. Click to re-check now.`;
     return;
   }
@@ -242,6 +253,7 @@ function _phModalShow(opts) {
   wrap.onclick = (ev) => {
     if (ev.target === wrap) { _phModalClose(); if (opts.onCancel) opts.onCancel(); }
   };
+  wrap._cancelModal = () => { _phModalClose(); if (opts.onCancel) opts.onCancel(); };
   wrap.hidden = false;
   window._phModalOpen = true;
   return true;
@@ -353,6 +365,12 @@ window._ubStarSettings = null;
 function _ubRender(s) {
   const el = document.getElementById('updateBanner');
   if (!el) return;
+  const repair = (s && s.post_update) || {};
+  if (!isMacApp() && !(s && s.app_updates) && repair.outcome === 'pending') {
+    el.hidden = false;
+    _ubRestartState(s.disk_version || s.pull_pulled_to_version || 'the candidate', false);
+    return;
+  }
   // Never under the Mac app: its own updater (Sparkle) owns updates.
   const behind = !isMacApp() && !(s && s.app_updates)
     && (s && !s.error && s.checked_ts && (s.behind_by | 0) > 0);
@@ -386,7 +404,7 @@ function _ubRestartState(newVersion, requiresFullUpdate) {
   const sub = document.getElementById('ubSub');
   const go = document.getElementById('ubUpdate');
   const later = document.getElementById('ubLater');
-  if (title) title.textContent = `Updated to ${newVersion} — restart to finish`;
+  if (title) title.textContent = `Version ${newVersion} is ready to start`;
   // SYS-29: this used to hide `go` and tell the user to go click Stop
   // then Start in Pinokio themselves -- a second, manual mechanism
   // sitting right next to panelRestart() (the one-click, 409-guarded
@@ -405,7 +423,7 @@ function _ubRestartState(newVersion, requiresFullUpdate) {
   if (pu.pending || pu.active || pu.state === 'failed') {
     if (title) title.textContent = pu.state === 'failed'
       ? 'The update did not finish'
-      : `Updated to ${newVersion} \u2014 finishing the update\u2026`;
+      : `Preparing version ${newVersion}...`;
     if (sub) sub.textContent = pu.state === 'failed'
       ? (pu.error || 'post_update.sh failed') + ' \u2014 use Pinokio\u2019s Update (Stop, then Update), or try again.'
       : 'Installing what the new version needs (the same step Pinokio\u2019s Update runs). '
@@ -519,10 +537,22 @@ document.addEventListener('DOMContentLoaded', () => {
   _ubWire();
   // Same anonymous count as the banner's link, so the two places agree.
   const sl = document.getElementById('starLink');
-  if (sl) sl.addEventListener('click', () => {
-    _ubSaveSetting({star_prompt_done: true});   // retire the banner ask too
-    try { fetch('/star-click', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({via: 'link'})}); } catch (e) {}
+  // The header star opens a short thank-you first; the GitHub link lives inside it.
+  if (sl) sl.addEventListener('click', (e) => {
+    e.preventDefault();
+    const ask = document.getElementById('starAsk');
+    if (!ask) { window.open(sl.href, '_blank', 'noopener'); return; }
+    ask.classList.add('show');
+    document.getElementById('starAskGo')?.focus();
   });
+  const go = document.getElementById('starAskGo');
+  if (go) go.addEventListener('click', () => {
+    _ubSaveSetting({star_prompt_done: true});   // retire the banner ask and the twinkle
+    sl?.classList.remove('is-calling');
+    try { fetch('/star-click', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({via: 'link'})}); } catch (e) {}
+    setTimeout(starAskClose, 300);
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && document.getElementById('starAsk')?.classList.contains('show')) starAskClose(); });
   // The banner needs two settings before it can decide anything, and the
   // Settings modal may never be opened — so read them here rather than
   // relying on _settingsCache, which is only populated when that opens.
@@ -535,6 +565,8 @@ document.addEventListener('DOMContentLoaded', () => {
         star_prompt_done: !!st.star_prompt_done,
         broadcast_seen_ids: st.broadcast_seen_ids || [],
       };
+      // Until they have starred, the header star twinkles now and then (CSS, reduced-motion aware).
+      if (!st.star_prompt_done) document.getElementById('starLink')?.classList.add('is-calling');
       if (_versionState) { try { _ubRender(_versionState); } catch (e) {} }
     })
     .catch(() => {});
@@ -654,6 +686,7 @@ window.addEventListener('resize', closeHealthPop);
 async function panelRestart() {
   const pill = document.getElementById('versionPill');
   const say = (t) => { if (pill) pill.textContent = t; };
+  const expectedCandidate = ((_versionState || {}).post_update || {}).candidate;
   try {
     const r = await fetch('/restart', {method: 'POST'});
     const d = await r.json().catch(() => ({}));
@@ -674,7 +707,13 @@ async function panelRestart() {
     await new Promise(r => setTimeout(r, 700));
     try {
       const r = await fetch('/version', {cache: 'no-store'});
-      if (r.ok) { location.reload(); return true; }
+      if (r.ok) {
+        const state = await r.json();
+        const result = state.post_update || {};
+        if (!expectedCandidate || (result.candidate === expectedCandidate && result.outcome === 'ok')) {
+          location.reload(); return true;
+        }
+      }
     } catch (e) { /* still down */ }
   }
   phosToast(distText('Panel did not come back within 60s — start it from Pinokio.',
@@ -697,6 +736,14 @@ async function _appVersionPillClick() {
 
 async function versionPillClick() {
   if (isMacApp() || (_versionState || {}).app_updates) return _appVersionPillClick();
+  const recovery = (_versionState || {}).post_update || {};
+  if (recovery.outcome === 'pending' && recovery.state === 'failed') {
+    const r = await fetch('/version/finish', {method: 'POST'});
+    const d = await r.json();
+    if (!r.ok || !d.ok) phosToast(d.error || 'Update could not resume.', 'warn');
+    await refreshVersionPill();
+    return;
+  }
   if (_versionRestartPending) {
     const s = _versionState || {};
     const _pu = s.post_update || {};
@@ -829,14 +876,14 @@ async function versionDoPull(opts) {
       pill.classList.remove('pill-busy');
       renderVersionPill();
       alert(`Pull failed:\n\n${(data && data.error) || 'unknown error'}\n\n` +
-            `Tip: try the full Pinokio Update button instead — it also handles ` +
-            `cases where you have local changes that block a fast-forward.`);
+            `Keep your local edits. Save or commit them before retrying Update.`);
       return;
     }
     // 4.17.5: a pull that moved nothing is not an update - no restart, no
     // "Updated to" banner (the restart came back on the same build and was
     // counted as a failed update). A stale process still gets its own pill.
-    if (data.moved === false) {
+    if (data.moved === false && !(data.state && data.state.post_update
+        && data.state.post_update.outcome === 'pending') && !(data.state && data.state.stale_process)) {
       pill.classList.remove('pill-busy');
       renderVersionPill();
       const go = document.getElementById('ubUpdate');
@@ -915,8 +962,10 @@ setInterval(refreshVersionPill, 5 * 60 * 1000);
   // did not know the `show` class at all: Storyboard's re-plan dialog and the
   // Editor's Generate-shot dialog open with classList.add('show'), so Escape,
   // the Tab trap and the scroll lock all ignored them.
-  const MODAL_SEL = '.models-modal, .model-browser-modal, .expand-lightbox, .modal-bg';
+  const MODAL_SEL = '.models-modal, .model-browser-modal, .expand-lightbox, .modal-bg, #phModalWrap';
   const isVisible = el => {
+    if (el.id === 'phModalWrap') return !el.hidden;
+    if (el.hidden) return false;
     const d = el.style.display;
     // Some modals open by adding an .open class (.model-browser-modal), the
     // .modal-bg family by adding .show; others toggle the inline style.
@@ -925,13 +974,60 @@ setInterval(refreshVersionPill, 5 * 60 * 1000);
   };
   const visibleModals = () =>
     Array.from(document.querySelectorAll(MODAL_SEL)).filter(isVisible);
-  const topVisible = () => {
-    const v = visibleModals();
-    return v.length ? v[v.length - 1] : null;
+  const stack = [];
+  let opener = null;
+  let inertNodes = [];
+  document.addEventListener('click', e => {
+    opener = e.target.closest('button, a, input, [tabindex]') || document.activeElement;
+  }, true);
+  const topVisible = () => stack.length ? stack[stack.length - 1].el : null;
+  window.phosTopModal = topVisible;
+  const FOCUSABLE = 'summary, button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  const focusables = el => Array.from(el.querySelectorAll(FOCUSABLE))
+    .filter(n => !n.closest('[inert]') && n.getClientRects().length);
+  const focusFirst = el => {
+    const target = focusables(el)[0] || el;
+    if (target === el) el.tabIndex = -1;
+    target.focus();
   };
-  const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
   const refreshScrollLock = () => {
-    document.body.classList.toggle('modal-open', visibleModals().length > 0);
+    const visible = visibleModals();
+    let returnTo = null;
+    for (let i = stack.length - 1; i >= 0; i--) {
+      if (!visible.includes(stack[i].el)) {
+        const closed = stack.splice(i, 1)[0];
+        closed.el.style.zIndex = closed.zIndex;
+        returnTo = closed.opener;
+      }
+    }
+    for (const el of visible) {
+      if (!stack.some(item => item.el === el)) {
+        stack.push({el, opener: opener || document.activeElement, zIndex: el.style.zIndex});
+        el.style.zIndex = String(10000 + stack.length);
+      }
+    }
+    // Inert siblings along the whole ancestor path, including lower dialogs.
+    for (const [node, value] of inertNodes) node.inert = value;
+    inertNodes = [];
+    const top = topVisible();
+    if (top) {
+      for (let node = top; node && node !== document.body; node = node.parentElement) {
+        for (const sibling of node.parentElement.children) {
+          if (sibling !== node) { inertNodes.push([sibling, sibling.inert]); sibling.inert = true; }
+        }
+      }
+    }
+    opener = null;
+    document.body.classList.toggle('modal-open', !!top);
+    // Polling may have replaced the opener while its child dialog was up.
+    if (returnTo && !returnTo.isConnected && top) {
+      const action = returnTo.getAttribute('onclick');
+      returnTo = focusables(top).find(el =>
+        (returnTo.id && el.id === returnTo.id) ||
+        (action && el.getAttribute('onclick') === action)) || null;
+    }
+    if (returnTo && returnTo.isConnected && (!top || top.contains(returnTo))) returnTo.focus();
+    if (top && !top.contains(document.activeElement)) focusFirst(top);
   };
   // Wire a single MutationObserver per modal element. Cheaper than a
   // global subtree observer and avoids the cost of body-wide attribute
@@ -943,7 +1039,7 @@ setInterval(refreshVersionPill, 5 * 60 * 1000);
     watched.add(el);
     new MutationObserver(refreshScrollLock).observe(el, {
       attributes: true,
-      attributeFilter: ['style', 'class'],
+      attributeFilter: ['style', 'class', 'hidden'],
     });
   };
   document.querySelectorAll(MODAL_SEL).forEach(watch);
@@ -967,7 +1063,8 @@ setInterval(refreshVersionPill, 5 * 60 * 1000);
     const top = topVisible();
     if (!top) return;
     e.preventDefault();
-    e.stopPropagation();
+    e.stopImmediatePropagation();
+    if (top._cancelModal) { top._cancelModal(); return; }
     // Case-insensitive: sbCloseReplan() / sbeGenClose() are the class-based
     // dialogs' own close functions and never matched a lower-case "close".
     const closeBtn =
@@ -982,18 +1079,17 @@ setInterval(refreshVersionPill, 5 * 60 * 1000);
       // outrank `.modal-bg.show` and the dialog could never open again.
       top.classList.remove('show', 'open');
     } else { top.style.display = 'none'; }
-  });
+  }, true);
 
   // Focus trap — when a modal is visible, Tab cycles inside it.
   document.addEventListener('keydown', e => {
     if (e.key !== 'Tab') return;
     const top = topVisible();
     if (!top) return;
-    const focusables = Array.from(top.querySelectorAll(FOCUSABLE))
-      .filter(el => el.offsetWidth > 0 || el.offsetHeight > 0);
-    if (!focusables.length) return;
-    const first = focusables[0];
-    const last = focusables[focusables.length - 1];
+    const controls = focusables(top);
+    if (!controls.length) { e.preventDefault(); focusFirst(top); return; }
+    const first = controls[0];
+    const last = controls[controls.length - 1];
     const active = document.activeElement;
     if (e.shiftKey && (active === first || !top.contains(active))) {
       e.preventDefault();
@@ -1014,13 +1110,15 @@ Object.assign(globalThis, {
   // SYS-19: closeHealthPop wasn't published -- openTierModal (settings.js)
   // and openModelsModal (preview.js) need it so clicking a health-popover
   // row closes the popover before its modal opens on top of it.
-  closeHealthPop,
+  closeHealthPop, starAskClose,
   // The update/broadcast pop-up is the panel's only real dialog component
   // (kicker/title/body/two buttons, one at a time via _phModalOpen) — VC-35's
   // fix is "one in-app confirm/undo component", not a second modal shape, so
   // Stop's confirm-with-cost (queue.js) reuses this rather than inventing one.
   _phModalShow, _phModalClose,
 });
+
+function starAskClose() { document.getElementById('starAsk')?.classList.remove('show'); }
 
 // ---- The one-time "star us on GitHub" card (owner, 2 Nov 2026; v2 4 Nov) --
 // After the fifth finished render the server sets `star_prompt_due` on

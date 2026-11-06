@@ -56,7 +56,12 @@ REF_LUFS = -18.0                 # what the file is written at
 PEAK_CAP = 10 ** (-1.0 / 20)     # −1 dBFS
 DEFAULT_LEVEL = -38.0            # a bed you stop hearing, not one you hear under every line
                                  # (was -27, which sat only ~9 dB under the speech)
-LEVEL_MIN, LEVEL_MAX = -45.0, -18.0
+LEVEL_MIN, LEVEL_MAX = -60.0, -18.0
+# A "From this film" bed sits this far UNDER the room it was measured from.
+# The bed's job is to fill the dips at the cuts, where one clip is quieter
+# than the others; laid at the room's own level it would add as much hiss
+# again (+3 dB) to every second that already has a room.
+FILM_UNDER_DB = 3.0
 DEFAULT_VARIANT = "film"
 FALLBACK_VARIANT = "quiet_room"
 MIN_QUIET_S = 1.5                # less usable quiet than this → fallback
@@ -171,6 +176,26 @@ def gain_level(gain: float, ref: float = REF_LUFS) -> float:
     """The inverse: what level a fader value plays a bed at."""
     g = max(1e-6, float(gain))
     return round(float(ref) + 20 * math.log10(g), 2)
+
+
+def film_level(film_lufs) -> float | None:
+    """The level a "From this film" bed should play at: the measured room,
+    `FILM_UNDER_DB` under it, inside the slider's range. None when nothing
+    was measured (a preset, a film with no quiet sound).
+
+    WHY (2 Nov, SUNDAY MASS): every bed used to go in at DEFAULT_LEVEL, a
+    fixed -38 LUFS, while `film_shape` threw the room's level away and kept
+    only its shape. The film's quiet moments measured -45 to -66 dBFS (median
+    about -57), so the "room tone" played 15-25 dB louder than the room it
+    copied: a flat hiss ~10 dB under the sermon lines, on every second of the
+    film, including under the score."""
+    try:
+        x = float(film_lufs)
+    except (TypeError, ValueError):
+        return None
+    if x != x or x <= -100:
+        return None
+    return clamp_level(x - FILM_UNDER_DB)
 
 
 def bed_seconds(film_len: float) -> int:
@@ -388,15 +413,40 @@ def quiet_spectrum(x: np.ndarray) -> tuple[np.ndarray | None, float]:
     return spec.mean(axis=0), float(keep.sum() * HOP / SR)
 
 
+def psd_lufs(psd: np.ndarray, sr: int = SR) -> float:
+    """BS.1770 loudness of the quiet windows `quiet_spectrum` averaged, from
+    their spectrum: Parseval over one Hann-windowed WIN frame, the window's
+    own power taken back out, K-weighted. The clips are decoded to mono
+    (`-ac 1`), and a near-mono clip played on two channels reads 3 dB louder
+    than its mono sum, so 3 dB go back on: that is the level the room is
+    HEARD at, the number the bed's own (stereo) loudness is compared with."""
+    p = np.asarray(psd, dtype=np.float64)
+    if p.size < 2:
+        return -120.0
+    freqs = np.fft.rfftfreq(WIN, 1.0 / sr)
+    kw = k_weight_power(freqs, sr)
+    kw[0] = 0.0
+    q = p * kw
+    s = 2.0 * q[1:].sum() - (q[-1] if WIN % 2 == 0 else 0.0)
+    w2 = float(np.mean(np.hanning(WIN) ** 2))
+    ms = s / (WIN * WIN) / w2
+    if ms <= 0:
+        return -120.0
+    return round(-0.691 + 10 * math.log10(ms) + 3.01, 2)
+
+
 def film_shape(clips, decoder=None) -> dict:
     """The film's ambience: `{db (per WIN bin, 0 dB = unit power), quiet_s,
-    clips_used}` or `{db: None, ...}` when nothing usable was found.
+    clips_used, quiet_lufs}` or `{db: None, ...}` when nothing usable was
+    found. `quiet_lufs` is the MEDIAN of the clips' quiet-window loudness:
+    how loud the room actually is, which the bed's level is set from.
 
     `clips` is `[{path, start, end}]` in SOURCE seconds. Every clip's spectrum
     is normalised to unit power first (shape, not level), and the per-bin
     MEDIAN across clips keeps one noisy shot from owning the film."""
     dec = decoder or decode_window
     shapes, quiet, used = [], 0.0, 0
+    levels = []
     seen = set()
     for c in clips or []:
         path = str((c or {}).get("path") or "")
@@ -420,12 +470,13 @@ def film_shape(clips, decoder=None) -> dict:
         if tot <= 0:
             continue
         shapes.append(10 * np.log10(psd / tot + 1e-20))
+        levels.append(psd_lufs(psd))
         quiet += secs
         used += 1
     if not shapes:
-        return {"db": None, "quiet_s": 0.0, "clips_used": 0}
+        return {"db": None, "quiet_s": 0.0, "clips_used": 0, "quiet_lufs": None}
     return {"db": np.median(np.stack(shapes), axis=0), "quiet_s": round(quiet, 2),
-            "clips_used": used}
+            "clips_used": used, "quiet_lufs": round(float(np.median(levels)), 2)}
 
 
 # ---------------------------------------------------------------------------
@@ -446,6 +497,7 @@ def build_loop(variant: str = DEFAULT_VARIANT, seed: int = 1, clips=None,
     freqs = np.fft.rfftfreq(n, 1.0 / SR)
     used, fallback, quiet, nclips = variant, "", 0.0, 0
     decoder_error = ""
+    film_lufs = None
     if variant == "film":
         shape = film_shape(clips, decoder)
         decoder_error = shape.get("error") or ""
@@ -462,6 +514,7 @@ def build_loop(variant: str = DEFAULT_VARIANT, seed: int = 1, clips=None,
             # Nothing below 20 Hz: a bed that moves the woofer is not room tone.
             db += -10 * np.log10(1 + (20.0 / np.maximum(freqs, 1.0)) ** 4)
             loop = _synth(db, rng, {"move": 1.0})
+            film_lufs = shape.get("quiet_lufs")
     if used != "film":
         p = PRESETS.get(used) or PRESETS[FALLBACK_VARIANT]
         used = p["id"]
@@ -476,7 +529,7 @@ def build_loop(variant: str = DEFAULT_VARIANT, seed: int = 1, clips=None,
     ref = round(lufs + 20 * math.log10(g), 2)
     return {"loop": loop, "ref_lufs": ref, "peak": round(peak, 4), "variant": used,
             "fallback": fallback, "quiet_s": quiet, "clips_used": nclips,
-            "decoder_error": decoder_error}
+            "decoder_error": decoder_error, "film_lufs": film_lufs}
 
 
 def tile(loop: np.ndarray, seconds: float) -> np.ndarray:
@@ -541,6 +594,10 @@ def make_bed(dest_dir, *, variant: str = DEFAULT_VARIANT, seed: int = 1,
     if wav.is_file() and meta.is_file():
         try:
             facts = json.loads(meta.read_text(encoding="utf-8"))
+            # A bed cached before the room's level was measured cannot say
+            # what level it belongs at: make it again (about a second).
+            if variant == "film" and not facts.get("fallback") and "film_lufs" not in facts:
+                raise ValueError("cached before film_lufs")
             # A cache hit is still subject to `strict`. The same film can be
             # bedded by hand first ("From this film" falling back to a preset,
             # which the manual path allows) and re-cut automatically later —
@@ -568,7 +625,8 @@ def make_bed(dest_dir, *, variant: str = DEFAULT_VARIANT, seed: int = 1,
              "peak": res["peak"], "variant": variant, "used": res["variant"],
              "label": variant_label(res["variant"]), "seed": seed,
              "fallback": res["fallback"], "quiet_s": res["quiet_s"],
-             "clips_used": res["clips_used"]}
+             "clips_used": res["clips_used"], "film_lufs": res.get("film_lufs"),
+             "suggest_level": film_level(res.get("film_lufs"))}
     # A bed that fell back because the DECODER could not run is not a fact
     # about these clips — do not let the cache answer for them next time.
     if not res.get("decoder_error"):

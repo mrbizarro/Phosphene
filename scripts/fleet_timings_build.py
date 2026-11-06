@@ -124,11 +124,13 @@ def _sql_literal(s: str) -> str:
 # pinned to 7), so an event without it - every version before 4.19.11, none of
 # which ran v1.3 - falls back to the old rule: <= 5 points Fast, else Best.
 # Turbo gets a lane of its own that no price reads, and so does Pika H3 Flex
-# (also 7 points) until it has receipts of its own.
+# (also 7 points) until it has receipts of its own. H3 Flex Turbo (5.0) is 5
+# points, so without its lane it would fall into Fast's range.
 _SPEED_EXPR = (
     "multiIf(properties.engine != 'h3', '', "
     "properties.h3_sampler = 'v13', 'v13', "
     "properties.h3_sampler = 'flex', 'flex', "
+    "properties.h3_sampler = 'flex_turbo', 'flex_turbo', "
     "properties.h3_sampler = 'fast', 'fast', "
     "properties.h3_sampler = 'turbo', 'turbo', "
     "properties.h3_sampler = 'best', 'best', "

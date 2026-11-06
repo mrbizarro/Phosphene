@@ -136,13 +136,6 @@ function osDocument() {
 
 // ---- rendering --------------------------------------------------------------
 function osRenderEngine() {
-  const h3ok = osH3Available();
-  document.querySelectorAll('#osEngineGroup .pill-btn').forEach(b => {
-    const e = b.dataset.osEngine;
-    b.classList.toggle('active', e === OS.engine);
-    b.classList.toggle('disabled', e === 'h3' && !h3ok);
-    if (e === 'h3') b.title = h3ok ? '' : 'Hailuo H3 is not installed on this Mac';
-  });
   const meta = osEl('osEngineMeta');
   if (meta) {
     meta.textContent = OS.engine === 'h3'
@@ -153,7 +146,15 @@ function osRenderEngine() {
   if (cb) cb.hidden = OS.engine === 'h3';
   const ho = document.querySelector('[data-os-toggle="handoff"]');
   if (ho && ho.parentElement) ho.parentElement.hidden = OS.engine === 'h3';
+  // The top Model picker shows OS.engine (a Load Params or a fallback to LTX
+  // moves it without a click on the picker).
+  if (document.body && document.body.dataset && document.body.dataset.workflow === 'oneshot'
+      && typeof renderEngineSwitch === 'function') {
+    try { renderEngineSwitch(); } catch (e) {}
+  }
 }
+// What the top Model picker reads on the One Shot tab.
+function osCurrentEngine() { return OS.engine; }
 function osRenderLengths() {
   const g = osEl('osLengthGroup');
   if (!g) return;
@@ -639,7 +640,6 @@ function osWire() {
   // a manual osSetSeconds() later in the same session is never overridden,
   // and neither is a take Load Params restored before the first wire.
   _osApplyStoredPrefs();
-  document.querySelectorAll('#osEngineGroup [data-os-engine]').forEach(b => b.onclick = () => osSetEngine(b.dataset.osEngine));
   document.querySelectorAll('[data-os-toggle]').forEach(group => {
     group.querySelectorAll('[data-os-value]').forEach(b => b.onclick = () => osToggle(group.dataset.osToggle, b.dataset.osValue));
   });
@@ -659,7 +659,7 @@ function osWire() {
 // ---- published to the page --------------------------------------------------
 Object.assign(globalThis, {
   oneshotTabEnter, oneshotTabLeave, oneshotOpenFromParams, osWire,
-  osSetEngine, osSetSeconds, osSetQuality, osSetCharacter, osToggle,
+  osSetEngine, osCurrentEngine, osSetSeconds, osSetQuality, osSetCharacter, osToggle,
   osBeatsInput, osSplitPrompt, osPlanBeats, osGenerate, osDocument, osBeatsList, osSetBeats, osRenderBeats,
   osLengthLabel, osPartSeconds, osPartsText, osPartsShort, osClock, osVerdict, osPaintStatus,
 });

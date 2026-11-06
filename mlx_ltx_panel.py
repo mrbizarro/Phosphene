@@ -32,6 +32,7 @@ import signal
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unicodedata
@@ -41,6 +42,7 @@ from email.message import Message as _EmailMessage
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from scripts import model_path_guard
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -83,12 +85,20 @@ import install_plan
 # internal caption schema. Faithful Python port of the panel's JS canvas
 # serializer (ideoBuildCaption / ideoSynthDesc / ideoRectToBbox).
 import ideogram_caption
+import model_capabilities
 import model_licences
 # Pinokio or the Phosphene Mac app (PHOSPHENE_DISTRIBUTION / _EDITION). Every
 # user-facing sentence that names Pinokio picks its Mac-app variant through
 # distribution.say(); unset (Pinokio) keeps every sentence as it was.
 import distribution as _dist
 import agent_discovery
+# Remote Control (Pro): the Mac side of the iPhone app lives in the PRIVATE Pro tree and ships
+# inside the Pro pack as pro_remote.py. This studio only offers the left-menu page and the
+# routes behind it; with no pro_remote module next to it, Remote Control is "comes with Pro".
+try:
+    import pro_remote
+except ImportError:
+    pro_remote = None
 
 # Storyboard — the layer ABOVE the video modes: one concept in, a film's worth
 # of shots out. `storyboard` is the spine (schema, validation, scheduling,
@@ -102,6 +112,7 @@ import storyboard_planner
 # failures (lines sung, invented rings, dialogue nouns on screen, ellipses).
 # Pure stdlib; applied in run_h3_job_inner right before the runner argv.
 import h3_prompt_guards
+import clip_title
 
 # --- Paths -------------------------------------------------------------------
 # Everything below is overridable via env vars so the panel can be cloned and
@@ -1581,7 +1592,9 @@ def _settings_defaults() -> dict:
         # film's own quiet sound under every cut it invents, so cuts do not
         # drop to silence. On by default (owner, 2026-09-17); one switch off,
         # in the Editor's Room tone card.
-        "room_tone_auto": True,
+        # OFF unless the user turns it on (owner, 2 Nov: the automatic bed "is
+        # really bad"). A cut made by an agent or by hand never gets one.
+        "room_tone_auto": False,
         # Memory/speed policy. Defaults to Auto so 5 s clips keep the fast
         # full-decode path while long/high-pressure renders stay protected.
         # Live preview. On by default: it costs ~0.2 % of the render,
@@ -2054,7 +2067,7 @@ def get_settings_public() -> dict:
         "spicy_mode": bool(s.get("spicy_mode", False)) and not _dist.is_mac_app(),
         "live_preview": str(s.get("live_preview", "on")),
         "notify_done": bool(s.get("notify_done", True)),
-        "room_tone_auto": bool(s.get("room_tone_auto", True)),
+        "room_tone_auto": bool(s.get("room_tone_auto", False)),
         # Push: can the panel send at all, and how many browsers listen.
         "push_available": push_available(),
         "push_subscriptions": len(_push_subs()),
@@ -2379,7 +2392,8 @@ CURATED_LORAS: dict[str, dict] = {
 
 def _safe_loras_dir() -> Path:
     """Ensure mlx_models/loras/ exists. Idempotent."""
-    LORAS_DIR.mkdir(parents=True, exist_ok=True)
+    model_path_guard.prepare_directory(MODELS_DIR, LORAS_DIR,
+        allow_new=MODELS_DIR == _DEFAULT_MODELS_DIR and not os.environ.get("LTX_MODELS_DIR"))
     return LORAS_DIR
 
 
@@ -5693,6 +5707,13 @@ def parse_loras_from_form(form: dict) -> list[dict]:
     return out
 
 
+def model_path_problem(repo=None, *, write=False):
+    target = repo_dir(repo) if repo else MODELS_DIR
+    return model_path_guard.problem(
+        MODELS_DIR, target, write=write,
+        allow_new=MODELS_DIR == _DEFAULT_MODELS_DIR and not os.environ.get("LTX_MODELS_DIR"))
+
+
 def _repos() -> list[dict]:
     """All repo entries from required_files.json (list, in order)."""
     return list(_REQUIRED.get("repos", []))
@@ -5899,6 +5920,8 @@ def _repo_missing(repo: dict) -> list[str]:
     """Files missing or zero-byte for one repo, expressed as bare filenames
     (relative to the repo's local_dir). Bare names are friendlier in the UI
     than full paths."""
+    if model_path_problem(repo):
+        return list(repo.get("files", []))
     return pack_files_missing(repo_dir(repo), repo)
 
 
@@ -6163,6 +6186,8 @@ def _repo_effective_missing(repo: dict) -> list[str]:
     Now both call this, so the blocker card and the Models modal cannot contradict each
     other again — the card is a rendering of the modal's answer, not a second opinion.
     """
+    if model_path_problem(repo):
+        return list(repo.get("files", []))
     quant = _quant_for_repo_key(repo.get("key"))
     local_missing = pack_missing_files(quant) if quant else _repo_missing(repo)
     if not local_missing:
@@ -6574,6 +6599,9 @@ def ltx_pack_preflight(quant: str, feature: str,
     truth: the canonical layout, a registered pack, and the files absent
     from BOTH the pack directory and the HF cache. Anything else returns
     silently and the job proceeds exactly as it did before."""
+    reason = model_path_problem(pack_repo(quant, version_id))
+    if reason:
+        raise RuntimeError(reason)
     if not _canonical_layout():
         return
     repo = pack_repo(quant, version_id)
@@ -6673,7 +6701,12 @@ def repo_status_list() -> list[dict]:
         total = len(r.get("files", []))
         local_present = total - len(local_missing)
 
-        cache_missing = _repo_missing_in_cache(r)
+        path_error = model_path_problem(r)
+        write_error = model_path_problem(r, write=True)
+        if path_error:
+            local_missing = list(r.get("files", []))
+            local_present = 0
+        cache_missing = None if path_error else _repo_missing_in_cache(r)
         cache_present = (total - len(cache_missing)) if cache_missing is not None else 0
 
         # Pick the layer with more files present — ties go to local_dir
@@ -6704,6 +6737,8 @@ def repo_status_list() -> list[dict]:
             "present_files": present,
             "missing_files": missing,
             "complete": not missing,
+            "availability": "unavailable" if path_error else ("read_only" if write_error else "available"),
+            "path_message": path_error or write_error,
             # Does this row's download need the `hf` binary?
             #
             # The 2.3 packs come from HuggingFace via `hf download`; the 2.5
@@ -6945,19 +6980,37 @@ def storage_rows() -> list[dict]:
     return rows
 
 
+def storage_inventory_args():
+    repos = _repos()
+    known = [repo_dir(r) for r in repos] + [H3_MODELS, MUSIC_MODELS]
+    protected = [OUTPUT, UPLOADS, LORAS_DIR, MODELS_DIR / "characters",
+                 MODELS_DIR / "styles", MODELS_DIR / "yue2-loras"]
+    required = [repo_dir(r) / f for r in repos for f in r.get("files", [])]
+    return {"known": known, "protected": protected, "required": required,
+            "extra": known}
+
+
 def storage_payload() -> dict:
-    rows = storage_rows()
-    reclaimable = sum(r["bytes"] for r in rows if r["removable"])
+    import model_storage
+    reason = model_path_problem()
+    write_reason = model_path_problem(write=True)
+    result = (dict(rows=[], reclaimable=0, confirmation="") if reason else
+              model_storage.inventory(MODELS_DIR, **storage_inventory_args()))
+    result.update(availability="unavailable" if reason else ("read_only" if write_reason else "available"),
+                  message=reason or write_reason)
+    if write_reason:
+        result.update(reclaimable=0, confirmation="")
+    for row in result["rows"]:
+        row["size"] = _fmt_gb(row["bytes"])
+        row["note"] = row["status"]
+        if row["superseded_bytes"]:
+            row["note"] += " (" + _fmt_gb(row["superseded_bytes"]) + " removable)"
+    result["reclaimable_label"] = _fmt_gb(result["reclaimable"])
     try:
-        free = shutil.disk_usage(OUTPUT).free
+        result["free_label"] = _fmt_gb(shutil.disk_usage(MODELS_DIR).free)
     except OSError:
-        free = 0
-    return {
-        "rows": rows,
-        "reclaimable": reclaimable,
-        "reclaimable_label": _fmt_gb(reclaimable),
-        "free_label": _fmt_gb(free),
-    }
+        result["free_label"] = "Unknown"
+    return result
 
 
 def _repo_generation(repo_key: str | None) -> str | None:
@@ -7335,6 +7388,10 @@ def _model_integrity(force: bool = False) -> dict:
 
     Returns {"ok": bool, "bad": [{"repo","file","reason"}], "checked": int,
              "scanned_ts": float}."""
+    unavailable = [model_path_problem(r) for r in _repos()]
+    if any(unavailable):
+        return {"ok": False, "bad": [], "checked": 0, "scanned_ts": time.time(),
+                "availability": "unavailable", "message": next(x for x in unavailable if x)}
     now = time.time()
     with _INTEGRITY_LOCK:
         cached = _INTEGRITY_CACHE["data"]
@@ -7812,10 +7869,23 @@ def _download_thread(repo: dict) -> str:
     is a second downloader that drifts from this one."""
     repo_id = repo["repo_id"]
     target = repo_dir(repo)
-    target.mkdir(parents=True, exist_ok=True)
+    reason = model_path_problem(repo, write=True)
+    if reason:
+        with DOWNLOAD_LOCK:
+            DOWNLOAD.update(active=False, key=None, repo_id=None, proc=None, pgid=None,
+                            background=False, error=reason, last_line="", started_ts=None)
+        return "failed"
+    try:
+        model_path_guard.prepare_directory(MODELS_DIR, target,
+            allow_new=MODELS_DIR == _DEFAULT_MODELS_DIR and not os.environ.get("LTX_MODELS_DIR"))
+    except OSError:
+        with DOWNLOAD_LOCK:
+            DOWNLOAD.update(active=False, error=model_path_guard.REMEDY)
+        return "failed"
     mirror = repo.get("mirror") or {}
     is_release_mirror = mirror.get("kind") == "github-release"
     env = os.environ.copy()
+    env["LTX_MODELS_DIR"] = str(MODELS_DIR)
 
     if is_release_mirror:
         # sys.executable, not HF_BIN: the fetcher is stdlib-only and runs under
@@ -7824,7 +7894,8 @@ def _download_thread(repo: dict) -> str:
         # reassembled sha256 matches the published manifest.
         dl_tag = "mirror"
         cmd = [sys.executable, str(ROOT / "scripts" / "fetch_pack_release.py"),
-               "--repo-key", str(repo.get("key") or ""), "--root", str(ROOT)]
+               "--repo-key", str(repo.get("key") or ""), "--root", str(ROOT),
+               "--dest", str(target)]
         push(f"[mirror] {repo.get('key')} → {target} (~{repo.get('size_gb','?')} GB) "
              f"from the {mirror.get('release_repo')} release "
              f"{mirror.get('tag')} — sharded, sha256-verified, resumable")
@@ -7867,6 +7938,9 @@ def _download_thread(repo: dict) -> str:
     dl_label = (f"{repo.get('key')} ({mirror.get('tag')})"
                 if is_release_mirror else repo_id)
 
+    failure_lines = []
+    with DOWNLOAD_LOCK:
+        DOWNLOAD["error"] = ""
     max_attempts = 3
     backoff_sec = 5
     # 4.20: what happened, for the background fetcher: "ok" | "cancelled" |
@@ -7882,6 +7956,10 @@ def _download_thread(repo: dict) -> str:
                     break
             if attempt > 1:
                 push(f"[{dl_tag}] {dl_label} attempt {attempt}/{max_attempts} — resuming from where the previous attempt stopped.")
+            reason = model_path_problem(repo, write=True)
+            if reason:
+                failure_lines.append(reason)
+                break
             try:
                 proc = subprocess.Popen(
                     cmd,
@@ -7911,6 +7989,7 @@ def _download_thread(repo: dict) -> str:
                     line = buf.strip()
                     buf = ""
                     if line:
+                        failure_lines = (failure_lines + [line])[-12:]
                         with DOWNLOAD_LOCK:
                             DOWNLOAD["last_line"] = line[:200]
                         push(f"[{dl_tag}:{repo['key']}] {line[:300]}")
@@ -7954,6 +8033,8 @@ def _download_thread(repo: dict) -> str:
         push(f"[{dl_tag}] {dl_label} crashed: {exc}")
     finally:
         with DOWNLOAD_LOCK:
+            if outcome == "failed":
+                DOWNLOAD["error"] = model_download_failure_message(" ".join(failure_lines))
             DOWNLOAD["active"] = False
             DOWNLOAD["key"] = None
             DOWNLOAD["repo_id"] = None
@@ -7964,6 +8045,22 @@ def _download_thread(repo: dict) -> str:
             DOWNLOAD["cancelled"] = False
             DOWNLOAD["background"] = False
     return outcome
+
+
+def model_download_failure_message(detail: str) -> str:
+    """Keep a useful remedy after the downloader's live log disappears."""
+    detail = detail.lower()
+    if "same path" in detail:
+        return "Model folder unavailable for download. " + model_path_guard.REMEDY
+    if any(word in detail for word in ("sha256 mismatch", "assembled sha256", "hash mismatch")):
+        return ("The download failed its safety check. Try again to fetch a clean copy. "
+                "Other completed files are kept.")
+    if "no space" in detail or "disk full" in detail:
+        return "The disk is full. Free some space, then try again. Downloaded parts are kept."
+    if any(word in detail for word in ("urlopen", "http error", "timed out", "connection", "network", "manifest at")):
+        return ("The download server could not be reached. Check your connection, "
+                "then try again. Downloaded parts are kept.")
+    return "The download did not finish. Try again to resume. Downloaded parts are kept."
 
 
 def _kill_active_download() -> None:
@@ -7987,23 +8084,14 @@ def _kill_active_download() -> None:
 atexit.register(_kill_active_download)
 
 
-# ---- Background downloads after the first boot (4.20) ------------------------
-# install.js used to download ~38 GB before Start appeared. Since 4.20 it stops
-# at what a first render needs (required_files.json -> install.before_start,
-# ~27.5 GB) and writes state/install_deferred.json naming the rest
-# (install.after_start: Gemma 3 for Enhance and the Storyboard planner, the
-# Upscale & Face Fix adapter, the three 2.3 IC-LoRAs). This fetcher works
-# through that list after the panel boots:
-#   * one pack at a time, through the SAME slot and downloader as a click on
-#     Download (_download_thread), so progress, Cancel and resume are the ones
-#     the Models page already has;
-#   * never taking the models drive below install.background_floor_gb free -
-#     renders need room too; it waits and re-checks instead;
-#   * a pack the user cancels is dropped from the list (they said no; the
-#     Models page still offers it); a failure backs off and retries;
-#   * ONLY when the marker exists. Update never writes one, so an existing
-#     install that updates is never handed a download it did not ask for.
+# ---- Explicit model download queue ------------------------------------------
+# A feature request queues its packs in state/install_deferred.json. One worker
+# uses the shared download slot, resumes across restarts, and retries failures.
+# Stop clears the requested queue and keeps partial files for a later retry.
+# Legacy install.js queues never start downloads on their own.
 DEFERRED_LOCK = threading.Lock()
+DEFERRED_RUN_LOCK = threading.Lock()
+DEFERRED_WAKE = threading.Event()
 DEFERRED: dict = {
     "state": "idle",        # idle | starting | downloading | waiting | waiting_disk | retry_wait | failed | done
     "key": None,            # the pack being worked on
@@ -8029,12 +8117,74 @@ def _deferred_repo(key: str) -> dict | None:
 
 
 def deferred_marker_keys() -> list[str]:
-    """The keys install.js queued that the registry still knows, in order."""
+    """Explicitly requested keys that the registry still knows, in order."""
     m = install_plan.read_marker(STATE_DIR)
-    if not m:
+    if not m or m.get("created_by") != "feature-request":
         return []
     known = {r.get("key") for r in _repos()}
     return [k for k in m["pending"] if k in known]
+
+
+def model_download_free_bytes():
+    return install_plan.free_bytes(ROOT, models_dir=MODELS_DIR)
+
+
+def model_download_room(repos: list[dict]) -> str:
+    """Refuse before starting, including the mirror's temporary shard."""
+    for repo in repos:
+        reason = model_path_problem(repo, write=True)
+        if reason:
+            return reason
+    need = sum(install_plan.remaining_bytes(ROOT, _plan_repo(r), _MIN_FILE_BYTES)
+               for r in repos)
+    need += max((install_plan.peak_overhead(r) for r in repos), default=0)
+    need += _deferred_floor_bytes()
+    free = model_download_free_bytes()
+    if free is None:
+        return "Could not check free disk space. Check the models drive and try again."
+    if free < need:
+        return (f"This download needs {install_plan.fmt_gb(need)} free, including "
+                f"15 GB kept free for your work. This drive has {install_plan.fmt_gb(free)}. "
+                "Free some space, then try again. Existing downloads are kept.")
+    return ""
+
+
+def request_video_models() -> tuple[int, dict]:
+    """One click requests the active generation's complete first-render set."""
+    cap = (_REQUIRED.get("capabilities") or {}).get("render") or {}
+    keys = (cap.get("repos_by_version") or {}).get(ACTIVE_MODEL_VERSION, [])
+    repos = [_deferred_repo(k) for k in keys]
+    if not keys or any(r is None for r in repos):
+        return 400, {"error": "The video model is not listed. Open Models to choose a model."}
+    for repo in repos:
+        reason = model_path_problem(repo)
+        if reason:
+            return 409, {"error": reason}
+    repos = [r for r in repos if _deferred_missing(r)]
+    for repo in repos:
+        reason = model_path_problem(repo, write=True)
+        if reason:
+            return 409, {"error": reason}
+    if any(app_models_owns(r) for r in repos):
+        return 409, {"error": "The app is already downloading this model."}
+    if repos:
+        reason = model_download_room(repos)
+        if reason:
+            return 507, {"error": reason}
+    install_plan.request_packs(STATE_DIR, [r["key"] for r in repos])
+    with DEFERRED_LOCK:
+        DEFERRED["failures"].clear()
+        DEFERRED["retry_at"].clear()
+        DEFERRED["last_error"] = ""
+    DEFERRED_WAKE.set()
+    threading.Thread(target=deferred_fetch_loop, args=(False,), daemon=True).start()
+    return 202, {"ok": True, "pending": deferred_pending_keys()}
+
+
+def model_download_progress(repo: dict) -> dict:
+    total = install_plan.expected_bytes(repo)
+    left = install_plan.remaining_bytes(ROOT, _plan_repo(repo), _MIN_FILE_BYTES)
+    return {"bytes_done": max(0, total - left), "bytes_total": total}
 
 
 def _deferred_missing(repo: dict | None) -> bool:
@@ -8058,13 +8208,15 @@ def deferred_pack_state(key: str) -> str:
     """What the fetcher is doing about ONE pack: downloading | queued |
     waiting_disk | missing (not queued at all) | ready."""
     repo = _deferred_repo(key)
+    if repo is not None and model_path_problem(repo):
+        return "unavailable"
     if repo is not None and not _deferred_missing(repo):
         return "ready"
     with DOWNLOAD_LOCK:
         if DOWNLOAD["active"] and DOWNLOAD.get("key") == key:
             return "downloading"
     if key in deferred_pending_keys():
-        free = install_plan.free_bytes(ROOT)
+        free = model_download_free_bytes()
         left = (install_plan.remaining_bytes(ROOT, _plan_repo(repo), _MIN_FILE_BYTES)
                 + install_plan.peak_overhead(repo or {}))
         if free is not None and free < left + _deferred_floor_bytes():
@@ -8116,16 +8268,24 @@ def deferred_fetch_step() -> float | None:
     candidates = [k for k in live if fails.get(k, 0) < DEFERRED_MAX_FAILURES]
     if not candidates:
         _deferred_set(state="failed", key=None,
-                      message="The background downloads kept failing - Settings -> Models "
-                              "offers each one, and they resume where they stopped.")
+                      message=DEFERRED.get("last_error") or "The download did not finish. Try again to resume.")
         return None
     ready_now = [k for k in candidates if retry_at.get(k, 0) <= now]
     if not ready_now:
         _deferred_set(state="retry_wait", key=None,
-                      message="A background download failed; retrying in a few minutes.")
+                      message=DEFERRED.get("last_error") or "The download did not finish. Try again, or wait for an automatic retry.")
         return max(5.0, min(retry_at.get(k, now) for k in candidates) - now)
-    free = install_plan.free_bytes(ROOT)
+    for pending_key in ready_now:
+        reason = model_path_problem(_deferred_repo(pending_key), write=True)
+        if reason:
+            _deferred_set(state="waiting_path", key=pending_key, message=reason)
+            return DEFERRED_DISK_RECHECK_SEC
+    free = model_download_free_bytes()
     floor = _deferred_floor_bytes()
+    if free is None:
+        _deferred_set(state="waiting_disk", key=None,
+                      message="Could not check free disk space. Check the models drive; downloads will resume when it is available.")
+        return DEFERRED_DISK_RECHECK_SEC
     # The first pack in order that FITS. A big one that does not (Gemma 3 on a
     # nearly full 256 GB Mac) must not hold back the small ones behind it.
     key = None
@@ -8157,6 +8317,9 @@ def deferred_fetch_step() -> float | None:
                           "open it again to rerun setup."))
         return 1.0
     with DOWNLOAD_LOCK:
+        # Stop can clear the queue after selection but before slot acquisition.
+        if key not in deferred_marker_keys():
+            return 0.0
         if DOWNLOAD["active"]:
             busy = True
         else:
@@ -8170,7 +8333,7 @@ def deferred_fetch_step() -> float | None:
         return DEFERRED_SLOT_WAIT_SEC
     _deferred_set(state="downloading", key=key, message="")
     push(f"[background] downloading {repo.get('name') or key} "
-         f"(~{install_plan.fmt_gb(left)}) - you can render meanwhile.")
+         f"(~{install_plan.fmt_gb(left)}) - you can keep exploring the app.")
     outcome = _download_thread(repo)
     if not _deferred_missing(repo):
         install_plan.drop_from_marker(STATE_DIR, key)
@@ -8188,36 +8351,50 @@ def deferred_fetch_step() -> float | None:
                       message="Another download is writing this model; waiting for it.")
         return DEFERRED_SLOT_WAIT_SEC
     if outcome == "cancelled":
-        install_plan.drop_from_marker(STATE_DIR, key)
+        # Stop already cleared the request. A new Retry may have queued this
+        # key while the old process was exiting; never erase that new request.
         push(f"[background] {repo.get('name') or key} skipped - Settings -> Models "
              f"offers it whenever you want it.")
         return 1.0
     with DEFERRED_LOCK:
+        DEFERRED["last_error"] = DOWNLOAD.get("error") or model_download_failure_message("")
         n = DEFERRED["failures"].get(key, 0) + 1
         DEFERRED["failures"][key] = n
         DEFERRED["retry_at"][key] = time.time() + DEFERRED_RETRY_SEC
     return 1.0
 
 
-def deferred_fetch_loop() -> None:
-    """Background thread body. Started at boot only when the marker exists."""
-    _deferred_set(state="starting", message="")
-    time.sleep(max(0.0, DEFERRED_START_DELAY_SEC))
-    while True:
-        try:
-            wait = deferred_fetch_step()
-        except Exception as exc:  # noqa: BLE001 - never take the panel down
-            push(f"[background] download queue error: {exc}")
-            wait = DEFERRED_RETRY_SEC
-        if wait is None:
-            return
-        time.sleep(wait)
+def deferred_fetch_loop(boot: bool = True) -> None:
+    """Only one consumer, even when a double click races a resumed queue."""
+    if not DEFERRED_RUN_LOCK.acquire(blocking=False):
+        return
+    try:
+        _deferred_set(state="starting", message="")
+        if boot:
+            DEFERRED_WAKE.wait(max(0.0, DEFERRED_START_DELAY_SEC))
+        while True:
+            DEFERRED_WAKE.clear()
+            try:
+                wait = deferred_fetch_step()
+            except Exception as exc:  # noqa: BLE001
+                push(f"[background] download queue problem: {exc}")
+                _deferred_set(state="failed", message="Download did not finish. Open Models to retry.")
+                return
+            if wait is None:
+                return
+            DEFERRED_WAKE.wait(wait)
+    finally:
+        DEFERRED_RUN_LOCK.release()
+        # A request can arrive while this consumer is leaving its empty queue.
+        if DEFERRED_WAKE.is_set() and deferred_pending_keys():
+            threading.Thread(target=deferred_fetch_loop, args=(False,), daemon=True).start()
 
 
 def deferred_fetch_enabled() -> bool:
     if (os.environ.get("LTX_DEFERRED_DOWNLOADS") or "").strip().lower() in ("0", "off", "false", "no"):
         return False
-    return bool(deferred_marker_keys())
+    marker = install_plan.read_marker(STATE_DIR) or {}
+    return marker.get("created_by") == "feature-request" and bool(deferred_marker_keys())
 
 
 def deferred_prioritize(key: str) -> bool:
@@ -8240,15 +8417,14 @@ def pack_needed_payload(key: str, feature: str, what: str) -> dict:
         msg = (f"{feature} needs {what} ({size}), which is queued to download in the "
                f"background. Click Download now to fetch it first.")
     elif state == "waiting_disk":
-        free = install_plan.free_bytes(ROOT) or 0
+        free = model_download_free_bytes() or 0
         floor = _deferred_floor_bytes()
         left = (install_plan.remaining_bytes(ROOT, _plan_repo(repo), _MIN_FILE_BYTES)
                 + install_plan.peak_overhead(repo))
         msg = (f"{feature} needs {what} ({size}). Its background download is paused: "
                f"Phosphene keeps {install_plan.fmt_gb(floor)} free for your renders and this "
                f"drive has {install_plan.fmt_gb(free)}. Free up "
-               f"{install_plan.fmt_gb(max(0, left + floor - free))} and it starts by itself"
-               f" - or click Download now to fetch it anyway.")
+               f"{install_plan.fmt_gb(max(0, left + floor - free))} and it starts by itself.")
     else:
         msg = f"{feature} needs {what} ({size}), which is not downloaded yet."
     return {"ok": False, "error": msg, "needs_pack": key,
@@ -8686,6 +8862,8 @@ STATE: dict = {
     # /stop and the atexit hook kill it by pgid, same contract as train_pgid.
     "h3_pgid": None,
     "music_pgid": None,
+    # Audio → Speech runner (speech_engine / scripts/speech/speech_run.py).
+    "speech_pgid": None,
 }
 LOCK = threading.RLock()
 QUEUE_COND = threading.Condition(LOCK)
@@ -9375,6 +9553,26 @@ H3_TRISTEP_NOTE = ("Fast: 3 steps — about 4× faster, great for drafts and mos
                    "Turbo is never stacked on it.")
 # Canvases that offer it, and the ones where it is the default once installed.
 H3_TRISTEP_QUALITIES = ("draft", "preview", "fast_hd", "standard", "high")
+
+# ---- Clean up sound: re-voice a Fast render's sound (4.20) -----------------
+# The speed adapter's SOUND has been reported harsh, thin and echo-like (a
+# third-party Mac developer, Oct 2026). The runner's `--revoice-steps` keeps
+# the finished picture, switches the adapter off and re-makes only the sound
+# with the base model: one full forward stores the keys/values of every row
+# that does not change (int8), then each audio step runs the audio rows alone
+# (~4.5% of a forward each, measured 1.9 s vs 43 s at Draft on an M4 Max).
+# Character LoRAs stay on (a trained voice keeps its voice); only the Fast
+# adapter is dropped. Measurements: PM hub review-2026-10-19-h3/H3_WEEK_REPORT.
+H3_REVOICE_POINTS = 9                 # sigma points -> 8 audio steps
+H3_REVOICE_STEP_SHARE = 0.045         # one audio-only step, as a share of a forward
+H3_REVOICE_DEFAULT = False            # decided by the ear test (see report)
+H3_REVOICE_LABEL = "Clean up sound"
+# The store holds 2 x rows x 7168 values x 50 blocks at int8 (+ one scale and
+# bias per 128): ~0.74 MB per packed row. Peak = the Fast render's own peak
+# plus that; offered only where it fits the budget the runner is given.
+H3_REVOICE_KV_BYTES_PER_ROW = 2 * 7168 * 50 * (1 + 4 / 128)
+H3_REVOICE_PEAK_Q8_GIB = 26.0         # Q8 lane's measured run peak (25.6 GiB)
+H3_REVOICE_PEAK_BF16_GIB = 43.0       # bf16 lane (42.2 GiB)
 H3_TRISTEP_DEFAULT_QUALITIES = H3_TRISTEP_QUALITIES
 # End-to-end wall clocks for TriStep cells, M4 Max, keyed (quality, length).
 # Keyed (quality, length, mode). All with the character + vh5tape LoRAs on top
@@ -9512,6 +9710,45 @@ H3_FLEX_NOTICE = ("MiniMax H3 is licensed under the MiniMax H3 Community License
 H3_FLEX_MEASURED_ETA: dict[tuple[str, str, str], tuple[float, str]] = {
     ("draft", "5s", "t2v"): (5.0, "~5 min"),
     ("high", "5s", "t2v"): (16.3, "~16 min"),
+}
+
+# ---- H3 Flex Turbo (5.0, Pro, preview) ---------------------------------------
+# akhaliq's Pika H3 Flex Turbo LoRA: Pika H3 Flex fused (exact rank concat) with
+# LightX2V's MiniMax-H3 Turbo distill, so ONE file renders Flex's motion in four
+# forwards. We run the "lite r32" FL2VA file as published (no re-hosting, no
+# rebuild): the runner re-orders its fused q/k/v and fc1 halves at load time
+# (--lora-qkv-permute --lora-fc1-swap). Sampler: euler, knots 1000,750,500,250,0
+# (4 forwards), video shift 6, audio shift 3. Measured on an M4 Max 64 GB, Q8 DiT
+# (R&D Lab L4, PM hub today-2026-10-30/l4): High 1024x576 5 s 613-712 s against
+# Flex's 928-1003 s on the same seeds (1.4-1.5x), Draft 640x384 5 s 213 s; faces,
+# speech (Whisper-identical line) and the rally scene hold. Pro: our own speed-up
+# (owner rule: our speed-ups ship in Pro); the gate is h3_flex_turbo_allowed().
+# Credit: akhaliq (the fused LoRA), LightX2V (Turbo distill), Pika Labs (Flex),
+# MiniMax (H3); weights under the MiniMax H3 Community License.
+H3_FLEX_TURBO_REPO = "akhaliq/Pika-H3-Flex-Turbo-LoRA"
+H3_FLEX_TURBO_REVISION = "dcacd93a50f714ba1cd61c7ca2cc5f65e9a1ec60"
+H3_FLEX_TURBO_SOURCE_FILE = "pika_h3_flex_turbo_4step_fl2va_lite_r32.safetensors"
+H3_FLEX_TURBO_URL = ("https://huggingface.co/" + H3_FLEX_TURBO_REPO + "/resolve/"
+                     + H3_FLEX_TURBO_REVISION + "/" + H3_FLEX_TURBO_SOURCE_FILE)
+H3_FLEX_TURBO_SHA256 = "7c60a2ff31f7f56c1f59020c2441fa0532c7b3fd8a510fbd0f806327021f5367"
+H3_FLEX_TURBO_BYTES = 310189392
+H3_FLEX_TURBO_FILE = "pika_h3_flex_turbo4_fl2va_lite_r32.safetensors"
+H3_FLEX_TURBO_KNOTS = (1000, 750, 500, 250, 0)
+H3_FLEX_TURBO_STEPS = len(H3_FLEX_TURBO_KNOTS)          # knots incl. 0 -> 4 forwards
+H3_FLEX_TURBO_FORWARDS = H3_FLEX_TURBO_STEPS - 1
+H3_FLEX_TURBO_VIDEO_SHIFT = 6.0
+H3_FLEX_TURBO_AUDIO_SHIFT = 3.0
+H3_FLEX_TURBO_DOWNLOAD_GB = 0.31
+H3_FLEX_TURBO_DISK_NEED_GB = 1.5
+H3_FLEX_TURBO_NAME = "H3 Flex Turbo"
+H3_FLEX_TURBO_LABEL = "H3 Flex Turbo (preview, Pro) · 4 steps"
+H3_FLEX_TURBO_CREDIT = ("H3 Flex Turbo: Pika H3 Flex Turbo LoRA by akhaliq, fusing Pika H3 Flex "
+                        "(Pika Labs) with LightX2V's MiniMax-H3 Turbo distill, running natively "
+                        "on Apple Silicon (MLX) in Phosphene. Powered by MiniMax H3. "
+                        "Weights: MiniMax H3 Community License.")
+H3_FLEX_TURBO_MEASURED_ETA: dict[tuple[str, str, str], tuple[float, str]] = {
+    ("draft", "5s", "t2v"): (3.6, "~3.5 min"),
+    ("high", "5s", "t2v"): (11.0, "~11 min"),
 }
 # Upscale & Face Fix (1 refine step from the clip, ×2) after a 5 s render, by
 # source canvas. 640×384 → 1280×768 measured 2.5–2.8 min; 1024×576 measured
@@ -10142,6 +10379,7 @@ def _job_fleet_baseline_min(job: dict) -> tuple[str, float] | None:
         hit = fleet_estimate_range("h3", "t2v", key, cell["frames"],
                                    speed="fast" if fast else
                                    "flex" if p.get("h3_flex") else
+                                   "flex_turbo" if p.get("h3_flex_turbo") else
                                    "v13" if p.get("h3_v13") else "best")
     else:
         if str(p.get("schedule_preset") or "").strip().lower() == "fast":
@@ -11080,6 +11318,89 @@ def h3_estimate_minutes(w: int, h: int, window_frames: int, windows: int,
     return (windows * max(0, int(forwards)) * per_fwd + windows * fixed) / 60.0 * _h3_speed_factor(windows)
 
 
+def h3_memory_budget(total_ram_gb: float | None = None) -> tuple[float, float]:
+    """(memory_gb, wired_gb) for THIS Mac, leaving the user room to keep using it.
+
+    THE BUG THIS FIXES. The runner's defaults are `--wired-gb 50` and
+    `--memory-gb 58`, and it clamps them with
+
+        memory_bytes = min(memory_gb * GiB, device.memory_size - 1 GiB)
+
+    so on ANY Mac below 59 GB the 58 never binds and the clamp does: MLX is
+    allowed everything except ONE gigabyte. Measured across the sizes people
+    actually own:
+
+        32 GB Mac -> limit 31.0 GB, 1.0 GB left for the user
+        36 GB Mac -> limit 35.0 GB, 1.0 GB left
+        48 GB Mac -> limit 47.0 GB, 1.0 GB left
+        64 GB Mac -> limit 58.0 GB, 6.0 GB left   (the dev machine, where it was tuned)
+
+    One gigabyte is not enough to keep a browser open, which is exactly the
+    owner's complaint: "when it's tight, you cannot use your Mac, so this is
+    bad." The defaults were shaped by the machine they were written on.
+
+    This costs no render speed and changes no output, because H3 does not need
+    the memory it was being handed: the measured Q8 peak is 25.63 GiB and bf16
+    is 42.17 GiB. The smallest Mac we serve H3 on (the 46 GB Q8 floor, i.e. a
+    48 GB machine) keeps 42 GB of budget against a 25.63 GiB peak - a limit
+    that was never the binding constraint, standing in front of headroom that
+    was.
+
+    Headroom is the larger of 6 GB and an eighth of RAM: a fixed number starves
+    a big machine of nothing and a proportional one leaves a small machine too
+    little, so take whichever is kinder.
+    """
+    ram = float(total_ram_gb if total_ram_gb is not None else SYSTEM_RAM_GB)
+    if ram <= 0:
+        return (0.0, 0.0)
+    headroom = max(6.0, ram / 8.0)
+    memory_gb = max(8.0, ram - headroom)
+    # Wired memory cannot be paged out at all, so it gets a wider margin than
+    # the overall limit. The runner clamps this again to the device's own
+    # max_recommended_working_set_size, which is the real ceiling.
+    wired_gb = max(4.0, memory_gb - max(4.0, ram / 16.0))
+    return (round(memory_gb, 1), round(wired_gb, 1))
+
+
+def h3_revoice_minutes(w: int, h: int, window_frames: int, windows: int) -> float:
+    """What Clean up sound adds to a render of this shape: one full forward per
+    window (the key/value store) plus the audio-only steps."""
+    windows = max(1, int(windows))
+    per_fwd = _h3_forward_seconds(_h3_packed_rows(w, h, window_frames))
+    fwd_equiv = 1.0 + H3_REVOICE_STEP_SHARE * (H3_REVOICE_POINTS - 2)
+    return windows * fwd_equiv * per_fwd / 60.0 * _h3_speed_factor(windows)
+
+
+def h3_revoice_extra_rows(w: int, h: int, *, keyframes: int = 0, history: bool = False,
+                          reference: bool = False) -> int:
+    """Conditioning rows the re-voice store also holds: one latent frame per
+    keyframe (a chained window's carried hand-over is one), the 17 carried
+    frames (5 latent frames) of a continuing window, and a Face to keep
+    reference block with its vision tokens."""
+    per_frame = (int(w) // 32) * (int(h) // 32)
+    return (per_frame * (int(keyframes) + (5 if history else 0))
+            + (H3_REFERENCE_ROWS if reference else 0))
+
+
+def h3_revoice_fits(w: int, h: int, window_frames: int,
+                    total_ram_gb: float | None = None,
+                    dit_kind: str | None = None,
+                    extra_rows: int = 0) -> tuple[bool, str]:
+    """Whether the re-voice store fits beside this render on this Mac. The
+    tier table prices the Q8 lane (what AUTO renders on); make_job re-checks
+    with the engine this install will really use."""
+    kind = dit_kind or h3_dit_choice()[0]
+    base = H3_REVOICE_PEAK_BF16_GIB if kind == "bf16" else H3_REVOICE_PEAK_Q8_GIB
+    kv = ((_h3_packed_rows(w, h, window_frames) + max(0, int(extra_rows)))
+          * H3_REVOICE_KV_BYTES_PER_ROW / 1024 ** 3)
+    budget, _ = h3_memory_budget(total_ram_gb)
+    need = base + kv
+    if budget and need > budget:
+        return False, (f"Clean up sound needs about {need:.0f} GB at {w}×{h}; this Mac "
+                       f"gives H3 {budget:.0f} GB.")
+    return True, ""
+
+
 def _fmt_eta(minutes: float) -> str:
     """"~9 min", "~38 min · batch", "~2h 16m · batch". No decimals: the model is
     good to a few percent and "~18.4 min" would claim precision it doesn't
@@ -11115,6 +11436,21 @@ def _fmt_eta_range(p25_min: float, p75_min: float) -> str:
     return f"~{lo}–{hi} min{tail}"
 
 
+# Pro estimate while Pro render times per Mac are unmeasured (owner ruling 2026-10-27): the fleet's p75 times
+# the WORST (slowest-gain) measured Pro/Free wall-time ratio per engine, from today-2026-10-26/PRO_SPEED.md
+# (H3 602.93/893.49 = 0.675, LTX 0.79 per owner (measured 0.78-0.79); FLUX 9.59/14.76 = 0.65).
+# Other engines get no Pro number. Always labelled an estimate.
+PRO_EST_RATIOS = {"h3": 0.675, "ltx": 0.79, "image": 0.65, "flux": 0.65, "mflux": 0.65}
+
+
+def pro_estimate(engine: str, p75_min: float) -> dict | None:
+    ratio = PRO_EST_RATIOS.get(str(engine or "").lower())
+    if ratio is None or not isinstance(p75_min, (int, float)) or p75_min <= 0:
+        return None
+    mins = round(p75_min * ratio, 2)
+    return {"ratio": ratio, "p75_min": mins, "label": "\u2248 " + _fmt_eta(mins).replace(" \u00b7 batch", "").lstrip("~") + " est."}
+
+
 def fleet_calibrated_range(engine: str, mode: str, tier: str, frames,
                            chip: str | None = None, ram: float | None = None,
                            speed: str = "") -> dict | None:
@@ -11144,6 +11480,9 @@ def fleet_calibrated_range(engine: str, mode: str, tier: str, frames,
               "basis": hit["basis"] + ", adjusted for this Mac's own renders"}
     hit["eta_range"] = _fmt_eta_range(hit["p25_min"], hit["p75_min"])
     hit["eta_mid"] = _fmt_eta(hit["p50_min"])
+    pro = pro_estimate(engine, hit["p75_min"])
+    if pro:
+        hit["pro_est"] = pro
     return hit
 
 
@@ -11158,6 +11497,22 @@ def fleet_calibrated_range(engine: str, mode: str, tier: str, frames,
 # prints a measurement taken at its own sampler depth: when a canvas's Auto step
 # count moves (High 8 -> 15 forwards, 2026-09-16), its old wall clock must stop
 # being shown as "measured" and the model prices the new depth instead.
+# Face to keep at the panel's 1024 short edge: one reference block of this
+# many rows (a 3:4 photo -> 86x64 latent -> 1,376), the same count of vision
+# tokens, and a fixed encode cost. Measured +67 s on a Standard Fast render.
+H3_REFERENCE_ROWS = 2 * 1376
+H3_REFERENCE_FIXED_SEC = 20.0
+
+
+def h3_reference_extra_minutes(w: int, h: int, window_frames: int, windows: int,
+                               forwards: int) -> float:
+    """What a Face to keep reference adds to a render of this shape."""
+    windows = max(1, int(windows))
+    rows = _h3_packed_rows(w, h, window_frames)
+    per = _h3_forward_seconds(rows + H3_REFERENCE_ROWS) - _h3_forward_seconds(rows)
+    return windows * (max(0, int(forwards)) * per + H3_REFERENCE_FIXED_SEC) / 60.0 * _h3_speed_factor(windows)
+
+
 H3_MEASURED_ETA: dict[tuple[str, str, bool], tuple[float, str, int]] = {
     ("draft",    "3s",        False): (3.0,  "~3 min", 8),
     ("standard", "5s",        False): (9.1,  "~9 min", 8),
@@ -11468,6 +11823,13 @@ def _build_h3_tiers() -> dict[str, dict]:
                     tristep["tristep_min" + suffix] = round(m_min, 2)
                     tristep["tristep_eta" + suffix] = m_eta
                     tristep["tristep_measured" + suffix] = m_meas
+                # Clean up sound: what re-voicing this cell's sound adds, and
+                # whether its key/value store fits this Mac at this canvas.
+                tristep["revoice_min"] = round(
+                    h3_revoice_minutes(w, h, window_frames, windows), 2)
+                _rv_ok, _rv_why = h3_revoice_fits(w, h, window_frames, dit_kind="q8")
+                tristep["revoice_fits"] = _rv_ok
+                tristep["revoice_note"] = _rv_why
                 # The Upscale & Face Fix pass, priced beside the render so the
                 # checkbox can say what both cost together.
                 ff = FACE_FIX_5S_MIN.get(q["key"])
@@ -11513,6 +11875,17 @@ def _build_h3_tiers() -> dict[str, dict]:
                 flex.update({"flex_min": round(f_min, 2), "flex_eta": f_eta,
                              "flex_measured": f_meas, "flex_steps": H3_FLEX_STEPS,
                              "flex_forwards": windows * H3_FLEX_FORWARDS})
+                # H3 Flex Turbo (Pro): 4 forwards at Flex's per-forward cost.
+                t_min = h3_estimate_minutes(
+                    w, h, window_frames, windows, H3_FLEX_TURBO_FORWARDS) * H3_FLEX_FORWARD_COST
+                t_eta, t_meas = _fmt_eta(t_min), False
+                hit = H3_FLEX_TURBO_MEASURED_ETA.get((q["key"], ln["key"], "t2v"))
+                if hit:
+                    t_min, t_meas = hit[0] * hw, True
+                    t_eta = hit[1] if hw == 1.0 else _fmt_eta(t_min)
+                flex.update({"flex_turbo_min": round(t_min, 2), "flex_turbo_eta": t_eta,
+                             "flex_turbo_measured": t_meas, "flex_turbo_steps": H3_FLEX_TURBO_STEPS,
+                             "flex_turbo_forwards": windows * H3_FLEX_TURBO_FORWARDS})
             spec = f"{w}×{h} · {frames}f"
             if windows > 1:
                 spec += f" · {windows}×5s"
@@ -11553,6 +11926,11 @@ def _build_h3_tiers() -> dict[str, dict]:
                     _h3_forward_seconds(_h3_packed_rows(w, h, window_frames)) * hw, 2),
                 "fixed_sec": round(_h3_fixed_seconds(w, h, window_frames) * hw, 2),
                 "packed_rows": _h3_packed_rows(w, h, window_frames),
+                # Face to keep: what the reference adds, on Best and on Fast.
+                "reference_min": round(h3_reference_extra_minutes(
+                    w, h, window_frames, windows, win_fwd), 2),
+                "reference_min_fast": round(h3_reference_extra_minutes(
+                    w, h, window_frames, windows, H3_TRISTEP_FORWARDS), 2),
                 "blurb": f"{q['blurb']} {ln['blurb']}",
                 # The honest artefact warnings, joined: a Draft 10 s clip owes
                 # the user BOTH the 0.25 MP caveat and the per-window prompt one.
@@ -12625,6 +13003,11 @@ def _live_preview_params(job: dict, p: dict) -> dict:
     if ((p.get("mode") or "").strip().lower() not in LTX_LIVE_PREVIEW_MODES
             or not live_preview_enabled()):
         return {}
+    # Phosphene Bench: the preview decodes a frame per step, and whether it
+    # runs is a Setting, not suite data. Off for every Bench render, so the
+    # same suite does the same work on every Mac.
+    if (p.get("source") or "") == "bench":
+        return {}
     cell = LTX_QUALITIES.get(p.get("quality") or "", {})
     return {
         "live_preview_dir": str(live_preview_dir(job["id"])),
@@ -12922,10 +13305,10 @@ def job_recipe_minutes(params: dict, *, calibration: bool = False) -> tuple[str,
     None (never a guess) when the recipe can't be priced reliably."""
     p = params or {}
     mode = str(p.get("mode") or "t2v").strip().lower()
-    if mode in ("image", "train", "upscale", "sharp_export", "music"):
+    if mode in ("image", "train", "upscale", "sharp_export", "music", "speech"):
         return None
     engine = str(p.get("engine") or "ltx").strip().lower()
-    if engine == "music":
+    if engine in ("music", "speech"):
         return None
     if engine == "h3":
         key = h3_resolve_tier(str(p.get("h3_tier") or "")) or h3_compose_tier(
@@ -12951,6 +13334,8 @@ def job_recipe_minutes(params: dict, *, calibration: bool = False) -> tuple[str,
             minutes = cell.get("turbo_min")
         elif p.get("h3_flex") and cell.get("flex_min") is not None:
             minutes = cell.get("flex_min")
+        elif p.get("h3_flex_turbo") and cell.get("flex_turbo_min") is not None:
+            minutes = cell.get("flex_turbo_min")
         elif p.get("h3_v13") and cell.get("v13_min") is not None:
             # lightx2v v1.3 on Best at High: its own measured number, so a
             # 15-minute recipe never calibrates against the 33-minute one.
@@ -15009,6 +15394,50 @@ def _set_h3_tristep_dl(**kw) -> None:
         _h3_tristep_dl_state.update(kw)
 
 
+# ---- Face to keep: a reference image on H3 (4.20) -------------------------
+# The runner's `--reference` packs a still as MiniMax's ref2va image block on
+# our FL2VA model (its own canvas and grid, one clock slot before the clip,
+# <Picture n> to the vision tower). Measured on a Standard Fast text-only cafe
+# scene against the 41-still Mr Bizarro centroid (the reference photo itself
+# excluded): ArcFace median 0.365 with no reference, 0.709 with it, 0.736 when
+# the same photo is the FIRST FRAME (which also fixes the composition), 0.491
+# with the character LoRA. The Ref Patch (lihaoyun6, 148 MB) did not help
+# (0.691) and is not used. Size: the reference's short edge; 1024 adds 1,376
+# rows and 1,376 vision tokens at Standard: 234 -> 301 s on a Standard Fast
+# render (+67 s, measured).
+H3_REFERENCE_SIZE = 1024
+H3_REFERENCE_MODES = ("t2v", "i2v")
+H3_REFERENCE_SENTENCE = ("The person from <Picture {n}> is in this shot, with the same "
+                         "face, hair and facial hair.")
+
+
+def h3_supports_reference() -> bool:
+    """Whether the INSTALLED runner takes `--reference`."""
+    return _h3_runner_has_flag("--reference")
+
+
+def h3_reference_prompt(prompt: str, picture_index: int) -> str:
+    """Name the reference in the prompt unless the prompt already names a picture."""
+    if "<picture" in (prompt or "").lower():
+        return prompt
+    return h3_prompt_guards.append_to_description(
+        prompt, [H3_REFERENCE_SENTENCE.format(n=int(picture_index))])
+
+
+def h3_supports_revoice() -> bool:
+    """Whether the INSTALLED runner can re-voice (`--revoice-steps`)."""
+    return h3_supports_sigma_subset() and _h3_runner_has_flag("--revoice-steps")
+
+
+def h3_revoice_status() -> dict:
+    return {
+        "supported": h3_supports_revoice(),
+        "default": H3_REVOICE_DEFAULT,
+        "points": H3_REVOICE_POINTS,
+        "label": H3_REVOICE_LABEL,
+    }
+
+
 def h3_tristep_status() -> dict:
     """/status + BOOT block for the Draft sampler. Same three answers as
     Turbo's: can the runner take it, is the file here, so is it offered."""
@@ -15216,6 +15645,172 @@ def h3_flex_argv(paths: dict | None = None) -> list[str]:
     if not resolved.get("files_ok") or resolved.get("lora") is None:
         raise RuntimeError("the Pika H3 Flex adapter is not available")
     return [H3_FLEX_RUNNER_FLAG, "--lora", f"{resolved['lora']}:1.0"]
+
+
+def h3_flex_turbo_paths() -> dict:
+    """The Turbo LoRA as published, at its exact size, beside the Flex adapter."""
+    directory = _h3_flex_dir()
+    candidate = directory / H3_FLEX_TURBO_FILE
+    try:
+        ok = candidate.is_file() and candidate.stat().st_size == H3_FLEX_TURBO_BYTES
+    except OSError:
+        ok = False
+    if ok:
+        return {"dir": directory, "lora": candidate, "files_ok": True, "missing": []}
+    return {"dir": directory, "lora": None, "files_ok": False,
+            "missing": [f"Turbo LoRA ({H3_FLEX_TURBO_FILE}, a ~{H3_FLEX_TURBO_DOWNLOAD_GB:g} GB download)"]}
+
+
+def h3_supports_flex_turbo() -> bool:
+    """The runner takes a schedule by knots, per-modality shifts and the load-time
+    re-order of a fused (diffusers-layout) LoRA."""
+    return (h3_supports_lora_stack() and _h3_runner_has_flag("--sigma-knots")
+            and _h3_runner_has_flag("--audio-shift") and _h3_runner_has_flag("--lora-qkv-permute")
+            and _h3_runner_has_flag("--lora-fc1-swap"))
+
+
+def h3_flex_turbo_allowed() -> bool:
+    """THE Pro gate for H3 Flex Turbo (Pro ledger row h3-flex-turbo)."""
+    return bool(pro_status().get("active"))
+
+
+def h3_flex_turbo_argv(paths: dict | None = None) -> list[str]:
+    """The runner argv fragment: euler over five knots (four forwards), shifts 6/3,
+    and the LoRA at 1.0, re-ordered at load (q/k/v per head, fc1 [gate; value])."""
+    resolved = paths or h3_flex_turbo_paths()
+    if not resolved.get("files_ok") or resolved.get("lora") is None:
+        raise RuntimeError("the H3 Flex Turbo LoRA is not available")
+    return ["--sampler", "euler", "--sigma-knots", ",".join(str(k) for k in H3_FLEX_TURBO_KNOTS),
+            "--steps", str(H3_FLEX_TURBO_STEPS),
+            "--video-shift", f"{H3_FLEX_TURBO_VIDEO_SHIFT:g}", "--audio-shift", f"{H3_FLEX_TURBO_AUDIO_SHIFT:g}",
+            "--lora", f"{resolved['lora']}:1.0", "--lora-qkv-permute", "--lora-fc1-swap"]
+
+
+_h3_flex_turbo_dl_lock = threading.Lock()
+_h3_flex_turbo_dl_state: dict = {"status": "idle", "mb": 0, "total_mb": 0, "error": None}
+
+
+def h3_flex_turbo_status() -> dict:
+    supported = h3_supports_flex_turbo()
+    paths = h3_flex_turbo_paths()
+    downloaded = bool(paths["files_ok"])
+    pro = h3_flex_turbo_allowed()
+    return {
+        "available": bool(supported and downloaded and pro),
+        "supported": supported,
+        "downloaded": downloaded,
+        "pro": True,
+        "pro_active": pro,
+        "reason": ("runner_too_old" if not supported else "pro_required" if not pro
+                   else "not_downloaded" if not downloaded else "ok"),
+        "steps": H3_FLEX_TURBO_STEPS,
+        "forwards": H3_FLEX_TURBO_FORWARDS,
+        "modes": list(H3_FLEX_MODES),
+        "download_gb": H3_FLEX_TURBO_DOWNLOAD_GB,
+        "disk_need_gb": H3_FLEX_TURBO_DISK_NEED_GB,
+        "repo": H3_FLEX_TURBO_REPO,
+        "license": H3_FLEX_LICENSE,
+        "name": H3_FLEX_TURBO_NAME,
+        "label": H3_FLEX_TURBO_LABEL,
+        "credit": H3_FLEX_TURBO_CREDIT,
+        "notice": H3_FLEX_NOTICE,
+        "adapter": str(paths["lora"]) if paths["lora"] else None,
+        "install_available": bool(supported and pro),
+        "installing": _h3_flex_turbo_dl_state.get("status") == "downloading",
+        "download": dict(_h3_flex_turbo_dl_state),
+    }
+
+
+def _h3_flex_turbo_fetch_bg(target_dir, push_log, opener=None) -> None:
+    """Download the published file at the pinned revision (resumable .part),
+    verify size + sha256, then rename into place. Never re-hosted, never rebuilt."""
+    import hashlib
+    import urllib.request
+    target_dir = Path(target_dir)
+    part = target_dir / (H3_FLEX_TURBO_FILE + ".part")
+    total_mb = H3_FLEX_TURBO_BYTES // (1 << 20)
+    try:
+        push_log(f"[h3:flex-turbo] fetching {H3_FLEX_TURBO_SOURCE_FILE} from {H3_FLEX_TURBO_REPO} @ "
+                 f"{H3_FLEX_TURBO_REVISION[:7]} (~{total_mb} MB, {H3_FLEX_LICENSE})")
+        have = part.stat().st_size if part.exists() else 0
+        if have > H3_FLEX_TURBO_BYTES:
+            part.unlink()
+            have = 0
+        if have < H3_FLEX_TURBO_BYTES:
+            req = urllib.request.Request(H3_FLEX_TURBO_URL, headers={"User-Agent": "Phosphene"})
+            if have:
+                req.add_header("Range", f"bytes={have}-")
+            with (opener or urllib.request.urlopen)(req, timeout=60) as r, open(part, "ab" if have and getattr(r, "status", 200) == 206 else "wb") as fh:
+                if not (have and getattr(r, "status", 200) == 206):
+                    have = 0
+                while True:
+                    b = r.read(1 << 20)
+                    if not b:
+                        break
+                    fh.write(b)
+                    have += len(b)
+                    with _h3_flex_turbo_dl_lock:
+                        _h3_flex_turbo_dl_state.update(status="downloading", mb=have >> 20, total_mb=total_mb, error=None)
+        if part.stat().st_size != H3_FLEX_TURBO_BYTES:
+            raise RuntimeError(f"download stopped at {part.stat().st_size} of {H3_FLEX_TURBO_BYTES} bytes")
+        h = hashlib.sha256()
+        with open(part, "rb") as fh:
+            for b in iter(lambda: fh.read(1 << 22), b""):
+                h.update(b)
+        if h.hexdigest() != H3_FLEX_TURBO_SHA256:
+            part.unlink()
+            raise RuntimeError("the downloaded file does not match its checksum - try again")
+        part.replace(target_dir / H3_FLEX_TURBO_FILE)
+        push_log(f"[h3:flex-turbo] installed -> {target_dir / H3_FLEX_TURBO_FILE}")
+        with _h3_flex_turbo_dl_lock:
+            _h3_flex_turbo_dl_state.clear()
+            _h3_flex_turbo_dl_state.update(status="done", mb=total_mb, total_mb=total_mb, error=None)
+    except Exception as e:  # noqa: BLE001
+        with _h3_flex_turbo_dl_lock:
+            _h3_flex_turbo_dl_state.clear()
+            _h3_flex_turbo_dl_state.update(status="error", mb=0, total_mb=total_mb, error=str(e)[:200])
+        push_log(f"[h3:flex-turbo] FAILED: {e}")
+
+
+def _h3_install_flex_turbo(push_log, fetch_fn=None) -> dict:
+    """On-demand download of the H3 Flex Turbo LoRA (Pro, one at a time)."""
+    if not h3_flex_turbo_allowed():
+        return {"ok": False, "pro_required": True,
+                "error": "H3 Flex Turbo is part of Phosphene Pro."}
+    paths = h3_paths()
+    if paths["missing"]:
+        return {"ok": False,
+                "error": "H3 Flex Turbo is an add-on to the Hailuo H3 pack, and "
+                         "H3 isn't fully installed yet: " + "; ".join(paths["missing"])}
+    if not h3_supports_flex_turbo():
+        return {"ok": False,
+                "error": _dist.say(
+                    "This Hailuo H3 runner predates H3 Flex Turbo. Run 'Update Hailuo H3 "
+                    "runner' from the Phosphene sidebar in Pinokio - your weights stay.",
+                    "This Hailuo H3 runner predates H3 Flex Turbo. Update Phosphene to get it.")}
+    resolved = h3_flex_turbo_paths()
+    target = resolved["dir"]
+    if resolved["files_ok"]:
+        return {"ok": True, "started": False, "already_installed": True, "dir": str(target)}
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        free_gb = shutil.disk_usage(target).free / 1e9
+    except OSError:
+        free_gb = None
+    if free_gb is not None and free_gb < H3_FLEX_TURBO_DISK_NEED_GB:
+        return {"ok": False,
+                "error": f"H3 Flex Turbo needs about {H3_FLEX_TURBO_DISK_NEED_GB:g} GB free "
+                         f"(a 0.3 GB download). This disk has {free_gb:.1f} GB free."}
+    with _h3_flex_turbo_dl_lock:
+        if _h3_flex_turbo_dl_state.get("status") == "downloading":
+            return {"ok": False, "error": "an H3 Flex Turbo download is already active"}
+        _h3_flex_turbo_dl_state.clear()
+        _h3_flex_turbo_dl_state.update(status="downloading", mb=0,
+                                       total_mb=H3_FLEX_TURBO_BYTES // (1 << 20), error=None)
+    fn = fetch_fn or _h3_flex_turbo_fetch_bg
+    threading.Thread(target=fn, args=(target, push_log), daemon=True,
+                     name="h3-flex-turbo-fetch").start()
+    return {"ok": True, "started": True, "dir": str(target)}
 
 
 _h3_flex_dl_lock = threading.Lock()
@@ -17203,50 +17798,6 @@ def h3_supports_memory_limits() -> bool:
             and _h3_runner_has_flag("--wired-gb"))
 
 
-def h3_memory_budget(total_ram_gb: float | None = None) -> tuple[float, float]:
-    """(memory_gb, wired_gb) for THIS Mac, leaving the user room to keep using it.
-
-    THE BUG THIS FIXES. The runner's defaults are `--wired-gb 50` and
-    `--memory-gb 58`, and it clamps them with
-
-        memory_bytes = min(memory_gb * GiB, device.memory_size - 1 GiB)
-
-    so on ANY Mac below 59 GB the 58 never binds and the clamp does: MLX is
-    allowed everything except ONE gigabyte. Measured across the sizes people
-    actually own:
-
-        32 GB Mac -> limit 31.0 GB, 1.0 GB left for the user
-        36 GB Mac -> limit 35.0 GB, 1.0 GB left
-        48 GB Mac -> limit 47.0 GB, 1.0 GB left
-        64 GB Mac -> limit 58.0 GB, 6.0 GB left   (the dev machine, where it was tuned)
-
-    One gigabyte is not enough to keep a browser open, which is exactly the
-    owner's complaint: "when it's tight, you cannot use your Mac, so this is
-    bad." The defaults were shaped by the machine they were written on.
-
-    This costs no render speed and changes no output, because H3 does not need
-    the memory it was being handed: the measured Q8 peak is 25.63 GiB and bf16
-    is 42.17 GiB. The smallest Mac we serve H3 on (the 46 GB Q8 floor, i.e. a
-    48 GB machine) keeps 42 GB of budget against a 25.63 GiB peak — a limit
-    that was never the binding constraint, standing in front of headroom that
-    was.
-
-    Headroom is the larger of 6 GB and an eighth of RAM: a fixed number starves
-    a big machine of nothing and a proportional one leaves a small machine too
-    little, so take whichever is kinder.
-    """
-    ram = float(total_ram_gb if total_ram_gb is not None else SYSTEM_RAM_GB)
-    if ram <= 0:
-        return (0.0, 0.0)
-    headroom = max(6.0, ram / 8.0)
-    memory_gb = max(8.0, ram - headroom)
-    # Wired memory cannot be paged out at all, so it gets a wider margin than
-    # the overall limit. The runner clamps this again to the device's own
-    # max_recommended_working_set_size, which is the real ceiling.
-    wired_gb = max(4.0, memory_gb - max(4.0, ram / 16.0))
-    return (round(memory_gb, 1), round(wired_gb, 1))
-
-
 def h3_supports_prompt_cache() -> bool:
     """Whether the INSTALLED runner accepts `--prompt-cache`.
 
@@ -17671,6 +18222,11 @@ def h3_status() -> dict:
                    "dir": str(_h3_turbo_dir()), "missing": [],
                    "note": H3_TURBO_NOTE, "label": "Turbo"}),
         # Speed switch "Fast" (TaoMate 3-step adapter). Same three-cause shape as Turbo.
+        "reference": {"supported": bool(available and h3_supports_reference()),
+                      "modes": list(H3_REFERENCE_MODES), "size": H3_REFERENCE_SIZE},
+        "revoice": (h3_revoice_status() if available else
+                    {"supported": False, "default": H3_REVOICE_DEFAULT,
+                     "points": H3_REVOICE_POINTS, "label": H3_REVOICE_LABEL}),
         "tristep": (h3_tristep_status() if available else
                     {"available": False, "supported": False, "downloaded": False,
                      "reason": "h3_" + paths["reason"],
@@ -17694,6 +18250,17 @@ def h3_status() -> dict:
                  "name": H3_V13_NAME, "label": H3_V13_LABEL, "credit": H3_V13_CREDIT,
                  "adapter": None, "install_available": False, "installing": False,
                  "download": {}, "dir": str(_h3_turbo_dir()), "missing": []}),
+        # H3 Flex Turbo (Pro) — the four-step Flex. Same shape as Flex.
+        "flex_turbo": (h3_flex_turbo_status() if available else
+                       {"available": False, "supported": False, "downloaded": False, "pro": True,
+                        "pro_active": h3_flex_turbo_allowed(), "reason": "h3_" + paths["reason"],
+                        "steps": H3_FLEX_TURBO_STEPS, "forwards": H3_FLEX_TURBO_FORWARDS,
+                        "modes": list(H3_FLEX_MODES), "download_gb": H3_FLEX_TURBO_DOWNLOAD_GB,
+                        "disk_need_gb": H3_FLEX_TURBO_DISK_NEED_GB, "repo": H3_FLEX_TURBO_REPO,
+                        "license": H3_FLEX_LICENSE, "name": H3_FLEX_TURBO_NAME,
+                        "label": H3_FLEX_TURBO_LABEL, "credit": H3_FLEX_TURBO_CREDIT,
+                        "notice": H3_FLEX_NOTICE, "adapter": None, "install_available": False,
+                        "installing": False, "download": {}}),
         # P-H3-Image (Images lane). Its own block: the lane needs the H3 pack but is not a video choice.
         "ph3image": ph3image_status(),
         # Pika H3 Flex — a Speed choice of its own. Same three-cause shape.
@@ -17844,11 +18411,22 @@ def h3_status() -> dict:
 #   Draft  8 steps: 120.0 s song in 64.2 s
 #   Score planning + resident loads ≈ 12 s per song; peak process footprint
 #   11.0 GB (MLX peak 10.5 GiB) on every length. 24 GB Macs are known to work
-#   (yue2-studio's M5 Pro 24 GB receipts), hence the floor.
+#   (yue2-studio's M5 Pro 24 GB receipts).
+# The floor is 16 GB since 4.19.12. On a 16 GB Mac the runner's own budget is
+# 12 GiB of process footprint (yue2_run.default_budget_gib: total - 4 GiB OS
+# headroom is the engine's ceiling) and the engine sets MLX's advisory limit
+# to budget - 5 = 7 GiB with a 128 MiB cache (lyra/measure.py), so the song
+# runs on a tighter MLX limit than on a big Mac. Proved under a
+# simulated 16 GB Mac (psutil total = 16 GiB, MLX ceiling 15.2 GB) with real
+# short, full, instrumental and cover songs: every WAV byte-identical to the
+# 64 GB run, MLX peak 8.2-8.4 GiB, process peak 9.2-9.9 GiB (docs/MUSIC_ENGINE.md).
+# What a simulation cannot show is a real 16 GB Mac's free memory with apps
+# open; the runner's guard stops a song cleanly (exit 3) when the system runs
+# short, and run_music_job_inner says what to do about it.
 # Wall ≈ MUSIC_FIXED_SEC + audio seconds × rate, scaled for other chips by the
 # LTX speed table (both are MLX GPU work). The slider is a ceiling, so this
 # prices a song that runs to Max length; most songs end sooner.
-MUSIC_MIN_RAM_GB = 24.0
+MUSIC_MIN_RAM_GB = 16.0
 MUSIC_SAMPLE_RATE = 48000
 MUSIC_CHANNELS = 2
 MUSIC_QUALITY_STEPS = {"draft": 8, "final": 32}
@@ -18764,6 +19342,37 @@ def _stop_music_proc(grace: float = 8.0, pgid: int | None = None) -> None:
 atexit.register(_stop_music_proc)
 
 
+#: yue2_run.py's exit code when its memory guard stopped the song (see its
+#: docstring: 0 ok · 2 bad input · 3 memory guard · 130 stopped · 1 other).
+MUSIC_RC_MEMORY_GUARD = 3
+
+
+def music_memory_guard_message(tail) -> str:
+    """The error a song stopped by the runner's memory guard shows: the cause
+    and the remedy first, the runner's own line after it."""
+    lines = [str(x) for x in (tail or []) if str(x).strip()]
+    cause = next((x for x in reversed(lines) if "memory guard" in x), lines[-1] if lines else "")
+    return ("Music Studio stopped your song because your Mac was running low on memory, "
+            "and nothing was saved. Close other apps and browser tabs, then compose again."
+            + (f" ({cause.strip()})" if cause else ""))
+
+
+def music_guard_cleanup(output: Path, artifacts: Path) -> None:
+    """Remove what a song stopped by the memory guard left behind. Only this
+    job's paths: `artifacts` is music_artifacts_dir(job id), never a parent's
+    (a take/sound variation READS its parent's folder and must keep it)."""
+    for leftover in (output, Path(str(output) + ".json"),
+                     output.with_name(output.stem + ".partial" + output.suffix)):
+        try:
+            leftover.unlink()
+        except OSError:
+            pass
+    # yue2_run.py puts a cover's transcription BESIDE the artifacts folder.
+    for folder in (artifacts, artifacts.parent / (artifacts.name + ".transcription")):
+        if folder.is_dir() and folder.resolve().is_relative_to(MUSIC_ARTIFACTS.resolve()):
+            shutil.rmtree(folder, ignore_errors=True)
+
+
 def run_music_job_inner(job: dict) -> None:
     p = music_params(job["params"])
     paths = music_paths()
@@ -18856,6 +19465,18 @@ def run_music_job_inner(job: dict) -> None:
                 except OSError:
                     pass
             raise JobStopped("Music stopped")
+        if rc == MUSIC_RC_MEMORY_GUARD:
+            # The runner's memory guard stopped the song before the Mac ran out
+            # (exit 3): a 16 GB Mac with a browser and other apps open is where
+            # this lands. Say what happened and what to do; keep its own line.
+            # The guard samples during GPU work, so the song is normally never
+            # published; drop whatever this job did write anyway (the WAV and
+            # its sidecar, the .partial, this job's own artifacts folder and a
+            # cover's transcription beside it), so "nothing was saved" is true.
+            # (The folder music_argv handed the runner: music_artifacts_dir()
+            # called now would name a NEW one, since that one is not empty.)
+            music_guard_cleanup(output, Path(cmd[cmd.index("--artifacts") + 1]))
+            raise RuntimeError(music_memory_guard_message(tail))
         if rc != 0:
             raise RuntimeError(f"YuE2 exited with code {rc}: " + " · ".join(tail))
         if not output.is_file() or not Path(str(output) + ".json").is_file():
@@ -18880,6 +19501,415 @@ def run_music_job_inner(job: dict) -> None:
             STATE["music_pgid"] = None
         _proc_guard_clear("music")
         _music_release_gpu(gpu_token)
+
+
+# ---- Speech (Audio → Speech): text to speech in preset or character voices --
+# The logic lives in speech_engine.py (pure, testable); this block is the
+# queue glue and the in-panel install, the same shape as Music's above.
+# docs/SPEECH.md is the reference: model choice, memory, the safety rule.
+import speech_engine  # noqa: E402
+
+SPEECH_ROOT = ROOT / Path(os.environ.get("LTX_SPEECH_ROOT", "speech-mlx")).expanduser()
+SPEECH_MODELS = ROOT / Path(os.environ.get("LTX_SPEECH_MODELS", "mlx_models/speech")).expanduser()
+SPEECH_RUNNER = ROOT / "scripts/speech/speech_run.py"
+SPEECH_MIN_RAM_GB = speech_engine.SPEECH_MIN_RAM_GB
+
+
+SPEECH_CONSTRAINTS = ROOT / "scripts/speech/speech_constraints.txt"
+SPEECH_PACKAGES_MARKER = ".phosphene_speech_packages"
+
+
+def _speech_packages_ok() -> bool:
+    """The packages step finished on THIS constraints file: speech_setup.sh
+    writes the file's sha256 into the venv after its import probe passes. A
+    venv left half-installed by a Stop or a failure has no marker (so the card
+    offers the install again instead of a dead "ready"), and an Update that
+    moves the constraints makes it stale (Install again repairs it)."""
+    try:
+        want = hashlib.sha256(SPEECH_CONSTRAINTS.read_bytes()).hexdigest()
+        return (SPEECH_ROOT / ".venv" / SPEECH_PACKAGES_MARKER).read_text().strip() == want
+    except OSError:
+        return False
+
+
+def _speech_python() -> Path | None:
+    for p in (SPEECH_ROOT / ".venv/bin/python", SPEECH_ROOT / ".venv/bin/python3.12"):
+        if p.is_file() and os.access(p, os.X_OK) and _speech_packages_ok():
+            return p
+    return None
+
+
+def speech_capable() -> bool:
+    return SYSTEM_RAM_GB >= SPEECH_MIN_RAM_GB - 1
+
+
+def speech_paths() -> dict:
+    from scripts.speech.speech_fetch import pack_problems
+    missing = pack_problems(SPEECH_MODELS)
+    weights_ok = not missing
+    python = _speech_python()
+    built = (SPEECH_ROOT / ".venv/pyvenv.cfg").is_file()
+    if python is None:
+        missing = missing + [f"engine environment under {SPEECH_ROOT / '.venv'}"]
+    reason = ("ok" if not missing else
+              "not_installed" if not weights_ok and not built else
+              "missing_weights" if not weights_ok else "missing_venv")
+    return {"root": str(SPEECH_ROOT), "models": str(SPEECH_MODELS), "python": python,
+            "missing": missing, "reason": reason, "weights_ok": weights_ok,
+            "venv_ok": python is not None, "repairable": weights_ok and bool(missing)}
+
+
+def speech_status() -> dict:
+    from scripts.speech.speech_fetch import PACK_BYTES
+    paths = speech_paths()
+    return {**{k: paths[k] for k in ("missing", "reason", "weights_ok", "venv_ok", "repairable")},
+            "capable": speech_capable(), "available": not paths["missing"],
+            "min_ram_gb": SPEECH_MIN_RAM_GB, "pack_gb": round(PACK_BYTES / 1e9, 1),
+            # ~0.45 GB of Python packages on top of the weights.
+            "install_gb": round(PACK_BYTES / 1e9 + 0.45, 1),
+            "lipsync_max_sec": speech_engine.LIPSYNC_MAX_SEC,
+            "words_per_second": speech_engine.WORDS_PER_SECOND,
+            "est_load_sec": speech_engine.EST_LOAD_SEC,
+            "est_sec_per_audio_sec": round(speech_engine.EST_SEC_PER_AUDIO_SEC * _hw_speed_factor("ltx"), 3),
+            "eta_measured": False}
+
+
+# The in-panel install. Same contract as Music's: one background task, steps
+# in their own process groups (Stop = killpg, SIGKILL after 8 s), registered
+# with the orphan reaper, every step idempotent so Install again resumes.
+SPEECH_INSTALL_STEPS = (
+    ("preflight", "Checking memory and disk space", 1, 'bash scripts/speech/speech_setup.sh preflight'),
+    ("venv", "Setting up Python 3.12", 4, 'bash scripts/speech/speech_setup.sh venv'),
+    ("packages", "Installing the speech engine", 8, 'bash scripts/speech/speech_setup.sh packages'),
+    ("fetch", "Downloading the voice models", 87,
+     '"${LTX_SPEECH_ROOT:-speech-mlx}/.venv/bin/python" scripts/speech/speech_fetch.py --min-free-gb 2'),
+)
+SPEECH_INSTALL_LOCK = threading.Lock()
+SPEECH_INSTALL: dict = {"state": "idle", "active": False}
+_SPEECH_INSTALL_STOP = threading.Event()
+_SPEECH_INSTALL_BYTES = {"ts": 0.0, "bytes": 0}
+
+
+def _speech_install_bytes() -> int:
+    now = time.time()
+    if now - _SPEECH_INSTALL_BYTES["ts"] < 1.0:
+        return _SPEECH_INSTALL_BYTES["bytes"]
+    total, seen = 0, set()
+    try:
+        for f in SPEECH_MODELS.rglob("*"):
+            try:
+                st = f.stat()
+                if f.is_file() and not f.is_symlink() and (st.st_dev, st.st_ino) not in seen:
+                    seen.add((st.st_dev, st.st_ino))
+                    total += st.st_size
+            except OSError:
+                pass
+    except OSError:
+        pass
+    _SPEECH_INSTALL_BYTES.update(ts=now, bytes=total)
+    return total
+
+
+def speech_install_status() -> dict:
+    from scripts.speech.speech_fetch import PACK_BYTES
+    with SPEECH_INSTALL_LOCK:
+        s = {k: v for k, v in SPEECH_INSTALL.items() if k not in ("pgid", "log")}
+        s["log"] = list(SPEECH_INSTALL.get("log") or [])[-6:]
+    s["steps"] = len(SPEECH_INSTALL_STEPS)
+    frac = 0.0
+    if s.get("active") and s.get("step_key") == "fetch":
+        done = min(_speech_install_bytes(), PACK_BYTES)
+        s["bytes_done"], s["bytes_total"] = done, PACK_BYTES
+        frac = done / PACK_BYTES
+    if s.get("active"):
+        weights = [w for _, _, w, _ in SPEECH_INSTALL_STEPS]
+        idx = int(s.get("step_index") or 0)
+        s["percent"] = max(1, min(99, round((sum(weights[:idx]) + weights[idx] * frac) * 100 / sum(weights))))
+    return s
+
+
+def speech_install_start() -> tuple[int, dict]:
+    if not speech_capable():
+        return 400, {"error": f"Speech needs about {SPEECH_MIN_RAM_GB:.0f} GB of unified memory; "
+                              f"this Mac reports {SYSTEM_RAM_GB:.0f} GB."}
+    if STATE.get("speech_pgid"):
+        return 409, {"error": "A line is being spoken right now. Install after it finishes."}
+    with SPEECH_INSTALL_LOCK:
+        if SPEECH_INSTALL.get("active"):
+            return 409, {"error": "Speech is already installing.", "install": True}
+        if not speech_paths()["missing"]:
+            return 200, {"ok": True, "nothing_to_do": True}
+        _SPEECH_INSTALL_STOP.clear()
+        SPEECH_INSTALL.clear()
+        SPEECH_INSTALL.update({"state": "running", "active": True, "step_index": 0,
+                               "step_key": SPEECH_INSTALL_STEPS[0][0], "step_label": SPEECH_INSTALL_STEPS[0][1],
+                               "started_ts": time.time(), "finished_ts": None, "error": None,
+                               "pgid": None, "log": collections.deque(maxlen=60)})
+    threading.Thread(target=_speech_install_thread, daemon=True, name="speech-install").start()
+    push("[speech-install] started from the studio")
+    return 202, {"ok": True, "started": True}
+
+
+def speech_install_stop() -> bool:
+    with SPEECH_INSTALL_LOCK:
+        if not SPEECH_INSTALL.get("active"):
+            return False
+        _SPEECH_INSTALL_STOP.set()
+        SPEECH_INSTALL["state"] = "stopping"
+        pgid = SPEECH_INSTALL.get("pgid")
+    if pgid:
+        _music_install_kill(pgid)
+    return True
+
+
+def _speech_install_thread() -> None:
+    env = _music_install_env()   # Pinokio's tool folders in front of PATH (uv)
+    env = {k: v for k, v in env.items() if k not in speech_engine.ENV_STRIP}
+    error = None
+    for idx, (key, label, _w, command) in enumerate(SPEECH_INSTALL_STEPS):
+        if _SPEECH_INSTALL_STOP.is_set():
+            break
+        with SPEECH_INSTALL_LOCK:
+            SPEECH_INSTALL.update(step_index=idx, step_key=key, step_label=label)
+            SPEECH_INSTALL["log"].append(f"— {label}")
+        push(f"[speech-install] step {idx + 1}/{len(SPEECH_INSTALL_STEPS)}: {label}")
+        tail: list[str] = []
+        try:
+            proc = subprocess.Popen(["bash", "-c", command], cwd=str(ROOT), env=env,
+                                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True, bufsize=1,
+                                    errors="replace", start_new_session=True)
+        except OSError as e:
+            error = f"Could not start step '{label}': {e}"
+            break
+        with SPEECH_INSTALL_LOCK:
+            SPEECH_INSTALL["pgid"] = proc.pid
+            stop_now = _SPEECH_INSTALL_STOP.is_set()
+        _proc_guard_write("speech_install", proc.pid, proc.pid, note=key)
+        if stop_now:
+            _music_install_kill(proc.pid)
+        try:
+            for raw in proc.stdout:
+                for line in raw.replace("\r", "\n").splitlines():
+                    line = line.rstrip()
+                    if not line:
+                        continue
+                    tail = (tail + [line])[-8:]
+                    with SPEECH_INSTALL_LOCK:
+                        SPEECH_INSTALL["log"].append(line[:300])
+                        SPEECH_INSTALL["last_line"] = line[:300]
+            rc = proc.wait()
+        finally:
+            with SPEECH_INSTALL_LOCK:
+                SPEECH_INSTALL["pgid"] = None
+            _proc_guard_clear("speech_install")
+        if _SPEECH_INSTALL_STOP.is_set():
+            break
+        if rc != 0:
+            if key in ("venv", "packages") and shutil.which("uv", path=env["PATH"]) is None:
+                error = _dist.say(
+                    "'uv' was not found, so the panel cannot set up Speech. Restart Phosphene from Pinokio, then click Install again.",
+                    "'uv' was not found, so Phosphene can't set up Speech. Quit Phosphene and open it again, then click Install again.")
+                break
+            reason = next((l for l in reversed(tail) if l.startswith("FATAL error:")), "") or \
+                next((l for l in reversed(tail) if not l.startswith(("+", "Traceback"))), "")
+            if reason.startswith("FATAL error:"):
+                reason = reason[len("FATAL error:"):].strip()
+            error = f"{label} failed (exit {rc})" + (f": {reason}" if reason else "")
+            if not error.endswith("."):
+                error += "."
+            if "Install again" not in reason:
+                error += " Click Install again to resume — nothing already downloaded is lost."
+            break
+    stopped = _SPEECH_INSTALL_STOP.is_set()
+    ok = not stopped and error is None and not speech_paths()["missing"]
+    if not stopped and error is None and not ok:
+        error = "The install finished but Speech still reports: " + "; ".join(speech_paths()["missing"][:3])
+    with SPEECH_INSTALL_LOCK:
+        SPEECH_INSTALL.update(active=False, finished_ts=time.time(), pgid=None,
+                              state="stopped" if stopped else "done" if ok else "failed",
+                              error=None if (stopped or ok) else error)
+    push("[speech-install] " + ("stopped — Install again resumes where it left off" if stopped
+                                else "done — Audio → Speech is ready" if ok else f"failed: {error}"))
+
+
+def _stop_speech_install_at_exit() -> None:
+    with SPEECH_INSTALL_LOCK:
+        pgid = SPEECH_INSTALL.get("pgid") if SPEECH_INSTALL.get("active") else None
+    if pgid:
+        _SPEECH_INSTALL_STOP.set()
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except (OSError, ProcessLookupError):
+            pass
+
+
+atexit.register(_stop_speech_install_at_exit)
+
+
+def _stop_speech_proc(pgid: int | None = None) -> None:
+    if pgid is None:
+        with LOCK:
+            pgid = STATE.get("speech_pgid")
+    if not pgid:
+        return
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        return
+
+    def force():
+        time.sleep(5)
+        with LOCK:
+            if STATE.get("speech_pgid") != pgid:
+                return
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except (OSError, ProcessLookupError):
+            pass
+    threading.Thread(target=force, daemon=True, name="stop-speech").start()
+
+
+atexit.register(_stop_speech_proc)
+
+
+def speech_estimate(text: str, speed: float = 1.0) -> dict:
+    return speech_engine.estimate(text, speed, _hw_speed_factor("ltx"))
+
+
+def run_speech_job_inner(job: dict) -> None:
+    p = job["params"]
+    paths = speech_paths()
+    if not speech_capable():
+        raise RenderRefused("speech_ram", f"Speech needs about {SPEECH_MIN_RAM_GB:.0f} GB of unified memory; this Mac reports {SYSTEM_RAM_GB:.0f} GB.")
+    if SPEECH_INSTALL.get("active"):
+        raise RenderRefused("speech_installing", "Speech is still installing. Generate again when the install finishes.")
+    if paths["missing"]:
+        raise RenderRefused("pack_missing", "Speech isn't downloaded on this Mac yet. Open Audio → Speech and click Install "
+                                            f"(~{speech_status()['install_gb']} GB, resumable).")
+    if p.get("speech_voice_kind") != "preset" and p.get("speech_voice_consent") is not True:
+        # make_job refuses this first; the backstop is for replayed/edited jobs,
+        # so only the canonical boolean the allowlist writes counts ("false",
+        # "0" or any other stored value is a refusal, never a truthy string).
+        raise RenderRefused("speech_consent", "Cloning a voice needs your confirmation that it is your own voice or that you have the speaker's permission.")
+    ref = p.get("speech_ref_audio") or ""
+    if p.get("speech_voice_kind") != "preset" and not Path(ref).is_file():
+        raise RuntimeError(f"The voice clip is gone ({ref}). Pick the voice again, then Generate.")
+    gpu_token = _music_wait_for_gpu(job)
+    proc = None
+    work = None
+    try:
+        work = Path(tempfile.mkdtemp(prefix="phos-speech-"))
+        _proc_guard_write("speech", 0, 0, note=f"job {job['id']}")
+        if SYSTEM_RAM_GB < 48:
+            HELPER.kill()   # a 16–32 GB Mac needs LTX's resident weights out of the way
+        if job.get("cancel_requested"):
+            raise JobStopped("Speech stopped")
+        OUTPUT.mkdir(parents=True, exist_ok=True)
+        slug = _sb_slug(p.get("speech_title") or p.get("speech_text") or "", words=4)
+        output = _unique_output_path(OUTPUT, speech_engine.output_stem(p, time.strftime("%Y%m%d_%H%M%S"), slug), ext=".wav")
+        job["raw_path"] = str(output)
+        text_file = work / "script.txt"
+        text_file.write_text(p["speech_text"], encoding="utf-8")
+        cmd = speech_engine.argv(paths["python"], SPEECH_RUNNER, SPEECH_MODELS, p, text_file,
+                                 Path(ref) if ref else None, output)
+        job["command"] = shlex.join(cmd)
+        t0 = time.time()
+        est = speech_estimate(p["speech_text"], p.get("speech_speed") or 1.0)
+        proc = subprocess.Popen(cmd, cwd=str(ROOT),
+                                env=speech_engine.child_env(path=media_tool_path(os.environ.get("PATH", ""))),
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, errors="replace", bufsize=1, start_new_session=True)
+        with LOCK:
+            STATE["pid"] = proc.pid
+            STATE["speech_pgid"] = proc.pid
+        _proc_guard_write("speech", proc.pid, proc.pid, note=f"job {job['id']}")
+        if job.get("cancel_requested"):
+            _stop_speech_proc(pgid=proc.pid)
+        tail: collections.deque = collections.deque(maxlen=6)
+        done: dict = {}
+        error_line = ""
+        assert proc.stdout is not None
+        for raw in proc.stdout:
+            line = raw.rstrip()
+            if not line:
+                continue
+            push(line)
+            tail.append(line)
+            parsed = speech_engine.progress(line)
+            if parsed:
+                if parsed["phase"] == "done":
+                    try:
+                        done = json.loads(line.split(" done ", 1)[1])
+                    except (IndexError, ValueError):
+                        done = {}
+                if parsed["phase"] == "error":
+                    error_line = parsed["phase_label"]
+                elapsed = time.time() - t0
+                parsed.update(elapsed_sec=elapsed, eta_sec=est["eta_sec"],
+                              remaining_sec=max(0, est["eta_sec"] - elapsed), eta_measured=False)
+                with LOCK:
+                    job["progress"] = parsed
+        rc = proc.wait()
+        if rc != 0 or job.get("cancel_requested"):
+            # Nothing half-made is ever published.
+            for leftover in (output, output.with_name(output.stem + ".partial" + output.suffix)):
+                try:
+                    leftover.unlink()
+                except OSError:
+                    pass
+        if job.get("cancel_requested"):
+            raise JobStopped("Speech stopped")
+        if rc < 0:
+            # Killed from outside (no Stop was asked for): almost always macOS
+            # reclaiming memory. A failure with its cause, not a quiet "stopped".
+            raise RuntimeError(f"The speech engine was killed by the system (signal {-rc}), usually because the Mac "
+                               "ran out of memory. Close other apps and browser tabs, then Generate again.")
+        if rc != 0:
+            raise RuntimeError(error_line or ("The speech engine exited with code %d: " % rc + " · ".join(tail)))
+        if not output.is_file():
+            raise RuntimeError("The speech engine finished without a WAV. See the log.")
+        sidecar = {
+            "engine": "speech", "mode": "speech",
+            "model": "Qwen3-TTS 12Hz 1.7B (" + ("CustomVoice" if p["speech_voice_kind"] == "preset" else "Base") + ", 8-bit MLX)",
+            "voice": speech_engine.voice_label(p), "voice_kind": p["speech_voice_kind"],
+            "instruct": speech_engine.instruction_for(p),
+            "text": p["speech_text"], "title": p.get("speech_title") or "",
+            "audio_seconds": done.get("audio_seconds"), "sample_rate": done.get("sample_rate"),
+            "seed": done.get("seed"), "elapsed_sec": round(time.time() - t0, 2),
+            "peaks": {k: done.get(k) for k in ("mlx_peak_gb", "process_peak_gb")},
+            "realtime_factor": done.get("realtime_factor"),
+            "params": {k: v for k, v in p.items() if k != "speech_ref_text"},
+        }
+        if p["speech_voice_kind"] != "preset":
+            # The record of the confirmation the request carried (AUP: no
+            # impersonation). Kept with the file it authorised.
+            sidecar["voice_consent"] = {"confirmed": True, "at": iso_now(),
+                                        "statement": "The speaker is me, or I have the speaker's permission to use this voice."}
+        if not write_sidecar(output.with_suffix(output.suffix + ".json"), sidecar):
+            push("[speech] warning: the sidecar could not be written")
+        job["output_path"] = str(output)
+        push(f"[speech] done → {output.name} ({done.get('audio_seconds')} s)")
+    finally:
+        if proc is not None:
+            if proc.poll() is None:
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                    proc.wait()
+                except ProcessLookupError:
+                    proc.wait()
+            if proc.stdout:
+                proc.stdout.close()
+        with LOCK:
+            STATE["pid"] = None
+            STATE["speech_pgid"] = None
+        _proc_guard_clear("speech")
+        _music_release_gpu(gpu_token)
+        if work is not None:
+            shutil.rmtree(work, ignore_errors=True)
 
 
 ENGINE_DEFAULT = "ltx"
@@ -18922,7 +19952,10 @@ ENGINES: tuple[dict, ...] = (
         # no picture-held audio pass, so the mode is H3's alone.
         "excluded_modes": ("v2a",),
         "serves_label": "every mode",
-        "surfaces": ("video",),
+        # One Shot picks between the same two video engines, with the same
+        # top picker (owner, 5 Nov 2026: the model is the first row on every
+        # surface with more than one).
+        "surfaces": ("video", "oneshot"),
         # LTX fuses as many LoRAs as you stack, from mlx_models/loras/.
         "lora_tag": "video",
         # LTX's primary strip is #qualityGroup, but its visibility is owned by
@@ -18951,7 +19984,7 @@ ENGINES: tuple[dict, ...] = (
         "modes": H3_MODES,
         "excluded_modes": ("character", "i2v_clean_audio"),
         "serves_label": "Text, Image, Keyframes, Extend, Lip-sync and Add sound",
-        "surfaces": ("video",),
+        "surfaces": ("video", "oneshot"),
         # H3 takes ONE adapter through the same `--lora` flag Turbo rides, out
         # of its own library (see _h3_loras_dir). The picker is additionally
         # gated on BOOT.h3.loras.supported, because a pack cloned before
@@ -18978,6 +20011,57 @@ ENGINES: tuple[dict, ...] = (
         "install_card": "openMusicInstallCard", "install_size": "~11 GB",
         "size_note": f"~11 GB · needs {MUSIC_MIN_RAM_GB:.0f} GB unified memory · YuE2 license (CC BY-NC 4.0 + creator permission)",
     },
+    # ---- Image models (the Images tab) ----------------------------------------
+    # The Images tab's top "Model" picker is the SAME picker the Video and
+    # Compose tabs use (owner, 5 Nov 2026: the model is the first choice on
+    # every surface, because it changes what is offered under it). Each row is
+    # one MODEL; `image_engines` lists the Images form's #imgStudioEngine values
+    # that belong to it (its versions / quality presets, which stay in the form
+    # under the picker as "Version"). The first listed value is the one picking
+    # the model selects. `surfaces=("image",)` keeps every row off the Video
+    # form, its mode chips and make_job; model_capabilities binds each row to
+    # `images.<id>`. No probe: per-version download state is the form's chip
+    # (/image/engine_status), which already says what a first render fetches.
+    *({
+        "builtin": False, "probe": None, "excluded_modes": (),
+        "surfaces": ("image",), "lora_tag": None,
+        "strip": "", "hint": "", "strip_label": "", "state": "ready", **row,
+    } for row in (
+        {"id": "flux2", "label": "FLUX.2", "generation": "klein 4B", "sublabel": "pictures",
+         "tagline": "the recommended first model: pictures from words, edits from your photos · ~4.3 GB",
+         "mark": "eng-mark-img-flux2", "accent": "#5EEAFF",
+         "accent_dim": "rgba(94,234,255,0.13)", "accent_soft": "rgba(94,234,255,0.40)",
+         "modes": ("t2i", "edit"), "serves_label": "Text and Edit",
+         "image_engines": ("auto",), "capability": "images.flux2"},
+        {"id": "flux3", "label": "FLUX 3", "generation": "Klein", "sublabel": "pictures",
+         "tagline": "Black Forest Labs' newest: sharper pictures from words or references · Q8, Q6 or Q4",
+         "mark": "eng-mark-img-flux3", "accent": "#7AA8FF",
+         "accent_dim": "rgba(122,168,255,0.13)", "accent_soft": "rgba(122,168,255,0.40)",
+         "modes": ("t2i", "edit"), "serves_label": "Text and Edit",
+         "image_engines": ("flux3_distilled_q8", "flux3_distilled_q6", "flux3_distilled_q4",
+                           "flux3_base_q8", "flux3_base_q6", "flux3_base_q4"),
+         "capability": "images.flux3"},
+        {"id": "qwen_edit", "label": "Reference Edit", "sublabel": "edits",
+         "tagline": "changes a photo you give it: swap a background, an outfit, combine up to 3 pictures",
+         "mark": "eng-mark-img-edit", "accent": "#B14AFF",
+         "accent_dim": "rgba(177,74,255,0.14)", "accent_soft": "rgba(177,74,255,0.42)",
+         "modes": ("edit",), "serves_label": "Edit",
+         "image_engines": ("qwen_edit_lightning_inline", "qwen_edit_inline", "qwen_edit_high_inline"),
+         "capability": "images.qwen_edit"},
+        {"id": "ideogram4", "label": "Ideogram 4", "sublabel": "typography",
+         "tagline": "words in the picture, placed where you want them: posters, titles, layouts",
+         "mark": "eng-mark-img-ideogram", "accent": "#FF8A3D",
+         "accent_dim": "rgba(255,138,61,0.14)", "accent_soft": "rgba(255,138,61,0.42)",
+         "modes": ("t2i", "edit"), "serves_label": "Text and Edit",
+         "image_engines": ("ideogram4_inline",), "capability": "images.ideogram4"},
+        {"id": "p_h3_image", "label": "P-H3-Image", "sublabel": "exact text",
+         "tagline": "exact text in images, up to 8 MP, on MiniMax H3 · from words only",
+         "mark": "eng-mark-img-ph3", "accent": "#FF2E9F",
+         "accent_dim": "rgba(255,46,159,0.14)", "accent_soft": "rgba(255,46,159,0.42)",
+         "modes": ("t2i",), "serves_label": "Text", "preview": True,
+         "image_engines": ("ph3image_standard_inline", "ph3image_draft_inline", "ph3image_inline"),
+         "capability": "images.p_h3_image"},
+    )),
     # ---- Flux Video ---------------------------------------------------------
     # Weights are announced, not released. The entry is real (and rendered as
     # an inert "soon" chip) only under LTX_ENGINE_PREVIEW=1 — the same pattern
@@ -19034,6 +20118,16 @@ def engine_serves_mode(engine: dict, mode: str) -> bool:
     if not modes:
         return True
     return mode in modes
+
+
+def _capabilities_boot() -> dict:
+    """model_capabilities.payload() plus whether Pro is on for this Mac, so a
+    Pro row greys with its "part of Phosphene Pro" line when it is not."""
+    try:
+        pro = bool(pro_status().get("active"))
+    except Exception:  # noqa: BLE001 - the table must render without Pro state
+        pro = None
+    return model_capabilities.payload(pro_active=pro)
 
 
 def engines_payload() -> list[dict]:
@@ -19914,6 +21008,8 @@ _ANALYTICS_EVENTS = (
     # v4.17.4 — did the voice separator actually install, by which path, and
     # if not, which closed reason. One event per install run.
     "separator_install",
+    # Phosphene Bench: one per submitted run, only on the person's click.
+    "bench_result",
 )
 
 
@@ -19926,6 +21022,7 @@ def _analytics_capture(event: str, props: dict | None = None) -> None:
     try:
         if not _analytics_enabled():
             return
+        event, props = _analytics_refusal_event(event, props or {})
         payload = {
             "event": str(event)[:64],
             "props": _analytics_clean_props(props or {}),
@@ -19946,6 +21043,39 @@ def _analytics_capture(event: str, props: dict | None = None) -> None:
                          name="analytics-capture", daemon=True).start()
     except Exception:
         pass
+
+
+def _analytics_capture_sync(event: str, props: dict | None = None) -> bool:
+    """`_analytics_capture`, but delivered on the CALLER's thread and
+    reporting whether the receiver took it. Only for a person's explicit
+    click that must know the outcome (Phosphene Bench's Submit, which marks a
+    run as sent only when this returns True). Same switch, same cleaning,
+    same local mirror, same test-rig tag as every other event."""
+    try:
+        if not _analytics_enabled() or not _analytics_key():
+            return False
+        event, props = _analytics_refusal_event(event, props or {})
+        payload = {
+            "event": str(event)[:64],
+            "props": _analytics_clean_props(props or {}),
+            "install_id": _analytics_install_id(),
+            "ts": time.time(),
+            "at": iso_now(),
+            "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        if _analytics_is_test_rig():
+            payload["props"]["test_rig"] = True
+    except Exception:
+        return False
+    try:
+        _usage_log_append(payload)
+    except Exception:
+        pass
+    try:
+        _analytics_post(payload)
+        return True
+    except Exception:
+        return False
 
 
 def _analytics_disclose_once() -> None:
@@ -20062,6 +21192,15 @@ def update_pressed_landed(marker: str) -> tuple[bool, str]:
     4.17.5: a different VERSION landed; so did a different build under the SAME
     VERSION (a SHA change). The same VERSION and the same SHA did not. A marker
     from 4.17.4 or earlier has no SHA and compares by VERSION alone."""
+    if _root_is_checkout():
+        try:
+            rec = update_transaction.Transaction(ROOT).read()
+            if rec and rec.get("phase") != "current":
+                return (rec.get("phase") == "succeeded"
+                        and rec.get("candidate") == boot_build_stamp().get("sha")
+                        and rec.get("candidate") != str(marker or "").partition("@")[2]), str(marker or "").partition("@")[0]
+        except update_transaction.UpdateError:
+            return False, str(marker or "").partition("@")[0]
     ver, _, sha = str(marker or "").partition("@")
     if ver != running_version():
         return True, ver
@@ -20179,7 +21318,11 @@ def _analytics_job_secrets(job: dict) -> list:
               # A cover's source recording and a song's parent are the user's
               # file names; the path regex strips the directory and left the
               # basename standing ("<path> unreleased demo.wav" — Codex).
-              "music_source_audio", "music_parent", "music_abc_path"):
+              "music_source_audio", "music_parent", "music_abc_path",
+              # Speech: the script, the clip's words, the clip itself, a
+              # character's id and display name.
+              "speech_text", "speech_ref_text", "speech_ref_audio",
+              "speech_character", "speech_character_name", "speech_title"):
         v = p.get(k)
         if isinstance(v, str) and v.strip():
             out.append(v.strip())
@@ -20267,7 +21410,11 @@ def _analytics_wall_sec_bucket(seconds):
 
 
 _ANALYTICS_SOURCES = ("form", "batch", "storyboard", "characters",
-                      "image_studio", "retry", "api", "chain", "unknown")
+                      "image_studio", "retry", "api", "chain",
+                      # Phosphene Bench (bench.py): its renders are real
+                      # renders, and tagged so the fleet medians can keep
+                      # or drop them on purpose.
+                      "bench", "unknown")
 
 
 def _analytics_source(p: dict, job: dict | None = None) -> str:
@@ -20700,6 +21847,12 @@ _ANALYTICS_REFUSAL_REASONS = (
     # before it is downloaded or first run - a one-time prompt, not a fault
     # (4.19.8). Every message model_licences.refusal() builds carries it.
     ("licence_required", ("accept the licence once",)),
+    # Audio → Speech (speech_engine.py): a Mac under the 16 GB floor, a line
+    # queued while the install runs, and a clone without the voice-owner
+    # confirmation (the worker's backstop; make_job refuses it first).
+    ("speech_ram", ("speech needs about",)),
+    ("speech_installing", ("speech is still installing",)),
+    ("speech_consent", ("needs your confirmation that it is your own voice",)),
     # A render on an LTX pack that is not completely on disk (ltx_pack_preflight):
     # the install or a download is unfinished, and the message names the files
     # and offers Repair. Counted as a failure until 4.19.16 (fleet #206: a fresh
@@ -20746,6 +21899,26 @@ def _analytics_refusal_reason(raw) -> str | None:
         if any(n in s for n in needles):
             return slug
     return None
+
+
+def _analytics_refusal_event(event: str, props: dict) -> tuple[str, dict]:
+    """Keep known refusals out of fault events at the capture boundary too.
+
+    The worker already classifies RenderRefused. Older callers can supply a
+    failed event with only its error signature, so enforce the same contract
+    before either the local usage log or the delivery thread sees it.
+    """
+    if event != "render_failed":
+        return event, props
+    reason = next((r for r in (props.get("refusal"),
+                              _analytics_refusal_reason(props.get("error_signature")))
+                   if r in _ANALYTICS_REFUSAL_SLUGS), None)
+    if reason is None:
+        return event, props
+    clean = {k: v for k, v in props.items()
+             if k not in ("error_class", "error_signature", "error_fingerprint", "train_error")}
+    clean["refusal"] = reason
+    return "render_refused", clean
 
 
 # Closed error taxonomy (spec 2.7). Classification runs on the ORIGINAL
@@ -21075,6 +22248,7 @@ def _analytics_render_event(job: dict) -> None:
             props["h3_sampler"] = ("fast" if p.get("h3_tristep") else
                                    "turbo" if p.get("h3_turbo") else
                                    "flex" if p.get("h3_flex") else
+                                   "flex_turbo" if p.get("h3_flex_turbo") else
                                    "v13" if p.get("h3_v13") else "best")
         # 4.17.5: did this render run in short GPU steps (the Metal watchdog
         # path), and did a watchdog kill get re-run inside the same job?
@@ -22372,7 +23546,8 @@ def _upscale_finish_cmd(video: str, audio_source: str | None, out: str, *,
 
 
 def _upscale_finish(video_path: Path, audio_source: str, *, frames: int,
-                    fps: float, trim: bool, job: dict | None = None) -> bool:
+                    fps: float, trim: bool, job: dict | None = None,
+                    label: str | None = None) -> bool:
     """Bring the ×2 render back to the source clip's length and soundtrack.
 
     Returns whether the source's audio is on the result. The whole point of
@@ -22385,6 +23560,9 @@ def _upscale_finish(video_path: Path, audio_source: str, *, frames: int,
     silent 121-frame clip came back with invented audio while a silent
     124-frame clip came back silent. A source whose audio could not be
     PROBED is not treated as silent: its sound is muxed in if it has any."""
+    # `label` names the mode in its messages: Colorize runs this same finish
+    # (a re-render of the user's clip keeps that clip's sound, 4 Nov 2026).
+    who = label or FACE_FIX_NAME
     state = _probe_audio_state(audio_source)
     want_source = state in ("audio", "unknown")
     tmp = video_path.with_name(video_path.stem + ".mux.mp4")
@@ -22401,7 +23579,7 @@ def _upscale_finish(video_path: Path, audio_source: str, *, frames: int,
             cmd[cmd.index("1:a:0")] = "1:a:0?"
         try:
             r = run_tracked_subprocess(cmd, pgid_key="mux_pgid",
-                                       label="the ×2 finish", job=job,
+                                       label=f"the {who} finish", job=job,
                                        timeout=900)
         except subprocess.TimeoutExpired:
             tmp.unlink(missing_ok=True)
@@ -22417,14 +23595,14 @@ def _upscale_finish(video_path: Path, audio_source: str, *, frames: int,
         if ok and state == "unknown":
             kept = _probe_audio_state(str(tmp)) == "audio"
         if not ok and want_source:
-            push(f"{FACE_FIX_NAME}: could not carry the source sound over ({err}) — "
+            push(f"{who}: could not carry the source sound over ({err}) — "
                  "delivering the clip without sound")
             ok, err = _run(False)
         if not ok:
             raise RuntimeError(
-                (f"{FACE_FIX_NAME}: could not cut the render back to {frames} frames: {err}"
+                (f"{who}: could not cut the render back to {frames} frames: {err}"
                  if trim else
-                 f"{FACE_FIX_NAME}: could not finish the clip (removing the model's own "
+                 f"{who}: could not finish the clip (removing the model's own "
                  f"soundtrack failed): {err}"))
         tmp.replace(video_path)
         return kept
@@ -23069,7 +24247,9 @@ def list_outputs(
         # prompt would (see the 400->160 trim on _output_search_text just
         # above this loop). 80 chars is plenty for "first ~6 words".
         prompt_snippet = None
+        clip_title_text = ""
         out_mode = None        # t2v / i2v / image / music / ... — the card's "mode" chip
+        pro_receipt_meta = None   # the Pro speed receipt from the sidecar, None on Free renders
         # Which film this clip is a shot of, if any — {"id": ..., "n": 3} or None.
         # Derived from the sidecar read already happening below, so it costs
         # nothing, and it is what puts an S03 badge on a gallery card. None for
@@ -23194,9 +24374,17 @@ def list_outputs(
                 _pr = _sc_params.get("prompt") or meta.get("prompt")
                 if isinstance(_pr, str) and _pr.strip():
                     prompt_snippet = _pr.strip()[:80]
+                # One human title (user label wins, else the scene's first
+                # sentence with H3 scaffolding stripped), computed at read time
+                # from the FULL prompt, never from the 80-char snippet.
+                clip_title_text = clip_title.display_title(
+                    _pr if isinstance(_pr, str) else "",
+                    _sc_params.get("label") or meta.get("label"))
                 _md = _sc_params.get("mode") or meta.get("mode")
                 if isinstance(_md, str) and _md:
                     out_mode = _md
+                if isinstance(meta.get("pro"), dict):
+                    pro_receipt_meta = meta["pro"]
                 elif engine == "music":
                     out_mode = "music"
                 sb_tag = _sb_tag_from(_sc_params.get("session_tag"))
@@ -23266,7 +24454,10 @@ def list_outputs(
             "frames": ltx_frames,
             # VC-36: the gallery card's prompt snippet + mode chip.
             "prompt": prompt_snippet,
+            "title": clip_title_text,
             "mode": out_mode,
+            # The Pro speed receipt (write_sidecar stamps it only when a Pro profile ran); None on Free renders.
+            "pro": pro_receipt_meta,
             # Storyboard provenance, or None. One badge on the card, one click
             # back to the film it belongs to — and invisible for every clip
             # that isn't part of one.
@@ -23311,6 +24502,60 @@ SIDECAR_WARNING = ("The clip was saved, but its settings record ({name}) could n
                    "next render starts, without rendering anything.")
 
 
+# ---------------------------------------------------------------- Pro (the paid speed profiles)
+# Measured on the M4 Max / 64 GB reference, same clip, same seed (today-2026-10-26/pro-speed/comparisons):
+# the ratio of Free wall time to Pro wall time per engine. A receipt uses the ratio for the ONE number it
+# shows ("saved ~N min"); it never claims a time that was not measured.
+PRO_SPEEDUPS = {"h3": 1.48, "ltx": 1.29, "image": 1.54}
+PRO_PLANS = {"monthly": "Pro", "yearly": "Pro", "founding": "Founding", "hardship": "Pro", "pro": "Pro", "dev": "Pro"}
+
+
+def pro_status() -> dict:
+    """Is Pro active on this Mac. The ONLY source is the signed capability token the licence
+    server issues for a Pro licence on this Mac (pro_token.py; the Mac app passes it in
+    PHOSPHENE_PRO_TOKEN / PHOSPHENE_PRO_TOKEN_FILE and renews it). It used to be an unsigned
+    state/pro.json that nothing wrote: a paying Mac-app user read as Free here (H3 Flex Turbo
+    refused) while anyone could switch Pro on by writing that file. A file is no longer read.
+    PHOSPHENE_PRO=<plan> remains as a developer override for the PRO chrome, honoured only on
+    a test rig (PHOSPHENE_TEST_RIG=1). PHOSPHENE_PRO_PLAN (set by the app) only names the plan
+    on a valid token; it never turns Pro on. Free is the default and carries no message."""
+    off = {"active": False, "plan": None, "label": None, "until": None, "holder": None}
+    env = (os.environ.get("PHOSPHENE_PRO") or "").strip().lower()
+    if env and env not in ("0", "no", "off", "false") and os.environ.get("PHOSPHENE_TEST_RIG") == "1":
+        plan = env if env in PRO_PLANS else "dev"
+        return {"active": True, "plan": plan, "label": PRO_PLANS[plan], "until": None, "holder": None, "source": "env"}
+    try:
+        import pro_token
+        st = pro_token.status()
+    except Exception as exc:  # noqa: BLE001 - a broken check reads Free, never crashes the page
+        return {**off, "source": "none", "reason": "check_failed: %s" % type(exc).__name__}
+    if not st.get("ok"):
+        reason = st.get("reason") or "missing"
+        return {**off, "source": "expired" if reason == "expired" else "none", "reason": reason}
+    from datetime import datetime as _dt, timezone as _tz
+    until = _dt.fromtimestamp(int(st["expires_at"]), _tz.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    plan = (os.environ.get("PHOSPHENE_PRO_PLAN") or "").strip().lower()
+    plan = plan if plan in PRO_PLANS and plan != "dev" else "pro"
+    return {"active": True, "plan": plan, "label": PRO_PLANS.get(plan, "Pro"), "until": until,
+            "holder": None, "source": "licence", "reason": "ok"}
+
+
+def pro_receipt(payload: dict) -> dict | None:
+    """The sidecar's Pro receipt: only when the render ran a Pro speed profile (params.pro_profile, admitted
+    by the Pro pipeline) and the elapsed time is known. Free renders never get one."""
+    params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
+    profile = params.get("pro_profile")
+    elapsed = payload.get("elapsed_sec")
+    if not profile or not isinstance(elapsed, (int, float)) or elapsed <= 0:
+        return None
+    engine = str(payload.get("engine") or params.get("engine") or "ltx").lower()
+    key = "image" if payload.get("mode") == "image" or engine in ("flux", "mflux", "image") else ("h3" if engine == "h3" else "ltx")
+    ratio = float(payload.get("pro_speedup") or PRO_SPEEDUPS.get(key, 1.0))
+    free_equivalent = round(float(elapsed) * ratio, 1)
+    return {"profile": str(profile)[:40], "engine_key": key, "speedup": round(ratio, 2), "elapsed_sec": round(float(elapsed), 1),
+            "free_equivalent_sec": free_equivalent, "saved_sec": round(free_equivalent - float(elapsed), 1), "measured_on": "M4 Max · 64 GB"}
+
+
 def write_sidecar(path: Path, payload: dict) -> bool:
     """Write a clip's sidecar. Returns False when it could not be written.
 
@@ -23322,6 +24567,9 @@ def write_sidecar(path: Path, payload: dict) -> bool:
     lands on the queue job as a `warning` (the history row shows it) and the
     payload is kept on the job, so retry_pending_sidecars() can write it once
     there is space again — the video itself is never re-rendered for it."""
+    receipt = pro_receipt(payload)
+    if receipt and "pro" not in payload:
+        payload["pro"] = receipt
     try:
         atomic_write_text(path, json.dumps(payload, indent=2))
         return True
@@ -23438,6 +24686,13 @@ def load_queue() -> None:
             stale["started_at"] = None
             stale["error"] = None
             STATE["queue"].insert(0, stale)
+        # Phosphene Bench steps belong to a run that died with the previous
+        # process: re-running them would render with nobody measuring, and a
+        # half-run suite is not a result. Dropped, and said so.
+        _orphans = [j for j in STATE["queue"] if (j.get("params") or {}).get("source") == "bench"]
+        if _orphans:
+            STATE["queue"] = [j for j in STATE["queue"] if j not in _orphans]
+            print(f"dropped {len(_orphans)} Phosphene Bench step(s) left over from the last run", flush=True)
 
 
 # ---- warm helper -------------------------------------------------------------
@@ -24479,6 +25734,8 @@ _PROC_GUARDS: dict[str, tuple[Path, str]] = {
     "h3": (STATE_DIR / "h3_running.json", "generate_staged"),
     "music": (STATE_DIR / "music_running.json", "yue2_run.py"),
     "music_install": (STATE_DIR / "music_install_running.json", "scripts/pinokio/music_"),
+    "speech": (STATE_DIR / "speech_running.json", "speech_run.py"),
+    "speech_install": (STATE_DIR / "speech_install_running.json", "scripts/speech/speech_"),
     "helper": (STATE_DIR / "helper_running.json", "mlx_warm_helper"),
 }
 
@@ -24884,6 +26141,15 @@ def _image_job_cancelled() -> bool:
 agent_image_engine._CANCEL_CHECK = _image_job_cancelled
 
 
+def _begin_image_diagnostic():
+    # Sync/character calls have no selected panel preset. Do not invent one.
+    import image_diagnostics
+    return image_diagnostics.begin(STATE_DIR, "unknown", _analytics_enabled)
+
+
+agent_image_engine._DIAGNOSTIC_BEGIN = _begin_image_diagnostic
+
+
 def _register_job_pgid(key: str, pgid: int, job: dict | None = None) -> None:
     """Publish a freshly spawned process group where Stop looks for it.
 
@@ -25064,10 +26330,13 @@ def stop_current_job(timeout: float = 5.0, expect_id: str | None = None) -> bool
         train_pgid = STATE.get("train_pgid")
         h3_pgid = STATE.get("h3_pgid")
         music_pgid = STATE.get("music_pgid")
+        speech_pgid = STATE.get("speech_pgid")
     push("Stop requested — killing helper + ffmpeg post-process + training subprocess to abort current job.")
     HELPER.kill()
     if music_pgid:
         _stop_music_proc(pgid=music_pgid)
+    if speech_pgid:
+        _stop_speech_proc(pgid=speech_pgid)
     # Image-engine subprocesses (HiDream's BF16 helper, mflux's per-family
     # binaries) live outside HELPER. Without this they would run to
     # completion regardless of /stop. Each engine registers its Popen via
@@ -25739,6 +27008,29 @@ def take_light_lock(prompt: str) -> str:
     return (f"Continuity: {what}; the sky, the light, the shadows and the palette "
             f"stay exactly as they were in the previous moment — no change of time "
             f"of day, weather or season.")
+
+
+def take_scene(prompt: str, beats: list[str]) -> str:
+    """The shot's own description, carried into every part when the user wrote
+    beats of their own (golive 5 Nov 2026). Before this a take with written
+    beats rendered ONLY the beats: "a dim gothic cathedral, robots in the
+    pews" plus the beat "the robots bow their heads" came back as 30 s of a
+    sailing ship, because no part ever saw the prompt. Returns "" when there
+    is nothing to add: no prompt, no beat written, or the beats ARE the
+    prompt's own sentences (the tab's "split the prompt" button), where
+    repeating it would put every later event into part 1. Sentences with a
+    quoted line are left out: a spoken line belongs to its beat, never to
+    every part (the Long clip row said its line twice)."""
+    text = " ".join(str(prompt or "").split())
+    written = [" ".join(str(b or "").split()) for b in (beats or []) if str(b or "").strip()]
+    if not text or not written:
+        return ""
+    low = text.lower()
+    if all(w.lower() in low for w in written):
+        return ""
+    sents = re.split(r"(?<=[.!?])\s+", text)
+    keep = [x for x in sents if not re.search(r'["\u201c\u201d<]', x)]
+    return " ".join(keep).strip()
 
 
 def take_camera_lock(camera: str, continuing: bool) -> str:
@@ -30490,16 +31782,16 @@ DELIVER_SIZES = {"native": 0, "1080p": 1080, "2160p": 2160}
 DELIVER_FINISH = {"none": 0, "grain": 9, "heavy_grain": 18}
 
 
-def _sb_deliver(fmt, size, finish=None, loudnorm=False) -> dict:
+def _sb_deliver(fmt, size, finish=None, loudnorm=True) -> dict:
     """The delivery choice, resolved: `{format, size, height, ext, label,
     finish, grain, loudnorm}`.
 
-    FILM-28: `loudnorm` is OFF by default — a mix the owner graded by ear is
-    not something a render should quietly retarget. On, it asks the encode
-    for -14 LUFS (streaming's own convention: Spotify, YouTube and TikTok
-    all normalise around there), so a film meant for one of those does not
-    need a second pass in another tool just to stop sounding quiet next to
-    everything around it.
+    `loudnorm` is the MASTER, ON by default (2 Nov): a peak limiter, then
+    -15 LUFS integrated with true peaks under -2 dBTP — the master the
+    agents' cuts end with. Off by default (FILM-28) the editor's film of
+    SUNDAY MASS measured 3-4 dB quieter than the agent's cut and ~8 dB
+    quieter in the dialogue. Off stays one untick away for a mix that must
+    leave exactly as graded.
     """
     f = str(fmt or "h264").strip().lower()
     if f not in DELIVER_FORMATS:
@@ -30513,8 +31805,8 @@ def _sb_deliver(fmt, size, finish=None, loudnorm=False) -> dict:
     label = DELIVER_FORMATS[f]["label"] + ("" if s == "native" else f" · {s}")
     if fin != "none":
         label += " · " + fin.replace("_", " ")
-    if loudnorm:
-        label += " · -14 LUFS"
+    if loudnorm is False:          # said OFF; absent (a storyboard film) is not labelled
+        label += " · no master"
     return {"format": f, "size": s, "height": DELIVER_SIZES[s],
             "ext": DELIVER_FORMATS[f]["ext"], "finish": fin,
             "grain": DELIVER_FINISH[fin], "loudnorm": bool(loudnorm),
@@ -30762,7 +32054,13 @@ def _sb_assemble_film(clips: list, out_path, *, plan: list | None = None,
         # stream, and ffmpeg refuses that outright — "Simple and complex
         # filtering cannot be used together for the same stream" — so every
         # film rendered with -14 LUFS on failed before writing a frame.
-        graph += ";[aout]loudnorm=I=-14:TP=-1.5:LRA=11[aoutln]"
+        # THE MASTER: a limiter first (peaks to -1 dBFS, so loudnorm's own
+        # look-ahead is not asked to do brick-wall work), then -15 LUFS with
+        # true peaks under -2 dBTP — the chain the agents' cuts end with.
+        # loudnorm is asked for -2.5: the AAC encode after it adds a few
+        # tenths (measured on SUNDAY MASS: -2.0 asked, -1.8 dBTP in the file).
+        graph += (";[aout]alimiter=limit=0.891:attack=5:release=50:level=disabled,"
+                  "loudnorm=I=-15:TP=-2.5:LRA=11[aoutln]")
         alabel = "[aoutln]"
     cmd += [
         "-filter_complex", graph,
@@ -31036,8 +32334,10 @@ def _sbe_render_edit(board: dict, edit: dict, *, music=None,
     # about where the music starts.
     win = sedit.music_window(audio)
     dest = _sb_film_dir_for_write(board)
+    # The EDITOR's render is mastered unless the caller says otherwise: a
+    # caller with no delivery dict (an agent, a script) gets it too.
     dl = _sb_deliver((deliver or {}).get("format"), (deliver or {}).get("size"),
-                     (deliver or {}).get("finish"), (deliver or {}).get("loudnorm"))
+                     (deliver or {}).get("finish"), (deliver or {}).get("loudnorm", True))
     name = out_name or _sb_film_name(board, deliver=dl)
     gaps = sedit.edit_gaps(edit)
     kinds = {}
@@ -31073,7 +32373,11 @@ def _sbe_render_edit(board: dict, edit: dict, *, music=None,
         timeline=cuts, music=music, music_start=win["start"],
         music_end=win["end"], music_delay=win["delay"], music_mode=mmode,
         music_gain=sedit.bed_render_gain(edit),
-        overlays=sedit.overlay_items(edit),
+        # TITLES ABOVE PICTURES: the chain composites in list order, so every
+        # title goes after every picture overlay (a stable sort keeps film
+        # order inside each layer). A title may share seconds with a logo.
+        overlays=sorted(sedit.overlay_items(edit),
+                        key=lambda o: sedit.overlay_kind(o) == "text"),
         deliver=dl, sound_strips=strips or None, declick=SB_DECLICK_S)
     # FILM-58: SEQUENCE ASPECT — a post-process crop of the finished film,
     # not a change to the assembly graph above (see `_sb_crop_to_aspect`).
@@ -31673,6 +32977,15 @@ def _sbe_prepare_inner(board_id: str, music: str | None,
             except OSError:
                 pass
     freed = sedit.prune_proxies(plan["stale"])
+    # THE OVERLAY LANE'S VIDEOS get their previews in the same pass, so a
+    # film opens with its logo playing on the stage, not a "?" over it.
+    try:
+        _ovs = (sedit.load_edit(bdir) or {}).get("overlays") or []
+        if _ovs:
+            _sbe_set(board_id, stage="overlays")
+            _sbe_overlay_previews_now(bdir, _ovs, sedit, prune=True)
+    except Exception as exc:                                         # noqa: BLE001
+        push(f"[timeline] overlay previews skipped: {exc}")
     proxy_secs = round(time.time() - t0, 3)
     _sbe_set(board_id, done=total, built=built, failed=failed,
              pruned=freed, proxy_seconds=proxy_secs)
@@ -32047,7 +33360,12 @@ def _sbe_room_tone_auto(board: dict, edit: dict, sedit) -> None:
     """Lay a "From this film" bed under an automatic cut, when the setting is
     on. Mutates `edit`. Best-effort: a bed that cannot be made is a log line,
     never a failed cut."""
-    if not bool(get_settings().get("room_tone_auto", True)):
+    if not bool(get_settings().get("room_tone_auto", False)):
+        return
+    # ONLY A CUT THE EDITOR MADE BY ITSELF. A timeline that arrives finished
+    # (an agent's cut handed over, an import, a hand cut) already has the
+    # sound its maker chose; laying hiss under it is not ours to do.
+    if str(edit.get("origin") or "auto").lower() != "auto":
         return
     if sedit.room_tone_track(edit) or not (edit.get("clips") or []):
         return
@@ -32068,7 +33386,11 @@ def _sbe_room_tone_auto(board: dict, edit: dict, sedit) -> None:
         if not facts.get("ok"):
             push(f"[timeline] no automatic room tone: {facts.get('error')}")
             return
-        track = sedit.room_tone_new_track(facts, film_len, level=rt.DEFAULT_LEVEL)
+        # AT THE ROOM'S OWN LEVEL, measured from these clips (a few dB under
+        # it), not a fixed -38 LUFS that played 15-25 dB over the room.
+        level = facts.get("suggest_level")
+        track = sedit.room_tone_new_track(
+            facts, film_len, level=rt.DEFAULT_LEVEL if level is None else level)
     except Exception as exc:                                         # noqa: BLE001
         push(f"[timeline] room tone skipped: {type(exc).__name__}: {exc}")
         return
@@ -32108,6 +33430,250 @@ def _sbe_proxy_now(board_dir: Path, paths: list[str], sedit) -> dict:
             except OSError:
                 pass
     return {"built": built, "reused": len(plan["reuse"]), "failed": failed}
+
+
+def _sbe_probe_media(path) -> dict | None:
+    """`{"duration", "has_video", "has_audio", "pix_fmt"}` for any media file,
+    or None when ffprobe cannot read it. `duration` is the VIDEO stream's own
+    length when there is one (the number the timeline's `duration` means),
+    else the audio stream's, else the container's."""
+    try:
+        out = subprocess.run(
+            [str(FFPROBE), "-v", "error", "-show_entries",
+             "stream=codec_type,pix_fmt,duration:format=duration",
+             "-of", "json", str(path)],
+            capture_output=True, text=True, errors="replace", timeout=60)
+        data = json.loads(out.stdout or "{}") if out.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    v_dur = a_dur = 0.0
+    pix, has_v, has_a = "", False, False
+    for st in data.get("streams") or []:
+        if not isinstance(st, dict):
+            continue
+        try:
+            d = float(st.get("duration") or 0.0)
+        except (TypeError, ValueError):
+            d = 0.0
+        if st.get("codec_type") == "video" and not has_v:
+            has_v, pix, v_dur = True, str(st.get("pix_fmt") or ""), d
+        elif st.get("codec_type") == "audio":
+            has_a, a_dur = True, max(a_dur, d)
+    try:
+        f_dur = float((data.get("format") or {}).get("duration") or 0.0)
+    except (TypeError, ValueError):
+        f_dur = 0.0
+    if not (has_v or has_a):
+        return None
+    dur = (v_dur if has_v and v_dur > 0 else 0.0) or (a_dur if a_dur > 0 else 0.0) or f_dur
+    return {"duration": round(dur, 6), "has_video": has_v, "has_audio": has_a,
+            "pix_fmt": pix}
+
+
+def _sbe_overlay_preview_map(board_dir: Path, overlays, sedit) -> dict:
+    """{overlay path: "proxy/ov-<name>.mp4"} for the previews that EXIST —
+    the overlay lane's half of `_sbe_proxy_map`, served by the same route."""
+    out: dict[str, str] = {}
+    d = sedit.proxy_dir(board_dir)
+    for o in overlays or []:
+        if not isinstance(o, dict) or sedit.overlay_kind(o) != "video":
+            continue
+        pth = str(o.get("path") or "")
+        if not pth:
+            continue
+        name = sedit.overlay_preview_name(pth)
+        if (d / name).is_file():
+            out[pth] = f"proxy/{name}"
+    return out
+
+
+def _sbe_overlay_previews_now(board_dir: Path, overlays, sedit, *,
+                              prune: bool = False) -> dict:
+    """Build the missing overlay previews for these overlays, synchronously.
+
+    A preview that cannot be made (no VideoToolbox HEVC encoder on this
+    machine, a file ffmpeg cannot read) is recorded and skipped: the stage
+    then shows a quiet "not previewable here" label for that overlay, and the
+    render — which reads the original — is unaffected."""
+    plan = sedit.plan_overlay_previews(overlays, board_dir)
+    built, failed = 0, []
+    if plan["build"]:
+        plan["dir"].mkdir(parents=True, exist_ok=True)
+    for row in plan["build"]:
+        info = _sbe_probe_media(row["path"]) or {}
+        alpha = sedit.pix_fmt_has_alpha(info.get("pix_fmt"))
+        try:
+            run_ffmpeg_tracked(
+                sedit.overlay_preview_cmd(FFMPEG, row["path"], row["preview"],
+                                          alpha=alpha),
+                "Overlay preview")
+            built += 1
+        except Exception as exc:                                    # noqa: BLE001
+            failed.append({"path": row["path"], "error": str(exc)[-300:]})
+            try:
+                Path(row["preview"]).unlink()
+            except OSError:
+                pass
+    pruned = sedit.prune_proxies(plan["stale"]) if prune else 0
+    if built or failed:
+        push(f"[timeline] overlay preview: {built} built, "
+             f"{len(plan['reuse'])} reused, {len(failed)} failed")
+    return {"built": built, "reused": len(plan["reuse"]), "failed": failed,
+            "pruned": pruned}
+
+
+# ---- an agent's cut -> a film in the Editor -------------------------------
+# See `storyboard_editor.edit_from_cut` for the spec and its rules; this is
+# the half that touches disk: every file is probed, brought under the film's
+# own folder when it lives outside the panel's outputs (hardlinked, copied
+# across volumes — the original is never touched, and /file only serves
+# OUTPUT), one board shot per distinct clip so the film is a normal film,
+# the edit saved as a manual save, and the preparation started so the first
+# play scrubs on proxies with the overlay visible.
+def _sbe_import_cut(spec: dict, *, wait: bool = False) -> dict:
+    sedit = _sbe_import()
+    if not isinstance(spec, dict):
+        return {"ok": False, "status": 400, "error": "the cut must be a JSON object"}
+    ver = spec.get("phosphene_cut", sedit.CUT_SPEC_VERSION)
+    try:
+        ver = int(ver)
+    except (TypeError, ValueError):
+        ver = -1
+    if ver != sedit.CUT_SPEC_VERSION:
+        return {"ok": False, "status": 400,
+                "error": f"this Phosphene reads cut spec version "
+                         f"{sedit.CUT_SPEC_VERSION}, not {spec.get('phosphene_cut')!r}"}
+    title = str(spec.get("title") or "Imported cut").strip()[:120] or "Imported cut"
+    # Every path the spec names, in one place, so each is probed once.
+    refs: list[tuple[str, str]] = []          # (role, raw path)
+    for r in spec.get("clips") or []:
+        if isinstance(r, dict) and r.get("path"):
+            refs.append(("clip", str(r["path"])))
+    st = spec.get("soundtrack")
+    if isinstance(st, dict) and st.get("path"):
+        refs.append(("soundtrack", str(st["path"])))
+    for o in spec.get("overlays") or []:
+        if isinstance(o, dict) and o.get("path"):
+            refs.append(("overlay", str(o["path"])))
+    for a in spec.get("sounds") or []:
+        if isinstance(a, dict) and a.get("path"):
+            refs.append(("sound", str(a["path"])))
+    if not any(role == "clip" for role, _ in refs):
+        return {"ok": False, "status": 400, "error": "the cut has no clips"}
+    probes: dict[str, dict] = {}
+    errors: list[str] = []
+    for role, raw in refs:
+        pth = str(Path(raw).expanduser())
+        if pth in probes:
+            continue
+        if not Path(pth).is_file():
+            errors.append(f"{role}: there is no file at {raw}")
+            continue
+        info = _sbe_probe_media(pth)
+        if not info:
+            errors.append(f"{role}: {Path(pth).name} is not media this panel can read")
+            continue
+        if role == "clip" and not info["has_video"]:
+            errors.append(f"clip: {Path(pth).name} has no picture")
+            continue
+        if role in ("soundtrack", "sound") and not info["has_audio"]:
+            errors.append(f"{role}: {Path(pth).name} has no sound")
+            continue
+        probes[pth] = info
+    if errors:
+        return {"ok": False, "status": 400, "error": errors[0], "errors": errors}
+
+    bid = _sb_new_id(title)
+    board = storyboard.new_storyboard(bid, title)
+    board["policy"] = _sb_policy_for(
+        get_settings().get("storyboard_draft_quality", "quick"),
+        get_settings().get("storyboard_final_quality", "standard"))
+    board["imported_cut"] = {"at": int(time.time()),
+                             "source": str(spec.get("source") or "")[:300]}
+    storyboard.save_storyboard(STATE_DIR, board)
+    out_root = OUTPUT.resolve()
+    moved: dict[str, str] = {}
+    media_dir = None
+    for pth in probes:
+        src = Path(pth).resolve()
+        if src.is_relative_to(out_root):
+            moved[pth] = str(src)
+            continue
+        if media_dir is None:
+            media_dir = _sb_film_dir_for_write(board) / "media"
+            media_dir.mkdir(parents=True, exist_ok=True)
+        dest = media_dir / re.sub(r"[^A-Za-z0-9._-]+", "_", src.name)
+        if dest.exists() and not dest.samefile(src):
+            dest = media_dir / f"{hashlib.sha1(str(src).encode()).hexdigest()[:6]}_{dest.name}"
+        if not dest.exists():
+            try:
+                os.link(str(src), str(dest))
+            except OSError:
+                shutil.copy2(str(src), str(dest))
+        moved[pth] = str(dest)
+
+    def remap(row: dict) -> dict:
+        r = dict(row)
+        if r.get("path"):
+            r["path"] = moved.get(str(Path(str(r["path"])).expanduser()), r["path"])
+        return r
+
+    spec2 = dict(spec)
+    spec2["clips"] = [remap(r) for r in spec.get("clips") or [] if isinstance(r, dict)]
+    if isinstance(st, dict) and st.get("path"):
+        spec2["soundtrack"] = remap(st)
+    spec2["overlays"] = [remap(o) for o in spec.get("overlays") or [] if isinstance(o, dict)]
+    spec2["sounds"] = [remap(a) for a in spec.get("sounds") or [] if isinstance(a, dict)]
+    durations = {moved[k]: v["duration"] for k, v in probes.items()}
+    # A still has no length of its own; the slot decides it.
+    made = sedit.edit_from_cut(spec2, durations, board_id=bid)
+    if made["errors"]:
+        return {"ok": False, "status": 400, "error": made["errors"][0],
+                "errors": made["errors"], "id": bid}
+    edit = made["edit"]
+    # ONE SHOT PER DISTINCT CLIP, so this is an ordinary film: the board lists
+    # its shots, a retake has a shot to clone, and Prepare's proxy set (board
+    # shots plus the timeline) covers every clip.
+    seen: dict[str, int] = {}
+    for c in edit["clips"]:
+        if c["path"] in seen or sedit.clip_kind(c) != "video":
+            continue
+        seen[c["path"]] = len(seen) + 1
+        board.setdefault("shots", []).append({
+            "n": seen[c["path"]], "title": str(c.get("title") or "")[:60],
+            "mode": "text", "engine": "ltx", "prompt": "",
+            "duration_s": max(1.0, min(60.0, round(float(
+                c.get("duration") or 5.0), 1))),
+            "seed": -1, "refs": [], "status": "done",
+            "draft_output": c["path"]})
+    _sb_normalize(board)
+    storyboard.save_storyboard(STATE_DIR, board)
+    bdir = _sbe_board_dir(bid)
+    try:
+        sedit.save_edit(bdir, edit, origin="manual")
+    except sedit.EditError as exc:
+        return {"ok": False, "status": 400, "error": str(exc), "id": bid}
+    push(f"[timeline] imported a cut as {title!r} ({bid}): "
+         f"{len(edit['clips'])} clips" + (f", {len(made['notes'])} note(s)"
+                                          if made["notes"] else ""))
+    music = (edit.get("audio") or {}).get("path") or None
+    with _SBE_LOCK:
+        _SBE_JOBS[bid] = {"id": bid, "state": "running", "stage": "start",
+                          "cancel": False, "done": 0, "total": 0,
+                          "started_at": time.time(), "music": music}
+    if wait:
+        _sbe_prepare_thread(bid, music, None)
+    else:
+        threading.Thread(target=_sbe_prepare_thread, daemon=True,
+                         name=f"phos-sbe-prep-{bid}",
+                         args=(bid, music, None)).start()
+    return {"ok": True, "id": bid, "title": title, "notes": made["notes"],
+            "clips": len(edit["clips"]), "duration": edit["duration"],
+            "imported_files": sum(1 for k, v in moved.items() if k != v),
+            "editor_url": f"/?open_film={bid}",
+            "prepare": _sbe_job_state(bid)}
 
 
 def _sbe_auto_edit(board: dict, *, music: str | None = None,
@@ -32377,6 +33943,13 @@ def _sbe_payload(board: dict, edit: dict) -> dict:
     for c in (edit.get("clips") or []):
         if isinstance(c, dict):
             c["proxy"] = proxies.get(str(c.get("path")))
+    # ...and every VIDEO overlay's preview pointer, by the same rule: what is
+    # on disk now, null when there is none yet (the stage then says so
+    # quietly instead of painting a broken player).
+    ov_prev = _sbe_overlay_preview_map(bdir, edit.get("overlays") or [], sedit)
+    for o in (edit.get("overlays") or []):
+        if isinstance(o, dict) and sedit.overlay_kind(o) == "video":
+            o["preview"] = ov_prev.get(str(o.get("path") or ""))
     return {
         "ok": True,
         "id": board["id"],
@@ -32444,6 +34017,12 @@ class MusicRequestError(CharacterRequestError):
 
     A subclass so every door that already answers a CharacterRequestError
     with a polite 400 (/queue/add among them) answers this one too."""
+
+
+class SpeechRequestError(CharacterRequestError):
+    """A speech request that cannot be queued as asked (no line, an unknown
+    voice, a clone without the voice-owner confirmation). A subclass for the
+    same reason as MusicRequestError: /queue/add answers it with a 400."""
 
 
 def music_lora_unresolved(raw) -> list[str]:
@@ -33690,8 +35269,13 @@ def job_input_refusal(params: dict) -> str | None:
     m = str(p.get("mode") or "t2v").strip().lower()
     if m == "image":
         return image_job_input_refusal(p)
-    if m in ("music", "train"):
+    if m in ("music", "train", "speech"):
         return None
+    if p.get("engine", "ltx") == "ltx":
+        for key in capability_repo_keys("render"):
+            reason = model_path_problem(_deferred_repo(key))
+            if reason:
+                return reason
     if m not in QUEUEABLE_VIDEO_MODES:
         return (f"Unknown render mode {m!r} - nothing was queued. Pick a mode "
                 f"in the form (Text, Image, Lip-sync, Keyframes, Extend, "
@@ -33869,6 +35453,19 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                         f"“Melody only” or “Melody + chords” to sing with it.")
         params["prompt"] = params["music_style"] or params["music_lyrics"] or "Instrumental"
         params["label"] = params["prompt"][:80]
+        return {"id": _new_job_id(), "status": "queued", "queued_at": iso_now(),
+                "started_at": None, "started_ts": None, "finished_at": None,
+                "elapsed_sec": None, "params": params, "command": None,
+                "raw_path": None, "output_path": None, "error": None}
+
+    if mode_in == "speech" or f("engine") == "speech":
+        try:
+            params = speech_engine.validate_speech(
+                speech_engine.speech_params(form, normalize_pasted_path), list_characters())
+        except speech_engine.SpeechRequestError as e:
+            raise SpeechRequestError(str(e)) from None
+        params["prompt"] = params["speech_text"][:200]
+        params["label"] = ("Speech · " + speech_engine.voice_label(params) + ": " + params["speech_text"].replace("\n", " "))[:80]
         return {"id": _new_job_id(), "status": "queued", "queued_at": iso_now(),
                 "started_at": None, "started_ts": None, "finished_at": None,
                 "elapsed_sec": None, "params": params, "command": None,
@@ -34221,6 +35818,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             _take["beat_prompts"] = [(b + " " + _lock) if (b and _lock) else b
                                      for b in _beats_written]
             _take["light_lock"] = _lock
+            _take["scene"] = take_scene(f("prompt", ""), take_beats(f("beats", ""), _take["beats"]))
             _take["retake"] = f("take_retake", "on").strip().lower() not in ("off", "0", "false", "no")
             # The camera, once, for the whole shot (take_camera_lock).
             _take["camera"] = f("take_camera", "").strip()[:240]
@@ -34316,6 +35914,11 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     _engine = (f("engine", ENGINE_DEFAULT) or ENGINE_DEFAULT).strip().lower()
     if _engine not in ENGINE_IDS:
         _engine = ENGINE_DEFAULT
+    # An Images-tab model (surfaces=("image",)) is in the same table so the
+    # one picker can list it, but it never renders a video: the Images tab
+    # posts to /image/generate with its own engine field.
+    if "image" in ((engine_by_id(_engine) or {}).get("surfaces") or ()):
+        _engine = ENGINE_DEFAULT
     if mode_in == "v2a":
         # Add sound exists on one engine only; a form or curl that left the
         # engine field at its default still means H3.
@@ -34379,11 +35982,22 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # sampler, as a Steps pin does.
     _h3_v13_off = (f("h3_v13", "") or "").strip().lower() in ("0", "false", "off", "no")
     _h3_v13 = False
+    # Clean up sound (re-voice the Fast render's sound): "1" / "0", absent =
+    # H3_REVOICE_DEFAULT. Only ever on with Fast; resolved below.
+    _h3_clean_raw = (f("h3_clean_sound", "") or "").strip().lower()
+    _h3_clean_want = (True if _h3_clean_raw in ("1", "true", "on", "yes")
+                      else False if _h3_clean_raw in ("0", "false", "off", "no")
+                      else None)
+    _h3_clean_sound = False
     # Pika H3 Flex: an explicit Speed choice ("1"), never a default. When it
     # can run it wins over Fast, Turbo, v1.3 and a Steps pin (it owns its own
     # six-step ladder); where it cannot, the render says so and falls back.
     _h3_flex_want = (f("h3_flex", "") or "").strip().lower() in ("1", "true", "on", "yes")
     _h3_flex = False
+    # H3 Flex Turbo (Pro): h3_flex_turbo=1 asks for the four-step Flex. It rides
+    # every Flex gate (modes, 5 s windows) and adds the Pro one.
+    _h3_flex_turbo_want = (f("h3_flex_turbo", "") or "").strip().lower() in ("1", "true", "on", "yes")
+    _h3_flex_turbo = False
     # Which of the runner's ONE adapter slots this render spends. H3's
     # `--lora` is a single path (`default=None`, not `action="append"` — see
     # scripts/generate_staged.py), so a user LoRA and Turbo are mutually
@@ -34403,6 +36017,9 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # count is a property of the cell that will actually render, not of the one
     # the form asked for. Empty list = today's behaviour, unchanged.
     _h3_chain_prompts_raw = f("h3_chain_prompts", "")
+    # Face to keep: an uploaded still the runner packs as a reference image.
+    # Kept only for Text / Image on H3; the worker re-checks the file.
+    _h3_reference = (f("h3_reference", "") or "").strip()
     _h3_chain_prompts: list[str] = []
     if _engine == "h3":
         # The same predicate the switcher uses for the affordance, so the two
@@ -34489,6 +36106,28 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                 push(f"Fast runs {H3_TRISTEP_FORWARDS} forwards on "
                      f"its own ladder — ignoring the {_h3_steps}-step override.")
                 _h3_steps = 0
+        if _h3_tristep and mode_in not in ("a2v", "v2a"):
+            _want = H3_REVOICE_DEFAULT if _h3_clean_want is None else _h3_clean_want
+            if _want and h3_available():
+                if not h3_supports_revoice():
+                    if _h3_clean_want:
+                        push("Clean up sound needs a newer H3 runner (Update in Pinokio) - "
+                             "rendering with Fast's own sound.")
+                else:
+                    _tc = H3_TIERS[_h3_tier]
+                    _chained = int(_tc.get("chain_windows") or 1) > 1
+                    _extra = h3_revoice_extra_rows(
+                        _tc["width"], _tc["height"],
+                        keyframes=1 if (_chained or mode_in in ("i2v", "keyframe", "extend")) else 0,
+                        history=_chained or mode_in == "extend",
+                        reference=bool(_h3_reference) and mode_in in H3_REFERENCE_MODES)
+                    _ok, _why = h3_revoice_fits(_tc["width"], _tc["height"],
+                                                _tc.get("window_frames") or _tc["frames"],
+                                                extra_rows=_extra)
+                    if _ok:
+                        _h3_clean_sound = True
+                    elif _h3_clean_want:
+                        push(_why + " Rendering with Fast's own sound.")
         if H3_TIERS[_h3_tier].get("fast_hd"):
             # Fast HD is a recipe, not a canvas: the 3-step Fast pass, then the
             # x2 Upscale & Face Fix. Both are forced here so a stale Speed pill
@@ -34503,6 +36142,26 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         # adapter is built. Never with Fast or Turbo, never under a Steps pin
         # (the pin IS the way to ask for the full sampler), never where it
         # was not validated (other canvases, the dense pass, media modes).
+        if _h3_flex_turbo_want and h3_available():
+            _tst = h3_flex_turbo_status()
+            if mode_in not in H3_FLEX_MODES or not h3_cell_takes_flex(H3_TIERS[_h3_tier]):
+                push(f"{H3_FLEX_TURBO_NAME} runs Text and Image on 5 s windows - "
+                     "this render keeps its own sampler.")
+            elif not _tst["pro_active"]:
+                push(f"{H3_FLEX_TURBO_NAME} is part of Phosphene Pro - rendering on H3 Flex instead.")
+                _h3_flex_want = True
+            elif not _tst["available"]:
+                push(f"{H3_FLEX_TURBO_NAME} requested but " + (
+                    "this H3 runner cannot run it - update the H3 runner." if not _tst["supported"]
+                    else "its LoRA isn't downloaded yet.") + " Rendering without it.")
+            else:
+                _h3_flex_turbo = True
+                if _h3_tristep or _h3_turbo or _h3_steps:
+                    push(f"{H3_FLEX_TURBO_NAME} runs its own {H3_FLEX_TURBO_FORWARDS}-step "
+                         "ladder - Fast, Turbo and any Steps pin are off for this render.")
+                _h3_tristep = _h3_turbo = _h3_clean_sound = False
+                _h3_steps = 0
+                _h3_flex_want = False
         if _h3_flex_want and h3_available():
             _fcell = H3_TIERS[_h3_tier]
             _fst = h3_flex_status()
@@ -34524,7 +36183,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                          "ladder - Fast, Turbo and any Steps pin are off for this render.")
                 _h3_tristep = _h3_turbo = _h3_clean_sound = False
                 _h3_steps = 0
-        if (not _h3_flex and not _h3_v13_off and not _h3_tristep and not _h3_turbo
+        if (not _h3_flex and not _h3_flex_turbo and not _h3_v13_off and not _h3_tristep and not _h3_turbo
                 and not _h3_steps
                 and mode_in in H3_V13_MODES and h3_available()
                 and h3_cell_takes_v13(H3_TIERS[_h3_tier])
@@ -34668,8 +36327,13 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # lightx2v v1.3 on Best at High, resolved above. SAME allowlist
             # trap: leave it out and Best silently renders the full sampler.
             "h3_v13": _h3_v13,
+            # Clean up sound: re-make a Fast render's sound with the adapter
+            # off. SAME allowlist trap: leave it out and the switch no-ops.
+            "h3_clean_sound": _h3_clean_sound,
             # Pika H3 Flex, resolved above. SAME allowlist trap.
             "h3_flex": _h3_flex,
+            # H3 Flex Turbo (Pro), resolved above. SAME allowlist trap.
+            "h3_flex_turbo": _h3_flex_turbo,
             # Which of H3's ONE adapter slots this render spends: "turbo"
             # (default) or "user". SAME allowlist trap as every key in this
             # dict — leave `h3_lora_slot` out and the Turbo-vs-LoRA control
@@ -34689,6 +36353,9 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # trap as every key in this dict: leave it out and the whole
             # control looks wired and silently no-ops on /queue/add.
             "h3_chain_prompts": _h3_chain_prompts,
+            # Face to keep (reference image path). SAME allowlist trap.
+            "h3_reference": (_h3_reference if (_engine == "h3" and mode_in in H3_REFERENCE_MODES)
+                             else ""),
             # 4.17 (Codex H3-2): H3-06 made a typed per-window box ADD to the
             # main prompt. Callers that already send COMPLETE per-window
             # prompts — a One Shot's beats, a storyboard shot's chain — set
@@ -34748,6 +36415,10 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # A2V character-LoRA stage policy (see a2v_lora_stage_scales()).
             # SAME allowlist trap: leave it out and the choice no-ops.
             "a2v_lora_stages": f("a2v_lora_stages", ""),
+            # Auto adds a bed to Speech outputs only; off survives retries.
+            "a2v_scene_sound": f("a2v_scene_sound", "auto"),
+            "a2v_scene_prompt": f("a2v_scene_prompt", ""),
+            "a2v_scene_bed": f("a2v_scene_bed", ""),
             # A2V multi-anchor images (fd2356d, mlx_warm_helper._a2v_anchor_images):
             # JSON list of {path, frame_idx, strength}. The manual UI only ever
             # sends frame_idx 0 (the "Continue the song" flow — see
@@ -34967,6 +36638,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         job["params"]["steps"] = int(
             H3_TRISTEP_STEPS if _h3_tristep else
             H3_FLEX_STEPS if _h3_flex else
+            H3_FLEX_TURBO_STEPS if _h3_flex_turbo else
             H3_V13_STEPS if _h3_v13 else
             h3_turbo_steps() if _h3_turbo else (_h3_steps or _tier_cfg["steps"]))
         job["params"]["h3_chain_windows"] = int(_tier_cfg.get("chain_windows") or 1)
@@ -35554,6 +37226,7 @@ _IMAGE_ENGINE_LABELS = {
     "hidream_fast_inline": "HiDream Fast",
     "hidream_inline": "HiDream Medium",
     "hidream_quality_inline": "HiDream Quality",
+    "flux2_klein_inline": "FLUX.2 [klein] 4B",
     "ph3image_inline": "P-H3-Image (High, 8 MP)",
     "ph3image_standard_inline": "P-H3-Image (Standard, 4 MP)",
     "ph3image_draft_inline": "P-H3-Image (Draft, 2 MP)",
@@ -35844,6 +37517,8 @@ def run_image_job_inner(job: dict) -> None:
     # mid-Metal-render (commit bc818a5 covers the post-mortem; this short-
     # circuits before the subprocess even spawns). Bypass with
     # PHOSPHENE_SKIP_PREFLIGHT=1.
+    import image_diagnostics
+    diagnostic = image_diagnostics.begin(STATE_DIR, engine_override, _analytics_enabled)
     _preflight_image_job(cfg, engine_override=engine_override)
     # STOP DURING PREFLIGHT. Preflight can unload the helper and wait for
     # memory to settle, and a Stop pressed then found no image process to
@@ -35886,6 +37561,7 @@ def run_image_job_inner(job: dict) -> None:
             base_seed=base_seed,
             refs=refs_resolved or None,
             config=cfg,
+            diagnostic=diagnostic,
             on_log=lambda line: push(f"[image] {line}"),
             **({"install_env": _music_install_env()} if cfg.kind == "flux3" else {}),
         )
@@ -38145,6 +39821,35 @@ def run_h3_job_inner(job: dict) -> None:
     # with another step-distillation adapter.
     flex = bool(p.get("h3_flex"))
     flex_paths: dict = {}
+    # H3 Flex Turbo (Pro): its own LoRA and euler ladder; re-checked here (a
+    # queued job outlives a licence and a file).
+    flex_turbo = bool(p.get("h3_flex_turbo"))
+    flex_turbo_paths: dict = {}
+    if flex_turbo and (tristep or turbo or v13 or flex or not h3_cell_takes_flex(tier)
+                       or mode not in H3_FLEX_MODES):
+        flex_turbo = False
+        p["h3_flex_turbo"] = False
+        push(f"[h3] {H3_FLEX_TURBO_NAME} runs on Text and Image, alone - "
+             f"this render keeps its own sampler.")
+    if flex_turbo:
+        if not h3_flex_turbo_allowed():
+            raise RuntimeError(f"{H3_FLEX_TURBO_NAME} is part of Phosphene Pro, and Pro is not "
+                               "active on this Mac. Pick H3 Flex, Fast or Best.")
+        if not h3_supports_flex_turbo():
+            raise RuntimeError(
+                f"{H3_FLEX_TURBO_NAME} needs a newer H3 runner: "
+                + _h3_runner_behind("--lora-fc1-swap", paths["runner"],
+                                    "Or pick H3 Flex, Fast or Best."))
+        flex_turbo_paths = h3_flex_turbo_paths()
+        if not flex_turbo_paths["files_ok"]:
+            raise RuntimeError(
+                f"The {H3_FLEX_TURBO_NAME} LoRA isn't on disk: "
+                + "; ".join(flex_turbo_paths["missing"])
+                + f". Expected under {flex_turbo_paths['dir']} - pick H3 Flex Turbo "
+                  f"again in the engine picker to download it.")
+        steps = H3_FLEX_TURBO_STEPS
+        push(f"[h3] {H3_FLEX_TURBO_NAME}: four-step Pika H3 Flex (akhaliq's fused LoRA with "
+             f"LightX2V's Turbo), running natively on Apple Silicon (MLX). Powered by MiniMax H3.")
     if flex and (tristep or turbo or v13 or not h3_cell_takes_flex(tier)
                  or mode not in H3_FLEX_MODES):
         flex = False
@@ -38489,10 +40194,62 @@ def run_h3_job_inner(job: dict) -> None:
         # 4.19.12 it was passed as trained and its q/k/v update landed on
         # the wrong heads.
         cmd += h3_v13_argv(v13_paths, shift=v13_shift)
+    clean_sound = bool(p.get("h3_clean_sound")) and tristep and mode not in ("a2v", "v2a")
+    if clean_sound and not h3_supports_revoice():
+        clean_sound = False
+        push("[h3] Clean up sound needs a newer H3 runner - keeping Fast's own sound.")
+    if clean_sound:
+        # Re-checked with what THIS render conditions on (make_job priced the
+        # cell): a first frame, a carried window, a reference block.
+        _ok, _why = h3_revoice_fits(width, height, window_frames, extra_rows=h3_revoice_extra_rows(
+            width, height,
+            keyframes=1 if (first_frame is not None or chain_windows > 1 or mode in ("keyframe", "extend")) else 0,
+            history=bool(context_frames),
+            reference=bool(p.get("h3_reference")) and mode in H3_REFERENCE_MODES))
+        if not _ok:
+            clean_sound = False
+            push(f"[h3] {_why} Keeping Fast's own sound.")
+    if clean_sound:
+        # Re-voice: after the picture, the Fast adapter goes off and the base
+        # model re-makes the sound against the finished picture. A character
+        # LoRA stays on, so a trained voice keeps its voice.
+        cmd += ["--revoice-steps", str(H3_REVOICE_POINTS),
+                "--revoice-drop", str(tristep_paths["lora"])]
+    p["h3_clean_sound"] = clean_sound
+    # Face to keep: the reference still, named in the prompt as the picture
+    # after any first frame. The prompt the runner gets is rewritten in place
+    # (cmd[prompt_index]); `p["prompt"]` keeps what the user typed.
+    reference = None
+    _ref_src = str(p.get("h3_reference") or "").strip()
+    if _ref_src and mode in H3_REFERENCE_MODES:
+        if not h3_supports_reference():
+            push("[h3] Face to keep needs a newer H3 runner (Update in Pinokio) - "
+                 "rendering without it.")
+        elif not Path(_ref_src).is_file():
+            raise RuntimeError(f"The face to keep ({Path(_ref_src).name}) is no longer on disk - "
+                               "pick it again or clear it.")
+        else:
+            _ref_err = h3_reference_image_error(Path(_ref_src))
+            if _ref_err:
+                raise RuntimeError(_ref_err)
+            reference = Path(_ref_src)
+    if reference is not None:
+        _n = 2 if first_frame is not None else 1
+        cmd += ["--reference", str(reference), "--reference-size", str(H3_REFERENCE_SIZE)]
+        if chain_prompts_path is None and prompt in cmd:
+            cmd[cmd.index(prompt)] = h3_reference_prompt(prompt, _n)
+        elif chain_prompts:
+            chain_prompts = [h3_reference_prompt(cp, _n) for cp in chain_prompts]
+            chain_prompts_path.write_text(json.dumps(chain_prompts, ensure_ascii=False),
+                                          encoding="utf-8")
+        push(f"[h3] face to keep: {reference.name} (<Picture {_n}>)")
+    p["h3_reference_used"] = str(reference) if reference is not None else ""
     if flex:
         # The sampler preset (re-noise, knots 1000..40,0, shifts 12/3) and the
         # adapter at 1.0; qkv rows already per head, so no runner re-order.
         cmd += h3_flex_argv(flex_paths)
+    if flex_turbo:
+        cmd += h3_flex_turbo_argv(flex_turbo_paths)
     if user_lora is not None and (not turbo or h3_supports_lora_stack()):
         # The SAME flag Turbo rides. On a stacking runner every `--lora` is one
         # more adapter on the same base layers, Turbo first; on the single-slot
@@ -38520,11 +40277,20 @@ def run_h3_job_inner(job: dict) -> None:
     # FP16 VAE decode — the default (h3_vae_fp16_decode()). Passed as the runner's
     # own flag so the argv says what ran; a runner that predates the flag
     # would reject it, so that case is said out loud instead of passed.
+    # A runner that knows `float16-mixed` (minimax-h3-mlx b1f419a) gets it: the
+    # projections and attention in fp16, the residual stream, norms and rotary
+    # in float32. Same speed as the all-fp16 stream on an M4 Max (76.1 vs
+    # 76.9 s for 1024x576/124f) and 6.7 dB closer to float32 (69.6 vs 62.9 dB,
+    # max 1/255 vs 3/255), with a 1.7 GiB lower decode peak. That runner also
+    # made float16-mixed its own default, so "off" must now say float32 out
+    # loud instead of passing nothing.
     _vae_fp16 = False
+    _vae_mixed = _h3_runner_has_flag("float16-mixed")
     if h3_vae_fp16_decode():
-        if _h3_runner_has_flag("--vae-dtype"):
-            cmd += ["--vae-dtype", "float16"]
-            p["h3_vae_dtype"] = "float16"
+        if _vae_mixed or _h3_runner_has_flag("--vae-dtype"):
+            _dtype = "float16-mixed" if _vae_mixed else "float16"
+            cmd += ["--vae-dtype", _dtype]
+            p["h3_vae_dtype"] = _dtype
             _vae_fp16 = True
         else:
             push(_dist.say(
@@ -38535,6 +40301,9 @@ def run_h3_job_inner(job: dict) -> None:
                 "[h3] This H3 runner predates the faster FP16 video decode — "
                 "decoding in float32 (same picture, a little slower). Updating "
                 "the runner isn't available in the Mac app yet."))
+    elif _vae_mixed:
+        cmd += ["--vae-dtype", "float32"]
+        p["h3_vae_dtype"] = "float32"
 
     push(f"[h3] {tier['label']} · {width}×{height} · {frames}f · "
          f"{steps} sigma points ({steps - 1} forwards) · seed {seed}"
@@ -38628,6 +40397,7 @@ def run_h3_job_inner(job: dict) -> None:
         (tier.get("tristep_min") if tristep and tier.get("tristep_min") is not None
          else tier.get("v13_min") if v13 and tier.get("v13_min") is not None
          else tier.get("flex_min") if flex and tier.get("flex_min") is not None
+         else tier.get("flex_turbo_min") if flex_turbo and tier.get("flex_turbo_min") is not None
          else tier.get("eta_min")) or 0.0)
     _load_eta_seed = max(0.0, float(_load_eta_seed_min)) * 60.0
     # H3-04: what one denoise forward SHOULD cost on this Mac, at this
@@ -38860,7 +40630,7 @@ def run_h3_job_inner(job: dict) -> None:
                         # card had no way to show this before) and, when the
                         # render is running meaningfully slower than even
                         # that speed's own estimate, why and what would help.
-                        "h3_speed": ("fast" if tristep else "flex" if flex else "best"),
+                        "h3_speed": ("fast" if tristep else "flex" if flex else "flex_turbo" if flex_turbo else "best"),
                         "h3_pace_warning": _pace_note,
                         "denoise_step": last_step,
                         "denoise_total": total_steps,
@@ -39140,6 +40910,7 @@ def run_h3_job_inner(job: dict) -> None:
             # And for lightx2v v1.3 on Best at High.
             "h3_v13": v13,
             "h3_flex": flex,
+            "h3_flex_turbo": flex_turbo,
             "width": width, "height": height, "frames": frames, "steps": steps,
             "seed_used": seed,
             # The user's OWN reference, not the canvas crop made from it: the
@@ -39244,6 +41015,25 @@ def run_h3_job_inner(job: dict) -> None:
                       "scale": 1.0, "steps": steps,
                       "forwards": H3_FLEX_FORWARDS}
                      if flex else None),
+            # H3 Flex Turbo provenance (Pro): the published file, its revision,
+            # the credit and the licence's notice.
+            "flex_turbo": ({"lora": str(flex_turbo_paths["lora"]),
+                            "name": H3_FLEX_TURBO_NAME,
+                            "repo": H3_FLEX_TURBO_REPO,
+                            "revision": H3_FLEX_TURBO_REVISION,
+                            "source_file": H3_FLEX_TURBO_SOURCE_FILE,
+                            "sha256": H3_FLEX_TURBO_SHA256,
+                            "license": H3_FLEX_LICENSE,
+                            "credit": H3_FLEX_TURBO_CREDIT,
+                            "notice": H3_FLEX_NOTICE,
+                            "sampler": "euler",
+                            "knots": list(H3_FLEX_TURBO_KNOTS),
+                            "video_shift": H3_FLEX_TURBO_VIDEO_SHIFT,
+                            "audio_shift": H3_FLEX_TURBO_AUDIO_SHIFT,
+                            "lora_load": ["qkv-permute", "fc1-swap"],
+                            "scale": 1.0, "steps": steps,
+                            "forwards": H3_FLEX_TURBO_FORWARDS}
+                           if flex_turbo else None),
             # The fast 3-step sampler's provenance: which file, where it came from,
             # under what license, and the schedule the runner actually ran.
             "tristep": ({"lora": str(tristep_paths["lora"]),
@@ -39263,6 +41053,12 @@ def run_h3_job_inner(job: dict) -> None:
                          "sigma_subset": H3_TRISTEP_SIGMA_SUBSET,
                          "decode": "full"}
                         if tristep else None),
+            # Face to keep: the reference still that was packed (or None).
+            "reference": (p.get("h3_reference_used") or None),
+            # Clean up sound: the runner's own record of the re-voice pass
+            # (steps, adapter switched off, seconds, store size).
+            "revoice": ({k: v for k, v in metrics.items()
+                         if k == "revoice" or k.endswith("_revoice")} or None),
             # The sigma ladder each window ran (runner's own record).
             "schedule": (metrics.get("schedule") or metrics.get("w1_schedule")),
             # Every adapter the runner wrapped, and the must-be-zero count.
@@ -39735,6 +41531,11 @@ def run_take_job_inner(job: dict) -> None:
         # progress at this part's first frame, same direction, same speed.
         lead = take_camera_lock(take.get("camera") or "", continuing=(k > 0))
         chain = list(chain)
+        # THE SHOT CROSSES THE JOIN TOO: the user's own description of who and
+        # where opens every part when they wrote beats (take_scene).
+        scene = take.get("scene") or ""
+        if scene and chain:
+            chain[0] = (scene + " " + (chain[0] or "")).strip()
         if lead:
             chain[0] = (lead + " " + (chain[0] or "")).strip()
         if last_png:
@@ -40293,6 +42094,8 @@ def run_job_inner(job: dict) -> None:
     # image path before any of the video-only validation runs.
     if mode == "music" or p.get("engine") == "music":
         return run_music_job_inner(job)
+    if mode == "speech" or p.get("engine") == "speech":
+        return run_speech_job_inner(job)
     if mode == "image":
         return run_image_job_inner(job)
     if mode == "train":
@@ -40821,6 +42624,13 @@ def run_job_inner(job: dict) -> None:
                 # strength (~1.0) so the render inherits its structure/motion.
                 "video_conditioning": [[src, ctl_ref_strength]],
                 "loras": control_loras,
+                # UNFUSED, always: this lane runs on the Q4 distilled pack, and
+                # fusing re-quantizes W + B@A onto the int4 grid. The helper
+                # measured 429% of the Colorizer's delta destroyed that way
+                # (go-live matrix, 4 Nov 2026): the adapter did nothing and a
+                # B&W clip came back B&W. Upscale x2 and Ingredients already ask
+                # for the exact runtime branch; every IC lane on Q4 does now.
+                "lora_mode": "unfused",
                 # Two-stage distilled walk (same as Colorize; NOT single-stage
                 # like Ingredients).
                 "stage1_steps": int(p.get("stage1_steps", 8)),
@@ -40925,6 +42735,13 @@ def run_job_inner(job: dict) -> None:
                 # The source clip rides the IC reference channel.
                 "video_conditioning": [[src, strength]],
                 "loras": restore_loras,
+                # UNFUSED, always: this lane runs on the Q4 distilled pack, and
+                # fusing re-quantizes W + B@A onto the int4 grid. The helper
+                # measured 429% of the Colorizer's delta destroyed that way
+                # (go-live matrix, 4 Nov 2026): the adapter did nothing and a
+                # B&W clip came back B&W. Upscale x2 and Ingredients already ask
+                # for the exact runtime branch; every IC lane on Q4 does now.
+                "lora_mode": "unfused",
                 # Distilled two-stage defaults (same as the HDR IC path).
                 "stage1_steps": int(p.get("stage1_steps", 8)),
                 "stage2_steps": int(p.get("stage2_steps", 3)),
@@ -40936,8 +42753,18 @@ def run_job_inner(job: dict) -> None:
         if "seed_used" in result:
             push(f"seed used: {result['seed_used']}")
             p["seed_used"] = result["seed_used"]
+        # THE SOURCE'S SOUND, OR NONE. The IC pipeline writes a soundtrack of
+        # its own, and Colorize used to deliver it: a B&W clip whose line was
+        # "I really did not think I would see you again" came back saying
+        # invented words (go-live matrix, 4 Nov 2026). Same policy and the
+        # same finish as Upscale x2: the picture is the model's, the sound is
+        # the clip the user handed in.
+        audio_from_source = _upscale_finish(final_out, str(original_src),
+                                            frames=col_frames, fps=float(FPS),
+                                            trim=False, job=job, label="Colorize")
         sidecar = {
             "output": str(final_out), "raw_output": str(final_out),
+            "audio_from_source": audio_from_source,
             "params": {**p, "command": "restore"},
             "started": job.get("started_at"),
             "elapsed_sec": round(time.time() - job["started_ts"], 2) if job.get("started_ts") else None,
@@ -41653,6 +43480,14 @@ def run_job_inner(job: dict) -> None:
         audio_src = (p.get("audio") or "").strip()
         if not audio_src or not Path(audio_src).exists():
             raise RuntimeError(f"audio file not found: {audio_src}")
+        import scene_sound
+        scene_sound_on = scene_sound.enabled(p, audio_src, model_version()["id"])
+        scene_bed_path = str(p.get("a2v_scene_bed") or "").strip()
+        if scene_sound_on:
+            if scene_bed_path and not Path(scene_bed_path).is_file():
+                raise RuntimeError(f"scene sound file not found: {scene_bed_path}")
+            if not scene_bed_path:
+                ltx_pack_preflight("q4", "Scene sound")
         # THE TWO AUDIO FILES. `cond_audio` is what the model listens to and
         # `audio_src` is what the finished clip plays; they are the same file
         # unless a vocal stem was asked for.
@@ -41896,11 +43731,33 @@ def run_job_inner(job: dict) -> None:
                         f" — under {TAKE_LIPSYNC_MIN:.2f}, rough check, not a gate"))
         except Exception as exc:                                  # noqa: BLE001
             push(f"[a2v] lip-sync scoring skipped ({exc})")
+        # Score before adding environmental transients. The separate sound
+        # pass never feeds A2V's encoder and the finished video is copied.
+        scene_sound_meta = None
+        if scene_sound_on:
+            if scene_bed_path:
+                scene_sound_meta = {"source": "file", "path": scene_bed_path}
+            else:
+                push("[a2v] generating scene ambience and effects with LTX (one extra sound pass)")
+                scene_sound_meta = scene_sound.generate_bed(
+                    helper=HELPER, run=run_ffmpeg_tracked, ffmpeg=FFMPEG,
+                    model_dir=pack_path("q4"), output=out_path,
+                    prompt=scene_sound.sound_prompt(p["prompt"], p.get("a2v_scene_prompt", "")),
+                    frames=frames, fps=float(FPS), seed=p.get("seed_used", p["seed"]),
+                    job_id=job["id"])
+            scene_sound_meta["mix"] = scene_sound.mix(
+                video=out_path, voice=audio_src, bed=scene_sound_meta["path"],
+                start=a2v_params["audio_start_time"], duration=frames / float(FPS),
+                ffmpeg=FFMPEG, run=run_ffmpeg_tracked)
+            push("[a2v] scene sound mixed; the voice ducks the bed")
         sidecar = {
             "output": str(out_path), "raw_output": str(out_path),
             "lipsync_score": a2v_lipsync_score,
+            "lipsync_score_audio": "voice_before_scene_mix" if scene_sound_on else "delivered_audio",
+            "scene_sound": scene_sound_meta,
             "lipsync_align": ltx_lipsync_align,
             "params": {**p, "command": action, "audio": audio_src,
+                       "a2v_scene_sound": "on" if scene_sound_on else "off",
                        "audio_conditioning": cond_audio,
                        "audio_stem_used": cond_audio != audio_src,
                        "image": ref_image_original,
@@ -42846,8 +44703,10 @@ def _push_job_done(job: dict) -> None:
 # holds while it runs (and the helper is stopped - the script reinstalls the
 # packages it has open); a pull during a render waits for that render. Restart
 # stays refused until it has finished, and a failure says why and points at
-# Pinokio's Update. post_update.sh is idempotent: on a warm install it is a
-# verify pass of a minute or two.
+# Pinokio's Update. Completed repairs have a durable receipt. An interrupted
+# repair may run again; Python package changes are not transactional.
+import update_transaction
+
 POST_UPDATE_LOCK = threading.Lock()
 POST_UPDATE: dict = {"state": "idle", "active": False, "pending": False}
 POST_UPDATE_SCRIPT = "scripts/post_update.sh"
@@ -42875,6 +44734,17 @@ def post_update_status() -> dict:
         out = {k: v for k, v in POST_UPDATE.items() if k != "log"}
         out["log"] = [l.replace(str(Path.home()), "~")
                       for l in list(POST_UPDATE.get("log") or [])[-6:]]
+    if _root_is_checkout():
+        try:
+            durable = update_transaction.Transaction(ROOT).status()
+            if durable:
+                if out.get("pending") or out.get("active"):
+                    out.update({key: durable[key] for key in
+                                ("phase", "candidate", "previous_ref", "outcome")})
+                else:
+                    out.update(durable)
+        except update_transaction.UpdateError as exc:
+            out.update(state="failed", error=str(exc))
     return out
 
 
@@ -42886,8 +44756,6 @@ LINUX_POST_UPDATE_NOTE = (
 
 def post_update_start(trigger: str = "update_now") -> tuple[int, dict]:
     """Run post_update.sh in the background once the GPU is free."""
-    if not (ROOT / POST_UPDATE_SCRIPT).is_file():
-        return 200, {"ok": True, "nothing_to_do": True}
     if _dist.is_mac_app():
         # Inside the Mac app the app installs each update as a whole new
         # tarball and builds its environment itself; post_update.sh is the
@@ -42900,6 +44768,13 @@ def post_update_start(trigger: str = "update_now") -> tuple[int, dict]:
         # the distro Python with the omarchy-mlx wheel. Running it would fail,
         # and a failed post-update blocks the restart. Say what to run instead.
         push(f"[update] {LINUX_POST_UPDATE_NOTE}")
+        # Preserve Linux's existing manual-install contract. Its startup
+        # receipt does not claim that Mac dependency repair ran.
+        tx = update_transaction.Transaction(ROOT)
+        with tx.locked():
+            rec = tx.read()
+            if rec.get("phase") == "source_ready":
+                tx.save(rec, phase="awaiting_restart", external_dependencies=True)
         return 200, {"ok": True, "nothing_to_do": True, "linux": True,
                      "note": LINUX_POST_UPDATE_NOTE}
     with POST_UPDATE_LOCK:
@@ -42950,46 +44825,20 @@ def _post_update_run() -> None:
         HELPER.kill()                   # it has the packages open
     except Exception:                                          # noqa: BLE001
         pass
-    head = _git_capture(["rev-parse", "HEAD"]) or ""
-    tail: list[str] = []
     error = None
-    timer = None
+    def output(line):
+        with POST_UPDATE_LOCK:
+            POST_UPDATE["log"].append(line[:300])
     try:
-        proc = subprocess.Popen(["bash", str(ROOT / POST_UPDATE_SCRIPT), str(ROOT)],
-                                cwd=str(ROOT), env=_post_update_env(),
-                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True, bufsize=1,
-                                errors="replace", start_new_session=True)
-        timer = _kill_group_after(proc, POST_UPDATE_TIMEOUT_S)
-        for raw in proc.stdout:
-            for line in raw.replace("\r", "\n").splitlines():
-                line = line.rstrip()
-                if not line:
-                    continue
-                tail = (tail + [line])[-12:]
-                with POST_UPDATE_LOCK:
-                    POST_UPDATE["log"].append(line[:300])
-        rc = proc.wait(timeout=60)
-        if getattr(timer, "fired", False):
-            raise subprocess.TimeoutExpired("post_update.sh", POST_UPDATE_TIMEOUT_S)
-        if rc != 0:
-            what = next((l for l in tail if "PHOSPHENE UPDATE FAILED:" in l), "")
-            error = (what.split("PHOSPHENE UPDATE FAILED:", 1)[1].strip()
-                     if what else f"post_update.sh stopped (exit {rc})")
-    except subprocess.TimeoutExpired:
-        error = "the update step took longer than 3 hours"
-    except Exception as exc:                                     # noqa: BLE001
-        error = f"the update step could not run: {exc}"
-    finally:
-        if timer is not None:
-            timer.cancel()
+        update_transaction.Transaction(ROOT).dependencies(env=_post_update_env(), output=output,
+                                                          timeout=POST_UPDATE_TIMEOUT_S)
+    except Exception as exc:
+        error = str(exc)
     with POST_UPDATE_LOCK:
         POST_UPDATE.update(active=False, pending=False, finished_ts=time.time(),
-                           state="failed" if error else "done", error=error,
-                           head=head)
-    push("[update] " + (f"finishing the update FAILED: {error}. Use Pinokio's "
-                        f"Update (Stop, then Update) to finish it." if error else
-                        "update finished - restart to load the new version"))
+                           state="failed" if error else "done", error=error)
+    push("[update] " + (error or "Update prepared. Restart to check that the new version starts."))
+
     with QUEUE_COND:
         QUEUE_COND.notify_all()
 
@@ -43008,6 +44857,9 @@ def _external_build_hold() -> str:
     with POST_UPDATE_LOCK:
         if POST_UPDATE.get("pending") or POST_UPDATE.get("active"):
             return "the update (installing what the new version needs)"
+    update = post_update_status()
+    if update.get("state") == "failed" or update.get("outcome") == "pending":
+        return "an unfinished update; finish Update and restart before rendering"
     lock = STATE_DIR / "h3_build.lock"
     try:
         raw = lock.read_text(encoding="utf-8")
@@ -43685,6 +45537,18 @@ def _build_image_engine_config(
             else "standard" if engine_override == "ph3image_standard_inline" else "high")
     if engine_override == "mock_inline":
         return agent_image_engine.ImageEngineConfig(kind="mock")
+    if engine_override == "flux2_klein_inline":
+        # FLUX.2 [klein] 4B at 4-bit, pinned in full: the image step of
+        # Phosphene Bench (bench.py). "auto" is the person's SAVED engine, so a
+        # benchmark through it would measure whatever they last picked; this
+        # names the model, family, steps, guidance and quantisation outright,
+        # and clears the dataclass's default Lightning LoRA (a Qwen adapter).
+        return agent_image_engine.ImageEngineConfig(
+            kind="mflux", mflux_model=KLEIN_4B_Q4_MODEL, mflux_family="flux2",
+            mflux_base_model="", mflux_quantize=4, mflux_steps=4,
+            mflux_guidance=1.0, mflux_preset=None,
+            mflux_lora_paths=[], mflux_lora_scales=[], mflux_python_path="",
+        )
     raise ValueError(f"unknown engine_override: {engine_override!r}")
 
 
@@ -44235,6 +46099,8 @@ def _unique_output_path(base: Path, stem: str, ext: str = ".mp4") -> Path:
 # Handlers resolve P.<name> at request time, so wiring here — after most
 # definitions, before the server starts — is safe for every name they use.
 from panel import routes_agents as _routes_agents
+from panel import routes_bench as _routes_bench
+from panel import routes_capabilities as _routes_capabilities
 from panel import routes_characters as _routes_characters
 from panel import routes_files as _routes_files
 from panel import routes_image as _routes_image
@@ -44242,17 +46108,20 @@ from panel import routes_licences as _routes_licences
 from panel import routes_loras as _routes_loras
 from panel import routes_meta as _routes_meta
 from panel import routes_oneshot as _routes_oneshot
+from panel import routes_pro as _routes_pro
 from panel import routes_models as _routes_models
 from panel import routes_music as _routes_music
+from panel import routes_speech as _routes_speech
 from panel import routes_queue as _routes_queue
+from panel import routes_remote as _routes_remote
 from panel import routes_storyboard as _routes_storyboard
 from panel import routes_stats as _routes_stats
 from panel import routes_train as _routes_train
 
-for _routes_mod in (_routes_agents, _routes_characters, _routes_files, _routes_image,
+for _routes_mod in (_routes_agents, _routes_bench, _routes_capabilities, _routes_characters, _routes_files, _routes_image,
                     _routes_licences, _routes_loras, _routes_meta, _routes_models, _routes_music,
-                    _routes_oneshot, _routes_queue, _routes_stats, _routes_storyboard,
-                    _routes_train, _civitai_client):
+                    _routes_oneshot, _routes_pro, _routes_queue, _routes_remote, _routes_speech, _routes_stats,
+                    _routes_storyboard, _routes_train, _civitai_client):
     _routes_mod.P = sys.modules[__name__]
 
 
@@ -46519,7 +48388,9 @@ class Handler(BaseHTTPRequestHandler):
                         return
                     deliver = {"format": f("format", ""), "size": f("size", ""),
                                "finish": f("finish", ""),
-                               "loudnorm": f("loudnorm", "") == "on"}
+                               # The master is ON unless the client says
+                               # off (2 Nov): API callers get it too.
+                               "loudnorm": f("loudnorm", "") != "off"}
                     # FILM-28: VERSIONED, so three renders at the same
                     # delivery do not silently overwrite one another. Only
                     # when the client did not ask for a specific filename —
@@ -46582,7 +48453,9 @@ class Handler(BaseHTTPRequestHandler):
                         return
                     deliver = {"format": f("format", ""), "size": f("size", ""),
                                "finish": f("finish", ""),
-                               "loudnorm": f("loudnorm", "") == "on"}
+                               # The master is ON unless the client says
+                               # off (2 Nov): API callers get it too.
+                               "loudnorm": f("loudnorm", "") != "off"}
                     explicit_out = f("out", "")
                     reserved = None
                     if explicit_out:
@@ -47016,7 +48889,7 @@ def _avg_elapsed(kind: str | None = None) -> float | None:
         history_snap = list(STATE["history"][:10])
     # Music has its own explicitly unmeasured model. Its wall times must not
     # silently re-price the existing image/video estimates or their fallback.
-    history_snap = [j for j in history_snap if (j.get("params") or {}).get("engine") != "music"]
+    history_snap = [j for j in history_snap if (j.get("params") or {}).get("engine") not in ("music", "speech")]
 
     def _ok(j: dict) -> bool:
         return j.get("status") == "done" and j.get("elapsed_sec")
@@ -47760,6 +49633,7 @@ def page(theme: str = "") -> str:
         # actually loaded. Identical bytes for the default version, so a 2.3
         # user's page.html is unchanged.
         "fps": FPS, "model": base_model_dir(),
+        "a2v_scene_sound_supported": model_version()["id"] == "ltx25",
         "profile": PROFILE,
         "model_upscale_enabled": MODEL_UPSCALE_ENABLED,
         "pipersr_upscale_enabled": PIPERSR_UPSCALE_ENABLED,
@@ -47815,6 +49689,8 @@ def page(theme: str = "") -> str:
         "h3": h3_status(),
         "music": music_status(),
         "music_install": music_install_status(),
+        "speech": speech_status(),
+        "speech_install": speech_install_status(),
         # LTX's own (quality × length) table, in the SAME shape as `h3` above so
         # the two strips are rendered by one generalised function rather than
         # two that drift. Every LTX estimate the page prints is a lookup into
@@ -47830,6 +49706,10 @@ def page(theme: str = "") -> str:
         # this list — adding an engine is one entry there, not a UI rewrite.
         "engines": engines_payload(),
         "default_engine": ENGINE_DEFAULT,
+        # What every engine and variant can do (model_capabilities.py). The
+        # page greys out whatever the picked variant does not declare, with
+        # the row's own reason; make_job reads the same rows.
+        "capabilities": _capabilities_boot(),
         # SYS-16: "has this install ever finished a render" is exactly what
         # analytics_first_render_reported already tracks (set once, on the
         # first render_completed), so the first-run card reuses that flag
@@ -48027,9 +49907,10 @@ if __name__ == "__main__":
     _sb_boot_reconcile()
     load_hidden()
     load_queue()
-    # Before the worker: a queued voice-only Lip-sync job must find the
-    # separator install already running, not refuse (4.17.4).
-    a2v_separator_boot()
+    # Optional separator packages install from the Lip-sync form.
+    # Retain the explicit boot opt-in for managed installations.
+    if (os.environ.get("PHOSPHENE_SEPARATOR_AUTOINSTALL") or "0") == "1":
+        a2v_separator_boot()
     threading.Thread(target=worker_loop, daemon=True).start()
     if VERSION_CHECK_ENABLED and not _dist.is_mac_app():
         threading.Thread(target=version_check_loop, daemon=True).start()
@@ -48057,7 +49938,6 @@ if __name__ == "__main__":
     # install DOES report (the project key ships); the Settings toggle and
     # PHOSPHENE_ANALYTICS_DISABLED are the off switches. See the analytics
     # section above and docs/ANALYTICS.md.
-    _analytics_boot()
     # Pre-flight: bind in a try/except so a busy port surfaces an actionable
     # one-liner instead of a 6-frame Python traceback. The bare OSError
     # ("[Errno 48] Address already in use") was confusing users who'd closed
@@ -48073,6 +49953,16 @@ if __name__ == "__main__":
             print("─" * 64, flush=True)
             sys.exit(1)
         raise
+    if pro_remote is not None:
+        pro_remote.boot(sys.modules[__name__])
+    # Only a process that loaded the candidate and bound its listener can
+    # acknowledge it. Dependency failures survive boot, even without analytics.
+    if _root_is_checkout():
+        try:
+            update_transaction.Transaction(ROOT).acknowledge(boot_build_stamp().get("sha"))
+        except update_transaction.UpdateError as exc:
+            push(f"[update] {exc}")
+    _analytics_boot()
     # Agent tools (agents/phosphene_cli.py, agents/phosphene_mcp.py) find this studio by the
     # record it writes once its listener is bound: the port differs per wrapper (8198 Pinokio,
     # 8199 dev, 8930-8999 Mac app), the HOME folder does not. Removed again on the way out.

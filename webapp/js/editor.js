@@ -19,14 +19,22 @@
 //     clip.path when clip.proxy exists, and the one place it may (no proxy yet)
 //     says so on the badge instead of pretending.
 //
-//  2. Two <video> elements measured NO benefit over one once proxies are in
-//     play — the swap costs what the seek costs, and two decoders is two
-//     decoders. There is one video element here, deliberately.
+//  2. The program monitor has TWO <video> elements, one on screen and one
+//     loading the next clip off screen (sbeStageVideo). An older measurement
+//     found "no benefit" in a second element, but it timed the seek, not the
+//     picture: with one element, every cut handed the visible <video> a new
+//     file, and the app's web view (WebKit) paints black until that file has
+//     decoded its first frame. Measured 2 Nov 2026 on the 17-clip SUNDAY MASS
+//     film, by capturing the monitor in the app's own web view: all 16 cuts
+//     went black (88 black frames, 60-260 ms each); with the two elements,
+//     0 of 16. The visible element is never given a new file.
 //
-//  3. The preview freezes 50-67 ms at each cut (1.2-1.6 frames at 24 fps) and
-//     Safari's seeking is accurate to 3-6 frames. That is stated once, quietly,
-//     under the transport, and never papered over: the render is exact, the
-//     preview is an approximation of it.
+//  3. Safari's seeking is accurate to 3-6 frames, and a cut the spare had no
+//     time to prepare (shots shorter than about a quarter of a second, or a
+//     scrub) holds the outgoing frame until the incoming one is ready instead
+//     of going black. That is stated once, quietly, under the transport, and
+//     never papered over: the render is exact, the preview is an
+//     approximation of it.
 //
 // Two traps this feature already paid for, both load-bearing: `muted` is set
 // BEFORE the first play() or Chrome silently refuses autoplay, and elements are
@@ -199,6 +207,9 @@ window.SBE = {
   peaks: null, peaksFor: '', unplaced: [], pool: [], relink: [], offline: [], prepare: {},
   onMissing: null,
   proxyUrl: '', revision: 0, dirty: false, saving: false, conflict: 0,
+  // The program monitor's two <video> elements: which one is on screen, and
+  // the number of the newest request to change it (see sbeStageVideo).
+  vidLive: 'sbeVideo', vidGen: 0,
   // THE SAVE'S OWN BOOKKEEPING. `savePending` is the save that arrived while
   // another was in flight and used to be thrown away; `dirtyAt` is when the
   // oldest unwritten change was made, which is what lets the tick notice that
@@ -483,6 +494,21 @@ function sbeLayout(clips) {
 // an extension tag and a timestamp — "bizarrotrn_the_man_in_the_loud_4_
 // dn768x416_ext6_20260818_215…" — and at fit zoom both truncate, so the track
 // read as a row of half-words. The exact filename stays on the block's title.
+// A NAME THAT FITS THE BLOCK. Ellipsis truncation turned every shot on a
+// one-minute film into "S…" (SUNDAY MASS, 2 Nov: 17 blocks, not one readable
+// at the default zoom), because the useful part of "S05 · 05_s08" is its head
+// and the label was cut from the tail. A narrow block shows the head alone:
+// the shot code before " · ", or the first word. The full name stays in the
+// block's tooltip and the inspector.
+function sbeClipShortName(label, w) {
+  const nice = sbeNiceName(label);
+  if (sbeNum(w, 999) >= 110) return nice;
+  const raw = String(label || '').trim();
+  const head = raw.indexOf(' · ') > 0 ? raw.split(' · ')[0].trim() : '';
+  if (head && head.length <= 8) return head;
+  return (nice.split(' ')[0] || nice).slice(0, 10);
+}
+
 function sbeNiceName(s) {
   let t = String(s || '').trim();
   if (!t) return '';
@@ -2268,9 +2294,20 @@ function sbeOvText(o) {
   };
 }
 
-function sbeOvAt(overlays, t) {
+// TWO LAYERS ON THE OVERLAY LANE (2 Nov): pictures (stills, videos) and
+// titles. A title may sit over a picture overlay — a logo bug that runs the
+// whole film is exactly where a title has to go — but two pictures, or two
+// titles, still never share a second. Before this, Add title on SUNDAY MASS
+// (a spinning mark over all 63 s) landed the title AFTER the film's last
+// frame, where nothing shows it, and said nothing.
+function sbeOvLayerOf(o) { return sbeOvKind(o) === 'text' ? 'text' : 'media'; }
+
+// `layer` narrows the lookup to 'text' or 'media'; absent is either (the
+// first one in film order, the old behaviour).
+function sbeOvAt(overlays, t, layer) {
   const now = sbeNum(t);
   for (const o of overlays || []) {
+    if (layer && sbeOvLayerOf(o) !== layer) continue;
     if (now >= sbeNum(o.film_start) - 1e-6 && now < sbeNum(o.film_end)) return o;
   }
   return null;
@@ -2281,11 +2318,14 @@ function sbeOvById(overlays, id) {
   return null;
 }
 
-// ONE LANE, so a move that would land on top of another card is refused
-// rather than silently stacked — the same rule the picture lane lives by.
-function sbeOvFits(overlays, id, fs, fe) {
+// ONE LANE PER LAYER, so a move that would land on top of another card is
+// refused rather than silently stacked — the same rule the picture lane lives
+// by. `layer` ('text' | 'media') limits the check to that layer; a title over
+// a picture overlay is not a collision. Absent checks every overlay.
+function sbeOvFits(overlays, id, fs, fe, layer) {
   for (const o of overlays || []) {
     if (o.id === id) continue;
+    if (layer && sbeOvLayerOf(o) !== layer) continue;
     if (fs < sbeNum(o.film_end) - 1e-6 && fe > sbeNum(o.film_start) + 1e-6) {
       return false;
     }
@@ -2299,7 +2339,7 @@ function sbeOvMove(overlays, id, filmStart) {
   if (o.locked) return { overlays: overlays, ok: false, why: 'locked' };
   const len = Math.max(SBE_MIN_CLIP, sbeNum(o.film_end) - sbeNum(o.film_start));
   const fs = Math.max(0, sbeNum(filmStart));
-  if (!sbeOvFits(overlays, id, fs, fs + len)) {
+  if (!sbeOvFits(overlays, id, fs, fs + len, sbeOvLayerOf(o))) {
     return { overlays: overlays, ok: false,
              why: 'another overlay is already there' };
   }
@@ -2319,7 +2359,7 @@ function sbeOvTrim(overlays, id, edge, filmTime) {
   let fs = sbeNum(o.film_start), fe = sbeNum(o.film_end);
   if (edge === 'l') fs = Math.min(fe - SBE_MIN_CLIP, Math.max(0, sbeNum(filmTime)));
   else fe = Math.max(fs + SBE_MIN_CLIP, sbeNum(filmTime));
-  if (!sbeOvFits(overlays, id, fs, fe)) {
+  if (!sbeOvFits(overlays, id, fs, fe, sbeOvLayerOf(o))) {
     return { overlays: overlays, ok: false, why: 'another overlay is there' };
   }
   const out = overlays.map(x => Object.assign({}, x));
@@ -2336,12 +2376,15 @@ function sbeOvTrim(overlays, id, edge, filmTime) {
 function sbeOvAdd(overlays, item, filmStart) {
   const dur = Math.max(SBE_MIN_CLIP, sbeNum(item.duration_s, 0) || 3);
   let fs = Math.max(0, sbeNum(filmStart));
-  // Land somewhere free rather than refusing: the lane is one track, and a
-  // card dropped onto another card means "after it".
+  const layer = (item.kind === 'text') ? 'text' : 'media';
+  // Land somewhere free rather than refusing: a card dropped onto another
+  // card OF ITS OWN LAYER means "after it". A title over a picture overlay
+  // stays where it was asked for.
   for (let i = 0; i < (overlays || []).length + 1; i++) {
-    if (sbeOvFits(overlays, null, fs, fs + dur)) break;
+    if (sbeOvFits(overlays, null, fs, fs + dur, layer)) break;
     let push = fs;
     for (const o of overlays) {
+      if (sbeOvLayerOf(o) !== layer) continue;
       if (fs < sbeNum(o.film_end) - 1e-6 && fs + dur > sbeNum(o.film_start) + 1e-6) {
         push = Math.max(push, sbeNum(o.film_end));
       }
@@ -2708,7 +2751,9 @@ function sbeMoveTo(clips, id, filmStart, opts) {
   sbeLayout(rest);                       // where would it land packed tight?
   const prev = rest[rest.indexOf(c) - 1];
   const floor = prev ? sbeNum(prev.film_end) : 0;
-  c._gap = Math.max(0, sbeRound(want - floor));
+  // `tight`: a reorder of a film cut end to end lands the shot flush against
+  // its new neighbour — a drop a few pixels off must not open a black hole.
+  c._gap = (opts && opts.tight) ? 0 : Math.max(0, sbeRound(want - floor));
   sbeLayout(rest);
   // The clip being dragged is exempt: its sound stays exactly where it is,
   // which is the J-cut. Everything the reflow pushed takes its sound along.
@@ -4465,6 +4510,9 @@ function sbeAdopt(r, quiet) {
   SBE.backup = r.backup || null;
   SBE.backupHidden = false;          // a NEW offer is not the one dismissed
   SBE.overlays = (SBE.edit.overlays || []).map(o => Object.assign({}, o));
+  // The overlay previews are per film: a new load forgets what the last film
+  // asked for, so a preview built since is picked up from `o.preview`.
+  SBE.ovPreviews = {}; SBE.ovAsked = {}; SBE.ovFailed = {};
   SBE.transitions = (SBE.edit.transitions || []).map(t => Object.assign({}, t));
   SBE.tracks = sbeTsCopy(SBE.edit.audio_tracks || []);
   // EDITOR-1: THE MARKERS ARE THE DOCUMENT'S TOO. They were never read back,
@@ -7149,6 +7197,13 @@ function sbePaintMix() {
   const pct = Math.round(mix.bed_gain * 100);
   if (sl) { sl.value = String(pct); sl.disabled = !has; }
   if (num) num.textContent = pct + '%';
+  // The chip on the A2 head and its pop-up slider: the same number, visible
+  // whatever height the lane has.
+  const sl2 = sbeEl('sbeBedGain2'), num2 = sbeEl('sbeBedGainNum2'), chip = sbeEl('sbeBedChip');
+  if (sl2 && document.activeElement !== sl2) { sl2.value = String(pct); }
+  if (sl2) sl2.disabled = !has;
+  if (num2) num2.textContent = pct + '%';
+  if (chip) { chip.textContent = pct + '%'; chip.hidden = !has; }
   if (dk) { dk.checked = !!mix.duck; dk.disabled = !has; }
   // A CONTROL THAT HAS STOPPED ACTING SAYS SO, LOUDLY. The duck stands down
   // under an authored envelope — never two curves on one level — and a ticked
@@ -7220,6 +7275,11 @@ function sbePaintTrack() {
           // un-scrubbable would be advice to run a Prepare that would do
           // nothing.
           : (kind === 'video' && !c.proxy ? 'slow' : ''))));
+    // A NARROW BLOCK KEEPS ITS NAME. A speed or grade badge on a 40 px block
+    // printed over the shot code ("9.99X" for S14 at 0.99x); below ~70 px the
+    // badge gives way (the speed is in the tooltip, the inspector and the
+    // block's colour). A drag's live readout and Offline always show.
+    const showFlag = !!flag && (dragHud || offline || (flag === 'slow' ? w >= 36 : w >= 70));
     const cls = 'sbe-clip is-' + kind + (selMap[String(c.id)] ? ' is-sel' : '')
               + ((selN > 1 && String(c.id) === String(SBE.sel)) ? ' is-primary' : '')
               + (c.id === SBE.curId ? ' is-playing' : '')
@@ -7228,7 +7288,7 @@ function sbePaintTrack() {
               + (Math.abs(sp - 1) >= 1e-6 ? ' is-retimed' : '')
               + (!sbeFramingIsNeutral(c) ? ' is-framed' : '')
               + (offline ? ' is-offline' : '')
-              + (flag ? ' has-flag' : '');
+              + (showFlag ? ' has-flag' : '');
     // A still and a slug have no source window to report — their only number
     // is the hold, and printing "0.00→3.00" of a clock they do not have reads
     // as a trim somebody made.
@@ -7267,7 +7327,7 @@ function sbePaintTrack() {
               + (bad ? '\n' + bad[0].message : '')) + '" '
           + 'style="left:' + sbePx(c.film_start).toFixed(1) + 'px;width:' + w.toFixed(1) + 'px">'
           + thumb
-          + '<div class="sbe-cl-name">' + escapeHtml(sbeNiceName(label)) + '</div>'
+          + '<div class="sbe-cl-name">' + escapeHtml(sbeClipShortName(label, w)) + '</div>'
           + (w > 96 ? '<div class="sbe-cl-meta">' + escapeHtml(meta) + '</div>' : '')
           // FILM-39: "SLOW" was jargon with no tooltip and no action — it
           // means "no proxy yet, so scrubbing decodes from the source GOP".
@@ -7276,7 +7336,8 @@ function sbePaintTrack() {
           // without touching the clip's own drag/select handling.
           // 4.17: the flag is also the fix — a click runs Prepare
           // (sbeOnTrackDown routes it before any drag/select handling).
-          + (flag === 'slow'
+          + (!showFlag ? ''
+              : flag === 'slow'
               ? '<div class="sbe-cl-flag sbe-slow-flag" role="button" title="Slow to scrub until Prepare builds a proxy — click to run Prepare.">⧖</div>'
               : (flag ? '<div class="sbe-cl-flag">' + escapeHtml(flag) + '</div>' : ''))
           + sbeSyncBadge(c)
@@ -8108,7 +8169,7 @@ async function sbeAddSoundFile() {
 // `gain` is the number the mix plays, `sbeRtGain(level, ref_lufs)`.
 const SBE_RT_NAME = 'Room tone';
 const SBE_RT_DEFAULT_LEVEL = -38;      // mirrors room_tone.DEFAULT_LEVEL
-const SBE_RT_LEVEL_MIN = -45;          // mirrors LEVEL_MIN / LEVEL_MAX
+const SBE_RT_LEVEL_MIN = -60;          // mirrors LEVEL_MIN / LEVEL_MAX
 const SBE_RT_LEVEL_MAX = -18;
 const SBE_RT_REF = -18;                // mirrors REF_LUFS
 const SBE_RT_STEP = 30;                // mirrors BED_STEP_S
@@ -8342,7 +8403,8 @@ function edRtPaint() {
   if (take) { take.hidden = !cur; take.disabled = busy; }
   if (del) { del.hidden = !cur; del.disabled = busy; }
   const auto = document.getElementById('edRtAutoBox');
-  if (auto && info) auto.checked = info.auto !== false;
+  // OFF unless the setting says on (2 Nov): the automatic bed is opt-in.
+  if (auto && info) auto.checked = info.auto === true;
 }
 
 function sbeRtFmtLevel(v) {
@@ -8421,7 +8483,20 @@ async function edRtApply(kind) {
   }
   // The timeline may have moved while the bed was being made.
   const nowLen = sbeFilmDuration(SBE.clips);
-  const tr = sbeRtNewTrack(r, nowLen, level, cur ? cur.track.id : '');
+  // A FIRST "FROM THIS FILM" BED GOES IN AT THE ROOM'S OWN LEVEL, measured
+  // from the clips (`suggest_level`), unless the slider was moved. The fixed
+  // −38 LUFS it used to take played 15-25 dB over the room it copied (SUNDAY
+  // MASS, 2 Nov): a flat hiss under every line.
+  let lvl = level;
+  if (!cur && ED.rtLevel === undefined && r.suggest_level !== undefined
+      && r.suggest_level !== null && isFinite(Number(r.suggest_level))) {
+    lvl = sbeRtClampLevel(r.suggest_level);
+    const sl = document.getElementById('edRtLevel');
+    if (sl) sl.value = String(Math.round(lvl));
+    const out = document.getElementById('edRtLevelOut');
+    if (out) out.textContent = sbeRtFmtLevel(lvl);
+  }
+  const tr = sbeRtNewTrack(r, nowLen, lvl, cur ? cur.track.id : '');
   const res = sbeTsMutate(ts => sbeRtPlace(ts, tr));
   ED.rtPicked = false;
   ED.rtFallback = r.fallback
@@ -8433,7 +8508,7 @@ async function edRtApply(kind) {
   if (!res) return false;
   const idx = (SBE.tracks || []).findIndex(t => String(t.id) === String(res.track));
   phosToast(SBE_RT_NAME + ' on ' + sbeTrackLabel(idx) + ': ' + (r.label || variant)
-            + (kind === 'take' ? ', take ' + seed : '') + ', ' + sbeRtFmtLevel(level) + '.',
+            + (kind === 'take' ? ', take ' + seed : '') + ', ' + sbeRtFmtLevel(lvl) + '.',
             { kind: 'success', duration: 5000 });
   return true;
 }
@@ -8635,7 +8710,13 @@ function sbePaintOverlays() {
     const name = (okind === 'text')
       ? (sbeOvText(o).text.split('\n')[0] || 'Title')
       : sbeNiceName(o.title || String(o.path || '').split('/').pop() || 'card');
-    html += '<div class="sbe-ov is-' + okind + (o.id === SBE.ovSel ? ' is-sel' : '') + '" '
+    // STACKED: a title that shares seconds with a picture overlay is drawn in
+    // the lane's lower half and the picture in the upper, so both stay
+    // visible and grabbable.
+    const other = (SBE.overlays || []).some(x => x !== o && sbeOvLayerOf(x) !== sbeOvLayerOf(o)
+      && sbeNum(x.film_start) < sbeNum(o.film_end) - 1e-6 && sbeNum(x.film_end) > sbeNum(o.film_start) + 1e-6);
+    const stack = other ? (okind === 'text' ? ' is-stack-lo' : ' is-stack-hi') : '';
+    html += '<div class="sbe-ov is-' + okind + stack + (o.id === SBE.ovSel ? ' is-sel' : '') + '" '
           + 'data-id="' + escapeHtml(o.id) + '" '
           + 'title="' + escapeHtml((okind === 'text'
               ? 'Title — drawn over the picture. '
@@ -8671,16 +8752,19 @@ function sbeOvPaint(t) {
   if (!el || !el.classList) return;
   const tx = sbeEl('sbeOvText');
   const now = (t === undefined) ? SBE.playhead : sbeNum(t);
-  const o = sbeOvAt(SBE.overlays, now);
+  // BOTH LAYERS, each on its own element: a title (the DOM text) can sit on
+  // a picture overlay (the image layer) at the same second.
+  const ot = sbeOvAt(SBE.overlays, now, 'text');
+  const om = sbeOvAt(SBE.overlays, now, 'media');
   const txOff = () => { if (tx && tx.classList) tx.classList.remove('is-on'); };
-  if (!o) { el.classList.remove('is-on'); txOff(); return; }
-  if (sbeOvKind(o) === 'text') {
+  if (!ot && !om) { el.classList.remove('is-on'); txOff(); sbeOvVideoOff(); sbeOvNote(''); return; }
+  if (ot) {
+    const o = ot;
     // A TITLE IS DRAWN IN THE DOM, not re-rendered: the same string, the same
     // anchor and the same size rule (`font_size` at 1080 high, scaled to
     // the stage) the rasteriser uses, so what is on the stage is what lands
     // in the file. The stage's own height is the scale; the style values
     // are written as custom properties and the stylesheet does the rest.
-    el.classList.remove('is-on');
     if (!tx || !tx.classList) return;
     const tt = sbeOvText(o);
     const st = tt.style;
@@ -8695,14 +8779,153 @@ function sbeOvPaint(t) {
     tx.style.opacity = String(sbeFadeOpacityAt(o, now));
     tx.classList.add('is-on');
     sbeOvTextPlace(tx, st, stage);
+  } else {
+    txOff();
+  }
+  const o = om;
+  if (!o || !o.path) { el.classList.remove('is-on'); sbeOvVideoOff(); sbeOvNote(''); return; }
+  // A VIDEO NEVER GOES THROUGH THE <img>. It used to: every overlay was
+  // `/image?path=<file>`, so a .mov sting failed to load and WebKit painted
+  // its broken-image "?" in the middle of every frame of the film (owner,
+  // SUNDAY MASS, 2 Nov). A video plays on its own layer from its preview.
+  if (sbeOvKind(o) === 'video') {
+    el.classList.remove('is-on');
+    sbeOvVideoPaint(o, now);
     return;
   }
-  txOff();
-  if (!o.path) { el.classList.remove('is-on'); return; }
+  sbeOvVideoOff();
   const url = '/image?w=1280&path=' + encodeURIComponent(o.path);
-  if (el.getAttribute('src') !== url) el.setAttribute('src', url);
+  if (!el.dataset) el.dataset = {};
+  if (!el.dataset.errHooked && typeof el.addEventListener === 'function') {
+    // NEVER A BROKEN-IMAGE GLYPH ON THE STAGE. A card that will not load is
+    // taken off and named quietly in the corner instead.
+    el.dataset.errHooked = '1';
+    el.addEventListener('error', () => {
+      el.dataset.failed = el.getAttribute('src') || '';
+      el.classList.remove('is-on');
+      sbeOvPaint();
+    });
+  }
+  if (el.getAttribute('src') !== url) { el.dataset.failed = ''; el.setAttribute('src', url); }
+  if (el.dataset.failed === url) {
+    el.classList.remove('is-on');
+    sbeOvNote('This overlay can\u2019t be shown here \u2014 the render still includes it.');
+    return;
+  }
+  sbeOvNote('');
   el.style.opacity = String(sbeFadeOpacityAt(o, now));
   el.classList.add('is-on');
+}
+
+// ---- THE OVERLAY LANE'S VIDEO LAYER --------------------------------------
+// The overlay's PREVIEW copy (made beside the clip proxies: HEVC with alpha
+// for a transparent sting, all-intra H.264 otherwise) plays muted on its own
+// <video>, following the playhead: seeked when parked, chased only past a
+// sixth of a second when playing. A video overlay with no preview yet asks
+// for one once and says so in the corner; one that cannot be previewed says
+// that, and the render — which reads the original — is unaffected.
+function sbeOvNote(text) {
+  const n = sbeEl('sbeOvNote');
+  if (!n) return;
+  if (n.textContent !== text) n.textContent = text;
+  n.hidden = !text;
+}
+
+function sbeOvVideoOff() {
+  const v = sbeEl('sbeOvVideo');
+  if (!v) return;
+  v.style.opacity = '0';
+  try { if (!v.paused) v.pause(); } catch (e) {}
+}
+
+function sbeOvPreviewFor(o) {
+  return (o && o.preview) || ((SBE.ovPreviews || {})[(o || {}).path]) || '';
+}
+
+function sbeOvAskPreview(path) {
+  if (!SBE.id || !path) return;
+  SBE.ovAsked = SBE.ovAsked || {};
+  if (SBE.ovAsked[path]) return;
+  SBE.ovAsked[path] = 1;
+  const fd = new URLSearchParams();
+  fd.set('id', SBE.id);
+  fd.set('path', path);
+  fetch('/storyboard/edit/overlay-preview', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(r => {
+      SBE.ovPreviews = Object.assign({}, SBE.ovPreviews || {}, (r && r.previews) || {});
+      if (!SBE.ovPreviews[path]) { SBE.ovFailed = SBE.ovFailed || {}; SBE.ovFailed[path] = 1; }
+      sbeOvPaint();
+    })
+    .catch(() => { SBE.ovFailed = SBE.ovFailed || {}; SBE.ovFailed[path] = 1; sbeOvPaint(); });
+}
+
+// A browser that decodes HEVC but not its alpha layer (Chromium) shows a
+// transparent sting as an opaque black frame over the picture — worse than
+// nothing. One look at the four corners of the first frame decides: opaque
+// black corners on a non-WebKit engine means "cannot preview here".
+function sbeOvAlphaLost(v) {
+  if (!/Chrome\/|Firefox\//.test(navigator.userAgent || '')) return false;
+  try {
+    const c = document.createElement('canvas');
+    c.width = 32; c.height = 18;
+    const g = c.getContext('2d');
+    g.drawImage(v, 0, 0, 32, 18);
+    const d = g.getImageData(0, 0, 32, 18).data;
+    const at = (x, y) => { const i = (y * 32 + x) * 4; return d[i + 3] > 250 && d[i] + d[i + 1] + d[i + 2] < 12; };
+    return at(0, 0) && at(31, 0) && at(0, 17) && at(31, 17);
+  } catch (e) { return false; }
+}
+
+function sbeOvVideoPaint(o, now) {
+  const v = sbeEl('sbeOvVideo');
+  if (!v) return;
+  const prev = sbeOvPreviewFor(o);
+  if (!prev || !SBE.proxyUrl) {
+    sbeOvVideoOff();
+    if ((SBE.ovFailed || {})[o.path]) {
+      sbeOvNote('This overlay can\u2019t be previewed here \u2014 the render still includes it.');
+    } else {
+      sbeOvNote('Making a preview of the overlay\u2026');
+      sbeOvAskPreview(o.path);
+    }
+    return;
+  }
+  const url = SBE.proxyUrl + encodeURIComponent(String(prev).split('/').pop());
+  if (!v.dataset) v.dataset = {};
+  if (!v.dataset.hooked && typeof v.addEventListener === 'function') {
+    v.dataset.hooked = '1';
+    v.addEventListener('error', () => { v.dataset.bad = v.dataset.src || ''; sbeOvPaint(); });
+    v.addEventListener('loadeddata', () => {
+      if (sbeOvAlphaLost(v)) v.dataset.bad = v.dataset.src || '';
+      sbeOvPaint();
+    });
+    // The transport stopping does not repaint the overlay lane, so the
+    // layer stops itself the moment it notices.
+    v.addEventListener('timeupdate', () => { if (!SBE.playing && !v.paused) { try { v.pause(); } catch (e) {} } });
+  }
+  if (v.dataset.src !== url) { v.dataset.src = url; v.src = url; }
+  if (v.dataset.bad === url) {
+    sbeOvVideoOff();
+    sbeOvNote('This overlay can\u2019t be previewed here \u2014 the render still includes it.');
+    return;
+  }
+  sbeOvNote('');
+  v.muted = true;
+  const want = Math.max(0, sbeNum(o.start) + Math.max(0, now - sbeNum(o.film_start)));
+  try {
+    if (v.readyState >= 1) {
+      const drift = v.currentTime - want;
+      if (SBE.playing) {
+        if (Math.abs(drift) > 0.16) v.currentTime = want;
+        if (v.paused) v.play().catch(() => {});
+      } else {
+        if (!v.paused) v.pause();
+        if (Math.abs(drift) > 0.5 / sbeFps()) v.currentTime = want;
+      }
+    }
+  } catch (e) {}
+  v.style.opacity = String(sbeFadeOpacityAt(o, now));
 }
 
 // WHERE THE BOX SITS, IN PIXELS, KEPT INSIDE THE FRAME. The anchor is a
@@ -8787,6 +9010,10 @@ function edAddTitle() {
   SBE.ovSel = res.added.id;
   SBE.sel = '';
   SBE.txSel = '';
+  // THE TEXT BOX HAS TO BE ON SCREEN to type into: it lives in the
+  // inspector, and with the inspector closed Add title selected a block the
+  // user then had to find a panel for.
+  if (!SBE.inspect && typeof sbeInspectSet === 'function') sbeInspectSet(true);
   sbePaint();
   sbeOvPaint();
   const box = sbeEl('sbeOvTextBox');
@@ -9646,7 +9873,7 @@ function sbePaintHead() {
 // menu would have been two more chances to add a panel that Escape and a
 // click elsewhere could not shut.
 const SBE_POPS = ['sbeFilmsMenu', 'sbeRenderMenu', 'sbeMoreMenu', 'sbeKeysPop', 'sbeMusicMenu',
-                  'sbeCbarMenu', 'sbeCtxMenu', 'sbeSoundMenu'];
+                  'sbeCbarMenu', 'sbeCtxMenu', 'sbeSoundMenu', 'sbeBedPop'];
 
 function sbePopToggle(id, anchorId) {
   const el = sbeEl(id);
@@ -10875,7 +11102,6 @@ function sbeSpeedCommit(v) {
 // started when you arrived. The stage's black is what a fade to black fades
 // to, so this is the whole of it on the picture lane.
 function sbeFadePaint(t) {
-  const v = sbeEl('sbeVideo');
   const img = sbeEl('sbeStill');
   const now = (t === undefined) ? SBE.playhead : sbeNum(t);
   // THE CLIP AT THE PLAYHEAD, not `curId`. `curId` is the transport's own
@@ -10893,13 +11119,15 @@ function sbeFadePaint(t) {
     if (!el) return;
     el.style.opacity = el.classList.contains('is-on') ? String(o) : '';
   };
-  paint(v);
+  // BOTH pictures: the spare is never `.is-on`, so this hands it back to the
+  // stylesheet, which is what clears a ramp it carried before the last swap.
+  for (const v of sbeVids()) paint(v);
   paint(img);
 }
 
 function sbeApplyPreviewFilter(b, frame) {
   const css = (Math.abs(sbeNum(b)) < 1e-6) ? '' : 'brightness(' + sbeBrightnessCss(b) + ')';
-  const v = sbeEl('sbeVideo');
+  const v = sbeVid();
   const i = sbeEl('sbeStill');
   if (v) v.style.filter = css;
   if (i) i.style.filter = css;
@@ -10923,8 +11151,10 @@ function sbeGradeCss(c) {
   return parts.join(' ');
 }
 function sbeApplyPreviewGrade(c, frame) {
+  // The LIVE picture only. The incoming one is graded at the handover (sbeVidHandover), so
+  // the outgoing clip is never shown wearing the incoming clip's look.
   const css = sbeGradeCss(c);
-  const v = sbeEl('sbeVideo');
+  const v = sbeVid();
   const i = sbeEl('sbeStill');
   if (v) v.style.filter = css;
   if (i) i.style.filter = css;
@@ -10939,7 +11169,7 @@ function sbeApplyPreviewFraming(frame) {
   const f = sbeFraming({ frame: frame || {} });
   const t = (Math.abs(f.zoom - 1) < 1e-9) ? '' : 'scale(' + f.zoom.toFixed(3) + ')';
   const o = (f.x * 100).toFixed(2) + '% ' + (f.y * 100).toFixed(2) + '%';
-  for (const el of [sbeEl('sbeVideo'), sbeEl('sbeStill')]) {
+  for (const el of [sbeVid(), sbeEl('sbeStill')]) {
     if (!el || !el.style) continue;
     el.style.transform = t;
     el.style.transformOrigin = t ? o : '';
@@ -11394,11 +11624,28 @@ function sbeOnTrackMove(ev) {
     // A move or a trim always works from the SNAPSHOT: the model clamps at
     // neighbours, and re-applying deltas to an already-clamped state would
     // let a pointer that kept going drag the clip through the wall.
-    const ripple = !!(ev.metaKey || ev.ctrlKey);
+    // A SHOT WITH NO ROOM EITHER SIDE MOVES BETWEEN THE OTHERS. A plain drag
+    // only slides a clip inside its own gaps, so on a film cut end to end
+    // (SUNDAY MASS: 17 shots, no gaps) dragging a shot did nothing at all —
+    // the model clamped it to where it was and nothing said why. Boxed in,
+    // the drag is the reorder ⌘-drag already does: the shot goes where it is
+    // dropped and the others close up around it. With a gap beside it, the
+    // plain drag still slides it into the gap.
+    if (d.boxed === undefined && d.mode === 'move') {
+      const was = JSON.parse(d.before);
+      const i = was.findIndex(x => String(x.id) === String(d.id));
+      const me = was[i];
+      const prev = i > 0 ? was[i - 1] : null, next = was[i + 1] || null;
+      const tightL = prev ? Math.abs(sbeNum(prev.film_end) - sbeNum(me.film_start)) < 1e-3
+                          : sbeNum(me.film_start) < 1e-3;
+      const tightR = next ? Math.abs(sbeNum(next.film_start) - sbeNum(me.film_end)) < 1e-3 : false;
+      d.boxed = !!(me && next && tightL && tightR);
+    }
+    const ripple = !!(ev.metaKey || ev.ctrlKey) || (d.mode === 'move' && d.boxed === true);
     d.ripple = ripple;
     track.classList.toggle('is-ripple', ripple);
     SBE.clips = JSON.parse(d.before);
-    const o = { ripple: ripple };
+    const o = { ripple: ripple, tight: d.mode === 'move' && d.boxed === true && !(ev.metaKey || ev.ctrlKey) };
     if (d.mode === 'movemany') {
       // THE BLOCK SLIDES BY ONE DELTA, and it is the PRIMARY clip's own start
       // that is snapped — the beat the user is watching is the one under the
@@ -11507,6 +11754,20 @@ function sbeOnTrackUp(ev) {
 
 function sbeSeek(t) {
   const dur = Math.max(sbeFilmDuration(SBE.clips), 0);
+  // A CLICK WHILE PLAYING PLAYS ON FROM THERE, the way every editor does.
+  // It used to move the playhead and load the frame into the paused picture
+  // element while the transport still read "playing": the picture froze on
+  // that frame (no clock ran it) and the score played on from the OLD place
+  // until the next cut re-synced it. Measured in the app's web view on
+  // SUNDAY MASS (2 Nov): a click at 0:40 while playing from 0:03 left the
+  // playhead parked at 40.00 for 2.7 s with the score at 0:05.7.
+  if (SBE.playing) {
+    sbeStop();
+    SBE.playhead = Math.max(0, Math.min(dur, sbeNum(t)));
+    sbePaintHead();
+    sbeShowFrameAt(SBE.playhead).then(() => { if (!SBE.playing && SBE.open) sbePlay(); });
+    return;
+  }
   SBE.playhead = Math.max(0, Math.min(dur, sbeNum(t)));
   sbePaintHead();
   // A SCRUB LANDS ON THE RIGHT SOURCE SECOND. Forced, because the ground has
@@ -11564,8 +11825,21 @@ function sbeLoadInto(v, c, at) {
       setTimeout(() => { v.removeEventListener('seeked', done); resolve(); }, 2500);
     };
     if (v.dataset.src === url && v.readyState >= 1) { seek(); return; }
+    // THE SAME FILE, STILL ARRIVING. The preloader may have started this very
+    // file on the spare a moment ago; assigning the src again would throw that
+    // load away and start it over, which is the delay the preload exists to
+    // remove. Wait for the load already under way instead.
+    if (v.dataset.src === url && !v.error && v.networkState !== 3) {
+      const ready = () => { v.removeEventListener('loadedmetadata', ready); seek(); };
+      v.addEventListener('loadedmetadata', ready);
+      setTimeout(() => { v.removeEventListener('loadedmetadata', ready); resolve(); }, 2500);
+      return;
+    }
     v.dataset.src = url;
-    const meta = () => { v.removeEventListener('loadedmetadata', meta); seek(); };
+    // A later load may have replaced this one on the same element (the spare
+    // is shared by the preloader and the cut); only the newest file seeks.
+    const meta = () => { v.removeEventListener('loadedmetadata', meta);
+                         if (v.dataset.src === url) seek(); else resolve(); };
     v.addEventListener('loadedmetadata', meta);
     const fail = () => { v.removeEventListener('error', fail); resolve(); };
     v.addEventListener('error', fail);
@@ -11574,8 +11848,174 @@ function sbeLoadInto(v, c, at) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// TWO PICTURES, ONE ON SCREEN — why a cut is never black
+// ---------------------------------------------------------------------------
+// Pointing the visible <video> at the next clip's file is what made every cut
+// flash black: WebKit drops the old picture the moment `src` changes and paints
+// the element's own black until the new file has decoded its first frame
+// after the seek. Measured in the app's own web view on a 17-clip film: all 16
+// cuts went black, 60-200 ms each. Chrome tends to hold the old frame, which
+// is why a desktop browser never showed it.
+//
+// So the stage owns two elements, `sbeVideo` and `sbeVideoB`. One is LIVE (on
+// screen, carries the sound); the other is the SPARE. A new file is only ever
+// loaded into the spare, off screen, and the two trade places in one
+// synchronous step once the spare holds the decoded frame. The live element
+// is never handed a new `src` while it is showing, so the stage always has a
+// real picture on it. While a clip plays, the next clip is loaded and seeked
+// on the spare ahead of time (sbePreloadNext), so most cuts are a swap with
+// no wait at all.
+//
+// The spare is hidden with opacity like everything else on this stage, never
+// display:none — WebKit will not load a display:none <video>.
+function sbeVid() { return sbeEl(SBE.vidLive === 'sbeVideoB' ? 'sbeVideoB' : 'sbeVideo'); }
+function sbeVidSpare() { return sbeEl(SBE.vidLive === 'sbeVideoB' ? 'sbeVideo' : 'sbeVideoB'); }
+function sbeVids() { return [sbeEl('sbeVideo'), sbeEl('sbeVideoB')].filter(Boolean); }
+// Both pictures off: a still, a slug or a hole is on the stage. It also
+// cancels a video still being staged, so a slow load cannot land on top of
+// the still that replaced it. `pause` is for the transport; a scrub that
+// lands on a still has nothing playing to stop.
+function sbeVidsOff(pause) {
+  SBE.vidGen = (SBE.vidGen || 0) + 1;
+  for (const el of sbeVids()) {
+    if (pause !== false) { try { el.pause(); } catch (e) {} }
+    el.classList.remove('is-on');
+    if (el.style) el.style.opacity = '';
+  }
+}
+
+// The source second of `c` that film second `t` shows, clamped the way
+// sbeLoadInto clamps it, so "is the spare already there" compares like with like.
+function sbeVidTarget(c, at) {
+  return Math.max(0, Math.min(sbeNum(c.end) - 1e-3, sbeNum(at)));
+}
+// Is this element holding a decoded frame of `url` at source second `t`?
+function sbeVidHolds(el, url, t) {
+  return !!el && el.dataset.src === url && el.readyState >= 2 && !el.seeking
+      && Math.abs(sbeNum(el.currentTime) - t) < 0.5 / sbeFps();
+}
+
+// WAIT FOR THE FRAME, NOT THE SEEK. 'seeked' says the position moved; the
+// picture can still be on its way to the compositor. requestVideoFrameCallback
+// fires when a frame is ready to present; a paused, freshly seeked element in
+// WebKit may never fire it, so readyState >= 2 (the current frame is decoded)
+// plus a short ceiling is the floor of the wait.
+function sbeVidFrameReady(el) {
+  return new Promise(resolve => {
+    if (!el) { resolve(); return; }
+    let done = false;
+    const end = () => { if (!done) { done = true; resolve(); } };
+    if (el.readyState >= 2) {
+      if (typeof el.requestVideoFrameCallback === 'function') {
+        try { el.requestVideoFrameCallback(end); } catch (e) {}
+        setTimeout(end, 40);
+      } else {
+        end();
+      }
+      return;
+    }
+    const on = () => { el.removeEventListener('loadeddata', on); el.removeEventListener('canplay', on); end(); };
+    el.addEventListener('loadeddata', on);
+    el.addEventListener('canplay', on);
+    setTimeout(() => { el.removeEventListener('loadeddata', on); el.removeEventListener('canplay', on); end(); }, 400);
+  });
+}
+
+// THE SWAP. One synchronous step: the incoming element (already holding its
+// decoded frame) turns on and starts, the outgoing one turns off and pauses,
+// and the clip's look and fade go on the new live picture — so the browser
+// paints one state or the other and never a third.
+//
+// The element that just went off is NOT handed the next clip's file at once.
+// It waits a quarter of a second (SBE_VID_SETTLE_MS) before sbePreloadNext may
+// load into it: re-sourcing a <video> in the frames right after it was on
+// screen is the one step that still showed black in the app's web view.
+const SBE_VID_SETTLE_MS = 250;
+function sbeVidSwap(c, play) {
+  const live = sbeVid(), spare = sbeVidSpare();
+  if (!spare || spare === live) return live;
+  try { spare.muted = !!SBE.muted || !sbePictureCarriesSound(c); spare.playbackRate = sbeSpeed(c); } catch (e) {}
+  spare.classList.add('is-on');
+  if (play) { try { const p = spare.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
+  if (live) {
+    live.classList.remove('is-on');
+    if (live.style) live.style.opacity = '';
+    try { live.pause(); } catch (e) {}
+  }
+  SBE.vidLive = spare.id;
+  SBE.vidSettleAt = Date.now() + SBE_VID_SETTLE_MS;
+  sbeApplyPreviewGrade(c, sbeFraming(c));
+  sbeFadePaint();
+  return spare;
+}
+
+// PUT FILM SECOND `at` OF VIDEO CLIP `c` ON THE STAGE without the stage ever
+// going black. Resolves to the element now showing it, or null when a later
+// request overtook this one (a fast scrub) — the later one owns the stage.
+// `play`: the transport is running, so the incoming clip starts as it goes on.
+async function sbeStageVideo(c, at, play) {
+  const gen = SBE.vidGen = (SBE.vidGen || 0) + 1;
+  const url = sbeClipUrl(c);
+  const t = sbeVidTarget(c, at);
+  const live = sbeVid(), spare = sbeVidSpare();
+  if (!spare) {                       // a page without the second element
+    await sbeLoadInto(live, c, at);
+    if (live) live.classList.add('is-on');
+    return live;
+  }
+  // 1. The spare is already there (the preloader got to it first): a cut.
+  if (sbeVidHolds(spare, url, t)) return sbeVidSwap(c, play);
+  // 2. The same file is already live (a split, a scrub inside one clip): a seek
+  //    on the element that is showing holds its last frame until the new one
+  //    lands, so there is nothing to hide.
+  if (live && live.dataset.src === url && live.readyState >= 1) {
+    await sbeLoadInto(live, c, at);
+    if (gen !== SBE.vidGen) return null;
+    live.classList.add('is-on');
+    return live;
+  }
+  // 3. A file nobody has: load it OFF SCREEN, wait for its frame, then swap.
+  //    The live element keeps showing the outgoing picture the whole time.
+  await sbeLoadInto(spare, c, at);
+  if (gen !== SBE.vidGen) return null;
+  await sbeVidFrameReady(spare);
+  if (gen !== SBE.vidGen) return null;
+  return sbeVidSwap(c, play);
+}
+
+// THE NEXT CUT, PREPARED WHILE THIS CLIP PLAYS. The spare loads the next video
+// clip and seeks it to its in-point, so when the playhead reaches the cut
+// sbeStageVideo finds it waiting (case 1) and the cut costs nothing. Paused and
+// silent until then; a still, a slug or the end of the film needs nothing.
+function sbePreloadNext(c) {
+  const spare = sbeVidSpare();
+  if (!spare || !c) return;
+  // Just off screen: give it SBE_VID_SETTLE_MS before it takes a new file.
+  const wait = sbeNum(SBE.vidSettleAt, 0) - Date.now();
+  if (wait > 0) {
+    clearTimeout(SBE.preloadTimer);
+    SBE.preloadTimer = setTimeout(() => { if (SBE.curId === c.id) sbePreloadNext(c); }, wait + 5);
+    return;
+  }
+  const next = SBE.clips[SBE.clips.indexOf(c) + 1];
+  if (!next || sbeKind(next) !== 'video') return;
+  if (sbeVidHolds(spare, sbeClipUrl(next), sbeVidTarget(next, sbeNum(next.start)))) return;
+  try { spare.pause(); } catch (e) {}
+  sbeLoadInto(spare, next, sbeNum(next.start));
+}
+
+// The line under the program monitor for a video clip. Shared by the scrub
+// (sbeShowFrameAt) and the cut (sbeEnter): the line used to be written only on
+// a scrub, so during playback it kept naming the shot playback started on.
+function sbeProgInfoVideo(c) {
+  sbeProgInfo((c.title || String(c.path || '').split('/').pop()) + ' · ' + sbeNum(c.start).toFixed(2) + '–' +
+              sbeNum(c.end).toFixed(2) + (c.proxy ? '' : ' · source'),
+              c.proxy ? '' : 'SOURCE — slow to seek. Run Prepare (A2 head ▾) for proxies.');
+}
+
 async function sbeShowFrameAt(t) {
-  const v = sbeEl('sbeVideo');
+  const v = sbeVid();
   const img = sbeEl('sbeStill');
   if (!v) return;
   // THE OVERLAY LANE IS NOT THE PICTURE'S BUSINESS, so it is painted BEFORE
@@ -11588,18 +12028,21 @@ async function sbeShowFrameAt(t) {
   const c = sbeClipAt(SBE.clips, t);
   SBE.curId = c ? c.id : '';
   if (!c) {
-    v.classList.remove('is-on');
+    sbeVidsOff(false);
     if (img) img.classList.remove('is-on');
     sbeProgInfo(SBE.clips.length ? 'nothing plays here' : 'no clips', '');
     return;
   }
   const kind = sbeKind(c);
-  sbeApplyPreviewGrade(c, sbeFraming(c));
+  // The grade goes on with the picture it belongs to: here for a still or a
+  // slug, at the swap for a video (sbeStageVideo), never early onto the
+  // outgoing frame.
+  if (kind !== 'video') sbeApplyPreviewGrade(c, sbeFraming(c));
   if (kind === 'slug') {
     // NO FILE, SO NOTHING TO LOAD. Both layers off leaves the stage's own
     // black, which is the frame the render will write — the one case where the
     // preview is not an approximation at all.
-    v.classList.remove('is-on');
+    sbeVidsOff(false);
     if (img) img.classList.remove('is-on');
     sbeProgInfo('black · ' + sbeLen(c).toFixed(2) + 's', '');
     sbePaintTrack();
@@ -11609,7 +12052,7 @@ async function sbeShowFrameAt(t) {
     // An <img> cannot land on the wrong frame and cannot be slow to seek, so
     // a still never reaches the missing-proxy path the badge exists to warn
     // about. Swap the src only when it changed — reassigning it re-decodes.
-    v.classList.remove('is-on');
+    sbeVidsOff(false);
     if (img) {
       const url = sbeClipUrl(c);
       if (img.getAttribute('src') !== url) img.src = url;
@@ -11620,12 +12063,13 @@ async function sbeShowFrameAt(t) {
     sbePaintTrack();
     return;
   }
+  // The still (if one was up) stays on until the video has a frame to show.
+  const shown = await sbeStageVideo(c, sbeNum(c.start) + (t - sbeNum(c.film_start)) * sbeSpeed(c));
+  if (!shown) return;                 // a later scrub owns the stage now
+  shown.classList.add('is-on');
   if (img) img.classList.remove('is-on');
-  await sbeLoadInto(v, c, sbeNum(c.start) + (t - sbeNum(c.film_start)) * sbeSpeed(c));
-  v.classList.add('is-on');
-  sbeProgInfo((c.title || c.path.split('/').pop()) + ' · ' + sbeNum(c.start).toFixed(2) + '–' +
-              sbeNum(c.end).toFixed(2) + (c.proxy ? '' : ' · source'),
-              c.proxy ? '' : 'SOURCE — slow to seek. Run Prepare (A2 head ▾) for proxies.');
+  sbeApplyPreviewGrade(c, sbeFraming(c));
+  sbeProgInfoVideo(c);
   // A SCRUB SHOWS THE TRUE OPACITY at the second it landed on, which is the
   // only way a fade can be judged without playing the whole clip.
   sbeFadePaint(t);
@@ -12789,8 +13233,17 @@ function sbeSetMute(on, note, remember) {
   if (remember !== false) {
     try { localStorage.setItem('sbeMuted', SBE.muted ? '1' : '0'); } catch (e) {}
   }
-  const v = sbeEl('sbeVideo');
-  if (v) { v.muted = SBE.muted; v.volume = 1; }
+  // The LIVE picture follows the same rule sbeLoadInto applies: a clip whose
+  // sound is off, or played by the strip, stays muted under an unmute. The
+  // spare is paused; sbeStageVideo sets its mute for its own clip at the swap.
+  {
+    const live = sbeVid();
+    const cur = sbeById(SBE.clips || [], SBE.curId);
+    for (const v of sbeVids()) {
+      v.muted = SBE.muted || (v === live && cur ? !sbePictureCarriesSound(cur) : v !== live);
+      v.volume = 1;
+    }
+  }
   // ONE OPINION ABOUT SOUND, across both monitors. A source screen with its
   // own mute would be a second source of truth for the exact state this
   // switch exists to keep single.
@@ -12832,7 +13285,7 @@ function sbeSetMute(on, note, remember) {
 function sbeUnmuteFromRefusal() {
   SBE.muteToasted = false;
   sbeSetMute(false);
-  if (SBE.playing) { const v = sbeEl('sbeVideo'); if (v) { try { v.play(); } catch (e) {} } }
+  if (SBE.playing) { const v = sbeVid(); if (v) { try { v.play(); } catch (e) {} } }
   sbeMusicPlay();
 }
 
@@ -12840,20 +13293,34 @@ function sbeUnmuteFromRefusal() {
 // seeks and plays; the other two only decide which layer is lit, because
 // there is nothing to decode, nothing to seek, and no clock to start.
 async function sbeEnter(c, at) {
-  const v = sbeEl('sbeVideo');
   const img = sbeEl('sbeStill');
-  sbeApplyPreviewGrade(c, sbeFraming(c));
   const kind = sbeKind(c);
   if (kind === 'video') {
-    if (img) img.classList.remove('is-on');
-    await sbeLoadInto(v, c, (at === undefined || at === null) ? sbeNum(c.start) : sbeNum(at));
+    // THE CUT. The incoming clip goes on the stage through the spare (already
+    // loaded by sbePreloadNext when the cut was reached by playing into it),
+    // so the outgoing picture holds until the incoming one is there to replace
+    // it — never the element's own black in between.
+    // Null means another caller changed the stage while this cut waited for
+    // its frame (a repaint during the hold); the transport still has to run,
+    // so it plays whatever is now live rather than stalling on a paused one.
+    const v = (await sbeStageVideo(c, (at === undefined || at === null) ? sbeNum(c.start) : sbeNum(at), true))
+              || sbeVid();
+    if (!v) return;
     v.classList.add('is-on');
+    if (img) img.classList.remove('is-on');
+    sbeApplyPreviewGrade(c, sbeFraming(c));
+    sbeProgInfoVideo(c);
     try { v.playbackRate = sbeSpeed(c); } catch (e) {}
     try { await v.play(); } catch (e) {}
+    sbePreloadNext(c);
     return;
   }
-  try { v.pause(); } catch (e) {}
-  v.classList.remove('is-on');
+  sbeApplyPreviewGrade(c, sbeFraming(c));
+  sbeVidsOff();
+  sbePreloadNext(c);
+  sbeProgInfo(kind === 'still'
+    ? (c.title || String(c.path || '').split('/').pop()) + ' · still · ' + sbeLen(c).toFixed(2) + 's'
+    : 'black · ' + sbeLen(c).toFixed(2) + 's', '');
   if (img) {
     if (kind === 'still' && c.path) {
       const url = sbeClipUrl(c);
@@ -12874,14 +13341,16 @@ async function sbePlay() {
   SBE.lastTs = 0;
   sbePaintChrome();
   if (!sbeClipAt(SBE.clips, SBE.playhead)) SBE.playhead = sbeNum(c.film_start);
-  const v = sbeEl('sbeVideo');
   SBE.curId = c.id;
   if (sbeKind(c) === 'video') {
     // ENTERING MID-CLIP: film seconds into the slot are `speed` source
     // seconds into the take — the review caught a 2x clip re-seeking on
     // every frame because this seek landed at the 1x position.
-    await sbeLoadInto(v, c, sbeNum(c.start) + (SBE.playhead - sbeNum(c.film_start)) * sbeSpeed(c));
+    const v = (await sbeStageVideo(c, sbeNum(c.start) + (SBE.playhead - sbeNum(c.film_start)) * sbeSpeed(c), true))
+              || sbeVid();
     v.classList.add('is-on');
+    const img = sbeEl('sbeStill');
+    if (img) img.classList.remove('is-on');
     try { v.playbackRate = sbeSpeed(c); } catch (e) {}
     try {
       await v.play();
@@ -12900,6 +13369,7 @@ async function sbePlay() {
       }
     }
     sbeApplyPreviewGrade(c, sbeFraming(c));
+    sbePreloadNext(c);
   } else {
     await sbeEnter(c);
   }
@@ -12912,8 +13382,7 @@ function sbeStop() {
   SBE.playing = false;
   SBE.lastTs = 0;
   if (SBE.raf) { cancelAnimationFrame(SBE.raf); SBE.raf = 0; }
-  const v = sbeEl('sbeVideo');
-  if (v) { try { v.pause(); } catch (e) {} }
+  for (const v of sbeVids()) { try { v.pause(); } catch (e) {} }
   sbeMusicStop();
   sbeStripStop();
   if (SBE.open) sbePaintChrome();
@@ -12921,7 +13390,7 @@ function sbeStop() {
 
 async function sbeFrame() {
   if (!SBE.playing) return;
-  const v = sbeEl('sbeVideo');
+  const v = sbeVid();
   // THE WALL CLOCK, for the clips that do not carry one. A still and a slug
   // have no <video> whose currentTime the playhead can be read off, so without
   // this the transport froze the instant a film reached its first black.
@@ -12960,14 +13429,35 @@ async function sbeFrame() {
       const wantV = sbeNum(c.start) + Math.max(0, songT - sbeNum(c.film_start)) * sbeSpeed(c);
       const drift = wantV - v.currentTime;
       const oneFrame = 1 / sbeFps();
+      // A CLIP THAT HAS JUST COME ON is allowed one seek at two frames: the
+      // hold at the cut leaves it exactly that far behind the score, and a
+      // seek in the first instant of a shot is invisible, where a rate ramp
+      // would play the whole shot late (a 2 % ramp needs 5 s to close a
+      // tenth of a second, longer than most shots are).
+      const fresh = SBE.chaseId !== c.id;
+      if (fresh) SBE.chaseId = c.id;
+      // A SEEK TAKES TIME, and the score does not wait for it: landing on
+      // where the score WAS leaves the picture behind by the seek's own
+      // latency. `seekLead` is that latency, learned from the residual the
+      // last seek left (half-step average, 0-0.4 s), and the next seek aims
+      // that far ahead.
+      if (SBE.chaseLearn === c.id && !v.seeking && !v.paused) {
+        SBE.chaseLearn = null;
+        SBE.seekLead = Math.max(0, Math.min(0.4, sbeNum(SBE.seekLead, 0) + 0.5 * drift));
+      }
       try {
-        if (Math.abs(drift) >= 0.5) {
+        if (Math.abs(drift) >= 0.5 || (fresh && Math.abs(drift) > 2 * oneFrame)) {
           // Bigger than a rate ramp should ever have to close (a scrub, a
           // stall, the clip that just loaded) — a seek is honest here.
-          v.currentTime = wantV;
+          const lead = drift > 0 ? sbeNum(SBE.seekLead, 0) : 0;
+          v.currentTime = Math.min(sbeNum(c.end) - 1e-3, wantV + lead);
           v.playbackRate = sbeSpeed(c);
+          SBE.chaseLearn = c.id;
         } else if (Math.abs(drift) > oneFrame) {
-          v.playbackRate = sbeSpeed(c) * (drift > 0 ? 1.02 : 0.98);
+          // PROPORTIONAL, capped at 5 %: pitch is preserved, so the ramp is
+          // a hair of tempo on the clip's own sound, never a pitch bend.
+          const k = Math.max(0.02, Math.min(0.05, Math.abs(drift) * 0.5));
+          v.playbackRate = sbeSpeed(c) * (drift > 0 ? 1 + k : 1 - k);
         } else {
           v.playbackRate = sbeSpeed(c);
         }
@@ -12991,7 +13481,7 @@ async function sbeFrame() {
   } else {
     // A hole: the picture goes black and the clock keeps running, which is
     // exactly what the render will do if the gap is ever filled.
-    v.classList.remove('is-on');
+    for (const el of sbeVids()) el.classList.remove('is-on');
     const img = sbeEl('sbeStill');
     if (img) img.classList.remove('is-on');
     const nxt = SBE.clips.find(x => sbeNum(x.film_start) > SBE.playhead);
@@ -13055,11 +13545,25 @@ function sbeMusicAt(t) {
 // (`audio_start_time`), so the song's own position is the ground truth for
 // where every clip's mouth SHOULD be — and it is the one clock in this page
 // a browser does not stall, seek or decode-jitter the way a <video> can.
-// Only while there is a song actually playing under everything: a board
-// with no soundtrack, or the "Under" mode where clips keep their own sound,
-// has no such ground truth and the picture stays the clock it always was.
+//
+// ...AND IN UNDER MODE TOO (2 Nov), for the second half of that reason. The
+// rule used to be Replace only, on the grounds that a film whose clips keep
+// their own sound has no musical ground truth. It does not need one: what it
+// needs is a clock that keeps running across a cut, and the picture is not
+// that clock. Every cut holds the transport while the next clip loads, so a
+// picture-driven playhead lost the length of that hold at every cut while the
+// score played straight on — then `sbeMusicSync` yanked the score back once
+// the gap passed its quarter-second tolerance. Measured on SUNDAY MASS (17
+// shots, clip sound under a score) in WebKit: 9 jumps of the score in one
+// play-through, the score up to 0.83 s away from the picture, which is what
+// "there are problems with the sound... it's not the same as the version you
+// have" was. The render has no such hold: its film clock is continuous, which
+// is the score's clock. So whenever a soundtrack is actually playing, it
+// drives the playhead and the picture (with its own sound) chases it.
+// A film with no soundtrack, or a stretch the bed does not cover, keeps the
+// picture as its clock — `sbeSongPlayhead` returns null there.
 function sbeMusicMaster() {
-  return !!(SBE.audio && SBE.audio.mode === 'replace' && SBE.musicOk
+  return !!(SBE.audio && SBE.audio.path && SBE.musicOk
             && SBE.musicEl && !SBE.musicEl.paused);
 }
 // The inverse of `sbeMusicAt`: the film second the song's own `currentTime`
@@ -13079,6 +13583,7 @@ function sbeMusicPlay() {
   const a = SBE.musicEl;
   if (!a || !SBE.musicOk) return;
   const at = sbeMusicAt(SBE.playhead);
+  sbeMusicLevelSync();
   try {
     if (at === null) { a.pause(); return; }
     a.currentTime = at;
@@ -13102,16 +13607,36 @@ function sbeMusicSync() {
   //
   // ON THE BED'S OWN CLOCK, which is the played window and not the track: the
   // playhead less the film second the music starts at.
-  const bw = sbeMusicWindow(SBE.audio, SBE.peaks ? SBE.peaks.duration : 0);
-  a.volume = sbeBedGainAt(SBE.audio || {}, SBE.clips,
-                          sbeFilmDuration(SBE.clips),
-                          SBE.playhead - bw.film_start);
+  sbeMusicLevelSync();
   try {
     if (a.paused) a.play().catch(() => {});
-    if (Math.abs(a.currentTime - want) > 0.25) a.currentTime = want;
+    // THE MASTER IS NOT CORRECTED BY ITS FOLLOWER. While the score drives
+    // the playhead, the only gap between them is the hold at a cut (the
+    // playhead parked on the next clip's first second while it loads) — and
+    // pulling the score back across that gap is the audible jump this rule
+    // removed. However long the hold (a slow machine, a cold proxy), the
+    // score plays on and the picture catches up to it. A real move while
+    // playing (a marker click) re-seeks the score in `sbeSeek`.
+    if (!sbeMusicMaster() && Math.abs(a.currentTime - want) > 0.25) a.currentTime = want;
   } catch (e) {}
 }
 function sbeMusicStop() { const a = SBE.musicEl; if (a) { try { a.pause(); } catch (e) {} } }
+
+// THE BED'S LEVEL, EVERY FRAME. It used to be set only in `sbeMusicSync`,
+// which runs at the cuts — so the first shot played the score at the
+// element's default 1.0 whatever its fader said (SUNDAY MASS, 2 Nov: the
+// score at 0.6 under the clips came in at full level for the opening three
+// seconds), and a fade or keyframe on the bed between two cuts was never
+// heard. Same curve as the render's `volume` and the level line.
+function sbeMusicLevelSync() {
+  const a = SBE.musicEl;
+  if (!a || !SBE.musicOk) return;
+  const bw = sbeMusicWindow(SBE.audio, SBE.peaks ? SBE.peaks.duration : 0);
+  const g = sbeBedGainAt(SBE.audio || {}, SBE.clips, sbeFilmDuration(SBE.clips),
+                         SBE.playhead - bw.film_start);
+  const want = Math.max(0, Math.min(1, sbeNum(g, 1)));
+  try { if (Math.abs(a.volume - want) > 1e-3) a.volume = want; } catch (e) {}
+}
 
 // ---- THE STRIP PLAYER ---------------------------------------------------
 // A POOL, NOT AN ELEMENT. The music bed is one track and one <audio>; clip
@@ -13203,6 +13728,29 @@ function sbeStripSync(force) {
       else if (!a.paused) a.pause();
     } catch (e) {}
   }
+  sbePictureGainSync();
+  sbeMusicLevelSync();
+}
+
+// THE PICTURE'S OWN SOUND GETS ITS ENVELOPE TOO. A linked clip is heard
+// through the picture element, and that element was held at volume 1 — so a
+// clip's level line, its keyframes and its fades were in the render (the
+// clip lane's `volume` term) and in the export, and missing from the one
+// place the person cutting listens. An agent's cut that set clip sound at
+// 0.9 under the score played at 1.0 here and 0.9 in the file. Same curve,
+// same clock as the strip voices above: film seconds into the strip.
+// Runs wherever the strips are synced (every frame, every scrub).
+function sbePictureGainSync() {
+  // The picture element on screen. (With two stage videos this is the LIVE
+  // one — the black-flash fix's `sbeVid()`.)
+  const v = sbeVid();
+  if (!v) return;
+  const c = sbeClipAt(SBE.clips, SBE.playhead);
+  if (!c || !sbePictureCarriesSound(c)) return;
+  const win = sbeClipAudio(c);
+  const g = sbeGainAt(c, win.len, Math.max(0, SBE.playhead - win.film_start));
+  const want = Math.max(0, Math.min(1, sbeNum(g, 1)));
+  try { if (Math.abs(v.volume - want) > 1e-3) v.volume = want; } catch (e) {}
 }
 
 function sbeStripStop() {
@@ -13928,9 +14476,11 @@ function sbeDeliverGet() {
   return { format: SBE_DELIVER_FORMATS.indexOf(d.format) >= 0 ? d.format : 'h264',
            size: SBE_DELIVER_SIZES.indexOf(d.size) >= 0 ? d.size : 'native',
            finish: SBE_DELIVER_FINISH.indexOf(d.finish) >= 0 ? d.finish : 'none',
-           // FILM-28: off by default — a mix graded by ear is not something
-           // a render should quietly retarget without being asked.
-           loudnorm: !!d.loudnorm };
+           // MASTER LOUDNESS IS ON BY DEFAULT (2 Nov). Off, the editor's film
+           // came out 3-4 dB quieter than the agent's cut of the same film
+           // and ~8 dB quieter in the dialogue: every film made by hand
+           // sounded weak next to everything else. Unticking is remembered.
+           loudnorm: d.loudnorm !== false };
 }
 // FILM-14: unlike Deliver's format/size/finish (a client preference posted
 // with each render), the Film look rides IN THE DOCUMENT — `edit.settings`,
@@ -13974,12 +14524,14 @@ function sbeDeliverPaint() {
     const short = ({ h264: '', hevc: 'HEVC', prores: 'ProRes' })[d.format];
     const size = d.size === 'native' ? '' : (d.size === '2160p' ? '4K' : '1080p');
     const fin = d.finish === 'none' ? '' : (d.finish === 'heavy_grain' ? 'heavy grain' : 'grain');
-    const ln = d.loudnorm ? '-14 LUFS' : '';
+    // On is the default, so the button names only the exception.
+    const ln = d.loudnorm ? '' : 'no master';
     const tag = [short, size, fin, ln].filter(Boolean).join(' ');
     btn.textContent = tag ? ('Render · ' + tag) : 'Render';
     btn.title = 'Assemble the film as ' + ({ h264: 'H.264', hevc: 'HEVC', prores: 'ProRes 422 HQ' })[d.format]
       + (d.size === 'native' ? ', as cut' : (d.size === '2160p' ? ' at 4K' : ' at 1080p'))
-      + (d.loudnorm ? ', normalized to -14 LUFS' : '')
+      + (d.loudnorm ? ', mastered to -15 LUFS with a -2 dB peak limit'
+                    : ', without the loudness master')
       + '. Change it under the arrow.';
   }
 }
@@ -14035,7 +14587,7 @@ async function sbeRenderFilm() {
   fd.set('format', dl.format);
   fd.set('size', dl.size);
   fd.set('finish', dl.finish);
-  if (dl.loudnorm) fd.set('loudnorm', 'on');
+  fd.set('loudnorm', dl.loudnorm ? 'on' : 'off');
   // FILM-28: A JOB, NOT A BLOCKED REQUEST. The route used to hold the whole
   // fetch open until ffmpeg finished — no progress, and closing the tab (or
   // just impatience) had no way to say "stop". `edit/render/start` answers
@@ -14775,6 +15327,9 @@ function workflowSwitch(name) {
   const edTab = document.getElementById('edSectionTab');
   const osTab = document.getElementById('oneshotSectionTab');
   const characters = document.getElementById('charactersSection');  // dead HTML; hide defensively
+  const remoteTab = document.getElementById('remoteSection');
+  if (remoteTab) remoteTab.hidden = (name !== 'remote');
+  if (name !== 'remote' && typeof remoteTabLeave === 'function') { try { remoteTabLeave(); } catch (e) {} }
   // Set body data attribute so CSS can switch the layout per workflow.
   document.body.setAttribute('data-workflow', name);
   // All non-Manual panes start hidden; the active branch re-shows its own.
@@ -14827,6 +15382,10 @@ function workflowSwitch(name) {
     if (manual) manual.style.display = 'none';
     if (audioTab) audioTab.style.display = 'block';
     if (typeof audioStudioInit === 'function') audioStudioInit();
+  } else if (name === 'remote') {
+    // Remote Control: a page, not a tool. Its own file (webapp/js/remote.js).
+    if (manual) manual.style.display = 'none';
+    if (typeof remoteTabEnter === 'function') { try { remoteTabEnter(); } catch (e) { console.warn('remoteTabEnter failed', e); } }
   } else if (name === 'oneshot') {
     // One Shot: its own composer and its own API (webapp/js/oneshot.js,
     // POST /oneshot). A shot that never cuts is a different thing to make
@@ -14848,10 +15407,10 @@ function workflowSwitch(name) {
   // so leaving suspends it (player/outputs restored) and returning to
   // Images with Ideogram active brings it back with its boxes intact.
   if (typeof ideoSyncStage === 'function') ideoSyncStage();
-  // The engine switcher is a Video-form control (each ENGINES row names the
-  // `surfaces` it belongs to). Offering a render engine while the user is in
-  // Images or Train Character would be a choice that changes nothing, so the
-  // switcher and its divider fold away with the form they belong to.
+  // The Model picker re-draws for the surface just entered: each ENGINES row
+  // names the `surfaces` it belongs to (video, image, music), so Video lists
+  // the video models, Images the image models, Compose YuE2; a tab with no
+  // model choice (Train Character, Storyboard) folds it away.
   if (typeof renderEngineSwitch === 'function') {
     try { renderEngineSwitch(); } catch (e) {}
   }
@@ -14900,7 +15459,7 @@ Object.assign(globalThis, {
   sbeBedGainPoints, sbeBedGainAt, sbeMixWrite, sbeBedAfxWrite,
   sbeSetBedFade, sbeBedPointsWrite, sbeBedAddKeyframe, sbeBedMoveKeyframe,
   sbeBedDeleteKeyframe, sbeAfxWrite, sbeAddKeyframe, sbeMoveKeyframe,
-  sbeDeleteKeyframe, sbeDeleteStrip, sbeSetAudioFade, sbeOvKind,
+  sbeDeleteKeyframe, sbeDeleteStrip, sbeSetAudioFade, sbeOvKind, sbeOvLayerOf, sbeClipShortName,
   sbeOvAt, sbeOvById, sbeOvFits, sbeOvMove,
   sbeOvTrim, sbeOvAdd, sbeOvDelete, sbeStripOwned,
   // Editor v2: speed on the clip, titles on the overlay lane, transitions on

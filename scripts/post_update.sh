@@ -284,14 +284,8 @@ echo 'Installing/refreshing the mflux image-engine pack (Ideogram 4 + Qwen-Edit)
 # Idempotent — skips when its marker is present.
 "$PY" "$ROOT/patch_mflux_fbcache.py"
 
-# ---- 7b. Vocal separation for Lip-sync ("Listen to the voice only") ---------
-# After step 7 on purpose: demucs is installed with torch PINNED to the copy
-# the mflux pack just settled, so it can never move the image engine's torch.
-# Existing installs get it here — the Lip-sync form's voice-only box has been
-# ON by default since 4.15 and nothing installed the separator before 4.17.x.
-# BEST-EFFORT and idempotent: ready installs print "ready" in about a second.
-PHOSPHENE_SEPARATOR_VIA=update bash "$ROOT/scripts/pinokio/a2v_stems_deps.sh" "$ROOT/ltx-2-mlx" \
-  || echo 'WARN: vocal separation did not install - video is unaffected; the Lip-sync form offers Install.'
+# Vocal separation installs from the Lip-sync form when requested.
+# Updating the runtime must not fetch its weights on a model-free install.
 
 # ---- 8. Weight self-heal ----------------------------------------------------
 # Every fetch here is BEST-EFFORT. An Update must not be brickable, and each of
@@ -313,31 +307,9 @@ else
   echo 'LTX-2.3 is not installed — skipping its spatial-upscaler self-heal (install it from Settings → Models if you want to train a character).'
 fi
 
-# LTX-2.5, the DEFAULT generation (~28 GB). Anyone who installed before
-# 2026-08-12 has 2.3 weights only, and 2.5 is what the panel boots into — so
-# without this an Update leaves them on a default lane with nothing behind it.
-# Mirrored as GitHub release assets (our own quantisation of a gated upstream,
-# read-only HF token), hence the fetcher rather than `hf download`. It verifies
-# what it already has, so the steady state is a read pass.
-echo 'Ensuring the LTX-2.5 weights are present (default generation)…'
-defang "$PY" "$ROOT/scripts/fetch_pack_release.py" --repo-key q4_25 --repo-key gemma4_25 --repo-key tae \
-  || echo 'WARN: LTX-2.5 weight fetch failed — open the panel, go to Models, and click Download for the LTX 2.5 rows to retry. It resumes.'
-
-# The three IC-LoRAs the optional modes need. Colorize + Control are un-gated
-# originals; Ingredients comes from DeepBeepMeep/LTX-2, which mirrors the
-# BYTE-IDENTICAL gated file un-gated — and --include is CRITICAL there because
-# that repo is ~708 GB.
-echo 'Ensuring the Colorize IC-LoRA is present (restore mode, optional)…'
-defang "$HF" download DoctorDiffusion/LTX-2.3-IC-LoRA-Colorizer --local-dir "$ROOT/mlx_models/loras/ic" --include 'LTX-2.3-22b-IC-LoRA-Colorizer-0.9.safetensors' \
-  || echo 'WARN: Colorize IC-LoRA fetch failed — the Colorize mode will fetch it on first use, or click Repair.'
-
-echo 'Ensuring the Ingredients IC-LoRA is present (multi-reference mode, optional)…'
-defang "$HF" download DeepBeepMeep/LTX-2 --local-dir "$ROOT/mlx_models/loras/ic" --include 'ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors' \
-  || echo 'WARN: Ingredients IC-LoRA fetch failed — the Ingredients mode will fetch it on first use, or click Repair.'
-
-echo 'Ensuring the Control IC-LoRA is present (Union, control mode, optional)…'
-defang "$HF" download Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control --local-dir "$ROOT/mlx_models/loras/ic" --include 'ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors' \
-  || echo 'WARN: Control IC-LoRA fetch failed — the Control mode will fetch it on first use, or click Repair.'
+# Models are installed on request in the panel. Updating code must not turn
+# a model-free install into a 30 GB download, or install optional adapters.
+echo 'Choose new model downloads inside Phosphene.'
 
 # ---- 8b. H3 compact (Q8) engine — the memory-halving default (optional) ----
 # v4.8.0 made the Q8 DiT H3's AUTO default on every machine, but installs made

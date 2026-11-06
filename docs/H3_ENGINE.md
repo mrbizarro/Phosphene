@@ -486,6 +486,19 @@ Both digests are checked; a corrupt or partial build is deleted, never
 renamed into place. `test_h3_v13.py` pins script↔panel parity, the re-layout
 against an independent reference, the job rules, the argv and the prices.
 
+### H3 Flex Turbo: the four-step Flex (5.0, Pro, preview)
+
+akhaliq/Pika-H3-Flex-Turbo-LoRA @ dcacd93, file `pika_h3_flex_turbo_4step_fl2va_lite_r32.safetensors`
+(sha256 7c60a2ff..., 310,189,392 bytes), saved as `pika-h3-flex/pika_h3_flex_turbo4_fl2va_lite_r32.safetensors`
+and run as published: `--sampler euler --sigma-knots 1000,750,500,250,0 --steps 5 --video-shift 6
+--audio-shift 3 --lora <file>:1.0 --lora-qkv-permute --lora-fc1-swap` (the runner re-orders the fused
+diffusers-layout q/k/v and fc1 halves at load). Needs no Flex adapter and no engine change beyond the 5.0
+pin (`phosphene/v5.0`, which has every flag). Panel: `H3_FLEX_TURBO_*`, `h3_flex_turbo_status()` in
+`/status` as `h3.flex_turbo`, `h3_flex_turbo=1` in make_job (rides every Flex gate), `POST
+/h3/flex-turbo/install` (402 without Pro), picker entry `h3flexturbo`, timing lane `flex_turbo`.
+Pro gate: `h3_flex_turbo_allowed()` (Pro ledger row `h3-flex-turbo`). Measured (R&D Lab L4, M4 Max 64 GB,
+Q8 DiT): High 1024x576 5 s 613-712 s vs Flex 928-1003 s on the same seeds; Draft 5 s 213 s.
+
 ### Pika H3 Flex: Pika Labs' six-step H3, natively on Apple Silicon (2026-10-30)
 
 **Pika H3 Flex running natively on Apple Silicon (MLX) — the first Mac port we know of.**
@@ -645,6 +658,86 @@ The 3-step finish redraws the face and costs as much as High Fast, so Fast HD us
 auto:5`): 489 s, ArcFace 0.892 (min 0.814), visible expression change at the same seed —
 not adopted; the flag stays in the runner for research only.
 
+
+### Clean up sound (5.0): re-make a Fast render's sound
+
+Fast's sound comes from the same pass as its picture, with the 3-step adapter
+on. Measured against Best on the same prompt and seed it is low-heavy and dull:
+on a Mr Bizarro speech clip 55% of its energy sits under 300 Hz (Best: 8%), its
+spectral centroid is 552 Hz (Best: 1051 Hz); on a forge clip the anvil's ring
+(2-6 kHz) is 20% of the energy against 49% when the sound is re-made, and the
+two stereo channels agree less (L/R correlation 0.85 vs 0.93). This matches
+the third-party report about turbo-adapter sound (harsh, thin, echo-like),
+though on our TaoMate adapter "muddy" is the better word.
+
+**Clean up sound** (a checkbox under Speed, only with Fast) passes
+`--revoice-steps 9 --revoice-drop <the Fast adapter>`. After the picture is
+denoised the runner sets the Fast adapter's LoRA entries to 0 (a character
+LoRA stays on, so a trained voice keeps its voice), holds the finished picture
+clean (t = 1) and the text rows at t = 0, and denoises only the audio rows from
+fresh noise over a 9-point audio schedule. One full forward stores every
+block's keys/values for the rows that never change (int8, one scale and bias
+per 128-wide head vector); the 8 audio steps then run the audio rows alone
+against that store.
+
+| Standard 5 s, M4 Max, Q8 | Fast | Fast + Clean up sound | Best |
+|---|---|---|---|
+| Wall clock (speech / song / forge) | 4.3 / 4.0 / 4.0 min | 5.6 / 5.2 / 5.2 min | 9.5 min |
+| Re-voice pass | - | 74-80 s (store forward 64 s, then ~1.8 s per audio step) | - |
+| Peak | 22.9 GiB | 32.7 GiB | 22.9 GiB |
+| Speech: energy < 300 Hz / centroid | 55% / 552 Hz | 8% / 978 Hz | 8% / 1051 Hz |
+| Speech transcript (whisper large-v3-turbo) | exact | exact | exact |
+| Word boundaries vs Fast | - | within 0.04 s | - |
+| Mouth-opening vs loudness correlation | 0.42 | 0.31 | 0.46 |
+
+Draft: store forward 43 s + 1.9 s per audio step (+56 s), peak +6.6 GiB. The
+store grows with the canvas (~0.74 MB per packed row): `h3_revoice_fits()`
+greys the box where the Fast peak plus the store does not fit the budget the
+runner is given (High on a 36 GB Mac). The exact path (`--revoice-kv off`,
+every step a full forward) gives the same spectral result; the store is not
+what moves the numbers. `--revoice-strength < 1` (start from Fast's own sound
+noised to that sigma) keeps more of Fast's low end; not used.
+
+Off by default (`H3_REVOICE_DEFAULT`): it costs ~30% of a Fast render, and the
+mouth/loudness correlation drops (0.42 -> 0.31 on the speech clip) even though
+the words land on the same frames. Proof clips `h3wk_cleansound_*` in the
+dev gallery play the same picture with Fast's sound, then the cleaned one.
+
+### Face to keep: a reference image on FL2VA (5.0)
+
+`--reference IMAGE [--reference-size N] [--ref-patch PATCH[:S]]` packs a still
+as MiniMax's ref2va image block on the FL2VA layout: its own canvas (2048 px
+short edge upstream; the panel uses 1024), its own aspect-normalised grid, one
+rotary slot before the target, conditioning noise from its own draw, and
+`<Picture n>` in the vision tower after any keyframes.
+
+In the panel: **Face to keep** (an optional picker above the prompt, H3 Text and
+Image only, `h3_reference` in the make_job allowlist). The panel passes
+`--reference <file> --reference-size 1024` and, unless the prompt already names
+a picture, appends "The person from <Picture n> is in this shot, with the same
+face, hair and facial hair." to the description (n = 2 when a first frame is
+Picture 1). The prompt the user typed is kept in the sidecar; `h3.reference`
+records the still that was packed.
+
+Identity, Standard Fast text-only cafe scene, two seeds, ArcFace against the
+Mr Bizarro still centroid with the reference photo itself excluded (PM hub report
+for every arm):
+
+| Arm | seed 5201 median (min) | seed 5202 median (min) | Time |
+|---|---|---|---|
+| Text only (description of the man) | 0.365 (0.339) | 0.352 (0.328) | 3.9-4.0 min |
+| + reference at 1024 | 0.709 (0.691) | 0.674 (0.660) | 5.0 min |
+| + reference + Ref Patch | 0.691 (0.663) | 0.617 (0.582) | 5.0-5.1 min |
+| Same photo as the first frame (composition locked to it) | 0.736 (0.711) | 0.702 (0.670) | 4.2-4.3 min |
+| Character LoRA (bizarrotrn) instead | 0.491 (0.448) | 0.582 (0.523) | 4.0 min |
+
+So the reference keeps a face about as well as using the photo as the first
+frame, while the scene, framing and wardrobe follow the prompt. The Ref Patch
+(lihaoyun6, Apache-2.0, 148 MB: ref2va-minus-fl2va differences of the
+input/output projections; its AdaLN weights target an 8-wide input this
+checkpoint does not have) did not help and is not used by the panel.
+RefMods (ComfyUI-MiniMaxH3Mod, MIT; weights Apache-2.0) are pre-encoded
+reference latents for the same slot; not imported.
 
 ### Export pass — the same post-process LTX renders get
 
@@ -877,7 +970,7 @@ plus a rank-128 adapter (208 modules, scale 1.0: proven tensor by tensor against
 five-tap Qwen3-VL-4B text encoder + connector and a new single-frame ViT image decoder.
 
 - Runner: `scripts/generate_image.py PROMPT -o OUT --root <models>/p-h3-image --dit <q8> --aspect A --mp 2|4|8 --seed N --metrics M`
-  (engine ref `phosphene/v4.19.19-image`, pin 4df59c7: the 4.19.15 engine plus only the image commits). Staged: text encoder out, then DiT + adapter,
+  (engine branch `image/p-h3-image`, pin 63893b3 on ref `phosphene/v5.0-image2`). Staged: text encoder out, then DiT + adapter,
   then the decoder (tiled, 16x16 tokens).
 - Adapter layout: qkv rows permuted to our per-head layout, fc1 as published (NOT `--lora-fc1-swap`, unlike Flex). The load logs
   `208 applied, 0 skipped`.
@@ -885,8 +978,8 @@ five-tap Qwen3-VL-4B text encoder + connector and a new single-frame ViT image d
   beside them, the decoder converted locally (renames + re-fused tensors, values unchanged, MODIFICATION_NOTICE in its metadata)
   and checked against `DECODER_SHA256` 0415dda9; the 5.6 GB original is deleted after and never fetched again.
 - Studio: `image_engine.kind = "ph3image"`, engines `ph3image_draft_inline` / `ph3image_standard_inline` / `ph3image_inline`
-  (2 / 4 / 8 MP), `POST /image/ph3image/install` (H3 licence gate), `/status` block `ph3image`.
-- Measured, M4 Max 64 GB: 2 MP 75 s, 4 MP 146 s (15.4 s/step),
+  (2 / 4 / 8 MP), `POST /image/ph3image/install` (H3 licence gate), `/status` block `ph3image`, capability row `images.p_h3_image`.
+- Measured, M4 Max 64 GB (ports/p-h3-image-pruna/bench/RESULT.md in the PM hub): 2 MP 75 s, 4 MP 146 s (15.4 s/step),
   8 MP 312 s; peak 24.2 / 24.7 / 25.5 GB. Real-weight parity vs Pruna's code: text taps cos >= 0.99994, connector 1.000,
   decoder fp32 126.8 dB.
 - Not ported: edit mode (1-8 reference images; needs the VAE encoder mapping and the vision tower), the 19 GB prompt rewriter.

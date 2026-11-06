@@ -224,6 +224,11 @@ def _append_to_description(prompt: str, sentences: list[str]) -> str:
     return body + (trail if rest else "") + rest
 
 
+def append_to_description(prompt: str, sentences: list[str]) -> str:
+    """Public form of the description-field append (reference images use it)."""
+    return _append_to_description(prompt, sentences)
+
+
 def apply_guards(prompt: str, mode: str = "t2v",
                  enabled=DEFAULT_GUARDS) -> tuple[str, list[str]]:
     """``(guarded prompt, guards applied)``. ``enabled`` limits which guards

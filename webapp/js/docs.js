@@ -29,10 +29,12 @@ const DOCS_SECTIONS = [
   { id: 'storyboard', title: 'Storyboard', group: 'Make', file: 'storyboard.md' },
   { id: 'audio', title: 'Audio', group: 'Make', file: 'audio.md' },
   { id: 'music', title: 'Music Studio', group: 'Make', file: 'music.md' },
+  { id: 'speech', title: 'Speech', group: 'Make', file: 'speech.md' },
   { id: 'editor', title: 'Editor', group: 'Cut', file: 'editor.md' },
   { id: 'train-character', title: 'Train Character', group: 'Characters', file: 'train-character.md' },
   { id: 'loras', title: 'LoRAs', group: 'Characters', file: 'loras.md' },
   { id: 'settings', title: 'Settings', group: 'Reference', file: 'settings.md' },
+  { id: 'bench', title: 'Phosphene Bench', group: 'Reference', file: 'bench.md' },
   { id: 'shortcuts', title: 'Keyboard shortcuts', group: 'Reference', file: 'shortcuts.md' },
   { id: 'buttons', title: 'Buttons and icons', group: 'Reference', file: 'buttons.md' },
   { id: 'troubleshooting', title: 'Troubleshooting', group: 'Reference', file: 'troubleshooting.md' },
@@ -418,7 +420,32 @@ function docsParseHash(h) {
   return m ? { section: m[1] || '', anchor: m[2] || '' } : null;
 }
 
-async function openDocs(section, anchor) {
+// THE DOCS LIVE ON THE WEBSITE (owner, 1 Nov 2026): every Docs entry point —
+// the header button, the "?" shortcut, a toast's "Learn more", a #docs/ link —
+// opens the matching page of https://phosphene.video/docs in the real browser,
+// deep-linked to the same heading (the site renders these same pages from
+// webapp/docs/*.md, so the anchors match). A page the site does not carry
+// (Bench) lands on the docs home. The in-panel reader below stays only as
+// docsOpenView: nothing links to it, but the Markdown stays the site's source.
+const DOCS_SITE = 'https://phosphene.video/docs/';
+const DOCS_NOT_ON_SITE = ['bench'];
+
+function docsSiteUrl(section, anchor) {
+  const s = String(section || '');
+  if (!/^[\w-]+$/.test(s) || DOCS_NOT_ON_SITE.includes(s)
+      || !DOCS_SECTIONS.some(x => x.id === s)) return DOCS_SITE;
+  const a = String(anchor || '');
+  return DOCS_SITE + s + '/' + (/^[\w-]+$/.test(a) ? '#' + a : '');
+}
+
+function openDocs(section, anchor) {
+  const url = docsSiteUrl(section, anchor);
+  if (typeof openExternal === 'function') openExternal(url);
+  else { try { window.open(url, '_blank', 'noopener'); } catch (e) {} }
+  return false;
+}
+
+async function docsOpenView(section, anchor) {
   const view = docsEl('docsView');
   if (!view) return;
   const wasOpen = view.classList.contains('show');
@@ -514,18 +541,20 @@ function closeDocs() {
   }
   // A #docs/... link anywhere in the panel — an error message, a tooltip's
   // "read more", a pasted URL — opens the Docs there.
-  if (typeof window.addEventListener === 'function') {
-    window.addEventListener('hashchange', () => {
-      const p = docsParseHash(location.hash);
-      if (p) openDocs(p.section, p.anchor);
-    });
-  }
-  const p = (typeof location !== 'undefined') ? docsParseHash(location.hash) : null;
-  if (p) openDocs(p.section, p.anchor);
+  // A #docs/... link anywhere in the panel opens that page on the website;
+  // the hash is cleared so the same link works again next time.
+  const docsFromHash = () => {
+    const p = (typeof location !== 'undefined') ? docsParseHash(location.hash) : null;
+    if (!p) return;
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+    openDocs(p.section, p.anchor);
+  };
+  if (typeof window.addEventListener === 'function') window.addEventListener('hashchange', docsFromHash);
+  docsFromHash();
 })();
 
 // ---- published to the page -----------------------------------------------------
 Object.assign(globalThis, {
-  DOCS_SECTIONS, openDocs, closeDocs, docsRender, docsSlug, docsPlain,
+  DOCS_SECTIONS, openDocs, docsOpenView, docsSiteUrl, closeDocs, docsRender, docsSlug, docsPlain,
   docsSearch, docsBuildIndex, docsLoad, docsForDistribution,
 });

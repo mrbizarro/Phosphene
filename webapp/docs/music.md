@@ -6,7 +6,7 @@ Open **Audio → Compose** to use Music Studio. It creates complete songs on you
 
 The music engine is a separate download of about **11 GB**.
 
-- **What it needs:** an Apple Silicon Mac with **24 GB of memory or more**, and **14 GB free** on the drive where you store models.
+- **What it needs:** an Apple Silicon Mac with **16 GB of memory or more**, and **14 GB free** on the drive where you store models. On a 16 GB Mac, close other apps and browser tabs before you compose.
 - **How:** open **Audio → Compose**. The form stays greyed out until installation finishes. Click **Install music engine (YuE2, ~11 GB)** on the card, or click **Compose**, to start the download. The card shows your progress.
 - **Licence:** YuE2 shows a licence screen before download or first use; accept once per Mac unless the licence changes. The weights use CC BY-NC 4.0 (non-commercial use only), with permission for individual creators to sell songs they make; companies need a licence for the weights.
 [[pinokio]]
@@ -110,7 +110,7 @@ Click **Plan the video**. Planning is instant and free. It reads the beat, creat
 
   The median time is about 1.5 minutes on an M4 Max, 3 minutes on an M5 Pro, 5.5 minutes on an M1 Max and 6 minutes on an M4 Pro. Half of songs finish sooner than the median and half take longer. These times come from Phosphene's anonymous usage counts; see the [speed benchmarks](https://phosphene.video/benchmarks/).
 
-- **Memory.** With 8-bit selected, memory use peaks around 11 GB.
+- **Memory.** With 8-bit selected, memory use peaks around 11 GB while your song is written. On a 16 GB Mac, close other apps and browser tabs before you compose. We still recommend 24 GB or more for long songs while other apps are open.
 - **Takes.** Try two or three versions on **Draft**, then create the one you like on **Final**. If you already like a song's tune, use **New take** for another performance.
 - **Length.** Your lyrics determine the song's length. Short lyrics make a short song even with Max length set to 6 minutes.
 - **Your own voice.** You cannot train a voice in the panel. You can use voice add-ons made elsewhere through **Voice & style LoRA**.
@@ -120,12 +120,13 @@ Click **Plan the video**. Planning is instant and free. It reads the beat, creat
 | What you see | What to do |
 |---|---|
 | Compose stays greyed out | Installation is missing or unfinished. Click **Install music engine** on the card to start or resume it |
-| The install stops with a `FATAL error:` line | It names the cause: not enough memory (24 GB), not enough disk (14 GB free) or no connection to GitHub. See [When an install stops](#docs/install/fatal) |
+| The install stops with a `FATAL error:` line | It names the cause: not enough memory (16 GB), not enough disk (14 GB free) or no connection to GitHub. See [When an install stops](#docs/install/fatal) |
 [[pinokio]]
 | The engine says it's unavailable, but the model files are downloaded | Click **Repair the music engine** in Pinokio's sidebar. You do not need to download the model files again |
 [[/pinokio]]
 [[mac-app]]
 | The engine says it's unavailable, but the model files are downloaded | Open **Audio → Compose** and click **Repair music engine**. You do not need to download the model files again |
 [[/mac-app]]
+| *Music Studio stopped your song because your Mac was running low on memory* | Close other apps and browser tabs, then compose again. Nothing was saved for this song |
 | A song waits with *Waiting for the GPU* | Another task is using your Mac's graphics processor. Your song starts when that task finishes. Click **Stop** to cancel the wait |
 | A song was stopped | No partial song is saved. Click **Compose** to queue it again |

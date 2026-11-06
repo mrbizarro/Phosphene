@@ -120,6 +120,26 @@ On **High**, **Best** can use **lightx2v v1.3**, an adapter by LightX2V. In our 
 
 Powered by MiniMax H3. Pika H3 Flex by Pika Labs (Mellis, Inc.): the weights are a MiniMax H3 Model Derivative under the MiniMax H3 Community License; Pika's code is Apache-2.0. Phosphene converts the file on your Mac and marks it as modified. Mac weights are also on Hugging Face: [Mrbizarro/Pika-H3-Flex-MLX](https://huggingface.co/Mrbizarro/Pika-H3-Flex-MLX).
 
+## H3 Flex Turbo (faster draft, Pro) {#flex-turbo}
+
+**H3 Flex Turbo** is H3 Flex in four steps instead of six: a faster draft, about 1.4× quicker than H3 Flex at the same size and a little softer. It is part of **Phosphene Pro**. For the final render, use H3 Flex or Best.
+
+- **Pick it:** choose **H3 Flex Turbo** in the engine picker, right after H3 Flex. Without Pro, the click opens the Pro panel.
+- **Get it:** the same click downloads it (0.3 GB, from its author's Hugging Face page at a fixed version). You need Hailuo H3 installed; the H3 Flex adapter is not needed.
+- **What it makes:** Text and Image (first frame), with dialogue and sound, on every 5-second length, like H3 Flex.
+- **Times on an M4 Max, 64 GB, per 5 s:** Draft about 3.5 minutes, High about 10 to 12 minutes (H3 Flex: about 16 minutes on the same shots).
+- **Good to know:** pictures come out a little softer than H3 Flex, and very fast motion can wobble a little more. Faces and speech held in our tests.
+
+Powered by MiniMax H3. H3 Flex Turbo runs the Pika H3 Flex Turbo LoRA by akhaliq, which fuses Pika H3 Flex (Pika Labs) with LightX2V's MiniMax-H3 Turbo; the weights are a MiniMax H3 Model Derivative under the MiniMax H3 Community License. Phosphene downloads the published file unchanged.
+
+## Faster Hailuo H3 (Pro) {#faster-h3}
+
+**Faster Hailuo H3** is part of **Phosphene Pro**. Picture-to-video clips of 5, 10 and 15 seconds render about 1.15 to 1.23 times faster than on Free, with the same faces, motion, voice and joins in our tests. It needs Apple Silicon with 36 GB of memory or more.
+
+- **What you do:** nothing. Turn Pro on in Settings and render picture-to-video as usual.
+- **Not sped up:** text-to-video renders exactly as on Free, so Pro is never worse than Free.
+- **Measured on an M4 Max with 64 GB.** Other chips get a smaller gain, and Macs under 36 GB, and Intel Macs, use the Free path.
+
 ## How long it takes {#times}
 
 Each quality and length option shows an estimated time for your Mac, based on completed videos from similar Macs. The table shows median times from Phosphene's anonymous usage counts: half finished sooner and half took longer. A dash means there are too few completed videos to give a time.

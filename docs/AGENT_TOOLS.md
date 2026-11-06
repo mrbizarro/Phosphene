@@ -20,16 +20,12 @@ curl -s http://127.0.0.1:8198/agents/info | python3 -m json.tool   # see "agents
 python3 agents/phosphene_cli.py mcp-config                          # same, from the CLI
 ```
 
-On a normal Pinokio install (the app folder is `~/pinokio/api/phosphene.git`) that line is:
+Then, for example:
 
 ```bash
-claude mcp add phosphene -- ~/pinokio/api/phosphene.git/ltx-2-mlx/env/bin/python ~/pinokio/api/phosphene.git/agents/phosphene_mcp.py
-codex  mcp add phosphene -- ~/pinokio/api/phosphene.git/ltx-2-mlx/env/bin/python ~/pinokio/api/phosphene.git/agents/phosphene_mcp.py
+claude mcp add phosphene -- python3 /path/to/phosphene/agents/phosphene_mcp.py
+codex  mcp add phosphene -- python3 /path/to/phosphene/agents/phosphene_mcp.py
 ```
-
-If you installed Phosphene under another folder name, use the line `/agents/info` prints. Any
-`python3` 3.9 or newer works too; the line uses the studio's own Python so nothing else is needed.
-Phosphene has to be running (press Start in Pinokio) when the agent uses it.
 
 In the Mac app the studio code lives under `~/Library/Application Support/Phosphene/app/<version>/`;
 `/agents/info` gives the quoted path (it has a space in it).
@@ -76,7 +72,7 @@ The tools add no route and decide nothing. Every request is a request the page i
 (`/queue/add`, `/speech/generate`, `/upload`, `/status`, `/file`), so the studio applies the same checks:
 what this Mac can run, model licences (HTTP 451 until the person accepts), and what Free and Pro
 include. A form cannot carry a Pro speed profile into a job (`make_job` builds `params` from an
-allow-list). There is deliberately **no tool that accepts a model
+allow-list; `test_agent_tools.py` pins it). There is deliberately **no tool that accepts a model
 licence**: accepting on someone's behalf is accepting for them, so the person does it once in
 Phosphene.
 
@@ -84,7 +80,7 @@ Phosphene.
 
 ```jsonc
 {"app": "phosphene", "api": 1, "url": "http://127.0.0.1:8198", "port": 8198, "pid": 123,
- "version": "4.19.16", "distribution": "pinokio" | "mac-app", "edition": "free" | "pro", "profile": "production",
+ "version": "5.0.0", "distribution": "pinokio" | "mac-app", "edition": "free" | "pro", "profile": "production",
  "pro": {"active": false, ...},                       // GET /pro/status
  "engines": {"ltx": {"available": true, "qualities": [...]},
              "h3": {"available": false, "qualities": [...], "lengths": ["3s", "5s", "10s", "15s", ...]},
@@ -93,7 +89,4 @@ Phosphene.
  "agents": {"cli": "...", "mcp": "...", "python": "...", "mcp_config": {...}, "claude_code": "...", "codex": "..."}}
 ```
 
-Cheap (no disk walk), safe to poll.
-
-Speech (`phosphene_make_speech`, `phosphene speech`) needs a Phosphene with Audio > Speech; on a
-version without it the tool answers with a sentence saying so, and the other tools work as usual.
+Cheap (no disk walk), safe to poll. Tests: `test_agent_tools.py`.

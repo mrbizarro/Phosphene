@@ -61,7 +61,7 @@ function imgStudioUpdateValidity() {
     // someone who came here to make a FIRST picture from words (no photo
     // to drop yet), that's a dead end with no next step. Names the
     // engine that actually does this.
-    invalidReason = 'This engine composes against a photo — drop one into a slot above, or switch Engine (below) to "Ideogram 4" to make a picture from words alone.';
+    invalidReason = 'This engine composes against a photo — drop one into a slot above, or pick FLUX.2, FLUX 3 or Ideogram 4 in Model (top of the column) to make a picture from words alone.';
   }
   if (!invalidReason && flux3 && _IMG_HOST_RAM_GB < 32) {
     const aspect = (document.getElementById('imgStudioAspect') || {}).value || '';
@@ -350,6 +350,12 @@ async function imgStudioRefreshEngineStatus() {
   // it as soon as engine status comes back so the Generate button can
   // refuse upfront on a missing add-on (issue #12).
   if (typeof imgStudioUpdateValidity === 'function') imgStudioUpdateValidity();
+  // The top Model picker reads the same status (a model no version of which
+  // fits this Mac is dimmed there), and the memory fit above may have moved
+  // the pick to Auto: redraw it.
+  if (document.body.dataset.workflow === 'studio' && typeof renderEngineSwitch === 'function') {
+    try { renderEngineSwitch(); } catch (_) {}
+  }
 }
 
 // Open an external link reliably. A plain target="_blank" anchor does nothing

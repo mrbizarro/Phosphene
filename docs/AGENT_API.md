@@ -6,6 +6,8 @@ You describe a picture in plain terms: an overall **scene**, plus a list of **bo
 
 This complements the general [`docs/API.md`](API.md). The same panel process serves both.
 
+> **Also here: the Speech API** (`POST /speech/generate`, text to speech in preset or character voices) — see [Speech for agents](#speech-for-agents) at the end of this file.
+
 ## Server
 
 - **Base URL:** `http://127.0.0.1:8199`
@@ -168,3 +170,44 @@ To make an image, POST JSON to /image/agent with:
 
 Iterate cheaply with "validate_only": true — it returns the built caption plus warnings without rendering. When the layout looks right, POST again with "wait": true to render and receive image urls. Do NOT hand-write Ideogram's internal caption JSON — the server builds it from your scene+boxes. Max 6 text boxes.
 ```
+
+
+---
+
+## Speech for agents
+
+`POST /speech/generate` turns a script into a WAV — a preset voice with a delivery you describe, or a
+saved character's own voice — and hands back the file path, ready for lip-sync. Field reference:
+[`docs/API.md` → Speech](API.md#speech--text-to-speech-audio--speech).
+
+- **Install once.** `GET /speech/voices` → `status.available`. If false, `POST /speech/install`
+  (~6 GB, resumable) and poll `GET /status` → `speech_install.state` until `done`.
+- **Presets:** `voice` is one of `ryan`, `aiden` (native English), `serena`, `vivian`, `uncle_fu`,
+  `dylan`, `eric`, `ono_anna`, `sohee`. Steer the delivery with `style` (`natural`, `warm`, `excited`,
+  `deadpan`, `dramatic`, `whisper`, `sad`, `angry`) or your own words in `instruct`.
+- **A character's voice:** `character: "<id from GET /characters>"` plus `voice_consent: true`.
+  **The consent flag is the operator's statement that the voice is theirs or used with the speaker's
+  permission. Never set it on your own initiative and never use it to imitate a real person** — ask
+  the person you are working for. Without it the request is refused (400).
+- **Length:** ~2.8 words per second. One LTX lip-sync clip holds ~10 s, so keep a line for lip-sync
+  under ~25 words, or split it.
+
+```bash
+# A preset voice, blocking until the WAV is written
+curl -s -X POST http://127.0.0.1:8199/speech/generate -H 'Content-Type: application/json' \
+  -d '{"text":"Ladies and gentlemen, the render is complete.","voice":"aiden","style":"dramatic"}'
+# -> {"ok":true,"job_id":"…","path":"…/mlx_outputs/speech_…wav","url":"/file?path=…","audio_seconds":3.4,…}
+
+# A character's own voice (the operator confirmed it is theirs)
+curl -s -X POST http://127.0.0.1:8199/speech/generate -H 'Content-Type: application/json' \
+  -d '{"text":"I did not come here to be rendered.","character":"bizarrotrn","voice_consent":true}'
+
+# Then lip-sync it onto a face
+curl -s -X POST http://127.0.0.1:8199/queue/add \
+  --data-urlencode mode=a2v --data-urlencode "audio=<path from above>" \
+  --data-urlencode "image=<a picture of the face>" \
+  --data-urlencode "prompt=A man in a velvet tuxedo speaks to camera on a dim theatre stage"
+```
+
+Speech jobs share the panel's queue with everything else; a line takes seconds once the model is
+loaded, but it waits behind a running video render.

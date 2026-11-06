@@ -1,6 +1,6 @@
 # Video
 
-The Video tab turns a prompt — and, if you like, an image or a clip — into a video with sound. Pick a mode, write the prompt, choose Quality and Length, press **Generate** ([[sc:prompt.generate]] from the prompt box).
+The Video tab turns a prompt — and, if you like, an image or a clip — into a video with sound. Pick the model in **Model**, the first row of the column (it decides which modes and settings are on offer below it), then a mode, write the prompt, choose Quality and Length, press **Generate** ([[sc:prompt.generate]] from the prompt box).
 
 ## Modes {#modes}
 

@@ -45,7 +45,9 @@ scripts/public_leak_patterns.txt
 # Nothing at runtime imports them (a gate checks the snapshot boots).
 conftest.py
 test_*.py
+test_*.js
 scripts/test_*.py
+tests/test_*.py
 scripts/release_gates.sh
 #
 # Maintainer-only material: the release checklist, research notes, launch
@@ -67,3 +69,4 @@ QWEN.md
 .clinerules
 .cursorrules
 .windsurfrules
+docs/redesign/

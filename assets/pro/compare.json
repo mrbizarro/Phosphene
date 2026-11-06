@@ -1,0 +1,8 @@
+{
+  "note": "Same clip rendered twice on the same Mac: the Free path and the Pro speed profile. Measured, not projected.",
+  "machine": "M4 Max · 64 GB",
+  "items": [
+    {"id": "h3_5s", "engine": "h3", "title": "Hailuo H3 · High · i2v · 5 s", "video": "/assets/pro/compare_h3_5s.mp4", "poster": "/assets/pro/compare_h3_5s.jpg",
+     "free_s": 896.5, "pro_s": 601.9, "speedup": 1.49, "seed": 4101, "quality": "faces, motion, speech and sync reviewed equal (identity 0.868 vs 0.863)"}
+  ]
+}

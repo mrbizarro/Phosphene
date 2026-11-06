@@ -4,7 +4,7 @@ One continuous shot of **30 seconds to 2 minutes** that never cuts. You write th
 
 ## Making one {#make}
 
-1. Choose the **Engine**: **LTX 2.5** renders 10 s parts and is the one for faces, voices and dialogue; **Hailuo H3** renders 15 s parts and is the one for motion, landscapes and crowds.
+1. Choose the model in **Model**, at the top of the column: **LTX 2.5** renders 10 s parts and is the one for faces, voices and dialogue; **Hailuo H3** renders 15 s parts and is the one for motion, landscapes and crowds.
 2. Write **The shot** — who, where, the time of day and the weather, the sound — once, for the whole shot. This is the only thing required.
 3. Pick a **Length**: 30 s, 45 s, 1 min, 1½ min or 2 min. Each chip shows how many beats and parts it makes.
 4. Pick a **Quality**. The estimate line says about how long it takes on this Mac.

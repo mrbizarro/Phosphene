@@ -38,9 +38,45 @@ folder, so with hf_xet it moves as each large file lands.
 
 ## Memory, length and estimates
 
-The floor is **24 GB unified memory** (`MUSIC_MIN_RAM_GB`). Peaks
-measured 11.0 GB on this integration's runs (see below). Installation
-requires **14 GB free** on the weights volume; the pack occupies about
+The floor is **16 GB unified memory** (`MUSIC_MIN_RAM_GB`; 24 GB until
+4.19.12). Peaks measured 11.0 GB on this integration's runs (see below), and
+the engine sizes itself to the Mac: `yue2_run.default_budget_gib()` gives a
+12 GiB process-footprint budget on 16 GiB (the pinned engine refuses any
+budget above total − 4 GiB), and `lyra/measure.py` then sets MLX's advisory
+memory limit to budget − 5 = 7 GiB (MLX syncs and frees cache above it; it is
+not a hard cap) with a 128 MiB cache. The same floor is in `pinokio.js`
+(`musicCapable`), `scripts/pinokio/music_preflight.sh` and the install
+banner; `test_music_16gb.py` holds all of them to it.
+
+**How 16 GB was proved (4.19.12).** Real songs through the real panel under a
+simulated 16 GB Mac — a `sitecustomize` shim reports 16 GiB to the panel
+(`hostinfo`) and to the runner (`psutil`), so the engine runs with exactly the
+budget and MLX limits a 16 GB Mac gets, plus MLX's own 16 GB ceiling
+(`set_memory_limit(15.2 GB)`) — against the same songs and seeds on a 64 GB
+Mac: short, full-length, instrumental with the LoRA pack, and a cover.
+Every WAV came out **byte-identical** (sha256) to the 64 GB run:
+
+| Song (8-bit, Final) | Audio | 16 GB sim: MLX peak · process peak · wall | 64 GB: MLX peak · process peak · wall |
+|---|---|---|---|
+| short (60 s cap) | 60.0 s | 8.22 GiB · 9.23 GiB · 75 s | 10.48 GiB · 10.40 GiB · 65 s |
+| full, ended naturally | 161.3 s | 8.22 GiB · 9.26 GiB · 181 s | 10.48 GiB · 10.41 GiB · 161 s |
+| instrumental + LoRA pack | 60.0 s | 8.36 GiB · 9.36 GiB · 116 s | 10.61 GiB · 10.53 GiB · 106 s |
+| cover of the short song | 59.9 s | 8.22 GiB · 9.85 GiB · 65 s | 10.48 GiB · 11.02 GiB · 55 s |
+
+(Process peak = lifetime peak physical footprint.) The 7 GiB advisory limit
+makes MLX sync and drop cache more often: the MLX peak falls about 2.2 GiB,
+under a 16 GB Mac's ~10.7 GiB recommended GPU working set, for about 10 s
+more per song (the 16 GB runs went first, on a colder file cache, so part of
+that is load time). The guard saw no pressure warnings and ~32-35 GiB available
+here, which says nothing about a real 16 GB Mac.
+
+What a simulation on a big Mac cannot show is a real 16 GB Mac's free memory
+with a browser and other apps open. The runner's guard samples it and stops
+the song (exit 3) when less than 1.5 GiB is available or the system starts
+swapping; the panel then says so in words (`music_memory_guard_message`) and
+removes any half-written file.
+
+Installation requires **14 GB free** on the weights volume; the pack occupies about
 10.5 GB. Repairs verify existing files and need space only for missing bytes.
 
 Length follows the lyrics. **Max length** is a ceiling, not a requested song

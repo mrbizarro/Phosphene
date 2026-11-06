@@ -1,41 +1,11 @@
-// Phosphene install — idempotent.
-//
-// Pinokio will re-run this whenever the user clicks "Install" or "Resume
-// Install" (the latter fires when env_ready && !base_models_ready, see
-// pinokio.js). Every step below is safe to repeat:
-//
-//   - clone:       skipped if ltx-2-mlx/.git exists
-//   - venv:        reused when its interpreter actually runs; rebuilt when
-//                  it doesn't (self-healing — see that step's note)
-//   - uv pip:      idempotent (already-installed packages are no-ops)
-//   - patch:       patch_ltx_codec.py is idempotent + fails loud on drift
-//   - downloads:   resume partial files, skip intact ones
-//
-// 4.20 - START COMES FIRST. This script now downloads only what a first render
-// needs (~27.5 GB: required_files.json -> install.before_start) and then ends,
-// so Pinokio offers Start. Gemma 3 (Enhance + the Storyboard planner) and the
-// IC-LoRAs (~10.7 GB, install.after_start) are queued in
-// state/install_deferred.json and the PANEL downloads them in the background
-// after the first boot - resumable, one at a time, with progress in the panel.
-// Until 4.20 all ~38 GB came first, with no size, no time and no disk check,
-// and about 4 in 5 Pinokio install starts never reached a first boot.
-//
-// If the user's first install died after the venv was created but before
-// the model downloads, hitting Resume Install picks up exactly where it
-// left off without re-downloading the working pieces.
-//
-// IMPORTANT: we do NOT use Pinokio's `venv: "env"` directive to CREATE the
-// venv — that uses conda-base's Python (currently 3.10 on the macOS bundle)
-// which fails the ltx-core-mlx Python>=3.11 constraint. We force 3.11 with
-// `uv venv --python 3.11` and then use `--python env/bin/python` on every
-// pip step. The hf download steps still use `venv: "env"` for activation
-// only (sourcing the existing 3.11 venv to put `hf` on PATH).
-
+// Install the tested runtime first. Models are requested inside the app.
+// Engine pin: v0.14.19+ltx25.7, shared with Update in ltx_checkout.sh.
+// fs.link keeps models, outputs and settings across Reset. All steps resume.
 module.exports = {
-  // Pulls in `huggingface-cli`/`hf`, `ffmpeg`, `git`, `uv`, `python3.11` etc.
-  requires: { bundle: "ai" },
+  requires: {
+    bundle: "ai"
+  },
   run: [
-    // ---- Apple Silicon gate ------------------------------------------------
     {
       when: "{{platform !== 'darwin' || arch !== 'arm64'}}",
       method: "notify",
@@ -44,53 +14,21 @@ module.exports = {
       },
       next: null
     },
-
-    // ---- Persistent storage via fs.link (Y1.004+) -------------------------
-    // Pinokio's fs.link maps these directories to a virtual drive that
-    // lives OUTSIDE the panel install dir, so a Reset (which deletes
-    // and re-clones the install) leaves the heavy assets intact. After
-    // Reset → Install, fs.link re-creates the symlinks back into the
-    // fresh clone and the drive is rediscovered automatically.
-    //
-    // What's in the drive:
-    //   mlx_models/    LTX 2.3 weights (~36 GB), Gemma encoder, LoRAs
-    //   mlx_outputs/   generated videos
-    //   panel_uploads/ user-uploaded reference images
-    //   state/         panel_settings.json, panel_queue.json, panel_hidden.json
-    //
-    // What's NOT linked:
-    //   ltx-2-mlx/env/ — venv has historically been buggy under fs.link
-    //                    (Python-version-restricted, pip mismatches);
-    //                    rebuilds in ~5 min anyway. Models are the
-    //                    expensive thing to lose, not the venv.
-    //
-    // First-run merge: if real folders already exist with content (e.g.
-    // an upgrade from Y1.003-), fs.link merges them INTO the drive
-    // before replacing them with symlinks. Idempotent on repeat runs.
     {
       method: "fs.link",
       params: {
         drive: {
-          mlx_models:    "mlx_models",
-          mlx_outputs:   "mlx_outputs",
+          mlx_models: "mlx_models",
+          mlx_outputs: "mlx_outputs",
           panel_uploads: "panel_uploads",
-          state:         "state"
+          state: "state"
         }
       }
     },
-
-    // ---- Size, time and disk, BEFORE anything big (4.20) -------------------
-    // Say what is coming, then check the disk can hold it. The numbers in this
-    // notify are the install plan's own (install_plan.py over
-    // required_files.json -> install); test_install_deferred.py fails the
-    // build when they drift. The preflight runs after fs.link on purpose: it
-    // measures the drive mlx_models/ really lands on, which fs.link may have
-    // put on another volume. It stops the install (exit 1) only when the free
-    // space is KNOWN to be short, and says by how much.
     {
       method: "notify",
       params: {
-        html: "<b>Installing Phosphene.</b> About <b>27.5 GB</b> downloads before you can click Start: <b>~37 min at 100 Mbps</b>, ~12 min at 300 Mbps, ~4 min at 1 Gbps, plus a few minutes to set up Python. Needs about <b>32.5 GB free</b> - the next step checks.<br><br>After Start, <b>10.7 GB</b> more (what Enhance and the Storyboard planner run on, and the Upscale & Face Fix, Control, Ingredients and Colorize adapters) downloads in the background inside the panel while you work. Everything resumes if interrupted."
+        html: "<b>Installing Phosphene.</b> The app opens after Python and its engine packages are ready, usually in a few minutes. <b>No models download before Start.</b> Setup needs about <b>18.0 GB free</b>, including 15 GB kept free for your work.<br><br>Choose what to make inside the app. Each feature shows its model size before you download it. Interrupted downloads resume."
       }
     },
     {
@@ -99,43 +37,23 @@ module.exports = {
         message: "bash scripts/pinokio/install_preflight.sh"
       }
     },
-
-    // ---- Clone ltx-2-mlx (skip if already cloned) -------------------------
-    // Re-running install when the clone exists used to fail with
-    // "destination path 'ltx-2-mlx' already exists and is not an empty
-    // directory", aborting the whole install. Guard with `when:` so the
-    // step is a no-op on Resume Install.
     {
       when: "{{!exists('ltx-2-mlx/.git')}}",
       method: "shell.run",
       params: {
-        message: ["git clone https://github.com/dgrauet/ltx-2-mlx.git ltx-2-mlx"]
+        message: [
+          "git clone https://github.com/dgrauet/ltx-2-mlx.git ltx-2-mlx"
+        ]
       }
     },
-
-    // ---- STOP LOUDLY if that clone did not land ---------------------------
-    // Everything below this point assumes ltx-2-mlx/ exists: the version pin
-    // runs with `path: "ltx-2-mlx"`, the venv is built inside it, every pip
-    // step targets it. When the clone fails — no network, a VPN/proxy, GitHub
-    // unreachable, a full disk — none of those steps abort the run. Each one
-    // just spawns a shell into a directory that isn't there, prints nothing
-    // useful, and the install marches on for another dozen steps before dying
-    // for a reason that has long since scrolled off screen.
-    //
-    // That silence is what made the v3.5.0 restart loop unreadable: the
-    // console filled with anonymous "Starting Shell / Terminated Shell" pairs
-    // (Pinokio gives every command in a `message` array its own shell) and the
-    // single line that explained anything was thousands of lines up. Fail
-    // here, name the cause, and stop.
     {
       when: "{{!exists('ltx-2-mlx/.git')}}",
       method: "notify",
       params: {
-        html: "<b>Install stopped: the video engine could not be downloaded.</b><br>Phosphene needs to download <code>github.com/dgrauet/ltx-2-mlx</code> and that step did not finish.<br><br>This is almost always a network problem (no connection, a VPN or proxy, or GitHub blocked) or a full disk. Check your connection and free space, then click <b>Install</b> again — anything already downloaded is kept and will not be downloaded twice."
+        html: "<b>Install stopped: the video engine could not be downloaded.</b><br>Phosphene needs to download <code>github.com/dgrauet/ltx-2-mlx</code> and that step did not finish.<br><br>This is almost always a network problem (no connection, a VPN or proxy, or GitHub blocked) or a full disk. Check your connection and free space, then click <b>Install</b> again. Anything already downloaded is kept and will not be downloaded twice."
       },
       next: null
     },
-
     // ---- ltx-2-mlx version: PIN to v0.14.19 (2026-08-11 catch-up). dgrauet asked on
     //      2026-05-12 to lock onto a tag because he pushes breaking changes
     //      upstream to sync with the official Lightricks repo. Without a
@@ -245,24 +163,6 @@ module.exports = {
         message: "bash scripts/pinokio/ltx_checkout.sh"
       }
     },
-
-    // ---- Force Python 3.11 venv (SHIP-BLOCKER fix) ------------------------
-    // Pinokio's `venv: "env"` shortcut creates a venv using whatever python is
-    // on `conda activate base` — on machines where conda's base env is Python
-    // 3.10 (the current macOS bundle reality), that venv has no python3.11 and
-    // the MLX packages refuse to install ("ltx-core-mlx depends on
-    // Python>=3.11"). Worse, that error doesn't abort the install — Pinokio
-    // happily downloads 35 GB of weights into a broken venv. So we create the
-    // venv with `uv venv --python 3.11` before any pip step.
-    //
-    // 3.8.3 — THIS IS THE STEP THAT HUNG PINOKIO (#56, and #50 reopened).
-    // It was a "\n"-joined STRING, which kernel/shells.js launch() dispatches
-    // as ONE write to the pty: 1,417 chars, the exact number @davidaircloud
-    // measured on 3.8.0. Its source lines were all under 110 chars, so v3.6.2's
-    // per-line rule reported it clean — the rule was right, the measurement was
-    // wrong. The body (self-healing venv probe, macOS preflight, diagnostics,
-    // rebuild) now lives in scripts/pinokio/ltx_venv.sh with its full
-    // rationale. Gate: scripts/check_pinokio_scripts.js.
     {
       method: "shell.run",
       params: {
@@ -270,7 +170,6 @@ module.exports = {
         message: "bash ../scripts/pinokio/ltx_venv.sh"
       }
     },
-
     // ---- Install MLX pipeline packages into the 3.11 venv -----------------
     // `--python env/bin/python` pins the install to the venv we just made
     // (avoids any conda-base interference). uv pip install is idempotent —
@@ -382,50 +281,14 @@ module.exports = {
         message: "bash scripts/pinokio/ltx_engine_env.sh"
       }
     },
-
-    // ---- Apply patches (idempotent, fails loud on upstream drift) ---------
-    // Codec → yuv444p crf 0 (lossless), I2V OOM cleanup before VAE decode.
-    // Patch script exits non-zero if it can't find expected text — that
-    // surfaces upstream-restructure problems instead of silently shipping
-    // broken installs to users (deep-review recommendation).
-    //
-    // 4.20 - ...in a shell Pinokio actually obeys: Pinokio 8.2 ignores a step's
-    // exit code and stops only on /error:/i or /errno /i in its OUTPUT, and the
-    // patch's failure banner has neither. scripts/pinokio/must.sh runs the
-    // command unchanged and adds a "FATAL error:" line when it exits non-zero.
-    // (Every script this file dispatches does the same for its own refusals;
-    // scripts/check_pinokio_scripts.js fails the build for a call that cannot.)
     {
       method: "shell.run",
       params: {
-        message: ["bash scripts/pinokio/must.sh 'The video codec patch did not apply - click Install again; if it repeats, report the lines above' ./ltx-2-mlx/env/bin/python3.11 patch_ltx_codec.py"]
+        message: [
+          "bash scripts/pinokio/must.sh 'The video codec patch did not apply - click Install again; if it repeats, report the lines above' ./ltx-2-mlx/env/bin/python3.11 patch_ltx_codec.py"
+        ]
       }
     },
-
-    // ---- Sanity-import the pipeline packages (v2.0.2+) --------------------
-    // SHIP-BLOCKER guard: at least one user (KTDS, May 4) reported a
-    // "ModuleNotFoundError: No module named 'ltx_pipelines_mlx'" after a
-    // green Pinokio install — the upstream pip step had silently failed
-    // mid-install but the patch script's i2v target check tolerates a
-    // missing ltx_pipelines_mlx file (demotes MISSING → ALREADY for that
-    // specific patch), so the install reported success and the user only
-    // learned about the breakage when they clicked Generate.
-    //
-    // This step imports both packages explicitly. If either is missing
-    // the Python call exits non-zero, Pinokio marks the install step as
-    // failed, and the user sees an actionable error instead of a 30 GB
-    // download into a broken venv. Idempotent — costs ~300ms on a working
-    // install.
-    //
-    // v2.0.5: stripped the print('venv OK: ...') decoration. KTDS (and one
-    // other Twitter user) hit a SyntaxError on v2.0.4 where the literal
-    // `OK:` was being mangled out of the Python string by something between
-    // install.js and the executed shell line — `OK:` got cut from inside
-    // and `OK` got appended after the closing shell quote, so Python saw
-    // `...importable')OK` and bailed. The exit code from a successful
-    // `import` is already the only success signal `shell.run` needs; the
-    // print was decorative. Keeping the line minimal sidesteps whatever the
-    // rewriter is doing.
     {
       method: "shell.run",
       params: {
@@ -434,133 +297,16 @@ module.exports = {
         ]
       }
     },
-
-    // ---- Download Q4 LTX 2.3 (~20 GB, resumable) --------------------------
-    // `hf download` is the v1+ name (huggingface_hub deprecated `huggingface-cli`).
-    // Resume + verify is built-in; --local-dir avoids the HF cache store so
-    // the panel can point at the path directly with no symlink chase.
-    // On Resume Install with base files already complete, this is a fast
-    // verify pass (~seconds) — `hf` checks each file's hash and skips.
-    //
-    // Y1.024: explicit --include allowlist. dgrauet's Q4 repo hosts multiple
-    // transformer variants (transformer-distilled, -distilled-1.1, -dev),
-    // duplicate distilled LoRAs (-384, -384-1.1), and the x1.5/temporal
-    // upscalers we don't use. Without filters `hf download` grabs the full
-    // 56 GB tree; the panel only needs ~20 GB. Keep this list in sync with
-    // required_files.json → repos[q4].download_include.
-
-    // ---- (no transformer.safetensors symlink needed on HEAD — 0.2.0 reads
-    //      split_model.json to resolve transformer-distilled.safetensors.
-    //      Symlink was a workaround for the dcd639e pin we no longer use.) ----
-
-    // ---- Gemma 3 is NOT downloaded here any more (4.20) --------------------
-    // It was the first big download of every install (8.07 GB measured, the
-    // registry said 6) and nothing RENDERS with it: it is LTX-2.3's text
-    // encoder and what Enhance and the Storyboard planner run on. It is
-    // install.after_start now - the panel fetches it in the background after
-    // the first boot, and Enhance / the planner say "downloading" (or offer
-    // Download now) until it lands instead of failing.
-
-    // ---- Download LTX-2.5, the DEFAULT generation (~28 GB) ----------------
-    // SHIP-BLOCKER, closed 2026-08-12. LTX-2.5 became the default generation
-    // while nothing in this file downloaded it: `q4_25` and `gemma4_25` name
-    // `mrbizarro/...` HuggingFace repos that DO NOT EXIST (our HF token is
-    // read-only, and these packs are our own quantisation of a gated upstream).
-    // On the machine that built them the default lane worked; on a FRESH
-    // INSTALL there were no weights at all for the generation the panel boots
-    // into. That is what these two steps fix.
-    //
-    // Not `hf download`: the packs are mirrored as assets on a release of the
-    // public repo, the same lane the sample-character LoRA takes. Files over
-    // GitHub's 2 GiB asset cap are published as 1.9 GB shards;
-    // scripts/fetch_pack_release.py downloads them, checks each shard's
-    // sha256, reassembles, and only renames a file into place once the
-    // whole-file sha256 matches the published manifest. It is resumable and
-    // idempotent, so Resume Install re-runs it for the price of a read pass
-    // and re-downloads only what is actually missing.
-    //
-    // Both packs are REQUIRED, not optional. 2.5 conditions on its own Gemma 4
-    // fine-tune and cannot use the Gemma 3 encoder above — the mismatch does
-    // not raise, it silently encodes wrongly — so the two are fetched together
-    // and the install stops if either fails, instead of marching on to a panel
-    // that cannot render.
-    //
-    // 3.8.3: body moved to scripts/pinokio/ltx25_weights.sh. It was a
-    // "\n"-joined string — ONE 748-char dispatch, not the short lines the old
-    // note here claimed, because that is not what Pinokio writes to the pty.
-    {
-      method: "notify",
-      params: {
-        html: "<b>Downloading LTX-2.5 (27.5 GB)…</b><br>The engine and its text encoder — this is what the panel renders with, and the last big download before Start. Resumable: if this stops, run Install again and it picks up where it left off.<br><br><b>LTX-2.3 is not downloaded</b> — it is only needed to TRAIN a character, and the panel offers it in Settings → Models the moment you want it."
-      }
-    },
-    {
-      method: "shell.run",
-      params: {
-        message: "bash scripts/pinokio/ltx25_weights.sh"
-      }
-    },
-
-    // ---- Image-engine pack (mflux: Ideogram 4 + Qwen-Edit) ----------------
-    // 2026-06-13: Ideogram 4 + the visual text-placement editor are headline
-    // features now, so the mflux image-engine runner ships by default instead
-    // of only behind the optional "Install Qwen-Image-Edit" action. (Reported
-    // by cocktailpeanut: token saved + regions drawn but Generate stayed
-    // disabled because mflux — and thus mflux-generate-ideogram4 — was absent.)
-    // Safe to bundle: install.js already pins huggingface-hub to a range mflux
-    // requires, and mflux lives in the same venv as the LTX stack. BEST-EFFORT —
-    // a pip hiccup must not fail the core (video) install; the panel surfaces a
-    // one-click "Reinstall image engines" path if it didn't land. Two-step
-    // (with-deps then --no-deps) mirrors install_qwen.js so transitive deps
-    // resolve, then the version is locked + the FBCache patch applied.
-    //
-    // 3.8.3: body moved to scripts/pinokio/mflux_pack.sh (529-char dispatch).
-    // update.js keeps its own near-identical copy inline at 498 — under the
-    // ceiling, and deliberately left alone rather than merged here in a hotfix.
     {
       method: "shell.run",
       params: {
         message: "bash scripts/pinokio/mflux_pack.sh"
       }
     },
-
-    // ---- Vocal separation for Lip-sync (~15 MB + 80 MB weights) -----------
-    // "Listen to the voice only" is ON by default in the Lip-sync form, and
-    // until 4.17 nothing installed what it needs, so every render asked for
-    // the voice and got the full mix. demucs goes into the engine venv with
-    // torch pinned to the copy the image pack above just installed; the
-    // htdemucs weights land in mlx_models/demucs. BEST-EFFORT: a hiccup must
-    // not fail the video install — the Lip-sync form offers the same step.
-    {
-      method: "shell.run",
-      params: {
-        message: "bash scripts/pinokio/a2v_stems_deps.sh ./ltx-2-mlx || echo 'WARN: vocal separation did not install - video works; the Lip-sync form offers Install.'"
-      }
-    },
-
-    // ---- Queue the extras for the panel (4.20) ------------------------------
-    // The three IC-LoRA fetches that stood here (Colorize 0.33 GB, Ingredients
-    // 1.31 GB, Control 0.65 GB - used by roughly 1-6% of renderers) are
-    // install.after_start now, with Gemma 3 and the Upscale & Face Fix adapter.
-    // This step writes state/install_deferred.json naming whichever of them is
-    // not on disk; the panel downloads them in the background after the first
-    // boot, one at a time, never taking the drive below 10 GB free. The marker
-    // is the ONLY trigger: Update never writes one, so an existing install is
-    // never handed a download it did not ask for. Each mode still self-serves
-    // on first use (and Settings -> Models offers every pack) if a background
-    // fetch has not landed. Never fails the install.
-    {
-      method: "shell.run",
-      params: {
-        message: "./ltx-2-mlx/env/bin/python3.11 install_plan.py defer || echo 'WARN: could not queue the extras - Settings -> Models offers each one.'"
-      }
-    },
-
-    // ---- Done -------------------------------------------------------------
     {
       method: "notify",
       params: {
-        html: "<b>Phosphene is ready.</b> Click <b>Start</b>, then <b>Open Panel</b> - you can render right away.<br>The extras (Enhance and the Storyboard planner, plus the Upscale & Face Fix, Control, Ingredients and Colorize adapters) download in the background inside the panel; it shows their progress and says when each one is ready."
+        html: "<b>Phosphene is ready.</b> Click <b>Start</b>, then <b>Open Panel</b>. Choose video, images or songs inside the app. Models download only when you ask for them."
       }
     }
   ]

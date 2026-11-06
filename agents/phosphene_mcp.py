@@ -54,6 +54,36 @@ TOOLS = [
                                                       "H3: draft | fast_hd | standard | high (see phosphene_status)."},
          "seconds": {"type": "number", "description": "Length. LTX: about 2-10 s (default 5). H3: 3, 5, 10 or 15."},
          "seed": _SEED, "label": {"type": "string"}, "wait": _WAIT}}},
+    {"name": "phosphene_open_cut",
+     "description": "Hand a finished cut to a person: turn your edit (clips with in-points and film positions, the "
+                    "soundtrack, overlays, levels) into a film in Phosphene's Editor, saved and ready to edit by hand. "
+                    "Each clip plays from its `at` to the next clip's `at`; a slot slightly longer than the take is "
+                    "filled by slowing the clip (reported in notes). Files anywhere on this Mac are brought into the "
+                    "film's folder; the originals are not touched. Returns the film id and editor_url.",
+     "inputSchema": {"type": "object", "required": ["clips"], "additionalProperties": False, "properties": {
+         "title": {"type": "string"},
+         "fps": {"type": "number", "description": "Frame rate the cuts snap to (default 24)."},
+         "clips": {"type": "array", "items": {"type": "object", "required": ["path"], "properties": {
+             "path": {"type": "string", "description": "Absolute path of the clip."},
+             "in": {"type": "number", "description": "Source second the clip starts at (default 0)."},
+             "out": {"type": "number", "description": "Optional source second it may not play past."},
+             "at": {"type": "number", "description": "Film second it starts at (omit on every clip to lay them back to back)."},
+             "length": {"type": "number", "description": "Film seconds (the last clip, or clips without at)."},
+             "speed": {"type": "number"}, "gain": {"type": "number", "description": "Clip sound level 0-1."},
+             "mute": {"type": "boolean", "description": "Drop this clip's own sound (e.g. a lip-sync shot whose voice is in the score)."},
+             "fade_in": {"type": "number"}, "fade_out": {"type": "number"},
+             "title": {"type": "string"}}}},
+         "clip_gain": {"type": "number", "description": "Default clip sound level 0-1 (e.g. 0.9 under a score)."},
+         "clip_fades": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2,
+                        "description": "Sound fade in/out seconds on every clip edge, e.g. [0.04, 0.06]."},
+         "soundtrack": {"type": "object", "properties": {"path": {"type": "string"}, "at": {"type": "number"},
+                        "in": {"type": "number"}, "out": {"type": "number"}, "gain": {"type": "number"}}},
+         "overlays": {"type": "array", "items": {"type": "object", "properties": {
+             "path": {"type": "string"}, "text": {"type": "string"}, "at": {"type": "number"},
+             "end": {"type": "number"}, "in": {"type": "number"}}}},
+         "sounds": {"type": "array", "items": {"type": "object", "properties": {
+             "path": {"type": "string"}, "at": {"type": "number"}, "in": {"type": "number"},
+             "out": {"type": "number"}, "gain": {"type": "number"}, "title": {"type": "string"}}}}}}},
     {"name": "phosphene_make_image",
      "description": "Queue still images with the image engine chosen in Phosphene's settings.",
      "inputSchema": {"type": "object", "required": ["prompt"], "additionalProperties": False, "properties": {
@@ -191,6 +221,16 @@ class Tools:
 
     def phosphene_fetch(self, job_id, dest) -> dict:
         return {"ok": True, "files": self.ph().fetch(job_id, dest)}
+
+    def phosphene_open_cut(self, clips, title=None, fps=None, clip_gain=None, clip_fades=None, soundtrack=None,
+                           overlays=None, sounds=None) -> dict:
+        spec = {"phosphene_cut": 1, "clips": clips}
+        for k, v in (("title", title), ("fps", fps), ("clip_gain", clip_gain), ("clip_fades", clip_fades),
+                     ("soundtrack", soundtrack),
+                     ("overlays", overlays), ("sounds", sounds)):
+            if v is not None:
+                spec[k] = v
+        return self.ph().open_cut(spec, wait=True)
 
     def phosphene_stop(self, job_id=None) -> dict:
         return {"ok": True, "result": self.ph().stop(job_id)}

@@ -405,6 +405,17 @@ class Phosphene:
         return saved
 
     # ---- licences (the studio asks before some models run; a person accepts)
+    def open_cut(self, spec: dict, *, wait: bool = True) -> dict:
+        """An agent's cut -> a film in the Editor, ready to edit by hand. `spec` is a cut spec
+        (`phosphene_cut: 1`, clips with in/at, soundtrack, overlays, levels; docs/API.md). Returns the new
+        film's id, the notes (a clip slowed to fill its slot, a hole) and `editor_url` (relative to the studio).
+        `wait` answers once the proxies are built, so the film plays at once."""
+        doc = self.post("/storyboard/edit/import", json_body={"cut": spec, "wait": bool(wait)},
+                        timeout=900 if wait else None)
+        if isinstance(doc, dict) and doc.get("editor_url"):
+            doc["editor_url"] = self.url + doc["editor_url"]
+        return doc
+
     def licences(self) -> dict:
         return self.get("/licences")
 

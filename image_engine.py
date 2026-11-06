@@ -68,6 +68,12 @@ import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+import image_diagnostics
+
+_DIAGNOSTIC_BEGIN = None
+_MFLUX_STALL_SECONDS = 1800.0
+_MFLUX_WATCHDOG_POLL = 15.0
+
 import distribution as _dist   # Pinokio vs the Mac app wording
 
 
@@ -552,7 +558,7 @@ def generate(*, prompt: str, n: int, output_dir: Path,
              refs: list[str] | None = None,
              config: ImageEngineConfig,
              on_log: "callable | None" = None,
-             install_env: dict | None = None) -> list[dict]:
+             diagnostic=None, install_env: dict | None = None) -> list[dict]:
     """Generate `n` candidate images for one shot. Saves under `output_dir`.
 
     Args:
@@ -606,7 +612,20 @@ def generate(*, prompt: str, n: int, output_dir: Path,
     if config.kind == "mock":
         return _generate_mock(prompt, n, width, height, output_dir, base_seed, refs=refs)
     if config.kind == "mflux":
-        return _generate_mflux(prompt, n, width, height, output_dir, base_seed, config, refs=refs, on_log=on_log)
+        if diagnostic is None and _DIAGNOSTIC_BEGIN is not None:
+            try:
+                diagnostic = _DIAGNOSTIC_BEGIN()
+            except Exception:
+                pass
+        image_diagnostics.attempt(diagnostic, "prepare", prompt, refs, width, height)
+        try:
+            return _generate_mflux(prompt, n, width, height, output_dir, base_seed, config, refs=refs, on_log=on_log, diagnostic=diagnostic)
+        except ImageJobCancelled:
+            image_diagnostics.attempt(diagnostic, "finish", "cancelled")
+            raise
+        except Exception:
+            image_diagnostics.attempt(diagnostic, "finish", "failed")
+            raise
     if config.kind == "bfl":
         return _generate_bfl(prompt, n, width, height, output_dir, base_seed, config)
     if config.kind == "hidream":
@@ -1235,7 +1254,7 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
                     output_dir: Path, base_seed: int | None,
                     config: ImageEngineConfig,
                     refs: list[str] | None = None,
-                    on_log: "callable | None" = None) -> list[dict]:
+                    on_log: "callable | None" = None, diagnostic=None) -> list[dict]:
     """Subprocess the right `mflux-generate-*` binary ONCE for all `n` seeds.
 
     Pre-2026-05-08 this spawned one subprocess per candidate, paying the
@@ -1664,6 +1683,7 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
     last_lines: collections.deque[str] = collections.deque(maxlen=64)
     stderr_tail = ""
     timed_out = False
+    image_diagnostics.attempt(diagnostic, "spawn", cmd)
     _spawned_at = time.time()
     proc = subprocess.Popen(
         cmd,
@@ -1678,8 +1698,8 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
         start_new_session=True,
     )
     # Register before the wait loop so /stop can find this proc.
-    _register_active_proc(proc)
     try:
+        _register_active_proc(proc)
         # Activity-based (stall) timeout, NOT a fixed total deadline: the model
         # download runs INSIDE this subprocess, and on a slow connection a
         # 20-34 GB first-run pull can exceed any fixed render budget. The old
@@ -1689,7 +1709,7 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
         # stream per file; render emits step lines every few seconds), so we
         # only abort on a genuine STALL — no output for `stall_budget`. A
         # generous absolute cap is the runaway backstop.
-        stall_budget = 1800.0                              # 30 min of silence = stuck
+        stall_budget = _MFLUX_STALL_SECONDS                  # 30 min of silence = stuck
         hard_cap = time.time() + max(timeout_s, 14400.0)   # 4 h absolute backstop
         # The download writes to disk for many minutes while its stdout is
         # silent OR floods \r-progress that readline() blocks on — either way
@@ -1726,7 +1746,7 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
         _wd_killed = [False]
         def _watchdog() -> None:
             _last = _dl_gb()
-            while not _wd_stop.wait(15.0):
+            while not _wd_stop.wait(_MFLUX_WATCHDOG_POLL):
                 _sz = _dl_gb()
                 # Compared with the LAST SAMPLE, not the largest one seen
                 # (4.19.18): the Xet downloader restarts an unfinished file
@@ -1771,6 +1791,7 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
                     line = raw.rstrip("\n")
                     if line:
                         _alive[0] = time.time()                 # render/output activity → alive
+                        image_diagnostics.attempt(diagnostic, "line", line)
                         last_lines.append(line)
                         if on_log is not None:
                             try:
@@ -1817,6 +1838,7 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
             )
         rc = proc.wait(timeout=30)
     except subprocess.TimeoutExpired as e:
+        timed_out = True
         try:
             proc.kill()
         except OSError:
@@ -1833,6 +1855,14 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
                 proc.stdout.close()
             except OSError:
                 pass
+        try:
+            cancelled = bool(_CANCEL_CHECK and _CANCEL_CHECK())
+        except Exception:
+            cancelled = False
+        image_diagnostics.attempt(diagnostic, "finish",
+            "cancelled" if cancelled else "timeout" if timed_out else
+            "completed" if getattr(proc, "returncode", None) == 0 else "failed",
+            getattr(proc, "returncode", None))
         _unregister_active_proc(proc)
         # Ideogram's temp --prompt-file outlives the child (read during
         # model setup); remove it now that the subprocess has exited.

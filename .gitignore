@@ -168,6 +168,9 @@ state_studio/
 # self-referential link. Same trap as ltx-2-mlx above — ignore both spellings.
 yue2-mlx
 node_modules
+# Speech engine venv (scripts/speech/speech_setup.sh); both spellings, same reason.
+speech-mlx/
+speech-mlx
 
 
 # FLUX 3 has a separate MLX environment.

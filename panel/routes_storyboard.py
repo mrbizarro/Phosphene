@@ -165,7 +165,7 @@ def get_storyboard_edit_room_tone(h, parsed) -> None:
              "default_level": rt.DEFAULT_LEVEL,
              "level_min": rt.LEVEL_MIN, "level_max": rt.LEVEL_MAX,
              "ref_lufs": rt.REF_LUFS,
-             "auto": bool(P.get_settings().get("room_tone_auto", True))})
+             "auto": bool(P.get_settings().get("room_tone_auto", False))})
 
 
 # Make (or reuse) one bed. The client sends the timeline it is showing —
@@ -219,3 +219,75 @@ def post_storyboard_write(h, path, qs, ctype) -> None:
         return
     body, form = _rb
     h._storyboard_post(path[len("/storyboard/"):], body, form)
+
+
+# ====== An agent's cut -> a film in the Editor ======================
+# ONE CALL for what used to take about twenty: a JSON cut spec (clips with
+# in/out points and film positions, the soundtrack, overlays, levels — see
+# `storyboard_editor.edit_from_cut`) becomes a new film, saved, with its
+# proxies and overlay previews building so it plays at once. `wait: true`
+# answers only once that preparation is done. The answer carries the new
+# film's id, the notes (a clip slowed to fill its slot, a hole) and
+# `editor_url`, which opens it in the Editor.
+@post("/storyboard/edit/import")
+def post_storyboard_edit_import(h, path, qs, ctype) -> None:
+    _rb = h._read_form_body()
+    if _rb is None:
+        return
+    body, _form = _rb
+    try:
+        payload = P.json.loads(body or "{}")
+    except ValueError as exc:
+        h._json({"ok": False, "error": f"bad JSON: {exc}"}, 400)
+        return
+    if not isinstance(payload, dict):
+        h._json({"ok": False, "error": "the cut must be a JSON object"}, 400)
+        return
+    # The spec itself, or `{"cut": spec, "wait": true}`.
+    spec = payload.get("cut") if isinstance(payload.get("cut"), dict) else payload
+    wait = bool(payload.get("wait"))
+    try:
+        out = P._sbe_import_cut(spec, wait=wait)
+    except Exception as exc:                                # noqa: BLE001
+        out = {"ok": False, "status": 500, "error": f"could not import that cut: {exc}"}
+    h._json({k: v for k, v in out.items() if k != "status"},
+            200 if out.get("ok") else int(out.get("status") or 400))
+
+
+# The overlay lane's previews, on demand: an overlay placed by hand (or a
+# film opened before its previews existed) asks for them here. Builds what
+# is missing for the film's SAVED overlays plus the one `path` it names,
+# synchronously (seconds, not minutes: 64 s of 720p ProRes took 5.5 s), and
+# answers the pointer map the editor reads.
+@post("/storyboard/edit/overlay-preview")
+def post_storyboard_edit_overlay_preview(h, path, qs, ctype) -> None:
+    _rb = h._read_form_body()
+    if _rb is None:
+        return
+    _body, form = _rb
+
+    def f(name: str) -> str:
+        v = form.get(name) or [""]
+        return str(v[0] if isinstance(v, list) else v).strip()
+
+    bid = f("id")
+    try:
+        P.storyboard.load_storyboard(P.STATE_DIR, bid)
+        sedit = P._sbe_import()
+    except Exception as exc:                                # noqa: BLE001
+        h._json({"ok": False, "error": str(exc)}, 404)
+        return
+    bdir = P._sbe_board_dir(bid)
+    try:
+        ovs = list((sedit.load_edit(bdir) or {}).get("overlays") or [])
+    except Exception:                                       # noqa: BLE001
+        ovs = []
+    extra = f("path")
+    # An unsaved overlay is built only if it is one of the panel's own files
+    # (the same containment every timeline path gets); the saved ones are
+    # the document's and are built regardless.
+    if extra and P._sbe_pool_path_ok(extra):
+        ovs.append({"path": extra, "kind": "video"})
+    built = P._sbe_overlay_previews_now(bdir, ovs, sedit)
+    h._json({"ok": True, "previews": P._sbe_overlay_preview_map(bdir, ovs, sedit),
+             "built": built["built"], "failed": built["failed"]})

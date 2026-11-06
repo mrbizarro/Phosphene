@@ -199,6 +199,7 @@ function _renderLiveStageFrame(s, preview) {
   setStageAspect(surface, _lw, _lh);
   wrap.classList.remove('empty');
   wrap.classList.add('live-stage');
+  const newLiveJob = wrap.dataset.liveJobId !== String(cur.id);
   wrap.dataset.liveJobId = String(cur.id);
 
   const stopping = window._stopEarlyRequested === cur.id;
@@ -211,23 +212,43 @@ function _renderLiveStageFrame(s, preview) {
   // engine had published five estimates whose layout (light, smoke, the
   // subject's place) already matched the take (owner, 2026-10-22: "it just
   // takes a shitload of time, and only near the end does it show").
-  if (!preview.url) {
-    if (wrap.dataset.liveState !== 'warming') {
-      wrap.innerHTML = `<div class="live-stage-warming">
-        <svg class="live-stage-warming-mark" viewBox="0 0 24 16" fill="none" aria-hidden="true">
-          <rect x="1" y="1" width="22" height="14" rx="2" stroke="currentColor" stroke-width="1"/>
-          <path d="M1 5h22M1 11h22M6 1v14M18 1v14" stroke="currentColor" stroke-width=".8" opacity=".72"/>
-        </svg>
-        <strong>Finding the shot…</strong>
-        <span>The first useful estimate will appear here.</span>
-      </div>`;
-      wrap.dataset.liveState = 'warming';
-    }
-  } else {
+  // Keep the mark mounted through the first image request. An HTTP failure
+  // must not trade the waiting state for a blank stage; only onload reveals it.
+  // A new job resets the old frame even if the queue advances in one poll.
+  if (newLiveJob || !wrap.querySelector('.live-stage-warming')) {
+    const brandMark = document.querySelector('header .ph-mark');
+    wrap.innerHTML = `<div class="live-stage-warming">
+      <div id="studioStageMark" class="ph-mark studio-stage-mark" aria-hidden="true">${brandMark ? brandMark.innerHTML : ''}</div>
+      <div class="live-stage-progress" role="progressbar" aria-label="Stage render progress" aria-valuemin="0" aria-valuemax="100"></div>
+      <strong class="live-stage-phase"></strong>
+    </div>`;
+    wrap.classList.remove('has-live-frame');
+    wrap.dataset.liveState = 'warming';
+  }
+  const warming = wrap.querySelector('.live-stage-warming');
+  const progress = warming.querySelector('.live-stage-progress');
+  const phase = warming.querySelector('.live-stage-phase');
+  const reported = Number((cur.progress || {}).pct);
+  const pct = Number.isFinite(reported) ? Math.min(99, Math.max(0, reported)) : 0;
+  if (progress) {
+    progress.textContent = `${Math.round(pct)}%`;
+    progress.style.setProperty('--p', String(pct / 100));
+    progress.setAttribute('aria-valuenow', String(Math.round(pct)));
+  }
+  if (phase) phase.textContent = stopping ? 'Finishing the current step…'
+    : ((cur.progress || {}).phase_label || 'Preparing your video');
+  if (preview.url) {
     let img = wrap.querySelector('.live-stage-image');
     if (!img) {
-      wrap.innerHTML = '<img class="live-stage-image" alt="Live render preview">';
-      img = wrap.querySelector('.live-stage-image');
+      img = document.createElement('img');
+      img.className = 'live-stage-image';
+      img.alt = 'Live render preview';
+      wrap.appendChild(img);
+      img.onload = () => {
+        if (!img.isConnected || wrap.dataset.liveJobId !== String(cur.id)) return;
+        wrap.classList.add('has-live-frame');
+        warming.setAttribute('aria-hidden', 'true');
+      };
     }
     if (img.getAttribute('src') !== preview.url) img.setAttribute('src', preview.url);
     // Rough until the server calls it meaningful: blurred, so nobody judges a
@@ -1893,7 +1914,11 @@ async function refreshModelsModal({ silent = false } = {}) {
     // ahead. `needs_hf` is derived from the registry's mirror block.
     const hfOk = (data.hf_available ?? true) || (r.needs_hf === false);
     const hostMissing = r.host_key && !completeByKey[r.host_key];
-    if (r.app_owned) {
+    if (r.availability === 'unavailable' || (r.availability === 'read_only' && !r.complete)) {
+      cls = 'missing'; icon = '<svg class="ph" aria-hidden="true"><use href="#ph-x-circle"/></svg>';
+      statusText = escapeHtml(r.path_message);
+      btnHtml = '<button class="ghost" onclick="refreshModelsModal()">Check again</button>';
+    } else if (r.app_owned) {
       // Mac app: the app is fetching this pack itself (app_models.json) - no
       // second Download here; the server refuses one too.
       cls = 'downloading';
@@ -1914,7 +1939,7 @@ async function refreshModelsModal({ silent = false } = {}) {
       // ~/.cache/huggingface/ rather than the canonical mlx_models/
       // dir. Common on manual / dev installs that pre-existed Pinokio
       // and pulled the model via `huggingface-cli` or first-run helper.
-      const tag = r.where === 'hf_cache' ? 'HF cache' : 'local';
+      const tag = r.availability === 'read_only' ? 'read-only' : (r.where === 'hf_cache' ? 'HF cache' : 'local');
       statusText = `Ready · ${r.total_files} files · ~${r.size_gb || '?'} GB · ${tag}`;
       btnHtml = `<button class="ghost" disabled>Installed</button>`;
     } else if (r.present_files > 0) {
@@ -2024,7 +2049,14 @@ async function refreshModelsModal({ silent = false } = {}) {
         : `<button onclick="openMusicInstallCard()">${inst.active ? 'Progress' : music.repairable ? 'Repair' : 'Install'}</button>`}
     </li>`;
   }
-  list.innerHTML = (rows + h3Row + musicRow) || `<li class="empty-state">No model manifest found — required_files.json is missing or unreadable.</li>`;
+  const html = (rows + h3Row + musicRow) || `<li class="empty-state">No model manifest found — required_files.json is missing or unreadable.</li>`;
+  if (list._html !== html) {
+    const active = document.activeElement;
+    const action = list.contains(active) ? active.getAttribute('onclick') : null;
+    list._html = html;
+    list.innerHTML = html;
+    if (action) Array.from(list.querySelectorAll('button')).find(b => b.getAttribute('onclick') === action)?.focus();
+  }
   // Footer summarises required vs optional counts.
   // Count only what THIS BUILD needs. 2.3's two base rows were inside
   // "Required: N/M ready", which made §7.1's first-visit contract

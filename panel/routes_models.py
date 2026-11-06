@@ -14,6 +14,14 @@ from panel.routes import get, post
 P = None  # the running mlx_ltx_panel module; assigned at wiring time
 
 
+@post("/models/video")
+def post_models_video(h, path, qs, ctype) -> None:
+    if h._read_form_body() is None:
+        return
+    code, payload = P.request_video_models()
+    h._json(payload, code)
+
+
 @post("/models/download")
 def post_models_download(h, path, qs, ctype) -> None:
     _rb = h._read_form_body()
@@ -35,12 +43,18 @@ def post_models_download(h, path, qs, ctype) -> None:
     # binary must not block the one lane that never needed it.
     # Mac app: the app is fetching this pack itself (app_models.json). Two
     # fetchers writing (or a repair deleting) one folder is not safe - refuse.
+    reason = P.model_path_problem(repo, write=True)
+    if reason:
+        h._json({"error": reason}, 409); return
     if P.app_models_owns(repo):
         h._json({"error": "This model is already downloading in the background.",
                  "app_downloading": True}, 409); return
     if P.HF_BIN is None and (repo.get("mirror") or {}).get("kind") != "github-release":
         h._json({"error": "hf binary not found. Reinstall Phosphene "
                              "or install huggingface_hub>=1.0 in the venv."}, 500); return
+    reason = P.model_download_room([repo])
+    if reason:
+        h._json({"error": reason}, 507); return
     with P.DOWNLOAD_LOCK:
         busy = P.DOWNLOAD["active"]
         busy_key = P.DOWNLOAD.get("key")
@@ -219,12 +233,17 @@ def post_models_cancel(h, path, qs, ctype) -> None:
     # process alone made the attempt look failed and the worker started the
     # next one. The slot itself stays held until the worker releases it, so a
     # new download cannot start and be wiped by the old worker's cleanup.
+    pending = P.deferred_pending_keys()
+    P.install_plan.stop_requested_packs(P.STATE_DIR)
+    P.DEFERRED_WAKE.set()
     with P.DOWNLOAD_LOCK:
         was_active = P.DOWNLOAD["active"]
         rid = P.DOWNLOAD.get("repo_id")
         if was_active:
             P.DOWNLOAD["cancelled"] = True
     if not was_active:
+        if pending:
+            h._json({"ok": True}); return
         h._json({"error": "no active download"}, 404); return
     P._kill_active_download()
     P.push(f"[hf] cancel requested for {rid}")
@@ -446,3 +465,41 @@ def post_music_install_stop(h, path, qs, ctype) -> None:
         h._json({"error": "no music engine install is running"}, 404); return
     P.push("[music-install] stop requested")
     h._json({"ok": True}); return
+
+
+@post("/storage/cleanup")
+def post_storage_cleanup(h, path, qs, ctype) -> None:
+    reason = P.model_path_problem(write=True)
+    if reason:
+        h._json({"error": reason}, 409); return
+
+    import model_storage
+    read = h._read_form_body()
+    if read is None:
+        return
+    _, form = read
+    if form.get("confirmed") != ["yes"]:
+        h._json({"error": "Confirm the superseded files before removing them."}, 400)
+        return
+    locks = []
+    try:
+        # Acquire every candidate folder lock before re-reading the snapshot.
+        for name in model_storage.RETIRED:
+            folder = P.MODELS_DIR / name
+            if not folder.is_dir() or folder.is_symlink():
+                continue
+            fd = P.pack_folder_lock(folder)
+            if fd is None or fd < 0:
+                h._json({"error": "A model folder is busy or cannot be locked. Try again later."}, 409)
+                return
+            locks.append(fd)
+        args = P.storage_inventory_args()
+        freed = model_storage.cleanup(P.MODELS_DIR, form.get("confirmation", [""])[0],
+                                      args["protected"], args["required"])
+        h._json({"ok": True, "freed": freed, "freed_label": P._fmt_gb(freed)})
+    except ValueError as exc:
+        h._json({"error": str(exc)}, 409)
+    except OSError:
+        h._json({"error": "Cleanup could not finish. Refresh Storage to see what remains."}, 500)
+    finally:
+        P.pack_folder_unlock(locks)
