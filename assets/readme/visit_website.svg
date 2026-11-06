@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="112" viewBox="0 0 720 112" role="img" aria-label="Visit our official website: phosphene.video">
+  <title>Visit our official website: phosphene.video</title>
+  <defs>
+    <linearGradient id="fill" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff2e9f"/>
+      <stop offset="0.5" stop-color="#b14aff"/>
+      <stop offset="1" stop-color="#5eeaff"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="712" height="104" rx="52" fill="url(#fill)"/>
+  <rect x="4" y="4" width="712" height="104" rx="52" fill="url(#shine)"/>
+  <text x="360" y="54" text-anchor="middle" fill="#05071a" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="32" font-weight="800" letter-spacing="0.2">Visit our official website  →</text>
+  <text x="360" y="86" text-anchor="middle" fill="#05071a" fill-opacity="0.82" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="21" font-weight="600">phosphene.video · free download for Mac</text>
+</svg>

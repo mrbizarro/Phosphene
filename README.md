@@ -1,122 +1,239 @@
-# Phosphene
+# Phosphene: free local AI video generator for Mac
 
-AI video with sound, songs and images, made locally on your Mac.
-
-<p align="center">
-  <img src="assets/the_commuter_hero.gif" alt="The Commuter, a 75-second One Shot made in Phosphene" width="100%">
-</p>
-
-“The Commuter”: a 75-second One Shot rendered overnight on one Mac with Hailuo H3, from a single designed still. [More clips](https://phosphene.video/gallery/).
-
-[Website](https://phosphene.video) · [Docs](https://phosphene.video/docs/) · [Benchmarks](https://phosphene.video/benchmarks/) · [Changelog](https://phosphene.video/changelog/) · [@PhospheneAI](https://x.com/PhospheneAI)
-
-**Current release: v5.0.0** See what's new in the [changelog](https://phosphene.video/changelog/).
-
-Phosphene is a free, open-source app for Apple Silicon Macs, built on Apple's MLX by Mr Bizarro.
-Renders run offline, and your prompts, pictures and videos stay on your Mac.
-Optional extras download when a feature first needs them.
-
-## What it does
-
-- **Video with LTX-2.5:** turn text or a picture into video with sound from the same prompt.
-  Set first and last keyframes, Extend a clip, Retake one moment, or lip-sync a face to your voice or song.
-  Upscale & Face Fix and [Motion Control](docs/MOTION_CONTROL.md) are included. Adapts from 16 GB of memory.
-
-- **Scenes with Hailuo H3:** make scenes with dialogue you can hear.
-  Use keyframes, extend a shot, lip-sync, or add sound to a silent clip.
-  About 75 GB, one click from the Pinokio sidebar. Needs 36 GB+ memory.
-  Its licence excludes the EU, UK, South Korea and US.
-
-- **Music Studio:** YuE2 makes songs with vocals from lyrics and a style.
-  Make another take or work on the score. About 11 GB, installed inside the panel. Needs 16 GB+ memory.
-
-- **Images:** FLUX 3 Klein, Qwen-Image-Edit, FLUX.2 via mflux and P-H3-Image by Pruna AI (needs Hailuo H3, 48 GB+) make images and edit them in words, like “make the jacket red”.
-  Use up to three reference pictures, then send a still straight to video.
-
-- **Speech and lip-sync:** turn text into a spoken voice, then lip-sync a face to it.
-
-- **Bench:** measure what your Mac can do and compare it with other Macs.
-
-- **Storyboard, One Shot and the Editor:** build a film from one prompt or shot by shot.
-  Cut it on the Editor timeline with music and room tone.
-
-- **Train a character:** train a face and voice LoRA on your Mac from your own photos and recordings.
-
-- **Scripts and agents:** queue renders through the [local HTTP API](docs/API.md).
-  There's also an [image layout API for agents](docs/AGENT_API.md).
-
-- **Prompt help:** Google's Gemma runs locally for Enhance, training captions and the storyboard planner.
-  Enhance sharpens a prompt.
+**Run LTX-2.5 and MiniMax H3 (Hailuo) on your Apple Silicon Mac. Text-to-video and image-to-video with sound, speech, lip-sync, songs and image editing. A native Mac app, offline: no cloud, no API key, no NVIDIA GPU.**
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/0c504d54-1666-4a64-8872-7d471682c8f0" alt="The Phosphene panel" width="100%">
+  <a href="https://phosphene.video/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=repo&amp;utm_content=top"><img src="assets/logo-readme.png" alt="Phosphene" width="360"></a>
 </p>
+<h3 align="center"><a href="https://phosphene.video/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=repo&amp;utm_content=top">Visit Phosphene official site →</a> · <a href="https://phosphene.video/download/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=repo&amp;utm_content=download">Download for Mac</a></h3>
 
-## Hardware
+<p align="center">
+  <img src="assets/readme/low_tide_sleeper.webp" alt="The low-tide sleeper: a giant stone sleeper on a black-sand beach, an AI video made locally on a Mac with Phosphene and MiniMax H3" width="100%">
+</p>
+<p align="center"><sub>“The low-tide sleeper”, MiniMax H3, image to video. Every clip on this page was rendered on one Mac with Phosphene.</sub></p>
 
-Apple Silicon only, M1 or newer. Intel Macs and Windows are not supported.
+Phosphene is a free, open-source AI video generator that runs locally on a Mac with M1, M2, M3, M4 or M5.
+It runs **LTX-2.5** and **MiniMax H3 (Hailuo H3)** for text-to-video and image-to-video with sound in the same pass,
+**YuE2** for songs from lyrics, and **P-H3-Image**, **FLUX 3 Klein**, **Qwen-Image-Edit** and **FLUX.2** for images. Since 5.0 it is a native Mac app,
+and it still installs with one click through Pinokio. It is built on Apple's MLX: no CUDA, no cloud GPU, no API key, no credits and no watermark.
+Your prompts, pictures and videos never leave your Mac.
 
-| Memory | What to expect |
+**Current release: v5.0.0.** Made by Mr Bizarro.
+
+## Why Phosphene
+
+- **Free, with no credits.** No subscription, no sign-up, no watermark, no per-render charge. Make as many takes as you like.
+- **Private and offline.** Rendering happens on your Mac. Download the models once, then work without a connection.
+- **Sound comes with the picture.** Footsteps, rooms, voices and lip movement are generated together, not added later.
+- **One app for the whole film.** Shots, long takes, speech, songs, stills, trained characters and an editing timeline.
+- **Made for the Mac.** Phosphene checks your memory and only offers what your Mac can run.
+
+## What you can make
+
+### Text-to-video and image-to-video with sound (LTX-2.5 on Apple Silicon)
+
+Turn a prompt or a picture into a video clip with sound, using the MLX port of Lightricks' LTX-2.5. Set first and last frames, guide a shot with 3–8 keyframes,
+**Extend** a clip, **Retake** one moment, or lip-sync a face to your own voice or song. Upscale & Face Fix is built in.
+Works from 16 GB of memory.
+
+<p align="center">
+  <img src="assets/readme/gold_tear.webp" alt="Stone eye with a gold tear, AI video made on a Mac with LTX-2.5" width="49%">
+  <img src="assets/readme/ember_hand.webp" alt="A burning ember in a marble palm, AI video made on a Mac with LTX-2.5" width="49%">
+</p>
+<p align="center"><sub>“Stone eye, gold tear” and “Ember in a marble palm”, LTX-2.5, image to video</sub></p>
+
+### Run MiniMax H3 (Hailuo) locally on a Mac
+
+MiniMax H3, also called Hailuo H3, makes scenes where people talk, with lips that match their voices.
+Use keyframes, extend a shot, lip-sync, or **Add sound** to give a silent clip its own soundscape.
+Pika H3 Flex, Pika Labs' six-step H3, is a Speed choice: about 2.2× faster than Best at the same size, a preview.
+About 75 GB, one click from the Pinokio sidebar, from 36 GB of memory.
+Its licence excludes the EU, UK, South Korea and US.
+
+<p align="center">
+  <img src="assets/readme/mirror_blinks.webp" alt="A woman at a theatre mirror whose reflection blinks late, made with MiniMax H3 on a Mac" width="49%">
+  <img src="assets/readme/lung_mender.webp" alt="An old man whose chest is folded paper, in his workshop, made with MiniMax H3 on a Mac" width="49%">
+</p>
+<p align="center"><sub>“The mirror blinks late” and “The lung mender”, MiniMax H3, image to video</sub></p>
+
+### Long AI films: One Shot, Storyboard and the Editor
+
+- **One Shot:** one continuous shot of 30 seconds to 2 minutes that never cuts.
+- **Storyboard:** turn one idea into a multi-shot film. Plan the shots, render them, keep the best takes, or turn on Auto. Add a song to cut a music video to the beat.
+- **Editor:** trim, split, J-cuts and L-cuts, music, titles and transitions. Render one file or send the timeline to DaVinci Resolve, Premiere Pro or After Effects.
+
+<p align="center">
+  <img src="assets/readme/app_editor.webp" alt="The Phosphene Editor: a timeline for AI video clips on a Mac" width="100%">
+</p>
+<p align="center"><sub>The Editor: trim the takes, add music and titles, then render or send the cut on.</sub></p>
+
+### Remix your own footage
+
+- **Motion Control:** copy the motion, camera move and pose of a clip you give it while your prompt paints a new subject and scene ([guide](docs/MOTION_CONTROL.md)).
+- **Ingredients:** compose 2–8 reference pictures (a character, a prop, a place) into one clip.
+- **Colorize:** turn black-and-white footage into colour.
+
+<p align="center">
+  <img src="assets/readme/drowned_ballroom.webp" alt="A diver with a lamp in a flooded ballroom under a chandelier, text-to-video with LTX-2.5 on a Mac" width="100%">
+</p>
+<p align="center"><sub>“The Drowned Ballroom”, LTX-2.5, text to video</sub></p>
+
+### Speech and lip-sync
+
+Turn text into a spoken voice, then lip-sync a face to it, all on your Mac.
+
+### Songs from lyrics with YuE2: a local Suno alternative
+
+Music Studio uses YuE2 to write a full song with vocals and instruments from your lyrics and a style, or an instrumental.
+Make another take, cover a song, or get the score. About 11 GB, installed inside the app, from 16 GB of memory.
+
+<p align="center">
+  <img src="assets/readme/neon_mile.webp" alt="A man singing at the wheel of a car at night, a Music Studio song with MiniMax H3 lip-sync" width="49%">
+  <img src="assets/readme/bust_sings.webp" alt="A marble bust singing, LTX-2.5 lip-sync to a song" width="49%">
+</p>
+<p align="center"><sub>“Neon Mile”, a Music Studio song sung with MiniMax H3, and “The bust sings”, LTX-2.5 lip-sync</sub></p>
+
+### AI images with P-H3-Image, FLUX 3 Klein, Qwen-Image-Edit and FLUX.2
+
+New in 5.0: P-H3-Image by Pruna AI makes 8-megapixel pictures with exact text (needs MiniMax H3 and 48 GB or more).
+FLUX 3 Klein by Black Forest Labs makes an image from a sentence in about 50 seconds on an M4 Max, or edits the reference pictures you give it.
+Qwen-Image-Edit and FLUX.2 (via mflux) make images and edit them in words, like “make the jacket red”,
+with up to three reference pictures. Ideogram 4 puts readable words on a picture. Send any still straight to video.
+
+<p align="center">
+  <img src="assets/readme/app_images.webp" alt="The Phosphene Images tab: AI image editing on a Mac with reference pictures" width="100%">
+</p>
+<p align="center"><sub>Images: describe the change, add up to three reference pictures, pick from four takes.</sub></p>
+
+### Train a character LoRA on your Mac (face and voice)
+
+Train an LTX-2 character LoRA of an original character, or of yourself, on your Mac: face from your photos, voice from your recordings.
+Local Gemma writes the training captions for you. Browse and install LTX LoRAs from CivitAI inside the app.
+
+<p align="center">
+  <img src="assets/phosphene_app_mac.jpg" alt="The Phosphene AI video app on a Mac: LTX-2.5 text-to-video with a trained character LoRA" width="100%">
+</p>
+<p align="center"><sub>Bizarro, a trained character, in the Video tab: the prompt, the take and the outputs.</sub></p>
+
+### Scripts and AI agents
+
+Add Phosphene to Claude Code, Codex or any MCP client in one line (Phosphene running in Pinokio):
+
+```bash
+claude mcp add phosphene -- ~/pinokio/api/phosphene.git/ltx-2-mlx/env/bin/python ~/pinokio/api/phosphene.git/agents/phosphene_mcp.py
+```
+
+There is also a `phosphene` command (`agents/phosphene_cli.py`); both are in [`docs/AGENT_TOOLS.md`](docs/AGENT_TOOLS.md).
+Under them, everything the app does is reachable over a local HTTP API (`docs/API.md`), so your own script can queue renders too.
+There is also an image layout API for agents (`docs/AGENT_API.md`).
+Gemma runs locally for prompt **Enhance**, captions and the storyboard planner.
+
+## Mac requirements: M1 to M5, memory and disk
+
+Any Apple Silicon Mac, M1 or newer, including MacBook Air, MacBook Pro, Mac mini and Mac Studio. Memory decides what you can run. Intel Macs and Windows are not supported.
+
+| Memory | What you can make |
 | --- | --- |
 | 16–24 GB | LTX-2.5 video from text or a picture at smaller sizes, images, and songs. Close other apps and browser tabs before you compose on a 16 GB Mac. |
-| 32–36 GB | Everything above. Hailuo H3 from 36 GB. |
+| 32–36 GB | Everything above. MiniMax H3 from 36 GB. |
 | 48–64 GB | LTX keyframes, Extend, trained characters with Q8 weights, and the High tier. |
-| 96 GB+ | Most modes at full size (available from 80 GB). Size limits come off at 120 GB. |
+| 96 GB+ | Most modes at full size (from 80 GB). Size limits come off at 120 GB. |
 
-Phosphene is built on an M4 Max with 64 GB. See the [benchmarks](https://phosphene.video/benchmarks/).
+**Disk:** setup downloads no models; allow 18 GB free, including 15 GB kept free. Pick your models inside the app: LTX-2.5 Q4 video is about 27.5 GB, image models download on first use.
+MiniMax H3 (about 75 GB) and Music Studio (about 11 GB) are optional.
 
-**Disk (Pinokio):** Start opens after the runtime is installed, with no model downloads. Allow 18 GB free for setup, including 15 GB kept free. Choose models inside the app: LTX-2.5 Q4 video is about 27.5 GB; image models download on first use.
-Hailuo H3 (~75 GB) and the music engine (~11 GB) are optional.
+## How fast is it on a Mac?
 
-## Install
+On an M4 Max with 64 GB, a 5-second LTX-2.5 clip at High takes about 6 minutes,
+a 5-second MiniMax H3 clip on Draft + Fast about 5 minutes, and a 3-minute song about 3 minutes.
+Smaller Macs take longer: across Phosphene users, a 5-second LTX-2.5 clip at Balanced (480p) took a median 10m40s on a 16 GB M4.
+Phosphene estimates the time before you press Generate. **Bench** measures your own Mac and compares it with other Macs; see the [benchmarks](https://phosphene.video/benchmarks/?utm_source=github&utm_medium=readme&utm_campaign=repo&utm_content=bench).
 
-Today, install through [Pinokio](https://pinokio.computer):
+<p align="center">
+  <img src="assets/readme/lantern_fjord.webp" alt="A man in a rowing boat among floating lanterns in a fjord, made with MiniMax H3 on a Mac" width="100%">
+</p>
+<p align="center"><sub>“Lantern Fjord”, MiniMax H3, image to video</sub></p>
+
+## Install: the Mac app, or one click with Pinokio
+
+**Mac app (recommended):** [download Phosphene for Mac](https://phosphene.video/download/?utm_source=github&utm_medium=readme&utm_campaign=repo&utm_content=install), open it and pick your models.
+It can reuse models your Pinokio install already downloaded.
+
+**Pinokio:** Phosphene also installs with one click through Pinokio (pinokio.computer), a free app launcher:
 
 1. Install Pinokio.
 2. Open **Discover → Download from URL** and paste `https://github.com/mrbizarro/phosphene`.
 3. Press **Install**.
-4. Press **Start**, then open the panel.
+4. Press **Start**, then open the app.
 
 To update, press **Update** in Pinokio, then restart Phosphene.
-See the [full install guide](https://phosphene.video/docs/install/) for details, or the [manual install](docs/MANUAL_INSTALL.md) to do it by hand.
-
-There is also a native Mac app, no Pinokio needed: see [phosphene.video/download](https://phosphene.video/download/).
-It can reuse models your Pinokio install already downloaded.
-
-[Linux on Apple Silicon](docs/LINUX.md) is maintained by @joshuaswarren on a best-effort basis.
-It is not installed by Pinokio.
-
-## Where we're going
-
-- Pro, for people who use Phosphene every day or earn money with it.
-- More models. Bringing new open models to the Mac first is the point. New ports reach everyone free; Pro may get them up to 24 hours early.
-- Everything available today stays free.
+The [docs](https://phosphene.video/docs/?utm_source=github&utm_medium=readme&utm_campaign=repo&utm_content=docs) have the step-by-step install, troubleshooting and every feature in detail.
+To install by hand instead, follow the [manual install](docs/MANUAL_INSTALL.md).
+Linux on Apple Silicon (`docs/LINUX.md`) is maintained by @joshuaswarren on a best-effort basis.
 
 ## Pro
 
-We love open source. Phosphene will always be open source and well maintained.
-If you can afford it, Pro keeps the lights on: faster renders, priority support and more.
+Phosphene is open source and stays free. **Pro** is optional, for people who use it every day:
+**Faster Flex Turbo** for quicker renders, new features first, and priority support.
+Everything available today stays free, Phosphene stays open source under MIT, and new model ports reach everyone free.
+Prices and what is on sale now: [phosphene.video/pricing](https://phosphene.video/pricing/?utm_source=github&utm_medium=readme&utm_campaign=repo&utm_content=pro).
 
-Pro is optional. What it includes and how to get it: [phosphene.video/pricing](https://phosphene.video/pricing/).
+## FAQ
+
+**Is Phosphene really free?**
+Yes. No subscription, credits or watermark, and every feature available today stays free. Pro adds Faster Flex Turbo and early access; it does not lock today's features.
+
+**Does it work offline?**
+Yes. Download the models once, then render without a connection. When online, it checks GitHub for updates and downloads models you ask for.
+
+**Can I run LTX-2 or MiniMax H3 on an M1, M2 or 16 GB Mac?**
+LTX-2.5 runs from 16 GB at smaller sizes on any Apple Silicon Mac. MiniMax H3 needs 36 GB. The Mac requirements table above has the details.
+
+**LTX-2.5 or MiniMax H3: which should I use?**
+MiniMax H3 for people talking: dialogue and voices that match lips. LTX-2.5 for everything else: more modes, keyframes, trained characters, Motion Control and smaller Macs. Phosphene has both in one switcher.
+
+**Are LTX-2.5 and MiniMax H3 open source?**
+Their weights are open to download, each under its own community licence (see License below). Phosphene's code is MIT.
+
+**Does it run on Windows or Intel Macs?**
+No. Phosphene is built for Apple Silicon. On Windows with an NVIDIA GPU, look at ComfyUI or WanGP.
+
+**Can I run Wan 2.2 or FramePack on a Mac?**
+Phosphene doesn't include them. Draw Things lists Wan 2.2, and mlx-video runs Wan 2.1 and 2.2 from Python. Phosphene's LTX-2.5 and MiniMax H3 cover the same jobs with sound.
+
+**What is the best local AI video generator for Mac? How is Phosphene different from ComfyUI, Draw Things or LTX Desktop?**
+ComfyUI gives you a node graph for every model; Phosphene gives you ready-made workflows built on MLX for the Mac.
+Draw Things has an App Store app and cloud compute; LTX Desktop comes from the makers of LTX.
+Each is ahead of Phosphene somewhere; pick the one that fits how you work.
+
+**Is it an alternative to Veo 3, Runway, Kling or Higgsfield?**
+Those run in the cloud and charge per render. Phosphene runs open models on your own Mac for free. Cloud models are faster, and some are sharper; Phosphene is private, unlimited and yours.
+
+**Can I use what I make commercially?**
+Phosphene's code is MIT. Each model has its own licence, and some are non-commercial (see License below). Check a model's licence before you sell its output.
 
 ## Privacy
 
-No prompt, picture, video or filename is uploaded; the panel listens on `127.0.0.1` only, with no login, so don't expose it to a network.
+No prompt, picture, video or filename is uploaded. The app listens on `127.0.0.1` only, with no login, so don't expose it to a network.
 Phosphene checks GitHub for updates and contacts Hugging Face or CivitAI only when you download models or LoRAs.
 Anonymous usage counts (version, hardware class such as “M4 Max / 64 GB”, and render stats) are on by default;
-one click in Settings turns them off, and [every field is documented](docs/ANALYTICS.md).
+one click in Settings turns them off, and every field is listed in `docs/ANALYTICS.md`.
+Make original or stylised characters, or yourself with documented consent; follow the acceptable use policy on phosphene.video.
 
 ## Contributing
 
-[Bug reports](https://github.com/mrbizarro/phosphene/issues) and PRs are welcome.
+Bug reports, ideas in Discussions and pull requests are welcome.
 A report with your chip, macOS version, Phosphene version and the error line is worth as much as a patch.
-Contributors are credited in the [release notes](https://github.com/mrbizarro/phosphene/releases). See [CONTRIBUTING.md](CONTRIBUTING.md).
+Contributors are credited in the release notes. See CONTRIBUTING.md.
 
 ## Credits
 
 - Lightricks for LTX-Video 2.x, and @dgrauet for ltx-2-mlx, the MLX port Phosphene builds on.
 - MiniMax for Hailuo H3, and Apple ML research for MLX.
 - LightX2V for lightx2v v1.3, the adapter for Best on High; TaoLive (TaoMate-H3) and @kijai for the 3-step Fast adapter.
+- Pika Labs (Mellis, Inc.) for Pika H3 Flex, a MiniMax H3 Model Derivative, downloaded from Pika's own Hugging Face repo at a pinned revision and converted on your Mac. Powered by MiniMax H3.
+- Black Forest Labs for FLUX 3 Klein, and mflux-community for its MLX conversions.
+- Pruna AI for P-H3-Image.
 - @filipstrand for mflux; Multimodal Art Projection for YuE2 and @vanch007 for its MLX port.
 - mlx-community for Gemma on MLX, and @cocktailpeanut for Pinokio.
 
@@ -126,9 +243,9 @@ and everyone who filed a bug.
 
 ## License
 
-Phosphene's own code is [MIT](LICENSE). The AI models are not part of this repo and each has its own licence.
+Phosphene's own code is MIT. The AI models are not part of this repo and each has its own licence.
 Phosphene shows a model's licence before download or first run when the licence requires it.
 
 Ideogram 4, YuE2's weights, FLUX.1 Krea [dev] and Bria FIBO are non-commercial.
 YuE2 lets individual creators sell songs they make. Hailuo H3's licence excludes the EU, UK, South Korea and US.
-Check a model's licence before using its output commercially. [Model licence texts](LICENSES/).
+Check a model's licence before using its output commercially. The licence texts are in the `LICENSES` folder.
