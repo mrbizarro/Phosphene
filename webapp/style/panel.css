@@ -15156,3 +15156,18 @@ html[data-theme="light"] .star-card { box-shadow: 0 18px 44px rgba(20,26,46,.28)
 
 /* Images: a model with one version names it as plain text where the select was. */
 .studio-engine-row .studio-version-only { flex: 1 1 auto; min-width: 0; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Settings > Pro on Pinokio: the licence box (5.0.1) */
+.pro-licence { margin: 18px 0; padding: 14px 16px; border: 1px solid var(--line, #2a2a30); border-radius: 12px; display: grid; gap: 10px; }
+.pro-licence-state { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text, #f4f4f5); }
+.pro-licence-state[data-on="1"] { color: #8be9a8; }
+.pro-licence-form { display: flex; gap: 8px; }
+.pro-licence-form[hidden], .pro-licence-actions[hidden] { display: none; }
+.pro-licence-form input { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line, #2a2a30); background: transparent; color: inherit; font-size: 14px; }
+.pro-licence-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.pro-licence-note { margin: 0; font-size: 13px; color: var(--muted, #b4b4bb); }
+html[data-pro]:not([data-pro=""]) #proModal .lights-on-header,
+html[data-pro]:not([data-pro=""]) #proModal .pro-prices,
+html[data-pro]:not([data-pro=""]) #proModal .pro-compare,
+html[data-pro]:not([data-pro=""]) #proModal .pro-benefits,
+html[data-pro]:not([data-pro=""]) #proModal .pro-bottom { display: none; }

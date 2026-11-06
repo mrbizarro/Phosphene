@@ -1726,11 +1726,11 @@ function h3FlexTurboPickerStatus() {
 }
 function _h3FlexTurboTooltip(st) {
   const credit = ' By akhaliq (Pika H3 Flex by Pika Labs + LightX2V Turbo), running on your Mac. Powered by MiniMax H3.';
-  if (!st.pro_active) return 'H3 Flex Turbo is part of Phosphene Pro: a faster draft of H3 Flex in four steps, about 1.4× faster and a little softer.' + credit;
+  if (!st.pro_active) return 'H3 Flex Turbo is part of Phosphene Pro: a faster draft of H3 Flex, about 1.4× faster and a little softer.' + credit;
   if (!st.h3_ready) return 'H3 Flex Turbo needs Hailuo H3 first. Click to get it.' + credit;
   if (st.installing) return 'H3 Flex Turbo: downloading (' + st.progress + ').' + credit;
   if (!st.available) return 'H3 Flex Turbo: click to download it (' + st.download_gb + ' GB).' + credit;
-  return 'H3 Flex Turbo (faster draft): H3 Flex in four steps, about 1.4× faster and a little softer. Try ideas fast, then render the keeper on Flex or Best.' + credit;
+  return 'H3 Flex Turbo (faster draft): a faster H3 Flex, about 1.4× faster and a little softer. Try ideas fast, then render the keeper on Flex or Best.' + credit;
 }
 function _h3FlexTurboNote(cell) {
   const ft = h3FlexTurboState();
@@ -1740,7 +1740,7 @@ function _h3FlexTurboNote(cell) {
   if (!ft.supported) return 'H3 Flex Turbo needs a newer H3 runner.' + credit;
   if (ft.installing) { const d = ft.download || {}; return 'Downloading H3 Flex Turbo: ' + (d.mb || 0) + ' / ' + (d.total_mb || 295) + ' MB.'; }
   if (!ft.downloaded) return 'H3 Flex Turbo: pick it in the engine picker to download it (0.3 GB).' + credit;
-  if (h3FlexTurboOn(cell)) return 'H3 Flex Turbo: a faster draft (4 steps, about ' + _h3EtaPlain(cell && cell.flex_turbo_eta) + ' here), a little softer than H3 Flex. Try ideas fast, then render the keeper on Flex or Best. Fast motion can wobble.' + credit;
+  if (h3FlexTurboOn(cell)) return 'H3 Flex Turbo: a faster draft (about ' + _h3EtaPlain(cell && cell.flex_turbo_eta) + ' here), a little softer than H3 Flex. Try ideas fast, then render the keeper on Flex or Best. Fast motion can wobble.' + credit;
   return 'H3 Flex Turbo renders Text and Image on 5-second windows; this shape uses Best.';
 }
 function _h3FlexTurboMenuRow(e, active, surfaceMode) {

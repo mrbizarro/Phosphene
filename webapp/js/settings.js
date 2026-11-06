@@ -1575,6 +1575,7 @@ function openProModal(opener = null) {
   if (modal.style.display !== 'none') return;
   proReturnFocus = opener || document.activeElement;
   modal.style.display = 'flex';
+  proLicenceLoad();
   modal.querySelector('button').focus();
 }
 // The PRO mark: one GET /pro/status at boot. Free is the default state of the page; nothing nags.
@@ -1587,10 +1588,45 @@ async function proStatusRefresh() {
   // The header "Pro" door is for Free in Pinokio only: a Pro member sees the PRO mark by the logo
   // instead, and the Mac app has its own Pro chip in the top bar.
   const btn = document.getElementById('proBtn');
-  if (btn) btn.hidden = active || isMacApp();
+  // A member sees the door only to manage the licence this Studio holds (the modal hides the selling then).
+  if (btn) { btn.hidden = isMacApp() || (active && !(st && st.own_licence)); btn.textContent = active ? 'Licence' : 'Pro'; }
   if (mark) { mark.hidden = !active; mark.textContent = ''; const d = document.createElement('span'); d.className = 'pro-mark-dash'; d.setAttribute('aria-hidden', 'true'); mark.append(d, active && st.label ? st.label.toUpperCase() : 'PRO'); }
   return st;
 }
+// Settings > Pro on Pinokio: the Studio takes the licence key itself (pro_licence.py).
+function proLicenceShow(doc) {
+  const st = document.getElementById('proLicenceState'); if (!st) return;
+  const lic = (doc && doc.licence) || doc || {};
+  const pro = !!(doc && (doc.pro_status ? doc.pro_status.active : doc.active)) || !!lic.pro;
+  const via = lic.via;
+  let msg = (doc && doc.message) || lic.note || '';
+  if (!msg) msg = pro ? (via === 'app' ? 'Pro is on through the Phosphene Mac app on this Mac.' : 'Pro is on for this Mac.') : 'Free. Paste the licence key from your purchase email to turn Pro on.';
+  st.textContent = msg;
+  st.dataset.on = pro ? '1' : '';
+  const own = !!lic.licensed;
+  document.getElementById('proLicenceForm').hidden = pro;
+  document.getElementById('proLicenceActions').hidden = !own;
+}
+async function proLicenceLoad() {
+  try { const r = await fetch('/pro/licence', { cache: 'no-store' }); if (r.ok) { const l = await r.json(); proLicenceShow({ licence: l }); } } catch (_) {}
+}
+async function proLicencePost(path, body) {
+  const go = document.getElementById('proLicenceGo'); if (go) go.disabled = true;
+  try {
+    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body || '' });
+    const d = await r.json(); proLicenceShow(d);
+    if (d.ok || d.licence_changed !== false) await proStatusRefresh();
+    return d;
+  } catch (_) { proLicenceShow({ message: 'Could not reach the Studio.' }); } finally { if (go) go.disabled = false; }
+}
+async function proLicenceActivate(ev) {
+  ev.preventDefault();
+  const inp = document.getElementById('proLicenceKey'); const key = inp.value.trim(); if (!key) return;
+  const d = await proLicencePost('/pro/activate', 'key=' + encodeURIComponent(key));
+  if (d && d.ok) inp.value = '';
+}
+const proLicenceRefresh = () => proLicencePost('/pro/refresh');
+const proLicenceDeactivate = () => proLicencePost('/pro/deactivate');
 function closeProModal() {
   document.getElementById('proModal').style.display = 'none';
   if (proReturnFocus && proReturnFocus.isConnected) proReturnFocus.focus();
@@ -1599,6 +1635,7 @@ function closeProModal() {
 Object.assign(globalThis, {
   downloadFirstVideo,
   openProModal, closeProModal, proStatusRefresh,
+  proLicenceActivate, proLicenceRefresh, proLicenceDeactivate,
   pushSubscription, pushToggle, pushTest,
   appearanceGet, applyAppearance, setAppearance,
   renderNotifyState, toggleNotify, askNotifyPermission,

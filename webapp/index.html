@@ -354,7 +354,7 @@
       <button data-workflow="train" role="tab" aria-selected="false"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-user-plus"/></svg>Train Character</button>
       <!-- Remote Control: drive this Mac from the iPhone app. The page is Studio UI; the
            working parts are Pro-only and come from the Pro pack (see panel/routes_remote.py). -->
-      <button data-workflow="remote" role="tab" aria-selected="false"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-remote"/></svg>Remote Control<span class="new-badge">SOON</span></button>
+      <button data-workflow="remote" role="tab" aria-selected="false"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-remote"/></svg>Remote Control<span class="new-badge">NEW</span></button>
     </nav>
     <div class="rail-foot">
       <!-- DOCS. The manual gets a door of its own beside the gear, with a WORD on
@@ -395,9 +395,9 @@
 
       <div class="rm-pro" id="rmPro" hidden>
         <div class="rm-pro-copy">
-          <span class="rm-pro-kicker">Phosphene Pro · coming soon</span>
+          <span class="rm-pro-kicker">Phosphene Pro</span>
           <strong>Remote Control comes with Phosphene Pro.</strong>
-          <p>The Phosphene Remote iPhone app is coming soon. Pro members can use it as soon as it is out.</p>
+          <p>The Phosphene Remote iPhone app is free on the <a href="https://apps.apple.com/app/id6827562294" target="_blank" rel="noopener">App Store</a>. It works with your Mac once Pro is on.</p>
           <p>Use your iPhone to start renders, follow their progress and save finished clips. Your Mac does the rendering.</p>
           <ul class="rm-pro-list">
             <li>Write a prompt and pick settings on your phone</li>
@@ -407,6 +407,7 @@
           <p class="rm-pro-note">Pro supports the open-source project.</p>
           <div class="rm-pro-actions">
             <a class="rm-btn primary" href="https://phosphene.video/pricing/" target="_blank" rel="noopener">See Phosphene Pro</a>
+            <a class="rm-btn" href="https://apps.apple.com/app/id6827562294" target="_blank" rel="noopener">Get the iPhone app</a>
             <a class="rm-btn" href="https://phosphene.video/remote/" target="_blank" rel="noopener">How Remote Control works</a>
           </div>
         </div>
@@ -426,7 +427,7 @@
         <section class="rm-card rm-pair" aria-labelledby="rmPairTitle">
           <h3 id="rmPairTitle">Pair your iPhone</h3>
           <ol class="rm-steps">
-            <li><span class="rm-n">1</span><div><b>Get the iPhone app.</b> <em>Phosphene Remote</em> for iPhone is coming soon. Once it is out, pair it here.</div></li>
+            <li><span class="rm-n">1</span><div><b>Get the iPhone app.</b> Install <a href="https://apps.apple.com/app/id6827562294" target="_blank" rel="noopener"><em>Phosphene Remote</em> from the App Store</a>.</div></li>
             <li><span class="rm-n">2</span><div><b>Scan this code.</b> Open the app, tap <em>Pair with a Mac</em> and point it here. Same Wi-Fi is the easiest way.</div></li>
             <li><span class="rm-n">3</span><div><b>Allow it on this Mac.</b> Check both screens show the same 6 digits, then press Allow.</div></li>
           </ol>
@@ -6833,7 +6834,7 @@ The last line"></textarea>
 
 <div id="proModal" class="models-modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="lightsOnTitle" onclick="if(event.target===this)closeProModal()">
   <div class="models-card pro-card">
-    <div class="pro-toolbar"><span>Coming soon · not on sale yet</span><button type="button" class="ghost-btn" onclick="closeProModal()">Close</button></div>
+    <div class="pro-toolbar"><span>Phosphene Pro</span><button type="button" class="ghost-btn" onclick="closeProModal()">Close</button></div>
 <!-- LIGHTS_ON_HEADER_START -->
 <section class="lights-on-header" aria-labelledby="lightsOnTitle">
   <div class="lights-on-wash" aria-hidden="true"></div>
@@ -6864,20 +6865,33 @@ The last line"></textarea>
 </section>
 <!-- LIGHTS_ON_HEADER_END -->
     <div class="pro-prices" aria-label="Pro pricing">
-      <section class="pro-price"><h3>Pro monthly</h3><p><strong>$15</strong> a month</p><span>Coming soon</span></section>
-      <section class="pro-price"><h3>Pro yearly</h3><p><strong>$120</strong> a year</p><span>Coming soon</span></section>
-      <section class="pro-price pro-founding"><h3>Founding (3 years)</h3><p><strong>$149</strong> one-time</p><span>Coming soon · first 200 seats. No renewal; access expires after 3 years (1,095 days). Existing Founding promises are preserved.</span></section>
+      <section class="pro-price"><h3>Pro monthly</h3><p><strong>$15</strong> a month</p><span>Cancel any time.</span></section>
+      <section class="pro-price"><h3>Pro yearly</h3><p><strong>$120</strong> a year</p><span>Two months free.</span></section>
+      <section class="pro-price pro-founding"><h3>Founding (3 years)</h3><p><strong>$199</strong> one-time</p><span>First 200 seats. No renewal; access expires after 3 years (1,095 days). Existing Founding promises are preserved.</span></section>
     </div>
     <section class="pro-compare" id="proCompare" aria-label="Same clip, Free vs Pro">
       <header><p class="lights-on-eyebrow">SAME CLIP · FREE VS PRO</p><h3 id="proCompareTitle">Hailuo H3 · High · i2v · 5 s</h3><p class="pro-compare-sub" id="proCompareSub">Measured on an M4 Max · 64 GB, seed 4101: Free 14 min 56 s, Pro 10 min 02 s · 1.49×. Faces, motion, speech and sync reviewed equal.</p></header>
       <div class="pro-compare-player"><video id="proCompareVideo" src="/assets/pro/compare_h3_5s.mp4" poster="/assets/pro/compare_h3_5s.jpg" controls muted loop playsinline preload="metadata"></video></div>
     </section>
     <div class="pro-benefits">
-      <p><strong>Faster renders</strong>On the measured M4 Max / 64 GiB: H3 High i2v 5–10 s 1.48×; LTX-2.5 High Q8 t2v/i2v 5 s 1.28–1.30×; the qualified image profile 1.54×. Exact supported settings only; other Macs are unmeasured.</p>
-      <p><strong>New model access</strong>New models, community improvements, sound cleanup and Face to keep remain Free.</p>
+      <p><strong>Faster Flex Turbo</strong>A faster way to render Hailuo H3 Flex. Turns on as soon as your licence does.</p>
+      <p><strong>iPhone Remote</strong>Start and watch renders from your iPhone, at home or away.</p>
       <p><strong>Priority support and feature requests</strong>Pro questions and feature requests go to the front of the queue.</p>
     </div>
-    <div class="pro-bottom"><a class="pro-waitlist" href="https://phosphene.video/pricing/" target="_blank" rel="noopener">Join the waitlist <span aria-hidden="true">↗</span></a><p>Hardship licences are available on request.<br><a href="mailto:support@phosphene.video">Get in touch</a>.</p></div>
+    <section class="pro-licence" id="proLicence" aria-label="Your Pro licence">
+      <p class="lights-on-eyebrow">YOUR LICENCE</p>
+      <p class="pro-licence-state" id="proLicenceState" role="status"></p>
+      <form class="pro-licence-form" id="proLicenceForm" onsubmit="proLicenceActivate(event)">
+        <input type="password" id="proLicenceKey" autocomplete="off" spellcheck="false" placeholder="Paste your licence key" aria-label="Licence key">
+        <button type="submit" class="ghost-btn" id="proLicenceGo">Turn on Pro</button>
+      </form>
+      <div class="pro-licence-actions" id="proLicenceActions" hidden>
+        <button type="button" class="ghost-btn" onclick="proLicenceRefresh()">Check again</button>
+        <button type="button" class="ghost-btn" onclick="proLicenceDeactivate()">Deactivate this Mac</button>
+      </div>
+      <p class="pro-licence-note">One Mac per licence. Phosphene checks it once a day while you are online and keeps working for two weeks without internet.</p>
+    </section>
+    <div class="pro-bottom"><a class="pro-waitlist" href="https://phosphene.video/pricing/" target="_blank" rel="noopener">Get Pro <span aria-hidden="true">↗</span></a><p>Hardship licences are available on request.<br><a href="mailto:support@phosphene.video">Get in touch</a>.</p></div>
   </div>
 </div>
 

@@ -95,6 +95,13 @@ import agent_discovery
 # Remote Control (Pro): the Mac side of the iPhone app lives in the PRIVATE Pro tree and ships
 # inside the Pro pack as pro_remote.py. This studio only offers the left-menu page and the
 # routes behind it; with no pro_remote module next to it, Remote Control is "comes with Pro".
+# Pinokio has no Pro pack: with its own licence the Studio takes the compiled Remote modules out
+# of the signed pack (pro_parts.py) and puts their verified folder on sys.path first.
+try:
+    import pro_parts as _pro_parts
+    _pro_parts.activate()
+except Exception:  # noqa: BLE001 - the free Studio runs without it
+    _pro_parts = None
 try:
     import pro_remote
 except ImportError:
@@ -9741,7 +9748,7 @@ H3_FLEX_TURBO_AUDIO_SHIFT = 3.0
 H3_FLEX_TURBO_DOWNLOAD_GB = 0.31
 H3_FLEX_TURBO_DISK_NEED_GB = 1.5
 H3_FLEX_TURBO_NAME = "H3 Flex Turbo"
-H3_FLEX_TURBO_LABEL = "H3 Flex Turbo (preview, Pro) · 4 steps"
+H3_FLEX_TURBO_LABEL = "H3 Flex Turbo (preview, Pro) · faster"
 H3_FLEX_TURBO_CREDIT = ("H3 Flex Turbo: Pika H3 Flex Turbo LoRA by akhaliq, fusing Pika H3 Flex "
                         "(Pika Labs) with LightX2V's MiniMax-H3 Turbo distill, running natively "
                         "on Apple Silicon (MLX) in Phosphene. Powered by MiniMax H3. "
@@ -39848,7 +39855,7 @@ def run_h3_job_inner(job: dict) -> None:
                 + f". Expected under {flex_turbo_paths['dir']} - pick H3 Flex Turbo "
                   f"again in the engine picker to download it.")
         steps = H3_FLEX_TURBO_STEPS
-        push(f"[h3] {H3_FLEX_TURBO_NAME}: four-step Pika H3 Flex (akhaliq's fused LoRA with "
+        push(f"[h3] {H3_FLEX_TURBO_NAME}: the faster Pika H3 Flex (akhaliq's fused LoRA with "
              f"LightX2V's Turbo), running natively on Apple Silicon (MLX). Powered by MiniMax H3.")
     if flex and (tristep or turbo or v13 or not h3_cell_takes_flex(tier)
                  or mode not in H3_FLEX_MODES):
@@ -49955,6 +49962,19 @@ if __name__ == "__main__":
         raise
     if pro_remote is not None:
         pro_remote.boot(sys.modules[__name__])
+    # Pinokio has no Mac app to keep a Pro licence fresh: the Studio renews its own (pro_licence.py).
+    # A no-op without a licence record; the Mac app's studio never runs it.
+    if not _dist.is_mac_app():
+        try:
+            import pro_licence
+            pro_licence.start_renewal()
+        except Exception as exc:  # noqa: BLE001 - never stop the panel for this
+            print(f"[pro] licence renewal not started: {exc}", flush=True)
+    if _pro_parts is not None:
+        try:
+            _pro_parts.start(sys.modules[__name__])
+        except Exception as exc:  # noqa: BLE001 - never stop the panel for this
+            print(f"[remote] Pro parts check not started: {exc}", flush=True)
     # Only a process that loaded the candidate and bound its listener can
     # acknowledge it. Dependency failures survive boot, even without analytics.
     if _root_is_checkout():

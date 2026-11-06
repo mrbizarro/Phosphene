@@ -240,8 +240,59 @@ def _read_token_file(path: str) -> str | None:
         return None
 
 
+STUDIO_TOKEN_NAME = "pro_studio.token"
+APP_TOKEN_NAMES = ("studio.token", "capability.token")
+
+
+def studio_token_path(environ=None) -> str:
+    """Where the Studio's own licence (pro_licence.py) keeps the token it fetched."""
+    env = os.environ if environ is None else environ
+    raw = (env.get("LTX_STATE_DIR") or "").strip()
+    base = raw if raw else os.path.join(os.path.dirname(os.path.abspath(__file__)), "state")
+    return os.path.join(base, STUDIO_TOKEN_NAME)
+
+
+def studio_token_valid() -> bool:
+    t = _read_token_file(studio_token_path())
+    if not t:
+        return False
+    v = _verified(t)
+    return bool(v[0] and check(t, int(time.time()), device_id(), verified=v)[0])
+
+
+def app_tokens(environ=None) -> list[str]:
+    """The tokens the Phosphene Mac app keeps on this Mac (Pinokio reads them; the app passes its
+    own). Off with PHOSPHENE_PRO_DISCOVER=0 (the tests)."""
+    env = os.environ if environ is None else environ
+    if (env.get("PHOSPHENE_PRO_DISCOVER") or "").strip() == "0":
+        return []
+    home = (env.get("PHOSPHENE_HOME") or "").strip()
+    if not home:
+        h = (env.get("HOME") or "").strip()
+        if not h:
+            return []
+        home = os.path.join(h, "Library", "Application Support", "Phosphene")
+    out = []
+    for name in APP_TOKEN_NAMES:
+        t = _read_token_file(os.path.join(home, "pro", name))
+        if t and t not in out:
+            out.append(t)
+    return out
+
+
+def _discovered() -> list[str]:
+    out = []
+    t = _read_token_file(studio_token_path())
+    if t:
+        out.append(t)
+    if (os.environ.get("PHOSPHENE_DISTRIBUTION") or "").strip().lower() != "mac-app":
+        out += [a for a in app_tokens() if a not in out]
+    return out
+
+
 def candidates(environ=None) -> list[str]:
-    """The renewal file first (the app rewrites it on every renewal), then the launch token."""
+    """The renewal file first (the app rewrites it on every renewal), then the launch token; on the
+    real environment also the Studio's own licence token and, on Pinokio, the Mac app's."""
     env = os.environ if environ is None else environ
     out = []
     path = (env.get("PHOSPHENE_PRO_TOKEN_FILE") or "").strip()
@@ -252,6 +303,8 @@ def candidates(environ=None) -> list[str]:
     t = (env.get("PHOSPHENE_PRO_TOKEN") or "").strip()
     if t and t not in out:
         out.append(t)
+    if environ is None:
+        out += [d for d in _discovered() if d not in out]
     return out
 
 

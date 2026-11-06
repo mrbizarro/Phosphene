@@ -122,7 +122,7 @@ Powered by MiniMax H3. Pika H3 Flex by Pika Labs (Mellis, Inc.): the weights are
 
 ## H3 Flex Turbo (faster draft, Pro) {#flex-turbo}
 
-**H3 Flex Turbo** is H3 Flex in four steps instead of six: a faster draft, about 1.4× quicker than H3 Flex at the same size and a little softer. It is part of **Phosphene Pro**. For the final render, use H3 Flex or Best.
+**H3 Flex Turbo** is a faster H3 Flex draft, about 1.4× quicker than H3 Flex at the same size and a little softer. It is part of **Phosphene Pro**. For the final render, use H3 Flex or Best.
 
 - **Pick it:** choose **H3 Flex Turbo** in the engine picker, right after H3 Flex. Without Pro, the click opens the Pro panel.
 - **Get it:** the same click downloads it (0.3 GB, from its author's Hugging Face page at a fixed version). You need Hailuo H3 installed; the H3 Flex adapter is not needed.
