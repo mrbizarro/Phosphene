@@ -22,6 +22,16 @@ def post_models_video(h, path, qs, ctype) -> None:
     h._json(payload, code)
 
 
+@post("/models/reuse-pinokio")
+def post_models_reuse_pinokio(h, path, qs, ctype) -> None:
+    _rb = h._read_form_body()
+    if _rb is None:
+        return
+    body, form = _rb
+    key = (form.get("repo_key", [""])[0] or "").strip()
+    h._json(*P.pinokio_reuse_pack(key))
+
+
 @post("/models/download")
 def post_models_download(h, path, qs, ctype) -> None:
     _rb = h._read_form_body()

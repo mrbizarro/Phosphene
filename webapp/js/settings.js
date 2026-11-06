@@ -1589,8 +1589,10 @@ async function proStatusRefresh() {
   // instead, and the Mac app has its own Pro chip in the top bar.
   const btn = document.getElementById('proBtn');
   // A member sees the door only to manage the licence this Studio holds (the modal hides the selling then).
-  if (btn) { btn.hidden = isMacApp() || (active && !(st && st.own_licence)); btn.textContent = active ? 'Licence' : 'Pro'; }
-  if (mark) { mark.hidden = !active; mark.textContent = ''; const d = document.createElement('span'); d.className = 'pro-mark-dash'; d.setAttribute('aria-hidden', 'true'); mark.append(d, active && st.label ? st.label.toUpperCase() : 'PRO'); }
+  // Pinokio: always reachable. A Pro Mac that only borrows the Mac app's pass must still be able to paste its own key
+  // (Remote's components and renewal while the app is closed need it).
+  if (btn) { btn.hidden = isMacApp(); btn.textContent = active ? 'Licence' : 'Pro'; }
+  if (mark) { mark.hidden = !active; mark.textContent = active && st.label ? st.label : 'Pro'; }
   return st;
 }
 // Settings > Pro on Pinokio: the Studio takes the licence key itself (pro_licence.py).
@@ -1604,7 +1606,8 @@ function proLicenceShow(doc) {
   st.textContent = msg;
   st.dataset.on = pro ? '1' : '';
   const own = !!lic.licensed;
-  document.getElementById('proLicenceForm').hidden = pro;
+  // The key box is hidden only when this Studio already holds its own working licence; borrowed Pro (the Mac app's pass) keeps it.
+  document.getElementById('proLicenceForm').hidden = pro && own;
   document.getElementById('proLicenceActions').hidden = !own;
 }
 async function proLicenceLoad() {

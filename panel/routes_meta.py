@@ -290,6 +290,13 @@ def get_models(h, parsed) -> None:
         )
     # 4.20: packs a fresh install queued for the background (empty otherwise).
     payload["deferred_pending"] = P.deferred_pending_keys()
+    # Next update: a pack this studio lacks but a Pinokio install of Phosphene holds whole.
+    for row in payload["repos"]:
+        if row.get("complete"):
+            continue
+        _pk = P.pinokio_offer_for(row.get("key"))
+        if _pk:
+            row["pinokio"] = _pk
     # Mac app: the packs the app itself is fetching (absent under Pinokio).
     _app = P.app_models_state()
     if _app is not None:

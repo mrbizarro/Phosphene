@@ -24,9 +24,50 @@ def _mod():
 def get_remote_state(h, parsed) -> None:
     m = _mod()
     if m is None:
-        h._json({"ok": True, "available": False, "pro": False, "requires_pro": True})
+        h._json(_unavailable_state())
         return
     h._json(m.page_state())
+
+
+def _unavailable_state() -> dict:
+    """No Remote module is loaded. Say WHY, with the real Pro status: a member sees the install
+    state (checking, downloading, error with next step, restart needed), never a dead page."""
+    try:
+        pro = bool((P.pro_status() or {}).get("active"))
+    except Exception:  # noqa: BLE001
+        pro = False
+    doc = {"ok": True, "available": False, "pro": pro, "requires_pro": not pro}
+    if P._dist.is_mac_app():
+        doc["parts"] = {"managed_by": "mac_app"}
+        # Pro with no Remote module in a Mac-app studio = Pro was switched on after this engine
+        # started: the running engine is the Free one. The page offers "Set up Remote", which asks
+        # the app to start the Pro engine (no restart of Phosphene by hand).
+        doc["needs_engine_start"] = bool(pro)
+        return doc
+    try:
+        import pro_licence
+        import pro_parts
+        parts = pro_parts.status()
+        lic = pro_licence.status()
+    except Exception:  # noqa: BLE001
+        return doc
+    doc["parts"] = parts
+    doc["licensed_here"] = bool(lic.get("licensed"))
+    if pro and not lic.get("licensed"):
+        doc["needs_licence"] = True
+        doc["next"] = "Paste your licence key in Settings > Pro of this Studio (it does not use another seat). Remote Control's components are fetched with your own key."
+    elif lic.get("storage_problem") or lic.get("note") and not pro:
+        doc["next"] = lic.get("note")
+    return doc
+
+
+@post("/remote/parts_retry")
+def post_parts_retry(h, path, qs, ctype) -> None:
+    if _mod() is not None:
+        h._json({"ok": True, "started": False, "message": "Remote Control is already installed."})
+        return
+    import pro_parts
+    h._json(pro_parts.retry_now())
 
 
 def _do(action):

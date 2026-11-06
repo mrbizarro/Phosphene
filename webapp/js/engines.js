@@ -1702,11 +1702,14 @@ function h3FlexTurboPickerEntry() {
   if (!h3e || !engineRenderable(h3e)) return null;
   const ft = h3FlexTurboState();
   const h3st = engineStatus(h3e);
-  if (h3st.available && !ft.supported && !ft.downloaded) return null;
+  // A Pro member whose H3 runner cannot do it yet has nothing to pick; a Free user always sees
+  // it, marked Pro (owner, 6 Nov: the option was silently missing for Free, so nobody knew it
+  // existed). Clicking it as Free opens the Pro panel.
+  if (ft.pro_active && h3st.available && !ft.supported && !ft.downloaded) return null;
   return Object.assign({}, h3e, {
-    id: H3FLEXTURBO_ID, label: 'H3 Flex Turbo', generation: '', preview: true, pro: true, virtual: true,
-    sublabel: 'H3 Flex Turbo · faster draft · Pro',
-    tagline: 'Four-step H3 Flex: a faster draft, about 1.4× quicker than H3 Flex and a little softer. Pro.',
+    id: H3FLEXTURBO_ID, label: 'Faster Flex Turbo', generation: '', preview: true, pro: true, virtual: true,
+    sublabel: 'Faster Flex Turbo · quick drafts · Pro',
+    tagline: 'Quick drafts: try ideas fast, then render the keeper. Part of Phosphene Pro.',
   });
 }
 function h3FlexTurboPickerStatus() {
@@ -1726,7 +1729,7 @@ function h3FlexTurboPickerStatus() {
 }
 function _h3FlexTurboTooltip(st) {
   const credit = ' By akhaliq (Pika H3 Flex by Pika Labs + LightX2V Turbo), running on your Mac. Powered by MiniMax H3.';
-  if (!st.pro_active) return 'H3 Flex Turbo is part of Phosphene Pro: a faster draft of H3 Flex, about 1.4× faster and a little softer.' + credit;
+  if (!st.pro_active) return 'Faster Flex Turbo is part of Phosphene Pro: quick drafts, so you can try ideas fast and render the keeper after. Click to see Pro.';
   if (!st.h3_ready) return 'H3 Flex Turbo needs Hailuo H3 first. Click to get it.' + credit;
   if (st.installing) return 'H3 Flex Turbo: downloading (' + st.progress + ').' + credit;
   if (!st.available) return 'H3 Flex Turbo: click to download it (' + st.download_gb + ' GB).' + credit;

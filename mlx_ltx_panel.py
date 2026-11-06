@@ -5726,6 +5726,44 @@ def _repos() -> list[dict]:
     return list(_REQUIRED.get("repos", []))
 
 
+# ---- Reuse a Pinokio install's model (next update, owner test 6 Nov) -----------
+import pinokio_reuse as _pkr
+
+
+def pinokio_offer_for(key: str) -> dict | None:
+    """{bytes, same_volume} when a Pinokio install holds this pack whole and this studio does not."""
+    repo = next((r for r in _repos() if r.get("key") == key), None)
+    if not repo:
+        return None
+    try:
+        if _repo_complete(repo):
+            return None
+        src = _pkr.pack_source(repo, _pkr.model_roots(MODELS_DIR))
+        if not src:
+            return None
+        return {"bytes": src["bytes"], "same_volume": _pkr.same_volume(Path(src["dir"]), repo_dir(repo))}
+    except Exception:
+        return None
+
+
+def pinokio_reuse_pack(key: str) -> tuple[dict, int]:
+    repo = next((r for r in _repos() if r.get("key") == key), None)
+    if not repo:
+        return {"error": "unknown model"}, 400
+    reason = model_path_problem(repo, write=True)
+    if reason:
+        return {"error": reason}, 409
+    if app_models_owns(repo):
+        return {"error": "This model is already downloading in the background."}, 409
+    src = _pkr.pack_source(repo, _pkr.model_roots(MODELS_DIR))
+    if not src:
+        return {"error": "Pinokio does not hold this model (any more)."}, 404
+    ok, msg = _pkr.clone_pack(src, repo_dir(repo))
+    if not ok:
+        return {"error": msg}, 409
+    return {"ok": True, "key": key, "complete": _repo_complete(repo)}, 200
+
+
 def repo_dir(repo: dict) -> Path:
     """Where one required_files.json repo lives on disk.
 
@@ -28530,7 +28568,23 @@ def _sb_board_summary(board: dict) -> dict:
         # dropped it from the list entirely. A `Path.is_file()` stat, not a
         # parse: this is read once per board on every list.
         "has_timeline": _sb_has_timeline(board),
+        # What is ON the timeline, for the Editor's sequence menu (`clips`
+        # above only counts the storyboard's own shots).
+        **_sb_edit_facts(board),
     }
+
+
+def _sb_edit_facts(board: dict) -> dict:
+    out = {"edit_clips": 0, "edit_duration": 0.0}
+    try:
+        ep = _sbe_import().edit_path(_sbe_board_dir(board.get("id")))
+        if ep.is_file():
+            doc = json.loads(ep.read_text(encoding="utf-8"))
+            out["edit_clips"] = len(doc.get("clips") or [])
+            out["edit_duration"] = float(doc.get("duration") or 0.0)
+    except Exception:                                              # noqa: BLE001
+        pass
+    return out
 
 
 def _sb_has_timeline(board: dict) -> bool:
@@ -28542,6 +28596,24 @@ def _sb_has_timeline(board: dict) -> bool:
         return False
     try:
         return _sbe_import().edit_path(_sbe_board_dir(bid)).is_file()
+    except Exception:                                              # noqa: BLE001
+        return False
+
+
+def _sb_is_blank(board: dict) -> bool:
+    """The Editor opens on an empty timeline (a board it made itself, flagged
+    `blank_sequence`). Until it holds a shot or a saved timeline it is not a
+    film: no list, tab count or picker shows it."""
+    if not board.get("blank_sequence") or (board.get("shots") or []):
+        return False
+    # Opening the Editor writes an edit.json with no clips in it. That is
+    # still blank; a clip on the track, or a second save, is not.
+    try:
+        ep = _sbe_import().edit_path(_sbe_board_dir(board.get("id")))
+        if not ep.is_file():
+            return True
+        doc = json.loads(ep.read_text(encoding="utf-8"))
+        return not (doc.get("clips") or []) and int(doc.get("revision") or 0) <= 1
     except Exception:                                              # noqa: BLE001
         return False
 
@@ -28562,6 +28634,9 @@ def _sb_all_summaries() -> list:
         try:
             board = storyboard.load_storyboard(STATE_DIR, r["id"])
         except Exception:
+            continue
+        if _sb_is_blank(board):
+            # An Editor sequence nobody has put a clip on yet is not a film.
             continue
         out.append(_sb_board_summary(board))
     return out
@@ -38994,6 +39069,20 @@ def _face_fix_offers(board_id: str, edit: dict) -> list[dict]:
     return out
 
 
+def face_fix_pinokio_offer() -> dict | None:
+    """The upscaler adapter is not here but a Pinokio install holds it: {repo_key, bytes} to offer first."""
+    o = pinokio_offer_for("ic_upscale_x2")
+    return dict(o, repo_key="ic_upscale_x2", name="LTX-2.5 Pixel Spatial Upscaler adapter") if o else None
+
+
+def _face_fix_missing_sentence() -> str:
+    if face_fix_pinokio_offer():
+        return (f"{FACE_FIX_NAME} needs the LTX-2.5 Pixel Spatial Upscaler adapter (0.3 GB). It is already in "
+                "your Pinokio install: use it from there (no download), or download it in Settings → Models.")
+    return (f"{FACE_FIX_NAME} needs the LTX-2.5 Pixel Spatial Upscaler adapter (0.3 GB). "
+            "Open Settings → Models and download it.")
+
+
 def face_fix_adapter_ready() -> bool:
     """Is the Pixel Spatial Upscaler adapter Upscale & Face Fix needs on disk?"""
     adapter_path = CURATED_LORAS["upscale_x2"].get("local_path") or ""
@@ -39010,6 +39099,10 @@ def extend_face_fix_refusal(params: dict) -> str | None:
         return None
     if face_fix_adapter_ready():
         return None
+    if face_fix_pinokio_offer():
+        return (f"“Also run {FACE_FIX_NAME} after” needs the LTX-2.5 Pixel Spatial Upscaler adapter, which is "
+                "already in your Pinokio install: use it from there (no download), download it in "
+                "Settings → Models, or uncheck the box to render the Extend alone.")
     return (f"“Also run {FACE_FIX_NAME} after” needs the LTX-2.5 Pixel Spatial "
             "Upscaler adapter (0.3 GB), which isn't on this Mac yet. Download it "
             "in Settings → Models, or uncheck the box to render the Extend alone.")
@@ -39032,9 +39125,8 @@ def queue_face_fix(source_path: str, *, board_id: str = "",
     if board_id and not (_sbe_board_dir(board_id) / "storyboard.json").is_file():
         return {"ok": False, "error": "unknown film"}
     if not face_fix_adapter_ready():
-        return {"ok": False, "code": "pack_missing",
-                "error": f"{FACE_FIX_NAME} needs the LTX-2.5 Pixel Spatial Upscaler "
-                         "adapter (0.3 GB). Open Settings → Models and download it."}
+        return {"ok": False, "code": "pack_missing", "error": _face_fix_missing_sentence(),
+                "pinokio": face_fix_pinokio_offer()}
     sw, sh = _probe_video_dims(str(src))
     src_frames = _probe_video_frames(str(src)) or 0
     # VA-22: the target canvas, so the client's queued-toast can say what
@@ -42805,8 +42897,12 @@ def run_job_inner(job: dict) -> None:
             raise RenderRefused(
                 "pack_missing",
                 f"{FACE_FIX_NAME} needs the LTX-2.5 Pixel Spatial Upscaler adapter, which "
-                "isn't downloaded on this Mac yet. Open Settings → Models and "
-                "download it, then render again.")
+                "isn't downloaded on this Mac yet. " + (
+                    "It is already in your Pinokio install: open Settings → Models and choose "
+                    "Reuse from Pinokio (no download), then render again."
+                    if face_fix_pinokio_offer() else
+                    "Open Settings → Models and download it, then render again.")
+                )
         sw, sh = _probe_video_dims(src)
         if not (sw and sh):
             raise RuntimeError(f"could not read the size of {source.name}")
@@ -47519,6 +47615,32 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True})
                 return
 
+            if action == "new-sequence":
+                # The Editor opens straight into an empty timeline. Reuse the
+                # blank one if it is still there, so opening the Editor ten
+                # times leaves one board, not ten.
+                board = None
+                try:
+                    for r in storyboard.list_storyboards(STATE_DIR):
+                        cand = storyboard.load_storyboard(STATE_DIR, r["id"])
+                        if _sb_is_blank(cand):
+                            board = cand
+                            break
+                except Exception:
+                    board = None
+                if board is None:
+                    title = (f("title", "") or "").strip() or \
+                        "Sequence " + time.strftime("%-d %b")
+                    board = storyboard.new_storyboard(_sb_new_id(title), title)
+                    board["blank_sequence"] = True
+                    board["policy"] = _sb_policy_for(
+                        get_settings().get("storyboard_draft_quality", "quick"),
+                        get_settings().get("storyboard_final_quality", "standard"))
+                    storyboard.save_storyboard(STATE_DIR, board)
+                self._json({"ok": True, "id": board["id"],
+                            "title": board.get("title") or ""})
+                return
+
             if action == "duplicate":
                 # FILM-43: the board list had no way to branch off a plan —
                 # only rename (via the ordinary save route) and delete. A
@@ -49741,11 +49863,8 @@ def page(theme: str = "") -> str:
     # different panel: a STATE_DIR outside the install root is by definition
     # not the install's own films. Loud badge, and the tab title changes too —
     # a background tab is a title and a favicon and nothing else.
-    # The edition label (PHOSPHENE_EDITION=pro, set by the Mac app). A label
-    # and a CSS hook (body[data-edition]) - no paid code rides on it.
-    if _dist.is_pro():
-        profile_badge += ('<span class="profile-badge edition-badge" '
-                          'title="Phosphene Pro">Pro</span>')
+    # No edition badge (owner, 6 Nov 2026): Pro shows as the one gradient PRO pill beside the
+    # wordmark (#proMark, filled by proStatusRefresh); body[data-edition] stays as the CSS hook.
     is_test = not _state_dir_is_native()
     if is_test:
         profile_badge = (

@@ -155,15 +155,6 @@
       letter-spacing: 0.12em;
       cursor: help;
     }
-    /* Edition label (PHOSPHENE_EDITION=pro, set by the Mac app): the brand
-       violet, quieter than DEV/TEST - it states what this is, it does not
-       warn. A label only; body[data-edition] is the hook for anything more. */
-    .profile-badge.edition-badge {
-      background: rgba(139,92,246,0.16);
-      color: #b69cff;
-      border-color: rgba(139,92,246,0.5);
-      cursor: default;
-    }
     /* Phosphene 2.0 release badge — sits next to the wordmark logo so
        users immediately know they're on the major version bump. Brand
        violet vs the DEV badge's amber so they don't visually clash when
@@ -2571,6 +2562,9 @@
       position: absolute; inset: 0; display: flex; align-items: center;
       padding: 0 14px; color: var(--muted); font-size: var(--fs-sm);
       pointer-events: none; max-width: 640px;
+    }
+    .sbe-track-empty .sbe-track-all {
+      pointer-events: auto; margin-left: 12px; white-space: nowrap;
     }
 
     /* ---- THE CLIP BAR -----------------------------------------------
@@ -14921,13 +14915,12 @@ body > header .star-link.is-calling svg { animation: star-twinkle 14s ease-in-ou
 .star-ask #starAskGo, .star-ask .modal-actions .btn { white-space: nowrap; flex: 1 1 0; }
 
 /* ---------- Pro: the mark beside the wordmark, the speed receipt chip, the Free-vs-Pro player ---------- */
-.pro-mark { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; padding: 2px 8px 2px 6px; border-radius: 6px; font: 700 11px/16px var(--mono, ui-monospace, monospace); letter-spacing: 0.14em;
-  color: #0d0d0e; background: linear-gradient(90deg, #ff2e9f, #b14aff 52%, #5eeaff); box-shadow: 0 0 0 1px rgba(255,255,255,0.12) inset, 0 4px 14px -6px rgba(177,74,255,0.8); align-self: center; vertical-align: middle; }
+.pro-mark { display: inline-flex; align-items: center; margin-left: -4px; padding: 3px 9px; border-radius: var(--r-xs); font-size: 13px; font-weight: 700; letter-spacing: 0.12em; cursor: default;
+  color: #b69cff; background: rgba(139,92,246,0.16); border: 1px solid rgba(139,92,246,0.5); align-self: center; vertical-align: middle; }  /* the one Pro tag (owner, 6 Nov): brand violet box, beside the wordmark */
 .pro-mark[hidden] { display: none; }
-.pro-mark-dash { width: 10px; height: 3px; border-radius: 1px; background: #0d0d0e; opacity: 0.75; }
 .pro-chip { display: inline-flex; align-items: center; gap: 6px; padding: 1px 7px; border-radius: 5px; font: 500 11px/16px var(--mono, ui-monospace, monospace); letter-spacing: 0.04em; color: var(--text, #f4f4f5);
-  background: linear-gradient(90deg, rgba(255,46,159,0.18), rgba(177,74,255,0.18) 52%, rgba(94,234,255,0.18)); box-shadow: 0 0 0 1px rgba(177,74,255,0.45) inset; white-space: nowrap; margin-left: 6px; }
-.pro-chip::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: linear-gradient(90deg, #ff2e9f, #5eeaff); }
+  background: rgba(139,92,246,0.16); box-shadow: 0 0 0 1px rgba(139,92,246,0.5) inset; white-space: nowrap; margin-left: 6px; }
+.pro-chip::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #b69cff; }
 .card-chip-row .pro-chip { margin-left: 0; }
 .pro-compare { margin: 18px 0 6px; padding: 16px 18px 18px; border: 1px solid #2a2a2f; border-radius: 12px; background: #0b0b0c; color: #f4f4f5; }
 .pro-compare header h3 { margin: 4px 0 4px; font: 760 20px/1.1 Archivo, -apple-system, sans-serif; font-stretch: 86%; letter-spacing: -0.3px; }
@@ -14936,8 +14929,7 @@ body > header .star-link.is-calling svg { animation: star-twinkle 14s ease-in-ou
 .pro-compare-player video { display: block; width: 100%; aspect-ratio: 2048 / 624; }
 .pro-compare-labels { position: absolute; left: 0; right: 0; top: 8px; display: flex; justify-content: space-around; pointer-events: none; }
 .pro-compare-labels span { padding: 2px 8px; border-radius: 5px; font: 700 11px/16px var(--mono, ui-monospace, monospace); letter-spacing: 0.12em; background: rgba(11, 11, 12,0.72); color: #f4f4f5; }
-.pro-compare-labels span:last-child { background: linear-gradient(90deg, #ff2e9f, #b14aff 52%, #5eeaff); color: #0d0d0e; }
-@media (prefers-reduced-motion: reduce) { .pro-mark { box-shadow: none; } }
+.pro-compare-labels span:last-child { background: rgba(139,92,246,0.16); color: #b69cff; box-shadow: 0 0 0 1px rgba(139,92,246,0.5) inset; }
 /* In a gallery card the receipt is its own quiet mono line under the mode chip (the chip row is one ellipsised line otherwise). */
 .card-chip-row:has(.pro-chip) { white-space: normal; overflow: visible; }
 .card-chip-row .pro-chip { display: flex; width: fit-content; max-width: 100%; margin: 3px 0 0; padding: 0; background: none; box-shadow: none; color: #c99bff; font: inherit; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -15171,3 +15163,64 @@ html[data-pro]:not([data-pro=""]) #proModal .pro-prices,
 html[data-pro]:not([data-pro=""]) #proModal .pro-compare,
 html[data-pro]:not([data-pro=""]) #proModal .pro-benefits,
 html[data-pro]:not([data-pro=""]) #proModal .pro-bottom { display: none; }
+
+/* ---- THE VIEWER'S OWN PLAY BAR (queue.js buildViewerBar) --------------------
+   Owner, 6 Nov: the volume slider sat in the video's top-right corner. The
+   viewer now draws its bar: play, seek, time, speaker + slider that opens on
+   hover / focus / click. Used by the stage player (over the picture's bottom
+   edge) and the full-screen viewer (a column under the picture). */
+.vbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; box-sizing: border-box;
+  background: rgba(10, 12, 18, .78);
+  color: #e8ecf5; font-size: 13px; font-variant-numeric: tabular-nums;
+}
+.vbar-stage {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
+  background: linear-gradient(to top, rgba(0,0,0,.78), rgba(0,0,0,0));
+  padding-top: 22px;
+  opacity: 0; transition: opacity 160ms ease;
+}
+.player-wrap:hover .vbar-stage, .vbar-stage:focus-within, .vbar-stage.is-paused { opacity: 1; }
+.vbox-lb {
+  display: flex; flex-direction: column; align-items: center;
+  max-width: 100%; min-height: 0;
+}
+/* the picture keeps its own shape: height capped by the viewport (the lightbox
+   chrome above and below is ~250 px), width follows from the ratio */
+.vbox-lb > video { flex: 0 1 auto; min-height: 0; max-height: calc(100vh - 250px); max-width: 100%; width: auto; height: auto; }
+.expand-lightbox:fullscreen .vbox-lb > video { max-height: calc(100vh - 210px); }
+.vbar-lb { width: min(100%, 900px); border-radius: 0 0 8px 8px; flex: 0 0 auto; }
+.expand-lightbox.is-idle .vbar-lb { opacity: .25; }
+.vb-btn {
+  appearance: none; border: 0; background: transparent; color: inherit;
+  width: 28px; height: 28px; border-radius: 6px; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+}
+.vb-btn:hover, .vb-btn:focus-visible { background: rgba(255,255,255,.14); outline: none; }
+.vb-btn .ph { width: 18px; height: 18px; fill: currentColor; }
+.vb-seek { flex: 1 1 auto; min-width: 40px; accent-color: #8b7bff; cursor: pointer; }
+.vb-time { flex: 0 0 auto; color: #c3cadb; white-space: nowrap; }
+.vb-vol { display: inline-flex; align-items: center; flex: 0 0 auto; }
+.vb-volume {
+  width: 0; opacity: 0; margin: 0; accent-color: #8b7bff; cursor: pointer;
+  transition: width 160ms ease, opacity 160ms ease, margin 160ms ease;
+}
+.vb-vol:hover .vb-volume, .vb-vol:focus-within .vb-volume, .vb-vol.open .vb-volume {
+  width: 84px; opacity: 1; margin: 0 4px 0 2px;
+}
+.vb-vol.is-muted .vb-mute { color: #ff9a9a; }
+
+/* The small "Pro" mark on the Remote Control item for a Free Mac (owner, 6 Nov): it
+   shows once /pro/status has answered Free (data-pro="" ; absent until then, so a
+   Pro member never sees it flash), and takes the place of the NEW dot. */
+.workflow-tabs .rail-pro { display: none; }
+html[data-pro=""] .tool-rail .workflow-tabs .rail-pro {
+  display: inline-flex; align-items: center; position: absolute; top: 3px; right: 2px;
+  padding: 0 3px; font: 700 13px/15px var(--ph-font-mono, ui-monospace, monospace); letter-spacing: .06em;
+  color: #b69cff; background: rgba(139, 92, 246, .16); border: 1px solid rgba(139, 92, 246, .5);
+  border-radius: 4px; pointer-events: none;
+}
+html[data-pro=""] .tool-rail .workflow-tabs button[data-workflow="remote"] .new-badge { display: none; }
+.rm-pro-wait .rm-wait-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.rm-pro-wait .rm-wait-actions .rm-btn { width: auto; }

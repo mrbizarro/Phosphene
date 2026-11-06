@@ -168,7 +168,7 @@
     </svg>
     </span>
     <img class="brand-word" src="/assets/phosphene_wordtext.png" alt="Phosphene">
-    <span id="proMark" class="pro-mark" hidden title="Phosphene Pro is active on this Mac"><span class="pro-mark-dash" aria-hidden="true"></span>PRO</span>
+    <span id="proMark" class="pro-mark" hidden title="Phosphene Pro is active on this Mac">Pro</span>
   </a>
   <!-- The standalone version badge is gone: #versionPill already carries the
        version in EVERY state it can be in — "Up to date · 4.2.0",
@@ -354,7 +354,7 @@
       <button data-workflow="train" role="tab" aria-selected="false"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-user-plus"/></svg>Train Character</button>
       <!-- Remote Control: drive this Mac from the iPhone app. The page is Studio UI; the
            working parts are Pro-only and come from the Pro pack (see panel/routes_remote.py). -->
-      <button data-workflow="remote" role="tab" aria-selected="false"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-remote"/></svg>Remote Control<span class="new-badge">NEW</span></button>
+      <button data-workflow="remote" role="tab" aria-selected="false"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-remote"/></svg>Remote Control<span class="new-badge">NEW</span><span class="rail-pro" title="Remote Control is part of Phosphene Pro">Pro</span></button>
     </nav>
     <div class="rail-foot">
       <!-- DOCS. The manual gets a door of its own beside the gear, with a WORD on
@@ -419,8 +419,14 @@
       <!-- A Pro member whose studio has no Remote module yet (the Pro pack is still installing,
            or this is the free build on a Pro Mac): status, never the upsell above. -->
       <div class="rm-card rm-pro-wait" id="rmProWait" hidden>
-        <h3>Remote Control is not set up yet</h3>
-        <p>Your Pro licence is active. Remote Control turns on once the Pro components finish installing; this page updates by itself.</p>
+        <h3 id="rmWaitTitle">Remote Control is not set up yet</h3>
+        <p id="rmWaitBody">Your Pro licence is active. Checking for the Remote Control components.</p>
+        <p class="rm-wait-err" id="rmWaitErr" hidden></p>
+        <div class="rm-wait-actions">
+          <button type="button" class="rm-btn primary" id="rmWaitStart" hidden onclick="rmStartInApp()">Set up Remote</button>
+          <button type="button" class="btn" id="rmWaitRetry" hidden onclick="rmPartsRetry()">Try again</button>
+          <button type="button" class="btn" id="rmWaitSettings" hidden onclick="openProModal()">Open Pro settings</button>
+        </div>
       </div>
 
       <div class="rm-grid" id="rmMain" hidden>
@@ -5488,11 +5494,13 @@ The last line"></textarea>
       </div>
 
       <div class="sbe-pop sbe-films" id="sbeFilmsMenu" role="menu" hidden>
+        <button type="button" class="ghost-btn" id="sbeFilmsNewBtn" onclick="sbeFilmsNew()"
+                title="Start an empty timeline. The one you are on is kept.">New __SEQ__</button>
+        <button type="button" class="ghost-btn" id="sbeFilmsRenameBtn" onclick="sbeRename()"
+                title="Change the name of this __SEQ__">Rename this __SEQ__</button>
+        <span class="sbe-pop-sep"></span>
         <span class="sbe-pop-note" id="sbeFilmsNote">reading your __SEQS__…</span>
         <div class="sbe-films-list" id="sbeFilmsList"></div>
-        <span class="sbe-pop-sep"></span>
-        <button type="button" class="ghost-btn" id="sbeFilmsAllBtn" onclick="sbeFilmsAll()"
-                title="Close this timeline and show every __SEQ__. Nothing is deleted.">All __SEQS__…</button>
       </div>
 
       <div class="sbe-pop" id="sbeMoreMenu" hidden>
@@ -5762,7 +5770,7 @@ The last line"></textarea>
             <div class="sbe-stage-empty sbe-src-empty" id="sbeSrcEmpty">
               <svg class="sbe-cbar-i" aria-hidden="true"><use href="#ic-source"/></svg>
               <b>Drop a clip here to preview</b>
-              <span>Drag one from the media pool or the timeline — or click a clip in the pool.</span>
+              <span>Drag one from the media pool or the timeline, or click a clip in the pool.</span>
             </div>
           </div>
           <div class="sbe-mon-bar">

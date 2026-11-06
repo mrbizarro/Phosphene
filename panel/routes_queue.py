@@ -878,7 +878,8 @@ def post_run(h, path, qs, ctype) -> None:
     # not discovered in the log after a long Extend render.
     refusal = P.extend_face_fix_refusal(job["params"])
     if refusal:
-        h._json({"error": refusal, "code": "pack_missing"}, 400); return
+        h._json({"error": refusal, "code": "pack_missing",
+                 "pinokio": P.face_fix_pinokio_offer()}, 400); return
     # Upscale ×2 above QHD exhausted 96 GB + swap: refused before it queues.
     _up = job["params"]
     if _up.get("mode") == "upscale" and _up.get("upscale_source_path"):

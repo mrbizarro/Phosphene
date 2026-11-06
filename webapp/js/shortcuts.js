@@ -80,6 +80,9 @@ const SHORTCUTS = [
   { id: 'player.toggle', scope: 'outputs', combos: ['space'], owner: 'shortcuts.js',
     label: 'Play / pause the selected output',
     run: (ev) => shortcutTogglePlayer(ev) },
+  { id: 'player.mute', scope: 'outputs', combos: ['m'], owner: 'shortcuts.js',
+    label: 'Mute / unmute the player (works in the expanded player too)',
+    run: (ev) => shortcutMuteViewer(ev) },
   { id: 'outputs.step', scope: 'outputs', combos: ['arrowleft', 'arrowright'], owner: 'queue.js',
     label: 'Previous / next output — wraps at the ends, works in the expanded player too' },
   { id: 'outputs.expand', scope: 'outputs', combos: ['f'], owner: 'queue.js',
@@ -482,6 +485,17 @@ function shortcutTogglePlayer(ev) {
   window._stagePlaybackIntentAt = Date.now();
   if (v.paused) { const p = v.play(); if (p && p.catch) p.catch(() => {}); }
   else v.pause();
+}
+
+function shortcutMuteViewer(ev) {
+  const t = ev.target;
+  if (t && t.closest && t.closest('input, textarea, select, [contenteditable]')) return false;
+  const lb = document.getElementById('expandLightbox');
+  const lbOpen = lb && lb.style.display === 'flex';
+  if (!lbOpen && (shortcutTopModal() || !_scOnOutputsTab())) return false;
+  const v = (typeof viewerVideo === 'function') ? viewerVideo() : null;
+  if (!v) return false;
+  viewerBarMute(v);
 }
 
 function shortcutTrashOutput() {

@@ -1850,6 +1850,35 @@ document.addEventListener('DOMContentLoaded', () => {
 //   ◐ partial (amber)           — some files there, some missing (e.g. interrupted)
 //   ⊘ missing (red)             — nothing on disk
 //   ↻ downloading (blue, anim)  — hf is currently fetching this repo
+// A refusal that names a file Pinokio already has (res.pinokio): the server's sentence, then two
+// actions - use it from Pinokio first, download second.
+function pinokioReuseToast(res, retry) {
+  const el = phosToast(`${res.pinokio.name || 'This file'} is already in your Pinokio install. Use it from there (no download).`, { kind: 'warning', duration: 0 });
+  if (!el) return true;
+  const mk = (label, fn) => {
+    const a = document.createElement('a'); a.href = '#'; a.className = 'phos-toast-action'; a.textContent = label;
+    a.onclick = (ev) => { ev.preventDefault(); el.remove(); fn(); }; el.appendChild(a);
+  };
+  mk('Use it from your Pinokio install', async () => {
+    await reuseFromPinokio(res.pinokio.repo_key);
+    if (typeof retry === 'function') retry();
+  });
+  mk('Download instead', () => openModelsModal());
+  return true;
+}
+async function reuseFromPinokio(key, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Reusing…'; }
+  try {
+    const res = await api('/models/reuse-pinokio', 'POST', `repo_key=${encodeURIComponent(key)}`);
+    if (res && res.error) throw new Error(res.error);
+    if (typeof phosToast === 'function') phosToast('Reusing your Pinokio copy: done, nothing downloaded.');
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Reuse from Pinokio'; }
+    const m = (e && e.message) || 'Could not reuse the Pinokio copy.';
+    if (typeof phosToast === 'function') phosToast(m); else alert(m);
+  }
+  refreshModelsModal();
+}
 function openModelsModal() {
   // SYS-19: the health popover's Models row opens this modal too (the
   // real #modelsPill element is relocated into the popover by
@@ -1963,6 +1992,17 @@ async function refreshModelsModal({ silent = false } = {}) {
         : hfOk
         ? `<button onclick="startDownload('${escapeHtml(r.key)}')" ${slotBlocked || (active && !queuedKeys.has(r.key)) ? 'disabled' : ''}>${queuedKeys.has(r.key) && active ? 'Download next' : 'Download'}</button>`
         : `<button disabled>Download</button>`;
+    }
+    // Next update: Pinokio already holds this pack whole - reuse it first (no download, no extra
+    // disk), download second. Shown only while the pack is missing here.
+    if (r.pinokio && !r.complete && !r.app_owned && !(active && active.key === r.key)) {
+      const pk = r.pinokio, gb = pk.bytes ? ` (${(pk.bytes / 1e9).toFixed(1)} GB)` : '';
+      statusText += `<div style="color:#c9b8ff;margin-top:2px">It is already in your Pinokio install${gb}. Reuse it: no download${pk.same_volume ? ', no extra disk' : ''}.</div>`;
+      const _dl = (hostMissing ? '' : btnHtml.replace(/>(Download|Resume)([^<]*)</, '>Download instead<').replace(/^<button onclick/, '<button class="ghost" onclick'));
+      btnHtml = '<span style="display:flex;flex-direction:column;gap:6px;align-items:stretch">' + (pk.same_volume
+        ? `<button onclick="reuseFromPinokio('${escapeHtml(r.key)}', this)">Reuse from Pinokio</button>`
+        : `<button disabled title="Pinokio is on another drive; reusing would copy the model here. Download it instead.">Reuse from Pinokio</button>`)
+        + _dl + '</span>';
     }
     // "required" means required BY THIS BUILD. A base pack from the retired
     // generation is neither required nor optional — it is previous, and saying
@@ -2142,7 +2182,7 @@ Object.assign(globalThis, {
   spicyModeEnabled, renderSpicyAccess, civitaiNsfwRequested, renderCivitaiAuthBanner,
   closeCivitaiModal, civitaiSearch, civitaiLoadMore, renderCivitaiGrid,
   openModelsModal, closeModelsModal, refreshModelsModal, startDownload,
-  cancelDownload, packNeededToast,
+  cancelDownload, packNeededToast, pinokioReuseToast, reuseFromPinokio,
   // inline-handler targets: generated markup resolves these through the
   // global scope (the v4.9.0 regression, PR #69)
   _charactersManageDelete, _charactersManageSave, civitaiAuthSave, civitaiSetFamily,

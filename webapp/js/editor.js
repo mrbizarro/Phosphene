@@ -4197,33 +4197,107 @@ function edInit() {
   edShowPicker();
 }
 
-// The empty state, painted from the board list. This is "pick a film / start
-// from clips": every film with something on disk, plus the pool on the left.
+// THE EDITOR NEVER OPENS ON A START SCREEN. With no document it opens an
+// empty timeline: a fresh sequence named by date, ready for a drag or a +.
+// The server keeps it out of every list until it holds a first clip, and
+// reuses it, so opening the Editor again does not pile up empty boards.
+// The old pick-a-sequence screen (#edEmpty) is only the fallback when the
+// panel does not answer.
 async function edShowPicker() {
-  edShow('empty');
-  // With no document open "this film" has nothing in it, so the pool opens
-  // on the generations — which is the source that always has something.
-  if (ED.src === 'film') edPoolSrc('gallery'); else edPoolRefresh();
-  const box = document.getElementById('edPick');
-  if (box) box.innerHTML = '<span class="sbe-note">reading your __SEQS__…</span>';
-  let boards = [];
-  try {
-    const r = await (await fetch('/storyboard/list')).json();
-    boards = ((r && r.boards) || []).filter(b => (b.clips || 0) > 0);
-  } catch (e) { boards = []; }
-  if (!box) return;
-  if (!boards.length) {
-    box.innerHTML = '<span class="sbe-note">Nothing has been rendered yet. ' +
-      'Anything you generate — on any engine — shows up in the media pool ' +
-      'on the left, and one click puts it on the track.</span>';
+  if (ED.starting) return ED.starting;
+  ED.starting = (async () => {
+    let r = null;
+    try {
+      r = await (await fetch('/storyboard/new-sequence', { method: 'POST', body: new URLSearchParams() })).json();
+    } catch (e) { r = null; }
+    if (r && r.ok && r.id) {
+      // An empty sequence has no clips of its own: the pool opens on the
+      // generations, the source that always has something.
+      edPoolSrc('gallery');
+      edOpenBoard(r.id);
+      return;
+    }
+    edShow('empty');
+    const box = document.getElementById('edPick');
+    if (box) box.innerHTML = '<span class="sbe-note">The panel did not answer.</span>' +
+      '<button type="button" onclick="edShowPicker()">Try again</button>';
+  })();
+  try { await ED.starting; } finally { ED.starting = null; }
+}
+
+// A new sequence is real from its first clip: saved then, not left as
+// unsaved changes. From there on it is an ordinary sequence in every list.
+function edSaveOnFirstClip(wasEmpty) {
+  if (wasEmpty && (SBE.clips || []).length && SBE.open && SBE.id) {
+    try { sbeSave(true); } catch (_) {}
+  }
+}
+
+// A new empty sequence from the sequence menu. An already empty one is not
+// duplicated: there is nothing to start over.
+async function sbeFilmsNew() {
+  sbePopCloseAll('');
+  if (SBE.open && !(SBE.clips || []).length) {
+    phosToast('This sequence is already empty. Drag clips in.', { duration: 3000 });
     return;
   }
-  box.innerHTML = boards.map(b =>
-    '<button type="button" onclick="edOpenBoard(\'' + escapeHtml(b.id) + '\')">' +
-    '<svg class="ph" aria-hidden="true"><use href="#ph-film-strip"/></svg>' +
-    escapeHtml(b.title || b.id) +
-    '<span class="sub">' + (b.clips || 0) + ' clip' + ((b.clips === 1) ? '' : 's') +
-    '</span></button>').join('');
+  await edShowPicker();
+}
+
+// Rename in place: the name in the header turns into a field.
+function sbeRename() {
+  sbePopCloseAll('');
+  const ttl = sbeEl('sbeTitle');
+  if (!ttl || !SBE.id || ttl.querySelector('input')) return;
+  const id = SBE.id, current = SBE.title || ttl.textContent;
+  const input = document.createElement('input');
+  input.type = 'text'; input.value = current; input.className = 'sb-board-rename';
+  input.setAttribute('aria-label', 'Sequence name');
+  const done = (save) => {
+    const next = input.value.trim();
+    ttl.textContent = (save && next) || current;
+    if (save && next && next !== current) {
+      SBE.title = next;
+      fetch('/storyboard/save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: id, board: { id: id, title: next } }) })
+        .then(r => r.json()).then(r => {
+          if (!r || !r.ok) { phosToast((r && r.error) || 'Could not rename that sequence.', { kind: 'danger' }); }
+        }).catch(() => {});
+    }
+  };
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    else if (e.key === 'Escape') { input.value = current; input.blur(); }
+  });
+  input.addEventListener('blur', () => done(true), { once: true });
+  ttl.textContent = '';
+  ttl.appendChild(input);
+  input.focus(); input.select();
+}
+
+// The sentence on an empty track. Which one depends on the media pool, so it
+// is repainted whenever the pool is (edPoolPaint).
+function edTrackHintHtml() {
+  const rows = (ED.rows || []).filter(r => r.kind !== 'sound');
+  if (!rows.length) {
+    return 'Nothing to add yet. Make a clip in Video or One Shot and it shows up in the media pool.';
+  }
+  return 'Drag clips here, or press + on a clip.' +
+    '<button type="button" class="ghost-btn sbe-track-all" onclick="edPoolAddAll()">' +
+    (rows.length === 1 ? 'Add the clip' : 'Add these ' + rows.length + ' clips in order') + '</button>';
+}
+function edTrackHintRefresh() {
+  const el = document.querySelector('.sbe-track-empty:not(.sbe-ovlane-empty)');
+  if (el) el.innerHTML = edTrackHintHtml();
+}
+async function edPoolAddAll() {
+  const list = document.getElementById('edPoolList');
+  const rows = (list || {})._rows || [];
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].kind === 'sound') continue;
+    await edPoolAdd(i);
+  }
 }
 
 // The one door, from anywhere: the rail's step 3, a board row, the picker.
@@ -4390,15 +4464,26 @@ async function sbeFilmsToggle() {
   if (boards.length <= 1) note.textContent = 'No other __SEQ__ has clips yet.';
   list.innerHTML = boards.map(b => {
     const cur = b.id === SBE.id;
-    const n = b.clips || 0;
+    const n = b.has_timeline ? (b.edit_clips || 0) : (b.clips || 0);
+    const len = (b.has_timeline && b.edit_duration)
+      ? ' · ' + sbeFmtTime(b.edit_duration).replace(/\.\d+$/, '') : '';
     return '<button type="button" role="menuitem" class="ghost-btn' +
       (cur ? ' is-current' : '') + '"' + (cur ? ' aria-current="true"' : '') +
       ' onclick="sbeFilmsPick(\'' + escapeHtml(b.id) + '\')"' +
       ' title="' + escapeHtml(b.title || b.id) + '">' +
       '<span class="name">' + escapeHtml(b.title || b.id) + '</span>' +
       '<span class="sub">' + (cur ? 'open · ' : '') + n + ' clip' + (n === 1 ? '' : 's') +
+      len + (b.updated_at ? ' · ' + edAgo(b.updated_at) : '') +
       '</span></button>';
   }).join('');
+}
+
+function edAgo(ts) {
+  const d = new Date(ts * 1000), now = new Date();
+  if (d.toDateString() === now.toDateString()) {
+    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+  return d.toLocaleDateString([], { day: 'numeric', month: 'short' });
 }
 
 function sbeFilmsPick(id) {
@@ -4554,8 +4639,8 @@ function sbeAdopt(r, quiet) {
   // The saved mode wins over the control's default, or reopening a film would
   // silently re-arm `replace` on a timeline that was mixed `under`.
   sbeSetMusicMode((SBE.audio && SBE.audio.mode) || 'under');
-  sbeSetState(r.generated ? 'cut by the auto-editor' : 'saved · revision ' + SBE.revision,
-              'saved');
+  sbeSetState((r.generated && (SBE.clips || []).length) ? 'cut by the auto-editor' : sbeSavedText(),
+              (r.generated && (SBE.clips || []).length) ? 'saved' : sbeSavedKind());
   sbeSyncMusic();
   sbePaintDraft();
   sbePaintRecovery();
@@ -4592,7 +4677,7 @@ function sbeAdopt(r, quiet) {
   // Land on a picture, not on black. A timeline that opens dark reads as
   // broken for the second and a half before the first click.
   if (!SBE.playing && !SBE.drag) sbeShowFrameAt(SBE.playhead);
-  if (!quiet && r.generated) {
+  if (!quiet && r.generated && (SBE.clips || []).length) {
     phosToast('No timeline existed, so the auto-editor cut one — every shot at its best window, on the beat.',
               { duration: 7000 });
   }
@@ -4699,10 +4784,27 @@ function sbePaintProtected() {
   if (pill) pill.title = text || '';
 }
 
+// What the header says once the document is as saved as it can be. An empty
+// sequence the Editor made itself is not saved yet: nothing is written for it
+// until its first clip lands (edSaveOnFirstClip), so it must not claim a
+// revision.
+function sbeSavedKind() {
+  return (!(SBE.clips || []).length && SBE.revision <= 1) ? '' : 'saved';
+}
+function sbeSavedText() {
+  if (!(SBE.clips || []).length && SBE.revision <= 1) {
+    return 'not saved yet';
+  }
+  return 'saved \u00b7 revision ' + SBE.revision;
+}
+
 function sbeSetState(text, kind) {
   const el = sbeEl('sbeState');
   if (!el) return;
   sbeEl('sbeStateText').textContent = text;
+  const NOT_SAVED = 'Nothing is saved until the first clip lands on the timeline.';
+  if (text === 'not saved yet') el.title = NOT_SAVED;
+  else if (el.title === NOT_SAVED) el.title = '';
   el.classList.toggle('is-dirty', kind === 'dirty');
   el.classList.toggle('is-saved', kind === 'saved');
   el.classList.toggle('is-alarm', kind === 'alarm');
@@ -4963,6 +5065,7 @@ function sbeSelectNone() {
 // one member would make a multi-selection unusable the moment anything in it
 // was pinned.
 function sbeMutateEach(ids, fn) {
+  const wasEmpty = !(SBE.clips || []).length;
   const list = (ids || []).slice();
   if (!list.length) return false;
   const before = sbeSnapshot();
@@ -4998,6 +5101,7 @@ function sbeMutateEach(ids, fn) {
   }
   sbePaint();
   sbeQueueSave();
+  edSaveOnFirstClip(wasEmpty);
   return true;
 }
 
@@ -5257,6 +5361,7 @@ function sbeRestoreUndoIfFresh() {
 }
 
 function sbeMutate(fn) {
+  const wasEmpty = !(SBE.clips || []).length;
   const before = sbeSnapshot();
   const res = fn(SBE.clips);
   if (!res || res.ok === false) {
@@ -5277,6 +5382,7 @@ function sbeMutate(fn) {
   sbeSetState('unsaved changes', 'dirty');
   sbePaint();
   sbeQueueSave();
+  edSaveOnFirstClip(wasEmpty);
   return true;
 }
 
@@ -5630,7 +5736,7 @@ async function sbeSaveInner(quiet, force) {
       sbeSetState('unsaved changes · revision ' + SBE.revision + ' is saved', 'dirty');
       sbeQueueSave();
     } else {
-      sbeSetState('saved · revision ' + SBE.revision, 'saved');
+      sbeSetState(sbeSavedText(), sbeSavedKind());
     }
     sbePaint();
     return true;
@@ -7230,8 +7336,7 @@ function sbePaintTrack() {
   // for a gap to fill", starting mid-word, while the track itself, the thing
   // that was empty, rendered nothing at all.
   let html = SBE.clips.length ? '' :
-    '<div class="sbe-track-empty">Nothing on the timeline yet — click a clip '
-    + 'in the media pool to put it here, or Add black for a gap to fill.</div>';
+    '<div class="sbe-track-empty">' + edTrackHintHtml() + '</div>';
   for (const g of holes) {
     const w = sbePx(g.duration);
     html += '<div class="sbe-gap" data-gap-start="' + g.film_start + '" ' +
@@ -7646,7 +7751,7 @@ function sbePaintTracks() {
         + 'data-track="new"><span class="sbe-tadd-t">'
         + escapeHtml(tracks.length
             ? 'Drop a sound here for a track of its own'
-            : 'Audio tracks — drop a sound from the media pool here, or press + Add audio track')
+            : 'Audio tracks. Drop a sound from the media pool here, or press + Add audio track')
         + '</span></div>';
   box.innerHTML = html;
   const inner = sbeEl('sbeInner');
@@ -8740,7 +8845,7 @@ function sbePaintOverlays() {
   // the four pool sources already follow. Without it the overlay lane is a
   // strip of nothing that teaches nobody it exists.
   lane.innerHTML = html || '<div class="sbe-track-empty sbe-ovlane-empty">'
-    + 'Overlay lane — drop a still here, press \u25a3 on an image in the '
+    + 'Overlay lane. Drop a still here, press \u25a3 on an image in the '
     + 'media pool, or Add title for text over the picture at the playhead.</div>';
   lane.style.width = sbeEl('sbeInner').style.width;
 }
@@ -11272,7 +11377,7 @@ function sbePaintChrome() {
   if (pe) {
     if (SBE.clips.length) { pe.hidden = true; pe.textContent = ''; }
     else {
-      pe.textContent = 'Nothing on the timeline yet — drag a clip from the '
+      pe.textContent = 'Nothing on the timeline yet. Drag a clip from the '
                      + 'media pool, or press + on one.';
       pe.hidden = false;
     }
@@ -12502,6 +12607,7 @@ function edPoolPaint() {
   const list = document.getElementById('edPoolList');
   const note = document.getElementById('edPoolNote');
   if (!list) return;
+  edTrackHintRefresh();
   const q = ((document.getElementById('edPoolSearch') || {}).value || '')
     .trim().toLowerCase();
   const rows = (ED.rows || []).filter(r =>
@@ -12667,8 +12773,9 @@ async function edPoolAdd(i, dropAt, overwriteId) {
   // A SOUND HAS NO PICTURE to put on V1 — it goes on an audio track.
   if (row.kind === 'sound') { await sbeTsAddSoundPath(row.path, '', SBE.playhead); return; }
   if (!SBE.open || !SBE.id) {
-    phosToast('Open a __SEQ__ first — the Editor holds one timeline at a time.', {});
-    return;
+    // The Editor always has a timeline; if it was lost, make one and go on.
+    await edShowPicker();
+    if (!SBE.open || !SBE.id) return;
   }
   // The row's own word first, then the file's. The server checks the suffix
   // too — this is the half that keeps the CLIENT from asking /file for a
@@ -15548,7 +15655,7 @@ Object.assign(globalThis, {
   sbeSplitWhy, sbeCbarPlayhead,
   sbeCtxOpen, sbeReorderSel, sbeSplitHere, sbeGenOpen,
   // The header's film switcher (index.html onclicks + generated rows).
-  sbeFilmsToggle, sbeFilmsPick, sbeFilmsAll,
+  sbeFilmsToggle, sbeFilmsPick, sbeFilmsAll, sbeFilmsNew, sbeRename, edPoolAddAll,
   // THE AUDIO TRACKS — the model (for the harnesses) and every name the
   // generated heads, strips, inspector and pool rows call back into.
   sbeTrackLabel, sbeUnitGain, sbeTrackGain, sbeTsGain, sbeTsWindow, sbeTsGainPoints,

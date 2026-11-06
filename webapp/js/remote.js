@@ -56,10 +56,93 @@ function rmIsMember(st) {
   return !!(st && st.pro) || !!document.documentElement.dataset.pro;
 }
 
+// The member's setup state while the Remote module is not loaded: what is happening, what went
+// wrong in plain words, and the one next action. Never a dead "not set up".
+function rmWaitView(st) {
+  const parts = st.parts || {};
+  let title = 'Remote Control is being set up';
+  let body = 'Your Pro licence is active. Checking for the Remote Control components.';
+  let err = '';
+  let retry = false, settings = false;
+  let start = false;
+  if (parts.managed_by === 'mac_app' && st.pro) {
+    // Pro was switched on after the engine started: the engine that is running is the Free one
+    // and Remote lives in the Pro one. The app starts it for you, no restart of Phosphene needed.
+    title = 'Set up Remote';
+    body = 'Pro is on. One step left: start Remote. Phosphene restarts its engine for a moment; your clips and queue are kept.';
+    start = true;
+  } else if (st.needs_licence) {
+    title = 'One more step: your key in this Studio';
+    body = st.next || 'Paste your licence key in Settings > Pro.';
+    settings = true;
+  } else if (parts.restart_needed) {
+    title = 'Restart the Studio to finish';
+    body = 'New Remote Control components are installed. Restart Phosphene in Pinokio to start using them.';
+  } else if (parts.busy) {
+    const ph = parts.phase;
+    title = ph === 'verifying' ? 'Checking the download' : ph === 'downloading' ? 'Downloading Remote Control' : 'Checking for Remote Control';
+    body = 'This takes a minute. This page updates by itself.';
+  } else if (parts.error) {
+    title = 'Remote Control could not be installed yet';
+    body = 'Your Pro licence is fine. The components did not install.';
+    err = parts.message || 'Try again in a moment.';
+    retry = true;
+  } else if (st.next) {
+    body = st.next;
+    settings = true;
+  }
+  return { title, body, err, retry, settings, start };
+}
+
+function rmRenderWait(st) {
+  const v = rmWaitView(st);
+  $('rmWaitTitle').textContent = v.title;
+  $('rmWaitBody').textContent = v.body;
+  const e = $('rmWaitErr'); e.hidden = !v.err; e.textContent = v.err;
+  $('rmWaitRetry').hidden = !v.retry;
+  $('rmWaitSettings').hidden = !v.settings;
+  const go = $('rmWaitStart'); if (go) go.hidden = !v.start;
+}
+
+// "Set up Remote" in the Mac app: ask the app (WKWebView bridge, NativeBridge.swift) to start the
+// engine that carries Remote. Anywhere else there is no bridge: say what to do by hand.
+function rmStartInApp() {
+  const h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.phosphene;
+  if (h) {
+    try {
+      h.postMessage({ type: 'startRemote' });
+      phosToast('Starting Remote. This takes a moment.');
+      return;
+    } catch (e) { /* fall through */ }
+  }
+  phosToast('Quit Phosphene and open it again to finish setting up Remote.', { kind: 'info' });
+}
+
+async function rmPartsRetry() {
+  const b = $('rmWaitRetry'); if (b) b.disabled = true;
+  try {
+    const r = await fetch('/remote/parts_retry', { method: 'POST' });
+    const d = await r.json();
+    if (d && d.message) phosToast(d.message);
+  } catch (e) { phosToast('Could not reach the Studio.', { kind: 'danger' }); }
+  if (b) setTimeout(() => { b.disabled = false; }, 3000);
+  rmRefresh();
+}
+
 function rmConnection(st) {
   // -> [class, text]
-  if (!st.available || !st.pro) return ['off', rmIsMember(st) ? 'Not set up yet' : 'Pro feature'];
+  if (!st.available || !st.pro) {
+    if (!rmIsMember(st)) return ['off', 'Pro feature'];
+    const p = st.parts || {};
+    if (p.managed_by === 'mac_app' && st.pro) return ['warn', 'Not started yet'];
+    if (st.needs_licence) return ['warn', 'Needs your key here'];
+    if (p.restart_needed) return ['warn', 'Restart to finish'];
+    if (p.busy) return ['warn', 'Setting up\u2026'];
+    if (p.error) return ['bad', 'Setup failed \u00b7 try again'];
+    return ['off', 'Setting up\u2026'];
+  }
   if (!st.enabled || !st.running) return ['off', 'Off'];
+  if (!(st.devices || []).some((d) => d.confirmed)) return ['warn', 'Not paired yet \u00b7 set up below'];
   const anyPhone = (st.devices || []).some((d) => d.connected);
   const lan = !!st.lan, relay = st.relay === 'connected';
   if (anyPhone) return ['on', 'Phone connected' + (lan ? ' · same Wi-Fi' : ' · via relay')];
@@ -77,7 +160,7 @@ function rmRender() {
   // A Pro member never sees the upsell: no Remote module yet = a status line instead.
   const member = rmIsMember(st);
   pro.hidden = !gated || member;
-  if (wait) wait.hidden = !gated || !member;
+  if (wait) { wait.hidden = !gated || !member; if (!wait.hidden) rmRenderWait(st); }
   main.hidden = gated;
   const [cls, text] = rmConnection(st);
   $('rmConnDot').className = 'rm-dot ' + cls;
@@ -101,6 +184,7 @@ function rmRender() {
   if (!pairing.open) { offer = null; drawnUrl = ''; }
 
   const devs = (st.devices || []).filter((d) => d.confirmed);
+  const pt = $('rmPairTitle'); if (pt) pt.textContent = devs.length ? 'Pair another iPhone' : 'Set up Remote';
   $('rmPhonesCount').textContent = devs.length ? String(devs.length) : '';
   $('rmPhonesEmpty').hidden = devs.length > 0;
   const ul = $('rmPhones');
@@ -215,4 +299,4 @@ function remoteTabLeave() {
   if (poll) { clearInterval(poll); poll = null; }
 }
 
-Object.assign(globalThis, { remoteTabEnter, remoteTabLeave });
+Object.assign(globalThis, { remoteTabEnter, remoteTabLeave, rmPartsRetry, rmStartInApp });

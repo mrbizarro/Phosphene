@@ -2693,13 +2693,14 @@ async function api(path, method = 'GET', body = null) {
     // Prefer the SERVER'S sentence. /models/remove's three refusals are
     // carefully written ("That's the model this build renders with.") and
     // throwing a bare status turned every one of them into "…: 400".
-    let msg = '', code = '';
-    try { const b = (await r.json()) || {}; msg = b.error || ''; code = b.code || ''; } catch (e) {}
+    let msg = '', code = '', body = null;
+    try { const b = (await r.json()) || {}; body = b; msg = b.error || ''; code = b.code || ''; } catch (e) {}
     const err = new Error(msg || `${path}: ${r.status}`);
     // A refusal the SERVER wrote (EST-10) — callers tell it apart from an
     // unreachable panel by these, and act on `code` (pack_missing -> Models).
     err.status = r.status;
     err.code = code;
+    err.body = body;
     throw err;
   }
   return r.status === 409 ? { error: 'busy' } : r.json().catch(() => ({}));
@@ -5261,12 +5262,147 @@ const STAGE_MUTE_KEY = 'ph_stage_muted';
 function _stageMutePreferred() {
   try { return localStorage.getItem(STAGE_MUTE_KEY) === '1'; } catch (e) { return false; }
 }
+const STAGE_VOLUME_KEY = 'ph_stage_volume';
+function _stageVolumePreferred() {
+  try {
+    const v = parseFloat(localStorage.getItem(STAGE_VOLUME_KEY));
+    return isFinite(v) ? Math.max(0, Math.min(1, v)) : 1;
+  } catch (e) { return 1; }
+}
 function _wireStageMutePersistence(video) {
   if (!video) return;
   video.muted = _stageMutePreferred();
+  try { video.volume = _stageVolumePreferred(); } catch (e) {}
   video.addEventListener('volumechange', () => {
-    try { localStorage.setItem(STAGE_MUTE_KEY, video.muted ? '1' : '0'); } catch (e) {}
+    try {
+      localStorage.setItem(STAGE_MUTE_KEY, video.muted ? '1' : '0');
+      localStorage.setItem(STAGE_VOLUME_KEY, String(video.volume));
+    } catch (e) {}
   });
+}
+
+// ---- THE VIEWER'S OWN PLAY BAR ------------------------------------------------
+// Owner, 6 Nov (testing 5.0.1): the full-screen viewer's volume slider floated in
+// the video's top-right corner - "the most annoying place possible... it should
+// be in the bar". That slider was the browser's own control, which we cannot
+// move. The viewer (the stage player and the full-screen lightbox) now draws its
+// own bar under the picture: play, seek, time, and a speaker with a slider that
+// opens on hover or click. M mutes (shortcuts.js, `player.mute`).
+function _vbFmt(s) {
+  if (!isFinite(s) || s < 0) s = 0;
+  s = Math.floor(s);
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+const _VB_ICON_PLAY = '<svg class="ph" aria-hidden="true"><use href="#ph-play-fill"/></svg>';
+const _VB_ICON_PAUSE = '<svg class="ph" aria-hidden="true"><use href="#ph-pause-fill"/></svg>';
+const _VB_ICON_SPEAKER = '<svg class="ph" viewBox="0 0 256 256" aria-hidden="true"><path d="M144 48v160l-56-44H40V92h48z" fill="currentColor"/><path d="M176 96a40 40 0 0 1 0 64M200 72a72 72 0 0 1 0 112" fill="none" stroke="currentColor" stroke-width="14" stroke-linecap="round"/></svg>';
+const _VB_ICON_MUTED = '<svg class="ph" aria-hidden="true"><use href="#ph-speaker-slash"/></svg>';
+
+function viewerBarMute(video, force) {
+  if (!video) return false;
+  const want = (typeof force === 'boolean') ? force : !(video.muted || video.volume === 0);
+  video.muted = want;
+  if (!want && video.volume === 0) { try { video.volume = 0.6; } catch (e) {} }
+  return want;
+}
+
+// Returns the bar element; the caller puts it in the DOM next to the video.
+function buildViewerBar(video) {
+  const bar = document.createElement('div');
+  bar.className = 'vbar';
+  bar.setAttribute('role', 'toolbar');
+  bar.setAttribute('aria-label', 'Video controls');
+  bar.innerHTML =
+    '<button type="button" class="vb-btn vb-play" aria-label="Play" title="Play / pause (Space)"></button>'
+    + '<input type="range" class="vb-seek" min="0" max="1000" step="1" value="0" aria-label="Seek">'
+    + '<span class="vb-time" aria-live="off">0:00 / 0:00</span>'
+    + '<span class="vb-vol">'
+    +   '<button type="button" class="vb-btn vb-mute" aria-label="Mute" title="Mute / unmute (M)"></button>'
+    +   '<input type="range" class="vb-volume" min="0" max="100" step="1" value="100" aria-label="Volume">'
+    + '</span>';
+  const play = bar.querySelector('.vb-play');
+  const seek = bar.querySelector('.vb-seek');
+  const time = bar.querySelector('.vb-time');
+  const vol = bar.querySelector('.vb-vol');
+  const mute = bar.querySelector('.vb-mute');
+  const slider = bar.querySelector('.vb-volume');
+  let seeking = false, openTimer = null;
+  const paintPlay = () => {
+    play.innerHTML = video.paused ? _VB_ICON_PLAY : _VB_ICON_PAUSE;
+    play.setAttribute('aria-label', video.paused ? 'Play' : 'Pause');
+    bar.classList.toggle('is-paused', video.paused);
+  };
+  const paintTime = () => {
+    const d = video.duration;
+    if (!seeking && isFinite(d) && d > 0) seek.value = String(Math.round(video.currentTime / d * 1000));
+    time.textContent = _vbFmt(video.currentTime) + ' / ' + _vbFmt(d);
+  };
+  const paintVol = () => {
+    const silent = video.muted || video.volume === 0;
+    mute.innerHTML = silent ? _VB_ICON_MUTED : _VB_ICON_SPEAKER;
+    mute.setAttribute('aria-label', silent ? 'Unmute' : 'Mute');
+    vol.classList.toggle('is-muted', silent);
+    slider.value = String(silent ? 0 : Math.round(video.volume * 100));
+  };
+  play.addEventListener('click', () => {
+    window._stagePlaybackIntentAt = Date.now();
+    if (video.paused) { const p = video.play(); if (p && p.catch) p.catch(() => {}); } else video.pause();
+  });
+  seek.addEventListener('input', () => {
+    seeking = true;
+    const d = video.duration;
+    if (isFinite(d) && d > 0) video.currentTime = d * (parseFloat(seek.value) / 1000);
+  });
+  seek.addEventListener('change', () => { seeking = false; });
+  mute.addEventListener('click', () => {
+    viewerBarMute(video);
+    vol.classList.add('open');
+    clearTimeout(openTimer);
+    openTimer = setTimeout(() => vol.classList.remove('open'), 2500);
+  });
+  slider.addEventListener('input', () => {
+    const v = parseFloat(slider.value) / 100;
+    video.volume = v;
+    video.muted = v === 0;
+  });
+  video.addEventListener('play', paintPlay);
+  video.addEventListener('pause', paintPlay);
+  video.addEventListener('timeupdate', paintTime);
+  video.addEventListener('loadedmetadata', paintTime);
+  video.addEventListener('durationchange', paintTime);
+  video.addEventListener('volumechange', paintVol);
+  video.addEventListener('click', () => play.click());
+  paintPlay(); paintTime(); paintVol();
+  return bar;
+}
+
+// The stage player: the bar lies over the bottom of the picture (it fades in on
+// hover and stays while paused).
+function attachStageViewerBar(video) {
+  if (!video || !video.parentNode) return null;
+  video.removeAttribute('controls');
+  const bar = buildViewerBar(video);
+  bar.classList.add('vbar-stage');
+  video.insertAdjacentElement('afterend', bar);
+  return bar;
+}
+// The full-screen viewer: the picture and the bar are one column.
+function attachLightboxViewerBar(video) {
+  if (!video || !video.parentNode) return null;
+  video.removeAttribute('controls');
+  const box = document.createElement('div');
+  box.className = 'vbox-lb';
+  video.parentNode.insertBefore(box, video);
+  box.appendChild(video);
+  const bar = buildViewerBar(video);
+  bar.classList.add('vbar-lb');
+  box.appendChild(bar);
+  return bar;
+}
+function viewerVideo() {
+  const lb = document.getElementById('expandLightbox');
+  if (lb && lb.style.display === 'flex') return lb.querySelector('video');
+  return document.querySelector('#playerWrap video');
 }
 
 function stageMayAutoSelectOutput() {
@@ -5517,9 +5653,10 @@ function selectOutput(path, options) {
   } else if (liveBackdrop) {
     wrap.innerHTML =
       `<img class="player-handoff-backdrop" src="${escapeHtml(liveBackdrop)}" alt="">` +
-      `<video class="player-handoff-media" controls${autoplay ? ' autoplay' : ''} src="${escapeHtml(playerSrc)}"></video>`;
+      `<video class="player-handoff-media"${autoplay ? ' autoplay' : ''} src="${escapeHtml(playerSrc)}"></video>`;
     const handoffVideo = wrap.querySelector('.player-handoff-media');
     _wireStageMutePersistence(handoffVideo);
+    attachStageViewerBar(handoffVideo);
     const revealFinished = () => {
       if (!handoffVideo || !handoffVideo.isConnected) return;
       handoffVideo.classList.add('is-ready');
@@ -5536,8 +5673,9 @@ function selectOutput(path, options) {
     // settles; controls must never stay transparent forever.
     setTimeout(revealFinished, 4000);
   } else {
-    wrap.innerHTML = `<video controls${autoplay ? ' autoplay' : ''} src="${escapeHtml(playerSrc)}"></video>`;
+    wrap.innerHTML = `<video${autoplay ? ' autoplay' : ''} src="${escapeHtml(playerSrc)}"></video>`;
     _wireStageMutePersistence(wrap.querySelector('video'));
+    attachStageViewerBar(wrap.querySelector('video'));
   }
   // Surface aspect adapts to actual media dimensions so vertical clips
   // render vertically (previous hardcoded 16:9 surface + object-fit:cover
@@ -6100,9 +6238,10 @@ function openExpandLightbox() {
     ? `<div class="expand-audio"><span class="expand-audio-note" aria-hidden="true">♪</span><audio class="train-voice-audio" src="${escapeHtml(o.url)}" controls autoplay></audio></div>`
     : isPhoto
     ? `<img src="${o.url}" alt="${escapeHtml(o.name)}">`
-    : `<video src="${o.url}" controls autoplay playsinline></video>`;
+    : `<video src="${o.url}" autoplay playsinline></video>`;
   const media = stage.querySelector('video, audio');
   _wireStageMutePersistence(stage.querySelector('video'));
+  if (!isAudio && !isPhoto) attachLightboxViewerBar(stage.querySelector('video'));
   if (media) {
     media.addEventListener('ended', () => { if (LB.playing && lbIsOpen() && media.isConnected) lbStep(1); });
     media.addEventListener('error', () => {
@@ -6670,6 +6809,11 @@ async function faceFixClip(path, opts) {
   try { r = await (await fetch('/queue/facefix', { method: 'POST', body: fd })).json(); }
   catch (e) { r = { ok: false, error: String(e) }; }
   const name = String(path).split('/').pop();
+  if (r && !r.ok && r.pinokio && typeof pinokioReuseToast === 'function') {
+    // Pinokio already has the adapter: offer to use it from there first, download second.
+    pinokioReuseToast(r, () => faceFixClip(path, opts));
+    return r;
+  }
   if (!r || !r.ok) {
     phosToast((r && r.error) || (FACE_FIX_NAME + ' could not be queued.'),
               { kind: 'danger', duration: 9000 });
@@ -8957,11 +9101,17 @@ document.getElementById('genForm').addEventListener('submit', async e => {
     // not "offline" — show its sentence, and for a missing download offer
     // the place to get it, before anything renders.
     if (e && e.status) {
+      const _pk = e.body && e.body.pinokio;
       const shown = (e.code === 'pack_missing' && typeof _phModalShow === 'function'
                      && typeof openModelsModal === 'function')
-        && _phModalShow({ kicker: 'Needs a download', title: 'Not queued',
-                          body: e.message, primaryLabel: 'Open Models',
-                          onPrimary: () => openModelsModal(), secondaryLabel: 'Not now' });
+        && (_pk
+          ? _phModalShow({ kicker: 'Already on this Mac', title: 'Not queued',
+                           body: e.message, primaryLabel: 'Use it from your Pinokio install',
+                           onPrimary: () => reuseFromPinokio(_pk.repo_key),
+                           secondaryLabel: 'Download instead', onSecondary: () => openModelsModal() })
+          : _phModalShow({ kicker: 'Needs a download', title: 'Not queued',
+                           body: e.message, primaryLabel: 'Open Models',
+                           onPrimary: () => openModelsModal(), secondaryLabel: 'Not now' }));
       if (!shown) phosToast(e.message, { kind: 'danger', duration: 0 });
       return;
     }
@@ -9300,4 +9450,4 @@ function studioMotionInit() {
   });
 
 }
-Object.assign(globalThis, {studioMotionInit, studioProgress});
+Object.assign(globalThis, {studioMotionInit, studioProgress, viewerVideo, viewerBarMute});
