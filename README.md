@@ -3,9 +3,9 @@
 **Run LTX-2.5 and MiniMax H3 (Hailuo) on your Apple Silicon Mac. Text-to-video and image-to-video with sound, speech, lip-sync, songs and image editing. A native Mac app, offline: no cloud, no API key, no NVIDIA GPU.**
 
 <p align="center">
-  <a href="https://phosphene.video/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=repo&amp;utm_content=top"><img src="assets/logo-readme.png" alt="Phosphene" width="360"></a>
+  <a href="https://phosphene.video/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=home&amp;utm_content=logo"><img src="assets/logo-readme.png" alt="Phosphene" width="360"></a>
 </p>
-<h3 align="center"><a href="https://phosphene.video/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=repo&amp;utm_content=top">Visit Phosphene official site →</a> · <a href="https://phosphene.video/download/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=repo&amp;utm_content=download">Download for Mac</a></h3>
+<h3 align="center"><a href="https://phosphene.video/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=home&amp;utm_content=header">Visit Phosphene official site →</a> · <a href="https://phosphene.video/download/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=download&amp;utm_content=header">Download for Mac</a></h3>
 
 <p align="center">
   <img src="assets/readme/low_tide_sleeper.webp" alt="The low-tide sleeper: a giant stone sleeper on a black-sand beach, an AI video made locally on a Mac with Phosphene and MiniMax H3" width="100%">
@@ -18,7 +18,7 @@ It runs **LTX-2.5** and **MiniMax H3 (Hailuo H3)** for text-to-video and image-t
 and it still installs with one click through Pinokio. It is built on Apple's MLX: no CUDA, no cloud GPU, no API key, no credits and no watermark.
 Your prompts, pictures and videos never leave your Mac.
 
-**Current release: v5.0.3.** Made by Mr Bizarro.
+**Current release: v5.0.4.** Made by Mr Bizarro.
 
 ## Why Phosphene
 
@@ -147,7 +147,7 @@ MiniMax H3 (about 75 GB) and Music Studio (about 11 GB) are optional.
 On an M4 Max with 64 GB, a 5-second LTX-2.5 clip at High takes about 6 minutes,
 a 5-second MiniMax H3 clip on Draft + Fast about 5 minutes, and a 3-minute song about 3 minutes.
 Smaller Macs take longer: across Phosphene users, a 5-second LTX-2.5 clip at Balanced (480p) took a median 10m40s on a 16 GB M4.
-Phosphene estimates the time before you press Generate. **Bench** measures your own Mac and compares it with other Macs; see the [benchmarks](https://phosphene.video/benchmarks/?utm_source=github&utm_medium=readme&utm_campaign=repo&utm_content=bench).
+Phosphene estimates the time before you press Generate. **Bench** measures your own Mac and compares it with other Macs; see the [benchmarks](https://phosphene.video/benchmarks/?utm_source=github&utm_medium=readme&utm_campaign=benchmarks&utm_content=bench).
 
 <p align="center">
   <img src="assets/readme/lantern_fjord.webp" alt="A man in a rowing boat among floating lanterns in a fjord, made with MiniMax H3 on a Mac" width="100%">
@@ -156,7 +156,7 @@ Phosphene estimates the time before you press Generate. **Bench** measures your 
 
 ## Install: the Mac app, or one click with Pinokio
 
-**Mac app (recommended):** [download Phosphene for Mac](https://phosphene.video/download/?utm_source=github&utm_medium=readme&utm_campaign=repo&utm_content=install), open it and pick your models.
+**Mac app (recommended):** [download Phosphene for Mac](https://phosphene.video/download/?utm_source=github&utm_medium=readme&utm_campaign=install&utm_content=mac-app), open it and pick your models.
 It can reuse models your Pinokio install already downloaded.
 
 **Pinokio:** Phosphene also installs with one click through Pinokio (pinokio.computer), a free app launcher:
@@ -167,7 +167,7 @@ It can reuse models your Pinokio install already downloaded.
 4. Press **Start**, then open the app.
 
 To update, press **Update** in Pinokio, then restart Phosphene.
-The [docs](https://phosphene.video/docs/?utm_source=github&utm_medium=readme&utm_campaign=repo&utm_content=docs) have the step-by-step install, troubleshooting and every feature in detail.
+The [docs](https://phosphene.video/docs/?utm_source=github&utm_medium=readme&utm_campaign=docs&utm_content=install-section) have the step-by-step install, troubleshooting and every feature in detail.
 To install by hand instead, follow the [manual install](docs/MANUAL_INSTALL.md).
 Linux on Apple Silicon (`docs/LINUX.md`) is maintained by @joshuaswarren on a best-effort basis.
 
@@ -176,7 +176,7 @@ Linux on Apple Silicon (`docs/LINUX.md`) is maintained by @joshuaswarren on a be
 Phosphene is open source and stays free. **Pro** is optional, for people who use it every day:
 **Faster Flex Turbo** for quicker renders, new features first, and priority support.
 Everything available today stays free, Phosphene stays open source under MIT, and new model ports reach everyone free.
-Prices and what is on sale now: [phosphene.video/pricing](https://phosphene.video/pricing/?utm_source=github&utm_medium=readme&utm_campaign=repo&utm_content=pro).
+Prices and what is on sale now: [phosphene.video/pricing](https://phosphene.video/pricing/?utm_source=github&utm_medium=readme&utm_campaign=pricing&utm_content=pro-section).
 
 ## FAQ
 

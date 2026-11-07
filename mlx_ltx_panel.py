@@ -90,7 +90,9 @@ import model_licences
 # Pinokio or the Phosphene Mac app (PHOSPHENE_DISTRIBUTION / _EDITION). Every
 # user-facing sentence that names Pinokio picks its Mac-app variant through
 # distribution.say(); unset (Pinokio) keeps every sentence as it was.
+import app_notice
 import distribution as _dist
+import site_links as _site_links   # UTM tags on links to phosphene.video
 import agent_discovery
 # Remote Control (Pro): the Mac side of the iPhone app lives in the PRIVATE Pro tree and ships
 # inside the Pro pack as pro_remote.py. This studio only offers the left-menu page and the
@@ -2053,6 +2055,19 @@ def _sync_hf_token_to_env() -> None:
     if tok:
         os.environ["HF_TOKEN"] = tok
         os.environ["HUGGING_FACE_HUB_TOKEN"] = tok
+
+
+def _has_rendered_before() -> bool:
+    """True when the outputs folder already holds a clip. The "Make your first clip" card is for
+    people who have never rendered; the analytics flag alone is unset with analytics off, so an
+    install with hundreds of videos was greeted as new (5.0.4)."""
+    try:
+        for p in OUTPUT.iterdir():
+            if p.suffix.lower() in (".mp4", ".mov", ".webm") and p.is_file():
+                return True
+    except OSError:
+        pass
+    return False
 
 
 def get_settings_public() -> dict:
@@ -49952,6 +49967,8 @@ def page(theme: str = "") -> str:
         # The page picks its Mac-app wording and defers updates to the app
         # from these; Pinokio reads {"distribution": "pinokio", "edition": ""}.
         "distribution": _dist.distribution(), "edition": _dist.edition(),
+        # {source: app, medium: mac-app | pinokio} for siteLink() in boot.js.
+        "site_utm": _site_links.utm_base(),
         "presets": PRESETS, "aspects": aspect_presets_for_this_mac(),
         "default_image": str(REFERENCE),
         "default_audio": str(AUDIO_DEFAULT),
@@ -50040,7 +50057,7 @@ def page(theme: str = "") -> str:
         # analytics_first_render_reported already tracks (set once, on the
         # first render_completed), so the first-run card reuses that flag
         # rather than adding a second one that could drift from it.
-        "first_run": not bool(get_settings().get("analytics_first_render_reported")),
+        "first_run": not (bool(get_settings().get("analytics_first_render_reported")) or _has_rendered_before()),
     })
     # Profile badge — only visible in the dev panel. Lets Mr Bizarro tell at a
     # glance which install he's looking at when both panels are open.
@@ -50237,6 +50254,7 @@ if __name__ == "__main__":
     threading.Thread(target=worker_loop, daemon=True).start()
     if VERSION_CHECK_ENABLED and not _dist.is_mac_app():
         threading.Thread(target=version_check_loop, daemon=True).start()
+        threading.Thread(target=app_notice.loop, args=(running_version,), daemon=True).start()
     else:
         # The Mac app updates the studio itself: no GitHub poll, ever.
         _detect_local_install_state()

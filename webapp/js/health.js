@@ -727,17 +727,20 @@ async function panelRestart() {
   return false;
 }
 
-// The pill's click inside the Mac app: never a git pull. Name the build (for a
-// bug report) and point at the app's own updater.
+// The pill's click inside the Mac app: never a git pull. It starts the app's real updater (the
+// native bridge, "checkUpdate" -> Updater.checkForUpdates) and still copies the build name for a bug report.
+function _macCheckForUpdates() {
+  try { window.webkit.messageHandlers.phosphene.postMessage({ type: 'checkUpdate' }); return true; }
+  catch (e) { return false; }
+}
 async function _appVersionPillClick() {
   const s = _versionState || {};
-  const debug = `Phosphene ${s.local_version || '?'} · mac-app`
-    + (phEdition() ? ` · ${phEdition()}` : '')
-    + ` · ${s.local_short || 'sha?'}`;
-  let copied = false;
-  try { await navigator.clipboard.writeText(debug); copied = true; } catch (e) {}
-  phosToast((copied ? `Copied "${debug}". ` : `${debug}. `)
-    + 'To update, use Phosphene \u2192 Check for Updates\u2026', 'info');
+  const debug = `Phosphene ${s.local_version || '?'} \u00b7 mac-app`
+    + (phEdition() ? ` \u00b7 ${phEdition()}` : '')
+    + ` \u00b7 ${s.local_short || 'sha?'}`;
+  try { await navigator.clipboard.writeText(debug); } catch (e) {}
+  if (_macCheckForUpdates()) phosToast('Checking for updates\u2026', 'info');
+  else phosToast(`${debug}. To update, use Phosphene \u2192 Check for Updates\u2026`, 'info');
 }
 
 async function versionPillClick() {
@@ -847,7 +850,8 @@ async function versionDoRefresh() {
 async function versionDoPull(opts) {
   opts = opts || {};
   if (isMacApp()) {               // the server refuses it too (409 app_updates)
-    phosToast('To update Phosphene, use Phosphene \u2192 Check for Updates\u2026', 'info');
+    if (_macCheckForUpdates()) phosToast('Checking for updates\u2026', 'info');
+    else phosToast('To update Phosphene, use Phosphene \u2192 Check for Updates\u2026', 'info');
     return;
   }
   const s = _versionState || {};
@@ -1230,7 +1234,7 @@ function starCardAnswer(action) {
     if (typeof openExternal === 'function') openExternal(STAR_CARD_URL);
     else window.open(STAR_CARD_URL, '_blank', 'noopener');
   } else if (action === 'waitlist') {
-    const url = 'https://phosphene.video/pricing/';
+    const url = siteLink('/pricing/', 'get-pro', 'star-card');
     if (typeof openExternal === 'function') openExternal(url);
     else window.open(url, '_blank', 'noopener');
   } else {
@@ -1331,3 +1335,41 @@ document.addEventListener('keydown', (e) => {
   if (el && el.contains(document.activeElement)) starCardAnswer('not_now');
 });
 Object.assign(globalThis, { starCardPoll, starCardAnswer, starCardStar });
+
+
+// ---- "Notify everyone": one signed notice from the maintainer (Pinokio only; the Mac app shows its own) ----
+// The server (app_notice.py) only serves a notice whose Ed25519 signature checks, inside its version window.
+// Each notice id shows once; Dismiss (or the action) remembers it in this browser.
+async function noticeRefresh() {
+  if (isMacApp()) return;
+  let n = null;
+  try { const r = await fetch('/notice', { cache: 'no-store' }); n = (await r.json()).notice; } catch (e) { return; }
+  const old = document.getElementById('phosNotice');
+  if (!n || !n.id) { if (old) old.remove(); return; }
+  let seen = [];
+  try { seen = JSON.parse(localStorage.getItem('phos_notice_seen') || '[]'); } catch (e) {}
+  if (seen.indexOf(n.id) >= 0 || old) return;
+  const remember = () => { try { seen.push(n.id); localStorage.setItem('phos_notice_seen', JSON.stringify(seen.slice(-50))); } catch (e) {} };
+  const bar = document.createElement('div');
+  bar.id = 'phosNotice'; bar.setAttribute('role', 'status');
+  bar.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9999;max-width:640px;display:flex;gap:12px;align-items:center;'
+    + 'padding:10px 14px;border-radius:10px;background:#1b1f2e;color:#e8ebf5;border:1px solid #394060;box-shadow:0 8px 28px rgba(0,0,0,.45);font:13px/1.4 system-ui,sans-serif';
+  const t = document.createElement('span'); t.textContent = n.text; t.style.flex = '1';
+  bar.appendChild(t);
+  if (n.action === 'update' || (n.action === 'link' && n.link)) {
+    const b = document.createElement('button');
+    b.textContent = n.action === 'update' ? 'Update now' : 'Read more';
+    b.style.cssText = 'padding:5px 10px;border-radius:7px;border:0;background:#8b5cf6;color:#fff;cursor:pointer';
+    b.onclick = () => { remember(); bar.remove();
+      if (n.action === 'link') window.open(n.link, '_blank', 'noopener'); else versionPillClick(); };
+    bar.appendChild(b);
+  }
+  const x = document.createElement('button');
+  x.textContent = '\u2715'; x.title = 'Dismiss'; x.setAttribute('aria-label', 'Dismiss');
+  x.style.cssText = 'border:0;background:transparent;color:#9aa3b8;cursor:pointer;font-size:14px';
+  x.onclick = () => { remember(); bar.remove(); };
+  bar.appendChild(x);
+  document.body.appendChild(bar);
+}
+setTimeout(noticeRefresh, 12000);
+setInterval(noticeRefresh, 600000);

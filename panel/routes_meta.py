@@ -271,6 +271,13 @@ def get_version(h, parsed) -> None:
     h._json(P.get_version_state())
 
 
+@get("/notice")
+def get_notice(h, parsed) -> None:
+    # The one signed "notify everyone" notice for this studio (app_notice.py); {"notice": null} when
+    # none. Under the Mac app the app itself shows notices natively, so the page ignores this there.
+    h._json({"notice": None if P._dist.is_mac_app() else P.app_notice.current()})
+
+
 @get("/models")
 def get_models(h, parsed) -> None:
     # Per-repo status snapshot for the Models modal in the UI.

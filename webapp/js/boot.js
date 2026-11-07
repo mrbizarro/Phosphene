@@ -22,6 +22,53 @@ window.PHOSPHENE_CAP_TIER = (BOOT.cap_tier || 'q8');
 // Pinokio (BOOT.distribution 'pinokio') reads exactly what it always did.
 function isMacApp() { return BOOT.distribution === 'mac-app'; }
 function distText(pinokio, macApp) { return isMacApp() ? macApp : pinokio; }
+// LINKS TO THE WEBSITE carry anonymous UTM tags (site_links.py is the Python
+// twin; test_site_links.py keeps the two campaign lists identical). The ONLY
+// place a phosphene.video link gets its tags: siteLink(path, campaign, content).
+// BOOT.site_utm = {source: 'app', medium: 'mac-app' | 'pinokio'} comes from the
+// server. Nothing else goes into the link: no install id, no version, no email.
+const SITE_ORIGIN = 'https://phosphene.video';
+const SITE_CAMPAIGNS = [
+  'get-pro', 'upgrade', 'pricing', 'docs', 'download', 'support',
+  'whats-new', 'remote', 'changelog', 'star',
+  'home', 'website', 'benchmarks', 'acceptable-use', 'privacy',
+  'install', 'release-body',
+];
+const SITE_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+// Merge into any query already on the url: an old utm_* is replaced, never
+// doubled; other parameters and the #fragment stay.
+function siteLink(path, campaign, content) {
+  if (!SITE_CAMPAIGNS.includes(campaign)) throw new Error('unknown utm_campaign ' + campaign);
+  if (content != null && !SITE_NAME_RE.test(content)) throw new Error('bad utm_content ' + content);
+  const base = (typeof BOOT !== 'undefined' && BOOT.site_utm) || {source: 'app', medium: 'pinokio'};
+  const u = new URL(String(path).startsWith('http') ? path : SITE_ORIGIN + path);
+  if (u.protocol !== 'https:' || (u.hostname !== 'phosphene.video' && u.hostname !== 'www.phosphene.video')) {
+    throw new Error('only phosphene.video links are tagged');
+  }
+  ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'].forEach(k => u.searchParams.delete(k));
+  u.searchParams.set('utm_source', base.source);
+  u.searchParams.set('utm_medium', base.medium);
+  u.searchParams.set('utm_campaign', campaign);
+  if (content) u.searchParams.set('utm_content', content);
+  return u.toString();
+}
+// Anchors in the markup say WHAT they are, never how they are tagged:
+//   <a href="https://phosphene.video/pricing/" data-utm-campaign="get-pro" data-utm-content="pro-modal">
+// The plain href is the fallback; this gives it its tags on load and again on
+// the click (before any onclick="openExternal(this.href)" reads it).
+function siteLinkApply(a) {
+  const campaign = a.dataset.utmCampaign;
+  if (!campaign) return;
+  try { a.href = siteLink(a.getAttribute('href'), campaign, a.dataset.utmContent || null); } catch (_) {}
+}
+(function wireSiteLinks() {
+  const go = () => document.querySelectorAll('a[data-utm-campaign]').forEach(siteLinkApply);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();
+  document.addEventListener('click', (e) => {
+    const a = e.target && e.target.closest ? e.target.closest('a[data-utm-campaign]') : null;
+    if (a) siteLinkApply(a);
+  }, true);
+})();
 // Developer-only text (environment variables, file paths, docs pages) is marked
 // data-hide-mac-app in the page: the Mac app's person never sees it.
 (function hideForMacApp() {
@@ -1020,5 +1067,5 @@ Object.assign(globalThis, {
   outputsLoadAll, outputsCacheMutated, _updateMainFilterChips, _maybeAutoLoadAllForEmptyFilter, setMainOutputsFilter,
   updateModelCredit, toggleAvoidRow, syncAvoidRowFromValue, ingredientsServed,
   _paintControlGenNote, defaultRemixMode, setMode, _portalLoraPicker,
-  isMacApp, distText, phEdition,
+  isMacApp, distText, phEdition, siteLink,
 });

@@ -15219,10 +15219,12 @@ html[data-pro]:not([data-pro=""]) #proModal .pro-bottom { display: none; }
    Pro member never sees it flash), and takes the place of the NEW dot. */
 .workflow-tabs .rail-pro { display: none; }
 html[data-pro=""] .tool-rail .workflow-tabs .rail-pro {
-  display: inline-flex; align-items: center; position: absolute; top: 3px; right: 2px;
-  padding: 0 3px; font: 700 13px/15px var(--ph-font-mono, ui-monospace, monospace); letter-spacing: .06em;
-  color: #b69cff; background: rgba(139, 92, 246, .16); border: 1px solid rgba(139, 92, 246, .5);
-  border-radius: 4px; pointer-events: none;
+  /* 5.0.4 (owner, 7 Nov): quiet outlined hint beside the label, never over the icon and never the
+     filled purple Pro tag that sits beside the logo. A Pro member sees nothing here. */
+  display: inline-flex; align-items: center; position: static; margin-left: 6px;
+  padding: 0 4px; font: 600 11px/14px var(--ph-font-mono, ui-monospace, monospace); letter-spacing: .05em;
+  color: #9aa3b8; background: transparent; border: 1px solid rgba(154, 163, 184, .45);
+  border-radius: 4px; pointer-events: auto; cursor: default;
 }
 html[data-pro=""] .tool-rail .workflow-tabs button[data-workflow="remote"] .new-badge { display: none; }
 .rm-pro-wait .rm-wait-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }

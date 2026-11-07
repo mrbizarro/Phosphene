@@ -439,7 +439,8 @@ function docsSiteUrl(section, anchor) {
 }
 
 function openDocs(section, anchor) {
-  const url = docsSiteUrl(section, anchor);
+  const u = docsSiteUrl(section, anchor);
+  const url = typeof siteLink === 'function' ? siteLink(u, 'docs', 'docs-button') : u;
   if (typeof openExternal === 'function') openExternal(url);
   else { try { window.open(url, '_blank', 'noopener'); } catch (e) {} }
   return false;

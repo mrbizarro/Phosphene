@@ -4,7 +4,7 @@
 
 ## Free
 
-- **Two ways to run it.** Pinokio (press Update, then restart Phosphene) and, new, a native Mac app that needs no Pinokio and can reuse models you already downloaded: [phosphene.video/download](https://phosphene.video/download/).
+- **Two ways to run it.** Pinokio (press Update, then restart Phosphene) and, new, a native Mac app that needs no Pinokio and can reuse models you already downloaded: [phosphene.video/download](https://phosphene.video/download/?utm_source=github&utm_medium=release&utm_campaign=release-body&utm_content=changelog).
 - **A redesigned panel.** One calmer layout, the Model picker is the first row on every surface, and the options change with the model you pick.
 - **Speech and lip-sync.** Type a line, get a spoken voice, then lip-sync a face to it.
 - **FLUX 3 Klein** by Black Forest Labs: pictures from text and edits with reference pictures, free (it arrived in 4.19.14 and is part of 5.0 too).
