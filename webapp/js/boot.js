@@ -22,6 +22,13 @@ window.PHOSPHENE_CAP_TIER = (BOOT.cap_tier || 'q8');
 // Pinokio (BOOT.distribution 'pinokio') reads exactly what it always did.
 function isMacApp() { return BOOT.distribution === 'mac-app'; }
 function distText(pinokio, macApp) { return isMacApp() ? macApp : pinokio; }
+// Developer-only text (environment variables, file paths, docs pages) is marked
+// data-hide-mac-app in the page: the Mac app's person never sees it.
+(function hideForMacApp() {
+  if (!isMacApp()) return;
+  const go = () => document.querySelectorAll('[data-hide-mac-app]').forEach(el => { el.style.display = 'none'; });
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();
+})();
 // The edition label ('free' / 'pro' from the Mac app, '' under Pinokio). A
 // label only: body[data-edition] and this are the hooks, nothing paid.
 function phEdition() { return BOOT.edition || ''; }

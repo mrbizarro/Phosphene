@@ -1632,7 +1632,7 @@ function sbShotCard(s, r, errs) {
       <button type="button" class="sb-err-fix sb-still-redo" data-act="restill"
               title="${userStill ? 'Render a new take from this photo (new seed) — your photo is kept' : 'Make a new still and render this shot from it'}">${userStill ? 'Re-render (new seed)' : 'New still'}</button>
     </div>` : stillPending ? `
-    <div class="sb-still is-pending"><span class="sb-still-spin" aria-hidden="true"></span><span class="sb-still-tag">making the still…</span></div>`
+    <div class="sb-still is-pending">${window.phosMiniMark ? window.phosMiniMark() : ''}<span class="sb-still-tag">making the still…</span></div>`
     : (s.still_error ? `<div class="sb-still sb-still-failed" title="${escapeHtml(s.still_error)}"><span class="sb-still-tag">${awaitingApproval ? 'the still could not be made — held until you choose' : 'no still — rendered unanchored'}</span>
       <button type="button" class="sb-err-fix sb-still-redo" data-act="restill" title="Try the still again">Try again</button>${awaitingApproval ? `
       <button type="button" class="sb-err-fix sb-still-approve" data-act="approve-still" title="Render the video without a still to start from">Render without a still</button>` : ''}</div>` : '');

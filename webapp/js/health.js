@@ -218,6 +218,12 @@ function renderVersionPill() {
 // the app" is the intended behaviour, verbatim). The broadcast is the
 // maintainer's channel: BROADCAST.json on public main, fetched by the same
 // 30-minute server poll, shown ONCE per message id, dismissed forever.
+// The one Phosphene loading mark, small: the header's own markup (footer mark), cloned.
+// CSS .ph-mark-mini sets the size; Reduce Motion stops it like every other mark.
+window.phosMiniMark = function phosMiniMark() {
+  const src = document.querySelector('header .ph-mark');
+  return '<span class="ph-mark ph-mark-mini" aria-hidden="true">' + (src ? src.innerHTML : '') + '</span>';
+};
 window._phModalOpen = false;
 window._updModalShownThisLoad = false;
 window._bcHandled = Object.create(null);
@@ -825,7 +831,7 @@ async function versionPillClick() {
 async function versionDoRefresh() {
   const pill = document.getElementById('versionPill');
   pill.classList.add('pill-busy');
-  pill.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px;animation:phSpin 1.2s linear infinite"><use href="#ph-arrow-clockwise-bold"/></svg>checking…';
+  pill.innerHTML = phosMiniMark() + 'checking…';
   try {
     const r = await fetch('/version/check', { method: 'POST' });
     const data = await r.json();
@@ -861,7 +867,7 @@ async function versionDoPull(opts) {
   }
   const pill = document.getElementById('versionPill');
   pill.classList.add('pill-busy');
-  pill.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px;animation:phSpin 1.2s linear infinite"><use href="#ph-arrow-clockwise-bold"/></svg>pulling…';
+  pill.innerHTML = phosMiniMark() + 'pulling…';
   // Tell poll() not to flash the offline banner during this call —
   // /version/pull is single-threaded server-side and blocks /status for
   // ~30s while git fetch + git pull + remote-check run. Without this

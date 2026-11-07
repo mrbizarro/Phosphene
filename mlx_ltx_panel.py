@@ -3890,8 +3890,7 @@ def _h3_install_turbo(push_log, download_fn=None, embedder_fn=None) -> dict:
                     "support in its runner). Re-run 'Install Hailuo H3' "
                     "from the Phosphene sidebar in Pinokio to update the "
                     "clone — it keeps every weight already on disk.",
-                    "This Hailuo H3 runner predates Turbo. Updating the "
-                    "runner isn't available in the Mac app yet.")}
+                    "Turbo isn't available for Hailuo H3 in the Mac app yet.")}
     target = _h3_turbo_dir()
     if any((target / f).is_file() for f, _v, _fb in H3_TURBO_LORA_CANDIDATES):
         # The adapter is here; an install from before the adaLN companion came
@@ -5859,6 +5858,36 @@ def _is_app_bootstrap(pid: int) -> bool:
         _APP_OWNER_CACHE.clear()
     _APP_OWNER_CACHE[pid] = (now, ok)
     return ok
+
+
+# ---- The Mac app builds Hailuo H3's runtime by itself (5.0.3) --------------
+# When the H3 weights are on this Mac and this app version has no H3 runner, the
+# app runs bootstrap.sh `h3` in the background (engine code + its own Python
+# environment, nothing downloaded for the weights) and writes its progress to
+# <LTX_STATE_DIR>/app_h3.json {state: building|ready|failed|idle, pid}. The
+# person is never asked to repair, build or configure anything; this only lets
+# the page say one calm line instead of showing a broken engine.
+APP_H3_FILE = "app_h3.json"
+APP_H3_LOCK = Path(".locks") / "h3.lock"
+
+
+def app_h3_prep() -> str:
+    """"building" while the app's H3 build is running, "failed" when its last run
+    failed, else "waiting" (it has not started, or finished without making H3)."""
+    try:
+        rec = json.loads((STATE_DIR / APP_H3_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        rec = {}
+    state = str((rec or {}).get("state") or "")
+    pid = 0
+    try:
+        pid = int((_app_home() / APP_H3_LOCK / "owner").read_text(encoding="utf-8").strip())
+        os.kill(pid, 0)
+        if _is_app_bootstrap(pid):
+            return "building"
+    except (OSError, ValueError):
+        pass
+    return "failed" if state == "failed" else "waiting"
 
 
 #: = scripts/fetch_pack_release.py PACK_LOCK_SUFFIX: every writer of a pack
@@ -9917,15 +9946,13 @@ H3_TIER_CHAIN_NOTE = ("Every 5 s window is asked for the same prompt, so a "
                       "one-off action happens once per window — open "
                       "Per-window prompts above (with the prompt box) to "
                       "give each window its own beat.")
-H3_TIER_CHAIN_NOTE_LEGACY = ("Scripted dialogue repeats once per 5 s window — "
-                             "put dialogue cues late in the prompt. Per-window "
-                             "prompts need `--chain-prompts` on the installed "
-                             "H3 runner; " + _dist.say(
-                                 "re-run 'Install Hailuo H3' from the "
-                                 "Phosphene sidebar to update the clone (weights "
-                                 "stay).",
-                                 "updating that runner isn't available in the "
-                                 "Mac app yet."))
+H3_TIER_CHAIN_NOTE_LEGACY = _dist.say(
+    "Scripted dialogue repeats once per 5 s window — put dialogue cues late "
+    "in the prompt. Per-window prompts need `--chain-prompts` on the installed "
+    "H3 runner; re-run 'Install Hailuo H3' from the Phosphene sidebar to update "
+    "the clone (weights stay).",
+    "Scripted dialogue repeats once per 5 s window, so put dialogue cues late "
+    "in the prompt.")
 # The `?` copy for the per-window prompts control. Server-side because the panel
 # already keeps every honest sentence in Python — one place to edit, and the UI
 # can never disagree with the mechanism it is describing.
@@ -12091,7 +12118,7 @@ def h3_cell_gate(cell: dict) -> tuple[bool, str]:
                 f"`--chain-windows` on the installed H3 runner. " + _dist.say(
                     "Re-run 'Install Hailuo H3' from the Phosphene sidebar to "
                     "update the clone — your weights stay.",
-                    "Updating the Hailuo H3 runner isn't available in the Mac app yet."))
+                    "This part of Hailuo H3 isn't available in the Mac app yet."))
     if cell.get("fast_hd"):
         if cell.get("dense"):
             return (False, "Fast HD is built from 5 s windows; pick 3s, 5s, 10s or 15s.")
@@ -14518,9 +14545,21 @@ def h3_size_note() -> str:
 def _h3_q8_lane_mac(ram: str) -> str:
     """h3_ram_verdict's Q8-lane sentence inside the Mac app: it can run here,
     but the app cannot install, repair or build H3 yet."""
-    return (f"Hailuo H3 can run on this Mac on its reduced-RAM lane (the "
-            f"compact Q8 engine needs {H3_MIN_RAM_GB_Q8:.0f} GB; {ram}), but "
-            f"it isn't available in the Mac app yet. Render on LTX.")
+    prep = ""
+    try:
+        prep = app_h3_prep()
+        rec = json.loads((STATE_DIR / APP_H3_FILE).read_text(encoding="utf-8"))
+        state = str((rec or {}).get("state") or "")
+    except (OSError, ValueError):
+        state = ""
+    if prep == "building" or state == "building":
+        return ("Hailuo H3 is getting ready on this Mac and turns on by itself. "
+                "Render on LTX for now.")
+    if state == "needs_space":
+        return ("Hailuo H3 needs about 25 GB of free space on this Mac to get ready; "
+                "it turns on by itself once there is room. Render on LTX for now.")
+    return (f"Hailuo H3 can run on this Mac ({ram}), but "
+            f"it isn't set up in the Mac app yet. Render on LTX.")
 
 
 def h3_ram_verdict() -> dict:
@@ -14730,7 +14769,7 @@ def _h3_runner_behind(flag: str, runner: str | Path, remedy: str = "") -> str:
         f"{H3_RUNNER_BEHIND}: it has no `{flag}` ({runner}). " + _dist.say(
             "Re-run 'Install Hailuo H3' from the Phosphene sidebar to update "
             "the clone — every weight already on disk is kept.",
-            "Updating the Hailuo H3 runner isn't available in the Mac app yet.") + tail
+            "This part of Hailuo H3 isn't available in the Mac app yet.") + tail
     )
 
 
@@ -15627,8 +15666,7 @@ def _h3_install_tristep(push_log, download_fn=None) -> dict:
                     "(no --sigma-subset). Run 'Update Hailuo H3 runner' "
                     "from the Phosphene sidebar in Pinokio — your weights "
                     "stay.",
-                    "This Hailuo H3 runner predates Fast (3 steps). Updating "
-                    "the runner isn't available in the Mac app yet.")}
+                    "Fast isn't available for Hailuo H3 in the Mac app yet.")}
     resolved = h3_tristep_paths()
     target = resolved["dir"]
     if resolved["files_ok"]:
@@ -15832,7 +15870,7 @@ def _h3_install_flex_turbo(push_log, fetch_fn=None) -> dict:
                 "error": _dist.say(
                     "This Hailuo H3 runner predates H3 Flex Turbo. Run 'Update Hailuo H3 "
                     "runner' from the Phosphene sidebar in Pinokio - your weights stay.",
-                    "This Hailuo H3 runner predates H3 Flex Turbo. Update Phosphene to get it.")}
+                    "H3 Flex Turbo isn't available for Hailuo H3 in the Mac app yet.")}
     resolved = h3_flex_turbo_paths()
     target = resolved["dir"]
     if resolved["files_ok"]:
@@ -15952,8 +15990,7 @@ def _h3_install_flex(push_log, fetch_fn=None) -> dict:
                     "This Hailuo H3 runner predates Pika H3 Flex (its six-step "
                     "sampler). Run 'Update Hailuo H3 runner' from the Phosphene "
                     "sidebar in Pinokio - your weights stay.",
-                    "This Hailuo H3 runner predates Pika H3 Flex. Updating the "
-                    "runner isn't available in the Mac app yet.")}
+                    "Pika H3 Flex isn't available for Hailuo H3 in the Mac app yet.")}
     resolved = h3_flex_paths()
     target = resolved["dir"]
     if resolved["files_ok"]:
@@ -16015,14 +16052,14 @@ PH3IMAGE_CREDIT = ("P-H3-Image by Pruna AI, based on MiniMax-H3 by MiniMax "
                    "Powered by MiniMax H3. Fetched from Pruna's repository, never re-hosted.")
 PH3IMAGE_NOTICE = ("MiniMax H3 is licensed under the MiniMax H3 Community License Agreement, "
                    "Copyright (c) 2026 MiniMax. All Rights Reserved.")
-PH3IMAGE_TIERS = {"draft": 2.0, "standard": 4.0, "high": 8.0}
+PH3IMAGE_TIERS = {"fast": 1.5, "draft": 2.0, "standard": 4.0, "high": 8.0}
 # Peak Metal residency the pre-flight gate prices a render at. MEASURED (port bench, 4-5 Nov 2026,
 # M4 Max 64 GB, Q8 DiT + runtime adapter): 24.2 GB at 2 MP, 24.7 at 4 MP, 25.5 at 8 MP; rounded up.
 PH3IMAGE_PEAK_GB = 26.0
 # Whole-image wall seconds per tier on that Mac (model load + text + 8 forwards + decode), from the
 # same bench (ports/p-h3-image-pruna/bench/RESULT.md). The engine table starts from these and then
 # follows the user's own renders.
-PH3IMAGE_SEC_PER_IMAGE = {"draft": 75.0, "standard": 146.0, "high": 312.0}
+PH3IMAGE_SEC_PER_IMAGE = {"fast": 58.0, "draft": 76.0, "standard": 148.0, "high": 312.0}
 _ph3image_dl_lock = threading.Lock()
 _ph3image_dl_state: dict = {}
 
@@ -16104,22 +16141,47 @@ def ph3image_status() -> dict:
     }
 
 
-def ph3image_engine_config(tier: str = "high"):
-    """The image-engine config for a quality tier (draft 2 MP, standard 4 MP, high 8 MP)."""
+def _ph3image_pro_dirs() -> list[Path]:
+    """Where the private Fast pair can be: the signed Pro pack's own engine first (the pack
+    installs this Studio with its engine beside it as pro_engine/h3, the same place the Pro H3
+    video route uses), then beside the Free runner (a developer checkout). The public H3
+    checkout never has the pair, so a Free install never finds it. Presence never grants Pro:
+    the caller asks pro_status() first."""
+    return [Path(__file__).resolve().parent / "pro_engine" / "h3" / "scripts", _ph3image_script().parent]
+
+
+def _ph3image_private_script() -> Path | None:
+    for folder in _ph3image_pro_dirs():
+        script, worker = folder / "generate_image_pro.py", folder / "serve_image_pro.py"
+        if script.is_file() and worker.is_file():
+            return script
+    return None
+
+
+def ph3image_engine_config(tier: str = "fast"):
+    """Measured Fast default, with explicit 2/4/8 MP choices."""
     py = _h3_python()
     dit = ph3image_dit_path()
+    import hostinfo
+    # Pro ledger row ph3-image-fast-pro: the signed-token Pro status, then the pack's private pair.
+    ph3_pro = str(tier).lower() == "fast" and bool(pro_status().get("active"))
+    private_script = _ph3image_private_script() if ph3_pro else None
+    pro_fast = private_script is not None
+    warm = hostinfo.total_ram_bytes() >= 64 * 1024**3
     return agent_image_engine.ImageEngineConfig(
         kind="ph3image",
         ph3image_python_path=str(py) if py else "",
-        ph3image_script_path=str(_ph3image_script()),
+        ph3image_script_path=str(private_script if pro_fast else _ph3image_script()),
         ph3image_root=str(_ph3image_dir()),
         ph3image_dit=str(dit) if dit else "",
-        ph3image_mp=float(PH3IMAGE_TIERS.get(str(tier).lower(), 8.0)),
+        ph3image_warm_service=warm,
+        ph3image_pro_profile=pro_fast,
+        ph3image_mp=1.0 if pro_fast else float(PH3IMAGE_TIERS.get(str(tier).lower(), PH3IMAGE_TIERS["fast"])),
     )
 
 
 def ph3image_engine_rows() -> list[dict]:
-    """The three quality tiers as /image/engines rows (the Image Studio's engine table).
+    """The quality tiers as /image/engines rows (the Image Studio's engine table).
 
     `sec_per_image` is the bench's measured time per tier (M4 Max 64 GB) until the user has two
     renders of their own on a tier; then it is the mean of those, like every other image engine."""
@@ -16130,11 +16192,14 @@ def ph3image_engine_rows() -> list[dict]:
     except Exception:                                              # noqa: BLE001
         fits, mac_gb = True, 0
     rows = []
-    for engine, tier in (("ph3image_draft_inline", "draft"), ("ph3image_standard_inline", "standard"),
+    for engine, tier in (("ph3image_fast_inline", "fast"), ("ph3image_draft_inline", "draft"), ("ph3image_standard_inline", "standard"),
                          ("ph3image_inline", "high")):
+        cfg = ph3image_engine_config(tier)
         sec, samples = PH3IMAGE_SEC_PER_IMAGE[tier], "bench-m4max-64gb"
+        if cfg.ph3image_pro_profile:
+            sec, samples = 30, "bench-m4max-64gb-pro"
         observed = _IMG_ENGINE_TIMING.get(engine) or []
-        if len(observed) >= 2:
+        if len(observed) >= 2 and not cfg.ph3image_pro_profile:
             sec = round(sum(max(1.0, el / max(1, n)) for (n, el) in observed) / len(observed), 1)
             samples = f"observed-{len(observed)}"
         rows.append({
@@ -16143,7 +16208,10 @@ def ph3image_engine_rows() -> list[dict]:
             "mac_gb_needed": int(mac_gb), "fits_mac": bool(fits), "partial": False, "partial_gb": 0,
             "family_installed": bool(status["supported"] and status["h3_ready"]),
             "download_gb": PH3IMAGE_DOWNLOAD_GB, "sec_per_image": sec, "cold_start_sec": 0.0,
-            "samples_source": samples, "gated": False, "megapixels": PH3IMAGE_TIERS[tier],
+            "samples_source": samples, "gated": False, "megapixels": cfg.ph3image_mp,
+            "version_label": ("P-H3-Image — Fast (1 MP, Pro)" if cfg.ph3image_pro_profile
+                              else "P-H3-Image — Fast (1.5 MP, ~1 min)") if tier == "fast" else None,
+            "pro_profile": cfg.ph3image_pro_profile,
             "license": PH3IMAGE_LICENSE, "label": PH3IMAGE_LABEL, "credit": PH3IMAGE_CREDIT,
             # The Image Studio's chip reads these: why it cannot run yet, and the one-time download.
             "ph3image_reason": status["reason"], "installing": bool(status["installing"]),
@@ -16214,8 +16282,7 @@ def _ph3image_install(push_log, fetch_fn=None) -> dict:
                 "error": _dist.say(
                     "This Hailuo H3 runner predates P-H3-Image. Run 'Update Hailuo H3 runner' from the "
                     "Phosphene sidebar in Pinokio - your weights stay.",
-                    "This Hailuo H3 runner predates P-H3-Image. Updating the runner isn't available "
-                    "in the Mac app yet.")}
+                    "The Hailuo H3 image models aren't available in the Mac app yet.")}
     resolved = ph3image_paths()
     target = resolved["dir"]
     if resolved["files_ok"]:
@@ -16416,8 +16483,7 @@ def _h3_install_v13(push_log, fetch_fn=None) -> dict:
                     "This Hailuo H3 runner predates lightx2v v1.3 (it takes one "
                     "adapter only). Run 'Update Hailuo H3 runner' from the "
                     "Phosphene sidebar in Pinokio - your weights stay.",
-                    "This Hailuo H3 runner predates lightx2v v1.3. Updating "
-                    "the runner isn't available in the Mac app yet.")}
+                    "lightx2v v1.3 isn't available for Hailuo H3 in the Mac app yet.")}
     resolved = h3_v13_paths()
     target = resolved["dir"]
     if resolved["files_ok"]:
@@ -18247,9 +18313,8 @@ def h3_status() -> dict:
                     "Run \'Update Hailuo H3 runner\' from the Phosphene "
                     "sidebar in Pinokio — your weights stay. Renders are "
                     "unaffected meanwhile.",
-                    "This Hailuo H3 pack predates the live preview. Updating "
-                    "the runner isn't available in the Mac app yet. Renders "
-                    "are unaffected.")
+                    "The live preview isn't available for Hailuo H3 in the Mac app yet. "
+                    "Renders are unaffected.")
                 if (available and not h3_supports_live_preview()) else ""),
         },
         # Turbo — the 4-step distill LoRA. A separate block rather than a bare
@@ -18446,6 +18511,15 @@ def h3_status() -> dict:
 #                 tint only — never a repaint.
 #   state         "ready" | "announced". An announced engine renders as an
 #                 inert "soon" chip and can never be selected.
+    if _dist.is_mac_app() and not available and paths["weights_ok"]:
+        # The weights are here and the runtime is not (yet): in the Mac app the
+        # app builds it (see app_h3_prep). Never a repair story, never paths.
+        result.update({"repairable": False, "venv_broken": False, "missing": [],
+                       "reason": "preparing", "preparing": True,
+                       "prep_state": app_h3_prep(), "root": "", "models": "",
+                       "ram_note": ""})
+    else:
+        result["preparing"] = False
     _H3_STATUS_CACHE = (time.time(), result)
     return result
 
@@ -19427,6 +19501,12 @@ def run_music_job_inner(job: dict) -> None:
         raise RenderRefused("music_installing", "The music engine is still installing. Compose again when the install finishes.")
     if paths["missing"]:
         missing = "; ".join(paths["missing"])
+        if _dist.is_mac_app():
+            # No paths and no sidebar talk in the app: say where things stand and the one button.
+            raise RuntimeError(
+                "The music engine needs a quick one-click setup before it can compose. Open Audio, Compose and press the setup button. Your music files are kept."
+                if paths["repairable"] else
+                "The music engine isn't installed yet. Open Audio, Compose and press Install music engine.")
         if paths["repairable"]:
             raise RuntimeError(f"The YuE2 weights are on disk but the engine needs repair — missing: {missing}. Open Audio → Compose and click 'Repair music engine'" + _dist.say(" (or use the Phosphene sidebar in Pinokio)", "") + " — it is idempotent and skips every weight already on disk, so this is a couple of minutes, NOT an 11 GB download.")
         raise RuntimeError(f"The music engine isn't installed — missing: {missing}. Open Audio → Compose and click 'Install music engine'" + _dist.say(" (or use the Phosphene sidebar in Pinokio)", "") + " — ~11 GB, resumable.")
@@ -20104,7 +20184,7 @@ ENGINES: tuple[dict, ...] = (
          "mark": "eng-mark-img-ph3", "accent": "#FF2E9F",
          "accent_dim": "rgba(255,46,159,0.14)", "accent_soft": "rgba(255,46,159,0.42)",
          "modes": ("t2i",), "serves_label": "Text", "preview": True,
-         "image_engines": ("ph3image_standard_inline", "ph3image_draft_inline", "ph3image_inline"),
+         "image_engines": ("ph3image_fast_inline", "ph3image_standard_inline", "ph3image_draft_inline", "ph3image_inline"),
          "capability": "images.p_h3_image"},
     )),
     # ---- Flux Video ---------------------------------------------------------
@@ -20640,7 +20720,12 @@ def _analytics_install_id() -> str:
     if _ANALYTICS_UUID_RE.match(cur):
         return cur
     import uuid as _uuid
-    new = str(_uuid.uuid4())
+    # 5.0.3: the Mac app may have minted this Mac's id before the Studio ever ran
+    # (its setup / start events), and hands it over in PHOSPHENE_ANALYTICS_INSTALL_ID
+    # so both halves of one install are one id. Used only when this Studio has no id
+    # of its own yet; an existing id is never replaced.
+    seed = (os.environ.get("PHOSPHENE_ANALYTICS_INSTALL_ID") or "").strip().lower()
+    new = seed if _ANALYTICS_UUID_RE.match(seed) else str(_uuid.uuid4())
     _settings_set_internal(analytics_install_id=new)
     return new
 
@@ -21058,6 +21143,73 @@ _ANALYTICS_EVENTS = (
 )
 
 
+# ---- Super properties (5.0.3): who is this, and which Phosphene --------------
+# Pinokio and the Mac app both run THIS Studio, so a Studio event on its own could
+# not say which of the two it came from (7 Nov 2026: 192 Macs rendered in 24 h and
+# the Panel could not say how many used the app). These ride on EVERY event, filled
+# in only where the call site did not already say it. All closed or numeric:
+#   distribution  "mac-app" | "pinokio"            (distribution.py)
+#   edition       "free" | "pro"                   (the app says so; Pinokio: the signed token)
+#   app_version / app_build   the Mac app's own version and build; Mac app only
+#   studio_version  the Studio build this process runs (same as `version`)
+#   os_version / chip_family / ram_gb   the coarse machine class every event now repeats
+# Never a path, a name, an id of a person, a prompt. See docs/ANALYTICS.md "Super properties".
+_ANALYTICS_BUILD_RE = re.compile(r"^[0-9][0-9A-Za-z.\-]{0,23}$")
+_ANALYTICS_EDITION_CACHE: tuple = (0.0, "")
+
+
+def _analytics_edition() -> str:
+    """'pro' or 'free'. The Mac app names it (PHOSPHENE_EDITION); under Pinokio the
+    signed Pro token decides, looked at most once a minute (this runs per event)."""
+    global _ANALYTICS_EDITION_CACHE
+    named = _dist.edition()
+    if named:
+        return named
+    now = time.time()
+    if now - _ANALYTICS_EDITION_CACHE[0] < 60 and _ANALYTICS_EDITION_CACHE[1]:
+        return _ANALYTICS_EDITION_CACHE[1]
+    try:
+        ed = "pro" if pro_status().get("active") else "free"
+    except Exception:                                          # noqa: BLE001
+        ed = "free"
+    _ANALYTICS_EDITION_CACHE = (now, ed)
+    return ed
+
+
+def _analytics_app_field(name: str) -> str:
+    raw = (os.environ.get(name) or "").strip()
+    return raw if _ANALYTICS_BUILD_RE.match(raw) else ""
+
+
+def _analytics_context() -> dict:
+    """The super properties above. Never raises; a missing piece is simply absent."""
+    ctx: dict = {}
+    try:
+        ctx["distribution"] = _dist.distribution()
+        ctx["edition"] = _analytics_edition()
+        if _dist.is_mac_app():
+            av, ab = _analytics_app_field("PHOSPHENE_APP_VERSION"), _analytics_app_field("PHOSPHENE_APP_BUILD")
+            if av:
+                ctx["app_version"] = av
+            if ab:
+                ctx["app_build"] = ab
+        ctx["studio_version"] = running_version()
+        ctx["os_version"] = _analytics_os_version()
+        ctx["chip_family"] = _analytics_chip_family()
+        ctx["ram_gb"] = int(round(SYSTEM_RAM_GB))
+    except Exception:                                          # noqa: BLE001
+        pass
+    return ctx
+
+
+def _analytics_with_context(props: dict) -> dict:
+    """Call-site properties win; the super properties fill what is missing."""
+    out = dict(_analytics_context())
+    out.update(props)
+    return out
+
+
+
 def _analytics_capture(event: str, props: dict | None = None) -> None:
     """Record one event. Returns immediately; never raises; never blocks.
 
@@ -21070,7 +21222,7 @@ def _analytics_capture(event: str, props: dict | None = None) -> None:
         event, props = _analytics_refusal_event(event, props or {})
         payload = {
             "event": str(event)[:64],
-            "props": _analytics_clean_props(props or {}),
+            "props": _analytics_with_context(_analytics_clean_props(props or {})),
             "install_id": _analytics_install_id(),
             "ts": time.time(),
             "at": iso_now(),
@@ -21102,7 +21254,7 @@ def _analytics_capture_sync(event: str, props: dict | None = None) -> bool:
         event, props = _analytics_refusal_event(event, props or {})
         payload = {
             "event": str(event)[:64],
-            "props": _analytics_clean_props(props or {}),
+            "props": _analytics_with_context(_analytics_clean_props(props or {})),
             "install_id": _analytics_install_id(),
             "ts": time.time(),
             "at": iso_now(),
@@ -24583,6 +24735,10 @@ def pro_status() -> dict:
     plan = plan if plan in PRO_PLANS and plan != "dev" else "pro"
     return {"active": True, "plan": plan, "label": PRO_PLANS.get(plan, "Pro"), "until": until,
             "holder": None, "source": "licence", "reason": "ok"}
+
+
+# One authority for config selection and admission immediately before a private render.
+agent_image_engine._ph3image_pro_status = lambda: pro_status()
 
 
 def pro_receipt(payload: dict) -> dict | None:
@@ -36121,9 +36277,9 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                 f"Hailuo H3 can render {H3_MODE_LABELS.get(mode_in, mode_in)} once "
                 "its runner is updated (Update in Pinokio, or 'Update Hailuo H3 "
                 "runner') — rendering this one on LTX.",
-                f"Hailuo H3 needs a newer runner to render "
-                f"{H3_MODE_LABELS.get(mode_in, mode_in)}. Updating the runner "
-                "isn't available in the Mac app yet — rendering this one on LTX."))
+                f"Hailuo H3 can't render "
+                f"{H3_MODE_LABELS.get(mode_in, mode_in)} in the Mac app yet. "
+                "Rendering this one on LTX."))
             _engine = "ltx"
         elif not h3_capable():
             # Same verdict the refusal raises: the floor depends on the lane,
@@ -36286,7 +36442,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                  "every window with the main prompt. " + _dist.say(
                      "Re-run 'Install Hailuo H3' from the Phosphene sidebar to "
                      "update the clone; your weights stay.",
-                     "Updating the Hailuo H3 runner isn't available in the Mac app yet."))
+                     "This part of Hailuo H3 isn't available in the Mac app yet."))
             _h3_chain_prompts = []
         # Orientation: flip the resolved cell's canvas for vertical work.
         _h3_orientation = (f("h3_orientation", H3_ORIENTATION_DEFAULT)
@@ -37310,6 +37466,7 @@ _IMAGE_ENGINE_LABELS = {
     "hidream_quality_inline": "HiDream Quality",
     "flux2_klein_inline": "FLUX.2 [klein] 4B",
     "ph3image_inline": "P-H3-Image (High, 8 MP)",
+    "ph3image_fast_inline": "P-H3-Image (Fast)",
     "ph3image_standard_inline": "P-H3-Image (Standard, 4 MP)",
     "ph3image_draft_inline": "P-H3-Image (Draft, 2 MP)",
 }
@@ -37362,6 +37519,13 @@ def _preflight_image_job(cfg, *, engine_override: str = "auto") -> None:
     (pass or skip) so post-mortems can tell the difference between "preflight
     rejected this" and "preflight passed and the render still died".
     """
+    if getattr(cfg, "kind", None) != "ph3image":
+        import ph3_image_service
+        ph3_image_service.evict()
+    if getattr(cfg, "kind", None) == "ph3image" and getattr(cfg, "ph3image_warm_service", False) and HELPER.is_alive():
+        # The resident image stack and the video helper cannot both keep their
+        # full weights on the reference Mac. The GPU gate makes the helper idle.
+        HELPER.kill()
     # Licence first (4.19.8): Ideogram 4, FLUX.1 Krea [dev] and Bria FIBO are
     # non-commercial models whose screen must be accepted once. Not skippable
     # by PHOSPHENE_SKIP_PREFLIGHT - that switch is about RAM and disk.
@@ -37419,6 +37583,12 @@ def _preflight_image_job(cfg, *, engine_override: str = "auto") -> None:
             f"memory and needs a {mac_gb} GB Mac; this Mac has "
             f"{SYSTEM_RAM_GB:.0f} GB. {way_out}"
         )
+    if (cfg.kind == "ph3image" and cfg.ph3image_warm_service
+            and Path(cfg.ph3image_script_path).with_name("serve_image_pro.py" if cfg.ph3image_pro_profile else "serve_image.py").is_file()):
+        # The stdio worker checks the cold (40 GiB) or resident (6–12 GiB) budget
+        # atomically with choosing its process. Counting all resident weights
+        # again here would refuse the second image on a 64 GB Mac.
+        need_gb = agent_image_engine.ph3image_resident_headroom_gb(cfg)
     if free_gb < need_gb and HELPER.is_alive():
         # The video helper keeps its pipelines warm between jobs; on a 32 GB
         # Mac that is most of the memory an image engine needs, and the fleet
@@ -39551,7 +39721,7 @@ def run_h3_job_inner(job: dict) -> None:
             f"ffmpeg is not installed where Phosphene looks for it ({FFMPEG}). Pinokio "
             "ships it at ~/pinokio/bin/ffmpeg-env/bin/ffmpeg — reinstall Phosphene from "
             "the Pinokio sidebar, or set LTX_FFMPEG to your ffmpeg binary.",
-            f"ffmpeg isn't where Phosphene looks for it ({FFMPEG}). Quit Phosphene "
+            "Phosphene's video encoder isn't ready. Quit Phosphene "
             "and open it again so setup can find a working video encoder."))
 
     p = job["params"]
@@ -39567,6 +39737,14 @@ def run_h3_job_inner(job: dict) -> None:
                                f"({SYSTEM_RAM_GB:.0f} GB unified memory). "
                                f"Render on the LTX engine instead.")
     if paths["missing"]:
+        if _dist.is_mac_app():
+            # Nothing to repair, no paths: the app sets H3 up by itself when its
+            # weights are here (bootstrap.sh h3), and this says only where things stand.
+            raise RuntimeError(
+                "Hailuo H3 is still getting ready on this Mac. Render on LTX for "
+                "now; Hailuo H3 turns on by itself when it is ready."
+                if paths["weights_ok"] else
+                "Hailuo H3 isn't available in the Mac app yet.")
         raise RuntimeError(
             ("The Hailuo H3 weights are on disk but the engine needs repair — "
              if paths["repairable"] else
@@ -39667,7 +39845,7 @@ def run_h3_job_inner(job: dict) -> None:
                          "instead. " + _dist.say(
                              "Re-run 'Install Hailuo H3' from the Phosphene "
                              "sidebar to update the clone; your weights stay.",
-                             "Updating the Hailuo H3 runner isn't available in the Mac app yet."))
+                             "This part of Hailuo H3 isn't available in the Mac app yet."))
 
     # ---- user LoRA -------------------------------------------------------
     # Resolved BEFORE Turbo, deliberately: the two compete for the runner's one
@@ -40397,9 +40575,8 @@ def run_h3_job_inner(job: dict) -> None:
                 "decoding in float32 (same picture, a little slower). Press "
                 "Update in Pinokio, or \"Update Hailuo H3 runner\" in the "
                 "sidebar, to get it.",
-                "[h3] This H3 runner predates the faster FP16 video decode — "
-                "decoding in float32 (same picture, a little slower). Updating "
-                "the runner isn't available in the Mac app yet."))
+                "[h3] The faster video decode isn't available for Hailuo H3 in "
+                "the Mac app yet. The picture is the same, a little slower."))
     elif _vae_mixed:
         cmd += ["--vae-dtype", "float32"]
         p["h3_vae_dtype"] = "float32"
@@ -41460,11 +41637,24 @@ def _take_last_frame(ff: str, source: str, output: str, job: dict) -> None:
     target = Path(output)
     fd, scratch = tempfile.mkstemp(prefix=".handoff-", suffix=".png", dir=target.parent)
     os.close(fd)
+    head = [ff, "-loglevel", "error", "-y", "-i", source, "-map", "0:v:0", "-an"]
+    tail = ["-pix_fmt", "rgb24", "-compression_level", "0", "-update", "1", scratch]
     try:
-        _take_ffmpeg([ff, "-loglevel", "error", "-y", "-i", source,
-                      "-map", "0:v:0", "-an", "-vsync", "0",
-                      "-pix_fmt", "rgb24", "-compression_level", "0",
-                      "-update", "1", scratch], "One Shot handoff frame", job)
+        # Every decoded frame goes to the PNG as it is (no frame-rate
+        # conversion). `-fps_mode passthrough` is the spelling since ffmpeg
+        # 5.1; the old `-vsync 0` is gone from current builds, and on those
+        # every One Shot died at its first handoff with "Unrecognized option
+        # 'vsync'" (fleet, 5.0.0/5.0.1: one Mac lost 35 renders in a row).
+        # An ffmpeg older than 5.1 has no -fps_mode, so it gets -vsync.
+        try:
+            _take_ffmpeg(head + ["-fps_mode", "passthrough"] + tail,
+                         "One Shot handoff frame", job)
+        except JobCancelled:
+            raise
+        except RuntimeError as e:
+            if "option 'fps_mode'" not in str(e):
+                raise
+            _take_ffmpeg(head + ["-vsync", "0"] + tail, "One Shot handoff frame", job)
         if not Path(scratch).stat().st_size:
             raise RuntimeError("One Shot handoff frame: no video frame decoded")
         os.replace(scratch, target)
@@ -45081,6 +45271,9 @@ def worker_loop() -> None:
             with _GPU_LOCK:
                 _JOB_CTX.job = job
                 try:
+                    if (job.get("params") or {}).get("mode") != "image":
+                        import ph3_image_service
+                        ph3_image_service.evict()
                     run_job_inner(job)
                 finally:
                     _JOB_CTX.job = None
@@ -45230,6 +45423,9 @@ _GPU_HOLDER: dict = {}
 def gpu_gate_mark(kind: str) -> None:
     """Record the out-of-queue holder of _GPU_LOCK (call right after acquire)."""
     global _GPU_HOLDER
+    if kind != "image":
+        import ph3_image_service
+        ph3_image_service.evict()
     _GPU_HOLDER = {"kind": str(kind), "since": time.time()}
 
 
@@ -45633,10 +45829,11 @@ def _build_image_engine_config(
             hidream_fb_threshold=0.10,
             hidream_fb_keep_last=12,
         )
-    if engine_override in ("ph3image_inline", "ph3image_draft_inline", "ph3image_standard_inline"):
-        # P-H3-Image: High = 8 MP (what it was trained for), Standard 4 MP, Draft 2 MP.
+    if engine_override in ("ph3image_fast_inline", "ph3image_inline", "ph3image_draft_inline", "ph3image_standard_inline"):
+        # P-H3-Image: Fast defaults to 1.5 MP; existing explicit sizes keep their meaning.
         return ph3image_engine_config(
-            "draft" if engine_override == "ph3image_draft_inline"
+            "fast" if engine_override == "ph3image_fast_inline"
+            else "draft" if engine_override == "ph3image_draft_inline"
             else "standard" if engine_override == "ph3image_standard_inline" else "high")
     if engine_override == "mock_inline":
         return agent_image_engine.ImageEngineConfig(kind="mock")

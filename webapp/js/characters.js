@@ -454,9 +454,10 @@ function musicInstallRender(el, where) {
     const repair = !!music.repairable;
     const failed = inst.state === 'failed' && inst.error;
     const stopped = inst.state === 'stopped';
-    const label = repair ? 'Repair music engine (weights kept)' : `Install music engine (${size})`;
+    const label = repair ? distText('Repair music engine (weights kept)', 'Set up the music engine') : `Install music engine (${size})`;
     const lead = repair
-      ? 'The YuE2 weights are on disk but the engine needs repair. This takes a couple of minutes and re-downloads nothing.'
+      ? distText('The YuE2 weights are on disk but the engine needs repair. This takes a couple of minutes and re-downloads nothing.',
+                 'The music engine needs a quick setup. It takes a couple of minutes and downloads nothing.')
       : 'Compose writes a whole song — vocals and arrangement — from your lyrics and a style. It needs the YuE2 music engine: a one-time ~11 GB download that resumes if interrupted.';
     html = `<p class="mi-lead">${lead}</p>
       ${failed ? `<p class="mi-error">${escapeHtml(inst.error)}</p>` : ''}
@@ -4653,7 +4654,7 @@ function applyExtendPillPrices() {
 function updatePromptPlaceholder() {
   const prompt = document.getElementById('prompt');
   if (!prompt) return;
-  const base = 'Describe the scene AND the sound — e.g. wizard in a forest clearing, fireflies spiraling up · low whispered chant, ember crackle, distant owl. Audio is generated jointly with video; without sound cues the model outputs near-silent ambient.';
+  const base = 'Describe the scene and the sound. For example: a wizard in a forest clearing, fireflies spiraling up. Sound: low whispered chant, ember crackle, distant owl. Audio is made together with the video; without sound cues the model makes near-silent ambient.';
   const keyframeTwo = 'Describe the full first-to-last transition in one prompt. Include motion, camera, mood, and audio cues; the start/end images anchor the visual endpoints.';
   const keyframeMulti = `One prompt controls the whole ${window._kfMode}-keyframe shot; the Beat at(s) controls define segment timing. Write one continuous action with the beats described in order, plus audio cues.`;
   if (currentMode === 'keyframe') {

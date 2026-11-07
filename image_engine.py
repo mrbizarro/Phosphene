@@ -513,12 +513,15 @@ class ImageEngineConfig:
 
     # P-H3-Image (Pruna, on MiniMax H3), run by the H3 engine's own runner as a subprocess.
     # The panel fills the paths (it owns the H3 install); `ph3image_mp` is the quality tier:
-    # 2 / 4 / 8 megapixels (the model is trained for 8).
+    # Fast 1.5 / Draft 2 / Standard 4 / High 8 megapixels.
     ph3image_python_path: str = ""
     ph3image_script_path: str = ""
     ph3image_root: str = ""          # folder made by fetch_ph3_image.py
     ph3image_dit: str = ""           # MiniMax-H3 FL2VA transformer (our Q8 pack)
-    ph3image_mp: float = 8.0
+    ph3image_mp: float = 1.5
+    ph3image_warm_service: bool = False  # Studio enables on qualified 64 GB hosts
+    ph3image_pro_profile: bool = False  # private runner, admitted by the shared Pro gate
+    ph3image_warm_batch: bool = False  # experimental until real-weight speed/parity validation
 
     def to_public_dict(self) -> dict:
         d = asdict(self)
@@ -589,6 +592,9 @@ def generate(*, prompt: str, n: int, output_dir: Path,
     Returns a list of `{png_path, seed, engine, width, height, ...}`
     dicts in submission order.
     """
+    if config.kind != "ph3image":
+        import ph3_image_service
+        ph3_image_service.evict()
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     width, height = ASPECT_DIMS.get(aspect, ASPECT_DIMS["16:9"])
@@ -671,7 +677,7 @@ def health_check(config: ImageEngineConfig) -> tuple[bool, str]:
         missing = ph3image_missing(config)
         if missing:
             return False, "P-H3-Image is not installed: " + "; ".join(missing)
-        return True, f"P-H3-Image ready ({config.ph3image_mp:g} MP, 8 steps)"
+        return True, f"P-H3-Image ready ({config.ph3image_mp:g} MP, {5 if config.ph3image_pro_profile else 8} steps)"
     return False, f"unknown engine kind: {config.kind!r}"
 
 
@@ -1300,13 +1306,22 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
     fam_defaults = MFLUX_FAMILY_DEFAULTS.get(fam, MFLUX_FAMILY_DEFAULTS["flux1"])
 
     if not bin_path:
+        # The image-engine pack (scripts/pinokio/mflux_pack.sh) is optional at
+        # install, so a failed or skipped pack leaves no mflux CLI. This used to
+        # say "<bin> not found ... `pip install -U mflux>=0.17` (see
+        # docs/AGENTIC_FLOWS.md)": a terminal command, an eager upgrade this
+        # repo forbids (it re-resolves transformers and breaks video), and a
+        # deleted doc (fleet fw-20261107-0907: 11 failures on 7 Macs). It now
+        # names the one-click way back. The CLI name stays at the end for logs.
         raise RuntimeError(
-            f"{bin_name} not found (family: {fam}). Install or upgrade "
-            f"mflux into the panel's venv: "
-            f"`ltx-2-mlx/env/bin/pip install -U mflux>=0.17` "
-            f"(see docs/AGENTIC_FLOWS.md § Image generation backends). "
-            f"First-run model download is 4-34 GB to ~/.cache/huggingface "
-            f"depending on family."
+            "The image engine is not installed, so images cannot start. "
+            + _dist.say(
+                "In Pinokio, click \"Install/repair image engines (Ideogram 4 + "
+                "Qwen-Edit)\" in Phosphene's menu; it keeps every model. ",
+                "Quit Phosphene and open it again so setup can put it back; if "
+                "it keeps happening, report it with "
+                f"{_dist.MAC_REPORT_MENU} ")
+            + f"Video renders are not affected. ({bin_name} missing, family {fam})"
         )
 
     # 4.19.6: a Pillow the engine cannot import stops HERE, in a second, with
@@ -2482,6 +2497,39 @@ def _ph3image_aspect(aspect: str) -> str:
     return PH3IMAGE_RATIOS.get(aspect, "16:9")
 
 
+# Studio installs its existing signed-token authority. Standalone callers fail closed.
+_ph3image_pro_status = lambda: {"active": False}
+
+
+def ph3image_resident_headroom_gb(config):
+    # Weights are already resident: reserve additional working space by canvas size.
+    return max(6.0, min(12.0, float(config.ph3image_mp) * 2.0))
+
+
+# What a private profile must not leave beside a picture: the schedule that makes it faster.
+# The profile name stays (it is how a render proves which path ran); the method does not.
+_PH3IMAGE_PRIVATE_METRIC_KEYS = ("sigmas", "forwards", "steps", "schedule", "timesteps")
+
+
+def _ph3image_scrub_private_metrics(path) -> None:
+    try:
+        p = Path(path)
+        data = json.loads(p.read_text())
+        if isinstance(data, dict) and any(k in data for k in _PH3IMAGE_PRIVATE_METRIC_KEYS):
+            for k in _PH3IMAGE_PRIVATE_METRIC_KEYS:
+                data.pop(k, None)
+            p.write_text(json.dumps(data, indent=2))
+    except (OSError, ValueError):
+        pass
+
+
+def ph3image_pro_active():
+    try:
+        return bool(_ph3image_pro_status().get("active"))
+    except Exception:
+        return False
+
+
 def _generate_ph3image(prompt: str, n: int, aspect: str, output_dir: Path, base_seed: int | None,
                        config: ImageEngineConfig, refs: list[str] | None = None,
                        on_log: "callable | None" = None) -> list[dict]:
@@ -2495,34 +2543,98 @@ def _generate_ph3image(prompt: str, n: int, aspect: str, output_dir: Path, base_
         raise FileNotFoundError("P-H3-Image is not ready: " + "; ".join(missing))
     if refs and on_log:
         on_log("[p-h3-image] reference images are not used yet (text-to-image only); rendering from the prompt")
-    mp = float(config.ph3image_mp or 8.0)
+    if (config.ph3image_pro_profile or Path(config.ph3image_script_path).name == "generate_image_pro.py") and not ph3image_pro_active():
+        import ph3_image_service
+        ph3_image_service.evict()
+        raise RuntimeError("Pro is no longer active. Select Fast again to use the Free profile.")
+    mp = float(config.ph3image_mp or 1.5)
     ratio = _ph3image_aspect(aspect)
     results: list[dict] = []
     ts = int(time.time() * 1000)
+    requests = []
     for i in range(n):
         seed = (base_seed + i) if base_seed is not None else random.randint(0, 2**31 - 1)
         png = output_dir / f"cand_{i:02d}_ph3image_{ts}.png"
         metrics = output_dir / f"cand_{i:02d}_ph3image_{ts}.json"
-        cmd = [config.ph3image_python_path, config.ph3image_script_path, prompt,
-               "-o", str(png), "--root", config.ph3image_root, "--dit", config.ph3image_dit,
-               "--aspect", ratio, "--mp", f"{mp:g}", "--seed", str(seed), "--metrics", str(metrics)]
+        requests.append(dict(prompt=prompt, output=str(png), metrics=str(metrics), seed=seed,
+                             aspect=ratio, mp=mp))
+    service_script = Path(config.ph3image_script_path).with_name("serve_image_pro.py" if config.ph3image_pro_profile else "serve_image.py")
+    if config.ph3image_warm_service and service_script.is_file():
+        import ph3_image_service
+        import hostinfo
+        command = [config.ph3image_python_path, str(service_script),
+                   "--root", config.ph3image_root, "--dit", config.ph3image_dit]
+        def memory_preflight(reusing):
+            # Selection and admission share the worker mutex, so idle eviction
+            # cannot turn a warm budget check into an unchecked cold load.
+            if hostinfo.total_ram_bytes() < 64 * 1024**3:
+                raise ph3_image_service.ResidencyUnavailable("Warm image retention needs 64 GB")
+            required = (ph3image_resident_headroom_gb(config) if reusing else 40) * 1024**3
+            if hostinfo.available_bytes() < required:
+                raise ph3_image_service.ResidencyUnavailable("Not enough free memory for image retention")
+        for index, request in enumerate(requests):
+            try:
+                info = ph3_image_service.WORKER.request(command, request, _clean_subprocess_env(),
+                    timeout=float(os.environ.get("PHOSPHENE_PH3IMAGE_TIMEOUT_S", "3600")),
+                    on_log=on_log, register=_register_active_proc, unregister=_unregister_active_proc,
+                    preflight=memory_preflight)
+            except ph3_image_service.ResidencyUnavailable:
+                # request() reaps the resident process before propagating admission
+                # failure. A staged image is still allowed if its smaller budget fits.
+                if hostinfo.available_bytes() < 26 * 1024**3:
+                    raise RuntimeError("P-H3-Image needs more free memory. Close other apps and retry.")
+                if on_log:
+                    on_log("[p-h3-image] releasing warm models; rendering with staged memory")
+                requests = requests[index:]
+                break
+            if config.ph3image_pro_profile:
+                _ph3image_scrub_private_metrics(request["metrics"])
+            results.append({"png_path": request["output"], "seed": request["seed"], "engine": "p-h3-image",
+                            "width": int(info.get("width") or 0), "height": int(info.get("height") or 0),
+                            "seconds": float(info.get("request_seconds") or 0.0)})
+        else:
+            return results
+    # A staged request must evict a worker left by an earlier warm request,
+    # including when the service was disabled or the installed script changed.
+    import ph3_image_service
+    ph3_image_service.evict()
+    # One subprocess per batch also bounds residency to this caller's GPU-lock lifetime.
+    warm = config.ph3image_warm_batch and len(requests) > 1
+    groups = [requests[i:i + 16] for i in range(0, len(requests), 16)] if warm else [[r] for r in requests]
+    for i, group in enumerate(groups):
+        request = group[0]
+        seed = request["seed"]
+        png, metrics = Path(request["output"]), Path(request["metrics"])
+        cmd = [config.ph3image_python_path, config.ph3image_script_path]
+        batch_file = None
+        if warm:
+            batch_file = output_dir / f"ph3image_batch_{ts}.json"
+            batch_file.write_text(_json.dumps(group))
+            cmd += ["--batch-json", str(batch_file)]
+        else:
+            cmd += [prompt, "-o", str(png), "--aspect", ratio, "--mp", f"{mp:g}",
+                    "--seed", str(seed), "--metrics", str(metrics)]
+        cmd += ["--root", config.ph3image_root, "--dit", config.ph3image_dit]
         if on_log:
             on_log(f"[p-h3-image] image {i + 1}/{n}: {ratio} at {mp:g} MP, seed {seed}")
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                                errors="replace", env=_clean_subprocess_env(), start_new_session=True)
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                    errors="replace", env=_clean_subprocess_env(), start_new_session=True)
+        except OSError:
+            if batch_file is not None:
+                batch_file.unlink(missing_ok=True)
+            raise
         _register_active_proc(proc)
-        deadline = float(os.environ.get("PHOSPHENE_PH3IMAGE_TIMEOUT_S", "3600"))
+        deadline = float(os.environ.get("PHOSPHENE_PH3IMAGE_TIMEOUT_S", "3600")) * len(group)
         timed_out = {"v": False}
 
         def _kill():
             timed_out["v"] = True
+            # The image CLI creates no children; stop only the process we started.
             try:
-                os.killpg(os.getpgid(proc.pid), 9)
-            except Exception:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
+                proc.kill()
+            except ProcessLookupError:
+                pass
 
         wd = threading.Timer(deadline, _kill)
         wd.daemon = True
@@ -2534,23 +2646,35 @@ def _generate_ph3image(prompt: str, n: int, aspect: str, output_dir: Path, base_
                     if line and on_log:
                         on_log(f"[p-h3-image] {line}")
             rc = proc.wait()
+        except BaseException:
+            proc.kill()
+            proc.wait()
+            raise
         finally:
             wd.cancel()
             _unregister_active_proc(proc)
+            if batch_file is not None:
+                batch_file.unlink(missing_ok=True)
+            if proc.stdout is not None:
+                proc.stdout.close()
         if timed_out["v"]:
             raise RuntimeError(f"P-H3-Image exceeded its {deadline:.0f}s deadline and was stopped")
         if rc in (-15, 143, -9, 137):
             raise ImageJobCancelled(f"P-H3-Image cancelled by /stop (rc={rc})")
         if rc != 0:
             raise RuntimeError(f"P-H3-Image failed with rc={rc}")
-        if not png.exists():
-            raise RuntimeError(f"P-H3-Image finished but no PNG at {png}")
-        info: dict = {}
-        try:
-            info = _json.loads(metrics.read_text())
-        except Exception:
-            pass
-        results.append({"png_path": str(png), "seed": seed, "engine": "p-h3-image",
-                        "width": int(info.get("width") or 0), "height": int(info.get("height") or 0),
-                        "seconds": float(info.get("total_seconds") or 0.0)})
+        for request in group:
+            png, metrics = Path(request["output"]), Path(request["metrics"])
+            if not png.exists():
+                raise RuntimeError(f"P-H3-Image finished but no PNG at {png}")
+            info: dict = {}
+            try:
+                info = _json.loads(metrics.read_text())
+            except Exception:
+                pass
+            if config.ph3image_pro_profile:
+                _ph3image_scrub_private_metrics(metrics)
+            results.append({"png_path": str(png), "seed": request["seed"], "engine": "p-h3-image",
+                            "width": int(info.get("width") or 0), "height": int(info.get("height") or 0),
+                            "seconds": float(info.get("total_seconds") or 0.0)})
     return results

@@ -970,7 +970,7 @@ plus a rank-128 adapter (208 modules, scale 1.0: proven tensor by tensor against
 five-tap Qwen3-VL-4B text encoder + connector and a new single-frame ViT image decoder.
 
 - Runner: `scripts/generate_image.py PROMPT -o OUT --root <models>/p-h3-image --dit <q8> --aspect A --mp 2|4|8 --seed N --metrics M`
-  (engine branch `image/p-h3-image`, pin 63893b3 on ref `phosphene/v5.0-image2`). Staged: text encoder out, then DiT + adapter,
+  (engine pin cd07c3c on ref `phosphene/v5.0-image3`: 63893b3 plus the resident worker `scripts/serve_image.py` and compiled repeated blocks). Staged: text encoder out, then DiT + adapter,
   then the decoder (tiled, 16x16 tokens).
 - Adapter layout: qkv rows permuted to our per-head layout, fc1 as published (NOT `--lora-fc1-swap`, unlike Flex). The load logs
   `208 applied, 0 skipped`.

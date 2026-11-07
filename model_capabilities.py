@@ -107,7 +107,7 @@ ENGINES: dict[str, dict] = {
         "label": "Images",
         "surface": "image",
         "modes": ["t2i", "edit"],
-        "qualities": ["draft", "standard", "high"],
+        "qualities": ["fast", "draft", "standard", "high"],
         "lengths": None,
         "cells": {"exclude_flags": []},
         "inputs": ["reference_image"],
@@ -211,13 +211,13 @@ VARIANTS: dict[str, dict] = {
     # ---- Images ---------------------------------------------------------------
     "images.p_h3_image": {
         # Pruna's P-H3-Image on MiniMax H3 (R&D L18): one latent frame, 8 forwards, no guidance.
-        # PREVIEW since the bench (4-5 Nov 2026) rendered exactly this: text-to-image at the three
-        # megapixel tiers (draft 2 MP, standard 4 MP, high 8 MP). Edit, up to 8 reference images,
+        # PREVIEW: the 6 Nov speed bench adds Fast 1.5 MP to Draft 2 / Standard 4 / High 8.
+        # All five Fast prompts rendered under a minute. Edit, up to 8 reference images,
         # is second-wave and is NOT declared. Free for everyone (owner, card 296): no ledger row.
         "engine": "images", "label": "P-H3-Image", "pick": {},
         "status": "preview",
         "modes": ["t2i"],
-        "qualities": ["draft", "standard", "high"],
+        "qualities": ["fast", "draft", "standard", "high"],
         "inputs": [],
         "outputs": ["image"],
         "options": [],

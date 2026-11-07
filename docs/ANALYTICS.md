@@ -148,6 +148,46 @@ your Mac.
 
 ---
 
+## Super properties (5.0.3)
+
+Phosphene runs in two places: through Pinokio, and as the Phosphene Mac app. Both
+run the same Studio, so an event on its own could not say which. From 5.0.3 every
+event below also carries these, unless the event already names the field itself:
+
+| Property | Values | Why |
+|---|---|---|
+| `distribution` | `mac-app` or `pinokio` | A bug in the app is not a bug in Pinokio, and the other way round |
+| `edition` | `free` or `pro` | Pro runs a different render path |
+| `app_version`, `app_build` | e.g. `1.0.3`, `27`; Mac app only | The app and the Studio update separately |
+| `studio_version` | e.g. `5.0.3` | The Studio build that sent it (same as `version`) |
+| `os_version`, `chip_family`, `ram_gb` | `26.4`, `M4 Max`, `64` | The coarse machine class, so any event can be split by hardware |
+
+All are closed words, version numbers or whole numbers. No path, no name, no
+prompt. The Mac app also sends its own few events (`mac_*`, below) with the same
+rules and the same off switch. The Settings toggle and
+`PHOSPHENE_ANALYTICS_DISABLED=1` switch both off. When the Mac app minted this
+Mac's random id before the Studio first ran, the Studio keeps that same id
+(`PHOSPHENE_ANALYTICS_INSTALL_ID`), so one install is one id.
+
+### The Mac app's own events (`mac_*`)
+
+Sent by the app itself, not the Studio, to the same place, only while analytics is
+on. Properties: the super properties above (without the Studio-only ones) plus:
+
+| Event | When | Extra properties |
+|---|---|---|
+| `mac_launch` | each time the app opens | `first_launch` (true on the first ever open) |
+| `mac_setup` | setup, before the Studio exists: the plan and the install | `step` (`plan` or `install`), `outcome` (`started`, `ok`, `failed`), on a failure `error_class` (closed words such as `disk_full`, `network`, `download_failed`, `timeout`) and `error_signature` (one line, 120 characters, paths / URLs / e-mails / keys / ids / your user name removed), `seconds_bucket` |
+| `mac_engine` | the app starting the Studio | `step` is `studio`, `outcome` (`ok`, `failed`, `exited` when it quit by itself), `error_class`, `error_signature`, `exit_status`, `seconds_bucket` |
+| `mac_update` | Sparkle, the app's updater | `stage` `check` with `outcome` `found` or `failed` (with `error_domain` and `error_code`, numbers only, never the message; at most once per cause per six hours), or `stage` `installed` with `outcome` `ok`, `from_version`, `to_version` (noticed the next time the new app opens) |
+| `mac_crash` | the app did not quit cleanly last time | `outcome` is `crashed` |
+
+A copy of every `mac_*` event is written, as sent, to `mac-usage-log.jsonl` in the app's
+`state` folder (the key is not in it). Success steps are reported once per launch; nothing
+repeats on a timer.
+
+---
+
 ## Events
 
 Seven events. That's the whole list. (An eighth is described at the end

@@ -714,6 +714,9 @@ function setEngine(engine, opts) {
       // The lowest lane's floor, not the bf16 one and not a literal 64.
       reason = e.label + ' needs '
              + (st.ram_floor_gb || st.min_ram_gb || 36) + ' GB unified memory.';
+    } else if (!st.available && st.preparing) {
+      target = fallback.id;
+      reason = e.label + ' is getting ready on this Mac. Rendering on ' + fallback.label + ' meanwhile.';
     } else if (!st.available) {
       target = fallback.id;
       // Distinguish "you never installed this" from "you DID install this and
@@ -902,10 +905,10 @@ function _syncEnginePromptTools() {
         + 'his mouth settles closed. Click Structure or + Line above to '
         + 'insert the skeleton.\n\noverall_soundscape: ambience, sound '
         + 'effects.\n\nnon_diegetic_music: N/A or a description.'
-      : 'Describe the scene AND the sound — e.g. wizard in a forest '
-        + 'clearing, fireflies spiraling up · low whispered chant, ember '
-        + 'crackle, distant owl. Audio is generated jointly with video; '
-        + 'without sound cues the model outputs near-silent ambient.';
+      : 'Describe the scene and the sound. For example: a wizard in a forest '
+        + 'clearing, fireflies spiraling up. Sound: low whispered chant, ember '
+        + 'crackle, distant owl. Audio is made together with the video; '
+        + 'without sound cues the model makes near-silent ambient.';
   }
   if (eng === 'h3' && typeof h3SyncPromptHelper === 'function') {
     try { h3SyncPromptHelper(); } catch (e) {}
@@ -955,6 +958,7 @@ function updateH3Availability(s) {
                // Install→repair→install flips the pill's copy and the models
                // card even when `available` itself hasn't moved yet.
                || (next.repairable !== H3.repairable)
+               || (next.preparing !== H3.preparing)
                || (next.reason !== H3.reason)
                // Turbo's release adapter may arrive from inside the panel, so
                // this turns the dashed pill live as soon as it lands.
@@ -1081,7 +1085,11 @@ function openH3InstallCard(source) {
          nothing.`
       : `<b>Hailuo H3 is installed — it just needs repairing.</b> Your weights
          (~75 GB) are still on disk and are <em>not</em> re-downloaded.`;
-    const intro = H3.repairable ? `
+    const intro = (isMacApp() && (H3.repairable || H3.preparing)) ? `
+      <p style="margin:0 0 10px">
+        <b>Hailuo H3 is getting ready on this Mac.</b> Phosphene sets it up by
+        itself, so there is nothing for you to do. LTX keeps working meanwhile.
+      </p>` : H3.repairable ? `
       <p style="margin:0 0 10px">
         ${fixBlurb}
       </p>
@@ -1097,7 +1105,7 @@ function openH3InstallCard(source) {
         place of the install entry). The step is idempotent — it skips every
         weight already on disk. The panel picks the engine back up within a
         couple of seconds, no restart.`,
-        `Repairing or building Hailuo H3 isn\u2019t available in the Mac app yet. LTX keeps working.`)}
+        `Hailuo H3 is getting ready on this Mac. LTX keeps working.`)}
       </p>` : `
       <p style="margin:0 0 10px">
         <b>Hailuo H3 is Phosphene's second video engine</b>, a peer of LTX
@@ -1137,7 +1145,7 @@ function openH3InstallCard(source) {
     // noise the other 99% of the time. Printing it under a two-sentence pitch
     // made the offer read like an error report. Kept verbatim, folded shut.
     body.innerHTML = intro + `
-      ${missing.length ? `<details class="h3-diag">
+      ${missing.length && !isMacApp() ? `<details class="h3-diag">
         <summary>Details for troubleshooting</summary>
         <p>Currently missing: ${escapeHtml(missing.join('; '))}</p>
       </details>` : ''}`;
@@ -1146,7 +1154,8 @@ function openH3InstallCard(source) {
     // nothing downloads. Say what this click actually costs.
     const title = document.getElementById('h3InstallTitle');
     if (title) {
-      title.textContent = needsBuildOnly ? 'Build the compact engine · ~5 min, no download'
+      title.textContent = (isMacApp() && (H3.repairable || H3.preparing)) ? 'Hailuo H3'
+        : needsBuildOnly ? 'Build the compact engine · ~5 min, no download'
         : H3.repairable ? 'Repair Hailuo H3 · no download'
         : 'Hailuo H3 · 75 GB';
     }
@@ -1190,7 +1199,7 @@ function _h3NudgeEngineOffer() {
   // first draft, and it clipped exactly where the instruction lived.
   // H3-39: same "· 75 GB" default the modal title had, wrong whenever this is
   // a build-only or repair nudge — nothing downloads in either case.
-  const nudgeMsg = isMacApp() ? 'Hailuo H3 · not available in the Mac app yet.'
+  const nudgeMsg = isMacApp() ? (H3.preparing ? 'Hailuo H3 · getting ready on this Mac.' : 'Hailuo H3 · not available in the Mac app yet.')
     : (H3.reason === 'missing_q8_dit')
     ? 'Hailuo H3 · build the compact engine, no download — from the Pinokio sidebar.'
     : H3.repairable

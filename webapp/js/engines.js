@@ -1997,7 +1997,10 @@ function renderEngineSwitch() {
       </button>`;
     }
     const st = engineStatus(e);
-    const offer = !e.builtin && !st.announced && st.capable && !st.available;
+    // Mac app, weights on this Mac, runtime being set up by the app itself: not an
+    // offer and not a repair, just a calm "getting ready".
+    const preparing = !e.builtin && !st.announced && st.capable && !st.available && !!st.preparing;
+    const offer = !e.builtin && !st.announced && st.capable && !st.available && !preparing;
     // Every image model makes pictures; the form under the picker says what
     // each needs (a reference for Reference Edit).
     const modeOk = imgSurface || engineServesMode(e, surfaceMode);
@@ -2015,12 +2018,13 @@ function renderEngineSwitch() {
         : st.repairable ? 'repair'
         : (e.install_size || '').replace(/^~/, '');
       badgeClass = ' offer';
-    } else if (st.available && !modeOk) { badge = (e.serves_label || '').toLowerCase().replace(' and ', ' · '); }
+    } else if (preparing) { badge = 'getting ready'; }
+    else if (st.available && !modeOk) { badge = (e.serves_label || '').toLowerCase().replace(' and ', ' · '); }
     else if (imgSurface && !st.capable) { badge = 'needs ' + (st.ram_floor_gb || '?') + ' GB'; }
     else if (e.preview) { badge = 'preview'; }
     // Inert = real but unreachable RIGHT NOW. Distinct from needs-install,
     // which IS reachable — that click is the install.
-    const inert = st.announced || (st.available && !modeOk) || (imgSurface && !st.capable);
+    const inert = st.announced || preparing || (st.available && !modeOk) || (imgSurface && !st.capable);
     const cls = 'eng-opt'
       + (e.id === active ? ' active' : '')
       + (offer ? ' needs-install' : '')
@@ -2187,6 +2191,9 @@ function _engineTooltip(e, st, modeOk) {
     return name + ' — needs ' + (st.ram_floor_gb || st.min_ram_gb || 36)
                 + ' GB unified memory';
   }
+  if (!e.builtin && !st.available && st.preparing) {
+    return name + ' is getting ready on this Mac. It turns on by itself when it is ready.';
+  }
   if (!e.builtin && !st.available) {
     // H3-05: "repairable" also covers missing_q8_dit (every weight present,
     // only the local compact build is missing) — a genuinely different fix
@@ -2214,6 +2221,8 @@ function engineSegClick(id) {
   if (!e) return;
   const st = engineStatus(e);
   if (st.announced) return;
+  // Mac app, runtime being set up by the app: nothing to open, nothing to click.
+  if (!e.builtin && st.capable && !st.available && st.preparing) return;
   if (!e.builtin && st.capable && !st.available) {
     const fn = e.install_card && window[e.install_card];
     // 'chip' tells the card this click came from the switcher, where a repeat

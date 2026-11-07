@@ -902,7 +902,7 @@ def post_image_generate(h, path, qs, ctype) -> None:
             # Stream mflux stdout into the panel log card so users
             # see step-by-step progress while the gen runs.
             # tqdm progress bars come through line-buffered.
-            if cfg.kind == "flux3":
+            if cfg.kind == "flux3" or (cfg.kind == "ph3image" and cfg.ph3image_warm_service):
                 P._preflight_image_job(cfg, engine_override=engine_override)
             candidates = P.agent_image_engine.generate(
                 prompt=prompt, n=n, aspect=aspect,

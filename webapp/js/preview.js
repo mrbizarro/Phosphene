@@ -2053,11 +2053,15 @@ async function refreshModelsModal({ silent = false } = {}) {
         ? '<svg class="ph" aria-hidden="true"><use href="#ph-check-bold"/></svg>'
         : '<svg class="ph" aria-hidden="true"><use href="#ph-x-circle"/></svg>';
       const statusText = ready
-        ? `Ready · engine picker unlocked · ${escapeHtml(h3.root || '')}`
+        ? distText(`Ready · engine picker unlocked · ${escapeHtml(h3.root || '')}`,
+                   'Ready · engine picker unlocked')
+        : h3.preparing
+        ? 'Getting ready on this Mac'
         : distText('Available to install · one click in the Pinokio sidebar',
                    'Not available in the Mac app yet');
       const btn = ready
         ? `<button class="ghost" disabled>Installed</button>`
+        : h3.preparing ? ''
         : `<button onclick="openH3InstallCard()">${distText('How to install', 'About H3')}</button>`;
       h3Row = `
         <li class="${cls}">
@@ -2078,7 +2082,7 @@ async function refreshModelsModal({ silent = false } = {}) {
     const statusText = music.available
       ? `Ready · Compose unlocked in the Audio tab · ${escapeHtml(music.root || '')}`
       : inst.active ? `Installing… ${inst.percent || 1}% · ${escapeHtml(inst.step_label || '')}`
-      : music.repairable ? 'Weights on disk · engine needs repair'
+      : music.repairable ? distText('Weights on disk · engine needs repair', 'Weights on disk · needs a quick setup')
       : `Available to install · one click here or in Audio → Compose · ~11 GB · needs ${music.min_ram_gb} GB unified memory`;
     musicRow = `<li class="${music.available ? 'ready' : 'missing'}">
       <span class="icon">♪</span><div class="meta">

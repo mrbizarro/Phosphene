@@ -309,6 +309,10 @@ function imgStudioApplyMemoryFit() {
   let moved = false;
   Array.from(sel.options).forEach(opt => {
     const info = _IMG_ENGINE_STATUS[opt.value];
+    if (info && info.version_label) {
+      opt.textContent = info.version_label;
+      delete opt.dataset.ramTagged;
+    }
     if (!info || info.fits_mac !== false) return;
     if (!opt.dataset.ramTagged) {
       opt.dataset.ramTagged = '1';

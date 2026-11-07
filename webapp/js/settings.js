@@ -239,6 +239,15 @@ function updateModelsCard(s) {
   //
   // Gated on `repairable`, so a user who never installed H3 is never nagged.
   const h3s = s.h3 || {};
+  // ----- Mac app: Hailuo H3 is never a repair job for the person -------------
+  // The app sets H3 up by itself when its weights are on this Mac (bootstrap.sh
+  // h3), so a Mac with weights and no runtime yet (`preparing`), or one that is
+  // a build away on a smaller Mac, shows no card at all. Nothing to click.
+  if (isMacApp() && (h3s.preparing || h3s.needs_q8_dit)) {
+    card.style.display = 'none';
+    setActions('');
+    return;
+  }
   // ----- 46-60 GB Mac whose reduced-RAM engine was never built -------------
   // Its own branch because the repair copy below is wrong here: nothing is
   // missing or broken, the machine simply needs the Q8 engine that

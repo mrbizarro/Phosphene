@@ -10663,11 +10663,15 @@
 @keyframes fm-glow { from { transform: scale(0.85); opacity: 0.85; } to { transform: scale(1.15); opacity: 1; } }
 @keyframes fm-hue { from { filter: hue-rotate(-14deg); } to { filter: hue-rotate(18deg) saturate(1.15); } }
 
-    /* Header uses the same motion at half speed. */
-    body > header .fm-spin { animation-duration: calc(var(--t) * 2); }
-    body > header .fm-morph { animation-duration: calc(var(--b) * 2); animation-delay: calc(var(--bd) * 2); }
-    body > header .fm-core { animation-duration: 12s; }
-    body > header .foot-mark { animation-duration: 96s; }
+    /* One logo motion everywhere (5.0.3): the header, the stage and every loading mark run the
+       footer's clock exactly. The header used to run at half speed; that is gone.
+       Small loading marks (.ph-mark-mini) keep the same shape, colours, breathing, hue and glow,
+       but turn faster, because a 14 px mark on the footer's 70-230 s clock would look frozen. */
+    .ph-mark-mini { display: inline-block; width: 1.5em; height: 1.5em; vertical-align: -0.35em; margin-right: 6px; flex: none; position: relative; }
+    .ph-mark-mini .foot-mark { display: block; width: 100%; height: 100%; overflow: visible; }
+    .ph-mark-mini .fm-spin { animation-duration: calc(var(--t) / 12); }
+    .ph-mark-mini .fm-morph { animation-duration: calc(var(--b) / 4); }
+    .ph-mark-mini .fm-core { animation-duration: 1.5s; }
     @media (prefers-reduced-motion: reduce) {
       .ph-mark .foot-mark, .ph-mark g, .ph-mark .fm-core { animation: none !important; }
     }
@@ -11432,8 +11436,6 @@
     /* For buttons that previously held a single unicode glyph
        (×, ↗, ↻, etc.). Make the SVG inherit the button's flex centering. */
     button > .ph, a > .ph { display: block; }
-    /* Spinner keyframe for refresh icons used in "checking…" pills. */
-    @keyframes phSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
     /* === ENGINE TINT ===========================================
        Last in the sheet so it wins, and DELIBERATELY NARROW: only the
@@ -11623,8 +11625,6 @@
 
 .sb-still.is-pending { padding: 10px 8px; display: flex; align-items: center; gap: 8px; }
 .sb-still.is-pending .sb-still-tag { position: static; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent-bright, var(--accent)); }
-.sb-still-spin { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); animation: sbStillSpin 1s linear infinite; }
-@keyframes sbStillSpin { to { transform: rotate(360deg); } }
 .sb-still-redo { position: absolute; right: 6px; top: 6px; }
 /* FILM-46: "Stills first" approve step. The Approve button takes the
    top-right corner New still normally has; New still moves down a row so
@@ -13457,6 +13457,9 @@ button.primary:hover::before, #genBtn:hover::before, #genForm .batch-queue-btn:h
 
 /* Pro is an optional visit, never a gate on the free studio. */
 .pro-entry { flex-shrink: 0; }
+/* the header Pro button for Free users wears the same violet tag as .pro-mark (owner, 7 Nov: purple everywhere) */
+.pro-entry { color: #b69cff; background: rgba(139,92,246,0.16); border: 1px solid rgba(139,92,246,0.5); font-weight: 700; letter-spacing: 0.12em; }
+.pro-entry:hover { background: rgba(139,92,246,0.26); color: #cbb8ff; }
 .pro-entry[hidden] { display: none; }
 .models-card.pro-card { width: min(820px, calc(100vw - 32px)); max-width: 820px; padding: 24px; background: var(--bg, #0a0a0b); }
 .pro-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; color: var(--muted, #b4b4bb); font-size: 13px; }
