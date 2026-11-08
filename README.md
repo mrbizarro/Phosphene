@@ -18,7 +18,7 @@ It runs **LTX-2.5** and **MiniMax H3 (Hailuo H3)** for text-to-video and image-t
 and it still installs with one click through Pinokio. It is built on Apple's MLX: no CUDA, no cloud GPU, no API key, no credits and no watermark.
 Your prompts, pictures and videos never leave your Mac.
 
-**Current release: v5.0.6.** Made by Mr Bizarro.
+**Current release: v5.0.7.** Made by Mr Bizarro.
 
 ## Why Phosphene
 
@@ -47,7 +47,7 @@ Works from 16 GB of memory.
 MiniMax H3, also called Hailuo H3, makes scenes where people talk, with lips that match their voices.
 Use keyframes, extend a shot, lip-sync, or **Add sound** to give a silent clip its own soundscape.
 Pika H3 Flex, Pika Labs' six-step H3, is a Speed choice: about 2.2× faster than Best at the same size, a preview.
-About 75 GB, one click from the Pinokio sidebar, from 36 GB of memory.
+About 75 GB, one click from the Pinokio sidebar, from 16 GB of memory.
 Its licence excludes the EU, UK, South Korea and US.
 
 <p align="center">
@@ -134,8 +134,8 @@ Any Apple Silicon Mac, M1 or newer, including MacBook Air, MacBook Pro, Mac mini
 
 | Memory | What you can make |
 | --- | --- |
-| 16–24 GB | LTX-2.5 video from text or a picture at smaller sizes, images, and songs. Close other apps and browser tabs before you compose on a 16 GB Mac. |
-| 32–36 GB | Everything above. MiniMax H3 from 36 GB. |
+| 16–24 GB | LTX-2.5 video from text or a picture at smaller sizes, images, and songs. MiniMax H3 from 16 GB (Draft and Standard clips; High from 18 GB). Close other apps and browser tabs before you compose on a 16 GB Mac. |
+| 32–36 GB | Everything above. |
 | 48–64 GB | LTX keyframes, Extend, trained characters with Q8 weights, and the High tier. |
 | 96 GB+ | Most modes at full size (from 80 GB). Size limits come off at 120 GB. |
 
@@ -187,7 +187,7 @@ Yes. No subscription, credits or watermark, and every feature available today st
 Yes. Download the models once, then render without a connection. When online, it checks GitHub for updates and downloads models you ask for.
 
 **Can I run LTX-2 or MiniMax H3 on an M1, M2 or 16 GB Mac?**
-LTX-2.5 runs from 16 GB at smaller sizes on any Apple Silicon Mac. MiniMax H3 needs 36 GB. The Mac requirements table above has the details.
+LTX-2.5 runs from 16 GB at smaller sizes on any Apple Silicon Mac. MiniMax H3 runs from 16 GB (Draft and Standard; High from 18 GB). The Mac requirements table above has the details.
 
 **LTX-2.5 or MiniMax H3: which should I use?**
 MiniMax H3 for people talking: dialogue and voices that match lips. LTX-2.5 for everything else: more modes, keyframes, trained characters, Motion Control and smaller Macs. Phosphene has both in one switcher.

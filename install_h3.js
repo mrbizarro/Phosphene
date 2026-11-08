@@ -74,7 +74,7 @@ module.exports = {
         // engine the default everywhere and dropped the real floor to 36 GB.
         // The preflight two steps down enforces 36; this sentence was turning
         // away 36-48 GB Macs the installer would have happily served.
-        html: "<b>Installing Hailuo H3 (second video engine, ~75 GB).</b><br>Generates picture, dialogue and sound together, and sits beside LTX in the engine switcher. Needs an Apple Silicon Mac with 36 GB+ of memory (the compact Q8 engine, built at the end of this install); 60 GB+ additionally unlocks the full bf16 quality engine. MiniMax H3 Community License: accept it in Phosphene first (click Hailuo H3 in the engine switcher); it does not cover the EU, the UK, South Korea or the US. Resumable if interrupted."
+        html: "<b>Installing Hailuo H3 (second video engine, ~75 GB).</b><br>Generates picture, dialogue and sound together, and sits beside LTX in the engine switcher. Needs an Apple Silicon Mac with 16 GB+ of memory (the compact Q8 engine, built at the end of this install, read from disk as it renders; 16 GB makes Draft and Standard clips, 18 GB+ also High); 60 GB+ additionally unlocks the full bf16 quality engine. MiniMax H3 Community License: accept it in Phosphene first (click Hailuo H3 in the engine switcher); it does not cover the EU, the UK, South Korea or the US. Resumable if interrupted."
       }
     },
 

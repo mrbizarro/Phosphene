@@ -5868,7 +5868,7 @@ def _is_app_bootstrap(pid: int) -> bool:
                              timeout=2).stdout
     except (OSError, subprocess.SubprocessError, ValueError):
         cmd = ""
-    ok = "bootstrap.sh" in cmd
+    ok = "bootstrap.sh" in cmd or "h3_app_runner.sh" in cmd
     if len(_APP_OWNER_CACHE) > 32:
         _APP_OWNER_CACHE.clear()
     _APP_OWNER_CACHE[pid] = (now, ok)
@@ -5902,6 +5902,8 @@ def app_h3_prep() -> str:
             return "building"
     except (OSError, ValueError):
         pass
+    if H3_APP_RUNNER_STATE.get("running"):          # 5.0.7: this Studio's own runner update
+        return "building"
     return "failed" if state == "failed" else "waiting"
 
 
@@ -9522,6 +9524,17 @@ H3_MIN_RAM_GB = 60.0
 # limit on a 64 GB machine, which caps MLX without reproducing real pressure
 # from the rest of the system. Moving to 32 needs a real 32 GB Mac, not a flag.
 H3_MIN_RAM_GB_Q8 = 36.0
+# Low-memory lane (8 Nov 2026). When the INSTALLED runner has `--low-memory`, the Q8 engine
+# streams the prompt encoder, the video model's blocks and the picture decoder from disk, so a
+# 16 GB Mac renders the same clip, byte for byte, in about 8 GB of working memory (7-9 GB
+# measured on a 64 GB Mac capped to behave like 16 / 18 / 24 GB; see
+# today-2026-11-08/h3-lowram/REPORT.md). An older runner without the flag keeps the 36 GB floor.
+H3_MIN_RAM_GB_LOWMEM = 16.0
+
+
+def h3_q8_floor_gb() -> float:
+    """The RAM floor of the Q8 lane for THIS install: 16 GB when the runner can stream, else 36."""
+    return H3_MIN_RAM_GB_LOWMEM if _h3_runner_has_flag("--low-memory") else H3_MIN_RAM_GB_Q8
 H3_DIT_Q8_DIRNAME = "h3-dit-q8"
 H3_DIT_FILENAME = "MiniMax-H3-FL2VA-pruned_bf16.safetensors"
 H3_COMPACT_FILES = ("text_encoder.safetensors", "video_vae.safetensors",
@@ -14594,7 +14607,7 @@ def h3_capable() -> bool:
     # Reduced-RAM lane: the Q8 DiT pack halves the render peak (27.3 GiB
     # measured), so a 48 GB-class Mac is genuinely capable once that pack
     # exists on disk. Without the pack the old gate stands.
-    return SYSTEM_RAM_GB >= H3_MIN_RAM_GB_Q8 and _h3_q8_dit_dir() is not None
+    return SYSTEM_RAM_GB >= h3_q8_floor_gb() and _h3_q8_dit_dir() is not None
 
 
 # The Pinokio sidebar entry's exact text. pinokio.js carries the same string
@@ -14614,7 +14627,7 @@ def h3_size_note() -> str:
     v3.4.0 to v4.15.2 — a floor no code ever gated on — and it sat right under
     the install card's pitch, so a 48 GB owner read it as the verdict and gave
     up (X, 2026-09-24). The floors come from the constants the gates use."""
-    return (f"~75 GB · needs {H3_MIN_RAM_GB_Q8:.0f} GB+ unified memory "
+    return (f"~75 GB · needs {h3_q8_floor_gb():.0f} GB+ unified memory "
             f"(compact Q8 engine; {H3_MIN_RAM_GB:.0f} GB+ also unlocks the full "
             f"bf16 engine) · MiniMax H3 Community License (not valid in the EU, UK, South Korea or US)")
 
@@ -14679,14 +14692,15 @@ def h3_ram_verdict() -> dict:
     1024x576 / 124f. Peaks scale with length; the floors are the tier's, not
     a promise at every length. See docs/H3_ENGINE.md.
     """
+    q8_floor = h3_q8_floor_gb()
     ram = f"this Mac reports {SYSTEM_RAM_GB:.0f} GB"
     if SYSTEM_RAM_GB >= H3_MIN_RAM_GB:
         return {"lane": "bf16", "blocked": False, "needs_q8_dit": False,
                 "floor_gb": H3_MIN_RAM_GB, "message": ""}
-    if SYSTEM_RAM_GB >= H3_MIN_RAM_GB_Q8:
+    if SYSTEM_RAM_GB >= q8_floor:
         if _h3_q8_dit_dir() is not None:
             return {"lane": "q8", "blocked": False, "needs_q8_dit": False,
-                    "floor_gb": H3_MIN_RAM_GB_Q8, "message": ""}
+                    "floor_gb": q8_floor, "message": ""}
         # THE SENTENCE FOLLOWS THE MENU. pinokio.js shows exactly one H3 entry
         # per state, from the same manifest (required_files.json ->
         # capabilities.h3): everything present -> Build; every weight present
@@ -14697,11 +14711,11 @@ def h3_ram_verdict() -> dict:
         if _p["missing"] and _p["weights_ok"]:
             return {
                 "lane": "q8", "blocked": True, "needs_q8_dit": True,
-                "floor_gb": H3_MIN_RAM_GB_Q8,
+                "floor_gb": q8_floor,
                 "message": _dist.say((
                     f"Hailuo H3 runs on this Mac — on its reduced-RAM lane, "
                     f"the compact Q8 engine, which needs "
-                    f"{H3_MIN_RAM_GB_Q8:.0f} GB ({ram}). Its weights are on "
+                    f"{q8_floor:.0f} GB ({ram}). Its weights are on "
                     f"disk but the engine needs repair: in Pinokio, open "
                     f"Phosphene in the sidebar and click "
                     f"'{H3_REPAIR_MENU_TEXT}'. That also builds the compact "
@@ -14710,11 +14724,11 @@ def h3_ram_verdict() -> dict:
         if _p["missing"]:
             return {
                 "lane": "q8", "blocked": True, "needs_q8_dit": True,
-                "floor_gb": H3_MIN_RAM_GB_Q8,
+                "floor_gb": q8_floor,
                 "message": _dist.say((
                     f"Hailuo H3 runs on this Mac — on its reduced-RAM lane, "
                     f"the compact Q8 engine, which needs "
-                    f"{H3_MIN_RAM_GB_Q8:.0f} GB ({ram}). It is not installed "
+                    f"{q8_floor:.0f} GB ({ram}). It is not installed "
                     f"yet: in Pinokio, open Phosphene in the sidebar and click "
                     f"'{H3_INSTALL_MENU_TEXT}'. The install downloads what "
                     f"is missing of ~75 GB and builds the compact engine at "
@@ -14723,12 +14737,12 @@ def h3_ram_verdict() -> dict:
             }
         return {
             "lane": "q8", "blocked": True, "needs_q8_dit": True,
-            "floor_gb": H3_MIN_RAM_GB_Q8,
+            "floor_gb": q8_floor,
             "message": _dist.say((
                 f"Hailuo H3 runs on this Mac — on its reduced-RAM lane. The "
                 f"bf16 engine needs {H3_MIN_RAM_GB:.0f} GB and "
                 f"{ram}, but the Q8 engine's floor is "
-                f"{H3_MIN_RAM_GB_Q8:.0f} GB and it is not built here yet. "
+                f"{q8_floor:.0f} GB and it is not built here yet. "
                 f"In Pinokio, open Phosphene in the sidebar and click "
                 f"'{H3_BUILD_MENU_TEXT}' — it builds that engine locally "
                 f"(~5 minutes, ~22 GB on disk, no extra download) and skips "
@@ -14736,9 +14750,9 @@ def h3_ram_verdict() -> dict:
         }
     return {
         "lane": None, "blocked": True, "needs_q8_dit": False,
-        "floor_gb": H3_MIN_RAM_GB_Q8,
+        "floor_gb": q8_floor,
         "message": (
-            f"Hailuo H3 needs at least {H3_MIN_RAM_GB_Q8:.0f} GB of unified "
+            f"Hailuo H3 needs at least {q8_floor:.0f} GB of unified "
             f"memory on its reduced-RAM Q8 engine "
             f"({H3_MIN_RAM_GB:.0f} GB on the full bf16 one), and {ram}. "
             f"Render on the LTX engine instead — it serves every mode here."),
@@ -18478,7 +18492,7 @@ def h3_status() -> dict:
         # The Settings menu greys out "Full" below its floor instead of
         # offering a choice the dispatch will not honour (h3_dit_choice).
         "bf16_fits": SYSTEM_RAM_GB >= H3_MIN_RAM_GB,
-        "min_ram_gb_q8": H3_MIN_RAM_GB_Q8,
+        "min_ram_gb_q8": h3_q8_floor_gb(),
         "dit_choice": (lambda _c, _p: {
             "kind": _c[0],
             "q8_pack": str(_c[1]) if _c[1] else None,
@@ -21292,6 +21306,165 @@ def image_engine_autoinstall(on_log=None, now: float | None = None) -> str | Non
         st.update(last_fail_ts=0.0, error=None)
         say("image engine added; carrying on with the image")
         return None
+
+
+# ---- The Mac app's studio brings its own Hailuo H3 runner up to date (5.0.7) ------
+# The app's bootstrap.sh `h3` builds the runner for the BUNDLED studio folder only, from
+# the engine commit its bundled channel pins, and leaves a runner that already starts
+# alone; a studio the signed pin switched to lives in another folder and never had one.
+# The low-memory engine (H3 from 16 GB) must reach both, with no new notarised app and no
+# weights: scripts/pinokio/h3_app_runner.sh does the work (archive pinned by checksum,
+# packages only, old runner put back on any failure). Mac app only; Pinokio's Update runs
+# scripts/pinokio/h3_checkout.sh instead. ON only from __main__, so importing the panel
+# from a test never touches a real install. PHOSPHENE_H3_APP_RUNNER=0 turns it off.
+H3_APP_RUNNER_SCRIPT = ROOT / "scripts" / "pinokio" / "h3_app_runner.sh"
+H3_APP_RUNNER_STATE: dict = {"running": False, "attempts": 0, "last": None}
+H3_APP_RUNNER_MAX = 3
+H3_APP_RUNNER_RETRY_S = 900
+H3_APP_RUNNER_WAIT_S = 2 * 3600
+H3_APP_RUNNER_RUN_S = 1800
+H3_APP_RUNNER_HOLD = "the Hailuo H3 engine update"
+
+
+def h3_app_runner_pin() -> str:
+    """The engine commit this studio pins (scripts/pinokio/h3_checkout.sh), or ""."""
+    try:
+        m = re.search(r'^H3_PIN_SHA="([0-9a-f]+)"',
+                      (ROOT / "scripts" / "pinokio" / "h3_checkout.sh").read_text(encoding="utf-8"), re.M)
+    except OSError:
+        return ""
+    return m.group(1) if m else ""
+
+
+def h3_app_runner_enabled() -> bool:
+    if not _dist.is_mac_app():
+        return False
+    if (os.environ.get("PHOSPHENE_H3_APP_RUNNER") or "1").strip() == "0":
+        return False
+    if os.environ.get("LTX_H3_ROOT", "").strip():          # somebody manages that checkout
+        return False
+    return not (HELPER_PYTHON.parent.parent / ".phosphene_stub").exists()
+
+
+def h3_app_runner_needed() -> bool:
+    """The H3 weights are on this Mac and this studio folder's runner is missing or is
+    not the pinned commit. (Weights absent: nothing to do, nothing is ever downloaded.)"""
+    pin = h3_app_runner_pin()
+    if not pin or not H3_APP_RUNNER_SCRIPT.is_file():
+        return False
+    try:
+        if not h3_paths().get("weights_ok"):
+            return False
+    except Exception:                                              # noqa: BLE001
+        return False
+    try:
+        if (H3_ROOT / ".phosphene_h3_ok").read_text(encoding="utf-8").strip() == pin:
+            return False
+    except OSError:
+        pass
+    return True
+
+
+def _h3_hold_take() -> bool:
+    """Write STATE_DIR/h3_build.lock (the hold _external_build_hold honours) unless a
+    live build already holds it. True = ours."""
+    lock = STATE_DIR / "h3_build.lock"
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        if lock.exists() and not _h3_build_lock_live():
+            lock.unlink()                                          # stale
+        fd = os.open(str(lock), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    except OSError:
+        return False
+    with os.fdopen(fd, "w") as f:
+        json.dump({"pid": os.getpid(), "ts": int(time.time()), "what": H3_APP_RUNNER_HOLD}, f)
+    return True
+
+
+def _h3_build_lock_live() -> bool:
+    """Is STATE_DIR/h3_build.lock held by a live build (same rules as _external_build_hold)?"""
+    lock = STATE_DIR / "h3_build.lock"
+    try:
+        age = time.time() - lock.stat().st_mtime
+        pid = int(json.loads(lock.read_text(encoding="utf-8")).get("pid") or 0)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return False
+    if age > 4 * 3600:
+        return False
+    if pid > 0:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except OSError:
+            pass
+    return True
+
+
+def _h3_hold_release() -> None:
+    lock = STATE_DIR / "h3_build.lock"
+    try:
+        if json.loads(lock.read_text(encoding="utf-8")).get("pid") == os.getpid():
+            lock.unlink()
+    except (OSError, ValueError, AttributeError):
+        pass
+
+
+def _h3_app_runner_idle() -> bool:
+    return not STATE.get("current")
+
+
+def h3_app_runner_run(sleep=time.sleep) -> str:
+    """One attempt: hold new renders, wait for the running one, run the script.
+    Returns the script's result word (have|built|busy|failed|skipped_*), or "held",
+    "timeout" or "error". Never raises."""
+    st = H3_APP_RUNNER_STATE
+    if not _h3_hold_take():
+        return "held"
+    st["running"] = True
+    try:
+        waited = 0.0
+        while not _h3_app_runner_idle():
+            if waited >= H3_APP_RUNNER_WAIT_S:
+                return "timeout"
+            sleep(5)
+            waited += 5
+        uv = _image_engine_uv()
+        env = _music_install_env()
+        if uv is not None:
+            env["PHOSPHENE_UV"] = str(uv)
+        env["PHOSPHENE_HOME"] = str(_app_home())
+        env["LTX_STATE_DIR"] = str(STATE_DIR)
+        out = subprocess.run(["/bin/bash", str(H3_APP_RUNNER_SCRIPT), str(ROOT)], cwd=str(ROOT),
+                             env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                             errors="replace", timeout=H3_APP_RUNNER_RUN_S).stdout
+        for line in out.splitlines():
+            if line.startswith("H3 runner:"):
+                push(f"[h3] {line[len('H3 runner:'):].strip()}")
+        m = re.findall(r"^@@result h3 (\S+)", out, re.M)
+        return m[-1] if m else "error"
+    except (OSError, subprocess.SubprocessError) as exc:
+        push(f"[h3] the Hailuo H3 engine update could not run: {exc}")
+        return "error"
+    finally:
+        st["running"] = False
+        _h3_hold_release()
+
+
+def h3_app_runner_loop(delay_s: float = 20.0, sleep=time.sleep) -> None:
+    """Background: a little after the studio is up, bring the runner up to the pin when it
+    is behind. At most H3_APP_RUNNER_MAX tries per studio process; a failure is a log line."""
+    sleep(delay_s)
+    st = H3_APP_RUNNER_STATE
+    while st["attempts"] < H3_APP_RUNNER_MAX:
+        if not h3_app_runner_needed():
+            return
+        st["attempts"] += 1
+        res = h3_app_runner_run(sleep=sleep)
+        st["last"] = res
+        if res in ("have", "built", "skipped_pin", "skipped_mac"):
+            return
+        sleep(H3_APP_RUNNER_RETRY_S)
 
 
 def _analytics_pack_state() -> dict:
@@ -40688,6 +40861,11 @@ def run_h3_job_inner(job: dict) -> None:
         _mem_gb, _wired_gb = h3_memory_budget()
         if _mem_gb > 0:
             cmd += ["--memory-gb", str(_mem_gb), "--wired-gb", str(_wired_gb)]
+    # Low-memory plan (8 Nov 2026): "auto" keeps today's all-in-memory path whenever the
+    # Mac has the room (byte-identical output) and streams instead of swapping when it
+    # does not. Older runners without the flag are left alone.
+    if SYSTEM_RAM_GB < H3_MIN_RAM_GB and _h3_runner_has_flag("--low-memory"):
+        cmd += ["--low-memory", "auto"]
     # The runner checks a cache entry against the prompt IT encodes: the
     # positional prompt, or window 1's prompt on the shot-list path (it turns
     # the cache off for later windows). Keying on the run's prompt while the
@@ -41254,6 +41432,15 @@ def run_h3_job_inner(job: dict) -> None:
                 # The runner refused a broken render and said why (NaN/inf
                 # latents, blank decode) — that sentence IS the diagnosis.
                 raise RuntimeError(_runner_msg)
+            if rc in (76, 77):
+                # Low-memory admission check (runner exit 76 = this Mac cannot make this clip,
+                # 77 = other apps are using the memory right now). Nothing was loaded; the
+                # runner's own last sentence tells the owner what to change.
+                _plain = next((ln.strip() for ln in reversed(list(_h3_tail))
+                               if "this Mac" in ln or "This Mac" in ln), "")
+                raise RuntimeError(_plain or (
+                    "This Mac cannot make this clip with the memory it has free right now. "
+                    "Close some apps or try a smaller size or a shorter clip."))
             # Negative rc means the child died on a signal, and NAMING it is
             # the whole diagnosis: a jetsam kill during joint denoise (issue
             # #67 — the log just stops at "== w1_joint_denoise ==") used to
@@ -50534,6 +50721,9 @@ if __name__ == "__main__":
     # The Mac app adds a missing image engine inside the image job that needs it.
     if image_engine_autoinstall_enabled():
         agent_image_engine.MFLUX_AUTOINSTALL = image_engine_autoinstall
+    # The Mac app's studio also brings its own Hailuo H3 runner up to the pinned engine.
+    if h3_app_runner_enabled():
+        threading.Thread(target=h3_app_runner_loop, daemon=True).start()
     threading.Thread(target=worker_loop, daemon=True).start()
     if VERSION_CHECK_ENABLED and not _dist.is_mac_app():
         threading.Thread(target=version_check_loop, daemon=True).start()

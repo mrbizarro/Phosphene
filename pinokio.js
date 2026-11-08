@@ -23,7 +23,8 @@ const path = require("path")
 // PANEL's floor to 36 on the phase profile above and left this restatement and
 // the preflight's behind, so a 36-48 GB Mac was told by the panel that H3 runs
 // and by this menu that H3 does not exist. One number, three files.
-const H3_MIN_BYTES = 36 * 1000 * 1000 * 1000
+// 5.0.7: 16 GB. The pinned engine streams its weights from disk (--low-memory auto).
+const H3_MIN_BYTES = 16 * 1000 * 1000 * 1000
 // The full bf16 engine's floor (H3_MIN_RAM_GB = 60 in the panel). Below it the
 // compact Q8 engine is the only lane that renders, so its build is REQUIRED.
 const H3_BF16_BYTES = 60 * 1000 * 1000 * 1000
@@ -338,7 +339,7 @@ module.exports = {
     // "install ~75 GB" when they already have the 75 GB is the thing that
     // made this look like data loss.
     const h3_repair = h3_weights && !h3_ready
-    // The compact Q8 engine, built locally at the end of install_h3.js. A 36-59
+    // The compact Q8 engine, built locally at the end of install_h3.js. A 16-59
     // GB Mac cannot render H3 without it (the panel's h3_capable()), and once
     // the weights are complete `h3_ready` is true — so the only entry left was
     // "Update Hailuo H3 runner", while the panel told the user to click an
@@ -666,7 +667,7 @@ module.exports = {
     }
     baseMenu.push(...musicMenu())
     // Second VIDEO engine — joint picture + dialogue + sound. Opt-in only:
-    // ~75 GB, 36 GB+ Macs (H3_MIN_BYTES above), MiniMax Community License
+    // ~75 GB, 16 GB+ Macs (H3_MIN_BYTES above), MiniMax Community License
     // with territory restrictions. Hidden entirely on machines that can't
     // run it, so it never reads as a missing piece of the base install.
     const h3Entry = h3Offer()

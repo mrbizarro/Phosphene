@@ -24,7 +24,13 @@
 # preflight that can't read the hardware must never be the thing that blocks an
 # otherwise-fine install.
 #
-# THE FLOOR IS 36e9 BYTES, ON MEASUREMENT. It said 46e9 — a guard band picked to
+# 5.0.7: THE FLOOR IS NOW 16e9 BYTES. The pinned engine streams the prompt reader,
+# the video model's blocks and the picture decoder from disk (--low-memory auto):
+# 7.7 GB of working memory at the Standard 5 s size, the same pictures. Draft and
+# Standard from 16 GB, High from 18 GB (the Studio decides per clip). The history
+# below is why the floor was 36 before.
+#
+# THE FLOOR WAS 36e9 BYTES, ON MEASUREMENT. It said 46e9 — a guard band picked to
 # sit ~4 GB under a 48 GB Mac's marketing number, back when the only number
 # anyone had was "27.3 GiB peak". v4.8.0 lowered the panel's floor to 36 on the
 # full phase profile (text_encode 25.63 GiB is the run peak, a 7-second phase)
@@ -35,20 +41,21 @@
 
 # Linux has no hw.memsize; MemTotal (kB) is the same number there.
 MEM_BYTES=$(sysctl -n hw.memsize 2>/dev/null || awk '/^MemTotal:/ {printf "%.0f\n", $2 * 1024}' /proc/meminfo 2>/dev/null)
-if echo "$MEM_BYTES" | grep -qE '^[0-9]+$' && [ "$MEM_BYTES" -lt 36000000000 ]; then
+if echo "$MEM_BYTES" | grep -qE '^[0-9]+$' && [ "$MEM_BYTES" -lt 16000000000 ]; then
   MEM_GB=$((MEM_BYTES / 1000000000))
-  echo "FATAL error: Hailuo H3 needs a Mac with at least 36 GB of memory (this Mac has ${MEM_GB} GB). Nothing was downloaded - keep using the built-in LTX engine."
+  echo "FATAL error: Hailuo H3 needs a Mac with at least 16 GB of memory (this Mac has ${MEM_GB} GB). Nothing was downloaded - keep using the built-in LTX engine."
   echo '=================================================================='
-  echo "HAILUO H3 NEEDS AT LEAST A 36 GB MAC (this Mac has ${MEM_GB} GB)"
-  echo 'Even the reduced-RAM Q8 engine peaks around 25.6 GiB while rendering;'
-  echo 'below 36 GB it swaps and a 3-second clip takes hours.'
+  echo "HAILUO H3 NEEDS AT LEAST A 16 GB MAC (this Mac has ${MEM_GB} GB)"
+  echo 'Even streamed from disk one block at a time, H3 needs about 8 GB of'
+  echo 'working memory plus the system; below 16 GB it swaps and a clip takes hours.'
   echo 'Nothing was downloaded. Keep using the built-in LTX engine.'
   echo '=================================================================='
   exit 1
 elif [ "$MEM_BYTES" -lt 60000000000 ]; then
-  echo 'H3 memory preflight OK - 36-60 GB class: the reduced-RAM Q8 engine'
+  echo 'H3 memory preflight OK - 16-60 GB class: the reduced-RAM Q8 engine'
   echo 'is REQUIRED here and will be built locally after the weights'
-  echo 'download (adds ~5 min).'
+  echo 'download (adds ~5 min). Below 36 GB the engine reads its blocks from'
+  echo 'disk as it renders (low-memory mode, automatic).'
 else
   echo 'H3 memory preflight OK'
 fi

@@ -7,9 +7,12 @@ Hailuo H3 is Phosphene's second video engine. It creates video, dialogue and sou
 You install H3 separately because it needs a large download.
 
 [[pinokio]]
-- **What it needs:** an Apple Silicon Mac with **36 GB of memory or more**, and about **97 GB free** on the drive where you store models. This covers the 75 GB download and the 22 GB compact engine built during installation.
+- **What it needs:** an Apple Silicon Mac with **16 GB of memory or more**, and about **97 GB free** on the drive where you store models. This covers the 75 GB download and the 22 GB compact engine built during installation.
 - **How:** first, in the panel, click the **Hailuo H3** side of the engine switch, choose **Read the licence** and tick **I accept**. Then select Phosphene in Pinokio and click **Install Hailuo H3 (second video engine, ~75 GB)** in the sidebar; until you accept, the installer stops with a `FATAL` line.
-- **On a 36–59 GB Mac**, installation ends by preparing H3's compact engine, which uses less memory. This takes about 5 more minutes and downloads nothing. If you already have the downloaded model files but not the compact engine, click **Build Hailuo H3 compact engine** in the sidebar.
+- **On a 16–59 GB Mac**, installation ends by preparing H3's compact engine, which uses less memory. This takes about 5 more minutes and downloads nothing. If you already have the downloaded model files but not the compact engine, click **Build Hailuo H3 compact engine** in the sidebar.
+- **Memory, by Mac:** H3 now runs from 16 GB. From 16 GB you make Draft and Standard clips, from 18 GB also High. A Mac with less memory than a clip needs is told so in plain words before the render starts, so it does not slow to a crawl. **Clean up sound** and the long chained clips need more memory and stay at 36 GB and up.
+- **How it fits:** below 36 GB, H3 reads the model from your drive one block at a time instead of holding it all in memory. In our test a Standard 5 s clip used 7.7 GB of working memory instead of 26.9 GB, and the clip came out the same, frame for frame and sound for sound. That test ran on a 64 GB Mac limited to the memory of a 16 GB one. We have not run it on a real 16 GB Mac yet, so a first render there is a first. A base chip is slower than the M4 Max we measured on, so expect a longer wait.
+- **Getting it if H3 is already installed:** press **Update**, then restart. The new engine is fetched and your model files stay.
 [[/pinokio]]
 [[mac-app]]
 - Hailuo H3 is not available in the Mac app yet. Everything else works without it. Render on LTX.
@@ -161,7 +164,7 @@ Each quality and length option shows an estimated time for your Mac, based on co
 Times are minutes:seconds, measured from 2026-08-10 to 2026-10-20. For all Mac chips, clip lengths and memory sizes, see the [speed benchmarks](https://phosphene.video/benchmarks/) page.
 
 - Your first video after starting the panel takes longer because the model also needs to load.
-- On a 36–59 GB Mac, 10 s and 15 s clips take about a third longer than on a 64 GB Mac. Quit other apps first. If your Mac needs to use disk space as extra memory, creating the video can take far longer.
+- On a 36–59 GB Mac, 10 s and 15 s clips take about a third longer than on a 64 GB Mac. Below 36 GB the model is read from your drive as it renders; the picture and sound are the same, and a slower chip takes longer. Quit other apps first. If your Mac needs to use disk space as extra memory, creating the video can take far longer.
 - For Fast HD, allow time for both the Draft video on Fast and Face Fix. Together, they take about two thirds of the time for High on Fast.
 
 ## Writing prompts for H3 {#prompting}
@@ -192,7 +195,7 @@ Open **After the render → Upscale** to choose the export size: **Native**, **7
 
 | What you see | What to do |
 |---|---|
-| No engine switch in the header | Your Mac has less than 36 GB of memory. H3 cannot run on it. Use LTX |
+| No engine switch in the header | Your Mac has less than 16 GB of memory. H3 cannot run on it. Use LTX |
 [[pinokio]]
 | *"Hailuo H3 runs on this Mac … it is not built here yet"* | Click **Build Hailuo H3 compact engine** in the Pinokio sidebar (about 5 minutes, no download) |
 | A mode or length is missing on H3, or a mode switches back to LTX | H3's supporting software needs an update. Click **Update Hailuo H3 runner** in Pinokio's sidebar. Your downloaded model files are kept |

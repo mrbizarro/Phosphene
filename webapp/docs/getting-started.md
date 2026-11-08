@@ -23,7 +23,7 @@ The row of tabs at the top of the left column is where you choose what to make. 
 The engine switch in the header chooses which model renders: **LTX** or **Hailuo H3**. They are two different engines with different strengths, not a good one and a spare:
 
 - **LTX** — every Video mode, LoRAs and trained characters.
-- **Hailuo H3** — joint video, dialogue and sound: Text, Image, Start & end frame, Keyframes, Extend, Add sound and Lip-sync. It is a separate install of about 75 GB and needs 36 GB of memory. See [Hailuo H3](#docs/hailuo-h3).
+- **Hailuo H3** — joint video, dialogue and sound: Text, Image, Start & end frame, Keyframes, Extend, Add sound and Lip-sync. It is a separate install of about 75 GB and needs 16 GB of memory. See [Hailuo H3](#docs/hailuo-h3).
 
 The form changes with the engine: controls one engine does not use are hidden, and the Quality and Length chips show that engine's own sizes. The switch only appears when this Mac can run more than one engine. [How they compare](#docs/video/engines).
 

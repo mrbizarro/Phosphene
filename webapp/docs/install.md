@@ -77,7 +77,7 @@ Your Mac's memory determines which quality settings and engines you can use. Pho
 | LTX video and Images | Any Apple Silicon Mac. Below 48 GB, you get smaller video sizes. LTX's High quality, Start & end frame and Extend are hidden. Macs with 24 GB or less automatically use a low-memory video path. |
 | Music Studio | 16 GB or more. 24 GB or more recommended for long songs with other apps open |
 | Training a character | 24 GB or more |
-| Hailuo H3 | 36 GB or more for the compact engine. With 60 GB or more, you can also choose the full engine |
+| Hailuo H3 | 16 GB or more (Draft and Standard from 16 GB, High from 18 GB). With 60 GB or more, you can also choose the full engine |
 | LTX High · 720p | A 64 GB Mac; memory use peaks near 50 GB |
 
 Before a long render, close apps that use a lot of memory, such as browsers with many tabs, Slack or the iOS Simulator. A render is the process of creating your video or audio. If your Mac runs out of memory, it stops the render. See [Troubleshooting](#docs/troubleshooting/memory).
@@ -92,7 +92,7 @@ Select Phosphene in Pinokio to see these actions in the left sidebar. The availa
 - **Update**: see [Updating](#update).
 - **Outputs**, **Models**, **Uploads**: open those folders in Finder.
 - **Install Hailuo H3 (second video engine, ~75 GB)**: after installation, this becomes **Repair Hailuo H3** or **Update Hailuo H3 runner**. Both keep the downloaded model files.
-- **Build Hailuo H3 compact engine**: appears on a 36–59 GB Mac when the model files are downloaded but the compact engine is not ready. It takes about 5 minutes and downloads nothing.
+- **Build Hailuo H3 compact engine**: appears on a 16–59 GB Mac when the model files are downloaded but the compact engine is not ready. It takes about 5 minutes and downloads nothing.
 - **Install the music engine (YuE2, ~11 GB)**: after installation, this becomes **Repair the music engine**, which keeps the downloaded model files.
 - **Reset engine (keeps models & outputs)**: rebuild the LTX engine and the software it needs. This keeps your models and finished work. It does not affect Hailuo H3; to repair H3, use **Repair Hailuo H3**.
 [[/pinokio]]
@@ -147,7 +147,7 @@ Use the table below to match the text after `FATAL error:`:
 | *could not download the video engine version Phosphene needs … (a VPN, proxy or blocked GitHub is the usual cause)* | Check your connection, turn off the VPN or proxy, then click **Install** or **Update** again |
 | *the engine environment did not install after 3 attempts* | Check your internet connection and free disk space, then click **Install** or **Update** again. If it repeats, report the line using the instructions below |
 | *the video engine is on the wrong version* | Click **Install** or **Update** again. If it repeats, report the line |
-| *Hailuo H3 needs a Mac with at least 36 GB of memory* | Your Mac can't run H3. Keep using LTX, which has every mode except Add sound |
+| *Hailuo H3 needs a Mac with at least 16 GB of memory* | Your Mac can't run H3. Keep using LTX, which has every mode except Add sound |
 | *Hailuo H3 needs about N GB of free disk space* | You need about 97 GB for a new install (the 75 GB download plus the 22 GB compact engine), or about 25 GB if the model files are already downloaded. Free the space, then click **Install Hailuo H3** again |
 | *the compact Hailuo H3 engine could not be built* | This usually means the disk is full (the build needs about 22 GB). Free space, then click the H3 entry in Pinokio's sidebar again. It rebuilds from the downloaded model files |
 | *a Phosphene render has been running for over 60 minutes, so the compact Hailuo H3 engine was not built* | Wait until Phosphene finishes its current render, then click the H3 entry in Pinokio's sidebar again |

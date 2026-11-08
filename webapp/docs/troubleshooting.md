@@ -15,9 +15,9 @@ The health chip in the header shows memory at a glance; click it for the **Tier*
 - *"Image pre-flight: … needs a N GB Mac"* — that image engine does not fit this Mac. On Macs with 16 GB or less, **Auto** uses FLUX.2 [klein] 4B when the Settings engine needs a bigger Mac, without changing Settings. This requires a render without reference images; remove the references to let Auto use Klein, or choose a lighter engine in Settings. *"… needs ~N GB free"* means the engine fits, but memory is currently in use; this check now accounts for memory macOS can free up and Auto's actual memory needs.
 - *"Training needs at least 24 GB of memory"* — character training cannot run on this Mac.
 
-### Hailuo H3 on a 36–60 GB Mac {#h3-compact}
+### Hailuo H3 on a 16–60 GB Mac {#h3-compact}
 
-H3's full engine needs 60 GB. From 36 GB it runs on its compact Q8 engine, which is built on your Mac once:
+H3's full engine needs 60 GB. From 16 GB it runs on its compact Q8 engine, which is built on your Mac once (below 36 GB it reads the model from your drive as it renders):
 
 [[pinokio]]
 - **H3 not installed yet:** in Pinokio, open **Phosphene** in the sidebar and click **Install Hailuo H3 (second video engine, ~75 GB)**. The install builds the compact engine at the end by itself (about 5 more minutes).
@@ -25,7 +25,7 @@ H3's full engine needs 60 GB. From 36 GB it runs on its compact Q8 engine, which
 
 Both entries are in the sidebar while the panel is running.
 
-Do that, then choose Settings → **Hailuo H3 model** → Automatic or Compact. Below 36 GB, H3 is not available: render on LTX, which serves every mode.
+Do that, then choose Settings → **Hailuo H3 model** → Automatic or Compact. Below 16 GB, H3 is not available: render on LTX, which serves every mode.
 [[/pinokio]]
 [[mac-app]]
 - Hailuo H3 is not available in the Mac app yet.
