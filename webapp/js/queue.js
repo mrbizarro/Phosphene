@@ -4307,7 +4307,7 @@ async function poll() {
       ${hsbBadge}
       <span class="params">${fmtMin(j.elapsed_sec)} · ${j.finished_at ? j.finished_at.slice(11) : ''}</span>
       <span>${actionHtml}</span>
-    </li>`;
+    </li>${proHintRow(j, !!s.current)}`;
   }).join('');
   }
 
@@ -9460,3 +9460,30 @@ function studioMotionInit() {
 
 }
 Object.assign(globalThis, {studioMotionInit, studioProgress, viewerVideo, viewerBarMute});
+
+
+// Pro at the right moment (5.0.7): the server puts `pro_hint` on a finished FREE render only
+// when Pro has a measured speed-up for this Mac and these settings (at most once a day).
+// One quiet line under the finished row. Never a pop-up, never while a render runs.
+const _proHintShown = new Set();
+function proHintRow(j, rendering) {
+  const h = j && j.status === 'done' && j.pro_hint;
+  if (!h || !h.text || rendering) return '';   // nothing while a render is running
+  if (!_proHintShown.has(j.id)) { _proHintShown.add(j.id); proHintPost(j.id, 'shown'); }
+  const id = escapeHtml(JSON.stringify(j.id));
+  return `<li class="pro-hint-row" data-pro-hint="${escapeHtml(j.id)}"><span class="pro-hint-text">${escapeHtml(h.text)}</span>`
+    + `<a class="pro-hint-see" href="https://phosphene.video/pricing/" data-utm-campaign="get-pro" data-utm-content="speedup-line" target="_blank" rel="noopener" onclick='proHintSee(${id})'>See Pro</a>`
+    + `<button type="button" class="pro-hint-x" aria-label="Hide this" title="Hide this" onclick='proHintDismiss(${id})'>×</button></li>`;
+}
+function proHintPost(job, action) {
+  try {
+    fetch('/pro-hint', {method: 'POST', body: new URLSearchParams({job, action}), keepalive: true}).catch(() => {});
+  } catch (_) {}
+}
+function proHintSee(job) { proHintPost(job, 'opened'); }
+function proHintDismiss(job) {
+  proHintPost(job, 'dismissed');
+  document.querySelectorAll('.pro-hint-row').forEach(el => { if (el.dataset.proHint === job) el.remove(); });
+}
+
+Object.assign(globalThis, {proHintSee, proHintDismiss});

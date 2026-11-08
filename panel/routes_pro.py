@@ -9,6 +9,7 @@ PHOSPHENE_PRO=<plan> is a developer override honoured on a test rig only (PHOSPH
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from panel.routes import get, post
 
@@ -24,6 +25,36 @@ def get_pro_status(h, parsed) -> None:
         import pro_licence
         doc["own_licence"] = pro_licence.load() is not None
     h._json(doc)
+
+
+def _whats_new_doc(force: bool) -> dict:
+    import whats_new
+    root = Path(P.ROOT)
+    try:
+        version = (root / "VERSION").read_text("utf-8").strip()
+    except OSError:
+        version = ""
+    pro = bool(P.pro_status().get("active"))
+    return whats_new.card(root, Path(P.STATE_DIR), version, pro, force=force,
+                          pack_json=root / "pro_engine" / "whats_new_pro.json")
+
+
+@get("/whats-new")
+def get_whats_new(h, parsed) -> None:
+    """The once-per-version "What's new" card; ?force=1 reopens this version's card (version pill)."""
+    from urllib.parse import parse_qs
+    force = (parse_qs(parsed.query).get("force") or [""])[0] in ("1", "true")
+    h._json(_whats_new_doc(force))
+
+
+@post("/whats-new/seen")
+def post_whats_new_seen(h, path, qs, ctype) -> None:
+    import whats_new
+    rb = h._read_form_body()
+    if rb is None:
+        return
+    ver = (rb[1].get("version") or [""])[0]
+    h._json({"ok": whats_new.mark_seen(Path(P.STATE_DIR), ver)})
 
 
 def _licence_call(h, name: str, with_key: bool = False) -> None:

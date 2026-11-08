@@ -97,7 +97,10 @@ function renderVersionPill() {
   if (isMacApp() || s.app_updates) {
     pill.classList.add('pill-app');
     const sha = s.local_short || '';
-    pill.innerHTML = _phEsc(local) + (sha ? `<span class="vp-detail"> · ${_phEsc(sha)}</span>` : '');
+    // The version is the first thing in the header (owner, 8 Nov): "v5.0.7", clear and not grey.
+    const vlabel = /^\d/.test(local) ? 'v' + local : local;
+    pill.innerHTML = `<b class="vp-ver">${_phEsc(vlabel)}</b>` + (sha ? `<span class="vp-detail"> · ${_phEsc(sha)}</span>` : '');
+    _renderAppUpdatePill(s);
     pill.title = `Phosphene ${_versionBuildLabel(s.local_version, s.local_short)}. `
       + 'To update, use Phosphene \u2192 Check for Updates\u2026'
       + '\nClick to copy your build details for a bug report.';
@@ -727,6 +730,59 @@ async function panelRestart() {
   return false;
 }
 
+// ---- Mac app: "Update to vX" pill ----------------------------------------------------------
+// The app pushes what is behind (window.phosAppUpdate, app 5.0.5+). Older apps do not, so the studio
+// also asks /app-latest (the newest published version, cached ten minutes). Either way the pill shows
+// up by itself: nobody has to press anything to learn they are behind.
+let _appLatest = null;
+function _appBehind() {
+  const a = window.phosAppUpdate;
+  if (a && a.behind && a.target) return {target: a.target, what: a.what || ''};
+  if (_appLatest && _appLatest.behind && _appLatest.latest) return {target: _appLatest.latest, what: ''};
+  return null;
+}
+function _renderAppUpdatePill(s) {
+  const pill = document.getElementById('versionPill');
+  if (!pill) return;
+  let up = document.getElementById('appUpdatePill');
+  const b = (isMacApp() || (s || {}).app_updates) ? _appBehind() : null;
+  if (!b) { if (up) up.remove(); return; }
+  if (!up) {
+    up = document.createElement('span');
+    up.id = 'appUpdatePill';
+    up.className = 'pill pill-appupdate';
+    up.setAttribute('role', 'button');
+    up.tabIndex = 0;
+    up.addEventListener('click', _appUpdatePillClick);
+    up.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _appUpdatePillClick(); } });
+    pill.insertAdjacentElement('afterend', up);
+  }
+  up.textContent = 'Update to v' + b.target;
+  up.title = b.what ? ('Installing ' + b.what + '. Click to start it now.') : 'A newer Phosphene is out. Click to update.';
+}
+async function _refreshAppLatest() {
+  if (!isMacApp() && !(_versionState || {}).app_updates) return;
+  try {
+    const r = await fetch('/app-latest', {cache: 'no-store'});
+    if (r.ok) _appLatest = await r.json();
+  } catch (e) { return; }
+  renderVersionPill();
+}
+function _appUpdatePillClick() {
+  const b = _appBehind();
+  const v = b ? 'v' + b.target : 'the newest version';
+  const canAll = !!(window.phosAppUpdate && (window.phosAppUpdate.caps || []).includes('updateAll'));
+  try {
+    window.webkit.messageHandlers.phosphene.postMessage({type: canAll ? 'updateAll' : 'checkUpdate'});
+  } catch (e) { /* not inside the app */ }
+  phosToast(canAll
+    ? `Updating to ${v}\u2026 it switches over when nothing is rendering.`
+    : `Updating to ${v}. If this stays, quit Phosphene (\u2318Q) and open it again \u2014 it updates when it opens.`, 'info');
+}
+window.addEventListener('phos-app-update', () => { try { renderVersionPill(); } catch (e) {} });
+setTimeout(_refreshAppLatest, 3000);
+setInterval(_refreshAppLatest, 10 * 60 * 1000);
+
 // The pill's click inside the Mac app: never a git pull. It starts the app's real updater (the
 // native bridge, "checkUpdate" -> Updater.checkForUpdates) and still copies the build name for a bug report.
 function _macCheckForUpdates() {
@@ -734,6 +790,7 @@ function _macCheckForUpdates() {
   catch (e) { return false; }
 }
 async function _appVersionPillClick() {
+  if (typeof openWhatsNew === 'function') openWhatsNew(true);
   const s = _versionState || {};
   const debug = `Phosphene ${s.local_version || '?'} \u00b7 mac-app`
     + (phEdition() ? ` \u00b7 ${phEdition()}` : '')
@@ -745,6 +802,13 @@ async function _appVersionPillClick() {
 
 async function versionPillClick() {
   if (isMacApp() || (_versionState || {}).app_updates) return _appVersionPillClick();
+  { // Up to date, nothing pending: the pill opens this version's "What's new" card.
+    const s0 = _versionState || {};
+    if (typeof openWhatsNew === 'function' && !_versionRestartPending && !s0.stale_process
+        && (s0.behind_by | 0) <= 0 && !(s0.post_update && s0.post_update.outcome === 'pending')) {
+      return openWhatsNew(true);
+    }
+  }
   const recovery = (_versionState || {}).post_update || {};
   if (recovery.outcome === 'pending' && recovery.state === 'failed') {
     const r = await fetch('/version/finish', {method: 'POST'});

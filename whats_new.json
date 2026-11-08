@@ -1,0 +1,34 @@
+{
+  "_note": "One entry per released version, newest last. free[] and pro[] are plain lines that every user sees (Free users see the Pro list too, it is public marketing copy like the pricing page). Plain benefit wording only: no engine, trick or recipe names. Anything internal belongs in the Pro pack's own whats_new_pro.json. A line is a string, or {\"text\": \"...\", \"media\": \"/webapp/docs/..png\"}. The release gate fails when the entry for VERSION is missing.",
+  "5.0.5": {
+    "free": [
+      "Pictures work on a fresh Mac app install. If the picture engine is missing, Phosphene adds it by itself, once.",
+      "A missing text-model file is named before a video starts, not after it fails.",
+      "Songs wait for memory on Macs with 24 GB or less, and say so, instead of failing partway."
+    ],
+    "pro": []
+  },
+  "5.0.6": {
+    "free": [],
+    "pro": [
+      "Your Pro licence stays on your Mac when you delete and reinstall Phosphene. No pasting your key again.",
+      "Lost your key? \"Already paid? Restore Pro\" emails it to you again."
+    ]
+  },
+  "5.0.7": {
+    "free": [
+      "Hailuo H3 now runs on 16 GB and 18 GB Macs. It needed 36 GB before. Free for everyone."
+    ],
+    "pro": []
+  },
+  "5.0.8": {
+    "free": [
+      "The version is easier to see. When an update is ready, look for the coloured Update to button.",
+      "See what changed after each update. Click the version to read it again.",
+      "In Mac app 5.0.8, Check for updates checks the app, Studio and Pro together."
+    ],
+    "pro": [
+      "In Mac app 5.0.8, Pro checks for updates every 10 minutes while the app is open. It waits until your render finishes before switching."
+    ]
+  }
+}

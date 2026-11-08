@@ -21607,6 +21607,10 @@ _ANALYTICS_EVENTS = (
     "separator_install",
     # Phosphene Bench: one per submitted run, only on the person's click.
     "bench_result",
+    # 5.0.7 (owner, 8 Nov 2026): the last step before a purchase. `pro_click`: someone
+    # opened Pro or pressed Get Pro, and from which surface (closed list). `pro_hint`:
+    # the one quiet "Pro would have made this faster" line was shown / dismissed / opened.
+    "pro_click", "pro_hint",
 )
 
 
@@ -22188,6 +22192,126 @@ def _star_prompt_after_job(job: dict) -> None:
                 _settings_set_internal(**delta)
     except Exception:
         pass
+
+
+# ---- Pro at the right moment (owner, 8 Nov 2026) -----------------------------------
+# After a FREE render on a Mac and settings where Pro has a MEASURED speed-up, the finished
+# card carries one quiet line: "Pro would have made this in about 4 min" + "See Pro".
+# Measured only: the ratios below are Pro / Free wall time from the matched, same-seed runs on
+# an M4 Max with 64 GB (PRO_SPEED.md, 26 Oct 2026; Pro covers exactly these lanes and this
+# Mac). Any other Mac, mode or setting has no measured number, so it shows nothing. Free's
+# reference time is the benchmark reference run (phosphene.video/benchmarks) for that setting;
+# a render far from it (a busy Mac) shows nothing either. At most one line a day, three
+# dismissals end it for good, never during a render, never a pop-up. Words: "faster" only.
+PRO_HINT_MIN_SAVED_SEC = 60.0
+PRO_HINT_MAX_DISMISSALS = 3
+PRO_HINT_WHERE = ("topbar", "remote_hint", "remote_panel", "pro_modal", "star_card",
+                  "speedup_line", "feature_gate", "settings", "whats_new")
+PRO_HINT_ACTIONS = ("shown", "dismissed", "opened")
+PRO_HINT_LANES = {
+    # lane: (Free s, Pro s) measured
+    "h3_high_i2v_5s": (893.49, 602.93),
+    "h3_high_i2v_10s": (1960.05, 1320.73),
+    "ltx_high_t2v_5s": (243.10, 186.61),
+    "ltx_high_i2v_5s": (261.33, 203.39),
+}
+# Release qualification is separate from historical benchmark measurements.
+# 5.0.8: the shipped H3 pin changed; LTX acceleration is not admitted.
+# Enable a lane only after a matched run against the shipping Pro pack.
+PRO_HINT_QUALIFIED_LANES = frozenset()
+PRO_HINT_MAC = ("M4 Max", 64)          # chip family, RAM in GB: the Mac those runs were made on
+
+
+def pro_hint_lane(params: dict) -> str:
+    """The measured lane a finished job belongs to, or "" when none of them fits."""
+    p = params or {}
+    if p.get("loras") or p.get("character_id") or str(p.get("upscale") or "off") not in ("off", ""):
+        return ""
+    engine = str(p.get("engine") or "ltx").strip().lower()
+    mode = str(p.get("mode") or "")
+    if engine == "h3":
+        if mode != "i2v" or any(p.get(k) for k in ("h3_tristep", "h3_turbo", "h3_flex",
+                                                    "h3_flex_turbo", "h3_v13")):
+            return ""
+        return {"high_5s": "h3_high_i2v_5s", "high_10s": "h3_high_i2v_10s"}.get(
+            str(h3_resolve_tier(p.get("h3_tier")) or ""), "")
+    if engine == "ltx" and mode in ("t2v", "i2v") and str(p.get("quality") or "") == "high":
+        try:
+            ok = (int(p.get("width") or 0), int(p.get("height") or 0), int(p.get("frames") or 0)) == (1024, 576, 121)
+        except (TypeError, ValueError):
+            ok = False
+        return f"ltx_high_{mode}_5s" if ok else ""
+    return ""
+
+
+def pro_hint_for_job(job: dict, edition: str, chip: str, ram_gb: float) -> dict | None:
+    """Pure. {"lane", "pro_sec", "saved_sec", "text"} or None. Free only."""
+    if edition != "free" or not isinstance(job, dict) or job.get("status") != "done":
+        return None
+    if chip != PRO_HINT_MAC[0] or int(round(float(ram_gb or 0))) != PRO_HINT_MAC[1]:
+        return None
+    lane = pro_hint_lane(job.get("params") or {})
+    try:
+        took = float(job.get("elapsed_sec") or 0)
+    except (TypeError, ValueError):
+        return None
+    if lane not in PRO_HINT_QUALIFIED_LANES or took <= 0:
+        return None
+    free_ref, pro_ref = PRO_HINT_LANES[lane]
+    if not (0.6 * free_ref <= took <= 1.6 * free_ref):
+        return None                      # not the measured situation (cold start, busy Mac)
+    pro_sec = took * (pro_ref / free_ref)
+    if took - pro_sec < PRO_HINT_MIN_SAVED_SEC:
+        return None
+    mins = max(2, int(round(pro_sec / 60.0)))
+    return {"lane": lane, "pro_sec": round(pro_sec, 1), "saved_sec": round(took - pro_sec, 1),
+            "text": f"Pro would have made this in about {mins} min"}
+
+
+def _pro_hint_after_job(job: dict) -> None:
+    """worker_loop's finally. Sets job["pro_hint"] once a day at most. Never raises."""
+    try:
+        hint = pro_hint_for_job(job, _analytics_edition(), _analytics_chip_family(), SYSTEM_RAM_GB)
+        if not hint:
+            return
+        st = get_settings()
+        today = time.strftime("%Y-%m-%d")
+        if str(st.get("pro_hint_day") or "") == today:
+            return
+        if int(st.get("pro_hint_dismissed") or 0) >= PRO_HINT_MAX_DISMISSALS:
+            return
+        _settings_set_internal(pro_hint_day=today)
+        job["pro_hint"] = hint
+    except Exception:
+        pass
+
+
+def pro_hint_answer(job_id: str, action: str) -> bool:
+    """The page reports what it did with the line. Counted once per action per job;
+    `dismissed` also takes the line off the card and counts toward the end."""
+    if action not in PRO_HINT_ACTIONS:
+        raise ValueError(action)
+    with LOCK:
+        job = next((j for j in (STATE.get("history") or []) if j.get("id") == job_id), None)
+        hint = (job or {}).get("pro_hint")
+        if not isinstance(hint, dict):
+            return False
+        seen = hint.setdefault("seen", [])
+        if action in seen:
+            return False
+        seen.append(action)
+        lane = hint.get("lane", "")
+        if action == "dismissed":
+            job.pop("pro_hint", None)
+    if action == "dismissed":
+        _settings_set_internal(pro_hint_dismissed=int(get_settings().get("pro_hint_dismissed") or 0) + 1)
+    _analytics_capture("pro_hint", {"action": action, "lane": lane, "version": running_version()})
+    return True
+
+
+def pro_click_report(where: str, action: str) -> None:
+    if where in PRO_HINT_WHERE and action in ("open", "get"):
+        _analytics_capture("pro_click", {"where": where, "action": action, "version": running_version()})
 
 
 def star_prompt_due() -> bool:
@@ -45846,6 +45970,8 @@ def worker_loop() -> None:
             # The one-time "star us on GitHub" card counts finished renders
             # here for the same reason. Local only, never raises.
             _star_prompt_after_job(job)
+            # 5.0.7: the one quiet "Pro would have made this faster" line (Free, measured lanes only).
+            _pro_hint_after_job(job)
             # Per-install self-calibration (VC-01 / H3-03) — local only,
             # independent of analytics being on. Same never-raise contract.
             _record_eta_calibration_from_job(job)

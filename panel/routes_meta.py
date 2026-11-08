@@ -271,6 +271,17 @@ def get_version(h, parsed) -> None:
     h._json(P.get_version_state())
 
 
+@get("/app-latest")
+def get_app_latest(h, parsed) -> None:
+    # The newest published version, for the Mac app's header pill (a hint for a label only; the app
+    # installs from its own signed manifests). Cached ten minutes, fetched in the background.
+    from panel import app_latest
+    if not P._dist.is_mac_app():
+        h._json({"latest": "", "current": "", "behind": False}); return
+    st = P.get_version_state()
+    h._json(app_latest.info(st.get("local_version"), P._dist.edition()))
+
+
 @get("/notice")
 def get_notice(h, parsed) -> None:
     # The one signed "notify everyone" notice for this studio (app_notice.py); {"notice": null} when
@@ -590,6 +601,11 @@ def post_analytics_ui(h, path, qs, ctype) -> None:
         if str(_f("step")).strip() != "first_use":
             h._json({"ok": False, "error": "unknown step"}, 400); return
         P._analytics_install_step("first_use", "ok")
+    elif event == "pro_click":
+        where, action = str(_f("where")).strip(), str(_f("action")).strip()
+        if where not in P.PRO_HINT_WHERE or action not in ("open", "get"):
+            h._json({"ok": False, "error": "unknown pro_click"}, 400); return
+        P.pro_click_report(where, action)
     elif event == "feature_used":
         feature = str(_f("feature")).strip()
         if feature not in ("editor_open", "editor_export", "enhance_prompt", "share"):
@@ -598,6 +614,24 @@ def post_analytics_ui(h, path, qs, ctype) -> None:
     else:
         h._json({"ok": False, "error": "unknown event"}, 400); return
     h._json({"ok": True})
+
+
+@post("/pro-hint")
+def post_pro_hint(h, path, qs, ctype) -> None:
+    """What the page did with the finished card's "Pro would have made this faster" line:
+    shown, dismissed or opened. Nothing but the answer and the lane name leaves the Mac."""
+    _rb = h._read_form_body()
+    if _rb is None:
+        return
+    body, form = _rb
+    def _f(k):
+        v = form.get(k, [""])
+        return (v[0] if isinstance(v, list) else v) or ""
+    try:
+        changed = P.pro_hint_answer(str(_f("job")).strip(), str(_f("action")).strip())
+    except ValueError:
+        h._json({"ok": False, "error": "unknown action"}, 400); return
+    h._json({"ok": True, "changed": changed})
 
 
 @post("/star-prompt")

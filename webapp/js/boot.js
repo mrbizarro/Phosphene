@@ -67,6 +67,11 @@ function siteLinkApply(a) {
   document.addEventListener('click', (e) => {
     const a = e.target && e.target.closest ? e.target.closest('a[data-utm-campaign]') : null;
     if (a) siteLinkApply(a);
+    // Anonymous count of Get Pro clicks and which surface (owner, 8 Nov 2026); opt-out is the server's.
+    if (a && a.dataset.utmCampaign === 'get-pro' && typeof _uiEvent === 'function') {
+      const where = (a.dataset.utmContent || '').replace(/-/g, '_');
+      if (where && where !== 'speedup_line') _uiEvent('pro_click', {where, action: 'get'});
+    }
   }, true);
 })();
 // Developer-only text (environment variables, file paths, docs pages) is marked
@@ -1067,5 +1072,5 @@ Object.assign(globalThis, {
   outputsLoadAll, outputsCacheMutated, _updateMainFilterChips, _maybeAutoLoadAllForEmptyFilter, setMainOutputsFilter,
   updateModelCredit, toggleAvoidRow, syncAvoidRowFromValue, ingredientsServed,
   _paintControlGenNote, defaultRemixMode, setMode, _portalLoraPicker,
-  isMacApp, distText, phEdition, siteLink,
+  isMacApp, distText, phEdition, siteLink, siteLinkApply,
 });

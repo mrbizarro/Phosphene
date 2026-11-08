@@ -481,6 +481,22 @@
       border-color: var(--border);
     }
     .pill-app:hover { color: var(--text); }
+    .pill-app .vp-ver { color: var(--text); font-weight: 700; letter-spacing: .01em; }
+    /* The version is the first thing in the header, never a hidden grey label (owner, 8 Nov). */
+    /* "Update to vX": the Panel's colours (pink, violet, cyan), glowing, only while something is behind. */
+    .pill-appupdate {
+      cursor: pointer; font-weight: 700; color: #fff; border: 0; margin-left: 6px;
+      background: linear-gradient(90deg, #ff2e9f 0%, #b14aff 55%, #5eeaff 100%);
+      box-shadow: 0 0 0 0 rgba(177,74,255,0.0);
+      animation: glow-appupdate 2.2s ease-in-out infinite;
+    }
+    .pill-appupdate:hover { filter: brightness(1.12); }
+    .pill-appupdate:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 2px; }
+    @keyframes glow-appupdate {
+      0%,100% { box-shadow: 0 0 0 0 rgba(177,74,255,0.0); }
+      50%     { box-shadow: 0 0 10px 2px rgba(177,74,255,0.45); }
+    }
+    @media (prefers-reduced-motion: reduce) { .pill-appupdate { animation: none; } }
     /* Checking — first /version poll hasn't completed yet. Same look as
        dev (muted) so the pill doesn't flash colours in the first 30s of
        boot before the GitHub fetch lands. */
@@ -820,8 +836,7 @@
     body[data-workflow="audio"] #audioSectionTab { display: block; }
 
     /* ==================================================       STORYBOARD — the workflow fold + its own surfaces
-       =========================================================
-       Same shape as the audio fold above, plus one extra move: the shot
+       ==================================================       Same shape as the audio fold above, plus one extra move: the shot
        list takes the GALLERY's slot in the stage column and the player
        stays where it is. That is what makes shared state free — clicking a
        shot's thumbnail calls the existing selectOutput() and the existing
@@ -1559,10 +1574,8 @@
        any tier the registry grows. */
     body[data-cap-tier="q4"] #sbFinalQuality [data-pack="q8"] { display: none !important; }
 
-    /* =========================================================
-       THE RAIL — one place that says where you are and what is next.
-       =========================================================
-       Six stage states shared one scroller and nothing said which of them you
+    /* ==================================================       THE RAIL — one place that says where you are and what is next.
+       ==================================================       Six stage states shared one scroller and nothing said which of them you
        were in, so the timeline was findable only by knowing it was the fifth
        button in a five-button grading bar. This is the fix: the four things a
        film goes through, always in the same place, on every screen that has a
@@ -1634,10 +1647,8 @@
     }
     @media (max-width: 900px) { .sb-rail-sep { width: 6px; } }
 
-    /* =========================================================
-       THE FILM — the seventh stage state, and the point of the other six.
-       =========================================================
-       Both assemblers wrote an mp4 and then said nothing, so the user was left
+    /* ==================================================       THE FILM — the seventh stage state, and the point of the other six.
+       ==================================================       Both assemblers wrote an mp4 and then said nothing, so the user was left
        looking at a list of shots wondering which one was the movie. This is
        the movie: one player, four facts, and the folder it lives in. Built
        from the same primitives as the shot list (.carousel-head, .sb-summary,
@@ -1686,10 +1697,8 @@
     .sb-filmlist li .ttl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     .sb-filmlist li.is-open { border-color: var(--accent); background: var(--accent-dim); }
 
-    /* =========================================================
-       THE TIMELINE EDITOR — the sixth storyboard stage state.
-       =========================================================
-       Same tokens, same radii, same motion as every other storyboard
+    /* ==================================================       THE TIMELINE EDITOR — the sixth storyboard stage state.
+       ==================================================       Same tokens, same radii, same motion as every other storyboard
        surface: this is the shot list's next screen, not a second app. The
        only new primitive is the track, and it is built from the same
        --panel / --border / --accent scale as the cards above it.
@@ -3986,10 +3995,8 @@
       .sbe-tl-grab { display: none; }
     }
 
-    /* =========================================================
-       CAPABILITY TIER (Q4 vs Q8) — Codex C+ recommendation, 2026-05-17
-       =========================================================
-       On sub-48GB Macs the Q8 dev transformer doesn't fit, so the
+    /* ==================================================       CAPABILITY TIER (Q4 vs Q8) — Codex C+ recommendation, 2026-05-17
+       ==================================================       On sub-48GB Macs the Q8 dev transformer doesn't fit, so the
        Manual surface hides every intent that requires it:
 
          * FFLF and Extend modes (HQ-only pipelines)
@@ -4147,8 +4154,7 @@
       pointer-events: none;
     }
 
-    /* ============================================================
-       Image Studio composer (.studio-pane) — restyled to mirror the
+    /* =====================================================       Image Studio composer (.studio-pane) — restyled to mirror the
        video form-pane (#genForm). Section labels are h2 mono uppercase,
        inputs use the same hairline-bordered chrome, ref slots reuse the
        picker idiom (dashed → solid + accent on populate), and the
@@ -4421,8 +4427,7 @@
       margin-top: 14px;
     }
 
-    /* ============================================================
-       Ideogram 4 — visual text-placement canvas (.ideo-panel)
+    /* =====================================================       Ideogram 4 — visual text-placement canvas (.ideo-panel)
        Shown only when engine == ideogram4_inline. Reuses the app's
        tokens (--accent/--panel/--border/--r-*/--t-fast) + components
        (.pill-group/.pill-btn, .qchip, .mf-label). Motion collapses
@@ -4758,8 +4763,7 @@
     .ideo-raw-msg.err { color: var(--danger); }
     .ideo-raw-msg.ok { color: var(--success); }
 
-    /* ============================================================
-       Characters pane (.characters-pane) — pick a trained character +
+    /* =====================================================       Characters pane (.characters-pane) — pick a trained character +
        describe the scene + ship. The aesthetic stays Linear-clean
        (hairlines, dense type, mono numerics) but the cards lead with
        the actual training photo because a face is the highest-bandwidth
@@ -5311,8 +5315,7 @@
     body[data-workflow="studio"] #audioSectionTab { display: none !important; }
     body[data-workflow="studio"] #studioSection { display: block; }
 
-    /* ============================================================
-       Train Character pane (.train-pane) — same chrome as the
+    /* =====================================================       Train Character pane (.train-pane) — same chrome as the
        studio + video form-pane composers. Section labels are h2
        mono uppercase, inputs reuse the global hairline-bordered
        input styles, action footer mirrors #formActionFooter.
@@ -6461,8 +6464,7 @@
     details summary:hover { color: var(--text); }
     details[open] summary { margin-bottom: 6px; }
 
-    /* ============================================================
-       REDESIGN — composer-led form-pane (Y2.000)
+    /* =====================================================       REDESIGN — composer-led form-pane (Y2.000)
        Goal: collapse the noisy h2-stack into a clear hierarchy:
          1. Mode bar (compact segmented strip, no label)
          2. Composer card (refs + prompt + inline tools, hero element)
@@ -9276,8 +9278,7 @@
       transition: box-shadow 240ms ease;
     }
 
-    /* ============== MANUAL-TAB CHARACTERS PICKER ==============
-       Sits ABOVE the LoRAs picker in Manual T2V (text mode). Mirrors the
+    /* ============== MANUAL-TAB CHARACTERS PICKER =======       Sits ABOVE the LoRAs picker in Manual T2V (text mode). Mirrors the
        LoRAs section aesthetic (panel-2 surface, accent active border)
        but renders one chip per discovered character with avatar + name +
        trigger badge + has-voice badge. Single-select; "None" deselects.
@@ -10393,10 +10394,8 @@
       .expand-progress.is-running { animation: none; transform: scaleX(1); opacity: .4; }
     }
 
-    /* =========================================================
-       LINEAR DESIGN PASS — final layer
-       =========================================================
-       Direction picked by Mr Bizarro on 2026-05-07. This block layers a
+    /* ==================================================       LINEAR DESIGN PASS — final layer
+       ==================================================       Direction picked by Mr Bizarro on 2026-05-07. This block layers a
        Linear-style refinement on top of the working panel: hairline
        borders, dense type, monospaced numerics, very subtle
        elevation, and a unified "chip" language across every header.
@@ -10434,8 +10433,7 @@
       font-size: 13px;
     }
 
-    /* === TOP HEADER ============================================
-       88px tall (was 62) — Mr Bizarro flagged the chrome was reading too
+    /* === TOP HEADER =====================================       88px tall (was 62) — Mr Bizarro flagged the chrome was reading too
        small and the brand was getting lost. Logo bumped 48 → 64,
        wordmark 22 → 28, plus a soft halo glow behind the mark so it
        lifts off the void. Second-round bump (2026-05-12) to chrome
@@ -10747,9 +10745,14 @@
     body > header > .pill-current, body > header #healthCluster > .pill-current { color: var(--success); border-color: rgba(63,185,80,0.25); }
     body > header > .pill-update, body > header #healthCluster > .pill-update { color: var(--warning); border-color: rgba(240,185,64,0.40); background: rgba(240,185,64,0.06); }
     body > header > .pill-restart, body > header #healthCluster > .pill-restart { color: var(--accent-bright); border-color: rgba(126,152,255,0.40); background: rgba(126,152,255,0.06); }
+    /* "Update to vX" keeps the Panel colours in the restyled header (the rules above would make it a grey chip). */
+    body > header > .pill.pill-appupdate {
+      color: #fff; border: 0; font-weight: 700;
+      background: linear-gradient(90deg, #ff2e9f 0%, #b14aff 55%, #5eeaff 100%);
+    }
+    body > header > .pill.pill-appupdate:hover { color: #fff; filter: brightness(1.12); }
 
-    /* === ENGINE SWITCHER (header, top right) ====================
-       The one control in the header row that is an INPUT rather than a
+    /* === ENGINE SWITCHER (header, top right) =============       The one control in the header row that is an INPUT rather than a
        readout, so it deliberately does not share the .pill language: it sits
        in its own 36px track (one notch taller than the 34px chips), with a
        hairline divider separating it from the status pills. Choice on the
@@ -10978,8 +10981,7 @@
       width: 12px; height: 12px;
     }
 
-    /* === Phosphene-X brand link (2026-05-18) ===================
-       Compact icon-only link to the official @PhospheneAI account.
+    /* === Phosphene-X brand link (2026-05-18) ============       Compact icon-only link to the official @PhospheneAI account.
        Sits next to the by-Bizarro creator chip in the header's
        right-corner cluster. A glow in the Phosphene brand gradient
        (blue → violet) draws the eye without being aggressive.
@@ -11034,8 +11036,7 @@
       }
     }
 
-    /* === MAIN LAYOUT ===========================================
-       Hairline-bordered panes, no internal radius — Linear's edge
+    /* === MAIN LAYOUT ====================================       Hairline-bordered panes, no internal radius — Linear's edge
        feel is "everything is one continuous surface".
        The form-pane cap is 420px so the composer stays compact and
        the stage absorbs leftover width (bigger player + more
@@ -11095,8 +11096,7 @@
        margin-top:16px instead. */
     .form-pane { padding: 0; }
 
-    /* === WORKFLOW TABS =========================================
-       Mr Bizarro asked for these to be moved away from the centered top
+    /* === WORKFLOW TABS ==================================       Mr Bizarro asked for these to be moved away from the centered top
        slot. Now they live at the top-left of the form-pane as a
        small segmented control — same place users have always seen
        them, just visually re-tuned. */
@@ -11369,16 +11369,14 @@
     button.primary:hover { background: var(--accent-bright); }
     .actions { gap: 8px; margin-top: 18px; }
 
-    /* === STAGE / PLAYER PANE (Manual mode) =====================
-       Y2.001 — the legacy Linear-style overrides that lived here are
+    /* === STAGE / PLAYER PANE (Manual mode) ==============       Y2.001 — the legacy Linear-style overrides that lived here are
        removed; the redesigned stage block above (search "STAGE
        (PLAYER + CAROUSEL) — REDESIGN Y2.001") is the source of truth
        and uses the canonical token set instead of the older --ph-*
        aliases. The selectors are intentionally left blank so any
        future regression diff stays small. */
 
-    /* === BOTTOM PANEL ==========================================
-       Y2.001 — the legacy --ph-* override block is removed. The
+    /* === BOTTOM PANEL ===================================       Y2.001 — the legacy --ph-* override block is removed. The
        redesigned bottom-pane block above (search "BOTTOM TABBED PANE
        — REDESIGN Y2.001") is the source of truth and uses the
        canonical token set. Selectors left blank to keep diffs clean. */
@@ -11409,8 +11407,7 @@
     body > header > .pill svg, body > header #healthCluster > .pill svg { width: 12px; height: 12px; }
 
 
-    /* === PHOSPHOR ICONS (MIT) ===================================
-       Inline SVG symbol library used across the panel. Glyph art is
+    /* === PHOSPHOR ICONS (MIT) ============================       Inline SVG symbol library used across the panel. Glyph art is
        from phosphor-icons/core (MIT). `.ph` is the base size + color
        hook; specific call sites can override width/height/color via
        inline style or component CSS.
@@ -11437,8 +11434,7 @@
        (×, ↗, ↻, etc.). Make the SVG inherit the button's flex centering. */
     button > .ph, a > .ph { display: block; }
 
-    /* === ENGINE TINT ===========================================
-       Last in the sheet so it wins, and DELIBERATELY NARROW: only the
+    /* === ENGINE TINT ====================================       Last in the sheet so it wins, and DELIBERATELY NARROW: only the
        controls inside the video form that the active engine actually owns —
        its primary strip and its Customize chips. Switching engines should
        feel like changing lens, not repainting the app, so the mode bar, the
@@ -11856,8 +11852,7 @@ body[data-workflow="oneshot"] #audioSectionTab { display: none !important; }
 }
 .os-log { margin: 0; white-space: pre-wrap; font-family: var(--ph-font-mono); font-size: 13px; line-height: 1.4; color: var(--muted); max-height: 9em; overflow: auto; }
 
-    /* ======================================================================
-       THE DOCS (webapp/js/docs.js, pages in webapp/docs/*.md) and the keycap
+    /* ===============================================================       THE DOCS (webapp/js/docs.js, pages in webapp/docs/*.md) and the keycap
        every shortcut is drawn with. One reading column in the panel's own
        tokens: the nav is the rail, the article is the page, and the light
        theme comes free from the same variables.
@@ -12126,8 +12121,7 @@ body[data-workflow="oneshot"] #audioSectionTab { display: none !important; }
   .phos-tip, .phos-tip.is-shown { transition: none; transform: none; }
 }
 
-/* ============================================================================
-   RENDER FORM · THE THREE SECTIONS (layout pass, 2026-09-18)
+/* =====================================================================   RENDER FORM · THE THREE SECTIONS (layout pass, 2026-09-18)
    Owner: "you have a pill for speed, quality, length, and all that. That should
    be inside one section that you can compress and decompress … it should be
    closed by default … I don't think it is easy to navigate between the options."
@@ -12328,8 +12322,7 @@ body:not([data-engine="ltx"]) .cz-body > #aspectRow.mode-only.show { display: no
 }
 
 
-/* ============ ONE CONTROL SCALE (2026-09-18) ==========================
-   Owner, with a screenshot of the LoRAs header: "all the buttons are
+/* ============ ONE CONTROL SCALE (2026-09-18) ===================   Owner, with a screenshot of the LoRAs header: "all the buttons are
    different. What the fuck? You need to really clean up the visuals so it looks
    professional in general."
 
@@ -12460,8 +12453,7 @@ button > .ph:first-child:not(:only-child),
 label > .ph:first-child:not(:only-child),
 .qchip > .ph:first-child:not(:only-child) { margin-right: 6px; vertical-align: -2px; }
 
-/* ====== MUSIC STUDIO ======================================================
-   The song is the unit, not the file. Everything below serves one idea: a
+/* ====== MUSIC STUDIO ===============================================   The song is the unit, not the file. Everything below serves one idea: a
    song you can come back to — hear it, read its score, change one thing
    about it and get another. Tokens only; nothing declares its own colour. */
 .studio-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between;
@@ -12752,8 +12744,7 @@ label > .ph:first-child:not(:only-child),
 .song-menu-head { font-size: var(--fs-2xs); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; padding: 6px 10px 4px; }
 #audioUseMenu { z-index: 120; width: 280px; }
 
-/* ===== MUSIC VIDEO — the cast of pictures =================================
-   One row per picture: the thumbnail, what it is for, and an optional line
+/* ===== MUSIC VIDEO — the cast of pictures ==========================   One row per picture: the thumbnail, what it is for, and an optional line
    about what happens in its shot. Deliberately a LIST and not the gallery's
    grid — a role is a decision per picture, and a decision needs a label
    beside it, not a hover state. Built from the same tokens as everything
@@ -13023,8 +13014,7 @@ html[data-theme="light"] .bench-suite { color: #0e7490; background: rgba(14, 116
 #speechClipSlot { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 4px;
   cursor: pointer; text-align: center; padding: 10px; }
 
-/* ========================================================================
-   SITE / STUDIO DESIGN SYSTEM
+/* =================================================================   SITE / STUDIO DESIGN SYSTEM
    Source: phosphene.video global.css. Keep this compatibility layer together:
    existing component tokens are aliases so every workflow shares one palette.
    Layout, media geometry, type inside rendered artwork, and handlers stay owned
@@ -13490,8 +13480,7 @@ button.primary:hover::before, #genBtn:hover::before, #genForm .batch-queue-btn:h
 .scene-sound-toggle { display:flex; align-items:center; gap:8px; cursor:pointer; }
 .scene-sound-toggle input[type="checkbox"] { width:auto; margin:0; flex-shrink:0; }
 
-/* ========================================================================
-   STUDIO v2 — the studio drawn in the website's own language
+/* =================================================================   STUDIO v2 — the studio drawn in the website's own language
    ------------------------------------------------------------------------
    docs/redesign/DIRECTION.md is the reasoning; this is the system.
    The rounds above re-coloured the panel; this layer re-composes it:
@@ -14176,8 +14165,7 @@ button.primary-btn:hover { background-color: #4f3191; background-image: var(--v2
 .player-wrap.live-stage:not(.has-live-frame) ~ .live-stage-overlay .live-stage-eta { margin-top: 0; }
 .live-stage-warming .live-stage-phase { color: #c4cce0; }
 
-/* ========================================================================
-   STUDIO v2.1 — an app's navigation, the site's materials
+/* =================================================================   STUDIO v2.1 — an app's navigation, the site's materials
    ------------------------------------------------------------------------
    v2 put the places in the title bar as the website's word menu. In an app
    that read as a web page and gave the tools nowhere to grow. They live in
@@ -14365,8 +14353,7 @@ html[data-theme="light"] #engineMenu { box-shadow: inset 0 0 0 1px var(--site-li
 #engineMenu .eng-opt:hover, #engineMenu .eng-opt:focus-visible { background: var(--v2-hover); }
 #engineMenu .eng-opt.active { background: var(--v2-press); }
 
-/* ========================================================================
-   STUDIO v2.1 — LoRAs, the CivitAI browser, the full-screen viewer
+/* =================================================================   STUDIO v2.1 — LoRAs, the CivitAI browser, the full-screen viewer
    ======================================================================== */
 
 /* ---------- LoRAs in the composer ----------
@@ -14559,8 +14546,7 @@ html[data-theme="light"] .form-pane #lorasList > .hint { background: rgba(13, 19
 .form-pane #lorasList > .hint strong { color: var(--text); }
 #civitaiModal .civitai-card .civitai-source-link svg { display: inline-block; vertical-align: -2px; }
 
-/* ========================================================================
-   STUDIO v3 — the memory-picker material
+/* =================================================================   STUDIO v3 — the memory-picker material
    ------------------------------------------------------------------------
    The site's "Pick your Mac's memory" section is the studio's material:
    a LIFTED navy with violet light in it (not a black void), every card a
@@ -14943,8 +14929,7 @@ body > header .star-link.is-calling svg { animation: star-twinkle 14s ease-in-ou
 .now-card .now-body:has(.now-card-actions:not(:empty)) > .progress-bar { margin-right: 112px; }
 .now-card .now-card-actions { z-index: 2; }
 
-/* ============== REMOTE CONTROL PAGE (left menu) ==============
-   A page, not a tool: while body[data-workflow="remote"] the form, the stage and the
+/* ============== REMOTE CONTROL PAGE (left menu) =======   A page, not a tool: while body[data-workflow="remote"] the form, the stage and the
    queue step aside and this takes the window. Tokens only (dark and light). */
 .remote-page { display: none; }
 .remote-page [hidden] { display: none !important; }
@@ -15232,3 +15217,30 @@ html[data-pro=""] .tool-rail .workflow-tabs .rail-pro {
 html[data-pro=""] .tool-rail .workflow-tabs button[data-workflow="remote"] .new-badge { display: none; }
 .rm-pro-wait .rm-wait-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 .rm-pro-wait .rm-wait-actions .rm-btn { width: auto; }
+
+/* What's new card (whats_new.js): one small corner card, not a modal. */
+.wn-card{position:fixed;right:18px;bottom:18px;z-index:9000;width:min(360px,calc(100vw - 36px));max-height:min(70vh,560px);overflow:auto;
+  background:var(--panel);color:var(--text);border:1px solid var(--border-strong);border-radius:12px;padding:14px 16px 14px;
+  box-shadow:0 10px 36px rgba(0,0,0,.45);font-size:13px;line-height:1.45}
+.wn-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;font-size:14px}
+.wn-x{background:none;border:0;color:var(--muted);font-size:20px;line-height:1;cursor:pointer;padding:0 4px}
+.wn-x:hover{color:var(--text)}
+.wn-sec{margin-top:10px}
+.wn-sec h3{margin:0 0 4px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.wn-thanks{margin:0 0 6px;color:var(--muted)}
+.wn-list{list-style:none;margin:0;padding:0}
+.wn-list li{padding:5px 0;border-top:1px solid var(--border)}
+.wn-list li:first-child{border-top:0}
+.wn-protag{display:inline-block;margin-right:6px;padding:0 6px;border:1px solid var(--border-strong);border-radius:999px;font-size:13px;font-weight:600;color:var(--accent-bright);vertical-align:1px}
+.wn-media{display:block;margin-top:6px;max-width:100%;border-radius:8px}
+.wn-getpro{display:inline-block;margin-top:8px;padding:5px 12px;border:1px solid var(--border-strong);border-radius:8px;color:var(--text);text-decoration:none;font-weight:600}
+.wn-getpro:hover{background:var(--accent-dim)}
+@media (prefers-reduced-motion:no-preference){.wn-card{animation:wn-in .25s ease-out}@keyframes wn-in{from{opacity:0;transform:translateY(8px)}}}
+.wn-head strong{flex:1;white-space:nowrap}
+/* Pro at the right moment: one quiet line under a finished Free render. */
+.row-list li.pro-hint-row { display: flex; align-items: center; gap: 10px; padding: 2px 12px 8px; margin-top: -4px;
+  background: none; border: 0; font-size: 13px; color: #8e8e96; }
+.row-list li.pro-hint-row .pro-hint-see { color: #b4b4bb; text-decoration: underline; }
+.row-list li.pro-hint-row .pro-hint-see:hover { color: #d8d8de; }
+.row-list li.pro-hint-row .pro-hint-x { margin-left: auto; background: none; border: 0; color: #8e8e96; font-size: 16px; line-height: 1; cursor: pointer; }
+.row-list li.pro-hint-row .pro-hint-x:hover { color: #d8d8de; }

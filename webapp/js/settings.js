@@ -1583,6 +1583,10 @@ function openProModal(opener = null) {
   const modal = document.getElementById('proModal');
   if (modal.style.display !== 'none') return;
   proReturnFocus = opener || document.activeElement;
+  if (typeof _uiEvent === 'function') {
+    const oid = opener && opener.id;
+    _uiEvent('pro_click', {where: oid === 'proBtn' ? 'topbar' : oid === 'rmWaitSettings' ? 'remote_hint' : 'feature_gate', action: 'open'});
+  }
   modal.style.display = 'flex';
   proLicenceLoad();
   modal.querySelector('button').focus();

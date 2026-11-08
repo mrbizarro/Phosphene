@@ -901,3 +901,19 @@ select bucket, count() as installs from (select distinct_id, multiIf(c=0,'0', c<
 select toDate(timestamp) as day, count() as fires, count(distinct distinct_id) as installs
 from events where event='queue_paused_breaker' and timestamp > now() - interval 14 day group by day order by day
 ```
+
+### `pro_click`
+
+(5.0.7, owner 8 Nov 2026.) Someone opened the Pro window or pressed **Get Pro**. Two closed
+fields: `where` is the surface (`topbar`, `remote_hint`, `remote_panel`, `pro_modal`,
+`star_card`, `speedup_line`, `feature_gate`, `settings`) and `action` is `open` (the Pro window
+opened) or `get` (the Get Pro / See Pro link was pressed). Nothing else; the usual super
+properties (edition, chip family, RAM) ride along. Same opt-out as every event.
+
+### `pro_hint`
+
+(5.0.7.) The one quiet "Pro would have made this faster" line under a finished Free render.
+`action` is `shown`, `dismissed` or `opened` (once each per line); `lane` names the measured
+setting it was for (`h3_high_i2v_5s`, `h3_high_i2v_10s`, `ltx_high_t2v_5s`, `ltx_high_i2v_5s`).
+No times, no prompt, no file. The line itself appears only on a Mac and settings with a measured
+speed-up, at most once a day, and ends after three dismissals.
