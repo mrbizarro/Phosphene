@@ -28,8 +28,12 @@ thing the app does, against the same server, with the same rules:
   Identity changes (activate, deactivate) are serialised; a server reply that arrives after the
   identity changed is discarded, never written.
 
-The licence key is kept in state/pro_licence.json (0600, replaced atomically), like the app keeps
-its record (the app uses the Keychain). It is never logged and never sent anywhere but the server.
+Where the record lives (5.0.6): OUTSIDE the install, so Pinokio's Delete + Install never loses a paid
+licence (licence_store.py: the login Keychain, else ~/Library/Application Support/Phosphene/licence.json).
+It is read from there first. state/pro_licence.json (0600, replaced atomically) is kept as a mirror for
+older Studios; a record found only there (an install from before 5.0.6) is copied into the store the
+first time it is read, so nobody types the key again. The key is never logged and never sent anywhere
+but the server.
 """
 from __future__ import annotations
 
@@ -46,6 +50,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import licence_store
 import pro_token
 
 PRODUCTION = "https://phosphene.video/api"
@@ -127,9 +132,8 @@ def _remove(path: Path) -> bool:
     return True
 
 
-def read_record() -> tuple[dict | None, str | None]:
-    """(record, problem). problem: None = readable or genuinely absent; 'unreadable' = the file is
-    there but cannot be read; 'corrupt' = it is there but is not a licence record."""
+def _read_local() -> tuple[dict | None, str | None]:
+    """The install's own copy (state/pro_licence.json): (record, problem) as read_record() answers."""
     try:
         raw = record_path().read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -145,12 +149,85 @@ def read_record() -> tuple[dict | None, str | None]:
     return None, "corrupt"
 
 
+def _valid(rec) -> bool:
+    return isinstance(rec, dict) and bool(rec.get("key")) and bool(rec.get("instance_id"))
+
+
+# The store outside the install is asked once per process (a Keychain read starts /usr/bin/security);
+# every save and forget through this module keeps the cached copy current.
+_shared: dict = {"loaded": False, "rec": None}
+
+
+def _shared_record() -> dict | None:
+    if not _shared["loaded"]:
+        payload, _prob = licence_store.read(licence_store.STUDIO)
+        rec = (payload or {}).get("record")
+        _shared.update(loaded=True, rec=dict(rec) if _valid(rec) else None)
+        if _shared["rec"] is not None:
+            _restore_local(_shared["rec"], (payload or {}).get("token"))
+    return _shared["rec"]
+
+
+def _restore_local(rec: dict, token) -> None:
+    """A fresh install (or a deleted state folder): put the install's own copies back, quietly. The
+    Pro pass is written only when this install has none; pro_token.py checks it like any other."""
+    local, prob = _read_local()
+    if prob == "unreadable":
+        return
+    if local != rec:
+        _write_private(record_path(), json.dumps(rec, sort_keys=True, indent=1))
+    if token and not os.path.exists(token_path()):
+        _write_private(token_path(), str(token).strip() + "\n")
+
+
+def _token_text() -> str | None:
+    try:
+        t = token_path().read_text(encoding="ascii").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return t or None
+
+
+def _store_shared(rec: dict) -> bool:
+    if not licence_store.enabled():
+        return False
+    ok = licence_store.write(licence_store.STUDIO, {"v": 1, "record": rec, "token": _token_text()}) is not None
+    if ok:
+        _shared.update(loaded=True, rec=dict(rec))
+    return ok
+
+
+def _forget_record() -> bool:
+    """Forget this Studio's licence everywhere it is kept (store outside the install + the local copy)."""
+    gone_shared = licence_store.delete(licence_store.STUDIO)
+    _shared.update(loaded=True, rec=None)
+    return _remove(record_path()) and gone_shared
+
+
+def read_record() -> tuple[dict | None, str | None]:
+    """(record, problem). problem: None = readable or genuinely absent; 'unreadable' = the file is
+    there but cannot be read; 'corrupt' = it is there but is not a licence record.
+    The store outside the install answers first; a record only the install holds (from before 5.0.6)
+    is migrated into that store on the way."""
+    rec = _shared_record()
+    if rec is not None:
+        return dict(rec), None
+    local, prob = _read_local()
+    if local is not None and licence_store.enabled():
+        _store_shared(local)                     # migration: the first start after the update
+    return local, prob
+
+
 def load() -> dict | None:
     return read_record()[0]
 
 
 def _save(rec: dict) -> bool:
-    return _write_private(record_path(), json.dumps(rec, sort_keys=True, indent=1))
+    """Keep the record outside the install (what survives a reinstall) and in the install's own state
+    folder (what an older Studio reads). Saved when either of them took it."""
+    local = _write_private(record_path(), json.dumps(rec, sort_keys=True, indent=1))
+    shared = _store_shared(rec)
+    return local or shared
 
 
 # One lock serialises every identity change (activate, deactivate, committing an answer). `_gen`
@@ -288,7 +365,7 @@ def activate(key: str, opener=None, now=None) -> dict:
         out["keep_key"] = True
         if out.get("storage_error") is None and not out.get("offline") and not out.get("superseded") and out.get("refused"):
             # the server refused the fresh slot straight away: nothing to keep
-            _remove(record_path())
+            _forget_record()
             _gen[0] += 1
             out = {**out, **status()}
         return out
@@ -394,9 +471,9 @@ def deactivate(opener=None) -> dict:
         if not gone:
             return {"ok": False, "message": _human(r.get("error")), **status()}
         _gen[0] += 1
-        ok_rec, ok_tok = _remove(record_path()), _remove(token_path())
+        ok_rec, ok_tok = _forget_record(), _remove(token_path())
         if not (ok_rec and ok_tok):
-            return {"ok": False, "message": "This Mac was deactivated on the server, but its saved files could not be removed. Remove the Studio's state/pro_* files or restart the Studio.", **status()}
+            return {"ok": False, "message": "This Mac was deactivated on the server, but its saved files could not be removed. Remove the Studio's state/pro_* files and ~/Library/Application Support/Phosphene/licence.json, or restart the Studio.", **status()}
         out = status()
         msg = "This Mac is deactivated. Its place on the key is free; you can activate another Mac now."
         if out.get("pro"):
@@ -484,6 +561,25 @@ def due(now: int | None = None) -> bool:
     return (not st.get("ok")) or (st.get("expires_at") or 0) - now < RENEW_BELOW
 
 
+_adopted = [False]
+
+
+def _adopt_app_licence() -> bool:
+    """Activating in the Mac app covers this Studio too: when the Studio holds no licence of its own and
+    the Mac app has left its key in the shared store, the Studio activates its own place with it (one
+    Mac, so no extra seat: the server counts Macs). Tried once per process; never over a record."""
+    if _adopted[0] or not licence_store.enabled():
+        return False
+    payload, _ = licence_store.read(licence_store.APP)
+    key = str((payload or {}).get("key") or "").strip()
+    if not key:
+        return False
+    r = activate(key)
+    if r.get("ok") or not r.get("message") == MESSAGES["unreachable"]:
+        _adopted[0] = True                       # an answer either way: do not ask again this run
+    return bool(r.get("ok"))
+
+
 _loop_started = threading.Event()
 _fails = [0]
 
@@ -492,6 +588,9 @@ def renew_step(now: int | None = None) -> int:
     """One look: validate when due. Returns the seconds until the next look (a short back-off after
     'no answer', so a reconnect or a wake is noticed fast and a dead network is not hammered)."""
     try:
+        if load() is None and _adopt_app_licence():
+            _fails[0] = 0
+            return TICK
         if due(now):
             r = validate(now=now)
             if r.get("offline"):
@@ -512,6 +611,10 @@ def start_renewal(sleep=time.sleep) -> bool:
     if _loop_started.is_set():
         return False
     _loop_started.set()
+    try:
+        load()      # before anything asks for Pro: a reinstalled Studio puts its record and pass back now
+    except Exception:  # noqa: BLE001 - never stops a start
+        pass
 
     def run():
         nxt = 0.0

@@ -18,7 +18,7 @@ It runs **LTX-2.5** and **MiniMax H3 (Hailuo H3)** for text-to-video and image-t
 and it still installs with one click through Pinokio. It is built on Apple's MLX: no CUDA, no cloud GPU, no API key, no credits and no watermark.
 Your prompts, pictures and videos never leave your Mac.
 
-**Current release: v5.0.5.** Made by Mr Bizarro.
+**Current release: v5.0.6.** Made by Mr Bizarro.
 
 ## Why Phosphene
 

@@ -1617,6 +1617,7 @@ function proLicenceShow(doc) {
   const own = !!lic.licensed;
   // The key box is hidden only when this Studio already holds its own working licence; borrowed Pro (the Mac app's pass) keeps it.
   document.getElementById('proLicenceForm').hidden = pro && own;
+  const restore = document.getElementById('proLicenceRestore'); if (restore) restore.hidden = pro && own;
   document.getElementById('proLicenceActions').hidden = !own;
 }
 async function proLicenceLoad() {
