@@ -6400,7 +6400,61 @@ def text_encoder_missing_files(version_id: str | None = None) -> list[str]:
     if not repo:
         return []
     base = Path(text_encoder_dir(version_id))
-    return [f for f in (repo.get("files") or []) if not (base / f).exists()]
+    # The SAME size-aware rule every other pack check uses (an empty or short
+    # file is missing, not present): a bare .exists() let a 0-byte shard read
+    # complete.
+    if base.is_relative_to(ROOT):
+        override = repo.copy()
+        override["local_dir"] = str(base.relative_to(ROOT))
+        return _repo_missing(override)
+    return pack_files_missing(base, repo)
+
+
+def _text_encoder_wait_for_download(version_id: str | None, job: dict | None) -> None:
+    """Hold a render while the text encoder is still downloading (the base
+    pack's wait only watches the DiT pack)."""
+    key = (model_version(version_id).get("text_encoder") or {}).get("repo_key")
+    t0 = time.time()
+    try:
+        while text_encoder_missing_files(version_id):
+            with DOWNLOAD_LOCK:
+                busy = bool(DOWNLOAD.get("active") and DOWNLOAD.get("key") == key)
+            if not busy or time.time() - t0 > PACK_DOWNLOAD_WAIT_MAX_S:
+                return
+            if job is not None and job.get("cancel_requested"):
+                raise JobCancelled("Stopped while the model was downloading.")
+            if job is not None:
+                job["waiting_note"] = ("Waiting for the text encoder download to finish. "
+                                       "This render starts by itself when it is done.")
+            time.sleep(PACK_DOWNLOAD_POLL_S)
+    finally:
+        if job is not None:
+            job.pop("waiting_note", None)
+
+
+def ltx_text_encoder_preflight(feature: str, version_id: str | None = None) -> None:
+    """Refuse a render whose TEXT ENCODER is not on disk, by name, before the
+    engine starts. Fleet 8 Nov: ltx_pack_preflight only asked about the DiT
+    pack, so a Mac whose encoder folder had lost its weights started the
+    helper and died with "no *.safetensors found in <encoder dir>" (12 LTX
+    failures, 6 Macs, 5.0.1-5.0.4, incl. a 128 GB M1 Ultra)."""
+    if not _canonical_layout():
+        return
+    if not text_encoder_missing_files(version_id):
+        return
+    _text_encoder_wait_for_download(version_id, getattr(_JOB_CTX, "job", None))
+    missing = text_encoder_missing_files(version_id)
+    if not missing:
+        return
+    ver = model_version(version_id)
+    missing = sorted(missing, key=lambda f: not f.endswith(".safetensors"))   # the weights first
+    shown = ", ".join(missing[:3]) + (" …" if len(missing) > 3 else "")
+    raise RuntimeError(
+        f"{feature} can't run: the {ver['label']} text encoder model is "
+        f"incomplete. Missing {len(missing)} file(s) in "
+        f"{text_encoder_dir(version_id)}: {shown}. "
+        f"Use the Repair banner in Settings → Model files to fetch it again; "
+        f"your other models are kept.")
 
 
 _HQ_WEIGHTS_FALLBACK = {
@@ -6673,6 +6727,14 @@ def _pack_wait_for_download(quant: str, feature: str, version_id: str | None = N
 
 def ltx_pack_preflight(quant: str, feature: str,
                        version_id: str | None = None) -> None:
+    """The DiT pack AND the text encoder, each named by file when incomplete."""
+    _ltx_dit_pack_preflight(quant, feature, version_id)
+    if pack_repo(quant, version_id):        # only where we have ground truth, like the DiT check
+        ltx_text_encoder_preflight(feature, version_id)
+
+
+def _ltx_dit_pack_preflight(quant: str, feature: str,
+                            version_id: str | None = None) -> None:
     """Refuse a render whose weights are incomplete, and NAME the file.
 
     This is the June-2026 lesson turned into four lines of control flow. One
@@ -19481,14 +19543,78 @@ atexit.register(_stop_music_proc)
 MUSIC_RC_MEMORY_GUARD = 3
 
 
+def music_guard_cause(cause: str) -> str:
+    """Plain few words for WHICH guard fired, kept inside the first sentence so
+    the 110-character analytics signature still carries it (fleet 8 Nov: 11
+    songs / 5 Macs read identically and the cause was cut off)."""
+    c = (cause or "").lower()
+    if "exceeds" in c and "budget" in c:
+        return "song too big for this Mac"
+    if "swapping" in c:
+        return "swapping"
+    if "available" in c:
+        return "other apps took the rest"
+    return ""
+
+
 def music_memory_guard_message(tail) -> str:
     """The error a song stopped by the runner's memory guard shows: the cause
     and the remedy first, the runner's own line after it."""
     lines = [str(x) for x in (tail or []) if str(x).strip()]
     cause = next((x for x in reversed(lines) if "memory guard" in x), lines[-1] if lines else "")
-    return ("Music Studio stopped your song because your Mac was running low on memory, "
-            "and nothing was saved. Close other apps and browser tabs, then compose again."
+    why = music_guard_cause(cause)
+    return ("Music Studio stopped your song because your Mac was running low on memory"
+            + (f" ({why})" if why else "")
+            + ", and nothing was saved. Close other apps and browser tabs, then compose again."
             + (f" ({cause.strip()})" if cause else ""))
+
+
+#: A song needs ~11 GiB; on a 24 GB Mac or smaller the runner's guard stops it
+#: when the rest of the Mac is short. Fleet 8 Nov: 7 of 22 songs on 16 GB Macs
+#: died that way, after up to 10 minutes. Wait for memory BEFORE the first note.
+MUSIC_HOLD_MAX_RAM_GB = 24.5
+MUSIC_HOLD_NEED_GB = float(os.environ.get("MUSIC_HOLD_NEED_GB") or 6.0)
+MUSIC_HOLD_WAIT_S = float(os.environ.get("MUSIC_HOLD_WAIT_S") or 90.0)
+
+
+def music_memory_hold(job: dict | None) -> None:
+    """On a Mac of 24 GB or less: start a song only when macOS reports normal
+    memory pressure and enough memory is available; wait up to MUSIC_HOLD_WAIT_S
+    (the Now card says so), else refuse plainly instead of failing mid-song."""
+    try:
+        if not 0 < float(SYSTEM_RAM_GB or 0) <= MUSIC_HOLD_MAX_RAM_GB:
+            return
+    except (TypeError, ValueError):
+        return
+    snap = memory_snapshot()
+
+    def ok(sn):
+        return int(sn.get("level") or 1) <= 1 and (
+            not sn.get("avail_gb") or float(sn["avail_gb"]) >= MUSIC_HOLD_NEED_GB)
+
+    t0 = time.time()
+    try:
+        while not ok(snap):
+            if job is not None and job.get("cancel_requested"):
+                raise JobCancelled("Stopped while waiting for memory.")
+            if time.time() - t0 > MUSIC_HOLD_WAIT_S:
+                raise RenderRefused(
+                    "memory_low",
+                    f"Not enough free memory to start a song: this "
+                    f"{SYSTEM_RAM_GB:.0f} GB Mac has {snap['avail_gb']:.1f} GB available "
+                    f"and a song needs about {MUSIC_HOLD_NEED_GB:.0f} GB free beside "
+                    f"the music engine. Quit other apps (browsers with many tabs, "
+                    f"games, other AI apps), then compose again.")
+            if job is not None:
+                job["waiting_note"] = (
+                    f"Waiting for memory - {snap['avail_gb']:.1f} GB available, about "
+                    f"{MUSIC_HOLD_NEED_GB:.0f} GB needed to start a song on this "
+                    f"{SYSTEM_RAM_GB:.0f} GB Mac. Quit other apps and it starts by itself.")
+            time.sleep(2.0)
+            snap = memory_snapshot()
+    finally:
+        if job is not None:
+            job.pop("waiting_note", None)
 
 
 def music_guard_cleanup(output: Path, artifacts: Path) -> None:
@@ -19528,6 +19654,7 @@ def run_music_job_inner(job: dict) -> None:
     if (not p["music_style"] and not p["music_lyrics"] and not p["music_instrumental"]
             and p["music_variation"] not in ("take", "sound", "score")):
         raise RenderRefused("music_input", "Give it something to work with — lyrics, a style description, or both.")
+    music_memory_hold(job)
     if p["music_variation"] == "score" and not p["music_source_audio"]:
         raise RenderRefused("music_input", "Getting the score needs a recording to listen to.")
     if p["music_source_audio"] and not music_cover_status()["ready"]:
@@ -21015,6 +21142,158 @@ def _qwen_pack_available() -> bool:
         return False
 
 
+# --- THE IMAGE ENGINE, ADDED BY THE STUDIO ITSELF ON THE MAC APP -------------
+# Fleet 8 Nov (fw-20261107-1904): the Mac app's setup installed the video engine
+# only; mflux came from Pinokio's install.js alone. Every FLUX.2 / Qwen-Edit /
+# Ideogram image on an app install that had not copied a Pinokio engine failed
+# ("mflux-generate-flux2 not found", then "The image engine is not installed";
+# Mac app 5.0.3-5.0.4: 11 of 15 images failed, Pinokio 0 of 49), and "quit and
+# reopen" did nothing. A new app build adds it at setup; this reaches the
+# installed apps through a Studio update: the image job that finds the engine
+# missing runs the same pack script Pinokio runs (packages only, no models,
+# about a minute) with the app's own uv, then carries on.
+#
+# Mac app only (Pinokio has its menu action and its own uv). ON only from
+# __main__ (image_engine.MFLUX_AUTOINSTALL), so importing the panel from a test
+# or a gate never pip-installs into a real venv. At most IMAGE_ENGINE_AUTO_MAX
+# tries per studio process, the next one IMAGE_ENGINE_RETRY_AFTER_S after a
+# failure, so an offline Mac is not retried on every image.
+# PHOSPHENE_IMAGE_ENGINE_AUTOINSTALL=0 turns it off.
+IMAGE_ENGINE_PACK = ROOT / "scripts" / "pinokio" / "mflux_pack.sh"
+IMAGE_ENGINE_AUTO: dict = {"attempts": 0, "last_fail_ts": 0.0, "error": None}
+IMAGE_ENGINE_AUTO_LOCK = threading.Lock()
+IMAGE_ENGINE_AUTO_MAX = 3
+IMAGE_ENGINE_RETRY_AFTER_S = 600
+IMAGE_ENGINE_WAIT_S = 1200
+
+
+def _image_engine_uv() -> Path | None:
+    """The app's pinned uv (bootstrap.sh keeps it in $PHOSPHENE_HOME/runtime/bin)."""
+    home = (os.environ.get("PHOSPHENE_HOME") or "").strip()
+    if not home:
+        return None
+    uv = Path(home).expanduser() / "runtime" / "bin" / "uv"
+    return uv if os.access(uv, os.X_OK) else None
+
+
+def _mflux_cli_present() -> bool:
+    """The FLUX.2 CLI is the probe (the app's setup checks the same file); the
+    one mflux package brings every family's CLI."""
+    try:
+        probe = agent_image_engine.ImageEngineConfig(kind="mflux", mflux_family="flux2")
+        return bool(agent_image_engine._resolve_mflux_bin(probe))
+    except Exception:                                            # noqa: BLE001
+        return False
+
+
+def image_engine_autoinstall_enabled() -> bool:
+    if not _dist.is_mac_app():
+        return False
+    if (os.environ.get("PHOSPHENE_IMAGE_ENGINE_AUTOINSTALL") or "1").strip() == "0":
+        return False
+    venv = HELPER_PYTHON.parent.parent
+    # The dry-run engine (a bare venv) has nothing to add the pack to.
+    return not (venv / ".phosphene_stub").exists()
+
+
+def _image_engine_install_reason(tail: list[str]) -> str:
+    text = "\n".join(tail).lower()
+    if "no space left" in text or "errno-28" in text:
+        return "the disk is full"
+    if any(k in text for k in ("network", "failed to fetch", "dns", "connect",
+                               "timed out", "could not resolve", "offline")):
+        return "it could not reach the download server"
+    return "the download did not finish"
+
+
+def image_engine_autoinstall(on_log=None, now: float | None = None) -> str | None:
+    """Add the image engine (mflux) to the studio's engine venv when it is
+    missing. None = it is there now; else a short reason it is not. Holds a
+    lock for the whole install, so a second image job waits for the first one's
+    install instead of starting another."""
+    def say(line: str) -> None:
+        push(f"[image] {line}")
+        if on_log is not None:
+            try:
+                on_log(line)
+            except Exception:                                    # noqa: BLE001
+                pass
+
+    with IMAGE_ENGINE_AUTO_LOCK:
+        if _mflux_cli_present():
+            return None
+        now = time.time() if now is None else now
+        st = IMAGE_ENGINE_AUTO
+        if st["attempts"] >= IMAGE_ENGINE_AUTO_MAX:
+            return st["error"] or "it did not install"
+        if st["last_fail_ts"] and now - st["last_fail_ts"] < IMAGE_ENGINE_RETRY_AFTER_S:
+            return st["error"] or "it did not install"
+        venv = HELPER_PYTHON.parent.parent
+        # The pack installs into ./ltx-2-mlx/env under the studio folder: it must
+        # be the venv this studio runs, or it would fill some other engine.
+        try:
+            same = (ROOT / "ltx-2-mlx" / "env").resolve() == venv.resolve()
+        except OSError:
+            same = False
+        uv = _image_engine_uv()
+        if not IMAGE_ENGINE_PACK.is_file():
+            return "this Studio version has no image-engine installer"
+        if not same:
+            return "the video engine is not in the Studio folder"
+        if uv is None:
+            return "the setup tool is missing; quit Phosphene and open it again"
+        if _engine_install_running():
+            return "the video engine is being repaired; make the image again when that finishes"
+        st["attempts"] += 1
+        say("the image engine is not installed yet; adding it now "
+            "(about a minute, once; no models are downloaded)")
+        env = _music_install_env()
+        env["PATH"] = os.pathsep.join([str(uv.parent)] + [
+            x for x in env.get("PATH", "").split(os.pathsep) if x and x != str(uv.parent)])
+        # Same uv home as the app's setup (bootstrap.sh): its cache and Pythons
+        # stay inside the app's folder, and no user uv config applies.
+        runtime = uv.parent.parent
+        env.update({"UV_CACHE_DIR": str(runtime / "uv-cache"),
+                    "UV_PYTHON_INSTALL_DIR": str(runtime / "python"),
+                    "UV_PYTHON_PREFERENCE": "only-managed", "UV_NO_CONFIG": "1",
+                    "UV_PYTHON_BIN_DIR": str(runtime / "python-bin"),
+                    "UV_TOOL_BIN_DIR": str(runtime / "tool-bin")})
+        tail: list[str] = []
+        error = None
+        timer = None
+        try:
+            proc = subprocess.Popen(["/bin/bash", str(IMAGE_ENGINE_PACK)], cwd=str(ROOT),
+                                    env=env, stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    text=True, bufsize=1, errors="replace",
+                                    start_new_session=True)
+            timer = _kill_group_after(proc, IMAGE_ENGINE_WAIT_S)
+            for raw in proc.stdout:
+                for line in raw.replace("\r", "\n").splitlines():
+                    line = line.rstrip()
+                    if line:
+                        tail = (tail + [line])[-12:]
+            proc.wait(timeout=60)
+            if getattr(timer, "fired", False):
+                error = f"the install took longer than {IMAGE_ENGINE_WAIT_S // 60} minutes"
+        except Exception as exc:                                 # noqa: BLE001
+            error = f"the install could not run: {exc}"
+        finally:
+            if timer is not None:
+                timer.cancel()
+        if error is None and not _mflux_cli_present():
+            # mflux_pack.sh always exits 0 (best effort); uv's own text is not
+            # for people, so the reason is told in a few plain words.
+            error = _image_engine_install_reason(tail)
+        if error:
+            st.update(last_fail_ts=time.time(), error=error)
+            say(f"the image engine did not install ({error})")
+            return error
+        st.update(last_fail_ts=0.0, error=None)
+        say("image engine added; carrying on with the image")
+        return None
+
+
 def _analytics_pack_state() -> dict:
     """Current install state of the four optional packs. Booleans only.
 
@@ -22073,7 +22352,8 @@ _ANALYTICS_REFUSAL_REASONS = (
     ("pack_incomplete", ("model is incomplete. missing",)),
     # #206: a small Mac whose prompt encoding macOS stopped minutes ago, still
     # short of memory after a wait (ltx_encode_memory_hold).
-    ("memory_low", ("not enough free memory to read the prompt",)),
+    ("memory_low", ("not enough free memory to read the prompt",
+                   "not enough free memory to start a song")),
     # A training run whose LTX-2.3 weights are not on this Mac (fleet 2 Nov
     # 2026: 25 of 31 failed runs in a day, one Mac 22 times in an hour). The
     # message names the download and the Train tab offers it. Prefix:
@@ -50251,6 +50531,9 @@ if __name__ == "__main__":
     # Retain the explicit boot opt-in for managed installations.
     if (os.environ.get("PHOSPHENE_SEPARATOR_AUTOINSTALL") or "0") == "1":
         a2v_separator_boot()
+    # The Mac app adds a missing image engine inside the image job that needs it.
+    if image_engine_autoinstall_enabled():
+        agent_image_engine.MFLUX_AUTOINSTALL = image_engine_autoinstall
     threading.Thread(target=worker_loop, daemon=True).start()
     if VERSION_CHECK_ENABLED and not _dist.is_mac_app():
         threading.Thread(target=version_check_loop, daemon=True).start()

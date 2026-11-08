@@ -656,8 +656,9 @@ def health_check(config: ImageEngineConfig) -> tuple[bool, str]:
     if config.kind == "mflux":
         bin_path = _resolve_mflux_bin(config)
         if not bin_path:
-            return False, ("mflux not installed. Run: "
-                           "ltx-2-mlx/env/bin/pip install mflux")
+            fam = _resolve_mflux_family(config)
+            return False, mflux_missing_message(
+                MFLUX_FAMILY_BIN.get(fam, "mflux-generate"), fam)
         return True, f"mflux ready at {bin_path}; model={config.mflux_model}"
     if config.kind == "bfl":
         if not config.bfl_api_key:
@@ -802,6 +803,49 @@ def _resolve_mflux_family(config: ImageEngineConfig) -> str:
     if fam == "auto" or fam not in MFLUX_FAMILY_BIN:
         return _infer_mflux_family(config.mflux_model)
     return fam
+
+
+#: The Mac app only (set by the studio's __main__, never on import, so a test
+#: or a gate never pip-installs into a real venv). Called as
+#: ``MFLUX_AUTOINSTALL(on_log)`` when an image job finds no mflux CLI; returns
+#: None once the engine is in place, else a short reason it is not.
+#: Fleet 8 Nov (fw-20261107-1904): the app's setup never installed mflux (only
+#: Pinokio's install.js did), so every FLUX.2 / Qwen-Edit / Ideogram image on a
+#: Mac-app install that had not copied a Pinokio engine failed, and the message
+#: said "quit and reopen so setup can put it back", which did nothing.
+MFLUX_AUTOINSTALL = None
+
+
+def mflux_missing_message(bin_name: str, fam: str, install_problem: str | None = None) -> str:
+    """What an image job says when the mflux CLI is not there.
+
+    The image-engine pack (scripts/pinokio/mflux_pack.sh) is optional at
+    install, so a failed or skipped pack leaves no mflux CLI. This used to say
+    "<bin> not found ... `pip install -U mflux>=0.17` (see
+    docs/AGENTIC_FLOWS.md)": a terminal command, an eager upgrade this repo
+    forbids (it re-resolves transformers and breaks video), and a deleted doc
+    (fleet fw-20261107-0907: 11 failures on 7 Macs). It names the one-click
+    way back; on the Mac app, when the studio tried to add the engine itself,
+    it says that and why it did not work. The CLI name stays at the end for
+    logs and the fleet's grouping."""
+    if install_problem:
+        head = ("The image engine is not installed and Phosphene could not add it "
+                f"({install_problem.rstrip('.')}). ")
+        way = _dist.say(
+            "In Pinokio, click \"Install/repair image engines (Ideogram 4 + "
+            "Qwen-Edit)\" in Phosphene's menu; it keeps every model. ",
+            "Check that this Mac is online and has a few GB free, then make the "
+            "image again; if it keeps happening, report it with "
+            f"{_dist.MAC_REPORT_MENU} ")
+    else:
+        head = "The image engine is not installed, so images cannot start. "
+        way = _dist.say(
+            "In Pinokio, click \"Install/repair image engines (Ideogram 4 + "
+            "Qwen-Edit)\" in Phosphene's menu; it keeps every model. ",
+            "Quit Phosphene and open it again so setup can put it back; if "
+            "it keeps happening, report it with "
+            f"{_dist.MAC_REPORT_MENU} ")
+    return head + way + f"Video renders are not affected. ({bin_name} missing, family {fam})"
 
 
 def _resolve_mflux_bin(config: ImageEngineConfig) -> str | None:
@@ -1305,24 +1349,18 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
     bin_name = MFLUX_FAMILY_BIN.get(fam, "mflux-generate")
     fam_defaults = MFLUX_FAMILY_DEFAULTS.get(fam, MFLUX_FAMILY_DEFAULTS["flux1"])
 
+    install_problem = None
+    if not bin_path and MFLUX_AUTOINSTALL is not None:
+        # The Mac app's studio adds the missing engine itself, once, inside
+        # this job (fw-20261107-1904), then carries on with the image.
+        try:
+            install_problem = MFLUX_AUTOINSTALL(on_log)
+        except Exception as exc:                                  # noqa: BLE001
+            install_problem = f"the install could not run: {exc}"
+        bin_path = _resolve_mflux_bin(config)
+
     if not bin_path:
-        # The image-engine pack (scripts/pinokio/mflux_pack.sh) is optional at
-        # install, so a failed or skipped pack leaves no mflux CLI. This used to
-        # say "<bin> not found ... `pip install -U mflux>=0.17` (see
-        # docs/AGENTIC_FLOWS.md)": a terminal command, an eager upgrade this
-        # repo forbids (it re-resolves transformers and breaks video), and a
-        # deleted doc (fleet fw-20261107-0907: 11 failures on 7 Macs). It now
-        # names the one-click way back. The CLI name stays at the end for logs.
-        raise RuntimeError(
-            "The image engine is not installed, so images cannot start. "
-            + _dist.say(
-                "In Pinokio, click \"Install/repair image engines (Ideogram 4 + "
-                "Qwen-Edit)\" in Phosphene's menu; it keeps every model. ",
-                "Quit Phosphene and open it again so setup can put it back; if "
-                "it keeps happening, report it with "
-                f"{_dist.MAC_REPORT_MENU} ")
-            + f"Video renders are not affected. ({bin_name} missing, family {fam})"
-        )
+        raise RuntimeError(mflux_missing_message(bin_name, fam, install_problem))
 
     # 4.19.6: a Pillow the engine cannot import stops HERE, in a second, with
     # the way out - not 30 s later as an ImportError from inside mflux.

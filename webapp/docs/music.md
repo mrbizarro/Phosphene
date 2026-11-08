@@ -128,5 +128,6 @@ Click **Plan the video**. Planning is instant and free. It reads the beat, creat
 | The engine says it's unavailable, but the model files are downloaded | Open **Audio → Compose** and click **Repair music engine**. You do not need to download the model files again |
 [[/mac-app]]
 | *Music Studio stopped your song because your Mac was running low on memory* | Close other apps and browser tabs, then compose again. Nothing was saved for this song |
+| A song waits with *Waiting for memory* (Macs with 24 GB or less) | Your Mac has too little free memory to start a song. Quit other apps and it starts by itself; after 90 seconds it stops with a plain message instead of failing mid-song |
 | A song waits with *Waiting for the GPU* | Another task is using your Mac's graphics processor. Your song starts when that task finishes. Click **Stop** to cancel the wait |
 | A song was stopped | No partial song is saved. Click **Compose** to queue it again |
