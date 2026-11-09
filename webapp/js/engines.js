@@ -933,8 +933,9 @@ function _h3RenderFlexNote() {
   const text = document.getElementById('h3FlexNoteText');
   const btn = document.getElementById('h3FlexGet');
   if (h3SpeedPref() === 'flex_turbo' && !h3TriStepOn(cell)) {
-    box.hidden = false;
-    if (text) text.textContent = _h3FlexTurboNote(cell);
+    const message = _h3FlexTurboNote(cell);
+    box.hidden = !message;
+    if (text) text.textContent = message;
     if (btn) btn.hidden = true;
     return;
   }
@@ -942,10 +943,6 @@ function _h3RenderFlexNote() {
   box.hidden = !show;
   if (!show || !text) return;
   const name = fx.name || 'Pika H3 Flex';
-  const credit = 'By Pika Labs, running natively on your Mac. Powered by MiniMax H3 ('
-    + (fx.license || 'MiniMax H3 Community License') + ').';
-  // Preview (4.19.15): new on the Mac, so say so and ask for word back.
-  const preview = ' Preview: new on Mac, so tell us how it goes. Tip: name every person who should stay in the shot.';
   let msg = '';
   let canGet = false;
   if (!fx.supported) {
@@ -958,11 +955,13 @@ function _h3RenderFlexNote() {
       : 'Downloading ' + name + ': ' + (d.mb || 0) + ' / ' + (d.total_mb || 2639) + ' MB';
   } else if (!fx.downloaded) {
     const e = (fx.download || {}).error;
-    msg = name + ': Pika Labs\u2019 six-step H3, about ' + _h3EtaPlain(cell && cell.flex_eta)
-      + ' here. ' + credit + preview + (e ? ' Last try failed: ' + e : '');
+    msg = e ? 'Download failed: ' + e : name + ' needs a download.';
     canGet = true;
   } else if (h3FlexOn(cell)) {
-    msg = name + ' (' + (fx.forwards || 6) + ' steps). ' + credit + preview;
+    box.hidden = true;
+    text.textContent = '';
+    if (btn) btn.hidden = true;
+    return;
   } else {
     msg = name + ' renders Text and Image on 5-second windows; this shape uses Best.';
   }
@@ -1006,15 +1005,14 @@ function _h3RenderV13Note() {
   const btn = document.getElementById('h3V13Get');
   // Not while Pika H3 Flex is the choice: its own note says what renders.
   const show = !!(cell && cell.v13_min != null && _h3V13Mode() && !h3TriStepOn(cell)
-                  && h3SpeedPref() !== 'flex');
+                  && h3SpeedPref() === 'best');
   box.hidden = !show;
   if (!show || !text) return;
   const name = v.name || 'lightx2v v1.3';
-  const credit = 'By LightX2V (Apache-2.0 code; ' + (v.license || 'MiniMax H3 Community License') + ' weights).';
   let msg = '';
   let canGet = false;
   if (!v.supported) {
-    msg = 'Best on High takes about half the time with ' + name + '. ' + distText(
+    msg = name + ' needs an update. ' + distText(
       'Update H3: click "Update Hailuo H3 runner" in the Pinokio sidebar. Your weights stay.',
       'It needs a newer H3 runner, but the Mac app can\u2019t update the runner yet.');
   } else if (v.installing) {
@@ -1023,18 +1021,13 @@ function _h3RenderV13Note() {
       : 'Downloading ' + name + ': ' + (d.mb || 0) + ' / ' + (d.total_mb || 1320) + ' MB';
   } else if (!v.downloaded) {
     const e = (v.download || {}).error;
-    // "about half the time", not "down from <Best>": the Best half of the
-    // switch may show a fleet range, and two different "before" numbers on
-    // one screen would contradict each other.
-    msg = 'New: ' + name + ' runs Best on High in about ' + _h3EtaPlain(cell.v13_eta)
-      + ', about half the time. Richer detail in our side-by-side tests. ' + credit
-      + (e ? ' Last try failed: ' + e : '');
+    msg = e ? 'Download failed: ' + e : name + ' needs a download.';
     canGet = true;
-  } else if (h3V13On(cell, { fast: false })) {
-    msg = 'Best on High uses ' + name + ' (' + (v.forwards || 6) + ' steps). ' + credit
-      + ' Choose a Steps count to use the old Best sampler.';
   } else {
-    msg = 'Steps set: Best uses the old sampler instead of ' + name + '.';
+    box.hidden = true;
+    text.textContent = '';
+    if (btn) btn.hidden = true;
+    return;
   }
   text.textContent = msg;
   if (btn) {
@@ -1737,13 +1730,11 @@ function _h3FlexTurboTooltip(st) {
 }
 function _h3FlexTurboNote(cell) {
   const ft = h3FlexTurboState();
-  const credit = ' By akhaliq, fusing Pika H3 Flex (Pika Labs) with LightX2V’s Turbo; running natively on your Mac. Powered by MiniMax H3 ('
-    + (ft.license || 'MiniMax H3 Community License') + ').';
-  if (!ft.pro_active) return 'H3 Flex Turbo is part of Phosphene Pro. This render uses H3 Flex.' + credit;
-  if (!ft.supported) return 'H3 Flex Turbo needs a newer H3 runner.' + credit;
+  if (!ft.pro_active) return 'H3 Flex Turbo is part of Phosphene Pro. This render uses H3 Flex.';
+  if (!ft.supported) return 'H3 Flex Turbo needs a newer H3 runner.';
   if (ft.installing) { const d = ft.download || {}; return 'Downloading H3 Flex Turbo: ' + (d.mb || 0) + ' / ' + (d.total_mb || 295) + ' MB.'; }
-  if (!ft.downloaded) return 'H3 Flex Turbo: pick it in the engine picker to download it (0.3 GB).' + credit;
-  if (h3FlexTurboOn(cell)) return 'H3 Flex Turbo: a faster draft (about ' + _h3EtaPlain(cell && cell.flex_turbo_eta) + ' here), a little softer than H3 Flex. Try ideas fast, then render the keeper on Flex or Best. Fast motion can wobble.' + credit;
+  if (!ft.downloaded) return 'H3 Flex Turbo: pick it in the engine picker to download it (0.3 GB).';
+  if (h3FlexTurboOn(cell)) return '';
   return 'H3 Flex Turbo renders Text and Image on 5-second windows; this shape uses Best.';
 }
 function _h3FlexTurboMenuRow(e, active, surfaceMode) {
@@ -2351,7 +2342,7 @@ function _tierChipHtml(engine, kind, item, cell, active) {
   const basis = (ok && basisFn) ? basisFn(cell) : '';
   const title = flexLocked ? H3_FLEX_CELL_TIP
     : ok
-    ? ([(cell && cell.blurb) || item.blurb || '', basis].filter(Boolean).join(' — '))
+    ? basis
     : (cell && cell.unavailable_reason) || 'Not available on this install.';
   const attr = (kind === 'quality') ? (E.qAttr || `${engine}-quality`)
                                     : (E.lAttr || `${engine}-length`);
@@ -2750,26 +2741,16 @@ function _h3ApplyShape(qualityKey, lengthKey, opts) {
     const ov = (document.getElementById('h3_steps') || {}).value || 'auto';
     s.value = (ov !== 'auto' && /^\d+$/.test(ov)) ? parseInt(ov, 10) : cell.steps;
   }
-  // Cells carry every honest note they owe, and the server owns the text. Two
-  // exist today and they now COMPOSE: a chained length warns that one prompt is
-  // asked of every window (so a scripted line lands once per window) at ANY
-  // quality, and the Draft canvas says out loud that its 0.25 MP pass resolves
-  // composition and timing but not faces. Surfaced where the user is choosing,
-  // not in a tooltip.
+  // Explanations belong in Docs; the controls keep only actionable status.
   const noteEl = document.getElementById('h3TierNote');
   if (noteEl) {
-    const n = cell.note || '';
-    noteEl.textContent = n;
-    noteEl.hidden = !n;
+    noteEl.textContent = '';
+    noteEl.hidden = true;
   }
-  // H3-14: the same blurb the chip's own title= tooltip carries, surfaced as
-  // a visible line so it isn't hover-only (unreachable on trackpad-averse
-  // and touch use, and easy for a stale sentence to hide in for months).
   const blurbEl = document.getElementById('h3TierBlurb');
   if (blurbEl) {
-    const b = cell.blurb || '';
-    blurbEl.textContent = b;
-    blurbEl.hidden = !b;
+    blurbEl.textContent = '';
+    blurbEl.hidden = true;
   }
   // The export line is per (canvas × target): switching quality changes whether
   // this canvas exports clean or padded, so it has to be re-read here too.

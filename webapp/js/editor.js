@@ -15413,6 +15413,8 @@ document.addEventListener('click', (ev) => {
 document.getElementById('sbStyle') && document.getElementById('sbStyle')
   .addEventListener('input', () => {});
 
+let _videoModeBeforeImages = 't2v';
+
 function workflowSwitch(name) {
   // 2026-05-17 — Characters is no longer its own top-level tab. The
   // chip strip is integrated into Manual (T2V). If we get a stale
@@ -15474,6 +15476,7 @@ function workflowSwitch(name) {
     // hide #genForm + show #studioSection on top of that.
     if (manual) manual.style.display = 'none';
     if (studio) studio.classList.add('show');
+    if (currentMode !== 'image') _videoModeBeforeImages = currentMode;
     if (typeof setMode === 'function') setMode('image');
   } else if (name === 'train') {
     // Train Character is its own workflow tier. Hide the manual render
@@ -15507,7 +15510,11 @@ function workflowSwitch(name) {
     if (edTab) edTab.style.display = 'flex';
     if (typeof edInit === 'function') edInit();
   } else {
-    // Manual — show the video form, restore the previous video mode.
+    // Restore Video's mode before repainting its picker, including when
+    // returning from Images through another workflow tab.
+    if (currentMode === 'image' && typeof setMode === 'function') {
+      setMode(_videoModeBeforeImages);
+    }
     if (manual) manual.style.display = '';
   }
   // The Ideogram edit canvas belongs to the Images workflow only — re-sync

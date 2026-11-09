@@ -55,5 +55,12 @@
       "Completion sounds no longer repeat when the history refreshes, and the visible Studio stays quiet."
     ],
     "pro": []
+  },
+  "5.0.12": {
+    "free": [
+      "Installed video models stay selectable when returning from Images.",
+      "Cleaner shot controls, with detailed explanations in Docs."
+    ],
+    "pro": []
   }
 }
