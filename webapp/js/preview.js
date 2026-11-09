@@ -2058,11 +2058,13 @@ async function refreshModelsModal({ silent = false } = {}) {
         : h3.preparing
         ? 'Getting ready on this Mac'
         : distText('Available to install · one click in the Pinokio sidebar',
-                   'Not available in the Mac app yet');
+                   (h3.app_install && h3.app_install.supported && h3.app_install.ram_ok)
+                     ? (h3.app_install.active ? 'Downloading on this Mac' : 'Ready to download · one click')
+                     : 'Not available on this Mac');
       const btn = ready
         ? `<button class="ghost" disabled>Installed</button>`
         : h3.preparing ? ''
-        : `<button onclick="openH3InstallCard()">${distText('How to install', 'About H3')}</button>`;
+        : `<button onclick="openH3InstallCard()">${distText('How to install', (h3.app_install && h3.app_install.supported && h3.app_install.ram_ok) ? 'Download' : 'About H3')}</button>`;
       h3Row = `
         <li class="${cls}">
           <span class="icon">${icon}</span>

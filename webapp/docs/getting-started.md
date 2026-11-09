@@ -98,7 +98,7 @@ Updating an existing install downloads and removes nothing.
 [[mac-app]]
 - The version pill shows your version and commit. Click it to copy your build details for a bug report.
 - Updates come only from **Phosphene → Check for Updates…**. Your queue, settings, models and finished work are kept.
-- To repair the music engine, open **Audio → Compose** and click **Repair music engine**. Hailuo H3 is not available in the Mac app yet.
+- To repair the music engine, open **Audio → Compose** and click **Repair music engine**. Download Hailuo H3 from its card in the engine switch.
 [[/mac-app]]
 
 ## The thank-you card {#star}

@@ -28,8 +28,8 @@ Both entries are in the sidebar while the panel is running.
 Do that, then choose Settings → **Hailuo H3 model** → Automatic or Compact. Below 16 GB, H3 is not available: render on LTX, which serves every mode.
 [[/pinokio]]
 [[mac-app]]
-- Hailuo H3 is not available in the Mac app yet.
-- Render on LTX.
+- Below 16 GB, Hailuo H3 is not available: render on LTX, which serves every mode.
+- From 16 GB up, download Hailuo H3 from its card (click **Hailuo H3** in the engine switch). Phosphene builds its compact engine after the download; Settings → **Hailuo H3 model** chooses between Automatic, Full and Compact.
 [[/mac-app]]
 
 ## A model or add-on is not downloaded {#missing}

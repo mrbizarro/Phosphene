@@ -131,7 +131,7 @@ Image mode works on H3 — the picture is the first frame. The **Orientation** r
 **H3 and memory.** The full H3 engine needs 60 GB. From 16 GB up, H3 runs on its compact Q8 engine, which **Install Hailuo H3** in Pinokio's Phosphene sidebar builds locally (about 5 minutes, ~22 GB, no extra download). Settings → **Hailuo H3 model** chooses between Automatic, Full and Compact. Below 16 GB, H3 is not offered — render on LTX. From 16 GB you make Draft and Standard clips, from 18 GB also High; Clean up sound and chained clips need 36 GB. See [Install H3](#docs/hailuo-h3/install) and [Troubleshooting](#docs/troubleshooting/memory).
 [[/pinokio]]
 [[mac-app]]
-**H3 and memory.** Hailuo H3 is not available in the Mac app yet. Render on LTX. See [Install H3](#docs/hailuo-h3/install) and [Troubleshooting](#docs/troubleshooting/memory).
+**H3 and memory.** The full H3 engine needs 60 GB. From 16 GB up, H3 runs on its compact engine, which Phosphene builds after you download H3 from its card (click **Hailuo H3** in the engine switch). From 16 GB you make Draft and Standard clips, from 18 GB also High; Clean up sound and chained clips need 36 GB. Below 16 GB, render on LTX. See [Install H3](#docs/hailuo-h3/install) and [Troubleshooting](#docs/troubleshooting/memory).
 [[/mac-app]]
 
 ## Upscale and export {#upscale}

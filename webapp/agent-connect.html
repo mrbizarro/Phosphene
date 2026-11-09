@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Connect an agent · Phosphene</title><link rel="stylesheet" href="/webapp/style/agent-connect.css"></head>
+<body><main><h1>Connect an agent</h1><p>Keep Phosphene open. Copy the command for your agent and run it in Terminal. For a desktop client, copy its configuration.</p>
+<label for="client">Your agent</label><select id="client"><option value="claude_code">Claude Code</option><option value="codex">Codex</option><option value="mcp_config">Claude Desktop / other MCP client</option></select>
+<pre id="command">Loading this Mac’s connection…</pre><button id="copy" disabled>Copy command</button><p id="status" role="status"></p>
+<p>These paths belong to this installation. After an update, return here if your agent needs a new connection.</p></main><script src="/webapp/js/agent-connect.js"></script></body></html>

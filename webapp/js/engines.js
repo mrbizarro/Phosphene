@@ -856,7 +856,7 @@ function renderH3Turbo() {
     fastBtn.classList.toggle('cell-only-best', cellOnlyBest);
     fastBtn.title = !tri.supported
       ? distText('Fast needs a newer H3 runner — run "Update Hailuo H3 runner" in the Pinokio sidebar (weights stay).',
-                 'Fast needs a newer Hailuo H3 runner. Updating the runner isn\u2019t available in the Mac app yet.')
+                 'Fast needs a newer Hailuo H3 runner. Phosphene brings the Hailuo H3 runner up to date by itself; quit and reopen Phosphene if this stays.')
       : !tri.downloaded
         ? '3 steps — about 4× faster, great for drafts and most shots. One click installs the '
           + '180 MB adapter (' + (tri.license || 'MiniMax H3 Community License') + ').'
@@ -951,7 +951,7 @@ function _h3RenderFlexNote() {
   if (!fx.supported) {
     msg = name + ' needs a newer H3 runner. ' + distText(
       'Click "Update Hailuo H3 runner" in the Pinokio sidebar. Your weights stay.',
-      'Updating the runner isn\u2019t available in the Mac app yet.');
+      'Phosphene brings the Hailuo H3 runner up to date by itself; quit and reopen Phosphene if this stays.');
   } else if (fx.installing) {
     const d = fx.download || {};
     msg = d.status === 'building' ? 'Preparing ' + name + ' on your Mac…'
@@ -1222,7 +1222,7 @@ async function h3SpeedClick(which) {
     if (!fx.supported) {
       toastF(distText('Pika H3 Flex needs a newer Hailuo H3 runner. Run "Update Hailuo H3 runner" in the '
              + 'Pinokio sidebar — your weights stay.',
-             'Pika H3 Flex needs a newer Hailuo H3 runner. Updating the runner isn\u2019t available in the Mac app yet.'), 'danger');
+             'Pika H3 Flex needs a newer Hailuo H3 runner. Phosphene brings the Hailuo H3 runner up to date by itself; quit and reopen Phosphene if this stays.'), 'danger');
       return;
     }
     // Show the note (credit + the Get button) for the one explicit click.
@@ -1238,7 +1238,7 @@ async function h3SpeedClick(which) {
   if (!tri.supported) {
     toast(distText('Fast needs a newer Hailuo H3 runner. Run "Update Hailuo H3 runner" in the Pinokio '
           + 'sidebar — your weights stay.',
-          'Fast needs a newer Hailuo H3 runner. Updating the runner isn\u2019t available in the Mac app yet.'), 'danger');
+          'Fast needs a newer Hailuo H3 runner. Phosphene brings the Hailuo H3 runner up to date by itself; quit and reopen Phosphene if this stays.'), 'danger');
     return;
   }
   if (tri.installing) { toast('The Fast adapter is already installing — watch the log.', 'ok'); return; }

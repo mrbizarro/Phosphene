@@ -71,3 +71,8 @@ def agents_payload() -> dict:
 @get("/agents/info")
 def get_agents_info(h, parsed) -> None:
     h._json(agents_payload())
+
+
+@get("/agents/connect")
+def get_agents_connect(h, parsed) -> None:
+    h._ok((P.ROOT / "webapp" / "agent-connect.html").read_bytes())

@@ -322,6 +322,17 @@ def get_status(h, parsed) -> None:
     # nowhere, so a client deciding "is it safe to stop the studio" must read
     # this too: {busy, holder, since, outside_queue}.
     payload["gpu"] = P.gpu_gate_status()
+    # One restart contract for native Studio, Pro and app updates. Include
+    # optional downloads that do not own the render queue or GPU.
+    active_states = {"running", "starting", "downloading", "building", "installing", "repairing", "stopping"}
+    installs = [getattr(P, name, {}) for name in (
+        "MUSIC_INSTALL", "SPEECH_INSTALL", "ENGINE_REPAIR", "H3_REPAIR",
+        "H3_APP_INSTALL", "H3_APP_RUNNER_STATE", "DOWNLOAD", "IMAGE_REPO_DOWNLOAD",
+        "_ph3image_dl_state", "_h3_turbo_dl_state", "_h3_tristep_dl_state",
+        "_h3_flex_dl_state", "_h3_flex_turbo_dl_state", "_h3_v13_dl_state")]
+    payload["restart_busy"] = any(
+        d.get("active") or d.get("running") or d.get("state") in active_states or d.get("status") in active_states
+        for d in installs) or P.app_h3_prep() == "building"
     # Mac app only: the app's own model download (app_models.json). The
     # "Base models needed" card names it instead of offering a second fetch.
     _app = P.app_models_state()

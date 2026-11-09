@@ -4,6 +4,9 @@
 # matches /error:/i or /errno /i (pinokiod kernel/shells.js default `on`
 # handlers), and git's own "fatal: unable to access ..." has neither.
 set -euo pipefail
+if [ "${PHOSPHENE_DISTRIBUTION:-}" = mac-app ]; then
+  exec "${LTX_HELPER_PYTHON:-python3}" scripts/pinokio/music_app_source.py
+fi
 MUSIC_CHECKOUT="${LTX_MUSIC_ROOT:-$PWD/yue2-mlx}"
 if [ ! -d "$MUSIC_CHECKOUT/.git" ]; then
   git clone --no-checkout https://github.com/vanch007/mlx-Yue "$MUSIC_CHECKOUT" || {

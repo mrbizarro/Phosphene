@@ -57,7 +57,7 @@ You need an Apple Silicon Mac (M1 or newer).
 | **Background extras**: Gemma 3 (for **Enhance** and the Storyboard planner) and four small add-ons (LoRAs) for Upscale & Face Fix, Motion Control, Ingredients and Colorize | 10.7 GB | When a feature first needs one: it says so and offers **Download now**. Also from the Models window |
 | **LTX-2.5 Q8 weights**, for trained characters and voices | 30.02 GB | Optional, from **Settings → Models** |
 | **High add-on**, for High quality, Keyframes and Extend on LTX | 29.50 GB | Optional, from the Models window (click the health chip, then **Models**) |
-| **Hailuo H3**, the second video engine | about 75 GB | Not available in the Mac app yet. Render on LTX. See [Hailuo H3](#docs/hailuo-h3/install) |
+| **Hailuo H3**, the second video engine | about 75 GB | Click **Hailuo H3** in the engine switch, then **Download Hailuo H3**. See [Hailuo H3](#docs/hailuo-h3/install) |
 | **Music engine (YuE2)** | about 11 GB | Optional, from **Audio → Compose**. Click **Install music engine**. See [Music Studio](#docs/music/install) |
 | **LTX-2.3**, needed only to *train* a character | about 20 GB, plus about 21 GB for the trainer | Offered when you open **Train Character** |
 [[/mac-app]]
@@ -113,7 +113,7 @@ Use the menus at the top of the screen to manage Phosphene.
 - **Help → Open Logs Folder** opens the log files folder.
 - **Quit Phosphene** (⌘Q) quits the app.
 
-Optional model packs are in **Settings → Models**. Install or repair the music engine in **Audio → Compose**. Hailuo H3 and the image-engine pack are not available in the Mac app yet.
+Optional model packs are in **Settings → Models**. Install or repair the music engine in **Audio → Compose**. Download Hailuo H3 from its card in the engine switch. The image-engine pack is not available in the Mac app yet.
 [[/mac-app]]
 
 ## Update Phosphene {#update}
@@ -131,7 +131,7 @@ Optional model packs are in **Settings → Models**. Install or repair the music
 - The version pill shows your version and commit. Click it to copy your build details for a bug report.
 - Updates come only from **Phosphene → Check for Updates…**. Your queue, settings, models and finished work are kept.
 - To repair the music engine, open **Audio → Compose** and click **Repair music engine**. Your downloaded model files are kept.
-- Hailuo H3 is not available in the Mac app yet.
+- Download Hailuo H3 from its card: click **Hailuo H3** in the engine switch. A stopped download resumes where it left off.
 [[/mac-app]]
 
 [[pinokio]]

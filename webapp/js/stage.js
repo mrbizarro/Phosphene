@@ -608,6 +608,7 @@ function ph3imageRenderPill(pill, info) {
   if (_PH3IMAGE_POLL) { clearInterval(_PH3IMAGE_POLL); _PH3IMAGE_POLL = null; }
   if (r === 'h3_missing' || r === 'engine_too_old') {
     pill.dataset.state = 'missing-engine';
+    if (isMacApp()) pill.dataset.ph3 = 'h3-setup';
     pill.innerHTML = warn + (r === 'h3_missing' ? 'needs Hailuo H3' : 'update the H3 runner');
     pill.title = ph3imageNotReady(info);
     return true;
@@ -641,6 +642,7 @@ async function ph3imageInstall() {
 
 function imgStudioOnPillClick() {
   const pill = document.getElementById('imgStudioEnginePill');
+  if (pill && pill.dataset.ph3 === 'h3-setup') { openH3InstallCard('image'); return; }
   if (pill && pill.dataset.ph3 === 'download') { ph3imageInstall(); return; }
   if (pill && pill.dataset.ph3 === 'downloading') {
     const st = document.getElementById('imgStudioStatus');

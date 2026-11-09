@@ -742,7 +742,7 @@ function setEngine(engine, opts) {
       target = fallback.id;
       reason = 'This ' + e.label + ' runner predates ' + (H3_MODE_LABEL[currentMode] || currentMode)
              + distText(' — press Update in Pinokio (your weights stay). Back on ',
-                        '. Updating it isn\u2019t available in the Mac app yet. Back on ')
+                        '. Phosphene brings it up to date by itself (quit and reopen Phosphene if this stays). Back on ')
              + fallback.label + ' for now.';
     }
   }
@@ -991,6 +991,11 @@ function updateH3Availability(s) {
                     || (next.flex_turbo || {}).installing || (H3.flex_turbo || {}).installing);
   H3 = next;
   window._ENGINE_PROBES.h3 = next;
+  // The download card follows every status tick while it is open (5.0.9).
+  if (document.getElementById('h3AppInstallBox')) {
+    if (_h3AppInstallLocal && !(_h3AppInstallLocal.until > Date.now())) _h3AppInstallLocal = null;
+    try { h3AppInstallRender(); } catch (e) {}
+  }
   // A running 3-step download prints its progress on the pill.
   if (_triDl && !changed && typeof renderH3Turbo === 'function'
       && typeof currentEngine === 'function' && currentEngine() === 'h3') {
@@ -1031,6 +1036,9 @@ function updateH3Availability(s) {
 let _h3ContinuityRecipe = 'on';
 let _h3CardSeen = false;
 function openH3InstallCard(source) {
+  // 5.0.9: inside the Mac app the card IS the download, so it always opens (a nudge
+  // that points at a card with a button on it would only add a click).
+  if (_h3AppInstallOffered()) { _openH3AppInstallCard(); return; }
   if (source === 'chip' && _h3CardSeen) { _h3NudgeEngineOffer(); return; }
   const m = document.getElementById('h3InstallModal');
   const body = document.getElementById('h3InstallBody');
@@ -1164,6 +1172,103 @@ function openH3InstallCard(source) {
   _h3CardSeen = true;
   if (typeof licencesLoad === 'function') licencesLoad(true).then(licenceStatusRefresh);
 }
+// ---- 5.0.9: Download Hailuo H3 inside the Mac app ----------------------------------
+// Modelled on the music engine's install card (characters.js musicInstallRender): one
+// button, a progress bar while it runs, Stop, and Resume read from what is on disk
+// (status h3.app_install.resumable), so a quit in the middle never strands anyone.
+// The server runs the runner build, the checksummed weights and the compact engine
+// (mlx_ltx_panel.py h3_app_install_*); the H3 licence screen comes first.
+function _h3AppInstallOffered() {
+  const ai = (H3 && H3.app_install) || null;
+  return !!(isMacApp() && ai && ai.supported && !H3.available);
+}
+function _openH3AppInstallCard() {
+  const body = document.getElementById('h3InstallBody');
+  if (body) body.innerHTML = '<div id="h3AppInstallBox" class="music-install-panel"></div>';
+  const title = document.getElementById('h3InstallTitle');
+  if (title) title.textContent = 'Hailuo H3';
+  const m = document.getElementById('h3InstallModal');
+  if (m) m.style.display = 'flex';
+  _h3CardSeen = true;
+  h3AppInstallRender();
+  if (typeof licencesLoad === 'function') licencesLoad(true).then(licenceStatusRefresh);
+}
+function _h3Gb(n) {
+  const v = Number(n || 0) / 1e9;
+  return v >= 10 ? String(Math.round(v)) : v.toFixed(1);
+}
+let _h3AppInstallLocal = null;     // the click's own error, until the next status says more
+function h3AppInstallRender() {
+  const el = document.getElementById('h3AppInstallBox');
+  if (!el) return;
+  const ai = Object.assign({}, (H3 && H3.app_install) || {}, _h3AppInstallLocal || {});
+  const total = ai.total_bytes || 75.4e9;
+  let html;
+  if (H3.available) {
+    html = `<p class="mi-lead"><b>Hailuo H3 is ready.</b> Pick it in the engine switcher: one prompt in, video with dialogue and sound out.</p>
+      <div class="mi-actions"><button type="button" class="primary" onclick="closeH3InstallCard();if(typeof setEngine==='function')setEngine('h3')">Use Hailuo H3</button></div>`;
+  } else if (!ai.ram_ok) {
+    html = `<p class="mi-lead">Hailuo H3 needs at least ${escapeHtml(String(ai.min_ram_gb || 16))} GB of unified memory, so it can’t run on this Mac. Everything else in Phosphene works without it.</p>`;
+  } else if (ai.active) {
+    const pct = ai.percent || 1;
+    const step = `Step ${(ai.step_index || 0) + 1} of ${ai.steps || 4} · ${escapeHtml(ai.step_label || '')}`;
+    const bytes = ai.bytes_total ? ` · ${_h3Gb(ai.bytes_done)} of ${_h3Gb(ai.bytes_total)} GB` : '';
+    html = `<p class="mi-lead"><b>${ai.state === 'stopping' ? 'Stopping…' : 'Downloading Hailuo H3…'}</b> ${pct}%</p>
+      <div class="progress-bar"><div class="fill" style="width:${pct}%"></div></div>
+      <p class="mi-sub">${step}${bytes}</p>
+      <p class="mi-line">${escapeHtml(ai.last_line || '')}</p>
+      <div class="mi-actions"><button type="button" class="danger" onclick="h3AppInstallStop()" ${ai.state === 'stopping' ? 'disabled' : ''}>Stop</button>
+      <span class="mi-note">Keep using Phosphene meanwhile. If you quit, the download carries on from where it stopped the next time Phosphene opens.</span></div>`;
+  } else {
+    const failed = ai.state === 'failed' && ai.error;
+    const stopped = ai.state === 'stopped';
+    const left = ai.remaining_bytes != null ? ai.remaining_bytes : total;
+    const label = ai.weights_complete ? 'Finish setting up Hailuo H3 (no download)'
+      : ai.resumable ? `Resume download (${_h3Gb(ai.done_bytes)} of ${_h3Gb(total)} GB done)`
+      : `Download Hailuo H3 (${_h3Gb(total)} GB)`;
+    const enough = ai.enough_space !== false;
+    const disk = ai.need_bytes
+      ? `Needs ${_h3Gb(ai.need_bytes)} GB free (the ${ai.resumable ? 'rest of the ' : ''}download plus about 25 GB for the compact engine it builds). This Mac has ${_h3Gb(ai.free_bytes)} GB free.`
+      : '';
+    html = `<p class="mi-lead"><b>Hailuo H3 is Phosphene’s second video engine:</b> one prompt in, video <em>and</em> dialogue <em>and</em> sound out, in one pass, fully on this Mac. It sits beside LTX in the engine switcher.</p>
+      <p class="mi-sub">${ai.weights_complete ? 'Its files are already on this Mac; this only sets up the engine.'
+        : `A one-time ${_h3Gb(left)} GB download${ai.resumable ? ' left' : ''}. It resumes where it stopped, even after you quit Phosphene.`}
+        Runs on this Mac (${escapeHtml(String(Math.round(H3.ram_gb || 0)))} GB).</p>
+      ${disk ? `<p class="mi-sub${enough ? '' : ' mi-error'}">${escapeHtml(disk)}${enough ? '' : ' Free some space first.'}</p>` : ''}
+      <p class="mi-sub h3-licence-step">${escapeHtml(ai.licence_note || 'MiniMax H3 Community License: territory restrictions apply.')}
+        <button type="button" class="ghost-btn" onclick="openLicence('h3', {force: false}).then(licenceStatusRefresh)">Read the licence</button>
+        <span data-licence-status="h3"></span></p>
+      ${failed ? `<p class="mi-error">${escapeHtml(ai.error)}</p>` : ''}
+      ${stopped ? '<p class="mi-sub">Download stopped. Everything downloaded so far is kept.</p>' : ''}
+      <div class="mi-actions"><button type="button" class="primary" onclick="h3AppInstallStart()" ${enough ? '' : 'disabled'}>${escapeHtml(label)}</button></div>`;
+  }
+  el.innerHTML = html;
+  if (typeof licenceStatusRefresh === 'function') { try { licenceStatusRefresh(); } catch (e) {} }
+}
+async function h3AppInstallStart() {
+  _h3AppInstallLocal = null;
+  // The licence first: the server refuses with 451 until it is accepted on this Mac.
+  if (typeof openLicence === 'function') {
+    const ok = await openLicence('h3', { force: false });
+    if (!ok) { h3AppInstallRender(); return; }
+  }
+  try {
+    const r = await fetch('/h3/app-install', { method: 'POST', body: new URLSearchParams({ kind: 'install' }) });
+    const result = await r.json().catch(() => ({}));
+    if (!r.ok && !result.install) throw new Error(result.error || 'Could not start the download');
+    if (result.started || result.install) {
+      H3.app_install = Object.assign({}, H3.app_install || {}, { active: true, state: 'running', percent: 1, step_index: 0 });
+    }
+  } catch (e) {
+    _h3AppInstallLocal = { state: 'failed', active: false, error: e.message || String(e), until: Date.now() + 10000 };
+  }
+  h3AppInstallRender();
+  if (typeof poll === 'function') poll();
+}
+async function h3AppInstallStop() {
+  try { await fetch('/h3/app-install/stop', { method: 'POST' }); } catch (_) {}
+  if (typeof poll === 'function') poll();
+}
 function closeH3InstallCard() {
   const m = document.getElementById('h3InstallModal');
   if (m) m.style.display = 'none';
@@ -1199,7 +1304,7 @@ function _h3NudgeEngineOffer() {
   // first draft, and it clipped exactly where the instruction lived.
   // H3-39: same "· 75 GB" default the modal title had, wrong whenever this is
   // a build-only or repair nudge — nothing downloads in either case.
-  const nudgeMsg = isMacApp() ? (H3.preparing ? 'Hailuo H3 · getting ready on this Mac.' : 'Hailuo H3 · not available in the Mac app yet.')
+  const nudgeMsg = isMacApp() ? (H3.preparing ? 'Hailuo H3 · getting ready on this Mac.' : 'Hailuo H3 · download it from its card.')
     : (H3.reason === 'missing_q8_dit')
     ? 'Hailuo H3 · build the compact engine, no download — from the Pinokio sidebar.'
     : H3.repairable
@@ -6556,7 +6661,7 @@ function useAsAddSoundSource(path) {
   if (!path) { phosToast('Pick a clip first.', { kind: 'warn' }); return; }
   if (typeof h3CanServe !== 'function' || !h3CanServe('v2a')) {
     phosToast(distText('Add sound needs Hailuo H3 with an up-to-date runner — press Update in Pinokio.',
-                       'Add sound needs Hailuo H3 with an up-to-date runner, which isn\u2019t available in the Mac app yet.'), { kind: 'warn', duration: 6000 });
+                       'Add sound needs an up-to-date Hailuo H3 runner. Phosphene brings the Hailuo H3 runner up to date by itself; quit and reopen Phosphene if this stays.'), { kind: 'warn', duration: 6000 });
     return;
   }
   if (typeof workflowSwitch === 'function') { try { workflowSwitch('manual'); } catch (e) {} }
@@ -9487,3 +9592,4 @@ function proHintDismiss(job) {
 }
 
 Object.assign(globalThis, {proHintSee, proHintDismiss});
+Object.assign(globalThis, {h3AppInstallStart, h3AppInstallStop, h3AppInstallRender});

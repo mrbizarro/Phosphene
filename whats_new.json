@@ -30,5 +30,19 @@
     "pro": [
       "In Mac app 5.0.8, Pro checks for updates every 10 minutes while the app is open. It waits until your render finishes before switching."
     ]
+  },
+  "5.0.9": {
+    "free": [
+      "Hailuo H3 clips now all play at the same loudness, whichever speed you pick.",
+      "Resuming a music download reuses engine code already on your Mac and keeps the model files already downloaded.",
+      "Mac app: download Hailuo H3 right inside Phosphene. Click Hailuo H3 in the engine switcher. If you quit halfway, it carries on where it stopped.",
+      "Music setup in the Mac app no longer needs Apple developer tools.",
+      "The Mac app keeps installed Speech and Music engines across updates, remembers your video generation choice, and waits for installs and downloads before updating.",
+      "Connect your agent from Help → Connect an agent in the Mac app."
+    ],
+    "pro": [
+      "Clips from Pro's faster H3 lane now have full-volume sound.",
+      "Installing Speech and switching video generations no longer break the next Pro startup check."
+    ]
   }
 }

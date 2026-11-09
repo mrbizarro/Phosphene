@@ -74,6 +74,7 @@ SEQ_NOUN_CAP = "Sequence"
 # Pre-removal snapshot: git tag pre-agent-removal-2026-05-15.
 import image_engine as agent_image_engine
 import hostinfo
+import h3_loudness
 # 4.20: what install.js fetches before Start and what the panel fetches after
 # (required_files.json -> install). Stdlib only; install.js runs it too.
 import install_plan
@@ -1293,6 +1294,9 @@ MODEL_VERSIONS: tuple[dict, ...] = (
 # be exercised side-by-side before it becomes the default; an unknown value
 # falls back to the registry default rather than taking the panel down.
 _MODEL_VERSION_ENV = (os.environ.get("LTX_MODEL_VERSION", "") or "").strip()
+if _dist.is_mac_app() and not _MODEL_VERSION_ENV:
+    from mac_preferences import load_generation
+    _MODEL_VERSION_ENV = load_generation()
 
 
 def default_model_version_id() -> str:
@@ -3905,7 +3909,7 @@ def _h3_install_turbo(push_log, download_fn=None, embedder_fn=None) -> dict:
                     "support in its runner). Re-run 'Install Hailuo H3' "
                     "from the Phosphene sidebar in Pinokio to update the "
                     "clone — it keeps every weight already on disk.",
-                    "Turbo isn't available for Hailuo H3 in the Mac app yet.")}
+                    H3_MAC_RUNNER_BEHIND)}
     target = _h3_turbo_dir()
     if any((target / f).is_file() for f, _v, _fb in H3_TURBO_LORA_CANDIDATES):
         # The adapter is here; an install from before the adaLN companion came
@@ -9532,6 +9536,17 @@ H3_MIN_RAM_GB_Q8 = 36.0
 H3_MIN_RAM_GB_LOWMEM = 16.0
 
 
+#: The Mac-app half of every "this runner predates X" sentence (5.0.9). Inside the app
+#: the Studio keeps the runner on the engine commit it pins by itself
+#: (h3_app_runner_loop, a little after every start), so the honest next step is that,
+#: not a Pinokio button and not "not available".
+H3_MAC_RUNNER_BEHIND = ("Phosphene brings the Hailuo H3 runner up to date by itself a moment "
+                        "after it opens; quit and reopen Phosphene if this stays.")
+#: Where a Mac-app user gets Hailuo H3 (5.0.9: the download card).
+H3_MAC_GET = ("Download it from its card: click Hailuo H3 in the engine switcher "
+              "(about 75 GB, once).")
+
+
 def h3_q8_floor_gb() -> float:
     """The RAM floor of the Q8 lane for THIS install: 16 GB when the runner can stream, else 36."""
     return H3_MIN_RAM_GB_LOWMEM if _h3_runner_has_flag("--low-memory") else H3_MIN_RAM_GB_Q8
@@ -12208,7 +12223,7 @@ def h3_cell_gate(cell: dict) -> tuple[bool, str]:
                 f"`--chain-windows` on the installed H3 runner. " + _dist.say(
                     "Re-run 'Install Hailuo H3' from the Phosphene sidebar to "
                     "update the clone — your weights stay.",
-                    "This part of Hailuo H3 isn't available in the Mac app yet."))
+                    H3_MAC_RUNNER_BEHIND))
     if cell.get("fast_hd"):
         if cell.get("dense"):
             return (False, "Fast HD is built from 5 s windows; pick 3s, 5s, 10s or 15s.")
@@ -14322,7 +14337,7 @@ def h3_env_repair_start() -> tuple[int, dict]:
         return 409, {"error": _dist.say(
             "Hailuo H3 is not installed here - install it "
             "from the Pinokio sidebar first.",
-            "Hailuo H3 isn't available in the Mac app yet.")}
+            "Hailuo H3 isn't downloaded yet. " + H3_MAC_GET)}
     if _h3_deps_running():
         return 409, {"error": "H3's packages are already being installed "
                               "(Install, Update or a repair) - this clears "
@@ -14648,6 +14663,22 @@ def _h3_q8_lane_mac(ram: str) -> str:
     if state == "needs_space":
         return ("Hailuo H3 needs about 25 GB of free space on this Mac to get ready; "
                 "it turns on by itself once there is room. Render on LTX for now.")
+    with H3_APP_INSTALL_LOCK:
+        downloading = bool(H3_APP_INSTALL.get("active"))
+    if downloading:
+        return ("Hailuo H3 is downloading on this Mac and turns on by itself when it is "
+                "ready. Render on LTX for now.")
+    if h3_app_install_supported():
+        try:
+            weights_here = bool(h3_paths().get("weights_ok"))
+        except Exception:                                          # noqa: BLE001
+            weights_here = False
+        if weights_here:
+            return ("Hailuo H3's files are on this Mac; it finishes setting up by itself "
+                    "(or press Download Hailuo H3 on its card). Render on LTX for now.")
+        return (f"Hailuo H3 can run on this Mac ({ram}). Download it from its card "
+                f"(click Hailuo H3 in the engine switcher): about 75 GB, once. "
+                f"Render on LTX until then.")
     return (f"Hailuo H3 can run on this Mac ({ram}), but "
             f"it isn't set up in the Mac app yet. Render on LTX.")
 
@@ -14693,6 +14724,14 @@ def h3_ram_verdict() -> dict:
     a promise at every length. See docs/H3_ENGINE.md.
     """
     q8_floor = h3_q8_floor_gb()
+    # 5.0.9: on the Mac app with no runner yet, the runner the in-app download installs
+    # is the pinned one, which streams from disk (--low-memory): its floor is the one to
+    # state. A runner that IS here keeps its own answer (an old one without the flag
+    # keeps 36), so a render is never allowed on a runner that cannot stream.
+    if (_dist.is_mac_app() and q8_floor > H3_MIN_RAM_GB_LOWMEM
+            and not (H3_ROOT / "scripts" / "generate_staged.py").is_file()
+            and h3_app_install_supported()):
+        q8_floor = H3_MIN_RAM_GB_LOWMEM
     ram = f"this Mac reports {SYSTEM_RAM_GB:.0f} GB"
     if SYSTEM_RAM_GB >= H3_MIN_RAM_GB:
         return {"lane": "bf16", "blocked": False, "needs_q8_dit": False,
@@ -14860,7 +14899,7 @@ def _h3_runner_behind(flag: str, runner: str | Path, remedy: str = "") -> str:
         f"{H3_RUNNER_BEHIND}: it has no `{flag}` ({runner}). " + _dist.say(
             "Re-run 'Install Hailuo H3' from the Phosphene sidebar to update "
             "the clone — every weight already on disk is kept.",
-            "This part of Hailuo H3 isn't available in the Mac app yet.") + tail
+            H3_MAC_RUNNER_BEHIND) + tail
     )
 
 
@@ -15757,7 +15796,7 @@ def _h3_install_tristep(push_log, download_fn=None) -> dict:
                     "(no --sigma-subset). Run 'Update Hailuo H3 runner' "
                     "from the Phosphene sidebar in Pinokio — your weights "
                     "stay.",
-                    "Fast isn't available for Hailuo H3 in the Mac app yet.")}
+                    H3_MAC_RUNNER_BEHIND)}
     resolved = h3_tristep_paths()
     target = resolved["dir"]
     if resolved["files_ok"]:
@@ -15961,7 +16000,7 @@ def _h3_install_flex_turbo(push_log, fetch_fn=None) -> dict:
                 "error": _dist.say(
                     "This Hailuo H3 runner predates H3 Flex Turbo. Run 'Update Hailuo H3 "
                     "runner' from the Phosphene sidebar in Pinokio - your weights stay.",
-                    "H3 Flex Turbo isn't available for Hailuo H3 in the Mac app yet.")}
+                    H3_MAC_RUNNER_BEHIND)}
     resolved = h3_flex_turbo_paths()
     target = resolved["dir"]
     if resolved["files_ok"]:
@@ -16081,7 +16120,7 @@ def _h3_install_flex(push_log, fetch_fn=None) -> dict:
                     "This Hailuo H3 runner predates Pika H3 Flex (its six-step "
                     "sampler). Run 'Update Hailuo H3 runner' from the Phosphene "
                     "sidebar in Pinokio - your weights stay.",
-                    "Pika H3 Flex isn't available for Hailuo H3 in the Mac app yet.")}
+                    H3_MAC_RUNNER_BEHIND)}
     resolved = h3_flex_paths()
     target = resolved["dir"]
     if resolved["files_ok"]:
@@ -16373,7 +16412,7 @@ def _ph3image_install(push_log, fetch_fn=None) -> dict:
                 "error": _dist.say(
                     "This Hailuo H3 runner predates P-H3-Image. Run 'Update Hailuo H3 runner' from the "
                     "Phosphene sidebar in Pinokio - your weights stay.",
-                    "The Hailuo H3 image models aren't available in the Mac app yet.")}
+                    H3_MAC_RUNNER_BEHIND)}
     resolved = ph3image_paths()
     target = resolved["dir"]
     if resolved["files_ok"]:
@@ -16574,7 +16613,7 @@ def _h3_install_v13(push_log, fetch_fn=None) -> dict:
                     "This Hailuo H3 runner predates lightx2v v1.3 (it takes one "
                     "adapter only). Run 'Update Hailuo H3 runner' from the "
                     "Phosphene sidebar in Pinokio - your weights stay.",
-                    "lightx2v v1.3 isn't available for Hailuo H3 in the Mac app yet.")}
+                    H3_MAC_RUNNER_BEHIND)}
     resolved = h3_v13_paths()
     target = resolved["dir"]
     if resolved["files_ok"]:
@@ -18311,6 +18350,12 @@ def h3_status() -> dict:
     # It is capable-and-not-available, which is the state the chrome already
     # knows how to draw: a dashed segment whose click opens the install card.
     capable = h3_capable() or needs_q8_dit
+    # 5.0.9: the Mac app downloads H3 itself (h3_app_install_*), so a Mac that can run
+    # the runner this Studio installs is capable-and-not-available: the dashed segment
+    # whose click opens the download card.
+    app_install = h3_app_install_status() if _dist.is_mac_app() else None
+    if app_install and app_install.get("supported") and app_install.get("ram_ok"):
+        capable = True
     # …and `available` must be false in the same breath, or a 48 GB Mac that
     # installed H3 before the Q8 build step existed would be offered a ready
     # engine that the server then refuses. The weights ARE on disk, so this is
@@ -18404,8 +18449,8 @@ def h3_status() -> dict:
                     "Run \'Update Hailuo H3 runner\' from the Phosphene "
                     "sidebar in Pinokio — your weights stay. Renders are "
                     "unaffected meanwhile.",
-                    "The live preview isn't available for Hailuo H3 in the Mac app yet. "
-                    "Renders are unaffected.")
+                    "This Hailuo H3 runner predates the live preview. "
+                    + H3_MAC_RUNNER_BEHIND + " Renders are unaffected meanwhile.")
                 if (available and not h3_supports_live_preview()) else ""),
         },
         # Turbo — the 4-step distill LoRA. A separate block rather than a bare
@@ -18550,6 +18595,8 @@ def h3_status() -> dict:
         "default_upscale": H3_UPSCALE_DEFAULT,
         "modes": list(H3_MODES),
         "size_note": h3_size_note(),
+        # The Mac app's in-app download (None in Pinokio, which installs from its sidebar).
+        "app_install": app_install,
     }
 
 
@@ -20500,6 +20547,10 @@ def set_environment_value(key: str, value: str) -> None:
     writers cannot trample one temp file."""
     if not re.fullmatch(r"[A-Z][A-Z0-9_]*", key) or not re.fullmatch(r"[A-Za-z0-9_.-]+", value):
         raise ValueError("refusing to write an unsafe ENVIRONMENT entry")
+    if _dist.is_mac_app() and key == "LTX_MODEL_VERSION":
+        from mac_preferences import save_generation
+        save_generation(value)
+        return
     path = ROOT / "ENVIRONMENT"
     if path.is_symlink():
         path = path.resolve()
@@ -21465,6 +21516,327 @@ def h3_app_runner_loop(delay_s: float = 20.0, sleep=time.sleep) -> None:
         if res in ("have", "built", "skipped_pin", "skipped_mac"):
             return
         sleep(H3_APP_RUNNER_RETRY_S)
+
+
+# ---- Download Hailuo H3 inside the Mac app (5.0.9) ---------------------------------
+# A fresh Mac-app user had no way to get H3: the app builds the runner only when the
+# weights are already on the Mac, and the weights only came from Pinokio's install_h3.js.
+# The card in the engine switcher now runs the same three things here, Mac app only:
+#
+#   runner   scripts/pinokio/h3_app_runner.sh — the pinned engine code (checksum-pinned
+#            archive, no git) + its venv. It needs no weights; first because it is quick
+#            and finds a setup problem before 75 GB are spent.
+#   weights  scripts/pinokio/h3_app_fetch.py — the files download_selected.py fetches,
+#            pinned, checksummed, resumable at the byte (HTTP ranges into .part files).
+#   draft decoder (optional) and the compact engine build (h3_build_q8.sh), as Pinokio.
+#
+# Resume is a property of the files, not of this process: the YuE2 lesson (5.0.9: a quit
+# mid-install left a step that could not run again). Every step is idempotent, the card
+# reads "Resume" from what is on disk, and an install that was running when Phosphene
+# quit starts again by itself a little after the next start (state/h3_app_install.json).
+H3_APP_FETCH_SCRIPT = ROOT / "scripts" / "pinokio" / "h3_app_fetch.py"
+H3_APP_INSTALL_FILE = "h3_app_install.json"
+H3_APP_INSTALL_STEPS = (
+    ("runner", "Setting up the Hailuo H3 engine", 3),
+    ("weights", "Downloading the model (~75 GB)", 86),
+    ("tae", "Downloading the draft decoder", 1),
+    ("compact", "Building the compact engine (about 5 minutes, no download)", 10),
+)
+H3_APP_INSTALL_LOCK = threading.Lock()
+H3_APP_INSTALL: dict = {"state": "idle", "active": False}
+_H3_APP_INSTALL_STOP = threading.Event()
+_H3_APP_PLAN_CACHE = {"ts": 0.0, "plan": None}
+H3_APP_RESUME_DELAY_S = 45.0
+
+
+def _h3_app_fetch_mod():
+    """The fetcher as a module. Imported by name, never by path: the Pro pack compiles a
+    .py that differs from the free line into a .so, and an import finds either."""
+    import importlib
+    return importlib.import_module("scripts.pinokio.h3_app_fetch")
+
+
+def _h3_app_fetch_present() -> bool:
+    d = H3_APP_FETCH_SCRIPT.parent
+    return H3_APP_FETCH_SCRIPT.is_file() or any(d.glob("h3_app_fetch.cpython-*.so"))
+
+
+def h3_app_install_supported() -> bool:
+    """The Mac app, with the runner this Studio pins measured for a download
+    (h3_app_runner.sh) and the fetcher present."""
+    if not h3_app_runner_enabled():
+        return False
+    if not (_h3_app_fetch_present() and H3_APP_RUNNER_SCRIPT.is_file()):
+        return False
+    try:
+        m = re.search(r'^H3_ARCHIVE_FOR="([0-9a-f]+)"', H3_APP_RUNNER_SCRIPT.read_text(encoding="utf-8"), re.M)
+    except OSError:
+        return False
+    return bool(m) and m.group(1) == h3_app_runner_pin()
+
+
+def h3_app_install_ram_ok() -> bool:
+    """The runner this Studio installs streams from disk (--low-memory), so 16 GB."""
+    return SYSTEM_RAM_GB >= H3_MIN_RAM_GB_LOWMEM
+
+
+def h3_app_install_plan(force: bool = False) -> dict:
+    """What is left to download and the disk it needs (cached 2 s; /status polls)."""
+    now = time.time()
+    if not force and _H3_APP_PLAN_CACHE["plan"] is not None and now - _H3_APP_PLAN_CACHE["ts"] < 2.0:
+        return _H3_APP_PLAN_CACHE["plan"]
+    try:
+        plan = _h3_app_fetch_mod().plan(H3_MODELS)
+    except Exception as exc:                                       # noqa: BLE001
+        plan = {"error": str(exc)[:200]}
+    _H3_APP_PLAN_CACHE.update(ts=now, plan=plan)
+    return plan
+
+
+def _h3_app_install_record(**kw) -> None:
+    try:
+        cur = json.loads((STATE_DIR / H3_APP_INSTALL_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cur = {}
+    cur = cur if isinstance(cur, dict) else {}
+    cur.update(kw, updated_at=iso_now())
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(STATE_DIR / H3_APP_INSTALL_FILE, json.dumps(cur, indent=2))
+    except Exception:                                              # noqa: BLE001
+        pass
+
+
+def _h3_app_install_wanted() -> bool:
+    try:
+        return bool(json.loads((STATE_DIR / H3_APP_INSTALL_FILE).read_text(encoding="utf-8")).get("wanted"))
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def h3_app_install_status() -> dict:
+    """The card's whole state: offered or not, progress, sizes, disk, the last error."""
+    with H3_APP_INSTALL_LOCK:
+        s = {k: v for k, v in H3_APP_INSTALL.items() if k not in ("pgid", "log")}
+        s["log"] = list(H3_APP_INSTALL.get("log") or [])[-6:]
+    supported = h3_app_install_supported()
+    s["supported"] = supported
+    s["ram_ok"] = h3_app_install_ram_ok()
+    s["min_ram_gb"] = H3_MIN_RAM_GB_LOWMEM
+    s["steps"] = len(H3_APP_INSTALL_STEPS)
+    s["licence"] = "MiniMax H3 Community License"
+    s["licence_note"] = ("MiniMax H3 Community License: territory restrictions apply "
+                         "(not valid in the EU, the UK, South Korea or the US).")
+    if not supported:
+        return s
+    plan = h3_app_install_plan()
+    for k in ("total_bytes", "done_bytes", "remaining_bytes", "free_bytes", "need_bytes", "enough_space"):
+        if k in plan:
+            s[k] = plan[k]
+    s["weights_complete"] = bool(plan.get("complete"))
+    s["resumable"] = bool(plan.get("done_bytes")) and not plan.get("complete")
+    s["wanted"] = _h3_app_install_wanted()
+    if s.get("active"):
+        weights = [w for _, _, w in H3_APP_INSTALL_STEPS]
+        idx = int(s.get("step_index") or 0)
+        frac = 0.0
+        if s.get("step_key") == "weights" and plan.get("total_bytes"):
+            frac = plan.get("done_bytes", 0) / plan["total_bytes"]
+            s["bytes_done"], s["bytes_total"] = plan.get("done_bytes", 0), plan["total_bytes"]
+        pct = (sum(weights[:idx]) + weights[idx] * frac) * 100 / sum(weights)
+        s["percent"] = max(1, min(99, round(pct)))
+    return s
+
+
+def _h3_app_install_commands() -> dict:
+    py = shlex.quote(sys.executable)
+    root = shlex.quote(str(ROOT))
+    h3d = shlex.quote(str(H3_ROOT))
+    models = shlex.quote(str(H3_MODELS))
+    tae = shlex.quote(str(_h3_app_fetch_mod().layout(H3_MODELS) / "tae" / "taeh3.safetensors"))
+    return {
+        "runner": f"/bin/bash {shlex.quote(str(H3_APP_RUNNER_SCRIPT))} {root}",
+        # Run as an import from ROOT (cwd), so a compiled Pro copy runs the same way.
+        "weights": (f"{py} -u -c 'import sys; from scripts.pinokio.h3_app_fetch import main; "
+                    f"sys.exit(main())' --root {models}"),
+        "tae": f"{py} -u {shlex.quote(str(ROOT / 'scripts' / 'pinokio' / 'h3_fetch_tae.py'))} {tae}",
+        "compact": f"cd {h3d} && /bin/bash {shlex.quote(str(ROOT / 'scripts' / 'pinokio' / 'h3_build_q8.sh'))} {root}",
+    }
+
+
+def h3_app_install_start(kind: str = "install") -> tuple[int, dict]:
+    """Start (or resume) the in-app download. Returns (http_status, body)."""
+    if not h3_app_install_supported():
+        return 400, {"error": "Downloading Hailuo H3 from here needs the Phosphene Mac app."}
+    if not h3_app_install_ram_ok():
+        return 400, {"error": f"Hailuo H3 needs at least {H3_MIN_RAM_GB_LOWMEM:.0f} GB of unified memory; "
+                              f"this Mac reports {SYSTEM_RAM_GB:.0f} GB. The rest of Phosphene is unaffected."}
+    if h3_available():
+        return 200, {"ok": True, "nothing_to_do": True}
+    plan = h3_app_install_plan(force=True)
+    if plan.get("error"):
+        return 500, {"error": "Could not read the Hailuo H3 download plan: " + plan["error"]}
+    if not plan.get("enough_space"):
+        return 409, {"error": (f"Hailuo H3 needs {plan['need_bytes'] / 1e9:.0f} GB free for the rest of the "
+                               f"download and its compact engine; this disk has {plan['free_bytes'] / 1e9:.0f} GB. "
+                               "Free some space, then try again."), "disk": True}
+    with H3_APP_INSTALL_LOCK:
+        if H3_APP_INSTALL.get("active"):
+            return 409, {"error": "Hailuo H3 is already downloading.", "install": True}
+        _H3_APP_INSTALL_STOP.clear()
+        H3_APP_INSTALL.clear()
+        H3_APP_INSTALL.update({"state": "running", "active": True, "kind": kind,
+                               "step_index": 0, "step_key": H3_APP_INSTALL_STEPS[0][0],
+                               "step_label": H3_APP_INSTALL_STEPS[0][1],
+                               "started_ts": time.time(), "finished_ts": None,
+                               "error": None, "pgid": None,
+                               "log": collections.deque(maxlen=60)})
+    _h3_app_install_record(wanted=True, started_at=iso_now(), state="running")
+    threading.Thread(target=_h3_app_install_thread, daemon=True, name="h3-app-install").start()
+    push("[h3-install] Hailuo H3 download started" + (" (resuming)" if plan.get("done_bytes") else ""))
+    return 202, {"ok": True, "started": True}
+
+
+def h3_app_install_stop() -> bool:
+    """The card's Stop: ends the step, keeps every byte, and does not restart by itself."""
+    with H3_APP_INSTALL_LOCK:
+        if not H3_APP_INSTALL.get("active"):
+            return False
+        _H3_APP_INSTALL_STOP.set()
+        H3_APP_INSTALL["state"] = "stopping"
+        pgid = H3_APP_INSTALL.get("pgid")
+    _h3_app_install_record(wanted=False, state="stopped")
+    if pgid:
+        _music_install_kill(pgid)
+    return True
+
+
+def _h3_app_install_env() -> dict:
+    env = _music_install_env()
+    uv = _image_engine_uv()
+    if uv is not None:
+        env["PHOSPHENE_UV"] = str(uv)
+    env["PHOSPHENE_HOME"] = str(_app_home())
+    env["LTX_STATE_DIR"] = str(STATE_DIR)
+    env["LTX_H3_MODELS"] = str(H3_MODELS)
+    return env
+
+
+def _h3_app_install_thread() -> None:
+    env = _h3_app_install_env()
+    cmds = _h3_app_install_commands()
+    error = None
+    for idx, (key, label, _w) in enumerate(H3_APP_INSTALL_STEPS):
+        if _H3_APP_INSTALL_STOP.is_set():
+            break
+        if key == "compact" and _h3_q8_dit_dir() is not None:
+            continue
+        with H3_APP_INSTALL_LOCK:
+            H3_APP_INSTALL.update(step_index=idx, step_key=key, step_label=label)
+            H3_APP_INSTALL["log"].append(f"— {label}")
+        push(f"[h3-install] step {idx + 1}/{len(H3_APP_INSTALL_STEPS)}: {label}")
+        tail: list[str] = []
+        result_word = ""
+        try:
+            proc = subprocess.Popen(["/bin/bash", "-c", cmds[key]], cwd=str(ROOT), env=env,
+                                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True, bufsize=1,
+                                    errors="replace", start_new_session=True)
+        except OSError as e:
+            error = f"Could not start step '{label}': {e}"
+            break
+        with H3_APP_INSTALL_LOCK:
+            H3_APP_INSTALL["pgid"] = proc.pid
+            stop_now = _H3_APP_INSTALL_STOP.is_set()
+        _proc_guard_write("h3_app_install", proc.pid, proc.pid, note=key)
+        if stop_now:
+            _music_install_kill(proc.pid)
+        try:
+            for raw in proc.stdout:
+                for line in raw.replace("\r", "\n").splitlines():
+                    line = line.rstrip()
+                    if not line:
+                        continue
+                    if line.startswith("@@result h3 "):
+                        result_word = line.split()[-1]
+                        continue
+                    if line.startswith("@@progress"):
+                        continue
+                    tail = (tail + [line])[-8:]
+                    with H3_APP_INSTALL_LOCK:
+                        H3_APP_INSTALL["log"].append(line[:300])
+                        H3_APP_INSTALL["last_line"] = line[:300]
+            rc = proc.wait()
+        finally:
+            with H3_APP_INSTALL_LOCK:
+                H3_APP_INSTALL["pgid"] = None
+            _proc_guard_clear("h3_app_install")
+        if _H3_APP_INSTALL_STOP.is_set():
+            break
+        if key == "runner" and result_word not in ("have", "built"):
+            # h3_app_runner.sh always exits 0; its result word says what happened.
+            reason = next((l for l in reversed(tail) if l.startswith("H3 runner:")), "")
+            reason = reason[len("H3 runner:"):].strip() if reason else f"it ended with '{result_word or rc}'"
+            error = ("Hailuo H3's engine is being set up by Phosphene right now. Try again in a few minutes."
+                     if result_word == "busy" else f"Setting up the Hailuo H3 engine failed: {reason}")
+            break
+        if key == "tae":
+            continue                                    # optional: drafts fall back to the full decoder
+        if rc != 0:
+            reason = next((l for l in reversed(tail) if not l.startswith(("+", "Traceback", "  "))), "")
+            if reason.startswith("FATAL error:"):
+                reason = reason[len("FATAL error:"):].strip()
+            error = f"{label} stopped" + (f": {reason}" if reason else f" (exit {rc}).")
+            if not error.endswith("."):
+                error += "."
+            if "Resume" not in error:
+                error += " Press Resume: nothing already downloaded is lost."
+            break
+    h3_status_invalidate()
+    stopped = _H3_APP_INSTALL_STOP.is_set()
+    ok = not stopped and error is None and h3_available()
+    if not stopped and error is None and not ok:
+        error = ("The download finished but Hailuo H3 still reports: "
+                 + "; ".join(h3_paths()["missing"][:3] or ["the compact engine is not built"]))
+    with H3_APP_INSTALL_LOCK:
+        H3_APP_INSTALL.update(active=False, finished_ts=time.time(), pgid=None,
+                              state="stopped" if stopped else "done" if ok else "failed",
+                              error=None if (stopped or ok) else error)
+    if ok:
+        _h3_app_install_record(wanted=False, state="done", finished_at=iso_now())
+    elif not stopped:
+        # A failure keeps `wanted`: the next start of Phosphene tries once more by itself.
+        _h3_app_install_record(state="failed", error=error)
+    push("[h3-install] " + ("stopped — Resume continues where it left off" if stopped
+                            else "done — Hailuo H3 is ready in the engine switcher" if ok
+                            else f"failed: {error}"))
+
+
+def h3_app_install_resume_loop(delay_s: float = H3_APP_RESUME_DELAY_S, sleep=time.sleep) -> None:
+    """Background, once per start: an H3 download that was running when Phosphene quit
+    (or crashed, or the Mac restarted) carries on by itself. Stop and Done clear it."""
+    sleep(delay_s)
+    if not _h3_app_install_wanted() or h3_available():
+        return
+    if licence_refusal_for("h3"):
+        return
+    code, body = h3_app_install_start("resume")
+    if code >= 400:
+        push(f"[h3-install] could not resume the Hailuo H3 download: {body.get('error')}")
+
+
+def _stop_h3_app_install_at_exit() -> None:
+    with H3_APP_INSTALL_LOCK:
+        pgid = H3_APP_INSTALL.get("pgid") if H3_APP_INSTALL.get("active") else None
+    if pgid:
+        _H3_APP_INSTALL_STOP.set()
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except (OSError, ProcessLookupError):
+            pass
+
+
+atexit.register(_stop_h3_app_install_at_exit)
 
 
 def _analytics_pack_state() -> dict:
@@ -26527,6 +26899,8 @@ _PROC_GUARDS: dict[str, tuple[Path, str]] = {
     "h3": (STATE_DIR / "h3_running.json", "generate_staged"),
     "music": (STATE_DIR / "music_running.json", "yue2_run.py"),
     "music_install": (STATE_DIR / "music_install_running.json", "scripts/pinokio/music_"),
+    # Every step's command line names an h3_ script (runner, fetcher, draft decoder, Q8 build).
+    "h3_app_install": (STATE_DIR / "h3_app_install_running.json", "h3_"),
     "speech": (STATE_DIR / "speech_running.json", "speech_run.py"),
     "speech_install": (STATE_DIR / "speech_install_running.json", "scripts/speech/speech_"),
     "helper": (STATE_DIR / "helper_running.json", "mlx_warm_helper"),
@@ -36869,9 +37243,9 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                 f"Hailuo H3 can render {H3_MODE_LABELS.get(mode_in, mode_in)} once "
                 "its runner is updated (Update in Pinokio, or 'Update Hailuo H3 "
                 "runner') — rendering this one on LTX.",
-                f"Hailuo H3 can't render "
-                f"{H3_MODE_LABELS.get(mode_in, mode_in)} in the Mac app yet. "
-                "Rendering this one on LTX."))
+                f"This Hailuo H3 runner can't render "
+                f"{H3_MODE_LABELS.get(mode_in, mode_in)} yet. " + H3_MAC_RUNNER_BEHIND
+                + " Rendering this one on LTX."))
             _engine = "ltx"
         elif not h3_capable():
             # Same verdict the refusal raises: the floor depends on the lane,
@@ -37034,7 +37408,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                  "every window with the main prompt. " + _dist.say(
                      "Re-run 'Install Hailuo H3' from the Phosphene sidebar to "
                      "update the clone; your weights stay.",
-                     "This part of Hailuo H3 isn't available in the Mac app yet."))
+                     H3_MAC_RUNNER_BEHIND))
             _h3_chain_prompts = []
         # Orientation: flip the resolved cell's canvas for vertical work.
         _h3_orientation = (f("h3_orientation", H3_ORIENTATION_DEFAULT)
@@ -40289,6 +40663,26 @@ def _h3_drop_runner_wavs(out_path: Path, since: float, *, keep_main: bool = Fals
     return removed
 
 
+#: H3 modes whose whole sound track the model made itself (the ones levelled).
+H3_LEVEL_SOUND_MODES = ("t2v", "i2v", "keyframe")
+
+
+def h3_should_level_sound(mode: str, params: dict) -> bool:
+    """Whether a finished H3 clip gets the one-loudness pass (h3_loudness).
+
+    Only sound the model made itself, on a clip delivered as is: not Extend
+    (the source's own sound is spliced back), lip-sync (the user's soundtrack)
+    or Add sound (the user's video), not storyboard shots (the film master
+    levels the whole cut, and a quiet shot there is a choice), not benches.
+    PHOSPHENE_H3_LEVEL_SOUND=0 turns it off."""
+    # A storyboard shot keeps its board tag (sb:<board>#n) even when Retry or
+    # New take rewrites `source`, so both are checked.
+    return (mode in H3_LEVEL_SOUND_MODES
+            and str(params.get("source") or "") not in ("storyboard", "bench")
+            and _sb_tag_from(params.get("session_tag")) is None
+            and h3_loudness.enabled())
+
+
 def run_h3_job_inner(job: dict) -> None:
     """Render one job on the Hailuo H3 engine (optional subprocess pack).
 
@@ -40336,7 +40730,7 @@ def run_h3_job_inner(job: dict) -> None:
                 "Hailuo H3 is still getting ready on this Mac. Render on LTX for "
                 "now; Hailuo H3 turns on by itself when it is ready."
                 if paths["weights_ok"] else
-                "Hailuo H3 isn't available in the Mac app yet.")
+                "Hailuo H3 isn't downloaded yet. " + H3_MAC_GET)
         raise RuntimeError(
             ("The Hailuo H3 weights are on disk but the engine needs repair — "
              if paths["repairable"] else
@@ -40346,12 +40740,12 @@ def run_h3_job_inner(job: dict) -> None:
                 ". Click 'Install Hailuo H3' in the Phosphene sidebar in "
                 "Pinokio — it is idempotent and skips every weight already on "
                 "disk, so this is a couple of minutes, NOT a 75 GB download.",
-                ". Repairing Hailuo H3 isn't available in the Mac app yet.")
+                ". Phosphene finishes setting Hailuo H3 up by itself.")
                if paths["repairable"] else _dist.say(
                 ". Install it from the Phosphene sidebar in Pinokio "
                 "('Install Hailuo H3'), or point LTX_H3_ROOT / LTX_H3_MODELS at "
                 "an existing checkout.",
-                ". Hailuo H3 isn't available in the Mac app yet.")))
+                ". Hailuo H3 isn't downloaded yet. " + H3_MAC_GET)))
     if mode not in H3_MODES:
         raise RenderRefused(
             "h3_mode",
@@ -40437,7 +40831,7 @@ def run_h3_job_inner(job: dict) -> None:
                          "instead. " + _dist.say(
                              "Re-run 'Install Hailuo H3' from the Phosphene "
                              "sidebar to update the clone; your weights stay.",
-                             "This part of Hailuo H3 isn't available in the Mac app yet."))
+                             H3_MAC_RUNNER_BEHIND))
 
     # ---- user LoRA -------------------------------------------------------
     # Resolved BEFORE Turbo, deliberately: the two compete for the runner's one
@@ -41172,8 +41566,8 @@ def run_h3_job_inner(job: dict) -> None:
                 "decoding in float32 (same picture, a little slower). Press "
                 "Update in Pinokio, or \"Update Hailuo H3 runner\" in the "
                 "sidebar, to get it.",
-                "[h3] The faster video decode isn't available for Hailuo H3 in "
-                "the Mac app yet. The picture is the same, a little slower."))
+                "[h3] This Hailuo H3 runner predates the faster video decode, so it "
+                "decodes a little slower (same picture). " + H3_MAC_RUNNER_BEHIND))
     elif _vae_mixed:
         cmd += ["--vae-dtype", "float32"]
         p["h3_vae_dtype"] = "float32"
@@ -41640,6 +42034,21 @@ def run_h3_job_inner(job: dict) -> None:
                if _loras else ". Please report it with the log.")
             + f" (clip hidden: {out_path.name})")
 
+    # ---- one loudness for every H3 clip (5.0.9) -----------------------------
+    # The model decides the sound's level per clip and per speed setting: one
+    # setting measured from +5.5 to -3.1 LU against Best on the same picture,
+    # prompt and seed, so some of its clips played clearly quieter. Every clip
+    # whose sound the model made itself is set to the same integrated loudness
+    # (h3_loudness.TARGET_LUFS, true peak under the ceiling), whichever setting
+    # rendered it; the picture stream is copied.
+    # Not here: Extend (the source's own sound is spliced back), lip-sync
+    # (the user's soundtrack), Add sound (delivered on the user's video),
+    # storyboard shots (the film master levels the whole cut) and benches.
+    h3_sound_level = None
+    if h3_should_level_sound(mode, p):
+        h3_sound_level = h3_loudness.level_clip(FFMPEG, out_path, ffprobe=FFPROBE)
+        push("[h3] " + h3_loudness.describe(h3_sound_level))
+
     h3_splice_report = None
     if mode == "extend" and plan.get("extend_source"):
         # Issue #48: the runner delivers its own copy of the source (decoded,
@@ -41937,6 +42346,9 @@ def run_h3_job_inner(job: dict) -> None:
                         if tristep else None),
             # Face to keep: the reference still that was packed (or None).
             "reference": (p.get("h3_reference_used") or None),
+            # One loudness for every H3 clip (5.0.9, h3_loudness.py): what the
+            # sound measured as rendered, the gain, and what it measures now.
+            "sound_level": h3_sound_level,
             # Clean up sound: the runner's own record of the re-voice pass
             # (steps, adapter switched off, seconds, store size).
             "revoice": ({k: v for k, v in metrics.items()
@@ -50850,6 +51262,8 @@ if __name__ == "__main__":
     # The Mac app's studio also brings its own Hailuo H3 runner up to the pinned engine.
     if h3_app_runner_enabled():
         threading.Thread(target=h3_app_runner_loop, daemon=True).start()
+        # …and carries on an in-app Hailuo H3 download that Phosphene quit in the middle of.
+        threading.Thread(target=h3_app_install_resume_loop, daemon=True).start()
     threading.Thread(target=worker_loop, daemon=True).start()
     if VERSION_CHECK_ENABLED and not _dist.is_mac_app():
         threading.Thread(target=version_check_loop, daemon=True).start()

@@ -469,6 +469,29 @@ def post_music_lora_fetch(h, path, qs, ctype) -> None:
     h._json(payload, code); return
 
 
+@post("/h3/app-install")
+def post_h3_app_install(h, path, qs, ctype) -> None:
+    # 5.0.9, Mac app only: the Hailuo H3 card's "Download Hailuo H3" / "Resume".
+    # Runner, weights (resumable, checksummed), compact engine, as a background task;
+    # progress rides /status.h3.app_install. The H3 licence screen comes first (451).
+    _rb = h._read_form_body()
+    if _rb is None:
+        return
+    _lic = P.licence_refusal_for("h3")
+    if _lic:
+        h._json(_lic, 451); return
+    code, payload = P.h3_app_install_start("install")
+    h._json(payload, code); return
+
+
+@post("/h3/app-install/stop")
+def post_h3_app_install_stop(h, path, qs, ctype) -> None:
+    if not P.h3_app_install_stop():
+        h._json({"error": "no Hailuo H3 download is running"}, 404); return
+    P.push("[h3-install] stop requested")
+    h._json({"ok": True}); return
+
+
 @post("/music/install/stop")
 def post_music_install_stop(h, path, qs, ctype) -> None:
     if not P.music_install_stop():
