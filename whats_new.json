@@ -44,5 +44,16 @@
       "Clips from Pro's faster H3 lane now have full-volume sound.",
       "Installing Speech and switching video generations no longer break the next Pro startup check."
     ]
+  },
+  "5.0.11": {
+    "free": [
+      "Shot setup opens by default, with quieter prompt guidance and fewer distractions.",
+      "Orientation controls stay compact and aligned.",
+      "The Editor timeline stays clear of render progress panels, including in narrow windows.",
+      "Finished clips stay in preview until you return to the render or start another take.",
+      "Stop cancels the current render promptly.",
+      "Completion sounds no longer repeat when the history refreshes, and the visible Studio stays quiet."
+    ],
+    "pro": []
   }
 }

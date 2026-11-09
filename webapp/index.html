@@ -1162,7 +1162,7 @@
              reader announces a placeholder-only textarea as unlabeled. -->
         <textarea name="prompt" id="prompt" class="composer-prompt"
                   oninput="updateLangHint()" aria-label="Describe your shot"
-                  placeholder="Describe the scene and the sound. For example: a wizard in a forest clearing, fireflies spiraling up. Sound: low whispered chant, ember crackle, distant owl. Audio is made together with the video; without sound cues the model makes near-silent ambient."></textarea>
+                  placeholder="Describe the scene, action and camera. Include dialogue and sound cues — they are generated with the video."></textarea>
 
         <!-- VC-13: a language hint — LTX itself was trained on English
              prompts, and nothing told a non-English typist that. Hidden
@@ -1516,35 +1516,13 @@
              listed there silently no-ops on /queue/add — the known trap). -->
         <input type="hidden" name="h3_chain_prompts" id="h3_chain_prompts" value="">
         <div class="engine-note" id="engineRowNote" hidden></div>
-        <details id="shotSetupDetails" class="customize-section shot-setup">
+        <details id="shotSetupDetails" class="customize-section shot-setup" open>
           <summary class="cz-summary">
             <span class="cz-chevron" aria-hidden="true"><svg class="ph"><use href="#ph-caret-down-bold"/></svg></span>
             <span class="cz-title">Shot setup</span>
             <span class="cz-meta" id="shotSetupSummary">quality · length · speed</span>
           </summary>
           <div class="cz-body">
-            <!-- The engine's standing note. Second sentence added with the player
-                 scoping (Part C): Extend is an LTX pipeline and is now hidden on
-                 an H3 clip, so the surface has to say where length actually comes
-                 from — the chained tiers, chosen BEFORE the render, not a post-hoc
-                 action on the result. Said here, next to the tier strip where the
-                 user can act on it, rather than as a tooltip on a button that no
-                 longer exists. -->
-            <div class="engine-hint" id="h3Hint" hidden>
-              Dialogue + sound are generated jointly — write them into the prompt.
-              Length is chosen here, before the render: 10 s and 15 s chain 5 s
-              windows at render time, so there is no Extend afterwards.
-              <!-- MiniMax H3 licence s. IV.2 / V.5: "MiniMax H3" shown where H3
-                   is used, the licence one click away, and a way to report
-                   suspected misuse. Lives in the H3 hint, which shows exactly
-                   while H3 is the selected engine. -->
-              <span class="engine-credit" id="h3Credit">
-                <b>MiniMax H3</b> &middot;
-                <a href="#" onclick="event.preventDefault(); openLicence('h3', {readOnly: true})">Licence</a>
-                &middot;
-                <a href="https://github.com/mrbizarro/Phosphene/issues/new?title=Misuse%20report%3A%20" target="_blank" rel="noopener">Report misuse</a>
-              </span>
-            </div>
             <!-- H3 SPEED — one switch above the Quality cards: ⚡ Fast (TaoMate's
                  3-step adapter, the default once installed) | ✦ Best (the shape's
                  full sampler). The cards below re-price live for it. Turbo is
@@ -1800,9 +1778,9 @@
                  dig for it. Compact 2-pill row reusing the same id="aspect"
                  hidden input + id="aspectGroup" click delegation + id="aspectRow"
                  container that setQuality() hides when quality=quick. -->
-            <div class="mode-only show" id="aspectRow" data-ltx-only style="display:flex;align-items:center;gap:10px;margin:6px 0 8px 0;padding:0 2px;">
+            <div class="mode-only show" id="aspectRow" data-ltx-only>
               <span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600;flex:0 0 auto;">Orientation</span>
-              <div class="pill-group" id="aspectGroup" style="display:flex;gap:4px;flex:0 0 auto;flex-wrap:wrap;">
+              <div class="pill-group" id="aspectGroup">
                 <button type="button" class="pill-btn active" data-aspect="landscape" title="Landscape 16:9" style="padding:4px 10px;font-size:12px;display:inline-flex;gap:6px;align-items:center;">
                   <svg class="ph orient-icon" aria-hidden="true" style="width:14px;height:14px;transform:rotate(90deg);"><use href="#ph-device-mobile"/></svg><span>16:9</span>
                 </button>
@@ -1859,6 +1837,9 @@
             </div>
           </div>
         </details>
+        <div class="engine-credit" id="h3Hint" hidden>
+          <span id="h3Credit">MiniMax H3 · <a href="#" onclick="event.preventDefault(); openLicence('h3', {readOnly: true})">Licence</a></span>
+        </div>
         <!-- The selected cell's honest notes, joined — the mirror of
              #h3TierNote. Empty and hidden when the combination has nothing
              to warn about, which is most of them. -->

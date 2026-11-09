@@ -1731,9 +1731,11 @@
        Tab. The state is this browser's (phos_sbe_panels). */
     body.ed-focus[data-workflow="editor"] main.layout {
       grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr);
     }
-    body.ed-focus[data-workflow="editor"] main.layout > aside.form-pane { display: none; }
-    body.ed-focus[data-workflow="editor"] main.layout > .stage-pane { grid-column: 1 / 2; }
+    body.ed-focus[data-workflow="editor"] main.layout > aside.form-pane,
+    body.ed-focus[data-workflow="editor"] main.layout > #bottomPane { display: none; }
+    body.ed-focus[data-workflow="editor"] main.layout > .stage-pane { grid-column: 1 / 2; grid-row: 1; }
     /* THE CUT SPANS BOTH ROWS, exactly as the base layout does for every
        other workflow. This rule said `grid-row: 1 / 2` for two releases, so
        row 2 — the bottomPane's own height, 170px measured at 1440x900 — was
@@ -1743,6 +1745,9 @@
        "black space down below". Spanning gives it back to the picture. */
     body[data-workflow="editor"] main.layout > .stage-pane {
       grid-column: 2 / 3; grid-row: 1 / span 2;
+    }
+    body[data-workflow="editor"] main.layout > #bottomPane {
+      grid-column: 1 / 2; grid-row: 2 / 3;
     }
     /* Below this the two columns stack. The pool is a short list, not the
        storyboard's ~730px brief, so it stacks above the cut rather than
@@ -1763,9 +1768,6 @@
     }
     /* The queue and the log stay: a shot generated into a hole is rendering
        somewhere, and that is where it reports. */
-    body[data-workflow="editor"] main.layout > #bottomPane {
-      grid-column: 1 / 2; grid-row: 2 / 3;
-    }
 
     /* ---- the Editor workflow fold ------------------------------------
        Same shape as the storyboard fold above: the form pane becomes the
@@ -12141,7 +12143,7 @@ body[data-workflow="oneshot"] #audioSectionTab { display: none !important; }
   border-color: var(--eng-soft, var(--accent, #8b7bff));
   box-shadow: inset 2px 0 0 0 var(--eng-accent, var(--accent, #8b7bff));
 }
-.customize-section.shot-setup > summary .cz-title { color: var(--text); }
+.customize-section.shot-setup > summary .cz-title { color: var(--text); white-space: nowrap; flex-shrink: 0; }
 /* The shape, right-aligned, in the summary: the closed section still says what
    will render. Let it use the room it needs before it ellipsises. */
 .cz-summary .cz-meta {
@@ -15244,3 +15246,26 @@ html[data-pro=""] .tool-rail .workflow-tabs button[data-workflow="remote"] .new-
 .row-list li.pro-hint-row .pro-hint-see:hover { color: #d8d8de; }
 .row-list li.pro-hint-row .pro-hint-x { margin-left: auto; background: none; border: 0; color: #8e8e96; font-size: 16px; line-height: 1; cursor: pointer; }
 .row-list li.pro-hint-row .pro-hint-x:hover { color: #d8d8de; }
+
+/* Compact orientation segments must not inherit full-width, column buttons. */
+#aspectRow {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  margin: 6px 0 8px; padding: 0 2px;
+}
+#aspectGroup {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px; width: 340px; max-width: 100%; min-width: 0;
+  box-sizing: border-box;
+}
+#aspectGroup .pill-btn {
+  width: auto;
+  min-width: 0;
+  flex-direction: row;
+  justify-content: center;
+  min-height: 36px;
+  white-space: nowrap;
+}
+#aspectGroup .orient-icon { flex: 0 0 14px; }
+
+#h3Hint.engine-credit { margin: 6px 0; font-size: 13px; }
+#h3Hint.engine-credit a { color: inherit; }

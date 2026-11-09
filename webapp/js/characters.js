@@ -4654,13 +4654,13 @@ function applyExtendPillPrices() {
 function updatePromptPlaceholder() {
   const prompt = document.getElementById('prompt');
   if (!prompt) return;
-  const base = 'Describe the scene and the sound. For example: a wizard in a forest clearing, fireflies spiraling up. Sound: low whispered chant, ember crackle, distant owl. Audio is made together with the video; without sound cues the model makes near-silent ambient.';
+  const base = 'Describe the scene, action and camera. Include dialogue and sound cues — they are generated with the video.';
   const keyframeTwo = 'Describe the full first-to-last transition in one prompt. Include motion, camera, mood, and audio cues; the start/end images anchor the visual endpoints.';
   const keyframeMulti = `One prompt controls the whole ${window._kfMode}-keyframe shot; the Beat at(s) controls define segment timing. Write one continuous action with the beats described in order, plus audio cues.`;
   if (currentMode === 'keyframe') {
     prompt.placeholder = window._kfMode >= 3 ? keyframeMulti : keyframeTwo;
   } else if (currentMode === 'i2v') {
-    prompt.placeholder = 'Describe how the reference image should move, plus sound cues. The image anchors frame 0; the prompt directs the full clip.';
+    prompt.placeholder = 'Describe how the reference image should move. Include dialogue and sound cues — they are generated with the video.';
   } else if (currentMode === 'ingredients') {
     prompt.placeholder = "Describe WHAT'S in the reference sheet — each character, prop, and the location. e.g. a friendly cartoon hedgehog with rounded chestnut fur; a green coiled garden hose; the bright interior of a 'Greenfield' garden store. (The Action field above describes the shot itself.)";
   } else if (currentMode === 'v2a') {

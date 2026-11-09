@@ -96,6 +96,8 @@ function normalizeLivePreview(s, prog) {
 }
 
 function _liveStageMediaHeld() {
+  // A completed take stays available until the user returns to the render.
+  if (window._liveStageReviewPath && window._liveStageReviewPath === activePath) return true;
   const wrap = document.getElementById('playerWrap');
   const video = wrap ? wrap.querySelector('video') : null;
   const playing = !!(video && !video.paused && !video.ended);
@@ -154,6 +156,7 @@ function _handoffLiveStageToOutput(path) {
   // matters when the queue has already advanced: the next job's first poll
   // must not replace the completion frame before anyone has seen it.
   window._stagePlaybackIntentAt = Date.now();
+  window._liveStageReviewPath = path;
   selectOutput(path, { liveHandoff: !!window._liveStageOwnsPlayer });
   return true;
 }
@@ -164,6 +167,7 @@ function returnToLiveRender() {
   const video = document.querySelector('#playerWrap video');
   if (video) video.pause();
   window._stagePlaybackIntentAt = 0;
+  window._liveStageReviewPath = null;
   if (donePath) {
     _handoffLiveStageToOutput(donePath);
     return;
@@ -235,7 +239,7 @@ function _renderLiveStageFrame(s, preview) {
     progress.style.setProperty('--p', String(pct / 100));
     progress.setAttribute('aria-valuenow', String(Math.round(pct)));
   }
-  if (phase) phase.textContent = stopping ? 'Finishing the current step…'
+  if (phase) phase.textContent = stopping ? 'Stopping render…'
     : ((cur.progress || {}).phase_label || 'Preparing your video');
   if (preview.url) {
     let img = wrap.querySelector('.live-stage-image');
@@ -272,7 +276,7 @@ function _renderLiveStageFrame(s, preview) {
     ? `forming take${step}`
     : (preview.url ? `forming take${step} · rough` : 'forming take · warming');
   if (eta) {
-    eta.textContent = stopping ? 'Finishing the current step, then stopping.'
+    eta.textContent = stopping ? 'Stopping render…'
       : (preview.remaining_sec != null && preview.remaining_sec > 0
           ? `~${fmtMin(preview.remaining_sec)} left`
           : 'ETA settling…');
@@ -562,7 +566,7 @@ function renderNowPreview(s, prog, previewData) {
     const saves = (prev.saves_sec != null && prev.saves_sec > 0)
       ? ` — saves about ${fmtMin(prev.saves_sec)}` : '';   // absent -> drop the sentence
     const line = stopping
-      ? 'Finishing the current step, then stopping.'
+      ? 'Stopping render…'
       : (prev.meaningful
           ? `This is the shot it's making. Stop now if it's wrong${saves}.`
           : (prev.url ? 'The shot is forming. It sharpens as the render settles.' : 'Finding the shot…'));
@@ -610,7 +614,8 @@ async function stopEarly() {
       saves + 'The queue carries on with the next job.')) return;
   window._stopEarlyRequested = cur.id;
   try {
-    await api('/stop?mode=early', 'POST');
+    await api('/stop?id=' + encodeURIComponent(cur.id), 'POST');
+    if (typeof poll === 'function') await poll();
   } catch (e) {
     window._stopEarlyRequested = null;
     phosToast(String((e && e.message) || e), { kind: 'danger', duration: 6000 });

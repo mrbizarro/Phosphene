@@ -331,6 +331,7 @@ window._liveStageJobId = null;
 window._liveStageOwnsPlayer = false;
 window._liveStageForcedJobId = null;
 window._liveStagePendingOutput = null;
+window._liveStageReviewPath = null;
 // REMIX_MODES — the IC-LoRA reference tools grouped under the single "Remix"
 // mode pill. These are REAL backend modes (the #mode field + the dispatch see
 // them); "remix" itself is a UI-only pseudo-mode that resolves to one of these.

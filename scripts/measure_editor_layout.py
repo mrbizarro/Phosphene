@@ -1096,6 +1096,20 @@ def run(verbose: bool, inject_defect: bool = False) -> tuple[dict, int]:
             if not isinstance(m, dict):
                 raise HarnessError(f"{w}: the page returned {m!r}, not a "
                                    f"measurement")
+            # Panels hidden must remove the queue too: otherwise it shares
+            # the full-width timeline's grid cell and covers the audio lanes.
+            focused = cdp.evaluate("""(async () => {
+              sbePanelsApply(true);
+              await new Promise(r => requestAnimationFrame(r));
+              const queue = document.getElementById('bottomPane');
+              const hidden = queue.getClientRects().length === 0;
+              sbePanelsApply(false);
+              await new Promise(r => requestAnimationFrame(r));
+              return hidden;
+            })()""", await_promise=True)
+            m['focus_queue_hidden'] = focused
+            if not focused:
+                failures.append(f"{w}: hidden panels leave queue over timeline")
             widths[str(w)] = m
             failures.extend(check(w, m))
             if verbose:

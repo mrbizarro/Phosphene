@@ -905,10 +905,8 @@ function _syncEnginePromptTools() {
         + 'his mouth settles closed. Click Structure or + Line above to '
         + 'insert the skeleton.\n\noverall_soundscape: ambience, sound '
         + 'effects.\n\nnon_diegetic_music: N/A or a description.'
-      : 'Describe the scene and the sound. For example: a wizard in a forest '
-        + 'clearing, fireflies spiraling up. Sound: low whispered chant, ember '
-        + 'crackle, distant owl. Audio is made together with the video; '
-        + 'without sound cues the model makes near-silent ambient.';
+      : 'Describe the scene, action and camera. Include dialogue and sound cues. '
+        + 'Audio is made together with the video.';
   }
   if (eng === 'h3' && typeof h3SyncPromptHelper === 'function') {
     try { h3SyncPromptHelper(); } catch (e) {}
@@ -3536,10 +3534,12 @@ function notifyJobsDone(s) {
   const now = new Set();
   for (const j of hist) if (j && j.id && (j.status === 'done' || j.status === 'failed')) now.add(j.id);
   if (_doneSeen === null) { _doneSeen = now; return; }
-  const cur = (globalThis._settingsCache && _settingsCache.settings) || {};
+  const cur = (s && s.settings) || (globalThis._settingsCache && _settingsCache.settings) || {};
   const on = cur.notify_done !== false;
   for (const j of hist) {
     if (!j || !j.id || !now.has(j.id) || _doneSeen.has(j.id)) continue;
+    // Remember completion across filtered, empty and out-of-order histories.
+    _doneSeen.add(j.id);
     if (on) notifyOneJob(j);
     // SYS-35: a finished training run had no bridge back to Video — the
     // only pointer was a link at the bottom of the Train tab (which a
@@ -3551,14 +3551,15 @@ function notifyJobsDone(s) {
       _trainAnnounceReady(j);
     }
   }
-  _doneSeen = now;
 }
 function notifyOneJob(j) {
   const failed = j.status === 'failed';
   const what = (j.params && j.params.preset_label && !j.params.label ? j.params.preset_label : '') ||
                rowTitle(j, j.params && j.params.prompt, j.params && j.params.label) ||
                (j.params && j.params.mode) || 'a render';
-  playDoneChime(failed);
+  // The Mac app owns background notifications; do not ring twice.
+  if (window.__phosNative) return;
+  if (document.hidden) playDoneChime(failed);
   try {
     if (document.hidden && typeof window.Notification !== 'undefined' && window.Notification.permission === 'granted') {
       const n = new window.Notification(failed ? 'Phosphene — a render failed' : 'Phosphene — render done',
@@ -3591,7 +3592,10 @@ function playDoneChime(failed) {
   } catch (e) {}
 }
 
+let _pollRequestSerial = 0;
+let _pollAppliedSerial = 0;
 async function poll() {
+  const requestSerial = ++_pollRequestSerial;
   // Reflect HDR-vs-character mutual exclusion every poll cycle. character_id
   // gets set from multiple code paths (manual chip click, load-params,
   // localStorage rehydrate, charactersGenerate sub-form, retry); keeping
@@ -3604,11 +3608,15 @@ async function poll() {
   const url = '/status' + (filterMode === 'hidden' ? '?include_hidden=1' : '');
   try {
     s = await (await fetch(url)).json();
+    // A slow older poll must not restore a completed job or its old preview.
+    if (requestSerial < _pollAppliedSerial) return;
+    _pollAppliedSerial = requestSerial;
     notifyJobsDone(s);
     if (typeof starCardPoll === 'function') { try { starCardPoll(s); } catch (_) {} }
     _POLL_FAILS = 0;
     _setOfflineBanner(false);
   } catch (e) {
+    if (requestSerial < _pollAppliedSerial) return;
     _POLL_FAILS += 1;
     // Suppress the offline banner while a known long-running endpoint is
     // in flight (e.g. /version/pull which blocks the server for ~30s on
@@ -9209,6 +9217,8 @@ document.getElementById('genForm').addEventListener('submit', async e => {
       }
     }
     await api('/queue/add','POST',fd);
+    window._liveStageReviewPath = null;
+    window._stagePlaybackIntentAt = 0;
   } catch (e) {
     // 4.17 Codex EST-10: the server REFUSED this render and said why (an
     // Extend asking for a Face Fix follow-up this Mac can't run). That is
