@@ -193,7 +193,7 @@ VARIANTS: dict[str, dict] = {
         },
     },
     "h3.flex_turbo": {
-        # akhaliq's Pika H3 Flex Turbo LoRA (lite r32), 4 forwards. Pro.
+        # H3 Flex Turbo: the faster Flex draft. Pro.
         "engine": "h3", "label": "H3 Flex Turbo", "pick": {"speed": "flex_turbo"}, "rank": 2,
         "inherits": "h3.flex",
         "status": "preview",

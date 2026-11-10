@@ -3221,6 +3221,40 @@ function openFailedJobInForm(jobId) {
 // time. Retry is now withheld for hardware-tier refusals (the hint says what
 // to change), and the Lip-sync length refusal offers the one action that
 // renders the song on that Mac: Split into clips.
+// Why nothing is rendering while clips wait, or what the clips behind the
+// running one are waiting for: one title and one sentence, from /status alone
+// (`hold`, `engine_restart`, `paused_reason`). The Now card is never blank
+// while the queue has work (app review 10 Nov: a 2-30 minute engine update
+// showed "Idle" and one line in Logs). Returns null when there is nothing to say.
+function nowWaitNote(s) {
+  s = s || {};
+  const queued = (s.queue || []).length;
+  const hold = s.hold || null;
+  const restart = s.engine_restart || {};
+  const running = !!(s.running && s.current);
+  if (s.paused && !running) {
+    return { kind: 'paused', title: 'Paused',
+             text: s.paused_reason
+               || 'Queue paused. Nothing renders until you press Resume.' };
+  }
+  if (hold && hold.text && (hold.waiting || 0) > 0) {
+    const mins = hold.since_ts && s.server_now
+      ? Math.floor(Math.max(0, s.server_now - hold.since_ts) / 60) : 0;
+    return { kind: 'hold',
+             title: hold.scope === 'h3' ? 'Updating Hailuo H3' : 'Waiting',
+             text: hold.text + (mins >= 1 ? ` ${mins} min so far.` : '') };
+  }
+  if (restart.restarting) {
+    return { kind: 'engine_restart', title: 'Engine restarting',
+             text: restart.text || 'Engine restarting. The next clip takes about a minute longer to start.' };
+  }
+  if (queued && !running) {
+    return { kind: 'next', title: 'Starting the next clip',
+             text: `${queued} clip${queued === 1 ? '' : 's'} waiting. The next one starts in a moment.` };
+  }
+  return null;
+}
+
 function nowCardFailureActions(last, info) {
   const action = info && info.action;
   const smaller = info && info.smaller;
@@ -3876,8 +3910,9 @@ async function poll() {
   const breakerNotice = document.getElementById('breakerNotice');
   if (breakerNotice) {
     if (s.paused && s.paused_reason) {
-      document.getElementById('breakerNoticeText').textContent =
-        `Queue paused: ${s.paused_reason}. Fix the cause, then Resume.`;
+      // The server's sentence is whole and plain (plain_pause_reason): it
+      // names the way out and never carries the engine's raw error.
+      document.getElementById('breakerNoticeText').textContent = String(s.paused_reason);
       breakerNotice.hidden = false;
     } else {
       breakerNotice.hidden = true;
@@ -4000,7 +4035,7 @@ async function poll() {
   // visible across mode switches, so a Now-card duplicate is no
   // longer needed.
   if (s.running && s.current) {
-    nowCard.classList.remove('idle', 'failed');
+    nowCard.classList.remove('idle', 'failed', 'waiting');
     const prog = s.current.progress || null;
     const elapsedFallback = Math.max(0, s.server_now - s.current.started_ts);
     let pct, elapsed, phaseLabel, timing;
@@ -4066,8 +4101,12 @@ async function poll() {
     // it on the job's own params — surface it here so a smaller-than-picked
     // canvas is said WHILE it's rendering, not discovered after the wait.
     const clampNotes = Array.isArray(cur.generation_clamp_notes) ? cur.generation_clamp_notes : [];
+    // What the clips behind this one wait for (an H3 engine update), or that
+    // this clip is paying for an engine restart: said here, not only in Logs.
+    const waitNote = nowWaitNote(s);
     const underline = [
       phaseLabel ? `<span style="color:var(--muted)">${escapeHtml(phaseLabel)}</span>` : '',
+      waitNote ? `<span class="now-wait-note">${escapeHtml(waitNote.text)}</span>` : '',
       paceNote ? `<span style="color:var(--danger, #f85149)">${escapeHtml(paceNote)}</span>` : '',
       clampNotes.length
         ? `<span class="now-clamp-note" title="${escapeHtml(clampNotes.join('; '))}">⚠ ${escapeHtml(clampNotes[0])}</span>`
@@ -4098,6 +4137,7 @@ async function poll() {
     if (showFailure) {
       nowCard.classList.remove('idle');
       nowCard.classList.add('failed');
+      nowCard.classList.remove('waiting');
       // Translate cryptic engine errors into actionable user guidance.
       // "helper died mid-job (no event)" is the SIGKILL-by-jetsam
       // signature on memory-pressured Macs — the helper subprocess gets
@@ -4151,6 +4191,7 @@ async function poll() {
       // exists to enable.
       nowCard.classList.remove('idle', 'failed');
       nowCard.classList.add('stopped');
+      nowCard.classList.remove('waiting');
       nowCard.querySelector('.ttl').textContent = 'Stopped early';
       nowCard.querySelector('.meta').innerHTML =
         `<span style="color: var(--muted)">${escapeHtml(rowTitle(last, last.params.prompt, last.params.label))}</span>` +
@@ -4168,10 +4209,11 @@ async function poll() {
     } else {
       nowCard.classList.add('idle');
       nowCard.classList.remove('failed', 'stopped');
-      nowCard.querySelector('.ttl').textContent = s.paused ? 'Paused' : 'Idle';
-      nowCard.querySelector('.meta').textContent = s.paused
-        ? 'Queue paused — nothing will render until you press Resume.'
-        : (s.queue.length ? 'Worker about to pick up next queued job.' : 'No jobs queued. Generate something on the left.');
+      const waitNote = nowWaitNote(s);
+      nowCard.classList.toggle('waiting', !!waitNote && waitNote.kind !== 'paused');
+      nowCard.querySelector('.ttl').textContent = waitNote ? waitNote.title : 'Idle';
+      nowCard.querySelector('.meta').textContent = waitNote
+        ? waitNote.text : 'No jobs queued. Generate something on the left.';
       // #80: a paused worker used to say "waits for resume" and offer no way
       // to resume from where the user was looking; the only control was the
       // Pause/Resume chip above the queue list, and a restart persisted the

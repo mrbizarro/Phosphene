@@ -77,7 +77,9 @@ function rmWaitView(st) {
     settings = true;
   } else if (parts.restart_needed) {
     title = 'Restart the Studio to finish';
-    body = 'New Remote Control components are installed. Restart Phosphene in Pinokio to start using them.';
+    body = 'New Remote Control components are installed. ' + distText(
+      'Restart Phosphene in Pinokio to start using them.',
+      'Use Studio \u2192 Restart Engine to start using them.');
   } else if (parts.busy) {
     const ph = parts.phase;
     title = ph === 'verifying' ? 'Checking the download' : ph === 'downloading' ? 'Downloading Remote Control' : 'Checking for Remote Control';

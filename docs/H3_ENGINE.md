@@ -487,18 +487,17 @@ Both digests are checked; a corrupt or partial build is deleted, never
 renamed into place. `test_h3_v13.py` pins script↔panel parity, the re-layout
 against an independent reference, the job rules, the argv and the prices.
 
-### H3 Flex Turbo: the four-step Flex (5.0, Pro, preview)
+### H3 Flex Turbo (5.0, Pro, preview)
 
-akhaliq/Pika-H3-Flex-Turbo-LoRA @ dcacd93, file `pika_h3_flex_turbo_4step_fl2va_lite_r32.safetensors`
-(sha256 7c60a2ff..., 310,189,392 bytes), saved as `pika-h3-flex/pika_h3_flex_turbo4_fl2va_lite_r32.safetensors`
-and run as published: `--sampler euler --sigma-knots 1000,750,500,250,0 --steps 5 --video-shift 6
---audio-shift 3 --lora <file>:1.0 --lora-qkv-permute --lora-fc1-swap` (the runner re-orders the fused
-diffusers-layout q/k/v and fc1 halves at load). Needs no Flex adapter and no engine change beyond the 5.0
-pin (`phosphene/v5.0`, which has every flag). Panel: `H3_FLEX_TURBO_*`, `h3_flex_turbo_status()` in
-`/status` as `h3.flex_turbo`, `h3_flex_turbo=1` in make_job (rides every Flex gate), `POST
+A faster H3 Flex draft, part of Phosphene Pro. This repository carries the option's name, its
+credit line, its picker row and its time estimates; what it downloads and how it renders are
+answered by the Pro add-on (`h3_flex_turbo_spec()` in the panel asks it), so a Free install
+shows the row as a Pro option and nothing more. Panel: `h3_flex_turbo_status()` in `/status` as
+`h3.flex_turbo`, `h3_flex_turbo=1` in make_job (rides every Flex gate), `POST
 /h3/flex-turbo/install` (402 without Pro), picker entry `h3flexturbo`, timing lane `flex_turbo`.
-Pro gate: `h3_flex_turbo_allowed()` (Pro ledger row `h3-flex-turbo`). Measured (R&D Lab L4, M4 Max 64 GB,
-Q8 DiT): High 1024x576 5 s 613-712 s vs Flex 928-1003 s on the same seeds; Draft 5 s 213 s.
+Pro gate: `h3_flex_turbo_allowed()` (Pro ledger row `h3-flex-turbo`). Credit: the Pika H3 Flex
+Turbo LoRA by akhaliq, fusing Pika H3 Flex (Pika Labs) with LightX2V's MiniMax-H3 Turbo; weights
+under the MiniMax H3 Community License.
 
 ### Pika H3 Flex: Pika Labs' six-step H3, natively on Apple Silicon (2026-10-30)
 

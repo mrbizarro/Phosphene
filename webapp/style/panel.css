@@ -498,6 +498,10 @@
       50%     { box-shadow: 0 0 10px 2px rgba(177,74,255,0.45); }
     }
     @media (prefers-reduced-motion: reduce) { .pill-appupdate { animation: none; } }
+    /* The app's answer after the click (docs/APP_UPDATE_STATES.md): downloading or waiting is
+       calm and not a button; refused or failed is amber and still one. */
+    .pill-appupdate.is-busy { animation: none; cursor: default; }
+    .pill-appupdate.is-problem { animation: none; }
     /* Checking — first /version poll hasn't completed yet. Same look as
        dev (muted) so the pill doesn't flash colours in the first 30s of
        boot before the GitHub fetch lands. */
@@ -8437,6 +8441,11 @@
     .now-card.stopped .meta {
       padding-right: 140px;
     }
+    /* Clips are waiting on something other than a render (an engine update,
+       an engine restart): the idle card keeps its shape, the words turn on. */
+    .now-card.idle.waiting .ttl { color: var(--text); }
+    .now-card.idle.waiting .meta { color: var(--text); }
+    .now-card .meta .now-wait-note { color: var(--muted); }
     /* VC-02(c): the render in progress may be smaller than the chip promised
        — say so on the card that's on screen for the whole wait, not only in
        a log line nobody is tailing. */
@@ -10763,6 +10772,9 @@
       background: linear-gradient(90deg, #ff2e9f 0%, #b14aff 55%, #5eeaff 100%);
     }
     body > header > .pill.pill-appupdate:hover { color: #fff; filter: brightness(1.12); }
+    body > header > .pill.pill-appupdate.is-busy { animation: none; cursor: default; background: var(--panel-2); color: var(--text); box-shadow: inset 0 0 0 1px rgba(177,74,255,0.55); }
+    body > header > .pill.pill-appupdate.is-busy:hover { color: var(--text); filter: none; }
+    body > header > .pill.pill-appupdate.is-problem { animation: none; background: var(--warning); color: #111; }
 
     /* === ENGINE SWITCHER (header, top right) =============       The one control in the header row that is an INPUT rather than a
        readout, so it deliberately does not share the .pill language: it sits

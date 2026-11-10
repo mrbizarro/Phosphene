@@ -730,23 +730,125 @@ async function panelRestart() {
   return false;
 }
 
-// ---- Mac app: "Update to vX" pill ----------------------------------------------------------
-// The app pushes what is behind (window.phosAppUpdate, app 5.0.5+). Older apps do not, so the studio
-// also asks /app-latest (the newest published version, cached ten minutes). Either way the pill shows
-// up by itself: nobody has to press anything to learn they are behind.
+// ---- Mac app: the update pill -----------------------------------------------------------------
+// ONE JUDGE (app review 10 Nov, section 2). The app knows what is behind, what was refused and
+// what failed, and pushes it: window.phosAppUpdate + the 'phos-app-update' event. The contract
+// is docs/APP_UPDATE_STATES.md. For an app that sends caps: ['updateAll'] the pill comes ONLY
+// from that push. The studio's own /app-latest (a public, unsigned hint that knows nothing of
+// min_app, a quarantined manifest or a failed install) is asked only by apps older than the push,
+// and is dropped for good the moment a push with that cap arrives. It used to be a fallback for
+// everyone, and kept "Update to vX" up forever on an app the update had refused (U2).
 let _appLatest = null;
-function _appBehind() {
-  const a = window.phosAppUpdate;
-  if (a && a.behind && a.target) return {target: a.target, what: a.what || ''};
-  if (_appLatest && _appLatest.behind && _appLatest.latest) return {target: _appLatest.latest, what: ''};
-  return null;
+let _appUpdateShownKey = '';
+
+function _appPushesUpdates(a) {
+  return !!(a && Array.isArray(a.caps) && a.caps.includes('updateAll'));
 }
+
+// What is behind, as [{kind: 'studio'|'app', version}]. A new app sends `parts`; the 5.0.5-5.0.10
+// push carries only the sentence ("Pro 5.0.13 and the app 5.0.11"), which is read here. The Pro
+// pack IS the Studio a Pro user runs, so it is named Studio: the number matches the label beside it.
+function appUpdateParts(a) {
+  const out = [];
+  const add = (kind, version) => {
+    const k = /^(app|the app)$/i.test(String(kind || '')) ? 'app' : 'studio';
+    const v = String(version || '').replace(/^v/i, '').split('-')[0];
+    if (v && !out.some(p => p.kind === k)) out.push({ kind: k, version: v });
+  };
+  if (a && Array.isArray(a.parts)) a.parts.forEach(p => p && add(p.kind, p.version));
+  if (!out.length && a && a.what) {
+    const rx = /(Studio|Pro|the app)\s+v?(\d[\w.\-]*)/gi;
+    let m;
+    while ((m = rx.exec(String(a.what)))) add(m[1], m[2]);
+  }
+  if (!out.length && a && a.target) add('studio', a.target);
+  return out.sort((x, y) => (x.kind === 'studio' ? 0 : 1) - (y.kind === 'studio' ? 0 : 1));
+}
+
+// "Studio to v5.0.14", "app to v5.0.11", or both. Never one bare number for two things (U10).
+function appUpdateName(parts, joiner) {
+  return (parts || []).map(p => (p.kind === 'app' ? 'app' : 'Studio') + (joiner || ' to ') + 'v' + p.version)
+    .join(' and ');
+}
+
+const APP_UPDATE_WAITS = {
+  render: 'the clip that is rendering finishes',
+  queue: 'the queue is empty',
+  model_download: 'the model download finishes',
+  engine_install: 'the engine install finishes',
+  app_quit: 'you quit Phosphene and open it again',
+};
+
+// Everything the pill and the toast say, from the app's push alone. Pure: (push) -> view.
+//   show    is there a pill          label/title   its words
+//   action  what a click sends: 'updateAll' | 'checkUpdate' | null
+//   toast   {text, kind} to show when `key` changes, or null     key   identity of this outcome
+function appUpdateView(a) {
+  a = a || {};
+  const parts = appUpdateParts(a);
+  const name = appUpdateName(parts);                  // "Studio to v5.0.14"
+  const thing = appUpdateName(parts, ' ');            // "Studio v5.0.14"
+  let state = String(a.state || '').toLowerCase();
+  if (!['available', 'downloading', 'waiting', 'needs_app', 'failed', 'done'].includes(state)) {
+    state = (a.behind && parts.length) ? 'available' : 'idle';     // the 5.0.5-5.0.10 push has no state
+  }
+  const key = state + '|' + thing + '|' + (a.reason || '') + '|' + (a.message || '');
+  const said = String(a.message || '').trim();
+  const v = { state, parts, key, show: false, label: '', title: '', action: null, toast: null, busy: false };
+  if (state === 'idle') return v;
+  if (state === 'done') {
+    v.toast = { kind: 'success', text: said || (thing ? `${thing} is installed.` : 'Phosphene is up to date.') };
+    return v;
+  }
+  v.show = true;
+  if (state === 'available') {
+    v.label = 'Update ' + name;
+    v.title = 'A newer version is out. Click to install it.';
+    v.action = 'updateAll';
+  } else if (state === 'downloading') {
+    const pct = Number.isFinite(a.progress) ? ` ${Math.round(Math.max(0, Math.min(1, a.progress)) * 100)}%` : '';
+    v.label = `Downloading ${thing}${pct}`;
+    v.title = 'The update is downloading. Nothing to do.';
+    v.busy = true;
+    v.toast = { kind: 'info', text: said || `Downloading ${thing}.` };
+  } else if (state === 'waiting') {
+    const why = APP_UPDATE_WAITS[a.reason] || 'Phosphene is idle';
+    v.label = `${thing} is ready`;
+    v.title = said || `${thing} is downloaded. It switches over when ${why}.`;
+    v.busy = true;
+    v.toast = { kind: 'info', text: v.title };
+  } else if (state === 'needs_app') {
+    const need = a.need_app ? ` (v${String(a.need_app).replace(/^v/i, '')} or newer)` : '';
+    v.label = 'Update the Phosphene app first';
+    v.title = said || `${thing || 'This update'} needs a newer Phosphene app${need}. Click to update the app.`;
+    v.action = 'checkUpdate';
+    v.toast = { kind: 'warning', text: v.title };
+  } else if (state === 'failed') {
+    v.label = 'Update failed. Try again';
+    v.title = said || `${thing || 'The update'} could not be installed. Click to try again.`;
+    v.action = 'updateAll';
+    v.toast = { kind: 'danger', text: v.title };
+  }
+  return v;
+}
+
+// The pill's source. A pushing app is the only judge; /app-latest answers only for older apps.
+function _appUpdateCurrent() {
+  const a = window.phosAppUpdate;
+  if (_appPushesUpdates(a)) { _appLatest = null; return appUpdateView(a); }
+  if (a && a.behind && a.target) return appUpdateView(a);
+  if (_appLatest && _appLatest.behind && _appLatest.latest) {
+    return appUpdateView({ behind: true, target: _appLatest.latest });
+  }
+  return appUpdateView(null);
+}
+
 function _renderAppUpdatePill(s) {
   const pill = document.getElementById('versionPill');
   if (!pill) return;
   let up = document.getElementById('appUpdatePill');
-  const b = (isMacApp() || (s || {}).app_updates) ? _appBehind() : null;
-  if (!b) { if (up) up.remove(); return; }
+  const v = (isMacApp() || (s || {}).app_updates) ? _appUpdateCurrent() : appUpdateView(null);
+  if (!v.show) { if (up) up.remove(); return; }
   if (!up) {
     up = document.createElement('span');
     up.id = 'appUpdatePill';
@@ -757,29 +859,64 @@ function _renderAppUpdatePill(s) {
     up.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _appUpdatePillClick(); } });
     pill.insertAdjacentElement('afterend', up);
   }
-  up.textContent = 'Update to v' + b.target;
-  up.title = b.what ? ('Installing ' + b.what + '. Click to start it now.') : 'A newer Phosphene is out. Click to update.';
+  up.textContent = v.label;
+  up.title = v.title;
+  up.dataset.state = v.state;
+  up.classList.toggle('is-busy', !!v.busy);
+  up.classList.toggle('is-problem', v.state === 'failed' || v.state === 'needs_app');
+  up.setAttribute('aria-disabled', v.action ? 'false' : 'true');
 }
+
+// The toast follows the app's answer and changes when the answer changes. Each outcome is said
+// once, also across the reload a finished update causes (the key is remembered in this window).
+function _appUpdateAnnounce() {
+  const a = window.phosAppUpdate;
+  if (!_appPushesUpdates(a) || !a.state) return;
+  const v = appUpdateView(a);
+  let last = _appUpdateShownKey;
+  try { last = sessionStorage.getItem('phosAppUpdateKey') || last; } catch (e) { /* private window */ }
+  if (v.key === last) return;
+  _appUpdateShownKey = v.key;
+  try { sessionStorage.setItem('phosAppUpdateKey', v.key); } catch (e) { /* private window */ }
+  if (v.toast) phosToast(v.toast.text, { kind: v.toast.kind, duration: v.state === 'failed' || v.state === 'needs_app' ? 0 : 6000 });
+}
+
 async function _refreshAppLatest() {
   if (!isMacApp() && !(_versionState || {}).app_updates) return;
+  if (_appPushesUpdates(window.phosAppUpdate)) { _appLatest = null; return; }   // the app is the judge
   try {
     const r = await fetch('/app-latest', {cache: 'no-store'});
     if (r.ok) _appLatest = await r.json();
   } catch (e) { return; }
   renderVersionPill();
 }
+
 function _appUpdatePillClick() {
-  const b = _appBehind();
-  const v = b ? 'v' + b.target : 'the newest version';
-  const canAll = !!(window.phosAppUpdate && (window.phosAppUpdate.caps || []).includes('updateAll'));
+  const a = window.phosAppUpdate;
+  const v = _appUpdateCurrent();
+  const canAll = _appPushesUpdates(a);
+  if (canAll && !v.action) { if (v.title) phosToast(v.title, 'info'); return; }   // downloading / waiting
   try {
-    window.webkit.messageHandlers.phosphene.postMessage({type: canAll ? 'updateAll' : 'checkUpdate'});
+    window.webkit.messageHandlers.phosphene.postMessage({type: canAll ? (v.action || 'updateAll') : 'checkUpdate'});
   } catch (e) { /* not inside the app */ }
+  // Nothing is promised before the app answers (U8): no "Updating…" here. An app that reports
+  // states says what happened through _appUpdateAnnounce; an older one cannot, so the page says
+  // only what it did. The answer to THIS click is always spoken, even if it repeats the last one
+  // (a second failure with the same sentence).
+  if (canAll && a.state) {
+    _appUpdateShownKey = '';
+    try { sessionStorage.setItem('phosAppUpdateKey', ''); } catch (e) { /* private window */ }
+    return;
+  }
+  const name = appUpdateName(v.parts) || 'the newest version';
   phosToast(canAll
-    ? `Updating to ${v}\u2026 it switches over when nothing is rendering.`
-    : `Updating to ${v}. If this stays, quit Phosphene (\u2318Q) and open it again \u2014 it updates when it opens.`, 'info');
+    ? `Asked Phosphene to update ${name}. This button goes away when it is installed.`
+    : `Asked Phosphene to update ${name}. If this stays, quit Phosphene (⌘Q) and open it again — it updates when it opens.`, 'info');
 }
-window.addEventListener('phos-app-update', () => { try { renderVersionPill(); } catch (e) {} });
+window.addEventListener('phos-app-update', () => {
+  try { renderVersionPill(); } catch (e) {}
+  try { _appUpdateAnnounce(); } catch (e) {}
+});
 setTimeout(_refreshAppLatest, 3000);
 setInterval(_refreshAppLatest, 10 * 60 * 1000);
 

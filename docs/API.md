@@ -7,16 +7,19 @@ Codex or any MCP client, in `agents/` — [`AGENT_TOOLS.md`](AGENT_TOOLS.md).
 
 ## Server
 
-- **Base URL:** `http://127.0.0.1:8198` on a normal install. **`8199` is the DEV
-  profile's port**, and every example on this page uses it because that is the
-  panel these were written against. The rule is one line in the source
-  (`mlx_ltx_panel.py:275`): `DEFAULT_PORT = 8199 if PROFILE == "dev" else 8198`,
-  overridable with `LTX_PORT`. If a request here returns nothing, you are
-  almost certainly talking to a port that has no panel on it — try the other one.
-  **The Mac app** runs the same studio on a free port in **8930–8999**. Every studio
-  writes `~/.phosphene/servers/<port>.json` while it runs and answers
-  `GET /agents/info` with `"app": "phosphene"`; the `phosphene` CLI and the MCP server
-  in `agents/` find it that way — see [`AGENT_TOOLS.md`](AGENT_TOOLS.md).
+- **Find the studio first: `GET /agents/info`.** The port is not fixed, so do not
+  hard-code one. Every running studio writes `~/.phosphene/servers/<port>.json` and
+  answers `GET /agents/info` with `"app": "phosphene"`, its base URL and the exact
+  lines to connect an agent. The `phosphene` CLI and the MCP server in `agents/` find
+  it that way and need no port from you — see [`AGENT_TOOLS.md`](AGENT_TOOLS.md).
+- **Base URL:** whatever `/agents/info` (or the newest file in
+  `~/.phosphene/servers/`) reports. For reference: **the Mac app** picks a free port
+  in **8930–8999** at each start; a **Pinokio** install listens on `8198`; the DEV
+  profile listens on `8199`, and the examples on this page were written against it
+  (`DEFAULT_PORT = 8199 if PROFILE == "dev" else 8198` in `mlx_ltx_panel.py`,
+  overridable with `LTX_PORT`). If a request here returns nothing, you are talking
+  to a port with no studio on it: ask `/agents/info` on the ports above, or read
+  the servers folder.
 - **Process:** `mlx_ltx_panel.py` (in the repo root)
 - **Wire format:** form-encoded `POST` bodies; JSON exceptions are noted
   per-endpoint. Responses are **HTTP/1.0** — `BaseHTTPRequestHandler`'s
@@ -100,6 +103,8 @@ Add a job to the panel's queue. Returns immediately; the helper renders it async
 ```
 
 **Return:** `{"ok": true, "id": "j-<...>"}` — the job ID for polling.
+
+**400 `pack_missing`, `what: "base_models"` (after 5.0.13).** A video job is not queued while the base video model is not on this Mac — the API refuses it exactly as the page's Generate button does: `{ error: "Download the video model first. Open Settings → Models and press Download, then generate again.", code: "pack_missing", what: "base_models", missing: <files>, downloading: <bool>, action: { label, open: "models", api: "POST /models/video" } }`. While the model is downloading, `error` says so with the percentage. Image, music, speech, training, Sharp export and Hailuo H3 jobs are not judged by the video model. A job that reaches the render with an empty or partial model folder by another door is refused there with the same sentence, before the engine starts.
 
 **Example:**
 
@@ -282,6 +287,11 @@ Field semantics:
 - `gpu` (4.19.10) — `{ busy, holder, since, outside_queue }`: the panel's one GPU gate. `holder` is `"queue"` for the job in `current`, or what holds the GPU outside the queue: `"image"` (an Image Studio render), `"character_sheet"`, `"enhance"` (Prompt Enhance), `"lyrics"`, `"update"` (the post-update script). A client that must not interrupt work (stopping or updating the panel) waits for `current` to be `null`, the queue to be paused or empty, AND `gpu.busy` to be `false`.
 - `app_models` (Mac app only) — the app's own model download: `{ state, packs, active, locked, done_bytes, total_bytes }`. `locked` (4.19.10) is true while the app holds its download lock (`<Phosphene home>/.locks/models.lock`); the panel then offers no Download for those packs and refuses one with 409 `app_downloading`. A second `scripts/fetch_pack_release.py` on a pack folder that is already being written stops untouched with exit code 75.
 - `queue` — jobs waiting, FIFO order.
+- `hold` (after 5.0.13) — `null`, or `{ scope, what, text, since_ts, eta_min, waiting }`: what is holding queued clips. `scope: "h3"` is the Mac app's Hailuo H3 engine update: only H3 clips wait and every other clip keeps rendering (`text`: "Updating the Hailuo H3 engine (about N min). H3 clips wait; other clips keep going."). `scope: "all"` holds every clip (the compact-engine build, an update installing). `waiting` is how many queued clips it holds now. The Now card shows `text`.
+- `paused_reason` — `null` for a manual pause. After three clips in a row fail the same way it is one plain sentence that names the way out ("Queue paused: the last 3 clips failed the same way. The video model is not fully downloaded. Open Settings → Models to finish the download, then press Resume."), never the engine's raw error; that is on each failed job's `error`.
+- `engine_restart` (after 5.0.13) — `{ count, last_ts, restarting, text }`: the post-decode rescue (the engine went silent after writing a clip, the clip was kept and the engine restarted). `count` is per Studio run; `restarting` is true until the engine is up again while a clip is waiting to pay the cold start.
+- `restart_busy`, `restart_busy_reason` (after 5.0.13) — whether a restart would cut work, and why: `"render"`, `"queue"` (clips waiting in a queue that is not paused), `"model_download"`, `"engine_install"` or `""`. The Mac app's update flow reads these — [`APP_UPDATE_STATES.md`](APP_UPDATE_STATES.md).
+- `base_missing` — the base video model's missing files, under the folder name this install has (`mlx_models/…` in Pinokio, `models/…` in the Mac app). Decide on `base_available`; show this.
 - `history` — completed/failed jobs. Each entry has `status`, `elapsed_sec`, `output_path`, `raw_path` (native pre-upscale), `error`.
 - `log` — rolling buffer of helper stdout lines (last ~50 jobs).
 

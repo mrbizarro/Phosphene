@@ -71,5 +71,14 @@
       "Dragging a clip shows what it will do: move, reorder, ripple, slip, roll or trim."
     ],
     "pro": []
+  },
+  "5.0.14": {
+    "free": [
+      "Queued clips keep going while one engine updates, and the queue says what it is waiting for.",
+      "Plain messages when the video model is not downloaded yet, and when the engine restarts itself.",
+      "In the Mac app, the update notice says what is updating and when it is done.",
+      "Mac app wording now matches the app: no Pinokio instructions, and the right models folder."
+    ],
+    "pro": []
   }
 }

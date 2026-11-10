@@ -2082,7 +2082,7 @@ async function charactersLoadList() {
   window.CHARACTERS.loading = true;
   const grid = document.getElementById('charactersGrid');
   const empty = document.getElementById('charactersEmpty');
-  if (grid) grid.innerHTML = '<div class="characters-loading">Scanning <code>mlx_models/loras/</code>…</div>';
+  if (grid) grid.innerHTML = '<div class="characters-loading">Scanning <code>' + escapeHtml(ltxLorasDirText()) + '</code>…</div>';
   if (empty) empty.hidden = true;
   try {
     const r = await fetch('/characters', { credentials: 'same-origin' });
@@ -3590,7 +3590,7 @@ function trainUpdateEstimate() {
   if (ramRow) ramRow.textContent = `~${preset.ram_peak_gb} GB peak`;
   if (outRow) {
     const trig = (document.getElementById('trainTrigger').value || 'mrz07');
-    outRow.textContent = `mlx_models/loras/${(TRAIN.jobId || 'trn-<new>')}.safetensors · trigger "${trig}"`;
+    outRow.textContent = `${ltxLorasDirText().replace(/\/?$/, '/')}${(TRAIN.jobId || 'trn-<new>')}.safetensors · trigger "${trig}"`;
   }
 }
 

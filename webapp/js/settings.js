@@ -60,8 +60,17 @@ function updateModelsCard(s) {
     card.style.display = '';
     card.classList.add('state-downloading');
     icon.textContent = '↓';
-    title.textContent = `Building ${extBuild.what || 'an H3 engine'} in Pinokio`;
-    sub.textContent = 'Running in the Pinokio sidebar — Generate resumes here automatically when it finishes. No need to keep that tab open.';
+    // The Mac app runs this itself: no Pinokio, no sidebar, and (for its own
+    // H3 runner update, hold scope "h3") other clips keep rendering meanwhile.
+    const hold = s.hold || {};
+    const what = extBuild.what || 'an H3 engine';
+    title.textContent = distText(`Building ${what} in Pinokio`,
+      hold.scope === 'h3' ? 'Updating the Hailuo H3 engine' : `Building ${what}`);
+    sub.textContent = distText(
+      'Running in the Pinokio sidebar — Generate resumes here automatically when it finishes. No need to keep that tab open.',
+      hold.scope === 'h3'
+        ? (hold.text || 'H3 clips wait; other clips keep going.')
+        : 'Phosphene is doing this by itself. Generate resumes here automatically when it finishes.');
     setActions('');
     return;
   }
@@ -159,8 +168,12 @@ function updateModelsCard(s) {
     // a half-installed 16 GB install saw "LTX-2.5 base and Gemma 4 are
     // required" with Gemma 4 sitting right there on disk. Name only the
     // pack(s) whose local_dir actually shows up in base_missing.
+    // Matched on the pack's own folder name: base_missing is shown in the
+    // person's folder (`models/<pack>/...` in the Mac app), the registry's
+    // local_dir is always `mlx_models/<pack>`.
     const packNeeded = (p) => !p || !p.local_dir
-      || missingList.some(f => String(f).includes(p.local_dir));
+      || missingList.some(f => String(f).includes('/' + String(p.local_dir).split('/').pop() + '/')
+                               || String(f).includes(p.local_dir));
     const needBase = packNeeded(pBase), needEnc = packNeeded(pEnc);
     const parts = [];
     if (needBase) parts.push(`${pBase ? pBase.name : 'The base model'} (~${pBase ? pBase.size : '?'})`);

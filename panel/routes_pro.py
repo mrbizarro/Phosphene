@@ -3,8 +3,7 @@
 GET /pro/status    {active, plan, until, holder, source}; Free is the default and nothing here nags
 GET /pro/compare   the bundled "same clip, Free vs Pro" comparisons (assets/pro/compare.json)
 
-Pro is on only with a signed capability token for this Mac (pro_token.py, passed by the Mac app);
-PHOSPHENE_PRO=<plan> is a developer override honoured on a test rig only (PHOSPHENE_TEST_RIG=1).
+Pro is on only with a signed capability token for this Mac (pro_token.py, passed by the Mac app).
 """
 from __future__ import annotations
 

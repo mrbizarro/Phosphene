@@ -13,11 +13,14 @@ the same thing when it is not running.
 
 ## Connect an agent
 
-The running studio prints the exact line for this install (its own Python and path):
+The running studio prints the exact line for this install (its own Python and path).
+Ask the CLI, which finds the studio whatever port it is on (the Mac app picks a free
+one in 8930–8999 at each start; Pinokio uses 8198):
 
 ```bash
-curl -s http://127.0.0.1:8198/agents/info | python3 -m json.tool   # see "agents"
-python3 agents/phosphene_cli.py mcp-config                          # same, from the CLI
+python3 agents/phosphene_cli.py mcp-config                          # finds the studio itself
+cat ~/.phosphene/servers/*.json                                     # or: every running studio, with its port
+curl -s http://127.0.0.1:<port>/agents/info | python3 -m json.tool  # the same answer over HTTP, see "agents"
 ```
 
 Then, for example:

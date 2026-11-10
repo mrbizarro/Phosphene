@@ -69,6 +69,9 @@ def get_status(h, parsed) -> None:
     payload["memory"] = P.get_memory()
     payload["comfy_pids"] = P.find_comfy_pids()
     payload["server_now"] = P.time.time()
+    # What is holding queued clips, in words (the Now card shows it). Scope "h3"
+    # = only Hailuo H3 clips wait; every other clip keeps going.
+    payload["hold"] = P.queue_hold_status(payload.get("queue"), payload["server_now"])
     payload["avg_elapsed_sec"] = avg
     # v3.0.7 (P2): surface the installed ltx-2-mlx version (from the
     # helper's ready event) so every bug report — not just a mismatch
@@ -165,6 +168,10 @@ def get_status(h, parsed) -> None:
         "low_memory": P.HELPER_LOW_MEMORY == "true",
         "idle_timeout_sec": P.HELPER_IDLE_TIMEOUT,
     }
+    # The post-decode hang rescue: how often it fired, and whether a clip is
+    # about to pay its cold start ("Engine restarting" on the Now card).
+    payload["engine_restart"] = P.engine_restart_status(
+        bool(payload.get("current") or payload.get("queue")), payload["server_now"])
     # Completeness checks come from the shared required_files.json so
     # the menu, the UI, and the run-time job validator all agree on
     # what counts as "installed". Single source of truth — see the
@@ -208,7 +215,10 @@ def get_status(h, parsed) -> None:
     payload["hq_surface_missing"] = P.hq_surface_missing()
     payload["q8_path"] = str(P.pack_path("q8"))
     payload["base_available"] = not _base_missing
-    payload["base_missing"] = _base_missing
+    # In the person's own folder name: `models/...` in the Mac app, where no
+    # `mlx_models` folder exists (shown_model_path). Machine decisions read
+    # base_available; this list is what gets shown.
+    payload["base_missing"] = [P.shown_model_path(f) for f in _base_missing]
     path_errors = [P.model_path_problem(P._deferred_repo(k), write=bool(_base_missing))
                    for k in P.capability_repo_keys("render")]
     payload["model_path_error"] = next((e for e in path_errors if e), "")
@@ -324,15 +334,12 @@ def get_status(h, parsed) -> None:
     payload["gpu"] = P.gpu_gate_status()
     # One restart contract for native Studio, Pro and app updates. Include
     # optional downloads that do not own the render queue or GPU.
-    active_states = {"running", "starting", "downloading", "building", "installing", "repairing", "stopping"}
-    installs = [getattr(P, name, {}) for name in (
-        "MUSIC_INSTALL", "SPEECH_INSTALL", "ENGINE_REPAIR", "H3_REPAIR",
-        "H3_APP_INSTALL", "H3_APP_RUNNER_STATE", "DOWNLOAD", "IMAGE_REPO_DOWNLOAD",
-        "_ph3image_dl_state", "_h3_turbo_dl_state", "_h3_tristep_dl_state",
-        "_h3_flex_dl_state", "_h3_flex_turbo_dl_state", "_h3_v13_dl_state")]
-    payload["restart_busy"] = any(
-        d.get("active") or d.get("running") or d.get("state") in active_states or d.get("status") in active_states
-        for d in installs) or P.app_h3_prep() == "building"
+    # A queue with clips waiting counts (app review 10 Nov): `restart_busy_reason`
+    # is what the update is waiting for, in the app's own words.
+    _busy = P.restart_busy_status(payload.get("current"), payload.get("queue"),
+                                  bool(payload.get("paused")))
+    payload["restart_busy"] = _busy["busy"]
+    payload["restart_busy_reason"] = _busy["reason"]
     # Mac app only: the app's own model download (app_models.json). The
     # "Base models needed" card names it instead of offering a second fetch.
     _app = P.app_models_state()
@@ -879,6 +886,11 @@ def post_run(h, path, qs, ctype) -> None:
     refusal = P.job_input_refusal(job.get("params") or {})
     if refusal:
         h._json({"error": refusal, "code": "input_missing"}, 400); return
+    # App review 10 Nov, row 4: no base video model on this Mac = not queued,
+    # for the API exactly as for the page's Generate button.
+    _base = P.base_models_refusal(job.get("params") or {})
+    if _base:
+        h._json(_base, 400); return
     # 4.19.8: a model whose licence asks for an explicit "I accept" (H3, the
     # non-commercial models) is refused with 451 until it is accepted; the
     # panel's licences.js shows the screen and re-sends this request.

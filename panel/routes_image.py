@@ -490,8 +490,8 @@ def post_h3_flex_install(h, path, qs, ctype) -> None:
         return
     h._json(result, 202)
 
-# ====== Hailuo H3 · H3 Flex Turbo (Pro, preview) — download akhaliq's published
-# four-step Flex Turbo LoRA at its pinned revision + sha256. Pro only.
+# ====== Hailuo H3 · H3 Flex Turbo (Pro, preview) — download its published file
+# at the pinned revision + sha256 the Pro add-on names. Pro only.
 @post("/h3/flex-turbo/install")
 def post_h3_flex_turbo_install(h, path, qs, ctype) -> None:
     P.h3_status_invalidate()

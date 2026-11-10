@@ -398,8 +398,8 @@ function _h3V13Mode() {
 function h3FlexState() {
   return (H3 && H3.flex) || { available: false, supported: false, downloaded: false };
 }
-// H3 Flex Turbo (5.0, Pro, preview): the four-step Flex (akhaliq's fused
-// LoRA with LightX2V's Turbo). Same cells as Flex (cell.flex_turbo_min).
+// H3 Flex Turbo (5.0, Pro, preview): the faster Flex draft. Same cells as
+// Flex (cell.flex_turbo_min).
 function h3FlexTurboState() {
   return (H3 && H3.flex_turbo) || { available: false, supported: false, downloaded: false, pro: true, pro_active: false };
 }
@@ -1684,8 +1684,7 @@ function h3FlexPickerClick() {
 }
 
 // ---- H3 Flex Turbo: its own picker entry (5.0, Pro, preview) --------------
-// Not a server engine either: engine=h3, h3_flex_turbo=1 (akhaliq's four-step
-// Flex Turbo LoRA, euler over five knots). A speed-up, so Pro (owner rule).
+// Not a server engine either: engine=h3, h3_flex_turbo=1. A Pro option.
 const H3FLEXTURBO_ID = 'h3flexturbo';
 function h3FlexTurboPicked() {
   return currentEngine() === 'h3' && h3SpeedPref() === 'flex_turbo';

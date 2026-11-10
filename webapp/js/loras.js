@@ -99,7 +99,14 @@ function _loraFilterLabel(tag) {
 // Which LoRA library directory the picker is currently pointed at. Filled by
 // refreshLoras() from /loras — one fetch carries both, so flipping engine
 // re-labels the empty state without a round-trip.
-globalThis._lorasDirs = { ltx: 'mlx_models/loras/', h3: '' };
+globalThis._lorasDirs = { ltx: '', h3: '' };
+// The LTX LoRA folder as text. Before /loras has answered with the real path it
+// is the folder's name for this install: Pinokio's `mlx_models/`, the Mac app's
+// `models/` (the app has no mlx_models folder; app review 10 Nov, polish 7).
+function ltxLorasDirText() {
+  if (_lorasDirs.ltx) return _lorasDirs.ltx;
+  return (typeof isMacApp === 'function' && isMacApp()) ? 'models/loras/' : 'mlx_models/loras/';
+}
 // Whether the INSTALLED H3 pack's runner takes `--lora` at all. An older
 // checkout renders every tier and cannot take an adapter, and offering the
 // picker there would be a lie the user only discovers 30 s into a render.
@@ -133,7 +140,7 @@ function _syncLoraPickerForEngine() {
   if (dirEl) {
     dirEl.textContent = (tag === 'video:h3')
       ? (_lorasDirs.h3 || 'the Hailuo H3 pack’s loras/ folder')
-      : (_lorasDirs.ltx || 'mlx_models/loras/');
+      : ltxLorasDirText();
   }
   const importBtn = document.getElementById('h3LoraImportBtn');
   if (importBtn) importBtn.hidden = tag !== 'video:h3';
@@ -197,7 +204,7 @@ async function importH3Lora(file) {
       // question nobody but us asked.
       phosToast("This looks like an LTX LoRA, not an H3 one — its layout "
                + "only exists in LTX/diffusers exports. Move the file into "
-               + "mlx_models/loras/ to use it on LTX instead; it can't run "
+               + ltxLorasDirText() + " to use it on LTX instead; it can't run "
                + "on H3.", { icon: 'ph-warning-fill', kind: 'danger', duration: 9000 });
     } else {
       phosToast(`H3 LoRA import failed: ${msg}`,
@@ -579,7 +586,7 @@ async function refreshLoras() {
     if (dirEl) {
       dirEl.textContent = (tag === 'video:h3')
         ? (_lorasDirs.h3 || 'the Hailuo H3 pack’s loras/ folder')
-        : (_lorasDirs.ltx || 'mlx_models/loras/');
+        : ltxLorasDirText();
     }
   }
   // Backfill compatible_modes on any active LoRA whose entry we now
@@ -857,7 +864,7 @@ function renderLorasList() {
   if (rescanBtn) {
     const dir = (modeTag === 'video:h3')
       ? (_lorasDirs.h3 || "the Hailuo H3 pack's loras/ folder")
-      : (_lorasDirs.ltx || 'mlx_models/loras/');
+      : ltxLorasDirText();
     rescanBtn.title = `Rescan ${dir} for new files`;
   }
   // H3-08: no total-strength warning ever showed for stacked H3 LoRAs — the
@@ -1532,6 +1539,7 @@ function renderCharacterStrip() {
 // Inline handlers in the markup and the other files resolve these through
 // the global scope; everything NOT listed here is private to this module.
 Object.assign(globalThis, {
+  ltxLorasDirText,
   checkLoraUpdates, updateLora, writeLoraGuide,
   _currentLoraModeFilter, _syncLoraPickerForEngine, importH3Lora, renderH3LoraSlot,
   setH3LoraSlot, _serializeLoras, imageLorasForSubmit, enhanceLoraPaths, addLoraToActive, populateIngredientCharLoras,

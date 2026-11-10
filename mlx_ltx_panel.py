@@ -5810,6 +5810,20 @@ def repo_dir(repo: dict) -> Path:
     return ROOT / local
 
 
+def shown_model_path(rel) -> str:
+    """A manifest path (`mlx_models/<pack>/<file>`) under the name of the folder the
+    person actually has. `mlx_models` is Pinokio's folder; the Mac app keeps its
+    models in `<Phosphene home>/models`, and status lines and messages named a
+    folder that is not on that Mac (app review 10 Nov, polish 7). Anywhere the
+    models folder is the default one, the text is returned as it is."""
+    text = str(rel or "")
+    if MODELS_DIR == _DEFAULT_MODELS_DIR:
+        return text
+    if text == "mlx_models" or text.startswith("mlx_models/"):
+        return MODELS_DIR.name + text[len("mlx_models"):]
+    return text
+
+
 # ---- The Mac app's own model download (CONTRACTS.md, "models later") ------
 # The app opens the studio with the engine only and fetches the draft set in
 # the background with scripts/fetch_pack_release.py, writing its progress to
@@ -6166,6 +6180,128 @@ def base_missing() -> list[str]:
     if not str(MODEL_ID).startswith("/"):
         return []
     return capability_missing("render")
+
+
+# ---- "Download the video model first" (app review 10 Nov, row 4) ------------
+# A base pack folder that is empty or not there (a cross-volume import in the Mac
+# app leaves exactly that) used to be accepted by /queue/add, handed to the
+# helper as model_dir, and treated by the loader as a Hugging Face NAME: the
+# render died on "Repo id must be in the form 'repo_name' or
+# 'namespace/repo_name': '/Volumes/...'", three times, and the queue paused
+# with that sentence as its reason. Two gates, one sentence:
+#   submit   base_models_refusal()  - /run and /queue/add, as Generate already does
+#   loader   model_dir_refusal()    - WarmHelper.run, whichever door queued the job
+VIDEO_MODEL_FIRST = ("Download the video model first. Open Settings \u2192 Models "
+                     "and press Download, then generate again.")
+VIDEO_MODEL_ACTION = {"label": "Download the video model", "open": "models",
+                      "api": "POST /models/video"}
+_NO_LTX_BASE_MODES = frozenset({"image", "music", "speech", "train", "sharp_export"})
+_NO_LTX_BASE_ENGINES = frozenset({"h3", "music", "speech"})
+
+
+def job_needs_ltx_base(params: dict | None) -> bool:
+    """Does this job render with the LTX video model? (Images, songs, speech,
+    training, Sharp export and Hailuo H3 have their own models and gates.)"""
+    p = params or {}
+    if str(p.get("mode") or "t2v").strip().lower() in _NO_LTX_BASE_MODES:
+        return False
+    return (str(p.get("engine") or "ltx").strip().lower()) not in _NO_LTX_BASE_ENGINES
+
+
+def base_models_refusal(params: dict | None) -> dict | None:
+    """The submit gate: None, or the 400 body for a video job queued while the
+    base video model is not on this Mac. The page's Generate button has refused
+    this since VC-10; the queue API accepted it."""
+    if not job_needs_ltx_base(params):
+        return None
+    missing = base_missing()
+    if not missing:
+        return None
+    try:
+        act = pack_download_activity("q4")
+    except Exception:                                              # noqa: BLE001
+        act = None
+    if act is not None:
+        error = (f"The video model is still downloading ({act.get('pct', 0)}%). "
+                 f"Generate again when it finishes.")
+    else:
+        error = VIDEO_MODEL_FIRST
+    return {"error": error, "code": "pack_missing", "what": "base_models",
+            "missing": len(missing), "downloading": act is not None,
+            "action": dict(VIDEO_MODEL_ACTION)}
+
+
+def model_dir_problem(model_dir) -> str:
+    """"" when this model folder can be loaded, else "missing", "empty" or "partial".
+
+    Judged only where the outcome is certain:
+      missing  an absolute path that is not on disk. The loader's rule is "a path
+               that exists is local, anything else is a Hugging Face name"
+               (ltx_pipelines_mlx resolve_model_dir), so this is the "Repo id must
+               be in the form ..." failure, every time.
+      empty    a registered pack folder with no weights in it at all.
+      partial  a registered pack folder with files missing here and in the cache.
+    A bare `org/name` is a Hugging Face id the user chose (manual and dev
+    installs) and the models root is the helper's own fallback (ltx_model_dir):
+    neither is judged."""
+    text = str(model_dir or "")
+    if not text.startswith("/"):
+        return ""
+    folder = Path(text)
+    try:
+        if not folder.exists():
+            return "missing"
+        is_dir = folder.is_dir()
+    except OSError:
+        return "missing"
+    for ver in MODEL_VERSIONS:
+        for quant in ("q4", "q8"):
+            try:
+                if str(pack_path(quant, ver["id"])) != text or not pack_repo(quant, ver["id"]):
+                    continue
+                if not (is_dir and any(folder.glob("*.safetensors"))):
+                    return "empty"
+                if pack_missing_files(quant, ver["id"]) and not pack_available_anywhere(quant, ver["id"]):
+                    return "partial"
+            except Exception:                                      # noqa: BLE001
+                continue
+    return ""
+
+
+def model_dir_refusal(job_spec: dict | None) -> None:
+    """The loader gate: raise before the helper is handed a model folder it
+    would read as a Hugging Face name. A folder that is still downloading is
+    left to ltx_pack_preflight, which waits for it."""
+    params = (job_spec or {}).get("params") or {}
+    if "model_dir" not in params:
+        return
+    problem = model_dir_problem(params.get("model_dir"))
+    if not problem:
+        return
+    push(f"[models] not started: the model folder {params.get('model_dir')} is {problem}.")
+    raise RenderRefused("pack_incomplete", VIDEO_MODEL_FIRST)
+
+
+def plain_pause_reason(n_failed: int, error) -> str:
+    """The sentence shown above Generate when three clips in a row fail the same
+    way. It names the way out, never the engine's own words: the raw error is on
+    each failed clip and in Logs (polish 5; row 4 showed a 100-character Hugging
+    Face message here)."""
+    raw = str(error or "").lower()
+    lead = f"Queue paused: the last {int(n_failed)} clips failed the same way. "
+    if ("download the video model first" in raw or "repo id must be" in raw
+            or "model is incomplete" in raw or "no *.safetensors" in raw
+            or "safetensors found" in raw):
+        return lead + ("The video model is not fully downloaded. Open Settings "
+                       "\u2192 Models to finish the download, then press Resume.")
+    if "no space left" in raw or "disk is full" in raw or "not enough disk" in raw:
+        return lead + "This Mac's disk is full. Free some space, then press Resume."
+    if ("out of memory" in raw or "sigkill" in raw or "jetsam" in raw
+            or "ran out of memory" in raw):
+        return lead + ("This Mac ran out of memory. Close other apps or pick a "
+                       "smaller size, then press Resume.")
+    return lead + ("Open the newest failed clip in History to see what went "
+                   "wrong, fix it, then press Resume.")
 
 
 def _capabilities() -> dict:
@@ -9897,32 +10033,14 @@ H3_FLEX_MEASURED_ETA: dict[tuple[str, str, str], tuple[float, str]] = {
     ("high", "5s", "t2v"): (16.3, "~16 min"),
 }
 
-# ---- H3 Flex Turbo (5.0, Pro, preview) ---------------------------------------
-# akhaliq's Pika H3 Flex Turbo LoRA: Pika H3 Flex fused (exact rank concat) with
-# LightX2V's MiniMax-H3 Turbo distill, so ONE file renders Flex's motion in four
-# forwards. We run the "lite r32" FL2VA file as published (no re-hosting, no
-# rebuild): the runner re-orders its fused q/k/v and fc1 halves at load time
-# (--lora-qkv-permute --lora-fc1-swap). Sampler: euler, knots 1000,750,500,250,0
-# (4 forwards), video shift 6, audio shift 3. Measured on an M4 Max 64 GB, Q8 DiT
-# (R&D Lab L4, PM hub today-2026-10-30/l4): High 1024x576 5 s 613-712 s against
-# Flex's 928-1003 s on the same seeds (1.4-1.5x), Draft 640x384 5 s 213 s; faces,
-# speech (Whisper-identical line) and the rally scene hold. Pro: our own speed-up
-# (owner rule: our speed-ups ship in Pro); the gate is h3_flex_turbo_allowed().
-# Credit: akhaliq (the fused LoRA), LightX2V (Turbo distill), Pika Labs (Flex),
-# MiniMax (H3); weights under the MiniMax H3 Community License.
-H3_FLEX_TURBO_REPO = "akhaliq/Pika-H3-Flex-Turbo-LoRA"
-H3_FLEX_TURBO_REVISION = "dcacd93a50f714ba1cd61c7ca2cc5f65e9a1ec60"
-H3_FLEX_TURBO_SOURCE_FILE = "pika_h3_flex_turbo_4step_fl2va_lite_r32.safetensors"
-H3_FLEX_TURBO_URL = ("https://huggingface.co/" + H3_FLEX_TURBO_REPO + "/resolve/"
-                     + H3_FLEX_TURBO_REVISION + "/" + H3_FLEX_TURBO_SOURCE_FILE)
-H3_FLEX_TURBO_SHA256 = "7c60a2ff31f7f56c1f59020c2441fa0532c7b3fd8a510fbd0f806327021f5367"
-H3_FLEX_TURBO_BYTES = 310189392
-H3_FLEX_TURBO_FILE = "pika_h3_flex_turbo4_fl2va_lite_r32.safetensors"
-H3_FLEX_TURBO_KNOTS = (1000, 750, 500, 250, 0)
-H3_FLEX_TURBO_STEPS = len(H3_FLEX_TURBO_KNOTS)          # knots incl. 0 -> 4 forwards
-H3_FLEX_TURBO_FORWARDS = H3_FLEX_TURBO_STEPS - 1
-H3_FLEX_TURBO_VIDEO_SHIFT = 6.0
-H3_FLEX_TURBO_AUDIO_SHIFT = 3.0
+# ---- H3 Flex Turbo (Pro, preview) ---------------------------------------------
+# A Pro option. This file knows its name, its credit line, what the picker shows
+# and how long a render is expected to take. How it renders is answered by the
+# Pro add-on (h3_flex_turbo_spec); without the add-on, or without an active
+# licence, there is no answer and the option stays a locked row in the picker.
+# Credit: akhaliq, LightX2V, Pika Labs, MiniMax (H3); weights under the MiniMax
+# H3 Community License.
+H3_FLEX_TURBO_FORWARDS = 4                               # what the estimate is priced on
 H3_FLEX_TURBO_DOWNLOAD_GB = 0.31
 H3_FLEX_TURBO_DISK_NEED_GB = 1.5
 H3_FLEX_TURBO_NAME = "H3 Flex Turbo"
@@ -12058,7 +12176,7 @@ def _build_h3_tiers() -> dict[str, dict]:
                 flex.update({"flex_min": round(f_min, 2), "flex_eta": f_eta,
                              "flex_measured": f_meas, "flex_steps": H3_FLEX_STEPS,
                              "flex_forwards": windows * H3_FLEX_FORWARDS})
-                # H3 Flex Turbo (Pro): 4 forwards at Flex's per-forward cost.
+                # H3 Flex Turbo (Pro): priced at Flex's per-forward cost.
                 t_min = h3_estimate_minutes(
                     w, h, window_frames, windows, H3_FLEX_TURBO_FORWARDS) * H3_FLEX_FORWARD_COST
                 t_eta, t_meas = _fmt_eta(t_min), False
@@ -12067,7 +12185,7 @@ def _build_h3_tiers() -> dict[str, dict]:
                     t_min, t_meas = hit[0] * hw, True
                     t_eta = hit[1] if hw == 1.0 else _fmt_eta(t_min)
                 flex.update({"flex_turbo_min": round(t_min, 2), "flex_turbo_eta": t_eta,
-                             "flex_turbo_measured": t_meas, "flex_turbo_steps": H3_FLEX_TURBO_STEPS,
+                             "flex_turbo_measured": t_meas,
                              "flex_turbo_forwards": windows * H3_FLEX_TURBO_FORWARDS})
             spec = f"{w}×{h} · {frames}f"
             if windows > 1:
@@ -15866,43 +15984,76 @@ def h3_flex_argv(paths: dict | None = None) -> list[str]:
     return [H3_FLEX_RUNNER_FLAG, "--lora", f"{resolved['lora']}:1.0"]
 
 
-def h3_flex_turbo_paths() -> dict:
-    """The Turbo LoRA as published, at its exact size, beside the Flex adapter."""
-    directory = _h3_flex_dir()
-    candidate = directory / H3_FLEX_TURBO_FILE
+_h3_pro_addon_memo: dict = {}
+
+
+def _h3_pro_addon(name: str) -> dict | None:
+    """One named answer from the Pro add-on, or None. The add-on is a compiled
+    module that only a Pro install carries, and it answers only while the licence
+    on this Mac is active; a Free install has nothing to import. Kept for a few
+    seconds so a /status poll does not ask on every tick."""
+    now = time.monotonic()
+    hit = _h3_pro_addon_memo.get(name)
+    if hit and now - hit[0] < 5.0:
+        return hit[1]
     try:
-        ok = candidate.is_file() and candidate.stat().st_size == H3_FLEX_TURBO_BYTES
+        import _ps
+        doc = _ps.extra(name)
+    except Exception:  # noqa: BLE001 - no add-on, or it declined: the option is simply off
+        doc = None
+    doc = doc if isinstance(doc, dict) else None
+    _h3_pro_addon_memo[name] = (now, doc)
+    return doc
+
+
+def h3_flex_turbo_spec() -> dict | None:
+    """What H3 Flex Turbo needs and runs, from the Pro add-on. None on Free."""
+    if not bool(pro_status().get("active")):
+        return None
+    return _h3_pro_addon("h3_flex_turbo")
+
+
+def h3_flex_turbo_paths() -> dict:
+    """The Turbo file at its exact size, beside the Flex adapter."""
+    directory = _h3_flex_dir()
+    spec = h3_flex_turbo_spec()
+    if not spec:
+        return {"dir": directory, "lora": None, "files_ok": False,
+                "missing": ["H3 Flex Turbo is part of Phosphene Pro"]}
+    candidate = directory / str(spec["file"])
+    try:
+        ok = candidate.is_file() and candidate.stat().st_size == int(spec["bytes"])
     except OSError:
         ok = False
     if ok:
         return {"dir": directory, "lora": candidate, "files_ok": True, "missing": []}
     return {"dir": directory, "lora": None, "files_ok": False,
-            "missing": [f"Turbo LoRA ({H3_FLEX_TURBO_FILE}, a ~{H3_FLEX_TURBO_DOWNLOAD_GB:g} GB download)"]}
+            "missing": [f"Turbo LoRA ({spec['file']}, a ~{H3_FLEX_TURBO_DOWNLOAD_GB:g} GB download)"]}
 
 
 def h3_supports_flex_turbo() -> bool:
-    """The runner takes a schedule by knots, per-modality shifts and the load-time
-    re-order of a fused (diffusers-layout) LoRA."""
-    return (h3_supports_lora_stack() and _h3_runner_has_flag("--sigma-knots")
-            and _h3_runner_has_flag("--audio-shift") and _h3_runner_has_flag("--lora-qkv-permute")
-            and _h3_runner_has_flag("--lora-fc1-swap"))
+    """The installed runner takes everything the option asks of it."""
+    spec = h3_flex_turbo_spec()
+    if not h3_supports_lora_stack():
+        return False
+    return all(_h3_runner_has_flag(str(flag)) for flag in (spec or {}).get("needs", ()))
 
 
 def h3_flex_turbo_allowed() -> bool:
-    """THE Pro gate for H3 Flex Turbo (Pro ledger row h3-flex-turbo)."""
-    return bool(pro_status().get("active"))
+    """THE Pro gate for H3 Flex Turbo (Pro ledger row h3-flex-turbo): an active
+    licence AND the Pro add-on answering for it."""
+    return h3_flex_turbo_spec() is not None
 
 
-def h3_flex_turbo_argv(paths: dict | None = None) -> list[str]:
-    """The runner argv fragment: euler over five knots (four forwards), shifts 6/3,
-    and the LoRA at 1.0, re-ordered at load (q/k/v per head, fc1 [gate; value])."""
+def h3_flex_turbo_argv(paths: dict | None = None) -> list[str] | None:
+    """The runner argv fragment, from the Pro add-on. None when it is not on offer."""
+    spec = h3_flex_turbo_spec()
+    if not spec:
+        return None
     resolved = paths or h3_flex_turbo_paths()
     if not resolved.get("files_ok") or resolved.get("lora") is None:
         raise RuntimeError("the H3 Flex Turbo LoRA is not available")
-    return ["--sampler", "euler", "--sigma-knots", ",".join(str(k) for k in H3_FLEX_TURBO_KNOTS),
-            "--steps", str(H3_FLEX_TURBO_STEPS),
-            "--video-shift", f"{H3_FLEX_TURBO_VIDEO_SHIFT:g}", "--audio-shift", f"{H3_FLEX_TURBO_AUDIO_SHIFT:g}",
-            "--lora", f"{resolved['lora']}:1.0", "--lora-qkv-permute", "--lora-fc1-swap"]
+    return [str(a).replace("{adapter}", str(resolved["lora"])) for a in spec["argv"]]
 
 
 _h3_flex_turbo_dl_lock = threading.Lock()
@@ -15910,10 +16061,11 @@ _h3_flex_turbo_dl_state: dict = {"status": "idle", "mb": 0, "total_mb": 0, "erro
 
 
 def h3_flex_turbo_status() -> dict:
+    spec = h3_flex_turbo_spec()
     supported = h3_supports_flex_turbo()
     paths = h3_flex_turbo_paths()
     downloaded = bool(paths["files_ok"])
-    pro = h3_flex_turbo_allowed()
+    pro = spec is not None
     return {
         "available": bool(supported and downloaded and pro),
         "supported": supported,
@@ -15922,12 +16074,12 @@ def h3_flex_turbo_status() -> dict:
         "pro_active": pro,
         "reason": ("runner_too_old" if not supported else "pro_required" if not pro
                    else "not_downloaded" if not downloaded else "ok"),
-        "steps": H3_FLEX_TURBO_STEPS,
+        "steps": (spec or {}).get("steps"),
         "forwards": H3_FLEX_TURBO_FORWARDS,
         "modes": list(H3_FLEX_MODES),
         "download_gb": H3_FLEX_TURBO_DOWNLOAD_GB,
         "disk_need_gb": H3_FLEX_TURBO_DISK_NEED_GB,
-        "repo": H3_FLEX_TURBO_REPO,
+        "repo": (spec or {}).get("repo"),
         "license": H3_FLEX_LICENSE,
         "name": H3_FLEX_TURBO_NAME,
         "label": H3_FLEX_TURBO_LABEL,
@@ -15942,21 +16094,31 @@ def h3_flex_turbo_status() -> dict:
 
 def _h3_flex_turbo_fetch_bg(target_dir, push_log, opener=None) -> None:
     """Download the published file at the pinned revision (resumable .part),
-    verify size + sha256, then rename into place. Never re-hosted, never rebuilt."""
+    verify size + sha256, then rename into place. Never re-hosted, never rebuilt.
+    Which file, from where and its checksum come from the Pro add-on."""
     import hashlib
     import urllib.request
     target_dir = Path(target_dir)
-    part = target_dir / (H3_FLEX_TURBO_FILE + ".part")
-    total_mb = H3_FLEX_TURBO_BYTES // (1 << 20)
+    spec = h3_flex_turbo_spec()
+    if not spec:
+        with _h3_flex_turbo_dl_lock:
+            _h3_flex_turbo_dl_state.clear()
+            _h3_flex_turbo_dl_state.update(status="error", mb=0, total_mb=0,
+                                           error="H3 Flex Turbo is part of Phosphene Pro.")
+        return
+    want_bytes = int(spec["bytes"])
+    file_name, want_sha, url = str(spec["file"]), str(spec["sha256"]), str(spec["url"])
+    part = target_dir / (file_name + ".part")
+    total_mb = want_bytes // (1 << 20)
     try:
-        push_log(f"[h3:flex-turbo] fetching {H3_FLEX_TURBO_SOURCE_FILE} from {H3_FLEX_TURBO_REPO} @ "
-                 f"{H3_FLEX_TURBO_REVISION[:7]} (~{total_mb} MB, {H3_FLEX_LICENSE})")
+        push_log(f"[h3:flex-turbo] fetching {spec['source_file']} from {spec['repo']} @ "
+                 f"{str(spec['revision'])[:7]} (~{total_mb} MB, {H3_FLEX_LICENSE})")
         have = part.stat().st_size if part.exists() else 0
-        if have > H3_FLEX_TURBO_BYTES:
+        if have > want_bytes:
             part.unlink()
             have = 0
-        if have < H3_FLEX_TURBO_BYTES:
-            req = urllib.request.Request(H3_FLEX_TURBO_URL, headers={"User-Agent": "Phosphene"})
+        if have < want_bytes:
+            req = urllib.request.Request(url, headers={"User-Agent": "Phosphene"})
             if have:
                 req.add_header("Range", f"bytes={have}-")
             with (opener or urllib.request.urlopen)(req, timeout=60) as r, open(part, "ab" if have and getattr(r, "status", 200) == 206 else "wb") as fh:
@@ -15970,17 +16132,17 @@ def _h3_flex_turbo_fetch_bg(target_dir, push_log, opener=None) -> None:
                     have += len(b)
                     with _h3_flex_turbo_dl_lock:
                         _h3_flex_turbo_dl_state.update(status="downloading", mb=have >> 20, total_mb=total_mb, error=None)
-        if part.stat().st_size != H3_FLEX_TURBO_BYTES:
-            raise RuntimeError(f"download stopped at {part.stat().st_size} of {H3_FLEX_TURBO_BYTES} bytes")
+        if part.stat().st_size != want_bytes:
+            raise RuntimeError(f"download stopped at {part.stat().st_size} of {want_bytes} bytes")
         h = hashlib.sha256()
         with open(part, "rb") as fh:
             for b in iter(lambda: fh.read(1 << 22), b""):
                 h.update(b)
-        if h.hexdigest() != H3_FLEX_TURBO_SHA256:
+        if h.hexdigest() != want_sha:
             part.unlink()
             raise RuntimeError("the downloaded file does not match its checksum - try again")
-        part.replace(target_dir / H3_FLEX_TURBO_FILE)
-        push_log(f"[h3:flex-turbo] installed -> {target_dir / H3_FLEX_TURBO_FILE}")
+        part.replace(target_dir / file_name)
+        push_log(f"[h3:flex-turbo] installed -> {target_dir / file_name}")
         with _h3_flex_turbo_dl_lock:
             _h3_flex_turbo_dl_state.clear()
             _h3_flex_turbo_dl_state.update(status="done", mb=total_mb, total_mb=total_mb, error=None)
@@ -16025,7 +16187,8 @@ def _h3_install_flex_turbo(push_log, fetch_fn=None) -> dict:
             return {"ok": False, "error": "an H3 Flex Turbo download is already active"}
         _h3_flex_turbo_dl_state.clear()
         _h3_flex_turbo_dl_state.update(status="downloading", mb=0,
-                                       total_mb=H3_FLEX_TURBO_BYTES // (1 << 20), error=None)
+                                       total_mb=int((h3_flex_turbo_spec() or {}).get("bytes") or 0) // (1 << 20),
+                                       error=None)
     fn = fetch_fn or _h3_flex_turbo_fetch_bg
     threading.Thread(target=fn, args=(target, push_log), daemon=True,
                      name="h3-flex-turbo-fetch").start()
@@ -18506,9 +18669,9 @@ def h3_status() -> dict:
         "flex_turbo": (h3_flex_turbo_status() if available else
                        {"available": False, "supported": False, "downloaded": False, "pro": True,
                         "pro_active": h3_flex_turbo_allowed(), "reason": "h3_" + paths["reason"],
-                        "steps": H3_FLEX_TURBO_STEPS, "forwards": H3_FLEX_TURBO_FORWARDS,
+                        "steps": None, "forwards": H3_FLEX_TURBO_FORWARDS,
                         "modes": list(H3_FLEX_MODES), "download_gb": H3_FLEX_TURBO_DOWNLOAD_GB,
-                        "disk_need_gb": H3_FLEX_TURBO_DISK_NEED_GB, "repo": H3_FLEX_TURBO_REPO,
+                        "disk_need_gb": H3_FLEX_TURBO_DISK_NEED_GB, "repo": None,
                         "license": H3_FLEX_LICENSE, "name": H3_FLEX_TURBO_NAME,
                         "label": H3_FLEX_TURBO_LABEL, "credit": H3_FLEX_TURBO_CREDIT,
                         "notice": H3_FLEX_NOTICE, "adapter": None, "install_available": False,
@@ -19624,6 +19787,26 @@ def music_guard_cause(cause: str) -> str:
     return ""
 
 
+def music_exit_message(rc: int, tail) -> str:
+    """The failure sentence for a YuE2 runner that exited non-zero.
+
+    The runner says why it stopped on its own line, `[music] error <why>`
+    (yue2_run.py's say("error", ...)), and then exits 2. The panel used to
+    join the last four lines in order, so a NumPy RuntimeWarning printed
+    while a LoRA was merged came first and the fleet (and the history card)
+    read `weights[target] += ... RuntimeWarning` - six failed songs on one
+    Mac on 9 Nov 2026 whose real line was that the adapter held non-finite
+    values. The runner's own line now leads; the rest follows for Logs."""
+    lines = [str(t) for t in (tail or [])]
+    said = [t for t in lines if t.startswith("[music] error ")]
+    if said:
+        why = said[-1][len("[music] error "):].strip()
+        rest = [t for t in lines if t is not said[-1]]
+        return (f"YuE2 exited with code {rc}: {why}"
+                + ("" if not rest else " · " + " · ".join(rest)))
+    return f"YuE2 exited with code {rc}: " + " · ".join(lines)
+
+
 def music_memory_guard_message(tail) -> str:
     """The error a song stopped by the runner's memory guard shows: the cause
     and the remedy first, the runner's own line after it."""
@@ -19812,7 +19995,7 @@ def run_music_job_inner(job: dict) -> None:
             music_guard_cleanup(output, Path(cmd[cmd.index("--artifacts") + 1]))
             raise RuntimeError(music_memory_guard_message(tail))
         if rc != 0:
-            raise RuntimeError(f"YuE2 exited with code {rc}: " + " · ".join(tail))
+            raise RuntimeError(music_exit_message(rc, tail))
         if not output.is_file() or not Path(str(output) + ".json").is_file():
             what = "the score" if variation == "score" else "the WAV"
             raise RuntimeError(f"YuE2 finished without {what} and its sidecar. See the log.")
@@ -21381,6 +21564,9 @@ H3_APP_RUNNER_RETRY_S = 900
 H3_APP_RUNNER_WAIT_S = 2 * 3600
 H3_APP_RUNNER_RUN_S = 1800
 H3_APP_RUNNER_HOLD = "the Hailuo H3 engine update"
+#: What the Now card promises for the runner rebuild. The review measured 2-3 minutes;
+#: past it the card says "taking longer than usual" instead of counting down to nothing.
+H3_APP_RUNNER_EST_MIN = 3
 
 
 def h3_app_runner_pin() -> str:
@@ -21434,7 +21620,10 @@ def _h3_hold_take() -> bool:
     except OSError:
         return False
     with os.fdopen(fd, "w") as f:
-        json.dump({"pid": os.getpid(), "ts": int(time.time()), "what": H3_APP_RUNNER_HOLD}, f)
+        # scope "h3": this is a venv build, not a 20 GB model load, so only H3 clips
+        # wait for it (_queue_hold). The compact-engine build writes no scope = everything.
+        json.dump({"pid": os.getpid(), "ts": int(time.time()), "what": H3_APP_RUNNER_HOLD,
+                   "scope": "h3"}, f)
     return True
 
 
@@ -21468,7 +21657,9 @@ def _h3_hold_release() -> None:
 
 
 def _h3_app_runner_idle() -> bool:
-    return not STATE.get("current")
+    """Only an H3 render has the runner's packages open. Any other clip keeps going
+    while the runner is rebuilt (app review 10 Nov, row 1)."""
+    return not _h3_job_running()
 
 
 def h3_app_runner_run(sleep=time.sleep) -> str:
@@ -23025,6 +23216,11 @@ _ANALYTICS_REFUSAL_REASONS = (
     # install that rendered before its download finished made 4 "failures").
     # A pack that is still DOWNLOADING no longer refuses at all: the job waits.
     ("pack_incomplete", ("model is incomplete. missing",)),
+    # A source clip (Control, Colorize) that is on disk but cannot be read as
+    # a video - incomplete, damaged, not a video. Refused before any model
+    # loads (unreadable_video_refusal); it used to die in the engine as a bare
+    # "ffprobe failed:" (fleet 10 Nov 2026, 5.0.13, 6 renders on one Mac).
+    ("input_unreadable", ("phosphene could not read the",)),
     # #206: a small Mac whose prompt encoding macOS stopped minutes ago, still
     # short of memory after a wait (ltx_encode_memory_hold).
     ("memory_low", ("not enough free memory to read the prompt",
@@ -24228,6 +24424,55 @@ def _probe_video_dims(path: str) -> tuple[int, int]:
     except Exception:
         pass
     return 0, 0
+
+
+def video_unreadable_reason(path: str) -> str:
+    """Why `path` cannot be read as a video, in plain words; "" when it can.
+
+    Fleet 10 Nov 2026 (5.0.13, a new install's first Control renders): six
+    jobs died with a bare `ffprobe failed:`. The engine probes the source
+    clip itself (ltx_core_mlx.utils.ffmpeg.probe_video_info) with `-v quiet`,
+    so ffprobe's own reason is thrown away before it reaches the message.
+    The panel asks first, with errors on, and says what is wrong with the
+    file. "" too when the answer is unknowable here (no ffprobe, a timeout):
+    a check that cannot run must not refuse a clip that may be fine."""
+    try:
+        proc = subprocess.run(
+            [str(FFPROBE), "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True, errors="replace", timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if proc.returncode == 0 and "video" in proc.stdout:
+        return ""
+    err = " ".join((proc.stderr or "").split())
+    low = err.lower()
+    if proc.returncode == 0:
+        return ("it has no video track (it may be a sound file or a still "
+                "picture)")
+    if "moov atom not found" in low:
+        return ("the file is incomplete or damaged: it may still be copying or "
+                "exporting, or its export was cut short")
+    if "permission denied" in low or "operation not permitted" in low:
+        return ("macOS did not let Phosphene read it; move it to a folder of "
+                "your own, such as Movies, and pick it again")
+    if "invalid data found" in low or "end of file" in low:
+        return "it is damaged or is not a video file Phosphene can read"
+    if "no such file" in low:
+        return "it is no longer on disk"
+    tail = err.rsplit(": ", 1)[-1][:160] if err else f"ffprobe exit {proc.returncode}"
+    return f"the video reader said: {tail}"
+
+
+def unreadable_video_refusal(path: str, what: str) -> str | None:
+    """The sentence for a source clip the engine would fail to read, or None."""
+    why = video_unreadable_reason(path)
+    if not why:
+        return None
+    return (f"Phosphene could not read the {what} {Path(str(path)).name}: {why}. "
+            "Nothing was rendered. Pick another clip, or export this one again "
+            "as an MP4 or MOV.")
 
 
 # Codex UI-8 / EST-12: the gallery card's size chip printed the QUALITY
@@ -25677,18 +25922,31 @@ PRO_SPEEDUPS = {"h3": 1.48, "ltx": 1.29, "image": 1.54}
 PRO_PLANS = {"monthly": "Pro", "yearly": "Pro", "founding": "Founding", "hardship": "Pro", "pro": "Pro", "dev": "Pro"}
 
 
+def _pro_test_override() -> str:
+    """The test suite's Pro switch. It needs the suite's own conftest.py beside this file, and
+    that file is never part of an installed copy (Free or Pro), so there the answer is always
+    "" whatever the environment says. Two environment variables used to be enough."""
+    if not _PRO_TEST_MARKER.is_file() or os.environ.get("PHOSPHENE_TEST_RIG") != "1":
+        return ""
+    env = (os.environ.get("PHOSPHENE_PRO") or "").strip().lower()
+    return "" if env in ("0", "no", "off", "false") else env
+
+
+_PRO_TEST_MARKER = Path(__file__).resolve().with_name("conftest.py")
+
+
 def pro_status() -> dict:
     """Is Pro active on this Mac. The ONLY source is the signed capability token the licence
     server issues for a Pro licence on this Mac (pro_token.py; the Mac app passes it in
     PHOSPHENE_PRO_TOKEN / PHOSPHENE_PRO_TOKEN_FILE and renews it). It used to be an unsigned
     state/pro.json that nothing wrote: a paying Mac-app user read as Free here (H3 Flex Turbo
     refused) while anyone could switch Pro on by writing that file. A file is no longer read.
-    PHOSPHENE_PRO=<plan> remains as a developer override for the PRO chrome, honoured only on
-    a test rig (PHOSPHENE_TEST_RIG=1). PHOSPHENE_PRO_PLAN (set by the app) only names the plan
-    on a valid token; it never turns Pro on. Free is the default and carries no message."""
+    PHOSPHENE_PRO_PLAN (set by the app) only names the plan on a valid token; it never turns
+    Pro on. Free is the default and carries no message. The test suite has its own switch
+    (_pro_test_override); it does not exist in an installed copy."""
     off = {"active": False, "plan": None, "label": None, "until": None, "holder": None}
-    env = (os.environ.get("PHOSPHENE_PRO") or "").strip().lower()
-    if env and env not in ("0", "no", "off", "false") and os.environ.get("PHOSPHENE_TEST_RIG") == "1":
+    env = _pro_test_override()
+    if env:
         plan = env if env in PRO_PLANS else "dev"
         return {"active": True, "plan": plan, "label": PRO_PLANS[plan], "until": None, "holder": None, "source": "env"}
     try:
@@ -25876,6 +26134,51 @@ class JobStopped(Exception):
     apart from "this crashed" without parsing a message, and a stopped take
     must not land in the UI wearing a failure's red card. Nothing was saved —
     the clip was never finished — but nothing went wrong."""
+
+
+# ---- "Engine restarting" (app review 10 Nov, row 15) ------------------------
+# The post-decode hang rescue (WarmHelper._build_post_decode_panic) saves the
+# clip, kills the helper, and the NEXT clip pays a cold start. It said so in
+# Logs only, and nobody knew how often it fires. Counted here, shown on the Now
+# card through /status `engine_restart`, cleared when the helper is up again.
+ENGINE_RESTART: dict = {"count": 0, "last_ts": None, "pending": False}
+ENGINE_RESTART_LOCK = threading.Lock()
+ENGINE_RESTART_TEXT = ("Engine restarting. The next clip takes about a minute "
+                       "longer to start.")
+#: A flag nobody cleared (the helper never came back) stops being shown.
+ENGINE_RESTART_SHOW_S = 15 * 60
+
+
+def note_engine_restart(why: str = "post-decode hang") -> int:
+    """Record one rescue; returns how many this Studio run has seen."""
+    with ENGINE_RESTART_LOCK:
+        ENGINE_RESTART["count"] = int(ENGINE_RESTART.get("count") or 0) + 1
+        ENGINE_RESTART["last_ts"] = time.time()
+        ENGINE_RESTART["pending"] = True
+        n = ENGINE_RESTART["count"]
+    push(f"[engine] Engine restarting after a {why} (rescue {n} since this "
+         f"Studio started). The clip is saved; the next one starts cold.")
+    return n
+
+
+def engine_restart_cleared() -> None:
+    """The helper answered "ready" again."""
+    with ENGINE_RESTART_LOCK:
+        ENGINE_RESTART["pending"] = False
+
+
+def engine_restart_status(work_waiting: bool = True, now: float | None = None) -> dict:
+    """/status `engine_restart`: {count, last_ts, restarting, text}. `restarting`
+    is true from a rescue until the helper is up again, while there is a clip
+    that will pay for it."""
+    with ENGINE_RESTART_LOCK:
+        rec = dict(ENGINE_RESTART)
+    last = rec.get("last_ts")
+    fresh = bool(last) and ((now if now is not None else time.time()) - float(last)
+                            <= ENGINE_RESTART_SHOW_S)
+    restarting = bool(rec.get("pending")) and fresh and bool(work_waiting)
+    return {"count": int(rec.get("count") or 0), "last_ts": last,
+            "restarting": restarting, "text": ENGINE_RESTART_TEXT if restarting else ""}
 
 
 class RenderRefused(RuntimeError):
@@ -26091,6 +26394,7 @@ class WarmHelper:
             raise RuntimeError("the warm helper was stopped while it was starting")
         if not ready or ready.get("event") != "ready":
             raise RuntimeError(_helper_start_failure(ready, self._boot_tail))
+        engine_restart_cleared()
         # v3.0.7 (P2): keep the version + model fields for /status.
         self.ready_info = {
             k: ready.get(k) for k in (
@@ -26315,6 +26619,7 @@ class WarmHelper:
             # situation doesn't matter.
             threading.Thread(target=self.kill, daemon=True,
                              name="phos-panic-kill").start()
+            note_engine_restart()
             return {
                 "event": "done",
                 "id": job_id,
@@ -26439,6 +26744,9 @@ class WarmHelper:
         starts short and a kill on short steps refuses it for a day. The
         helper is dead after a kill (SIGABRT), so nothing half-done collides.
         """
+        # An empty or partial model folder never reaches the loader, which would
+        # read the path as a Hugging Face name (app review 10 Nov, row 4).
+        model_dir_refusal(job_spec)
         job = _thread_job()
         params = (job or {}).get("params")
         key = metal_watchdog_key(params) if job else ""
@@ -35620,6 +35928,40 @@ def failure_where(tail) -> str:
     return f"{cause} (at {frame})" if cause and frame else cause
 
 
+_IMPORT_FAULT_RX = re.compile(
+    r"^(?:ImportError|ModuleNotFoundError)\b.*?"
+    r"(?:No module named '([\w.]+)'|from '([\w.]+)')")
+
+
+def helper_start_broken_package(cause: str) -> str:
+    """The top-level package a helper start died importing, or "".
+
+    `ImportError: cannot import name '_imaging' from 'PIL' (...)` -> "PIL";
+    `ModuleNotFoundError: No module named 'transformers.models'` ->
+    "transformers". Only an import failure counts: that is a broken install,
+    and no number of retries renders through it."""
+    m = _IMPORT_FAULT_RX.match(str(cause or "").strip())
+    if not m:
+        return ""
+    return (m.group(1) or m.group(2) or "").split(".")[0]
+
+
+def breaker_threshold(exc: BaseException) -> int:
+    """Identical failures in a row before the queue pauses.
+
+    Three, as the breaker always was - except for a helper that could not
+    start because a package in the engine will not import. That is the
+    install, not the render, and every queued job after it fails the same
+    way within a second: one Mac on 10 Nov 2026 failed 25 renders in 22
+    minutes on `cannot import name '_imaging' from 'PIL'`, three at a time
+    after each restart or Resume. One is enough to know."""
+    text = str(exc)
+    if text.startswith("helper failed to start:") and " — last line: " in text:
+        if helper_start_broken_package(text.split(" — last line: ", 1)[1]):
+            return 1
+    return 3
+
+
 def _helper_start_failure(ready: dict | None, tail) -> str:
     """The sentence the user gets when the render helper never comes up.
 
@@ -35643,6 +35985,24 @@ def _helper_start_failure(ready: dict | None, tail) -> str:
     msg = f"helper failed to start: {what}"
     if cause:
         msg += f" — last line: {cause[:220]}"
+    pkg = helper_start_broken_package(cause)
+    if pkg:
+        # Fleet 10 Nov 2026 (5.0.3, Pinokio): `cannot import name '_imaging'
+        # from 'PIL'` - a package in the engine's Python whose compiled half
+        # was gone (an Update cut short), so every render failed the same way
+        # for half an hour. Name the package and say that the queue waits.
+        msg += _dist.say(
+            f". Part of the {pkg} package in Phosphene's engine is missing or "
+            "damaged, so no render can start until the install is repaired: "
+            "click Update in Pinokio (or reinstall Phosphene) so the ltx-2-mlx "
+            "folder and its Python environment are rebuilt. The rest of your "
+            "queue is paused and waits for you. The whole trace is in Logs.",
+            f". Part of the {pkg} package in Phosphene's engine is missing or "
+            "damaged, so no render can start until it is repaired: quit "
+            "Phosphene and open it again so setup can check and rebuild the "
+            "engine. The rest of your queue is paused and waits for you. The "
+            "whole trace is in Logs.")
+        return msg
     msg += _dist.say(
         ". This is nearly always the install, not the render: click Update "
         "in Pinokio (or reinstall Phosphene) so the ltx-2-mlx folder and "
@@ -36540,11 +36900,15 @@ def job_input_refusal(params: dict) -> str | None:
             return (f"control video not found: {src!r}. Pick a clip in the "
                     "Control video picker (or paste a path) whose "
                     "motion/structure should drive the render.")
+        # A clip that is there but cannot be read (fleet 10 Nov 2026: bare
+        # "ffprobe failed:"). Picked by hand, so checked before it queues.
+        return unreadable_video_refusal(src, "control video")
     elif m == "restore":
         src = _path("restore_video_path")
         if not src or not _exists(src):
             return (f"source video for Colorize not found: {src!r}. Pick a B&W "
                     "clip in the Colorize source picker (or paste a path).")
+        return unreadable_video_refusal(src, "Colorize source")
     elif m in ("extend", "retake", "v2a"):
         src = _path("video_path")
         if not src or not _exists(src):
@@ -37848,7 +38212,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
         job["params"]["steps"] = int(
             H3_TRISTEP_STEPS if _h3_tristep else
             H3_FLEX_STEPS if _h3_flex else
-            H3_FLEX_TURBO_STEPS if _h3_flex_turbo else
+            int((h3_flex_turbo_spec() or {}).get("steps") or 0) if _h3_flex_turbo else
             H3_V13_STEPS if _h3_v13 else
             h3_turbo_steps() if _h3_turbo else (_h3_steps or _tier_cfg["steps"]))
         job["params"]["h3_chain_windows"] = int(_tier_cfg.get("chain_windows") or 1)
@@ -41094,6 +41458,7 @@ def run_h3_job_inner(job: dict) -> None:
     # queued job outlives a licence and a file).
     flex_turbo = bool(p.get("h3_flex_turbo"))
     flex_turbo_paths: dict = {}
+    flex_turbo_spec: dict = {}
     if flex_turbo and (tristep or turbo or v13 or flex or not h3_cell_takes_flex(tier)
                        or mode not in H3_FLEX_MODES):
         flex_turbo = False
@@ -41107,8 +41472,8 @@ def run_h3_job_inner(job: dict) -> None:
         if not h3_supports_flex_turbo():
             raise RuntimeError(
                 f"{H3_FLEX_TURBO_NAME} needs a newer H3 runner: "
-                + _h3_runner_behind("--lora-fc1-swap", paths["runner"],
-                                    "Or pick H3 Flex, Fast or Best."))
+                + _h3_runner_behind(str(((h3_flex_turbo_spec() or {}).get("needs") or ["--lora"])[-1]),
+                                    paths["runner"], "Or pick H3 Flex, Fast or Best."))
         flex_turbo_paths = h3_flex_turbo_paths()
         if not flex_turbo_paths["files_ok"]:
             raise RuntimeError(
@@ -41116,7 +41481,8 @@ def run_h3_job_inner(job: dict) -> None:
                 + "; ".join(flex_turbo_paths["missing"])
                 + f". Expected under {flex_turbo_paths['dir']} - pick H3 Flex Turbo "
                   f"again in the engine picker to download it.")
-        steps = H3_FLEX_TURBO_STEPS
+        flex_turbo_spec = h3_flex_turbo_spec() or {}
+        steps = int(flex_turbo_spec.get("steps") or 0)
         push(f"[h3] {H3_FLEX_TURBO_NAME}: the faster Pika H3 Flex (akhaliq's fused LoRA with "
              f"LightX2V's Turbo), running natively on Apple Silicon (MLX). Powered by MiniMax H3.")
     if flex and (tristep or turbo or v13 or not h3_cell_takes_flex(tier)
@@ -41523,7 +41889,11 @@ def run_h3_job_inner(job: dict) -> None:
         # adapter at 1.0; qkv rows already per head, so no runner re-order.
         cmd += h3_flex_argv(flex_paths)
     if flex_turbo:
-        cmd += h3_flex_turbo_argv(flex_turbo_paths)
+        _turbo_argv = h3_flex_turbo_argv(flex_turbo_paths)
+        if not _turbo_argv:
+            raise RuntimeError(f"{H3_FLEX_TURBO_NAME} is part of Phosphene Pro, and Pro is not "
+                               "active on this Mac. Pick H3 Flex, Fast or Best.")
+        cmd += _turbo_argv
     if user_lora is not None and (not turbo or h3_supports_lora_stack()):
         # The SAME flag Turbo rides. On a stacking runner every `--lora` is one
         # more adapter on the same base layers, Turbo first; on the single-slot
@@ -42316,20 +42686,12 @@ def run_h3_job_inner(job: dict) -> None:
             # the credit and the licence's notice.
             "flex_turbo": ({"lora": str(flex_turbo_paths["lora"]),
                             "name": H3_FLEX_TURBO_NAME,
-                            "repo": H3_FLEX_TURBO_REPO,
-                            "revision": H3_FLEX_TURBO_REVISION,
-                            "source_file": H3_FLEX_TURBO_SOURCE_FILE,
-                            "sha256": H3_FLEX_TURBO_SHA256,
                             "license": H3_FLEX_LICENSE,
                             "credit": H3_FLEX_TURBO_CREDIT,
                             "notice": H3_FLEX_NOTICE,
-                            "sampler": "euler",
-                            "knots": list(H3_FLEX_TURBO_KNOTS),
-                            "video_shift": H3_FLEX_TURBO_VIDEO_SHIFT,
-                            "audio_shift": H3_FLEX_TURBO_AUDIO_SHIFT,
-                            "lora_load": ["qkv-permute", "fc1-swap"],
                             "scale": 1.0, "steps": steps,
-                            "forwards": H3_FLEX_TURBO_FORWARDS}
+                            "forwards": H3_FLEX_TURBO_FORWARDS,
+                            **dict(flex_turbo_spec.get("record") or {})}
                            if flex_turbo else None),
             # The fast 3-step sampler's provenance: which file, where it came from,
             # under what license, and the schedule the runner actually ran.
@@ -43849,6 +44211,12 @@ def run_job_inner(job: dict) -> None:
                 "video picker (or paste a path) whose motion/structure should "
                 "drive the render."
             )
+        # The engine reads the clip with ffprobe silenced, so an unreadable
+        # one died as a bare "ffprobe failed:" (fleet 10 Nov 2026, 5.0.13).
+        # Asked here, before any model loads, with the reason in plain words.
+        _unreadable = unreadable_video_refusal(src, "control video")
+        if _unreadable:
+            raise RenderRefused("input_unreadable", _unreadable)
         # Resolution clamp — same shape as Colorize/Extend. Control runs the
         # distilled two-stage walk; keep the source within the tier's max side
         # so the VAE encode + denoise fits memory. Cached by target dims.
@@ -43987,6 +44355,9 @@ def run_job_inner(job: dict) -> None:
                 f"source video for Colorize not found: {src!r}. Pick a B&W clip "
                 "in the Colorize source picker (or paste a path)."
             )
+        _unreadable = unreadable_video_refusal(src, "Colorize source")
+        if _unreadable:
+            raise RenderRefused("input_unreadable", _unreadable)
         # Resolution clamp — same shape as Extend. Restore runs the distilled
         # two-stage walk; keep the source within the tier's max side so the
         # VAE encode + denoise fits memory. Cached by target dims.
@@ -46160,8 +46531,10 @@ def _post_update_run() -> None:
         QUEUE_COND.notify_all()
 
 
-def _external_build_hold() -> str:
-    """Why the worker must not start a job right now, or "".
+def _queue_hold() -> dict:
+    """Why the worker must not start a job right now: {} or
+    {"what", "scope", "since_ts"}. scope "all" holds every job; scope "h3" holds
+    only Hailuo H3 jobs and lets every other clip keep going.
 
     scripts/pinokio/h3_build_q8.sh loads the ~20 GB compact H3 engine from a
     Pinokio shell, outside this process, and the sidebar offers it while the
@@ -46170,21 +46543,28 @@ def _external_build_hold() -> str:
     The build now writes STATE_DIR/h3_build.lock for its whole duration. A
     lock whose pid is gone (the build was killed past its trap) or that is
     older than four hours holds nothing: a stale file must never wedge the
-    queue."""
+    queue.
+
+    The Mac app's own H3 runner rebuild writes the same lock with scope "h3"
+    (_h3_hold_take). It builds a Python environment and loads no model, yet it
+    used to stop LTX, image and music clips for 2-30 minutes after every
+    update with nothing on screen (app review 10 Nov, row 1)."""
     with POST_UPDATE_LOCK:
         if POST_UPDATE.get("pending") or POST_UPDATE.get("active"):
-            return "the update (installing what the new version needs)"
+            return {"what": "the update (installing what the new version needs)",
+                    "scope": "all", "since_ts": POST_UPDATE.get("started_ts")}
     update = post_update_status()
     if update.get("state") == "failed" or update.get("outcome") == "pending":
-        return "an unfinished update; finish Update and restart before rendering"
+        return {"what": "an unfinished update; finish Update and restart before rendering",
+                "scope": "all", "since_ts": None}
     lock = STATE_DIR / "h3_build.lock"
     try:
         raw = lock.read_text(encoding="utf-8")
-        age = time.time() - lock.stat().st_mtime
+        mtime = lock.stat().st_mtime
     except OSError:
-        return ""
-    if age > 4 * 3600:
-        return ""
+        return {}
+    if time.time() - mtime > 4 * 3600:
+        return {}
     try:
         rec = json.loads(raw)
         pid = int(rec.get("pid") or 0)
@@ -46194,10 +46574,139 @@ def _external_build_hold() -> str:
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
-            return ""
+            return {}
         except OSError:
             pass
-    return str(rec.get("what") or "an engine build")
+    try:
+        since = float(rec.get("ts") or mtime)
+    except (TypeError, ValueError):
+        since = mtime
+    return {"what": str(rec.get("what") or "an engine build"),
+            "scope": "h3" if rec.get("scope") == "h3" else "all", "since_ts": since}
+
+
+def _external_build_hold() -> str:
+    """What is building or installing outside the render queue, or "" (see _queue_hold)."""
+    return str(_queue_hold().get("what") or "")
+
+
+#: /status `restart_busy`: the states of an install or a download that a restart would cut.
+_RESTART_BUSY_STATES = frozenset({"running", "starting", "downloading", "building",
+                                  "installing", "repairing", "stopping"})
+_RESTART_BUSY_INSTALLS = ("MUSIC_INSTALL", "SPEECH_INSTALL", "ENGINE_REPAIR", "H3_REPAIR",
+                          "H3_APP_INSTALL", "H3_APP_RUNNER_STATE")
+_RESTART_BUSY_DOWNLOADS = ("DOWNLOAD", "IMAGE_REPO_DOWNLOAD", "_ph3image_dl_state",
+                           "_h3_turbo_dl_state", "_h3_tristep_dl_state", "_h3_flex_dl_state",
+                           "_h3_flex_turbo_dl_state", "_h3_v13_dl_state")
+
+
+def restart_busy_status(current, queue, paused: bool) -> dict:
+    """One restart contract for the Studio, Pro and app updates: {"busy", "reason"}.
+
+    reason is "render", "queue", "model_download", "engine_install" or "" - the same
+    words the app pushes back as the update's `waiting` reason
+    (docs/APP_UPDATE_STATES.md), so "it switches over when nothing is rendering" is
+    never said about a model download.
+
+    A queue with clips waiting is busy (app review 10 Nov, row 6): the app called the
+    Studio idle in the ~40 ms between two clips and restarted it mid-batch. A PAUSED
+    queue renders nothing, so it does not hold a restart - and the app pauses the
+    queue itself just before it restarts."""
+    me = sys.modules[__name__]
+
+    def active(names) -> bool:
+        for name in names:
+            d = getattr(me, name, None)
+            if isinstance(d, dict) and (d.get("active") or d.get("running")
+                                        or d.get("state") in _RESTART_BUSY_STATES
+                                        or d.get("status") in _RESTART_BUSY_STATES):
+                return True
+        return False
+
+    if current:
+        reason = "render"
+    elif queue and not paused:
+        reason = "queue"
+    elif active(_RESTART_BUSY_DOWNLOADS):
+        reason = "model_download"
+    elif active(_RESTART_BUSY_INSTALLS) or app_h3_prep() == "building":
+        reason = "engine_install"
+    else:
+        reason = ""
+    return {"busy": bool(reason), "reason": reason}
+
+
+def _job_needs_h3(job) -> bool:
+    return isinstance(job, dict) and (job.get("params") or {}).get("engine") == "h3"
+
+
+def queue_hold_sentence(hold: dict, now: float | None = None) -> str:
+    """The one sentence the log, /status and the Now card show for a hold."""
+    if not hold:
+        return ""
+    if hold.get("scope") == "h3":
+        since = hold.get("since_ts")
+        waited = max(0.0, (now if now is not None else time.time()) - float(since)) if since else 0.0
+        left = H3_APP_RUNNER_EST_MIN - int(waited // 60)
+        eta = f"about {left} min" if left >= 1 else "taking longer than usual"
+        return (f"Updating the Hailuo H3 engine ({eta}). "
+                f"H3 clips wait; other clips keep going.")
+    what = str(hold.get("what") or "")
+    if what.startswith("Queue held:"):
+        return what
+    return (f"Queue held: {what} is loading a large model. "
+            f"The next render starts when it finishes.")
+
+
+def _worker_next(queue: list) -> tuple[int | None, dict]:
+    """(index of the queued job to start now or None, the hold in force or {}).
+
+    A hold of scope "h3" skips H3 jobs and starts the first other one, so the
+    order among the clips that can run is kept. The H3 packages repair holds the
+    queue only while an H3 job is at its head, as before."""
+    hold = _queue_hold()
+    if hold and hold.get("scope") != "h3":
+        return None, hold
+    if not hold:
+        rep = _h3_repair_hold(queue[0]) if queue else ""
+        if rep:
+            return None, {"what": rep, "scope": "all", "since_ts": None}
+        return (0 if queue else None), {}
+    for i, job in enumerate(queue):
+        if not _job_needs_h3(job):
+            return i, hold
+    return None, hold
+
+
+def queue_hold_status(queue: list | None = None, now: float | None = None) -> dict | None:
+    """/status `hold`: what is holding queued clips, in words, or None.
+
+    `waiting` is how many queued clips it is holding right now, so the page can
+    tell "an H3 update is running" from "an H3 update is why your clip waits"."""
+    hold = _queue_hold()
+    queue = list(queue or [])
+    if not hold:
+        # The one-minute packages repair holds H3 clips too (h3_env_busy).
+        busy = h3_env_busy() if any(_job_needs_h3(j) for j in queue[:1]) else ""
+        if not busy:
+            return None
+        hold = {"what": ("Queue held: Hailuo H3's packages are being repaired (about a "
+                         "minute). The next H3 render starts when it finishes."),
+                "scope": "all", "since_ts": None}
+    h3_only = hold.get("scope") == "h3"
+    since = hold.get("since_ts")
+    eta = None
+    if h3_only:
+        waited = max(0.0, (now if now is not None else time.time()) - float(since)) if since else 0.0
+        eta = max(0, H3_APP_RUNNER_EST_MIN - int(waited // 60))
+    return {
+        "scope": "h3" if h3_only else "all",
+        "what": str(hold.get("what") or ""),
+        "text": queue_hold_sentence(hold, now),
+        "since_ts": since,
+        "eta_min": eta,
+        "waiting": sum(1 for j in queue if (not h3_only) or _job_needs_h3(j)),
+    }
 
 
 def _queue_extend_face_fix_after(job: dict) -> None:
@@ -46258,18 +46767,17 @@ def worker_loop() -> None:
                 if not STATE["queue"] and not STATE["current"]:
                     caffeinate_off()
                 if STATE["queue"] and not STATE["paused"]:
-                    hold = (_external_build_hold()
-                            or _h3_repair_hold(STATE["queue"][0]))
-                    if not hold:
-                        held_note = ""
+                    next_i, hold = _worker_next(STATE["queue"])
+                    # Logged once per hold, not once per minute of its countdown.
+                    note = f"{hold.get('scope')}:{hold.get('what')}" if hold else ""
+                    if note != held_note:
+                        held_note = note
+                        if hold:
+                            push(queue_hold_sentence(hold))
+                    if next_i is not None:
                         break
-                    if hold != held_note:
-                        held_note = hold
-                        push(hold if hold.startswith("Queue held:") else
-                             f"Queue held: {hold} is loading a large model. "
-                             f"The next render starts when it finishes.")
                 QUEUE_COND.wait(timeout=2)
-            job = STATE["queue"].pop(0)
+            job = STATE["queue"].pop(next_i)
             job["status"] = "running"
             job["started_at"] = iso_now()
             job["started_ts"] = time.time()
@@ -46349,26 +46857,41 @@ def worker_loop() -> None:
                 # Refusals do not count (_breaker_count, 4.17.4).
                 _streak = _breaker_count(exc)
                 _sig = _CONSEC_FAIL["sig"]
-                if _streak >= 3 and STATE["queue"] and not STATE["paused"]:
+                # One is enough when the engine cannot even import its own
+                # packages (breaker_threshold, fleet 10 Nov 2026).
+                if (_streak and _streak >= breaker_threshold(exc)
+                        and STATE["queue"] and not STATE["paused"]):
                     STATE["paused"] = True
                     # SYS-32: this used to live ONLY in the push() log line
                     # below (Logs tab only) -- the UI showed just "queue N ·
                     # paused" and a Resume button, with no way to see WHY
                     # short of opening Logs. Carried into /status so the
                     # panel can put it in a persistent notice above Generate.
-                    STATE["paused_reason"] = (
-                        f"The last {_CONSEC_FAIL['n']} renders failed the same way: {_sig}"
-                    )
+                    if _CONSEC_FAIL["n"] == 1:
+                        # The install-fault case: its own message already
+                        # names the package and the repair, so it is shown
+                        # whole instead of the 80-character signature.
+                        STATE["paused_reason"] = (
+                            f"The queue is paused because the engine could not "
+                            f"start: {job.get('error')}")
+                    else:
+                        STATE["paused_reason"] = plain_pause_reason(
+                            _CONSEC_FAIL["n"], job.get("error") or _sig)
                     _analytics_capture("queue_paused_breaker", {
                         "n_failed": int(_CONSEC_FAIL["n"]),
                         "queued": len(STATE["queue"]),
                         "error_class": _analytics_error_class(job.get("error")),
                         "version": running_version(),
                     })
-                    push(f"Paused the queue: {_CONSEC_FAIL['n']} renders in a row failed "
-                         f"with the same problem, and {len(STATE['queue'])} more are "
-                         f"waiting. Fix the cause above (Settings → Models for a "
-                         f"missing or incomplete model), then press Resume.")
+                    if _CONSEC_FAIL["n"] == 1:
+                        push(f"Paused the queue: the engine could not start, and "
+                             f"{len(STATE['queue'])} more renders are waiting. "
+                             f"Repair the install as said above, then press Resume.")
+                    else:
+                        push(f"Paused the queue: {_CONSEC_FAIL['n']} renders in a row failed "
+                             f"with the same problem, and {len(STATE['queue'])} more are "
+                             f"waiting. Fix the cause above (Settings → Models for a "
+                             f"missing or incomplete model), then press Resume.")
         finally:
             if job.get("status") in ("done", "failed"):
                 # The closed-tab alert. Off the GPU lock, best-effort, and only
@@ -47072,7 +47595,7 @@ def generate_character_sheet(character_id: str, *,
         raise FileNotFoundError(
             f"character {cid!r} has no reference image — no bundle avatar "
             f"and no training sample on disk. Train the character (or drop "
-            f"an avatar into mlx_models/characters/{cid}/) first.")
+            f"an avatar into {shown_model_path('mlx_models/characters')}/{cid}/) first.")
     try:
         ref = Path(ref_raw).resolve()
         in_lab = ref.is_relative_to(LORA_LAB_ROOT.resolve())

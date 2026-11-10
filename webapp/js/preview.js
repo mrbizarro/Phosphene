@@ -1260,7 +1260,7 @@ function civitaiRenderFamilyPills(available, active) {
 function _civitaiSyncTargetDir() {
   const dirEl = document.getElementById('civitaiTargetDir');
   if (!dirEl) return;
-  const ltx = _lorasDirs.ltx || 'mlx_models/loras/';
+  const ltx = ltxLorasDirText();
   const h3 = _lorasDirs.h3 || 'the Hailuo H3 pack’s loras/ folder';
   if (_civitaiContext !== 'video') { dirEl.textContent = ltx; return; }
   if (_civitaiFamily === 'h3') { dirEl.textContent = h3; return; }
