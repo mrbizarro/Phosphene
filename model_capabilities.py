@@ -226,6 +226,23 @@ VARIANTS: dict[str, dict] = {
             "modes": "P-H3-Image makes images from text. Editing an image comes later.",
         },
     },
+    "images.h3_image": {
+        # MiniMax-H3-Image (MiniMax's own image model on the H3 family): six forwards, no guidance,
+        # no negative prompt, 4 / 8 / 16 MP. PREVIEW, text to image only: edit with references is a
+        # later wave and is NOT declared. Free vs Pro is the owner's call (pending): pro False and
+        # NO ledger row until he decides.
+        "engine": "images", "label": "MiniMax-H3-Image", "pick": {},
+        "status": "preview",
+        "modes": ["t2i"],
+        "qualities": ["draft", "standard", "high"],
+        "inputs": [],
+        "outputs": ["image"],
+        "options": [],
+        "steps": 6,
+        "reasons": {
+            "modes": "MiniMax-H3-Image makes images from text. Editing an image comes later.",
+        },
+    },
     "images.flux2": {
         # FLUX.2 [klein] 4B, the Images default ("auto"): text to image, and edits from references.
         "engine": "images", "label": "FLUX.2 [klein]", "pick": {"image_engine": "auto"}, "status": "ready",

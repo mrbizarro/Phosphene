@@ -80,5 +80,12 @@
       "Mac app wording now matches the app: no Pinokio instructions, and the right models folder."
     ],
     "pro": []
+  },
+  "5.0.15": {
+    "free": [
+      "New picture model: MiniMax-H3-Image, free for everyone. Text to image at 4, 8 or 16 megapixels. Preview.",
+      "It needs a Mac with 48 GB of memory or more, and downloads once the first time you use it."
+    ],
+    "pro": []
   }
 }

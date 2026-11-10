@@ -1819,7 +1819,7 @@ function _h3FlexPickerSync() {
 // Compose chose it at the top of the column. Now the image MODELS are registry
 // rows (surfaces=["image"]) drawn by this same picker, and the form's
 // #imgStudioEngine keeps only the picked model's versions (FLUX 3 Q8/Q6/Q4,
-// Reference Edit Fast/Standard/Quality, P-H3-Image Draft/Standard/High). The
+// Reference Edit Fast/Standard/Quality, P-H3-Image Draft/Standard/High, MiniMax-H3-Image Draft/Standard/High). The
 // select stays the form value every Images function reads, so nothing that
 // renders, estimates or restores an image changed shape.
 const IMG_MODEL_LS_KEY = 'phos_img_model_versions';

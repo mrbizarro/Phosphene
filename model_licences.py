@@ -69,6 +69,18 @@ LICENCES: dict[str, dict] = {
         "excluded_territories": ["European Union", "United Kingdom",
                                  "South Korea", "United States"],
     },
+    "minimax-h3-image": {
+        "model": "MiniMax-H3-Image",
+        "licence": "MiniMax-H3-Image Community License Agreement",
+        "licensor": "MiniMax",
+        "version": "2026-11-10",
+        "url": "https://huggingface.co/MiniMaxAI/MiniMax-H3-Image/blob/main/LICENSE",
+        "non_commercial": False,
+        "covers": "the MiniMax-H3-Image engine and its converted weights",
+        "report_url": REPORT_MISUSE_URL,
+        "excluded_territories": ["European Union", "United Kingdom",
+                                 "South Korea", "United States"],
+    },
     "ideogram4": {
         "model": "Ideogram 4",
         "licence": "Ideogram Non-Commercial Model Agreement",
@@ -221,6 +233,33 @@ COPY["flux3"] = {
     "accept_label": "I have read and accept the FLUX Kommunity License and will review outputs before sharing them.",
 }
 
+COPY["minimax-h3-image"] = {
+    "title": "MiniMax-H3-Image licence",
+    "summary": "You agree to the MiniMax-H3-Image Community License, including its territory "
+               "limits, revenue limit and Acceptable Use Policy.",
+    "terms": [
+        "Use, copy, share or display MiniMax-H3-Image and its outputs only within the licence's "
+        "territory. It does not cover the European Union, the United Kingdom, South Korea or the "
+        "United States.",
+        "If you and your affiliates have more than USD 1M in annualized revenue, or you offer a hosted "
+        "service to third parties, get MiniMax's prior written authorization.",
+        "Follow the Acceptable Use Policy: no unauthorized impersonation, harm to minors, election "
+        "disinformation, harassment or military use.",
+        "Do not use MiniMax-H3-Image or its outputs to improve any other AI model.",
+        "Clearly and prominently label content as machine-generated when you publish it publicly.",
+    ],
+    "badge": "Territory and revenue restrictions",
+    "accept_label": "I have read and accept the MiniMax-H3-Image Community License and will only "
+                    "use MiniMax-H3-Image and its outputs inside the licence's territory.",
+    "territory_notice": "This licence does not cover use of MiniMax-H3-Image or its outputs in the "
+                        "European Union, United Kingdom, South Korea or United States. Phosphene "
+                        "does not check your location. Contact MiniMax about a licence for these "
+                        "regions.",
+    "report_line": "Report suspected misuse of MiniMax-H3-Image outputs made with Phosphene "
+                   "through a GitHub issue on the Phosphene repo.",
+    "credit_line": "MiniMax-H3-Image",
+}
+
 STORE_NAME = "model_licences.json"
 _LOCK = threading.Lock()
 
@@ -324,6 +363,8 @@ def licence_for_image_cfg(cfg) -> str | None:
         return "flux3"
     if cfg is not None and getattr(cfg, "kind", "") == "ph3image":
         return "h3"      # a MiniMax H3 Model Derivative: the same screen as H3 itself
+    if cfg is not None and getattr(cfg, "kind", "") == "h3image":
+        return "minimax-h3-image"   # its own licence (1 M USD limit, own AUP): its own screen
     if cfg is None or getattr(cfg, "kind", "") != "mflux":
         return None
     family = str(getattr(cfg, "mflux_family", "") or "").lower()

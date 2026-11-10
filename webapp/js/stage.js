@@ -36,7 +36,8 @@ function imgStudioUpdateValidity() {
   // the job die deep in the helper with a buried error.
   const engInfo = (typeof _IMG_ENGINE_STATUS === 'object' && _IMG_ENGINE_STATUS)
     ? _IMG_ENGINE_STATUS[eng.value] : null;
-  const ph3Why = (eng.value.startsWith('ph3image') && engInfo) ? ph3imageNotReady(engInfo) : '';
+  const ph3Why = (eng.value.startsWith('ph3image') && engInfo) ? ph3imageNotReady(engInfo)
+    : (eng.value.startsWith('h3image') && engInfo) ? h3imageNotReady(engInfo) : '';
   if (ph3Why) {
     invalidReason = ph3Why;
   } else if (engInfo && engInfo.family_installed === false) {
@@ -407,6 +408,11 @@ function imgStudioRenderEnginePill() {
     pill.dataset.ph3 = '';
     if (_PH3IMAGE_POLL) { clearInterval(_PH3IMAGE_POLL); _PH3IMAGE_POLL = null; }
   }
+  if (!v.startsWith('h3image')) {
+    // Same rule for MiniMax-H3-Image: its download flag must never leak onto another chip.
+    pill.dataset.h3i = '';
+    if (_H3IMAGE_POLL) { clearInterval(_H3IMAGE_POLL); _H3IMAGE_POLL = null; }
+  }
   // 'auto' resolves to whatever the user saved in Settings — we don't try
   // to second-guess that here, just show a neutral pill.
   if (v === 'auto') {
@@ -424,6 +430,9 @@ function imgStudioRenderEnginePill() {
   }
   if (v.startsWith('ph3image') && info.ph3image_reason) {
     if (ph3imageRenderPill(pill, info)) return;
+  }
+  if (v.startsWith('h3image') && info.h3image_reason) {
+    if (h3imageRenderPill(pill, info)) return;
   }
   // Family-install gate (issue #12): the mflux family binary itself
   // needs to be installed BEFORE the user can submit. Distinct from
@@ -640,8 +649,80 @@ async function ph3imageInstall() {
   imgStudioRefreshEngineStatus();
 }
 
+// ---- MiniMax-H3-Image (MiniMax): its own one-time download -----------------------
+// 12 original shards from MiniMaxAI at a pinned revision, converted piece by piece on this Mac
+// (POST /image/h3image/install, licence-gated: the fetch wrapper shows the MiniMax-H3-Image
+// licence on a 451). The chip says what is missing in plain words and starts the download.
+function h3imageNotReady(info) {
+  const r = info.h3image_reason;
+  const gb = Math.round(info.download_gb || 66);
+  if (info.installing) return 'MiniMax-H3-Image is downloading (about ' + gb + ' GB, once). Generate unlocks when it is done.';
+  if (r === 'h3_missing') return 'MiniMax-H3-Image shares the Hailuo H3 text encoder. Install Hailuo H3 first, then come back.';
+  if (r === 'engine_too_old') return distText('MiniMax-H3-Image needs the newer Hailuo H3 runner: click "Update Hailuo H3 runner" in Pinokio\'s Phosphene sidebar (your weights stay).',
+                                              'MiniMax-H3-Image needs a newer Hailuo H3 runner than this Mac app has.');
+  if (r === 'not_downloaded') return 'MiniMax-H3-Image needs its one-time download (about ' + gb + ' GB from MiniMaxAI, about 30 GB of free disk while it prepares). Click the download chip next to Version.';
+  return '';
+}
+
+let _H3IMAGE_POLL = null;
+function h3imageRenderPill(pill, info) {
+  const warn = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-bold"/></svg>';
+  const dl = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-download-simple"/></svg>';
+  const r = info.h3image_reason;
+  pill.dataset.h3i = '';
+  if (info.installing) {
+    pill.dataset.state = 'missing';
+    pill.dataset.h3i = 'downloading';
+    const part = (info.install_shard && info.install_shards) ? ' ' + info.install_shard + '/' + info.install_shards : '';
+    pill.innerHTML = dl + 'downloading' + part + '…';
+    pill.title = (info.install_step ? 'Now: ' + info.install_step + '\n' : '') + (info.credit || '');
+    if (!_H3IMAGE_POLL) _H3IMAGE_POLL = setInterval(() => { imgStudioRefreshEngineStatus(); }, 5000);
+    return true;
+  }
+  if (_H3IMAGE_POLL) { clearInterval(_H3IMAGE_POLL); _H3IMAGE_POLL = null; }
+  if (r === 'h3_missing' || r === 'engine_too_old') {
+    pill.dataset.state = 'missing-engine';
+    if (isMacApp()) pill.dataset.h3i = 'h3-setup';
+    pill.innerHTML = warn + (r === 'h3_missing' ? 'needs Hailuo H3' : 'update the H3 runner');
+    pill.title = h3imageNotReady(info);
+    return true;
+  }
+  if (r === 'not_downloaded') {
+    pill.dataset.state = 'missing';
+    pill.dataset.h3i = 'download';
+    pill.innerHTML = dl + (info.install_error ? 'download failed: try again' : 'download ~' + Math.round(info.download_gb || 66) + ' GB');
+    pill.title = (info.install_error ? 'Last try: ' + info.install_error + '\n' : '')
+      + 'Click to download MiniMax-H3-Image once from MiniMaxAI (pinned and checked, never re-hosted).\n' + (info.credit || '');
+    return true;
+  }
+  return false;   // ready: the generic "ready" chip below
+}
+
+async function h3imageInstall() {
+  const s = document.getElementById('imgStudioStatus');
+  try {
+    const r = await fetch('/image/h3image/install', { method: 'POST' });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.ok === false) {
+      if (s) s.textContent = (j && (j.error || j.message)) || ('Download did not start (HTTP ' + r.status + ').');
+    } else if (s) {
+      s.textContent = j.already_installed ? 'MiniMax-H3-Image is already downloaded.' : 'Downloading MiniMax-H3-Image from MiniMaxAI (about ' + Math.round(j.download_gb || 66) + ' GB, once)…';
+    }
+  } catch (e) {
+    if (s) s.textContent = 'Download did not start: ' + e.message;
+  }
+  imgStudioRefreshEngineStatus();
+}
+
 function imgStudioOnPillClick() {
   const pill = document.getElementById('imgStudioEnginePill');
+  if (pill && pill.dataset.h3i === 'h3-setup') { openH3InstallCard('image'); return; }
+  if (pill && pill.dataset.h3i === 'download') { h3imageInstall(); return; }
+  if (pill && pill.dataset.h3i === 'downloading') {
+    const st = document.getElementById('imgStudioStatus');
+    if (st) st.textContent = 'MiniMax-H3-Image is still downloading (about 66 GB, once). Generate unlocks when it is done.';
+    return;
+  }
   if (pill && pill.dataset.ph3 === 'h3-setup') { openH3InstallCard('image'); return; }
   if (pill && pill.dataset.ph3 === 'download') { ph3imageInstall(); return; }
   if (pill && pill.dataset.ph3 === 'downloading') {

@@ -16613,6 +16613,295 @@ def _ph3image_install(push_log, fetch_fn=None) -> dict:
             "download_gb": PH3IMAGE_DOWNLOAD_GB}
 
 
+# ---- MiniMax-H3-Image (MiniMax's own image model on the H3 family) - Images lane --
+# The H3 family's own image model: a 33B DiT (H3 minus audio), text to image now (edit with
+# references is a later wave and is NOT declared), six forwards, no guidance, no negative prompt,
+# 4 to 16 MP (a request below 4 MP is generated on a 4 MP canvas and resized back). The weights
+# are fetched from MiniMaxAI at a pinned revision (never re-hosted) by the H3 engine's own
+# scripts/fetch_h3_image.py, which converts the 12 original shards one by one on this Mac; the
+# engine renders as a subprocess (image_engine.kind == "h3image"), staged: text encoder, then
+# the DiT, then the decoder. The text encoder is the one the H3 video lane already uses.
+# Port folder: ports/minimax-h3-image.
+H3IMAGE_DIRNAME = "minimax-h3-image"
+H3IMAGE_REPO = "MiniMaxAI/MiniMax-H3-Image"
+H3IMAGE_REVISION = "6534ea1c979a5f8cb00c2bd1025d5ca4ee8d8901"
+H3IMAGE_SHARD_COUNT = 12                       # transformer/model-000NN-of-00012.safetensors
+H3IMAGE_SHARD_FMT = "model-{n:05d}-of-{total:05d}.safetensors"
+H3IMAGE_HEADS_FILE = "pdd_fused_heads.safetensors"
+H3IMAGE_HEADS_BYTES = 12_388_808
+H3IMAGE_HEADS_SHA256 = "c07093a098e3bef4d43cd29c33e239a0c45424c5ff40dfcc864df00b8d664738"
+H3IMAGE_VAE_FILE = "vae/diffusion_pytorch_model.safetensors"
+H3IMAGE_VAE_BYTES = 2_336_964_672
+H3IMAGE_VAE_SHA256 = "a7c8bb1e181865e7cf87c29d3d6bc728d944ce4862b92d0e1cbdcc36b3b180b2"
+H3IMAGE_PACK_FILES = ("dit/config.json", "dit/quant_config.json", "dit/adaln_cache.safetensors",
+                      "dit/ASSET_SHA256.json", "pdd_config.json", "LICENSE", "NOTICE")
+H3IMAGE_FORWARDS = 6                           # six forwards, one fused head each
+H3IMAGE_TIERS = {"draft": 4, "standard": 8, "high": 16}      # megapixels
+H3IMAGE_DOWNLOAD_GB = 68.6                     # 12 original shards (66.3) + the image VAE (2.3), converted shard by shard here
+# Peak extra disk while converting is ~26 GB (one source shard + the converted output so far);
+# the finished pack is ~21 GB. 30 GB free is the floor the install checks.
+H3IMAGE_DISK_NEED_GB = 30.0
+H3IMAGE_LICENCE_KEY = "minimax-h3-image"       # model_licences.LICENCES key
+H3IMAGE_LICENSE = "MiniMax-H3-Image Community License"
+H3IMAGE_NAME = "MiniMax-H3-Image"
+H3IMAGE_LABEL = "MiniMax-H3-Image (MiniMax)"   # licence IV.2: the exact name, shown in the UI
+H3IMAGE_CREDIT = ("Powered by MiniMax-H3-Image (MiniMax). "
+                  "Fetched from MiniMaxAI, never re-hosted.")
+H3IMAGE_NOTICE = ("MiniMax-H3-Image is licensed under the MiniMax-H3-Image Community License "
+                  "Agreement, Copyright (c) 2026 MiniMax. All Rights Reserved.")
+# Peak Metal residency the pre-flight gate prices a render at.
+# PLACEHOLDER until ports/minimax-h3-image/bench/RESULT.md: Q8 DiT ~21 GB + decoder + the
+# activations of a 16 MP forward (16.7k rows); the text encoder is staged out before the DiT.
+H3IMAGE_PEAK_GB = 28.5   # measured 27.5-27.7 GB at 4, 8 and 16 MP (bench, 10 Nov), plus headroom
+# Whole-image wall seconds per tier on an M4 Max 64 GB, measured 10 Nov 2026
+# (ports/minimax-h3-image/bench/RESULT.md: 119 / 227 / 513 s). The picker labels, the engine table
+# and the Image Studio estimate all read them.
+H3IMAGE_MEASURED_ETA = {"draft": 120, "standard": 230, "high": 515}
+_h3image_dl_lock = threading.Lock()
+_h3image_dl_state: dict = {}
+
+
+def _h3image_eta_text(sec: float) -> str:
+    """'~2 min' from seconds (the one wording of the picker label)."""
+    return "~%d min" % max(1, int(round(float(sec) / 60.0)))
+
+
+def _h3image_dir() -> Path:
+    """Beside the other H3 weight components."""
+    for root in _h3_model_roots():
+        if _h3_holds_dit(root):
+            return root / H3IMAGE_DIRNAME
+    return H3_MODELS / H3IMAGE_DIRNAME
+
+
+def _h3image_script() -> Path:
+    return H3_ROOT / "scripts" / "generate_h3_image.py"
+
+
+def _h3image_fetch_script() -> Path:
+    return H3_ROOT / "scripts" / "fetch_h3_image.py"
+
+
+def h3image_supported() -> bool:
+    """Whether the INSTALLED H3 engine carries the MiniMax-H3-Image runner. Feature-detected by
+    FILE (not by a flag), so the lane stays greyed until the engine pin moves."""
+    return _h3image_script().is_file() and _h3image_fetch_script().is_file() \
+        and (H3_ROOT / "minimax_h3_mlx" / "h3_image.py").is_file()
+
+
+def h3image_paths() -> dict:
+    """What is on disk. The two source files the converter does not touch are checked at their
+    exact size (no glob); the converted DiT by its own manifest (every shard named there, present)."""
+    root = _h3image_dir()
+
+    def _size_ok(rel: str, size: int) -> bool:
+        try:
+            return (root / rel).is_file() and (root / rel).stat().st_size == size
+        except OSError:
+            return False
+
+    missing = []
+    if not _size_ok(H3IMAGE_VAE_FILE, H3IMAGE_VAE_BYTES):
+        missing.append("the image decoder")
+    if not _size_ok(H3IMAGE_HEADS_FILE, H3IMAGE_HEADS_BYTES):
+        missing.append("the output heads")
+    names = [H3IMAGE_SHARD_FMT.format(n=n, total=H3IMAGE_SHARD_COUNT)
+             for n in range(1, H3IMAGE_SHARD_COUNT + 1)]
+    dit_ok = all((root / rel).is_file() for rel in H3IMAGE_PACK_FILES)
+    if dit_ok:
+        try:
+            manifest = json.loads((root / "dit" / "ASSET_SHA256.json").read_text(encoding="utf-8"))
+            dit_ok = all(n in manifest and (root / "dit" / n).is_file() for n in names)
+        except (OSError, ValueError):
+            dit_ok = False
+    if not dit_ok:
+        missing.append("the converted model")
+    return {"dir": root, "files_ok": not missing, "missing": missing}
+
+
+def h3image_status() -> dict:
+    """/status block: can the engine run it, are the files here, what does it cost."""
+    supported = h3image_supported()
+    paths = h3image_paths()
+    downloaded = bool(paths["files_ok"])
+    h3_ready = not h3_paths()["missing"]
+    return {
+        "available": bool(supported and downloaded and h3_ready),
+        "supported": supported,
+        "downloaded": downloaded,
+        "h3_ready": h3_ready,
+        "reason": ("h3_missing" if not h3_ready else "engine_too_old" if not supported
+                   else "not_downloaded" if not downloaded else "ok"),
+        "modes": ["t2i"], "forwards": H3IMAGE_FORWARDS, "steps": H3IMAGE_FORWARDS,
+        "tiers": dict(H3IMAGE_TIERS), "eta_sec": dict(H3IMAGE_MEASURED_ETA),
+        "download_gb": H3IMAGE_DOWNLOAD_GB, "disk_need_gb": H3IMAGE_DISK_NEED_GB,
+        "repo": H3IMAGE_REPO, "license": H3IMAGE_LICENSE,
+        "name": H3IMAGE_NAME, "label": H3IMAGE_LABEL,
+        "credit": H3IMAGE_CREDIT, "notice": H3IMAGE_NOTICE,
+        "missing": list(paths["missing"]),
+        "install_available": bool(supported and h3_ready),
+        "installing": _h3image_dl_state.get("status") in ("downloading", "building"),
+        "download": dict(_h3image_dl_state),
+    }
+
+
+def h3image_engine_config(tier: str = "standard"):
+    """The three quality tiers (4 / 8 / 16 MP); anything else is Standard."""
+    py = _h3_python()
+    paths = h3_paths()
+    tier = str(tier).lower()
+    mp = H3IMAGE_TIERS.get(tier, H3IMAGE_TIERS["standard"])
+    return agent_image_engine.ImageEngineConfig(
+        kind="h3image",
+        h3image_python_path=str(py) if py else "",
+        h3image_script_path=str(_h3image_script()),
+        h3image_root=str(_h3image_dir()),
+        h3image_text_dir=str(paths.get("compact_root") or ""),
+        h3image_text_config=str(paths.get("text_config") or ""),
+        h3image_mp=float(mp),
+    )
+
+
+def h3image_engine_rows() -> list[dict]:
+    """The quality tiers as /image/engines rows (the Image Studio's engine table).
+
+    `sec_per_image` is H3IMAGE_MEASURED_ETA until the user has two renders of their own on a
+    tier; then it is the mean of those, like every other image engine."""
+    status = h3image_status()
+    need = H3IMAGE_PEAK_GB
+    try:
+        fits, mac_gb = _image_engine_fit(need)
+    except Exception:                                              # noqa: BLE001
+        fits, mac_gb = True, 0
+    rows = []
+    for engine, tier in (("h3image_draft_inline", "draft"), ("h3image_standard_inline", "standard"),
+                         ("h3image_high_inline", "high")):
+        cfg = h3image_engine_config(tier)
+        sec, samples = float(H3IMAGE_MEASURED_ETA[tier]), "placeholder-awaiting-bench"
+        observed = _IMG_ENGINE_TIMING.get(engine) or []
+        if len(observed) >= 2:
+            sec = round(sum(max(1.0, el / max(1, n)) for (n, el) in observed) / len(observed), 1)
+            samples = f"observed-{len(observed)}"
+        rows.append({
+            "engine": engine, "max_refs": 0, "repo_id": H3IMAGE_REPO,
+            "cached": bool(status["downloaded"]), "ram_need_gb": round(float(need), 1),
+            "mac_gb_needed": int(mac_gb), "fits_mac": bool(fits), "partial": False, "partial_gb": 0,
+            "family_installed": bool(status["supported"] and status["h3_ready"]),
+            "download_gb": H3IMAGE_DOWNLOAD_GB, "sec_per_image": sec, "cold_start_sec": 0.0,
+            "samples_source": samples, "gated": False, "megapixels": cfg.h3image_mp,
+            "version_label": "%s — %s (%d MP, %s)" % (
+                H3IMAGE_NAME, tier.capitalize(), H3IMAGE_TIERS[tier], _h3image_eta_text(sec)),
+            "license": H3IMAGE_LICENSE, "label": H3IMAGE_LABEL, "credit": H3IMAGE_CREDIT,
+            # The Image Studio's chip reads these: why it cannot run yet, and the one-time download.
+            "h3image_reason": status["reason"], "installing": bool(status["installing"]),
+            "install_error": (status["download"] or {}).get("error"),
+            "install_step": (status["download"] or {}).get("step"),
+            "install_shard": (status["download"] or {}).get("shard"),
+            "install_shards": (status["download"] or {}).get("shards"),
+        })
+    return rows
+
+
+def _h3image_sidecar_credit() -> dict:
+    """What a MiniMax-H3-Image picture's sidecar records: the pinned model and the credits."""
+    return {"model": f"{H3IMAGE_REPO}@{H3IMAGE_REVISION[:7]}",
+            "h3_image": {"repo": H3IMAGE_REPO, "revision": H3IMAGE_REVISION,
+                         "license": H3IMAGE_LICENSE, "credit": H3IMAGE_CREDIT,
+                         "notice": H3IMAGE_NOTICE}}
+
+
+def _h3image_available() -> bool:
+    try:
+        return bool(h3image_status()["available"])
+    except Exception:                                              # noqa: BLE001
+        return False
+
+
+_H3IMAGE_SHARD_LINE = re.compile(r"^\[(\d+)/(\d+)\]\s+(fetching|converted)")
+
+
+def _h3image_fetch_bg(target_dir, push_log, runner=None) -> None:
+    """Run the engine's scripts/fetch_h3_image.py in the H3 interpreter: pinned downloads
+    (revision, bytes, sha256 each), upstream LICENSE + NOTICE beside them, shard-by-shard
+    conversion. Resumable; it owns every digest and deletes each source shard once converted."""
+    py = _h3_python()
+    cmd = [str(py), str(_h3image_fetch_script()), "--dir", str(target_dir), "--accepted"]
+    try:
+        push_log(f"[image:h3-image] fetching {H3IMAGE_REPO} @ {H3IMAGE_REVISION[:7]} "
+                 f"(~{H3IMAGE_DOWNLOAD_GB:g} GB, {H3IMAGE_LICENSE})")
+        proc = (runner or subprocess.Popen)(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            errors="replace", env=_h3_v13_fetch_env())
+        tail: list[str] = []
+        for line in proc.stdout:
+            line = line.rstrip()
+            if line:
+                tail = (tail + [line])[-6:]
+                _h3image_dl_state.update(step=line[:160])
+                m = _H3IMAGE_SHARD_LINE.match(line)
+                if m:
+                    _h3image_dl_state.update(
+                        shard=int(m.group(1)), shards=int(m.group(2)),
+                        status="building" if m.group(3) == "converted" else "downloading")
+        rc = proc.wait()
+        if rc != 0:
+            raise RuntimeError(" | ".join(tail) or f"fetch exited with {rc}")
+        _h3image_dl_state.clear()
+        _h3image_dl_state.update(status="done", error=None)
+        push_log("[image:h3-image] downloaded and ready")
+    except Exception as exc:                                       # noqa: BLE001
+        _h3image_dl_state.clear()
+        _h3image_dl_state.update(status="error", error=str(exc)[:400])
+        push_log(f"[image:h3-image] download failed: {exc}")
+    finally:
+        h3_status_invalidate()
+
+
+def _h3image_install(push_log, fetch_fn=None) -> dict:
+    """On-demand fetch of MiniMax-H3-Image (one at a time). The route has already checked the licence."""
+    paths = h3_paths()
+    if paths["missing"]:
+        return {"ok": False,
+                "error": "MiniMax-H3-Image runs on the Hailuo H3 pack (it shares its text encoder), "
+                         "and H3 isn't fully installed yet: " + "; ".join(paths["missing"])}
+    if not h3image_supported():
+        return {"ok": False,
+                "error": _dist.say(
+                    "This Hailuo H3 runner predates MiniMax-H3-Image. Run 'Update Hailuo H3 runner' from the "
+                    "Phosphene sidebar in Pinokio - your weights stay.",
+                    H3_MAC_RUNNER_BEHIND)}
+    resolved = h3image_paths()
+    target = resolved["dir"]
+    if resolved["files_ok"]:
+        return {"ok": True, "started": False, "already_installed": True, "dir": str(target)}
+    with _h3image_dl_lock:
+        if _h3image_dl_state.get("status") in ("downloading", "building"):
+            return {"ok": False, "error": "a MiniMax-H3-Image download is already active"}
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+            free_gb = shutil.disk_usage(target).free / 1e9
+        except OSError:
+            free_gb = None
+        # What is already in the folder (a resumed or partial download) counts against the need.
+        try:
+            have_gb = sum(f.stat().st_size for f in target.rglob("*") if f.is_file()) / 1e9
+        except OSError:
+            have_gb = 0.0
+        need_gb = max(8.0, H3IMAGE_DISK_NEED_GB - have_gb)
+        if free_gb is not None and free_gb < need_gb:
+            return {"ok": False,
+                    "error": f"MiniMax-H3-Image needs about {need_gb:.0f} GB free to finish preparing "
+                             f"({H3IMAGE_DOWNLOAD_GB:g} GB download in all, converted one piece at a time). "
+                             f"This disk has {free_gb:.1f} GB free."}
+        _h3image_dl_state.clear()
+        _h3image_dl_state.update(status="downloading", error=None)
+    fn = fetch_fn or _h3image_fetch_bg
+    threading.Thread(target=fn, args=(target, push_log), daemon=True, name="h3image-fetch").start()
+    return {"ok": True, "started": True, "dir": str(target), "repo": H3IMAGE_REPO,
+            "revision": H3IMAGE_REVISION, "license": H3IMAGE_LICENSE, "credit": H3IMAGE_CREDIT,
+            "download_gb": H3IMAGE_DOWNLOAD_GB}
+
+
 # ---- lightx2v v1.3 (Best at High) — resolver, argv, status, fetch ------------
 def h3_supports_video_shift() -> bool:
     """Whether the INSTALLED runner takes `--video-shift` (v1.3's own shift 6;
@@ -18678,6 +18967,8 @@ def h3_status() -> dict:
                         "installing": False, "download": {}}),
         # P-H3-Image (Images lane). Its own block: the lane needs the H3 pack but is not a video choice.
         "ph3image": ph3image_status(),
+        # MiniMax-H3-Image (Images lane). Same shape, same reason ladder.
+        "h3image": h3image_status(),
         # Pika H3 Flex — a Speed choice of its own. Same three-cause shape.
         "flex": (h3_flex_status() if available else
                  {"available": False, "supported": False, "downloaded": False,
@@ -20578,6 +20869,13 @@ ENGINES: tuple[dict, ...] = (
          "modes": ("t2i",), "serves_label": "Text", "preview": True,
          "image_engines": ("ph3image_fast_inline", "ph3image_standard_inline", "ph3image_draft_inline", "ph3image_inline"),
          "capability": "images.p_h3_image"},
+        {"id": "h3_image", "label": "MiniMax-H3-Image", "sublabel": "detailed scenes",
+         "tagline": "MiniMax's own image model: detailed pictures from words, 4 to 16 MP · from words only",
+         "mark": "eng-mark-img-h3i", "accent": "#3DDC97",
+         "accent_dim": "rgba(61,220,151,0.14)", "accent_soft": "rgba(61,220,151,0.42)",
+         "modes": ("t2i",), "serves_label": "Text", "preview": True,
+         "image_engines": ("h3image_draft_inline", "h3image_standard_inline", "h3image_high_inline"),
+         "capability": "images.h3_image"},
     )),
     # ---- Flux Video ---------------------------------------------------------
     # Weights are announced, not released. The entry is real (and rendered as
@@ -37260,6 +37558,10 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             push(f"[image] {engine_override} is not ready on this Mac (it needs the Hailuo H3 pack and its "
                  "own download) - rendering with Auto instead.")
             engine_override = "auto"
+        if engine_override.startswith("h3image") and not _h3image_available():
+            push(f"[image] {engine_override} is not ready on this Mac (it needs the Hailuo H3 pack and its "
+                 "own download) - rendering with Auto instead.")
+            engine_override = "auto"
         aspect = f("aspect", "16:9") or "16:9"
         # refs comes as a JSON-encoded list (e.g. '["panel_uploads/foo.png"]').
         # Plain form fields can't carry a list cleanly; the panel JS already
@@ -38665,6 +38967,8 @@ def _preflight_estimate_ram_gb(cfg) -> float:
         return flux3_engine.ram_need(cfg)
     if cfg.kind == "ph3image":
         return PH3IMAGE_PEAK_GB
+    if cfg.kind == "h3image":
+        return H3IMAGE_PEAK_GB
     if cfg.kind == "hidream":
         # 2026-05-31 review fix: HiDream-O1 BF16 was exempt from the RAM gate
         # (fell through to the 1.0 GB `!= mflux` branch). Its Metal residency
@@ -38805,6 +39109,9 @@ _IMAGE_ENGINE_LABELS = {
     "ph3image_fast_inline": "P-H3-Image (Fast)",
     "ph3image_standard_inline": "P-H3-Image (Standard, 4 MP)",
     "ph3image_draft_inline": "P-H3-Image (Draft, 2 MP)",
+    "h3image_draft_inline": "MiniMax-H3-Image (Draft, 4 MP)",
+    "h3image_standard_inline": "MiniMax-H3-Image (Standard, 8 MP)",
+    "h3image_high_inline": "MiniMax-H3-Image (High, 16 MP)",
 }
 
 # Fleet Mac sizes, for "needs a 32 GB Mac" copy. The pre-flight compares
@@ -38881,6 +39188,12 @@ def _preflight_image_job(cfg, *, engine_override: str = "auto") -> None:
         raise RenderRefused(
             "pack_missing",
             "P-H3-Image isn't ready on this Mac: it runs on the Hailuo H3 pack and needs its own "
+            "download. Pick it in Image Studio and click its download chip, or use FLUX 3 Klein "
+            "to make a picture from text now.")
+    if str(engine_override or "").lower().startswith("h3image") and not _h3image_available():
+        raise RenderRefused(
+            "pack_missing",
+            "MiniMax-H3-Image isn't ready on this Mac: it runs on the Hailuo H3 pack and needs its own "
             "download. Pick it in Image Studio and click its download chip, or use FLUX 3 Klein "
             "to make a picture from text now.")
     if str(engine_override or "").lower().startswith("hidream") and not _hidream_available():
@@ -39233,6 +39546,7 @@ def run_image_job_inner(job: dict) -> None:
             "source": "panel.queue.image",
             **({"flux3": c} if cfg.kind == "flux3" else {}),
             **(_ph3image_sidecar_credit() if cfg.kind == "ph3image" else {}),
+            **(_h3image_sidecar_credit() if cfg.kind == "h3image" else {}),
         }
         try:
             sidecar_path.write_text(json.dumps(sidecar, indent=2), encoding="utf-8")
@@ -39249,6 +39563,7 @@ def run_image_job_inner(job: dict) -> None:
     p["elapsed_seconds"] = elapsed
     p["engine"] = cfg.kind + (f"/{cfg.mflux_family}" if cfg.kind == "mflux" else "")
     p["model"] = (f"{PH3IMAGE_REPO}@{PH3IMAGE_REVISION[:7]}" if cfg.kind == "ph3image"
+                  else f"{H3IMAGE_REPO}@{H3IMAGE_REVISION[:7]}" if cfg.kind == "h3image"
                   else getattr(cfg, "mflux_model", None) or cfg.kind)
     p["output_dir"] = str(out_dir)
     push(f"Image job done: {len(candidate_paths)} candidate(s) in {elapsed}s "
@@ -46595,7 +46910,7 @@ _RESTART_BUSY_STATES = frozenset({"running", "starting", "downloading", "buildin
                                   "installing", "repairing", "stopping"})
 _RESTART_BUSY_INSTALLS = ("MUSIC_INSTALL", "SPEECH_INSTALL", "ENGINE_REPAIR", "H3_REPAIR",
                           "H3_APP_INSTALL", "H3_APP_RUNNER_STATE")
-_RESTART_BUSY_DOWNLOADS = ("DOWNLOAD", "IMAGE_REPO_DOWNLOAD", "_ph3image_dl_state",
+_RESTART_BUSY_DOWNLOADS = ("DOWNLOAD", "IMAGE_REPO_DOWNLOAD", "_ph3image_dl_state", "_h3image_dl_state",
                            "_h3_turbo_dl_state", "_h3_tristep_dl_state", "_h3_flex_dl_state",
                            "_h3_flex_turbo_dl_state", "_h3_v13_dl_state")
 
@@ -47384,6 +47699,9 @@ def _build_image_engine_config(
             "fast" if engine_override == "ph3image_fast_inline"
             else "draft" if engine_override == "ph3image_draft_inline"
             else "standard" if engine_override == "ph3image_standard_inline" else "high")
+    if engine_override in ("h3image_draft_inline", "h3image_standard_inline", "h3image_high_inline"):
+        # MiniMax-H3-Image: the quality tier is the megapixel count (4 / 8 / 16 MP).
+        return h3image_engine_config(engine_override[len("h3image_"):-len("_inline")])
     if engine_override == "mock_inline":
         return agent_image_engine.ImageEngineConfig(kind="mock")
     if engine_override == "flux2_klein_inline":

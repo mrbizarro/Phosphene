@@ -396,6 +396,7 @@ def get_image_engine_status(h, parsed) -> None:
                     "max_refs": P.image_max_refs(key)}
                    for key in flux3_engine.PRESETS)
         out.extend(P.ph3image_engine_rows())
+        out.extend(P.h3image_engine_rows())
         h._json({"engines": out,
                  "host_ram_gb": int(round(float(P.SYSTEM_RAM_GB or 0)))})
     except Exception as exc:                                # noqa: BLE001
@@ -515,6 +516,22 @@ def post_image_ph3image_install(h, path, qs, ctype) -> None:
     if _lic:
         h._json(_lic, 451); return
     result = P._ph3image_install(P.push)
+    if not result.get("ok"):
+        h._json(result, 409 if "active" in result.get("error", "") else 400)
+        return
+    h._json(result, 202)
+
+
+# ====== Images lane · MiniMax-H3-Image - fetch MiniMaxAI's 12 original shards at the pinned
+# revision (never re-hosted) and convert them shard by shard on this Mac (engine fetch_h3_image.py).
+# Its own licence (MiniMax-H3-Image Community License): 451 until accepted on this Mac.
+@post("/image/h3image/install")
+def post_image_h3image_install(h, path, qs, ctype) -> None:
+    P.h3_status_invalidate()
+    _lic = P.licence_refusal_for(P.H3IMAGE_LICENCE_KEY)
+    if _lic:
+        h._json(_lic, 451); return
+    result = P._h3image_install(P.push)
     if not result.get("ok"):
         h._json(result, 409 if "active" in result.get("error", "") else 400)
         return
@@ -902,7 +919,7 @@ def post_image_generate(h, path, qs, ctype) -> None:
             # Stream mflux stdout into the panel log card so users
             # see step-by-step progress while the gen runs.
             # tqdm progress bars come through line-buffered.
-            if cfg.kind == "flux3" or (cfg.kind == "ph3image" and cfg.ph3image_warm_service):
+            if cfg.kind in ("flux3", "h3image") or (cfg.kind == "ph3image" and cfg.ph3image_warm_service):
                 P._preflight_image_job(cfg, engine_override=engine_override)
             candidates = P.agent_image_engine.generate(
                 prompt=prompt, n=n, aspect=aspect,
@@ -968,6 +985,7 @@ def post_image_generate(h, path, qs, ctype) -> None:
         "elapsed_seconds": elapsed,
         "engine": cfg.kind + (f"/{cfg.mflux_family}" if cfg.kind == "mflux" else ""),
         "model": (f"{P.PH3IMAGE_REPO}@{P.PH3IMAGE_REVISION[:7]}" if cfg.kind == "ph3image"
+                  else f"{P.H3IMAGE_REPO}@{P.H3IMAGE_REVISION[:7]}" if cfg.kind == "h3image"
                   else getattr(cfg, "mflux_model", None) or cfg.kind),
         "output_dir": str(out_dir),
     })

@@ -1,6 +1,6 @@
 # Images
 
-The Images tab makes stills. Pick the model first: **Model**, at the top of the column, is the same picker the Video tab uses. Models here: **FLUX.2 [klein]**, the recommended first model, **FLUX 3 Klein**, **Reference Edit**, which reworks an image you give it, **Ideogram 4**, which puts words on a picture, and **P-H3-Image**, which makes large photographs and posters from words alone.
+The Images tab makes stills. Pick the model first: **Model**, at the top of the column, is the same picker the Video tab uses. Models here: **FLUX.2 [klein]**, the recommended first model, **FLUX 3 Klein**, **Reference Edit**, which reworks an image you give it, **Ideogram 4**, which puts words on a picture, **P-H3-Image**, which makes large photographs and posters from words alone, and **MiniMax-H3-Image**, MiniMax's own image model for detailed scenes from words alone.
 
 ## Choosing the model {#engines}
 
@@ -11,6 +11,7 @@ The Images tab makes stills. Pick the model first: **Model**, at the top of the 
 | **Reference Edit** | changing a picture you give it: a background, an outfit, several references combined | Fast (4 steps, about 1:20), Standard (8 steps, about 2:05, no LoRA), Quality (40 steps, about 3:50, for final renders) |
 | **Ideogram 4** | text in the image, placed where you want it, with an optional reference | one |
 | **P-H3-Image** | big photographs, film frames and posters from text, words spelled right; about 2.5 min at 4 MP | Draft, Standard, High |
+| **MiniMax-H3-Image** | detailed pictures from a long, descriptive prompt, 4 to 16 megapixels; preview | Draft (4 MP), Standard (8 MP), High (16 MP) |
 
 The model's versions sit in **Version**, under the prompt; a model with one version just names it there. Phosphene remembers the version you last used for each model.
 
@@ -73,3 +74,21 @@ Choose **P-H3-Image** under **Model**, then a size in **Version**:
 **First use.** It runs on the Hailuo H3 video pack, so install Hailuo H3 first. Then the chip next to **Version** reads *download ~18 GB*: click it. Phosphene shows the MiniMax H3 licence, then downloads P-H3-Image's own parts (adapter, text encoder, image decoder) once, from Pruna's repository at a pinned version, and checks every file. It needs about 24 GB free on the disk while it prepares, and keeps about 15 GB. The chip says *ready* when it is done. If it reads *update the H3 runner*, update Hailuo H3 first (your weights stay).
 
 *P-H3-Image by Pruna AI, based on MiniMax-H3 by MiniMax, under the MiniMax H3 Community License; its text encoder is based on Qwen3-VL-4B (Apache-2.0). Powered by MiniMax H3. Fetched from Pruna's repository, never re-hosted; the only change made on your Mac is re-arranging the image decoder's tensors for the MLX runner (renamed and re-fused, values unchanged), noted inside the file. MiniMax H3 is licensed under the MiniMax H3 Community License Agreement, Copyright (c) 2026 MiniMax. All Rights Reserved.*
+
+## MiniMax-H3-Image — MiniMax's own image model {#minimax-h3-image}
+
+MiniMax-H3-Image is the image model of the H3 family, made by MiniMax. It makes one picture from a text prompt in 6 steps, with nothing to tune: no guidance setting and no negative prompt. It follows a long, detailed English description of the whole picture best (who, where, light, lens, any quoted words), so write the prompt as a paragraph rather than a list of tags. It is a preview: text to image only, and anything in the reference slots is ignored. Editing a picture with references comes later.
+
+Choose **MiniMax-H3-Image** under **Model**, then a size in **Version**:
+
+| Choice | Size |
+|---|---|
+| **Draft** | 4 megapixels, e.g. 2048×2048 |
+| **Standard** | 8 megapixels |
+| **High** | 16 megapixels, the size it works best at |
+
+**Aspect** sets the shape; the size comes from the choice. A request below 4 megapixels is made on a 4 megapixel canvas and scaled back down, so it costs the same as Draft. The time for each choice is shown in the **Version** list; those are estimates until they have been measured on your Mac, and they follow your own renders after two. It needs a Mac with plenty of memory; Phosphene tells you if yours is too small.
+
+**First use.** It shares the text encoder of the Hailuo H3 video pack, so install Hailuo H3 first. Then the chip next to **Version** reads *download ~66 GB*: click it. Phosphene shows the MiniMax-H3-Image licence, then downloads the original files from MiniMaxAI at a pinned version, checks every file, and converts them on your Mac one piece at a time. It needs about 30 GB free on the disk while it prepares, and keeps about 21 GB. The chip says *ready* when it is done. If it reads *update the H3 runner*, update Hailuo H3 first (your weights stay).
+
+*Powered by MiniMax-H3-Image (MiniMax). Fetched from MiniMaxAI, never re-hosted; the only change made on your Mac is quantising the model to 8 bit and precomputing its timestep tables for the MLX runner, noted inside the files. MiniMax-H3-Image is licensed under the MiniMax-H3-Image Community License Agreement, Copyright (c) 2026 MiniMax. All Rights Reserved.*

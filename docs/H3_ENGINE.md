@@ -984,6 +984,28 @@ five-tap Qwen3-VL-4B text encoder + connector and a new single-frame ViT image d
   decoder fp32 126.8 dB.
 - Not ported: edit mode (1-8 reference images; needs the VAE encoder mapping and the vision tower), the 19 GB prompt rewriter.
 
+## MiniMax-H3-Image (MiniMax) — the H3 family's own image model
+
+`MiniMaxAI/MiniMax-H3-Image` @ 6534ea1c: a 33B DiT (H3 minus audio), six forwards with one fused output head each
+(`pdd_fused_heads.safetensors`), no guidance and no negative prompt, 4 to 16 MP (a request below 4 MP is generated on a
+4 MP canvas and resized back), text to image. Edit with references is a later wave and is NOT declared. Port notes:
+`ports/minimax-h3-image` in the PM hub.
+
+- Runner: `scripts/generate_h3_image.py PROMPT -o OUT --root <models>/minimax-h3-image --text-dir <ddalcu-q8> --text-config
+  <upstream-meta/FL2VA/text_encoder/config.json> --aspect A --mp 4|8|16 --seed N --metrics M`. Staged: text encoder out, then the
+  DiT, then the decoder. The text encoder and its config are the H3 video lane's own files; no warm worker.
+- Fetch: `scripts/fetch_h3_image.py --dir D --accepted`: the 12 ORIGINAL shards at the pinned revision (bytes + sha256 each, 66.3 GB),
+  the VAE and the heads, upstream LICENSE + NOTICE beside them; each shard is quantised to Q8 and its AdaLN projections are
+  replaced by their six-timestep table, then the source shard is deleted. Peak extra disk ~26 GB, finished pack ~21 GB (the install
+  asks for 30 GB free). Resumable.
+- Studio: `image_engine.kind = "h3image"`, engines `h3image_draft_inline` / `h3image_standard_inline` / `h3image_high_inline`
+  (4 / 8 / 16 MP), `POST /image/h3image/install` (its OWN licence `minimax-h3-image`: 451 until accepted, not the H3 screen),
+  `/status` block `h3image`, capability row `images.h3_image` (`preview`, `t2i`, 6 steps, not Pro, no ledger row: Free vs Pro is the
+  owner's call). The lane stays greyed until the installed H3 checkout carries `scripts/generate_h3_image.py` (probed by FILE in
+  `h3image_supported()`); the engine pin (`scripts/pinokio/h3_checkout.sh`) has NOT moved and must before this ships.
+- Placeholders until `ports/minimax-h3-image/bench/RESULT.md`: `H3IMAGE_MEASURED_ETA` (seconds per tier) and `H3IMAGE_PEAK_GB` in
+  `mlx_ltx_panel.py`. The picker labels, the engine table and the Image Studio estimate all read them.
+
 ## What H3 does *not* do
 
 - **Modes**: Remix and Character are LTX-pipeline-specific; the picker snaps

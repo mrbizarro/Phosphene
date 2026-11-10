@@ -103,6 +103,7 @@
 <symbol id="eng-mark-img-flux3" viewBox="0 0 24 24"><rect x="3.4" y="4.4" width="17.2" height="15.2" rx="2.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7.6 15.6V8.6h4.4M7.6 12h3.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14.6 15.6v-2M16.6 15.6v-4M18.2 15.6V9.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
 <symbol id="eng-mark-img-edit" viewBox="0 0 24 24"><rect x="3.4" y="4.4" width="13.2" height="13.2" rx="2.4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12.4 19.6l1-3.4 6-6 2.4 2.4-6 6z" fill="currentColor"/></symbol>
 <symbol id="eng-mark-img-ideogram" viewBox="0 0 24 24"><rect x="3.4" y="4.4" width="17.2" height="15.2" rx="2.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 9h8M12 9v7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+<symbol id="eng-mark-img-h3i" viewBox="0 0 24 24"><rect x="3.4" y="4.4" width="17.2" height="15.2" rx="2.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 8.6v6.8M12.4 8.6v6.8M8 12h4.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M15.4 9.2h2.4M16.6 9.2v5.6M15.4 14.8h2.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
 <symbol id="eng-mark-img-ph3" viewBox="0 0 24 24"><rect x="3.4" y="4.4" width="17.2" height="15.2" rx="2.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 8.6v6.8M12.4 8.6v6.8M8 12h4.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M15.6 10.6v2.8M17.6 9.4v5.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
 <symbol id="ph-speaker-slash" viewBox="0 0 256 256"><line x1="48" y1="40" x2="208" y2="216" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M80,168H32a8,8,0,0,1-8-8V96a8,8,0,0,1,8-8H80l72-56V147" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M152,179v45L94.4,179.2" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 </defs>
@@ -2815,6 +2816,12 @@ The same wizard walks out of frame. Audio: footsteps on leaves."></textarea>
               <option value="ph3image_standard_inline">P-H3-Image &mdash; exact text in images (4 MP, ~2.5 min, on MiniMax H3)</option>
               <option value="ph3image_draft_inline">P-H3-Image Draft (2 MP, ~1.3 min)</option>
               <option value="ph3image_inline">P-H3-Image High (8 MP, ~5 min)</option>
+              <!-- MiniMax-H3-Image (MiniMax), port ports/minimax-h3-image. The times in these labels are
+                   replaced at load by /image/engine_status `version_label`, which reads
+                   H3IMAGE_MEASURED_ETA in mlx_ltx_panel.py (placeholders until the bench). -->
+              <option value="h3image_draft_inline">MiniMax-H3-Image &mdash; Draft (4 MP)</option>
+              <option value="h3image_standard_inline">MiniMax-H3-Image &mdash; Standard (8 MP)</option>
+              <option value="h3image_high_inline">MiniMax-H3-Image &mdash; High (16 MP)</option>
               <option value="mock_inline" id="imgStudioMockOption" hidden>Mock (testing — debug only)</option>
             </select>
             <span class="studio-version-only" id="imgStudioVersionOnly" hidden></span>
