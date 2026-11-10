@@ -125,6 +125,10 @@ curl -s -X POST http://127.0.0.1:8199/queue/add \
 
 ### `POST /run` — alias for `/queue/add` (identical behavior).
 
+### `POST /queue/vertical_export` — a tall copy of a finished clip (5.0.16)
+
+Form fields: `path` (a clip in outputs or uploads), `ratio` (`9:16` default, `4:5`, `1:1`), `fill` (`blur` default, free; `ai` is Pro and needs a 48 GB+ Mac with the High quality model). Returns `{ok, id}`, or `{ok, id, duplicate: true}` when the same export is already queued. 400 with `error` (and `pro_required: true` when Pro is not active). The job runs through the ordinary queue as mode `vertical_export`; the new file's sidecar records `vertical_export_fill` (`ai` or `blur`) and, when the AI fill fell back to the blur, `vertical_export_ai_error`.
+
 ### `POST /queue/retry`
 
 Re-queue a job from history with the same params. `params.open_when_done` is forced to `false` (retries are background).

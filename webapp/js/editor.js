@@ -7509,6 +7509,12 @@ function sbePaintTrack() {
       ? '<img class="sbe-cl-thumb" alt="" loading="lazy" src="/storyboard/edit/poster?id='
         + encodeURIComponent(SBE.id) + '&name='
         + encodeURIComponent(String(c.proxy).split('/').pop()) + '&w=240">'
+      // No proxy yet (Prepare not run): the same /poster frame the media
+      // pool shows for this file, so every clip on the track has a picture.
+      // /poster refuses paths outside OUTPUT/UPLOADS; onerror hides it.
+      : (kind === 'video' && c.path && !offline)
+      ? '<img class="sbe-cl-thumb" alt="" loading="lazy" onerror="this.remove()" src="/poster?path='
+        + encodeURIComponent(c.path) + '">'
       : '';
     html += '<div class="' + cls + '" data-id="' + escapeHtml(c.id) + '" '
           + 'data-kind="' + escapeHtml(kind) + '" '

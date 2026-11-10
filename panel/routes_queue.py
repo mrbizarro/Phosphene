@@ -964,6 +964,23 @@ def post_queue_sharp_export(h, path, qs, ctype) -> None:
     h._json(out, 200 if out.get("ok") else 400)
 
 
+@post("/queue/vertical_export")
+def post_queue_vertical_export(h, path, qs, ctype) -> None:
+    _rb = h._read_form_body()
+    if _rb is None:
+        return
+    body, form = _rb
+    src = (form.get("path", [""])[0] or qs.get("path", [""])[0] or "").strip()
+    ratio = (form.get("ratio", [""])[0] or qs.get("ratio", [""])[0] or "9:16").strip()
+    fill = (form.get("fill", [""])[0] or qs.get("fill", [""])[0] or "blur").strip()
+    try:
+        out = P.queue_vertical_export(src, ratio, fill)
+    except Exception as exc:                                   # noqa: BLE001
+        h._json({"ok": False, "error": f"could not queue Make it vertical: {exc}"}, 500)
+        return
+    h._json(out, 200 if out.get("ok") else 400)
+
+
 # The chain held /stop as TWO arms split on ?mode=early; one path, one
 # handler, the same two branches.
 @post("/stop")

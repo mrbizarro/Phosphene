@@ -5035,6 +5035,126 @@ for line in sys.__stdin__:
             _is_busy = False
         continue
 
+    if action == "generate_outpaint":
+        # "Make it vertical", Pro layer: the bands above and below a landscape
+        # clip are painted by the In/Outpainting IC-LoRA instead of a blur.
+        # Lightricks' LTX-2.5 outpaint workflow, step for step (the geometry,
+        # the green reference and the blends are vertical_outpaint.py):
+        #   reference: source centred on the canvas, bands flat #66FF00
+        #   stage 1:   half res, 8 distilled steps, IC-LoRA 1.0 (unfused: Q4
+        #              cannot hold a fused adapter, see generate_restore)
+        #   blend:     stage-1 frames pyramid-blended with the real source
+        #   stage 2:   the blend upsampled x2 and refined 2 steps from sigma
+        #              0.725 with the reference re-applied (source_video mode
+        #              of ICLoraPipeline; its 2-step tail IS 0.725/0.4219/0)
+        #   final:     scaled to the output canvas, blended with the source
+        #              again, the middle pasted back untouched, source audio.
+        # Windows (long takes) are rendered one after another in this one
+        # job and joined; the pipeline is built once and reused.
+        job_id = msg.get("id", "?")
+        p = msg.get("params", {}) or {}
+        model_dir = p.get("model_dir") or MODEL_ID
+        seed = _coerce_seed(p.get("seed", -1))
+        if seed < 0:
+            seed = random.randint(0, 2**31 - 1)
+        _is_busy = True
+        try:
+            t0 = time.time()
+            _mlx_mem_reset_run()
+            configure_acceleration("off")
+            import shutil
+            import subprocess
+            import tempfile
+            import vertical_outpaint as vo
+            from ltx_pipelines_mlx.ic_lora import ICLoraPipeline
+            from ltx_pipelines_mlx.iclora_utils import read_lora_reference_downscale_factor
+            ffmpeg = os.environ.get("FFMPEG_BIN") or shutil.which("ffmpeg") or "ffmpeg"
+            src = str(p["source_path"])
+            out_path = str(p["output_path"])
+            work = Path(p.get("work_dir") or tempfile.mkdtemp(prefix="phosphene_outpaint_"))
+            work.mkdir(parents=True, exist_ok=True)
+            src_w, src_h = int(p["src_width"]), int(p["src_height"])
+            out_w, out_h = int(p["out_width"]), int(p["out_height"])
+            cw, ch = vo.canvas_size(out_w, out_h)
+            fps = float(p.get("frame_rate") or 24.0)
+            total = int(p["frames"])
+            lora = _resolve_lora_path(str(p["lora_path"]))
+            strength = float(p.get("lora_strength") or vo.OUTPAINT_LORA_STRENGTH)
+            _preflight_distilled_loras([(lora, strength)], model_dir)
+            release_pipelines("outpaint render incoming")
+            try:
+                _install_lora_fusion_patches()
+            except Exception:                                      # noqa: BLE001
+                pass
+            pipe = ICLoraPipeline(model_dir=Path(model_dir), lora_paths=[],
+                                  gemma_model_id=GEMMA_PATH, low_memory=LOW_MEMORY)
+            pipe._pending_loras = [(lora, strength)]
+            _scale = read_lora_reference_downscale_factor(lora)
+            if _scale != 1:
+                pipe.reference_downscale_factor = _scale
+            prompt = str(p.get("prompt") or "")
+            wins = vo.windows(total, int(p.get("max_window_frames") or vo.MAX_WINDOW_FRAMES))
+            emit({"event": "log", "line":
+                  f"step:generate_outpaint {src_w}x{src_h} -> canvas {cw}x{ch} -> "
+                  f"{out_w}x{out_h} {total}f in {len(wins)} window(s), "
+                  f"stage1={vo.STAGE1_STEPS} refine={vo.REFINE_STEPS} lora x{strength}"})
+            parts = []
+            for wi, (start, count) in enumerate(wins):
+                n = vo.render_frames(count)
+                _apply_vae_streaming_decision(n)
+                ref = str(work / f"w{wi}_ref.mp4")
+                r = subprocess.run(vo.reference_args(src, ref, src_w, src_h, cw, ch, n,
+                                                     start_frame=start, fps=fps, ffmpeg=ffmpeg),
+                                   capture_output=True, text=True, errors="replace")
+                if r.returncode != 0:
+                    raise RuntimeError(f"outpaint reference failed: {r.stderr[-300:]}")
+                emit({"event": "log", "line": f"outpaint window {wi + 1}/{len(wins)}: "
+                      f"frames {start}..{start + count - 1} ({n} rendered) stage 1"})
+                s1 = str(work / f"w{wi}_s1.mp4")
+                pipe.generate_and_save(
+                    prompt=prompt, output_path=s1, video_conditioning=[(ref, 1.0)],
+                    height=ch, width=cw, num_frames=n, frame_rate=fps, seed=seed + wi,
+                    stage1_steps=_thin_cap(model_dir, "stage1_steps", vo.STAGE1_STEPS),
+                    skip_stage_2=True)
+                _mlx_phase_mem(f"outpaint w{wi} stage 1")
+                s1b = str(work / f"w{wi}_s1_blend.mp4")
+                vo.composite_video(s1, ref, s1b, cw // 2, ch // 2, src_w, src_h, n,
+                                   fps=fps, lossless=True, seam_inset=3, keep_inset=20,
+                                   ffmpeg=ffmpeg, source_is_canvas=True)
+                emit({"event": "log", "line": f"outpaint window {wi + 1}/{len(wins)}: stage 2"})
+                s2 = str(work / f"w{wi}_s2.mp4")
+                pipe.generate_and_save(
+                    prompt=prompt, output_path=s2, video_conditioning=[(ref, 1.0)],
+                    height=ch, width=cw, num_frames=n, frame_rate=fps, seed=seed + wi,
+                    source_video=s1b, refine_steps=vo.REFINE_STEPS)
+                _mlx_phase_mem(f"outpaint w{wi} stage 2")
+                part = str(work / f"w{wi}_final.mp4")
+                vo.composite_video(s2, src, part, out_w, out_h, src_w, src_h, count,
+                                   start_frame=start, fps=fps, lossless=True, ffmpeg=ffmpeg)
+                parts.append(part)
+            vo.join_parts(parts, src, out_path, fps=fps, crf=p.get("crf", 18),
+                          audio=bool(p.get("keep_audio", True)), ffmpeg=ffmpeg,
+                          steady=(out_w, out_h, src_w, src_h))
+            try:
+                pipe = None
+                from ltx_core_mlx.utils.memory import aggressive_cleanup as _ac
+                _ac()
+            except Exception:                                      # noqa: BLE001
+                pass
+            _mlx_mem_summary()
+            if not p.get("keep_work"):
+                shutil.rmtree(work, ignore_errors=True)
+            elapsed = round(time.time() - t0, 2)
+            _last_activity = time.time()
+            emit({"event": "done", "id": job_id, "output": out_path,
+                  "elapsed_sec": elapsed, "seed_used": seed, "windows": len(wins)})
+        except Exception as exc:
+            _last_activity = time.time()
+            emit({"event": "error", "id": job_id, "error": str(exc), "trace": traceback.format_exc()})
+        finally:
+            _is_busy = False
+        continue
+
     if action == "write_lyrics":
         # MUSIC STUDIO: Gemma writes lyrics from a concept. The same resident
         # Gemma 3 the enhancer uses, the same `_enhance` chat call underneath —

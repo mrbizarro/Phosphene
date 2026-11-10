@@ -87,5 +87,14 @@
       "It needs a Mac with 48 GB of memory or more, and downloads once the first time you use it."
     ],
     "pro": []
+  },
+  "5.0.16": {
+    "free": [
+      "New: Make it vertical. Turn a widescreen clip into a tall 9:16, 4:5 or square copy with a soft blurred fill. In the More menu on any clip.",
+      "Timeline clips show a picture right away, before Prepare."
+    ],
+    "pro": [
+      "Pro adds AI fill to Make it vertical: real picture above and below, as if the clip was shot tall. For Macs with 48 GB or more."
+    ]
   }
 }

@@ -4333,7 +4333,7 @@ async function poll() {
       // batch/One-Shot/image/music/upscale row stays view-only rather than
       // silently mis-restoring into the wrong tab.
       const editable = !j.params.take && j.params.engine !== 'music'
-        && !['image', 'train', 'upscale', 'sharp_export'].includes(j.params.mode);
+        && !['image', 'train', 'upscale', 'sharp_export', 'vertical_export'].includes(j.params.mode);
       return `
       <li data-job-id="${escapeHtml(j.id)}"${editable ? ` class="q-row-editable" onclick="editQueuedJob('${j.id}')" title="Click to edit this queued job"` : ''}>
         <span class="pos">#${i+1}</span>
@@ -6422,6 +6422,10 @@ function openExpandLightbox() {
   if (actions) {
     actions.innerHTML = (!isPhoto && !isAudio) ? `
       <button type="button" class="ghost-btn" onclick="sharpExportActive()">Sharp export</button>
+      <button type="button" class="ghost-btn" onclick="verticalExportActive('9:16')" title="A 9:16 copy with a blurred fill above and below">Make it vertical</button>
+      <button type="button" class="ghost-btn" onclick="verticalExportActive('4:5')" title="A 4:5 copy with a blurred fill above and below">4:5</button>
+      <button type="button" class="ghost-btn" onclick="verticalExportActive('1:1')" title="A square copy with a blurred fill above and below">1:1</button>
+      <button type="button" class="ghost-btn" onclick="verticalExportActive('9:16','ai')" title="A 9:16 copy where AI paints real picture above and below (Phosphene Pro)">Make it vertical (AI fill)</button>
       <button type="button" class="ghost-btn" onclick="useLastFrameActive()">Use last frame</button>
       <button type="button" class="ghost-btn" onclick="openActiveInEditor()">Open in Editor</button>
       <button type="button" class="ghost-btn" onclick="revealActive()">Reveal in Finder</button>
@@ -7034,6 +7038,38 @@ async function queueSharpExport(path) {
 function sharpExportActive() {
   if (!activePath) return phosToast('Pick a clip in Outputs first.', {});
   return queueSharpExport(activePath);
+}
+
+async function queueVerticalExport(path, ratio, fill) {
+  if (!path) { phosToast('Pick a clip first.', {}); return null; }
+  const ai = fill === 'ai';
+  // Free Macs see what Pro is instead of a refusal toast (the server refuses too).
+  if (ai && !document.documentElement.dataset.pro) { openProModal(); return null; }
+  const fd = new URLSearchParams();
+  fd.set('path', path);
+  fd.set('ratio', ratio || '9:16');
+  fd.set('fill', ai ? 'ai' : 'blur');
+  let r;
+  try { r = await (await fetch('/queue/vertical_export', { method: 'POST', body: fd })).json(); }
+  catch (e) { r = { ok: false, error: String(e) }; }
+  const name = String(path).split('/').pop();
+  if (!r || !r.ok) {
+    phosToast((r && r.error) || 'Make it vertical could not be queued.',
+              { kind: 'danger', duration: 9000 });
+    return r;
+  }
+  phosToast(r.duplicate
+    ? ('Make it vertical is already queued for ' + name + '.')
+    : ai
+      ? ('Make it vertical (AI fill) queued for ' + name + ' — AI paints above and below. It takes about 15 minutes for a 5-second clip.')
+      : ((ratio && ratio !== '9:16' ? ('A ' + ratio + ' copy is') : 'Make it vertical is') + ' queued for ' + name + ' — it lands next to the clip in Outputs, with a blurred fill.'),
+    { kind: 'success', duration: 6000 });
+  try { poll(); } catch (e) {}
+  return r;
+}
+function verticalExportActive(ratio, fill) {
+  if (!activePath) return phosToast('Pick a clip in Outputs first.', {});
+  return queueVerticalExport(activePath, ratio, fill);
 }
 
 async function useLastFramePath(path) {
@@ -9477,7 +9513,7 @@ Object.assign(globalThis, {
   animateActive, hide, unhide, openOutputsFolder, hideActive,
   useAsExtendSource, useAsAddSoundSource, addSoundOffer, addSoundFromCard, syncPlayerSoundOffer, useAsUpscaleSource, useAsUpscaleSourcePath, setUpscalePreset,
   faceFixClip, faceFixActive, isUpscaledPath, loadParams, _flashActionDone, closeOutputInfoModal,
-  queueSharpExport, sharpExportActive, useLastFramePath, useLastFrameActive,
+  queueSharpExport, sharpExportActive, queueVerticalExport, verticalExportActive, useLastFramePath, useLastFrameActive,
   revealClipInFinder, revealActive, shareClip, shareActive, openClipInEditor, openActiveInEditor, kebabToggle,
   reorderQueuedJob, editQueuedJob, cancelEditingQueuedJob, updateQueuedJob, fmtEtaCompact,
   showEnhancePanel, acceptEnhance, undoEnhance, keepMineEnhance,

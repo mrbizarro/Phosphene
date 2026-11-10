@@ -148,6 +148,16 @@ Below the sizes, **Also run Upscale & Face Fix after the draft** is optional and
 
 Any finished clip can also go through [Upscale & Face Fix](#docs/remix/upscale-face-fix) later — one click over the player, in its action overlay.
 
+## Make it vertical {#vertical}
+
+Turn a finished widescreen clip into a tall one for phones. Pick the clip, open **More** on the player, and choose:
+
+- **Make it vertical** — a 9:16 copy. The whole picture stays in the middle; above and below is a soft, blurred copy of the same clip. Free, takes seconds.
+- **Make it portrait (4:5)** and **Make it square (1:1)** — the same, in those shapes. Free.
+- **Make it vertical (AI fill)** <span class="pro-chip">Pro</span> — instead of a blur, AI paints real picture above and below, so the clip looks as if it was shot tall. Your original picture in the middle is not changed. It needs a Mac with 48 GB of memory or more and the High quality video model, downloads a 1.3 GB add-on the first time, and takes about 15 minutes for a 5-second clip. If it cannot finish, you get the blurred version instead and a note saying why.
+
+The new file lands next to the original in Outputs, with the original sound.
+
 ## More controls {#more}
 
 - **Seed** — `-1` is random; reuse a seed to get the same take with a changed prompt.

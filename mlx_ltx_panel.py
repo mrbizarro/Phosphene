@@ -13606,7 +13606,7 @@ def job_recipe_minutes(params: dict, *, calibration: bool = False) -> tuple[str,
     None (never a guess) when the recipe can't be priced reliably."""
     p = params or {}
     mode = str(p.get("mode") or "t2v").strip().lower()
-    if mode in ("image", "train", "upscale", "sharp_export", "music", "speech"):
+    if mode in ("image", "train", "upscale", "sharp_export", "vertical_export", "music", "speech"):
         return None
     engine = str(p.get("engine") or "ltx").strip().lower()
     if engine in ("music", "speech"):
@@ -37029,7 +37029,7 @@ def a2v_requested_scale(params: dict):
 # from make_job before this matters (their own branches validate them).
 QUEUEABLE_VIDEO_MODES = frozenset((
     "t2v", "i2v", "i2v_clean_audio", "extend", "keyframe", "a2v", "retake",
-    "restore", "ingredients", "control", "upscale", "sharp_export", "v2a",
+    "restore", "ingredients", "control", "upscale", "sharp_export", "vertical_export", "v2a",
 ))
 _IMAGE_CONDITIONED_MODES = ("i2v", "i2v_clean_audio")
 INPUT_MISSING_IMAGE = ("Image mode needs a reference image — drop one into the "
@@ -44071,6 +44071,251 @@ def run_sharp_export_job_inner(job: dict) -> None:
         subprocess.run(["open", str(final_out)], check=False)
 
 
+# "Make it vertical", the Free layer (owner, 4 Nov 2026, Panel #294): a finished
+# landscape clip becomes 9:16 / 4:5 / 1:1 with a blurred, enlarged copy of itself
+# filling the bands. Plain ffmpeg (vertical_reframe.py), no model, no GPU. It
+# runs through the ordinary queue like Sharp export so it shows in Now/Queue and
+# never races a render's own ffmpeg mux. The AI fill (outpaint IC-LoRA) is the
+# second layer: the same job mode with fill=ai.
+def vertical_ai_fill_status() -> dict:
+    """Can this Mac run the Pro AI fill for Make it vertical. Pro on, and a Mac
+    of the size it was measured on: the Q8 distilled model on a 48 GB+ Mac
+    (four 5-second clips, 12 to 15 minutes each on an M4 Max 64 GB). The
+    adapter itself is fetched on first use (_ensure_outpaint_lora), so a
+    missing file is not a refusal."""
+    import vertical_outpaint as vo
+    lora = LORAS_DIR / "ic" / vo.OUTPAINT_LORA_FILE
+    pro = bool(pro_status().get("active"))
+    big = bool(SYSTEM_CAPS.get("allows_q8"))
+    reason = ("pro_required" if not pro else "mac_too_small" if not big
+              else "model_missing" if hq_surface_missing() else "ok")
+    return {"available": reason == "ok", "pro_active": pro, "reason": reason,
+            "lora": str(lora), "downloaded": _outpaint_lora_ok(lora)}
+
+
+def _outpaint_lora_ok(path: Path) -> bool:
+    import vertical_outpaint as vo
+    try:
+        return path.is_file() and path.stat().st_size == vo.OUTPAINT_LORA_BYTES
+    except OSError:
+        return False
+
+
+def _ensure_outpaint_lora() -> str:
+    """The AI fill's adapter on disk, fetched on first use (1.3 GB, once).
+
+    ONE file from the un-gated public copy via hf_hub_download, never a
+    snapshot of that repository (it is hundreds of GB; see
+    _ensure_ingredients_lora). Size and sha256 are checked against the
+    official file before it is used; a wrong file is removed."""
+    import vertical_outpaint as vo
+    dest_dir = LORAS_DIR / "ic"
+    dest = dest_dir / vo.OUTPAINT_LORA_FILE
+    if _outpaint_lora_ok(dest):
+        return str(dest)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    free = shutil.disk_usage(str(dest_dir)).free
+    if free < vo.OUTPAINT_LORA_BYTES + 2 * 1024 ** 3:
+        raise RuntimeError("not enough free disk space to download the AI fill add-on (1.3 GB)")
+    push("Make it vertical: downloading the AI fill add-on (1.3 GB, first time only)…")
+    from huggingface_hub import hf_hub_download
+    got = Path(hf_hub_download(repo_id=vo.OUTPAINT_LORA_REPO, filename=vo.OUTPAINT_LORA_FILE,
+                               local_dir=str(dest_dir)))
+    if not _outpaint_lora_ok(got) or _sha256_file(got) != vo.OUTPAINT_LORA_SHA256:
+        try:
+            got.unlink()
+        except OSError:
+            pass
+        raise RuntimeError("the AI fill add-on did not download correctly")
+    return str(got)
+
+
+def queue_vertical_export(source_path: str, ratio: str = "9:16", fill: str = "blur") -> dict:
+    import vertical_reframe as vr
+    ratio = str(ratio or vr.DEFAULT_RATIO).strip()
+    if ratio not in vr.RATIOS:
+        return {"ok": False, "error": f"Pick one of: {', '.join(vr.RATIOS)}."}
+    fill = "ai" if str(fill or "").strip().lower() == "ai" else "blur"
+    if fill == "ai":
+        st = vertical_ai_fill_status()
+        if st["reason"] == "pro_required":
+            return {"ok": False, "pro_required": True,
+                    "error": "AI fill is part of Phosphene Pro. The blurred fill is free."}
+        if st["reason"] == "mac_too_small":
+            return {"ok": False, "error": "AI fill needs a Mac with 48 GB of memory or more. "
+                                          "The blurred fill works on this Mac now."}
+        if st["reason"] == "model_missing":
+            return {"ok": False, "error": "AI fill needs the High quality video model, which is "
+                                          "not on this Mac yet. The blurred fill works now."}
+    src = Path(str(source_path or ""))
+    if source_path and not _sharp_export_contained(source_path):
+        return {"ok": False, "error": "Make it vertical works on clips in outputs or uploads only."}
+    if not source_path or not src.is_file():
+        return {"ok": False, "error": "That clip is not on disk any more."}
+    if src.suffix.lower() not in _SHARP_EXPORT_VIDEO_SUFFIXES:
+        return {"ok": False, "error": "Make it vertical works on video clips, not stills."}
+    sw, sh = _probe_video_dims(str(src))
+    try:
+        vr.target_size(ratio, sw, sh)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    job = {
+        "id": _new_job_id(),
+        "status": "queued",
+        "queued_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "started_at": None, "finished_at": None, "elapsed_sec": None,
+        "params": {"mode": "vertical_export", "source_path": str(src),
+                  "ratio": ratio, "fill": fill, "open_when_done": False},
+        "raw_path": None, "output_path": None, "error": None,
+    }
+    with QUEUE_COND:
+        cands = list(STATE["queue"])
+        if STATE.get("current"):
+            cands.insert(0, STATE["current"])
+        for j in cands:
+            jp = (j or {}).get("params") or {}
+            if (jp.get("mode") == "vertical_export" and jp.get("source_path") == str(src)
+                    and jp.get("ratio") == ratio and (jp.get("fill") or "blur") == fill):
+                return {"ok": True, "id": j["id"], "duplicate": True}
+        STATE["queue"].append(job)
+        QUEUE_COND.notify_all()
+    persist_queue()
+    return {"ok": True, "id": job["id"]}
+
+
+def _vertical_blur(source: Path, final_out: Path, sw: int, sh: int, ratio: str) -> None:
+    import vertical_reframe as vr
+    codec = output_codec_settings()
+    try:
+        args = vr.ffmpeg_args(str(source), str(final_out), sw, sh, ratio,
+                              crf=codec["crf"], preset=os.environ.get("LTX_UPSCALE_PRESET", "medium"),
+                              ffmpeg=str(FFMPEG))
+    except ValueError as exc:
+        raise RuntimeError(str(exc))
+    res = subprocess.run(args, capture_output=True, text=True, errors="replace")
+    if res.returncode != 0 or not final_out.exists() or final_out.stat().st_size == 0:
+        try:
+            final_out.unlink()
+        except OSError:
+            pass
+        tail = (res.stderr or "").strip().splitlines()[-3:]
+        raise RuntimeError("Make it vertical failed: " + (" | ".join(tail) or "ffmpeg wrote nothing"))
+
+
+def _vertical_ai_fill(job: dict, source: Path, final_out: Path, sw: int, sh: int,
+                      ratio: str) -> dict:
+    """The Pro layer: the outpaint IC-LoRA paints the bands (helper action
+    generate_outpaint; recipe in vertical_outpaint.py). Raises on any failure
+    so the caller can fall back to the blurred fill."""
+    import vertical_reframe as vr
+    import vertical_outpaint as vo
+    st = vertical_ai_fill_status()
+    if not st["available"]:
+        raise RuntimeError("AI fill is not available on this Mac (" + st["reason"] + ")")
+    out_w, out_h = vr.target_size(ratio, sw, sh)
+    frames = _probe_video_frames(str(source))
+    fps = _probe_video_fps(str(source)) or float(FPS)
+    if not frames:
+        raise RuntimeError(f"could not count the frames of {source.name}")
+    quant = "q8"                      # the only pack the fill was measured on
+    ltx_pack_preflight(quant, "Make it vertical (AI fill)")
+    lora_path = _ensure_outpaint_lora()
+    prompt = ""
+    try:
+        _sc = json.loads(Path(str(source) + ".json").read_text(encoding="utf-8"))
+        prompt = str(((_sc.get("params") or {}).get("prompt")) or "").strip()
+    except Exception:                                              # noqa: BLE001
+        prompt = ""
+    import tempfile as _tempfile
+    work = Path(_tempfile.mkdtemp(prefix="phosphene_vertical_ai_"))
+    spec = {"action": "generate_outpaint", "id": job["id"], "params": {
+        "model_dir": ltx_model_dir(quant), "source_path": str(source),
+        "output_path": str(final_out), "work_dir": str(work),
+        "src_width": sw, "src_height": sh, "out_width": out_w, "out_height": out_h,
+        "frames": frames, "frame_rate": fps, "seed": random.randint(0, 2**31 - 1),
+        "prompt": prompt, "lora_path": lora_path, "lora_strength": vo.OUTPAINT_LORA_STRENGTH,
+        "crf": output_codec_settings()["crf"], "keep_audio": True}}
+    push(f"Make it vertical: {source.name} → {ratio}, AI fill ({frames} frames). "
+         "This takes about 15 minutes for a 5-second clip.")
+    try:
+        _raise_if_cancelled(job, "the AI fill")
+        result = HELPER.run(spec)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    if not final_out.is_file() or final_out.stat().st_size == 0:
+        raise RuntimeError("the AI fill wrote no file")
+    return result
+
+
+def run_vertical_export_job_inner(job: dict) -> None:
+    import vertical_reframe as vr
+    p = job["params"]
+    src = p.get("source_path") or ""
+    if src and not _sharp_export_contained(src):
+        raise RuntimeError("Make it vertical works on clips in outputs or uploads only.")
+    if not src or not Path(src).is_file():
+        raise RuntimeError(f"source clip for Make it vertical not found: {src!r}.")
+    ratio = str(p.get("ratio") or vr.DEFAULT_RATIO)
+    source = Path(src)
+    sw, sh = _probe_video_dims(str(source))
+    if not (sw and sh):
+        raise RuntimeError(f"could not read the size of {source.name}")
+    tag = ratio.replace(":", "x")
+    want_ai = (p.get("fill") or "blur") == "ai"
+    final_out = _unique_output_path(
+        OUTPUT, f"{source.stem}_vertical_{tag}{'_ai' if want_ai else ''}_"
+                f"{time.strftime('%Y%m%d_%H%M%S')}", ".mp4")
+    job["raw_path"] = str(final_out)
+    fill_used, ai_error, ai_result = "blur", None, None
+    if want_ai:
+        try:
+            ai_result = _vertical_ai_fill(job, source, final_out, sw, sh, ratio)
+            fill_used = "ai"
+        except Exception as exc:                                    # noqa: BLE001
+            _raise_if_cancelled(job, "Make it vertical")
+            ai_error = str(exc)[:300]
+            push(f"Make it vertical: the AI fill did not finish ({ai_error}). "
+                 "Making the free blurred fill instead.")
+            try:
+                final_out.unlink()
+            except OSError:
+                pass
+            final_out = final_out.with_name(final_out.name.replace("_ai_", "_"))
+            job["raw_path"] = str(final_out)
+    if fill_used == "blur":
+        push(f"Make it vertical: {source.name} → {ratio}, blurred fill.")
+        _vertical_blur(source, final_out, sw, sh, ratio)
+    src_sidecar_path = Path(str(source) + ".json")
+    src_params: dict = {}
+    if src_sidecar_path.is_file():
+        try:
+            src_params = (json.loads(src_sidecar_path.read_text(encoding="utf-8")) or {}).get("params") or {}
+        except (OSError, json.JSONDecodeError):
+            src_params = {}
+    sidecar = {
+        "output": str(final_out), "raw_output": str(final_out),
+        "params": {**src_params, "mode": src_params.get("mode", "t2v"),
+                  "vertical_export_source": str(source), "vertical_export_ratio": ratio,
+                  "vertical_export_fill": fill_used,
+                  **({"vertical_export_ai_error": ai_error} if ai_error else {})},
+        "started": job.get("started_at"),
+        "elapsed_sec": round(time.time() - job["started_ts"], 2) if job.get("started_ts") else None,
+        "fps": FPS, "queue_id": job["id"],
+        "output_codec": output_codec_settings(),
+    }
+    if ai_result:
+        sidecar["helper_elapsed_sec"] = ai_result.get("elapsed_sec")
+        sidecar["seed_used"] = ai_result.get("seed_used")
+    if ai_error:
+        job["warning"] = ("The AI fill did not finish, so this is the free blurred fill. "
+                          f"Reason: {ai_error}")
+    write_sidecar(final_out.with_suffix(final_out.suffix + ".json"), sidecar)
+    job["output_path"] = str(final_out)
+    push(f"Make it vertical done ({'AI fill' if fill_used == 'ai' else 'blurred fill'}) → {final_out.name}")
+    if p.get("open_when_done"):
+        subprocess.run(["open", str(final_out)], check=False)
+
+
 def run_job_inner(job: dict) -> None:
     p = job["params"]
     mode = p["mode"]
@@ -44092,6 +44337,8 @@ def run_job_inner(job: dict) -> None:
         return run_train_job_inner(job)
     if mode == "sharp_export":
         return run_sharp_export_job_inner(job)
+    if mode == "vertical_export":
+        return run_vertical_export_job_inner(job)
     # Second video engine. H3 is a self-contained subprocess pack with its own
     # geometry rules (17n+5 frames, 32-aligned dims) and no warm helper, so it
     # dispatches BEFORE every LTX-only clamp/validation below — none of which
