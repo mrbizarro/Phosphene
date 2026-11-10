@@ -43,7 +43,7 @@ In a narrow window the group shows icons only. Every icon button in the Editor s
 
 - **Click** a clip to select it. Click an empty part of the track to select nothing (and move the playhead there).
 - **⇧-click** selects the range from the selected clip to this one. **⌘-click** adds one clip or drops it.
-- [[sc:editor.selectAll]] selects every clip. [[sc:editor.deselect]] clears the selection — and with nothing selected, closes the timeline.
+- [[sc:editor.selectAll]] selects every clip. [[sc:editor.deselect]] clears the selection. **Close** (top right) closes the timeline.
 - With several clips selected, the clip bar acts on **all** of them, as one undo step; the inspector shows the properties of the one you clicked last. A locked clip in the selection is left alone and named in a message.
 
 ## Moving, trimming and splitting {#moving}

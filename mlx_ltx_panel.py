@@ -2721,17 +2721,23 @@ def _ensure_proxy_poster(src: Path, width: int) -> Path:
     # this only ever runs against the proxy. `scale=w:-2` keeps the source
     # aspect (height rounds to an even number, which some encoders require
     # and none reject). Written to a `.part` name first so a reader can
-    # never observe a half-written JPEG through the cache — and `-f mjpeg`
-    # is NOT optional once the output name carries that suffix: ffmpeg picks
-    # its muxer from the file EXTENSION, `foo.jpg.part-1234` has none it
-    # recognises, and it refuses to write at all (exit 234, "Unable to
+    # never observe a half-written JPEG through the cache — and an explicit
+    # muxer is NOT optional once the output name carries that suffix: ffmpeg
+    # picks its muxer from the file EXTENSION, `foo.jpg.part-1234` has none
+    # it recognises, and it refuses to write at all (exit 234, "Unable to
     # choose an output format") rather than silently guessing.
+    # `-c:v mjpeg -f image2 -update 1`, NOT `-f mjpeg`: the Mac app's
+    # bundled ffmpeg is a minimal build with the mjpeg ENCODER but no mjpeg
+    # MUXER, so `-f mjpeg` failed every poster there ("Requested output
+    # format 'mjpeg' is not known") and every timeline clip showed a broken
+    # image. image2 is in every build; -update writes one file, no pattern.
     part = out.with_suffix(out.suffix + f".part-{os.getpid()}")
     try:
         subprocess.run(
             [str(FFMPEG), "-y", "-loglevel", "error", "-ss", "0", "-i", str(src),
              "-frames:v", "1", "-vf", f"scale={width}:-2",
-             "-q:v", "4", "-f", "mjpeg", str(part)],
+             "-q:v", "4", "-c:v", "mjpeg", "-f", "image2", "-update", "1",
+             str(part)],
             check=True, capture_output=True, timeout=30)
         if not part.exists() or part.stat().st_size == 0:
             raise RuntimeError("ffmpeg produced no frame")

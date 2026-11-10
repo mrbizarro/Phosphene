@@ -89,9 +89,15 @@ def get_file(h, parsed) -> None:
     # Strict containment via Path.is_relative_to — str.startswith
     # would let "mlx_outputs_evil/" slip past since the prefix string
     # match is true even though the directory is a sibling, not a child.
+    # OUTPUT or UPLOADS, the same two roots /image, /file/exists and the
+    # poster route already serve. The Editor imports videos into
+    # UPLOADS/timeline and previews them here; with OUTPUT alone, an imported
+    # clip showed black in the media pool and the Source monitor.
     try:
-        _ = path.relative_to(P.OUTPUT.resolve())
-    except ValueError:
+        roots = [P.OUTPUT.resolve(), P.UPLOADS.resolve()]
+    except Exception:
+        h.send_error(500); return
+    if not any(path.is_relative_to(r) for r in roots):
         h.send_error(404); return
     if not path.exists():
         h.send_error(404); return

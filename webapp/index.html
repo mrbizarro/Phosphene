@@ -5500,7 +5500,7 @@ The last line"></textarea>
         <button type="button" class="ghost-btn" id="sbeBoardBtn" onclick="sbeGoToBoard()"
                 title="Open this __SEQ__'s shot list in the Storyboard tab" hidden>Storyboard</button>
         <button type="button" class="ghost-btn" id="sbeCloseBtn" onclick="sbeClose()"
-                title="Close this timeline (Esc). Nothing is deleted.">Close</button>
+                title="Close this timeline. Nothing is deleted.">Close</button>
       </div>
 
       <div class="sbe-pop sbe-pop-wide" id="sbeKeysPop" hidden>
@@ -5541,6 +5541,8 @@ The last line"></textarea>
                   title="Point at a different audio file">Change…</button>
           <button type="button" class="ghost-btn" id="sbePrepBtn" onclick="sbePrepare()">Prepare</button>
           <button type="button" class="ghost-btn" id="sbePrepCancel" onclick="sbePrepareCancel()" hidden>Cancel</button>
+          <button type="button" class="ghost-btn" id="sbeMusicRemove" onclick="sbeMusicRemove()" hidden
+                  title="Take the soundtrack out of this film (Undo brings it back)">Remove</button>
         </span>
         <span class="sbe-bar" id="sbePrepBar" hidden><i style="width:0%"></i></span>
         <span class="sbe-music-warn" id="sbeMusicWarn" hidden></span>
@@ -5762,8 +5764,8 @@ The last line"></textarea>
               <svg class="sbe-cbar-i"><use href="#ic-play" id="sbeSrcPlayUse"/></svg></button>
             <span class="sbe-mon-name" id="sbeSrcName">Nothing loaded</span>
             <button type="button" class="ghost-btn" id="sbeSrcAddBtn"
-                    onclick="sbeSrcAdd()" disabled
-                    title="Puts this clip at the end of the __SEQ__ — exactly what the + on its row does.">Add to timeline</button>
+                    onclick="sbeSrcAdd(event)" disabled
+                    title="Put this clip at the playhead (⌥ for the end), the same as the + on its row.">Add to timeline</button>
             <button type="button" class="ghost-btn sbe-ibtn" id="sbeSrcCloseBtn"
                     onclick="sbeSrcClose()" aria-label="Hide the Source monitor"
                     title="Hide the Source monitor — Source in the View group brings it back">
@@ -6046,7 +6048,7 @@ The last line"></textarea>
             <button type="button" class="sbe-gh-more" id="sbeMusicMore"
                     onclick="sbePopToggle('sbeMusicMenu', 'sbeMusicMore')"
                     aria-haspopup="menu"
-                    title="The file, Change…, Prepare — the soundtrack's own controls">▾</button>
+                    title="Add, change or remove the soundtrack">▾</button>
           </span>
           <span class="sbe-music-name" id="sbeMusicPath" title="">no soundtrack</span>
           <select class="sb-input sbe-gh-mode" id="sbeMusicMode"

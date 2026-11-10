@@ -672,7 +672,9 @@ def clip_effects(clip) -> dict:
 #
 # The owner's case: an endcard PNG with real transparency, laid over the last
 # seconds of the pull-out so the card sits in the sky.
-OVERLAY_SUFFIXES = (".png", ".webp", ".tif", ".tiff")
+# JPEG/BMP/GIF are stills too: classed as `video`, a JPEG card was handed to
+# the video path in preview and render.
+OVERLAY_SUFFIXES = (".png", ".webp", ".tif", ".tiff", ".jpg", ".jpeg", ".bmp", ".gif")
 
 
 # WHAT AN OVERLAY CAN BE. A card is a still; a matte or a loop is a video; a

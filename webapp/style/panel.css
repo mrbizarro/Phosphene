@@ -71,6 +71,7 @@
     html[data-theme="light"] .sbe-ov { color: #4c1d95; }
     html[data-theme="light"] .sbe-ruler u { color: rgba(20,26,46,0.75); background: rgba(20,26,46,0.10); }
     html[data-theme="light"] .sbe-track.is-dropping { background: rgba(20,26,46,0.04); }
+    html[data-theme="light"] .sbe-ovlane.is-dropping { background: rgba(20,26,46,0.05); outline-color: rgba(20,26,46,0.35); }
     html[data-theme="light"] .sbe-track.is-overwriting { background: rgba(180, 95, 6, 0.08); }
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; }
@@ -3075,7 +3076,7 @@
       .is-asmall .sbe-mc-name, .is-asmall .sbe-mc-lvl,
       .is-asmall .sbe-gh-aud .sbe-gh-sub, .is-asmall .sbe-gh-alt,
       .is-asmall .sbe-mix-row, .is-asmall .sbe-music-name,
-      .is-asmall .sbe-gh-mode, .is-asmall .sbe-gh-mus .sbe-gh-more,
+      .is-asmall .sbe-gh-mode,
       .is-asmall .sbe-trk-row { display: none !important; }
       /* The strip is the target now, and it says so. */
       .is-asmall .sbe-aclip, .is-asmall .sbe-tstrip,
@@ -3615,6 +3616,8 @@
       box-shadow: 0 0 6px var(--accent);
     }
     .sbe-track.is-dropping { background: rgba(255,255,255,0.035); }
+    .sbe-drag-hud { position: fixed; z-index: 9999; pointer-events: none; padding: 3px 8px; border-radius: 6px; font-size: 13px; line-height: 1.4; color: #fff; background: rgba(12,14,20,0.88); border: 1px solid rgba(255,255,255,0.18); white-space: nowrap; }
+    .sbe-ovlane.is-dropping { background: rgba(255,255,255,0.05); outline: 1px dashed rgba(255,255,255,0.35); outline-offset: -1px; }
     /* FILM-08: ⌥-drop overwrites a clip instead of inserting one. */
     .sbe-track.is-overwriting { background: rgba(248, 176, 81, 0.08); }
     .sbe-grip {
@@ -5991,6 +5994,13 @@
       display: flex; flex-direction: column; align-items: stretch; gap: 10px;
     }
     .player-audio-open { align-self: center; }
+    /* Audio controls do not need a video canvas. Leave room above them for
+       the filename and actions, then let the gallery use the remaining space. */
+    .player-surface:has(.player-audio-inline) {
+      width: 100%; height: auto; max-height: none; aspect-ratio: auto;
+    }
+    .player-surface:has(.player-audio-inline) .player-wrap { height: auto; }
+    .player-surface .player-audio-inline { padding: 72px 16px 24px; }
     /* 4.18.0: "Use this audio for…" sits beside "Open in Audio tab". */
     .player-audio-btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
     .train-voice-controls {
@@ -12580,6 +12590,8 @@ label > .ph:first-child:not(:only-child),
 #musicComposePane .composer-card,
 #musicComposePane .customize-section,
 #musicComposePane .quick-settings { margin-bottom: 16px; }
+/* Music has a full form inside the card, unlike the edge-to-edge video prompt. */
+#musicComposePane .composer-card { padding: 16px 18px; }
 #musicComposePane .customize-section { margin-top: 0; }
 /* A plain block stack, so the ladder below is the only thing setting gaps. */
 #musicComposePane .quick-settings { display: block; }

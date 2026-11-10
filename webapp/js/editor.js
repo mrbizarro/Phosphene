@@ -2392,7 +2392,11 @@ function sbeOvAdd(overlays, item, filmStart) {
     fs = push;
   }
   const kind = (item.kind === 'text') ? 'text'
-    : (/\.(png|webp|tiff?)$/i.test(String(item.path || '')) ? 'still' : 'video');
+    : (item.kind === 'still'
+       // JPEG/BMP/GIF are stills too. They used to fall through to `video`,
+       // so the stage tried to play a JPEG in a <video> element.
+       || /\.(png|webp|tiff?|jpe?g|bmp|gif)$/i.test(String(item.path || ''))
+       ? 'still' : 'video');
   const o = {
     id: sbeNewId(), kind: kind,
     path: (kind === 'text') ? null : item.path, title: item.title || '',
@@ -4580,7 +4584,8 @@ function sbeAdopt(r, quiet) {
     if (t) t.textContent = SBE.title;
   }
   SBE.edit = r.edit || {};
-  SBE.audio = SBE.edit.audio || null;
+  // A track without a path (Remove's `{removed: true}`) is no track.
+  SBE.audio = (SBE.edit.audio && SBE.edit.audio.path) ? SBE.edit.audio : null;
   SBE.beats = SBE.edit.beats || null;
   SBE.revision = sbeNum(SBE.edit.revision, 0);
   SBE.proxyUrl = r.proxy_url || '';
@@ -4680,6 +4685,21 @@ function sbeAdopt(r, quiet) {
   if (!quiet && r.generated && (SBE.clips || []).length) {
     phosToast('No timeline existed, so the auto-editor cut one — every shot at its best window, on the beat.',
               { duration: 7000 });
+  } else if (!quiet && (SBE.clips || []).length) {
+    // THE GESTURES, SAID ONCE. The drag rules lived only in the Keys popover,
+    // so a first-time user found them by accident. Shown the first time a
+    // timeline with clips opens on this Mac, then never again.
+    let fresh = false;
+    try {
+      const KEY = 'phos.editor.firstUseHint';
+      if (typeof localStorage !== 'undefined' && !localStorage.getItem(KEY)) {
+        localStorage.setItem(KEY, '1'); fresh = true;
+      }
+    } catch (e) { fresh = false; }   // no storage: no nagging on every open
+    if (fresh) {
+      phosToast('Drag a clip to move it · drag its edge to trim · right-click a clip '
+                + 'for more · the ⌨ Keys button lists every gesture.', { duration: 9000 });
+    }
   }
 }
 
@@ -4693,6 +4713,14 @@ async function sbeFetchPeaks() {
     if (!res.ok) { SBE.peaks = null; SBE.peaksFor = ''; sbePaint(); return; }
     const doc = await res.json();
     if (SBE.id !== id) return;
+    // Peaks for a DIFFERENT song than the one now on the track (a Prepare
+    // that finished after Undo restored the previous song) must not be
+    // installed: the bed's length is read from them, and the restored song
+    // would play cut to the other song's duration.
+    const cur = String((SBE.audio && SBE.audio.path) || '');
+    if (cur && doc && doc.path && String(doc.path) !== cur) {
+      SBE.peaks = null; SBE.peaksFor = ''; sbePaint(); return;
+    }
     SBE.peaks = sbeDecodePeaks(doc);
     SBE.peaksFor = String(doc.path || '');
     // THE WAVEFORM EXISTS BEFORE THE EDIT KNOWS ABOUT IT. `prepare` writes
@@ -4702,7 +4730,18 @@ async function sbeFetchPeaks() {
     // off the peaks document, which carries its own path and duration. This
     // does NOT touch SBE.edit, so nothing here can be saved as if the
     // arrangement had a soundtrack it was never cut to.
-    if (!SBE.audio && doc && doc.path) {
+    // A track just committed by Prepare has no length until its peaks exist;
+    // take it from the peaks document so the music block can be drawn.
+    if (SBE.audio && doc && doc.path && SBE.audio.path === String(doc.path)
+        && !sbeNum(SBE.audio.duration) && sbeNum(doc.duration)) {
+      SBE.audio.duration = sbeNum(doc.duration);
+    }
+    // ...except when the document says, in so many words, "no soundtrack":
+    // `audio: {removed: true}` is what Remove saves (null is every new
+    // document's default, so it cannot carry that meaning), and the old
+    // peaks.json beside the board must not bring the removed song back.
+    if (!SBE.audio && doc && doc.path
+        && !(SBE.edit && SBE.edit.audio && SBE.edit.audio.removed)) {
       SBE.audio = { path: String(doc.path), offset: 0, peaks: 'peaks.json',
                     duration: sbeNum(doc.duration) };
       if (!sbeEl('sbeMusic').value) {
@@ -4727,12 +4766,17 @@ function sbePaintMusicName() {
   // `sbeMusicPath`, NOT `sbeMusicName` — the latter is the label painted onto
   // the music BLOCK down on the timeline, and two elements answering to one
   // id is one element and one bug.
+  // THE NAME IS THE DOCUMENT'S TRACK, not whatever is typed in the field.
+  // Showing the typed path made the head claim a change that Save, export and
+  // reload never saw; a typed path becomes the track only on Prepare.
   const el = sbeEl('sbeMusicPath');
   if (!el) return;
-  const full = String((sbeEl('sbeMusic') || {}).value || '');
+  const full = String((SBE.audio && SBE.audio.path) || '');
   const base = full.split('/').pop() || '';
   el.textContent = base || 'no soundtrack';
-  el.title = full || 'No soundtrack yet — press Change… to point at one';
+  el.title = full || 'No soundtrack yet. Open the music menu, type a path and press Prepare.';
+  const rm = sbeEl('sbeMusicRemove');
+  if (rm) rm.hidden = !full;
 }
 
 // "PROTECTED 4s AGO", or the truth when it is not. Painted from the tick, so
@@ -4856,6 +4900,16 @@ function sbeSnapshot(audio) {
     markers: SBE.markers || [],
     audio: (audio === undefined)
       ? (SBE.audio || (SBE.edit && SBE.edit.audio) || null) : audio,
+    // THE DOCUMENT'S OWN TRACK, kept apart from the one on screen. A track
+    // only discovered from peaks.json is shown but not owned; recording what
+    // the document held lets undo restore exactly that, so undoing a trim
+    // never commits a discovered track and undoing Remove restores a real one.
+    // (Absent in snapshots stored by older builds: sbeRestore falls back.)
+    // A gesture snapshot passes the track as it was BEFORE the gesture; when
+    // the document owns the track, that earlier state is the document's too.
+    edit_audio: (!SBE.edit || !('audio' in SBE.edit)) ? undefined
+      : ((audio !== undefined && SBE.edit.audio && SBE.edit.audio.path)
+         ? audio : SBE.edit.audio),
   });
 }
 
@@ -4874,8 +4928,27 @@ function sbeRestore(json) {
   // ...and a restore never COMMITS a discovered track into the document. The
   // arrangement owns a soundtrack only once somebody has placed it (see
   // sbeApplyMusic); undoing a trim must not be what saves one.
-  if (SBE.edit.audio) SBE.edit.audio = s.audio || null;
-  SBE.audio = s.audio || null;
+  // Snapshots now carry the document's own track (`edit_audio`), so a
+  // soundtrack change or Remove undoes into the saved document too. Older
+  // stored snapshots lack it and keep the old rule.
+  SBE.audio = (s.audio && s.audio.path) ? s.audio : null;
+  if ('edit_audio' in s) {
+    SBE.edit.audio = (s.edit_audio && SBE.audio
+      && JSON.stringify(s.edit_audio) === JSON.stringify(SBE.audio))
+      ? SBE.audio : s.edit_audio;
+  } else if (SBE.edit.audio) {
+    SBE.edit.audio = SBE.audio;
+  }
+  // The A2 head names the document's track; repaint it so undoing Remove
+  // (or a change) does not leave "no soundtrack" over a restored song.
+  // Peaks belong to one song. Restoring a different track (undoing a
+  // soundtrack change) must not keep the replacement's waveform and length,
+  // or the restored song plays truncated to the other song's duration.
+  if (SBE.peaks && SBE.peaksFor && SBE.peaksFor !== String((SBE.audio || {}).path || '')) {
+    SBE.peaks = null; SBE.peaksFor = '';
+  }
+  if (typeof sbePaintMusicName === 'function') sbePaintMusicName();
+  if (typeof sbeSyncMusic === 'function') sbeSyncMusic();
 }
 
 // The overlay lane's own door, and it is the same door: one undo step, one
@@ -6912,7 +6985,7 @@ function sbePaintMusic(width) {
   sbeEl('sbeMusicName').textContent = (right - left > 120) ? label : '';
   el.title = name + '\nStarts at ' + sbeFmtTime(w.film_start) +
     ' of the __SEQ__, from ' + sbeFmtTime(w.head) + ' of the track.' +
-    '\nDrag to move it (the others stay) · pull either end to trim · hold Alt to ignore the cuts · hold ⌘ to slide everything after it.' +
+    '\nDrag to move it (the others stay) · pull either end to trim · hold Alt to ignore the cuts.' +
     '\nCorners fade it · double-click the level line to add a point.';
   sbePaintBedLevel(el, Math.max(3, right - left));
 }
@@ -7037,6 +7110,9 @@ function sbeBedLevelClick(ev) {
 }
 
 function sbeOnMusicDown(ev) {
+  // Only the main button drags. A right-click used to select the bed and arm
+  // a drag on its way to the browser's own menu.
+  if (ev && ev.button !== undefined && ev.button !== 0) return;
   if (sbeAudioSmall()) { sbeAudioOpenFrom(ev); return; }
   const el = sbeEl('sbeMusicClip');
   if (!el || el.hidden) return;
@@ -7397,11 +7473,22 @@ function sbePaintTrack() {
     // A still and a slug have no source window to report — their only number
     // is the hold, and printing "0.00→3.00" of a clock they do not have reads
     // as a trim somebody made.
-    const meta = (kind === 'video')
-      ? (sbeNum(c.start).toFixed(2) + '→' + sbeNum(c.end).toFixed(2) +
-         ' · ' + sbeLen(c).toFixed(2) + 's' + (Math.abs(sp - 1) >= 1e-6 ? ' @' + sp + 'x' : '')
-         + (!sbeFramingIsNeutral(c) ? ' · \u2316' + sbeFraming(c).zoom.toFixed(1) + 'x' : ''))
-      : (sbeLen(c).toFixed(2) + 's hold' + (!sbeFramingIsNeutral(c) ? ' · \u2316' + sbeFraming(c).zoom.toFixed(1) + 'x' : ''));
+    // THE BLOCK SAYS WHERE THE SHOT IS AND HOW LONG IT PLAYS: film start and
+    // played length, the two numbers a cutter reads at a glance. The source
+    // in/out ("12.40→16.40") read as jargon on the block; it moves to the
+    // tooltip below, with the speed and framing spelled out.
+    const meta = sbeFmtTime(c.film_start).replace(/(\.\d)\d$/, '$1')
+      + ' · ' + sbeLen(c).toFixed(1) + 's'
+      + (Math.abs(sp - 1) >= 1e-6 ? ' · ' + sp + '×' : '');
+    const detail = (kind === 'video')
+      ? ('Starts at ' + sbeFmtTime(c.film_start) + ' in the film, plays '
+         + sbeLen(c).toFixed(2) + 's.\nUses ' + sbeNum(c.start).toFixed(2) + 's to '
+         + sbeNum(c.end).toFixed(2) + 's of the source clip'
+         + (Math.abs(sp - 1) >= 1e-6 ? ', at ' + sp + '× speed' : '') + '.'
+         + (!sbeFramingIsNeutral(c) ? '\nZoomed in ' + sbeFraming(c).zoom.toFixed(1) + '×.' : ''))
+      : ('Starts at ' + sbeFmtTime(c.film_start) + ' in the film, holds '
+         + sbeLen(c).toFixed(2) + 's.'
+         + (!sbeFramingIsNeutral(c) ? '\nZoomed in ' + sbeFraming(c).zoom.toFixed(1) + '×.' : ''));
     const label = (kind === 'slug')
       ? 'black'
       : (c.title || String(c.path || '').split('/').pop() || 'clip');
@@ -7426,7 +7513,7 @@ function sbePaintTrack() {
     html += '<div class="' + cls + '" data-id="' + escapeHtml(c.id) + '" '
           + 'data-kind="' + escapeHtml(kind) + '" '
           + 'data-source="' + escapeHtml(c.source || 'auto') + '" '
-          + 'title="' + escapeHtml(label
+          + 'title="' + escapeHtml(label + '\n' + detail
               + (offline ? '\nMedia offline — ' + (c.path || '') +
                            '. Relink to point at the file that has it now.' : '')
               + (bad ? '\n' + bad[0].message : '')) + '" '
@@ -8735,7 +8822,7 @@ function edPoolOverTracks(ev) {
   return null;
 }
 
-async function edPoolOverlay(i) {
+async function edPoolOverlay(i, at) {
   const rows = (document.getElementById('edPoolList') || {})._rows || [];
   const r = rows[i];
   if (!r || !SBE.open) {
@@ -8747,6 +8834,7 @@ async function edPoolOverlay(i) {
   // keyed derivative or the path exactly as it came; either way the lane gets
   // one path, and preview, render and export all read that same file.
   const item = { path: r.path, title: r.title || '', duration_s: 3 };
+  if (r.kind === 'still') item.kind = 'still';   // the pool already knows
   let keyed = null;
   try {
     // URLSearchParams, like every other editor POST. A `FormData` here sends
@@ -8763,7 +8851,7 @@ async function edPoolOverlay(i) {
     // The lane still works with the file exactly as it arrived. A card that
     // could not be measured is not a card that cannot be placed.
   }
-  const added = sbeOvAddAt(item, SBE.playhead);
+  const added = sbeOvAddAt(item, (at === null || at === undefined) ? SBE.playhead : at);
   if (added && keyed) sbeKeyedNotice(added.id, keyed);
 }
 
@@ -10131,7 +10219,11 @@ function sbeCbarPlayhead() {
   const el = sbeEl('sbeCbSplit');
   if (!el) return;
   const why = sbeSplitWhy();
-  const want = why || (sbeTsSelIds().length ? SBE_TS_SPLIT_TITLE : SBE_SPLIT_TITLE);
+  // Keep the name line sbePaintCbar puts first: the row is icons only, and
+  // every scrub used to replace "Split" + its consequence with bare text.
+  const body = why || (sbeTsSelIds().length ? SBE_TS_SPLIT_TITLE : SBE_SPLIT_TITLE);
+  const name = el.getAttribute('aria-label') || '';
+  const want = name ? name + '\n' + body : body;
   if (el.title !== want) el.title = want;
   if (el.disabled !== !!why) el.disabled = !!why;
 }
@@ -11771,7 +11863,55 @@ function sbeOnTrackMove(ev) {
       sbeTrim(SBE.clips, d.id, 'r', want, o);
     }
   }
+  sbeDragHudShow(ev, d);
   sbePaint();
+}
+
+// SAY WHAT THE DRAG IS DOING. One gesture means move, ripple, reorder, slip,
+// roll or trim depending on modifiers and on whether the clip is boxed in
+// (then a plain drag reorders). That used to happen silently; a small label
+// at the pointer now names the action and, for a move, where the shot lands.
+function sbeDragHudLabel(d, ev) {
+  if (!d) return '';
+  const c = (SBE.clips || []).find(x => String(x.id) === String(d.id));
+  const at = c ? ' · ' + sbeFmtTime(c.film_start).replace(/(\.\d)\d$/, '$1') : '';
+  if (d.mode === 'reorder') return 'Reorder' + at;
+  if (d.mode === 'slip') return 'Slip (picture inside its slot)';
+  if (d.mode === 'roll') return 'Roll the cut';
+  if (d.mode === 'trimL' || d.mode === 'trimR') return (d.ripple ? 'Trim + ripple' : 'Trim') + at;
+  // A block move stays inside the gaps even with ⌘ held, so it is a move.
+  if (d.mode === 'movemany') return 'Move selection';
+  if (d.mode === 'move') {
+    // Boxed in (joined to both neighbours) without ⌘ is the "tight" drag:
+    // the shot swaps places. d.ripple is true there too, so it cannot tell
+    // the two apart; the held key can.
+    const cmd = !!(ev && (ev.metaKey || ev.ctrlKey));
+    if (d.boxed === true && !cmd) return 'Reorder' + at;
+    if (d.ripple) return 'Ripple (moves everything after)' + at;
+    return 'Move' + at;
+  }
+  return '';
+}
+
+function sbeDragHudShow(ev, d) {
+  const text = sbeDragHudLabel(d, ev);
+  let hud = document.getElementById('sbeDragHud');
+  if (!text) { if (hud) hud.hidden = true; return; }
+  if (!hud) {
+    hud = document.createElement('div');
+    hud.id = 'sbeDragHud';
+    hud.className = 'sbe-drag-hud';
+    document.body.appendChild(hud);
+  }
+  hud.hidden = false;
+  if (hud.textContent !== text) hud.textContent = text;
+  hud.style.left = (ev.clientX + 14) + 'px';
+  hud.style.top = (ev.clientY - 28) + 'px';
+}
+
+function sbeDragHudHide() {
+  const hud = document.getElementById('sbeDragHud');
+  if (hud) hud.hidden = true;
 }
 
 // EVERYTHING A DRAG ON THE TRACK CAN MOVE, in one string. `sbeOnTrackUp` asks
@@ -11795,6 +11935,7 @@ function sbeDragFingerprint(cs) {
 function sbeOnTrackUp(ev) {
   const d = SBE.drag;
   SBE.drag = null;
+  sbeDragHudHide();
   if (!d) return;
   document.querySelectorAll('.sbe-clip.is-drag').forEach(el => el.classList.remove('is-drag'));
   const trk = sbeEl('sbeTrack'); if (trk) trk.classList.remove('is-ripple');
@@ -11844,7 +11985,22 @@ function sbeOnTrackUp(ev) {
   // whichever gesture was being added at the time.
   const before = JSON.parse(d.before);
   if (sbeDragFingerprint(before) === sbeDragFingerprint(SBE.clips)) {
-    SBE.clips = before; sbePaint(); return;
+    SBE.clips = before; sbePaint();
+    // A drag that travelled but could not land used to spring back with no
+    // word. Say why, once, and what to do instead.
+    // A real drag only: a click can wobble a few pixels (and the track
+    // re-lays out when the inspector opens), which must not read as a
+    // failed move.
+    const travelled = Math.abs(sbeNum(ev && ev.clientX, d.x0) - d.x0);
+    if (d.moved && travelled >= 12 && !SBE.noRoomTold && (d.mode === 'move' || d.mode === 'movemany')
+        && typeof phosToast === 'function') {
+      SBE.noRoomTold = true;   // once per session: hard-against is common
+      phosToast(d.mode === 'movemany'
+        ? 'No room there for the selection. Trim a neighbour first, or move the clips one at a time.'
+        : 'No room there. Trim a neighbour first, or hold ⌘ while '
+          + 'dragging to push the later shots along.', { duration: 4000 });
+    }
+    return;
   }
   // The drag mutated SBE.clips live so the block could follow the pointer;
   // register the ONE undo step now, from the snapshot taken on pointerdown.
@@ -12286,10 +12442,12 @@ function sbeSrcStop() {
 function sbeSrcToggle() { SBE.srcPlaying ? sbeSrcStop() : sbeSrcPlay(); }
 
 // The button under the left screen. Exactly the + on the row, by construction:
-// same function, same index, same server call.
-function sbeSrcAdd() {
+// same function, same index, same server call, and now the same PLACE (the
+// playhead; ⌥ for the end). It used to append while its tooltip promised
+// the row's behaviour.
+function sbeSrcAdd(ev) {
   if (!SBE.source || SBE.srcIndex < 0) return;
-  edPoolAdd(SBE.srcIndex);
+  edPoolAdd(SBE.srcIndex, (ev && ev.altKey) ? undefined : SBE.playhead);
 }
 
 // WHAT IS UNDER THE PLAYHEAD, in the strip under the picture. The badge on the
@@ -12878,7 +13036,13 @@ function sbeSrcDropHover(ev, playable) {
     over = r.width > 0 && ev.clientX >= r.left && ev.clientX <= r.right &&
            ev.clientY >= r.top && ev.clientY <= r.bottom;
   }
-  mon.classList.toggle('is-drop-ready', !!playable && !over);
+  // "Ready" only while the pointer is up among the monitors. Glowing for the
+  // whole drag made it look like the destination even while the user was
+  // dropping onto the timeline.
+  const tl = sbeEl('sbTimeline');
+  const aboveTimeline = !tl || !tl.getBoundingClientRect
+    || ev.clientY < tl.getBoundingClientRect().top;
+  mon.classList.toggle('is-drop-ready', !!playable && !over && aboveTimeline);
   mon.classList.toggle('is-drop-over', over);
   return over;
 }
@@ -12965,6 +13129,19 @@ function edPoolDragMove(ev) {
     sbePaintTrack(); sbePaintTracks();
     return;
   }
+  // THE OVERLAY LANE IS A TARGET. Its empty state always said "Drop a still
+  // here", and nothing handled the drop. A picture or a video (a matte, a
+  // loop) dropped on V2 becomes an overlay at that time; a sound never does.
+  const ovLane = sbeEl('sbeOverlayLane');
+  const toOv = d.row.kind !== 'sound' && edPoolOverLane(ev, ovLane);
+  if (ovLane && ovLane.classList) ovLane.classList.toggle('is-dropping', !!toOv);
+  d.ovAt = (toOv && track) ? sbeTimeFromEvent(ev, track) : null;
+  if (toOv) {
+    if (track) { track.classList.remove('is-dropping'); track.classList.remove('is-overwriting'); }
+    SBE.dropAt = null; SBE.tsDrop = null; SBE.dropOverwriteId = null;
+    sbePaintTrack(); sbePaintTracks();
+    return;
+  }
   // A SOUND lands on an audio track only; a VIDEO dropped on one gives its
   // sound; anything dropped on the picture track is a clip, as before.
   const onTracks = edPoolOverTracks(ev);
@@ -12994,6 +13171,15 @@ function edPoolDropTime(ev, track) {
   return prev ? sbeNum(prev.film_end) : 0;
 }
 
+// Strict, unlike the picture track's generous bounds: V2 sits directly
+// above V1, so any slack here would steal drops aimed at the picture.
+function edPoolOverLane(ev, el) {
+  if (!el || !el.getBoundingClientRect) return false;
+  const r = el.getBoundingClientRect();
+  return ev.clientX >= r.left && ev.clientX <= r.right &&
+         ev.clientY >= r.top && ev.clientY <= r.bottom;
+}
+
 function edPoolOverTrack(ev, track) {
   if (!track) return false;
   const r = track.getBoundingClientRect();
@@ -13011,6 +13197,8 @@ async function edPoolDragEnd(ev) {
   if (d.ghost) d.ghost.remove();
   const track = sbeEl('sbeTrack');
   if (track) { track.classList.remove('is-dropping'); track.classList.remove('is-overwriting'); }
+  const ovLaneEl = sbeEl('sbeOverlayLane');
+  if (ovLaneEl && ovLaneEl.classList) ovLaneEl.classList.remove('is-dropping');
   const at = SBE.dropAt;
   SBE.dropAt = null;
   const overwriteId = SBE.dropOverwriteId;
@@ -13029,6 +13217,7 @@ async function edPoolDragEnd(ev) {
   // monitor does nothing until you click a second time.
   ED.suppressClick = !!(d.el && ev.target && d.el.contains(ev.target));
   if (d.toSrc) { edPoolPreview(d.index); return; }
+  if (d.ovAt !== null && d.ovAt !== undefined) { await edPoolOverlay(d.index, d.ovAt); return; }
   if (tsDrop) { await edPoolSound(d.index, tsDrop.tid, tsDrop.at); return; }
   if (at === null || at === undefined) return;   // dropped in open space
   if (overwriteId) { await edPoolAdd(d.index, at, overwriteId); return; }
@@ -13615,10 +13804,15 @@ async function sbeFrame() {
 // in this browser.
 function sbeSyncMusic() {
   const path = (SBE.audio || {}).path || '';
+  if (SBE.music === path && (SBE.musicEl || !path)) return;
+  // A changed or removed soundtrack must not keep playing: the old element
+  // was dropped while still audible, so a song swapped (or removed, or
+  // undone) during playback carried on underneath the new one.
+  if (SBE.musicEl) { try { SBE.musicEl.pause(); } catch (e) {} }
   if (!path) { SBE.musicEl = null; SBE.music = ''; return; }
-  if (SBE.music === path && SBE.musicEl) return;
   SBE.music = path;
   SBE.musicOk = true;
+  if (typeof Audio === 'undefined') { SBE.musicEl = null; return; }
   const a = new Audio('/file?path=' + encodeURIComponent(path));
   a.preload = 'auto';
   a.muted = !!SBE.muted;
@@ -14231,9 +14425,71 @@ function sbeSwapIn(i) {
 // ---------------------------------------------------------------------------
 // PREPARE / AUTO / GENERATE / RENDER
 // ---------------------------------------------------------------------------
+// The soundtrack the DOCUMENT holds: what Save, export, reload and Render use.
+function sbeCommittedMusic() {
+  return String((SBE.audio && SBE.audio.path) || '');
+}
+
+// A new soundtrack is ONE document edit (one undo step, one save). Before
+// this, Prepare only wrote peaks beside the board: the preview kept the old
+// song, Render took the typed path, and Save/export/reload kept the old one.
+function sbeMusicAdopt(path) {
+  path = String(path || '').trim();
+  const owned = String((SBE.edit && SBE.edit.audio && SBE.edit.audio.path) || '');
+  if (!path || path === owned) return false;
+  const old = SBE.audio || {};
+  const before = JSON.stringify(SBE.audio || null);
+  const beforeEdit = JSON.stringify((SBE.edit && SBE.edit.audio) || null);
+  // The track already on screen (discovered from peaks.json, never saved)
+  // keeps its placement and cuts; a different song starts clean.
+  const same = path === sbeCommittedMusic();
+  const next = same ? Object.assign({}, old)
+                    : { path: path, offset: 0, peaks: 'peaks.json' };
+  if (!same && old.mode) next.mode = old.mode;          // keep the mix choices,
+  if (!same && old.mix) next.mix = Object.assign({}, old.mix); // drop the cuts
+  sbeSetAudio(next);
+  if (!same) { SBE.peaks = null; SBE.peaksFor = ''; }
+  if (typeof sbeSyncMusic === 'function') sbeSyncMusic();
+  sbeMusicUndoPush(before, beforeEdit);
+  sbePaintMusicName();
+  return true;
+}
+
+function sbeMusicRemove() {
+  if (!sbeCommittedMusic()) return;
+  const before = JSON.stringify(SBE.audio || null);
+  const beforeEdit = JSON.stringify((SBE.edit && SBE.edit.audio) || null);
+  sbeSetAudio(null);
+  SBE.edit.audio = { removed: true };   // no `path`: every reader sees no track
+  SBE.peaks = null; SBE.peaksFor = '';
+  if (typeof sbeSyncMusic === 'function') sbeSyncMusic();
+  const box = sbeEl('sbeMusic'); if (box) box.value = '';
+  sbeMusicUndoPush(before, beforeEdit);
+  sbePaintMusicName();
+  phosToast('Soundtrack removed. Undo brings it back.', { kind: 'info' });
+}
+
+// sbeMusicCommit compares objects and expects one before; a track appearing
+// or disappearing is always a change, so push the step directly, recording
+// what the DOCUMENT held before (it may differ from what was on screen).
+function sbeMusicUndoPush(beforeJson, beforeEditJson) {
+  const snap = JSON.parse(sbeSnapshot(JSON.parse(beforeJson)));
+  snap.edit_audio = JSON.parse(beforeEditJson);
+  SBE.undo.push(JSON.stringify(snap));
+  if (SBE.undo.length > SBE_UNDO_MAX) SBE.undo.shift();
+  SBE.redo.length = 0;
+  SBE.dirty = true;
+  sbeSetState('unsaved changes', 'dirty');
+  sbePaint();
+  sbeQueueSave();
+}
+
 async function sbePrepare() {
   const fd = new URLSearchParams();
   fd.set('id', SBE.id);
+  // The film (and draft) this Prepare belongs to: another one may be open
+  // by the time the server answers.
+  const forId = SBE.id, forDraft = SBE.activeDraft || '';
   const music = (sbeEl('sbeMusic').value || '').trim();
   if (music) fd.set('music', music);
   let r;
@@ -14244,6 +14500,10 @@ async function sbePrepare() {
     if (r.prepare) { SBE.prepare = r.prepare; sbePaintChrome(); }
     return;
   }
+  // Only a path the server accepted becomes the film's soundtrack; a typo
+  // or a missing file must not replace a good one.
+  if (SBE.id !== forId || (SBE.activeDraft || '') !== forDraft) return;
+  if (music) sbeMusicAdopt(music);
   SBE.prepare = r.prepare || { state: 'running', stage: 'start' };
   sbePaintChrome();
 }
@@ -14688,7 +14948,9 @@ async function sbeRenderFilm() {
     'One ffmpeg pass over ' + SBE.clips.length + ' clips. This takes as long as an encode takes.';
   const fd = new URLSearchParams();
   fd.set('id', SBE.id);
-  const music = (sbeEl('sbeMusic').value || '').trim();
+  // Render the DOCUMENT's soundtrack, the same one Save and export carry. A
+  // path typed but never prepared is not part of the film.
+  const music = String((SBE.audio && SBE.audio.path) || '');
   if (music) { fd.set('music', music); fd.set('music_mode', sbeMusicMode()); }
   const dl = sbeDeliverGet();
   fd.set('format', dl.format);
@@ -14715,6 +14977,7 @@ async function sbeRenderFilm() {
     return;
   }
   SBE.renderJob = started.job;
+  sbePaintRenderProgress(0);
   btn.textContent = 'Assembling…';
   // EDITOR-12: THE FILM THIS RENDER IS OF, kept with the job — by the time
   // it lands the Editor may be showing another film.
@@ -14742,6 +15005,7 @@ async function sbeRenderPoll(job, btn, prev, boardId, boardTitle) {
     sbeEl('sbeRenderNote').innerHTML =
       'Rendering — ' + Math.round(sbeNum(r.elapsed_sec)) + 's so far. '
       + '<a href="#" class="phos-toast-action" onclick="sbeRenderCancel();return false;">Cancel</a>';
+    sbePaintRenderProgress(sbeNum(r.elapsed_sec));
     SBE.renderPollTimer = setTimeout(() => sbeRenderPoll(job, btn, prev, boardId, boardTitle), 1200);
     return;
   }
@@ -14760,9 +15024,29 @@ async function sbeRenderPoll(job, btn, prev, boardId, boardTitle) {
   sbeRenderFinish(r.result, boardId, boardTitle);
 }
 
+// PROGRESS WHERE IT CAN BE SEEN. The note above lives inside the ▾ menu,
+// which closes the moment Render is pressed, so a render ran with no visible
+// progress and no reachable Cancel. The header chip is always on screen; it
+// shows the running render, then goes back to "Last render" when it ends.
+function sbePaintRenderProgress(sec) {
+  const chip = sbeEl('sbeRenderChip');
+  if (!chip) return;
+  chip.hidden = false;
+  chip.innerHTML = '';
+  const label = document.createElement('span');
+  label.className = 'sbe-render-chip-label';
+  label.textContent = 'Rendering · ' + Math.round(sec || 0) + 's';
+  chip.appendChild(label);
+  const stop = document.createElement('button');
+  stop.type = 'button'; stop.textContent = 'Cancel';
+  stop.onclick = () => sbeRenderCancel();
+  chip.appendChild(stop);
+}
+
 function sbeRenderSettle(btn, prev) {
   SBE.rendering = false;
   SBE.renderJob = '';
+  sbeRenderChipFor(SBE.id);
   if (SBE.renderPollTimer) { clearTimeout(SBE.renderPollTimer); SBE.renderPollTimer = null; }
   btn.disabled = false;
   btn.textContent = prev;
@@ -15642,7 +15926,7 @@ Object.assign(globalThis, {
   sbeStripStop, sbeZoomMin, sbeZoomTo, sbeZoom,
   sbeZoomSlide, sbeZoomFit, sbeJumpCut, sbeToggleSnap, sbeKeyHint,
   sbeOnTlWheel, sbePrepare, sbePrepareCancel,
-  sbeAuto, sbeGenClose, sbeGenSubmit, sbeRenderFilm, sbeRenderCancel,
+  sbeAuto, sbeGenClose, sbeGenSubmit, sbeRenderFilm, sbeRenderCancel, sbeMusicRemove,
   sbeExportNle, sbeTick, workflowSwitch,
   // inline-handler targets: generated markup resolves these through the
   // global scope (the v4.9.0 regression, PR #69)

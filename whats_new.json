@@ -62,5 +62,14 @@
       "Cleaner shot controls, with detailed explanations in Docs."
     ],
     "pro": []
+  },
+  "5.0.13": {
+    "free": [
+      "Timeline clips show a frame again in the Mac app, and say where they sit in the film.",
+      "Changing or removing the soundtrack now sticks in preview, render, save and export.",
+      "Drop pictures and clips onto the overlay lane; render progress and Cancel stay on screen.",
+      "Dragging a clip shows what it will do: move, reorder, ripple, slip, roll or trim."
+    ],
+    "pro": []
   }
 }
