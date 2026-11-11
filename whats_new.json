@@ -187,5 +187,30 @@
         }
       }
     ]
+  },
+  "5.0.18": {
+    "date": "2026-11-11",
+    "free": [],
+    "pro": [
+      "Faster LTX clips: about a quarter less waiting on a 5-second LTX-2.5 clip, on by default on Macs with 32 GB or more. Untick Pro speed-up beside Quality to render a clip the usual way."
+    ],
+    "how": [
+      {
+        "id": "ltx-faster",
+        "title": "How the Pro speed-up works",
+        "free": {
+          "video": "/assets/whats_new/how_ltx_faster_free.mp4",
+          "poster": "/assets/whats_new/how_ltx_faster_free.jpg",
+          "label": "Free",
+          "caption": "Pro adds about a quarter less waiting on LTX clips, on Macs with 32 GB or more."
+        },
+        "pro": {
+          "video": "/assets/whats_new/how_ltx_faster_pro.mp4",
+          "poster": "/assets/whats_new/how_ltx_faster_pro.jpg",
+          "label": "Pro",
+          "caption": "On by default beside Quality. Same clip, same seed: 152 s on Free, 113 s with Pro (M4 Max 64 GB)."
+        }
+      }
+    ]
   }
 }

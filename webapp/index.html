@@ -701,6 +701,8 @@
            graded 5+2 draft schedule (a DIFFERENT take). make_job gates it to
            the lane that defines it; the Speed pills in Customize write it. -->
       <input type="hidden" name="schedule_preset" id="schedule_preset" value="">
+      <!-- The Pro speed-up switch's value ("on"/"off"), written by proSpeedRender(). -->
+      <input type="hidden" name="pro_speedup_choice" id="pro_speedup_choice" value="on">
 
       <div id="warnBanner" class="warn-banner"></div>
 
@@ -1656,6 +1658,18 @@
                   <span class="qs-meta" id="ltxLengthMeta"></span>
                 </div>
                 <div class="quality-strip pill-group" id="ltxLengthGroup"></div>
+              </div>
+              <!-- Pro speed-up (Pro ledger row ltx-faster), proSpeedRender() in settings.js: a Pro
+                   member gets a switch, on by default, that turns it off for a render; a Free user one
+                   quiet "Pro adds" line. Time saved only, never how. -->
+              <div class="pro-speed-row" id="proSpeedRow" data-ltx-only hidden>
+                <label class="pro-speed-switch" id="proSpeedSwitch" hidden>
+                  <input type="checkbox" id="proSpeedToggle" checked onchange="proSpeedChanged()" aria-label="Pro speed-up">
+                  <span class="pro-speed-name">Pro speed-up:</span>
+                  <span class="pro-speed-state" id="proSpeedState">on</span>
+                  <span class="pro-tag pro-on">Pro ✓</span>
+                </label>
+                <p class="pro-note" id="proSpeedNote" hidden></p>
               </div>
               <!-- Character-only quality strip — revealed by selectManualCharacter.
                    Rendered entirely from BOOT.ltx.character so the Manual surface
@@ -5080,6 +5094,12 @@ The last line"></textarea>
     </div>
     <!-- One quiet line under a Make it vertical copy, shown once (verticalHintUpdate, queue.js): a Free user
          learns what Pro adds, a Pro member that AI fill is on. Dismissed for good with the x. -->
+    <!-- Pro speed-up: this clip's sound came out near silent while the prompt asked for sound.
+         Said plainly, with the one-click way back (speedupQuietUpdate, queue.js). -->
+    <div class="feature-hint" id="speedupQuiet" hidden>
+      <span class="feature-hint-text" id="speedupQuietText"></span>
+      <button type="button" class="ghost-btn" id="speedupQuietRetry" onclick="speedupQuietRetry()">Render again without the speed-up</button>
+    </div>
     <div class="feature-hint" id="verticalHint" hidden>
       <span class="feature-hint-text" id="verticalHintText"></span>
       <button type="button" class="ghost-btn" onclick="openHowClip('make-vertical')">See how</button>

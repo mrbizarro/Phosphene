@@ -5764,6 +5764,7 @@ function selectOutput(path, options) {
   // until the browser cache expires.
   const o = findOutputByPath(path);
   verticalHintUpdate(o);
+  speedupQuietUpdate(o);
   const isPhoto = outputKind(o) === 'image';
   const isAudio = outputKind(o) === 'audio';
   // Photo entries don't go through /file (which is OUTPUT-bound and
@@ -7095,6 +7096,26 @@ function verticalHintUpdate(o) {
     ? escapeHtml(m[1]) + `<span class="pro-lead">${m[2]}</span> ` + escapeHtml(m[3]) : escapeHtml(text);
   document.getElementById('verticalHintPro').hidden = pro;
   box.hidden = false;
+}
+// ---- Pro speed-up: a sped-up clip whose sound came out near silent ------------------------------------------------
+// Never hidden: the note stays under that clip, with one click to render the same clip again the usual way
+// (same prompt, seed and settings; /queue/retry with the speed-up switched off for that render only).
+function speedupQuietUpdate(o) {
+  const box = document.getElementById('speedupQuiet');
+  if (!box) return;
+  const id = o && o.speedup_quiet;
+  box.hidden = !id;
+  if (!id) return;
+  box.dataset.jobId = id;
+  document.getElementById('speedupQuietText').textContent =
+    'This clip\u2019s sound came out almost silent, and the prompt asked for sound. That can happen with the Pro speed-up.';
+}
+async function speedupQuietRetry() {
+  const box = document.getElementById('speedupQuiet');
+  const id = box && box.dataset.jobId;
+  if (!id) return;
+  await retryJob(id, { overrides: { pro_speedup_choice: 'off' } });
+  phosToast('Queued again without the speed-up: same prompt, seed and settings.', { kind: 'success', duration: 5000 });
 }
 function verticalHintDismiss() {
   const st = _vhState() || {};
@@ -9527,6 +9548,7 @@ function draftAutosaveInstall() {
 // the global scope; everything NOT listed here is private to this module.
 Object.assign(globalThis, {
   openFailedJobInForm, engineRepairStart, h3RepairStart,
+  speedupQuietRetry,
   notifyJobsDone, notifyOneJob, playDoneChime,
   h3FinishSetTier, h3FinishActive, setEngine, _syncEnginePromptTools,
   ltxFinishSetTier, ltxFinishActive, _syncFinishAffordance,

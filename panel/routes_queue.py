@@ -428,7 +428,7 @@ def post_queue_retry(h, path, qs, ctype) -> None:
             h._json({"error": "overrides must be JSON"}, 400); return
         if not isinstance(overrides, dict):
             h._json({"error": "overrides must be a JSON object"}, 400); return
-        allowed = {"quality", "frames"}
+        allowed = {"quality", "frames", "pro_speedup_choice"}
         unknown = set(overrides) - allowed
         if unknown:
             h._json({"error": f"overrides may only set {sorted(allowed)}, "
@@ -436,6 +436,8 @@ def post_queue_retry(h, path, qs, ctype) -> None:
         if "quality" in overrides and overrides["quality"] not in (
                 "quick", "balanced", "standard", "high"):
             h._json({"error": f"unknown quality {overrides['quality']!r}"}, 400); return
+        if "pro_speedup_choice" in overrides and overrides["pro_speedup_choice"] not in ("on", "off"):
+            h._json({"error": "pro_speedup_choice must be on or off"}, 400); return
         if "frames" in overrides:
             try:
                 overrides["frames"] = int(overrides["frames"])

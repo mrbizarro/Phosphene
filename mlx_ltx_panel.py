@@ -75,6 +75,7 @@ SEQ_NOUN_CAP = "Sequence"
 import image_engine as agent_image_engine
 import hostinfo
 import h3_loudness
+import pro_speedup
 # 4.20: what install.js fetches before Start and what the panel fetches after
 # (required_files.json -> install). Stdlib only; install.js runs it too.
 import install_plan
@@ -25989,6 +25990,7 @@ def list_outputs(
         model = None          # which weights made this clip (sidecar-derived)
         h3_tier = None
         vertical_fill = None  # "blur" / "ai" on a Make it vertical copy (its hint under the player), else None
+        speedup_quiet = None  # the queue id of a Pro sped-up clip whose sound came out near silent, else None
         render_mode = None    # sidecar params.mode ("a2v", "t2v", "keyframe", …); VA-36
         lipsync_score = None  # a2v's own mouth-vs-voice verdict, when scored; VA-14
         windows_partial = None  # {"completed", "total"} when this is a partial windows join; VA-38
@@ -26085,6 +26087,8 @@ def list_outputs(
                     render_mode = _rmode
                 if _sc_params.get("vertical_export_fill") in ("blur", "ai"):
                     vertical_fill = _sc_params["vertical_export_fill"]
+                if _sc_params.get("pro_speedup_quiet"):
+                    speedup_quiet = str(meta.get("queue_id") or "") or None
                 # VA-14: the lip-sync verdict, when this clip has one
                 # (a2v only — see run_job_inner's a2v branch). A rough
                 # check, never a gate: the player shows it as a chip,
@@ -26220,6 +26224,9 @@ def list_outputs(
             "pro": pro_receipt_meta,
             # Make it vertical: which fill made this copy ("blur" / "ai"), None for every other clip.
             "vertical": vertical_fill,
+            # Pro speed-up: a clip that asked for sound and came out near silent
+            # (its note and "Render again without the speed-up" under the player).
+            "speedup_quiet": speedup_quiet,
             # Storyboard provenance, or None. One badge on the card, one click
             # back to the film it belongs to — and invisible for every clip
             # that isn't part of one.
@@ -26313,6 +26320,95 @@ def pro_status() -> dict:
     plan = plan if plan in PRO_PLANS and plan != "dev" else "pro"
     return {"active": True, "plan": plan, "label": PRO_PLANS.get(plan, "Pro"), "until": until,
             "holder": None, "source": "licence", "reason": "ok"}
+
+
+# ---- Pro speed-up for LTX-2.5 clips (Pro ledger row ltx-faster) --------------------------------
+# The Studio only asks the Pro add-on (the compiled `_ps` a Pro install carries) two things: is the
+# speed-up on offer on this Mac and ready, and "get it ready" (a one-time download the add-on does
+# itself). Which renders ask is pro_speedup.wanted(); how a render is sped up is the add-on's
+# business, and nothing about it is in this file, the job or the sidecar.
+_LTX_SPEEDUP_MEMO: dict = {}
+_LTX_SPEEDUP_DL = {"status": "idle", "error": None}
+_LTX_SPEEDUP_DL_LOCK = threading.Lock()
+
+
+def _ltx_speedup_ask(op: str):
+    try:
+        import _ps
+        doc = _ps.ltx_speed(op, root=str(MODELS_DIR))
+    except Exception:  # noqa: BLE001 - no add-on (Free, Pinokio) or it declined: simply not offered
+        doc = None
+    return doc if isinstance(doc, dict) else None
+
+
+def ltx_speedup_status() -> dict:
+    """{pro_active, offered, ready, downloading, gb, reason} for the UI and the job builder."""
+    pro = bool(pro_status().get("active"))  # the Pro gate of ledger row ltx-faster
+    out = {"pro_active": pro, "offered": False, "ready": False,
+           "downloading": _LTX_SPEEDUP_DL["status"] == "downloading", "gb": None, "reason": "pro_required"}
+    if not pro:
+        return out
+    if ACTIVE_MODEL_VERSION != "ltx25":
+        return {**out, "reason": "ltx25_only"}
+    if low_ram_streaming_enabled():
+        return {**out, "reason": "mac_too_small"}
+    now = time.monotonic()
+    hit = _LTX_SPEEDUP_MEMO.get("status")
+    if hit and now - hit[0] < 5.0:
+        doc = hit[1]
+    else:
+        doc = _ltx_speedup_ask("status")
+        _LTX_SPEEDUP_MEMO["status"] = (now, doc)
+    if not doc:
+        return {**out, "reason": "not_in_this_install"}
+    if not doc.get("on"):
+        return {**out, "reason": "mac_too_small"}
+    return {**out, "offered": True, "ready": bool(doc.get("ready")), "gb": doc.get("gb"), "reason": "ok"}
+
+
+def ltx_speedup_prepare_async() -> bool:
+    """Start the one-time download in the background. False when one is already running."""
+    with _LTX_SPEEDUP_DL_LOCK:
+        if _LTX_SPEEDUP_DL["status"] == "downloading":
+            return False
+        _LTX_SPEEDUP_DL.update(status="downloading", error=None)
+
+    def work():
+        doc = _ltx_speedup_ask("prepare") or {"ok": False, "error": "unavailable"}
+        _LTX_SPEEDUP_MEMO.pop("status", None)
+        with _LTX_SPEEDUP_DL_LOCK:
+            _LTX_SPEEDUP_DL.update(status="done" if doc.get("ok") else "error",
+                                   error=None if doc.get("ok") else str(doc.get("error") or "failed"))
+        push("Pro speed-up: ready for your next LTX clip." if doc.get("ok")
+             else "Pro speed-up: the one-time download did not finish; it will try again on the next clip.")
+
+    threading.Thread(target=work, daemon=True, name="pro-speedup-prepare").start()
+    return True
+
+
+def ltx_speedup_decide(p: dict, *, mode: str, quality: str, width: int, height: int, frames: int,
+                       fps: float, added_styles: list, character: bool, windows: bool) -> bool:
+    """Whether this LTX render asks for the Pro speed-up. Starts the one-time download (and
+    renders this clip at the usual speed) when the speed-up is on offer but not on disk yet."""
+    st = ltx_speedup_status()
+    if not st["offered"]:
+        return False
+    ok, why = pro_speedup.wanted(
+        toggle=p.get("pro_speedup_choice"), version=ACTIVE_MODEL_VERSION, quality=quality, mode=mode,
+        added_styles=added_styles, character=character, hdr=bool(p.get("hdr")),
+        inspire=(p.get("i2v_reference_mode") == "inspire"), schedule_preset=p.get("schedule_preset") or "",
+        fps=fps, frames=frames, width=width, height=height, windows=windows,
+        low_memory_mac=low_ram_streaming_enabled())
+    if not ok:
+        if pro_speedup.toggle_on(p.get("pro_speedup_choice")):
+            push(f"Pro speed-up: not used for this render ({why}).")
+        return False
+    if not st["ready"]:
+        if ltx_speedup_prepare_async():
+            push(f"Pro speed-up: getting ready, a one-time download of about {st['gb'] or 1.2:g} GB. "
+                 "This clip renders at the usual speed.")
+        return False
+    return True
 
 
 # One authority for config selection and admission immediately before a private render.
@@ -27039,6 +27135,10 @@ class WarmHelper:
         """
         if not line:
             return
+        if line.startswith("[pro] speed-up"):
+            _job = _thread_job()
+            if _job is not None:
+                _job["pro_speedup_ran"] = line.strip() == "[pro] speed-up on"
         if not self._metal_timeout_seen and self._METAL_TIMEOUT_RX.search(line):
             self._metal_timeout_seen = True
         if not self._past_prompt_encode and self._PAST_PROMPT_ENCODE_RX.search(line):
@@ -38312,6 +38412,10 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # it. SAME allowlist trap as every key in this dict: leave it out
             # and the Speed control looks wired and silently no-ops.
             "schedule_preset": _schedule_preset,
+            # The Pro speed-up switch beside Quality ("on" unless the form says
+            # "off"); whether a render may use it is ltx_speedup_decide().
+            # SAME allowlist trap as every key here.
+            "pro_speedup_choice": ("on" if pro_speedup.toggle_on(f("pro_speedup_choice", "on")) else "off"),
             # i2v reference mode: "anchor" (animate the image) or "inspire"
             # (2.5: guide subject/style, re-imagine the composition). Already
             # lane-gated above. SAME allowlist trap as every key here.
@@ -46600,6 +46704,10 @@ def run_job_inner(job: dict) -> None:
                  f"the Q8 weights with the distilled pipeline — the recipe they "
                  f"were graded on.")
         ltx_pack_preflight(_char_pack, "This render")
+        _speedup = ltx_speedup_decide(
+            p, mode=mode, quality=quality, width=width, height=height, frames=model_frames,
+            fps=model_fps, added_styles=loras, character=bool(p.get("character_id")),
+            windows=bool(str(p.get("long_mode") or "native") == "windows"))
         job_spec = {
             "action": "generate",
             "id": job["id"],
@@ -46641,6 +46749,9 @@ def run_job_inner(job: dict) -> None:
                 # re-imagined. Lane-gated in make_job; the helper only
                 # forwards it when true.
                 "loose_reference": (p.get("i2v_reference_mode") == "inspire"),
+                # Pro speed-up: one yes, only when this render may use it. The
+                # Pro add-on in the helper decides the rest, or renders Free.
+                **({"pro_speedup": True} if _speedup else {}),
                 "memory_policy": memory_plan["effective"],
                 "vae_full_decode_max_frames": memory_plan["full_decode_max_frames"],
                 # Sharp/PiperSR is a panel-side post-render pass. Do not pass it
@@ -46686,12 +46797,28 @@ def run_job_inner(job: dict) -> None:
         _w0_dir = OUTPUT / ".windows" / str(job.get("id") or "take")
         _w0_dir.mkdir(parents=True, exist_ok=True)
         job_spec["params"]["output_path"] = str(_w0_dir / (raw_out.stem + "_w0" + raw_out.suffix))
+    job.pop("pro_speedup_ran", None)
     result = HELPER.run(job_spec)
     if "seed_used" in result:
         push(f"seed used: {result['seed_used']}")
         p["seed_used"] = result["seed_used"]
     if result.get("memory_policy"):
         memory_plan = {**memory_plan, "helper": result.get("memory_policy")}
+    # Pro speed-up: the helper's add-on says "[pro] speed-up on" when it ran
+    # (_sniff_helper_line). Such a clip's sound is always levelled, and a clip
+    # that asked for sound but came out near silent says so on the clip.
+    speedup_sound = None
+    for _k in ("pro_profile", "pro_speedup_quiet"):
+        p.pop(_k, None)
+    p["pro_speedup"] = bool(job_spec["params"].get("pro_speedup") and job.get("pro_speedup_ran"))
+    if p["pro_speedup"]:
+        p["pro_profile"] = "Pro"
+        speedup_sound = h3_loudness.level_clip(FFMPEG, raw_out, ffprobe=FFPROBE)
+        push("Pro speed-up: " + h3_loudness.describe(speedup_sound))
+        if pro_speedup.came_out_quiet(speedup_sound, p.get("prompt") or "", h3_loudness.SILENT_BELOW_LUFS):
+            p["pro_speedup_quiet"] = True
+            job["warning"] = pro_speedup.QUIET_NOTE
+            push("Pro speed-up: " + pro_speedup.QUIET_NOTE)
     if windows_plan:
         windows_plan = _run_windows_chain(job, p, windows_plan,
                                           Path(job_spec["params"]["output_path"]),
@@ -46845,6 +46972,8 @@ def run_job_inner(job: dict) -> None:
     }
     if result.get("accel_metrics"):
         sidecar["accel_metrics"] = result["accel_metrics"]
+    if speedup_sound:
+        sidecar["sound_level"] = speedup_sound
     if temporal_plan:
         sidecar["temporal"] = temporal_plan
     if windows_plan:

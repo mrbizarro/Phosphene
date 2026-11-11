@@ -18,6 +18,8 @@ P = None  # the running mlx_ltx_panel module; assigned at wiring time
 @get("/pro/status")
 def get_pro_status(h, parsed) -> None:
     doc = P.pro_status()
+    # The LTX Pro speed-up beside Quality: on offer / ready / downloading, and why not (no "how").
+    doc["ltx_speedup"] = P.ltx_speedup_status()
     # Pinokio only: whether this Studio can take a licence key itself (the Mac app has its own door).
     doc["licence_here"] = not P._dist.is_mac_app()
     if doc["licence_here"]:

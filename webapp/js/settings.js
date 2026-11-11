@@ -1626,8 +1626,57 @@ async function proStatusRefresh() {
   // (Remote's components and renewal while the app is closed need it).
   if (btn) { btn.hidden = isMacApp(); btn.textContent = active ? 'Licence' : 'Pro'; }
   if (mark) { mark.hidden = !active; mark.textContent = active && st.label ? st.label : 'Pro'; }
+  globalThis.proSpeedStatus = (st && st.ltx_speedup) || null;
   proMarksApply();
+  proSpeedRender();
   return st;
+}
+
+// ---- Pro speed-up, beside Quality (Pro ledger row ltx-faster) -----------------------------------------------
+// Free: one quiet "Pro adds" line. Pro: a switch, on by default, that turns it off for a render; it only says
+// "on" where the render can use it (LTX-2.5 Balanced). Whether a render is sped up is decided by the Studio
+// and the Pro add-on, never here; this only writes the user's choice into #pro_speedup_choice.
+const PRO_SPEED_KEY = 'phos_pro_speedup_choice';
+function proSpeedRender() {
+  const row = document.getElementById('proSpeedRow');
+  if (!row) return;
+  const pro = proIsOn();
+  const st = globalThis.proSpeedStatus || {};
+  const sw = document.getElementById('proSpeedSwitch');
+  const note = document.getElementById('proSpeedNote');
+  const field = document.getElementById('pro_speedup_choice');
+  if (!pro) {                                   // Free: the line only
+    sw.hidden = true; note.hidden = false; row.hidden = false;
+    note.innerHTML = proNoteHtml(proSpotText('ltx-faster', false));
+    if (field) field.value = 'on';
+    return;
+  }
+  note.hidden = true;
+  if (!st.offered) { row.hidden = true; return; }   // not on this Mac or this install: nothing to switch
+  let choice = 'on';
+  try { choice = localStorage.getItem(PRO_SPEED_KEY) || 'on'; } catch (e) { /* keep on */ }
+  const box = document.getElementById('proSpeedToggle');
+  box.checked = choice !== 'off';
+  if (field) field.value = box.checked ? 'on' : 'off';
+  const q = (document.getElementById('quality') || {}).value || '';
+  const fits = q === 'balanced';
+  const state = document.getElementById('proSpeedState');
+  state.textContent = !box.checked ? 'off'
+    : !fits ? 'on for Balanced only'
+    : st.downloading ? 'getting ready (one-time download)'
+    : !st.ready ? 'on · first use downloads ' + (st.gb || 1.2) + ' GB once'
+    : 'on';
+  sw.title = 'About a quarter less waiting on a 5-second LTX-2.5 clip, about a fifth on a 10-second one. Switch it off to render this clip the usual way.';
+  sw.hidden = false; row.hidden = false;
+  // Until the one-time download is done, look again every 20 s so the line moves on by itself.
+  if (!st.ready && !globalThis._proSpeedTimer) {
+    globalThis._proSpeedTimer = setTimeout(() => { globalThis._proSpeedTimer = null; proStatusRefresh(); }, 20000);
+  }
+}
+function proSpeedChanged() {
+  const box = document.getElementById('proSpeedToggle');
+  try { localStorage.setItem(PRO_SPEED_KEY, box.checked ? 'on' : 'off'); } catch (e) { /* this render only */ }
+  proSpeedRender();
 }
 
 // ---- What Pro turns on, shown where it applies ---------------------------------------------------
@@ -1636,6 +1685,10 @@ async function proStatusRefresh() {
 // anything going Free. AI fill has no ledger row yet; its words are the 5.0.16 release notes.
 // Display text only. Whether a feature runs is decided where it runs, from the signed licence.
 const PRO_FEATURES = [
+  { id: 'ltx-faster', name: 'Faster LTX clips',
+    line: 'LTX-2.5 clips render with less waiting: about a quarter less on a 5-second clip and about a fifth less on a 10-second clip (Balanced; measured on an M4 Max 64 GB). On by default; switch it off for any render. Macs with 32 GB or more.',
+    short: 'about a quarter less waiting on LTX clips, on Macs with 32 GB or more.',
+    where: 'Beside Quality, on LTX-2.5 Balanced' },
   { id: 'h3-flex-turbo', name: 'Faster Flex Turbo',
     line: 'Flex Turbo renders about 1.5× faster than Flex on Free (M4 Max 64 GB; Macs with 36 GB or more). A little softer; for drafts.',
     short: 'about 1.5× faster than Flex on Free. A little softer; for drafts.',
@@ -1774,6 +1827,7 @@ function closeProModal() {
 }
 
 Object.assign(globalThis, {
+  proSpeedRender, proSpeedChanged,
   downloadFirstVideo,
   openProModal, closeProModal, proStatusRefresh,
   openYourPro, closeYourPro, proMarksApply, proSpotText, proNoteHtml,

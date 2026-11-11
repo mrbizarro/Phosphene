@@ -14943,6 +14943,14 @@ body > header .star-link.is-calling svg { animation: star-twinkle 14s ease-in-ou
 .pro-note { margin: 6px 0 0; color: var(--muted); font-size: var(--fs-xs); line-height: 1.45; }
 .pro-note[hidden] { display: none; }
 .pro-lead { color: var(--pro-ink); font-weight: 600; }
+/* Pro speed-up beside Quality: one quiet row, the Pro tag and line styles above, nothing one-off. */
+.pro-speed-row { margin: 8px 0 0; }
+.pro-speed-row[hidden], .pro-speed-switch[hidden] { display: none; }
+.pro-speed-switch { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: var(--fs-xs); cursor: pointer; }
+.pro-speed-switch input { accent-color: var(--site-violet); margin: 0; width: auto; height: auto; flex: none; }
+.pro-speed-switch > span { flex: none; white-space: nowrap; }
+.pro-speed-name { color: var(--text); font-weight: 600; }
+.pro-speed-row .pro-note { margin-top: 0; }
 /* The four features (PRO_FEATURES, settings.js): Your Pro and the Pro window draw the same list. */
 .pro-feature-list { list-style: none; margin: 0; padding: 0; }
 .pro-feature-list li { display: grid; gap: 4px; padding: 14px 0; border-top: 1px solid var(--border); }

@@ -4158,6 +4158,7 @@ function setQuality(q) {
   if (q === 'draft' || !QUALITY_PRESETS[q]) q = 'standard';
   document.getElementById('quality').value = q;
   document.querySelectorAll('#qualityGroup .pill-btn').forEach(b => b.classList.toggle('active', b.dataset.quality === q));
+  if (typeof globalThis.proSpeedRender === 'function') globalThis.proSpeedRender();
   // Set canonical dimensions for the preset, respecting the current
   // aspect choice. Quick is 4:3 only — landscape orientation only.
   const preset = QUALITY_PRESETS[q];
