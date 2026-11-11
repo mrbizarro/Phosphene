@@ -1,6 +1,17 @@
 {
-  "_note": "One entry per released version, newest last. free[] and pro[] are plain lines that every user sees (Free users see the Pro list too, it is public marketing copy like the pricing page). Plain benefit wording only: no engine, trick or recipe names. Anything internal belongs in the Pro pack's own whats_new_pro.json. A line is a string, or {\"text\": \"...\", \"media\": \"/webapp/docs/..png\"}. The release gate fails when the entry for VERSION is missing.",
+  "_note": "One entry per released version, newest last. free[] and pro[] are plain lines that every user sees (Free users see the Pro list too, it is public marketing copy like the pricing page). Plain benefit wording only: no engine, trick or recipe names. Anything internal belongs in the Pro pack's own whats_new_pro.json. A line is a string, or {\"text\": \"...\", \"media\": \"/webapp/docs/..png\"}. The release gate fails when the entry for VERSION is missing. Optional per version: \"date\" (YYYY-MM-DD) and \"hero\", the big visual at the top of the card and the website changelog: {\"kind\": \"vertical\", \"title\", \"original\", \"free\", \"pro\"} (each {\"video\", \"poster\"}) or {\"kind\": \"media\", \"video\" or \"image\", \"poster\", \"caption\"}. \"showcase\" holds the standing \"What Pro adds\" items (measured, never projected) shown to Free users under New in Pro. Media goes in assets/whats_new/ (served at /assets/whats_new/; the website copies it with its sync script). Per version \"how\": [{\"id\", \"title\", \"free\": {\"video\", \"poster\", \"caption\"}, \"pro\": {...}}], a few seconds of the real Studio showing where the button is and what you get; every new feature gets one, and the feature links to it by id.",
+  "showcase": {
+    "pro": [
+      {
+        "text": "Pro makes 5-second H3 clips faster: 14:57 on Free, 10:02 on Pro, the same clip on the same Mac. 10 and 15-second H3 clips render at Free speed for now.",
+        "media": "/assets/whats_new/speed_h3_free_vs_pro.mp4",
+        "poster": "/assets/whats_new/speed_h3_free_vs_pro.jpg",
+        "link": "https://phosphene.video/pricing/#speed-measured"
+      }
+    ]
+  },
   "5.0.5": {
+    "date": "2026-11-08",
     "free": [
       "Pictures work on a fresh Mac app install. If the picture engine is missing, Phosphene adds it by itself, once.",
       "A missing text-model file is named before a video starts, not after it fails.",
@@ -9,6 +20,7 @@
     "pro": []
   },
   "5.0.6": {
+    "date": "2026-11-08",
     "free": [],
     "pro": [
       "Your Pro licence stays on your Mac when you delete and reinstall Phosphene. No pasting your key again.",
@@ -16,12 +28,14 @@
     ]
   },
   "5.0.7": {
+    "date": "2026-11-08",
     "free": [
       "Hailuo H3 now runs on 16 GB and 18 GB Macs. It needed 36 GB before. Free for everyone."
     ],
     "pro": []
   },
   "5.0.8": {
+    "date": "2026-11-08",
     "free": [
       "The version is easier to see. When an update is ready, look for the coloured Update to button.",
       "See what changed after each update. Click the version to read it again.",
@@ -32,6 +46,7 @@
     ]
   },
   "5.0.9": {
+    "date": "2026-11-09",
     "free": [
       "Hailuo H3 clips now all play at the same loudness, whichever speed you pick.",
       "Resuming a music download reuses engine code already on your Mac and keeps the model files already downloaded.",
@@ -46,6 +61,7 @@
     ]
   },
   "5.0.11": {
+    "date": "2026-11-09",
     "free": [
       "Shot setup opens by default, with quieter prompt guidance and fewer distractions.",
       "Orientation controls stay compact and aligned.",
@@ -57,6 +73,7 @@
     "pro": []
   },
   "5.0.12": {
+    "date": "2026-11-09",
     "free": [
       "Installed video models stay selectable when returning from Images.",
       "Cleaner shot controls, with detailed explanations in Docs."
@@ -64,6 +81,7 @@
     "pro": []
   },
   "5.0.13": {
+    "date": "2026-11-10",
     "free": [
       "Timeline clips show a frame again in the Mac app, and say where they sit in the film.",
       "Changing or removing the soundtrack now sticks in preview, render, save and export.",
@@ -73,6 +91,7 @@
     "pro": []
   },
   "5.0.14": {
+    "date": "2026-11-10",
     "free": [
       "Queued clips keep going while one engine updates, and the queue says what it is waiting for.",
       "Plain messages when the video model is not downloaded yet, and when the engine restarts itself.",
@@ -82,6 +101,7 @@
     "pro": []
   },
   "5.0.15": {
+    "date": "2026-11-10",
     "free": [
       "New picture model: MiniMax-H3-Image, free for everyone. Text to image at 4, 8 or 16 megapixels. Preview.",
       "It needs a Mac with 48 GB of memory or more, and downloads once the first time you use it."
@@ -89,12 +109,83 @@
     "pro": []
   },
   "5.0.16": {
+    "date": "2026-11-10",
     "free": [
-      "New: Make it vertical. Turn a widescreen clip into a tall 9:16, 4:5 or square copy with a soft blurred fill. In the More menu on any clip.",
+      "Make it vertical: a tall 9:16, 4:5 or square copy of any clip, with a soft blurred fill. In the More menu on any clip.",
       "Timeline clips show a picture right away, before Prepare."
     ],
     "pro": [
-      "Pro adds AI fill to Make it vertical: real picture above and below, as if the clip was shot tall. For Macs with 48 GB or more."
+      "Make it vertical (AI fill): real picture above and below, as if the clip was shot tall. For Macs with 48 GB or more."
+    ],
+    "hero": {
+      "kind": "vertical",
+      "title": "Make it vertical",
+      "caption": "The same clip, three ways. Free keeps the whole picture with a soft blurred fill. Pro paints real picture above and below.",
+      "original": {
+        "video": "/assets/whats_new/vertical_original.mp4",
+        "poster": "/assets/whats_new/vertical_original.jpg",
+        "label": "Original"
+      },
+      "free": {
+        "video": "/assets/whats_new/vertical_blur.mp4",
+        "poster": "/assets/whats_new/vertical_blur.jpg",
+        "label": "Free: blurred fill"
+      },
+      "pro": {
+        "video": "/assets/whats_new/vertical_ai.mp4",
+        "poster": "/assets/whats_new/vertical_ai.jpg",
+        "label": "Pro: AI fill"
+      },
+      "still": "/assets/whats_new/vertical_trio.webp"
+    },
+    "how": [
+      {
+        "id": "make-vertical",
+        "title": "How Make it vertical works",
+        "free": {
+          "video": "/assets/whats_new/how_vertical_free.mp4",
+          "poster": "/assets/whats_new/how_vertical_free.jpg",
+          "label": "Free: blurred fill",
+          "caption": "Open More on a finished clip and pick Make it vertical. A tall copy with a soft blurred fill appears next to it in seconds."
+        },
+        "pro": {
+          "video": "/assets/whats_new/how_vertical_pro.mp4",
+          "poster": "/assets/whats_new/how_vertical_pro.jpg",
+          "label": "Pro: AI fill",
+          "caption": "Pick Make it vertical (AI fill) in the same menu. AI paints real picture above and below. About 15 minutes for a 5-second clip, on Macs with 48 GB or more."
+        }
+      }
+    ]
+  },
+  "5.0.17": {
+    "date": "2026-11-11",
+    "free": [
+      "A bigger What's new, with clips of what changed. Click the version number to see it again.",
+      "How Make it vertical works: a short clip shows where to click. In the More menu on any clip.",
+      "Clearer messages when a character training or a Control render cannot start: they name the photo or the download and say what to do.",
+      "A character training keeps going when you rename its trigger word after the captions are written."
+    ],
+    "pro": [
+      "Your Pro: click the Pro badge next to the logo to see everything your licence turns on in this version, and where to find it.",
+      "Every Pro feature is marked where you use it, so you can see what is on with your licence."
+    ],
+    "how": [
+      {
+        "id": "make-vertical",
+        "title": "How Make it vertical works",
+        "free": {
+          "video": "/assets/whats_new/how_vertical_free.mp4",
+          "poster": "/assets/whats_new/how_vertical_free.jpg",
+          "label": "Free: blurred fill",
+          "caption": "Open More on a finished clip and pick Make it vertical. A tall copy with a soft blurred fill appears next to it in seconds."
+        },
+        "pro": {
+          "video": "/assets/whats_new/how_vertical_pro.mp4",
+          "poster": "/assets/whats_new/how_vertical_pro.jpg",
+          "label": "Pro: AI fill",
+          "caption": "Pick Make it vertical (AI fill) in the same menu. AI paints real picture above and below. About 15 minutes for a 5-second clip, on Macs with 48 GB or more."
+        }
+      }
     ]
   }
 }

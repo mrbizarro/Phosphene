@@ -1088,6 +1088,8 @@ function _h3ApplySpeed() {
     const lit = fastOn ? 'fast' : (flexOn ? 'flex' : (ftOn ? 'flex_turbo' : 'best'));
     document.querySelectorAll('#h3SpeedGroup [data-h3-speed]').forEach(b =>
       b.classList.toggle('active', b.dataset.h3Speed === lit));
+    const fxCredit = document.getElementById('h3FlexCredit');   // the credit lives in the credits line, not the picker
+    if (fxCredit) fxCredit.hidden = !(flexOn || ftOn);
     const note = document.getElementById('h3SpeedNote');
     if (note) {
       // Independent of `lit`: this is "you prefer Fast, but this shape can
@@ -1613,8 +1615,8 @@ function h3FlexPickerEntry() {
   if (h3st.available && !fx.supported && !fx.downloaded) return null;
   return Object.assign({}, h3e, {
     id: H3FLEX_ID, label: 'H3 Flex', generation: '', preview: true, virtual: true,
-    sublabel: 'Pika H3 Flex · preview',
-    tagline: "Pika Labs' six-step H3: about 2.2× faster than Best. Preview.",
+    sublabel: 'H3 Flex · preview',
+    tagline: 'Six steps: about 2.2× faster than Best. Preview.',
   });
 }
 // Its state, in the same words the menu uses for every engine.
@@ -1642,13 +1644,13 @@ function _h3FlexBadge(st, h3e) {
   return '';
 }
 function _h3FlexTooltip(st, h3e) {
-  const credit = ' By Pika Labs, running on your Mac. Powered by MiniMax H3.';
-  if (!st.h3_ready) return 'H3 Flex (preview) — needs Hailuo H3 first ('
-    + (h3e.install_size || '') + '); then its 2.8 GB adapter. Click to get them.' + credit;
-  if (st.installing) return 'H3 Flex (preview) — downloading and preparing (' + st.progress + ').' + credit;
-  if (!st.available) return 'H3 Flex (preview) — click to download it (' + st.download_gb
-    + ' GB from Pika Labs, prepared on your Mac).' + credit;
-  return "H3 Flex (preview) — Pika Labs' six-step H3, about 2.2× faster than Best." + credit;
+  const credit = ' Running on your Mac. Powered by MiniMax H3.';   // Pika Labs is credited in the credits line (#h3FlexCredit)
+  if (!st.h3_ready) return 'H3 Flex (preview) needs Hailuo H3 first ('
+    + (h3e.install_size || '') + '), then its 2.8 GB add-on. Click to get them.' + credit;
+  if (st.installing) return 'H3 Flex (preview): downloading and preparing (' + st.progress + ').' + credit;
+  if (!st.available) return 'H3 Flex (preview): click to download it (' + st.download_gb
+    + ' GB, prepared on your Mac).' + credit;
+  return 'H3 Flex (preview): six steps, about 2.2× faster than Best.' + credit;
 }
 // Flex picked from a mode H3 itself does not render (an LTX-only one): move
 // to the nearest mode Flex renders first, instead of a click that does nothing.
@@ -1701,7 +1703,9 @@ function h3FlexTurboPickerEntry() {
   return Object.assign({}, h3e, {
     id: H3FLEXTURBO_ID, label: 'Faster Flex Turbo', generation: '', preview: true, pro: true, virtual: true,
     sublabel: 'Faster Flex Turbo · quick drafts · Pro',
-    tagline: 'Quick drafts: try ideas fast, then render the keeper. Part of Phosphene Pro.',
+    // In the Pro ledger's words, for who is looking (proSpotText, settings.js).
+    tagline: (typeof proSpotText === 'function' && proSpotText('h3-flex-turbo', !!ft.pro_active))
+      || 'Quick drafts: try ideas fast, then render the keeper. Part of Phosphene Pro.',
   });
 }
 function h3FlexTurboPickerStatus() {
@@ -1721,11 +1725,11 @@ function h3FlexTurboPickerStatus() {
 }
 function _h3FlexTurboTooltip(st) {
   const credit = ' By akhaliq (Pika H3 Flex by Pika Labs + LightX2V Turbo), running on your Mac. Powered by MiniMax H3.';
-  if (!st.pro_active) return 'Faster Flex Turbo is part of Phosphene Pro: quick drafts, so you can try ideas fast and render the keeper after. Click to see Pro.';
+  if (!st.pro_active) return 'Faster Flex Turbo. Pro adds: about 1.5× faster than Flex on Free. A little softer; for drafts. Click to see Pro.';
   if (!st.h3_ready) return 'H3 Flex Turbo needs Hailuo H3 first. Click to get it.' + credit;
   if (st.installing) return 'H3 Flex Turbo: downloading (' + st.progress + ').' + credit;
   if (!st.available) return 'H3 Flex Turbo: click to download it (' + st.download_gb + ' GB).' + credit;
-  return 'H3 Flex Turbo (faster draft): a faster H3 Flex, about 1.4× faster and a little softer. Try ideas fast, then render the keeper on Flex or Best.' + credit;
+  return 'Faster Flex Turbo. On with your Pro: about 1.5× faster than Flex on Free. A little softer; for drafts. Try ideas fast, then render the keeper on Flex or Best.' + credit;
 }
 function _h3FlexTurboNote(cell) {
   const ft = h3FlexTurboState();
@@ -1750,10 +1754,10 @@ function _h3FlexTurboMenuRow(e, active, surfaceMode) {
     <span class="eng-mark"><svg class="ph" aria-hidden="true"><use href="#${escapeHtml(e.mark)}"/></svg></span>
     <span class="eng-opt-body">
       <span class="eng-opt-top">
-        <span class="eng-seg-name">${escapeHtml(e.label)}</span><span class="eng-badge eng-preview">preview</span><span class="eng-badge eng-pro">Pro</span>${
+        <span class="eng-seg-name">${escapeHtml(e.label)}</span><span class="eng-badge eng-preview">preview</span><span class="pro-tag${st.pro_active ? ' pro-on' : ''}">${st.pro_active ? 'Pro ✓' : 'Pro'}</span>${
         badge ? `<span class="eng-badge offer">${escapeHtml(badge)}</span>` : ''}
       </span>
-      <span class="eng-opt-sub">${escapeHtml(e.tagline)}</span>
+      <span class="eng-opt-sub">${typeof proNoteHtml === 'function' ? proNoteHtml(e.tagline) : escapeHtml(e.tagline)}</span>
     </span>${
     e.id === active ? '<svg class="ph eng-tick" aria-hidden="true"><use href="#ph-check-bold"/></svg>' : ''}
   </button>`;
@@ -1953,7 +1957,7 @@ function renderEngineSwitch() {
       <span class="eng-seg-name">${escapeHtml(act.label)}</span>${
       act.generation ? `<span class="eng-seg-gen">${escapeHtml(act.generation)}</span>` : ''}${
       act.preview ? '<span class="eng-badge eng-preview">preview</span>' : ''}${
-      act.pro ? '<span class="eng-badge eng-pro">Pro</span>' : ''}
+      act.pro ? (h3FlexTurboPickerStatus().pro_active ? '<span class="pro-tag pro-on">Pro ✓</span>' : '<span class="pro-tag">Pro</span>') : ''}
       <svg class="ph eng-caret" aria-hidden="true"><use href="#ph-caret-down-bold"/></svg>
     </button>`;
     const t = box.querySelector('.eng-trigger');

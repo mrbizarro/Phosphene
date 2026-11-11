@@ -46,6 +46,15 @@ def get_whats_new(h, parsed) -> None:
     h._json(_whats_new_doc(force))
 
 
+@get("/whats-new/how")
+def get_whats_new_how(h, parsed) -> None:
+    """One feature's how-to clip (Free and Pro takes) for its "How it works" link; {"how": null} when none."""
+    import whats_new
+    from urllib.parse import parse_qs
+    hid = (parse_qs(parsed.query).get("id") or [""])[0][:64]
+    h._json({"how": whats_new.how(Path(P.ROOT), hid) if hid else None})
+
+
 @post("/whats-new/seen")
 def post_whats_new_seen(h, path, qs, ctype) -> None:
     import whats_new

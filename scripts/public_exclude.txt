@@ -70,3 +70,4 @@ QWEN.md
 .cursorrules
 .windsurfrules
 docs/redesign/
+docs/WHATS_NEW_PLAN.md

@@ -5763,6 +5763,7 @@ function selectOutput(path, options) {
   // the player ends up on the cached stale-bytes URL and re-shows black
   // until the browser cache expires.
   const o = findOutputByPath(path);
+  verticalHintUpdate(o);
   const isPhoto = outputKind(o) === 'image';
   const isAudio = outputKind(o) === 'audio';
   // Photo entries don't go through /file (which is OUTPUT-bound and
@@ -6425,12 +6426,13 @@ function openExpandLightbox() {
       <button type="button" class="ghost-btn" onclick="verticalExportActive('9:16')" title="A 9:16 copy with a blurred fill above and below">Make it vertical</button>
       <button type="button" class="ghost-btn" onclick="verticalExportActive('4:5')" title="A 4:5 copy with a blurred fill above and below">4:5</button>
       <button type="button" class="ghost-btn" onclick="verticalExportActive('1:1')" title="A square copy with a blurred fill above and below">1:1</button>
-      <button type="button" class="ghost-btn" onclick="verticalExportActive('9:16','ai')" title="A 9:16 copy where AI paints real picture above and below (Phosphene Pro)">Make it vertical (AI fill)</button>
+      <button type="button" class="ghost-btn" onclick="verticalExportActive('9:16','ai')" title="A 9:16 copy where AI paints real picture above and below (Phosphene Pro)">Make it vertical (AI fill) <span class="pro-tag" data-pro-feature="vertical-ai-fill">Pro</span></button>
       <button type="button" class="ghost-btn" onclick="useLastFrameActive()">Use last frame</button>
       <button type="button" class="ghost-btn" onclick="openActiveInEditor()">Open in Editor</button>
       <button type="button" class="ghost-btn" onclick="revealActive()">Reveal in Finder</button>
       <button type="button" class="ghost-btn" onclick="shareActive()">Share</button>
     ` : '';
+    if (typeof proMarksApply === 'function') proMarksApply(actions);
   }
   lb.style.display = 'flex';
   lb.classList.toggle('is-playing', LB.playing);
@@ -7067,6 +7069,40 @@ async function queueVerticalExport(path, ratio, fill) {
   try { poll(); } catch (e) {}
   return r;
 }
+// ---- One quiet line under a Make it vertical copy, once ------------------------------------------------------
+// Free, blurred copy: what Pro adds. Pro, AI copy: that AI fill is on with their Pro. Pro, blurred copy: that AI fill
+// is in the same menu. Shown on the first such copy only; it stays on that copy until the x, then never again.
+// Remembered in this browser (localStorage); if storage is unavailable the line simply shows for that clip.
+const VH_KEY = 'phos_hint_make_vertical';
+function _vhState() { try { return JSON.parse(localStorage.getItem(VH_KEY) || 'null'); } catch (e) { return null; } }
+function _vhSave(v) { try { localStorage.setItem(VH_KEY, JSON.stringify(v)); } catch (e) {} }
+function verticalHintUpdate(o) {
+  const box = document.getElementById('verticalHint');
+  if (!box) return;
+  const fill = o && o.vertical;
+  const st = _vhState();
+  if (!fill || (st && (st.dismissed || st.path !== o.path))) { box.hidden = true; return; }
+  if (!st) _vhSave({ path: o.path });
+  const pro = !!document.documentElement.dataset.pro;
+  // The same lead words and colour as every Pro note (proNoteHtml, settings.js).
+  const text = !pro
+    ? 'Your tall copy is ready. Pro adds: Make it vertical (AI fill), real picture above and below instead of a blur.'
+    : fill === 'ai'
+      ? 'On with your Pro: Make it vertical (AI fill). The top and bottom of this copy are real picture.'
+      : 'On with your Pro: Make it vertical (AI fill), in the same menu, paints real picture instead of a blur.';
+  const m = /^(.*?)(Pro adds:|On with your Pro:)\s*(.*)$/.exec(text);
+  document.getElementById('verticalHintText').innerHTML = m
+    ? escapeHtml(m[1]) + `<span class="pro-lead">${m[2]}</span> ` + escapeHtml(m[3]) : escapeHtml(text);
+  document.getElementById('verticalHintPro').hidden = pro;
+  box.hidden = false;
+}
+function verticalHintDismiss() {
+  const st = _vhState() || {};
+  _vhSave(Object.assign(st, { dismissed: true }));
+  const box = document.getElementById('verticalHint');
+  if (box) box.hidden = true;
+}
+
 function verticalExportActive(ratio, fill) {
   if (!activePath) return phosToast('Pick a clip in Outputs first.', {});
   return queueVerticalExport(activePath, ratio, fill);
@@ -9513,7 +9549,7 @@ Object.assign(globalThis, {
   animateActive, hide, unhide, openOutputsFolder, hideActive,
   useAsExtendSource, useAsAddSoundSource, addSoundOffer, addSoundFromCard, syncPlayerSoundOffer, useAsUpscaleSource, useAsUpscaleSourcePath, setUpscalePreset,
   faceFixClip, faceFixActive, isUpscaledPath, loadParams, _flashActionDone, closeOutputInfoModal,
-  queueSharpExport, sharpExportActive, queueVerticalExport, verticalExportActive, useLastFramePath, useLastFrameActive,
+  queueSharpExport, sharpExportActive, queueVerticalExport, verticalExportActive, verticalHintDismiss, useLastFramePath, useLastFrameActive,
   revealClipInFinder, revealActive, shareClip, shareActive, openClipInEditor, openActiveInEditor, kebabToggle,
   reorderQueuedJob, editQueuedJob, cancelEditingQueuedJob, updateQueuedJob, fmtEtaCompact,
   showEnhancePanel, acceptEnhance, undoEnhance, keepMineEnhance,

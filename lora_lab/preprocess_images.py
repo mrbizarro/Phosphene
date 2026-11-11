@@ -258,6 +258,17 @@ def _encode_all_images(
     assert F_lat == 1, f"expected F_lat=1 for F=1, got {F_lat}"
     print(f"  target latent shape per image: [128, {F_lat}, {H_lat}, {W_lat}]")
 
+    # Fleet 10-11 Nov 2026 (fw-20261110-1411): one 24 GB Mac failed 15 training
+    # runs in a row as "training stopped: other (stage preprocess)". A photo
+    # that failed to encode was logged and skipped here, and the run then died
+    # in train_character.run_preprocess on "preprocess wrote N latents;
+    # expected M" - a sentence with no cause in it, so the card could not say
+    # what to do and the fleet class was `other` even for a Metal allocation
+    # failure. The first failure is kept and re-raised as the CAUSE of one
+    # ImageEncodeError, so the card names the photo and the reason and
+    # lora_lab.failure.classify_exception (which reads the cause chain) reports
+    # oom / disk_full / missing_file instead of `other`.
+    failures: list[tuple[str, BaseException]] = []
     for i in needed:
         img_path = image_files[i]
         out_path = latents_dir / f"latent_{i:04d}.safetensors"
@@ -278,13 +289,37 @@ def _encode_all_images(
             )
         except Exception as exc:
             logger.error("failed to encode %s: %s", img_path.name, exc)
+            failures.append((img_path.name, exc))
             continue
         if i % 5 == 0:
             aggressive_cleanup()
 
     del vae_encoder
     aggressive_cleanup()
+    if failures:
+        raise image_encode_error(failures, len(image_files), target_width, target_height)
     print("  image encoding complete")
+
+
+class ImageEncodeError(RuntimeError):
+    """Some photos could not be turned into training latents; the first
+    failure rides as __cause__ so the run's class comes from the real error."""
+
+
+def image_encode_error(failures: list, total: int, width: int, height: int) -> ImageEncodeError:
+    """The one sentence a run that lost photos at the encode step stops with.
+    Names the first photo and its reason; the exception is chained by the
+    caller's raise so classify_exception sees it."""
+    name, first = failures[0]
+    reason = (str(first).strip().splitlines() or [type(first).__name__])[0][:240]
+    n = len(failures)
+    which = (f"none of the {total} photos" if n == total
+             else f"{n} of the {total} photos")
+    err = ImageEncodeError(
+        f"{which} could be prepared for training at {width}x{height} "
+        f"(first: {name}: {type(first).__name__}: {reason})")
+    err.__cause__ = first
+    return err
 
 
 def preprocess_images(

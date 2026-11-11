@@ -10604,12 +10604,6 @@
       font-size: var(--fs-2xs); line-height: 1.2; padding: 1px 5px; border-radius: 5px;
     }
 
-    /* H3 Flex Turbo (5.0): the Pro tag, in the Pro chip's colours. */
-    .eng-badge.eng-pro, body > header .eng-badge.eng-pro {
-      font-weight: 600; letter-spacing: .02em; margin-left: 6px;
-      font-size: var(--fs-2xs); line-height: 1.2; padding: 1px 5px; border-radius: 5px;
-      color: #f4f4f5; background: linear-gradient(90deg, rgba(255,46,159,.35), rgba(94,234,255,.30));
-    }
     body > header .engine-switch {
       flex-shrink: 0;
     }
@@ -13174,7 +13168,7 @@ body > header .eng-trigger { background: var(--panel); border-color: var(--borde
 .toggle-pill.is-on { border-color: var(--border-strong); color: var(--text); background: var(--selection-bg); }
 
 /* Primary actions use the deepened logo spectrum; secondary controls stay quiet. */
-button.primary, button[type="submit"].primary, #genBtn,
+button.primary, button[type="submit"].primary, #genBtn, .dlg a.primary,
 #genForm .batch-queue-btn, #genForm .loras-summary .loras-browse-btn:not(.is-ghost) {
   background-color: var(--action-bg); background-image: var(--action-gradient); color: var(--action-ink); border-color: transparent;
   position: relative; isolation: isolate; overflow: hidden;
@@ -13182,7 +13176,7 @@ button.primary, button[type="submit"].primary, #genBtn,
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.13), inset 0 -1px 0 rgba(0,0,0,.22);
   transition: transform var(--t-slow), opacity var(--t-slow);
 }
-button.primary:hover, button[type="submit"].primary:hover, #genBtn:hover:not(:disabled),
+button.primary:hover, button[type="submit"].primary:hover, #genBtn:hover:not(:disabled), .dlg a.primary:hover,
 #genForm .batch-queue-btn:hover:not(:disabled), #genForm .loras-summary .loras-browse-btn:not(.is-ghost):hover {
   background-color: var(--action-bg); background-image: var(--action-gradient); border-color: transparent; color: var(--action-ink);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.2), inset 0 -1px 0 rgba(0,0,0,.22);
@@ -13478,21 +13472,16 @@ button.primary:hover::before, #genBtn:hover::before, #genForm .batch-queue-btn:h
 .pro-entry:hover { background: rgba(139,92,246,0.26); color: #cbb8ff; }
 .pro-entry[hidden] { display: none; }
 .models-card.pro-card { width: min(820px, calc(100vw - 32px)); max-width: 820px; padding: 24px; background: var(--bg, #0a0a0b); }
-.pro-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; color: var(--muted, #b4b4bb); font-size: 13px; }
 .pro-prices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 20px; }
-.pro-price { border: 1px solid var(--border, #2a2a2f); border-radius: 8px; padding: 18px; }
+.pro-price { border: 1px solid var(--border); border-radius: var(--r-md); padding: 18px; }
 .pro-price h3 { font-size: 13px; margin: 0 0 16px; }
 .pro-price p { font-size: 13px; margin: 0 0 12px; }
 .pro-price strong { font-size: 30px; font-weight: 740; }
 .pro-price span { color: var(--muted, #b4b4bb); font-size: 13px; line-height: 1.5; }
 .pro-founding { border-color: #8d744d; }
-.pro-benefits { margin: 22px 0; display: grid; gap: 14px; }
-.pro-benefits p { margin: 0; color: var(--muted, #b4b4bb); font-size: 13px; line-height: 1.5; }
-.pro-benefits strong { display: block; color: var(--text, #f4f4f5); font-size: 13px; margin-bottom: 3px; }
-.pro-bottom { display: flex; gap: 22px; align-items: center; border-top: 1px solid var(--border, #2a2a2f); padding-top: 18px; }
-.pro-waitlist { display: inline-flex; gap: 24px; align-items: center; flex-shrink: 0; border-radius: 4px; padding: 12px 16px; background: #f4f4f5; color: #0b0b0c; text-decoration: none; font-weight: 650; font-size: 13px; }
-.pro-bottom p { margin: 0; color: var(--muted, #b4b4bb); font-size: 13px; line-height: 1.5; }
-@media (max-width: 560px) { .models-card.pro-card { padding: 16px; } .pro-prices { grid-template-columns: 1fr; } .pro-bottom { flex-direction: column; align-items: flex-start; } }
+.pro-benefits { margin: 28px 0; }
+.pro-hardship { margin: 20px 0 0; color: var(--muted); font-size: var(--fs-xs); }
+@media (max-width: 560px) { .pro-prices { grid-template-columns: 1fr; } }
 
 /* Storage rows contain one text column, with long model paths wrapping. */
 #storageList li { grid-template-columns: minmax(0, 1fr); }
@@ -14930,21 +14919,48 @@ body > header .star-link.is-calling svg { animation: star-twinkle 14s ease-in-ou
 .star-ask #starAskGo, .star-ask .modal-actions .btn { white-space: nowrap; flex: 1 1 0; }
 
 /* ---------- Pro: the mark beside the wordmark, the speed receipt chip, the Free-vs-Pro player ---------- */
-.pro-mark { display: inline-flex; align-items: center; margin-left: -4px; padding: 3px 9px; border-radius: var(--r-xs); font-size: 13px; font-weight: 700; letter-spacing: 0.12em; cursor: default;
-  color: #b69cff; background: rgba(139,92,246,0.16); border: 1px solid rgba(139,92,246,0.5); align-self: center; vertical-align: middle; }  /* the one Pro tag (owner, 6 Nov): brand violet box, beside the wordmark */
-.pro-mark[hidden] { display: none; }
+/* PRO, ONE LOOK EVERYWHERE (5.0.17). The owner, 11 Nov: every Pro spot looked different. One tag (.pro-tag) wherever
+   a feature is Pro: the Model menu, the More menu, the left bar, the full-screen player, What's new, and the mark
+   beside the logo; it reads "Pro" for Free and "Pro ✓" for a member, nothing else changes. One line style
+   (.pro-note with its .pro-lead) for "Pro adds: ..." / "On with your Pro: ...". The violet is the logo's own,
+   mixed toward the text colour so it holds contrast on both themes. */
+:root {
+  --pro-ink: color-mix(in srgb, var(--site-violet) 58%, var(--text));
+  --pro-bg: color-mix(in srgb, var(--site-violet) 13%, transparent);
+  --pro-edge: color-mix(in srgb, var(--site-violet) 46%, transparent);
+}
+.pro-tag, .pro-mark {
+  display: inline-flex; align-items: center; flex: none; height: 20px; padding: 0 7px; margin-left: 6px;
+  border: 1px solid var(--pro-edge); border-radius: var(--r-xs); background: var(--pro-bg); color: var(--pro-ink);
+  font: 600 var(--fs-2xs)/1 var(--sans); letter-spacing: .02em; text-transform: none; white-space: nowrap; vertical-align: middle;
+}
+.pro-tag.is-lead { margin: 0 8px 0 0; }
+.pro-tag[hidden], .pro-mark[hidden] { display: none; }
+.pro-mark { align-self: center; margin-left: 2px; cursor: default; }
+.pro-mark[role="button"] { cursor: pointer; transition: background var(--t-fast); }
+.pro-mark[role="button"]:hover { background: color-mix(in srgb, var(--site-violet) 24%, transparent); }
+.pro-mark[role="button"]:focus-visible { outline: none; box-shadow: var(--ring); }
+.pro-note { margin: 6px 0 0; color: var(--muted); font-size: var(--fs-xs); line-height: 1.45; }
+.pro-note[hidden] { display: none; }
+.pro-lead { color: var(--pro-ink); font-weight: 600; }
+/* The four features (PRO_FEATURES, settings.js): Your Pro and the Pro window draw the same list. */
+.pro-feature-list { list-style: none; margin: 0; padding: 0; }
+.pro-feature-list li { display: grid; gap: 4px; padding: 14px 0; border-top: 1px solid var(--border); }
+.pro-feature-list li:first-child { border-top: 0; padding-top: 0; }
+.pro-feature-list li:last-child { padding-bottom: 0; }
+.pro-feature-name { display: flex; align-items: center; margin: 0; color: var(--text); font-size: var(--fs-md); font-weight: 600; }
+.pro-feature-line { max-width: 68ch; margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: 1.5; }
+.pro-feature-where { margin: 0; color: var(--muted); font-size: var(--fs-xs); }
+.pro-feature-where b { color: var(--text); font-weight: 600; }
 .pro-chip { display: inline-flex; align-items: center; gap: 6px; padding: 1px 7px; border-radius: 5px; font: 500 11px/16px var(--mono, ui-monospace, monospace); letter-spacing: 0.04em; color: var(--text, #f4f4f5);
   background: rgba(139,92,246,0.16); box-shadow: 0 0 0 1px rgba(139,92,246,0.5) inset; white-space: nowrap; margin-left: 6px; }
 .pro-chip::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #b69cff; }
 .card-chip-row .pro-chip { margin-left: 0; }
-.pro-compare { margin: 18px 0 6px; padding: 16px 18px 18px; border: 1px solid #2a2a2f; border-radius: 12px; background: #0b0b0c; color: #f4f4f5; }
-.pro-compare header h3 { margin: 4px 0 4px; font: 760 20px/1.1 Archivo, -apple-system, sans-serif; font-stretch: 86%; letter-spacing: -0.3px; }
-.pro-compare-sub { margin: 0 0 12px; font-size: 13px; color: #b4b4bb; }
-.pro-compare-player { position: relative; border-radius: 10px; overflow: hidden; background: #000; border: 1px solid #2a2a2f; }
-.pro-compare-player video { display: block; width: 100%; aspect-ratio: 2048 / 624; }
-.pro-compare-labels { position: absolute; left: 0; right: 0; top: 8px; display: flex; justify-content: space-around; pointer-events: none; }
-.pro-compare-labels span { padding: 2px 8px; border-radius: 5px; font: 700 11px/16px var(--mono, ui-monospace, monospace); letter-spacing: 0.12em; background: rgba(11, 11, 12,0.72); color: #f4f4f5; }
-.pro-compare-labels span:last-child { background: rgba(139,92,246,0.16); color: #b69cff; box-shadow: 0 0 0 1px rgba(139,92,246,0.5) inset; }
+.pro-compare { margin: 28px 0 0; }
+.pro-compare .dlg-media { aspect-ratio: 1280 / 402; }
+/* The Pro window's own small headings ("Your licence") read like every dialog section heading. */
+#proModal .pro-licence .lights-on-eyebrow { font: 600 var(--fs-2xs)/1.3 var(--sans); letter-spacing: .08em; color: var(--muted); }
+#proModal .lights-on-copy .lights-on-eyebrow { display: none; }   /* the dialog head already says Phosphene Pro */
 /* In a gallery card the receipt is its own quiet mono line under the mode chip (the chip row is one ellipsised line otherwise). */
 .card-chip-row:has(.pro-chip) { white-space: normal; overflow: visible; }
 .card-chip-row .pro-chip { display: flex; width: fit-content; max-width: 100%; margin: 3px 0 0; padding: 0; background: none; box-shadow: none; color: #c99bff; font: inherit; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -15164,7 +15180,7 @@ html[data-theme="light"] .star-card { box-shadow: 0 18px 44px rgba(20,26,46,.28)
 .studio-engine-row .studio-version-only { flex: 1 1 auto; min-width: 0; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Settings > Pro on Pinokio: the licence box (5.0.1) */
-.pro-licence { margin: 18px 0; padding: 14px 16px; border: 1px solid var(--line, #2a2a30); border-radius: 12px; display: grid; gap: 10px; }
+.pro-licence { margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--r-md); display: grid; gap: 10px; }
 .pro-licence-state { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text, #f4f4f5); }
 .pro-licence-state[data-on="1"] { color: #8be9a8; }
 .pro-licence-form { display: flex; gap: 8px; }
@@ -15179,7 +15195,7 @@ html[data-pro]:not([data-pro=""]) #proModal .lights-on-header,
 html[data-pro]:not([data-pro=""]) #proModal .pro-prices,
 html[data-pro]:not([data-pro=""]) #proModal .pro-compare,
 html[data-pro]:not([data-pro=""]) #proModal .pro-benefits,
-html[data-pro]:not([data-pro=""]) #proModal .pro-bottom { display: none; }
+html[data-pro]:not([data-pro=""]) #proModal .pro-free-only { display: none; }
 
 /* ---- THE VIEWER'S OWN PLAY BAR (queue.js buildViewerBar) --------------------
    Owner, 6 Nov: the volume slider sat in the video's top-right corner. The
@@ -15232,37 +15248,126 @@ html[data-pro]:not([data-pro=""]) #proModal .pro-bottom { display: none; }
    shows once /pro/status has answered Free (data-pro="" ; absent until then, so a
    Pro member never sees it flash), and takes the place of the NEW dot. */
 .workflow-tabs .rail-pro { display: none; }
+html[data-pro]:not([data-pro=""]) .tool-rail .workflow-tabs .rail-pro,
 html[data-pro=""] .tool-rail .workflow-tabs .rail-pro {
-  /* 5.0.4 (owner, 7 Nov): quiet outlined hint beside the label, never over the icon and never the
-     filled purple Pro tag that sits beside the logo. A Pro member sees nothing here. */
-  display: inline-flex; align-items: center; position: static; margin-left: 6px;
-  padding: 0 4px; font: 600 11px/14px var(--ph-font-mono, ui-monospace, monospace); letter-spacing: .05em;
-  color: #9aa3b8; background: transparent; border: 1px solid rgba(154, 163, 184, .45);
-  border-radius: 4px; pointer-events: auto; cursor: default;
+  /* 5.0.4 (owner, 7 Nov): beside the label, never over the icon. 5.0.17: the one Pro tag (.pro-tag), for Free
+     ("Pro") and for a member ("Pro ✓"). */
+  display: inline-flex; position: static; pointer-events: auto;
 }
 html[data-pro=""] .tool-rail .workflow-tabs button[data-workflow="remote"] .new-badge { display: none; }
 .rm-pro-wait .rm-wait-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 .rm-pro-wait .rm-wait-actions .rm-btn { width: auto; }
 
-/* What's new card (whats_new.js): one small corner card, not a modal. */
-.wn-card{position:fixed;right:18px;bottom:18px;z-index:9000;width:min(360px,calc(100vw - 36px));max-height:min(70vh,560px);overflow:auto;
-  background:var(--panel);color:var(--text);border:1px solid var(--border-strong);border-radius:12px;padding:14px 16px 14px;
-  box-shadow:0 10px 36px rgba(0,0,0,.45);font-size:13px;line-height:1.45}
-.wn-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;font-size:14px}
-.wn-x{background:none;border:0;color:var(--muted);font-size:20px;line-height:1;cursor:pointer;padding:0 4px}
-.wn-x:hover{color:var(--text)}
-.wn-sec{margin-top:10px}
-.wn-sec h3{margin:0 0 4px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
-.wn-thanks{margin:0 0 6px;color:var(--muted)}
-.wn-list{list-style:none;margin:0;padding:0}
-.wn-list li{padding:5px 0;border-top:1px solid var(--border)}
-.wn-list li:first-child{border-top:0}
-.wn-protag{display:inline-block;margin-right:6px;padding:0 6px;border:1px solid var(--border-strong);border-radius:999px;font-size:13px;font-weight:600;color:var(--accent-bright);vertical-align:1px}
-.wn-media{display:block;margin-top:6px;max-width:100%;border-radius:8px}
-.wn-getpro{display:inline-block;margin-top:8px;padding:5px 12px;border:1px solid var(--border-strong);border-radius:8px;color:var(--text);text-decoration:none;font-weight:600}
-.wn-getpro:hover{background:var(--accent-dim)}
-@media (prefers-reduced-motion:no-preference){.wn-card{animation:wn-in .25s ease-out}@keyframes wn-in{from{opacity:0;transform:translateY(8px)}}}
-.wn-head strong{flex:1;white-space:nowrap}
+/* ONE DIALOG SHELL (5.0.17): What's new, the How it works viewer, Your Pro and the Pro window share it. Layered on
+   the .models-modal backdrop and .models-card: a header (kicker, title, the x), a body that scrolls, a footer on
+   the inset colour with the panel's own buttons (secondary on the left, Close then the one primary on the right).
+   Media in any of them: one frame (.dlg-media), one caption style (.dlg-fig figcaption). */
+.models-card.dlg {
+  --dlg-w: 820px;
+  display: flex; flex-direction: column; width: min(var(--dlg-w), calc(100vw - 48px)); max-width: none;
+  max-height: min(90vh, 980px); padding: 0; overflow: hidden;
+  background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2); font-size: var(--fs-md); line-height: 1.5;
+}
+.models-card.dlg.dlg-lg { --dlg-w: 960px; }
+.dlg-head { flex: none; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  padding: 20px 24px 16px; border-bottom: 1px solid var(--border); }
+.dlg-kicker, .dlg-sec-h { display: block; margin: 0; font: 600 var(--fs-2xs)/1.3 var(--sans); letter-spacing: .08em;
+  text-transform: uppercase; color: var(--muted); }
+.models-modal .dlg-title { margin: 4px 0 0; font: 760 24px/1.15 var(--sans); font-stretch: 86%; letter-spacing: -.015em;
+  text-transform: none; color: var(--text); }
+.dlg-sub { margin: 4px 0 0; color: var(--muted); font-size: var(--fs-sm); }
+.dlg-x { flex: none; display: inline-flex; align-items: center; justify-content: center; width: var(--ctl-h); height: var(--ctl-h);
+  margin: -4px -8px 0 0; padding: 0; border: 0; border-radius: var(--r-sm); background: none; color: var(--muted);
+  line-height: 1; cursor: pointer; }
+.dlg-x .ph { width: 18px; height: 18px; }
+.models-card.dlg:focus { outline: none; }
+.dlg-x:hover { background: var(--panel-2); color: var(--text); }
+.dlg-x:focus-visible { outline: none; box-shadow: var(--ring); }
+.dlg-body { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 20px 24px 24px; }
+.dlg-foot { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 24px; border-top: 1px solid var(--border); background: var(--bg-2); }
+.dlg-foot-r { display: flex; gap: 10px; margin-left: auto; }
+.dlg .ghost-btn, .dlg a.primary, .dlg button.primary {
+  display: inline-flex; align-items: center; gap: 6px; width: auto; flex: none; height: var(--ctl-h); padding: 0 14px;
+  font: 600 var(--fs-sm)/1 var(--sans); text-decoration: none; white-space: nowrap; cursor: pointer; }
+.dlg .ghost-btn { border: 1px solid var(--border); }
+.dlg .ghost-btn:hover { border-color: var(--border-strong); background-color: var(--panel-2); }
+.dlg-sec + .dlg-sec { margin-top: 28px; }
+.dlg-sec-h { margin-bottom: 12px; }
+.dlg-lead { max-width: 68ch; margin: 0 0 16px; color: var(--muted); }
+.dlg-p { max-width: 68ch; margin: 12px 0 0; color: var(--muted); }
+.dlg-link { color: var(--text); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: .2em; white-space: nowrap; }
+.dlg-link:hover { text-decoration-color: var(--text); }
+.dlg-fig { margin: 0; min-width: 0; }
+.dlg-media { display: block; width: 100%; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--v2-stage); object-fit: contain; }
+.dlg-fig-pro .dlg-media { border-color: var(--pro-edge); }
+.dlg-fig figcaption { display: grid; gap: 2px; margin-top: 8px; font-size: var(--fs-sm); line-height: 1.45; color: var(--muted); }
+.dlg-fig figcaption strong { color: var(--text); font-weight: 600; }
+.dlg-fig figcaption > span { max-width: 68ch; }
+@media (max-width: 720px) {
+  .models-card.dlg, .models-card.dlg.dlg-lg { width: 100%; max-height: 100%; height: 100%; border: 0; border-radius: 0; }
+  .dlg-head, .dlg-body, .dlg-foot { padding-left: 16px; padding-right: 16px; }
+}
+
+/* What's new (whats_new.js), inside the dialog shell: the release hero, how-to clips, the lines for everyone, and
+   the set-apart Pro panel. */
+.wn-wrap { z-index: 9000; }
+.wn-hero { margin: 0; }
+.wn-item-title { margin: 0; font: 600 var(--fs-md)/1.35 var(--sans); color: var(--text); text-transform: none; }
+.wn-hero .dlg-lead { margin: 4px 0 16px; }
+.wn-vert { display: grid; grid-template-columns: minmax(0, 16fr) auto minmax(0, 9fr) minmax(0, 9fr); gap: 16px; align-items: center; }
+.wn-vfig-wide .dlg-media { aspect-ratio: 16 / 9; object-fit: cover; }
+.wn-vfig-tall .dlg-media { aspect-ratio: 9 / 16; object-fit: cover; }
+.wn-varrow { color: var(--muted); font-size: 20px; }
+.wn-how-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.wn-how-row .dlg-media { width: auto; max-width: 100%; height: min(440px, 52vh); }   /* the clips are 704x768: the frame hugs them */
+.wn-list { list-style: none; margin: 0; padding: 0; }
+.wn-list li { display: flex; align-items: baseline; padding: 12px 0; border-top: 1px solid var(--border); }
+.wn-list li:first-child { border-top: 0; padding-top: 0; }
+.wn-list li:last-child { padding-bottom: 0; }
+.wn-list li.wn-has-media { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: center; }
+.wn-text { max-width: 68ch; }
+.wn-pro { padding: 20px; border: 1px solid var(--pro-edge); border-radius: var(--r-md); background: var(--pro-bg); }
+.wn-pro .dlg-sec-h { color: var(--pro-ink); }
+.wn-pro .wn-list li { border-top-color: var(--pro-edge); }
+.wn-pro .dlg-fig { margin-top: 16px; }
+.wn-pro .dlg-media { aspect-ratio: 1280 / 402; }
+.wn-pro-ask { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--pro-edge); }
+.wn-pro-ask .dlg-p { flex: 1 1 320px; margin: 0; }
+.wn-thanks { margin: 0 0 12px; color: var(--muted); }
+.wn-rels { list-style: none; margin: 0; padding: 0; }
+.wn-rel { padding: 16px 0; border-top: 1px solid var(--border); }
+.wn-rel:first-child { border-top: 0; padding-top: 0; }
+.wn-rel-h { display: flex; align-items: baseline; gap: 12px; }
+.wn-rel-h strong { font-size: var(--fs-md); font-weight: 600; }
+.wn-rel-h time { color: var(--muted); font-size: var(--fs-xs); }
+.wn-rel ul { list-style: none; margin: 8px 0 0; padding: 0; }
+.wn-rel li { display: flex; align-items: baseline; margin: 4px 0; color: var(--muted); max-width: 68ch; }
+.wn-rel .dlg-media { width: min(420px, 100%); margin-top: 12px; }
+.wn-earlier-more { margin: 20px 0 0; }
+@media (max-width: 720px) {
+  .wn-vert { grid-template-columns: 1fr 1fr; gap: 12px; }
+  .wn-vfig-wide { grid-column: 1 / -1; }
+  .wn-varrow { display: none; }
+  .wn-how-row, .wn-list li.wn-has-media { grid-template-columns: 1fr; }
+}
+/* A quiet line under the player after a feature is used (verticalHintUpdate, queue.js): once, dismissable. */
+.feature-hint { position: relative; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 8px 0 0; padding: 8px 8px 8px 12px;
+  border: 1px solid var(--pro-edge); border-radius: var(--r-sm); background: linear-gradient(var(--pro-bg), var(--pro-bg)), var(--panel);
+  color: var(--text); font-size: var(--fs-xs); line-height: 1.45; }
+.feature-hint[hidden] { display: none; }
+.feature-hint-text { flex: 1 1 260px; }
+.feature-hint .ghost-btn { width: auto; flex: none; display: inline-flex; align-items: center; gap: 6px; height: var(--ctl-h-sm); padding: 0 10px;
+  font-size: var(--fs-xs); text-decoration: none; }
+.feature-hint .ghost-btn[hidden] { display: none; }
+.feature-hint .dlg-x { width: var(--ctl-h-sm); height: var(--ctl-h-sm); margin: 0; }
+.feature-hint .dlg-x .ph { width: 16px; height: 16px; }
+/* The player's More menu: room for "Make it vertical (AI fill)" and its tag on one line where the player is wide
+   enough to hold it; in a narrow window the menu keeps its own width and the label wraps beside the tag. */
+@media (min-width: 1100px) {
+  #playerMorePop { min-width: 264px; }
+  #playerMorePop button { white-space: nowrap; }
+}
 /* Pro at the right moment: one quiet line under a finished Free render. */
 .row-list li.pro-hint-row { display: flex; align-items: center; gap: 10px; padding: 2px 12px 8px; margin-top: -4px;
   background: none; border: 0; font-size: 13px; color: #8e8e96; }

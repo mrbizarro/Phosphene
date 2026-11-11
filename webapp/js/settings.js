@@ -1601,8 +1601,15 @@ function openProModal(opener = null) {
     _uiEvent('pro_click', {where: oid === 'proBtn' ? 'topbar' : oid === 'rmWaitSettings' ? 'remote_hint' : 'feature_gate', action: 'open'});
   }
   modal.style.display = 'flex';
+  proFeatureListRender();
   proLicenceLoad();
-  modal.querySelector('button').focus();
+  // Media in a dialog plays muted on a loop while it is open, like What's new (none of it with reduced motion).
+  const vid = document.getElementById('proCompareVideo');
+  if (vid) {
+    if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) vid.controls = true;
+    else vid.play().catch(() => {});
+  }
+  (modal.querySelector('.dlg') || modal.querySelector('button')).focus({preventScroll: true});
 }
 // The PRO mark: one GET /pro/status at boot. Free is the default state of the page; nothing nags.
 async function proStatusRefresh() {
@@ -1619,7 +1626,110 @@ async function proStatusRefresh() {
   // (Remote's components and renewal while the app is closed need it).
   if (btn) { btn.hidden = isMacApp(); btn.textContent = active ? 'Licence' : 'Pro'; }
   if (mark) { mark.hidden = !active; mark.textContent = active && st.label ? st.label : 'Pro'; }
+  proMarksApply();
   return st;
+}
+
+// ---- What Pro turns on, shown where it applies ---------------------------------------------------
+// One list, in the Pro ledger's own words (pro/ledger.json, features[].description), of the Pro rows that are
+// live in this Studio build. Not listed: rows the ledger calls "not available yet", test switches, prototypes,
+// anything going Free. AI fill has no ledger row yet; its words are the 5.0.16 release notes.
+// Display text only. Whether a feature runs is decided where it runs, from the signed licence.
+const PRO_FEATURES = [
+  { id: 'h3-flex-turbo', name: 'Faster Flex Turbo',
+    line: 'Flex Turbo renders about 1.5× faster than Flex on Free (M4 Max 64 GB; Macs with 36 GB or more). A little softer; for drafts.',
+    short: 'about 1.5× faster than Flex on Free. A little softer; for drafts.',
+    where: 'Model menu, Faster Flex Turbo (needs Hailuo H3)' },
+  { id: 'ph3-image-fast-pro', name: 'Faster Fast mode in Images',
+    line: 'A quicker Fast mode for P-H3-Image: about 22 s for the next picture on a 64 GB M4 Max, at a smaller size. Free keeps its own 56 s default.',
+    short: 'Fast makes the next picture in about 22 s on a 64 GB M4 Max, at a smaller size. Free keeps its own 56 s default.',
+    where: 'Images, P-H3-Image, Version Fast' },
+  { id: 'vertical-ai-fill', name: 'Make it vertical (AI fill)',
+    line: 'AI paints real picture above and below, as if the clip was shot tall. For Macs with 48 GB or more.',
+    short: 'AI paints real picture above and below. For Macs with 48 GB or more.',
+    where: 'More, on any finished clip' },
+  { id: 'remote', name: 'Remote Control',
+    line: 'Start and watch renders from the free Phosphene Remote app on your iPhone while your Mac does the work. The app is free; a Pro licence unlocks it.',
+    short: 'start and watch renders from the free Phosphene Remote app on your iPhone.',
+    where: 'Remote Control, in the left bar' },
+];
+// Not a feature with a spot of its own, so only the two lists carry it.
+const PRO_SUPPORT = { name: 'Priority support', line: 'Pro questions and feature requests go to the front of the queue.' };
+const proFeature = id => PRO_FEATURES.find(f => f.id === id) || null;
+const proIsOn = () => !!document.documentElement.dataset.pro;
+// The words a spot shows, for who is looking: a Pro member is told it is on, a Free user what Pro adds.
+const proLeadText = on => on ? 'On with your Pro:' : 'Pro adds:';
+function proSpotText(id, on = proIsOn()) {
+  const f = proFeature(id);
+  if (!f) return '';
+  return proLeadText(on) + ' ' + f.short;
+}
+// The same sentence as markup: the lead in Pro violet (.pro-lead), the rest in the line's own colour.
+function proNoteHtml(text) {
+  const m = /^(Pro adds:|On with your Pro:)\s*/.exec(String(text || ''));
+  if (!m) return escapeHtml(String(text || ''));
+  return `<span class="pro-lead">${m[1]}</span> ` + escapeHtml(text.slice(m[0].length));
+}
+// Every [data-pro-feature] spot: a chip reads "Pro" for Free and "Pro ✓" for a member, with the line as its
+// tooltip; a hint line (.pro-spot) shows the sentence, and data-pro-when="selectId=value" shows it only then.
+function proMarksApply(root = document) {
+  const on = proIsOn();
+  root.querySelectorAll('[data-pro-feature]').forEach(el => {
+    const f = proFeature(el.dataset.proFeature);
+    if (!f) return;
+    const text = proSpotText(f.id, on);
+    if (el.classList.contains('pro-spot')) {
+      el.innerHTML = proNoteHtml(text);
+      const w = (el.dataset.proWhen || '').split('=');
+      const sel = w[0] ? document.getElementById(w[0]) : null;
+      el.hidden = !!(sel && sel.value !== w[1]);
+    } else {
+      el.textContent = on ? 'Pro ✓' : 'Pro';
+      el.classList.toggle('pro-on', on);
+      el.title = text;
+    }
+  });
+}
+document.addEventListener('change', e => {
+  if (e.target && e.target.id && document.querySelector(`[data-pro-when^="${e.target.id}="]`)) proMarksApply();
+});
+function proFeatureListHtml() {
+  const on = proIsOn();
+  const item = f => `<li><p class="pro-feature-name">${escapeHtml(f.name)}${f.id ? `<span class="pro-tag${on ? ' pro-on' : ''}">${on ? 'Pro ✓' : 'Pro'}</span>` : ''}</p>`
+    + `<p class="pro-feature-line">${escapeHtml(f.line)}</p>`
+    + (f.where ? `<p class="pro-feature-where">Where: <b>${escapeHtml(f.where)}</b></p>` : '') + '</li>';
+  return '<ul class="pro-feature-list">' + PRO_FEATURES.map(item).join('') + item(PRO_SUPPORT) + '</ul>';
+}
+let proVersion = '';
+function proFeatureListRender() {
+  if (!proVersion) {   // asked once, the first time a list opens (the version pill reads the same route)
+    proVersion = ' ';
+    fetch('/version', { cache: 'no-store' }).then(r => r.json())
+      .then(v => { proVersion = (v && v.local_version) || ' '; proFeatureListRender(); }).catch(() => {});
+  }
+  const ver = proVersion.trim();
+  const on = proIsOn();
+  const title = document.getElementById('yourProTitle');
+  if (title) title.textContent = on ? 'Your Pro' : 'What Pro turns on';
+  const lead = document.getElementById('yourProLead');
+  if (lead) lead.textContent = on
+    ? 'Your licence turns these on' + (ver ? ' in Phosphene ' + ver : '') + '.'
+    : 'A Pro licence turns these on' + (ver ? ' in Phosphene ' + ver : '') + '. Everything else stays free.';
+  const buy = document.getElementById('yourProBuy');
+  if (buy) buy.hidden = on;
+  ['yourProList', 'proFeatureList'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = proFeatureListHtml(); });
+}
+function openYourPro(ev) {
+  if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+  const modal = document.getElementById('yourProModal');
+  if (!modal || modal.style.display !== 'none') return;
+  proFeatureListRender();
+  modal.style.display = 'flex';
+  modal.querySelector('.dlg').focus({preventScroll: true});
+}
+function closeYourPro() {
+  const modal = document.getElementById('yourProModal');
+  if (modal) modal.style.display = 'none';
 }
 // Settings > Pro on Pinokio: the Studio takes the licence key itself (pro_licence.py).
 function proLicenceShow(doc) {
@@ -1659,12 +1769,14 @@ const proLicenceRefresh = () => proLicencePost('/pro/refresh');
 const proLicenceDeactivate = () => proLicencePost('/pro/deactivate');
 function closeProModal() {
   document.getElementById('proModal').style.display = 'none';
+  const vid = document.getElementById('proCompareVideo'); if (vid) vid.pause();
   if (proReturnFocus && proReturnFocus.isConnected) proReturnFocus.focus();
 }
 
 Object.assign(globalThis, {
   downloadFirstVideo,
   openProModal, closeProModal, proStatusRefresh,
+  openYourPro, closeYourPro, proMarksApply, proSpotText, proNoteHtml,
   proLicenceActivate, proLicenceRefresh, proLicenceDeactivate,
   pushSubscription, pushToggle, pushTest,
   appearanceGet, applyAppearance, setAppearance,

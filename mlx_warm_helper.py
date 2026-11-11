@@ -931,6 +931,44 @@ def _lora_fingerprint(loras: list[dict] | None) -> tuple:
 
 
 
+def _hf_unreachable_message(repo: str, exc: BaseException) -> str | None:
+    """A plain sentence when a first-use Hugging Face download failed because
+    the network did, else None.
+
+    Fleet 11 Nov 2026 (fw-20261110-1411): one Mac's Control renders failed five
+    times as "Got: ConnectTimeout: [Errno 60] Operation timed out". Control
+    downloads its Union-Control IC-LoRA on first use when the installer's copy
+    is not on disk; huggingface_hub wraps the network failure in a
+    LocalEntryNotFoundError (an OSError) whose first line is its own "Got:
+    <class>: <text>", and that line reached the card as the whole reason. The
+    user is told what is being fetched, why it failed, and what to do."""
+    seen, chain = set(), []
+    e = exc
+    while e is not None and id(e) not in seen:
+        seen.add(id(e))
+        chain.append(e)
+        e = e.__cause__ or e.__context__
+    names = " ".join(type(x).__name__ for x in chain).lower()
+    text = " ".join(str(x) for x in chain).lower()
+    if "outgoing traffic has been disabled" in text or "offlinemodeisenabled" in names:
+        why = "downloads are switched off on this Mac (HF_HUB_OFFLINE is set)"
+    elif "timeout" in names or "timed out" in text or "errno 60" in text:
+        why = "the connection timed out"
+    elif any(k in text for k in ("nodename nor servname", "name or service not known",
+                                 "errno 8", "getaddrinfo", "network is unreachable",
+                                 "errno 51", "no route to host")):
+        why = "this Mac is offline or could not find huggingface.co"
+    elif ("connecterror" in names or "connectionerror" in names
+          or "connection refused" in text or "connection reset" in text
+          or text.lstrip().startswith("got: ")):
+        why = "the connection to huggingface.co failed"
+    else:
+        return None
+    return (f"Phosphene could not download {repo} from Hugging Face: {why}. "
+            "This render needs it once and keeps it afterwards. Check that this Mac "
+            "is online and can open huggingface.co, then make the clip again.")
+
+
 def _resolve_lora_path(path: str) -> str:
     """Resolve a LoRA path to a local .safetensors file.
 
@@ -977,6 +1015,9 @@ def _resolve_lora_path(path: str) -> str:
             raise FileNotFoundError(
                 f"LoRA file not found: {p} — it is not on disk and it is not a Hugging Face "
                 f"repo id. It was probably moved or deleted after it was picked; pick it again.") from exc
+        unreachable = _hf_unreachable_message(p, exc)
+        if unreachable:
+            raise RuntimeError(unreachable) from exc
         raise
     except GatedRepoError as exc:
         # Most Lightricks LoRAs are gated — they require accepting a
@@ -1003,6 +1044,9 @@ def _resolve_lora_path(path: str) -> str:
         # repo" (GatedRepoError). The string-match keeps both paths
         # consistent for the user.
         msg = str(exc)
+        unreachable = _hf_unreachable_message(p, exc)
+        if unreachable:
+            raise RuntimeError(unreachable) from exc
         if "401" in msg or "gated" in msg.lower():
             raise RuntimeError(
                 f"Could not access HF LoRA {p} (401 Unauthorized). "

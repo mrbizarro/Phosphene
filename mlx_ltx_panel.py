@@ -3616,6 +3616,53 @@ def _caption_declared_trigger(text: str) -> str | None:
     return first or None
 
 
+_CAPTION_TRIGGER_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_-]{1,39}")
+
+
+def _caption_retrigger(caption_files: list[Path], trigger: str) -> str | None:
+    """Rename the trigger in a caption set written for ANOTHER trigger, and
+    return the old one; None (nothing written) when the set is not that.
+
+    Fleet 10-11 Nov 2026 (fw-20261110-1411): "training stopped: caption_check"
+    on 3 Macs. The Train tab's flow makes it: Auto-caption writes
+    `[VISUAL]: <trigger>, ...` with the word in the field AT THAT MOMENT (the
+    suggested `xyztrn`), the user then types the name they want and presses
+    Start, and every caption now names the other word. The #62 guard refused
+    that run and told the user to delete a captions/ folder the Mac app never
+    shows them. What the user meant is not in doubt: the captions describe
+    these photos and the job names the word, so the word is swapped.
+
+    Only for the unambiguous shape: EVERY file in the canonical
+    `[VISUAL]: <token>,` form (what Auto-caption and the panel's fallback
+    write) and every file naming the SAME single-word token. Free-form or
+    mixed captions still go to the refusal, where a person has to look."""
+    texts: list[tuple[Path, str]] = []
+    old: str | None = None
+    for cap in caption_files:
+        try:
+            text = cap.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        m = re.match(r"\s*\[VISUAL\]:\s*([^\s,]+)\s*,", text)
+        if not m or not _CAPTION_TRIGGER_TOKEN.fullmatch(m.group(1)):
+            return None
+        tok = m.group(1)
+        if old is None:
+            old = tok
+        elif tok.lower() != old.lower():
+            return None
+        texts.append((cap, text))
+    if not old or old.lower() == trigger.lower():
+        return None
+    word = re.compile(r"(?<![A-Za-z0-9_-])" + re.escape(old) + r"(?![A-Za-z0-9_-])", re.I)
+    for cap, text in texts:
+        try:
+            cap.write_text(word.sub(lambda _m: trigger, text), encoding="utf-8")
+        except OSError:
+            return None
+    return old
+
+
 def _caption_trigger_mismatches(
     caption_files: list[Path], trigger: str
 ) -> tuple[list[str], tuple[str, int] | None]:
@@ -25941,6 +25988,7 @@ def list_outputs(
         engine = None
         model = None          # which weights made this clip (sidecar-derived)
         h3_tier = None
+        vertical_fill = None  # "blur" / "ai" on a Make it vertical copy (its hint under the player), else None
         render_mode = None    # sidecar params.mode ("a2v", "t2v", "keyframe", …); VA-36
         lipsync_score = None  # a2v's own mouth-vs-voice verdict, when scored; VA-14
         windows_partial = None  # {"completed", "total"} when this is a partial windows join; VA-38
@@ -26035,6 +26083,8 @@ def list_outputs(
                 _rmode = _sc_params.get("mode")
                 if isinstance(_rmode, str) and _rmode:
                     render_mode = _rmode
+                if _sc_params.get("vertical_export_fill") in ("blur", "ai"):
+                    vertical_fill = _sc_params["vertical_export_fill"]
                 # VA-14: the lip-sync verdict, when this clip has one
                 # (a2v only — see run_job_inner's a2v branch). A rough
                 # check, never a gate: the player shows it as a chip,
@@ -26168,6 +26218,8 @@ def list_outputs(
             "mode": out_mode,
             # The Pro speed receipt (write_sidecar stamps it only when a Pro profile ran); None on Free renders.
             "pro": pro_receipt_meta,
+            # Make it vertical: which fill made this copy ("blur" / "ai"), None for every other clip.
+            "vertical": vertical_fill,
             # Storyboard provenance, or None. One badge on the card, one click
             # back to the film it belongs to — and invisible for every clip
             # that isn't part of one.
@@ -39779,7 +39831,13 @@ def run_train_job_inner(job: dict) -> None:
             other_desc = (f"; the dominant one instead is {other[0]!r} "
                           f"({other[1]}/{len(mismatched)} mismatched files)"
                           if other else "")
-            if len(mismatched) == len(user_cap_files):
+            renamed_from = (_caption_retrigger(user_cap_files, trigger)
+                            if len(mismatched) == len(user_cap_files) else None)
+            if renamed_from:
+                push(f"[train] the captions were written for the trigger {renamed_from!r}; "
+                     f"renamed it to {trigger!r} in all {len(user_cap_files)} caption files "
+                     "so the LoRA answers to the word this job was started with.")
+            elif len(mismatched) == len(user_cap_files):
                 job["train_error"], job["train_stage"] = "caption_check", "caption"
                 raise RuntimeError(
                     f"none of the {len(user_cap_files)} existing caption files "
@@ -39790,10 +39848,11 @@ def run_train_job_inner(job: dict) -> None:
                     f"LoRA that never responds to {trigger!r} — delete or "
                     "regenerate captions/ for this trigger before retrying."
                 )
-            push(f"[train] WARNING: {len(mismatched)} / {len(user_cap_files)} "
-                 f"existing caption files do not contain the trigger "
-                 f"{trigger!r}{other_desc}. Proceeding, but the resulting "
-                 "LoRA may only partially respond to the intended trigger.")
+            else:
+                push(f"[train] WARNING: {len(mismatched)} / {len(user_cap_files)} "
+                     f"existing caption files do not contain the trigger "
+                     f"{trigger!r}{other_desc}. Proceeding, but the resulting "
+                     "LoRA may only partially respond to the intended trigger.")
 
     # Output path for the trained LoRA. Going straight into
     # mlx_models/loras/ so the existing picker scan finds it.

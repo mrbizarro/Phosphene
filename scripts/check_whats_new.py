@@ -51,6 +51,12 @@ def check(version: str, doc: dict, pack: dict | None = None) -> list[str]:
     sets = [("whats_new.json", ent)]
     if pack is not None and isinstance(pack.get(version), dict):
         sets.append(("pack whats_new_pro.json", pack[version]))
+    hows = [h for h in (ent.get("how") or []) if isinstance(h, dict)]   # how-to clips: public copy too
+    if hows:
+        sets.append(("whats_new.json", {"free": [h.get("title") or "x" for h in hows]
+                     + [(h.get(k) or {}).get("caption") or "x" for h in hows for k in ("free", "pro") if h.get(k)]}))
+    if isinstance(doc.get("showcase"), dict):   # the standing "What Pro adds" items: public copy too
+        sets.append(("whats_new.json", {"pro": doc["showcase"].get("pro") or []}))
     n = 0
     for src, e in sets:
         for key, text in _lines(e):

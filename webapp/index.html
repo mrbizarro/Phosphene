@@ -169,7 +169,7 @@
     </svg>
     </span>
     <img class="brand-word" src="/assets/phosphene_wordtext.png" alt="Phosphene">
-    <span id="proMark" class="pro-mark" hidden title="Phosphene Pro is active on this Mac">Pro</span>
+    <span id="proMark" class="pro-mark" hidden role="button" tabindex="0" title="Your Pro: what your licence turns on" onclick="openYourPro(event)" onkeydown="if(event.key==='Enter'||event.key===' ')openYourPro(event)">Pro</span>
   </a>
   <!-- The standalone version badge is gone: #versionPill already carries the
        version in EVERY state it can be in — "Up to date · 4.2.0",
@@ -355,7 +355,7 @@
       <button data-workflow="train" role="tab" aria-selected="false"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-user-plus"/></svg>Train Character</button>
       <!-- Remote Control: drive this Mac from the iPhone app. The page is Studio UI; the
            working parts are Pro-only and come from the Pro pack (see panel/routes_remote.py). -->
-      <button data-workflow="remote" role="tab" aria-selected="false"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-remote"/></svg>Remote Control<span class="new-badge">NEW</span><span class="rail-pro" title="Remote Control is part of Pro">Pro</span></button>
+      <button data-workflow="remote" role="tab" aria-selected="false"><svg class="ph wf-icon" aria-hidden="true"><use href="#ph-remote"/></svg>Remote Control<span class="new-badge">NEW</span><span class="rail-pro pro-tag" data-pro-feature="remote" title="Remote Control is part of Pro">Pro</span></button>
     </nav>
     <div class="rail-foot">
       <!-- DOCS. The manual gets a door of its own beside the gear, with a WORD on
@@ -1839,7 +1839,7 @@
           </div>
         </details>
         <div class="engine-credit" id="h3Hint" hidden>
-          <span id="h3Credit">MiniMax H3 · <a href="#" onclick="event.preventDefault(); openLicence('h3', {readOnly: true})">Licence</a></span>
+          <span id="h3Credit"><span id="h3FlexCredit" hidden>H3 Flex by Pika Labs · </span>MiniMax H3 · <a href="#" onclick="event.preventDefault(); openLicence('h3', {readOnly: true})">Licence</a></span>
         </div>
         <!-- The selected cell's honest notes, joined — the mirror of
              #h3TierNote. Empty and hidden when the combination has nothing
@@ -2831,6 +2831,7 @@ The same wizard walks out of frame. Audio: footsteps on leaves."></textarea>
           </div>
         </div>
 
+        <p class="pro-note pro-spot" data-pro-feature="ph3-image-fast-pro" data-pro-when="imgStudioEngine=ph3image_fast_inline" hidden></p>
         <p id="flux3Notice" class="hint" hidden>FLUX 3 Klein by Black Forest Labs. Free. Standard: 16 steps. Base Quality: 50 steps, separate download. Q8 recommended; Q6 uses less memory. 32 GB Mac recommended; 24 GB with small Q4 images and one reference. <button type="button" class="ghost-btn" onclick="openLicence('flux3', {readOnly:true})">FLUX Kommunity licence</button></p>
 
         <div>
@@ -4860,6 +4861,11 @@ The last line"></textarea>
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="4.5" y="1.5" width="7" height="13" rx="1.3" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 6 H11.5 M4.5 10 H11.5" stroke="currentColor" stroke-width="1.2"/></svg>
               Make it vertical
             </button>
+            <button type="button" role="menuitem" class="menu-how" onclick="kebabToggle('playerMorePop',false);openHowClip('make-vertical')"
+                    title="A few seconds showing where Make it vertical is and what you get, Free and Pro">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2"/><path d="M6.6 5.6 L10.6 8 L6.6 10.4 Z" fill="currentColor"/></svg>
+              How Make it vertical works
+            </button>
             <button type="button" role="menuitem" onclick="kebabToggle('playerMorePop',false);verticalExportActive('4:5')"
                     title="Make a 4:5 portrait copy of this clip, with a blurred fill above and below. Free, takes seconds.">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="3.5" y="2.5" width="9" height="11" rx="1.3" stroke="currentColor" stroke-width="1.2"/></svg>
@@ -4873,7 +4879,7 @@ The last line"></textarea>
             <button type="button" role="menuitem" onclick="kebabToggle('playerMorePop',false);verticalExportActive('9:16','ai')"
                     title="Make a 9:16 copy where AI paints real picture above and below instead of a blur. Part of Phosphene Pro, on Macs with 48 GB of memory or more. About 15 minutes for a 5-second clip.">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="4.5" y="1.5" width="7" height="13" rx="1.3" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 6 H11.5 M4.5 10 H11.5" stroke="currentColor" stroke-width="1.2"/><path d="M8 2.6 L8.5 3.9 L9.8 4.4 L8.5 4.9 L8 6.2 L7.5 4.9 L6.2 4.4 L7.5 3.9 Z" fill="currentColor"/></svg>
-              Make it vertical (AI fill) <span class="pro-chip">Pro</span>
+              Make it vertical (AI fill) <span class="pro-tag" data-pro-feature="vertical-ai-fill">Pro</span>
             </button>
             <button type="button" role="menuitem" onclick="kebabToggle('playerMorePop',false);useLastFrameActive()"
                     title="Extract this clip's last frame and start a fresh i2v render from there">
@@ -5071,6 +5077,14 @@ The last line"></textarea>
         <summary>Lyrics <span class="sum" id="songLyricsSum"></span></summary>
         <div class="song-lyrics" id="songLyrics"></div>
       </details>
+    </div>
+    <!-- One quiet line under a Make it vertical copy, shown once (verticalHintUpdate, queue.js): a Free user
+         learns what Pro adds, a Pro member that AI fill is on. Dismissed for good with the x. -->
+    <div class="feature-hint" id="verticalHint" hidden>
+      <span class="feature-hint-text" id="verticalHintText"></span>
+      <button type="button" class="ghost-btn" onclick="openHowClip('make-vertical')">See how</button>
+      <a class="ghost-btn" id="verticalHintPro" href="https://phosphene.video/pricing/#plans" data-utm-campaign="get-pro" data-utm-content="vertical-hint" target="_blank" rel="noopener">See Pro <span aria-hidden="true">↗</span></a>
+      <button type="button" class="dlg-x" aria-label="Do not show this again" title="Do not show this again" onclick="verticalHintDismiss()"><svg class="ph" aria-hidden="true"><use href="#ph-x"/></svg></button>
     </div>
     <!-- Hidden compatibility slot. selectOutput() writes #playerName here
          and toggles display on #playerMeta — both kept so external code
@@ -6852,8 +6866,9 @@ The last line"></textarea>
 </div>
 
 <div id="proModal" class="models-modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="lightsOnTitle" onclick="if(event.target===this)closeProModal()">
-  <div class="models-card pro-card">
-    <div class="pro-toolbar"><span>Phosphene Pro</span><button type="button" class="ghost-btn" onclick="closeProModal()">Close</button></div>
+  <div class="models-card dlg pro-card" tabindex="-1">
+    <header class="dlg-head"><span class="dlg-kicker">Phosphene Pro</span><button type="button" class="dlg-x" aria-label="Close" title="Close" onclick="closeProModal()"><svg class="ph" aria-hidden="true"><use href="#ph-x"/></svg></button></header>
+    <div class="dlg-body">
 <!-- LIGHTS_ON_HEADER_START -->
 <section class="lights-on-header" aria-labelledby="lightsOnTitle">
   <div class="lights-on-wash" aria-hidden="true"></div>
@@ -6889,14 +6904,17 @@ The last line"></textarea>
       <section class="pro-price pro-founding"><h3>Founding (3 years)</h3><p><strong>$199</strong> one-time</p><span>First 200 seats. No renewal; access expires after 3 years (1,095 days). Existing Founding promises are preserved.</span></section>
     </div>
     <section class="pro-compare" id="proCompare" aria-label="Same clip, Free vs Pro">
-      <header><p class="lights-on-eyebrow">SAME CLIP · FREE VS PRO</p><h3 id="proCompareTitle">Hailuo H3 · High · i2v · 5 s</h3><p class="pro-compare-sub" id="proCompareSub">Measured on an M4 Max · 64 GB, seed 4101: Free 14 min 56 s, Pro 10 min 02 s · 1.49×. Faces, motion, speech and sync reviewed equal.</p></header>
-      <div class="pro-compare-player"><video id="proCompareVideo" src="/assets/pro/compare_h3_5s.mp4" poster="/assets/pro/compare_h3_5s.jpg" controls muted loop playsinline preload="metadata"></video></div>
+      <p class="dlg-sec-h">Same clip, Free and Pro</p>
+      <figure class="dlg-fig">
+        <video class="dlg-media" id="proCompareVideo" src="/assets/whats_new/speed_h3_free_vs_pro.mp4" poster="/assets/whats_new/speed_h3_free_vs_pro.jpg" muted loop playsinline preload="metadata" aria-label="The same 5-second clip rendering on Free and on Pro, clocks side by side"></video>
+        <figcaption><strong id="proCompareTitle">A 5-second H3 clip: 14:57 on Free, 10:02 on Pro</strong><span id="proCompareSub">Measured on one M4 Max with 64 GB, same seed. Faces, motion, speech and sync reviewed equal. 10 and 15-second H3 clips render at Free speed for now.</span></figcaption>
+      </figure>
     </section>
-    <div class="pro-benefits">
-      <p><strong>Faster Flex Turbo</strong>A faster way to render Hailuo H3 Flex. Turns on as soon as your licence does.</p>
-      <p><strong>iPhone Remote</strong>Start and watch renders from your iPhone, at home or away.</p>
-      <p><strong>Priority support and feature requests</strong>Pro questions and feature requests go to the front of the queue.</p>
-    </div>
+    <section class="pro-benefits">
+      <!-- What Pro turns on in this version: filled from PRO_FEATURES (settings.js), the same list as Your Pro. -->
+      <p class="dlg-sec-h">What Pro turns on</p>
+      <div id="proFeatureList"></div>
+    </section>
     <section class="pro-licence" id="proLicence" aria-label="Your Pro licence">
       <p class="lights-on-eyebrow">YOUR LICENCE</p>
       <p class="pro-licence-state" id="proLicenceState" role="status"></p>
@@ -6911,7 +6929,32 @@ The last line"></textarea>
       </div>
       <p class="pro-licence-note">One Mac per licence. Phosphene checks it once a day while you are online and keeps working for two weeks without internet. Your licence stays on this Mac if you delete and reinstall Phosphene.</p>
     </section>
-    <div class="pro-bottom"><a class="pro-waitlist" href="https://phosphene.video/pricing/" data-utm-campaign="get-pro" data-utm-content="pro-modal" target="_blank" rel="noopener">Get Pro <span aria-hidden="true">↗</span></a><p>Hardship licences are available on request.<br><a href="mailto:support@phosphene.video">Get in touch</a>.</p></div>
+    <p class="pro-hardship pro-free-only">Hardship licences are available on request. <a class="dlg-link" href="mailto:support@phosphene.video">Get in touch</a>.</p>
+    </div>
+    <footer class="dlg-foot"><div class="dlg-foot-r">
+      <button type="button" class="ghost-btn" onclick="closeProModal()">Close</button>
+      <a class="primary pro-free-only" href="https://phosphene.video/pricing/" data-utm-campaign="get-pro" data-utm-content="pro-modal" target="_blank" rel="noopener">Get Pro <span aria-hidden="true">↗</span></a>
+    </div></footer>
+  </div>
+</div>
+
+<!-- Your Pro (opened from the Pro mark beside the logo): what this licence turns on in this version, one plain
+     line each and where to find it. The list is PRO_FEATURES in settings.js, the same one the Pro window shows. -->
+<div id="yourProModal" class="models-modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="yourProTitle" onclick="if(event.target===this)closeYourPro()">
+  <div class="models-card dlg your-pro-card" tabindex="-1">
+    <header class="dlg-head"><div><span class="dlg-kicker">Phosphene Pro</span><h2 class="dlg-title" id="yourProTitle">Your Pro</h2></div>
+      <button type="button" class="dlg-x" aria-label="Close" title="Close" onclick="closeYourPro()"><svg class="ph" aria-hidden="true"><use href="#ph-x"/></svg></button></header>
+    <div class="dlg-body">
+      <p class="dlg-lead" id="yourProLead"></p>
+      <div id="yourProList"></div>
+    </div>
+    <footer class="dlg-foot">
+      <button type="button" class="ghost-btn" onclick="closeYourPro();openProModal()">Your licence</button>
+      <div class="dlg-foot-r">
+        <button type="button" class="ghost-btn" onclick="closeYourPro()">Close</button>
+        <a class="primary" id="yourProBuy" href="https://phosphene.video/pricing/" data-utm-campaign="get-pro" data-utm-content="your-pro" target="_blank" rel="noopener" hidden>See Pro <span aria-hidden="true">↗</span></a>
+      </div>
+    </footer>
   </div>
 </div>
 
