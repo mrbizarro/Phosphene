@@ -988,7 +988,7 @@ five-tap Qwen3-VL-4B text encoder + connector and a new single-frame ViT image d
 
 `MiniMaxAI/MiniMax-H3-Image` @ 6534ea1c: a 33B DiT (H3 minus audio), six forwards with one fused output head each
 (`pdd_fused_heads.safetensors`), no guidance and no negative prompt, 4 to 16 MP (a request below 4 MP is generated on a
-4 MP canvas and resized back), text to image. Edit with references is a later wave and is NOT declared. Port notes:
+4 MP canvas and resized back), text to image and edit (5.0.19, below). Port notes:
 `ports/minimax-h3-image` in the PM hub.
 
 - Runner: `scripts/generate_h3_image.py PROMPT -o OUT --root <models>/minimax-h3-image --text-dir <ddalcu-q8> --text-config
@@ -1005,6 +1005,18 @@ five-tap Qwen3-VL-4B text encoder + connector and a new single-frame ViT image d
   `h3image_supported()`); the engine pin (`scripts/pinokio/h3_checkout.sh`) has NOT moved and must before this ships.
 - Placeholders until `ports/minimax-h3-image/bench/RESULT.md`: `H3IMAGE_MEASURED_ETA` (seconds per tier) and `H3IMAGE_PEAK_GB` in
   `mlx_ltx_panel.py`. The picker labels, the engine table and the Image Studio estimate all read them.
+
+### MiniMax-H3-Image edit (5.0.19)
+
+- Engine (minimax-h3-mlx `42fdc21`, branch `phosphene/v5.0-image6`): `--reference PATH` (repeatable, up to 16, Picture 1 first)
+  and `--match-reference` (output in Picture 1's shape at `--mp`). References are packed `[text | refs | target]`, one rotary
+  slot each, held at `0.999 * clean + 0.001 * noise` every forward; only the target is stepped. Qwen sees each picture at a
+  1024 px short edge with the release's `Picture n: ` label; the VAE encodes a 1024-2048 px copy cropped top-left to an even
+  16 px grid (the release's own encoder weights, the H3 video encoder architecture). Measured, M4 Max 64 GB: one 2048 px
+  picture at 4 MP = 291 s (text alone 119 s), peak 29.3 GB.
+- Studio: up to 6 pictures (`IMAGE_MAX_REFS_H3IMAGE`), offered only when the installed runner has `--match-reference`
+  (`h3image_edit_supported()`); aspect key `match` = Same as picture. All of it is Free (owner, 12 Nov 2026). The engine pin has NOT moved to `42fdc21`: the branch must be
+  pushed to the engine repo and `scripts/pinokio/h3_checkout.sh` bumped before users get it. Gap table: `docs/H3_IMAGE_GAPS.md`.
 
 ## What H3 does *not* do
 

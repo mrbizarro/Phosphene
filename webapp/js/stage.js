@@ -201,34 +201,128 @@ function imgStudioWireRefSlots() {
 
 const _STUDIO_REF_TAGS = ['Primary', 'Multi-ref', 'Multi-ref'];
 
+// ---- MiniMax-H3-Image edit (5.0.19) ----------------------------------------------------------
+// The model edits Picture 1 by instruction and can take more pictures in the same edit ("Picture 2",
+// "Picture 3", ...). The Studio names the slots that way, grows them up to the server's cap
+// (image_max_refs, 6) and offers "Same as picture" as the shape. All of it is Free (owner, 12 Nov 2026).
+const H3IMG_FIXED_SLOTS = 3;
+const _imgStudioIsH3 = () => ((document.getElementById('imgStudioEngine') || {}).value || '').startsWith('h3image');
+const _imgStudioRefCount = () => IMG_STUDIO.refs.filter(r => r && r.path).length;
+function _imgStudioH3Cap() {
+  const info = (typeof _IMG_ENGINE_STATUS === 'object' && _IMG_ENGINE_STATUS)
+    ? _IMG_ENGINE_STATUS[(document.getElementById('imgStudioEngine') || {}).value] : null;
+  return (info && typeof info.max_refs === 'number') ? info.max_refs : 0;
+}
+// More slots for H3-Image: always one empty slot after the last picture, up to the cap.
+function imgStudioSyncSlots() {
+  const grid = document.getElementById('imgStudioRefs');
+  if (!grid) return;
+  const cap = _imgStudioIsH3() ? _imgStudioH3Cap() : 0;
+  let lastFilled = -1;
+  IMG_STUDIO.refs.forEach((r, i) => { if (r && r.path) lastFilled = i; });
+  const want = Math.max(H3IMG_FIXED_SLOTS, Math.min(cap, lastFilled + 2), lastFilled + 1);
+  while (IMG_STUDIO.refs.length < want) IMG_STUDIO.refs.push(null);
+  let slots = grid.querySelectorAll('.studio-ref-slot');
+  for (let i = slots.length; i < want; i++) {
+    const el = document.createElement('div');
+    el.className = 'studio-ref-slot';
+    el.dataset.slot = String(i);
+    grid.appendChild(el);
+  }
+  slots = grid.querySelectorAll('.studio-ref-slot');
+  for (let i = slots.length - 1; i >= want; i--) {
+    if (!(IMG_STUDIO.refs[i] && IMG_STUDIO.refs[i].path)) { slots[i].remove(); IMG_STUDIO.refs.length = i; }
+  }
+  grid.classList.toggle('many', want > H3IMG_FIXED_SLOTS);
+  const fresh = Array.from(grid.querySelectorAll('.studio-ref-slot')).filter(el => el.dataset.wired !== '1');
+  if (fresh.length) imgStudioWireRefSlots();
+}
+// "Same as picture" is the shape of an H3-Image edit: offered only then, picked by default once.
+function imgStudioSyncAspect() {
+  const sel = document.getElementById('imgStudioAspect');
+  const opt = document.getElementById('imgStudioAspectMatch');
+  if (!sel || !opt) return;
+  const offer = _imgStudioIsH3() && _imgStudioH3Cap() > 0 && _imgStudioRefCount() > 0;
+  opt.hidden = !offer;
+  opt.disabled = !offer;
+  if (offer && !IMG_STUDIO.matchOffered) {
+    IMG_STUDIO.matchOffered = true;
+    IMG_STUDIO.aspectBeforeMatch = sel.value;
+    sel.value = 'match';
+  } else if (!offer) {
+    if (sel.value === 'match') sel.value = IMG_STUDIO.aspectBeforeMatch || '16:9';
+    IMG_STUDIO.matchOffered = false;
+  }
+}
+// Open a finished picture in Images as Picture 1 (the player's "Edit this").
+function imgStudioEditPicture(path) {
+  if (!path) return;
+  if (typeof setMode === 'function') setMode('image');
+  const eng = document.getElementById('imgStudioEngine');
+  const status = (typeof _IMG_ENGINE_STATUS === 'object' && _IMG_ENGINE_STATUS) || {};
+  const h3 = Object.keys(status).find(k => k.startsWith('h3image') && status[k].max_refs > 0
+    && status[k].cached && status[k].fits_mac !== false);
+  if (eng && h3 && !eng.value.startsWith('h3image')) {
+    eng.value = 'h3image_draft_inline';
+    eng.dispatchEvent(new Event('change'));
+  }
+  for (let i = 0; i < IMG_STUDIO.refs.length; i++) IMG_STUDIO.refs[i] = null;
+  IMG_STUDIO.refs[0] = { path, name: String(path).split('/').pop() };
+  IMG_STUDIO.matchOffered = false;
+  for (let i = IMG_STUDIO.refs.length - 1; i >= 0; i--) imgStudioRenderSlot(i);
+  const prompt = document.getElementById('imgStudioPrompt');
+  if (prompt) {
+    prompt.value = '';
+    setTimeout(() => { try { prompt.focus(); prompt.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {} }, 60);
+  }
+}
+
+let _imgStudioSyncing = false;
+// The engine changed: slot labels follow it (Picture n for H3-Image) without touching the pictures.
+function imgStudioRenderSlotTag(idx) {
+  const slot = document.querySelector(`.studio-ref-slot[data-slot="${idx}"]`);
+  const tagEl = slot && slot.querySelector('.ref-tag');
+  if (!tagEl) return;
+  const h3 = _imgStudioIsH3() && _imgStudioH3Cap() > 0;
+  const want = h3 ? `Picture ${idx + 1}` : (_STUDIO_REF_TAGS[idx] || `Ref ${idx + 1}`);
+  if (tagEl.textContent !== want) imgStudioRenderSlot(idx);
+}
 function imgStudioRenderSlot(idx) {
   const slot = document.querySelector(
     `.studio-ref-slot[data-slot="${idx}"], .img-ref-slot[data-slot="${idx}"]`);
   if (!slot) return;
   const ref = IMG_STUDIO.refs[idx];
-  const tag = _STUDIO_REF_TAGS[idx] || `Ref ${idx + 1}`;
+  const h3 = _imgStudioIsH3() && _imgStudioH3Cap() > 0;
+  const tag = h3 ? `Picture ${idx + 1}` : (_STUDIO_REF_TAGS[idx] || `Ref ${idx + 1}`);
   if (ref && ref.path) {
     slot.classList.add('has-image');
     slot.innerHTML = `
-      <span class="ref-tag">${tag}</span>
+      <span class="ref-tag${h3 ? ' pic' : ''}">${tag}</span>
       <img src="/image?path=${encodeURIComponent(ref.path)}&w=320" alt="">
       <button class="clear-x" type="button" onclick="imgStudioClearRef(${idx});event.stopPropagation()" title="Remove"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
     `;
   } else {
     slot.classList.remove('has-image');
-    const cta = idx === 0
+    const cta = h3
+      ? (idx === 0 ? 'Drop · click<br>picture to edit' : 'Drop · click<br>add a picture')
+      : idx === 0
       ? 'Drop · click<br>character'
       : (idx === 1 ? 'Drop · click<br>place' : 'Drop · click<br>style');
     slot.innerHTML = `
-      <span class="ref-tag">${tag}</span>
+      <span class="ref-tag${h3 ? ' pic' : ''}">${tag}</span>
       <div class="ref-empty">
         <div class="ref-icon"><svg class="ph" aria-hidden="true"><use href="#ph-image"/></svg></div>
         <div class="ref-cta">${cta}</div>
       </div>
     `;
   }
+  if (!_imgStudioSyncing) {
+    _imgStudioSyncing = true;
+    try { imgStudioSyncSlots(); imgStudioSyncAspect(); } finally { _imgStudioSyncing = false; }
+  }
   imgStudioUpdateValidity();
   imgStudioUpdateRefWarning();
+  imgStudioUpdateEstimate();
   // The Ideogram reference-bridge checkbox only appears once a ref exists —
   // re-evaluate its visibility whenever a slot fills or clears.
   if (typeof ideoSyncRefBridge === 'function') ideoSyncRefBridge();
@@ -257,6 +351,31 @@ function imgStudioUpdateRefWarning() {
   const prompt = document.getElementById('imgStudioPrompt');
   if (!box) return;
   const refsCount = (IMG_STUDIO.refs || []).filter(r => r && r.path).length;
+  if (_imgStudioIsH3() && _imgStudioH3Cap() > 0) {
+    if (!_imgStudioSyncing) {
+      _imgStudioSyncing = true;
+      try {
+        imgStudioSyncSlots(); imgStudioSyncAspect();
+        IMG_STUDIO.refs.forEach((_, i) => imgStudioRenderSlotTag(i));
+      } finally { _imgStudioSyncing = false; }
+    }
+    if (prompt) {
+      prompt.placeholder = refsCount >= 2
+        ? 'Put the hat from Picture 2 on the man in Picture 1. Keep his face, the light and the background the same.'
+        : refsCount === 1
+        ? 'Make the jacket in Picture 1 bright red. Keep everything else the same.'
+        : 'A long, detailed English description of the whole picture: subject, place, light, lens, mood. Exact text goes in quotes.';
+    }
+    if (refsCount < 1) { box.hidden = true; box.innerHTML = ''; return; }
+    box.hidden = false;
+    box.classList.add('h3-edit-tip');
+    box.innerHTML = `<strong>Editing with MiniMax-H3-Image.</strong> Picture 1 is the one that changes. `
+      + `Say what to change and what to keep. With more pictures, name them: `
+      + `<em>"the hat from Picture 2 on the man in Picture 1"</em>. `
+      + `<a href="#" onclick="openHowClip('h3-image-edit');return false">See how</a>`;
+    return;
+  }
+  box.classList.remove('h3-edit-tip');
   // Also swap the prompt placeholder so the example the user sees in
   // empty state matches the situation. Single-ref / no-ref keep the
   // cinematic-portrait placeholder; 2+ refs swap to a multi-subject
@@ -522,7 +641,15 @@ function imgStudioUpdateEstimate() {
     return;
   }
   const coldStart = info.cold_start_sec || 0;
-  const total = coldStart + safeN * info.sec_per_image;
+  let perImage = info.sec_per_image;
+  // An H3-Image edit adds each picture's own rows to every step. Measured on an M4 Max 64 GB:
+  // one 2048 px picture at Draft (4 MP) = 291 s against 120 s from text, so the picture costs
+  // about as much again as the image itself (a 2048 px picture is as many rows as a 4 MP target).
+  if (eng.startsWith('h3image') && info.megapixels) {
+    const refs = IMG_STUDIO.refs.filter(r => r && r.path).length;
+    perImage = perImage * (1 + 1.4 * refs * Math.min(1, 4 / info.megapixels));
+  }
+  const total = coldStart + safeN * perImage;
   out.textContent = '~' + _imgStudioFmtDuration(total) + (safeN > 1 ? ` · ${safeN} imgs` : '');
   out.classList.remove('dim');
 }
@@ -2124,4 +2251,5 @@ Object.assign(globalThis, {
   // inline-handler targets: generated markup resolves these through the
   // global scope (the v4.9.0 regression, PR #69)
   imgStudioClearRef, openExternal,
+  imgStudioEditPicture, imgStudioSyncAspect,
 });

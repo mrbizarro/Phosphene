@@ -1,6 +1,6 @@
 # Images
 
-The Images tab makes stills. Pick the model first: **Model**, at the top of the column, is the same picker the Video tab uses. Models here: **FLUX.2 [klein]**, the recommended first model, **FLUX 3 Klein**, **Reference Edit**, which reworks an image you give it, **Ideogram 4**, which puts words on a picture, **P-H3-Image**, which makes large photographs and posters from words alone, and **MiniMax-H3-Image**, MiniMax's own image model for detailed scenes from words alone.
+The Images tab makes stills. Pick the model first: **Model**, at the top of the column, is the same picker the Video tab uses. Models here: **FLUX.2 [klein]**, the recommended first model, **FLUX 3 Klein**, **Reference Edit**, which reworks an image you give it, **Ideogram 4**, which puts words on a picture, **P-H3-Image**, which makes large photographs and posters from words alone, and **MiniMax-H3-Image**, MiniMax's own image model for detailed scenes from words, which also edits your pictures.
 
 ## Choosing the model {#engines}
 
@@ -11,7 +11,7 @@ The Images tab makes stills. Pick the model first: **Model**, at the top of the 
 | **Reference Edit** | changing a picture you give it: a background, an outfit, several references combined | Fast (4 steps, about 1:20), Standard (8 steps, about 2:05, no LoRA), Quality (40 steps, about 3:50, for final renders) |
 | **Ideogram 4** | text in the image, placed where you want it, with an optional reference | one |
 | **P-H3-Image** | big photographs, film frames and posters from text, words spelled right; about 2.5 min at 4 MP | Draft, Standard, High |
-| **MiniMax-H3-Image** | detailed pictures from a long, descriptive prompt, 4 to 16 megapixels; preview | Draft (4 MP), Standard (8 MP), High (16 MP) |
+| **MiniMax-H3-Image** | detailed pictures from a long, descriptive prompt, 4 to 16 megapixels, and edits of your pictures; preview | Draft (4 MP), Standard (8 MP), High (16 MP) |
 
 The model's versions sit in **Version**, under the prompt; a model with one version just names it there. Phosphene remembers the version you last used for each model.
 
@@ -77,7 +77,7 @@ Choose **P-H3-Image** under **Model**, then a size in **Version**:
 
 ## MiniMax-H3-Image — MiniMax's own image model {#minimax-h3-image}
 
-MiniMax-H3-Image is the image model of the H3 family, made by MiniMax. It makes one picture from a text prompt in 6 steps, with nothing to tune: no guidance setting and no negative prompt. It follows a long, detailed English description of the whole picture best (who, where, light, lens, any quoted words), so write the prompt as a paragraph rather than a list of tags. It is a preview: text to image only, and anything in the reference slots is ignored. Editing a picture with references comes later.
+MiniMax-H3-Image is the image model of the H3 family, made by MiniMax. It makes one picture from a text prompt in 6 steps, with nothing to tune: no guidance setting and no negative prompt. It follows a long, detailed English description of the whole picture best (who, where, light, lens, any quoted words), so write the prompt as a paragraph rather than a list of tags. It is a preview. It also edits pictures you give it: see [Edit a picture](#minimax-h3-image-edit) below.
 
 Choose **MiniMax-H3-Image** under **Model**, then a size in **Version**:
 
@@ -90,5 +90,16 @@ Choose **MiniMax-H3-Image** under **Model**, then a size in **Version**:
 **Aspect** sets the shape; the size comes from the choice. A request below 4 megapixels is made on a 4 megapixel canvas and scaled back down, so it costs the same as Draft. The time for each choice is shown in the **Version** list; those are estimates until they have been measured on your Mac, and they follow your own renders after two. It needs a Mac with plenty of memory; Phosphene tells you if yours is too small.
 
 **First use.** It shares the text encoder of the Hailuo H3 video pack, so install Hailuo H3 first. Then the chip next to **Version** reads *download ~66 GB*: click it. Phosphene shows the MiniMax-H3-Image licence, then downloads the original files from MiniMaxAI at a pinned version, checks every file, and converts them on your Mac one piece at a time. It needs about 30 GB free on the disk while it prepares, and keeps about 21 GB. The chip says *ready* when it is done. If it reads *update the H3 runner*, update Hailuo H3 first (your weights stay).
+
+### Edit a picture with MiniMax-H3-Image {#minimax-h3-image-edit}
+
+Drop a picture into **Picture 1** and say what to change: *"Make the clay in Picture 1 bright blue. Keep the hands, the light and the framing the same."* Picture 1 is the one that changes. Say what should stay as well as what should change; the model follows long, plain sentences best.
+
+- **More pictures.** When Picture 1 is filled, another slot appears, up to **Picture 6**. Name them in the prompt: *"Put the hat from Picture 2 on the man in Picture 1."*
+- **Shape.** While editing, **Aspect** starts on **Same as picture**: the result keeps the shape of Picture 1. Pick any other shape to reframe it; the model fills the new area.
+- **Edit this picture.** On any finished picture, **More**, then **Edit this picture**, opens it here as Picture 1, so you can keep changing it.
+- **Time.** Each picture adds to every step. One picture at Draft took about 5 minutes on an M4 Max with 64 GB (text alone takes about 2); the estimate next to **Version** counts your pictures.
+
+Editing is free: one picture, several pictures combined, and changing the shape while editing.
 
 *Powered by MiniMax-H3-Image (MiniMax). Fetched from MiniMaxAI, never re-hosted; the only change made on your Mac is quantising the model to 8 bit and precomputing its timestep tables for the MLX runner, noted inside the files. MiniMax-H3-Image is licensed under the MiniMax-H3-Image Community License Agreement, Copyright (c) 2026 MiniMax. All Rights Reserved.*

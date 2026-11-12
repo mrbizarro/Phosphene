@@ -4966,9 +4966,12 @@ async function remakeInQuality(payload) {
     // (Ideogram, a text-only Qwen) is remade FROM ITSELF, which is what
     // "the same composition at Quality fidelity" means for it.
     if (!refs.length && remakeEngine.startsWith('qwen_edit')) refs = [payload.path];
-    refs.slice(0, IMG_STUDIO.refs.length).forEach((path, i) => {
-      const fname = String(path).split('/').pop();
-      IMG_STUDIO.refs[i] = { path, name: fname };
+    // Up to 6 for a MiniMax-H3-Image edit: the slots grow to fit (imgStudioSyncSlots).
+    refs = refs.slice(0, Math.max(IMG_STUDIO.refs.length, 6));
+    refs.forEach((path, i) => {
+      IMG_STUDIO.refs[i] = { path, name: String(path).split('/').pop() };
+    });
+    refs.forEach((_, i) => {
       if (typeof imgStudioRenderSlot === 'function') imgStudioRenderSlot(i);
     });
   }
@@ -5995,6 +5998,8 @@ function selectOutput(path, options) {
   // …and never on a clip that is already an upscale (owner 2026-09-17).
   if (useUpBtn) useUpBtn.style.display = (isPhoto || isAudio || isUpscaledPath(o && o.path)) ? 'none' : '';
   if (animBtn) animBtn.style.display = isPhoto ? '' : 'none';
+  const editPhotoBtn = document.getElementById('editPhotoBtn');
+  if (editPhotoBtn) editPhotoBtn.style.display = isPhoto ? '' : 'none';
   // "Finish at …" — for a completed H3 or LTX render that has a higher
   // canvas to be committed at (VC-18/37). Decided from o.engine plus either
   // o.h3_tier or o.quality/o.frames — all sidecar-derived, already in the
@@ -6612,6 +6617,12 @@ async function animateActive() {
   if (typeof animateFromPhoto === 'function') {
     animateFromPhoto({path: activePath, prompt: prompt});
   }
+}
+
+// "Edit this" on a photo: Images opens with it as Picture 1 (imgStudioEditPicture, stage.js).
+function editPhotoActive() {
+  if (!activePath) return;
+  if (typeof imgStudioEditPicture === 'function') imgStudioEditPicture(activePath);
 }
 
 // VC-04: Hide used to be a silent one-way door — no toast, no undo, no way
@@ -9568,7 +9579,7 @@ Object.assign(globalThis, {
   lbStep, lbStepIndex, lbCountLabel, lbSwipeDir, lbTogglePlayAll, lbSetPlaying, lbSetImageSec, lbPlayAll,
   lbToggleFullscreen,
   audioUseTargets, audioUseApply, useAudioAsSoundtrack, openAudioUseMenu, closeAudioUseMenu,
-  animateActive, hide, unhide, openOutputsFolder, hideActive,
+  animateActive, editPhotoActive, hide, unhide, openOutputsFolder, hideActive,
   useAsExtendSource, useAsAddSoundSource, addSoundOffer, addSoundFromCard, syncPlayerSoundOffer, useAsUpscaleSource, useAsUpscaleSourcePath, setUpscalePreset,
   faceFixClip, faceFixActive, isUpscaledPath, loadParams, _flashActionDone, closeOutputInfoModal,
   queueSharpExport, sharpExportActive, queueVerticalExport, verticalExportActive, verticalHintDismiss, useLastFramePath, useLastFrameActive,

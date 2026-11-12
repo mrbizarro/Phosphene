@@ -2853,12 +2853,17 @@ The same wizard walks out of frame. Audio: footsteps on leaves."></textarea>
             <div class="mf-cell">
               <span class="mf-label">Aspect</span>
               <select id="imgStudioAspect" onchange="imgStudioUpdateValidity();imgStudioUpdateEstimate();if(typeof ideoApplyAspect==='function')ideoApplyAspect()" style="padding:7px 9px;font-size:13px;">
+                <!-- MiniMax-H3-Image edit: the output takes Picture 1's shape. Shown and picked by
+                     imgStudioSyncAspect() only while an H3-Image version has a picture loaded. -->
+                <option value="match" id="imgStudioAspectMatch" hidden disabled>Same as picture 1</option>
                 <option value="16:9" selected>16:9 — 1280×720</option>
                 <option value="4:3">4:3 — 1024×768</option>
                 <option value="1:1">1:1 — 1024×1024</option>
                 <option value="9:16">9:16 — 720×1280</option>
                 <option value="3:4">3:4 — 768×1024</option>
                 <option value="21:9">21:9 — 1280×544</option>
+                <option value="3:2">3:2 — 1248×832</option>
+                <option value="2:3">2:3 — 832×1248</option>
                 <optgroup label="Smaller — faster, lower RAM">
                   <option value="16:9s">16:9 — 768×432</option>
                   <option value="1:1s">1:1 — 512×512</option>
@@ -4865,6 +4870,15 @@ The last line"></textarea>
             <span class="po-act-label">More</span>
           </button>
           <div class="kebab-pop" id="playerMorePop" role="menu">
+            <!-- Photos only: open this picture in Images as Picture 1 to change it with words
+                 (MiniMax-H3-Image when it is installed, else the version already picked). In the
+                 menu, not the bar: one more button there sheds every label (fitPlayerActions). -->
+            <button type="button" role="menuitem" id="editPhotoBtn" style="display:none"
+                    onclick="kebabToggle('playerMorePop',false);editPhotoActive()"
+                    title="Open this picture in Images as Picture 1 and say what to change">
+              <svg class="ph" width="14" height="14" aria-hidden="true"><use href="#ph-pencil-simple"/></svg>
+              Edit this picture
+            </button>
             <button type="button" role="menuitem" onclick="kebabToggle('playerMorePop',false);sharpExportActive()"
                     title="Re-run the Neural-Engine sharpen (PiperSR) on this clip — a new, crisper file lands next to it">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2 L9.6 6.4 L14 8 L9.6 9.6 L8 14 L6.4 9.6 L2 8 L6.4 6.4 Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" fill="none"/></svg>
@@ -4937,6 +4951,7 @@ The last line"></textarea>
           </svg>
           <span class="po-act-label">Animate</span>
         </button>
+
         <!-- STORYBOARD ONLY. The shot list is the storyboard tab's primary surface and
              the player is a guest on it, so the guest carries the way out — reported by
              cocktailpeanut: "i can't seem to find a way to hide this preview video and
@@ -6921,7 +6936,7 @@ The last line"></textarea>
     <div class="pro-prices" aria-label="Pro pricing">
       <section class="pro-price"><h3>Pro monthly</h3><p><strong>$15</strong> a month</p><span>Cancel any time.</span></section>
       <section class="pro-price"><h3>Pro yearly</h3><p><strong>$120</strong> a year</p><span>Two months free.</span></section>
-      <section class="pro-price pro-founding"><h3>Founding (3 years)</h3><p><strong>$199</strong> one-time</p><span>First 200 seats. No renewal; access expires after 3 years (1,095 days). Existing Founding promises are preserved.</span></section>
+      <section class="pro-price pro-founding"><h3>Founding (3 years)</h3><p><strong>$199</strong> one-time</p><span>First 100 seats. No renewal; access expires after 3 years (1,095 days). Existing Founding promises are preserved.</span></section>
     </div>
     <section class="pro-compare" id="proCompare" aria-label="Same clip, Free vs Pro">
       <p class="dlg-sec-h">Same clip, Free and Pro</p>

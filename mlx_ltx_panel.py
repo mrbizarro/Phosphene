@@ -7400,6 +7400,13 @@ def _repo_host_key(repo: dict) -> str | None:
     mine = str(repo.get("local_dir") or "")
     if not mine:
         return None
+    # A shared adapter folder (mlx_models/loras/...) has siblings, never a host.
+    # 5.0.18 bug: the Upscale & Face Fix IC-LoRA carries publish_scope "files" (for
+    # its mirror sidecars) and sits in mlx_models/loras/ic next to Colorize, so
+    # Colorize was named its host and the row read "Needs Q8" on every Mac without
+    # Colorize, even with both Q8 packs installed. Only model-pack folders host.
+    if mine.replace("\\", "/").startswith("mlx_models/loras"):
+        return None
     for other in _repos():
         if other.get("key") == key or other.get("publish_scope"):
             continue
@@ -16737,6 +16744,20 @@ def h3image_supported() -> bool:
         and (H3_ROOT / "minimax_h3_mlx" / "h3_image.py").is_file()
 
 
+def h3image_edit_supported() -> bool:
+    """Whether the INSTALLED runner edits with reference pictures (engine 42fdc21+, the
+    --match-reference flag). Feature-detected from the runner's text, like h3image_supported, so an
+    install on an older engine pin keeps text to image and never offers reference slots it ignores."""
+    try:
+        return "--match-reference" in _h3image_script().read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+
+def h3image_max_refs() -> int:
+    return IMAGE_MAX_REFS_H3IMAGE if h3image_edit_supported() else 0
+
+
 def h3image_paths() -> dict:
     """What is on disk. The two source files the converter does not touch are checked at their
     exact size (no glob); the converted DiT by its own manifest (every shard named there, present)."""
@@ -16780,7 +16801,8 @@ def h3image_status() -> dict:
         "h3_ready": h3_ready,
         "reason": ("h3_missing" if not h3_ready else "engine_too_old" if not supported
                    else "not_downloaded" if not downloaded else "ok"),
-        "modes": ["t2i"], "forwards": H3IMAGE_FORWARDS, "steps": H3IMAGE_FORWARDS,
+        "modes": ["t2i", "edit"] if h3image_edit_supported() else ["t2i"], "max_refs": h3image_max_refs(),
+        "forwards": H3IMAGE_FORWARDS, "steps": H3IMAGE_FORWARDS,
         "tiers": dict(H3IMAGE_TIERS), "eta_sec": dict(H3IMAGE_MEASURED_ETA),
         "download_gb": H3IMAGE_DOWNLOAD_GB, "disk_need_gb": H3IMAGE_DISK_NEED_GB,
         "repo": H3IMAGE_REPO, "license": H3IMAGE_LICENSE,
@@ -16831,7 +16853,7 @@ def h3image_engine_rows() -> list[dict]:
             sec = round(sum(max(1.0, el / max(1, n)) for (n, el) in observed) / len(observed), 1)
             samples = f"observed-{len(observed)}"
         rows.append({
-            "engine": engine, "max_refs": 0, "repo_id": H3IMAGE_REPO,
+            "engine": engine, "max_refs": h3image_max_refs(), "repo_id": H3IMAGE_REPO,
             "cached": bool(status["downloaded"]), "ram_need_gb": round(float(need), 1),
             "mac_gb_needed": int(mac_gb), "fits_mac": bool(fits), "partial": False, "partial_gb": 0,
             "family_installed": bool(status["supported"] and status["h3_ready"]),
@@ -20918,10 +20940,10 @@ ENGINES: tuple[dict, ...] = (
          "image_engines": ("ph3image_fast_inline", "ph3image_standard_inline", "ph3image_draft_inline", "ph3image_inline"),
          "capability": "images.p_h3_image"},
         {"id": "h3_image", "label": "MiniMax-H3-Image", "sublabel": "detailed scenes",
-         "tagline": "MiniMax's own image model: detailed pictures from words, 4 to 16 MP · from words only",
+         "tagline": "MiniMax's own image model: detailed pictures from words, 4 to 16 MP, and edits from your pictures",
          "mark": "eng-mark-img-h3i", "accent": "#3DDC97",
          "accent_dim": "rgba(61,220,151,0.14)", "accent_soft": "rgba(61,220,151,0.42)",
-         "modes": ("t2i",), "serves_label": "Text", "preview": True,
+         "modes": ("t2i", "edit"), "serves_label": "Text and Edit", "preview": True,
          "image_engines": ("h3image_draft_inline", "h3image_standard_inline", "h3image_high_inline"),
          "capability": "images.h3_image"},
     )),
@@ -31340,7 +31362,10 @@ def _sb_still_job_form(shot: dict, board: dict, policy: dict) -> dict:
     # 16:9). The engine's own table is the source of truth; the small "s"
     # variants are the same shapes and are left to the engine.
     ratio = w / float(hh)
-    table = {k: v for k, v in agent_image_engine.ASPECT_DIMS.items() if not k.endswith("s")}
+    # 3:2 / 2:3 (5.0.19) are Studio choices only: the storyboard's stills keep the shapes they were
+    # tuned on (a 640x448 draft canvas is nearer 3:2 than 4:3 and would change every board's still).
+    table = {k: v for k, v in agent_image_engine.ASPECT_DIMS.items()
+             if not k.endswith("s") and k not in ("3:2", "2:3")}
     aspect = min(table, key=lambda k: abs((table[k][0] / float(table[k][1])) - ratio))
     refs: list[str] = []
     engine = "auto"
@@ -37227,13 +37252,17 @@ def _raise_if_licence_missing(key: str | None) -> None:
 #: FLUX 3 up to 10 (docs/FLUX3.md; API only).
 IMAGE_MAX_REFS = 3
 IMAGE_MAX_REFS_FLUX3 = 10
-
+#: MiniMax-H3-Image edit. The engine takes 16 (the release's limit); the Studio offers 6, which keeps
+#: an edit near its measured time and memory (every picture adds its own rows to each step).
+IMAGE_MAX_REFS_H3IMAGE = 6
 
 def image_max_refs(engine_override) -> int:
     """How many reference images `engine_override` takes. One answer for the
     queue worker, /queue/add, /image/generate and the Studio (engine_status)."""
     import flux3_engine
     eng = str(engine_override or "auto").strip().lower()
+    if eng.startswith("h3image"):
+        return h3image_max_refs()
     return IMAGE_MAX_REFS_FLUX3 if eng in flux3_engine.PRESETS else IMAGE_MAX_REFS
 
 

@@ -228,19 +228,19 @@ VARIANTS: dict[str, dict] = {
     },
     "images.h3_image": {
         # MiniMax-H3-Image (MiniMax's own image model on the H3 family): six forwards, no guidance,
-        # no negative prompt, 4 / 8 / 16 MP. PREVIEW, text to image only: edit with references is a
-        # later wave and is NOT declared. Free vs Pro is the owner's call (pending): pro False and
-        # NO ledger row until he decides.
+        # no negative prompt, 4 / 8 / 16 MP. PREVIEW. Text to image, and edit (5.0.19): up to 6
+        # reference pictures in the Studio (the engine takes 16), Picture 1 is the one edited.
+        # Everything is Free (owner, 12 Nov 2026): no Pro gate and no ledger row.
         "engine": "images", "label": "MiniMax-H3-Image", "pick": {},
         "status": "preview",
-        "modes": ["t2i"],
+        "modes": ["t2i", "edit"],
         "qualities": ["draft", "standard", "high"],
-        "inputs": [],
+        "inputs": ["reference_image"],
         "outputs": ["image"],
         "options": [],
         "steps": 6,
         "reasons": {
-            "modes": "MiniMax-H3-Image makes images from text. Editing an image comes later.",
+            "inputs": "MiniMax-H3-Image takes up to 6 reference pictures.",
         },
     },
     "images.flux2": {

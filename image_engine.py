@@ -555,6 +555,8 @@ ASPECT_DIMS = {
     "9:16":  (720, 1280),
     "3:4":   (768, 1024),
     "21:9":  (1280, 544),
+    "3:2":   (1248, 832),
+    "2:3":   (832, 1248),
     # Small variants (value suffixed "s") — ~1/3–1/4 the pixels so weaker
     # Apple GPUs render fast and stay under the Metal watchdog. The client
     # CSS ratio uses parseFloat, which reads "9s" as 9, so the stage still
@@ -613,7 +615,7 @@ def generate(*, prompt: str, n: int, output_dir: Path,
     # Validate ref paths up-front so we fail fast — Qwen-Edit-2509 supports
     # 1-3 input images; more than 3 is unsupported by the model.
     if refs:
-        if len(refs) > (10 if config.kind == "flux3" else 3):
+        if len(refs) > (10 if config.kind == "flux3" else H3IMAGE_MAX_REFERENCES if config.kind == "h3image" else 3):
             raise ValueError(
                 f"refs: Qwen-Image-Edit-2509 supports 1-3 input images, got {len(refs)}"
             )
@@ -2738,8 +2740,8 @@ def _generate_ph3image(prompt: str, n: int, aspect: str, output_dir: Path, base_
 # ---------------------------------------------------------------------------------------------
 # MiniMax-H3-Image, the H3 family's own image model. One subprocess per image: the H3 engine's
 # generate_h3_image.py runs staged (text encoder, then the DiT, then the decoder) so a 64 GB Mac
-# never holds all three. Text-to-image only for now (edit with references is a later wave); refs
-# fall back to a warning, like the other backends without multi-ref support. No warm worker.
+# never holds all three. Text to image, or an edit: reference pictures go to the runner as
+# --reference (Picture 1 first), and the "match" aspect asks for the shape of Picture 1. No warm worker.
 # ---------------------------------------------------------------------------------------------
 
 # Aspect keys of the Image Studio -> the ratios the runner takes. The "s" (small) variants are
@@ -2749,6 +2751,10 @@ H3IMAGE_RATIOS = {"1:1": "1:1", "4:3": "4:3", "3:4": "3:4", "3:2": "3:2", "2:3":
                   "16:9s": "16:9", "1:1s": "1:1", "9:16s": "9:16"}
 # Megapixel tiers: Draft (4, the model's floor), Standard (8), High (16).
 H3IMAGE_TIERS = (4.0, 8.0, 16.0)
+# Edit: the engine takes 16 reference pictures (the release's limit); Picture 1 is the one edited.
+H3IMAGE_MAX_REFERENCES = 16
+# The Studio aspect key for "the shape of Picture 1" (edit only; the runner's --match-reference).
+H3IMAGE_MATCH_ASPECT = "match"
 
 
 def h3image_missing(config: ImageEngineConfig) -> list[str]:
@@ -2788,10 +2794,13 @@ def _generate_h3image(prompt: str, n: int, aspect: str, output_dir: Path, base_s
     missing = h3image_missing(config)
     if missing:
         raise FileNotFoundError("MiniMax-H3-Image is not ready: " + "; ".join(missing))
-    if refs and on_log:
-        on_log("[h3-image] reference images are not used yet (text-to-image only); rendering from the prompt")
+    refs = list(refs or [])
+    match = bool(refs) and aspect == H3IMAGE_MATCH_ASPECT
     mp = float(config.h3image_mp or 8.0)
     ratio = _h3image_aspect(aspect)
+    if refs and on_log:
+        on_log(f"[h3-image] editing with {len(refs)} reference picture{'s' if len(refs) != 1 else ''}"
+               + (", in the shape of Picture 1" if match else f", output {ratio}"))
     results: list[dict] = []
     ts = int(time.time() * 1000)
     for i in range(n):
@@ -2802,8 +2811,12 @@ def _generate_h3image(prompt: str, n: int, aspect: str, output_dir: Path, base_s
                "--root", config.h3image_root, "--text-dir", config.h3image_text_dir,
                "--text-config", config.h3image_text_config,
                "--aspect", ratio, "--mp", f"{mp:g}", "--seed", str(seed), "--metrics", str(metrics)]
+        for ref in refs:
+            cmd += ["--reference", str(ref)]
+        if match:
+            cmd.append("--match-reference")
         if on_log:
-            on_log(f"[h3-image] image {i + 1}/{n}: {ratio} at {mp:g} MP, seed {seed}")
+            on_log(f"[h3-image] image {i + 1}/{n}: {'Picture 1 shape' if match else ratio} at {mp:g} MP, seed {seed}")
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                 errors="replace", env=_clean_subprocess_env(), start_new_session=True)
         _register_active_proc(proc)
@@ -2851,6 +2864,7 @@ def _generate_h3image(prompt: str, n: int, aspect: str, output_dir: Path, base_s
         except Exception:
             pass
         results.append({"png_path": str(png), "seed": seed, "engine": "h3-image",
+                        "references": len(refs), "refs_ignored": False,
                         "width": int(info.get("width") or 0), "height": int(info.get("height") or 0),
                         "seconds": float(info.get("request_seconds") or info.get("total_seconds") or 0.0)})
     return results

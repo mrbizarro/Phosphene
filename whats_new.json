@@ -212,5 +212,40 @@
         }
       }
     ]
+  },
+  "5.0.19": {
+    "free": [
+      "MiniMax-H3-Image now edits your pictures. Drop a photo into Picture 1 in Images and say what to change; the result keeps the photo's shape.",
+      "Combine up to 6 pictures in one edit: name them in the prompt, like the hat from Picture 2 on the person in Picture 1.",
+      "Change the shape while editing: pick another shape and the model fills the new area, for example a tall poster made wide.",
+      "Edit this picture: in the More menu on any finished picture. It opens the picture in Images, so you can keep changing it.",
+      "Two more shapes for pictures: 3:2 and 2:3.",
+      "Fixed: the Upscale & Face Fix add-on no longer says it needs Q8 when Q8 is installed.",
+      "Phosphene Remote 0.4 is out for iPhone: every Studio workflow from your phone. Update it in the App Store."
+    ],
+    "pro": [],
+    "how": [
+      {
+        "id": "h3-image-edit",
+        "title": "How editing with MiniMax-H3-Image works",
+        "free": {
+          "video": "/assets/whats_new/how_h3_edit_free.mp4",
+          "poster": "/assets/whats_new/how_h3_edit_free.jpg",
+          "label": "Edit one picture",
+          "caption": "Images, MiniMax-H3-Image: drop a photo into Picture 1 and say what to change. One picture at Draft took about 5 minutes on an M4 Max 64 GB."
+        }
+      },
+      {
+        "id": "h3-image-combine",
+        "title": "How combining pictures works",
+        "free": {
+          "video": "/assets/whats_new/how_h3_combine.mp4",
+          "poster": "/assets/whats_new/how_h3_combine.jpg",
+          "label": "Combine pictures",
+          "caption": "Add a second picture and name it in the prompt. Two pictures at Draft took about 8 minutes on an M4 Max 64 GB."
+        }
+      }
+    ],
+    "date": "2026-11-12"
   }
 }

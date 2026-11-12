@@ -4281,6 +4281,21 @@
       border-radius: var(--r-sm);
     }
     .studio-ref-warn strong { color: #f0d090; font-weight: 600; }
+    /* MiniMax-H3-Image edit tip: a calm how-to, not a warning (imgStudioUpdateRefWarning). */
+    .studio-ref-warn.h3-edit-tip {
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.025);
+      border-color: var(--ph-border-strong);
+    }
+    .studio-ref-warn.h3-edit-tip strong { color: var(--text); }
+    /* More than three picture slots (H3-Image edit, up to 6): two rows of three. */
+    .studio-ref-grid.many .studio-ref-slot { aspect-ratio: 4 / 3; }
+    /* "Picture n" (H3-Image edit) is longer than "Primary": smaller and unspaced so it clears the x. */
+    .studio-ref-slot .ref-tag.pic { font-size: 13px; letter-spacing: 0; text-transform: none; z-index: 2; }
+    /* On a photo the name must read: a solid chip (a later theme rule clears the tag background). */
+    #imgStudioRefs .studio-ref-slot.has-image .ref-tag.pic {
+      background: rgba(5, 5, 6, 0.82); color: #fff; border-color: rgba(255, 255, 255, 0.18);
+    }
     .studio-ref-warn a {
       color: var(--accent-bright);
       text-decoration: underline;

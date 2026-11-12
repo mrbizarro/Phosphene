@@ -27,9 +27,9 @@ result() { echo "@@result h3 $1"; }
 # The archive of the commit this Studio pins (measured from GitHub's tarball of that commit).
 # h3_checkout.sh owns the commit; this must be re-measured with every pin move
 # (test_h3_app_runner.py fails when the two disagree).
-H3_ARCHIVE_FOR="d65ec9f710fce31fbe9efa375537b5c94d83d7fe"
-H3_ARCHIVE_SHA256="6588bb45804fe6fe957589e955f36dec624a816c6508b54e430b51de952967a7"
-H3_ARCHIVE_BYTES=403775
+H3_ARCHIVE_FOR="953ec466586d6b35823e475ce64e43b43fa7f39a"
+H3_ARCHIVE_SHA256="551f68aa1f5483872edf764fc1540457c5e8de944dc575ad1f2de74273f13f1a"
+H3_ARCHIVE_BYTES=408523
 H3_ARCHIVE_URL="https://codeload.github.com/mrbizarro/minimax-h3-mlx/tar.gz/$H3_ARCHIVE_FOR"
 PY_VERSION="3.11"
 
