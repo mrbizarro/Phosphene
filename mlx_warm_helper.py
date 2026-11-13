@@ -96,15 +96,36 @@ LOW_MEMORY = os.environ.get("LTX_LOW_MEMORY", "true").lower() in ("true", "1", "
 # of holding the whole DiT resident. The panel sets this for small-memory Macs
 # (see HELPER_LOW_RAM_STREAM in mlx_ltx_panel.py). Slower per step, far
 # smaller peak — the difference between a 16 GB Mac finishing a clip and
-# being jetsam-killed. Renders that carry LoRAs keep the exact unfused
-# runtime branch and skip streaming (the streamer cannot carry per-block
-# adapters; the library refuses rather than silently fusing on a quantized
-# pack), so the flag is applied per pipeline, not blindly.
+# being jetsam-killed. Renders that carry LoRAs stream too since 5.0.20:
+# ltx_lowram.StreamedLoras binds each block's exact unfused adapters as the
+# block streams (the library alone could only fuse them, lossy on Q4, or
+# refuse). The flag is still applied per pipeline (_stream_for).
 LOW_RAM_STREAM = os.environ.get("LTX_LOW_RAM_STREAM", "0").lower() in ("true", "1", "yes")
 
 
 def _stream_for(loras) -> bool:
-    return bool(LOW_RAM_STREAM) and not loras
+    """Whether a pipeline built for this job streams its transformer blocks.
+
+    5.0.20: a job WITH LoRAs streams too. ``ltx_lowram.StreamedLoras``
+    carries the exact unfused adapters through the block streamer (bound per
+    block, the resident path's arithmetic), so a character or style LoRA on a
+    16-24 GB Mac no longer needs the whole 11 GB transformer resident.
+    ``LTX_STREAM_LORAS=0`` restores the old rule (LoRA jobs resident)."""
+    if not LOW_RAM_STREAM:
+        return False
+    if not loras:
+        return True
+    return _streamed_loras_available()
+
+
+def _streamed_loras_available() -> bool:
+    if (os.environ.get("LTX_STREAM_LORAS") or "1").strip().lower() in ("0", "false", "no", "off"):
+        return False
+    try:
+        import importlib.util as _ilu
+        return _ilu.find_spec("ltx_lowram") is not None
+    except Exception:
+        return False
 MODEL_UPSCALE_ENABLED = os.environ.get("LTX_ENABLE_MODEL_UPSCALE", "").lower() in ("1", "true", "yes", "on")
 
 # Y1.037 — VAE temporal-streaming decision.
@@ -1385,6 +1406,45 @@ def _install_video_decoder_patch() -> None:
 _SPLIT_ENCODE_PATCH_INSTALLED = False
 
 
+_LOWRAM_TEXT_OFF: list = []
+
+
+def _install_lowram_decode() -> None:
+    """5.0.20 - the exact time-chunked VAE decode (ltx_lowram), on the
+    streamed path only. Rides the same choke point as the low-memory encode
+    (every lane installs that one). The decoded frames are bit-identical; the
+    decode peak halves (5 s: 7.2 -> 3.4 GB; 10 s: 13.4 -> 6.3 GB), which is
+    also why the panel doubles the decode budget for these Macs."""
+    if not split_prompt_encode_wanted():
+        return
+    try:
+        import ltx_lowram as _lowram
+        if _lowram.chunked_decode_wanted():
+            _lowram.install_chunked_decode()
+    except Exception:
+        pass          # the engine's own decode stays in place
+
+
+def _lowram_stream_text() -> bool:
+    """5.0.20: the layer-streamed prompt encode (ltx_lowram), on the streamed
+    path only and not after it failed once in this helper."""
+    if _LOWRAM_TEXT_OFF:
+        return False
+    try:
+        import ltx_lowram as _lowram
+        return _lowram.stream_text_encoder_wanted()
+    except Exception:
+        return False
+
+
+def _lowram_text_off(exc) -> None:
+    _LOWRAM_TEXT_OFF.append(repr(exc))
+    # Neutral words only: the panel reads every raw line for phases and
+    # crash causes, and this is neither (the render carries on).
+    print("[text-encoder] layer-by-layer encode not used for this helper; "
+          "the two-part encode runs instead", file=sys.stderr, flush=True)
+
+
 def split_prompt_encode_wanted() -> bool:
     """The low-memory prompt encode: on the streamed (low-RAM) path only.
     Read at call time, so a helper's lanes and the tests see one answer."""
@@ -1410,6 +1470,7 @@ def _install_split_prompt_encode_patch() -> None:
     sum. A second prompt (CFG lanes) loads the text model again - those lanes
     are refused below 48 GB anyway. Off the streamed path nothing changes."""
     global _SPLIT_ENCODE_PATCH_INSTALLED
+    _install_lowram_decode()
     if _SPLIT_ENCODE_PATCH_INSTALLED:
         return
     import ltx_pipelines_mlx.utils.blocks as _blocks
@@ -1479,14 +1540,63 @@ def _install_split_prompt_encode_patch() -> None:
             return None
         # Text model only: the connector loads after it is gone (encode).
         # Callers that read the tokenizer (Prompt Relay) still find it here.
+        # 5.0.20: on the layer-streamed encode that text model holds LAZY
+        # weights - the tokenizer is there, nothing is read from disk yet.
+        if _lowram_stream_text():
+            try:
+                import ltx_lowram as _lowram
+                if _lowram.lazy_text_encoder_for_load(self):
+                    return None
+            except Exception as exc:  # never a reason to fail a render
+                _lowram_text_off(exc)
         _load_text_model(self)
 
     def encode(self, prompt):
+        max_length = int(os.environ.get("LTX2_GEMMA_MAX_LENGTH", "1024"))
+        # 5.0.20: the prompt-embedding cache. Exact (a pure function of the
+        # prompt, the text-encoder files, the connector file and max length),
+        # and on a hit the riskiest phase of a 16 GB render never runs.
+        cache, key = None, None
+        try:
+            import ltx_lowram as _lowram
+            cache = _lowram.EMBEDDINGS
+            key = _lowram.embedding_key(prompt, self.gemma_model_id, self.model_dir, max_length)
+            hit = cache.get(key)
+            if hit is not None:
+                self._text_encoder = None        # a lazy tower from load(): unused
+                print("[text-encoder] same prompt as a recent render: embeddings "
+                      "reused, encode skipped", file=sys.stderr, flush=True)
+                return hit
+        except Exception:
+            cache = None
+        video, audio = _encode_uncached(self, prompt, max_length)
+        if cache is not None:
+            try:
+                cache.put(key, video, audio)
+            except Exception:
+                pass
+        return video, audio
+
+    def _encode_uncached(self, prompt, max_length):
         if not split_prompt_encode_wanted():
             return _orig_encode(self, prompt)
+        if _lowram_stream_text():
+            try:
+                import ltx_lowram as _lowram
+                out = _lowram.streamed_prompt_encode(
+                    self, prompt, max_length,
+                    log=lambda line: print(line, file=sys.stderr, flush=True))
+                if out is not None:
+                    return out
+            except Exception as exc:
+                # A failure inside the streamed walk falls back to the 4.19.10
+                # split encode once, then stays off for this helper.
+                _lowram_text_off(exc)
+                self._text_encoder = None
+                self._feature_extractor = None
+                _blocks.aggressive_cleanup()
         import mlx.core as _mx
         _materialize = getattr(_mx, "eval")      # MLX graph evaluation, not Python eval
-        max_length = int(os.environ.get("LTX2_GEMMA_MAX_LENGTH", "1024"))
         self._feature_extractor = None           # never both resident
         _load_text_model(self)
         hidden, mask = self._text_encoder.encode_all_layers(prompt, max_length=max_length)
@@ -1595,6 +1705,41 @@ def _install_a2v_frame_rate_patch() -> None:
     _A2V_FRAME_RATE_PATCH_INSTALLED = True
 
 
+def _attach_streamed_loras(pipe, model, active) -> None:
+    """Attach ``active`` [(path, strength)] to a block-streamed DiT as exact
+    unfused adapters (ltx_lowram.StreamedLoras), with the same live check the
+    resident path runs: a LoRA whose modules did not attach refuses the render
+    rather than producing a LoRA-free clip."""
+    import mlx.core as mx
+    import ltx_lowram as _lowram
+    from lora_compat import LoraCompatibilityError, validate_runtime_application
+    from ltx_pipelines_mlx.utils._orchestration import resolve_lora_path
+
+    if not _lowram.is_streaming_model(model):
+        raise LoraCompatibilityError(
+            "a streamed render was asked to carry LoRAs but its transformer is not "
+            "streamed; rendering was refused before it could drop them.")
+    resolved = [(resolve_lora_path(path), float(strength)) for path, strength in active]
+    expected = list(getattr(pipe, "_phosphene_lora_preflight", []) or [])
+    if len(expected) != len(resolved):
+        names = ", ".join(Path(path).name for path, _ in resolved)
+        raise LoraCompatibilityError(
+            f"LoRA preflight state was lost before live attachment ({names}). "
+            "Rendering was refused before it could produce a LoRA-free result.")
+    streamed = _lowram.StreamedLoras(model, _lowram.load_lora_specs(resolved))
+    validate_runtime_application(
+        expected, list(streamed.applied),
+        reporter=lambda line: emit({"event": "log", "line": line}))
+    arrays = [a for pairs in streamed._per_block.values() for _n, a in pairs]
+    getattr(mx, "eval")(arrays)                 # MLX graph evaluation, not Python eval
+    # No reference on the pipeline: the adapters live exactly as long as the
+    # streamed model (the decode drops `dit`, and they go with it).
+    del arrays
+    emit({"event": "log",
+          "line": f"LoRA (exact, low-memory): {len(streamed.applied)} modules carried "
+                  f"through the streamed transformer ({streamed.wrapped_modules} per block)"})
+
+
 def _install_lora_fusion_patches() -> None:
     """Install fail-closed native LoRA guards, or repair an older engine.
 
@@ -1676,6 +1821,19 @@ def _install_lora_fusion_patches() -> None:
                     self._phosphene_lora_preflight = list(zip(
                         reports, (strength for _, strength in active)
                     ))
+                if active and getattr(self, "low_ram_streaming", False):
+                    # 5.0.20: the engine would FUSE these into the streamed
+                    # blocks (lossy on Q4) or refuse the unfused branch.
+                    # Build the plain streamed model, then carry the exact
+                    # unfused adapters through the streamer.
+                    saved = self._pending_loras
+                    self._pending_loras = None
+                    try:
+                        model = _native_load_transformer(self, transformer_path)
+                    finally:
+                        self._pending_loras = saved
+                    _attach_streamed_loras(self, model, active)
+                    return model
                 return _native_load_transformer(self, transformer_path)
 
             def _guarded_native_attach(self, dit, lora_paths):

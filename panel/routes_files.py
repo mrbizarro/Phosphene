@@ -831,7 +831,23 @@ def post_external_open(h, path, qs, ctype) -> None:
         "ideogram.ai", "pinokio.co", "pinokio.computer",
         # The Docs live on the website (owner, 1 Nov 2026).
         "phosphene.video",
+        # Phosphene Remote's App Store page (the review nudge, 12 Nov 2026).
+        "apps.apple.com",
     }
+    # The one non-https link: Phosphene Remote's write-a-review sheet in the
+    # App Store app, exactly this URL. If nothing handles itms-apps, the same
+    # sheet on the web (review nudge, owner 12 Nov 2026).
+    if url == P.REMOTE_REVIEW_APP_URL:
+        try:
+            r = P.subprocess.run(["open", url], check=False, timeout=5)
+            if r.returncode != 0:
+                P.subprocess.run(["open", P.REMOTE_REVIEW_WEB_URL], check=False, timeout=5)
+                h._json({"ok": True, "opened": P.REMOTE_REVIEW_WEB_URL})
+                return
+            h._json({"ok": True, "opened": url})
+        except Exception as e:
+            h._json({"error": f"open failed: {e}"}, 500)
+        return
     try:
         _pp = P.urllib.parse.urlparse(url)
         _host = (_pp.netloc or "").lower().split("@")[-1].split(":")[0]

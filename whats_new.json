@@ -1,5 +1,5 @@
 {
-  "_note": "One entry per released version, newest last. free[] and pro[] are plain lines that every user sees (Free users see the Pro list too, it is public marketing copy like the pricing page). Plain benefit wording only: no engine, trick or recipe names. Anything internal belongs in the Pro pack's own whats_new_pro.json. A line is a string, or {\"text\": \"...\", \"media\": \"/webapp/docs/..png\"}. The release gate fails when the entry for VERSION is missing. Optional per version: \"date\" (YYYY-MM-DD) and \"hero\", the big visual at the top of the card and the website changelog: {\"kind\": \"vertical\", \"title\", \"original\", \"free\", \"pro\"} (each {\"video\", \"poster\"}) or {\"kind\": \"media\", \"video\" or \"image\", \"poster\", \"caption\"}. \"showcase\" holds the standing \"What Pro adds\" items (measured, never projected) shown to Free users under New in Pro. Media goes in assets/whats_new/ (served at /assets/whats_new/; the website copies it with its sync script). Per version \"how\": [{\"id\", \"title\", \"free\": {\"video\", \"poster\", \"caption\"}, \"pro\": {...}}], a few seconds of the real Studio showing where the button is and what you get; every new feature gets one, and the feature links to it by id.",
+  "_note": "One entry per released version, newest last. free[] and pro[] are plain lines that every user sees (Free users see the Pro list too, it is public marketing copy like the pricing page). Plain benefit wording only: no engine, trick or recipe names. Anything internal belongs in the Pro pack's own whats_new_pro.json. A line is a string, or {\"text\": \"...\", \"media\": \"/webapp/docs/..png\"}. The release gate fails when the entry for VERSION is missing. Optional per version: \"date\" (YYYY-MM-DD), \"headline\" (one plain line under the version in the window header, the release in a sentence) and \"hero\", the big visual at the top of the card and the website changelog: {\"kind\": \"vertical\", \"title\", \"original\", \"free\", \"pro\"} (each {\"video\", \"poster\"}) or {\"kind\": \"media\", \"video\" or \"image\", \"poster\", \"caption\"}. \"showcase\" holds the standing \"What Pro adds\" items (measured, never projected) shown to Free users under New in Pro. Media goes in assets/whats_new/ (served at /assets/whats_new/; the website copies it with its sync script). Per version \"how\": [{\"id\", \"title\", \"free\": {\"video\", \"poster\", \"caption\"}, \"pro\": {...}}], a few seconds of the real Studio showing where the button is and what you get; every new feature gets one, and the feature links to it by id.",
   "showcase": {
     "pro": [
       {
@@ -102,6 +102,7 @@
   },
   "5.0.15": {
     "date": "2026-11-10",
+    "headline": "A new picture model, MiniMax-H3-Image, free for everyone.",
     "free": [
       "New picture model: MiniMax-H3-Image, free for everyone. Text to image at 4, 8 or 16 megapixels. Preview.",
       "It needs a Mac with 48 GB of memory or more, and downloads once the first time you use it."
@@ -110,6 +111,7 @@
   },
   "5.0.16": {
     "date": "2026-11-10",
+    "headline": "Make it vertical: a tall copy of any clip, from the More menu.",
     "free": [
       "Make it vertical: a tall 9:16, 4:5 or square copy of any clip, with a soft blurred fill. In the More menu on any clip.",
       "Timeline clips show a picture right away, before Prepare."
@@ -159,6 +161,7 @@
   },
   "5.0.17": {
     "date": "2026-11-11",
+    "headline": "A bigger What's new, and every Pro feature marked where you use it.",
     "free": [
       "A bigger What's new, with clips of what changed. Click the version number to see it again.",
       "How Make it vertical works: a short clip shows where to click. In the More menu on any clip.",
@@ -190,6 +193,7 @@
   },
   "5.0.18": {
     "date": "2026-11-11",
+    "headline": "Faster LTX clips with Pro: about a quarter less waiting on a 5-second clip.",
     "free": [],
     "pro": [
       "Faster LTX clips: about a quarter less waiting on a 5-second LTX-2.5 clip, on by default on Macs with 32 GB or more. Untick Pro speed-up beside Quality to render a clip the usual way."
@@ -246,6 +250,21 @@
         }
       }
     ],
-    "date": "2026-11-12"
+    "date": "2026-11-12",
+    "headline": "MiniMax-H3-Image now edits your pictures, and can combine up to 6 in one edit."
+  },
+  "5.0.20": {
+    "free": [
+      "Video on 16 GB Macs needs far less memory: a clip peaks at about 5.7 GB instead of 9 GB, and a render with your trained characters or styles at about 6.7 GB instead of 19 GB. Same frames as before.",
+      "Mac app 5.0.20: keep your models on an external drive. Choose the folder at setup or in Settings, and move the models there or back later.",
+      "More first videos finish: if the Mac app's model download stopped, the Studio fetches the video model itself, and your first clip is sized to fit your Mac.",
+      "On a small Mac, a MiniMax H3 render that cannot get memory now waits its turn instead of failing every job behind it.",
+      "A cleaner What's new window: the headline, what is new for everyone and what is new in Pro, in one card."
+    ],
+    "pro": [
+      "Faster LTX clips now reach 16 to 24 GB Macs too: about 27 to 30% faster than Free."
+    ],
+    "date": "2026-11-13",
+    "headline": "Less memory on 16 GB Macs, models on an external drive, and more first videos that finish."
   }
 }

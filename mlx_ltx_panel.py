@@ -920,6 +920,12 @@ VAE_DECODE_BUDGET_MAX_GB = 8.0
 VAE_DECODE_BUDGET_MIN_GB = 0.125
 VAE_DECODE_BUDGET_RAM_FRACTION = 0.022
 VAE_DECODE_BUDGET_SMALL_MAC_GB = 32.5
+# 5.0.20: on the streamed path (24 GB and smaller) the helper decodes in exact
+# time chunks (ltx_lowram.install_chunked_decode), which halves the real decode
+# peak for the same frames. So those Macs get twice the budget: a 10 s Balanced
+# clip (estimate 0.64) now decodes in ONE exact pass at ~6.3 GB on 16 GB,
+# where it used to tile with blended seams at ~10.5 GB. 20 s still tiles.
+VAE_DECODE_BUDGET_CHUNKED_FACTOR = 2.0
 
 
 def vae_decode_budget_gb(ram_gb: float | None = None) -> float:
@@ -930,7 +936,14 @@ def vae_decode_budget_gb(ram_gb: float | None = None) -> float:
         ram = 0.0
     if ram <= 0 or ram > VAE_DECODE_BUDGET_SMALL_MAC_GB:
         return VAE_DECODE_BUDGET_MAX_GB
-    return round(max(VAE_DECODE_BUDGET_MIN_GB, ram * VAE_DECODE_BUDGET_RAM_FRACTION), 3)
+    budget = max(VAE_DECODE_BUDGET_MIN_GB, ram * VAE_DECODE_BUDGET_RAM_FRACTION)
+    # Only where the helper really chunks: the streamed path, chunking not
+    # switched off. (An explicit ram_gb answers for a Mac of that size.)
+    streamed = ram <= LOW_RAM_STREAM_RAM_GB if ram_gb is not None else low_ram_streaming_enabled()
+    chunk_off = (os.environ.get("LTX_CHUNKED_DECODE") or "").strip().lower() in ("0", "false", "no", "off")
+    if streamed and not chunk_off:
+        budget *= VAE_DECODE_BUDGET_CHUNKED_FACTOR
+    return round(budget, 3)
 # Enhance is an interactive HTTP request, unlike renders that may legitimately
 # run for tens of minutes. Bound its helper wait below the UI/curl client's
 # 120-second ceiling so a silent helper still produces a JSON error response.
@@ -4967,90 +4980,18 @@ _CHARACTER_QUALITY_RESOLUTION = {
 }
 
 
-# ---- Version check / update notifier ----------------------------------------
-# Phosphene ships fixes often (multiple commits a day in active periods) and
-# users keep telling us "I clicked Update but I don't see anything new" — by
-# the time their feedback lands, we've usually pushed three more commits.
-# This module surfaces a small "Update available" pill in the header when the
-# local install is behind origin/main, so users notice mismatch immediately
-# instead of finding out later via a friend's tweet.
+# ---- Version check / update notifier (moved to version_check.py) -------------
+# The "Update available" pill's server side - git capture, the 30-minute GitHub
+# poll, the maintainer broadcast, get_version_state - lives in version_check.py
+# now (split by @blackest, PR #116). These names stay importable from here:
+# panel/routes_meta.py and the tests reach them as P.<name>, and the module is
+# handed P below.
 #
-# How it works:
-#   1. At startup we read the local commit SHA via `git rev-parse HEAD` and
-#      branch name via `git rev-parse --abbrev-ref HEAD`. Stored once.
-#   2. A daemon thread polls the GitHub commits API every 30 minutes (no
-#      auth, public repo, well within unauthenticated rate limit).
-#   3. We list `origin/main` commits newest-first and find the index of the
-#      local SHA. If found at index N, we are N commits behind. If not found
-#      in the first 30 commits, we report "30+ behind".
-#   4. The /version endpoint returns the snapshot; the UI renders a pill
-#      that links to the version modal listing each unseen commit.
-#
-# Suppressed cases (no pill rendered):
-#   - User is on a non-main branch (local dev / fork)
-#   - User has uncommitted local changes (in-progress work; we'd be wrong
-#     to call them "behind")
-#   - We can't reach the GitHub API (offline; suppress silently — we don't
-#     bug users with red error toasts every 30 minutes)
-
-_VERSION_LOCK = threading.Lock()
-_VERSION_REPO_OWNER = "mrbizarro"
-_VERSION_REPO_NAME = "phosphene"
-_VERSION_POLL_INTERVAL_SEC = 30 * 60          # 30 minutes between checks
-_VERSION_STARTUP_DELAY_SEC = 30                # don't compete with boot
-_VERSION_STATE: dict = {
-    "local_sha": None,            # 40-char hex of HEAD at panel start
-    "local_short": None,           # 7-char display form
-    "local_version": None,         # human label from /VERSION file (e.g. "Y1.001")
-    "local_branch": None,          # branch name (e.g. "main") or "(detached)"
-    "local_commit_date": None,     # ISO-day of HEAD commit (e.g. "2026-05-21") — for dev pill
-    "local_dirty": False,          # uncommitted changes in the working tree
-    "remote_sha": None,            # latest sha on origin/main per GitHub API
-    "remote_short": None,
-    "remote_version": None,        # /VERSION file at origin/main (raw fetch)
-    "behind_by": 0,                # number of commits between local and remote (0 = current)
-    "behind_more_than": False,     # True when behind > 30 (we cap the API response)
-    "commits_ahead": [],           # list of {sha, short, message, author, date} for the dropdown
-    "broadcast": None,             # maintainer message from BROADCAST.json on public main, or None
-    "checked_ts": None,            # epoch seconds of last successful poll
-    "error": None,                 # last failure reason (None when last check OK)
-    "suppress_reason": None,       # set when we deliberately skip checking (dev mode, dirty, etc.)
-    # Pull state — populated only when the user clicks the magic button on
-    # the pill while behind. Kept on _VERSION_STATE so the UI can render a
-    # "restart needed" pill without a separate state store.
-    "pull_state": "idle",          # idle | pulling | pulled | error
-    "pull_message": None,          # human-readable result line (last git output line, or error)
-    "pull_pulled_to_short": None,  # SHA we ended up at after the pull
-    "pull_pulled_to_version": None,# VERSION label after the pull
-    "pull_requires_full_update": False,  # True if the diff touched deps/patches
-}
-
-
-def _git_capture(args: list[str], cwd: Path = ROOT) -> str | None:
-    """Run a git subcommand and return stripped stdout (or None on any failure).
-    No exceptions ever escape — we never want a missing git binary to crash
-    the panel boot."""
-    try:
-        out = subprocess.check_output(
-            ["git"] + args, cwd=str(cwd), stderr=subprocess.DEVNULL,
-        )
-        return out.decode("utf-8", "replace").strip()
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-        return None
-
-
-def _read_local_version() -> str | None:
-    """Return the contents of <repo>/VERSION as a single stripped string,
-    or None if the file is missing / unreadable. We use this to surface a
-    human-friendly label like 'Y1.001' instead of raw 7-char SHAs in the
-    header pill. Older checkouts that predate this file fall back to the
-    short SHA in the UI without breaking."""
-    try:
-        v = (ROOT / "VERSION").read_text().strip()
-        return v or None
-    except Exception:
-        return None
-
+# What stays HERE: the boot snapshot, because it is REBOUND (a re-export would
+# be a copy that goes stale; test_stale_process sets these on the panel), the
+# import-time capture that fills it, and the helpers added since the split was
+# drafted (_read_bundle_commit, _root_is_checkout, _version_is_newer), which
+# version_check.py reaches as P.<name>.
 
 #: The commit a release TARBALL was built from. The tracked file holds the
 #: literal git placeholder; `git archive` (GitHub's tarballs and the Pro bundle
@@ -5090,22 +5031,6 @@ def _root_is_checkout() -> bool:
     if _dist.is_mac_app() and _read_bundle_commit():
         return False
     return (ROOT / ".git").exists()
-
-
-def _fetch_raw_text(url: str, timeout: int = 10) -> str | None:
-    """GET a public URL and return its body as a stripped string, or None
-    on any error. Used for the raw VERSION-file fetch from origin/main on
-    GitHub — `https://raw.githubusercontent.com/.../main/VERSION`. No
-    auth, no rate-limit headers worth honouring at this volume (one
-    request per 30-min poll)."""
-    import urllib.request as _urlreq
-    try:
-        req = _urlreq.Request(url, headers={"User-Agent": "phosphene-panel-version-check"})
-        with _urlreq.urlopen(req, timeout=timeout) as resp:
-            return resp.read().decode("utf-8", "replace").strip() or None
-    except Exception:
-        return None
-
 
 # The SHA this PROCESS loaded, captured once and never refreshed.
 #
@@ -5148,330 +5073,35 @@ _BOOT_VERSION: str | None = None
 _BOOT_BRANCH: str | None = None
 _BOOT_COMMIT_DATE: str | None = None
 
+import version_check as _version_check  # noqa: E402
+from version_check import (  # noqa: E402,F401  (re-exported on purpose)
+    _VERSION_LOCK,
+    _VERSION_POLL_INTERVAL_SEC,
+    _VERSION_REPO_NAME,
+    _VERSION_REPO_OWNER,
+    _VERSION_STARTUP_DELAY_SEC,
+    _VERSION_STATE,
+    _capture_boot_head,
+    _check_remote_once,
+    _detect_local_install_state,
+    _fetch_broadcast,
+    _fetch_raw_text,
+    _fetch_remote_commits,
+    _git_capture,
+    _parse_broadcast,
+    _read_local_version,
+    boot_build_stamp,
+    build_stamp_text,
+    get_version_state,
+    running_version,
+    version_check_loop,
+)
 
-def _capture_boot_head() -> None:
-    """Record what THIS process loaded, exactly once. Idempotent by design.
-
-    Runs at import. `version_check_loop` still calls it, belt-and-braces for
-    any path that reaches the loop without the import-time call having taken
-    (a test that reset the globals, a future entry point); the guard makes the
-    second call a no-op rather than a re-point at whatever is on disk now."""
-    global _BOOT_HEAD_SHA, _BOOT_VERSION, _BOOT_BRANCH, _BOOT_COMMIT_DATE
-    if _BOOT_VERSION is None:
-        # A zip install has no git and still ships a VERSION file. That file
-        # is a property of the code this process loaded, so freeze it whether
-        # or not the SHA lookup below works.
-        _BOOT_VERSION = _read_local_version()
-    if _BOOT_HEAD_SHA is not None:
-        return
-    sha = _git_capture(["rev-parse", "HEAD"]) if _root_is_checkout() else None
-    if not sha:
-        # A release tarball (the Mac app's install): no git, but the commit it
-        # was cut from is in BUNDLE_COMMIT_FILE. No branch, no date - the pill
-        # names the version and the short SHA, which is the whole answer.
-        _BOOT_HEAD_SHA = _read_bundle_commit()
-        return                      # not a checkout — branch/date stay None
-    _BOOT_HEAD_SHA = sha
-    _BOOT_BRANCH = _git_capture(["rev-parse", "--abbrev-ref", "HEAD"])
-    _BOOT_COMMIT_DATE = _git_capture(
-        ["log", "-1", "--format=%cd", "--date=format:%Y-%m-%d"])
-
-
-def boot_build_stamp() -> dict:
-    """What this process is running. ONE accessor, so a second reader cannot
-    quietly grow a second answer to "which build is this?"."""
-    return {
-        "sha": _BOOT_HEAD_SHA,
-        "short": _BOOT_HEAD_SHA[:7] if _BOOT_HEAD_SHA else None,
-        "version": _BOOT_VERSION,
-        "branch": _BOOT_BRANCH,
-        "commit_date": _BOOT_COMMIT_DATE,
-    }
-
-
-def running_version() -> str:
-    """The VERSION label of the code THIS PROCESS is running.
-
-    Everything that stamps a label onto something the process produced — an
-    analytics event, a rendered film, a sidecar — has to name the build that
-    produced it. `_read_local_version()` re-reads the tree, so after a pull
-    under a running panel every one of those said the NEW number while the
-    OLD code was doing the work: an app_boot event from a build that never
-    booted, a film crediting a renderer that never touched it. Same defect as
-    the header stamp, same fix. Disk is the fallback for a zip install with
-    no git, where the boot capture has no SHA to anchor to."""
-    return boot_build_stamp()["version"] or _read_local_version() or "dev"
-
-
-def build_stamp_text() -> str:
-    """The build stamp as one greppable line, for the `phosphene-build` meta
-    tag. The page is full of real SHAs in comments that reference historical
-    commits ("the loadParams fix (b024bb5)"); thirteen of them as of today,
-    and NONE of them the running build, which appeared nowhere in the served
-    HTML at all. Anyone answering "which build is this?" by searching the page
-    hit a decoy. This is the one line that is the answer."""
-    b = boot_build_stamp()
-    parts = [b["version"] or "dev", b["branch"] or "no-branch",
-             b["short"] or "no-git"]
-    if b["commit_date"]:
-        parts.append(b["commit_date"])
-    return " · ".join(parts)
-
+# Wired HERE rather than in the route-module loop near the bottom: the capture
+# below runs at import and goes through P.
+_version_check.P = sys.modules[__name__]
 
 _capture_boot_head()      # AT IMPORT — before anything can serve a request
-
-
-def _detect_local_install_state() -> None:
-    """Populate _VERSION_STATE.local_* fields. Called once at startup; result
-    doesn't change while the panel is running (no auto-pull on the user's
-    behalf). Pinokio's Update step kills + restarts the panel, so a fresh
-    detect runs after every Update."""
-    checkout = _root_is_checkout()
-    sha = _git_capture(["rev-parse", "HEAD"]) if checkout else None
-    branch = (_git_capture(["rev-parse", "--abbrev-ref", "HEAD"]) if checkout
-              else None) or "(unknown)"
-    # `git status --porcelain -uno` empty = no MODIFIED TRACKED files.
-    #
-    # -uno (untracked-files=no) is load-bearing, not a tidy-up. Plain
-    # --porcelain also lists `??` untracked paths, and an install grows
-    # those by design: the optional H3 pack clones minimax-h3-mlx/ into
-    # this directory, Pinokio fills cache/ and logs/. That made the tree
-    # permanently "dirty" for every H3 user, which suppressed the update
-    # check outright — @Morac2 reported the pill stuck on "Update check
-    # is paused: local changes uncommitted" with nothing but `?? minimax-
-    # h3-mlx/` in his status (#52). .gitignore now covers those three
-    # paths, but only for users who already got the new .gitignore, which
-    # they can't without updating. -uno is what actually fixes it, and it
-    # is the honest question anyway: untracked files are exactly the ones
-    # a fast-forward pull (and the reset --hard fallback) leave alone. The
-    # one case where an untracked file DOES matter — an incoming commit
-    # adding a file at the same path — git refuses on its own, and that
-    # error is surfaced verbatim by the /version/pull handler.
-    porcelain = _git_capture(["status", "--porcelain", "-uno"]) if checkout else None
-    dirty = bool(porcelain and porcelain.strip())
-    local_version = _read_local_version()
-    # 2026-05-21 — capture HEAD commit date so the dev pill can show
-    # users which dated build they're running. Reddit context: dev
-    # users were reporting "I'm on 2.0.5" with character training,
-    # confused because the panel showed an old VERSION value but they
-    # had pulled fresh code. Showing the commit date alongside the
-    # short SHA lets us tell them concretely "you're on the May 18
-    # build — please pull again, latest is May 21."
-    local_commit_date = (_git_capture(["log", "-1", "--format=%cd",
-                                        "--date=format:%Y-%m-%d"])
-                         if checkout else None)
-    if not sha:
-        sha = _read_bundle_commit()     # a release tarball names its commit
-        if sha:
-            branch = None
-    with _VERSION_LOCK:
-        _VERSION_STATE["local_sha"] = sha
-        _VERSION_STATE["local_short"] = sha[:7] if sha else None
-        _VERSION_STATE["local_version"] = local_version
-        _VERSION_STATE["local_branch"] = branch
-        _VERSION_STATE["local_commit_date"] = local_commit_date
-        _VERSION_STATE["local_dirty"] = dirty
-        # Suppress remote checks when the user is clearly running their own
-        # variant — we'd be wrong to nag them about being "behind."
-        if _dist.is_mac_app():
-            # The Mac app updates the studio itself (Sparkle + a new tarball);
-            # there is no checkout to pull and nothing to poll GitHub for.
-            _VERSION_STATE["suppress_reason"] = "updates come from the Phosphene app"
-        elif not VERSION_CHECK_ENABLED:
-            _VERSION_STATE["suppress_reason"] = "disabled by PHOSPHENE_DISABLE_VERSION_CHECK"
-        elif not checkout:
-            _VERSION_STATE["suppress_reason"] = "not a git checkout"
-        elif not sha:
-            _VERSION_STATE["suppress_reason"] = "not a git checkout"
-        elif branch != "main":
-            _VERSION_STATE["suppress_reason"] = f"on branch '{branch}', not main"
-        elif dirty:
-            _VERSION_STATE["suppress_reason"] = "local changes uncommitted"
-        else:
-            _VERSION_STATE["suppress_reason"] = None
-
-
-def _fetch_remote_commits(limit: int = 30) -> list[dict] | None:
-    """GET the latest N commits on origin/main from the public GitHub API.
-    Returns a list of raw commit dicts (newest first), or None on any error.
-    Caller is expected to handle None gracefully — we don't show errors to
-    the user every 30 minutes when their wifi is flaky."""
-    import urllib.request as _urlreq
-    import urllib.error as _urlerr
-    url = (f"https://api.github.com/repos/{_VERSION_REPO_OWNER}/"
-           f"{_VERSION_REPO_NAME}/commits?sha=main&per_page={limit}")
-    req = _urlreq.Request(url, headers={
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "phosphene-panel-version-check",
-    })
-    try:
-        with _urlreq.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        if not isinstance(data, list):
-            return None
-        return data
-    except (_urlerr.URLError, _urlerr.HTTPError, OSError, ValueError, TimeoutError):
-        return None
-
-
-def _parse_broadcast(raw: bytes | str, local_version: str = "") -> dict | None:
-    """Validate a BROADCAST.json payload into the one message the UI may show.
-
-    The maintainer's channel to every install: a JSON file committed to public
-    main. Closed shape on purpose — id (string, the dismissal key), title,
-    body (plain text, rendered as text never HTML), and optionally
-    show_if_version_below ("4.9.0": installs at or past it skip the message,
-    so "please update" posts stop nagging people who already did). Anything
-    malformed returns None: a broken file must read as "no message", never as
-    a broken panel.
-    """
-    try:
-        data = json.loads(raw)
-    except (ValueError, TypeError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    mid = str(data.get("id") or "").strip()[:64]
-    title = str(data.get("title") or "").strip()[:120]
-    body = str(data.get("body") or "").strip()[:2000]
-    if not mid or not (title or body):
-        return None
-    below = str(data.get("show_if_version_below") or "").strip()
-    if below and local_version:
-        def _v(v):
-            try:
-                return tuple(int(x) for x in v.strip().split("."))
-            except ValueError:
-                return None
-        lv, bv = _v(local_version), _v(below)
-        if lv is not None and bv is not None and lv >= bv:
-            return None
-    return {"id": mid, "title": title, "body": body}
-
-
-def _fetch_broadcast() -> dict | None:
-    """GET BROADCAST.json from public main. None on any failure or absence."""
-    import urllib.request as _urlreq
-    import urllib.error as _urlerr
-    url = (f"https://raw.githubusercontent.com/{_VERSION_REPO_OWNER}/"
-           f"{_VERSION_REPO_NAME}/main/BROADCAST.json")
-    req = _urlreq.Request(url, headers={
-        "User-Agent": "phosphene-panel-version-check",
-    })
-    try:
-        with _urlreq.urlopen(req, timeout=10) as resp:
-            raw = resp.read(64 * 1024)
-    except (_urlerr.URLError, _urlerr.HTTPError, OSError, ValueError,
-            TimeoutError):
-        return None
-    with _VERSION_LOCK:
-        local = _VERSION_STATE.get("local_version") or ""
-    return _parse_broadcast(raw, local)
-
-
-def _check_remote_once() -> None:
-    """Run one remote check, mutate _VERSION_STATE accordingly. Idempotent.
-    Safe to call from a background thread or from a /version/check endpoint.
-    Re-detects local state (HEAD, branch, dirty) at the top of every call so
-    a tree that was dirty when the panel started but is clean now (e.g. user
-    just committed) gets picked up without needing a panel restart. The
-    earlier build only ran _detect_local_install_state once at startup,
-    which left the suppress_reason stale across the panel's lifetime."""
-    _detect_local_install_state()
-    with _VERSION_LOCK:
-        suppress = _VERSION_STATE["suppress_reason"]
-        local_sha = _VERSION_STATE["local_sha"]
-    if suppress:
-        return                             # never poll in suppressed states
-    commits = _fetch_remote_commits(limit=30)
-    if commits is None:
-        with _VERSION_LOCK:
-            _VERSION_STATE["error"] = "could not reach github.com"
-        return
-    if not commits:
-        with _VERSION_LOCK:
-            _VERSION_STATE["error"] = "github returned no commits"
-        return
-    remote_sha = commits[0].get("sha")
-    if not remote_sha:
-        with _VERSION_LOCK:
-            _VERSION_STATE["error"] = "github response missing sha"
-        return
-
-    # Find local SHA in the list. If it's at index N, we are N commits behind.
-    behind_by = None
-    for i, c in enumerate(commits):
-        if c.get("sha") == local_sha:
-            behind_by = i
-            break
-    if behind_by is None:
-        # Local is older than what fits in the window OR has been rebased
-        # away. Either way, "30+" is a fine UX answer — the modal will say
-        # "many updates available, please run Pinokio Update."
-        behind_by = len(commits)
-        more = True
-    else:
-        more = False
-
-    # Slim each commit dict down to what the modal renders. Keep only the
-    # commits the user is missing.
-    ahead: list[dict] = []
-    for c in commits[:behind_by]:
-        commit = c.get("commit") or {}
-        author = (commit.get("author") or {}).get("name") or "unknown"
-        date = (commit.get("author") or {}).get("date") or ""
-        msg = (commit.get("message") or "").splitlines()[0]   # first line only
-        sha = c.get("sha") or ""
-        ahead.append({
-            "sha": sha,
-            "short": sha[:7],
-            "message": msg,
-            "author": author,
-            "date": date,
-        })
-
-    # Fetch the upstream VERSION file in parallel with the commits API so
-    # the pill can show the human-friendly label (Y1.NNN). This is a raw
-    # GET on raw.githubusercontent.com — no rate limit concern at our
-    # 30-min cadence. Tolerate missing-file silently: older origin/main
-    # commits predate VERSION, and we still have the SHA fallback.
-    remote_version = _fetch_raw_text(
-        f"https://raw.githubusercontent.com/{_VERSION_REPO_OWNER}/"
-        f"{_VERSION_REPO_NAME}/main/VERSION"
-    )
-    # 4.17.5 (fleet): "Phosphene 4.17.4 is out - you're on 4.17.4". A local
-    # HEAD that is not among public main's commits (a local merge or commit
-    # on main, a re-made history) read as "30+ behind" even when the tree
-    # already IS the latest release - and the pop-up asked people to update
-    # to the build they run. Public main bumps VERSION on every release, so
-    # an unknown SHA carrying the remote's own VERSION is not behind.
-    with _VERSION_LOCK:
-        _local_v = (_VERSION_STATE.get("local_version") or "").strip()
-    same_release = bool(more and remote_version and _local_v
-                        and remote_version.strip() == _local_v)
-    # 4.19.15: a build NEWER than public main (a release between its version
-    # bump and its public tag, every beta install) was offered public main as
-    # an "update" - a downgrade ("Phosphene 4.19.14 is out - you're on
-    # 4.19.15"). Only a strictly greater remote VERSION is an update.
-    local_is_newer = _version_is_newer(_local_v, remote_version)
-    if same_release or local_is_newer:
-        behind_by, more, ahead = 0, False, []
-    # The maintainer broadcast rides the same 30-min cadence. Failures and
-    # absence read as "no message" — _fetch_broadcast never raises.
-    broadcast = _fetch_broadcast()
-    with _VERSION_LOCK:
-        _VERSION_STATE["remote_sha"] = remote_sha
-        _VERSION_STATE["remote_short"] = remote_sha[:7]
-        _VERSION_STATE["remote_version"] = remote_version
-        _VERSION_STATE["behind_by"] = behind_by
-        _VERSION_STATE["behind_more_than"] = more
-        _VERSION_STATE["local_unlisted_same_release"] = same_release
-        _VERSION_STATE["local_newer_than_remote"] = local_is_newer
-        _VERSION_STATE["commits_ahead"] = ahead
-        _VERSION_STATE["checked_ts"] = time.time()
-        _VERSION_STATE["error"] = None
-        _VERSION_STATE["broadcast"] = broadcast
-
 
 def _version_tuple(v) -> tuple[int, ...] | None:
     """'4.19.15' -> (4, 19, 15). None for anything that is not dotted digits
@@ -5491,70 +5121,6 @@ def _version_is_newer(local, remote) -> bool:
         return False
     width = max(len(lt), len(rt))
     return lt + (0,) * (width - len(lt)) > rt + (0,) * (width - len(rt))
-
-
-def version_check_loop() -> None:
-    """Daemon thread entry: detect local state once, then poll the remote
-    every _VERSION_POLL_INTERVAL_SEC. First poll happens after a 30s
-    delay so we don't compete with boot-time work."""
-    _capture_boot_head()          # BEFORE anything can re-detect local state
-    _detect_local_install_state()
-    time.sleep(_VERSION_STARTUP_DELAY_SEC)
-    while True:
-        try:
-            _check_remote_once()
-        except Exception as exc:                          # belt + braces
-            sys.stderr.write(f"WARN: version check raised: {exc}\n")
-        time.sleep(_VERSION_POLL_INTERVAL_SEC)
-
-
-def get_version_state() -> dict:
-    """Snapshot of _VERSION_STATE for the /version endpoint. Returns a copy
-    so the caller can't mutate the live state under the lock.
-
-    TWO BUILDS, ALWAYS BOTH. `local_*` is what THIS PROCESS LOADED — the boot
-    snapshot, frozen at import. `disk_*` is the working tree right now, one
-    `git rev-parse` per request (the pill polls every 5 minutes). On a healthy
-    install they are equal, and that is the point: when they diverge the
-    header has to keep naming the code that is actually answering, or the
-    stamp stops being the thing the owner uses to tell which build he is on.
-    The 2026-08-14 incident where :8198 served pre-4.0.4 HTML for three hours
-    after the folder updated is what `stale_process` is for.
-
-    `_VERSION_STATE["local_*"]` is NOT that snapshot, despite the name. It is
-    re-detected from disk at the top of every remote poll, deliberately, so a
-    tree that was dirty at boot and is clean now stops being suppressed
-    without a restart. It stays the basis for `behind_by` — being behind
-    origin/main is a fact about the TREE — and is overwritten here for
-    display, which is a fact about the PROCESS."""
-    with _VERSION_LOCK:
-        snap = dict(_VERSION_STATE)
-    boot = boot_build_stamp()
-    disk_sha = (_git_capture(["rev-parse", "HEAD"]) if _root_is_checkout()
-                else _read_bundle_commit())
-    # The header stamp answers exactly one question — what code is this
-    # process running — so it is answered from the boot snapshot or not at
-    # all. Never snap["local_*"]: that agrees with disk within one poll.
-    if boot["sha"]:
-        snap["local_sha"] = boot["sha"]
-        snap["local_short"] = boot["short"]
-        snap["local_version"] = boot["version"]
-        snap["local_branch"] = boot["branch"] or snap.get("local_branch")
-        snap["local_commit_date"] = boot["commit_date"]
-    # Unconditional, not "only when stale". A consumer that must check
-    # stale_process before it may trust disk_short is a consumer that will
-    # eventually forget to.
-    snap["disk_sha"] = disk_sha
-    snap["disk_short"] = disk_sha[:7] if disk_sha else None
-    snap["disk_version"] = _read_local_version()
-    snap["stale_process"] = bool(
-        disk_sha and boot["sha"] and disk_sha != boot["sha"])
-    snap["post_update"] = post_update_status()
-    # Where this panel runs: the page's pill defers to the app's own updater
-    # under the Mac app (app_updates) and shows the edition label.
-    snap.update(_dist.info())
-    return snap
-
 
 # ---------------------------------------------------------------------------
 # Repo-stats background fetcher (Mr Bizarro's solo-maintainer dashboard).
@@ -8533,6 +8099,110 @@ def request_video_models() -> tuple[int, dict]:
     DEFERRED_WAKE.set()
     threading.Thread(target=deferred_fetch_loop, args=(False,), daemon=True).start()
     return 202, {"ok": True, "pending": deferred_pending_keys()}
+
+
+# ---- The Mac app's model download stopped: the Studio takes over -------------
+# Fleet, 30 days to 12 Nov 2026: Mac app installs that finished a first video
+# fell from ~67% (installed on Studio 5.0.8 / 5.0.9) to ~38% (5.0.12 to 5.0.19)
+# while Pinokio held ~65%. Cause, in the shipped app (5.0.10, build 50310):
+# setup installs the Studio the server pins (RemoteChannel), but the app's
+# background model download runs bootstrap.sh WITHOUT that pin, reads the
+# channel.json bundled in the app (v5.0.9), looks for app/v5.0.9, which a
+# fresh install never has, and stops at once with "Set up the studio first."
+# The app then hides this page's own Download card (#modelsInline) because its
+# card owns the state, and its Resume fails the same way: a fresh install has
+# no way left to get the video model, and Render answers pack_incomplete.
+# The fixed app passes the pin (Mac app repo); this rescues every app already
+# out there. When the app says its download FAILED, holds no download lock
+# and the active video set is missing, the Studio queues that set on its own
+# downloader (the same one the card's Download button uses), once per boot.
+# A pause or "later" is the person's choice and is left alone. The app's own
+# fetcher and this one never write one pack at once: the Studio refuses while
+# the app holds a pack (app_models_owns), and fetch_pack_release.py's
+# per-pack flock turns a later app run into `studio_fetching`, not a clash.
+APP_RESCUE: dict = {"state": "", "at": 0.0, "error": ""}   # "" | started | refused
+APP_RESCUE_POLL_SEC = 20.0
+APP_RESCUE_REFUSED_RETRY_SEC = 300.0
+
+
+def video_set_repos() -> list[dict]:
+    """The active generation's first-render set (what Download video models
+    fetches), as registry rows."""
+    cap = (_REQUIRED.get("capabilities") or {}).get("render") or {}
+    keys = (cap.get("repos_by_version") or {}).get(ACTIVE_MODEL_VERSION, [])
+    return [r for r in (_deferred_repo(k) for k in keys) if r is not None]
+
+
+def app_models_rescue_due(st: dict | None = None) -> bool:
+    """True when the Mac app's own model download failed and left the video
+    set missing, with nothing downloading it now."""
+    if not _dist.is_mac_app():
+        return False
+    st = st if st is not None else app_models_state()
+    if not st or st.get("state") != "failed" or st.get("locked") or st.get("active"):
+        return False
+    with DOWNLOAD_LOCK:
+        if DOWNLOAD.get("active"):
+            return False
+    return any(_deferred_missing(r) for r in video_set_repos())
+
+
+def app_models_rescue_step() -> bool:
+    """One look. True when there is nothing more to do this boot (the Studio
+    queued the set, or the set is on disk)."""
+    if APP_RESCUE["state"] == "started":
+        return True
+    if not any(_deferred_missing(r) for r in video_set_repos()):
+        return True
+    if (APP_RESCUE["state"] == "refused"
+            and time.time() - APP_RESCUE["at"] < APP_RESCUE_REFUSED_RETRY_SEC):
+        return False
+    if not app_models_rescue_due():
+        return False
+    code, payload = request_video_models()
+    if code == 202:
+        APP_RESCUE.update(state="started", at=time.time(), error="")
+        push("[models] The app's model download stopped; the Studio is downloading "
+             "the video model itself (resumes where the app left off).")
+        return True
+    APP_RESCUE.update(state="refused", at=time.time(),
+                      error=str((payload or {}).get("error") or ""))
+    push(f"[models] The Studio could not start the video model download: {APP_RESCUE['error']}")
+    return False
+
+
+def app_models_rescue_loop() -> None:
+    """Mac app only, started at boot when the video set is missing: watch for
+    the app's download to fail and take over (app_models_rescue_step)."""
+    while True:
+        try:
+            if app_models_rescue_step():
+                return
+        except Exception as exc:  # noqa: BLE001 - a watcher must never take the panel down
+            push(f"[models] model download watcher: {exc}")
+        time.sleep(APP_RESCUE_POLL_SEC)
+
+
+def first_run_now() -> bool:
+    """Has this install never finished a render? (SYS-16: the same flag
+    render_completed's first_render uses, plus the outputs on disk for an
+    install with analytics off.)"""
+    return not (bool(get_settings().get("analytics_first_render_reported"))
+                or _has_rendered_before())
+
+
+#: Macs at or under this much memory start on Quick + the fast schedule.
+FIRST_CLIP_QUICK_MAX_GB = 24
+
+
+def first_clip_settings() -> dict:
+    """The starter clip the first-run card queues. Fleet, 30 days to 12 Nov
+    2026: 37% of 16 GB installs never finished a render (25% on 24 GB). A
+    first clip there must fit for sure and land in minutes, so 24 GB and less
+    start on Quick with the fast draft schedule (the Mac app's own first clip
+    uses the same pair); bigger Macs keep Balanced."""
+    small = 0 < SYSTEM_RAM_GB <= FIRST_CLIP_QUICK_MAX_GB + 0.5
+    return {"quality": "quick" if small else "balanced", "fast": small}
 
 
 def model_download_progress(repo: dict) -> dict:
@@ -23069,25 +22739,44 @@ def _analytics_feature(feature: str, detail: str = "") -> None:
 
 
 # ---- "Star us on GitHub" ask (owner, 2 Nov 2026) ----------------------------
-# One small card, once per Mac, after the fifth finished render. Kept in the
+# One small card, once per Mac, after the third finished render. Kept in the
 # panel's own settings file so it survives restarts and updates; it is not
 # per session and it is independent of analytics being on. States:
 #   (no key)  never counted yet
-#   counting  fewer than five finished renders
+#   counting  fewer than three finished renders
 #   due       the card should show (set by a finished render)
 #   shown     the card was put on screen; it will not be put up again
 #   done      the person answered (star, waitlist, not now or close)
-# Existing users with five or more renders already in their history are
+# Existing users with three or more renders already in their history are
 # seeded from it the first time, so they see it once after their next render.
 # Someone who already starred from the header icon or the update banner
 # (star_prompt_done) never sees the card.
-STAR_PROMPT_THRESHOLD = 5
+#
+# Review nudge (owner, 12 Nov 2026; first asked for the 10th render, then the
+# 3rd): the same card, the same moment and the same once-per-Mac state, now at
+# the third finished render for everyone. A Mac that has paired Phosphene Remote (any
+# confirmed phone in state/remote/devices.json, which the Pro pack's
+# pro_remote keeps) gets one quiet line asking for an App Store review of the
+# iPhone app instead of the GitHub star. Either answer ends both for good.
+STAR_PROMPT_THRESHOLD = 3
 STAR_PROMPT_URL = "https://github.com/mrbizarro/Phosphene"
+REMOTE_REVIEW_URL = "https://apps.apple.com/app/phosphene-remote/id6827562294"
+# "Write a review" opens the App Store app straight on the write-a-review
+# sheet; the web page is only the fallback when nothing handles itms-apps
+# (owner, 12 Nov 2026).
+REMOTE_REVIEW_APP_URL = "itms-apps://apps.apple.com/app/id6827562294?action=write-review"
+REMOTE_REVIEW_WEB_URL = "https://apps.apple.com/app/id6827562294?action=write-review"
+# Never within 7 days of the phone's own rating prompt. The phone does not
+# tell the Mac when it asked yet, so this counts from the pairing (or from a
+# `review_asked` time on the device, if a later Pro pack records one).
+REMOTE_REVIEW_GAP = 7 * 86400
+STAR_PROMPT_VARIANTS = ("github", "remote")
 # star_inapp: starred in place through the Mac's own GitHub CLI (v2, 4 Nov).
 # already: the gh check says this GitHub account starred us; closes it with
 # no count (the owner: no analytics change except card_star_inapp).
+# review: opened the App Store page of Phosphene Remote (the remote variant).
 STAR_PROMPT_ACTIONS = ("shown", "star", "star_inapp", "waitlist", "not_now",
-                       "already")
+                       "already", "review")
 STAR_PROMPT_REPO = "mrbizarro/Phosphene"
 _STAR_PROMPT_LOCK = threading.Lock()
 
@@ -23251,13 +22940,73 @@ def pro_click_report(where: str, action: str) -> None:
         _analytics_capture("pro_click", {"where": where, "action": action, "version": running_version()})
 
 
+def _remote_devices() -> list:
+    """The confirmed phones in state/remote/devices.json (read only, no
+    symlinks followed). Any problem: an empty list."""
+    try:
+        path = Path(STATE_DIR) / "remote" / "devices.json"
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            raw = os.read(fd, 1 << 20)
+        finally:
+            os.close(fd)
+        doc = json.loads(raw.decode("utf-8"))
+        devs = doc.get("devices") if isinstance(doc, dict) else None
+        return [d for d in (devs or []) if isinstance(d, dict) and d.get("confirmed") is True]
+    except Exception:
+        return []
+
+
+def remote_review_quiet_until() -> float:
+    """The time before which the remote line must not show: 7 days after the
+    latest of the first pairing and any phone prompt the Mac knows about.
+    Only times are read (no names, no keys). 0 when nothing is known."""
+    def num(v):
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else 0.0
+    devs = _remote_devices()
+    paired = [num(d.get("created")) for d in devs if num(d.get("created"))]
+    asked = [num(d.get("review_asked")) for d in devs if num(d.get("review_asked"))]
+    start = max(([min(paired)] if paired else []) + asked, default=0.0)
+    return start + REMOTE_REVIEW_GAP if start else 0.0
+
+
+def remote_paired() -> bool:
+    """Whether this Mac has paired Phosphene Remote: any confirmed phone in
+    state/remote/devices.json. The Studio cannot ask the phone; this file is
+    what the Pro pack's pro_remote writes when a pairing is confirmed and
+    rewrites when a phone is removed, so it is the one signal that survives
+    restarts and a Free engine run. Read only, no symlinks followed, only the
+    `confirmed` flag looked at (no names, no keys). Any problem: False."""
+    return bool(_remote_devices())
+
+
+def star_prompt_variant() -> str:
+    """Which ask the card is: `remote` (an App Store review of Phosphene
+    Remote) on a Mac with a paired phone, `github` (the star) otherwise.
+    Fixed once the card was shown, so its answer counts under what was seen."""
+    try:
+        s = get_settings()
+        v = s.get("star_prompt_variant")
+        if (s.get("star_prompt_state") or "") in ("shown", "done") and v in STAR_PROMPT_VARIANTS:
+            return v
+    except Exception:
+        pass
+    return "remote" if remote_paired() else "github"
+
+
 def star_prompt_due() -> bool:
     """Whether the page should put the card up now. Someone who already
     starred from the header icon or the update banner (star_prompt_done) is
     never asked again here."""
     try:
         s = get_settings()
-        return s.get("star_prompt_state") == "due" and not s.get("star_prompt_done")
+        if not (s.get("star_prompt_state") == "due" and not s.get("star_prompt_done")):
+            return False
+        # The review line waits out the phone's own prompt (it stays due and
+        # shows on a later poll; the GitHub card never waits).
+        if star_prompt_variant() == "remote" and time.time() < remote_review_quiet_until():
+            return False
+        return True
     except Exception:
         return False
 
@@ -23354,7 +23103,7 @@ def _star_prompt_transition(state: str, action: str) -> str | None:
     (a second answer, or `shown` once it was already shown)."""
     if action == "shown":
         return "shown" if state == "due" else None
-    if action in ("star", "star_inapp", "waitlist", "not_now", "already"):
+    if action in ("star", "star_inapp", "waitlist", "not_now", "already", "review"):
         return "done" if state in ("due", "shown") else None
     return None
 
@@ -23366,11 +23115,12 @@ def star_prompt_answer(action: str) -> bool:
     if action not in STAR_PROMPT_ACTIONS:
         raise ValueError("unknown action")
     with _STAR_PROMPT_LOCK:
+        variant = star_prompt_variant()
         new = _star_prompt_transition(
             get_settings().get("star_prompt_state") or "", action)
         if new is None:
             return False
-        delta = {"star_prompt_state": new}
+        delta = {"star_prompt_state": new, "star_prompt_variant": variant}
         if new == "done":
             delta["star_prompt_choice"] = action
             # Any answer also retires the update banner's star row: one ask.
@@ -23380,7 +23130,7 @@ def star_prompt_answer(action: str) -> bool:
     # icon (via link / already), with the card's own closed values. A card
     # retired because GitHub says they already starred is not counted.
     if action != "already":
-        _analytics_capture("star_prompt", {"via": "card_" + action})
+        _analytics_capture("star_prompt", {"via": "card_" + action, "variant": variant})
     return True
 
 
@@ -23549,9 +23299,12 @@ _ANALYTICS_REFUSAL_REASONS = (
     # "about 64 GB" sentence, kept ONLY so replayed usage logs from before
     # 2026-08-28 still classify; nothing raises it any more. docs/ANALYTICS.md
     # records that the wording moved without the series moving.
+    # The last needle (fw-20261112-1101) is the H3 runner's own admission
+    # sentence on a Mac too small for this clip's size ("Try a smaller size").
     ("h3_ram", ("needs about 64 gb of unified memory",
                 "on its reduced-ram lane",
-                "gb of unified memory on its reduced-ram q8 engine")),
+                "gb of unified memory on its reduced-ram q8 engine",
+                "this mac cannot make this clip:")),
     ("h3_mode", ("doesn't serve mode",)),
     ("h3_lora_slots", ("adapter slot",)),
     # The vendored engine predates the Gemma 4 tower, so a 2.5 render would
@@ -23591,8 +23344,12 @@ _ANALYTICS_REFUSAL_REASONS = (
     ("input_unreadable", ("phosphene could not read the",)),
     # #206: a small Mac whose prompt encoding macOS stopped minutes ago, still
     # short of memory after a wait (ltx_encode_memory_hold).
+    # fw-20261112-1101: the H3 runner's "busy" verdict on a small Mac, after the
+    # Studio waited for memory (h3_memory_hold), and the runner's own sentence.
     ("memory_low", ("not enough free memory to read the prompt",
-                   "not enough free memory to start a song")),
+                   "not enough free memory to start a song",
+                   "not enough free memory to start this hailuo h3 clip",
+                   "other apps are using the memory right now")),
     # A training run whose LTX-2.3 weights are not on this Mac (fleet 2 Nov
     # 2026: 25 of 31 failed runs in a day, one Mac 22 times in an hour). The
     # message names the download and the Train tab offers it. Prefix:
@@ -26372,8 +26129,9 @@ def ltx_speedup_status() -> dict:
         return out
     if ACTIVE_MODEL_VERSION != "ltx25":
         return {**out, "reason": "ltx25_only"}
-    if low_ram_streaming_enabled():
-        return {**out, "reason": "mac_too_small"}
+    # 5.0.20: no Studio-side memory floor any more. The block-streamed path
+    # (24 GB and smaller) can carry the speed-up too; the Pro side answers
+    # "mac" for a Mac it cannot serve, which lands on mac_too_small below.
     now = time.monotonic()
     hit = _LTX_SPEEDUP_MEMO.get("status")
     if hit and now - hit[0] < 5.0:
@@ -26419,8 +26177,7 @@ def ltx_speedup_decide(p: dict, *, mode: str, quality: str, width: int, height: 
         toggle=p.get("pro_speedup_choice"), version=ACTIVE_MODEL_VERSION, quality=quality, mode=mode,
         added_styles=added_styles, character=character, hdr=bool(p.get("hdr")),
         inspire=(p.get("i2v_reference_mode") == "inspire"), schedule_preset=p.get("schedule_preset") or "",
-        fps=fps, frames=frames, width=width, height=height, windows=windows,
-        low_memory_mac=low_ram_streaming_enabled())
+        fps=fps, frames=frames, width=width, height=height, windows=windows)
     if not ok:
         if pro_speedup.toggle_on(p.get("pro_speedup_choice")):
             push(f"Pro speed-up: not used for this render ({why}).")
@@ -41560,6 +41317,148 @@ def h3_should_level_sound(mode: str, params: dict) -> bool:
             and h3_loudness.enabled())
 
 
+
+# ---- H3 on a small Mac: wait for memory instead of failing the queue ---------
+# Fleet 11-12 Nov 2026 (fail watch fw-20261112-1101): the top failure of the day
+# was the H3 runner's own admission check on 16-24 GB Macs - "This Mac can make
+# this clip, but other apps are using the memory right now" (runner exit 77,
+# 23 failures on 3 Macs). The check is right to refuse a render that would swap,
+# but it measures one moment, and the Studio failed the job on it at once: the
+# queue then started the next H3 job, which was refused 3 seconds later, and the
+# next. One 24 GB Mac lost 10 queued clips in 7 minutes, a 16 GB Mac 7 in 2.5
+# minutes - and both rendered the same clips fine later. Now, before an H3
+# render that runs the low-memory plan, the Studio asks the runner for its
+# verdict alone (`--admission-only`: no model loads, a few seconds). "busy"
+# waits, re-asking every H3_BUSY_POLL_S, while the Now card says how much is
+# free, how much is needed and which apps hold the most; it starts by itself
+# once memory frees up, and only after H3_BUSY_WAIT_S refuses plainly. A
+# refusal is our deliberate "not now", counted as one (memory_low), not a fault.
+H3_BUSY_WAIT_S = float(os.environ.get("LTX_H3_BUSY_WAIT_S") or 300.0)
+H3_BUSY_POLL_S = float(os.environ.get("LTX_H3_BUSY_POLL_S") or 15.0)
+H3_EXIT_CANNOT = 76
+H3_EXIT_BUSY = 77
+#: Apps a user cannot quit to free memory for a render (the Studio itself and
+#: its launcher), left out of the "biggest apps" line.
+_MEMORY_TOP_SKIP = ("phosphene", "pinokio")
+
+
+def memory_top_apps(limit: int = 3, ps_output: str | None = None) -> list[tuple[str, float]]:
+    """The apps holding the most memory right now, as [(name, GB)], biggest first.
+
+    Groups every process by the outermost `.app` its executable lives in, so a
+    browser's dozens of helper processes read as one app; background daemons
+    and command-line tools (no `.app`) are left out, since a user cannot quit
+    them from the Dock. Resident size, which is what Activity Monitor's Memory
+    column approximates. Never raises; [] when `ps` is unreadable."""
+    if ps_output is None:
+        try:
+            ps_output = subprocess.run(
+                ["ps", "-axo", "rss=,comm="], capture_output=True, text=True,
+                errors="replace", timeout=5).stdout
+        except Exception:                                       # noqa: BLE001
+            return []
+    totals: dict[str, float] = {}
+    for line in (ps_output or "").splitlines():
+        rss, _, comm = line.strip().partition(" ")
+        if ".app/" not in comm:
+            continue
+        try:
+            kb = float(rss)
+        except ValueError:
+            continue
+        name = comm.split(".app/", 1)[0].rsplit("/", 1)[-1].strip()
+        if not name or any(s in name.lower() for s in _MEMORY_TOP_SKIP):
+            continue
+        totals[name] = totals.get(name, 0.0) + kb / 1024 ** 2
+    top = sorted(totals.items(), key=lambda kv: -kv[1])
+    return [(n, round(g, 1)) for n, g in top[:limit] if g >= 0.3]
+
+
+def _memory_top_apps_words(apps: list[tuple[str, float]]) -> str:
+    return ", ".join(f"{n} {g:.1f} GB" for n, g in apps)
+
+
+def h3_admission_check(cmd: list[str], env: dict | None, cwd: str | None = None) -> dict:
+    """Run the H3 runner with `--admission-only` and return its verdict:
+    {verdict: ok|busy|cannot|unknown, need_gib, free_gib, message}. Nothing
+    loads; the runner exits 0 / 76 / 77 after printing one H3_ADMISSION line.
+    Anything else (a crash, a timeout, an older runner) is "unknown", and the
+    caller then runs the render as before - this check never blocks a render
+    the runner itself would start."""
+    out = {"verdict": "unknown", "need_gib": None, "free_gib": None, "message": ""}
+    try:
+        res = subprocess.run(list(cmd) + ["--admission-only"], cwd=cwd, env=env,
+                             capture_output=True, text=True, errors="replace",
+                             timeout=120)
+    except Exception:                                           # noqa: BLE001
+        return out
+    plan = {}
+    for line in (res.stdout or "").splitlines():
+        if line.startswith("H3_ADMISSION "):
+            try:
+                plan = json.loads(line[len("H3_ADMISSION "):]) or {}
+            except ValueError:
+                plan = {}
+    adm = plan.get("admission") or {}
+    out["need_gib"] = adm.get("need_gib")
+    out["free_gib"] = adm.get("free_now_gib")
+    out["message"] = str(adm.get("message") or "")
+    out["verdict"] = {0: "ok", H3_EXIT_CANNOT: "cannot", H3_EXIT_BUSY: "busy"}.get(
+        res.returncode, "unknown")
+    return out
+
+
+def h3_busy_refusal_message(need_gib, free_gib, apps: list[tuple[str, float]]) -> str:
+    need = f"about {float(need_gib):.0f} GB" if need_gib is not None else "more memory"
+    free = (f" and {float(free_gib):.0f} GB is free" if free_gib is not None else "")
+    top = (f" The apps using the most right now: {_memory_top_apps_words(apps)}."
+           if apps else "")
+    return (f"Not enough free memory to start this Hailuo H3 clip: it needs {need}{free} "
+            f"on this {SYSTEM_RAM_GB:.0f} GB Mac, and other apps kept it for "
+            f"{H3_BUSY_WAIT_S / 60:.0f} minutes.{top} Quit some of them (browsers with "
+            "many tabs, games, other AI apps), then press Retry.")
+
+
+def h3_memory_hold(job: dict | None, cmd: list[str], env: dict | None,
+                   cwd: str | None = None, *, sleep=time.sleep, clock=time.time) -> None:
+    """Before an H3 render on the low-memory plan: wait while the runner says
+    other apps hold the memory it needs, then refuse plainly (RenderRefused,
+    memory_low). Returns at once when the render may start, when this Mac
+    cannot make the clip at all (the run says so in its own words), and when
+    the verdict is unknown."""
+    if "--low-memory" not in cmd or not _h3_runner_has_flag("--admission-only"):
+        return
+    t0 = clock()
+    check = h3_admission_check(cmd, env, cwd)
+    if check["verdict"] != "busy":
+        return
+    try:
+        while check["verdict"] == "busy":
+            _raise_if_cancelled(job, "the H3 render")
+            apps = memory_top_apps()
+            if clock() - t0 >= H3_BUSY_WAIT_S:
+                raise RenderRefused("memory_low", h3_busy_refusal_message(
+                    check["need_gib"], check["free_gib"], apps))
+            if job is not None:
+                need, free = check["need_gib"], check["free_gib"]
+                job["waiting_note"] = (
+                    "Waiting for memory - "
+                    + (f"this clip needs about {float(need):.0f} GB and "
+                       f"{float(free):.0f} GB is free. " if need is not None and free is not None
+                       else "other apps are using the memory this clip needs. ")
+                    + (f"Using the most: {_memory_top_apps_words(apps)}. " if apps else "")
+                    + "Quit some apps and it starts by itself.")
+            push(f"[h3] waiting for memory: {check['message'] or 'other apps hold it'}")
+            sleep(H3_BUSY_POLL_S)
+            check = h3_admission_check(cmd, env, cwd)
+    finally:
+        if job is not None:
+            job.pop("waiting_note", None)
+    if check["verdict"] == "ok":
+        push(f"[h3] memory is free now after {clock() - t0:.0f} s - starting.")
+
+
+
 def run_h3_job_inner(job: dict) -> None:
     """Render one job on the Hailuo H3 engine (optional subprocess pack).
 
@@ -42562,6 +42461,9 @@ def run_h3_job_inner(job: dict) -> None:
     # Last look before the GPU: a Stop pressed during any of the preparation
     # above (the companion fetch, the reference crop) ends the job here.
     _raise_if_cancelled(job, "the H3 render")
+    # A small Mac whose memory other apps hold right now waits here (Now card
+    # says what to quit) instead of failing this job and the queue behind it.
+    h3_memory_hold(job, cmd, env, str(H3_ROOT))
     try:
         proc = subprocess.Popen(
             cmd,
@@ -42833,15 +42735,19 @@ def run_h3_job_inner(job: dict) -> None:
                 # The runner refused a broken render and said why (NaN/inf
                 # latents, blank decode) — that sentence IS the diagnosis.
                 raise RuntimeError(_runner_msg)
-            if rc in (76, 77):
+            if rc in (H3_EXIT_CANNOT, H3_EXIT_BUSY):
                 # Low-memory admission check (runner exit 76 = this Mac cannot make this clip,
                 # 77 = other apps are using the memory right now). Nothing was loaded; the
-                # runner's own last sentence tells the owner what to change.
+                # runner's own last sentence tells the owner what to change. Both are a
+                # deliberate "no" before any GPU time, so they are refusals, not faults
+                # (fw-20261112-1101: 23 of them were the day's top "failure").
                 _plain = next((ln.strip() for ln in reversed(list(_h3_tail))
                                if "this Mac" in ln or "This Mac" in ln), "")
-                raise RuntimeError(_plain or (
-                    "This Mac cannot make this clip with the memory it has free right now. "
-                    "Close some apps or try a smaller size or a shorter clip."))
+                raise RenderRefused(
+                    "h3_ram" if rc == H3_EXIT_CANNOT else "memory_low",
+                    _plain or (
+                        "This Mac cannot make this clip with the memory it has free right now. "
+                        "Close some apps or try a smaller size or a shorter clip."))
             # Negative rc means the child died on a signal, and NAMING it is
             # the whole diagnosis: a jetsam kill during joint denoise (issue
             # #67 — the log just stops at "== w1_joint_denoise ==") used to
@@ -52373,7 +52279,10 @@ def page(theme: str = "") -> str:
         # analytics_first_render_reported already tracks (set once, on the
         # first render_completed), so the first-run card reuses that flag
         # rather than adding a second one that could drift from it.
-        "first_run": not (bool(get_settings().get("analytics_first_render_reported")) or _has_rendered_before()),
+        "first_run": first_run_now(),
+        # The starter clip the first-run card queues: sized so it fits this Mac
+        # for sure (first_clip_settings).
+        "first_clip": first_clip_settings(),
     })
     # Profile badge — only visible in the dev panel. Lets Mr Bizarro tell at a
     # glance which install he's looking at when both panels are open.
@@ -52596,6 +52505,11 @@ if __name__ == "__main__":
     if deferred_fetch_enabled():
         threading.Thread(target=deferred_fetch_loop, daemon=True,
                          name="phos-deferred-fetch").start()
+    # Mac app with the video set missing: take over if the app's own model
+    # download stops (app_models_rescue_loop, the 5.0.10 pin bug).
+    if _dist.is_mac_app() and any(_deferred_missing(r) for r in video_set_repos()):
+        threading.Thread(target=app_models_rescue_loop, daemon=True,
+                         name="phos-app-models-rescue").start()
     # Anonymous usage analytics — one app_boot event plus any optional-pack
     # transitions since the last boot, then nothing until a job finishes.
     # Deliberately here in __main__ and not at import time, so `import

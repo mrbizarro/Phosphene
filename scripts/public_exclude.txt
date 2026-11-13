@@ -57,6 +57,9 @@ scripts/release_gates.sh
 docs/RELEASE_CHECKLIST.md
 docs/HISTORY.md
 docs/PERF_RESEARCH_2026-05-05.md
+# 2026-11-12: the low-RAM study and its build record name Pro methods.
+docs/LOWRAM_RND_2026-11.md
+docs/LOWRAM_BUILD_2026-11.md
 docs/IMAGE_GEN_RESEARCH_2026-05.md
 docs/launch_thread_3.0.md
 launch/*

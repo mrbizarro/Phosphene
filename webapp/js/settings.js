@@ -17,6 +17,14 @@ function updateModelsCard(s) {
   const last     = document.getElementById('modelsInlineLast');
   const actions  = document.getElementById('modelsInlineActions');
   if (!card) return;
+  // Mac app: its own card hides this one while it owns the model download
+  // (a <style> it injects, syncStudioModelCard). When that download FAILED its
+  // card is a dead end (app 5.0.10: "Set up the studio first.", and Resume
+  // fails the same way), so this card comes back and the Studio downloads the
+  // video model itself (app_models_rescue_step, server side).
+  const appFailed = !!(s.app_models && s.app_models.state === 'failed' && !s.app_models.active);
+  const appHide = document.getElementById('phosphene-native-model-card');
+  if (appFailed && appHide && appHide.textContent) appHide.textContent = '';
   const setActions = html => {
     if (actions._html === html) return;
     const focused = actions.contains(document.activeElement);
@@ -154,6 +162,15 @@ function updateModelsCard(s) {
         last.textContent = '';
       }
       setActions('');
+      return;
+    }
+    // The Studio tried to take over the app's stopped download and could not
+    // (disk space, a missing drive): say why, keep the button.
+    const rescue = s.app_models_rescue;
+    if (rescue && rescue.state === 'refused' && rescue.error) {
+      sub.textContent = rescue.error;
+      setActions(`<button onclick="downloadFirstVideo()">Try again</button>`
+        + `<button class="ghost" onclick="openModelsModal()">All models</button>`);
       return;
     }
     const missingList = s.base_missing || [];
@@ -1686,8 +1703,8 @@ function proSpeedChanged() {
 // Display text only. Whether a feature runs is decided where it runs, from the signed licence.
 const PRO_FEATURES = [
   { id: 'ltx-faster', name: 'Faster LTX clips',
-    line: 'LTX-2.5 clips render with less waiting: about a quarter less on a 5-second clip and about a fifth less on a 10-second clip (Balanced; measured on an M4 Max 64 GB). On by default; switch it off for any render. Macs with 32 GB or more.',
-    short: 'about a quarter less waiting on LTX clips, on Macs with 32 GB or more.',
+    line: 'LTX-2.5 clips render with less waiting: about a quarter less on a 5-second clip and about a fifth less on a 10-second clip (Balanced; measured on an M4 Max 64 GB). On by default; switch it off for any render. Macs with 16 GB or more.',
+    short: 'about a quarter less waiting on LTX clips, on Macs with 16 GB or more.',
     where: 'Beside Quality, on LTX-2.5 Balanced' },
   { id: 'h3-flex-turbo', name: 'Faster Flex Turbo',
     line: 'Flex Turbo renders about 1.5× faster than Flex on Free (M4 Max 64 GB; Macs with 36 GB or more). A little softer; for drafts.',
@@ -1702,8 +1719,8 @@ const PRO_FEATURES = [
     short: 'AI paints real picture above and below. For Macs with 48 GB or more.',
     where: 'More, on any finished clip' },
   { id: 'remote', name: 'Remote Control',
-    line: 'Start and watch renders from the free Phosphene Remote app on your iPhone while your Mac does the work. The app is free; a Pro licence unlocks it.',
-    short: 'start and watch renders from the free Phosphene Remote app on your iPhone.',
+    line: 'Start and watch renders from your iPhone while your Mac does the work. Remote is part of Pro: get the Phosphene Remote app on the App Store and connect it to this Mac.',
+    short: 'start and watch renders from your iPhone with the Phosphene Remote app.',
     where: 'Remote Control, in the left bar' },
 ];
 // Not a feature with a spot of its own, so only the two lists carry it.

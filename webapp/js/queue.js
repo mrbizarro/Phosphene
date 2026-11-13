@@ -4608,7 +4608,15 @@ async function poll() {
 function applyFirstRunCard(s) {
   const card = document.getElementById('firstRunCard');
   if (!card || !BOOT.first_run) { if (card) card.style.display = 'none'; return; }
-  const dismissed = !!(s.settings && s.settings.first_run_card_dismissed);
+  // The first video finished in this session: the "it's ready" moment.
+  if (_firstClipReady(s)) { card.style.display = ''; return; }
+  // The Mac app dismisses this card while its own card shows the model download
+  // (hideStudioFirstRunCard). When that download FAILED and the Studio took it
+  // over (app_models_rescue), the app's card is a dead end, so its dismissal is
+  // not the person's: only the X in this session hides the card then.
+  const rescued = !!(s.app_models_rescue && s.app_models_rescue.state === 'started');
+  const dismissed = rescued ? _firstRunHiddenByUser
+    : !!(s.settings && s.settings.first_run_card_dismissed);
   const everFinished = (s.history || []).some(j => j && j.status === 'done');
   // BOOT.first_run reads analytics_first_render_reported, which is only
   // ever set with analytics ON — an install with analytics off that has
@@ -4624,6 +4632,44 @@ function applyFirstRunCard(s) {
   }
 }
 
+// The starter clip this session queued (useFirstRunPrompt) finished: the card
+// turns into "Your first video is ready" until the person moves on. Drawn once.
+let _firstClipJobId = '';
+let _firstRunHiddenByUser = false;
+let _doneAtFirstPoll = null;
+function _firstClipReady(s) {
+  const card = document.getElementById('firstRunCard');
+  if (card && card.classList.contains('is-ready')) return true;
+  if (!card) return false;
+  const done = (s.history || []).filter(j => j && j.status === 'done');
+  // Renders already done when this page first polled are not this session's
+  // first video (BOOT.first_run can lag a render made with analytics off).
+  if (_doneAtFirstPoll === null) { _doneAtFirstPoll = new Set(done.map(j => j.id)); return false; }
+  const job = _firstClipJobId ? done.find(j => j.id === _firstClipJobId)
+    : done.find(j => !_doneAtFirstPoll.has(j.id) && j.params && j.params.mode !== 'image');
+  if (!job) return false;
+  card.classList.add('is-ready');
+  card.innerHTML = `<button type="button" class="first-run-dismiss" title="Hide this card" aria-label="Hide this card"
+      onclick="closeFirstClipReady()"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+    <div class="ttl">Your first video is ready</div>
+    <div class="sub">Made on this Mac, start to finish. It is playing on the right and saved in your gallery.
+      Write your own idea in the prompt and press Generate for the next one.</div>
+    <div class="first-run-ready-actions">
+      <button type="button" onclick="closeFirstClipReady(true)">Write my own</button>
+    </div>`;
+  return true;
+}
+function closeFirstClipReady(focusPrompt) {
+  _firstClipJobId = '';
+  const card = document.getElementById('firstRunCard');
+  if (card) { card.classList.remove('is-ready'); card.style.display = 'none'; }
+  BOOT.first_run = false;
+  if (focusPrompt) {
+    const p = document.getElementById('prompt');
+    if (p) { p.value = ''; p.focus(); }
+  }
+}
+
 async function dismissFirstRunCard() {
   try {
     const fd = new URLSearchParams();
@@ -4635,28 +4681,55 @@ async function dismissFirstRunCard() {
     });
   } catch (e) { /* best effort — UI still hides locally */ }
   const card = document.getElementById('firstRunCard');
-  if (card) card.style.display = 'none';
+  if (card && !card.classList.contains('is-ready')) card.style.display = 'none';
   if (LAST_STATUS && LAST_STATUS.settings) {
     LAST_STATUS.settings.first_run_card_dismissed = true;
   }
 }
+// The card's own X (the app calls dismissFirstRunCard too, see applyFirstRunCard).
+function hideFirstRunCardByUser() {
+  _firstRunHiddenByUser = true;
+  dismissFirstRunCard();
+}
 
-// Loads one of the three starter prompts and queues it directly, at this
-// Mac's safe default (Balanced — the server-side hardware clamp still
-// applies on a Compact-tier Mac, same as any other Balanced render).
-function useFirstRunPrompt(btn) {
+// Loads one of the three starter prompts and queues it directly, at the size
+// the server picked for this Mac (BOOT.first_clip: Quick with the fast
+// schedule at 24 GB or less, where a first clip must fit for sure and land in
+// minutes; Balanced above). The job id is kept so the card can say when it is
+// ready.
+async function useFirstRunPrompt(btn) {
   const text = btn && btn.dataset && btn.dataset.firstRunPrompt;
   if (!text) return;
+  const fc = BOOT.first_clip || {quality: 'balanced', fast: false};
   try { setMode('t2v'); } catch (e) {}
-  try { setQuality('balanced'); } catch (e) {}
+  try { setQuality(fc.quality); } catch (e) {}
+  if (fc.fast) {
+    const fast = document.querySelector('[data-sched-preset="fast"]');
+    if (fast && !fast.classList.contains('active')) fast.click();
+  }
   const p = document.getElementById('prompt');
   if (p) p.value = text;
+  _firstRunHiddenByUser = true;
   dismissFirstRunCard();
+  let known = new Set();
+  try {
+    const d = await (await fetch('/status', {cache: 'no-store'})).json();
+    known = new Set([].concat(d.current ? [d.current] : [], d.queue || [], d.history || []).map(j => j && j.id));
+  } catch (e) {}
   const form = document.getElementById('genForm');
   if (form && typeof form.requestSubmit === 'function') {
     form.requestSubmit();
   } else if (form) {
     form.dispatchEvent(new Event('submit', { cancelable: true }));
+  }
+  for (let i = 0; i < 20 && !_firstClipJobId; i++) {
+    await new Promise(r => setTimeout(r, 500));
+    try {
+      const d = await (await fetch('/status', {cache: 'no-store'})).json();
+      const mine = [].concat(d.current ? [d.current] : [], d.queue || [])
+        .find(j => j && !known.has(j.id) && ((j.params && j.params.prompt) || '').trim() === text.trim());
+      if (mine) _firstClipJobId = mine.id;
+    } catch (e) {}
   }
 }
 
@@ -5213,7 +5286,8 @@ function _cardModeSizeChip(o) {
 function _firstRunEta() {
   try {
     const tiers = ((BOOT.ltx || {}).tiers) || [];
-    const cell = tiers.find(t => t.is_default) || tiers.find(t => t.key === 'balanced_5s');
+    const q = (BOOT.first_clip || {}).quality || 'balanced';
+    const cell = tiers.find(t => t.key === `${q}_5s`) || tiers.find(t => t.is_default) || tiers.find(t => t.key === 'balanced_5s');
     if (!cell) return '';
     const fr = cell.fleet_range;
     return (fr && fr.eta_range) || cell.eta_range || cell.eta || '';
@@ -9570,7 +9644,7 @@ Object.assign(globalThis, {
   pickerSetImage, pickerUploadFile, pickerWire, refreshUploadsStrip,
   refreshIngredientRecent, ingredientPickerWire, fmtMin, snippet,
   escapeHtml, api, _setOfflineBanner, startDeepVerify,
-  applyFirstRunCard, dismissFirstRunCard, useFirstRunPrompt, scrollToShotSetup,
+  applyFirstRunCard, dismissFirstRunCard, hideFirstRunCardByUser, closeFirstClipReady, useFirstRunPrompt, scrollToShotSetup,
   friendlyJobError, poll, applyPackIncompleteGate, setRecentFilter,
   avoidIsIgnored, updateAvoidIgnoredState,
   retryJob, renderCarousel, findOutputByPath, stageMayAutoSelectOutput,

@@ -54,6 +54,14 @@ def _device_tree(name: str) -> list[str]:
 
 
 def total_ram_bytes() -> int:
+    # TEST ONLY: a scratch panel that should look like a smaller Mac (the
+    # first-run walk on a 16 GB "fresh install"). Never set by any launcher.
+    fake = (os.environ.get("PHOSPHENE_TEST_RAM_GB") or "").strip()
+    if fake:
+        try:
+            return int(float(fake) * 1024**3)
+        except ValueError:
+            pass
     if IS_MAC:
         out = _sysctl("hw.memsize")
         return int(out) if out.isdigit() else 0

@@ -2,8 +2,9 @@
 
 The Pro side decides whether and how a render is sped up; this file only decides whether the
 Studio asks. It asks for the renders that were measured (Balanced text or picture to video, up to
-10 seconds, landscape, vertical or square, on a Mac with 32 GB or more) and never for anything
-else, so a Pro member's other renders are exactly the Free ones.
+10 seconds, landscape, vertical or square, on a Mac the Pro side says it can serve: 32 GB or more,
+and since 5.0.20 16 to 24 GB too) and never for anything else, so a Pro member's other renders are
+exactly the Free ones.
 
 Measured on an M4 Max 64 GB against the same renders on Free, same prompt and seed: a 5-second
 clip about a quarter faster, a 10-second clip about a fifth. The sound of a sped-up clip can come
@@ -43,14 +44,12 @@ def toggle_on(value) -> bool:
 
 def wanted(*, toggle, version: str, quality: str, mode: str, added_styles, character: bool, hdr: bool,
            inspire: bool, schedule_preset: str, fps: float, frames: int, width: int, height: int,
-           windows: bool, low_memory_mac: bool) -> tuple[bool, str]:
+           windows: bool) -> tuple[bool, str]:
     """(ask?, why not). `why not` is a short reason for the log; "" when it asks."""
     if not toggle_on(toggle):
         return False, "switched off for this render"
     if version != "ltx25":
         return False, "LTX-2.5 only"
-    if low_memory_mac:
-        return False, "needs a Mac with 32 GB or more"
     if quality not in QUALITIES or mode not in MODES:
         return False, "Balanced text or picture to video only"
     if added_styles or character or hdr:

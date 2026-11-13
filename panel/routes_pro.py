@@ -36,6 +36,13 @@ def _whats_new_doc(force: bool) -> dict:
     except OSError:
         version = ""
     pro = bool(P.pro_status().get("active"))
+    # A brand-new install has nothing to compare against: "What's new in this
+    # version" over an empty studio is one more window between a new person
+    # and their first clip. Until the first render, it opens only from the
+    # version pill (force); this version counts as read, so it never pops later.
+    if not force and P.first_run_now():
+        whats_new.mark_seen(Path(P.STATE_DIR), version)
+        return {"show": False}
     return whats_new.card(root, Path(P.STATE_DIR), version, pro, force=force,
                           pack_json=root / "pro_engine" / "whats_new_pro.json")
 

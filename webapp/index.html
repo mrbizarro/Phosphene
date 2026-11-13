@@ -663,13 +663,13 @@
       <div id="firstRunCard" class="first-run-card" style="display:none">
         <button type="button" class="first-run-dismiss" id="firstRunDismiss"
                 title="Hide this card" aria-label="Hide this card"
-                onclick="dismissFirstRunCard()"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+                onclick="hideFirstRunCardByUser()"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
         <div class="ttl">Make your first clip</div>
-        <div class="sub">One click renders a starter clip at Balanced, the size this Mac handles best<span id="firstRunEta"></span>.</div>
+        <div class="sub">One click renders a short starter clip at a size this Mac handles comfortably<span id="firstRunEta"></span>.</div>
         <div class="first-run-prompts" id="firstRunPrompts">
-          <button type="button" class="first-run-prompt-btn" onclick="useFirstRunPrompt(this)" data-first-run-prompt="A whale made of morning fog drifts slowly through an empty city street at dawn, brushing past streetlights that flicker as it passes. Camera follows at walking height. Sound: a deep distant whale song, soft wind, a streetlight buzzing.">A fog whale in an empty city</button>
-          <button type="button" class="first-run-prompt-btn" onclick="useFirstRunPrompt(this)" data-first-run-prompt="A grand piano sits alone on a frozen lake under a pink sky. Its keys press themselves and tiny snow avalanches fall from the lid with each note. Slow push-in. Sound: a slow, simple piano melody, ice creaking.">A piano on a frozen lake</button>
-          <button type="button" class="first-run-prompt-btn" onclick="useFirstRunPrompt(this)" data-first-run-prompt="An old lighthouse keeper opens his door and the ocean outside is perfectly still, like glass, reflecting a giant moon close to the horizon. He steps onto the water. Sound: his boots tapping on the surface, a low hum.">The lighthouse keeper and the moon</button>
+          <button type="button" class="first-run-prompt-btn" onclick="useFirstRunPrompt(this)" data-first-run-prompt="A colossal jellyfish made of soft blue light floats slowly above a rainy city street at night, its long glowing tentacles drifting between the buildings. People holding umbrellas stop on the wet pavement and look up at it. Slow upward camera tilt. Sound: rain tapping on umbrellas, a deep resonant hum, distant traffic.">A glowing jellyfish over a rainy city</button>
+          <button type="button" class="first-run-prompt-btn" onclick="useFirstRunPrompt(this)" data-first-run-prompt="A black grand piano stands alone in the middle of a frozen lake under a pink sunset sky, light snow falling. Its keys press down by themselves and small puffs of snow jump from the open lid with every note. Slow push-in toward the piano. Sound: a slow, gentle piano melody, soft wind, ice creaking.">A piano on a frozen lake</button>
+          <button type="button" class="first-run-prompt-btn" onclick="useFirstRunPrompt(this)" data-first-run-prompt="An astronaut in a white spacesuit sits alone at the end of a long wooden pier at sunset, fishing in a calm golden sea, a giant ringed planet filling the sky behind him. Gentle waves roll under the pier and his fishing line sways in the breeze. Slow push-in. Sound: waves lapping loudly against the wooden posts, a warm low synth drone, seagulls calling.">An astronaut fishing under a ringed planet</button>
         </div>
         <a href="#" class="first-run-sample-link" onclick="downloadSampleCharacter(); return false;">Or get the sample character (Bizarro) →</a>
       </div>
@@ -6999,7 +6999,7 @@ The last line"></textarea>
 <!-- STAR_CARD_START: the one-time "star us on GitHub" card (owner, 2 Nov
      2026; v2 4 Nov 2026). A sibling of the Pro lamp card: the same lamp,
      header and palette. Not modal and never over the clip: it sits in the
-     corner after the fifth finished render, once the person has been idle
+     corner after the third finished render, once the person has been idle
      30 s with the page in front of them, once per Mac. One button; the quiet
      close X (and Escape) is the only other way out. Where the Mac's GitHub
      CLI is signed in, the button stars in place and the card says thank you;
@@ -7040,6 +7040,9 @@ The last line"></textarea>
     <button type="button" id="starCardStar" class="star-card-primary" onclick="starCardStar()"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M8 1.2l2.1 4.3 4.7.7-3.4 3.3.8 4.7L8 12l-4.2 2.2.8-4.7L1.2 6.2l4.7-.7z" fill="currentColor"/></svg><span class="star-card-label">Star on GitHub</span><span class="star-card-count" id="starCardCount" hidden></span></button>
   </div>
   <a class="star-card-quiet" href="https://phosphene.video/pricing/" data-utm-campaign="get-pro" data-utm-content="star-card" onclick="starCardAnswer('waitlist'); return false;">Or join the Pro waitlist <span aria-hidden="true">↗</span></a>
+  <!-- The review nudge (owner, 12 Nov 2026): on a Mac with a paired Phosphene
+       Remote the same card, at the same moment, is only this one quiet line. -->
+  <p class="star-card-review" id="starCardReview" hidden>Enjoying Phosphene? A review of Phosphene Remote on the App Store helps a solo open-source project. <span class="star-card-review-actions"><a href="https://apps.apple.com/app/id6827562294?action=write-review" onclick="starCardAnswer('review'); return false;">Write a review <span aria-hidden="true">↗</span></a></span></p>
   <canvas class="star-card-burst" id="starCardBurst" aria-hidden="true"></canvas>
 </aside>
 <!-- STAR_CARD_END -->

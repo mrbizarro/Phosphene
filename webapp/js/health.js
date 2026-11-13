@@ -1332,8 +1332,11 @@ Object.assign(globalThis, {
 function starAskClose() { document.getElementById('starAsk')?.classList.remove('show'); }
 
 // ---- The one-time "star us on GitHub" card (owner, 2 Nov 2026; v2 4 Nov) --
-// After the fifth finished render the server sets `star_prompt_due` on
-// /status (see _star_prompt_after_job). v2, learned from how T3 Code asks
+// After the third finished render the server sets `star_prompt_due` on
+// /status (see _star_prompt_after_job), with `star_prompt_variant`: on a Mac
+// that paired Phosphene Remote ("remote") the same card is one quiet line
+// asking for an App Store review instead (review nudge, 12 Nov 2026; no
+// GitHub check, no star button). Either answer ends both for good. v2, learned from how T3 Code asks
 // (our own code):
 //   1. Ask the server first (/star-prompt/github): if this Mac's GitHub CLI
 //      says the account already starred us, the card is retired unseen.
@@ -1346,6 +1349,10 @@ function starAskClose() { document.getElementById('starAsk')?.classList.remove('
 // The quiet close X and Escape record `not_now`. The card says `shown` when
 // it really goes up, so it is never put up again on this Mac.
 const STAR_CARD_URL = 'https://github.com/mrbizarro/Phosphene';
+// The App Store app, straight on Phosphene Remote's write-a-review sheet; the
+// server falls back to the same sheet on the web when nothing opens it.
+const STAR_CARD_REVIEW_URL = 'itms-apps://apps.apple.com/app/id6827562294?action=write-review';
+const STAR_CARD_REVIEW_WEB_URL = 'https://apps.apple.com/app/id6827562294?action=write-review';
 const STAR_CARD_IDLE_MS = 30000;
 const STAR_CARD_THANKS_MS = 5000;
 const STAR_CARD_ACTIVITY = ['pointerdown', 'pointermove', 'keydown', 'wheel',
@@ -1354,6 +1361,7 @@ let _starCardUp = false;       // on screen
 let _starCardArmed = false;    // due seen this session: checking or waiting
 let _starCardDone = false;     // answered; the card only closes now
 let _starCardInfo = null;      // {gh, starred, stars} from the server
+let _starCardVariant = 'github'; // 'remote': the App Store review line
 function _starCardPost(action) {
   try {
     return fetch('/star-prompt', {method: 'POST', body: new URLSearchParams({action}),
@@ -1402,7 +1410,17 @@ function _starCardWaitIdle() {
 function _starCardShow() {
   const el = document.getElementById('starCard');
   if (!el || _starCardUp || _starCardDone) return;
-  _starCardSetCount(_starCardInfo && _starCardInfo.stars);
+  if (_starCardVariant === 'remote') {
+    el.classList.add('is-review');
+    const line = document.getElementById('starCardReview');
+    if (line) line.hidden = false;
+    if (typeof el.setAttribute === 'function') {
+      el.setAttribute('aria-labelledby', 'starCardReview');
+      el.removeAttribute('aria-describedby');
+    }
+  } else {
+    _starCardSetCount(_starCardInfo && _starCardInfo.stars);
+  }
   _starCardUp = true;
   el.hidden = false;
   _starCardPost('shown');
@@ -1411,6 +1429,8 @@ function starCardPoll(s) {
   if (_starCardArmed || _starCardUp || !s || !s.star_prompt_due) return;
   if (!document.getElementById('starCard')) return;
   _starCardArmed = true;
+  _starCardVariant = s.star_prompt_variant === 'remote' ? 'remote' : 'github';
+  if (_starCardVariant === 'remote') return _starCardWaitIdle().then(_starCardShow);
   return _starCardCheck().then((info) => {
     _starCardInfo = info || null;
     if (info && info.starred === true) {           // they already starred
@@ -1425,6 +1445,17 @@ function _starCardClose() {
   if (el) { el.hidden = true; el.classList.remove('is-thanks'); }
   _starCardUp = false;
 }
+async function _starCardOpenReview() {
+  try {
+    const r = await fetch('/external/open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'url=' + encodeURIComponent(STAR_CARD_REVIEW_URL),
+    });
+    if (r.ok) { try { phosToast && phosToast('Opening the App Store…'); } catch (_) {} return; }
+  } catch (_) {}
+  try { window.open(STAR_CARD_REVIEW_WEB_URL, '_blank', 'noopener'); } catch (_) {}
+}
 function starCardAnswer(action) {
   if (!_starCardUp) { _starCardClose(); return; }
   if (_starCardDone) { _starCardClose(); return; }  // the thank-you, closed early
@@ -1434,6 +1465,8 @@ function starCardAnswer(action) {
     document.getElementById('starLink')?.classList.remove('is-calling');
     if (typeof openExternal === 'function') openExternal(STAR_CARD_URL);
     else window.open(STAR_CARD_URL, '_blank', 'noopener');
+  } else if (action === 'review' && _starCardVariant === 'remote') {
+    _starCardOpenReview();
   } else if (action === 'waitlist') {
     const url = siteLink('/pricing/', 'get-pro', 'star-card');
     if (typeof openExternal === 'function') openExternal(url);
@@ -1446,7 +1479,7 @@ function starCardAnswer(action) {
 // The one button. In place where gh is signed in, GitHub otherwise (and on
 // any failure). Only ever on the person's click.
 async function starCardStar() {
-  if (!_starCardUp || _starCardDone) return;
+  if (!_starCardUp || _starCardDone || _starCardVariant === 'remote') return;
   const btn = document.getElementById('starCardStar');
   if (_starCardInfo && _starCardInfo.gh) {
     const label = btn && btn.querySelector('.star-card-label');

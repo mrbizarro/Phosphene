@@ -57,8 +57,12 @@ def get_status(h, parsed) -> None:
     payload["outputs_total"] = _outs_total
     payload["hidden_count"] = hidden_count
     # The one-time "star us on GitHub" card (owner, 2 Nov 2026): true only
-    # between the fifth finished render and the page putting the card up.
+    # between the third finished render and the page putting the card up.
     payload["star_prompt_due"] = P.star_prompt_due()
+    # Which ask (review nudge, 12 Nov 2026): "remote" on a Mac with a paired
+    # Phosphene Remote, "github" otherwise. Read only while the card is due.
+    payload["star_prompt_variant"] = (P.star_prompt_variant()
+                                      if payload["star_prompt_due"] else "")
     # Storyboards — one line per board. Three jobs, all of them cheap:
     # the `S03/12` badge on a queue card needs the denominator, the tab
     # count during an overnight run needs `running`, and `To film` in
@@ -345,6 +349,11 @@ def get_status(h, parsed) -> None:
     _app = P.app_models_state()
     if _app is not None:
         payload["app_models"] = _app
+        # The app's download stopped and the Studio took it over
+        # (app_models_rescue_step): the page shows its own card again.
+        if P.APP_RESCUE["state"]:
+            payload["app_models_rescue"] = {"state": P.APP_RESCUE["state"],
+                                            "error": P.APP_RESCUE["error"]}
     payload["hf_available"] = P.HF_BIN is not None
     # Settings snapshot — only needs the public-safe view (booleans
     # for token presence, no secret values). The UI reads

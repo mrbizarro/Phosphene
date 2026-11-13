@@ -6,7 +6,8 @@
 FAIL (exit 1) when: the entry for the version is missing or has no line at all (a quick-fix release
 may have one line); a line is empty or longer than 200 characters; a line contains an em dash, or
 a trick / engine name (the card is public marketing copy that Free users read too); a line hits
-the private leak patterns (scripts/public_leak_patterns.txt, when this private tree has it).
+the private leak patterns (scripts/public_leak_patterns.txt, when this private tree has it). The optional
+"headline" and the how-to titles and captions are held to the same rules; a headline is at most 120 characters.
 """
 from __future__ import annotations
 
@@ -55,6 +56,10 @@ def check(version: str, doc: dict, pack: dict | None = None) -> list[str]:
     if hows:
         sets.append(("whats_new.json", {"free": [h.get("title") or "x" for h in hows]
                      + [(h.get(k) or {}).get("caption") or "x" for h in hows for k in ("free", "pro") if h.get(k)]}))
+    if isinstance(ent.get("headline"), str):   # the window header's one line: public copy too
+        sets.append(("whats_new.json", {"free": [ent["headline"]]}))
+        if len(ent["headline"]) > 120:
+            errs.append("whats_new.json: headline over 120 characters, it is one line under the version")
     if isinstance(doc.get("showcase"), dict):   # the standing "What Pro adds" items: public copy too
         sets.append(("whats_new.json", {"pro": doc["showcase"].get("pro") or []}))
     n = 0
