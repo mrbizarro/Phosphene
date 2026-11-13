@@ -266,5 +266,13 @@
     ],
     "date": "2026-11-13",
     "headline": "Less memory on 16 GB Macs, models on an external drive, and more first videos that finish."
+  },
+  "5.0.21": {
+    "free": [
+      "Videos with your trained characters or styles work again on 16 to 24 GB Macs. In 5.0.20 they stopped at the start with an error."
+    ],
+    "pro": [],
+    "date": "2026-11-13",
+    "headline": "Videos with your trained characters or styles work again on 16 to 24 GB Macs."
   }
 }

@@ -757,6 +757,29 @@ class StreamedLoras:
         self._where = {}
 
 
+def _engine_declared_scale(rl, path) -> float:
+    """The alpha/dim scale the ENGINE applies to ``path``, so the streamed
+    path matches the resident one on whatever engine is installed.
+
+    5.0.20 called ``rl.declared_lora_scale`` unconditionally. That function
+    is not in the pinned engine (scripts/pinokio/ltx_checkout.sh); it existed only
+    as an uncommitted edit in one development checkout. On every user Mac
+    with 24 GB or less, every LTX render with a LoRA died at
+    ``module 'ltx_core_mlx.loader.runtime_loras' has no attribute
+    'declared_lora_scale'`` (fleet incident fw-20261113-0901). An engine
+    without the function applies the strength as given, i.e. scale 1.0, and
+    so must we. A metadata read must never stop a render either.
+    """
+    fn = getattr(rl, "declared_lora_scale", None)
+    if fn is None:
+        return 1.0
+    try:
+        declared = float(fn(path)[0])
+    except Exception:  # noqa: BLE001 - the engine says it never raises; belt and braces
+        return 1.0
+    return declared if declared > 0 else 1.0
+
+
 def load_lora_specs(lora_paths):
     """``[(path, strength)]`` -> engine ``LoraStateDictWithStrength`` list,
     with each file's declared alpha/dim applied exactly as
@@ -769,7 +792,7 @@ def load_lora_specs(lora_paths):
     loader = SafetensorsStateDictLoader()
     specs = []
     for path, strength in lora_paths:
-        declared, _why = rl.declared_lora_scale(path)
+        declared = _engine_declared_scale(rl, path)
         specs.append(LoraStateDictWithStrength(
             state_dict=loader.load(str(Path(path)), sd_ops=LTXV_LORA_COMFY_RENAMING_MAP),
             strength=float(strength) * declared))
