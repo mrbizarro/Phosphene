@@ -845,9 +845,58 @@ async function cleanupSupersededModels() {
   }
 }
 
+// "Move to another drive…" (Mac app). The move belongs to the app: its Settings window
+// (Phosphene > Settings…, Models) copies the models, checks every file and switches over.
+// People look for it HERE, in the Studio's Settings and Models screens (13 Nov 2026: a user
+// on app 5.0.20 found model folders here and no move option), so both screens carry this row.
+//   app 5.0.22+ announces window.__phosNativeCaps = ['modelStorage']: one click opens it.
+//   app 5.0.20/5.0.21 (BOOT.app_build >= 50320) has it but no way to open it from here: say where.
+//   older apps have no move at all: update the app first (the bridge's checkUpdate, 5.0.4+).
+//   Pinokio: nothing (Pinokio keeps models in its own folder).
+const MODELS_DRIVE_APP_BUILD = 50320;
+function modelsDriveView() {
+  if (!isMacApp()) return null;
+  const caps = Array.isArray(window.__phosNativeCaps) ? window.__phosNativeCaps : [];
+  if (caps.includes('modelStorage')) {
+    return { text: 'Models take the most space. You can keep them on an external drive instead of this Mac.',
+             button: 'Move to another drive\u2026', send: 'modelStorage' };
+  }
+  if ((Number(BOOT.app_build) || 0) >= MODELS_DRIVE_APP_BUILD) {
+    return { text: 'To keep models on an external drive: in the menu bar, choose Phosphene > Settings\u2026 (\u2318,). '
+                 + 'Under Models, choose Move to another drive\u2026', button: '', send: '' };
+  }
+  return { text: 'To keep models on an external drive, update the Phosphene app first. '
+               + 'Then choose Phosphene > Settings\u2026 in the menu bar, and Move to another drive\u2026 under Models.',
+           button: 'Check for updates', send: 'checkUpdate' };
+}
+function renderModelsDriveRows() {
+  const v = modelsDriveView();
+  document.querySelectorAll('.models-drive-row').forEach(row => {
+    row.hidden = !v;
+    row.textContent = '';
+    if (!v) return;
+    const p = document.createElement('div');
+    p.className = 'hint';
+    p.textContent = v.text;
+    row.appendChild(p);
+    if (v.button) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'ghost';
+      b.textContent = v.button;
+      b.addEventListener('click', () => {
+        try { window.webkit.messageHandlers.phosphene.postMessage({ type: v.send }); }
+        catch (e) { phosToast('Choose Phosphene > Settings\u2026 in the menu bar, then Models.', 'info'); }
+      });
+      row.appendChild(b);
+    }
+  });
+}
+
 async function openSettingsModal() {
   const modal = document.getElementById('settingsModal');
   modal.style.display = 'flex';
+  renderModelsDriveRows();
   document.getElementById('settingsStatus').textContent = '';
   document.getElementById('settingsStatus').className = 'settings-status';
   refreshStorageSection();
@@ -1854,7 +1903,7 @@ Object.assign(globalThis, {
   renderNotifyState, toggleNotify, askNotifyPermission,
   updateModelsCard, dismissModelsCard, applyTierGates, openTierModal,
   closeTierModal, openBugModal, closeBugModal, submitBugReport, copyBugDiagnostics, bugWhatInput,
-  openSettingsModal, toggleAnalytics, saveAnalyticsKey, clearAnalyticsKey,
+  openSettingsModal, renderModelsDriveRows, modelsDriveView, toggleAnalytics, saveAnalyticsKey, clearAnalyticsKey,
   toggleSpicyMode, onTokenInput, toggleTokenVisibility, testToken,
   clearToken, closeSettingsModal, applySettings, _applyHdrPillAvailability,
   // inline-handler targets: generated markup resolves these through the

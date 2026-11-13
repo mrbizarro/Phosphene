@@ -6473,6 +6473,10 @@ The last line"></textarea>
       <div class="settings-row">
         <button type="button" class="primary-btn" onclick="openModelsModal();">Open Models</button>
       </div>
+      <!-- Mac app only: where "Move to another drive…" lives (settings.js
+           renderModelsDriveRows). The move itself is the app's own (its
+           Settings window, Models); this row is the door people look for here. -->
+      <div class="models-drive-row" hidden></div>
     </div>
 
     <!-- Storage stays visible even when there is nothing to reclaim. -->
@@ -7071,6 +7075,7 @@ The last line"></textarea>
       <button class="ghost-btn" onclick="closeModelsModal()">Close</button>
     </div>
     <div class="models-hint" id="modelsHint">Loading…</div>
+    <div class="models-drive-row" hidden></div>
     <ul class="models-list" id="modelsList"></ul>
     <div class="models-foot" id="modelsFoot"></div>
   </div>

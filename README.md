@@ -2,7 +2,7 @@
 
 **Phosphene is a free, open-source Mac app that makes AI video with sound, pictures, songs and speech on your own Apple Silicon Mac.** It runs LTX-2.5, MiniMax H3 (Hailuo H3) and MiniMax-H3-Image locally with MLX: offline, no cloud, no API key, no account, no NVIDIA GPU.
 
-**Current release: v5.0.21.** Mac app or Pinokio · M1 to M5 · from 16 GB of memory · MIT licence · made by Mr Bizarro
+**Current release: v5.0.22.** Mac app or Pinokio · M1 to M5 · from 16 GB of memory · MIT licence · made by Mr Bizarro
 
 <p align="center">
   <a href="https://phosphene.video/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=home&amp;utm_content=hero"><img src="assets/readme/app_video.webp" alt="The Phosphene Mac app: the Video tab with LTX-2.5 selected, a prompt box, the player and a gallery of AI video clips made locally on a Mac" width="100%"></a>

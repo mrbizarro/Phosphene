@@ -274,5 +274,13 @@
     "pro": [],
     "date": "2026-11-13",
     "headline": "Videos with your trained characters or styles work again on 16 to 24 GB Macs."
+  },
+  "5.0.22": {
+    "free": [
+      "In the Mac app, Settings and Models now show Move to another drive, so you can keep your models on an external SSD."
+    ],
+    "pro": [],
+    "date": "2026-11-13",
+    "headline": "Keep your models on an external drive: Move to another drive is now in Settings, under Models."
   }
 }

@@ -22259,6 +22259,12 @@ def _analytics_app_field(name: str) -> str:
     return raw if _ANALYTICS_BUILD_RE.match(raw) else ""
 
 
+def _boot_app_build() -> int:
+    """PHOSPHENE_APP_BUILD as a number for the page (0 = Pinokio, or unknown)."""
+    raw = _analytics_app_field("PHOSPHENE_APP_BUILD")
+    return int(raw) if raw.isdigit() else 0
+
+
 def _analytics_context() -> dict:
     """The super properties above. Never raises; a missing piece is simply absent."""
     ctx: dict = {}
@@ -52189,6 +52195,10 @@ def page(theme: str = "") -> str:
         # The page picks its Mac-app wording and defers updates to the app
         # from these; Pinokio reads {"distribution": "pinokio", "edition": ""}.
         "distribution": _dist.distribution(), "edition": _dist.edition(),
+        # The Mac app's build (50320 = app 5.0.20), 0 under Pinokio or when the
+        # app did not say. settings.js picks how to reach "Move to another
+        # drive…" from it: an app before 50320 has no such option yet.
+        "app_build": _boot_app_build(),
         # {source: app, medium: mac-app | pinokio} for siteLink() in boot.js.
         "site_utm": _site_links.utm_base(),
         "presets": PRESETS, "aspects": aspect_presets_for_this_mac(),

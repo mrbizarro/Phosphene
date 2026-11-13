@@ -15524,3 +15524,7 @@ html[data-pro=""] .tool-rail .workflow-tabs button[data-workflow="remote"] .new-
 
 #h3Hint.engine-credit { margin: 6px 0; font-size: 13px; }
 #h3Hint.engine-credit a { color: inherit; }
+
+/* "Move to another drive…" row in Settings > Models and the Models screen (Mac app; settings.js). */
+.models-drive-row { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 10px 0 4px; }
+.models-drive-row[hidden] { display: none; }

@@ -1890,6 +1890,7 @@ function openModelsModal() {
   // _hcRelocate) -- same under-the-popover overlap as the Tier modal.
   if (typeof closeHealthPop === 'function') closeHealthPop();
   document.getElementById('modelsModal').style.display = 'flex';
+  if (typeof renderModelsDriveRows === 'function') renderModelsDriveRows();
   refreshModelsModal();
 }
 function closeModelsModal() {
