@@ -681,6 +681,7 @@ class StreamedLoras:
             b_dt = next(iter(combined.values()))[1].dtype
             zero_a = mx.zeros((rank, in_f), dtype=a_dt)
             zero_b = mx.zeros((out_f, rank), dtype=b_dt)
+            first_ab = None
             for i in range(n_blocks):
                 self._scales.setdefault(i, {})[rel] = combined[i][2] if i in combined else 0.0
                 if i in combined:
@@ -690,14 +691,22 @@ class StreamedLoras:
                         a = mx.concatenate([a, mx.zeros((rank - r, in_f), dtype=a.dtype)], axis=0)
                         b = mx.concatenate([b, mx.zeros((out_f, rank - r), dtype=b.dtype)], axis=1)
                     self.applied.append(f"{block_prefix}{i}.{rel}")
+                    if first_ab is None:
+                        first_ab = (a, b)
                 else:
                     a, b = zero_a, zero_b
                 self._per_block.setdefault(i, []).extend(
                     [(f"{rel}.lora_a", a), (f"{rel}.lora_b", b)])
             self._bases[rel] = base
             self._where[rel] = (container, key)
-            first = combined[min(combined)]
-            self._adapters[rel] = rl._wrap(base, first[0], first[1], scale)
+            # The adapter takes the PADDED A/B of the first covered block: the
+            # shape every block binds. Built from the unpadded pair it had the
+            # first block's own rank, and a set whose first block carries fewer
+            # ranks than a later one (a second LoRA starting on a later block,
+            # a file whose rank grows by block) died at its first bind with
+            # "Expected shape (19, 4096) but received shape (27, 4096) for
+            # parameter attn1.to_gate_logits.lora_a" (fleet, 5.0.21, 16 GB).
+            self._adapters[rel] = rl._wrap(base, first_ab[0], first_ab[1], scale)
 
         self.rest_report = None
         if rest:

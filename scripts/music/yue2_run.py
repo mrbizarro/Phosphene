@@ -30,6 +30,7 @@ import os
 import platform
 import shutil
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -48,6 +49,22 @@ INSTRUMENTAL_STYLE = "instrumental, no vocals"
 
 def say(*parts):
     print("[music]", *parts, flush=True)
+
+
+def cover_decode_reason(exc) -> str:
+    """ffmpeg's own last line for a recording it could not decode, without
+    the path (the history card and the fleet's grouping read this line)."""
+    raw = getattr(exc, "stderr", None) or b""
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "replace")
+    for line in reversed(str(raw).splitlines()):
+        line = line.strip()
+        if line:
+            # "[in#0 @ 0x...] Error opening input: Invalid data found ..." and
+            # "/path/to/file.xyz: Invalid data found when processing input".
+            line = line.rsplit("] ", 1)[-1]
+            return line.rsplit(": ", 1)[-1][:160].rstrip(".")
+    return ""
 
 
 def parse_args(argv=None):
@@ -345,7 +362,22 @@ def main(argv=None):
         except MemoryError as exc:
             say("error", f"memory guard: {exc}")
             return 3
+        except subprocess.CalledProcessError as exc:
+            # The engine decodes the recording with ffmpeg and lets a failed
+            # decode escape as a traceback (fleet, 5.0.21: "YuE2 exited with
+            # code 1: ^^^^ · File ..., line 39, in decode_audio · raise su...").
+            # A file ffmpeg cannot read is the person's input, not a crash.
+            why = cover_decode_reason(exc)
+            say("error", "could not read the recording to cover"
+                         + (f" ({why})" if why else "")
+                         + ". Pick another file - an MP3, WAV, M4A or FLAC "
+                           "that plays in QuickTime.")
+            return 2
         except FileNotFoundError as exc:
+            if getattr(exc, "filename", None) == "ffmpeg":
+                say("error", "ffmpeg was not found, so the recording could not "
+                             "be read. Restart Phosphene and compose again.")
+                return 2
             # The two transcription models are a separate, optional download.
             # Say which thing is missing rather than surfacing a cache path.
             say("error", f"the cover models are not installed yet ({exc}). "

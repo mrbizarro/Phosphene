@@ -49,6 +49,10 @@ def post_upload_delete(h, path, qs, ctype) -> None:
         h._json({"ok": False, "error": "path must be an imported image"}, 400); return
     if not target.is_file():
         h._json({"ok": False, "error": "no such upload"}, 404); return
+    # A picture a waiting render needs stays until that render is done.
+    in_use = P.delete_in_use_refusal([target], "picture")
+    if in_use:
+        h._json({"ok": False, "error": in_use, "in_use": True}, 409); return
     try:
         target.unlink()
     except OSError as exc:
@@ -661,6 +665,13 @@ def post_output_delete(h, path, qs, ctype) -> None:
     # silently 200ing with an empty trashed list.
     if not candidates:
         h._json({"error": "no files to delete"}, 404); return
+
+    # A clip or picture a waiting render takes as its input (Extend, Upscale
+    # & Face Fix, an Image-to-video reference picked from the gallery) stays
+    # until that render is done - it used to fail at its turn instead.
+    in_use = P.delete_in_use_refusal(candidates)
+    if in_use:
+        h._json({"error": in_use, "in_use": True}, 409); return
 
     trashed = []
     ts = P.time.strftime("%Y%m%d-%H%M%S")

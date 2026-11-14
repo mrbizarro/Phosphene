@@ -282,5 +282,18 @@
     "pro": [],
     "date": "2026-11-13",
     "headline": "Keep your models on an external drive: Move to another drive is now in Settings, under Models."
+  },
+  "5.0.23": {
+    "free": [
+      "Some trained characters and styles stopped videos on 16 to 24 GB Macs with an \"Expected shape\" error. They render now.",
+      "When macOS stops a video while it reads the prompt (most often on M1 and M2 Macs), Phosphene waits a moment and tries once more by itself instead of failing.",
+      "A picture or clip that a waiting render still needs can no longer be deleted by mistake. Phosphene says how many renders use it.",
+      "On Pinokio, a missing image engine now installs itself the first time you make a picture.",
+      "MiniMax H3: after macOS stops a render with a graphics error, later H3 renders on that Mac are handed to the graphics chip in smaller pieces, the remedy LTX videos already use.",
+      "Clearer messages when a 720p export fails or a song to cover cannot be read: they say why and what to do."
+    ],
+    "pro": [],
+    "date": "2026-11-14",
+    "headline": "Fewer failed renders: fixes for trained styles on small Macs, graphics stops on M1 and M2 Macs, and deleted inputs."
   }
 }

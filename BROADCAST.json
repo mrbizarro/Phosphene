@@ -1,0 +1,6 @@
+{
+  "id": "update-20261114-lora-fix",
+  "title": "Please update Phosphene",
+  "body": "Phosphene 5.0.20 had a bug: videos with a LoRA (a trained character or a style) failed on Macs with 24 GB of memory or less. It is fixed in the newest version, together with several other fixes for failed renders.\n\nPress Update now, then restart Phosphene.",
+  "show_if_version_below": "5.0.21"
+}

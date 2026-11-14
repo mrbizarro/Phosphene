@@ -11080,6 +11080,61 @@ def metal_watchdog_needs_short_encode(key: str) -> bool:
     return bool(ent.get("short_encode"))
 
 
+# ---- Hailuo H3 after a GPU-watchdog stop (5.0.23) ----------------------------
+# Fleet, 13-14 Nov 2026: one M2 Max (64 GB) lost four H3 renders in a row to
+# "[METAL] Command buffer execution failed: Impacting Interactivity", 3 to 30
+# minutes in; an M1 Ultra and an M1 Max one each. The LTX helper has answered
+# this since 4.17.5 (smaller Metal command buffers, GPU_STEPS_SHORT: output
+# unchanged, a little slower); the H3 runner is another process in another
+# venv and never got it, so every next H3 render ran exactly as the one macOS
+# had just stopped. Now a stop is remembered in the same store (it clears on
+# an update, like the rest), and from then on this Mac's H3 renders start in
+# short GPU steps. Nothing changes on a Mac macOS never stopped.
+# NOT MEASURED ON H3: command-buffer boundaries change no kernel, so the
+# output is the same by construction, but neither the cost on the H3 engine's
+# MLX nor how often it avoids the stop has been timed - which is why it is
+# only for a Mac that has already lost a render this way.
+_H3_WATCHDOG_KEY = "__h3_watchdog__"
+_H3_WATCHDOG_RX = re.compile(
+    r"kIOGPUCommandBufferCallbackErrorTimeout"
+    r"|kIOGPUCommandBufferCallbackErrorImpactingInteractivity"
+    r"|Caused GPU Timeout Error|Impacting Interactivity", re.IGNORECASE)
+
+
+def h3_watchdog_line(lines) -> bool:
+    """Did the H3 runner's output name macOS's GPU watchdog?"""
+    return any(_H3_WATCHDOG_RX.search(str(ln) or "") for ln in (lines or ()))
+
+
+def h3_watchdog_mark(now: float | None = None) -> None:
+    with _METAL_WATCHDOG_LOCK:
+        data = _metal_watchdog_load()
+        ent = dict(data["settings"].get(_H3_WATCHDOG_KEY) or {})
+        ent["kills"] = int(ent.get("kills") or 0) + 1
+        ent["last_ts"] = int(now if now is not None else time.time())
+        data["settings"][_H3_WATCHDOG_KEY] = ent
+        _metal_watchdog_save(data)
+
+
+def h3_watchdog_seen() -> bool:
+    with _METAL_WATCHDOG_LOCK:
+        ent = _metal_watchdog_load()["settings"].get(_H3_WATCHDOG_KEY) or {}
+    return int(ent.get("kills") or 0) > 0
+
+
+def h3_gpu_steps_env(env: dict, base: dict | None = None) -> bool:
+    """Put short GPU steps into an H3 child env when macOS's watchdog has
+    stopped an H3 render on this Mac. A value the user set is never
+    overridden. True when short steps are on for this run."""
+    if not h3_watchdog_seen():
+        return False
+    base = os.environ if base is None else base
+    for k, v in GPU_STEPS_SHORT.items():
+        if not base.get(k):
+            env[k] = v
+    return True
+
+
 # 4.19.2 (fleet 4.19.1): 12 of the 13 real watchdog kills whose phase is known
 # died in PROMPT ENCODING, on short steps already - and prompt encoding costs
 # the same at every size. One Mac followed our "Retry smaller" advice down to
@@ -19818,6 +19873,13 @@ def music_guard_cause(cause: str) -> str:
     return ""
 
 
+#: A Python exception's own line at the end of a traceback: `Name: text` or a
+#: bare `Name`, where Name is a (dotted) class ending in Error / Exception /
+#: Warning / Exit / Interrupt.
+_MUSIC_EXC_LINE_RX = re.compile(
+    r"^[A-Za-z_][\w.]*(Error|Exception|Warning|Exit|Interrupt)(:\s.*)?$")
+
+
 def music_exit_message(rc: int, tail) -> str:
     """The failure sentence for a YuE2 runner that exited non-zero.
 
@@ -19833,6 +19895,17 @@ def music_exit_message(rc: int, tail) -> str:
     if said:
         why = said[-1][len("[music] error "):].strip()
         rest = [t for t in lines if t is not said[-1]]
+        return (f"YuE2 exited with code {rc}: {why}"
+                + ("" if not rest else " · " + " · ".join(rest)))
+    # 5.0.23 - no line of its own: the runner died on an exception nobody
+    # caught, and the last four lines of a traceback are its frames (fleet,
+    # 5.0.21: "YuE2 exited with code 1: ^^^^^^^^ · File "...", line 39, in
+    # decode_audio · raise su..."). The exception is the last line that is
+    # not a frame, its source text or its caret underline: that one leads.
+    said_exc = [t for t in lines if _MUSIC_EXC_LINE_RX.match(t.strip())]
+    if said_exc:
+        why = said_exc[-1].strip()
+        rest = [t for t in lines if t is not said_exc[-1]]
         return (f"YuE2 exited with code {rc}: {why}"
                 + ("" if not rest else " · " + " · ".join(rest)))
     return f"YuE2 exited with code {rc}: " + " · ".join(lines)
@@ -21445,7 +21518,14 @@ def _qwen_pack_available() -> bool:
 # missing runs the same pack script Pinokio runs (packages only, no models,
 # about a minute) with the app's own uv, then carries on.
 #
-# Mac app only (Pinokio has its menu action and its own uv). ON only from
+# 5.0.23: Pinokio too. Its installer treats the image pack as optional (a
+# network blip while it downloads must not fail the video install), so an
+# install can finish without it; the image job then failed with "In Pinokio,
+# click Install/repair image engines" - an action in Pinokio's sidebar that
+# people do not find (fleet, 5.0.19-5.0.22: 7 failed images on 3 Pinokio Macs
+# in three days). The job now runs the same pack with Pinokio's own uv
+# (_music_install_env puts it on PATH) and carries on; the menu action stays
+# as the way out when that fails. ON only from
 # __main__ (image_engine.MFLUX_AUTOINSTALL), so importing the panel from a test
 # or a gate never pip-installs into a real venv. At most IMAGE_ENGINE_AUTO_MAX
 # tries per studio process, the next one IMAGE_ENGINE_RETRY_AFTER_S after a
@@ -21460,7 +21540,13 @@ IMAGE_ENGINE_WAIT_S = 1200
 
 
 def _image_engine_uv() -> Path | None:
-    """The app's pinned uv (bootstrap.sh keeps it in $PHOSPHENE_HOME/runtime/bin)."""
+    """The uv that installs the pack: the Mac app's pinned one (bootstrap.sh
+    keeps it in $PHOSPHENE_HOME/runtime/bin), or on Pinokio the one Pinokio's
+    own shell would find (its miniforge, put on PATH by _music_install_env -
+    a Studio started outside Pinokio's shell has no uv on PATH at all)."""
+    if not _dist.is_mac_app():
+        found = shutil.which("uv", path=_music_install_env().get("PATH", ""))
+        return Path(found) if found else None
     home = (os.environ.get("PHOSPHENE_HOME") or "").strip()
     if not home:
         return None
@@ -21479,11 +21565,15 @@ def _mflux_cli_present() -> bool:
 
 
 def image_engine_autoinstall_enabled() -> bool:
-    if not _dist.is_mac_app():
-        return False
     if (os.environ.get("PHOSPHENE_IMAGE_ENGINE_AUTOINSTALL") or "1").strip() == "0":
         return False
+    if sys.platform != "darwin":
+        return False
     venv = HELPER_PYTHON.parent.parent
+    # A checkout whose engine folder is only a link to another install's
+    # (a development or test tree) must never install into that one.
+    if not _dist.is_mac_app() and (ROOT / "ltx-2-mlx").is_symlink():
+        return False
     # The dry-run engine (a bare venv) has nothing to add the pack to.
     return not (venv / ".phosphene_stub").exists()
 
@@ -21533,7 +21623,8 @@ def image_engine_autoinstall(on_log=None, now: float | None = None) -> str | Non
         if not same:
             return "the video engine is not in the Studio folder"
         if uv is None:
-            return "the setup tool is missing; quit Phosphene and open it again"
+            return _dist.say("Pinokio's install tool (uv) was not found",
+                             "the setup tool is missing; quit Phosphene and open it again")
         if _engine_install_running():
             return "the video engine is being repaired; make the image again when that finishes"
         st["attempts"] += 1
@@ -21542,14 +21633,16 @@ def image_engine_autoinstall(on_log=None, now: float | None = None) -> str | Non
         env = _music_install_env()
         env["PATH"] = os.pathsep.join([str(uv.parent)] + [
             x for x in env.get("PATH", "").split(os.pathsep) if x and x != str(uv.parent)])
-        # Same uv home as the app's setup (bootstrap.sh): its cache and Pythons
-        # stay inside the app's folder, and no user uv config applies.
-        runtime = uv.parent.parent
-        env.update({"UV_CACHE_DIR": str(runtime / "uv-cache"),
-                    "UV_PYTHON_INSTALL_DIR": str(runtime / "python"),
-                    "UV_PYTHON_PREFERENCE": "only-managed", "UV_NO_CONFIG": "1",
-                    "UV_PYTHON_BIN_DIR": str(runtime / "python-bin"),
-                    "UV_TOOL_BIN_DIR": str(runtime / "tool-bin")})
+        if _dist.is_mac_app():
+            # Same uv home as the app's setup (bootstrap.sh): its cache and
+            # Pythons stay inside the app's folder, and no user uv config
+            # applies. Pinokio keeps the env its own installer runs the pack in.
+            runtime = uv.parent.parent
+            env.update({"UV_CACHE_DIR": str(runtime / "uv-cache"),
+                        "UV_PYTHON_INSTALL_DIR": str(runtime / "python"),
+                        "UV_PYTHON_PREFERENCE": "only-managed", "UV_NO_CONFIG": "1",
+                        "UV_PYTHON_BIN_DIR": str(runtime / "python-bin"),
+                        "UV_TOOL_BIN_DIR": str(runtime / "tool-bin")})
         tail: list[str] = []
         error = None
         timer = None
@@ -27048,10 +27141,27 @@ class WarmHelper:
                     raise
                 gemma = self._gemma_fallback_applies()
                 can_retry = gemma or (bool(key) and not short)
+                # 5.0.23 (fleet, 14 days): the largest single group of GPU
+                # failures, 104 renders on 32 Macs, was a watchdog kill in
+                # prompt encoding on a Studio that had ALREADY used both
+                # mitigations (short steps, the shorter encode) on an earlier
+                # render - so this one got no second run at all, while the
+                # two paths that do re-run in a fresh engine process rescued
+                # 81 of 120 (watchdog, first kill) and 40 of 110 (the abort
+                # below). It is the same Metal error either way: macOS 15
+                # prints code 0xe as "Internal Error", macOS 26+ as "Impacting
+                # Interactivity". So with nothing new left to try, a kill in
+                # encoding still gets what the abort path gets: one re-run in
+                # a fresh process after the pause. Only when that is stopped
+                # too is the setting paused.
+                pause_retry = (not can_retry and not abort_retry_used
+                               and _attempt < 2 and self._last_phase == "encode"
+                               and not self.is_alive())
                 if key:
                     # Terminal (refuses the setting) only when nothing is left.
-                    metal_watchdog_record_kill(key, short=short and not gemma,
-                                               phase=self._last_phase)
+                    metal_watchdog_record_kill(
+                        key, short=short and not gemma and not pause_retry,
+                        phase=self._last_phase)
                 # Which phase the GPU was in when macOS stopped it - the one
                 # fact the fleet has never had about this failure.
                 if job is not None and self._last_phase in WATCHDOG_PHASES:
@@ -27061,6 +27171,14 @@ class WarmHelper:
                 with LOCK:
                     cancelled = bool(job is not None
                                      and job.get("cancel_requested"))
+                if pause_retry and not cancelled:
+                    abort_retry_used = True
+                    if self._abort_cooldown(job):
+                        raise
+                    if job is not None:
+                        job["watchdog_retry"] = True
+                        job["gpu_abort_retry"] = True
+                    continue
                 if cancelled or not can_retry:
                     if short and key and not cancelled:
                         # The store now refuses this setting for a day; say
@@ -27944,6 +28062,75 @@ def run_tracked_subprocess(cmd: list[str], *, pgid_key: str, label: str,
     return subprocess.CompletedProcess(cmd, proc.returncode, stdout or "", stderr or "")
 
 
+#: Lines ffmpeg (and the PiperSR script around it) print that say nothing
+#: about WHY a run failed: the banner, progress, the closing summary.
+_POSTPROCESS_NOISE_RX = re.compile(
+    r"^(conversion failed!?|frame=|size=|video:|audio:|exiting normally|"
+    r"press \[q\]|last message repeated|ffmpeg version|built with|"
+    r"configuration:|lib\w+\s+\d|input #|output #|stream #|stream mapping|"
+    r"metadata:|duration:)", re.IGNORECASE)
+#: Words of a line that names a cause.
+_POSTPROCESS_CAUSE_RX = re.compile(
+    r"error|invalid|no such|failed|unable|cannot|denied|not permitted|"
+    r"not divisible|unsupported|unrecognized|unknown|no space|not found",
+    re.IGNORECASE)
+#: A file path inside such a line, spaces included (it runs to the next colon
+#: or the end): output names are made from the prompt, and the path scrub the
+#: fleet's signature gets stops at a space.
+_POSTPROCESS_PATH_RX = re.compile(r"(?:(?<=\s)|^)[/~][^:\n]*")
+
+
+def postprocess_failure_reason(stderr: str | None, stdout: str | None = None) -> str:
+    """The line a failed post-process (ffmpeg export, upscale, mux) gave as
+    its reason, or "". No file name or folder is kept in it.
+
+    Fleet, 5.0.21: one Mac failed four renders in a row at "upscale exited
+    with code 254" - the clip itself had rendered, the 720p export then died,
+    and the message named nothing: not the cause, not what to do. ffmpeg's own
+    reason was only in the Logs tab. The FIRST line that names a cause is that
+    reason ("Error opening input: No such file or directory", "height not
+    divisible by 2"); what follows it is ffmpeg giving up. With no such line,
+    the last line that is not progress or a summary."""
+    for text in (stderr, stdout):
+        kept = []
+        for line in str(text or "").splitlines():
+            line = line.strip()
+            if not line or _POSTPROCESS_NOISE_RX.match(line):
+                continue
+            # ffmpeg prefixes most lines with the component that wrote them.
+            line = re.sub(r"^\[[^\]]{1,60} @ 0x[0-9a-fA-F]+\]\s*", "", line)
+            if line:
+                kept.append(line)
+        if not kept:
+            continue
+        line = next((ln for ln in kept if _POSTPROCESS_CAUSE_RX.search(ln)), kept[-1])
+        line = _POSTPROCESS_PATH_RX.sub("<file>", line).strip()
+        return line[:240].rstrip(". ")
+    return ""
+
+
+def postprocess_failure_message(label: str, returncode: int,
+                                stderr: str | None, stdout: str | None = None) -> str:
+    """`<label> exited with code N` plus ffmpeg's own reason and, for the
+    reasons with one plain remedy, that remedy."""
+    msg = f"{label.lower()} exited with code {returncode}"
+    reason = postprocess_failure_reason(stderr, stdout)
+    if not reason:
+        return msg
+    msg += f": {reason}"
+    low = reason.lower()
+    if "no such file or directory" in low:
+        msg += (". A file this step needs was not where it was a moment ago - "
+                "check that the outputs folder (or the drive it is on) is still "
+                "there, then render again.")
+    elif "no space left on device" in low:
+        msg += ". The disk is full - free some space, then render again."
+    elif "permission denied" in low or "operation not permitted" in low:
+        msg += (". macOS did not let Phosphene write there - check the outputs "
+                "folder in Settings, then render again.")
+    return msg
+
+
 def run_postprocess_tracked(cmd: list[str], label: str) -> tuple[str, str]:
     """Run a post-process in its own process group so /stop can kill it."""
     film_job = _sb_film_job_ctx()
@@ -27959,7 +28146,7 @@ def run_postprocess_tracked(cmd: list[str], label: str) -> tuple[str, str]:
     stdout, stderr = proc.stdout, proc.stderr
     if proc.returncode != 0:
         push((stderr or stdout or "").strip())
-        raise RuntimeError(f"{label.lower()} exited with code {proc.returncode}")
+        raise RuntimeError(postprocess_failure_message(label, proc.returncode, stderr, stdout))
     return stdout or "", stderr or ""
 
 
@@ -28308,7 +28495,7 @@ def _sb_film_job_ffmpeg(cmd: list, label: str, job: dict,
         if job.get("cancel"):
             raise FilmRenderCanceled(f"{label}: canceled")
         push((stderr or stdout or "").strip())
-        raise RuntimeError(f"{label.lower()} exited with code {proc.returncode}")
+        raise RuntimeError(postprocess_failure_message(label, proc.returncode, stderr, stdout))
     return stdout or "", stderr or ""
 
 
@@ -37070,6 +37257,112 @@ def image_job_input_refusal(p: dict) -> str | None:
     return None
 
 
+def _job_param_strings(value, out: list, _depth: int = 0) -> None:
+    """Every string that could be a path inside a job's params. Some inputs
+    travel as JSON text (`ingredient_images_json`, `keyframes_json`): those
+    are opened and walked too."""
+    if _depth > 8:
+        return
+    if isinstance(value, str):
+        v = value.lstrip()
+        if v.startswith(("/", "~")):
+            out.append(value)
+        elif v[:1] in ("[", "{") and len(v) < 200_000 and "/" in v:
+            try:
+                _job_param_strings(json.loads(v), out, _depth + 1)
+            except (ValueError, TypeError, RecursionError):
+                pass
+    elif isinstance(value, dict):
+        for v in list(value.values()):
+            _job_param_strings(v, out, _depth + 1)
+    elif isinstance(value, (list, tuple)):
+        for v in list(value):
+            _job_param_strings(v, out, _depth + 1)
+
+
+#: make_job keeps the form's Image / Audio slots on a job that does not read
+#: them (a text-to-video job still carries `image`), so a queued text job
+#: would hold a picture it never opens.
+_JOB_UNUSED_INPUT_KEYS = {"t2v": ("image", "audio", "start_image", "end_image",
+                                  "video_path")}
+
+
+def _job_param_paths(value, out: set) -> None:
+    """Every absolute path string inside a job's params, resolved."""
+    if isinstance(value, str):
+        v = value.strip()
+        if v.startswith(("/", "~")) and len(v) < 4096 and "\n" not in v:
+            try:
+                out.add(str(Path(v).expanduser().resolve()))
+            except (OSError, ValueError, RuntimeError):
+                pass
+    elif isinstance(value, dict):
+        for v in value.values():
+            _job_param_paths(v, out)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            _job_param_paths(v, out)
+
+
+def jobs_using_files(paths) -> int:
+    """How many renders that are waiting (or running now) take one of these
+    files as an input - a reference image, a keyframe, a source clip, a song,
+    an Image reference."""
+    wanted = set()
+    for raw in paths or ():
+        try:
+            wanted.add(str(Path(str(raw)).expanduser().resolve()))
+        except (OSError, ValueError, RuntimeError):
+            continue
+    if not wanted:
+        return 0
+    with LOCK:
+        jobs = list(STATE.get("queue") or [])
+        cur = STATE.get("current")
+        if cur is not None:
+            jobs.append(cur)
+        # Strings only leave the lock: a job's params can change under us.
+        raw_paths = []
+        for j in jobs:
+            strings: list = []
+            if isinstance(j, dict):
+                prm = j.get("params") or {}
+                if isinstance(prm, dict):
+                    skip = _JOB_UNUSED_INPUT_KEYS.get(
+                        str(prm.get("mode") or "t2v").strip().lower(), ())
+                    prm = {k: v for k, v in prm.items() if k not in skip}
+                _job_param_strings(prm, strings)
+            raw_paths.append(strings)
+    n = 0
+    for strings in raw_paths:
+        found: set = set()
+        _job_param_paths(strings, found)
+        if found & wanted:
+            n += 1
+    return n
+
+
+def delete_in_use_refusal(paths, what: str = "file") -> str | None:
+    """Why this file cannot be deleted right now, or None.
+
+    Fleet, 5.0.18-5.0.21 (8 failed renders on 3 Macs in a day, 18 in three
+    days): "The reference image is no longer on disk" on renders queued from
+    the form, in bursts right after an earlier render finished. The picture
+    was there when each job was queued (/queue/add checks) and gone at its
+    turn - and the two ways to remove it inside Phosphene, the x on Recent
+    uploads and Move to Trash in the gallery, never looked at the queue. Now
+    they do: a file a waiting render needs stays until that render is done or
+    taken off the queue."""
+    n = jobs_using_files(paths)
+    if not n:
+        return None
+    renders = "a render that is" if n == 1 else f"{n} renders that are"
+    it = "it finishes" if n == 1 else "they finish"
+    those = "that render" if n == 1 else "those renders"
+    return (f"This {what} is used by {renders} still waiting or running. "
+            f"Delete it after {it}, or take {those} off the queue first.")
+
+
 def job_input_refusal(params: dict) -> str | None:
     """Why this job can only fail for want of an input, or None.
 
@@ -42470,6 +42763,9 @@ def run_h3_job_inner(job: dict) -> None:
     # A small Mac whose memory other apps hold right now waits here (Now card
     # says what to quit) instead of failing this job and the queue behind it.
     h3_memory_hold(job, cmd, env, str(H3_ROOT))
+    if h3_gpu_steps_env(env):
+        _gpu_steps_note(job)
+        push(f"[gpu] {GPU_STEPS_NOTE[0].upper()}{GPU_STEPS_NOTE[1:]}.")
     try:
         proc = subprocess.Popen(
             cmd,
@@ -42762,6 +43058,8 @@ def run_h3_job_inner(job: dict) -> None:
             # invisible as a series. The LTX helper has decoded signals this
             # way since #44; the H3 path never got the same treatment.
             if rc < 0:
+                if h3_watchdog_line(list(_h3_tail)):
+                    h3_watchdog_mark()      # the next H3 render starts short
                 try:
                     _sig = signal.Signals(-rc).name
                 except (ValueError, AttributeError):
@@ -42783,6 +43081,19 @@ def run_h3_job_inner(job: dict) -> None:
                     f"H3 helper exited from {_sig} ({_hint}) — see the log "
                     f"above (metrics at {metrics_path}).")
             _last = failure_where(_h3_tail)
+            if rc != 0 and h3_watchdog_line(list(_h3_tail)):
+                # The next H3 render on this Mac starts in short GPU steps.
+                _h3_was_short = h3_watchdog_seen()
+                h3_watchdog_mark()
+                if not _h3_was_short:
+                    raise RuntimeError(
+                        f"H3 render exited with code {rc}"
+                        + (f" — last line: {_last[:220]}" if _last else "")
+                        + ". macOS's GPU watchdog stopped it (one graphics step ran "
+                          "too long on this Mac). Press Retry: from now on this Mac "
+                          "renders Hailuo H3 in smaller GPU steps, the remedy LTX "
+                          "videos already use; it may be a little slower. "
+                          f"(metrics at {metrics_path}).")
             raise RuntimeError(
                 f"H3 render exited with code {rc}"
                 + (f" — last line: {_last[:220]}" if _last else "")
@@ -52486,7 +52797,8 @@ if __name__ == "__main__":
     # Retain the explicit boot opt-in for managed installations.
     if (os.environ.get("PHOSPHENE_SEPARATOR_AUTOINSTALL") or "0") == "1":
         a2v_separator_boot()
-    # The Mac app adds a missing image engine inside the image job that needs it.
+    # A missing image engine is added inside the image job that needs it
+    # (the Mac app since 5.0.5, Pinokio since 5.0.23).
     if image_engine_autoinstall_enabled():
         agent_image_engine.MFLUX_AUTOINSTALL = image_engine_autoinstall
     # The Mac app's studio also brings its own Hailuo H3 runner up to the pinned engine.
