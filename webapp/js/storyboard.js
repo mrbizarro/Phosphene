@@ -56,25 +56,25 @@ const SB_BOOT = (typeof BOOT !== 'undefined' && BOOT.storyboard) ? BOOT.storyboa
 const SB_ERR_COPY = {
   schema_version:      { html: '<b>This storyboard was written by a different version of Phosphene.</b> Nothing here can be rendered safely. Plan a new one.' },
   board_id_empty:      { html: '<b>This storyboard file is damaged</b> and can\'t be repaired from the panel.' },
-  no_shots:            { html: '<b>No shots.</b> Re-plan, or add one by hand.', fix: 'add', label: 'Add a shot' },
-  shot_not_object:     { html: (e) => `<b>Shot ${e.n} is unreadable.</b> Delete it and add a new one.`, fix: 'delete', label: 'Delete shot' },
-  shot_number:         { html: (e) => `<b>Shot ${e.n} lost its number.</b>`, fix: 'renumber', label: 'Renumber all shots' },
-  shot_duplicate:      { html: (e) => `<b>Two shots are both numbered ${e.n}.</b>`, fix: 'renumber', label: 'Renumber all shots' },
-  bad_mode:            { html: (e) => `<b>Shot ${e.n} asks for a shot type this build doesn't have.</b> Set it to Text or Character.`, fix: 'text', label: 'Make it Text' },
-  empty_prompt:        { html: (e) => `<b>Shot ${e.n} has no prompt.</b> Write what happens in it.`, fix: 'focus', label: 'Write it' },
-  unknown_character:   { html: (e) => `<b>Shot ${e.n} casts <code>${escapeHtml(e.data.character_id || '')}</code>, who isn't on this Mac.</b> Pick someone installed, or train them first.`, fix: 'pickchar', label: 'Pick someone' },
-  missing_trigger:     { html: (e) => `<b>Shot ${e.n}'s prompt doesn't say <code>${escapeHtml(e.data.trigger || '')}</code>,</b> so the trained face won't load and a stranger renders instead.`, fix: 'trigger', label: 'Put it back' },
-  character_without_id:{ html: (e) => `<b>Shot ${e.n} is a Character shot with nobody cast.</b>`, fix: 'pickchar', label: 'Pick someone' },
-  bad_duration:        { html: (e) => `<b>Shot ${e.n} is ${escapeHtml(String(e.data.duration_s))} seconds long.</b> Pick something between 1 and 60.`, fix: 'dur5', label: 'Make it 5 s' },
-  refs_not_list:       { html: (e) => `<b>Shot ${e.n}'s reference images are damaged.</b>`, fix: 'clearrefs', label: 'Clear them' },
-  ref_missing:         { html: (e) => `<b>Shot ${e.n} wants a reference image that isn't there any more:</b> <code>${escapeHtml(e.data.name || '')}</code>`, fix: 'clearrefs', label: 'Clear them' },
-  remix_needs_ref:     { html: (e) => `<b>Shot ${e.n} is a Remix shot with no reference image.</b>`, fix: 'text', label: 'Make it Text' },
+  no_shots:            { html: '<b>No shots.</b> Re-plan, or add one by hand.', fix: 'add', label: T('storyboard.add_a_shot', 'Add a shot') },
+  shot_not_object:     { html: (e) => `<b>Shot ${e.n} is unreadable.</b> Delete it and add a new one.`, fix: 'delete', label: T('storyboard.delete_shot', 'Delete shot') },
+  shot_number:         { html: (e) => `<b>Shot ${e.n} lost its number.</b>`, fix: 'renumber', label: T('storyboard.renumber_all_shots', 'Renumber all shots') },
+  shot_duplicate:      { html: (e) => `<b>Two shots are both numbered ${e.n}.</b>`, fix: 'renumber', label: T('storyboard.renumber_all_shots', 'Renumber all shots') },
+  bad_mode:            { html: (e) => `<b>Shot ${e.n} asks for a shot type this build doesn't have.</b> Set it to Text or Character.`, fix: 'text', label: T('storyboard.make_it_text', 'Make it Text') },
+  empty_prompt:        { html: (e) => `<b>Shot ${e.n} has no prompt.</b> Write what happens in it.`, fix: 'focus', label: T('storyboard.write_it', 'Write it') },
+  unknown_character:   { html: (e) => `<b>Shot ${e.n} casts <code>${escapeHtml(e.data.character_id || '')}</code>, who isn't on this Mac.</b> Pick someone installed, or train them first.`, fix: 'pickchar', label: T('storyboard.pick_someone', 'Pick someone') },
+  missing_trigger:     { html: (e) => `<b>Shot ${e.n}'s prompt doesn't say <code>${escapeHtml(e.data.trigger || '')}</code>,</b> so the trained face won't load and a stranger renders instead.`, fix: 'trigger', label: T('storyboard.put_it_back', 'Put it back') },
+  character_without_id:{ html: (e) => `<b>Shot ${e.n} is a Character shot with nobody cast.</b>`, fix: 'pickchar', label: T('storyboard.pick_someone', 'Pick someone') },
+  bad_duration:        { html: (e) => `<b>Shot ${e.n} is ${escapeHtml(String(e.data.duration_s))} seconds long.</b> Pick something between 1 and 60.`, fix: 'dur5', label: T('storyboard.make_it_5_s', 'Make it 5 s') },
+  refs_not_list:       { html: (e) => `<b>Shot ${e.n}'s reference images are damaged.</b>`, fix: 'clearrefs', label: T('storyboard.clear_them', 'Clear them') },
+  ref_missing:         { html: (e) => `<b>Shot ${e.n} wants a reference image that isn't there any more:</b> <code>${escapeHtml(e.data.name || '')}</code>`, fix: 'clearrefs', label: T('storyboard.clear_them', 'Clear them') },
+  remix_needs_ref:     { html: (e) => `<b>Shot ${e.n} is a Remix shot with no reference image.</b>`, fix: 'text', label: T('storyboard.make_it_text', 'Make it Text') },
   // The offer is the server's own `fit_*` — the largest canvas THIS Mac may
   // render at the quality already chosen. It used to read "Use 1024×576" on
   // every machine, which on a Mac that caps at 768 offered a size the validator
   // rejects, and the button's guard (`> 1024`) meant it wrote nothing at all:
   // the error never cleared and Render stayed disabled forever. (GitHub #71)
-  over_cap:            { html: (e) => `<b>${e.data.pass_name === 'final' ? 'Delivery' : 'Draft'} is set to ${e.data.width}×${e.data.height}; this Mac caps at ${e.data.max_dim}.</b> It'll shrink to fit unless you lower it.`,
+  over_cap:            { html: (e) => `<b>${e.data.pass_name === 'final' ? T('storyboard.delivery', 'Delivery') : T('storyboard.draft', 'Draft')} is set to ${e.data.width}×${e.data.height}; this Mac caps at ${e.data.max_dim}.</b> It'll shrink to fit unless you lower it.`,
                          fix: 'cap',
                          label: (e) => `Use ${e.data.fit_width}×${e.data.fit_height}` },
 };
@@ -121,21 +121,22 @@ function sbFmtAgo(ts, now) {
   const t = Number(ts) || 0;
   if (!t) return '';
   const secs = Math.max(0, ((now || Date.now()) / 1000) - t);
-  if (secs < 90) return 'just now';
+  if (secs < 90) return T('storyboard.just_now', 'just now');
+  if (i18nLang() !== 'en') return i18nAgo(secs);
   const m = Math.round(secs / 60);
-  if (m < 60) return m + (m === 1 ? ' minute ago' : ' minutes ago');
+  if (m < 60) return m + (m === 1 ? T('storyboard.minute_ago', ' minute ago') : T('storyboard.minutes_ago', ' minutes ago'));
   const h = Math.round(m / 60);
-  if (h < 24) return h + (h === 1 ? ' hour ago' : ' hours ago');
+  if (h < 24) return h + (h === 1 ? T('storyboard.hour_ago', ' hour ago') : T('storyboard.hours_ago', ' hours ago'));
   const d = Math.round(h / 24);
-  if (d < 30) return d + (d === 1 ? ' day ago' : ' days ago');
+  if (d < 30) return d + (d === 1 ? T('storyboard.day_ago', ' day ago') : T('storyboard.days_ago', ' days ago'));
   try { return new Date(t * 1000).toLocaleDateString(); } catch (e) { return ''; }
 }
 // Which button made this file. Two mp4s in one folder otherwise look identical.
 function sbFilmKind(f) {
   const k = (f || {}).kind;
-  if (k === 'timeline') return 'Timeline render';
-  if (k === 'export') return 'Export';
-  return 'Film';
+  if (k === 'timeline') return T('storyboard.timeline_render', 'Timeline render');
+  if (k === 'export') return T('storyboard.export', 'Export');
+  return T('storyboard.film', 'Film');
 }
 // The film on screen: the one the caller asked for by name, else the newest.
 // Pure, because "which film am I looking at" is exactly the kind of thing that
@@ -355,7 +356,7 @@ function sbConceptInput() {
   if (btn) {
     const empty = !box || !box.value.trim();
     btn.disabled = empty || btn.dataset.busy === '1';
-    if (empty) btn.title = 'Write a couple of sentences about the film first.';
+    if (empty) btn.title = T('storyboard.write_a_couple_of_sentences', 'Write a couple of sentences about the film first.');
     else if (btn.dataset.busy !== '1') btn.title = '';
   }
   if (_sbDraftTimer) clearTimeout(_sbDraftTimer);
@@ -369,7 +370,7 @@ function sbMustInput() {
   const meta = sbEl('sbMustMeta');
   if (!meta) return;
   const n = ((box && box.value) || '').split('\n').filter(x => x.trim()).length;
-  meta.textContent = n === 0 ? 'none' : (n === 1 ? '1 shot' : `${n} shots`);
+  meta.textContent = n === 0 ? 'none' : (n === 1 ? T('storyboard.1_shot', '1 shot') : `${n} shots`);
 }
 
 // LOCATIONS. Free text, one per line, `name: description`. A list of objects
@@ -409,9 +410,9 @@ function sbLocInput() {
   if (!meta) return;
   const locs = sbParseLocations((sbEl('sbLocations') || {}).value);
   meta.textContent = locs.length === 0
-    ? 'no locations — every shot invents its own'
+    ? T('storyboard.no_locations_every_shot_invents', 'no locations — every shot invents its own')
     : locs.map(l => l.name).join(' · ') +
-      (locs.length === 1 ? ' — 1 place, pinned on every shot that uses it'
+      (locs.length === 1 ? T('storyboard.1_place_pinned_on_every', ' — 1 place, pinned on every shot that uses it')
                          : ` — ${locs.length} places, pinned on every shot that uses them`);
 }
 
@@ -483,8 +484,8 @@ function sbSyncBriefGates() {
   if (!ok && el.checked) el.checked = false;
   const lab = el.closest('label');
   if (lab) lab.title = ok
-    ? 'A shot longer than 5 seconds renders as a chain of 5-second passes, each continuing from the last, instead of being shortened to fit one. Slower. LTX shots only.'
-    : 'Needs the Q8 pack — download it from the launcher menu first.';
+    ? T('storyboard.a_shot_longer_than_5', 'A shot longer than 5 seconds renders as a chain of 5-second passes, each continuing from the last, instead of being shortened to fit one. Slower. LTX shots only.')
+    : T('storyboard.needs_the_q8_pack_download', 'Needs the Q8 pack — download it from the launcher menu first.');
 }
 async function sbRestill(n) {
   const fd = new FormData();
@@ -558,8 +559,8 @@ function sbEngineChip(id) {
          || { id: id, label: (id || 'ltx').toUpperCase(), mark: 'eng-mark-ltx',
               accent: '', accent_dim: '', accent_soft: '', tagline: '' };
   const why = id === 'h3'
-    ? 'Renders on Hailuo H3 — video, dialogue and sound together. A 75 GB install.'
-    : 'Renders on LTX — ships with the panel, and the only engine that loads a trained character.';
+    ? T('storyboard.renders_on_hailuo_h3_video', 'Renders on Hailuo H3 — video, dialogue and sound together. A 75 GB install.')
+    : T('storyboard.renders_on_ltx_ships_with', 'Renders on LTX — ships with the panel, and the only engine that loads a trained character.');
   return `<span class="sb-chip sb-chip-engine" data-engine="${escapeHtml(e.id)}"
       style="--eng-accent:${escapeHtml(e.accent)};--eng-dim:${escapeHtml(e.accent_dim)};--eng-soft:${escapeHtml(e.accent_soft)}"
       title="${escapeHtml(why)}"><span class="eng-mark"><svg class="ph" aria-hidden="true"><use href="#${escapeHtml(e.mark)}"/></svg></span>${escapeHtml(e.label)}</span>`;
@@ -586,7 +587,7 @@ function sbRenderCast() {
       : `<span class="chars-avatar-ph">${escapeHtml((name || '?').charAt(0).toUpperCase())}</span>`;
     return `<button type="button" class="chars-avatar-chip ${active ? 'active' : ''}"
               onclick="sbPickCast(${escapeHtml(JSON.stringify(c.id))})"
-              title="${escapeHtml(name)}${active ? ' · click to deselect' : ''}">
+              title="${escapeHtml(name)}${active ? T('storyboard.click_to_deselect', ' · click to deselect') : ''}">
               ${avatar}<span class="chars-avatar-name">${escapeHtml(name)}</span></button>`;
   }).join('');
 }
@@ -613,8 +614,8 @@ function sbPickCast(id) {
 // same control.
 let _sbEngineMode = 'auto';
 const SB_ENGINE_OPTS = [
-  { key: 'auto', label: 'Auto',      sub: 'per shot' },
-  { key: 'h3',   label: 'Hailuo H3', sub: 'voice + sound', engine: 'h3' },
+  { key: 'auto', label: T('storyboard.auto', 'Auto'),      sub: T('storyboard.per_shot', 'per shot') },
+  { key: 'h3',   label: 'Hailuo H3', sub: T('storyboard.voice_sound', 'voice + sound'), engine: 'h3' },
   { key: 'ltx',  label: 'LTX',       sub: 'characters',    engine: 'ltx' },
 ];
 
@@ -633,12 +634,12 @@ function sbEnginePickerHtml(active) {
               + (offer ? ' needs-install' : '');
     const style = e ? `--eng-accent:${escapeHtml(e.accent)};--eng-dim:${escapeHtml(e.accent_dim)};--eng-soft:${escapeHtml(e.accent_soft)}` : '';
     const title = o.key === 'auto'
-        ? 'The plan decides per shot: a shot with one of your trained characters goes to LTX, everything else to Hailuo H3.'
-      : offer ? distText('Hailuo H3 isn’t installed yet — install it from the Phosphene sidebar in Pinokio.',
-                         'Hailuo H3 isn’t downloaded yet: click to download it (about 75 GB, once).')
-      : blocked ? 'This Mac can’t run Hailuo H3.'
-      : o.key === 'h3' ? 'Every shot on Hailuo H3 — it renders dialogue, voices and sound with the picture. No trained characters.'
-      : 'Every shot on LTX — the built-in engine, and the only one that loads a trained character.';
+        ? T('storyboard.the_plan_decides_per_shot', 'The plan decides per shot: a shot with one of your trained characters goes to LTX, everything else to Hailuo H3.')
+      : offer ? distText(T('storyboard.hailuo_h3_isn_t_installed', 'Hailuo H3 isn’t installed yet — install it from the Phosphene sidebar in Pinokio.'),
+                         T('storyboard.hailuo_h3_isn_t_downloaded', 'Hailuo H3 isn’t downloaded yet: click to download it (about 75 GB, once).'))
+      : blocked ? T('storyboard.this_mac_can_t_run', 'This Mac can’t run Hailuo H3.')
+      : o.key === 'h3' ? T('storyboard.every_shot_on_hailuo_h3', 'Every shot on Hailuo H3 — it renders dialogue, voices and sound with the picture. No trained characters.')
+      : T('storyboard.every_shot_on_ltx_the', 'Every shot on LTX — the built-in engine, and the only one that loads a trained character.');
     const glyph = e ? `<span class="eng-mark"><svg class="ph" aria-hidden="true"><use href="#${escapeHtml(e.mark)}"/></svg></span>` : '';
     return `<button type="button" class="${cls}" data-sb-engine="${o.key}" style="${style}"
         ${blocked && !offer ? 'disabled' : ''} title="${escapeHtml(title)}">
@@ -652,10 +653,10 @@ function sbEnginePickerNote(active) {
     return h3.capable
       ? distText('Hailuo H3 isn’t installed — <b>Install Hailuo H3</b> in the Phosphene sidebar in Pinokio, and this film can use it. Until then every shot renders on LTX.',
                  'Hailuo H3 isn’t downloaded yet. Click <b>Hailuo H3</b> above to download it; until then every shot renders on LTX.')
-      : 'This Mac can’t run Hailuo H3, so every shot renders on LTX.';
+      : T('storyboard.this_mac_can_t_run_2', 'This Mac can’t run Hailuo H3, so every shot renders on LTX.');
   }
   if (active === 'h3') return 'Every shot on Hailuo H3 — dialogue, voices and sound rendered with the picture. <b>A trained character can’t come along</b>: H3 loads no LoRAs.';
-  if (active === 'ltx') return 'Every shot on LTX — every mode, and the only engine that loads a trained character.';
+  if (active === 'ltx') return T('storyboard.every_shot_on_ltx_every', 'Every shot on LTX — every mode, and the only engine that loads a trained character.');
   return 'A shot with one of your trained characters goes to <b>LTX</b>; every other shot goes to <b>Hailuo H3</b>.';
 }
 
@@ -675,14 +676,14 @@ function sbSetEngineMode(key, persist) {
     // this opens the SAME card the header switcher opens.
     const card = ((ENGINES || []).find(x => x.id === 'h3') || {}).install_card;
     if (h3.capable && card && typeof window[card] === 'function') { try { window[card](); } catch (e) {} }
-    else if (h3.capable) phosToast(distText('Install Hailuo H3 from the Phosphene sidebar in Pinokio.',
-                                            'Download Hailuo H3 from its card: click Hailuo H3 in the engine switcher.'), {duration: 6000});
+    else if (h3.capable) phosToast(distText(T('storyboard.install_hailuo_h3_from_the', 'Install Hailuo H3 from the Phosphene sidebar in Pinokio.'),
+                                            T('storyboard.download_hailuo_h3_from_its', 'Download Hailuo H3 from its card: click Hailuo H3 in the engine switcher.')), {duration: 6000});
     return;
   }
   if (key === 'h3' && _sbCastId) {
     _sbCastId = '';
     sbRenderCast();
-    phosToast('Cast cleared — Hailuo H3 can’t load a trained character.', {duration: 6000});
+    phosToast(T('storyboard.cast_cleared_hailuo_h3_can', 'Cast cleared — Hailuo H3 can’t load a trained character.'), {duration: 6000});
   }
   _sbEngineMode = key;
   sbRenderEnginePicker();
@@ -717,7 +718,7 @@ function sbEngineSnapWarning(mode) {
   if (!moving) return '';
   const beats = lens.slice(0, -1).join(', ') + ' or ' + lens[lens.length - 1];
   const eng = (target === 'h3') ? 'Hailuo H3' : 'LTX';
-  const n = (moving === 1) ? 'One shot' : `${moving} shots`;
+  const n = (moving === 1) ? T('storyboard.one_shot', 'One shot') : `${moving} shots`;
   return `<div class="sb-enginepick-note" style="margin-top:4px">`
        + escapeHtml(`${eng} renders in ${beats}-second beats. ${n} will move to the nearest one.`)
        + `</div>`;
@@ -726,7 +727,7 @@ function sbEngineSnapWarning(mode) {
 // ---- plan ------------------------------------------------------------------
 async function sbPlan() {
   const concept = (sbEl('sbConcept') || {}).value || '';
-  if (!concept.trim()) { phosToast('Write a couple of sentences about the film first.'); return; }
+  if (!concept.trim()) { phosToast(T('storyboard.write_a_couple_of_sentences', 'Write a couple of sentences about the film first.')); return; }
   // FILM-56: the planner's own memory footprint used to OOM on an 8-16 GB
   // Mac after several minutes' wait, with nothing said before it started.
   // The server already knows whether this Mac clears its floor — say so
@@ -737,7 +738,7 @@ async function sbPlan() {
   }
   _sbPlanShotsSubmitted = sbShotsValue() || 12;
   const btn = sbEl('sbPlanBtn');
-  if (btn) { btn.dataset.busy = '1'; btn.disabled = true; btn.textContent = 'Planning…'; }
+  if (btn) { btn.dataset.busy = '1'; btn.disabled = true; btn.textContent = T('storyboard.planning', 'Planning…'); }
   const fd = new URLSearchParams();
   fd.set('concept', concept);
   fd.set('shots', String(sbShotsValue()));
@@ -773,7 +774,7 @@ async function sbPlan() {
   SB.id = r.id;
   try { localStorage.setItem('phos_sb_open', SB.id); } catch (e) {}
   if (sbEl('sbAuto') && sbEl('sbAuto').checked) {
-    phosToast('Auto is on: after the plan, every shot renders, the cut is made and the film is assembled on their own. The Film screen shows it when it lands.',
+    phosToast(T('storyboard.auto_is_on_after_the', 'Auto is on: after the plan, every shot renders, the cut is made and the film is assembled on their own. The Film screen shows it when it lands.'),
               { duration: 9000 });
   }
   sbShow('planning');
@@ -799,9 +800,9 @@ function sbTrackInput() {
   const row = sbEl('sbLengthRow');
   if (meta) {
     meta.textContent = path
-      ? 'music video — one shot per ' + bars + ' bar' + (bars === '1' ? '' : 's')
+      ? TP('storyboard.music_video_one_shot_per_bars', Number(bars), {one: 'music video — one shot per {count} bar', other: 'music video — one shot per {count} bars'}, {count: bars})
         + ' on the downbeat; the track replaces the clips\' own sound and sets the shot count'
-      : 'optional — a track makes it a music video cut to the beat';
+      : T('storyboard.optional_a_track_makes_it', 'optional — a track makes it a music video cut to the beat');
   }
   if (row) row.classList.toggle('is-standing-down', !!path);
 }
@@ -810,14 +811,14 @@ function sbPlanBtnReset() {
   const btn = sbEl('sbPlanBtn');
   if (!btn) return;
   delete btn.dataset.busy;
-  btn.textContent = 'Plan film';
+  btn.textContent = T('storyboard.plan_film', 'Plan film');
   sbConceptInput();
 }
 
 async function sbCancelPlan() {
   const fd = new URLSearchParams(); fd.set('id', SB.id);
   try { await fetch('/storyboard/cancel', { method: 'POST', body: fd }); } catch (e) {}
-  phosToast('Planning cancelled.');
+  phosToast(T('storyboard.planning_cancelled', 'Planning cancelled.'));
   sbPlanBtnReset();
   sbLoad(SB.id);
 }
@@ -831,25 +832,25 @@ async function sbCancelPlan() {
 // just in the one-off toast `sbPlan()` shows at submit time.
 function _sbPlanningTimeCopy() {
   const n = _sbPlanShotsSubmitted || 12;
-  const base = n <= 4 ? 'About a minute'
-             : n <= 12 ? 'A few minutes for ' + n + ' shots'
-             : 'Several minutes for ' + n + ' shots';
+  const base = n <= 4 ? T('storyboard.about_a_minute', 'About a minute')
+             : n <= 12 ? TP('storyboard.a_few_minutes_for_shots', n, {one: 'A few minutes for {count} shot', other: 'A few minutes for {count} shots'})
+             : TP('storyboard.several_minutes_for_shots', n, {one: 'Several minutes for {count} shot', other: 'Several minutes for {count} shots'});
   const ramStatus = SB_BOOT.ram_status || {};
   if (!ramStatus.ok) {
-    return base + '. This Mac is short on memory for the planner — it can '
-                 + 'fail instead of finishing. Nothing renders yet.';
+    return base + T('storyboard.this_mac_is_short_on', '. This Mac is short on memory for the planner — it can ')
+                 + T('storyboard.fail_instead_of_finishing_nothing', 'fail instead of finishing. Nothing renders yet.');
   }
-  return base + '. Nothing renders yet.';
+  return base + T('storyboard.nothing_renders_yet', '. Nothing renders yet.');
 }
 
 function sbSetPlanningStage(stage) {
   const map = {
-    load:   ['Loading the planner', _sbPlanningTimeCopy()],
-    grid:   ['Reading the beat', 'Finding the downbeats the shots will cut on.'],
-    write:  ['Writing the plan', _sbPlanningTimeCopy()],
-    check:  ['Checking the plan', _sbPlanningTimeCopy()],
-    repair: ['Fixing the plan', 'It came back slightly malformed. One retry.'],
-    unload: ['Giving the memory back', 'The renderer gets it now.'],
+    load:   [T('storyboard.loading_the_planner', 'Loading the planner'), _sbPlanningTimeCopy()],
+    grid:   [T('storyboard.reading_the_beat', 'Reading the beat'), T('storyboard.finding_the_downbeats_the_shots', 'Finding the downbeats the shots will cut on.')],
+    write:  [T('storyboard.writing_the_plan', 'Writing the plan'), _sbPlanningTimeCopy()],
+    check:  [T('storyboard.checking_the_plan', 'Checking the plan'), _sbPlanningTimeCopy()],
+    repair: [T('storyboard.fixing_the_plan', 'Fixing the plan'), T('storyboard.it_came_back_slightly_malformed', 'It came back slightly malformed. One retry.')],
+    unload: [T('storyboard.giving_the_memory_back', 'Giving the memory back'), T('storyboard.the_renderer_gets_it_now', 'The renderer gets it now.')],
   };
   const order = ['load', 'grid', 'write', 'check', 'repair', 'unload'];
   const at = order.indexOf(stage);
@@ -972,29 +973,29 @@ function sbRailModel(snap) {
     : (clips ? clips + ' of ' + s.shots + ' rendered' : s.shots + ' planned');
   const arrangeLocked = !clips;
   return [
-    { key: 'plan', label: 'Plan', n: 1, state: 'done', sub: '',
-      hint: 'The brief this film was planned from — open it to re-plan.' },
-    { key: 'shots', label: 'Shots', n: 2,
+    { key: 'plan', label: T('storyboard.plan', 'Plan'), n: 1, state: 'done', sub: '',
+      hint: T('storyboard.the_brief_this_film_was', 'The brief this film was planned from — open it to re-plan.') },
+    { key: 'shots', label: T('storyboard.shots', 'Shots'), n: 2,
       state: stage === 'plan' ? 'now' : (clips ? 'done' : 'ready'),
       sub: shotsSub,
-      hint: 'Read the shot list, fix a prompt, render, grade what came back.' },
+      hint: T('storyboard.read_the_shot_list_fix', 'Read the shot list, fix a prompt, render, grade what came back.') },
     // Step 3 is a DOOR now, not a room: it switches to the Editor tab
     // carrying this film. The word is Editor everywhere — tab, header, this
     // step, and the board row's button.
-    { key: 'edit', label: 'Edit', n: 3,
+    { key: 'edit', label: T('storyboard.edit', 'Edit'), n: 3,
       state: stage === 'editor' ? 'now'
            : arrangeLocked ? 'locked' : (film ? 'done' : 'ready'),
       sub: '',
       hint: arrangeLocked
-        ? 'Render a shot first — there is nothing to edit yet.'
-        : 'Open this film in the Editor: trim, reorder, cut to the beat, then render the film.' },
-    { key: 'film', label: 'Film', n: 4,
+        ? T('storyboard.render_a_shot_first_there', 'Render a shot first — there is nothing to edit yet.')
+        : T('storyboard.open_this_film_in_the', 'Open this film in the Editor: trim, reorder, cut to the beat, then render the film.') },
+    { key: 'film', label: T('storyboard.film', 'Film'), n: 4,
       state: stage === 'film' ? 'now'
            : arrangeLocked ? 'locked' : (film ? 'done' : 'ready'),
       sub: film && film.duration ? sbFmtClock(film.duration) : '',
-      hint: arrangeLocked ? 'Render a shot first.'
-          : film ? 'Watch the finished film.'
-          : 'Nothing rendered yet — arrange the shots and render the timeline.' },
+      hint: arrangeLocked ? T('storyboard.render_a_shot_first', 'Render a shot first.')
+          : film ? T('storyboard.watch_the_finished_film', 'Watch the finished film.')
+          : T('storyboard.nothing_rendered_yet_arrange_the', 'Nothing rendered yet — arrange the shots and render the timeline.') },
   ];
 }
 function sbRailPaint() {
@@ -1061,7 +1062,7 @@ async function sbLoad(id, quiet) {
   // let a later save write) a DIFFERENT film than the one now on screen.
   if (id !== SB.id) return;
   if (!r || !r.ok) {
-    if (!quiet) phosToast('That storyboard is gone.', { kind: 'danger' });
+    if (!quiet) phosToast(T('storyboard.that_storyboard_is_gone', 'That storyboard is gone.'), { kind: 'danger' });
     sbBackToList();
     return;
   }
@@ -1102,22 +1103,22 @@ async function sbLoad(id, quiet) {
 
 function sbRenderPlanFail(p) {
   const map = {
-    download: 'The planner model didn\'t finish downloading. Check your connection and try again — it resumes where it stopped.',
-    oom: 'Not enough free memory to load the planner. Close some apps and try again.',
-    invalid: 'It produced something this build can\'t read, twice. Trying again usually works — the model isn\'t deterministic. If it keeps failing, shorten the concept.',
-    busy: 'Something else is using the GPU. Wait for the queue to empty and try again.',
+    download: T('storyboard.the_planner_model_didn_t', 'The planner model didn\'t finish downloading. Check your connection and try again — it resumes where it stopped.'),
+    oom: T('storyboard.not_enough_free_memory_to', 'Not enough free memory to load the planner. Close some apps and try again.'),
+    invalid: T('storyboard.it_produced_something_this_build', 'It produced something this build can\'t read, twice. Trying again usually works — the model isn\'t deterministic. If it keeps failing, shorten the concept.'),
+    busy: T('storyboard.something_else_is_using_the', 'Something else is using the GPU. Wait for the queue to empty and try again.'),
     // The planner never got to finish, so "it couldn't write a usable plan"
     // would be untrue. The heal path writes this kind at boot.
-    restarted: 'The panel restarted while the planner was running, so the plan never finished. Nothing was lost — press Try again.',
+    restarted: T('storyboard.the_panel_restarted_while_the', 'The panel restarted while the planner was running, so the plan never finished. Nothing was lost — press Try again.'),
   };
   // An unmapped kind falls back to what the server actually said rather than to
   // a shrug: the sentence was written, it just had nowhere to appear.
   sbEl('sbPlanFailMsg').textContent = map[p.error_kind]
-    || (p.error ? ('Something went wrong while planning: ' + p.error + '. Try again.')
-                : 'Something went wrong while planning. Try again.');
+    || (p.error ? (T('storyboard.something_went_wrong_while_planning', 'Something went wrong while planning: ') + p.error + '. Try again.')
+                : T('storyboard.something_went_wrong_while_planning_2', 'Something went wrong while planning. Try again.'));
   const ttl = document.querySelector('#sbPlanFail .sb-empty-title');
   if (ttl) ttl.textContent = (p.error_kind === 'restarted')
-    ? 'The plan didn\'t finish.' : 'The planner couldn\'t write a usable plan.';
+    ? T('storyboard.the_plan_didn_t_finish', 'The plan didn\'t finish.') : T('storyboard.the_planner_couldn_t_write', 'The planner couldn\'t write a usable plan.');
   sbEl('sbPlanFailRaw').hidden = !p.raw;
 }
 
@@ -1269,7 +1270,7 @@ function sbRenderPlan(r) {
       // The drafts are what finished — that is WHY the pass moved to
       // final — but delivery itself has not started. "Finished" would
       // claim a pass that never ran.
-      status = 'Drafts done · ready for delivery';
+      status = T('storyboard.drafts_done_ready_for_delivery', 'Drafts done · ready for delivery');
     }
   } else if (rendering) {
     status = `Drafts rendering · ${draftDone} of ${shots.length}`;
@@ -1281,7 +1282,7 @@ function sbRenderPlan(r) {
     // "Drafts rendering" here would be a sentence that isn't true.
     status = `Drafts · ${draftDone} of ${shots.length}`;
   } else {
-    status = 'Draft plan · not rendered';
+    status = T('storyboard.draft_plan_not_rendered', 'Draft plan · not rendered');
   }
   sbEl('sbPlanStatus').textContent = status;
 
@@ -1291,16 +1292,16 @@ function sbRenderPlan(r) {
   const nothingLeft = !est.shots;
   const runtimeAll = shots.reduce((a, s) => a + (Number(s.duration_s) || 0), 0);
   sbEl('sbSumShots').textContent = nothingLeft
-    ? (shots.length === 1 ? '1 shot' : `${shots.length} shots`)
-    : (est.shots === 1 ? '1 shot' : `${est.shots} shots`);
+    ? (shots.length === 1 ? T('storyboard.1_shot', '1 shot') : `${shots.length} shots`)
+    : (est.shots === 1 ? T('storyboard.1_shot', '1 shot') : `${est.shots} shots`);
   sbEl('sbSumRuntime').textContent = sbFmtRuntime(nothingLeft ? runtimeAll : est.runtime_secs);
-  sbEl('sbSumTime').textContent = nothingLeft ? 'all rendered' : sbFmtWall(est.total_secs);
+  sbEl('sbSumTime').textContent = nothingLeft ? T('storyboard.all_rendered', 'all rendered') : sbFmtWall(est.total_secs);
   sbEl('sbSumTimeSub').textContent = nothingLeft
-    ? 'nothing left to render'
-    : (r.pass === 'final' ? 'delivery' : 'drafts') + ', this Mac';
+    ? T('storyboard.nothing_left_to_render', 'nothing left to render')
+    : (r.pass === 'final' ? 'delivery' : 'drafts') + T('storyboard.this_mac', ', this Mac');
   const loads = est.pipeline_loads || 0;
-  sbEl('sbSumLoads').textContent = loads === 1 ? '1 model load' : `${loads} model loads`;
-  let loadsSub = loads === 1 ? 'every shot renders back to back' : 'grouped, not in story order';
+  sbEl('sbSumLoads').textContent = loads === 1 ? T('storyboard.1_model_load', '1 model load') : `${loads} model loads`;
+  let loadsSub = loads === 1 ? T('storyboard.every_shot_renders_back_to', 'every shot renders back to back') : T('storyboard.grouped_not_in_story_order', 'grouped, not in story order');
   if (est.saved_secs > 0) loadsSub += ` — rendering grouped saves ${sbFmtWall(est.saved_secs).replace('about ', '')}`;
   sbEl('sbSumLoadsSub').textContent = loadsSub;
   const freeGb = (r.disk || {}).free_gb;
@@ -1314,8 +1315,8 @@ function sbRenderPlan(r) {
   // explaining nothing is chrome, so it hides below 4 shots on one bucket.
   const strip = sbEl('sbRunStrip');
   const buckets = est.buckets || [];
-  const NAMES = { t2v: 'Text & Character', remix: 'Remix', keyframe: 'Keyframes',
-                  extend: 'Extend', a2v: 'Audio' };
+  const NAMES = { t2v: T('storyboard.text_character', 'Text & Character'), remix: T('storyboard.remix', 'Remix'), keyframe: T('storyboard.keyframes', 'Keyframes'),
+                  extend: T('storyboard.extend', 'Extend'), a2v: T('storyboard.audio', 'Audio') };
   if (buckets.length <= 1 && shots.length < 4) {
     strip.hidden = true;
   } else {
@@ -1367,7 +1368,7 @@ function sbRenderPlan(r) {
     if (waiting) {
       stillsBanner.innerHTML =
         `<span>${waiting} still${waiting === 1 ? '' : 's'} ready for approval.</span>` +
-        `<button type="button" class="ghost-btn" onclick="sbApproveAllStills()">Approve all</button>`;
+        `<button type="button" class="ghost-btn" onclick="sbApproveAllStills()">${T('storyboard.approve_all', 'Approve all')}</button>`;
     }
   }
 
@@ -1419,7 +1420,7 @@ function sbRenderPlan(r) {
     else if (mix.h3) engText += ` <b>All ${mix.h3} on Hailuo H3.</b>`;
     else if (mix.ltx) engText += ` <b>All ${mix.ltx} on LTX.</b>`;
   }
-  if (r.h3_available && mode !== 'auto') engText += ' Change it in Re-plan.';
+  if (r.h3_available && mode !== 'auto') engText += T('storyboard.change_it_in_re_plan', ' Change it in Re-plan.');
   sbEl('sbEngineNoteText').innerHTML = engText;
 
   // --- run bar / action bar ---
@@ -1601,11 +1602,11 @@ function sbShotCard(s, r, errs) {
   let passLabel;
   if (Array.isArray(s.output_dims) && finalMax) {
     const shotMax = Math.max(Number(s.output_dims[0]) || 0, Number(s.output_dims[1]) || 0);
-    passLabel = shotMax >= finalMax ? 'Delivery' : 'Draft';
+    passLabel = shotMax >= finalMax ? T('storyboard.delivery', 'Delivery') : T('storyboard.draft', 'Draft');
   } else {
     // No measured size yet (an older clip from before this fix) — fall
     // back to which file this card is actually showing.
-    passLabel = s.final_output ? 'Delivery' : 'Draft';
+    passLabel = s.final_output ? T('storyboard.delivery', 'Delivery') : T('storyboard.draft', 'Draft');
   }
   const seedSet = (s.seed != null && s.seed !== -1);
 
@@ -1623,19 +1624,19 @@ function sbShotCard(s, r, errs) {
   const awaitingApproval = !!((r.board || {}).stills_first) && !userStill
     && !s.still_approved;
   const stillBlock = s.still ? `
-    <div class="sb-still${awaitingApproval ? ' sb-still-awaiting' : ''}" title="${userStill ? 'The photo this shot starts from' : 'The still this shot starts from'}">
-      <a href="/image?path=${encodeURIComponent(s.still)}" target="_blank" rel="noopener" title="Open the still">
+    <div class="sb-still${awaitingApproval ? ' sb-still-awaiting' : ''}" title="${userStill ? T('storyboard.the_photo_this_shot_starts', 'The photo this shot starts from') : T('storyboard.the_still_this_shot_starts', 'The still this shot starts from')}">
+      <a href="/image?path=${encodeURIComponent(s.still)}" target="_blank" rel="noopener" title="${TA('storyboard.open_the_still', 'Open the still')}">
         <img src="/image?w=480&path=${encodeURIComponent(s.still)}" alt="Anchor still for shot ${n}" loading="lazy"></a>
-      <span class="sb-still-tag">${awaitingApproval ? 'approve this still before it renders' : userStill ? 'starts from your photo' : 'starts from this still'}</span>
+      <span class="sb-still-tag">${awaitingApproval ? T('storyboard.approve_this_still_before_it', 'approve this still before it renders') : userStill ? T('storyboard.starts_from_your_photo', 'starts from your photo') : T('storyboard.starts_from_this_still', 'starts from this still')}</span>
       ${awaitingApproval ? `
-      <button type="button" class="sb-err-fix sb-still-approve" data-act="approve-still" title="Render the video from this still">Approve</button>` : ''}
+      <button type="button" class="sb-err-fix sb-still-approve" data-act="approve-still" title="${TA('storyboard.render_the_video_from_this', 'Render the video from this still')}">${T('storyboard.approve', 'Approve')}</button>` : ''}
       <button type="button" class="sb-err-fix sb-still-redo" data-act="restill"
-              title="${userStill ? 'Render a new take from this photo (new seed) — your photo is kept' : 'Make a new still and render this shot from it'}">${userStill ? 'Re-render (new seed)' : 'New still'}</button>
+              title="${userStill ? T('storyboard.render_a_new_take_from', 'Render a new take from this photo (new seed) — your photo is kept') : T('storyboard.make_a_new_still_and', 'Make a new still and render this shot from it')}">${userStill ? T('storyboard.re_render_new_seed', 'Re-render (new seed)') : T('storyboard.new_still', 'New still')}</button>
     </div>` : stillPending ? `
-    <div class="sb-still is-pending">${window.phosMiniMark ? window.phosMiniMark() : ''}<span class="sb-still-tag">making the still…</span></div>`
-    : (s.still_error ? `<div class="sb-still sb-still-failed" title="${escapeHtml(s.still_error)}"><span class="sb-still-tag">${awaitingApproval ? 'the still could not be made — held until you choose' : 'no still — rendered unanchored'}</span>
-      <button type="button" class="sb-err-fix sb-still-redo" data-act="restill" title="Try the still again">Try again</button>${awaitingApproval ? `
-      <button type="button" class="sb-err-fix sb-still-approve" data-act="approve-still" title="Render the video without a still to start from">Render without a still</button>` : ''}</div>` : '');
+    <div class="sb-still is-pending">${window.phosMiniMark ? window.phosMiniMark() : ''}<span class="sb-still-tag">${T('storyboard.making_the_still', 'making the still…')}</span></div>`
+    : (s.still_error ? `<div class="sb-still sb-still-failed" title="${escapeHtml(s.still_error)}"><span class="sb-still-tag">${awaitingApproval ? T('storyboard.the_still_could_not_be', 'the still could not be made — held until you choose') : T('storyboard.no_still_rendered_unanchored', 'no still — rendered unanchored')}</span>
+      <button type="button" class="sb-err-fix sb-still-redo" data-act="restill" title="${TA('storyboard.try_the_still_again', 'Try the still again')}">${T('storyboard.try_again', 'Try again')}</button>${awaitingApproval ? `
+      <button type="button" class="sb-err-fix sb-still-approve" data-act="approve-still" title="${TA('storyboard.render_the_video_without_a', 'Render the video without a still to start from')}">${T('storyboard.render_without_a_still', 'Render without a still')}</button>` : ''}</div>` : '');
   const outBlock = stale ? `
     <div class="sb-shot-out car-card is-stale">
       <div class="car-thumb-wrap" onclick="selectOutput('${escapeHtml(stale)}')">
@@ -1643,7 +1644,7 @@ function sbShotCard(s, r, errs) {
                src="/file?path=${encodeURIComponent(stale)}#t=0.1"></video>
       </div>
       <div class="info"><span class="name">${escapeHtml(stale.split('/').pop())}</span>
-        <span class="sub"><span class="sb-stale-tag">old take</span> · rewritten, not rendered yet</span></div>
+        <span class="sub"><span class="sb-stale-tag">${T('storyboard.old_take', 'old take')}</span> ${T('storyboard.rewritten_not_rendered_yet', '· rewritten, not rendered yet')}</span></div>
     </div>` : clip ? `
     <div class="sb-shot-out car-card">
       <div class="car-thumb-wrap" onclick="sbOpenShotClip(${n})">
@@ -1661,19 +1662,19 @@ function sbShotCard(s, r, errs) {
         <button type="button" class="sb-grade-btn ${s.grade === 'cut' ? 'active' : ''}" data-act="grade" data-g="cut" aria-pressed="${s.grade === 'cut'}">CUT</button>
       </div>
       <textarea class="sb-note" rows="2" data-act="note" ${s.grade === 'reroll' ? '' : 'hidden'}
-        placeholder="What should change? (goes back to the planner)">${escapeHtml(s.note || '')}</textarea>
+        placeholder="${TA('storyboard.what_should_change_goes_back', 'What should change? (goes back to the planner)')}">${escapeHtml(s.note || '')}</textarea>
     </div>` : '';
 
   const failBlock = (s.status === 'failed') ? (() => {
     const fe = friendlyJobError(s.error || '', s.engine);
     return `<div class="sb-shot-err"><div class="sb-err-row"><span class="sb-err-dot"></span>
       <span><b>Shot ${n} failed.</b> ${escapeHtml(fe.friendly)} — ${escapeHtml(fe.hint)}</span>
-      <button type="button" class="sb-err-fix" data-act="retry">Retry this shot</button>
-      <button type="button" class="sb-err-fix" data-act="cut">Cut it</button></div></div>`;
+      <button type="button" class="sb-err-fix" data-act="retry">${T('storyboard.retry_this_shot', 'Retry this shot')}</button>
+      <button type="button" class="sb-err-fix" data-act="cut">${T('storyboard.cut_it', 'Cut it')}</button></div></div>`;
   })() : '';
 
   const singingChip = singingLocked
-    ? `<span class="sb-chip sb-chip-singing" title="Singing shots are locked to the song — mode, length and order can't change here.">
+    ? `<span class="sb-chip sb-chip-singing" title="${TA('storyboard.singing_shots_are_locked_to', 'Singing shots are locked to the song — mode, length and order can\'t change here.')}">
          Singing${mv.section ? ' · ' + escapeHtml(mv.section) : ''} · ${sbFmtClock(mv.film_start || 0)}
        </span>` : '';
 
@@ -1682,16 +1683,16 @@ function sbShotCard(s, r, errs) {
     <div class="sb-shot-head">
       <span class="sb-shot-n">${String(n).padStart(2, '0')}</span>
       ${singingLocked ? singingChip : `
-      <div class="sb-seg" role="group" aria-label="Shot type">
-        <button type="button" class="sb-seg-btn ${isChar ? '' : 'active'}" data-act="mode" data-mode="text" ${locked ? 'disabled' : ''}>Text</button>
+      <div class="sb-seg" role="group" aria-label="${TA('storyboard.shot_type', 'Shot type')}">
+        <button type="button" class="sb-seg-btn ${isChar ? '' : 'active'}" data-act="mode" data-mode="text" ${locked ? 'disabled' : ''}>${T('storyboard.text', 'Text')}</button>
         <button type="button" class="sb-seg-btn ${isChar ? 'active' : ''}" data-act="mode" data-mode="character"
-                ${locked || noCast ? 'disabled' : ''} ${noCast ? 'title="No trained characters on this Mac yet — train one in the Train tab."' : ''}>Character</button>
+                ${locked || noCast ? 'disabled' : ''} ${noCast ? 'title="No trained characters on this Mac yet — train one in the Train tab."' : ''}>${T('storyboard.character', 'Character')}</button>
       </div>`}
-      <select class="sb-select sb-shot-char" data-act="char" aria-label="Who's in this shot" ${locked ? 'disabled' : ''} ${noCast ? 'hidden' : ''}>${opts}</select>
-      <select class="sb-select sb-shot-dur" data-act="dur" aria-label="Length" ${locked || singingLocked ? 'disabled' : ''} ${singingLocked ? 'title="Locked to the song — its length is the words it sings."' : ''}>${durOpts}</select>
+      <select class="sb-select sb-shot-char" data-act="char" aria-label="${TA('storyboard.who_s_in_this_shot', 'Who\'s in this shot')}" ${locked ? 'disabled' : ''} ${noCast ? 'hidden' : ''}>${opts}</select>
+      <select class="sb-select sb-shot-dur" data-act="dur" aria-label="${TA('storyboard.length', 'Length')}" ${locked || singingLocked ? 'disabled' : ''} ${singingLocked ? 'title="Locked to the song — its length is the words it sings."' : ''}>${durOpts}</select>
       ${sbEngineChip(engine)}
       ${isChar && /<d>\s*(?!<\/\s*d\s*>)\S/i.test(s.prompt || '')
-        ? `<span class="sb-chip sb-chip-voice" title="This shot has spoken lines, so the character's voice loads.">voice</span>`
+        ? `<span class="sb-chip sb-chip-voice" title="${TA('storyboard.this_shot_has_spoken_lines', 'This shot has spoken lines, so the character\'s voice loads.')}">voice</span>`
         : ''}
       <span class="sb-chip sb-chip-pass" data-act="pass" title="${Array.isArray(s.output_dims) ? `Rendered at ${s.output_dims[0]}×${s.output_dims[1]} — ` : ''}Quality is set for the whole film — click to change it">${passLabel}</span>
       <span class="sb-shot-est">${sbShotEst(est)}</span>
@@ -1699,22 +1700,22 @@ function sbShotCard(s, r, errs) {
       <span class="sb-seedwrap" hidden>
         <input type="number" class="sb-seed" data-act="seed" value="${seedSet ? s.seed : ''}"
                aria-label="Seed for shot ${n}" ${locked ? 'disabled' : ''}></span>
-      <button type="button" class="sb-icon" data-act="up" title="${singingLocked ? "Locked to the song — reordering it would move its mouth off the words." : 'Move up'}" aria-label="Move shot ${n} up" ${n === 1 || locked || singingLocked ? 'disabled' : ''}>↑</button>
-      <button type="button" class="sb-icon" data-act="down" title="${singingLocked ? "Locked to the song — reordering it would move its mouth off the words." : 'Move down'}" aria-label="Move shot ${n} down" ${n === shots.length || locked || singingLocked ? 'disabled' : ''}>↓</button>
+      <button type="button" class="sb-icon" data-act="up" title="${singingLocked ? T('storyboard.locked_to_the_song_reordering', "Locked to the song — reordering it would move its mouth off the words.") : T('storyboard.move_up', 'Move up')}" aria-label="Move shot ${n} up" ${n === 1 || locked || singingLocked ? 'disabled' : ''}>↑</button>
+      <button type="button" class="sb-icon" data-act="down" title="${singingLocked ? T('storyboard.locked_to_the_song_reordering', "Locked to the song — reordering it would move its mouth off the words.") : T('storyboard.move_down', 'Move down')}" aria-label="Move shot ${n} down" ${n === shots.length || locked || singingLocked ? 'disabled' : ''}>↓</button>
       <button type="button" class="sb-icon ${seedSet ? 'is-set' : ''}" data-act="seedtoggle"
-              title="${seedSet ? `Seed ${s.seed} — same number, same roll of the dice. Fix it so the delivery render matches the draft you approved.` : 'Seed — same number, same roll of the dice. Fix it so the delivery render matches the draft you approved.'}"
+              title="${seedSet ? T('storyboard.seed_same_number_same_roll', 'Seed {seed} — same number, same roll of the dice. Fix it so the delivery render matches the draft you approved.', {seed: s.seed}) : T('storyboard.seed_same_number_same_roll_2', 'Seed — same number, same roll of the dice. Fix it so the delivery render matches the draft you approved.')}"
               aria-label="Seed for shot ${n}">🎲</button>
       ${s.status === 'done' ? `
       <button type="button" class="sb-icon" data-act="newtake"
-              title="Edit &amp; re-render — unlocks the prompt and renders a new take with a fresh seed. The old clip is kept, not deleted. No planner call, so it works even while other shots are queued."
+              title="${TA('storyboard.edit_amp_re_render_unlocks', 'Edit &amp; re-render — unlocks the prompt and renders a new take with a fresh seed. The old clip is kept, not deleted. No planner call, so it works even while other shots are queued.')}"
               aria-label="New take of shot ${n}">↻</button>` : ''}
-      <button type="button" class="sb-icon sb-icon-danger" data-act="del" title="${locked ? "This one's already rendering." : 'Delete this shot'}" aria-label="Delete shot ${n}" ${locked && s.status !== 'done' ? 'disabled' : ''}>✕</button>
-      <span class="sb-grip" title="Drag to reorder" aria-hidden="true">⠿</span>
+      <button type="button" class="sb-icon sb-icon-danger" data-act="del" title="${locked ? T('storyboard.this_one_s_already_rendering', "This one's already rendering.") : T('storyboard.delete_this_shot', 'Delete this shot')}" aria-label="Delete shot ${n}" ${locked && s.status !== 'done' ? 'disabled' : ''}>✕</button>
+      <span class="sb-grip" title="${TA('storyboard.drag_to_reorder', 'Drag to reorder')}" aria-hidden="true">⠿</span>
     </div>
     <textarea class="sb-shot-prompt" rows="3" spellcheck="false" data-act="prompt"
       ${locked ? 'readonly' : ''} title="${escapeHtml(s.title || '')}">${escapeHtml(s.prompt || '')}</textarea>
     ${s.take_seconds ? `
-    <div class="sb-beats-label">One Shot · ${s.take_seconds} s · ${Math.round(s.take_seconds / 5)} beats <span class="sub">one line per 5 seconds · the first beat is the prompt above</span></div>
+    <div class="sb-beats-label">One Shot · ${s.take_seconds} s · ${Math.round(s.take_seconds / 5)} beats <span class="sub">${T('storyboard.one_line_per_5_seconds', 'one line per 5 seconds · the first beat is the prompt above')}</span></div>
     <textarea class="sb-shot-prompt sb-beats" rows="${Math.min(12, Math.round(s.take_seconds / 5))}" spellcheck="false" data-act="beats"
       ${locked ? 'readonly' : ''}>${escapeHtml((s.beats || []).join('\n'))}</textarea>` : ''}
     ${mine.length ? `<div class="sb-shot-err">${mine.map(sbErrRow).join('')}</div>` : ''}
@@ -1729,7 +1730,7 @@ function sbRenderTally(shots, r) {
   const cut = shots.filter(s => s.grade === 'cut').length;
   const graded = keep + rr + cut;
   const un = shots.length - graded;
-  sbEl('sbTallyText').innerHTML = graded === 0 ? 'nothing graded yet'
+  sbEl('sbTallyText').innerHTML = graded === 0 ? T('storyboard.nothing_graded_yet', 'nothing graded yet')
     : `<b>${keep} keep</b> · ${rr} re-roll · ${cut} cut${un ? ` · ${un} ungraded` : ''}`;
   // The tally bar REPLACES the action bar the moment a clip exists — which,
   // after a Stop or a single retry, would leave no way to render the shots
@@ -1740,11 +1741,11 @@ function sbRenderTally(shots, r) {
   resume.textContent = `Render ${pending} remaining`;
   const rw = sbEl('sbRewriteBtn');
   rw.hidden = !rr;
-  rw.textContent = rr === 1 ? 'Rewrite 1 shot' : `Rewrite ${rr} shots`;
+  rw.textContent = rr === 1 ? T('storyboard.rewrite_1_shot', 'Rewrite 1 shot') : `Rewrite ${rr} shots`;
   const fin = sbEl('sbFinishBtn');
-  fin.textContent = keep ? `Finish ${keep} keeper${keep === 1 ? '' : 's'}` : 'Finish keepers';
+  fin.textContent = keep ? `Finish ${keep} keeper${keep === 1 ? '' : 's'}` : T('storyboard.finish_keepers', 'Finish keepers');
   fin.disabled = !keep;
-  fin.title = keep ? '' : 'Mark at least one shot KEEP first.';
+  fin.title = keep ? '' : T('storyboard.mark_at_least_one_shot', 'Mark at least one shot KEEP first.');
   // FILM-47: "Keep all ungraded" — only offered when there is something it
   // would actually do (a rendered, un-skipped shot with no grade yet).
   const keepAllBtn = sbEl('sbKeepAllBtn');
@@ -1752,7 +1753,7 @@ function sbRenderTally(shots, r) {
     const ungradedWithClip = shots.filter(s => (s.draft_output || s.final_output)
       && s.status !== 'skipped' && !s.grade).length;
     keepAllBtn.hidden = !ungradedWithClip;
-    keepAllBtn.textContent = `Keep all ungraded (${ungradedWithClip})`;
+    keepAllBtn.textContent = T('storyboard.keep_all_ungraded', 'Keep all ungraded ({ungradedWithClip})', {ungradedWithClip});
   }
   // FILM-47: a finished export/timeline mixes whatever resolution each
   // shot's own clip happens to be at — a shot delivered at the Delivery
@@ -1766,8 +1767,8 @@ function sbRenderTally(shots, r) {
       .map(s => s.output_dims.join('x')));
     if (sizes.size > 1) {
       mixWarn.hidden = false;
-      mixWarn.textContent = `This film mixes ${sizes.size} clip sizes (${[...sizes].join(', ')}) — `
-        + 'some shots are still at draft size. Finish keepers (or KEEP them) before rendering the film.';
+      mixWarn.textContent = T('storyboard.this_film_mixes_clip_sizes', 'This film mixes {size} clip sizes ({v}) — ', {size: sizes.size, v: [...sizes].join(', ')})
+        + T('storyboard.some_shots_are_still_at', 'some shots are still at draft size. Finish keepers (or KEEP them) before rendering the film.');
     } else {
       mixWarn.hidden = true;
     }
@@ -1790,9 +1791,9 @@ function sbRenderRemaining() {
   const est = (SB.payload || {}).estimate || {};
   if (!confirm(
       `Render ${ns.length} draft${ns.length === 1 ? '' : 's'}?\n\n` +
-      `${sbFmtWall(est.total_secs).replace(/^about /, 'About ')} on this Mac. ` +
-      'The shots you already have are untouched.\n\n' +
-      'You can pause or stop after any shot.')) return;
+      `${sbFmtWall(est.total_secs).replace(/^about /, T('storyboard.about', 'About '))} on this Mac. ` +
+      T('storyboard.the_shots_you_already_have', 'The shots you already have are untouched.\n\n') +
+      T('storyboard.you_can_pause_or_stop', 'You can pause or stop after any shot.'))) return;
   sbRenderPass('draft', ns);
 }
 
@@ -1809,10 +1810,10 @@ function sbRenderRunBar(r) {
   const paused = LAST_STATUS && LAST_STATUS.paused;
   sbEl('sbRunTitle').textContent = paused
     ? `Paused · ${done} of ${shots.length} done`
-    : (active ? (tag.still ? `Still for shot ${active.n} of ${shots.length}` : `Shot ${active.n} of ${shots.length}`)
+    : (active ? (tag.still ? T('storyboard.still_for_shot_of', 'Still for shot {n} of {shots}', {n: active.n, shots: shots.length}) : `Shot ${active.n} of ${shots.length}`)
               : `${done} of ${shots.length} done`);
   let sub = '';
-  if (active) sub = (tag.still ? 'making the still · ' : '') + `S${String(active.n).padStart(2, '0')} · ${snippet(active.prompt, 40)}`;
+  if (active) sub = (tag.still ? T('storyboard.making_the_still_2', 'making the still · ') : '') + `S${String(active.n).padStart(2, '0')} · ${snippet(active.prompt, 40)}`;
   // FILM-49: "Time left" used to count only the CURRENT BATCH. The film
   // dispatcher submits one bucket at a time (_sb_render_thread: "Submit
   // the film ONE BUCKET AT A TIME"), so /status.eta_sec — the sum of
@@ -1861,7 +1862,7 @@ function sbRenderRunBar(r) {
   const left = currentPortion + queuedPortion + notYetQueued;
   if (left > 0) sub += ` · ${sbFmtWall(left)} left`;
   sbEl('sbRunSub').textContent = sub;
-  sbEl('sbPauseBtn').textContent = paused ? 'Resume' : 'Pause';
+  sbEl('sbPauseBtn').textContent = paused ? T('storyboard.resume', 'Resume') : T('storyboard.pause', 'Pause');
   sbEl('sbRunDots').innerHTML = shots.map(s => {
     const cls = s[outKey] ? 'is-done'
               : s.status === 'failed' ? 'is-failed'
@@ -1907,7 +1908,7 @@ function sbPlaylistPaths() {
 function sbPlayBoard() {
   const paths = sbPlaylistPaths();
   if (!paths.length) {
-    if (typeof phosToast === 'function') phosToast('Nothing on this board has rendered yet.');
+    if (typeof phosToast === 'function') phosToast(T('storyboard.nothing_on_this_board_has', 'Nothing on this board has rendered yet.'));
     return;
   }
   SB.playlist = { paths, idx: 0, boardId: SB.id };
@@ -2016,7 +2017,7 @@ function sbShotAction(n, act, el, ev) {
         // an incoherent shot. The server injects the trigger on save.
         if (!s.character_id) {
           const first = ((SB.payload.characters || [])[0] || {}).id;
-          if (!first) { phosToast('No trained characters on this Mac yet.'); return; }
+          if (!first) { phosToast(T('storyboard.no_trained_characters_on_this', 'No trained characters on this Mac yet.')); return; }
           s.character_id = first;
         }
         s.mode = 'character';
@@ -2045,7 +2046,7 @@ function sbShotAction(n, act, el, ev) {
     case 'pass':
       sbEl('sbQualitySection').open = true;
       sbEl('sbQualitySection').scrollIntoView({ behavior: 'smooth', block: 'center' });
-      phosToast('Quality is set for the whole film.');
+      phosToast(T('storyboard.quality_is_set_for_the', 'Quality is set for the whole film.'));
       return;
     case 'up': case 'down': {
       const i = board.shots.indexOf(s);
@@ -2057,13 +2058,13 @@ function sbShotAction(n, act, el, ev) {
     }
     case 'del': {
       if (s.draft_output || s.final_output) {
-        if (!confirm(`Remove shot ${n} from the film?\n\nThe clip stays in mlx_outputs/.`)) return;
+        if (!confirm(T('storyboard.remove_shot_from_the_film', 'Remove shot {n} from the film?\n\nThe clip stays in mlx_outputs/.', {n}))) return;
       } else {
         SB.lastUndo = { index: board.shots.indexOf(s), shot: JSON.parse(JSON.stringify(s)) };
         const t = phosToast(`Shot ${n} removed.`, { kind: 'success', duration: 6000 });
         if (t) {
           const u = document.createElement('button');
-          u.className = 'phos-toast-undo'; u.textContent = 'Undo';
+          u.className = 'phos-toast-undo'; u.textContent = T('storyboard.undo', 'Undo');
           u.style.pointerEvents = 'auto';
           u.onclick = () => { sbUndoDelete(); t.remove(); };
           t.appendChild(u);
@@ -2197,10 +2198,10 @@ function sbRenderDrafts() {
   const loads = est.pipeline_loads || 1;
   if (!confirm(
       `Render ${nshots} draft${nshots === 1 ? '' : 's'}?\n\n` +
-      `${sbFmtWall(est.total_secs).replace(/^about /, 'About ')} on this Mac. ` +
-      `${loads === 1 ? 'One model load, then every shot back to back.' : `${loads} model loads, grouped.`}\n` +
-      'Clips land in mlx_outputs/ and show up in your gallery like any other render.\n\n' +
-      'You can pause or stop after any shot.')) return;
+      `${sbFmtWall(est.total_secs).replace(/^about /, T('storyboard.about', 'About '))} on this Mac. ` +
+      `${loads === 1 ? T('storyboard.one_model_load_then_every', 'One model load, then every shot back to back.') : `${loads} model loads, grouped.`}\n` +
+      T('storyboard.clips_land_in_mlx_outputs', 'Clips land in mlx_outputs/ and show up in your gallery like any other render.\n\n') +
+      T('storyboard.you_can_pause_or_stop', 'You can pause or stop after any shot.'))) return;
   sbRenderPass('draft', null);
 }
 
@@ -2236,10 +2237,10 @@ async function sbFinish() {
   if (!confirm(
       `Finish ${keep.length} shot${keep.length === 1 ? '' : 's'}?\n\n` +
       `Delivery pass, ${f.width}×${f.height}, ${(f.quality || '').replace(/^./, c => c.toUpperCase())}. ` +
-      `${sbFmtWall(est.total_secs).replace(/^about /, 'About ')} on this Mac.\n` +
-      'Each shot renders a NEW take at delivery size — same prompt, same seed, ' +
-      'but not pixel-identical to the draft you approved.\n' +
-      'The drafts stay in your gallery.')) return;
+      `${sbFmtWall(est.total_secs).replace(/^about /, T('storyboard.about', 'About '))} on this Mac.\n` +
+      T('storyboard.each_shot_renders_a_new', 'Each shot renders a NEW take at delivery size — same prompt, same seed, ') +
+      T('storyboard.but_not_pixel_identical_to', 'but not pixel-identical to the draft you approved.\n') +
+      T('storyboard.the_drafts_stay_in_your', 'The drafts stay in your gallery.'))) return;
   sbRenderPass('final', keep);
 }
 
@@ -2267,8 +2268,8 @@ async function sbRewrite() {
   if (!ns.length) return;
   if (!confirm(
       `Rewrite ${ns.length} shot${ns.length === 1 ? '' : 's'}?\n\n` +
-      `The planner loads again (~1 min) and rewrites just ${ns.length === 1 ? 'this one' : 'these'}, using your notes.\n` +
-      'The rest of the film is untouched. Nothing renders while it runs.')) return;
+      T('storyboard.the_planner_loads_again_1', 'The planner loads again (~1 min) and rewrites just {v}, using your notes.\n', {v: ns.length === 1 ? T('storyboard.this_one', 'this one') : 'these'}) +
+      T('storyboard.the_rest_of_the_film', 'The rest of the film is untouched. Nothing renders while it runs.'))) return;
   const fd = new URLSearchParams();
   fd.set('id', SB.id); fd.set('ns', ns.join(','));
   let r;
@@ -2283,9 +2284,9 @@ function sbStopShot() { api('/stop', 'POST').then(poll); }
 async function sbStopFilm() {
   const shots = (((SB.payload || {}).board) || {}).shots || [];
   const waiting = shots.filter(s => s.status === 'queued').length;
-  if (!confirm('Stop this storyboard?\n\n' +
-      `The shot that's rendering is cancelled — its clip is lost. The ${waiting} shot${waiting === 1 ? '' : 's'} still waiting ${waiting === 1 ? 'is' : 'are'} removed from the queue.\n` +
-      'Everything already rendered stays.')) return;
+  if (!confirm(T('storyboard.stop_this_storyboard', 'Stop this storyboard?\n\n') +
+      TP('storyboard.the_shot_that_s_rendering', waiting, {one: 'The shot that\'s rendering is cancelled — its clip is lost. The {count} shot still waiting is removed from the queue.\n', other: 'The shot that\'s rendering is cancelled — its clip is lost. The {count} shots still waiting are removed from the queue.\n'}) +
+      T('storyboard.everything_already_rendered_stays', 'Everything already rendered stays.'))) return;
   const fd = new URLSearchParams(); fd.set('id', SB.id);
   try { await fetch('/storyboard/stop', { method: 'POST', body: fd }); } catch (e) {}
   sbLoad(SB.id); poll();
@@ -2301,7 +2302,7 @@ async function sbExport() {
   const prev = btn.textContent;
   btn.dataset.busy = '1';
   btn.disabled = true;
-  btn.textContent = 'Assembling…';
+  btn.textContent = T('storyboard.assembling', 'Assembling…');
   // FILM-48: Export posted only `id` — with no edit.json yet (the Editor
   // was never opened), the server had no song to lay under the film and
   // silently concatenated each clip's OWN audio instead. A music-video
@@ -2329,7 +2330,7 @@ async function sbExport() {
     sbFilmOpen({ focus: r.film_name });
   } else {
     phosToast(`Exported ${r.files.length} clips + a shot list to ${r.dir}. `
-              + `The single film could not be assembled: ${r.film_error || 'unknown reason'}`,
+              + T('storyboard.the_single_film_could_not', 'The single film could not be assembled: {v}', {v: r.film_error || 'unknown reason'}),
               { duration: 9000 });
   }
 }
@@ -2390,7 +2391,7 @@ async function sbFilmWithTheSong() {
   const btn = sbEl('sbMusicFilmBtn');
   if (btn && btn.dataset.busy === '1') return;
   const prev = btn ? btn.textContent : '';
-  if (btn) { btn.dataset.busy = '1'; btn.disabled = true; btn.textContent = 'Assembling…'; }
+  if (btn) { btn.dataset.busy = '1'; btn.disabled = true; btn.textContent = T('storyboard.assembling', 'Assembling…'); }
   const fd = new URLSearchParams(); fd.set('board_id', SB.id);
   let r;
   try { r = await (await fetch('/music/video/film', { method: 'POST', body: fd })).json(); }
@@ -2402,7 +2403,7 @@ async function sbFilmWithTheSong() {
               { kind: 'success', duration: 8000 });
     sbFilmOpen({ focus: r.film_name });
   } else {
-    phosToast(`The clips and the shot list are in ${r.dir}, but the film could `
+    phosToast(T('storyboard.the_clips_and_the_shot', 'The clips and the shot list are in {dir}, but the film could ', {dir: r.dir})
               + `not be assembled: ${r.film_error || 'unknown reason'}`, { duration: 9000 });
   }
 }
@@ -2419,19 +2420,19 @@ function sbFilmPaint() {
     // to show nothing at all and let the user conclude the film didn't exist.
     const shots = ((((SB.payload || {}).board) || {}).shots) || [];
     const clips = shots.filter(s => s.draft_output || s.final_output).length;
-    status.textContent = 'nothing rendered yet';
+    status.textContent = T('storyboard.nothing_rendered_yet', 'nothing rendered yet');
     body.innerHTML = `
       <div class="sb-empty">
         <div class="sb-empty-icon"><svg width="56" height="56" viewBox="0 0 256 256" aria-hidden="true"><use href="#ph-film-slate"/></svg></div>
-        <div class="sb-empty-title">No film yet.</div>
+        <div class="sb-empty-title">${T('storyboard.no_film_yet', 'No film yet.')}</div>
         <div class="sb-empty-sub">${clips
           // FILM-42: this used to say "the N clips you have ON THE
           // TIMELINE" — a claim about the Editor's arrangement this
           // screen has no way to check (it only knows how many shots
           // RENDERED). Said honestly: how many are ready to arrange, not
           // how many already are.
-          ? clips + ' shot' + (clips === 1 ? ' has' : 's have') + ' rendered. Open the timeline, arrange them and render the film. The finished film lands in <code>' + escapeHtml(SB.filmShort || 'mlx_outputs/storyboards/') + '</code> and appears here.'
-          : 'Render some shots first — a film is the shots, joined. Nothing to arrange yet.'}</div>
+          ? TP('storyboard.shots_have_rendered_open_the_timeline', clips, {one: '{count} shot has rendered. Open the timeline, arrange them and render the film. The finished film lands in', other: '{count} shots have rendered. Open the timeline, arrange them and render the film. The finished film lands in'}) + ' <code>' + escapeHtml(SB.filmShort || 'mlx_outputs/storyboards/') + '</code> ' + T('storyboard.and_appears_here', 'and appears here.')
+          : T('storyboard.render_some_shots_first_a', 'Render some shots first — a film is the shots, joined. Nothing to arrange yet.')}</div>
         ${clips ? '<div class="sb-film-actions"><button type="button" class="primary" onclick="sbGo(\'edit\')">Open the timeline</button></div>' : ''}
       </div>`;
     return;
@@ -2452,19 +2453,19 @@ function sbFilmPaint() {
       <code>${escapeHtml(film.name)}</code>
     </div>
     <div class="sb-summary">
-      <div class="sb-sum-cell"><b>${film.duration ? escapeHtml(sbFmtClock(film.duration)) : '—'}</b><span>${film.clips ? film.clips + ' shots joined' : 'runtime'}</span></div>
+      <div class="sb-sum-cell"><b>${film.duration ? escapeHtml(sbFmtClock(film.duration)) : '—'}</b><span>${film.clips ? film.clips + T('storyboard.shots_joined', ' shots joined') : 'runtime'}</span></div>
       <div class="sb-sum-cell"><b>${escapeHtml(dims || '—')}</b><span>${escapeHtml(sbFmtBytes(film.bytes))} on disk</span></div>
       <div class="sb-sum-cell"><b>${escapeHtml(sbFmtAgo(film.at) || '—')}</b><span>${escapeHtml(sbFilmKind(film).toLowerCase())}</span></div>
     </div>
-    <div class="sb-film-where">Lives in <code>${escapeHtml(SB.filmShort || SB.filmDir)}</code></div>
+    <div class="sb-film-where">${T('storyboard.lives_in', 'Lives in')} <code>${escapeHtml(SB.filmShort || SB.filmDir)}</code></div>
     <div class="sb-film-actions">
       <button type="button" class="ghost-btn" onclick="sbFilmReveal()">
-        <svg class="ph" aria-hidden="true"><use href="#ph-folder-simple"/></svg>Show in Finder</button>
+        <svg class="ph" aria-hidden="true"><use href="#ph-folder-simple"/></svg>${T('storyboard.show_in_finder', 'Show in Finder')}</button>
       <button type="button" class="ghost-btn" onclick="sbGo('edit')"
-              title="Back to the cut this was assembled from — re-cut it in the Editor and render again.">Re-cut in the Editor</button>
+              title="${TA('storyboard.back_to_the_cut_this', 'Back to the cut this was assembled from — re-cut it in the Editor and render again.')}">${T('storyboard.re_cut_in_the_editor', 'Re-cut in the Editor')}</button>
     </div>
     ${others.length ? `
-    <header class="carousel-head" style="margin-top:6px"><h3>Earlier films</h3></header>
+    <header class="carousel-head" style="margin-top:6px"><h3>${T('storyboard.earlier_films', 'Earlier films')}</h3></header>
     <ul class="row-list sb-filmlist">
       ${others.map(f => `
       <li onclick="sbFilmSelect('${escapeHtml(f.name)}')">
@@ -2496,8 +2497,8 @@ function sbBoardChip(b) {
   // `done` counts shots THIS PANEL rendered as jobs; `clips` counts what is on
   // disk. A board of imported or restored clips has done === 0, and the chip
   // called it "plan only" while seven finished shots sat in the folder.
-  if (!b.done) return b.clips ? `${b.clips} clips` : 'plan only';
-  if (b.done >= b.shots) return 'drafts done';
+  if (!b.done) return b.clips ? `${b.clips} clips` : T('storyboard.plan_only', 'plan only');
+  if (b.done >= b.shots) return T('storyboard.drafts_done', 'drafts done');
   // Partway and idle — stopped, or one shot retried. Saying "rendering" here
   // would be the chip claiming something the machine isn't doing.
   return `${b.done} of ${b.shots}`;
@@ -2512,16 +2513,16 @@ function sbBoardChip(b) {
 function sbRowAction(b) {
   if (b.film) {
     const len = b.film.duration ? ' · ' + sbFmtClock(b.film.duration) : '';
-    return `<button class="sb-row-go" title="Watch the finished film"
+    return `<button class="sb-row-go" title="${TA('storyboard.watch_the_finished_film_2', 'Watch the finished film')}"
         onclick="event.stopPropagation();sbOpenAt('${escapeHtml(b.id)}','film')">
         <svg class="ph" aria-hidden="true"><use href="#ph-film-slate"/></svg>Film${escapeHtml(len)}</button>`;
   }
   // `clips` is what is on disk; `done` is only what this panel rendered as a
   // job. A board of imported clips is editable and must show the way in.
   if (b.clips || b.done) {
-    return `<button class="sb-row-go" title="Open this film in the Editor"
+    return `<button class="sb-row-go" title="${TA('storyboard.open_this_film_in_the_2', 'Open this film in the Editor')}"
         onclick="event.stopPropagation();sbOpenAt('${escapeHtml(b.id)}','edit')">
-        <svg class="ph" aria-hidden="true"><use href="#ph-scissors"/></svg>Open in Editor</button>`;
+        <svg class="ph" aria-hidden="true"><use href="#ph-scissors"/></svg>${T('storyboard.open_in_editor', 'Open in Editor')}</button>`;
   }
   return '';
 }
@@ -2543,7 +2544,7 @@ function sbBoardRowMenu(b, where) {
   const idAttr = escapeHtml(JSON.stringify(String(b.id)));
   const titleAttr = escapeHtml(JSON.stringify(String(b.title || '')));
   return `<div class="kebab-wrap sb-board-menu" onclick="event.stopPropagation()">
-      <button type="button" title="More" aria-haspopup="true" aria-label="More actions for this film"
+      <button type="button" title="${TA('storyboard.more', 'More')}" aria-haspopup="true" aria-label="${TA('storyboard.more_actions_for_this_film', 'More actions for this film')}"
               onclick="kebabToggle('${kid}')">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <circle cx="3" cy="8" r="1.4" fill="currentColor"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/>
@@ -2551,7 +2552,7 @@ function sbBoardRowMenu(b, where) {
       </button>
       <div class="kebab-pop" id="${kid}" role="menu">
         <button type="button" role="menuitem" class="danger"
-                onclick="kebabToggle('${kid}', false); sbDeleteBoard(${idAttr}, ${titleAttr})">Delete this storyboard…</button>
+                onclick="kebabToggle('${kid}', false); sbDeleteBoard(${idAttr}, ${titleAttr})">${T('storyboard.delete_this_storyboard', 'Delete this storyboard…')}</button>
       </div>
     </div>`;
 }
@@ -2569,8 +2570,8 @@ function sbBoardRow(b) {
       <span class="params">${b.shots} shots · ${b.done} rendered${when ? ' · ' + escapeHtml(when) : ''}</span>
       <span class="badge">${escapeHtml(sbBoardChip(b))}</span>
       ${sbRowAction(b)}
-      <button title="Rename" onclick="event.stopPropagation();sbRenameBoardStart(this)"><svg class="ph" aria-hidden="true"><use href="#ph-pencil-simple"/></svg></button>
-      <button title="Duplicate this storyboard" onclick="event.stopPropagation();sbDuplicateBoard('${escapeHtml(b.id)}')"><svg class="ph" aria-hidden="true"><use href="#ph-copy"/></svg></button>
+      <button title="${TA('storyboard.rename', 'Rename')}" onclick="event.stopPropagation();sbRenameBoardStart(this)"><svg class="ph" aria-hidden="true"><use href="#ph-pencil-simple"/></svg></button>
+      <button title="${TA('storyboard.duplicate_this_storyboard', 'Duplicate this storyboard')}" onclick="event.stopPropagation();sbDuplicateBoard('${escapeHtml(b.id)}')"><svg class="ph" aria-hidden="true"><use href="#ph-copy"/></svg></button>
       ${sbBoardRowMenu(b, 'full')}
     </li>`;
 }
@@ -2652,13 +2653,13 @@ async function sbDuplicateBoard(id) {
   await sbRefreshBoards();
 }
 function sbDeleteBoard(id, title) {
-  const body = 'Deletes the plan. The clips it already rendered stay in your outputs.';
+  const body = T('storyboard.deletes_the_plan_the_clips', 'Deletes the plan. The clips it already rendered stay in your outputs.');
   const go = () => { sbDeleteBoardNow(id); };
   if (typeof _phModalShow === 'function' && _phModalShow({
-        tone: 'danger', kicker: 'Delete storyboard',
+        tone: 'danger', kicker: T('storyboard.delete_storyboard', 'Delete storyboard'),
         title: `Delete "${title || 'this storyboard'}"?`, body,
-        primaryLabel: 'Delete', onPrimary: go,
-        secondaryLabel: 'Keep it' })) {
+        primaryLabel: T('storyboard.delete', 'Delete'), onPrimary: go,
+        secondaryLabel: T('storyboard.keep_it', 'Keep it') })) {
     return;
   }
   // The panel's dialog is busy with something else (one at a time) — the
@@ -2717,7 +2718,7 @@ async function sbAddActiveToBoard(chosen) {
   catch (e) { r = { ok: false, error: String(e) }; }
   if (!r.ok) { phosToast(r.error || 'Could not add the clip.', { kind: 'danger' }); return; }
   phosToast(`Added to "${r.title || 'the film'}" as shot ${r.n}.`, { kind: 'success' });
-  _flashActionDone('sbAddBtn', 'Added');
+  _flashActionDone('sbAddBtn', T('storyboard.added', 'Added'));
   sbRefreshBoards();
 }
 
@@ -2759,8 +2760,8 @@ function sbPollHook(s) {
     const busy = !!s.running || !!(s.queue || []).length;
     const empty = !((sbEl('sbConcept') || {}).value || '').trim();
     btn.disabled = busy || empty;
-    btn.title = busy ? 'The renderer is using the memory. Planning can start when the queue is empty.'
-              : empty ? 'Write a couple of sentences about the film first.' : '';
+    btn.title = busy ? T('storyboard.the_renderer_is_using_the', 'The renderer is using the memory. Planning can start when the queue is empty.')
+              : empty ? T('storyboard.write_a_couple_of_sentences', 'Write a couple of sentences about the film first.') : '';
   }
   if (document.body.dataset.workflow === 'storyboard' && SB.id) sbRenderRunBar(SB.payload || {});
 }

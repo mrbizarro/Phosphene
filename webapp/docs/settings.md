@@ -39,6 +39,10 @@ Saved on this Mac only, and sent nowhere except as sign-in to the site they belo
 Off by default: the CivitAI browser hides NSFW results and the **Show NSFW** switch. **Enable Spicy mode** asks for a second click, then lets you choose per search.
 [[/pinokio]]
 
+## Language {#language}
+
+Phosphene speaks your language: English, Spanish, German, French, Italian, Portuguese, Russian, Japanese, Korean and Chinese (Simplified). The Studio follows your Mac's own language list (System Settings, General, Language & Region). To use another one, choose it here; the page reloads in that language. **Same as this Mac** goes back to following the Mac. Anything not translated yet shows in English.
+
 ## Appearance {#appearance}
 
 **Dark**, **Light** or **System** (follows the Mac, live). Saved in this browser only.

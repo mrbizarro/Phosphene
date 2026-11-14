@@ -22,6 +22,8 @@ webapp/                 ← the frontend, as plain files served from disk
                           lives in the modules below, whose tags follow in
                           the order the regions sat in the original block.
 ├── js/                 ← the page's ES modules (slice 3, landed), in tag order:
+│   ├── i18n.js         ← FIRST tag: T()/TA()/TP() string lookup + the markup
+│                         translator (docs/TRANSLATING.md); strings arrive in BOOT.i18n
 │   ├── boot.js         ← BOOT-derived consts, keyframe mode, output filters
 │   ├── stage.js        ← Image Studio + the Ideogram text-placement canvas
 │   ├── characters.js   ← Audio→Video, Characters and Train panes + quality pills

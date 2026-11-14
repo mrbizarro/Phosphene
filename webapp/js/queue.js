@@ -223,10 +223,10 @@ function _syncH3FinishAffordance(o) {
   // the click at the install card instead of a doomed render attempt.
   const h3NotHere = !(H3 && H3.available);
   if (h3NotHere) {
-    if (label) label.textContent = 'Finish · needs Hailuo H3';
+    if (label) label.textContent = T('queue.finish_needs_hailuo_h3', 'Finish · needs Hailuo H3');
     if (btn) {
-      btn.title = `Finishing this clip needs the Hailuo H3 engine, which `
-                + `isn't installed on this Mac. Click for how to set it up.`;
+      btn.title = T('queue.finishing_this_clip_needs_the', 'Finishing this clip needs the Hailuo H3 engine, which ')
+                + T('queue.isn_t_installed_on_this', 'isn\'t installed on this Mac. Click for how to set it up.');
       btn.onclick = (ev) => { ev.preventDefault(); openH3InstallCard(); };
     }
   } else {
@@ -235,7 +235,7 @@ function _syncH3FinishAffordance(o) {
       btn.title = `Re-render this ${srcTier.quality_label} clip at `
                 + `${target.label} (${target.spec}, ${target.eta}) — same `
                 + `${target.length_label} length, same prompt, same seed, same `
-                + `first frame`;
+                + T('queue.first_frame', 'first frame');
       // Restore the normal handler — a prior sync on a different clip (or
       // before H3 finished installing) may have pointed this at the install
       // card instead.
@@ -278,7 +278,7 @@ async function h3FinishActive() {
     p = data && data.params;
   } catch (e) {
     if (typeof phosToast === 'function') {
-      phosToast('Finish: ' + (e.message || 'failed to read sidecar'), { kind: 'danger' });
+      phosToast(T('queue.finish', 'Finish: ') + (e.message || 'failed to read sidecar'), { kind: 'danger' });
     }
     return;
   }
@@ -316,7 +316,7 @@ async function h3FinishActive() {
   if (engine !== 'h3') {
     const note = (document.getElementById('engineRowNote') || {}).textContent || '';
     if (typeof phosToast === 'function') {
-      phosToast('Finish needs the Hailuo H3 engine. ' + note, { kind: 'danger' });
+      phosToast(T('queue.finish_needs_the_hailuo_h3', 'Finish needs the Hailuo H3 engine. ') + note, { kind: 'danger' });
     }
     return;
   }
@@ -602,7 +602,7 @@ async function ltxFinishActive() {
     p = data && data.params;
   } catch (e) {
     if (typeof phosToast === 'function') {
-      phosToast('Finish: ' + (e.message || 'failed to read sidecar'), { kind: 'danger' });
+      phosToast(T('queue.finish', 'Finish: ') + (e.message || 'failed to read sidecar'), { kind: 'danger' });
     }
     return;
   }
@@ -629,7 +629,7 @@ async function ltxFinishActive() {
   if (engine !== 'ltx') {
     const note = (document.getElementById('engineRowNote') || {}).textContent || '';
     if (typeof phosToast === 'function') {
-      phosToast('Finish needs the LTX engine. ' + note, { kind: 'danger' });
+      phosToast(T('queue.finish_needs_the_ltx_engine', 'Finish needs the LTX engine. ') + note, { kind: 'danger' });
     }
     return;
   }
@@ -708,15 +708,15 @@ function setEngine(engine, opts) {
     const st = engineStatus(e);
     if (st.announced) {
       target = fallback.id;
-      reason = e.label + " isn't released yet.";
+      reason = e.label + T('queue.isn_t_released_yet', " isn't released yet.");
     } else if (!st.capable) {
       target = fallback.id;
       // The lowest lane's floor, not the bf16 one and not a literal 64.
       reason = e.label + ' needs '
-             + (st.ram_floor_gb || st.min_ram_gb || 36) + ' GB unified memory.';
+             + (st.ram_floor_gb || st.min_ram_gb || 36) + T('queue.gb_unified_memory', ' GB unified memory.');
     } else if (!st.available && st.preparing) {
       target = fallback.id;
-      reason = e.label + ' is getting ready on this Mac. Rendering on ' + fallback.label + ' meanwhile.';
+      reason = e.label + T('queue.is_getting_ready_on_this', ' is getting ready on this Mac. Rendering on ') + fallback.label + ' meanwhile.';
     } else if (!st.available) {
       target = fallback.id;
       // Distinguish "you never installed this" from "you DID install this and
@@ -725,25 +725,25 @@ function setEngine(engine, opts) {
       // A third case joined them: the Mac whose only gap is the local Q8
       // engine build. The server writes that sentence; do not paraphrase it.
       reason = st.needs_q8_dit
-        ? (st.ram_note || (e.label + ' needs its low-RAM engine built.'))
+        ? (st.ram_note || (e.label + T('queue.needs_its_low_ram_engine', ' needs its low-RAM engine built.')))
         : st.repairable
-        ? e.label + ' needs repair — your weights are still on disk. Click the chip.'
-        : e.label + " isn't installed yet.";
+        ? e.label + T('queue.needs_repair_your_weights_are', ' needs repair — your weights are still on disk. Click the chip.')
+        : e.label + T('queue.isn_t_installed_yet', " isn't installed yet.");
     } else if (!engineServesMode(e, currentMode)) {
       target = fallback.id;
       reason = e.label + ' renders ' + (e.serves_label || 'other modes')
-             + ' only — back on ' + fallback.label + ' for this mode.';
+             + T('queue.only_back_on', ' only — back on ') + fallback.label + T('queue.for_this_mode', ' for this mode.');
     } else if (currentMode === 'i2v' && st.first_frame === false) {
       target = fallback.id;
-      reason = 'This ' + e.label + ' build has no first-frame support — '
-             + 'update the pack to use Image mode.';
+      reason = T('queue.this', 'This ') + e.label + T('queue.build_has_no_first_frame', ' build has no first-frame support — ')
+             + T('queue.update_the_pack_to_use', 'update the pack to use Image mode.');
     } else if (H3_MODE_CAP[currentMode] && st[H3_MODE_CAP[currentMode]] === false) {
       // 4.19 modes ride on runner flags an older H3 pack does not have.
       target = fallback.id;
-      reason = 'This ' + e.label + ' runner predates ' + (H3_MODE_LABEL[currentMode] || currentMode)
-             + distText(' — press Update in Pinokio (your weights stay). Back on ',
-                        '. Phosphene brings it up to date by itself (quit and reopen Phosphene if this stays). Back on ')
-             + fallback.label + ' for now.';
+      reason = T('queue.this', 'This ') + e.label + T('queue.runner_predates', ' runner predates ') + (H3_MODE_LABEL[currentMode] || currentMode)
+             + distText(T('queue.press_update_in_pinokio_your', ' — press Update in Pinokio (your weights stay). Back on '),
+                        T('queue.phosphene_brings_it_up_to', '. Phosphene brings it up to date by itself (quit and reopen Phosphene if this stays). Back on '))
+             + fallback.label + T('queue.for_now', ' for now.');
     }
   }
   if (target !== (e || {}).id) e = engineById(target) || fallback;
@@ -900,13 +900,13 @@ function _syncEnginePromptTools() {
     // get spoken dialogue at all.
     promptEl.placeholder = (eng === 'h3')
       ? 'integrated_multimodal_description: [Shot 1] Who/what, the setting, '
-        + 'what happens. A line of dialogue goes ONLY inside a tag: '
+        + T('queue.what_happens_a_line_of', 'what happens. A line of dialogue goes ONLY inside a tag: ')
         + 'GEORGE says: <d>[English] I thought it was ashwagandha!</d> then '
-        + 'his mouth settles closed. Click Structure or + Line above to '
+        + T('queue.his_mouth_settles_closed_click', 'his mouth settles closed. Click Structure or + Line above to ')
         + 'insert the skeleton.\n\noverall_soundscape: ambience, sound '
         + 'effects.\n\nnon_diegetic_music: N/A or a description.'
-      : 'Describe the scene, action and camera. Include dialogue and sound cues. '
-        + 'Audio is made together with the video.';
+      : T('queue.describe_the_scene_action_and', 'Describe the scene, action and camera. Include dialogue and sound cues. ')
+        + T('queue.audio_is_made_together_with', 'Audio is made together with the video.');
   }
   if (eng === 'h3' && typeof h3SyncPromptHelper === 'function') {
     try { h3SyncPromptHelper(); } catch (e) {}
@@ -1063,16 +1063,16 @@ function openH3InstallCard(source) {
     const diagnosis = (H3.reason === 'missing_q8_dit' && H3.ram_note)
         ? escapeHtml(H3.ram_note)
         : H3.venv_broken
-        ? 'What broke: H3’s Python environment points at a moved or deleted '
-          + 'interpreter. Rebuilding the environment takes about two minutes.'
+        ? T('queue.what_broke_h3_s_python', 'What broke: H3’s Python environment points at a moved or deleted ')
+          + T('queue.interpreter_rebuilding_the_environment_t', 'interpreter. Rebuilding the environment takes about two minutes.')
         : _missVenv
-        ? 'What broke: H3’s Python environment was never built (or was '
-          + 'removed). Building it takes about two minutes and re-downloads '
+        ? T('queue.what_broke_h3_s_python_2', 'What broke: H3’s Python environment was never built (or was ')
+          + T('queue.removed_building_it_takes_about', 'removed). Building it takes about two minutes and re-downloads ')
           + 'nothing.'
         : _missRunner
-        ? 'What broke: the engine’s code checkout is missing or incomplete. '
-          + 'Re-cloning it takes about a minute.'
-        : 'What broke: ' + (_missing[0] || 'a component the probe lists below')
+        ? T('queue.what_broke_the_engine_s', 'What broke: the engine’s code checkout is missing or incomplete. ')
+          + T('queue.re_cloning_it_takes_about', 'Re-cloning it takes about a minute.')
+        : T('queue.what_broke', 'What broke: ') + (_missing[0] || 'a component the probe lists below')
           + '.';
     // H3-05: "repairable" covers two different real situations and they
     // need two different CTAs. missing_q8_dit means every weight is present
@@ -1083,18 +1083,16 @@ function openH3InstallCard(source) {
     // to fix). venv/runner actually broken is the real repair case.
     const needsBuildOnly = H3.reason === 'missing_q8_dit';
     const fixMenuText = needsBuildOnly
-      ? 'Build Hailuo H3 compact engine (weights kept — no re-download)'
-      : 'Repair Hailuo H3 (weights kept — no re-download)';
+      ? T('queue.build_hailuo_h3_compact_engine', 'Build Hailuo H3 compact engine (weights kept — no re-download)')
+      : T('queue.repair_hailuo_h3_weights_kept', 'Repair Hailuo H3 (weights kept — no re-download)');
     const fixBlurb = needsBuildOnly
-      ? `<b>Hailuo H3 is installed — it just needs its compact engine built.</b>
+      ? `<b>${T('queue.hailuo_h3_is_installed_it', 'Hailuo H3 is installed — it just needs its compact engine built.')}</b>
          Your weights (~75 GB) are already on disk; the build downloads
          nothing.`
-      : `<b>Hailuo H3 is installed — it just needs repairing.</b> Your weights
-         (~75 GB) are still on disk and are <em>not</em> re-downloaded.`;
+      : `<b>${T('queue.hailuo_h3_is_installed_it_2', 'Hailuo H3 is installed — it just needs repairing.')}</b> ${T('queue.your_weights_75_gb_are', 'Your weights\n         (~75 GB) are still on disk and are')} <em>not</em> re-downloaded.`;
     const intro = (isMacApp() && (H3.repairable || H3.preparing)) ? `
       <p style="margin:0 0 10px">
-        <b>Hailuo H3 is getting ready on this Mac.</b> Phosphene sets it up by
-        itself, so there is nothing for you to do. LTX keeps working meanwhile.
+        <b>${T('queue.hailuo_h3_is_getting_ready', 'Hailuo H3 is getting ready on this Mac.')}</b> ${T('queue.phosphene_sets_it_up_by', 'Phosphene sets it up by\n        itself, so there is nothing for you to do. LTX keeps working meanwhile.')}
       </p>` : H3.repairable ? `
       <p style="margin:0 0 10px">
         ${fixBlurb}
@@ -1103,48 +1101,34 @@ function openH3InstallCard(source) {
         ${diagnosis}
       </p>
       <p style="margin:0 0 10px;color:var(--muted);font-size:12px">
-        ${_missing.length ? 'Missing: ' + _missing.map(escapeHtml).join(' · ') : ''}
+        ${_missing.length ? T('queue.missing', 'Missing: ') + _missing.map(escapeHtml).join(' · ') : ''}
       </p>
       <p style="margin:0 0 10px">
-        ${distText(`Fix it from Pinokio: open the <b>Phosphene</b> entry in the Pinokio
-        sidebar and click <b>“${escapeHtml(fixMenuText)}”</b> (it appears in
-        place of the install entry). The step is idempotent — it skips every
-        weight already on disk. The panel picks the engine back up within a
-        couple of seconds, no restart.`,
-        `Hailuo H3 is getting ready on this Mac. LTX keeps working.`)}
+        ${distText(`${T('queue.fix_it_from_pinokio_open', 'Fix it from Pinokio: open the')} <b>Phosphene</b> ${T('queue.entry_in_the_pinokio_sidebar', 'entry in the Pinokio\n        sidebar and click')} <b>“${escapeHtml(fixMenuText)}”</b> ${T('queue.it_appears_in_place_of', '(it appears in\n        place of the install entry). The step is idempotent — it skips every\n        weight already on disk. The panel picks the engine back up within a\n        couple of seconds, no restart.')}`,
+        T('queue.hailuo_h3_is_getting_ready_2', 'Hailuo H3 is getting ready on this Mac. LTX keeps working.'))}
       </p>` : `
       <p style="margin:0 0 10px">
-        <b>Hailuo H3 is Phosphene's second video engine</b>, a peer of LTX
-        rather than an add-on to it: one prompt in, video <em>and</em> synced
-        dialogue <em>and</em> sound out, in a single pass. It runs fully
-        locally and sits beside LTX in the engine switcher — installing it
-        changes nothing about your existing renders. H3 covers Text and
-        Image; LTX still covers every other mode.
+        <b>${T('queue.hailuo_h3_is_phosphene_s', 'Hailuo H3 is Phosphene\'s second video engine')}</b>${T('queue.a_peer_of_ltx_rather', ', a peer of LTX\n        rather than an add-on to it: one prompt in, video')} <em>and</em> ${T('queue.synced_dialogue', 'synced\n        dialogue')} <em>and</em> ${T('queue.sound_out_in_a_single', 'sound out, in a single pass. It runs fully\n        locally and sits beside LTX in the engine switcher — installing it\n        changes nothing about your existing renders. H3 covers Text and\n        Image; LTX still covers every other mode.')}
       </p>
       <p style="margin:0 0 10px;color:var(--muted)">
         ${escapeHtml(H3.size_note || '')}
       </p>
       ${H3.ram_lane === 'q8' && !isMacApp() ? `<p style="margin:0 0 10px">
-        <b>This Mac runs it.</b> With ${escapeHtml(String(Math.round(H3.ram_gb || 0)))} GB
+        <b>${T('queue.this_mac_runs_it', 'This Mac runs it.')}</b> With ${escapeHtml(String(Math.round(H3.ram_gb || 0)))} GB
         of memory, H3 uses its compact Q8 engine, which the install builds by
         itself at the end (about 5 more minutes, nothing extra to download).
       </p>` : ''}
       ${isMacApp() ? `<p style="margin:0 0 10px">
-        <b>Not in the Mac app yet.</b> Installing Hailuo H3 isn\u2019t available
+        <b>${T('queue.not_in_the_mac_app', 'Not in the Mac app yet.')}</b> Installing Hailuo H3 isn\u2019t available
         in the Mac app yet. Everything else in Phosphene works without it.
       </p>` : `<p style="margin:0 0 10px" class="h3-licence-step">
-        <b>1. Accept the MiniMax H3 licence.</b> H3's licence does not cover the
-        European Union, the United Kingdom, South Korea or the United States,
-        and it comes with use restrictions.
-        <button type="button" class="ghost-btn" onclick="openLicence('h3', {force: false}).then(licenceStatusRefresh)">Read the licence</button>
+        <b>${T('queue.1_accept_the_minimax_h3', '1. Accept the MiniMax H3 licence.')}</b> ${T('queue.h3_s_licence_does_not', 'H3\'s licence does not cover the\n        European Union, the United Kingdom, South Korea or the United States,\n        and it comes with use restrictions.')}
+        <button type="button" class="ghost-btn" onclick="openLicence('h3', {force: false}).then(licenceStatusRefresh)">${T('queue.read_the_licence', 'Read the licence')}</button>
         <span data-licence-status="h3"></span>
       </p>
       <p style="margin:0 0 10px">
-        <b>2. Install it from Pinokio</b>, not from here: open the <b>Phosphene</b> entry
-        in the Pinokio sidebar and click
-        <b>“Install Hailuo H3 (second video engine, ~75 GB)”</b>. It is there
-        while the panel is running, too. The installer stops until step 1 is
-        done. The panel picks H3 up within a couple of seconds — no restart.
+        <b>${T('queue.2_install_it_from_pinokio', '2. Install it from Pinokio')}</b>${T('queue.not_from_here_open_the', ', not from here: open the')} <b>Phosphene</b> ${T('queue.entry_in_the_pinokio_sidebar_2', 'entry\n        in the Pinokio sidebar and click')}
+        <b>${T('queue.install_hailuo_h3_second_video', '“Install Hailuo H3 (second video engine, ~75 GB)”')}</b>${T('queue.it_is_there_while_the', '. It is there\n        while the panel is running, too. The installer stops until step 1 is\n        done. The panel picks H3 up within a couple of seconds — no restart.')}
       </p>`}`;
     // THE DIAGNOSTIC DUMP GOES BEHIND A DISCLOSURE. `missing` is a list of raw
     // absolute paths — indispensable when an install half-lands, and pure
@@ -1152,7 +1136,7 @@ function openH3InstallCard(source) {
     // made the offer read like an error report. Kept verbatim, folded shut.
     body.innerHTML = intro + `
       ${missing.length && !isMacApp() ? `<details class="h3-diag">
-        <summary>Details for troubleshooting</summary>
+        <summary>${T('queue.details_for_troubleshooting', 'Details for troubleshooting')}</summary>
         <p>Currently missing: ${escapeHtml(missing.join('; '))}</p>
       </details>` : ''}`;
     // H3-39: the title was a static "Hailuo H3 · 75 GB" in the markup,
@@ -1161,9 +1145,9 @@ function openH3InstallCard(source) {
     const title = document.getElementById('h3InstallTitle');
     if (title) {
       title.textContent = (isMacApp() && (H3.repairable || H3.preparing)) ? 'Hailuo H3'
-        : needsBuildOnly ? 'Build the compact engine · ~5 min, no download'
-        : H3.repairable ? 'Repair Hailuo H3 · no download'
-        : 'Hailuo H3 · 75 GB';
+        : needsBuildOnly ? T('queue.build_the_compact_engine_5', 'Build the compact engine · ~5 min, no download')
+        : H3.repairable ? T('queue.repair_hailuo_h3_no_download', 'Repair Hailuo H3 · no download')
+        : T('queue.hailuo_h3_75_gb', 'Hailuo H3 · 75 GB');
     }
   }
   if (m) m.style.display = 'flex';
@@ -1203,38 +1187,37 @@ function h3AppInstallRender() {
   const total = ai.total_bytes || 75.4e9;
   let html;
   if (H3.available) {
-    html = `<p class="mi-lead"><b>Hailuo H3 is ready.</b> Pick it in the engine switcher: one prompt in, video with dialogue and sound out.</p>
-      <div class="mi-actions"><button type="button" class="primary" onclick="closeH3InstallCard();if(typeof setEngine==='function')setEngine('h3')">Use Hailuo H3</button></div>`;
+    html = `<p class="mi-lead"><b>${T('queue.hailuo_h3_is_ready', 'Hailuo H3 is ready.')}</b> ${T('queue.pick_it_in_the_engine', 'Pick it in the engine switcher: one prompt in, video with dialogue and sound out.')}</p>
+      <div class="mi-actions"><button type="button" class="primary" onclick="closeH3InstallCard();if(typeof setEngine==='function')setEngine('h3')">${T('queue.use_hailuo_h3', 'Use Hailuo H3')}</button></div>`;
   } else if (!ai.ram_ok) {
-    html = `<p class="mi-lead">Hailuo H3 needs at least ${escapeHtml(String(ai.min_ram_gb || 16))} GB of unified memory, so it can’t run on this Mac. Everything else in Phosphene works without it.</p>`;
+    html = `<p class="mi-lead">${T('queue.hailuo_h3_needs_at_least', 'Hailuo H3 needs at least {v} GB of unified memory, so it can’t run on this Mac. Everything else in Phosphene works without it.', {v: escapeHtml(String(ai.min_ram_gb || 16))})}</p>`;
   } else if (ai.active) {
     const pct = ai.percent || 1;
     const step = `Step ${(ai.step_index || 0) + 1} of ${ai.steps || 4} · ${escapeHtml(ai.step_label || '')}`;
     const bytes = ai.bytes_total ? ` · ${_h3Gb(ai.bytes_done)} of ${_h3Gb(ai.bytes_total)} GB` : '';
-    html = `<p class="mi-lead"><b>${ai.state === 'stopping' ? 'Stopping…' : 'Downloading Hailuo H3…'}</b> ${pct}%</p>
+    html = `<p class="mi-lead"><b>${ai.state === 'stopping' ? T('queue.stopping', 'Stopping…') : T('queue.downloading_hailuo_h3', 'Downloading Hailuo H3…')}</b> ${pct}%</p>
       <div class="progress-bar"><div class="fill" style="width:${pct}%"></div></div>
       <p class="mi-sub">${step}${bytes}</p>
       <p class="mi-line">${escapeHtml(ai.last_line || '')}</p>
-      <div class="mi-actions"><button type="button" class="danger" onclick="h3AppInstallStop()" ${ai.state === 'stopping' ? 'disabled' : ''}>Stop</button>
-      <span class="mi-note">Keep using Phosphene meanwhile. If you quit, the download carries on from where it stopped the next time Phosphene opens.</span></div>`;
+      <div class="mi-actions"><button type="button" class="danger" onclick="h3AppInstallStop()" ${ai.state === 'stopping' ? 'disabled' : ''}>${T('queue.stop', 'Stop')}</button>
+      <span class="mi-note">${T('queue.keep_using_phosphene_meanwhile_if', 'Keep using Phosphene meanwhile. If you quit, the download carries on from where it stopped the next time Phosphene opens.')}</span></div>`;
   } else {
     const failed = ai.state === 'failed' && ai.error;
     const stopped = ai.state === 'stopped';
     const left = ai.remaining_bytes != null ? ai.remaining_bytes : total;
-    const label = ai.weights_complete ? 'Finish setting up Hailuo H3 (no download)'
+    const label = ai.weights_complete ? T('queue.finish_setting_up_hailuo_h3', 'Finish setting up Hailuo H3 (no download)')
       : ai.resumable ? `Resume download (${_h3Gb(ai.done_bytes)} of ${_h3Gb(total)} GB done)`
       : `Download Hailuo H3 (${_h3Gb(total)} GB)`;
     const enough = ai.enough_space !== false;
     const disk = ai.need_bytes
-      ? `Needs ${_h3Gb(ai.need_bytes)} GB free (the ${ai.resumable ? 'rest of the ' : ''}download plus about 25 GB for the compact engine it builds). This Mac has ${_h3Gb(ai.free_bytes)} GB free.`
+      ? `Needs ${_h3Gb(ai.need_bytes)} GB free (the ${ai.resumable ? T('queue.rest_of_the', 'rest of the ') : ''}download plus about 25 GB for the compact engine it builds). This Mac has ${_h3Gb(ai.free_bytes)} GB free.`
       : '';
-    html = `<p class="mi-lead"><b>Hailuo H3 is Phosphene’s second video engine:</b> one prompt in, video <em>and</em> dialogue <em>and</em> sound out, in one pass, fully on this Mac. It sits beside LTX in the engine switcher.</p>
-      <p class="mi-sub">${ai.weights_complete ? 'Its files are already on this Mac; this only sets up the engine.'
-        : `A one-time ${_h3Gb(left)} GB download${ai.resumable ? ' left' : ''}. It resumes where it stopped, even after you quit Phosphene.`}
-        Runs on this Mac (${escapeHtml(String(Math.round(H3.ram_gb || 0)))} GB).</p>
-      ${disk ? `<p class="mi-sub${enough ? '' : ' mi-error'}">${escapeHtml(disk)}${enough ? '' : ' Free some space first.'}</p>` : ''}
+    html = `<p class="mi-lead"><b>${T('queue.hailuo_h3_is_phosphene_s_2', 'Hailuo H3 is Phosphene’s second video engine:')}</b> ${T('queue.one_prompt_in_video', 'one prompt in, video')} <em>and</em> dialogue <em>and</em> ${T('queue.sound_out_in_one_pass', 'sound out, in one pass, fully on this Mac. It sits beside LTX in the engine switcher.')}</p>
+      <p class="mi-sub">${T('queue.runs_on_this_mac_gb', '{v}\n        Runs on this Mac ({v2} GB).', {v: ai.weights_complete ? T('queue.its_files_are_already_on', 'Its files are already on this Mac; this only sets up the engine.')
+        : T('queue.a_one_time_gb_download', 'A one-time {v} GB download{v2}. It resumes where it stopped, even after you quit Phosphene.', {v: _h3Gb(left), v2: ai.resumable ? ' left' : ''}), v2: escapeHtml(String(Math.round(H3.ram_gb || 0)))})}</p>
+      ${disk ? `<p class="mi-sub${enough ? '' : ' mi-error'}">${escapeHtml(disk)}${enough ? '' : T('queue.free_some_space_first', ' Free some space first.')}</p>` : ''}
       <p class="mi-sub h3-licence-step">${escapeHtml(ai.licence_note || 'MiniMax H3 Community License: territory restrictions apply.')}
-        <button type="button" class="ghost-btn" onclick="openLicence('h3', {force: false}).then(licenceStatusRefresh)">Read the licence</button>
+        <button type="button" class="ghost-btn" onclick="openLicence('h3', {force: false}).then(licenceStatusRefresh)">${T('queue.read_the_licence', 'Read the licence')}</button>
         <span data-licence-status="h3"></span></p>
       ${failed ? `<p class="mi-error">${escapeHtml(ai.error)}</p>` : ''}
       ${stopped ? '<p class="mi-sub">Download stopped. Everything downloaded so far is kept.</p>' : ''}
@@ -1302,18 +1285,18 @@ function _h3NudgeEngineOffer() {
   // first draft, and it clipped exactly where the instruction lived.
   // H3-39: same "· 75 GB" default the modal title had, wrong whenever this is
   // a build-only or repair nudge — nothing downloads in either case.
-  const nudgeMsg = isMacApp() ? (H3.preparing ? 'Hailuo H3 · getting ready on this Mac.' : 'Hailuo H3 · download it from its card.')
+  const nudgeMsg = isMacApp() ? (H3.preparing ? T('queue.hailuo_h3_getting_ready_on', 'Hailuo H3 · getting ready on this Mac.') : T('queue.hailuo_h3_download_it_from', 'Hailuo H3 · download it from its card.'))
     : (H3.reason === 'missing_q8_dit')
-    ? 'Hailuo H3 · build the compact engine, no download — from the Pinokio sidebar.'
+    ? T('queue.hailuo_h3_build_the_compact', 'Hailuo H3 · build the compact engine, no download — from the Pinokio sidebar.')
     : H3.repairable
-      ? 'Hailuo H3 · repair, no download — from the Pinokio sidebar.'
-      : 'Hailuo H3 · 75 GB — install from the Pinokio sidebar.';
+      ? T('queue.hailuo_h3_repair_no_download', 'Hailuo H3 · repair, no download — from the Pinokio sidebar.')
+      : T('queue.hailuo_h3_75_gb_install', 'Hailuo H3 · 75 GB — install from the Pinokio sidebar.');
   const el = phosToast(nudgeMsg, { icon: 'ph-info', duration: 5000 });
   if (!el) return;
   const a = document.createElement('a');
   a.href = '#';
   a.className = 'phos-toast-action';
-  a.textContent = 'What it is';
+  a.textContent = T('queue.what_it_is', 'What it is');
   a.onclick = (ev) => { ev.preventDefault(); el.remove(); openH3InstallCard(); };
   el.appendChild(a);
 }
@@ -1324,7 +1307,7 @@ function _h3NudgeEngineOffer() {
 async function enhancePrompt() {
   const ta = document.getElementById('prompt');
   const original = ta.value.trim();
-  if (!original) { alert('Type a prompt before enhancing it.'); return; }
+  if (!original) { alert(T('queue.type_a_prompt_before_enhancing', 'Type a prompt before enhancing it.')); return; }
   const mode = (currentMode === 'i2v' || currentMode === 'keyframe' || currentMode === 'extend') ? 'i2v' : 't2v';
   const btn = document.getElementById('enhanceBtn');
   // Snapshot the FULL inner markup, not just text — the button carries
@@ -1368,7 +1351,7 @@ async function enhancePrompt() {
     const r = await fetch('/prompt/enhance', { method: 'POST', body: fd });
     res = await r.json();
   } catch (e) {
-    alert('Enhance request failed: ' + (e.message || e));
+    alert(T('queue.enhance_request_failed', 'Enhance request failed: ') + (e.message || e));
     btn.disabled = false; btn.innerHTML = originalLabel;
     return;
   }
@@ -1395,10 +1378,10 @@ function enhanceLoraNote(res) {
   const used = Array.isArray(res.lora_notes_used) ? res.lora_notes_used.filter(Boolean) : [];
   const added = Array.isArray(res.lora_triggers_added) ? res.lora_triggers_added.filter(Boolean) : [];
   const parts = [];
-  if (used.length === 1) parts.push('Used the notes of the LoRA ' + used[0] + '.');
-  else if (used.length > 1) parts.push('Used the notes of ' + used.length + ' LoRAs (' + used.join(', ') + ').');
+  if (used.length === 1) parts.push(T('queue.used_the_notes_of_the', 'Used the notes of the LoRA ') + used[0] + '.');
+  else if (used.length > 1) parts.push(T('queue.used_the_notes_of', 'Used the notes of ') + used.length + ' LoRAs (' + used.join(', ') + ').');
   if (added.length) {
-    parts.push((added.length === 1 ? 'Added its trigger word: ' : 'Added the trigger words: ')
+    parts.push((added.length === 1 ? T('queue.added_its_trigger_word', 'Added its trigger word: ') : T('queue.added_the_trigger_words', 'Added the trigger words: '))
       + added.map(t => '\u201c' + t + '\u201d').join(', ') + '.');
   }
   return parts.join(' ');
@@ -1436,7 +1419,7 @@ function showEnhancePanel(original, enhanced, translated, loraNote) {
   document.getElementById('enhanceKeepBtn').hidden = false;
   document.getElementById('enhanceUndoBtn').hidden = true;
   document.getElementById('enhancePanelNote').textContent =
-    [translated ? 'Translated to English.' : '', loraNote || ''].filter(Boolean).join(' ');
+    [translated ? T('queue.translated_to_english', 'Translated to English.') : '', loraNote || ''].filter(Boolean).join(' ');
   panel.hidden = false;
 }
 function _setPromptValue(text) {
@@ -1453,8 +1436,8 @@ function acceptEnhance() {
   document.getElementById('enhanceKeepBtn').hidden = true;
   document.getElementById('enhanceUndoBtn').hidden = false;
   document.getElementById('enhancePanelNote').textContent =
-    (panel.dataset.translated ? 'Translated to English. ' : '')
-    + (panel.dataset.loraNote ? panel.dataset.loraNote + ' ' : '') + 'Applied.';
+    (panel.dataset.translated ? T('queue.translated_to_english_2', 'Translated to English. ') : '')
+    + (panel.dataset.loraNote ? panel.dataset.loraNote + ' ' : '') + T('queue.applied', 'Applied.');
 }
 function undoEnhance() {
   const panel = document.getElementById('enhancePanel');
@@ -1537,7 +1520,7 @@ function i2vAudioRenderSlot(path) {
       + escapeHtml(name)
       + '<div class="hint" style="margin-top:4px"><a href="#" onclick="event.stopPropagation();event.preventDefault();i2vAudioSet(\'\');">Remove</a></div>';
   } else {
-    hint.textContent = 'Drop a WAV / MP3 / M4A / FLAC here, or click to pick a file.';
+    hint.textContent = T('queue.drop_a_wav_mp3_m4a', 'Drop a WAV / MP3 / M4A / FLAC here, or click to pick a file.');
   }
 }
 function i2vAudioSet(path) {
@@ -1560,9 +1543,9 @@ async function i2vAudioUpload(file) {
   } catch (e) {
     i2vAudioRenderSlot(document.getElementById('audio')?.value || '');
     if (typeof phosToast === 'function') {
-      phosToast('Audio upload failed: ' + (e.message || e), { kind: 'danger' });
+      phosToast(T('queue.audio_upload_failed', 'Audio upload failed: ') + (e.message || e), { kind: 'danger' });
     } else {
-      alert('Audio upload failed: ' + (e.message || e));
+      alert(T('queue.audio_upload_failed', 'Audio upload failed: ') + (e.message || e));
     }
   }
 }
@@ -1677,8 +1660,8 @@ function updateAvoidIgnoredState() {
   }
   if (lbl && row) {
     const open = row.classList.contains('show');
-    lbl.textContent = open ? 'Avoid −'
-      : (ignored ? `Avoid + (off at ${(qLabel && qLabel.textContent) || 'this quality'})` : 'Avoid +');
+    lbl.textContent = open ? T('queue.avoid', 'Avoid −')
+      : (ignored ? `Avoid + (off at ${(qLabel && qLabel.textContent) || 'this quality'})` : T('queue.avoid_2', 'Avoid +'));
   }
 }
 
@@ -1736,7 +1719,7 @@ function updateDerivedForClampedMode(mode) {
       ? (kp.pending
         ? `${escapeHtml(card.pipeline_note)} · pricing…`
         : `${escapeHtml(card.pipeline_note)} · <strong>${card.width}×${card.height}</strong> · ${escapeHtml(card.eta)}`)
-      : 'Needs more memory than this Mac has for keyframe (FFLF) rendering.';
+      : T('queue.needs_more_memory_than_this', 'Needs more memory than this Mac has for keyframe (FFLF) rendering.');
     if (kp.pending) card = null;   // the canvas below is not known yet either
   } else if (mode === 'extend') {
     const proOn = (document.getElementById('extend_steps') || {}).value === '30';
@@ -1755,7 +1738,7 @@ function updateDerivedForClampedMode(mode) {
     const eta = card ? ((card.eta_by_latents || {})[String(latents)] || card.eta) : '';
     line = card
       ? `<strong>+${actualSec}s ${dir} · Q8</strong> · ≤${Math.max(card.width, card.height)} px · ${escapeHtml(eta)}`
-      : 'Needs more memory than this Mac has for Extend.';
+      : T('queue.needs_more_memory_than_this_2', 'Needs more memory than this Mac has for Extend.');
   }
   if (derivedFooter) derivedFooter.innerHTML = line;
   const qualityMeta = document.getElementById('qualityMeta');
@@ -1809,7 +1792,7 @@ function updateDerived() {
     finalRes = padded ? `${w}×${h} → <strong>${pw}×${ph}</strong>` : `<strong>${w}×${h}</strong>`;
   }
   const accel = document.getElementById('accel')?.value || 'off';
-  const accelText = accel === 'off' ? '' : ` · ${accel === 'turbo' ? 'Turbo' : 'Boost'}`;
+  const accelText = accel === 'off' ? '' : ` · ${accel === 'turbo' ? T('queue.turbo', 'Turbo') : T('queue.boost', 'Boost')}`;
   const temporal = document.getElementById('temporal_mode')?.value || 'native';
   let temporalText = '';
   if (temporal === 'fps12_interp24') {
@@ -1915,7 +1898,7 @@ function updateDerived() {
   }
   if (!_h3Active && f > 1 && (f - 1) % 8 !== 0) {
     const eff = Math.max(1, Math.floor((f - 1) / 8) * 8 + 1);
-    warns.push(`Frames snap down to ${eff} (the 8k+1 grid)`);
+    warns.push(T('queue.frames_snap_down_to_the', 'Frames snap down to {eff} (the 8k+1 grid)', {eff}));
   }
   if (temporal === 'fps12_interp24') {
     warns.push('12→24fps is experimental; check dialogue lip-sync and fast motion');
@@ -2016,7 +1999,7 @@ function updateDerived() {
 // disable the button and explain why in its title, rather than let the user
 // find out after the click. Runs on every updateDerived() (which already
 // fires on every picker change via pickerSetImage → updateDerived()).
-const _KF_FRAMES_REASON = 'Pick both a start frame and an end frame before generating.';
+const _KF_FRAMES_REASON = T('queue.pick_both_a_start_frame', 'Pick both a start frame and an end frame before generating.');
 function _updateKeyframeFramesGate() {
   const genBtn = document.getElementById('genBtn');
   if (!genBtn) return;
@@ -2100,7 +2083,7 @@ function refreshExtendClampNote() {
   el.hidden = false;
   el.textContent = `On this Mac (${tier.label || 'this tier'}), Extend renders `
     + `at up to ${cap}px on the longer side — a bigger source clip is `
-    + `downscaled to fit before the new frames are added.`;
+    + T('queue.downscaled_to_fit_before_the', 'downscaled to fit before the new frames are added.');
 }
 
 // Auto-snap the aspect picker based on an image's actual dimensions.
@@ -2416,8 +2399,8 @@ function _cropGeometry(key) {
 
 function _cropQuickButtonsHtml(axis) {
   const labels = axis === 'x'
-    ? [['0', 'Left'], ['0.5', 'Center'], ['1', 'Right']]
-    : [['0', 'Top'], ['0.5', 'Center'], ['1', 'Bottom']];
+    ? [['0', T('queue.left', 'Left')], ['0.5', T('queue.center', 'Center')], ['1', T('queue.right', 'Right')]]
+    : [['0', T('queue.top', 'Top')], ['0.5', T('queue.center', 'Center')], ['1', T('queue.bottom', 'Bottom')]];
   return labels.map(([v, l]) =>
     `<button type="button" class="crop-quick-btn" data-crop-focus="${v}">${l}</button>`).join('');
 }
@@ -2588,16 +2571,16 @@ async function refreshUploadsStrip() {
 async function deleteUpload(path) {
   if (!path) return;
   const name = String(path).split('/').pop();
-  if (!confirm(`Delete "${name}" from your imported images? This removes the file.`)) return;
+  if (!confirm(T('queue.delete_from_your_imported_images', 'Delete "{name}" from your imported images? This removes the file.', {name}))) return;
   let r;
   try {
     r = await api('/upload/delete', 'POST', new URLSearchParams({path}));
   } catch (e) {
-    phosToast('Could not delete: ' + (e && e.message ? e.message : e), {});
+    phosToast(T('queue.could_not_delete', 'Could not delete: ') + (e && e.message ? e.message : e), {});
     return;
   }
   if (!r || r.ok === false) {
-    phosToast('Could not delete: ' + ((r && r.error) || 'unknown error'), {});
+    phosToast(T('queue.could_not_delete', 'Could not delete: ') + ((r && r.error) || 'unknown error'), {});
     return;
   }
   PICKERS.forEach(key => {
@@ -2648,7 +2631,7 @@ function _ingredientRenderThumbs() {
 function ingredientAddPath(path) {
   if (!path) return;
   if (_ingredientPaths.includes(path)) return;   // no dupes
-  if (_ingredientPaths.length >= 8) { alert('Ingredients takes at most 8 images.'); return; }
+  if (_ingredientPaths.length >= 8) { alert(T('queue.ingredients_takes_at_most_8', 'Ingredients takes at most 8 images.')); return; }
   _ingredientPaths.push(path);
   _ingredientSync();
 }
@@ -2759,7 +2742,7 @@ function fmtMin(s) { if (!s || s < 0) return '—'; const m = Math.floor(s/60); 
 function fmtEtaCompact(sec) {
   if (!sec || sec <= 0) return '';
   const m = Math.round(sec / 60);
-  return m < 1 ? '~1 min' : `~${m} min`;
+  return m < 1 ? T('queue.1_min', '~1 min') : `~${m} min`;
 }
 function snippet(s, n = 70) { if (!s) return ''; s = s.replace(/\s+/g,' ').trim(); return s.length > n ? s.slice(0, n-1)+'…' : s; }
 function escapeHtml(s) { if (!s) return ''; return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -2844,13 +2827,13 @@ function _applyOfflineGate(offline) {
   if (!genBtn) return;
   if (offline) {
     genBtn.disabled = true;
-    genBtn.title = distText("Phosphene can't reach its own server right now — restart it from Pinokio.",
-                            "Phosphene can't reach its own server right now — use Studio \u2192 Restart Engine.");
+    genBtn.title = distText(T('queue.phosphene_can_t_reach_its', "Phosphene can't reach its own server right now — restart it from Pinokio."),
+                            T('queue.phosphene_can_t_reach_its_2', "Phosphene can't reach its own server right now — use Studio \u2192 Restart Engine."));
     genBtn.dataset.offlineBlocked = '1';
     if (note) {
       note.innerHTML = escapeHtml(
-        distText("Phosphene is offline — restart it from Pinokio before rendering.",
-                 "Phosphene is offline — use Studio \u2192 Restart Engine before rendering."));
+        distText(T('queue.phosphene_is_offline_restart_it', "Phosphene is offline — restart it from Pinokio before rendering."),
+                 T('queue.phosphene_is_offline_use_studio', "Phosphene is offline — use Studio \u2192 Restart Engine before rendering.")));
       note.hidden = false;
       note.dataset.offlineNote = '1';
     }
@@ -2888,9 +2871,9 @@ function _setOfflineBanner(visible, msg) {
       document.body.appendChild(bar);
     }
     bar.classList.remove('reconnected');
-    bar.querySelector('.label').textContent = 'Phosphene offline';
+    bar.querySelector('.label').textContent = T('queue.phosphene_offline', 'Phosphene offline');
     bar.querySelector('.text').textContent = text;
-    bar.querySelector('.hint').textContent = distText('restart from Pinokio', 'Studio \u2192 Restart Engine');
+    bar.querySelector('.hint').textContent = distText(T('queue.restart_from_pinokio', 'restart from Pinokio'), T('queue.studio_restart_engine', 'Studio \u2192 Restart Engine'));
     const entry = `${new Date().toLocaleTimeString()} offline · ${text}`;
     window._panelBannerLog.push(entry);
     if (window._panelBannerLog.length > 8) window._panelBannerLog.shift();
@@ -2902,8 +2885,8 @@ function _setOfflineBanner(visible, msg) {
     // the eye time to register and gives the user a chance to scroll
     // back in window._panelBannerLog if they want details.
     bar.classList.add('reconnected');
-    bar.querySelector('.label').textContent = 'Phosphene reconnected';
-    bar.querySelector('.text').textContent = 'queue + renders resumed';
+    bar.querySelector('.label').textContent = T('queue.phosphene_reconnected', 'Phosphene reconnected');
+    bar.querySelector('.text').textContent = T('queue.queue_renders_resumed', 'queue + renders resumed');
     bar.querySelector('.hint').textContent = '';
     const entry = `${new Date().toLocaleTimeString()} online · reconnected`;
     window._panelBannerLog.push(entry);
@@ -2949,9 +2932,9 @@ async function startDeepVerify() {
   if (st) st.textContent = 'starting…';
   try {
     await fetch('/models/verify-deep', { method: 'POST' });
-    if (st) st.textContent = 'verifying… (this can take 1–2 min)';
+    if (st) st.textContent = T('queue.verifying_this_can_take_1', 'verifying… (this can take 1–2 min)');
   } catch (e) {
-    if (st) st.textContent = 'failed to start: ' + e;
+    if (st) st.textContent = T('queue.failed_to_start', 'failed to start: ') + e;
     if (btn) btn.disabled = false;
   }
 }
@@ -2962,13 +2945,13 @@ function renderDeepVerifyStatus(deep) {
   if (!st || !btn) return;
   if (deep && deep.active) {
     btn.disabled = true;
-    st.textContent = 'verifying ' + (deep.progress || '') + '… (1–2 min)';
+    st.textContent = 'verifying ' + (deep.progress || '') + T('queue.1_2_min', '… (1–2 min)');
     return;
   }
   btn.disabled = false;
   const r = deep && deep.result;
   if (!r) return;
-  if (r.error) { st.textContent = 'verify error: ' + r.error; return; }
+  if (r.error) { st.textContent = T('queue.verify_error', 'verify error: ') + r.error; return; }
   if (!r.ok) {
     const nMisplaced = (r.bad || []).filter(b => b.placement).length;
     const n = (r.bad || []).length - nMisplaced;
@@ -2983,7 +2966,7 @@ function renderDeepVerifyStatus(deep) {
     // An absent or malformed manifest reports unverified and stays ok,
     // precisely so it never triggers a spurious multi-GB re-download.
     st.innerHTML = '<span style="color:#5bbf7b">✓ all ' + r.checked + ' file(s) match upstream'
-      + (uv ? ' (' + uv + ' unverifiable — the LTX-2.5 packs carry their own '
+      + (uv ? ' (' + uv + T('queue.unverifiable_the_ltx_2_5', ' unverifiable — the LTX-2.5 packs carry their own ')
             + 'checksum list; an older copy may not have one)' : '') + '.</span>';
   }
 }
@@ -3015,12 +2998,12 @@ function renderIntegrityBanner(integ) {
   const corrupt = bad.filter(b => !b.placement && !b.codec);
   el.innerHTML =
     '<span style="font-weight:700">'
-    + (corrupt.length ? 'Model files look incomplete / corrupt'
-       : misplaced.length ? 'Model files are in the wrong place'
-       : 'Renders are not being encoded as requested') + '</span>'
+    + (corrupt.length ? T('queue.model_files_look_incomplete_corrupt', 'Model files look incomplete / corrupt')
+       : misplaced.length ? T('queue.model_files_are_in_the', 'Model files are in the wrong place')
+       : T('queue.renders_are_not_being_encoded', 'Renders are not being encoded as requested')) + '</span>'
     + (corrupt.length
         ? '<span style="opacity:.92">' + escapeHtml(corrupt.map(b => b.file).join(', '))
-          + ' — this produces garbled / "mosaic" output (usually an interrupted '
+          + T('queue.this_produces_garbled_mosaic_output', ' — this produces garbled / "mosaic" output (usually an interrupted ')
           + 'download).</span>'
         : '')
     + (misplaced.length
@@ -3031,12 +3014,12 @@ function renderIntegrityBanner(integ) {
     + (codecBad.length
         ? '<span style="opacity:.92;flex-basis:100%">'
           + codecBad.map(b => escapeHtml(b.file + ' — ' + b.reason)).join('<br>')
-          + distText('. The codec patch may not be applied — click Update in Pinokio '
-          + '(if it persists, reinstall). Clips rendered like this carry '
-          + 'avoidable compression on faces.',
-          '. The codec patch may not be applied — use Phosphene \u2192 Check for Updates\u2026 '
-          + '(if it persists, Help \u2192 Report a Bug\u2026). Clips rendered like this carry '
-          + 'avoidable compression on faces.') + '</span>'
+          + distText(T('queue.the_codec_patch_may_not', '. The codec patch may not be applied — click Update in Pinokio ')
+          + T('queue.if_it_persists_reinstall_clips', '(if it persists, reinstall). Clips rendered like this carry ')
+          + T('queue.avoidable_compression_on_faces', 'avoidable compression on faces.'),
+          T('queue.the_codec_patch_may_not_2', '. The codec patch may not be applied — use Phosphene \u2192 Check for Updates\u2026 ')
+          + T('queue.if_it_persists_help_report', '(if it persists, Help \u2192 Report a Bug\u2026). Clips rendered like this carry ')
+          + T('queue.avoidable_compression_on_faces', 'avoidable compression on faces.')) + '</span>'
         : '')
     + '<span style="margin-left:auto;display:flex;gap:8px">'
     + repos.map(k => '<button class="btn btn-primary" onclick="repairModel(\'' + escapeHtml(k)
@@ -3046,8 +3029,8 @@ function renderIntegrityBanner(integ) {
 }
 
 async function repairModel(key) {
-  if (!confirm('Re-download the corrupt ' + key.toUpperCase() + ' model file(s)?\n\n'
-      + 'This deletes the bad files and fetches fresh copies (resumable).')) return;
+  if (!confirm(T('queue.re_download_the_corrupt', 'Re-download the corrupt ') + key.toUpperCase() + ' model file(s)?\n\n'
+      + T('queue.this_deletes_the_bad_files', 'This deletes the bad files and fetches fresh copies (resumable).'))) return;
   try {
     const r = await fetch('/models/repair', {
       method: 'POST',
@@ -3056,12 +3039,12 @@ async function repairModel(key) {
     });
     const data = await r.json();
     if (data.ok) {
-      alert('Repair started — re-downloading ' + ((data.deleted || []).length) + ' file(s). '
-        + 'Watch the download progress / Logs; the banner clears once the files verify clean.');
+      alert(T('queue.repair_started_re_downloading', 'Repair started — re-downloading ') + ((data.deleted || []).length) + ' file(s). '
+        + T('queue.watch_the_download_progress_logs', 'Watch the download progress / Logs; the banner clears once the files verify clean.'));
     } else {
-      alert('Repair failed: ' + (data.error || r.status));
+      alert(T('queue.repair_failed', 'Repair failed: ') + (data.error || r.status));
     }
-  } catch (e) { alert('Repair failed: ' + e); }
+  } catch (e) { alert(T('queue.repair_failed', 'Repair failed: ') + e); }
 }
 
 // 4.17.4 (fleet: `venv_broken` on fresh installs, nearly all at first boot):
@@ -3076,12 +3059,12 @@ function engineEnvBannerHtml(st) {
   // /status.engine_env.cause (4.17.5) in the user's words. Server vocabulary:
   // ENGINE_ENV_CAUSES in mlx_ltx_panel.py; "unknown" and "installing" say nothing.
   const ENGINE_ENV_CAUSE_TEXT = {
-    network: 'The last install could not reach the package server - check the connection.',
-    timeout: 'The last install timed out downloading packages - check the connection.',
-    disk: 'The last install ran out of disk space - free some space first.',
-    uv_error: 'The last install could not resolve or build a package.',
-    python_missing: distText('The engine Python stopped working - run Install from Pinokio to rebuild it (models kept).',
-                             'The engine Python stopped working - quit Phosphene and open it again so setup can rebuild it (models kept).'),
+    network: T('queue.the_last_install_could_not', 'The last install could not reach the package server - check the connection.'),
+    timeout: T('queue.the_last_install_timed_out', 'The last install timed out downloading packages - check the connection.'),
+    disk: T('queue.the_last_install_ran_out', 'The last install ran out of disk space - free some space first.'),
+    uv_error: T('queue.the_last_install_could_not_2', 'The last install could not resolve or build a package.'),
+    python_missing: distText(T('queue.the_engine_python_stopped_working', 'The engine Python stopped working - run Install from Pinokio to rebuild it (models kept).'),
+                             T('queue.the_engine_python_stopped_working_2', 'The engine Python stopped working - quit Phosphene and open it again so setup can rebuild it (models kept).')),
   };
   if (!st || st.ok) return '';
   const rep = st.repair || {};
@@ -3105,7 +3088,7 @@ function engineEnvBannerHtml(st) {
   const why = ENGINE_ENV_CAUSE_TEXT[st.cause] || '';
   return '<span style="font-weight:700">The render engine did not finish installing</span>'
     + '<span style="opacity:.92">Its Python packages are missing from its environment, so '
-    + 'renders cannot start. ' + (why ? escapeHtml(why) + ' ' : '')
+    + T('queue.renders_cannot_start', 'renders cannot start. ') + (why ? escapeHtml(why) + ' ' : '')
     + 'Repair re-installs only those packages (a few minutes); '
     + 'every model is kept.</span>'
     + '<span style="margin-left:auto;display:flex;gap:8px">'
@@ -3118,7 +3101,7 @@ function renderEngineEnvBanner(st) {
   if (!html) {
     if (el) el.remove();
     if (_engineEnvWasBroken && st && st.ok && typeof phosToast === 'function') {
-      phosToast('The render engine is repaired \u2014 renders can run. Press Retry on a failed render.',
+      phosToast(T('queue.the_render_engine_is_repaired', 'The render engine is repaired \u2014 renders can run. Press Retry on a failed render.'),
                 { kind: 'success', duration: 8000 });
     }
     _engineEnvWasBroken = false;
@@ -3144,11 +3127,11 @@ async function engineRepairStart() {
     const r = await fetch('/engine/repair', { method: 'POST', body: new URLSearchParams({}) });
     const res = await r.json().catch(() => ({}));
     if (!r.ok && typeof phosToast === 'function') {
-      phosToast(res.error || ('Repair could not start: HTTP ' + r.status),
+      phosToast(res.error || (T('queue.repair_could_not_start_http', 'Repair could not start: HTTP ') + r.status),
                 { kind: res.installing ? 'info' : 'danger', duration: 8000 });
     }
   } catch (e) {
-    if (typeof phosToast === 'function') phosToast('Repair could not start: ' + (e.message || e), { kind: 'danger' });
+    if (typeof phosToast === 'function') phosToast(T('queue.repair_could_not_start', 'Repair could not start: ') + (e.message || e), { kind: 'danger' });
   }
   if (typeof poll === 'function') poll();
 }
@@ -3161,12 +3144,12 @@ async function h3RepairStart() {
     const r = await fetch('/h3/repair', { method: 'POST', body: new URLSearchParams({}) });
     const res = await r.json().catch(() => ({}));
     if (typeof phosToast === 'function') {
-      phosToast(r.ok ? 'Repairing Hailuo H3\u2019s packages\u2026 (about a minute, weights kept)'
-                     : (res.error || ('Repair could not start: HTTP ' + r.status)),
+      phosToast(r.ok ? T('queue.repairing_hailuo_h3_s_packages', 'Repairing Hailuo H3\u2019s packages\u2026 (about a minute, weights kept)')
+                     : (res.error || (T('queue.repair_could_not_start_http', 'Repair could not start: HTTP ') + r.status)),
                 { kind: r.ok ? 'info' : 'danger', duration: 8000 });
     }
   } catch (e) {
-    if (typeof phosToast === 'function') phosToast('Repair could not start: ' + (e.message || e), { kind: 'danger' });
+    if (typeof phosToast === 'function') phosToast(T('queue.repair_could_not_start', 'Repair could not start: ') + (e.message || e), { kind: 'danger' });
   }
   if (typeof poll === 'function') poll();
 }
@@ -3178,8 +3161,8 @@ function noteH3EnvRepair(st) {
   const now = rep.state || '';
   if (_h3RepairWas === 'running' && (now === 'done' || now === 'failed') && typeof phosToast === 'function') {
     phosToast(now === 'done'
-      ? 'Hailuo H3 is repaired \u2014 H3 renders can run. Press Retry on the failed render.'
-      : 'The Hailuo H3 repair did not finish: ' + _redactLocalPaths(rep.error || 'unknown error'),
+      ? T('queue.hailuo_h3_is_repaired_h3', 'Hailuo H3 is repaired \u2014 H3 renders can run. Press Retry on the failed render.')
+      : T('queue.the_hailuo_h3_repair_did', 'The Hailuo H3 repair did not finish: ') + _redactLocalPaths(rep.error || 'unknown error'),
       { kind: now === 'done' ? 'success' : 'danger', duration: 10000 });
   }
   _h3RepairWas = now;
@@ -3200,7 +3183,7 @@ function noteH3EnvRepair(st) {
 // (`raw` is unredacted there); only the display copy gets this.
 function _redactLocalPaths(text) {
   return String(text || '').replace(/\((?:see the log above; )?metrics at [^)]+\)/gi, '')
-    .replace(/\/Users\/[^\s)]+/g, '(see Logs)')
+    .replace(/\/Users\/[^\s)]+/g, T('queue.see_logs', '(see Logs)'))
     .replace(/\s{2,}/g, ' ').trim();
 }
 // 4.17.3: reopen a failed job's own recipe in its form (the Now card's
@@ -3233,7 +3216,7 @@ function nowWaitNote(s) {
   const restart = s.engine_restart || {};
   const running = !!(s.running && s.current);
   if (s.paused && !running) {
-    return { kind: 'paused', title: 'Paused',
+    return { kind: 'paused', title: T('queue.paused', 'Paused'),
              text: s.paused_reason
                || 'Queue paused. Nothing renders until you press Resume.' };
   }
@@ -3241,16 +3224,16 @@ function nowWaitNote(s) {
     const mins = hold.since_ts && s.server_now
       ? Math.floor(Math.max(0, s.server_now - hold.since_ts) / 60) : 0;
     return { kind: 'hold',
-             title: hold.scope === 'h3' ? 'Updating Hailuo H3' : 'Waiting',
+             title: hold.scope === 'h3' ? T('queue.updating_hailuo_h3', 'Updating Hailuo H3') : T('queue.waiting', 'Waiting'),
              text: hold.text + (mins >= 1 ? ` ${mins} min so far.` : '') };
   }
   if (restart.restarting) {
-    return { kind: 'engine_restart', title: 'Engine restarting',
+    return { kind: 'engine_restart', title: T('queue.engine_restarting', 'Engine restarting'),
              text: restart.text || 'Engine restarting. The next clip takes about a minute longer to start.' };
   }
   if (queued && !running) {
-    return { kind: 'next', title: 'Starting the next clip',
-             text: `${queued} clip${queued === 1 ? '' : 's'} waiting. The next one starts in a moment.` };
+    return { kind: 'next', title: T('queue.starting_the_next_clip', 'Starting the next clip'),
+             text: TP('queue.clip_waiting_the_next_one', queued, {one: '{count} clip waiting. The next one starts in a moment.', other: '{count} clips waiting. The next one starts in a moment.'}) };
   }
   return null;
 }
@@ -3267,7 +3250,7 @@ function nowCardFailureActions(last, info) {
     return `<button type="button" class="now-card-retry" data-action="split" data-sec="${Number(splitSec)}" ` +
       `title="Reopen this clip in Lip-sync, where Split into ${Number(splitSec)} s clips renders the whole song">` +
       `<svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise"/></svg>` +
-      `<span>Open in Lip-sync to split</span></button>` + dismiss;
+      `<span>${T('queue.open_in_lip_sync_to', 'Open in Lip-sync to split')}</span></button>` + dismiss;
   }
   // A file the job needs is gone (moved, renamed, deleted, never picked):
   // the same job fails the same way, so reopen it in its form to re-pick.
@@ -3275,7 +3258,7 @@ function nowCardFailureActions(last, info) {
     return `<button type="button" class="now-card-retry" data-action="reopen" ` +
       `title="Reopen this job in its form to pick the missing file again">` +
       `<svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise"/></svg>` +
-      `<span>Open in the form</span></button>` + dismiss;
+      `<span>${T('queue.open_in_the_form', 'Open in the form')}</span></button>` + dismiss;
   }
   // 4.19.5: the Hailuo H3 venv is off the package set this release was
   // tested with (or its MLX is too old, or transformers refuses its own
@@ -3288,7 +3271,7 @@ function nowCardFailureActions(last, info) {
     return `<button type="button" class="now-card-retry" data-action="repair-h3" ` +
       `title="Re-install only Hailuo H3's Python packages, at the set this release was tested with (about a minute, weights kept)">` +
       `<svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise"/></svg>` +
-      `<span>Repair Hailuo H3</span></button>` + dismiss;
+      `<span>${T('queue.repair_hailuo_h3', 'Repair Hailuo H3')}</span></button>` + dismiss;
   }
   // 4.17.4: the engine's packages are not installed - every render fails the
   // same way until they are, so the card offers the repair, never a Retry.
@@ -3296,7 +3279,7 @@ function nowCardFailureActions(last, info) {
     return `<button type="button" class="now-card-retry" data-action="repair-engine" ` +
       `title="Re-install only the render engine's Python packages (a few minutes, models kept)">` +
       `<svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise"/></svg>` +
-      `<span>Repair engine</span></button>` + dismiss;
+      `<span>${T('queue.repair_engine', 'Repair engine')}</span></button>` + dismiss;
   }
   // 4.17.5: a size refused because macOS's GPU watchdog stopped it (even in
   // short GPU steps) has one way forward - smaller. Retry as is would only be
@@ -3305,26 +3288,26 @@ function nowCardFailureActions(last, info) {
     return `<button type="button" class="now-card-retry" data-action="retry-smaller" ` +
       `title="Try again smaller — one quality rung down, a smaller canvas and about half the length">` +
       `<svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise"/></svg>` +
-      `<span>Retry smaller</span></button>` + dismiss;
+      `<span>${T('queue.retry_smaller', 'Retry smaller')}</span></button>` + dismiss;
   }
   if (refusedTier && action !== 'models') return dismiss;
   return (action === 'models'
             ? `<button type="button" class="now-card-retry" onclick="openModelsModal()" ` +
               `title="A retry can't fix a missing file — finish the download instead">` +
               `<svg class="ph" aria-hidden="true"><use href="#ph-download-simple"/></svg>` +
-              `<span>Open Models</span></button>`
+              `<span>${T('queue.open_models', 'Open Models')}</span></button>`
           : smaller
             ? `<button type="button" class="now-card-retry" data-action="retry-smaller" ` +
               `title="Try again smaller — one quality rung down, a smaller canvas and about half the length">` +
               `<svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise"/></svg>` +
-              `<span>Retry smaller</span></button>` +
+              `<span>${T('queue.retry_smaller', 'Retry smaller')}</span></button>` +
               `<button type="button" class="now-card-retry" data-action="retry" ` +
               `title="Re-submit this job with the same params, unchanged">` +
-              `<span>Retry as is</span></button>`
+              `<span>${T('queue.retry_as_is', 'Retry as is')}</span></button>`
             : `<button type="button" class="now-card-retry" data-action="retry" ` +
               `title="Re-submit this job with the same params">` +
               `<svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise"/></svg>` +
-              `<span>Retry</span></button>`) + dismiss;
+              `<span>${T('queue.retry', 'Retry')}</span></button>`) + dismiss;
 }
 function friendlyJobError(raw, engine) {
   raw = raw || 'unknown error';
@@ -3333,9 +3316,9 @@ function friendlyJobError(raw, engine) {
   // is the way forward, and the card offers exactly that.
   if (/GPU watchdog stopped this exact render/i.test(raw)) {
     return {
-      friendly: 'This size is paused on this Mac.',
+      friendly: T('queue.this_size_is_paused_on', 'This size is paused on this Mac.'),
       hint: 'macOS stopped it twice, the second time in short GPU steps. Retry smaller '
-          + 'renders one quality rung down at about half the length.',
+          + T('queue.renders_one_quality_rung_down', 'renders one quality rung down at about half the length.'),
       smaller: true,
       details: raw,
       docsAnchor: 'gpu-watchdog',
@@ -3346,10 +3329,10 @@ function friendlyJobError(raw, engine) {
   // One gave up after three. Point at the one-click repair instead.
   if (/engine venv is not usable|venv has a Python but no packages|never finished installing into it/i.test(raw)) {
     return {
-      friendly: 'The render engine did not finish installing.',
-      hint: 'Its Python packages are missing, so no render can start. Press Repair engine: '
-          + 'it re-installs only those packages (a few minutes) and keeps every model. '
-          + 'Retrying as is fails the same way.',
+      friendly: T('queue.the_render_engine_did_not', 'The render engine did not finish installing.'),
+      hint: T('queue.its_python_packages_are_missing', 'Its Python packages are missing, so no render can start. Press Repair engine: ')
+          + T('queue.it_re_installs_only_those', 'it re-installs only those packages (a few minutes) and keeps every model. ')
+          + T('queue.retrying_as_is_fails_the', 'Retrying as is fails the same way.'),
       details: _redactLocalPaths(raw) || raw,
       action: 'repair_engine',
     };
@@ -3359,18 +3342,18 @@ function friendlyJobError(raw, engine) {
   // fails the same way; the repair re-installs only H3's packages.
   if (/Hailuo H3 venv/i.test(raw)) {
     return {
-      friendly: 'Hailuo H3\u2019s Python packages need a repair.',
-      hint: 'They are not the versions this release was tested with, so H3 stopped before using '
-          + 'the GPU. Press Repair Hailuo H3: it re-installs only those packages (about a minute) '
-          + 'and keeps every weight. LTX renders are not affected.',
+      friendly: T('queue.hailuo_h3_s_python_packages', 'Hailuo H3\u2019s Python packages need a repair.'),
+      hint: T('queue.they_are_not_the_versions', 'They are not the versions this release was tested with, so H3 stopped before using ')
+          + T('queue.the_gpu_press_repair_hailuo', 'the GPU. Press Repair Hailuo H3: it re-installs only those packages (about a minute) ')
+          + T('queue.and_keeps_every_weight_ltx', 'and keeps every weight. LTX renders are not affected.'),
       details: _redactLocalPaths(raw) || raw,
       action: 'repair_h3',
     };
   }
   if (/music engine isn't installed|YuE2 needs about|YuE2 weights.*repair/i.test(raw)) {
-    return { friendly: 'Stopped before generating — the music engine is not ready.',
-      hint: distText('Install or repair it from the Phosphene sidebar in Pinokio. Everything else in the panel is unaffected.',
-                     'Use Install music engine or Repair music engine in Audio \u2192 Compose. Everything else in the studio is unaffected.') };
+    return { friendly: T('queue.stopped_before_generating_the_music', 'Stopped before generating — the music engine is not ready.'),
+      hint: distText(T('queue.install_or_repair_it_from', 'Install or repair it from the Phosphene sidebar in Pinokio. Everything else in the panel is unaffected.'),
+                     T('queue.use_install_music_engine_or', 'Use Install music engine or Repair music engine in Audio \u2192 Compose. Everything else in the studio is unaffected.')) };
   }
   const rawLower = String(raw).toLowerCase();
   // SYS-07: these two are the #1 and #3 fleet failures (54 + 23 installs in
@@ -3389,24 +3372,24 @@ function friendlyJobError(raw, engine) {
     // front — that lives in Details); the card's own "Retry smaller" button
     // is the actionable step on LTX (SYS-07, H3-22 above).
     return {
-      friendly: 'Your Mac ran out of memory.',
+      friendly: T('queue.your_mac_ran_out_of', 'Your Mac ran out of memory.'),
       hint: onH3
-        ? 'Close other apps (Chrome, Slack, iOS Simulator) and retry, or '
-          + 'try Fast, a shorter length, or Draft (all use less memory).'
-        : 'Retry smaller usually fits — or close memory-heavy apps (Chrome, '
+        ? T('queue.close_other_apps_chrome_slack', 'Close other apps (Chrome, Slack, iOS Simulator) and retry, or ')
+          + T('queue.try_fast_a_shorter_length', 'try Fast, a shorter length, or Draft (all use less memory).')
+        : T('queue.retry_smaller_usually_fits_or', 'Retry smaller usually fits — or close memory-heavy apps (Chrome, ')
           + 'Slack, iOS Simulator) and retry as is, or switch Quality to Quick '
-          + '(about half the RAM).',
+          + T('queue.about_half_the_ram', '(about half the RAM).'),
       ...(onH3 ? {} : { smaller: true }),
       details: 'jetsam (the macOS memory killer) ended the render; returncode -9. '
-              + 'If this keeps happening on the lightest setting, this Mac may be '
-              + 'too tight on RAM for this mode.',
+              + T('queue.if_this_keeps_happening_on', 'If this keeps happening on the lightest setting, this Mac may be ')
+              + T('queue.too_tight_on_ram_for', 'too tight on RAM for this mode.'),
       docsAnchor: 'memory',
     };
   }
   if (rawLower.includes('sigsegv') || rawLower.includes('sigbus')) {
-    return { friendly: 'Helper crashed at the native level (MLX/Metal fault).',
-             hint: 'Share the crashlog at ~/Library/Logs/DiagnosticReports/python3.11_*.crash ' +
-                   'on github.com/mrbizarro/phosphene/issues so we can fix it.' };
+    return { friendly: T('queue.helper_crashed_at_the_native', 'Helper crashed at the native level (MLX/Metal fault).'),
+             hint: T('queue.share_the_crashlog_at_library', 'Share the crashlog at ~/Library/Logs/DiagnosticReports/python3.11_*.crash ') +
+                   T('queue.on_github_com_mrbizarro_phosphene', 'on github.com/mrbizarro/phosphene/issues so we can fix it.') };
   }
   if (rawLower.includes('sigabrt')) {
     // The watchdog signature (kIOGPUCommandBufferCallbackErrorTimeout) is
@@ -3418,30 +3401,30 @@ function friendlyJobError(raw, engine) {
       || rawLower.includes('commandbuffercallbackerrorimpactinginteractivity');
     if (isWatchdog) {
       return {
-        friendly: 'macOS stopped the render — this Mac ran out of GPU time.',
-        hint: (onH3 ? 'Try: Fast or a shorter length' : 'Try: Quick or a 3 s clip')
-            + ' · close other apps using the GPU '
-            + '(browser video, games, another AI app) · restart the Mac if it '
-            + 'keeps happening.',
+        friendly: T('queue.macos_stopped_the_render_this', 'macOS stopped the render — this Mac ran out of GPU time.'),
+        hint: (onH3 ? T('queue.try_fast_or_a_shorter', 'Try: Fast or a shorter length') : T('queue.try_quick_or_a_3', 'Try: Quick or a 3 s clip'))
+            + T('queue.close_other_apps_using_the', ' · close other apps using the GPU ')
+            + T('queue.browser_video_games_another_ai', '(browser video, games, another AI app) · restart the Mac if it ')
+            + T('queue.keeps_happening', 'keeps happening.'),
         ...(onH3 ? {} : { smaller: true }),
-        details: 'The macOS GPU watchdog killed a Metal command buffer that ran '
+        details: T('queue.the_macos_gpu_watchdog_killed', 'The macOS GPU watchdog killed a Metal command buffer that ran ')
                 + 'too long (kIOGPUCommandBufferCallbackErrorTimeout), seen on '
-                + 'M1/M2-class GPUs. If it keeps happening on Quick at 3 s, please '
+                + T('queue.m1_m2_class_gpus_if', 'M1/M2-class GPUs. If it keeps happening on Quick at 3 s, please ')
                 + 'open an issue with your chip + macOS version and the crashlog at '
-                + '~/Library/Logs/DiagnosticReports/python3.11_*.ips to '
+                + T('queue.library_logs_diagnosticreports_python3_1', '~/Library/Logs/DiagnosticReports/python3.11_*.ips to ')
                 + 'github.com/mrbizarro/phosphene/issues/44.',
         docsAnchor: 'gpu-watchdog',
       };
     }
-    return { friendly: 'Helper hit a C-level assertion and aborted.',
-             hint: 'Share the crashlog at ~/Library/Logs/DiagnosticReports/python3.11_*.crash ' +
-                   'on github.com/mrbizarro/phosphene/issues.' };
+    return { friendly: T('queue.helper_hit_a_c_level', 'Helper hit a C-level assertion and aborted.'),
+             hint: T('queue.share_the_crashlog_at_library', 'Share the crashlog at ~/Library/Logs/DiagnosticReports/python3.11_*.crash ') +
+                   T('queue.on_github_com_mrbizarro_phosphene_2', 'on github.com/mrbizarro/phosphene/issues.') };
   }
   if (rawLower.includes('helper exited from') || rawLower.includes('helper pipe closed') ||
       rawLower.includes('helper died') || rawLower.includes('helper exited')) {
-    return { friendly: 'Helper exited unexpectedly.',
-             hint: 'Check the log for the last "step:*" breadcrumb (tells us which ' +
-                   'phase died). If memory-pressured, close other apps and retry.' };
+    return { friendly: T('queue.helper_exited_unexpectedly', 'Helper exited unexpectedly.'),
+             hint: T('queue.check_the_log_for_the', 'Check the log for the last "step:*" breadcrumb (tells us which ') +
+                   T('queue.phase_died_if_memory_pressured', 'phase died). If memory-pressured, close other apps and retry.') };
   }
   // SYS-31: the generic "training exited with code N" case (no known
   // signature to name a more specific cause for — the watchdog/OOM/canvas
@@ -3450,9 +3433,9 @@ function friendlyJobError(raw, engine) {
   // section rather than leaving "see Logs for stack trace" to stand alone.
   if (/training (exited|aborted)/i.test(raw)) {
     return {
-      friendly: 'Training stopped before finishing.',
+      friendly: T('queue.training_stopped_before_finishing', 'Training stopped before finishing.'),
       hint: raw.replace(/^training /i, '').replace(/^\w/, c => c.toUpperCase())
-          + ' Check the Logs tab (bottom pane) for the trainer\'s own error.',
+          + T('queue.check_the_logs_tab_bottom', ' Check the Logs tab (bottom pane) for the trainer\'s own error.'),
       docsAnchor: 'training-failed',
     };
   }
@@ -3471,10 +3454,10 @@ function friendlyJobError(raw, engine) {
   // failure; Repair re-downloads only the broken files, so that is the action.
   if (/invalid json header length|expecting value: line 1 column 1 \(char 0\)|parameters not in model|no usable tokenizer beside the text encoder/i.test(raw)) {
     return {
-      friendly: 'A model file on this Mac is damaged.',
-      hint: 'Usually an interrupted download. Press Repair in the red bar at the '
-          + 'top of the panel: it re-downloads only the broken files. Retrying as '
-          + 'is fails the same way.',
+      friendly: T('queue.a_model_file_on_this', 'A model file on this Mac is damaged.'),
+      hint: T('queue.usually_an_interrupted_download_press', 'Usually an interrupted download. Press Repair in the red bar at the ')
+          + T('queue.top_of_the_panel_it', 'top of the panel: it re-downloads only the broken files. Retrying as ')
+          + T('queue.is_fails_the_same_way', 'is fails the same way.'),
       details: _redactLocalPaths(raw) || raw,
       action: 'models',
     };
@@ -3488,19 +3471,19 @@ function friendlyJobError(raw, engine) {
   if (/no longer on disk|no longer exists|needs a reference image|needs at least 1 reference|\b(lora|audio|image|video|reference|picture)( file)? not found|\b(audio|image|video|reference|picture)( file)? does not exist/i.test(raw)
       && !/model is\s+incomplete|\.safetensors\b.*mlx_models|mlx_models\/(?!loras)/i.test(raw)) {
     return {
-      friendly: 'A file this render needs is missing.',
-      hint: (_redactLocalPaths(raw) || raw) + ' Pick it again in the form and press Generate '
-          + '\u2014 retrying as is fails the same way.',
+      friendly: T('queue.a_file_this_render_needs', 'A file this render needs is missing.'),
+      hint: (_redactLocalPaths(raw) || raw) + T('queue.pick_it_again_in_the', ' Pick it again in the form and press Generate ')
+          + T('queue.retrying_as_is_fails_the_2', '\u2014 retrying as is fails the same way.'),
       action: 'reopen',
     };
   }
   if (/model is\s+incomplete\. Missing/i.test(raw)) {
     const m = /Missing \d+ file\(s\) in [^:]+: ([^.]+)\./.exec(raw);
     return {
-      friendly: 'Stopped before rendering — the model weights are incomplete.',
-      hint: (m ? 'Missing: ' + m[1].trim() + '. ' : '')
-          + 'Rendering with a file missing produces garbled "mosaic" video rather '
-          + 'than an error, so Phosphene stops instead.',
+      friendly: T('queue.stopped_before_rendering_the_model', 'Stopped before rendering — the model weights are incomplete.'),
+      hint: (m ? T('queue.missing', 'Missing: ') + m[1].trim() + '. ' : '')
+          + T('queue.rendering_with_a_file_missing', 'Rendering with a file missing produces garbled "mosaic" video rather ')
+          + T('queue.than_an_error_so_phosphene', 'than an error, so Phosphene stops instead.'),
       // SYS-11: a plain Retry here re-queues the identical job, which fails
       // instantly the same way — the fix is finishing the download, not
       // trying again. `action: 'models'` swaps the Now-card's Retry button
@@ -3526,17 +3509,17 @@ function friendlyJobError(raw, engine) {
   if (a2vCap) {
     const sec = parseInt(a2vCap[1], 10);
     return {
-      friendly: 'Too long for one Lip-sync clip on this Mac.',
-      hint: 'This Mac renders Lip-sync up to ' + sec + ' s per clip. Open it in '
-          + 'Lip-sync and use Split into ' + sec + ' s clips: it renders the whole '
-          + 'song as a sequence, each part starting where the last one’s mouth '
-          + 'closed. Or shorten Duration.',
+      friendly: T('queue.too_long_for_one_lip', 'Too long for one Lip-sync clip on this Mac.'),
+      hint: T('queue.this_mac_renders_lip_sync', 'This Mac renders Lip-sync up to ') + sec + T('queue.s_per_clip_open_it', ' s per clip. Open it in ')
+          + T('queue.lip_sync_and_use_split', 'Lip-sync and use Split into ') + sec + T('queue.s_clips_it_renders_the', ' s clips: it renders the whole ')
+          + T('queue.song_as_a_sequence_each', 'song as a sequence, each part starting where the last one’s mouth ')
+          + T('queue.closed_or_shorten_duration', 'closed. Or shorten Duration.'),
       action: 'split',
       splitSec: sec,
     };
   }
   if (/\(the q8 model\)|hardware tier\s*—/i.test(raw)) {
-    return { friendly: 'This mode needs the Q8 model.', hint: raw };
+    return { friendly: T('queue.this_mode_needs_the_q8', 'This mode needs the Q8 model.'), hint: raw };
   }
   // H3-22: neither "H3 render timed out — no output for 20 minutes" nor
   // "H3 render exited with code N" matches any branch above (no signal, no
@@ -3546,13 +3529,13 @@ function friendlyJobError(raw, engine) {
   if (/h3 render (timed out|exited with code)/i.test(raw)) {
     return {
       friendly: rawLower.includes('timed out')
-        ? 'H3 stopped — no progress for 20 minutes.'
-        : 'H3 render failed.',
+        ? T('queue.h3_stopped_no_progress_for', 'H3 stopped — no progress for 20 minutes.')
+        : T('queue.h3_render_failed', 'H3 render failed.'),
       hint: _redactLocalPaths(raw) ||
         'Try Fast, a shorter length, or Draft; quit Chrome/Slack if memory is tight.',
     };
   }
-  return { friendly: 'Job failed.', hint: _redactLocalPaths(raw) || raw };
+  return { friendly: T('queue.job_failed', 'Job failed.'), hint: _redactLocalPaths(raw) || raw };
 }
 
 // ---- Completion alerts ------------------------------------------------------
@@ -3596,7 +3579,7 @@ function notifyOneJob(j) {
   if (document.hidden) playDoneChime(failed);
   try {
     if (document.hidden && typeof window.Notification !== 'undefined' && window.Notification.permission === 'granted') {
-      const n = new window.Notification(failed ? 'Phosphene — a render failed' : 'Phosphene — render done',
+      const n = new window.Notification(failed ? T('queue.phosphene_a_render_failed', 'Phosphene — a render failed') : T('queue.phosphene_render_done', 'Phosphene — render done'),
                                  { body: what, tag: 'phos-' + j.id, silent: true });
       n.onclick = () => { try { window.focus(); n.close(); } catch (e) {} };
     }
@@ -3736,16 +3719,16 @@ async function poll() {
   // after-timeout state.
   const hp = document.getElementById('helperPill');
   if (s.helper && s.helper.alive) {
-    hp.innerHTML = `<span class="dot"></span>engine ready`;
+    hp.innerHTML = `<span class="dot"></span>${T('queue.engine_ready', 'engine ready')}`;
     hp.className = 'pill pill-good';
-    hp.title = 'The render engine is loaded and ready.';
+    hp.title = T('queue.the_render_engine_is_loaded', 'The render engine is loaded and ready.');
   } else {
     // Helper auto-respawns on the next job (see WarmHelper._ensure). "Cold"
     // is normal after the idle timeout, not an error — first job after a
     // cold start eats a ~30s pipeline-load cost.
-    hp.innerHTML = `<span class="dot"></span>engine resting`;
+    hp.innerHTML = `<span class="dot"></span>${T('queue.engine_resting', 'engine resting')}`;
     hp.className = 'pill';
-    hp.title = 'The render engine unloaded after being idle — normal, not a problem. The next render reloads it, a one-time ~30s delay.';
+    hp.title = T('queue.the_render_engine_unloaded_after', 'The render engine unloaded after being idle — normal, not a problem. The next render reloads it, a one-time ~30s delay.');
   }
 
   // Tier pill — what this Mac's RAM tier allows. Click to open the
@@ -3781,7 +3764,7 @@ async function poll() {
       ? `<span class="dot"></span>↓ models · ${escapeHtml(String(dl.key))}`
       : `<span class="dot"></span>↓ ${dl.key} · ${elapsed}s`;
     mp.className = 'pill pill-running';
-    mp.title = (dl.background ? `Requested model download: ${dl.name || dl.repo_id}`
+    mp.title = (dl.background ? T('queue.requested_model_download', 'Requested model download: {v}', {v: dl.name || dl.repo_id})
                               : `Downloading ${dl.repo_id}`) + ` · ${dl.last_line || 'starting…'}`;
   } else {
     // Per-repo ready/total counts, scoped server-side (VC-32) to repos that
@@ -3802,14 +3785,14 @@ async function poll() {
     // is the right shape — the base itself is incomplete.)
     const missingOptional = Math.max(0, total - ready);
     mp.innerHTML = (baseOk && missingOptional === 0)
-      ? `<span class="dot"></span>models ✓`
+      ? `<span class="dot"></span>${T('queue.models', 'models ✓')}`
       : baseOk
       ? `<span class="dot"></span>models ✓ (${missingOptional} optional not installed)`
       : `<span class="dot"></span>models ${ready}/${total}`;
     mp.className = 'pill ' + (!baseOk ? 'pill-warn' : (q8Ok ? 'pill-good' : ''));
     mp.title = !baseOk
-      ? `Base models incomplete (${ready}/${total} on disk) — click to download`
-      : (q8Ok ? 'All models on disk' : 'Q8 not installed (optional — needed for High quality + FFLF)');
+      ? T('queue.base_models_incomplete_on_disk', 'Base models incomplete ({ready}/{total} on disk) — click to download', {ready, total})
+      : (q8Ok ? T('queue.all_models_on_disk', 'All models on disk') : T('queue.q8_not_installed_optional_needed', 'Q8 not installed (optional — needed for High quality + FFLF)'));
   }
   // If the modal is open, refresh its rows on each poll so progress updates.
   if (document.getElementById('modelsModal').style.display !== 'none') {
@@ -3844,7 +3827,7 @@ async function poll() {
   // having to watch the strip. CSS .badge.bump handles the keyframes;
   // we just toggle the class for ~280 ms.
   const qp = document.getElementById('queuePill');
-  qp.innerHTML = `<span class="dot"></span>queue ${s.queue.length}${s.paused ? ' · paused' : ''}`;
+  qp.innerHTML = `<span class="dot"></span>queue ${s.queue.length}${s.paused ? T('queue.paused_2', ' · paused') : ''}`;
   qp.className = 'pill ' + (s.paused ? 'pill-warn' : (s.queue.length ? 'pill-running' : ''));
   const qb = document.getElementById('queueBadge');
   const prevQueueLen = window._lastQueueLen ?? 0;
@@ -3883,8 +3866,8 @@ async function poll() {
   document.querySelectorAll('.js-stop-btn').forEach(btn => {
     btn.disabled = !stopActive;
     btn.title = stopActive
-      ? (s.queue.length ? `Stop the current render (${s.queue.length} more queued)` : 'Stop the current render')
-      : 'Nothing is rendering';
+      ? (s.queue.length ? T('queue.stop_the_current_render_more', 'Stop the current render ({queue} more queued)', {queue: s.queue.length}) : T('queue.stop_the_current_render', 'Stop the current render'))
+      : T('queue.nothing_is_rendering', 'Nothing is rendering');
   });
 
   // Job pill
@@ -3900,7 +3883,7 @@ async function poll() {
     jp.className = 'pill';
   }
 
-  document.getElementById('pauseBtn').textContent = s.paused ? 'Resume queue' : 'Pause queue';
+  document.getElementById('pauseBtn').textContent = s.paused ? T('queue.resume_queue', 'Resume queue') : T('queue.pause_queue', 'Pause queue');
   _syncDestructiveQueueButtons(s);
   _syncHiddenFilterToggle(s);
 
@@ -3986,18 +3969,18 @@ async function poll() {
     // — and "Generate is lit, click it, get an error" is exactly the
     // experience being removed.
     genBtn.disabled = true;
-    genBtn.title = 'Ingredients needs the LTX-2.3 generation — its reference '
-                 + 'adapter has no 2.5 release. Use Image mode with Inspire, '
-                 + 'or install the 2.3 pack from the Train tab.';
-    genBtn.textContent = 'Generate · needs LTX-2.3';
+    genBtn.title = T('queue.ingredients_needs_the_ltx_2', 'Ingredients needs the LTX-2.3 generation — its reference ')
+                 + T('queue.adapter_has_no_2_5', 'adapter has no 2.5 release. Use Image mode with Inspire, ')
+                 + T('queue.or_install_the_2_3', 'or install the 2.3 pack from the Train tab.');
+    genBtn.textContent = T('queue.generate_needs_ltx_2_3', 'Generate · needs LTX-2.3');
   } else if (genBtn.disabled
              && genBtn.textContent.startsWith('Generate · needs LTX-2.3')) {
     genBtn.disabled = false;
     genBtn.title = '';
-    genBtn.textContent = 'Generate';
+    genBtn.textContent = T('queue.generate', 'Generate');
   } else if (q8GatedMode && !s.q8_available) {
     genBtn.disabled = true;
-    const modeName = currentMode === 'keyframe' ? 'Keyframe (FFLF)' : 'Extend';
+    const modeName = currentMode === 'keyframe' ? T('queue.keyframe_fflf', 'Keyframe (FFLF)') : T('queue.extend', 'Extend');
     const left = (s.q8_missing || []).length;
     genBtn.title = left > 0 && left < 6
       ? `${modeName} needs Q8 — ${left} file(s) still downloading.`
@@ -4009,14 +3992,14 @@ async function poll() {
           return w ? `${modeName} needs ${w.name} (~${w.size}) — install it from Settings → Models.`
                    : `${modeName} needs the Q8 weights — install them from Settings → Models.`;
         })();
-    genBtn.textContent = 'Generate · Q8 required';
+    genBtn.textContent = T('queue.generate_q8_required', 'Generate · Q8 required');
   } else if (genBtn.disabled && genBtn.textContent.startsWith('Generate · Q8')) {
     // Restore — only do so if WE were the ones who disabled it, otherwise
     // some future code path that disables Generate for a different reason
     // would get clobbered here.
     genBtn.disabled = false;
     genBtn.title = '';
-    genBtn.textContent = 'Generate';
+    genBtn.textContent = T('queue.generate', 'Generate');
   }
 
   // Now card
@@ -4081,8 +4064,8 @@ async function poll() {
     // very first tick).
     const isH3 = cur.engine === 'h3';
     const h3Speed = isH3
-      ? ((prog && prog.h3_speed) ? (prog.h3_speed === 'fast' ? 'Fast'
-                                    : prog.h3_speed === 'flex' ? 'Pika H3 Flex' : 'Best')
+      ? ((prog && prog.h3_speed) ? (prog.h3_speed === 'fast' ? T('queue.fast', 'Fast')
+                                    : prog.h3_speed === 'flex' ? T('queue.pika_h3_flex', 'Pika H3 Flex') : T('queue.best', 'Best'))
                                   : (typeof h3JobSpeedLabel === 'function' ? h3JobSpeedLabel(cur) : ''))
       : '';
     const h3Shape = isH3 && typeof h3JobShapeLabel === 'function' ? h3JobShapeLabel(cur) : '';
@@ -4160,8 +4143,8 @@ async function poll() {
         `<br><span style="color: var(--text)">${escapeHtml(hint)}</span>` +
         // SYS-33: errors rarely linked to Docs even where a section already
         // existed. docsAnchor names one of troubleshooting.md's own anchors.
-        (details ? `<details class="h3-diag"><summary>Details for troubleshooting</summary><p>${details}` +
-          (docsAnchor ? ` <a href="#" onclick="openDocs('troubleshooting','${docsAnchor}');return false;">Learn more →</a>` : '') +
+        (details ? `<details class="h3-diag"><summary>${T('queue.details_for_troubleshooting', 'Details for troubleshooting')}</summary><p>${details}` +
+          (docsAnchor ? ` <a href="#" onclick="openDocs('troubleshooting','${docsAnchor}');return false;">${T('queue.learn_more', 'Learn more →')}</a>` : '') +
           `</p></details>` : '');
       // Action row: Retry (re-submit same params via /queue/retry), plus
       // Retry smaller for failure classes a same-size retry can't fix
@@ -4192,17 +4175,17 @@ async function poll() {
       nowCard.classList.remove('idle', 'failed');
       nowCard.classList.add('stopped');
       nowCard.classList.remove('waiting');
-      nowCard.querySelector('.ttl').textContent = 'Stopped early';
+      nowCard.querySelector('.ttl').textContent = T('queue.stopped_early', 'Stopped early');
       nowCard.querySelector('.meta').innerHTML =
         `<span style="color: var(--muted)">${escapeHtml(rowTitle(last, last.params.prompt, last.params.label))}</span>` +
-        `<br><span style="color: var(--text)">Nothing was saved.</span>`;
+        `<br><span style="color: var(--text)">${T('queue.nothing_was_saved', 'Nothing was saved.')}</span>`;
       if (actionsEl) {
         actionsEl.dataset.jobId = String(last.id);
         actionsEl.innerHTML =
           `<button type="button" class="now-card-retry" data-action="retry" ` +
           `title="Run this again with the same params">` +
           `<svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise"/></svg>` +
-          `<span>Try again</span></button>` +
+          `<span>${T('queue.try_again', 'Try again')}</span></button>` +
           `<button type="button" class="now-card-dismiss" data-action="dismiss" ` +
           `title="Dismiss" aria-label="Dismiss"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>`;
       }
@@ -4211,9 +4194,9 @@ async function poll() {
       nowCard.classList.remove('failed', 'stopped');
       const waitNote = nowWaitNote(s);
       nowCard.classList.toggle('waiting', !!waitNote && waitNote.kind !== 'paused');
-      nowCard.querySelector('.ttl').textContent = waitNote ? waitNote.title : 'Idle';
+      nowCard.querySelector('.ttl').textContent = waitNote ? waitNote.title : T('queue.idle', 'Idle');
       nowCard.querySelector('.meta').textContent = waitNote
-        ? waitNote.text : 'No jobs queued. Generate something on the left.';
+        ? waitNote.text : T('queue.no_jobs_queued_generate_something', 'No jobs queued. Generate something on the left.');
       // #80: a paused worker used to say "waits for resume" and offer no way
       // to resume from where the user was looking; the only control was the
       // Pause/Resume chip above the queue list, and a restart persisted the
@@ -4221,8 +4204,8 @@ async function poll() {
       if (actionsEl) {
         actionsEl.dataset.jobId = '';
         actionsEl.innerHTML = s.paused
-          ? `<button type="button" class="now-card-retry" data-action="resume" title="Resume the queue">` +
-            `<svg class="ph" aria-hidden="true"><use href="#ph-play-fill"/></svg><span>Resume queue</span></button>`
+          ? `<button type="button" class="now-card-retry" data-action="resume" title="${TA('queue.resume_the_queue', 'Resume the queue')}">` +
+            `<svg class="ph" aria-hidden="true"><use href="#ph-play-fill"/></svg><span>${T('queue.resume_queue', 'Resume queue')}</span></button>`
           : '';
       }
     }
@@ -4238,14 +4221,14 @@ async function poll() {
     liveDot.classList.remove('live', 'failed');
     if (s.running && s.current) {
       liveDot.classList.add('live');
-      liveDot.title = 'Rendering';
+      liveDot.title = T('queue.rendering', 'Rendering');
     } else {
       const last = (s.history || [])[0];
       const showFailure = last && last.status === 'failed' && !s.queue.length;
-      if (showFailure) { liveDot.classList.add('failed'); liveDot.title = 'Last job failed'; }
-      else if (s.paused) liveDot.title = 'Paused';
+      if (showFailure) { liveDot.classList.add('failed'); liveDot.title = T('queue.last_job_failed', 'Last job failed'); }
+      else if (s.paused) liveDot.title = T('queue.paused', 'Paused');
       else if (s.queue.length) liveDot.title = `${s.queue.length} queued`;
-      else liveDot.title = 'Idle';
+      else liveDot.title = T('queue.idle', 'Idle');
     }
   }
 
@@ -4256,7 +4239,7 @@ async function poll() {
   // Logs
   const log = document.getElementById('log');
   const wasNearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
-  const _logText = s.log.length ? s.log.join('\n') : 'No log yet.';
+  const _logText = s.log.length ? s.log.join('\n') : T('queue.no_log_yet', 'No log yet.');
   // Only touch the DOM when the text changed: an unconditional write replaced
   // the text node 40x/min, which destroyed the user's selection — the exact
   // gesture of copying a traceback into a bug report.
@@ -4300,7 +4283,7 @@ async function poll() {
       // job's own params carry WHY, so print it right next to the size.
       const clampNotes = Array.isArray(j.params.generation_clamp_notes) ? j.params.generation_clamp_notes : [];
       const clampBadge = clampNotes.length
-        ? ` <span class="clamp-note" title="${escapeHtml(clampNotes.join('; '))}">⚠ clamped</span>` : '';
+        ? ` <span class="clamp-note" title="${escapeHtml(clampNotes.join('; '))}">${T('queue.clamped', '⚠ clamped')}</span>` : '';
       // Which film this job is a shot of. A pure function of immutable params,
       // so the qSig memoisation above needs no change.
       const sb = /^sb:([^#]+)#(\d+)$/.exec(j.params.session_tag || '');
@@ -4323,10 +4306,10 @@ async function poll() {
       // button reuses it rotated 180deg (.q-reorder-down in panel.css)
       // rather than adding a near-duplicate symbol.
       const upBtn = i > 0
-        ? `<button title="Move up" onclick="event.stopPropagation();reorderQueuedJob('${j.id}','up')"><svg class="ph" aria-hidden="true"><use href="#ph-arrow-up"/></svg></button>`
+        ? `<button title="${TA('queue.move_up', 'Move up')}" onclick="event.stopPropagation();reorderQueuedJob('${j.id}','up')"><svg class="ph" aria-hidden="true"><use href="#ph-arrow-up"/></svg></button>`
         : '';
       const downBtn = i < s.queue.length - 1
-        ? `<button title="Move down" class="q-reorder-down" onclick="event.stopPropagation();reorderQueuedJob('${j.id}','down')"><svg class="ph" aria-hidden="true"><use href="#ph-arrow-up"/></svg></button>`
+        ? `<button title="${TA('queue.move_down', 'Move down')}" class="q-reorder-down" onclick="event.stopPropagation();reorderQueuedJob('${j.id}','down')"><svg class="ph" aria-hidden="true"><use href="#ph-arrow-up"/></svg></button>`
         : '';
       // Edit is scoped to the plain video modes editQueuedJob() actually
       // knows how to restore into #genForm (see its own comment) — a
@@ -4341,7 +4324,7 @@ async function poll() {
         ${sbBadge}
         <span class="params">${params}${clampBadge}${etaChip}</span>
         <span class="q-reorder">${upBtn}${downBtn}</span>
-        <button title="Remove" onclick="event.stopPropagation();removeJob('${j.id}')"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+        <button title="${TA('queue.remove', 'Remove')}" onclick="event.stopPropagation();removeJob('${j.id}')"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
       </li>`;
     }).join('');
     window._lastQueueSig = qSig;
@@ -4374,10 +4357,10 @@ async function poll() {
   if (window._lastHistorySig !== hSig) {
   window._lastHistorySig = hSig;
   if (!filtered.length) {
-    const empty = filterPhotos === 'photos' ? 'No photo renders yet'
-                : filterPhotos === 'audio' ? 'No songs yet'
-                : filterPhotos === 'videos' ? 'No video renders yet'
-                : 'No history yet';
+    const empty = filterPhotos === 'photos' ? T('queue.no_photo_renders_yet', 'No photo renders yet')
+                : filterPhotos === 'audio' ? T('queue.no_songs_yet', 'No songs yet')
+                : filterPhotos === 'videos' ? T('queue.no_video_renders_yet', 'No video renders yet')
+                : T('queue.no_history_yet', 'No history yet');
     hl.innerHTML = `<li class="empty-state"><span></span><span>${empty}</span><span></span><span></span></li>`;
   }
   else hl.innerHTML = filtered.slice(0, 20).map(j => {
@@ -4432,7 +4415,7 @@ async function poll() {
         </span>
         <span class="params">${fmtMin(j.elapsed_sec)} · ${j.finished_at ? j.finished_at.slice(11) : ''}</span>
         <span><button class="animate-btn" type="button"
-              onclick='animateFromPhoto(${animateArgs})' title="Pre-fill i2v with this image (does not auto-submit)">Animate</button></span>
+              onclick='animateFromPhoto(${animateArgs})' title="${TA('queue.pre_fill_i2v_with_this', 'Pre-fill i2v with this image (does not auto-submit)')}">${T('queue.animate', 'Animate')}</button></span>
       </li>`;
     }
     // Failed jobs get a Retry button in the action column. Clicking it
@@ -4444,8 +4427,8 @@ async function poll() {
     const _p = j.params || {};
     const actionHtml = isRetryable
       ? `<button class="retry-btn" type="button"
-                 title="Re-submit this job with the same params"
-                 onclick='retryJob(${JSON.stringify(j.id)})'>Retry</button>`
+                 title="${TA('queue.re_submit_this_job_with', 'Re-submit this job with the same params')}"
+                 onclick='retryJob(${JSON.stringify(j.id)})'>${T('queue.retry', 'Retry')}</button>`
       : '';
     // Same film badge the queue rows carry, so a shot is identifiable
     // wherever the bottom pane shows it.
@@ -4528,7 +4511,7 @@ async function poll() {
   // when All. Hidden override stays unchanged.
   const _visible = filteredMainOutputs();
   document.getElementById('carouselTitle').textContent =
-    filterMode === 'hidden' ? 'Hidden outputs' : outputsTitleText();
+    filterMode === 'hidden' ? T('queue.hidden_outputs', 'Hidden outputs') : outputsTitleText();
 
   // "Show all (N)" button — reveal whenever the server reports more
   // outputs total than the polling fast path returned, and the user
@@ -4649,13 +4632,12 @@ function _firstClipReady(s) {
     : done.find(j => !_doneAtFirstPoll.has(j.id) && j.params && j.params.mode !== 'image');
   if (!job) return false;
   card.classList.add('is-ready');
-  card.innerHTML = `<button type="button" class="first-run-dismiss" title="Hide this card" aria-label="Hide this card"
+  card.innerHTML = `<button type="button" class="first-run-dismiss" title="${TA('queue.hide_this_card', 'Hide this card')}" aria-label="${TA('queue.hide_this_card', 'Hide this card')}"
       onclick="closeFirstClipReady()"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
-    <div class="ttl">Your first video is ready</div>
-    <div class="sub">Made on this Mac, start to finish. It is playing on the right and saved in your gallery.
-      Write your own idea in the prompt and press Generate for the next one.</div>
+    <div class="ttl">${T('queue.your_first_video_is_ready', 'Your first video is ready')}</div>
+    <div class="sub">${T('queue.made_on_this_mac_start', 'Made on this Mac, start to finish. It is playing on the right and saved in your gallery.\n      Write your own idea in the prompt and press Generate for the next one.')}</div>
     <div class="first-run-ready-actions">
-      <button type="button" onclick="closeFirstClipReady(true)">Write my own</button>
+      <button type="button" onclick="closeFirstClipReady(true)">${T('queue.write_my_own', 'Write my own')}</button>
     </div>`;
   return true;
 }
@@ -4801,14 +4783,14 @@ function applyPackIncompleteGate(s) {
     const shown = names.slice(0, 2).join(', ') + (names.length > 2 ? ' …' : '');
     const n = missing.length || 1;
     note.innerHTML = escapeHtml(
-        `Finish the model download first (${n} file${n === 1 ? '' : 's'}`
+        TP('queue.finish_the_model_download_first', n, {one: 'Finish the model download first ({count} file', other: 'Finish the model download first ({count} files'})
         + (shown ? ` — ${shown}` : '') + ').')
-      + ` <a href="#" onclick="openModelsModal();return false;">Open Models →</a>`;
+      + ` <a href="#" onclick="openModelsModal();return false;">${T('queue.open_models_2', 'Open Models →')}</a>`;
     note.hidden = false;
     note.dataset.packNote = '1';
     genBtn.disabled = true;
-    genBtn.title = "The base model weights aren't all downloaded yet — "
-                 + 'open Settings → Models to finish.';
+    genBtn.title = T('queue.the_base_model_weights_aren', "The base model weights aren't all downloaded yet — ")
+                 + T('queue.open_settings_models_to_finish', 'open Settings → Models to finish.');
     genBtn.dataset.packBlocked = '1';
     return;
   }
@@ -4847,12 +4829,12 @@ function applyPackIncompleteGate(s) {
   const shown = missing.slice(0, 3).join(', ') + (missing.length > 3 ? ' …' : '');
   note.innerHTML = escapeHtml(
       `${label} needs ${missing.length} more file(s) in ${dir} — ${shown}. `
-      + `Finish the download first.`)
-    + ` <a href="#" onclick="openModelsModal();return false;">Finish the download →</a>`;
+      + T('queue.finish_the_download_first', 'Finish the download first.'))
+    + ` <a href="#" onclick="openModelsModal();return false;">${T('queue.finish_the_download', 'Finish the download →')}</a>`;
   note.hidden = false;
   note.dataset.packNote = '1';
   genBtn.disabled = true;
-  genBtn.title = "The weights this tier needs aren't all there yet.";
+  genBtn.title = T('queue.the_weights_this_tier_needs', "The weights this tier needs aren't all there yet.");
   genBtn.dataset.packBlocked = '1';
 }
 
@@ -4955,14 +4937,14 @@ async function retryJob(jobId, opts) {
         if (typeof workflowSwitch === 'function') workflowSwitch('train');
         return;
       }
-      alert('Retry failed: ' + (data.error || ('HTTP ' + r.status)));
+      alert(T('queue.retry_failed', 'Retry failed: ') + (data.error || ('HTTP ' + r.status)));
       return;
     }
     // Force one immediate poll so the queue badge updates without the
     // 1.5s wait. poll() is idempotent.
     if (typeof poll === 'function') poll();
   } catch (e) {
-    alert('Retry error: ' + (e.message || 'unknown'));
+    alert(T('queue.retry_error', 'Retry error: ') + (e.message || 'unknown'));
   }
 }
 
@@ -5005,7 +4987,7 @@ async function remakeInQuality(payload) {
     sidecar = await r.json();
   } catch (e) {
     if (typeof phosToast === 'function') {
-      phosToast('Remake: ' + (e.message || 'failed to read sidecar'),
+      phosToast(T('queue.remake', 'Remake: ') + (e.message || 'failed to read sidecar'),
                 { kind: 'danger' });
     }
     return;
@@ -5058,9 +5040,9 @@ async function remakeInQuality(payload) {
   if (typeof imgStudioGenerate === 'function') {
     if (typeof phosToast === 'function') {
       phosToast((remakeEngine === 'hidream_quality_inline'
-                   ? 'Remaking in HiDream Quality (12-step)'
-                   : 'Remaking in Reference Edit — Quality (40-step)')
-                + ' · watch Recent → Photos', { kind: 'success' });
+                   ? T('queue.remaking_in_hidream_quality_12', 'Remaking in HiDream Quality (12-step)')
+                   : T('queue.remaking_in_reference_edit_quality', 'Remaking in Reference Edit — Quality (40-step)'))
+                + T('queue.watch_recent_photos', ' · watch Recent → Photos'), { kind: 'success' });
     }
     imgStudioGenerate();
   }
@@ -5142,7 +5124,7 @@ function rowTitle(r, prompt, label) {
 // (params.engine = "mflux/ideogram" etc.). Falls back to the raw token.
 function _imgEngineLabel(token) {
   const map = {
-    'flux3': 'FLUX 3 Klein by Black Forest Labs',
+    'flux3': T('queue.flux_3_klein_by_black', 'FLUX 3 Klein by Black Forest Labs'),
     'mflux/ideogram': 'Ideogram 4', 'mflux/hidream': 'HiDream',
     'mflux/qwen_edit': 'Qwen-Edit', 'mflux/flux2': 'FLUX.2', 'mflux': 'mflux'
   };
@@ -5308,11 +5290,11 @@ function renderCarousel() {
   }
   if (!visible.length) {
     const q = (typeof outputsQueryText === 'function') ? outputsQueryText() : '';
-    const msg = q ? ('No matches for \u201c' + escapeHtml(q) + '\u201d.')
-              : mainOutputsFilter === 'photos' ? 'No photo outputs yet.'
-              : mainOutputsFilter === 'audio' ? 'No audio outputs yet — write a song in Audio → Compose.'
-              : mainOutputsFilter === 'videos' ? 'No video outputs yet.'
-              : 'No outputs in this view yet.';
+    const msg = q ? (T('queue.no_matches_for', 'No matches for \u201c') + escapeHtml(q) + '\u201d.')
+              : mainOutputsFilter === 'photos' ? T('queue.no_photo_outputs_yet', 'No photo outputs yet.')
+              : mainOutputsFilter === 'audio' ? T('queue.no_audio_outputs_yet_write', 'No audio outputs yet — write a song in Audio → Compose.')
+              : mainOutputsFilter === 'videos' ? T('queue.no_video_outputs_yet', 'No video outputs yet.')
+              : T('queue.no_outputs_in_this_view', 'No outputs in this view yet.');
     // VC-40: this used to be a plain glowing blue dot (.empty-msg::before)
     // - no motion, but blue + glow + alone above the text reads as a
     // stuck spinner, especially on a first boot with nothing else on
@@ -5377,8 +5359,8 @@ function renderCarousel() {
     const animateArgs = escapeHtml(JSON.stringify({path: o.path, prompt: ''}));
     const animateChip = isPhoto
       ? `<button class="card-action card-action-photo" type="button"
-                 title="Pre-fill i2v with this image (does not auto-submit)"
-                 onclick="event.stopPropagation(); animateFromPhoto(${animateArgs})">Animate</button>`
+                 title="${TA('queue.pre_fill_i2v_with_this', 'Pre-fill i2v with this image (does not auto-submit)')}"
+                 onclick="event.stopPropagation(); animateFromPhoto(${animateArgs})">${T('queue.animate', 'Animate')}</button>`
       : '';
     // Remake-in-Quality chip — only on photos that have a sidecar (we need the
     // original prompt + seed + refs to re-run). Pre-fills the Image Studio
@@ -5389,8 +5371,8 @@ function renderCarousel() {
     const remakeArgs = escapeHtml(JSON.stringify({path: o.path}));
     const remakeChip = (isPhoto && o.has_sidecar)
       ? `<button class="card-action card-action-photo" type="button"
-                 title="Re-run this prompt + seed + refs at Quality (auto-submits)"
-                 onclick="event.stopPropagation(); remakeInQuality(${remakeArgs})">✦ Quality</button>`
+                 title="${TA('queue.re_run_this_prompt_seed', 'Re-run this prompt + seed + refs at Quality (auto-submits)')}"
+                 onclick="event.stopPropagation(); remakeInQuality(${remakeArgs})">${T('queue.quality', '✦ Quality')}</button>`
       : '';
     // Upscale & Face Fix lives on the big player only (owner 2026-09-17: on the
     // thumbnails it was clutter).
@@ -5408,24 +5390,24 @@ function renderCarousel() {
         ${thumbHtml}
         ${addSoundOffer(o) === 'run'
           ? `<button class="car-add-sound" type="button"
-                     title="This clip has no sound. Hailuo H3 can make sound for it — the picture stays exactly as it is."
-                     onclick="event.stopPropagation(); addSoundFromCard(${pathAttr})"><svg class="ph" aria-hidden="true"><use href="#ph-speaker-slash"/></svg>No sound · Add sound</button>`
+                     title="${TA('queue.this_clip_has_no_sound', 'This clip has no sound. Hailuo H3 can make sound for it — the picture stays exactly as it is.')}"
+                     onclick="event.stopPropagation(); addSoundFromCard(${pathAttr})"><svg class="ph" aria-hidden="true"><use href="#ph-speaker-slash"/></svg>${T('queue.no_sound_add_sound', 'No sound · Add sound')}</button>`
           : ''}
         ${o.has_sidecar
-          ? `<button class="car-info-btn" type="button" title="Show generation info"
+          ? `<button class="car-info-btn" type="button" title="${TA('queue.show_generation_info', 'Show generation info')}"
                      onclick="event.stopPropagation(); openOutputInfoModal(${pathAttr})"><svg class="ph" aria-hidden="true"><use href="#ph-info"/></svg></button>`
           : ''}
         <div class="card-chrome">
           ${remakeChip}
           ${animateChip}
-          ${isAudio ? `<button class="card-action card-action-photo" type="button" aria-haspopup="menu" title="Use this audio for Lip-sync, a Music video, a video soundtrack or a cover (nothing renders until you press Generate)" onclick="event.stopPropagation();openAudioUseMenu(event, ${pathAttr})">Use…</button>` : ''}
-          <button class="card-action card-action-danger" type="button" title="Move this file to the Trash — asks first"
+          ${isAudio ? `<button class="card-action card-action-photo" type="button" aria-haspopup="menu" title="${TA('queue.use_this_audio_for_lip', 'Use this audio for Lip-sync, a Music video, a video soundtrack or a cover (nothing renders until you press Generate)')}" onclick="event.stopPropagation();openAudioUseMenu(event, ${pathAttr})">${T('queue.use', 'Use…')}</button>` : ''}
+          <button class="card-action card-action-danger" type="button" title="${TA('queue.move_this_file_to_the', 'Move this file to the Trash — asks first')}"
                   onclick="event.stopPropagation(); deleteOutput(${pathAttr})"><svg class="ph" aria-hidden="true"><use href="#ph-trash-simple"/></svg></button>
         </div>
       </div>
       <div class="info">
         <div class="name" title="${escapeHtml(o.prompt || o.name)}">${_cardTitleText(o)}</div>
-        <div class="sub" title="Render time · file size">
+        <div class="sub" title="${TA('queue.render_time_file_size', 'Render time · file size')}">
           ${o.sb ? `<span class="badge sb-badge" title="Shot ${o.sb.n} of a storyboard — click to open it"
                  onclick="event.stopPropagation(); sbOpenFromClip('${escapeHtml(o.sb.id)}')">S${String(o.sb.n).padStart(2,'0')}</span> · ` : ''}${_outputDurationLabel(o)} · ${o.size_mb.toFixed(1)} MB
         </div>
@@ -5466,13 +5448,14 @@ function _relTimeFromMtime(mtime) {
   const t = new Date(iso).getTime();
   if (!isFinite(t)) return mtime;
   const sec = Math.max(0, Math.round((Date.now() - t) / 1000));
-  if (sec < 45)    return 'just now';
-  if (sec < 90)    return '1 min ago';
-  if (sec < 3600)  return Math.round(sec / 60) + ' min ago';
-  if (sec < 5400)  return '1 h ago';
-  if (sec < 86400) return Math.round(sec / 3600) + ' h ago';
+  if (sec < 45)    return T('queue.just_now', 'just now');
+  if (i18nLang() !== 'en') return i18nAgo(sec);
+  if (sec < 90)    return T('queue.1_min_ago', '1 min ago');
+  if (sec < 3600)  return Math.round(sec / 60) + T('queue.min_ago', ' min ago');
+  if (sec < 5400)  return T('queue.1_h_ago', '1 h ago');
+  if (sec < 86400) return Math.round(sec / 3600) + T('queue.h_ago', ' h ago');
   if (sec < 172800) return 'yesterday';
-  return Math.round(sec / 86400) + ' d ago';
+  return Math.round(sec / 86400) + T('queue.d_ago', ' d ago');
 }
 
 // Helper — look up an output entry by path across BOTH the polled
@@ -5552,7 +5535,7 @@ function buildViewerBar(video) {
   const bar = document.createElement('div');
   bar.className = 'vbar';
   bar.setAttribute('role', 'toolbar');
-  bar.setAttribute('aria-label', 'Video controls');
+  bar.setAttribute('aria-label', T('queue.video_controls', 'Video controls'));
   bar.innerHTML =
     '<button type="button" class="vb-btn vb-play" aria-label="Play" title="Play / pause (Space)"></button>'
     + '<input type="range" class="vb-seek" min="0" max="1000" step="1" value="0" aria-label="Seek">'
@@ -5570,7 +5553,7 @@ function buildViewerBar(video) {
   let seeking = false, openTimer = null;
   const paintPlay = () => {
     play.innerHTML = video.paused ? _VB_ICON_PLAY : _VB_ICON_PAUSE;
-    play.setAttribute('aria-label', video.paused ? 'Play' : 'Pause');
+    play.setAttribute('aria-label', video.paused ? T('queue.play', 'Play') : T('queue.pause', 'Pause'));
     bar.classList.toggle('is-paused', video.paused);
   };
   const paintTime = () => {
@@ -5581,7 +5564,7 @@ function buildViewerBar(video) {
   const paintVol = () => {
     const silent = video.muted || video.volume === 0;
     mute.innerHTML = silent ? _VB_ICON_MUTED : _VB_ICON_SPEAKER;
-    mute.setAttribute('aria-label', silent ? 'Unmute' : 'Mute');
+    mute.setAttribute('aria-label', silent ? T('queue.unmute', 'Unmute') : T('queue.mute', 'Mute'));
     vol.classList.toggle('is-muted', silent);
     slider.value = String(silent ? 0 : Math.round(video.volume * 100));
   };
@@ -5884,10 +5867,10 @@ function selectOutput(path, options) {
   } else if (isAudio) {
     const pathAttr = escapeHtml(JSON.stringify(path));
     const openLink = (o && o.engine === 'music')
-      ? `<button type="button" class="ghost-btn player-audio-open" onclick="openSongInAudioTab(${pathAttr})">Open in Audio tab</button>`
+      ? `<button type="button" class="ghost-btn player-audio-open" onclick="openSongInAudioTab(${pathAttr})">${T('queue.open_in_audio_tab', 'Open in Audio tab')}</button>`
       : '';
     // 4.18.0: the same "Use this audio for…" menu as the card's Use… chip.
-    const useBtn = `<button type="button" class="ghost-btn player-audio-use" aria-haspopup="menu" onclick="openAudioUseMenu(event, ${pathAttr})">Use this audio for…</button>`;
+    const useBtn = `<button type="button" class="ghost-btn player-audio-use" aria-haspopup="menu" onclick="openAudioUseMenu(event, ${pathAttr})">${T('queue.use_this_audio_for', 'Use this audio for…')}</button>`;
     wrap.innerHTML = `<div class="player-audio-inline">`
       + `<audio class="train-voice-audio" controls preload="metadata"${autoplay ? ' autoplay' : ''} src="${escapeHtml(playerSrc)}"></audio>`
       + `<div class="player-audio-btns">` + useBtn + openLink + `</div></div>`;
@@ -5970,7 +5953,7 @@ function selectOutput(path, options) {
     document.getElementById('playerOverlayName').textContent = o ? o.name : '';
     const rel = o ? _relTimeFromMtime(o.mtime) : '';
     const sizeLbl = o ? `${o.size_mb.toFixed(1)} MB` : '';
-    const kindLbl = isPhoto ? 'Photo' : isAudio ? 'Audio' : 'Video';
+    const kindLbl = isPhoto ? T('queue.photo', 'Photo') : isAudio ? T('queue.audio', 'Audio') : T('queue.video', 'Video');
     // VA-14: the lip-sync verdict chip, a2v clips only, only when scored.
     // Same thresholds + wording as One Shot's per-part verdict (oneshot.js
     // osVerdict) so the two surfaces read as one feature. "rough check" is
@@ -5983,7 +5966,7 @@ function selectOutput(path, options) {
       const verdict = n >= 0.25 ? { cls: 'po-ls-ok', text: `mouth follows the voice (${sign}${n.toFixed(2)})` }
         : n >= 0.2 ? { cls: 'po-ls-mid', text: `borderline (${sign}${n.toFixed(2)})` }
         : { cls: 'po-ls-bad', text: `weak — try another seed (${sign}${n.toFixed(2)})` };
-      lipsyncChip = `<span class="po-dot"></span><span class="${verdict.cls}" title="Lip-sync verdict — a rough check (mouth aperture vs. the audio), not a gate.">${escapeHtml(verdict.text)}</span>`;
+      lipsyncChip = `<span class="po-dot"></span><span class="${verdict.cls}" title="${TA('queue.lip_sync_verdict_a_rough', 'Lip-sync verdict — a rough check (mouth aperture vs. the audio), not a gate.')}">${escapeHtml(verdict.text)}</span>`;
     }
     document.getElementById('playerOverlayMeta').innerHTML = o
       ? `<span>${kindLbl}</span><span class="po-dot"></span>` +
@@ -6012,7 +5995,7 @@ function selectOutput(path, options) {
     if (show) {
       recBar.dataset.path = o.path;
       const txt = document.getElementById('oneShotRecoveryText');
-      if (txt) txt.textContent = 'This One Shot stopped early — the parts already rendered are kept.';
+      if (txt) txt.textContent = T('queue.this_one_shot_stopped_early', 'This One Shot stopped early — the parts already rendered are kept.');
     }
   }
   // Action button row: swap "Use as Extend" for "Animate" on photo
@@ -6064,7 +6047,7 @@ function selectOutput(path, options) {
     const wp = o && o.windows_partial;
     windowsContinueBtn.style.display = wp ? '' : 'none';
     const lbl = document.getElementById('windowsContinueLabel');
-    if (lbl && wp) lbl.textContent = 'Continue (' + wp.completed + ' of ' + wp.total + ' done)';
+    if (lbl && wp) lbl.textContent = T('queue.continue', 'Continue (') + wp.completed + ' of ' + wp.total + ' done)';
   }
   // Upscale & Face Fix is video-only but engine-agnostic: an H3 draft is
   // exactly the clip it was built for.
@@ -6123,22 +6106,22 @@ function fitPlayerActions() {
 // the menu offers (and why something is greyed out) is tested by running it.
 function audioUseTargets(o, probes) {
   const music = (probes && probes.music) || {};
-  const cover = { id: 'cover', label: 'Cover it', sub: 'Music Studio reads the tune and sings it fresh' };
+  const cover = { id: 'cover', label: T('queue.cover_it', 'Cover it'), sub: T('queue.music_studio_reads_the_tune', 'Music Studio reads the tune and sings it fresh') };
   if (music.capable === false) {
     cover.disabled = true;
-    cover.why = 'The music engine needs more memory than this Mac has.';
+    cover.why = T('queue.the_music_engine_needs_more', 'The music engine needs more memory than this Mac has.');
   } else if (!music.available) {
-    cover.sub = 'needs the music engine — opens its install card';
+    cover.sub = T('queue.needs_the_music_engine_opens', 'needs the music engine — opens its install card');
   }
   const h3 = (probes && probes.h3) || {};
   const h3Lip = !!(h3.available && h3.audio_drive)
-    ? [{ id: 'lipsync_h3', label: 'Lip-sync with Hailuo H3', sub: 'H3 performs it — face, body and room, your track kept exactly' }]
+    ? [{ id: 'lipsync_h3', label: T('queue.lip_sync_with_hailuo_h3', 'Lip-sync with Hailuo H3'), sub: T('queue.h3_performs_it_face_body', 'H3 performs it — face, body and room, your track kept exactly') }]
     : [];
   return [
-    { id: 'lipsync', label: 'Lip-sync', sub: 'a face in your picture talks or sings to it' },
+    { id: 'lipsync', label: 'Lip-sync', sub: T('queue.a_face_in_your_picture', 'a face in your picture talks or sings to it') },
     ...h3Lip,
-    { id: 'musicvideo', label: 'Music video', sub: 'your pictures, planned and cut to it' },
-    { id: 'soundtrack', label: 'Soundtrack for a video', sub: 'image-to-video, with this as its sound' },
+    { id: 'musicvideo', label: T('queue.music_video', 'Music video'), sub: T('queue.your_pictures_planned_and_cut', 'your pictures, planned and cut to it') },
+    { id: 'soundtrack', label: T('queue.soundtrack_for_a_video', 'Soundtrack for a video'), sub: T('queue.image_to_video_with_this', 'image-to-video, with this as its sound') },
     cover,
   ];
 }
@@ -6151,7 +6134,7 @@ function audioUseApply(path, target) {
     // The Lip-sync form's engine row decides which engine performs it.
     if (typeof setA2vEngine === 'function') setA2vEngine(target === 'lipsync_h3' ? 'h3' : 'ltx');
     audioStudioUseAudio(path, o ? o.clip_sec : null, o ? o.url : '');
-    phosToast('Audio loaded into Lip-sync — add a picture of the face, then Generate.', { kind: 'success' });
+    phosToast(T('queue.audio_loaded_into_lip_sync', 'Audio loaded into Lip-sync — add a picture of the face, then Generate.'), { kind: 'success' });
   } else if (target === 'musicvideo') {
     if (typeof useTrackInA2V === 'function') useTrackInA2V(path);
   } else if (target === 'soundtrack') {
@@ -6167,7 +6150,7 @@ function audioUseApply(path, target) {
     if (typeof musicCoverFromSong === 'function') musicCoverFromSong({ path });
     const det = document.getElementById('musicCoverDetails');
     if (det) det.open = true;
-    phosToast('Loaded as the source song in Cover a song — write a style, then Compose.', { kind: 'success' });
+    phosToast(T('queue.loaded_as_the_source_song', 'Loaded as the source song in Cover a song — write a style, then Compose.'), { kind: 'success' });
   }
 }
 
@@ -6192,8 +6175,8 @@ function useAudioAsSoundtrack(path) {
   if (det) det.open = true;
   const sec = document.getElementById('i2vAudioModeSection');
   if (sec) requestAnimationFrame(() => sec.scrollIntoView({ block: 'center', behavior: 'smooth' }));
-  phosToast((switched ? 'Switched to LTX (Hailuo H3 makes its own sound). ' : '')
-    + 'Soundtrack loaded — pick the picture to animate, then Generate.', { kind: 'success', duration: 6000 });
+  phosToast((switched ? T('queue.switched_to_ltx_hailuo_h3', 'Switched to LTX (Hailuo H3 makes its own sound). ') : '')
+    + T('queue.soundtrack_loaded_pick_the_picture', 'Soundtrack loaded — pick the picture to animate, then Generate.'), { kind: 'success', duration: 6000 });
 }
 
 function openAudioUseMenu(ev, path) {
@@ -6342,8 +6325,8 @@ function lbSyncBar() {
     const use = btn.querySelector('use');
     if (use) use.setAttribute('href', LB.playing ? '#ph-pause-fill' : '#ph-play-fill');
     const lbl = document.getElementById('expandPlayLabel');
-    if (lbl) lbl.textContent = LB.playing ? 'Pause' : 'Play all';
-    btn.title = (LB.playing ? 'Pause — stay on this one' : 'Play all — each clip plays once, then the next')
+    if (lbl) lbl.textContent = LB.playing ? T('queue.pause', 'Pause') : T('queue.play_all', 'Play all');
+    btn.title = (LB.playing ? T('queue.pause_stay_on_this_one', 'Pause — stay on this one') : T('queue.play_all_each_clip_plays', 'Play all — each clip plays once, then the next'))
       + ' (P)';
   }
   const cnt = document.getElementById('expandCount');
@@ -6354,7 +6337,7 @@ function lbSyncBar() {
   if (fs) {
     const on = !!document.fullscreenElement;
     fs.setAttribute('aria-pressed', on ? 'true' : 'false');
-    fs.title = on ? 'Leave full screen' : 'Full screen';
+    fs.title = on ? T('queue.leave_full_screen', 'Leave full screen') : T('queue.full_screen', 'Full screen');
   }
 }
 
@@ -6392,7 +6375,7 @@ function lbSetImageSec(v) {
 // the first one), in the lightbox, playing.
 function lbPlayAll() {
   const list = _lbList();
-  if (!list.length) { phosToast('Nothing in Outputs to play yet.', { kind: 'warning' }); return; }
+  if (!list.length) { phosToast(T('queue.nothing_in_outputs_to_play', 'Nothing in Outputs to play yet.'), { kind: 'warning' }); return; }
   if (!activePath || !list.some(o => o.path === activePath)) {
     if (typeof selectOutput === 'function') selectOutput(list[0].path, { autoplay: false });
   }
@@ -6410,7 +6393,7 @@ function lbToggleFullscreen() {
     } else if (lb.requestFullscreen) {
       const p = lb.requestFullscreen();
       if (p && p.catch) p.catch(() => {
-        phosToast('This window does not allow full screen — the viewer already fills it.', { kind: 'warning' });
+        phosToast(T('queue.this_window_does_not_allow', 'This window does not allow full screen — the viewer already fills it.'), { kind: 'warning' });
       });
     }
   } catch (e) {}
@@ -6502,15 +6485,15 @@ function openExpandLightbox() {
   const actions = document.getElementById('expandActions');
   if (actions) {
     actions.innerHTML = (!isPhoto && !isAudio) ? `
-      <button type="button" class="ghost-btn" onclick="sharpExportActive()">Sharp export</button>
-      <button type="button" class="ghost-btn" onclick="verticalExportActive('9:16')" title="A 9:16 copy with a blurred fill above and below">Make it vertical</button>
-      <button type="button" class="ghost-btn" onclick="verticalExportActive('4:5')" title="A 4:5 copy with a blurred fill above and below">4:5</button>
-      <button type="button" class="ghost-btn" onclick="verticalExportActive('1:1')" title="A square copy with a blurred fill above and below">1:1</button>
-      <button type="button" class="ghost-btn" onclick="verticalExportActive('9:16','ai')" title="A 9:16 copy where AI paints real picture above and below (Phosphene Pro)">Make it vertical (AI fill) <span class="pro-tag" data-pro-feature="vertical-ai-fill">Pro</span></button>
-      <button type="button" class="ghost-btn" onclick="useLastFrameActive()">Use last frame</button>
-      <button type="button" class="ghost-btn" onclick="openActiveInEditor()">Open in Editor</button>
-      <button type="button" class="ghost-btn" onclick="revealActive()">Reveal in Finder</button>
-      <button type="button" class="ghost-btn" onclick="shareActive()">Share</button>
+      <button type="button" class="ghost-btn" onclick="sharpExportActive()">${T('queue.sharp_export', 'Sharp export')}</button>
+      <button type="button" class="ghost-btn" onclick="verticalExportActive('9:16')" title="${TA('queue.a_9_16_copy_with', 'A 9:16 copy with a blurred fill above and below')}">${T('queue.make_it_vertical', 'Make it vertical')}</button>
+      <button type="button" class="ghost-btn" onclick="verticalExportActive('4:5')" title="${TA('queue.a_4_5_copy_with', 'A 4:5 copy with a blurred fill above and below')}">4:5</button>
+      <button type="button" class="ghost-btn" onclick="verticalExportActive('1:1')" title="${TA('queue.a_square_copy_with_a', 'A square copy with a blurred fill above and below')}">1:1</button>
+      <button type="button" class="ghost-btn" onclick="verticalExportActive('9:16','ai')" title="${TA('queue.a_9_16_copy_where', 'A 9:16 copy where AI paints real picture above and below (Phosphene Pro)')}">${T('queue.make_it_vertical_ai_fill', 'Make it vertical (AI fill)')} <span class="pro-tag" data-pro-feature="vertical-ai-fill">Pro</span></button>
+      <button type="button" class="ghost-btn" onclick="useLastFrameActive()">${T('queue.use_last_frame', 'Use last frame')}</button>
+      <button type="button" class="ghost-btn" onclick="openActiveInEditor()">${T('queue.open_in_editor', 'Open in Editor')}</button>
+      <button type="button" class="ghost-btn" onclick="revealActive()">${T('queue.reveal_in_finder', 'Reveal in Finder')}</button>
+      <button type="button" class="ghost-btn" onclick="shareActive()">${T('queue.share', 'Share')}</button>
     ` : '';
     if (typeof proMarksApply === 'function') proMarksApply(actions);
   }
@@ -6652,7 +6635,7 @@ function phosToast(message, opts) {
   el.innerHTML =
     `<svg class="ph" aria-hidden="true"><use href="#${icon}"/></svg>` +
     `<span class="phos-toast-msg"></span>` +
-    `<button type="button" class="phos-toast-close" aria-label="Dismiss">&times;</button>`;
+    `<button type="button" class="phos-toast-close" aria-label="${TA('queue.dismiss', 'Dismiss')}">&times;</button>`;
   el.querySelector('.phos-toast-msg').textContent = msg;
   // SYS-09: every toast can be closed by hand; FILM-03's arm() owns the
   // auto-dismiss timer so a de-duplicated repeat can re-arm it.
@@ -6708,10 +6691,10 @@ async function hide(path) {
   await fetch('/output/hide?path='+encodeURIComponent(path),{method:'POST'});
   outputsCacheMutated([path]); currentOutputs = []; poll();
   const name = String(path).split('/').pop();
-  const el = phosToast('Hidden · ' + name, { kind: 'success', duration: 7000 });
+  const el = phosToast(T('queue.hidden', 'Hidden · ') + name, { kind: 'success', duration: 7000 });
   if (el) {
     const a = document.createElement('a');
-    a.href = '#'; a.className = 'phos-toast-action'; a.textContent = 'Undo';
+    a.href = '#'; a.className = 'phos-toast-action'; a.textContent = T('queue.undo', 'Undo');
     a.onclick = (ev) => { ev.preventDefault(); el.remove(); unhide(path); };
     el.appendChild(a);
   }
@@ -6729,14 +6712,14 @@ async function deleteOutput(path) {
   // viewing this clip in the expand lightbox, that closes too.
   if (!path) return;
   const base = path.split('/').pop();
-  if (!confirm('Move to Trash?\n\n' + base + '\n\nRestore from Finder if needed.')) return;
+  if (!confirm(T('queue.move_to_trash', 'Move to Trash?\n\n') + base + T('queue.restore_from_finder_if_needed', '\n\nRestore from Finder if needed.'))) return;
   try {
     const fd = new URLSearchParams();
     fd.set('path', path);
     const r = await fetch('/output/delete', { method: 'POST', body: fd });
     const data = await r.json().catch(() => ({}));
     if (!r.ok || !data.ok) {
-      phosToast('Delete failed: ' + (data.error || ('HTTP ' + r.status)),
+      phosToast(T('queue.delete_failed', 'Delete failed: ') + (data.error || ('HTTP ' + r.status)),
                 { kind: 'danger', duration: 5000 });
       return;
     }
@@ -6753,9 +6736,9 @@ async function deleteOutput(path) {
     outputsCacheMutated([path]);
     currentOutputs = [];
     poll();
-    phosToast('Moved to Trash · ' + base, { kind: 'success' });
+    phosToast(T('queue.moved_to_trash', 'Moved to Trash · ') + base, { kind: 'success' });
   } catch (e) {
-    phosToast('Delete error: ' + (e.message || 'unknown'),
+    phosToast(T('queue.delete_error', 'Delete error: ') + (e.message || 'unknown'),
               { kind: 'danger', duration: 5000 });
   }
 }
@@ -6768,10 +6751,10 @@ async function openOutputsFolder() {
     const r = await fetch('/output/open_folder', { method: 'POST' });
     const data = await r.json().catch(() => ({}));
     if (!r.ok || !data.ok) {
-      alert('Open folder failed: ' + (data.error || ('HTTP ' + r.status)));
+      alert(T('queue.open_folder_failed', 'Open folder failed: ') + (data.error || ('HTTP ' + r.status)));
     }
   } catch (e) {
-    alert('Open folder error: ' + (e.message || 'unknown'));
+    alert(T('queue.open_folder_error', 'Open folder error: ') + (e.message || 'unknown'));
   }
 }
 function hideActive() { if (activePath) hide(activePath); }
@@ -6793,17 +6776,17 @@ function useAsExtendSourcePath(path) {
   updateDerived();
   document.querySelector('aside.form-pane').scrollTop = 0;
 }
-function useAsExtendSource() { if (!activePath) return alert('Pick an output first.'); useAsExtendSourcePath(activePath); }
+function useAsExtendSource() { if (!activePath) return alert(T('queue.pick_an_output_first', 'Pick an output first.')); useAsExtendSourcePath(activePath); }
 
 // 4.19: Add sound — the clip on screen goes to Hailuo H3's Add sound form
 // (the Extend panel's source picker), engine switched to H3. Nothing renders
 // until Generate; the prompt is left for the user to describe the sound.
 function useAsAddSoundSource(path) {
   path = path || activePath;
-  if (!path) { phosToast('Pick a clip first.', { kind: 'warn' }); return; }
+  if (!path) { phosToast(T('queue.pick_a_clip_first', 'Pick a clip first.'), { kind: 'warn' }); return; }
   if (typeof h3CanServe !== 'function' || !h3CanServe('v2a')) {
-    phosToast(distText('Add sound needs Hailuo H3 with an up-to-date runner — press Update in Pinokio.',
-                       'Add sound needs an up-to-date Hailuo H3 runner. Phosphene brings the Hailuo H3 runner up to date by itself; quit and reopen Phosphene if this stays.'), { kind: 'warn', duration: 6000 });
+    phosToast(distText(T('queue.add_sound_needs_hailuo_h3', 'Add sound needs Hailuo H3 with an up-to-date runner — press Update in Pinokio.'),
+                       T('queue.add_sound_needs_an_up', 'Add sound needs an up-to-date Hailuo H3 runner. Phosphene brings the Hailuo H3 runner up to date by itself; quit and reopen Phosphene if this stays.')), { kind: 'warn', duration: 6000 });
     return;
   }
   if (typeof workflowSwitch === 'function') { try { workflowSwitch('manual'); } catch (e) {} }
@@ -6814,7 +6797,7 @@ function useAsAddSoundSource(path) {
   if (sel) sel.value = path;
   updateDerived();
   document.querySelector('aside.form-pane').scrollTop = 0;
-  phosToast('Clip loaded into Add sound — describe the sound you want, then Generate.', { kind: 'success' });
+  phosToast(T('queue.clip_loaded_into_add_sound', 'Clip loaded into Add sound — describe the sound you want, then Generate.'), { kind: 'success' });
 }
 
 // W6 (2026-10-19): Add sound was nearly undiscovered (3 renders in 14 days
@@ -6859,7 +6842,7 @@ function syncPlayerSoundOffer(o) {
       + ' title="Hailuo H3 makes sound for this clip — the picture stays exactly as it is.">'
       + '<svg class="ph" aria-hidden="true"><use href="#ph-speaker-slash"/></svg>No sound · Add sound</button>'
     : '<span class="po-silent">No sound · Add sound needs '
-      + (offer === 'update' ? 'a Hailuo H3 update' : 'Hailuo H3') + '</span>');
+      + (offer === 'update' ? T('queue.a_hailuo_h3_update', 'a Hailuo H3 update') : 'Hailuo H3') + '</span>');
 }
 // The card's "Add sound": show the clip in the player AND land in Add sound
 // with it picked — the same door the player's own Add sound button opens.
@@ -6875,12 +6858,12 @@ function addSoundFromCard(path) {
 // pragmatic equivalent built on Extend's own already-proven path: the
 // partial clip IS the finished prefix, Extend continues it.
 function windowsContinueFromPartial(path) {
-  if (!path) { alert('Pick an output first.'); return; }
+  if (!path) { alert(T('queue.pick_an_output_first', 'Pick an output first.')); return; }
   useAsExtendSourcePath(path);
   if (typeof phosToast === 'function') {
-    phosToast('This clip is what finished before the Windows chain stopped — '
-      + 'Extend continues it. The prompt below is the ORIGINAL clip’s; edit it '
-      + 'for what should happen next.', { duration: 7000 });
+    phosToast(T('queue.this_clip_is_what_finished', 'This clip is what finished before the Windows chain stopped — ')
+      + T('queue.extend_continues_it_the_prompt', 'Extend continues it. The prompt below is the ORIGINAL clip’s; edit it ')
+      + T('queue.for_what_should_happen_next', 'for what should happen next.'), { duration: 7000 });
   }
 }
 
@@ -6892,7 +6875,7 @@ function windowsContinueFromPartial(path) {
 // Extend's job (regenerate joint LTX audio over new frames) is exactly
 // wrong here, which is why it's swapped out for a2v clips.
 async function continueSongFromClip(path) {
-  if (!path) { alert('Pick an output first.'); return; }
+  if (!path) { alert(T('queue.pick_an_output_first', 'Pick an output first.')); return; }
   try {
     // Restore the source clip's own recipe first (audio file, prompt,
     // canvas, strength, LoRAs) — loadParams() reads the CURRENTLY SELECTED
@@ -6924,11 +6907,11 @@ async function continueSongFromClip(path) {
       if (det) det.scrollIntoView({ block: 'start', behavior: 'smooth' });
     });
     if (typeof phosToast === 'function') {
-      phosToast('Continuing from ' + res.audio_start_time.toFixed(1)
-        + 's, anchored on the last closed-mouth frame.', { kind: 'success' });
+      phosToast(T('queue.continuing_from', 'Continuing from ') + res.audio_start_time.toFixed(1)
+        + T('queue.s_anchored_on_the_last', 's, anchored on the last closed-mouth frame.'), { kind: 'success' });
     }
   } catch (e) {
-    const msg = 'Continue the song failed: ' + (e.message || e);
+    const msg = T('queue.continue_the_song_failed', 'Continue the song failed: ') + (e.message || e);
     if (typeof phosToast === 'function') phosToast(msg, { kind: 'danger' });
     else alert(msg);
   }
@@ -6950,12 +6933,12 @@ function retakeClampNoteText(tier) {
   const t = tier || {};
   const cap = Number(t.extend_max_dim || 0);
   if (!cap) return '';
-  return `On this Mac (${t.label || 'this tier'}), Retake works at up to ${cap}px `
-    + `on the longer side: a bigger clip is downscaled first, so the new clip `
-    + `can come out smaller than this one. The original stays as it is.`;
+  return T('queue.on_this_mac_retake_works', 'On this Mac ({v}), Retake works at up to {cap}px ', {v: t.label || 'this tier', cap})
+    + T('queue.on_the_longer_side_a', 'on the longer side: a bigger clip is downscaled first, so the new clip ')
+    + T('queue.can_come_out_smaller_than', 'can come out smaller than this one. The original stays as it is.');
 }
 function openRetakeModal(path) {
-  if (!path) { alert('Pick a clip first.'); return; }
+  if (!path) { alert(T('queue.pick_a_clip_first', 'Pick a clip first.')); return; }
   _retakeSourcePath = path;
   const modal = document.getElementById('retakeModal');
   const status = document.getElementById('retakeStatus');
@@ -6998,7 +6981,7 @@ async function submitRetake() {
   const start = parseFloat((document.getElementById('retakeStart') || {}).value || '0') || 0;
   const end = parseFloat((document.getElementById('retakeEnd') || {}).value || '0') || 0;
   if (end <= start) {
-    if (status) status.textContent = 'End must be after start.';
+    if (status) status.textContent = T('queue.end_must_be_after_start', 'End must be after start.');
     return;
   }
   const promptEl = document.getElementById('retakePrompt');
@@ -7013,7 +6996,7 @@ async function submitRetake() {
   const keepSoundEl = document.getElementById('retakeKeepSound');
   const keepSound = !keepSoundEl || keepSoundEl.checked;
   if (btn) btn.disabled = true;
-  if (status) status.textContent = 'Queueing…';
+  if (status) status.textContent = T('queue.queueing', 'Queueing…');
   try {
     const fd = new URLSearchParams();
     fd.set('mode', 'retake');
@@ -7022,18 +7005,18 @@ async function submitRetake() {
     fd.set('retake_start_sec', String(start));
     fd.set('retake_end_sec', String(end));
     if (!keepSound) fd.set('retake_audio_action', 'regenerate');
-    fd.set('preset_label', 'Retake ' + start.toFixed(1) + 's-' + end.toFixed(1) + 's');
+    fd.set('preset_label', T('queue.retake', 'Retake ') + start.toFixed(1) + 's-' + end.toFixed(1) + 's');
     const r = await fetch('/queue/add', { method: 'POST', body: fd });
     const res = await r.json().catch(() => ({}));
     if (!r.ok || res.error) throw new Error(res.error || ('HTTP ' + r.status));
     if (typeof phosToast === 'function') {
-      phosToast('Retake queued (' + start.toFixed(1) + 's–' + end.toFixed(1)
-        + 's) — lands next to the original, watch Now', { kind: 'success' });
+      phosToast(T('queue.retake_queued', 'Retake queued (') + start.toFixed(1) + 's–' + end.toFixed(1)
+        + T('queue.s_lands_next_to_the', 's) — lands next to the original, watch Now'), { kind: 'success' });
     }
     closeRetakeModal();
     if (typeof poll === 'function') poll();
   } catch (e) {
-    const msg = 'Retake failed: ' + (e.message || e);
+    const msg = T('queue.retake_failed', 'Retake failed: ') + (e.message || e);
     if (status) status.textContent = msg;
     if (typeof phosToast === 'function') phosToast(msg, { kind: 'danger', duration: 6000 });
   } finally {
@@ -7047,7 +7030,7 @@ async function submitRetake() {
 // The fixed clip lands NEXT TO the original as a new file; nothing is
 // overwritten. `opts.board` + `opts.clip` = ordered from an Editor clip, which
 // makes the Editor offer the swap when it lands.
-const FACE_FIX_NAME = 'Upscale & Face Fix';
+const FACE_FIX_NAME = T('queue.upscale_face_fix', 'Upscale & Face Fix');
 // A clip that already went through Upscale & Face Fix (or an older ×2 pass):
 // the lane names its outputs <stem>_x2_<stamp>.mp4; hand-made finals carry
 // _x2f / x2_faithful / _bizvoice (built from an ×2) in the path.
@@ -7056,7 +7039,7 @@ function isUpscaledPath(p) {
 }
 async function faceFixClip(path, opts) {
   opts = opts || {};
-  if (!path) { phosToast('Pick a clip first.', {}); return null; }
+  if (!path) { phosToast(T('queue.pick_a_clip_first', 'Pick a clip first.'), {}); return null; }
   const fd = new URLSearchParams();
   fd.set('path', path);
   if (opts.board) fd.set('board', opts.board);
@@ -7071,27 +7054,27 @@ async function faceFixClip(path, opts) {
     return r;
   }
   if (!r || !r.ok) {
-    phosToast((r && r.error) || (FACE_FIX_NAME + ' could not be queued.'),
+    phosToast((r && r.error) || (FACE_FIX_NAME + T('queue.could_not_be_queued', ' could not be queued.')),
               { kind: 'danger', duration: 9000 });
     return r;
   }
-  if (opts.btnId) { try { _flashActionDone(opts.btnId, 'Queued'); } catch (e) {} }
+  if (opts.btnId) { try { _flashActionDone(opts.btnId, T('queue.queued', 'Queued')); } catch (e) {} }
   // VA-22: was untruncated prose that clipped at 1440px and never said the
   // size — the real number the server just computed (no eta shown: one
   // measurement at 1024×576 exists, not a lane table, so a guessed time
   // would be exactly the kind of promise this review is about).
   const sizeNote = (r.target_w && r.target_h) ? (' · ' + r.target_w + '×' + r.target_h) : '';
   phosToast(r.duplicate
-    ? (FACE_FIX_NAME + (r.running ? ' is already rendering for ' : ' is already queued for ')
+    ? (FACE_FIX_NAME + (r.running ? T('queue.is_already_rendering_for', ' is already rendering for ') : T('queue.is_already_queued_for', ' is already queued for '))
        + name + '.')
     : (opts.doneHint || (FACE_FIX_NAME + ' queued' + sizeNote
-       + ' — lands next to the original.')),
+       + T('queue.lands_next_to_the_original', ' — lands next to the original.'))),
     { kind: 'success', duration: 6000 });
   try { poll(); } catch (e) {}
   return r;
 }
 function faceFixActive() {
-  if (!activePath) return phosToast('Pick a clip in Outputs first.', {});
+  if (!activePath) return phosToast(T('queue.pick_a_clip_in_outputs', 'Pick a clip in Outputs first.'), {});
   return faceFixClip(activePath, { btnId: 'faceFixBtn' });
 }
 
@@ -7104,7 +7087,7 @@ function faceFixActive() {
 // wires them with the path of whatever is currently expanded).
 
 async function queueSharpExport(path) {
-  if (!path) { phosToast('Pick a clip first.', {}); return null; }
+  if (!path) { phosToast(T('queue.pick_a_clip_first', 'Pick a clip first.'), {}); return null; }
   const fd = new URLSearchParams();
   fd.set('path', path);
   let r;
@@ -7117,19 +7100,19 @@ async function queueSharpExport(path) {
     return r;
   }
   phosToast(r.duplicate
-    ? ('Sharp export is already queued for ' + name + '.')
-    : ('Sharp export queued for ' + name + ' — a sharper file lands next to it in Outputs.'),
+    ? (T('queue.sharp_export_is_already_queued', 'Sharp export is already queued for ') + name + '.')
+    : (T('queue.sharp_export_queued_for', 'Sharp export queued for ') + name + T('queue.a_sharper_file_lands_next', ' — a sharper file lands next to it in Outputs.')),
     { kind: 'success', duration: 6000 });
   try { poll(); } catch (e) {}
   return r;
 }
 function sharpExportActive() {
-  if (!activePath) return phosToast('Pick a clip in Outputs first.', {});
+  if (!activePath) return phosToast(T('queue.pick_a_clip_in_outputs', 'Pick a clip in Outputs first.'), {});
   return queueSharpExport(activePath);
 }
 
 async function queueVerticalExport(path, ratio, fill) {
-  if (!path) { phosToast('Pick a clip first.', {}); return null; }
+  if (!path) { phosToast(T('queue.pick_a_clip_first', 'Pick a clip first.'), {}); return null; }
   const ai = fill === 'ai';
   // Free Macs see what Pro is instead of a refusal toast (the server refuses too).
   if (ai && !document.documentElement.dataset.pro) { openProModal(); return null; }
@@ -7147,10 +7130,10 @@ async function queueVerticalExport(path, ratio, fill) {
     return r;
   }
   phosToast(r.duplicate
-    ? ('Make it vertical is already queued for ' + name + '.')
+    ? (T('queue.make_it_vertical_is_already', 'Make it vertical is already queued for ') + name + '.')
     : ai
-      ? ('Make it vertical (AI fill) queued for ' + name + ' — AI paints above and below. It takes about 15 minutes for a 5-second clip.')
-      : ((ratio && ratio !== '9:16' ? ('A ' + ratio + ' copy is') : 'Make it vertical is') + ' queued for ' + name + ' — it lands next to the clip in Outputs, with a blurred fill.'),
+      ? (T('queue.make_it_vertical_ai_fill_2', 'Make it vertical (AI fill) queued for ') + name + T('queue.ai_paints_above_and_below', ' — AI paints above and below. It takes about 15 minutes for a 5-second clip.'))
+      : (ratio && ratio !== '9:16' ? T('queue.a_ratio_copy_is_queued_for', 'A {ratio} copy is queued for {name} — it lands next to the clip in Outputs, with a blurred fill.', {ratio, name}) : T('queue.make_it_vertical_is_queued_for', 'Make it vertical is queued for {name} — it lands next to the clip in Outputs, with a blurred fill.', {name})),
     { kind: 'success', duration: 6000 });
   try { poll(); } catch (e) {}
   return r;
@@ -7172,10 +7155,10 @@ function verticalHintUpdate(o) {
   const pro = !!document.documentElement.dataset.pro;
   // The same lead words and colour as every Pro note (proNoteHtml, settings.js).
   const text = !pro
-    ? 'Your tall copy is ready. Pro adds: Make it vertical (AI fill), real picture above and below instead of a blur.'
+    ? T('queue.your_tall_copy_is_ready', 'Your tall copy is ready. Pro adds: Make it vertical (AI fill), real picture above and below instead of a blur.')
     : fill === 'ai'
-      ? 'On with your Pro: Make it vertical (AI fill). The top and bottom of this copy are real picture.'
-      : 'On with your Pro: Make it vertical (AI fill), in the same menu, paints real picture instead of a blur.';
+      ? T('queue.on_with_your_pro_make', 'On with your Pro: Make it vertical (AI fill). The top and bottom of this copy are real picture.')
+      : T('queue.on_with_your_pro_make_2', 'On with your Pro: Make it vertical (AI fill), in the same menu, paints real picture instead of a blur.');
   const m = /^(.*?)(Pro adds:|On with your Pro:)\s*(.*)$/.exec(text);
   document.getElementById('verticalHintText').innerHTML = m
     ? escapeHtml(m[1]) + `<span class="pro-lead">${m[2]}</span> ` + escapeHtml(m[3]) : escapeHtml(text);
@@ -7193,14 +7176,14 @@ function speedupQuietUpdate(o) {
   if (!id) return;
   box.dataset.jobId = id;
   document.getElementById('speedupQuietText').textContent =
-    'This clip\u2019s sound came out almost silent, and the prompt asked for sound. That can happen with the Pro speed-up.';
+    T('queue.this_clip_s_sound_came', 'This clip\u2019s sound came out almost silent, and the prompt asked for sound. That can happen with the Pro speed-up.');
 }
 async function speedupQuietRetry() {
   const box = document.getElementById('speedupQuiet');
   const id = box && box.dataset.jobId;
   if (!id) return;
   await retryJob(id, { overrides: { pro_speedup_choice: 'off' } });
-  phosToast('Queued again without the speed-up: same prompt, seed and settings.', { kind: 'success', duration: 5000 });
+  phosToast(T('queue.queued_again_without_the_speed', 'Queued again without the speed-up: same prompt, seed and settings.'), { kind: 'success', duration: 5000 });
 }
 function verticalHintDismiss() {
   const st = _vhState() || {};
@@ -7210,13 +7193,13 @@ function verticalHintDismiss() {
 }
 
 function verticalExportActive(ratio, fill) {
-  if (!activePath) return phosToast('Pick a clip in Outputs first.', {});
+  if (!activePath) return phosToast(T('queue.pick_a_clip_in_outputs', 'Pick a clip in Outputs first.'), {});
   return queueVerticalExport(activePath, ratio, fill);
 }
 
 async function useLastFramePath(path) {
-  if (!path) { phosToast('Pick a clip first.', {}); return; }
-  phosToast('Grabbing the last frame…', { duration: 2500 });
+  if (!path) { phosToast(T('queue.pick_a_clip_first', 'Pick a clip first.'), {}); return; }
+  phosToast(T('queue.grabbing_the_last_frame', 'Grabbing the last frame…'), { duration: 2500 });
   const fd = new URLSearchParams();
   fd.set('path', path);
   let r;
@@ -7238,15 +7221,15 @@ async function useLastFramePath(path) {
   const formPane = document.querySelector('aside.form-pane');
   if (formPane) formPane.scrollTop = 0;
   if (typeof updateDerived === 'function') updateDerived();
-  phosToast('Last frame loaded as the i2v reference — ready for a fresh take.', { kind: 'success' });
+  phosToast(T('queue.last_frame_loaded_as_the', 'Last frame loaded as the i2v reference — ready for a fresh take.'), { kind: 'success' });
 }
 function useLastFrameActive() {
-  if (!activePath) return phosToast('Pick a clip in Outputs first.', {});
+  if (!activePath) return phosToast(T('queue.pick_a_clip_in_outputs', 'Pick a clip in Outputs first.'), {});
   return useLastFramePath(activePath);
 }
 
 async function revealClipInFinder(path) {
-  if (!path) { phosToast('Pick a clip first.', {}); return; }
+  if (!path) { phosToast(T('queue.pick_a_clip_first', 'Pick a clip first.'), {}); return; }
   const fd = new URLSearchParams();
   fd.set('path', path);
   let r;
@@ -7255,7 +7238,7 @@ async function revealClipInFinder(path) {
   if (!r || !r.ok) phosToast((r && r.error) || 'Could not open Finder.', { kind: 'danger' });
 }
 function revealActive() {
-  if (!activePath) return phosToast('Pick a clip in Outputs first.', {});
+  if (!activePath) return phosToast(T('queue.pick_a_clip_in_outputs', 'Pick a clip in Outputs first.'), {});
   return revealClipInFinder(activePath);
 }
 
@@ -7266,7 +7249,7 @@ function revealActive() {
 // a one-line caption with the link on the clipboard, and the file selected in
 // Finder, ready to drag into X / Reddit / Discord. No upload, no watermark,
 // no account; the fleet only learns that the button was used.
-const SHARE_CAPTION = 'Made on my Mac with Phosphene, free open-source AI video that runs locally: https://github.com/mrbizarro/phosphene';
+const SHARE_CAPTION = T('queue.made_on_my_mac_with', 'Made on my Mac with Phosphene, free open-source AI video that runs locally: https://github.com/mrbizarro/phosphene');
 
 function _copyText(text) {
   const legacy = () => {
@@ -7287,7 +7270,7 @@ function _copyText(text) {
 }
 
 async function shareClip(path) {
-  if (!path) { phosToast('Pick a clip first.', {}); return; }
+  if (!path) { phosToast(T('queue.pick_a_clip_first', 'Pick a clip first.'), {}); return; }
   const copied = await _copyText(SHARE_CAPTION);
   const fd = new URLSearchParams();
   fd.set('path', path);
@@ -7296,21 +7279,21 @@ async function shareClip(path) {
   catch (e) { r = { ok: false }; }
   const shown = !!(r && r.ok);
   try { _uiEvent('feature_used', {feature: 'share'}); } catch (_) {}
-  const msg = copied && shown ? 'Caption copied, and the clip is selected in Finder. Drag it into your post and paste.'
-            : copied ? 'Caption copied. Use Reveal in Finder to grab the file.'
-            : shown ? 'The clip is selected in Finder. Caption: ' + SHARE_CAPTION
-            : 'Could not copy or open Finder. Caption: ' + SHARE_CAPTION;
+  const msg = copied && shown ? T('queue.caption_copied_and_the_clip', 'Caption copied, and the clip is selected in Finder. Drag it into your post and paste.')
+            : copied ? T('queue.caption_copied_use_reveal_in', 'Caption copied. Use Reveal in Finder to grab the file.')
+            : shown ? T('queue.the_clip_is_selected_in', 'The clip is selected in Finder. Caption: ') + SHARE_CAPTION
+            : T('queue.could_not_copy_or_open', 'Could not copy or open Finder. Caption: ') + SHARE_CAPTION;
   phosToast(msg, { kind: copied || shown ? 'success' : 'danger', duration: 8000 });
 }
 function shareActive() {
-  if (!activePath) return phosToast('Pick a clip in Outputs first.', {});
+  if (!activePath) return phosToast(T('queue.pick_a_clip_in_outputs', 'Pick a clip in Outputs first.'), {});
   return shareClip(activePath);
 }
 
 async function openClipInEditor(path) {
-  if (!path) { phosToast('Pick a clip first.', {}); return; }
+  if (!path) { phosToast(T('queue.pick_a_clip_first', 'Pick a clip first.'), {}); return; }
   if (!(typeof SB !== 'undefined' && SB.boards && SB.boards.length)) {
-    phosToast('Create a film in Storyboard first — then a clip can join it in the Editor.', {});
+    phosToast(T('queue.create_a_film_in_storyboard', 'Create a film in Storyboard first — then a clip can join it in the Editor.'), {});
     return;
   }
   const id = (SB.boards[0] || {}).id;
@@ -7320,7 +7303,7 @@ async function openClipInEditor(path) {
   try { r = await (await fetch('/storyboard/add-shot', { method: 'POST', body: fd })).json(); }
   catch (e) { r = { ok: false, error: String(e) }; }
   if (!r || !r.ok) { phosToast((r && r.error) || 'Could not add the clip.', { kind: 'danger' }); return; }
-  phosToast('Added to "' + (r.title || 'the film') + '" — opening the Editor.', { kind: 'success' });
+  phosToast(T('queue.added_to', 'Added to "') + (r.title || 'the film') + T('queue.opening_the_editor', '" — opening the Editor.'), { kind: 'success' });
   if (typeof edOpenBoard === 'function') edOpenBoard(id);
 }
 function openActiveInEditor() { return openClipInEditor(activePath); }
@@ -7353,7 +7336,7 @@ function kebabToggle(id, forceOpen) {
 // second time — one seed helper, shared.
 async function newTakeFromPath(path, opts) {
   opts = opts || {};
-  if (!path) { phosToast('Pick a clip first.', {}); return null; }
+  if (!path) { phosToast(T('queue.pick_a_clip_first', 'Pick a clip first.'), {}); return null; }
   const fd = new URLSearchParams();
   fd.set('path', path);
   let r;
@@ -7365,17 +7348,17 @@ async function newTakeFromPath(path, opts) {
               { kind: 'danger', duration: 7000 });
     return r;
   }
-  if (opts.btnId) { try { _flashActionDone(opts.btnId, 'Queued'); } catch (e) {} }
+  if (opts.btnId) { try { _flashActionDone(opts.btnId, T('queue.queued', 'Queued')); } catch (e) {} }
   const etaMin = (typeof r.eta_sec === 'number' && r.eta_sec > 0)
     ? Math.max(1, Math.round(r.eta_sec / 60)) : null;
-  phosToast('New take queued for ' + name
-    + (etaMin ? (' · about ' + etaMin + ' min, same as last time') : ''),
+  phosToast(T('queue.new_take_queued_for', 'New take queued for ') + name
+    + (etaMin ? (T('queue.about', ' · about ') + etaMin + T('queue.min_same_as_last_time', ' min, same as last time')) : ''),
     { kind: 'success', duration: 6000 });
   try { poll(); } catch (e) {}
   return r;
 }
 function newTakeActive() {
-  if (!activePath) return phosToast('Pick a clip in Outputs first.', {});
+  if (!activePath) return phosToast(T('queue.pick_a_clip_in_outputs', 'Pick a clip in Outputs first.'), {});
   return newTakeFromPath(activePath, { btnId: 'newTakeBtn' });
 }
 
@@ -7404,9 +7387,9 @@ function _syncHiddenFilterToggle(s) {
   const n = (s && s.hidden_count) || 0;
   btn.style.display = (n > 0 || filterMode === 'hidden') ? '' : 'none';
   btn.classList.toggle('active', filterMode === 'hidden');
-  btn.textContent = filterMode === 'hidden' ? 'Showing hidden — back to Outputs' : `Hidden (${n})`;
+  btn.textContent = filterMode === 'hidden' ? T('queue.showing_hidden_back_to_outputs', 'Showing hidden — back to Outputs') : `Hidden (${n})`;
   btn.title = filterMode === 'hidden'
-    ? 'Show the regular gallery again'
+    ? T('queue.show_the_regular_gallery_again', 'Show the regular gallery again')
     : `${n} output${n === 1 ? '' : 's'} hidden from the gallery — click to see and restore them`;
 }
 
@@ -7440,11 +7423,11 @@ function _syncDestructiveQueueButtons(s) {
   document.querySelectorAll('[data-role="clear-queue-btn"]').forEach(btn => {
     btn.disabled = queued.length === 0;
     const label = btn.querySelector('.clear-queue-label');
-    const text = queued.length ? `Clear queue (${queued.length})` : 'Clear queue';
+    const text = queued.length ? T('queue.clear_queue_n', 'Clear queue ({count})', {count: queued.length}) : T('queue.clear_queue', 'Clear queue');
     if (label) label.textContent = text; else btn.title = text;
     btn.title = queued.length
-      ? `Remove ${queued.length} waiting render${queued.length === 1 ? '' : 's'} — the running one continues. Undo brings them right back.`
-      : 'Nothing waiting in the queue';
+      ? TP('queue.remove_waiting_render_the_running', queued.length, {one: 'Remove {count} waiting render — the running one continues. Undo brings them right back.', other: 'Remove {count} waiting renders — the running one continues. Undo brings them right back.'})
+      : T('queue.nothing_waiting_in_the_queue', 'Nothing waiting in the queue');
   });
 }
 
@@ -7485,7 +7468,7 @@ function requestStop(opts) {
   const doHardStop = () => {
     if (onStop) onStop();
     api('/stop' + jobQ, 'POST').then(d => {
-      if (d && d.error) phosToast('That render already finished — nothing was stopped.', { kind: 'info' });
+      if (d && d.error) phosToast(T('queue.that_render_already_finished_nothing', 'That render already finished — nothing was stopped.'), { kind: 'info' });
       poll();
     }).catch(e => { phosToast((e && e.message) || 'Could not stop.', { kind: 'danger' }); poll(); });
   };
@@ -7493,11 +7476,11 @@ function requestStop(opts) {
     if (onStop) onStop();
     fetch('/stop/after_part' + jobQ, { method: 'POST' }).then(r => r.json()).then(d => {
       phosToast(d && d.ok
-        ? `Stopping after this ${label} — keeping everything already rendered.`
+        ? T('queue.stopping_after_this_keeping_everything', 'Stopping after this {label} — keeping everything already rendered.', {label})
         : ((d && d.error) || `Could not stop after this ${label}.`),
         { kind: d && d.ok ? 'success' : 'danger', duration: 6000 });
       poll();
-    }).catch(() => phosToast(`Could not stop after this ${label}.`, { kind: 'danger' }));
+    }).catch(() => phosToast(T('queue.could_not_stop_after_this', 'Could not stop after this {label}.', {label}), { kind: 'danger' }));
   };
 
   if ((isTake || isH3Chain) && hasDialog) {
@@ -7506,17 +7489,19 @@ function requestStop(opts) {
     const total = isTake ? (tp.parts || (cp.take.parts && cp.take.parts.length) || 0)
                           : Number(progress.window_total || 0);
     const unit = isTake ? 'part' : 'window';
+    // The unit word shown to people (the code keeps 'part'/'window' as values).
+    const unitWord = isTake ? T('queue.unit_part', 'part') : T('queue.unit_window', 'window');
     _phModalShow({
-      tone: 'danger', kicker: isTake ? 'Stop this One Shot?' : 'Stop this chained render?',
-      title: promptSnippet ? `Stop "${promptSnippet}"?` : 'Stop this render?',
-      body: (done > 0 ? `${unit === 'part' ? 'Part' : 'Window'} ${done} of ${total || '?'} is finishing. `
+      tone: 'danger', kicker: isTake ? T('queue.stop_this_one_shot', 'Stop this One Shot?') : T('queue.stop_this_chained_render', 'Stop this chained render?'),
+      title: promptSnippet ? `Stop "${promptSnippet}"?` : T('queue.stop_this_render', 'Stop this render?'),
+      body: (done > 0 ? `${unit === 'part' ? T('queue.part', 'Part') : T('queue.window', 'Window')} ${done} of ${total || '?'} is finishing. `
                        : `The first ${unit} is still rendering. `)
-          + `Stop after this ${unit} keeps everything already rendered`
-          + (isTake ? ' and joins it into a shorter clip. ' : ' as a shorter clip. ')
-          + `Stop now throws away the ${unit} in progress too`
-          + (isH3Chain ? ' — and this engine may not be able to save anything at all mid-window.' : '.'),
-      primaryLabel: `Stop after this ${unit}`, onPrimary: () => doStopAfterPart(unit),
-      secondaryLabel: `Stop now (loses this ${unit})`, onSecondary: doHardStop,
+          + T('queue.stop_after_this_keeps_everything', 'Stop after this {unit} keeps everything already rendered', {unit: unitWord})
+          + (isTake ? T('queue.and_joins_it_into_a', ' and joins it into a shorter clip. ') : T('queue.as_a_shorter_clip', ' as a shorter clip. '))
+          + T('queue.stop_now_throws_away_the', 'Stop now throws away the {unit} in progress too', {unit: unitWord})
+          + (isH3Chain ? T('queue.and_this_engine_may_not', ' — and this engine may not be able to save anything at all mid-window.') : '.'),
+      primaryLabel: T('queue.stop_after_this', 'Stop after this {unit}', {unit: unitWord}), onPrimary: () => doStopAfterPart(unit),
+      secondaryLabel: T('queue.stop_now_loses_this', 'Stop now (loses this {unit})', {unit: unitWord}), onSecondary: doHardStop,
     });
     return;
   }
@@ -7524,11 +7509,11 @@ function requestStop(opts) {
   if (hasDialog) {
     const mins = Math.max(1, Math.round(elapsedMin));
     _phModalShow({
-      tone: 'danger', kicker: 'Stop this render?',
-      title: promptSnippet ? `Stop "${promptSnippet}"?` : 'Stop this render?',
+      tone: 'danger', kicker: T('queue.stop_this_render', 'Stop this render?'),
+      title: promptSnippet ? `Stop "${promptSnippet}"?` : T('queue.stop_this_render', 'Stop this render?'),
       body: `About ${mins} min of work will be lost, and the next render reloads the model from scratch.`,
-      primaryLabel: 'Stop', onPrimary: doHardStop,
-      secondaryLabel: 'Keep rendering',
+      primaryLabel: T('queue.stop', 'Stop'), onPrimary: doHardStop,
+      secondaryLabel: T('queue.keep_rendering', 'Keep rendering'),
     });
     return;
   }
@@ -7554,7 +7539,7 @@ function requestClearQueue() {
       { kind: 'success', duration: 8000 });
     if (!el || !token) return;
     const a = document.createElement('a');
-    a.href = '#'; a.className = 'phos-toast-action'; a.textContent = 'Undo';
+    a.href = '#'; a.className = 'phos-toast-action'; a.textContent = T('queue.undo', 'Undo');
     a.onclick = async (ev) => {
       ev.preventDefault(); el.remove();
       try {
@@ -7567,7 +7552,7 @@ function requestClearQueue() {
         const restored = (typeof d.restored === 'number') ? d.restored : n;
         phosToast(`Restored ${restored} render${restored === 1 ? '' : 's'}`, { kind: 'success' });
       } catch (e) {
-        phosToast('Could not restore the queue: ' + (e.message || e), { kind: 'danger', duration: 7000 });
+        phosToast(T('queue.could_not_restore_the_queue', 'Could not restore the queue: ') + (e.message || e), { kind: 'danger', duration: 7000 });
       }
       poll();
     };
@@ -7591,7 +7576,7 @@ async function takeResumeFromPath(path) {
     phosToast((r && r.error) || 'Could not resume this One Shot.', { kind: 'danger', duration: 7000 });
     return;
   }
-  phosToast(`Resuming from part ${(r.resumed_from_part || 0) + 1} of ${r.total_parts || '?'}`,
+  phosToast(T('queue.resuming_from_part_of', 'Resuming from part {v} of {v2}', {v: (r.resumed_from_part || 0) + 1, v2: r.total_parts || '?'}),
     { kind: 'success', duration: 6000 });
   poll();
 }
@@ -7626,7 +7611,7 @@ function useAsUpscaleSourcePath(path) {
   const pane = document.querySelector('aside.form-pane');
   if (pane) pane.scrollTop = 0;
 }
-function useAsUpscaleSource() { if (!activePath) return alert('Pick an output first.'); useAsUpscaleSourcePath(activePath); }
+function useAsUpscaleSource() { if (!activePath) return alert(T('queue.pick_an_output_first', 'Pick an output first.')); useAsUpscaleSourcePath(activePath); }
 // Upscale & Face Fix presets — hidden numbers the server maps to how the
 // render starts; the pills are the only thing the user touches. `keep_shot`
 // is the preset; the Face Fix pill also pins the start and the step count
@@ -7840,7 +7825,7 @@ async function loadParams(recipe) {
     if (sd != null && sd !== '') document.getElementById('seed').value = sd;
 
     if (typeof _syncSeedLockChip === 'function') { try { _syncSeedLockChip(); } catch (e) {} }
-    _flashActionDone('loadParamsBtn', 'Loaded');
+    _flashActionDone('loadParamsBtn', T('queue.loaded', 'Loaded'));
     return;
   }
   // ov-review E-02: the Remix tools used to fall through to the final
@@ -8100,9 +8085,9 @@ async function loadParams(recipe) {
       // a green "Loaded" flash on top.
       if (typeof phosToast === 'function') {
         phosToast(`This clip's character "${p.character_id}" is no longer in `
-                  + 'the library — everything else was restored, but the '
-                  + 'cast could not be. Re-train or re-download it to '
-                  + 're-render this clip faithfully.', { kind: 'danger' });
+                  + T('queue.the_library_everything_else_was', 'the library — everything else was restored, but the ')
+                  + T('queue.cast_could_not_be_re', 'cast could not be. Re-train or re-download it to ')
+                  + T('queue.re_render_this_clip_faithfully', 're-render this clip faithfully.'), { kind: 'danger' });
       }
     }
     // BOTH strengths, because the character has two and the sidecar records
@@ -8164,7 +8149,7 @@ async function loadParams(recipe) {
   if (_eng === 'h3' && _engLanded !== 'h3') {
     if (typeof phosToast === 'function') {
       const note = (document.getElementById('engineRowNote') || {}).textContent || '';
-      phosToast('This clip was made with Hailuo H3. ' + (note
+      phosToast(T('queue.this_clip_was_made_with', 'This clip was made with Hailuo H3. ') + (note
         || 'H3 isn\'t available on this Mac, so it loaded into LTX instead — the prompt is H3-format and the shape won\'t match.'),
         { kind: 'danger', duration: 8000 });
     }
@@ -8247,7 +8232,7 @@ async function loadParams(recipe) {
     const val = Number.isFinite(stg) ? Math.max(0, Math.min(4, stg)) : 0;
     _stgEl.value = String(val);
     const lbl = document.getElementById('stgScaleValue');
-    if (lbl) lbl.textContent = val === 0 ? 'Off' : val.toFixed(1);
+    if (lbl) lbl.textContent = val === 0 ? T('queue.off', 'Off') : val.toFixed(1);
     if (typeof _applyStgRowVisibility === 'function') {
       try { _applyStgRowVisibility(); } catch (_) {}
     }
@@ -8276,12 +8261,12 @@ async function loadParams(recipe) {
   };
   // Say it out loud. This whole function ran silently before — the form
   // changed somewhere off-screen and the click read as a dead button.
-  _flashActionDone('loadParamsBtn', 'Loaded');
+  _flashActionDone('loadParamsBtn', T('queue.loaded', 'Loaded'));
   // On the Storyboard surface the Video form isn't on screen at all, so the
   // flash happens somewhere the user can't see and the click reads as dead.
   // Take them to the form that just changed.
   if (document.body.dataset.workflow === 'storyboard') {
-    phosToast('Loaded into the Video form.', { kind: 'success' });
+    phosToast(T('queue.loaded_into_the_video_form', 'Loaded into the Video form.'), { kind: 'success' });
     if (typeof workflowSwitch === 'function') workflowSwitch('manual');
   }
 }
@@ -8334,7 +8319,7 @@ async function openOutputInfoModal(path) {
   try {
     const r = await fetch('/sidecar?path=' + encodeURIComponent(path));
     if (!r.ok) {
-      body.innerHTML = `<div class="hint">No sidecar metadata for this output (older generation, or sidecar was deleted).</div>`;
+      body.innerHTML = `<div class="hint">${T('queue.no_sidecar_metadata_for_this', 'No sidecar metadata for this output (older generation, or sidecar was deleted).')}</div>`;
       return;
     }
     data = await r.json();
@@ -8356,7 +8341,7 @@ function _copyToClipboard(text, btn) {
     navigator.clipboard.writeText(text);
     if (btn) {
       const orig = btn.textContent;
-      btn.textContent = 'Copied!';
+      btn.textContent = T('queue.copied', 'Copied!');
       setTimeout(() => { btn.textContent = orig; }, 1200);
     }
   } catch (e) { /* swallow */ }
@@ -8379,10 +8364,10 @@ function _humanDuration(s) {
 
 function renderOutputInfoBody(path, data) {
   if (data && data.engine === 'music') {
-    const fields = [['Style', data.style], ['Lyrics', data.lyrics], ['Seed', data.seed],
-      ['Length', _humanDuration(data.audio_seconds)],
-      ['Ended naturally', data.ended_naturally == null ? 'Unknown' : data.ended_naturally ? 'Yes' : 'No — max length reached'],
-      ['Score (ABC)', data.score_abc || 'No score']];
+    const fields = [[T('queue.style', 'Style'), data.style], [T('queue.lyrics', 'Lyrics'), data.lyrics], [T('queue.seed', 'Seed'), data.seed],
+      [T('queue.length', 'Length'), _humanDuration(data.audio_seconds)],
+      [T('queue.ended_naturally', 'Ended naturally'), data.ended_naturally == null ? T('queue.unknown', 'Unknown') : data.ended_naturally ? T('queue.yes', 'Yes') : T('queue.no_max_length_reached', 'No — max length reached')],
+      [T('queue.score_abc', 'Score (ABC)'), data.score_abc || 'No score']];
     return fields.map(([label, value]) => `<div class="oi-section"><h3 class="oi-section-title">${label}</h3><div class="oi-prompt music-info-text">${escapeHtml(String(value == null ? '—' : value))}</div></div>`).join('')
       + '<p class="hint">Generated with YuE2 by Multimodal Art Projection · MLX port by vanch007</p>';
   }
@@ -8407,7 +8392,7 @@ function renderOutputInfoBody(path, data) {
   const pathAttr = escapeHtml(JSON.stringify(path));
   const accelMetrics = (data && data.accel_metrics) || null;
   const keyframeModeLabel = (() => {
-    if (!p.keyframes_json) return 'FFLF (first + last frame)';
+    if (!p.keyframes_json) return T('queue.fflf_first_last_frame', 'FFLF (first + last frame)');
     try {
       const kfs = JSON.parse(p.keyframes_json);
       return Array.isArray(kfs) && kfs.length >= 3
@@ -8418,15 +8403,15 @@ function renderOutputInfoBody(path, data) {
     }
   })();
   const _baseModeLabel = ({
-    t2v: 'Text → Video',
-    i2v: 'Image → Video',
-    i2v_clean_audio: 'Image → Video (clean audio)',
+    t2v: T('queue.text_video', 'Text → Video'),
+    i2v: T('queue.image_video', 'Image → Video'),
+    i2v_clean_audio: T('queue.image_video_clean_audio', 'Image → Video (clean audio)'),
     keyframe: keyframeModeLabel,
-    extend: 'Extend',
+    extend: T('queue.extend', 'Extend'),
     upscale: FACE_FIX_NAME,
-    restore: 'Colorize',
-    control: 'Motion Control',
-    ingredients: 'Ingredients',
+    restore: T('queue.colorize', 'Colorize'),
+    control: T('queue.motion_control', 'Motion Control'),
+    ingredients: T('queue.ingredients', 'Ingredients'),
   })[p.mode] || (p.mode || '—');
   // One Shot is the mode the user chose; t2v/i2v is what it ran as.
   const modeLabel = (p.take && p.take.seconds)
@@ -8446,7 +8431,7 @@ function renderOutputInfoBody(path, data) {
   // render params, say both, delivered first (the number that matters to
   // whoever's about to use the file) with the render size as context.
   const formatBits = [];
-  const _upscaleNote = { fit_720p: '720p fit', x2: '×2 upscale' }[p.upscale];
+  const _upscaleNote = { fit_720p: T('queue.720p_fit', '720p fit'), x2: T('queue.2_upscale', '×2 upscale') }[p.upscale];
   if (data.actual_width && data.actual_height) {
     if (p.width && p.height
         && (data.actual_width !== p.width || data.actual_height !== p.height)) {
@@ -8464,16 +8449,16 @@ function renderOutputInfoBody(path, data) {
 
   // ---- Output (technical) ----
   html += `<div class="oi-section">
-    <div class="oi-section-title"><span>Output</span></div>
+    <div class="oi-section-title"><span>${T('queue.output', 'Output')}</span></div>
     <dl class="oi-grid">
-      ${formatBits.length ? `<dt>Format</dt><dd>${formatBits.join('  ·  ')}</dd>` : ''}
-      ${p.frames != null ? `<dt>Frames</dt><dd>${p.frames}</dd>` : ''}
+      ${formatBits.length ? `<dt>${T('queue.format', 'Format')}</dt><dd>${formatBits.join('  ·  ')}</dd>` : ''}
+      ${p.frames != null ? `<dt>${T('queue.frames', 'Frames')}</dt><dd>${p.frames}</dd>` : ''}
     </dl>
   </div>`;
 
   // ---- Generation parameters ----
   const genRows = [];
-  genRows.push(`<dt>Mode</dt><dd>${escapeHtml(modeLabel)}</dd>`);
+  genRows.push(`<dt>${T('queue.mode', 'Mode')}</dt><dd>${escapeHtml(modeLabel)}</dd>`);
   if (p.mode === 'upscale') {
     // Which recipe ran. `face_fix` is written by the worker since the rename;
     // older sidecars only carry keep_shot, and the words follow the server's
@@ -8483,12 +8468,12 @@ function renderOutputInfoBody(path, data) {
     const start = ff.start || p.upscale_start || (keep < 0.5 ? 'noise' : 'source');
     const steps = ff.refine_steps || (start === 'source'
       ? (Number(p.upscale_steps) || (keep >= 0.95 ? 3 : 2)) : null);
-    const how = start === 'noise' ? 'Re-imagine — full re-render from noise'
-      : (steps === 1 ? 'Face Fix — 1 refine step from the clip (the face is kept)'
+    const how = start === 'noise' ? T('queue.re_imagine_full_re_render', 'Re-imagine — full re-render from noise')
+      : (steps === 1 ? T('queue.face_fix_1_refine_step', 'Face Fix — 1 refine step from the clip (the face is kept)')
          : `${steps} refine steps from the clip`);
-    genRows.push(`<dt>Recipe</dt><dd>${escapeHtml(how)}</dd>`);
+    genRows.push(`<dt>${T('queue.recipe', 'Recipe')}</dt><dd>${escapeHtml(how)}</dd>`);
     if (p.upscale_source_path) {
-      genRows.push(`<dt>From</dt><dd>${escapeHtml(String(p.upscale_source_path).split('/').pop())}</dd>`);
+      genRows.push(`<dt>${T('queue.from', 'From')}</dt><dd>${escapeHtml(String(p.upscale_source_path).split('/').pop())}</dd>`);
     }
   }
   // A Hailuo H3 render has no LTX quality preset. `params.quality` is just
@@ -8507,20 +8492,20 @@ function renderOutputInfoBody(path, data) {
     // hand-edited sidecar) — honest, where a fallback label would not be.
     const h3TierDef = (typeof h3TierByKeyExact === 'function')
       ? h3TierByKeyExact(h3RawKey) : null;
-    genRows.push(`<dt>Engine</dt><dd>Hailuo H3</dd>`);
+    genRows.push(`<dt>${T('queue.engine', 'Engine')}</dt><dd>Hailuo H3</dd>`);
     // Two axes, two rows. The frozen `h3_tier_label` from render time wins over
     // today's label if the sidecar has one — a clip should keep the name it was
     // rendered under even if the presets are renamed again.
     const qLabel = h3TierDef ? h3TierDef.quality_label : (p.h3_quality || '');
     const lLabel = h3TierDef ? h3TierDef.length_label : (p.h3_length || '');
     if (qLabel || lLabel) {
-      genRows.push(`<dt>Quality</dt><dd>${escapeHtml(qLabel || '—')}${
+      genRows.push(`<dt>${T('queue.quality_2', 'Quality')}</dt><dd>${escapeHtml(qLabel || '—')}${
         h3TierDef ? ' · ' + escapeHtml(h3TierDef.width + '×' + h3TierDef.height
                                       + ' · ' + h3TierDef.aspect) : ''}</dd>`);
-      genRows.push(`<dt>Length</dt><dd>${escapeHtml(lLabel || '—')}${
+      genRows.push(`<dt>${T('queue.length', 'Length')}</dt><dd>${escapeHtml(lLabel || '—')}${
         p.frames != null ? ' · ' + escapeHtml(String(p.frames)) + 'f' : ''}</dd>`);
     } else {
-      genRows.push(`<dt>H3 tier</dt><dd>${escapeHtml(p.h3_tier_label || h3RawKey || '—')}</dd>`);
+      genRows.push(`<dt>${T('queue.h3_tier', 'H3 tier')}</dt><dd>${escapeHtml(p.h3_tier_label || h3RawKey || '—')}</dd>`);
     }
     // Turbo changed the sampler recipe, so it earns a row on every clip that
     // used it — it is the difference between two otherwise identical renders.
@@ -8528,47 +8513,47 @@ function renderOutputInfoBody(path, data) {
       // The Draft sampler: which adapter file, and the ladder it ran.
       const ti = (data && data.h3 && data.h3.tristep) || {};
       const acc = (data && data.h3 && data.h3.lora_accounting) || null;
-      genRows.push(`<dt>Speed</dt><dd>Fast · 3-step · ${escapeHtml(String(ti.forwards || 3))} forwards`
+      genRows.push(`<dt>${T('queue.speed', 'Speed')}</dt><dd>Fast · 3-step · ${escapeHtml(String(ti.forwards || 3))} forwards`
         + ` · TaoMate 3-step adapter${ti.adapter_version ? ' (' + escapeHtml(String(ti.adapter_version)) + ')' : ''}`
         + ` · σ ${escapeHtml(String(ti.sigma_subset || '50:0,16,33,49'))}`
-        + (acc && acc.applied != null ? ' · ' + escapeHtml(String(acc.applied)) + ' modules wrapped' : '')
+        + (acc && acc.applied != null ? ' · ' + escapeHtml(String(acc.applied)) + T('queue.modules_wrapped', ' modules wrapped') : '')
         + '</dd>');
       if (p.h3_clean_sound) {
         // The re-voice pass's own record: one per window (w1_revoice...).
         const rv = (data && data.h3 && data.h3.revoice) || {};
         const first = Object.values(rv)[0] || {};
         const secs = Object.values(rv).reduce((a, r) => a + (Number(r && r.seconds) || 0), 0);
-        genRows.push(`<dt>Sound</dt><dd>Cleaned up · made again with the full model`
-          + (first.forwards ? ' · ' + escapeHtml(String(first.forwards)) + ' sound steps' : '')
+        genRows.push(`<dt>${T('queue.sound', 'Sound')}</dt><dd>${T('queue.cleaned_up_made_again_with', 'Cleaned up · made again with the full model')}`
+          + (first.forwards ? ' · ' + escapeHtml(String(first.forwards)) + T('queue.sound_steps', ' sound steps') : '')
           + (secs ? ' · ' + escapeHtml(String(Math.round(secs))) + ' s' : '') + '</dd>');
       }
     } else if (p.h3_turbo) {
       const tinfo = (data && data.h3 && data.h3.turbo) || null;
       const applied = tinfo && tinfo.applied && tinfo.applied.applied;
-      genRows.push(`<dt>Turbo</dt><dd>on · ${escapeHtml(String(p.steps || 4))}-step `
-        + `distill LoRA${applied ? ' · ' + escapeHtml(String(applied)) + ' modules applied' : ''}</dd>`);
+      genRows.push(`<dt>${T('queue.turbo', 'Turbo')}</dt><dd>on · ${escapeHtml(String(p.steps || 4))}-step `
+        + `distill LoRA${applied ? ' · ' + escapeHtml(String(applied)) + T('queue.modules_applied', ' modules applied') : ''}</dd>`);
     } else {
       // H3-04: a Best clip fell through with NO Speed row at all — only
       // Fast (tristep) and the retired Turbo earned one, so "what speed
       // was this rendered at" was answerable for some clips and not
       // others. Best earns the same row every other speed gets.
-      genRows.push(`<dt>Speed</dt><dd>Best · this shape's full sampler`
+      genRows.push(`<dt>${T('queue.speed', 'Speed')}</dt><dd>${T('queue.best_this_shape_s_full', 'Best · this shape\'s full sampler')}`
         + (Number(p.h3_steps || 0) > 0
           ? ` · ${escapeHtml(String(p.steps || p.h3_steps))} steps · tier default overridden`
           : '') + '</dd>');
     }
   } else {
-    genRows.push(`<dt>Quality</dt><dd>${escapeHtml((p.quality || 'standard').replace(/^./, c => c.toUpperCase()))}</dd>`);
+    genRows.push(`<dt>${T('queue.quality_2', 'Quality')}</dt><dd>${escapeHtml((p.quality || 'standard').replace(/^./, c => c.toUpperCase()))}</dd>`);
   }
   if (p.accel && p.accel !== 'off') {
-    genRows.push(`<dt>Speed</dt><dd>${escapeHtml(p.accel.replace(/^./, c => c.toUpperCase()))}</dd>`);
+    genRows.push(`<dt>${T('queue.speed', 'Speed')}</dt><dd>${escapeHtml(p.accel.replace(/^./, c => c.toUpperCase()))}</dd>`);
   }
   // A non-default schedule changed the take, so the record must name it.
   if (p.schedule_preset && p.schedule_preset !== 'default') {
-    genRows.push(`<dt>Schedule</dt><dd>${escapeHtml(String(p.schedule_preset))} · draft schedule — a different take than Tuned</dd>`);
+    genRows.push(`<dt>${T('queue.schedule', 'Schedule')}</dt><dd>${escapeHtml(String(p.schedule_preset))} · draft schedule — a different take than Tuned</dd>`);
   }
   if (p.i2v_reference_mode === 'inspire') {
-    genRows.push(`<dt>Reference use</dt><dd>Inspire — the image guided subject and style; the shot was composed fresh (not animated from it)</dd>`);
+    genRows.push(`<dt>${T('queue.reference_use', 'Reference use')}</dt><dd>Inspire — the image guided subject and style; the shot was composed fresh (not animated from it)</dd>`);
   }
   if (accelMetrics && p.accel && p.accel !== 'off') {
     const cachedCount = accelMetrics.cached_steps_count || 0;
@@ -8578,7 +8563,7 @@ function renderOutputInfoBody(path, data) {
       ? ` · cached steps ${escapeHtml(accelMetrics.cached_steps.join(', '))}`
       : '';
     const savingsText = savings != null ? ` · ~${escapeHtml(String(savings))}% denoise calls saved` : '';
-    genRows.push(`<dt>Accel metrics</dt><dd>${cachedCount}/${totalSteps} cached${savingsText}${cachedList}</dd>`);
+    genRows.push(`<dt>${T('queue.accel_metrics', 'Accel metrics')}</dt><dd>${cachedCount}/${totalSteps} cached${savingsText}${cachedList}</dd>`);
   }
   if (data.memory_policy) {
     const mp = data.memory_policy;
@@ -8587,7 +8572,7 @@ function renderOutputInfoBody(path, data) {
     const decode = mp.vae_decode || (mp.helper && mp.helper.vae_decode) || '';
     const fullMax = mp.full_decode_max_frames != null ? ` · full≤${escapeHtml(String(mp.full_decode_max_frames))}f` : '';
     const reason = mp.reason ? ` · ${escapeHtml(mp.reason)}` : '';
-    genRows.push(`<dt>Memory</dt><dd>${escapeHtml(req)}${eff !== req ? ` → ${escapeHtml(eff)}` : ''}${decode ? ` · VAE ${escapeHtml(decode)}` : ''}${fullMax}${reason}</dd>`);
+    genRows.push(`<dt>${T('queue.memory', 'Memory')}</dt><dd>${escapeHtml(req)}${eff !== req ? ` → ${escapeHtml(eff)}` : ''}${decode ? ` · VAE ${escapeHtml(decode)}` : ''}${fullMax}${reason}</dd>`);
   }
   if (p.temporal_mode === 'fps12_interp24' || data.temporal) {
     const t = data.temporal || {};
@@ -8595,7 +8580,7 @@ function renderOutputInfoBody(path, data) {
     const deliveryFrames = t.delivery_frames || p.frames || '—';
     const sourceFps = t.model_fps || p.model_fps || 12;
     const deliveryFps = t.delivery_fps || p.delivery_fps || 24;
-    genRows.push(`<dt>Long clips</dt><dd>12 → 24fps · LTX ${escapeHtml(String(sourceFrames))}f @ ${escapeHtml(String(sourceFps))}fps → ${escapeHtml(String(deliveryFrames))}f @ ${escapeHtml(String(deliveryFps))}fps</dd>`);
+    genRows.push(`<dt>${T('queue.long_clips', 'Long clips')}</dt><dd>12 → 24fps · LTX ${escapeHtml(String(sourceFrames))}f @ ${escapeHtml(String(sourceFps))}fps → ${escapeHtml(String(deliveryFrames))}f @ ${escapeHtml(String(deliveryFps))}fps</dd>`);
   }
   if (p.upscale && p.upscale !== 'off') {
     const up = data.upscale || {};
@@ -8604,10 +8589,10 @@ function renderOutputInfoBody(path, data) {
     // What the export DID, from the sidecar's plan: since 4.16.1 a near-16:9
     // source fills the canvas with a small trim, so "(no crop)" is only true
     // for a pure scale or a padded one.
-    const fitHow = up.fill ? 'filled, edges trimmed' : (up.pad ? 'bars added' : 'no crop');
+    const fitHow = up.fill ? T('queue.filled_edges_trimmed', 'filled, edges trimmed') : (up.pad ? T('queue.bars_added', 'bars added') : T('queue.no_crop', 'no crop'));
     const baseLabel = p.upscale === 'fit_720p' ? `720p fit (${fitHow})` : (p.upscale === 'x2' ? '2×' : p.upscale);
     const label = isSharp ? `${baseLabel} · Sharp (PiperSR)` : `${baseLabel} · Fast (Lanczos)`;
-    genRows.push(`<dt>Upscale</dt><dd>${escapeHtml(label + target)}</dd>`);
+    genRows.push(`<dt>${T('queue.upscale', 'Upscale')}</dt><dd>${escapeHtml(label + target)}</dd>`);
   }
   // H3's own export pass. `p.upscale` is always 'off' on an H3 render (the LTX
   // knobs are neutralised server-side), so it needs its own row rather than
@@ -8615,21 +8600,21 @@ function renderOutputInfoBody(path, data) {
   if (p.h3_upscale && p.h3_upscale !== 'off') {
     const up = data.upscale || {};
     const target = up.target_w && up.target_h ? ` → ${up.target_w} × ${up.target_h}` : '';
-    const fitHow = up.fill ? 'filled, edges trimmed' : (up.pad ? 'bars added' : 'no crop');
-    const base = (p.h3_upscale === 'fit_1080p' ? '1080p fit' : '720p fit') + ` (${fitHow})`;
-    genRows.push(`<dt>Export</dt><dd>${escapeHtml(base + ' · Fast (Lanczos)' + target)}</dd>`);
+    const fitHow = up.fill ? T('queue.filled_edges_trimmed', 'filled, edges trimmed') : (up.pad ? T('queue.bars_added', 'bars added') : T('queue.no_crop', 'no crop'));
+    const base = (p.h3_upscale === 'fit_1080p' ? T('queue.1080p_fit', '1080p fit') : T('queue.720p_fit', '720p fit')) + ` (${fitHow})`;
+    genRows.push(`<dt>${T('queue.export', 'Export')}</dt><dd>${escapeHtml(base + T('queue.fast_lanczos', ' · Fast (Lanczos)') + target)}</dd>`);
   }
   // Chained windows — the honest shape of a 10 s / 15 s H3 clip.
   if (data.h3 && Number(data.h3.chain_windows || 1) > 1) {
     const c = data.h3;
-    genRows.push(`<dt>Chained</dt><dd>${escapeHtml(String(c.chain_windows))} × ${escapeHtml(String(c.window_frames))}f windows → ${escapeHtml(String(c.delivered_frames || p.frames || '—'))}f · ${escapeHtml(String(c.seams || (c.chain_windows - 1)))} join(s)</dd>`);
+    genRows.push(`<dt>${T('queue.chained', 'Chained')}</dt><dd>${escapeHtml(String(c.chain_windows))} × ${escapeHtml(String(c.window_frames))}f windows → ${escapeHtml(String(c.delivered_frames || p.frames || '—'))}f · ${escapeHtml(String(c.seams || (c.chain_windows - 1)))} join(s)</dd>`);
     // What each window was ACTUALLY asked for. The resolved list — blanks
     // already filled from the main prompt — so a clip whose second beat didn't
     // land can be read straight off the modal. Absent = one prompt, every
     // window (the default), and the Chained row above already says how many.
     const wp = Array.isArray(c.chain_prompts) ? c.chain_prompts : [];
     if (wp.length) {
-      genRows.push(`<dt>Window prompts</dt><dd>${wp.map((t, i) =>
+      genRows.push(`<dt>${T('queue.window_prompts', 'Window prompts')}</dt><dd>${wp.map((t, i) =>
         `<div><b>${i + 1}</b> · ${escapeHtml(snippet(String(t == null ? '' : t), 110))}</div>`
       ).join('')}</dd>`);
     }
@@ -8637,23 +8622,23 @@ function renderOutputInfoBody(path, data) {
   const codec = data.output_codec || (data.upscale && data.upscale.codec);
   if (codec && codec.pix_fmt && codec.crf != null) {
     const preset = codec.preset ? ` · ${codec.preset}` : '';
-    genRows.push(`<dt>Output codec</dt><dd>${escapeHtml(codec.pix_fmt)} · CRF ${escapeHtml(String(codec.crf))}${escapeHtml(preset)}</dd>`);
+    genRows.push(`<dt>${T('queue.output_codec', 'Output codec')}</dt><dd>${escapeHtml(codec.pix_fmt)} · CRF ${escapeHtml(String(codec.crf))}${escapeHtml(preset)}</dd>`);
   }
   if (p.negative_prompt) {
-    genRows.push(`<dt>Avoid</dt><dd>${escapeHtml(snippet(p.negative_prompt, 90))}</dd>`);
+    genRows.push(`<dt>${T('queue.avoid_3', 'Avoid')}</dt><dd>${escapeHtml(snippet(p.negative_prompt, 90))}</dd>`);
   }
   if (seedVal) {
-    genRows.push(`<dt>Seed</dt><dd>
+    genRows.push(`<dt>${T('queue.seed', 'Seed')}</dt><dd>
       <code>${escapeHtml(seedVal)}</code>
-      <button class="oi-copy" type="button" onclick="_copyToClipboard(${seedAttr}, this)">Copy</button>
+      <button class="oi-copy" type="button" onclick="_copyToClipboard(${seedAttr}, this)">${T('queue.copy', 'Copy')}</button>
     </dd>`);
   }
-  if (p.steps != null) genRows.push(`<dt>Steps</dt><dd>${p.steps}</dd>`);
+  if (p.steps != null) genRows.push(`<dt>${T('queue.steps', 'Steps')}</dt><dd>${p.steps}</dd>`);
   if (p.hdr) genRows.push(`<dt>HDR</dt><dd>On</dd>`);
-  if (p.label) genRows.push(`<dt>Label</dt><dd>${escapeHtml(p.label)}</dd>`);
+  if (p.label) genRows.push(`<dt>${T('queue.label', 'Label')}</dt><dd>${escapeHtml(p.label)}</dd>`);
 
   html += `<div class="oi-section">
-    <div class="oi-section-title"><span>Generation</span></div>
+    <div class="oi-section-title"><span>${T('queue.generation', 'Generation')}</span></div>
     <dl class="oi-grid">${genRows.join('')}</dl>
   </div>`;
 
@@ -8661,8 +8646,8 @@ function renderOutputInfoBody(path, data) {
   if (promptText) {
     html += `<div class="oi-section">
       <div class="oi-section-title">
-        <span>Prompt</span>
-        <button class="oi-copy" type="button" onclick="_copyToClipboard(${promptAttr}, this)">Copy</button>
+        <span>${T('queue.prompt', 'Prompt')}</span>
+        <button class="oi-copy" type="button" onclick="_copyToClipboard(${promptAttr}, this)">${T('queue.copy', 'Copy')}</button>
       </div>
       <div class="oi-prompt">${escapeHtml(promptText)}</div>
     </div>`;
@@ -8680,7 +8665,7 @@ function renderOutputInfoBody(path, data) {
     }).join('');
     html += `<div class="oi-section">
       <div class="oi-section-title">
-        <span>LoRAs used</span>
+        <span>${T('queue.loras_used', 'LoRAs used')}</span>
         <span class="oi-count">${loras.length}</span>
       </div>
       <div class="oi-lora-list">${rows}</div>
@@ -8689,23 +8674,23 @@ function renderOutputInfoBody(path, data) {
 
   // ---- Timing + provenance ----
   const timingRows = [];
-  if (data.started) timingRows.push(`<dt>Started</dt><dd>${escapeHtml(data.started)}</dd>`);
-  if (data.elapsed_sec != null) timingRows.push(`<dt>Elapsed</dt><dd>${_humanDuration(data.elapsed_sec)}</dd>`);
-  if (data.queue_id) timingRows.push(`<dt>Queue ID</dt><dd><code>${escapeHtml(data.queue_id)}</code></dd>`);
-  if (data.model) timingRows.push(`<dt>Model</dt><dd><code>${escapeHtml(data.model.split('/').pop())}</code></dd>`);
+  if (data.started) timingRows.push(`<dt>${T('queue.started', 'Started')}</dt><dd>${escapeHtml(data.started)}</dd>`);
+  if (data.elapsed_sec != null) timingRows.push(`<dt>${T('queue.elapsed', 'Elapsed')}</dt><dd>${_humanDuration(data.elapsed_sec)}</dd>`);
+  if (data.queue_id) timingRows.push(`<dt>${T('queue.queue_id', 'Queue ID')}</dt><dd><code>${escapeHtml(data.queue_id)}</code></dd>`);
+  if (data.model) timingRows.push(`<dt>${T('queue.model', 'Model')}</dt><dd><code>${escapeHtml(data.model.split('/').pop())}</code></dd>`);
   if (timingRows.length) {
     html += `<div class="oi-section">
-      <div class="oi-section-title"><span>Timing</span></div>
+      <div class="oi-section-title"><span>${T('queue.timing', 'Timing')}</span></div>
       <dl class="oi-grid">${timingRows.join('')}</dl>
     </div>`;
   }
 
   // ---- Action row ----
   html += `<div class="oi-actions">
-    <button class="ghost-btn" type="button" onclick="closeOutputInfoModal()">Close</button>
+    <button class="ghost-btn" type="button" onclick="closeOutputInfoModal()">${T('queue.close', 'Close')}</button>
     <button class="oi-primary" type="button"
             onclick="closeOutputInfoModal(); selectOutput(${pathAttr}); loadParams()">
-      Load params into form
+      ${T('queue.load_params_into_form', 'Load params into form')}
     </button>
   </div>`;
 
@@ -8737,10 +8722,10 @@ const _EDITABLE_QUEUE_MODES = ['t2v', 'i2v', 'i2v_clean_audio', 'extend', 'keyfr
 async function editQueuedJob(jobId) {
   const job = ((typeof LAST_STATUS !== 'undefined' && LAST_STATUS && LAST_STATUS.queue) || [])
     .find(j => j.id === jobId);
-  if (!job) { phosToast('That job is no longer queued.', {}); return; }
+  if (!job) { phosToast(T('queue.that_job_is_no_longer', 'That job is no longer queued.'), {}); return; }
   const p = job.params || {};
   if (p.take || p.engine === 'music' || !_EDITABLE_QUEUE_MODES.includes(p.mode)) {
-    phosToast('This job type can’t be edited inline yet — remove it and queue a new one.', {});
+    phosToast(T('queue.this_job_type_can_t', 'This job type can’t be edited inline yet — remove it and queue a new one.'), {});
     return;
   }
   // SAFETY-4: the WHOLE recipe, through Load Params' own setters (engine
@@ -8751,7 +8736,7 @@ async function editQueuedJob(jobId) {
   try {
     await loadParams({ params: Object.assign({}, p), engine: p.engine });
   } catch (e) {
-    phosToast('Could not load that job into the form: ' + ((e && e.message) || e), { kind: 'danger' });
+    phosToast(T('queue.could_not_load_that_job', 'Could not load that job into the form: ') + ((e && e.message) || e), { kind: 'danger' });
     return;
   }
   _editingQueuedJobId = jobId;
@@ -8759,7 +8744,7 @@ async function editQueuedJob(jobId) {
   if (banner) banner.hidden = false;
   const formPane = document.querySelector('aside.form-pane');
   if (formPane) formPane.scrollTop = 0;
-  phosToast('Editing queued job — change fields, then Update job.', { duration: 4000 });
+  phosToast(T('queue.editing_queued_job_change_fields', 'Editing queued job — change fields, then Update job.'), { duration: 4000 });
 }
 function cancelEditingQueuedJob() {
   _editingQueuedJobId = null;
@@ -8778,7 +8763,7 @@ async function updateQueuedJob() {
     phosToast((r && r.error) || 'Could not update the job.', { kind: 'danger', duration: 7000 });
     return;
   }
-  phosToast('Queued job updated.', { kind: 'success' });
+  phosToast(T('queue.queued_job_updated', 'Queued job updated.'), { kind: 'success' });
   cancelEditingQueuedJob();
   try { poll(); } catch (e) {}
 }
@@ -8879,7 +8864,7 @@ function _batchFmtTotal(n, per) {
   const total = n * per;
   const t = total < 60 ? Math.round(total) + ' min'
     : (Math.round(total / 6) / 10) + ' h';
-  return jobs + ' · about ' + t + ' in all';
+  return jobs + T('queue.about', ' · about ') + t + T('queue.in_all', ' in all');
 }
 
 function updateBatchSummary() {
@@ -8900,28 +8885,28 @@ function updateBatchSummary() {
             const first = p.split('\n').find(l => l.trim()) || '';
             return '"' + first.trim().slice(0, 42) + (first.trim().length > 42 ? '…' : '') + '"';
           }).join(' · ') + (list.length > 5 ? ' · …' : '')
-      : 'Nothing pasted yet. One line of three dashes between prompts.';
+      : T('queue.nothing_pasted_yet_one_line', 'Nothing pasted yet. One line of three dashes between prompts.');
   }
-  if (note) note.textContent = per ? ('each ~' + (per < 10 ? Math.round(per * 2) / 2 : Math.round(per)) + ' min') : '';
+  if (note) note.textContent = per ? (T('queue.each', 'each ~') + (per < 10 ? Math.round(per * 2) / 2 : Math.round(per)) + ' min') : '';
   const seedsHint = document.getElementById('batchSeedsHint');
   if (seedsHint) {
     const main = batchMainPrompt();
     seedsHint.textContent = !main
-      ? 'Write a prompt above — every take renders that prompt.'
+      ? T('queue.write_a_prompt_above_every', 'Write a prompt above — every take renders that prompt.')
       : (BATCH_SEP_RX.test(main)
-          ? 'This prompt contains a line of three dashes, which Batch uses to '
-            + 'separate prompts. Remove it, or use Many prompts instead.'
-          : 'Every take uses the prompt above with a fresh random seed.');
+          ? T('queue.this_prompt_contains_a_line', 'This prompt contains a line of three dashes, which Batch uses to ')
+            + T('queue.separate_prompts_remove_it_or', 'separate prompts. Remove it, or use Many prompts instead.')
+          : T('queue.every_take_uses_the_prompt', 'Every take uses the prompt above with a fresh random seed.'));
   }
   if (total) total.textContent = list.length ? _batchFmtTotal(list.length, per) : '';
   if (btn) {
     btn.disabled = list.length < 2;
-    btn.textContent = list.length > 1 ? ('Queue ' + list.length + ' jobs') : 'Queue batch';
+    btn.textContent = list.length > 1 ? (T('queue.queue', 'Queue ') + list.length + ' jobs') : T('queue.queue_batch', 'Queue batch');
   }
   if (meta) {
-    meta.textContent = !list.length ? 'one render at a time'
+    meta.textContent = !list.length ? T('queue.one_render_at_a_time', 'one render at a time')
       : (_batchMode === 'seeds'
-          ? _batchTakes + ' takes of this prompt' + (per ? ' · ' + _batchFmtTotal(list.length, per).split('· ')[1] : '')
+          ? _batchTakes + T('queue.takes_of_this_prompt', ' takes of this prompt') + (per ? ' · ' + _batchFmtTotal(list.length, per).split('· ')[1] : '')
           : _batchFmtTotal(list.length, per));
   }
 }
@@ -8955,12 +8940,12 @@ async function queueBatch() {
   const list = batchPrompts();
   if (list.length < 2) {
     alert(_batchMode !== 'seeds'
-      ? 'Paste at least two prompts, separated by a line of three dashes.'
+      ? T('queue.paste_at_least_two_prompts', 'Paste at least two prompts, separated by a line of three dashes.')
       : (BATCH_SEP_RX.test(batchMainPrompt())
-          ? 'Your prompt contains a line of three dashes. Batch uses that to '
-            + 'separate prompts, so it cannot repeat this one — remove the '
-            + 'dashes, or switch to Many prompts.'
-          : 'Write a prompt above first — a batch of takes renders that prompt.'));
+          ? T('queue.your_prompt_contains_a_line', 'Your prompt contains a line of three dashes. Batch uses that to ')
+            + T('queue.separate_prompts_so_it_cannot', 'separate prompts, so it cannot repeat this one — remove the ')
+            + T('queue.dashes_or_switch_to_many', 'dashes, or switch to Many prompts.')
+          : T('queue.write_a_prompt_above_first', 'Write a prompt above first — a batch of takes renders that prompt.')));
     return;
   }
   const fd = new FormData(document.getElementById('genForm'));
@@ -8970,7 +8955,7 @@ async function queueBatch() {
   // per job at render time and recorded as seed_used.
   if (_batchMode === 'seeds') fd.set('seed', '-1');
   const r = await api('/queue/batch', 'POST', fd);
-  if (r && r.error) { alert('Batch error: ' + r.error); return; }
+  if (r && r.error) { alert(T('queue.batch_error', 'Batch error: ') + r.error); return; }
   if (r && r.added) {
     if (_batchMode === 'prompts') {
       const ta = document.getElementById('batchPrompts');
@@ -9045,14 +9030,14 @@ function _duplicateOfLoadedRecipe() {
     if (!dup || typeof _phModalShow !== 'function') return;
     ev.preventDefault();
     _phModalShow({
-      tone: 'danger', kicker: 'Same clip again?',
-      title: `This will render the same clip as ${dup.name}`,
-      body: 'The prompt, seed, size, quality and LoRAs all match. Render a new '
-          + 'take uses the same recipe with a fresh seed; Generate anyway repeats '
-          + 'this exact clip.',
-      primaryLabel: 'Render a new take',
+      tone: 'danger', kicker: T('queue.same_clip_again', 'Same clip again?'),
+      title: T('queue.this_will_render_the_same', 'This will render the same clip as {name}', {name: dup.name}),
+      body: T('queue.the_prompt_seed_size_quality', 'The prompt, seed, size, quality and LoRAs all match. Render a new ')
+          + T('queue.take_uses_the_same_recipe', 'take uses the same recipe with a fresh seed; Generate anyway repeats ')
+          + T('queue.this_exact_clip', 'this exact clip.'),
+      primaryLabel: T('queue.render_a_new_take', 'Render a new take'),
       onPrimary: () => newTakeFromPath(dup.path, { btnId: 'genBtn' }),
-      secondaryLabel: 'Generate anyway',
+      secondaryLabel: T('queue.generate_anyway', 'Generate anyway'),
       onSecondary: () => { try { form.requestSubmit(); } catch (e) { form.submit(); } },
     });
   });
@@ -9081,7 +9066,7 @@ document.getElementById('genForm').addEventListener('submit', async e => {
   if ((fd.get('negative_prompt') || '').toString().trim()
       && typeof avoidIsIgnored === 'function' && avoidIsIgnored()
       && typeof phosToast === 'function') {
-    phosToast('Avoid is ignored at this quality — it will not affect this render.',
+    phosToast(T('queue.avoid_is_ignored_at_this', 'Avoid is ignored at this quality — it will not affect this render.'),
               { kind: 'warn', duration: 6000 });
   }
 
@@ -9126,7 +9111,7 @@ document.getElementById('genForm').addEventListener('submit', async e => {
   // 4.12.3). Say it before anything is queued.
   const _upMode = String(fd.get('mode') || (typeof currentMode !== 'undefined' ? currentMode : '') || '');
   if (_upMode === 'upscale' && !String(fd.get('upscale_source_path') || '').trim()) {
-    const _msg = 'Pick the clip to fix first — choose it in the list, or press Upscale & Face Fix on a clip in Outputs.';
+    const _msg = T('queue.pick_the_clip_to_fix', 'Pick the clip to fix first — choose it in the list, or press Upscale & Face Fix on a clip in Outputs.');
     alert(_msg);
     return;
   }
@@ -9155,11 +9140,11 @@ document.getElementById('genForm').addEventListener('submit', async e => {
   // what is actually about to be POSTed. Cheap, and it is the assertion the
   // other three are trying to keep true.
   if (fd.get('mode') === 'ingredients' && !ingredientsServed()) {
-    alert('Ingredients needs the LTX-2.3 generation — its reference adapter '
-        + 'has no 2.5 release yet, so on 2.5 the references are ignored and '
-        + 'the clip costs full two-stage time.\n\n'
-        + 'For reference-guided work on 2.5, use Image mode with Inspire — '
-        + 'or install the 2.3 pack from the Train tab.');
+    alert(T('queue.ingredients_needs_the_ltx_2_2', 'Ingredients needs the LTX-2.3 generation — its reference adapter ')
+        + T('queue.has_no_2_5_release', 'has no 2.5 release yet, so on 2.5 the references are ignored and ')
+        + T('queue.the_clip_costs_full_two', 'the clip costs full two-stage time.\n\n')
+        + T('queue.for_reference_guided_work_on', 'For reference-guided work on 2.5, use Image mode with Inspire — ')
+        + T('queue.or_install_the_2_3', 'or install the 2.3 pack from the Train tab.'));
     reenable();
     return;
   }
@@ -9170,16 +9155,16 @@ document.getElementById('genForm').addEventListener('submit', async e => {
   const _modeNow = String(fd.get('mode') || '');
   if ((_modeNow === 'i2v' || _modeNow === 'i2v_clean_audio')
       && !String(fd.get('image') || '').trim()) {
-    alert('Image mode needs a reference image — drop one into the Image slot, '
-        + 'or switch to Text mode and render from the prompt alone.');
+    alert(T('queue.image_mode_needs_a_reference', 'Image mode needs a reference image — drop one into the Image slot, ')
+        + T('queue.or_switch_to_text_mode', 'or switch to Text mode and render from the prompt alone.'));
     reenable();
     return;
   }
   // Same class of silent failure for Control: seven installs queued it with
   // no clip and got "control video not found" as a red card (fleet, 2026-09-07).
   if (_modeNow === 'control' && !String(fd.get('control_video_path') || '').trim()) {
-    alert('Control needs a clip to follow — pick one in the Control video picker, '
-        + 'or switch to Text mode.');
+    alert(T('queue.control_needs_a_clip_to', 'Control needs a clip to follow — pick one in the Control video picker, ')
+        + T('queue.or_switch_to_text_mode_2', 'or switch to Text mode.'));
     reenable();
     return;
   }
@@ -9262,10 +9247,10 @@ document.getElementById('genForm').addEventListener('submit', async e => {
       if (orphans.length) {
         const lines = orphans.map(o => `  • "${o.trigger}" → ${o.name}`).join('\n');
         const ok = window.confirm(
-          'Your prompt mentions trigger word(s) from LoRA(s) that are NOT attached:\n\n' +
+          T('queue.your_prompt_mentions_trigger_word', 'Your prompt mentions trigger word(s) from LoRA(s) that are NOT attached:\n\n') +
           lines + '\n\n' +
-          'The model will NOT reproduce these characters/styles. Toggle the LoRA on in the picker, then Generate.\n\n' +
-          'Generate without the LoRA anyway?'
+          T('queue.the_model_will_not_reproduce', 'The model will NOT reproduce these characters/styles. Toggle the LoRA on in the picker, then Generate.\n\n') +
+          T('queue.generate_without_the_lora_anyway', 'Generate without the LoRA anyway?')
         );
         if (!ok) { reenable(); return; }
       }
@@ -9342,8 +9327,8 @@ document.getElementById('genForm').addEventListener('submit', async e => {
       if (_kfOnH3 ? !endImg : (!startImg || !endImg)) {
         // H3 needs only the end frame (its last-frame task); LTX needs both.
         const _msg = _kfOnH3
-          ? 'Pick the end frame — the still the clip should land on. The start frame is optional on Hailuo H3.'
-          : 'Pick both a start frame and an end frame before generating.';
+          ? T('queue.pick_the_end_frame_the', 'Pick the end frame — the still the clip should land on. The start frame is optional on Hailuo H3.')
+          : T('queue.pick_both_a_start_frame', 'Pick both a start frame and an end frame before generating.');
         if (typeof phosToast === 'function') phosToast(_msg, { kind: 'warn', duration: 6000 });
         else alert(_msg);
         reenable();
@@ -9359,7 +9344,7 @@ document.getElementById('genForm').addEventListener('submit', async e => {
             frameId: slot.frameId,
             label: slot.label,
           })),
-          { image: endImg, frame: frames - 1, label: 'End' },
+          { image: endImg, frame: frames - 1, label: T('queue.end', 'End') },
         ];
         const missing = slots.filter(s => !s.image && !(_kfOnH3 && s.label === 'Start'))
           .map(s => s.label || 'Start/End');
@@ -9377,7 +9362,7 @@ document.getElementById('genForm').addEventListener('submit', async e => {
         });
         const idxs = kfList.map(k => k.frame_index);
         if (idxs.some(i => !Number.isFinite(i)) || idxs.some((i, n) => n > 0 && i <= idxs[n - 1])) {
-          alert('Keyframe times must be strictly increasing. Check the Beat at(s) values.');
+          alert(T('queue.keyframe_times_must_be_strictly', 'Keyframe times must be strictly increasing. Check the Beat at(s) values.'));
           reenable();
           return;
         }
@@ -9449,13 +9434,13 @@ document.getElementById('genForm').addEventListener('submit', async e => {
       const shown = (e.code === 'pack_missing' && typeof _phModalShow === 'function'
                      && typeof openModelsModal === 'function')
         && (_pk
-          ? _phModalShow({ kicker: 'Already on this Mac', title: 'Not queued',
-                           body: e.message, primaryLabel: 'Use it from your Pinokio install',
+          ? _phModalShow({ kicker: T('queue.already_on_this_mac', 'Already on this Mac'), title: T('queue.not_queued', 'Not queued'),
+                           body: e.message, primaryLabel: T('queue.use_it_from_your_pinokio', 'Use it from your Pinokio install'),
                            onPrimary: () => reuseFromPinokio(_pk.repo_key),
-                           secondaryLabel: 'Download instead', onSecondary: () => openModelsModal() })
-          : _phModalShow({ kicker: 'Needs a download', title: 'Not queued',
-                           body: e.message, primaryLabel: 'Open Models',
-                           onPrimary: () => openModelsModal(), secondaryLabel: 'Not now' }));
+                           secondaryLabel: T('queue.download_instead', 'Download instead'), onSecondary: () => openModelsModal() })
+          : _phModalShow({ kicker: T('queue.needs_a_download', 'Needs a download'), title: T('queue.not_queued', 'Not queued'),
+                           body: e.message, primaryLabel: T('queue.open_models', 'Open Models'),
+                           onPrimary: () => openModelsModal(), secondaryLabel: T('queue.not_now', 'Not now') }));
       if (!shown) phosToast(e.message, { kind: 'danger', duration: 0 });
       return;
     }
@@ -9465,8 +9450,8 @@ document.getElementById('genForm').addEventListener('submit', async e => {
     // nothing a user could see — Generate just silently did nothing, no
     // toast, Now still said Idle. The prompt is never lost (the form isn't
     // cleared on failure), so this is safe to just say and let them retry.
-    phosToast("Couldn't reach Phosphene — it may be offline or restarting. "
-      + 'Your prompt is still here; try again once it reconnects.',
+    phosToast(T('queue.couldn_t_reach_phosphene_it', "Couldn't reach Phosphene — it may be offline or restarting. ")
+      + T('queue.your_prompt_is_still_here', 'Your prompt is still here; try again once it reconnects.'),
       { kind: 'danger', duration: 0 });
   } finally {
     // Re-enable on the next event-loop tick so the button visibly
@@ -9594,7 +9579,7 @@ function restoreDraftOnBoot() {
         () => { const v = document.getElementById('video_path'); if (v) v.value = '';
                 const sel = document.getElementById('extendSrcSelect'); if (sel) sel.value = '';
                 if (typeof updateDerived === 'function') { try { updateDerived(); } catch (e) {} } },
-        'clip to extend');
+        T('queue.clip_to_extend', 'clip to extend'));
     }
     if (Array.isArray(snap.loras) && snap.loras.length && typeof _restoreLoraPicker === 'function') {
       _restoreLoraPicker(snap.loras);
@@ -9603,7 +9588,7 @@ function restoreDraftOnBoot() {
     if (typeof _syncSeedLockChip === 'function') { try { _syncSeedLockChip(); } catch (e) {} }
     if (typeof updateCustomizeSummary === 'function') { try { updateCustomizeSummary(); } catch (e) {} }
     if (typeof updateDerived === 'function') { try { updateDerived(); } catch (e) {} }
-    phosToast('Restored your draft prompt and settings from last time.', { kind: 'success', duration: 5000 });
+    phosToast(T('queue.restored_your_draft_prompt_and', 'Restored your draft prompt and settings from last time.'), { kind: 'success', duration: 5000 });
   } catch (e) { /* a half-applied restore is still better than a thrown boot */ }
 }
 function clearDraftForm() {
@@ -9613,7 +9598,7 @@ function clearDraftForm() {
   if (typeof _syncSeedLockChip === 'function') { try { _syncSeedLockChip(); } catch (e) {} }
   if (typeof updateDerived === 'function') { try { updateDerived(); } catch (e) {} }
   try { localStorage.removeItem(DRAFT_LS_KEY); } catch (e) {}
-  phosToast('Form cleared.', {});
+  phosToast(T('queue.form_cleared', 'Form cleared.'), {});
 }
 function draftAutosaveInstall() {
   const form = document.getElementById('genForm');
@@ -9808,8 +9793,8 @@ function proHintRow(j, rendering) {
   if (!_proHintShown.has(j.id)) { _proHintShown.add(j.id); proHintPost(j.id, 'shown'); }
   const id = escapeHtml(JSON.stringify(j.id));
   return `<li class="pro-hint-row" data-pro-hint="${escapeHtml(j.id)}"><span class="pro-hint-text">${escapeHtml(h.text)}</span>`
-    + `<a class="pro-hint-see" href="https://phosphene.video/pricing/" data-utm-campaign="get-pro" data-utm-content="speedup-line" target="_blank" rel="noopener" onclick='proHintSee(${id})'>See Pro</a>`
-    + `<button type="button" class="pro-hint-x" aria-label="Hide this" title="Hide this" onclick='proHintDismiss(${id})'>×</button></li>`;
+    + `<a class="pro-hint-see" href="https://phosphene.video/pricing/" data-utm-campaign="get-pro" data-utm-content="speedup-line" target="_blank" rel="noopener" onclick='proHintSee(${id})'>${T('queue.see_pro', 'See Pro')}</a>`
+    + `<button type="button" class="pro-hint-x" aria-label="${TA('queue.hide_this', 'Hide this')}" title="${TA('queue.hide_this', 'Hide this')}" onclick='proHintDismiss(${id})'>×</button></li>`;
 }
 function proHintPost(job, action) {
   try {

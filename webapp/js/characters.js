@@ -44,7 +44,7 @@ function updateMusicAvailability(s) {
     else if (was) {
       musicInstallSeenActive = false;
       if (musicInstall.state === 'done' && typeof phosToast === 'function') {
-        phosToast('Music engine installed — Compose is ready.', { kind: 'success' });
+        phosToast(T('characters.music_engine_installed_compose_is', 'Music engine installed — Compose is ready.'), { kind: 'success' });
       }
     }
   }
@@ -127,7 +127,7 @@ function musicFormChanged() {
   const btn = document.getElementById('musicGenBtn');
   btn.disabled = musicBusy || !music.capable;
   btn.title = music.available ? '' : (music.capable
-    ? 'The music engine is not installed yet — click to install it'
+    ? T('characters.the_music_engine_is_not', 'The music engine is not installed yet — click to install it')
     : `YuE2 needs ${music.min_ram_gb} GB of unified memory`);
 }
 function musicFormParams() {
@@ -205,8 +205,8 @@ function musicLoraRender(music) {
   }
   list.dataset.signature = signature;
   if (!adapters.length) {
-    list.innerHTML = `<div class="music-lora-empty">No adapters yet. ` +
-      `<button type="button" class="ghost-btn" onclick="musicLoraInstall()">Download the LoRA pack</button></div>`;
+    list.innerHTML = `<div class="music-lora-empty">${T('characters.no_adapters_yet', 'No adapters yet.')} ` +
+      `<button type="button" class="ghost-btn" onclick="musicLoraInstall()">${T('characters.download_the_lora_pack', 'Download the LoRA pack')}</button></div>`;
     musicLoraSummaryText();
     return;
   }
@@ -222,7 +222,7 @@ function musicLoraRender(music) {
       </label>
       <div class="range-strip">
         <input type="range" min="0" max="1.5" step="0.05" value="${charactersEscapeAttr(String(strength))}"
-               oninput="musicLoraToggled(this)" title="Adapter strength">
+               oninput="musicLoraToggled(this)" title="${TA('characters.adapter_strength', 'Adapter strength')}">
         <span class="range-val">${Number(strength).toFixed(2)}</span>
       </div>
       ${a.note ? `<div class="hint">${charactersEscapeHtml(a.note)}</div>` : ''}
@@ -246,7 +246,7 @@ function musicLoraSummaryText() {
   const el = document.getElementById('musicLoraSummary');
   if (!el) return;
   if (document.getElementById('musicInstrumental').checked) {
-    el.textContent = 'paused by Instrumental';
+    el.textContent = T('characters.paused_by_instrumental', 'paused by Instrumental');
     return;
   }
   const picks = musicLoraPicks();
@@ -270,7 +270,7 @@ function musicFetchCard(fetch, what, retry) {
   }
   if (f.error) {
     return `<b>The ${what} download failed:</b> ${charactersEscapeHtml(f.error)} ` +
-      `<button type="button" class="ghost-btn" onclick="${retry}()">Try again</button>`;
+      `<button type="button" class="ghost-btn" onclick="${retry}()">${T('characters.try_again', 'Try again')}</button>`;
   }
   return '';
 }
@@ -283,22 +283,22 @@ function musicLoraInstallCard(music) {
   if (loras.instrumental_ready || !wanted) { box.hidden = true; box.innerHTML = ''; return; }
   const mb = Math.round((loras.bytes || 0) / 1e6);
   box.hidden = false;
-  box.innerHTML = musicFetchCard(loras.fetch, 'music LoRAs', 'musicLoraInstall') ||
+  box.innerHTML = musicFetchCard(loras.fetch, T('characters.music_loras', 'music LoRAs'), 'musicLoraInstall') ||
     `<b>Instrumental gets better with the music LoRA pack (~${mb} MB, once).</b> ` +
-    `Without it the model is only asked in words for a track with no vocal line. ` +
-    `<button type="button" class="ghost-btn" onclick="musicLoraInstall()">Download it</button>`;
+    T('characters.without_it_the_model_is', 'Without it the model is only asked in words for a track with no vocal line. ') +
+    `<button type="button" class="ghost-btn" onclick="musicLoraInstall()">${T('characters.download_it', 'Download it')}</button>`;
 }
 
 async function musicLoraInstall() {
   const box = document.getElementById('musicLoraInstall');
-  if (box) { box.hidden = false; box.innerHTML = 'Downloading the music LoRAs…'; }
+  if (box) { box.hidden = false; box.innerHTML = T('characters.downloading_the_music_loras', 'Downloading the music LoRAs…'); }
   try {
     const r = await fetch('/music/lora/fetch', { method: 'POST' });
     const result = await r.json();
     if (!r.ok || result.error) throw new Error(result.error || 'Could not start the download');
-    if (box) box.innerHTML = 'Downloading the music LoRAs… this runs in the background.';
+    if (box) box.innerHTML = T('characters.downloading_the_music_loras_this', 'Downloading the music LoRAs… this runs in the background.');
   } catch (e) {
-    if (box) box.innerHTML = `Could not start the download: ${e.message || e}`;
+    if (box) box.innerHTML = T('characters.could_not_start_the_download', 'Could not start the download: {v}', {v: e.message || e});
   }
 }
 
@@ -320,7 +320,7 @@ function musicCoverSummary() {
   if (!src.trim()) { el.textContent = 'off'; return; }
   const name = src.trim().split('/').pop();
   const task = (document.getElementById('musicCoverTask') || {}).value || 'melody-full';
-  const words = {'melody-full': 'melody + chords', 'melody-vocal': 'the sung line',
+  const words = {'melody-full': T('characters.melody_chords', 'melody + chords'), 'melody-vocal': T('characters.the_sung_line', 'the sung line'),
                  'full': 'everything'};
   el.textContent = `${name} · ${words[task] || task}`;
 }
@@ -335,22 +335,22 @@ function musicCoverInstallCard(music) {
   if (cover.ready || !src.trim()) { box.hidden = true; box.innerHTML = ''; return; }
   const gb = ((cover.bytes || 0) / 1e9).toFixed(1);
   box.hidden = false;
-  box.innerHTML = musicFetchCard(cover.fetch, 'cover models', 'musicCoverInstall') ||
+  box.innerHTML = musicFetchCard(cover.fetch, T('characters.cover_models', 'cover models'), 'musicCoverInstall') ||
     `<b>Covering needs two more models (~${gb} GB).</b> They read the tune off ` +
     `your recording; writing a song from a prompt never uses them. ` +
-    `<button type="button" class="ghost-btn" onclick="musicCoverInstall()">Download them</button>`;
+    `<button type="button" class="ghost-btn" onclick="musicCoverInstall()">${T('characters.download_them', 'Download them')}</button>`;
 }
 
 async function musicCoverInstall() {
   const box = document.getElementById('musicCoverInstall');
-  if (box) box.innerHTML = 'Downloading the cover models…';
+  if (box) box.innerHTML = T('characters.downloading_the_cover_models', 'Downloading the cover models…');
   try {
     const r = await fetch('/music/cover/install', { method: 'POST' });
     const result = await r.json();
     if (!r.ok || result.error) throw new Error(result.error || 'Could not start the download');
-    if (box) box.innerHTML = 'Downloading the cover models… this runs in the background.';
+    if (box) box.innerHTML = T('characters.downloading_the_cover_models_this', 'Downloading the cover models… this runs in the background.');
   } catch (e) {
-    if (box) box.innerHTML = `Could not start the download: ${e.message || e}`;
+    if (box) box.innerHTML = T('characters.could_not_start_the_download', 'Could not start the download: {v}', {v: e.message || e});
   }
 }
 async function musicGenerate() {
@@ -372,11 +372,11 @@ async function musicGenerate() {
   if (task === 'cover' && !fd.get('music_source_audio').trim()) {
     const det = document.getElementById('musicCoverDetails');
     if (det) det.open = true;
-    status.textContent = 'Cover needs a recording — pick or paste the one to cover.';
+    status.textContent = T('characters.cover_needs_a_recording_pick', 'Cover needs a recording — pick or paste the one to cover.');
     return;
   }
   if (!fd.get('music_style').trim() && !fd.get('music_lyrics').trim() && fd.get('music_instrumental') !== 'on') {
-    status.textContent = 'Give it something to work with — lyrics, a style description, or both.';
+    status.textContent = T('characters.give_it_something_to_work', 'Give it something to work with — lyrics, a style description, or both.');
     return;
   }
   // A cover with no transcription models is a ten-minute job that cannot
@@ -384,12 +384,12 @@ async function musicGenerate() {
   if (fd.get('music_source_audio').trim() &&
       !(((window._ENGINE_PROBES.music || {}).cover || {}).ready)) {
     document.getElementById('musicCoverDetails').open = true;
-    status.textContent = 'Covering needs the two transcription models first.';
+    status.textContent = T('characters.covering_needs_the_two_transcription', 'Covering needs the two transcription models first.');
     return;
   }
   musicBusy = true;
   musicFormChanged();
-  status.textContent = 'Queueing…';
+  status.textContent = T('characters.queueing', 'Queueing…');
   try {
     // Takes: N songs from one form, each with its own seed. A fixed seed
     // applies to the first only — identical seeds would be identical songs.
@@ -400,7 +400,7 @@ async function musicGenerate() {
       const result = await r.json();
       if (!r.ok || result.error) throw new Error(result.error || 'Could not queue music');
     }
-    status.textContent = takes > 1 ? `${takes} takes queued.` : 'Song queued.';
+    status.textContent = takes > 1 ? `${takes} takes queued.` : T('characters.song_queued', 'Song queued.');
     setMainOutputsFilter('audio');
     await poll();
   } catch (e) {
@@ -424,7 +424,7 @@ function useTrackInA2V(path) {
   // user may well have wanted the one clip.
   if (typeof mvInit === 'function') mvInit();
   if (typeof mvPickFromLibrary === 'function') mvPickFromLibrary(path);
-  phosToast('Song loaded — drop your pictures, then Plan the video.');
+  phosToast(T('characters.song_loaded_drop_your_pictures', 'Song loaded — drop your pictures, then Plan the video.'));
 }
 // One renderer, two places: the panel on top of Compose and the modal card
 // (opened by Compose, the header engine picker and Settings → Models).
@@ -432,38 +432,38 @@ function musicInstallRender(el, where) {
   if (!el) return;
   const music = window._ENGINE_PROBES.music || {};
   const inst = musicInstall || {};
-  const size = 'YuE2, ~11 GB';
+  const size = T('characters.yue2_11_gb', 'YuE2, ~11 GB');
   let html;
   if (!music.capable) {
-    html = `<p class="mi-lead">YuE2 needs about ${escapeHtml(String(music.min_ram_gb || 16))} GB of unified memory, so it can't run on this Mac. The rest of Phosphene is unaffected.</p>`;
+    html = `<p class="mi-lead">${T('characters.yue2_needs_about_gb_of', 'YuE2 needs about {v} GB of unified memory, so it can\'t run on this Mac. The rest of Phosphene is unaffected.', {v: escapeHtml(String(music.min_ram_gb || 16))})}</p>`;
   } else if (inst.active) {
     const pct = inst.percent || 1;
     const step = `Step ${(inst.step_index || 0) + 1} of ${inst.steps || 6} · ${escapeHtml(inst.step_label || '')}`;
     const bytes = inst.bytes_total
       ? ` · ${(inst.bytes_done / 1e9).toFixed(1)} of ${(inst.bytes_total / 1e9).toFixed(1)} GB` : '';
-    html = `<p class="mi-lead"><b>${inst.state === 'stopping' ? 'Stopping…' : 'Installing the music engine…'}</b> ${pct}%</p>
+    html = `<p class="mi-lead"><b>${inst.state === 'stopping' ? T('characters.stopping', 'Stopping…') : T('characters.installing_the_music_engine', 'Installing the music engine…')}</b> ${pct}%</p>
       <div class="progress-bar"><div class="fill" style="width:${pct}%"></div></div>
       <p class="mi-sub">${step}${bytes}</p>
       <p class="mi-line">${escapeHtml(inst.last_line || '')}</p>
-      <div class="mi-actions"><button type="button" class="danger" onclick="musicInstallStop()" ${inst.state === 'stopping' ? 'disabled' : ''}>Stop</button>
-      <span class="mi-note">You can keep using Phosphene. Compose unlocks by itself when it finishes.</span></div>`;
+      <div class="mi-actions"><button type="button" class="danger" onclick="musicInstallStop()" ${inst.state === 'stopping' ? 'disabled' : ''}>${T('characters.stop', 'Stop')}</button>
+      <span class="mi-note">${T('characters.you_can_keep_using_phosphene', 'You can keep using Phosphene. Compose unlocks by itself when it finishes.')}</span></div>`;
   } else if (music.available) {
-    html = `<p class="mi-lead"><b>The music engine is installed.</b> Write lyrics and a style, then press Compose.</p>
+    html = `<p class="mi-lead"><b>${T('characters.the_music_engine_is_installed', 'The music engine is installed.')}</b> ${T('characters.write_lyrics_and_a_style', 'Write lyrics and a style, then press Compose.')}</p>
       ${where === 'modal' ? '<div class="mi-actions"><button type="button" class="primary" onclick="closeMusicInstallCard();audioModeSet(\'compose\');workflowSwitch(\'audio\')">Start composing</button></div>' : ''}`;
   } else {
     const repair = !!music.repairable;
     const failed = inst.state === 'failed' && inst.error;
     const stopped = inst.state === 'stopped';
-    const label = repair ? distText('Repair music engine (weights kept)', 'Set up the music engine') : `Install music engine (${size})`;
+    const label = repair ? distText(T('characters.repair_music_engine_weights_kept', 'Repair music engine (weights kept)'), T('characters.set_up_the_music_engine', 'Set up the music engine')) : T('characters.install_music_engine', 'Install music engine ({size})', {size});
     const lead = repair
-      ? distText('The YuE2 weights are on disk but the engine needs repair. This takes a couple of minutes and re-downloads nothing.',
-                 'The music engine needs a quick setup. It takes a couple of minutes and downloads nothing.')
-      : 'Compose writes a whole song — vocals and arrangement — from your lyrics and a style. It needs the YuE2 music engine: a one-time ~11 GB download that resumes if interrupted.';
+      ? distText(T('characters.the_yue2_weights_are_on', 'The YuE2 weights are on disk but the engine needs repair. This takes a couple of minutes and re-downloads nothing.'),
+                 T('characters.the_music_engine_needs_a', 'The music engine needs a quick setup. It takes a couple of minutes and downloads nothing.'))
+      : T('characters.compose_writes_a_whole_song', 'Compose writes a whole song — vocals and arrangement — from your lyrics and a style. It needs the YuE2 music engine: a one-time ~11 GB download that resumes if interrupted.');
     html = `<p class="mi-lead">${lead}</p>
       ${failed ? `<p class="mi-error">${escapeHtml(inst.error)}</p>` : ''}
       ${stopped ? '<p class="mi-sub">Install stopped. Click again to resume where it left off.</p>' : ''}
-      <div class="mi-actions"><button type="button" class="primary" onclick="musicInstallStart(${repair ? "'repair'" : ''})">${escapeHtml(failed || stopped ? (repair ? 'Try the repair again' : 'Resume install (YuE2, ~11 GB)') : label)}</button></div>
-      <p class="mi-note">Needs ${escapeHtml(String(music.min_ram_gb || 16))} GB unified memory and 14 GB free disk.${distText(' Also available from the Phosphene sidebar in Pinokio.', '')}</p>`;
+      <div class="mi-actions"><button type="button" class="primary" onclick="musicInstallStart(${repair ? "'repair'" : ''})">${escapeHtml(failed || stopped ? (repair ? T('characters.try_the_repair_again', 'Try the repair again') : T('characters.resume_install_yue2_11_gb', 'Resume install (YuE2, ~11 GB)')) : label)}</button></div>
+      <p class="mi-note">Needs ${escapeHtml(String(music.min_ram_gb || 16))} GB unified memory and 14 GB free disk.${distText(T('characters.also_available_from_the_phosphene', ' Also available from the Phosphene sidebar in Pinokio.'), '')}</p>`;
   }
   el.innerHTML = html;
 }
@@ -671,8 +671,8 @@ function audioStudioRenderLoraNote() {
 // lane has no such seam — say that plainly instead.
 function a2vLoraStageLine(isQ4) {
   return isQ4
-    ? 'On this Mac a LoRA shapes the whole lip-sync render, which can make the mouth move less \u2014 lower its strength if the mouth barely moves.'
-    : 'Lip-sync uses LoRAs for the face detail only, so they keep the likeness without stiffening the mouth.';
+    ? T('characters.on_this_mac_a_lora', 'On this Mac a LoRA shapes the whole lip-sync render, which can make the mouth move less \u2014 lower its strength if the mouth barely moves.')
+    : T('characters.lip_sync_uses_loras_for', 'Lip-sync uses LoRAs for the face detail only, so they keep the likeness without stiffening the mouth.');
 }
 
 // VOCAL SEPARATION — "Listen to the voice only" needs it, and until 4.17 a
@@ -738,7 +738,7 @@ async function audioStudioInstallSeparator() {
     const res = await r.json().catch(() => ({}));
     if (!r.ok && !res.install) throw new Error(res.error || ('HTTP ' + r.status));
   } catch (e) {
-    if (typeof phosToast === 'function') phosToast('Could not start the install: ' + (e.message || e), { kind: 'danger' });
+    if (typeof phosToast === 'function') phosToast(T('characters.could_not_start_the_install', 'Could not start the install: ') + (e.message || e), { kind: 'danger' });
   }
   audioStudioRefreshSeparator();
 }
@@ -753,7 +753,7 @@ function audioStudioSubmitError(status, txt) {
 
 async function audioStudioUploadAudio(file) {
   const status = document.getElementById('audioStudioStatus');
-  if (status) status.textContent = 'Uploading audio…';
+  if (status) status.textContent = T('characters.uploading_audio', 'Uploading audio…');
   try {
     const fd = new FormData();
     // /upload accepts both `image` and `audio` field names.
@@ -771,7 +771,7 @@ async function audioStudioUploadAudio(file) {
     audioStudioDurationFromFile();
     if (status) status.textContent = '';
   } catch (e) {
-    if (status) status.textContent = 'Audio upload failed: ' + (e.message || 'unknown');
+    if (status) status.textContent = T('characters.audio_upload_failed', 'Audio upload failed: ') + (e.message || 'unknown');
   }
 }
 
@@ -849,7 +849,7 @@ function audioStudioMouthCheck(path) {
   if (!path) { warn.style.display = 'none'; warn.innerHTML = ''; return; }
   warn.style.display = '';
   warn.style.color = '';
-  warn.textContent = 'Checking the mouth in this picture…';
+  warn.textContent = T('characters.checking_the_mouth_in_this', 'Checking the mouth in this picture…');
   fetch('/a2v/mouth_check', { method: 'POST', body: new URLSearchParams({ image: path }) })
     .then(r => r.json())
     .then(res => {
@@ -860,9 +860,9 @@ function audioStudioMouthCheck(path) {
       if (!res.ok || !res.measured) { warn.style.display = 'none'; warn.innerHTML = ''; return; }
       if (res.open) {
         warn.style.color = 'var(--warn,#c98a2b)';
-        warn.innerHTML = 'This picture’s mouth looks open — lip-sync tends to '
-          + 'freeze on an open-mouth start frame. A closed-mouth, face-forward '
-          + 'picture works better.';
+        warn.innerHTML = T('characters.this_picture_s_mouth_looks', 'This picture’s mouth looks open — lip-sync tends to ')
+          + T('characters.freeze_on_an_open_mouth', 'freeze on an open-mouth start frame. A closed-mouth, face-forward ')
+          + T('characters.picture_works_better', 'picture works better.');
       } else {
         warn.style.display = 'none';
         warn.innerHTML = '';
@@ -906,7 +906,7 @@ function audioStudioRenderSlots() {
     audioSlot.innerHTML =
       '<span class="ref-tag">Audio</span>' +
       '<div class="hint" style="padding:24px 12px;text-align:center;color:var(--muted);font-size:12px;">' +
-      'Drop a WAV / MP3 / M4A / FLAC here, or click to pick a file.' +
+      T('characters.drop_a_wav_mp3_m4a', 'Drop a WAV / MP3 / M4A / FLAC here, or click to pick a file.') +
       '</div>';
   }
 }
@@ -982,7 +982,7 @@ function a2vUpdateEstimate(frames, w, h) {
       if (seq !== _a2vEstimateSeq) return;
       if (!d.ok) { el.textContent = ''; return; }
       const pack = d.pack === 'q8' ? 'Q8' : 'Q4';
-      const soundExtra = (document.getElementById('audioStudioSceneSound') || {}).checked ? ' + a scene sound pass' : '';
+      const soundExtra = (document.getElementById('audioStudioSceneSound') || {}).checked ? T('characters.a_scene_sound_pass', ' + a scene sound pass') : '';
       el.textContent = `${d.width}×${d.height} · ${pack} · about ${String(d.eta).replace(/^~\s*/, '')} on this Mac${soundExtra}`;
     } catch (e) {
       if (seq === _a2vEstimateSeq) el.textContent = '';
@@ -1011,7 +1011,7 @@ function audioStudioApplyTierClamp() {
     wEl.value = String(Math.max(32, Math.round((w * scale) / 32) * 32));
     hEl.value = String(Math.max(32, Math.round((h * scale) / 32) * 32));
     if (typeof phosToast === 'function') {
-      phosToast(`This Mac renders Audio → Video up to ${cap} px on the longer side — size adjusted to fit.`,
+      phosToast(T('characters.this_mac_renders_audio_video', 'This Mac renders Audio → Video up to {cap} px on the longer side — size adjusted to fit.', {cap}),
                 { kind: 'info' });
     }
   }
@@ -1051,9 +1051,9 @@ function audioStudioDurationChanged(val) {
     const fileLen = AUDIO_STUDIO.audioDuration;
     if (startSec >= fileLen) {
       warn.style.display = '';
-      warn.innerHTML = '<b>Start at</b> (' + startSec.toFixed(1) + ' s) is past '
-        + 'the end of this file (' + fileLen.toFixed(1) + ' s long) — this would '
-        + 'render a fully silent clip. Pick a start under ' + fileLen.toFixed(1) + ' s.';
+      warn.innerHTML = '<b>Start at</b> (' + startSec.toFixed(1) + T('characters.s_is_past', ' s) is past ')
+        + T('characters.the_end_of_this_file', 'the end of this file (') + fileLen.toFixed(1) + T('characters.s_long_this_would', ' s long) — this would ')
+        + T('characters.render_a_fully_silent_clip', 'render a fully silent clip. Pick a start under ') + fileLen.toFixed(1) + ' s.';
       return;
     }
   }
@@ -1077,10 +1077,10 @@ function audioStudioDurationChanged(val) {
     warn.innerHTML = 'This Mac renders Audio → Video up to <b>' + capSec
       + ' s</b> per clip — longer ones outgrow its memory and are refused. '
       + '<a href="#" onclick="event.preventDefault();audioStudioSplitIntoClips(' + capSec + ');">'
-      + 'Split into ' + capSec + ' s clips</a> — queues the whole song as a '
-      + 'sequence, each part starting where the last one’s mouth closed, '
-      + 'no jump cuts at the joins. One at a time; this Mac’s own a2v speed '
-      + 'applies per part, so a long song is a long wait, not a fast one.';
+      + T('characters.split_into', 'Split into ') + capSec + ' s clips</a> — queues the whole song as a '
+      + T('characters.sequence_each_part_starting_where', 'sequence, each part starting where the last one’s mouth closed, ')
+      + T('characters.no_jump_cuts_at_the', 'no jump cuts at the joins. One at a time; this Mac’s own a2v speed ')
+      + T('characters.applies_per_part_so_a', 'applies per part, so a long song is a long wait, not a fast one.');
     return;
   }
   if (AUDIO_STUDIO.audioDuration != null) {
@@ -1091,8 +1091,8 @@ function audioStudioDurationChanged(val) {
       const silentTail = (startSec + sec - fileLen).toFixed(1);
       warn.style.display = '';
       warn.innerHTML = 'The last <b>' + silentTail + ' s</b> of this clip render '
-        + 'against silence (the file ends at ' + fileLen.toFixed(1) + ' s) — the '
-        + 'mouth will stop there. Shorten Duration or move Start at earlier.';
+        + T('characters.against_silence_the_file_ends', 'against silence (the file ends at ') + fileLen.toFixed(1) + T('characters.s_the', ' s) — the ')
+        + T('characters.mouth_will_stop_there_shorten', 'mouth will stop there. Shorten Duration or move Start at earlier.');
       return;
     }
   }
@@ -1103,16 +1103,16 @@ function audioStudioDurationChanged(val) {
     const kneeSec = Math.max(1, Math.floor((A2V_KNEE_FRAMES - 1) / 24));
     warn.style.display = '';
     warn.innerHTML = '<b>' + w + '\u00d7' + h + '</b> is past the canvas where '
-      + 'long Audio \u2192 Video renders have been reported holding together. '
-      + 'What gives out is the picture, not the sound: the audio plays to the '
-      + 'end while anatomy drifts and the frame washes out, and the reports put '
+      + T('characters.long_audio_video_renders_have', 'long Audio \u2192 Video renders have been reported holding together. ')
+      + T('characters.what_gives_out_is_the', 'What gives out is the picture, not the sound: the audio plays to the ')
+      + T('characters.end_while_anatomy_drifts_and', 'end while anatomy drifts and the frame washes out, and the reports put ')
       + 'that around <b>frame ' + A2V_KNEE_FRAMES + '</b> (~' + kneeSec + ' s) '
       + 'whatever length was asked for. It is the <b>canvas</b>, not the length: '
-      + '832\u00d7480 has been reported clean at 721 frames, while 1024\u00d7576 '
-      + 'died around frame 454 on the same machine '
+      + T('characters.832_480_has_been_reported', '832\u00d7480 has been reported clean at 721 frames, while 1024\u00d7576 ')
+      + T('characters.died_around_frame_454_on', 'died around frame 454 on the same machine ')
       + '(<a href="https://github.com/mrbizarro/Phosphene/issues/46" target="_blank" rel="noopener">#46</a> '
-      + '\u2014 field reports, not a limit measured here). '
-      + 'Drop to about 832\u00d7480 or smaller and the length comes back. Longer still renders.';
+      + T('characters.field_reports_not_a_limit', '\u2014 field reports, not a limit measured here). ')
+      + T('characters.drop_to_about_832_480', 'Drop to about 832\u00d7480 or smaller and the length comes back. Longer still renders.');
   } else {
     warn.style.display = 'none';
     warn.textContent = '';
@@ -1145,8 +1145,8 @@ async function _audioStudioPromptCheckNow() {
     }
     const phrases = res.problems.map(p => '"' + escapeHtml(p) + '"').join(', ');
     warn.style.display = '';
-    warn.innerHTML = 'This freezes the mouth: ' + phrases
-      + ' — audio-driven clips read stillness language as "nothing moves, '
+    warn.innerHTML = T('characters.this_freezes_the_mouth', 'This freezes the mouth: ') + phrases
+      + T('characters.audio_driven_clips_read_stillness', ' — audio-driven clips read stillness language as "nothing moves, ')
       + 'including the lips." <a href="#" onclick="event.preventDefault();audioStudioPromptApplyFix(' + JSON.stringify(res.cleaned) + ');">Fix</a>';
   } catch (e) { /* best-effort — the server-side pass is the real gate */ }
 }
@@ -1161,7 +1161,7 @@ function audioStudioPromptApplyFix(cleaned) {
 async function audioStudioEnhancePrompt() {
   const ta = document.getElementById('audioStudioPrompt');
   const original = ta.value.trim();
-  if (!original) { phosToast('Type a prompt before enhancing it.', { kind: 'warning' }); return; }
+  if (!original) { phosToast(T('characters.type_a_prompt_before_enhancing', 'Type a prompt before enhancing it.'), { kind: 'warning' }); return; }
   const btn = document.getElementById('audioStudioEnhanceBtn');
   const originalLabel = btn.innerHTML;
   btn.disabled = true;
@@ -1192,7 +1192,7 @@ async function audioStudioEnhancePrompt() {
     const r = await fetch('/prompt/enhance', { method: 'POST', body: fd });
     const res = await r.json();
     if ((typeof packNeededToast === 'function' && packNeededToast(res))) return;   // 4.20: Gemma 3 still downloading / not yet fetched
-    if (res.error) { phosToast('Enhance failed: ' + res.error, { kind: 'danger', duration: 8000 }); return; }
+    if (res.error) { phosToast(T('characters.enhance_failed', 'Enhance failed: ') + res.error, { kind: 'danger', duration: 8000 }); return; }
     // No native confirm (it blocked the page and could not be undone): apply
     // the result, say what the LoRAs changed, and offer Undo in the toast.
     // Codex 4.18.0: Enhance takes seconds and the box stays editable — if the
@@ -1209,18 +1209,18 @@ async function audioStudioEnhancePrompt() {
       el.appendChild(a);
     };
     if (ta.value.trim() !== original) {
-      const el = phosToast('Your prompt changed while Enhance was working, so it was kept.'
+      const el = phosToast(T('characters.your_prompt_changed_while_enhance', 'Your prompt changed while Enhance was working, so it was kept.')
         + (note ? ' ' + note : ''), { kind: 'warning', duration: 12000 });
-      action(el, 'Use the enhanced one', () => setPrompt(res.enhanced));
+      action(el, T('characters.use_the_enhanced_one', 'Use the enhanced one'), () => setPrompt(res.enhanced));
       return;
     }
     setPrompt(res.enhanced);
-    const el = phosToast('Prompt enhanced.' + (note ? ' ' + note : ''), { kind: 'success', duration: 9000 });
-    action(el, 'Undo', () => {
+    const el = phosToast(T('characters.prompt_enhanced', 'Prompt enhanced.') + (note ? ' ' + note : ''), { kind: 'success', duration: 9000 });
+    action(el, T('characters.undo', 'Undo'), () => {
       if (ta.value === res.enhanced) setPrompt(original);
-      else phosToast('The prompt was edited since — Undo left it as it is.', { kind: 'warning' });
+      else phosToast(T('characters.the_prompt_was_edited_since', 'The prompt was edited since — Undo left it as it is.'), { kind: 'warning' });
     });
-  } catch (e) { phosToast('Enhance request failed: ' + (e.message || e), { kind: 'danger', duration: 8000 }); }
+  } catch (e) { phosToast(T('characters.enhance_request_failed', 'Enhance request failed: ') + (e.message || e), { kind: 'danger', duration: 8000 }); }
   finally { btn.disabled = false; btn.innerHTML = originalLabel; }
 }
 
@@ -1255,13 +1255,13 @@ function audioConditioningScaleReset() {
   el.min = isQ4 ? '0.5' : '1.5';
   el.value = String(a2vLaneAudioScale());
   const out = document.getElementById('audioConditioningScaleVal');
-  if (out) out.textContent = 'Auto';
+  if (out) out.textContent = T('characters.auto', 'Auto');
   const hint = document.getElementById('audioConditioningScaleHint');
   if (hint) {
-    hint.textContent = 'How hard the mouth follows the audio. Auto is best '
-      + 'for most clips — it picks the right value for this Mac\'s render '
-      + 'lane (' + (isQ4 ? 'Q4' : 'Q8') + '). Drag right for tighter sync, '
-      + 'left for more visual freedom.';
+    hint.textContent = T('characters.how_hard_the_mouth_follows', 'How hard the mouth follows the audio. Auto is best ')
+      + T('characters.for_most_clips_it_picks', 'for most clips — it picks the right value for this Mac\'s render ')
+      + T('characters.lane', 'lane (') + (isQ4 ? 'Q4' : 'Q8') + T('characters.drag_right_for_tighter_sync', '). Drag right for tighter sync, ')
+      + T('characters.left_for_more_visual_freedom', 'left for more visual freedom.');
   }
 }
 
@@ -1424,23 +1424,23 @@ async function _waitForJob(jobId, onProgress) {
 async function audioStudioSplitIntoClips(capSec) {
   if (_a2vSplitRunning) {
     if (typeof phosToast === 'function') {
-      phosToast('A split is already running — Stop it first, or wait for it to finish.', { kind: 'warning' });
+      phosToast(T('characters.a_split_is_already_running', 'A split is already running — Stop it first, or wait for it to finish.'), { kind: 'warning' });
     }
     return;
   }
-  if (AUDIO_STUDIO.busy) { alert('Wait for the current render to finish first.'); return; }
+  if (AUDIO_STUDIO.busy) { alert(T('characters.wait_for_the_current_render', 'Wait for the current render to finish first.')); return; }
   const totalDur = AUDIO_STUDIO.audioDuration;
   if (!totalDur) {
-    alert('This file’s length is not known yet — wait for the upload to finish, or re-drop it.');
+    alert(T('characters.this_file_s_length_is', 'This file’s length is not known yet — wait for the upload to finish, or re-drop it.'));
     return;
   }
   const startEl = document.getElementById('audioStudioStart');
   const fromSec = Math.max(0, parseFloat((startEl && startEl.value) || '0') || 0);
   const remaining = totalDur - fromSec;
-  if (remaining <= 0) { alert('Start at is already past the end of this file.'); return; }
+  if (remaining <= 0) { alert(T('characters.start_at_is_already_past', 'Start at is already past the end of this file.')); return; }
   const n = Math.max(1, Math.ceil(remaining / capSec));
-  if (!confirm('Queue ' + n + ' clips of up to ' + capSec + 's each, one at a time — '
-    + 'this Mac’s own a2v speed applies per part, so this can take a while. Continue?')) return;
+  if (!confirm(T('characters.queue', 'Queue ') + n + T('characters.clips_of_up_to', ' clips of up to ') + capSec + T('characters.s_each_one_at_a', 's each, one at a time — ')
+    + T('characters.this_mac_s_own_a2v', 'this Mac’s own a2v speed applies per part, so this can take a while. Continue?'))) return;
   // Taken BEFORE the first await and released in finally — a second call
   // returns above without touching this chain's cancel flag.
   _a2vSplitRunning = true;
@@ -1482,11 +1482,11 @@ async function _a2vSplitChain(capSec, totalDur, fromSec, n) {
   while (nextStart < totalDur - EPS) {
     const i = done;
     n = Math.max(n, i + Math.ceil((totalDur - nextStart - EPS) / capSec));
-    if (_a2vSplitCancel) { if (status) status.textContent = 'Split stopped after part ' + i + ' of ' + n + '.'; return; }
+    if (_a2vSplitCancel) { if (status) status.textContent = T('characters.split_stopped_after_part', 'Split stopped after part ') + i + ' of ' + n + '.'; return; }
     if (i >= maxParts) break;
     const partDur = Math.min(capSec, totalDur - nextStart);
     const frames = _a2vFramesForSeconds(partDur);
-    if (status) status.textContent = 'Queueing part ' + (i + 1) + ' of ' + n + ' ('
+    if (status) status.textContent = T('characters.queueing_part', 'Queueing part ') + (i + 1) + ' of ' + n + ' ('
       + nextStart.toFixed(1) + 's–' + (nextStart + partDur).toFixed(1) + 's)…';
     const fd = new URLSearchParams();
     fd.set('mode', 'a2v');
@@ -1511,7 +1511,7 @@ async function _a2vSplitChain(capSec, totalDur, fromSec, n) {
     fd.set('accel', 'off');
     fd.set('enhance', 'off');
     if (lorasJson) fd.set('loras', lorasJson);
-    fd.set('preset_label', 'Split ' + (i + 1) + '/' + n);
+    fd.set('preset_label', T('characters.split', 'Split ') + (i + 1) + '/' + n);
     let jobId;
     try {
       const r = await fetch('/queue/add', { method: 'POST', body: fd });
@@ -1519,17 +1519,17 @@ async function _a2vSplitChain(capSec, totalDur, fromSec, n) {
       if (!r.ok || res.error) throw new Error(res.error || ('HTTP ' + r.status));
       jobId = res.id;
     } catch (e) {
-      const msg = 'Part ' + (i + 1) + ' failed to queue: ' + (e.message || e)
+      const msg = T('characters.part', 'Part ') + (i + 1) + T('characters.failed_to_queue', ' failed to queue: ') + (e.message || e)
         + ' — ' + i + ' clip(s) already rendered are safe in Outputs.';
       if (status) status.textContent = msg;
       if (typeof phosToast === 'function') phosToast(msg, { kind: 'danger', duration: 8000 });
       return;
     }
     const result = await _waitForJob(jobId, (msg) => {
-      if (status) status.textContent = 'Part ' + (i + 1) + ' of ' + n + ': ' + msg;
+      if (status) status.textContent = T('characters.part', 'Part ') + (i + 1) + ' of ' + n + ': ' + msg;
     });
     if (!result || result.status !== 'done' || !result.output_path) {
-      const msg = 'Part ' + (i + 1) + ' did not finish (' + ((result && result.error) || result?.status || 'timed out')
+      const msg = T('characters.part', 'Part ') + (i + 1) + T('characters.did_not_finish', ' did not finish (') + ((result && result.error) || result?.status || 'timed out')
         + ') — ' + i + ' clip(s) already rendered are safe in Outputs.';
       if (status) status.textContent = msg;
       if (typeof phosToast === 'function') phosToast(msg, { kind: 'danger', duration: 8000 });
@@ -1563,15 +1563,15 @@ async function _a2vSplitChain(capSec, totalDur, fromSec, n) {
     if (typeof poll === 'function') poll();
   }
   if (nextStart < totalDur - EPS) {
-    const msg = 'Split stopped after ' + done + ' clips at ' + nextStart.toFixed(1)
-      + 's — the rest of the song was not queued. The clips made are safe in Outputs.';
+    const msg = T('characters.split_stopped_after', 'Split stopped after ') + done + T('characters.clips_at', ' clips at ') + nextStart.toFixed(1)
+      + T('characters.s_the_rest_of_the', 's — the rest of the song was not queued. The clips made are safe in Outputs.');
     if (status) status.textContent = msg;
     if (typeof phosToast === 'function') phosToast(msg, { kind: 'danger', duration: 8000 });
     return;
   }
-  if (status) status.textContent = 'Split into ' + done + ' clips done — join them in the Editor.';
+  if (status) status.textContent = T('characters.split_into', 'Split into ') + done + T('characters.clips_done_join_them_in', ' clips done — join them in the Editor.');
   if (typeof phosToast === 'function') {
-    phosToast('Split into ' + done + ' clips finished — join them in the Editor.', { kind: 'success' });
+    phosToast(T('characters.split_into', 'Split into ') + done + T('characters.clips_finished_join_them_in', ' clips finished — join them in the Editor.'), { kind: 'success' });
   }
 }
 
@@ -1583,11 +1583,11 @@ async function audioStudioGenerate(opts) {
   const btn = document.getElementById(draft ? 'audioStudioDraftBtn' : 'audioStudioGenBtn');
   const prompt = (document.getElementById('audioStudioPrompt').value || '').trim();
   if (!AUDIO_STUDIO.audioPath) {
-    if (status) status.textContent = 'Audio file is required.';
+    if (status) status.textContent = T('characters.audio_file_is_required', 'Audio file is required.');
     return;
   }
   if (!prompt) {
-    if (status) status.textContent = 'Prompt is required.';
+    if (status) status.textContent = T('characters.prompt_is_required', 'Prompt is required.');
     return;
   }
   // Width / height from free-form inputs; snap to 32 px multiple
@@ -1621,8 +1621,8 @@ async function audioStudioGenerate(opts) {
   // refuse it the same way the missing-audio / missing-prompt checks do,
   // rather than spend 10-25 minutes finding out.
   if (AUDIO_STUDIO.audioDuration != null && audioStart >= AUDIO_STUDIO.audioDuration) {
-    if (status) status.textContent = 'Start at (' + audioStart.toFixed(1)
-      + ' s) is past the end of this file (' + AUDIO_STUDIO.audioDuration.toFixed(1) + ' s).';
+    if (status) status.textContent = T('characters.start_at', 'Start at (') + audioStart.toFixed(1)
+      + T('characters.s_is_past_the_end', ' s) is past the end of this file (') + AUDIO_STUDIO.audioDuration.toFixed(1) + ' s).';
     return;
   }
 
@@ -1635,13 +1635,13 @@ async function audioStudioGenerate(opts) {
   const _sepInst = (_sepWaits && ((A2V_SEPARATOR.last || {}).install)) || {};
   if (_sepWaits && !_sepInst.active && _sepInst.state === 'failed') {
     audioStudioRenderSeparator();
-    if (status) status.textContent = 'Vocal separation did not install - press Try again just above, or untick \u201cListen to the voice only\u201d.';
+    if (status) status.textContent = T('characters.vocal_separation_did_not_install', 'Vocal separation did not install - press Try again just above, or untick \u201cListen to the voice only\u201d.');
     return;
   }
 
   AUDIO_STUDIO.busy = true;
   if (btn) btn.disabled = true;
-  if (status) status.textContent = 'Queueing…';
+  if (status) status.textContent = T('characters.queueing', 'Queueing…');
   try {
     // Image path lives in the shared .picker hidden input (#a2v_image),
     // not AUDIO_STUDIO.imagePath anymore. Empty string when the user
@@ -1703,15 +1703,15 @@ async function audioStudioGenerate(opts) {
     }
     if (status) {
       status.textContent = (draft
-        ? 'Draft queued (~3s, same seed) — check the mouth, then Generate the full clip.'
-        : 'Submitted. Watch Now / Recent.')
-        + (_sepWaits ? ' It starts when vocal separation finishes installing.' : '');
+        ? T('characters.draft_queued_3s_same_seed', 'Draft queued (~3s, same seed) — check the mouth, then Generate the full clip.')
+        : T('characters.submitted_watch_now_recent', 'Submitted. Watch Now / Recent.'))
+        + (_sepWaits ? T('characters.it_starts_when_vocal_separation', ' It starts when vocal separation finishes installing.') : '');
     }
     if (_sepWaits) audioStudioRefreshSeparator();
     if (typeof phosToast === 'function') {
       phosToast(draft
-        ? 'Draft queued · ~3s at this seed — watch Now, then Generate for the full clip'
-        : 'Queued Audio → Video clip · watch Now', { kind: 'success' });
+        ? T('characters.draft_queued_3s_at_this', 'Draft queued · ~3s at this seed — watch Now, then Generate for the full clip')
+        : T('characters.queued_audio_video_clip_watch', 'Queued Audio → Video clip · watch Now'), { kind: 'success' });
     }
     const nowTab = document.querySelector('.tabs button[data-tab="now"]');
     if (nowTab) {
@@ -1719,9 +1719,9 @@ async function audioStudioGenerate(opts) {
       setTimeout(() => nowTab.classList.remove('flash'), 1200);
     }
   } catch (e) {
-    if (status) status.textContent = 'Submit failed: ' + (e.message || 'unknown');
+    if (status) status.textContent = T('characters.submit_failed', 'Submit failed: ') + (e.message || 'unknown');
     if (typeof phosToast === 'function') {
-      phosToast('A2V submit failed: ' + (e.message || 'unknown'),
+      phosToast(T('characters.a2v_submit_failed', 'A2V submit failed: ') + (e.message || 'unknown'),
                 { kind: 'danger', duration: 5000 });
     }
   } finally {
@@ -1765,22 +1765,22 @@ globalThis.TRAIN = {
   // dataset size. Advanced trainSteps override still wins.
   presets: BOOT.train_presets || {
     quick:  { epochs:  30, rank: 8,  resolution: 512, seconds_per_step: 1.5, ram_peak_gb: 12,
-              label: 'Quick',  subtitle: '~30 epochs · rank 8 · 512px', max_steps: 3000 },
+              label: T('characters.quick', 'Quick'),  subtitle: '~30 epochs · rank 8 · 512px', max_steps: 3000 },
     medium: { epochs:  60, rank: 16, resolution: 576, seconds_per_step: 2.2, ram_peak_gb: 18,
-              label: 'Medium', subtitle: '~60 epochs · rank 16 · 576px', max_steps: 5000 },
+              label: T('characters.medium', 'Medium'), subtitle: '~60 epochs · rank 16 · 576px', max_steps: 5000 },
     high:   { epochs: 100, rank: 32, resolution: 512, seconds_per_step: 2.0, ram_peak_gb: 28,
-              label: 'High',   subtitle: '~100 epochs · rank 32 · 512px (v2 recipe)', max_steps: 7000 },
+              label: T('characters.high', 'High'),   subtitle: '~100 epochs · rank 32 · 512px (v2 recipe)', max_steps: 7000 },
   },
   // Mirror of the server-side TRAIN_STYLE_PRESETS. Style table differs from
   // character: quick uses rank 16 (not rank 8), and "high" adds epochs not
   // rank (rank 32 is the validated capacity ceiling for our LTX-2.3 stack).
   stylePresets: BOOT.train_style_presets || {
     quick:  { epochs:  30, rank: 16, resolution: 512, seconds_per_step: 1.5, ram_peak_gb: 12,
-              label: 'Quick',  subtitle: '~30 epochs · rank 16 · 512px', max_steps: 3000 },
+              label: T('characters.quick', 'Quick'),  subtitle: '~30 epochs · rank 16 · 512px', max_steps: 3000 },
     medium: { epochs:  60, rank: 32, resolution: 512, seconds_per_step: 2.0, ram_peak_gb: 18,
-              label: 'Medium', subtitle: '~60 epochs · rank 32 · 512px', max_steps: 5000 },
+              label: T('characters.medium', 'Medium'), subtitle: '~60 epochs · rank 32 · 512px', max_steps: 5000 },
     high:   { epochs: 100, rank: 32, resolution: 512, seconds_per_step: 2.0, ram_peak_gb: 28,
-              label: 'High',   subtitle: '~100 epochs · rank 32 · 512px', max_steps: 7000 },
+              label: T('characters.high', 'High'),   subtitle: '~100 epochs · rank 32 · 512px', max_steps: 7000 },
   },
   trainProfile: BOOT.train_profile || {},
   // Voice (optional) state. `voiceFile` is the server-saved record once
@@ -1798,9 +1798,9 @@ globalThis.TRAIN = {
   voiceEnabled: true,         // default ON visually; behaviorally gated on voiceFile
   voicePreset: 'standard',    // 'smoke' | 'standard' | 'long'
   voicePresets: {
-    smoke:    { steps: 100, label: 'Smoke',    sub: '~7 min wall' },
-    standard: { steps: 250, label: 'Standard', sub: '~17 min wall' },
-    long:     { steps: 500, label: 'Long',     sub: '~33 min wall' },
+    smoke:    { steps: 100, label: T('characters.smoke', 'Smoke'),    sub: T('characters.7_min_wall', '~7 min wall') },
+    standard: { steps: 250, label: T('characters.standard', 'Standard'), sub: T('characters.17_min_wall', '~17 min wall') },
+    long:     { steps: 500, label: T('characters.long', 'Long'),     sub: T('characters.33_min_wall', '~33 min wall') },
   },
   // ~30 s/step on M4 Max. Mirrors TRAIN_AUDIO_SECONDS_PER_STEP py-side;
   // these labels are guidance not contract.
@@ -1867,16 +1867,16 @@ function trainUpdatePresetNote() {
   const compact = !!profile.compact;
   if (TRAIN.trainType === 'style') {
     el.textContent = compact
-      ? 'This Mac trains on the compact profile (rank 4–8, 384–448px, capped steps), so a style adapter here will be a light touch. No style preset has been graded.'
-      : 'A style adapter teaches a look, not a person, so Quick is a fair place to start; Medium and High buy capacity for a more complex look. None of the style presets has been graded.';
+      ? T('characters.this_mac_trains_on_the', 'This Mac trains on the compact profile (rank 4–8, 384–448px, capped steps), so a style adapter here will be a light touch. No style preset has been graded.')
+      : T('characters.a_style_adapter_teaches_a', 'A style adapter teaches a look, not a person, so Quick is a fair place to start; Medium and High buy capacity for a more complex look. None of the style presets has been graded.');
     return;
   }
   if (compact) {
-    const ram = profile.ram_gb ? `${profile.ram_gb} GB` : 'under 64 GB';
+    const ram = profile.ram_gb ? `${profile.ram_gb} GB` : T('characters.under_64_gb', 'under 64 GB');
     el.innerHTML =
       `<strong>This Mac has ${escapeHtml(String(ram))}, so training runs the compact profile — and "High" here is not the graded recipe.</strong> ` +
-      'It trains rank 8 / 500 steps / 448px on two of the four attention projections. The recipe that has carried a face is rank 32 / ~100 epochs / 512px on all four, ' +
-      'and no preset on this machine can reach it. Expect a weak adapter and treat the result as a look rather than an identity — that is the hardware, not your photos.';
+      T('characters.it_trains_rank_8_500', 'It trains rank 8 / 500 steps / 448px on two of the four attention projections. The recipe that has carried a face is rank 32 / ~100 epochs / 512px on all four, ') +
+      T('characters.and_no_preset_on_this', 'and no preset on this machine can reach it. Expect a weak adapter and treat the result as a look rather than an identity — that is the hardware, not your photos.');
     return;
   }
   // SYS-15: this used to lead with raw delta_rms numbers (lab jargon a
@@ -1886,12 +1886,12 @@ function trainUpdatePresetNote() {
   // same pattern as the Now-card's own "Details for troubleshooting".
   el.innerHTML =
     '<strong>High is the only recipe ever graded on a face.</strong> ' +
-    'Pick Quick for a fast look or a style, not for a person — it has not ' +
-    'held an identity in any measured run. ' +
+    T('characters.pick_quick_for_a_fast', 'Pick Quick for a fast look or a style, not for a person — it has not ') +
+    T('characters.held_an_identity_in_any', 'held an identity in any measured run. ') +
     '<details class="h3-diag"><summary>Measured numbers</summary>' +
     '<p>Measured with <code>lora_compat.py</code>: rank-32 (High) adapters ' +
     'that carry an identity sit at 5.4e-04 to 1.6e-03 delta_rms. Quick\'s ' +
-    'rank 8 has measured 1.54e-04 and 1.98e-04 on real datasets — at or ' +
+    T('characters.rank_8_has_measured_1', 'rank 8 has measured 1.54e-04 and 1.98e-04 on real datasets — at or ') +
     'under the 2.0e-04 floor no working adapter has been below.</p></details>';
 }
 
@@ -1979,8 +1979,8 @@ const CHARACTERS_FRAMING = [
   ['ECU', 'ECU', 'extreme close-up'],
   ['CU',  'CU',  'close-up'],
   ['MCU', 'MCU', 'medium close-up'],
-  ['MS',  'MS',  'medium shot'],
-  ['LS',  'LS',  'long shot'],
+  ['MS',  'MS',  T('characters.medium_shot', 'medium shot')],
+  ['LS',  'LS',  T('characters.long_shot', 'long shot')],
 ];
 // DERIVED from the engine's own length table, not typed. This was the fourth
 // independent duration vocabulary in the panel (after the storyboard card's
@@ -2007,7 +2007,7 @@ const CHARACTERS_QUALITY = (() => {
     ? c.tokens
     : [c.draft, c.pro].filter(Boolean);
   if (!rows.length) {
-    return [['pro', 'Q8 Pro', 'Q8 Pro — the graded default character recipe', null]];
+    return [['pro', 'Q8 Pro', T('characters.q8_pro_the_graded_default', 'Q8 Pro — the graded default character recipe'), null]];
   }
   return rows.map(row => [
     row.key,
@@ -2031,7 +2031,7 @@ async function downloadSampleCharacter() {
   const setStatus = (msg) => statuses.forEach(s => { s.hidden = false; s.textContent = msg; });
   const setDisabled = (v) => btns.forEach(b => { b.disabled = v; });
   setDisabled(true);
-  setStatus('Starting… (~817 MB, one-time)');
+  setStatus(T('characters.starting_817_mb_one_time', 'Starting… (~817 MB, one-time)'));
   const finishOk = async (msg) => {
     setStatus(msg);
     // Re-init the picker(s) so the new character appears + the empty state hides.
@@ -2042,25 +2042,25 @@ async function downloadSampleCharacter() {
   try {
     const r = await fetch('/characters/download-sample', { method: 'POST' });
     const j = await r.json().catch(() => ({}));
-    if (j && j.already) { await finishOk('Already installed — "Bizarro" is in your characters.'); return; }
+    if (j && j.already) { await finishOk(T('characters.already_installed_bizarro_is_in', 'Already installed — "Bizarro" is in your characters.')); return; }
     if (!r.ok && r.status !== 202) { throw new Error((j && j.error) || ('HTTP ' + r.status)); }
     const poll = setInterval(async () => {
       let s;
       try { s = await (await fetch('/characters/download-sample/status')).json(); }
       catch (_) { return; }
       if (s.status === 'downloading') {
-        setStatus('Downloading… ' + (s.mb || 0) + ' / ' + (s.total_mb || '?') + ' MB');
+        setStatus(T('characters.downloading', 'Downloading… ') + (s.mb || 0) + ' / ' + (s.total_mb || '?') + ' MB');
       } else if (s.status === 'done' || s.present) {
         clearInterval(poll);
-        await finishOk('Installed! "Bizarro" is in your characters now — pick it to start.');
+        await finishOk(T('characters.installed_bizarro_is_in_your', 'Installed! "Bizarro" is in your characters now — pick it to start.'));
       } else if (s.status === 'error') {
         clearInterval(poll);
-        setStatus('Download failed: ' + (s.error || 'unknown') + ' — try again.');
+        setStatus(T('characters.download_failed', 'Download failed: ') + (s.error || 'unknown') + T('characters.try_again_2', ' — try again.'));
         setDisabled(false);
       }
     }, 2500);
   } catch (e) {
-    setStatus('Could not start: ' + (e.message || e));
+    setStatus(T('characters.could_not_start', 'Could not start: ') + (e.message || e));
     setDisabled(false);
   }
 }
@@ -2118,13 +2118,13 @@ function charactersRenderGrid() {
     // exists alongside the face LoRA.
     const silentOverlay = c.has_voice
       ? ''
-      : `<span class="characters-card-silent-overlay" title="No voice LoRA — character is silent">
+      : `<span class="characters-card-silent-overlay" title="${TA('characters.no_voice_lora_character_is', 'No voice LoRA — character is silent')}">
            <svg class="ph" aria-hidden="true"><use href="#ph-speaker-slash"/></svg>
          </span>`;
     const silentBadge = c.has_voice
       ? ''
-      : `<span class="characters-silent-badge" title="No voice LoRA on disk — train one via the Train tab">
-           <svg class="ph" aria-hidden="true"><use href="#ph-speaker-slash"/></svg>Silent
+      : `<span class="characters-silent-badge" title="${TA('characters.no_voice_lora_on_disk', 'No voice LoRA on disk — train one via the Train tab')}">
+           <svg class="ph" aria-hidden="true"><use href="#ph-speaker-slash"/></svg>${T('characters.silent', 'Silent')}
          </span>`;
     return `
       <div class="characters-card" role="button" tabindex="0"
@@ -2228,7 +2228,7 @@ function charactersOpenCompose(id) {
       silentEl = document.createElement('span');
       silentEl.id = 'charactersComposeSilent';
       silentEl.className = 'characters-silent-badge';
-      silentEl.title = 'No voice LoRA — train one via the Train tab';
+      silentEl.title = T('characters.no_voice_lora_train_one', 'No voice LoRA — train one via the Train tab');
       silentEl.innerHTML =
         '<svg class="ph" aria-hidden="true"><use href="#ph-speaker-slash"/></svg>Silent';
       chipRow.appendChild(silentEl);
@@ -2248,8 +2248,8 @@ function charactersOpenCompose(id) {
     if (!c.has_voice) {
       turboCb.checked = false;
       turboCb.title =
-        'This character has no voice LoRA — Turbo (audio skip-guidance) ' +
-        'is unavailable. Train a voice via the Train tab to enable.';
+        T('characters.this_character_has_no_voice', 'This character has no voice LoRA — Turbo (audio skip-guidance) ') +
+        T('characters.is_unavailable_train_a_voice', 'is unavailable. Train a voice via the Train tab to enable.');
     } else {
       turboCb.title = '';
     }
@@ -2317,7 +2317,7 @@ async function charactersHandleAudioUpload(ev) {
     if (fnameEl) fnameEl.textContent = file.name;
     if (clearEl) clearEl.hidden = false;
   } catch (e) {
-    if (fnameEl) fnameEl.textContent = 'upload failed: ' + (e.message || e);
+    if (fnameEl) fnameEl.textContent = T('characters.upload_failed', 'upload failed: ') + (e.message || e);
   }
   ev.target.value = '';
 }
@@ -2687,11 +2687,11 @@ function trainApplyRamGate() {
   section.classList.toggle('train-ram-gated', gated);
   if (gated) {
     document.getElementById('trainGateTitle').textContent =
-      `Training a character needs a Mac with ${minRam} GB or more`;
+      T('characters.training_a_character_needs_a', 'Training a character needs a Mac with {minRam} GB or more', {minRam});
     document.getElementById('trainGateBody').textContent =
-      `This one has ${ram} GB — the trainer runs out of memory before it `
-      + `finishes on this Mac, every time. You can still use characters: `
-      + `try the sample character below, or a community-trained one.`;
+      T('characters.this_one_has_gb_the', 'This one has {ram} GB — the trainer runs out of memory before it ', {ram})
+      + T('characters.finishes_on_this_mac_every', 'finishes on this Mac, every time. You can still use characters: ')
+      + T('characters.try_the_sample_character_below', 'try the sample character below, or a community-trained one.');
   }
   return gated;
 }
@@ -2839,12 +2839,12 @@ async function trainCheckPreflight() {
     const totalGb = missing.reduce((sum, m) => sum + (Number(m.size_gb) || 0), 0);
     const q8ExtraNote = (LAST_STATUS && LAST_STATUS.q8_available)
       ? ''
-      : ` Using a trained character afterward needs the separate 30 GB `
-      + `Q8 pack too — that one's offered from Character mode when you get there.`;
+      : T('characters.using_a_trained_character_afterward', ' Using a trained character afterward needs the separate 30 GB ')
+      + T('characters.q8_pack_too_that_one', 'Q8 pack too — that one\'s offered from Character mode when you get there.');
     box.innerHTML = `
       <div class="train-preflight-card">
         <div class="train-preflight-title">
-          <svg class="ph" aria-hidden="true" style="margin-right:6px;vertical-align:-2px"><use href="#ph-warning-fill"/></svg>Get ready to train: ~${totalGb.toFixed(1)} GB (LTX-2.3 training weights)
+          <svg class="ph" aria-hidden="true" style="margin-right:6px;vertical-align:-2px"><use href="#ph-warning-fill"/></svg>${T('characters.get_ready_to_train_gb', 'Get ready to train: ~{v} GB (LTX-2.3 training weights)', {v: totalGb.toFixed(1)})}
         </div>
         <div class="train-preflight-list">
           ${missing.map(m => `
@@ -2861,10 +2861,7 @@ async function trainCheckPreflight() {
           <button type="button" class="btn btn-primary" id="trainInstallAllBtn">Download all (~${totalGb.toFixed(1)} GB)</button>
         </div>
         <div class="train-preflight-foot">
-          Phosphene installs only what it renders with. Training runs against
-          LTX-2.3 and needs its own weights, so they are downloaded on demand
-          rather than shipped to everyone. Each download is resumable, and
-          nothing above is needed to render.${q8ExtraNote}
+          ${T('characters.phosphene_installs_only_what_it', 'Phosphene installs only what it renders with. Training runs against\n          LTX-2.3 and needs its own weights, so they are downloaded on demand\n          rather than shipped to everyone. Each download is resumable, and\n          nothing above is needed to render.{q8ExtraNote}', {q8ExtraNote})}
         </div>
       </div>
     `;
@@ -2888,7 +2885,7 @@ async function trainCheckPreflight() {
 async function trainInstallAll(keys) {
   const btn = document.getElementById('trainInstallAllBtn');
   for (const key of keys) {
-    if (btn) { btn.disabled = true; btn.textContent = 'Downloading…'; }
+    if (btn) { btn.disabled = true; btn.textContent = T('characters.downloading_2', 'Downloading…'); }
     await trainInstallAndWait(key);
   }
   trainCheckPreflight();
@@ -2919,7 +2916,7 @@ async function trainInstall(key, onDone) {
     });
     const data = await r.json();
     if (!data.ok) {
-      alert('Download failed: ' + (data.error || r.status));
+      alert(T('characters.download_failed', 'Download failed: ') + (data.error || r.status));
       finish();
       return;
     }
@@ -2940,7 +2937,7 @@ async function trainInstall(key, onDone) {
       } catch (e) { /* ignore */ }
     }, 5000);
   } catch (e) {
-    alert('Download request failed: ' + e.message);
+    alert(T('characters.download_request_failed', 'Download request failed: ') + e.message);
     finish();
   }
 }
@@ -2967,8 +2964,8 @@ function trainTriggerDigitWarn() {
   if (!t || !hint) return;
   const bad = /\d/.test((t.value || '').trim());
   hint.textContent = bad
-    ? 'digits split into their own very common tokens — every trigger that has carried a face here was letters-only (e.g. mrztrn)'
-    : 'a rare, letters-only token the model will associate with this character';
+    ? T('characters.digits_split_into_their_own', 'digits split into their own very common tokens — every trigger that has carried a face here was letters-only (e.g. mrztrn)')
+    : T('characters.a_rare_letters_only_token', 'a rare, letters-only token the model will associate with this character');
   hint.classList.toggle('warn', bad);
 }
 
@@ -3033,7 +3030,7 @@ async function trainUploadBundle(file) {
   const status = document.getElementById('trainStatus');
   if (!file) return;
   if (!/\.zip$/i.test(file.name)) {
-    if (status) status.textContent = 'Bundle must be a .zip file.';
+    if (status) status.textContent = T('characters.bundle_must_be_a_zip', 'Bundle must be a .zip file.');
     return;
   }
   if (drop) drop.classList.add('busy');
@@ -3045,7 +3042,7 @@ async function trainUploadBundle(file) {
     const r = await fetch('/train/upload-bundle', { method: 'POST', body: fd });
     const j = await r.json();
     if (!r.ok || !j.ok) {
-      if (status) status.textContent = 'Bundle error: ' + (j.error || r.status);
+      if (status) status.textContent = T('characters.bundle_error', 'Bundle error: ') + (j.error || r.status);
       return;
     }
     TRAIN.jobId = j.job_id;
@@ -3060,7 +3057,7 @@ async function trainUploadBundle(file) {
     }
     if (status) status.textContent = bits.join(' · ');
   } catch (e) {
-    if (status) status.textContent = 'Bundle upload failed: ' + (e.message || 'unknown');
+    if (status) status.textContent = T('characters.bundle_upload_failed', 'Bundle upload failed: ') + (e.message || 'unknown');
   } finally {
     if (drop) drop.classList.remove('busy');
   }
@@ -3133,8 +3130,8 @@ async function trainUploadFiles(fileList) {
   if (!imgs.length && !caps.length) {
     if (status) {
       status.textContent = rejected.length
-        ? `No supported files in that selection. Skipped: ${rejected.join(', ')}`
-        : 'No supported files in that selection (need PNG / JPG / WEBP / HEIC / TXT).';
+        ? T('characters.no_supported_files_in_that', 'No supported files in that selection. Skipped: {v}', {v: rejected.join(', ')})
+        : T('characters.no_supported_files_in_that_2', 'No supported files in that selection (need PNG / JPG / WEBP / HEIC / TXT).');
     }
     return;
   }
@@ -3178,7 +3175,7 @@ async function trainUploadFiles(fileList) {
         TRAIN.images.splice(placeholderIdx, 1);
         const reason = j.error || `HTTP ${r.status}`;
         failed.push(`${f.name} (${reason})`);
-        if (status) status.textContent = 'Upload error: ' + reason;
+        if (status) status.textContent = T('characters.upload_error', 'Upload error: ') + reason;
         trainRenderThumbs();
         continue;
       }
@@ -3200,7 +3197,7 @@ async function trainUploadFiles(fileList) {
       TRAIN.images.splice(placeholderIdx, 1);
       const reason = e.message || 'unknown';
       failed.push(`${f.name} (${reason})`);
-      if (status) status.textContent = 'Upload failed: ' + reason;
+      if (status) status.textContent = T('characters.upload_failed_2', 'Upload failed: ') + reason;
       trainRenderThumbs();
     }
   }
@@ -3217,7 +3214,7 @@ async function trainUploadFiles(fileList) {
       if (!r.ok || !j.ok) {
         const reason = j.error || `HTTP ${r.status}`;
         failed.push(`${f.name} (${reason})`);
-        if (status) status.textContent = 'Caption upload error: ' + reason;
+        if (status) status.textContent = T('characters.caption_upload_error', 'Caption upload error: ') + reason;
         continue;
       }
       TRAIN.jobId = j.job_id;
@@ -3229,7 +3226,7 @@ async function trainUploadFiles(fileList) {
     } catch (e) {
       const reason = e.message || 'unknown';
       failed.push(`${f.name} (${reason})`);
-      if (status) status.textContent = 'Caption upload failed: ' + reason;
+      if (status) status.textContent = T('characters.caption_upload_failed', 'Caption upload failed: ') + reason;
     }
   }
   if (caps.length) {
@@ -3295,14 +3292,14 @@ function trainRenderThumbs() {
     const capCls = img.uploading ? '' :
       (img.captioned ? 'captioned' : 'uncaptioned');
     const capLabel = img.uploading ? '' :
-      (img.captioned ? '✓ cap' : 'no cap');
+      (img.captioned ? T('characters.cap', '✓ cap') : T('characters.no_cap', 'no cap'));
     const capTitle = img.uploading ? '' :
-      (img.captioned ? 'caption paired' : 'no caption — will fall back to trigger_simple');
+      (img.captioned ? T('characters.caption_paired', 'caption paired') : 'no caption — will fall back to trigger_simple');
     return `<div class="${cls}" data-idx="${idx}">
       <img src="${img.src || ''}" alt="char ${idx + 1}" loading="lazy">
       <span class="train-thumb-num">${String(idx + 1).padStart(3, '0')}</span>
       ${capLabel ? `<span class="train-thumb-cap ${capCls}" title="${capTitle}">${capLabel}</span>` : ''}
-      <button type="button" class="train-thumb-x" ${removeAttr} title="Remove"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+      <button type="button" class="train-thumb-x" ${removeAttr} title="${TA('characters.remove', 'Remove')}"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
     </div>`;
   }).join('');
   trainUpdateCounter();
@@ -3327,7 +3324,7 @@ function trainUpdateCounter() {
   if (hint) {
     if (n === 0) hint.textContent = `${TRAIN_MIN} minimum · 20–50 is the sweet spot`;
     else if (n < TRAIN_MIN) hint.textContent = `need ${TRAIN_MIN - n} more`;
-    else if (n < TRAIN_MAX) hint.textContent = `ready · 20–50 is the sweet spot, more helps variety`;
+    else if (n < TRAIN_MAX) hint.textContent = T('characters.ready_20_50_is_the', 'ready · 20–50 is the sweet spot, more helps variety');
     else hint.textContent = `at the ${TRAIN_MAX}-image limit`;
   }
   if (capChip) {
@@ -3434,12 +3431,12 @@ async function trainAutoCaption() {
   const fill = document.getElementById('trainAutoCaptionBarFill');
   if (!btn || btn.disabled) return;
   if (!TRAIN.jobId) {
-    if (status) status.textContent = 'No dataset yet — drop some images first.';
+    if (status) status.textContent = T('characters.no_dataset_yet_drop_some', 'No dataset yet — drop some images first.');
     return;
   }
   const trig = (document.getElementById('trainTrigger').value || '').trim();
   if (!trig) {
-    if (status) status.textContent = 'Set a trigger word first.';
+    if (status) status.textContent = T('characters.set_a_trigger_word_first', 'Set a trigger word first.');
     return;
   }
   const n = TRAIN.images.filter(x => !x.uploading).length;
@@ -3454,10 +3451,10 @@ async function trainAutoCaption() {
     )) return;
   }
   btn.disabled = true;
-  if (label) label.textContent = 'Captioning…';
+  if (label) label.textContent = T('characters.captioning', 'Captioning…');
   if (prog) prog.hidden = false;
   if (fill) fill.style.width = '0%';
-  if (status) status.textContent = `Loading the prompt helper (~3s)…`;
+  if (status) status.textContent = T('characters.loading_the_prompt_helper_3s', 'Loading the prompt helper (~3s)…');
   const fd = new FormData();
   fd.set('train_job_id', TRAIN.jobId);
   fd.set('trigger', trig);
@@ -3469,13 +3466,13 @@ async function trainAutoCaption() {
       body: new URLSearchParams(fd),
     });
   } catch (e) {
-    if (status) status.textContent = 'Network error: ' + (e.message || e);
+    if (status) status.textContent = T('characters.network_error', 'Network error: ') + (e.message || e);
     trainAutoCaptionFinish();
     return;
   }
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j.ok) {
-    if (status) status.textContent = 'Failed: ' + (j.error || `HTTP ${r.status}`);
+    if (status) status.textContent = T('characters.failed', 'Failed: ') + (j.error || `HTTP ${r.status}`);
     (typeof packNeededToast === 'function' && packNeededToast(j));   // 4.20: the captioning model may still be downloading
     trainAutoCaptionFinish();
     return;
@@ -3517,7 +3514,7 @@ function trainAutoCaptionFinish() {
   const btn = document.getElementById('trainAutoCaptionBtn');
   const label = document.getElementById('trainAutoCaptionLabel');
   if (btn) btn.disabled = false;
-  if (label) label.textContent = 'Auto-caption with Gemma 3';
+  if (label) label.textContent = T('characters.auto_caption_with_gemma_3', 'Auto-caption with Gemma 3');
   // Leave the progress strip visible at 100% so the user has a record
   // of the run; it'll reset to 0% next time the button is clicked.
   trainUpdateButtonState();
@@ -3536,9 +3533,9 @@ function trainUpdateAutoCaptionState() {
   const ok = n >= 1 && trig.length >= 3 && trig.length <= 32;
   btn.disabled = !ok;
   if (!ok) {
-    if (n < 1) btn.title = 'Drop at least one image first.';
-    else if (trig.length < 3) btn.title = 'Trigger word must be 3+ characters.';
-    else btn.title = 'Trigger word is too long (max 32).';
+    if (n < 1) btn.title = T('characters.drop_at_least_one_image', 'Drop at least one image first.');
+    else if (trig.length < 3) btn.title = T('characters.trigger_word_must_be_3', 'Trigger word must be 3+ characters.');
+    else btn.title = T('characters.trigger_word_is_too_long', 'Trigger word is too long (max 32).');
   } else {
     btn.title = `Run Gemma 3 on all ${n} image(s) — ~${(2.5 * n).toFixed(0)}s`;
   }
@@ -3611,11 +3608,11 @@ function trainUpdateButtonState() {
   const ok = n >= TRAIN_MIN && trig.length >= 3 && trig.length <= 32;
   btn.disabled = !ok;
   if (!ok) {
-    if (n < TRAIN_MIN) btn.title = `Need at least ${TRAIN_MIN} images (have ${n}).`;
-    else if (trig.length < 3) btn.title = 'Trigger word must be 3+ characters.';
-    else btn.title = 'Trigger word is too long (max 32).';
+    if (n < TRAIN_MIN) btn.title = T('characters.need_at_least_images_have', 'Need at least {TRAIN_MIN} images (have {n}).', {TRAIN_MIN, n});
+    else if (trig.length < 3) btn.title = T('characters.trigger_word_must_be_3', 'Trigger word must be 3+ characters.');
+    else btn.title = T('characters.trigger_word_is_too_long', 'Trigger word is too long (max 32).');
   } else {
-    btn.title = 'Queue this training job.';
+    btn.title = T('characters.queue_this_training_job', 'Queue this training job.');
   }
   // The auto-caption button has a LOWER bar (1 image + 3-char trigger,
   // versus 15 images for training) so it's tracked separately. Folded
@@ -3629,12 +3626,12 @@ async function trainStart() {
   const btn = document.getElementById('trainStartBtn');
   const status = document.getElementById('trainStatus');
   if (!TRAIN.jobId || TRAIN.images.length < TRAIN_MIN) {
-    if (status) status.textContent = `Need at least ${TRAIN_MIN} images.`;
+    if (status) status.textContent = T('characters.need_at_least_images', 'Need at least {TRAIN_MIN} images.', {TRAIN_MIN});
     return;
   }
   const trig = (document.getElementById('trainTrigger').value || '').trim();
   if (!trig) {
-    if (status) status.textContent = 'Trigger word required.';
+    if (status) status.textContent = T('characters.trigger_word_required', 'Trigger word required.');
     return;
   }
   // Caption warnings: thin captions (< 10 words) or user_provided strategy
@@ -3645,11 +3642,11 @@ async function trainStart() {
   const thinCaps = TRAIN.images.filter(x =>
     x.captioned && typeof x.caption_words === 'number' && x.caption_words < 10);
   if (captionStrategy === 'user_provided' && captionedCount === 0) {
-    if (!confirm('Caption strategy is "user_provided" but no .txt captions were uploaded. ' +
-                 'Continue with the trigger_simple fallback for every image?')) return;
+    if (!confirm(T('characters.caption_strategy_is_user_provided', 'Caption strategy is "user_provided" but no .txt captions were uploaded. ') +
+                 T('characters.continue_with_the_trigger_simple', 'Continue with the trigger_simple fallback for every image?'))) return;
   } else if (thinCaps.length) {
     if (!confirm(`${thinCaps.length} caption(s) are very short (< 10 words). ` +
-                 'Short captions usually train weaker LoRAs. Continue anyway?')) return;
+                 T('characters.short_captions_usually_train_weaker', 'Short captions usually train weaker LoRAs. Continue anyway?'))) return;
   }
   const fd = new URLSearchParams();
   fd.set('train_job_id', TRAIN.jobId);
@@ -3699,12 +3696,12 @@ async function trainStart() {
         if (status) status.textContent = j.error;
         trainCheckPreflight();
       } else if (status) {
-        status.textContent = 'Failed to enqueue: ' + (j.error || r.status);
+        status.textContent = T('characters.failed_to_enqueue', 'Failed to enqueue: ') + (j.error || r.status);
       }
       if (btn) { btn.disabled = false; restoreLabel(); }
       return;
     }
-    if (status) status.textContent = `Queued · job ${j.queued_id}. Watch the Now / Queue pane for progress.`;
+    if (status) status.textContent = T('characters.queued_job_watch_the_now', 'Queued · job {queued_id}. Watch the Now / Queue pane for progress.', {queued_id: j.queued_id});
     // Reset the form so the user can stage another dataset. The current
     // job's files stay on disk — only our local mirror is cleared.
     TRAIN.jobId = null;
@@ -3719,7 +3716,7 @@ async function trainStart() {
     // waiting for the next 1.5s tick.
     if (typeof poll === 'function') poll();
   } catch (e) {
-    if (status) status.textContent = 'Enqueue failed: ' + (e.message || 'unknown');
+    if (status) status.textContent = T('characters.enqueue_failed', 'Enqueue failed: ') + (e.message || 'unknown');
     if (btn) { btn.disabled = false; restoreLabel(); }
   }
 }
@@ -3729,10 +3726,10 @@ async function trainStart() {
 // ============================================================
 
 function trainStartLabelText() {
-  if (TRAIN.trainType === 'style') return 'Train Style';
+  if (TRAIN.trainType === 'style') return T('characters.train_style', 'Train Style');
   return (TRAIN.voiceEnabled && TRAIN.voiceFile)
-    ? 'Train Character + Voice'
-    : 'Train Character';
+    ? T('characters.train_character_voice', 'Train Character + Voice')
+    : T('characters.train_character', 'Train Character');
 }
 
 function trainUpdateStartLabel() {
@@ -3797,7 +3794,7 @@ async function trainVoiceUpload(file) {
   // at least one image first. Guard with a friendly message, shown BOTH
   // on the card itself (SYS-10c) and on the shared status line.
   if (!TRAIN.jobId) {
-    const msg = 'Upload at least one training image first — the voice clip attaches to that dataset.';
+    const msg = T('characters.upload_at_least_one_training', 'Upload at least one training image first — the voice clip attaches to that dataset.');
     if (status) status.textContent = msg;
     _trainVoiceInlineError(msg);
     return;
@@ -3805,13 +3802,13 @@ async function trainVoiceUpload(file) {
   // Quick client-side extension + size check (server re-validates).
   const ext = (file.name.match(/\.[^.]+$/) || [''])[0].toLowerCase();
   if (!['.wav', '.mp3', '.m4a', '.flac'].includes(ext)) {
-    const msg = `Unsupported audio type ${ext} — use WAV / MP3 / M4A / FLAC.`;
+    const msg = T('characters.unsupported_audio_type_use_wav', 'Unsupported audio type {ext} — use WAV / MP3 / M4A / FLAC.', {ext});
     if (status) status.textContent = msg;
     _trainVoiceInlineError(msg);
     return;
   }
   if (file.size > 50 * 1024 * 1024) {
-    const msg = `Voice clip too large (${(file.size / 1024 / 1024).toFixed(1)} MB) — max 50 MB.`;
+    const msg = T('characters.voice_clip_too_large_mb', 'Voice clip too large ({v} MB) — max 50 MB.', {v: (file.size / 1024 / 1024).toFixed(1)});
     if (status) status.textContent = msg;
     _trainVoiceInlineError(msg);
     return;
@@ -3823,7 +3820,7 @@ async function trainVoiceUpload(file) {
     const r = await fetch('/train/upload-voice', { method: 'POST', body: fd });
     const j = await r.json();
     if (!r.ok || !j.ok) {
-      const msg = 'Voice upload failed: ' + (j.error || r.status);
+      const msg = T('characters.voice_upload_failed', 'Voice upload failed: ') + (j.error || r.status);
       if (status) status.textContent = msg;
       _trainVoiceInlineError(msg);
       return;
@@ -3856,16 +3853,16 @@ async function trainVoiceUpload(file) {
       let durMsg = '';
       if (typeof dur === 'number') {
         durMsg = ` · ${dur.toFixed(1)} s`;
-        if (dur > 30) durMsg += ' (long — consider trimming to 10–25 s)';
-        else if (dur < 5) durMsg += ' (short — recommend ≥5 s)';
+        if (dur > 30) durMsg += T('characters.long_consider_trimming_to_10', ' (long — consider trimming to 10–25 s)');
+        else if (dur < 5) durMsg += T('characters.short_recommend_5_s', ' (short — recommend ≥5 s)');
       }
       status.textContent =
-        `Voice clip ready (${sizeMB} MB${durMsg}). ` +
-        'Press play above to preview, then start training.';
+        T('characters.voice_clip_ready_mb', 'Voice clip ready ({sizeMB} MB{durMsg}). ', {sizeMB, durMsg}) +
+        T('characters.press_play_above_to_preview', 'Press play above to preview, then start training.');
     }
   } catch (e) {
     if (status) status.textContent =
-      'Voice upload failed: ' + (e.message || 'unknown');
+      T('characters.voice_upload_failed', 'Voice upload failed: ') + (e.message || 'unknown');
   }
 }
 
@@ -3938,8 +3935,8 @@ function trainRenderVoice() {
     }
     if (toggleHint) {
       toggleHint.textContent = TRAIN.voiceEnabled
-        ? '(adds ~25–125 min depending on preset)'
-        : '(uploaded but training skipped)';
+        ? T('characters.adds_25_125_min_depending', '(adds ~25–125 min depending on preset)')
+        : T('characters.uploaded_but_training_skipped', '(uploaded but training skipped)');
     }
     if (stepsRow) stepsRow.hidden = !TRAIN.voiceEnabled;
   } else {
@@ -3951,7 +3948,7 @@ function trainRenderVoice() {
       toggle.disabled = true;
       toggle.checked = false;
     }
-    if (toggleHint) toggleHint.textContent = 'upload a clip to enable';
+    if (toggleHint) toggleHint.textContent = T('characters.upload_a_clip_to_enable', 'upload a clip to enable');
     if (stepsRow) stepsRow.hidden = true;
   }
 }
@@ -4029,13 +4026,13 @@ function trainRenderVerdictBanner(items) {
   el.innerHTML =
     `<div class="train-verdict-head">${head}</div>` +
     `<div class="train-verdict-body">${advice}</div>` +
-    `<div class="train-verdict-body train-verdict-how">Measured by Phosphene when the run finished. ` +
-    `You can re-check any adapter yourself: <code>./ltx-2-mlx/env/bin/python3.11 lora_compat.py &lt;file&gt;.safetensors</code></div>`;
+    `<div class="train-verdict-body train-verdict-how">${T('characters.measured_by_phosphene_when_the', 'Measured by Phosphene when the run finished.')} ` +
+    `${T('characters.you_can_re_check_any', 'You can re-check any adapter yourself:')} <code>./ltx-2-mlx/env/bin/python3.11 lora_compat.py &lt;file&gt;.safetensors</code></div>`;
   el.hidden = false;
 }
 
 function trainFmtAge(ms) {
-  if (!Number.isFinite(ms) || ms < 0) return 'just now';
+  if (!Number.isFinite(ms) || ms < 0) return T('characters.just_now', 'just now');
   const s = Math.floor(ms / 1000);
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
@@ -4066,7 +4063,7 @@ async function _trainAnnounceReady(job) {
     const a = document.createElement('a');
     a.href = '#';
     a.className = 'phos-toast-action';
-    a.textContent = 'Make a clip with it';
+    a.textContent = T('characters.make_a_clip_with_it', 'Make a clip with it');
     a.onclick = (ev) => {
       ev.preventDefault();
       el.remove();
@@ -4113,19 +4110,19 @@ function trainCopyTriggerCmd(trigger) {
 
 async function trainDeleteLora(loraPath) {
   if (!loraPath) return;
-  if (!confirm('Delete this LoRA?\n\n' + loraPath)) return;
+  if (!confirm(T('characters.delete_this_lora', 'Delete this LoRA?\n\n') + loraPath)) return;
   try {
     const fd = new URLSearchParams();
     fd.set('path', loraPath);
     const r = await fetch('/train/delete', { method: 'POST', body: fd });
     const j = await r.json();
     if (!r.ok || !j.ok) {
-      alert('Delete failed: ' + (j.error || r.status));
+      alert(T('characters.delete_failed', 'Delete failed: ') + (j.error || r.status));
       return;
     }
     trainRefreshLoraList();
   } catch (e) {
-    alert('Delete error: ' + (e.message || 'unknown'));
+    alert(T('characters.delete_error', 'Delete error: ') + (e.message || 'unknown'));
   }
 }
 
@@ -4304,8 +4301,8 @@ function _renderWindowsSlotsFromPlan(plan) {
   const n = plan.count || 1;
   if (hint) {
     hint.textContent = n <= 1
-      ? 'this length fits one window — pick a longer clip'
-      : n + ' windows · window 1 is the prompt above · blank holds the last moment';
+      ? T('characters.this_length_fits_one_window', 'this length fits one window — pick a longer clip')
+      : n + T('characters.windows_window_1_is_the', ' windows · window 1 is the prompt above · blank holds the last moment');
   }
   if (n <= 1) {
     wrap.innerHTML = '<div class="hint">This length renders in one pass — no per-window prompts needed.</div>';
@@ -4324,7 +4321,7 @@ function _renderWindowsSlotsFromPlan(plan) {
   if (typeof window !== 'undefined') window._pendingWindowPromptsRestore = null;   // consume once
   const rows = (plan.windows || []).slice(1);   // window 0 has no box — it's the main prompt
   wrap.innerHTML = rows.map(w => {
-    const label = 'Window ' + (w.index + 1) + ' · ' + _fmtMinSec(w.start_sec) + '–' + _fmtMinSec(w.end_sec);
+    const label = T('characters.window', 'Window ') + (w.index + 1) + ' · ' + _fmtMinSec(w.start_sec) + '–' + _fmtMinSec(w.end_sec);
     return '<div class="mf-cell" style="margin-top:6px">'
       + '<span class="mf-label">' + escapeHtml(label) + '</span>'
       + '<textarea class="sb-textarea" rows="2" data-window-index="' + w.index + '" '
@@ -4387,8 +4384,8 @@ function updateTemporalAvailability() {
     b.classList.toggle('disabled', disabled);
     if (b.dataset.temporal === 'fps12_interp24') {
       b.title = allowed
-        ? 'Generate at 12fps, then interpolate to a normal 24fps export.'
-        : 'Available for Q4 Text/Image renders. Off for High, FFLF, Extend, and external-audio I2V.';
+        ? T('characters.generate_at_12fps_then_interpolate', 'Generate at 12fps, then interpolate to a normal 24fps export.')
+        : T('characters.available_for_q4_text_image', 'Available for Q4 Text/Image renders. Off for High, FFLF, Extend, and external-audio I2V.');
     }
   });
   if (!allowed && document.getElementById('temporal_mode').value !== 'native') setTemporalMode('native');
@@ -4445,7 +4442,7 @@ function updateShotSetupSummary() {
     try { fast = h3TriStepOn(cell); } catch (_) {}
     let flex = false;
     try { flex = !fast && typeof h3FlexOn === 'function' && h3FlexOn(cell); } catch (_) {}
-    parts.push(fast ? 'Fast' : (flex ? 'Pika H3 Flex' : 'Best'));
+    parts.push(fast ? T('characters.fast', 'Fast') : (flex ? T('characters.pika_h3_flex', 'Pika H3 Flex') : T('characters.best', 'Best')));
     const st = (document.getElementById('h3_steps') || {}).value || 'auto';
     if (st !== 'auto') parts.push(st + ' steps');
     // Priced by the engine module's own helper, so the line can never
@@ -4480,11 +4477,11 @@ function updateShotSetupSummary() {
       const kp = (typeof keyframePriceFor === 'function')
         ? keyframePriceFor() : { card: tier.keyframe_price, pending: false };
       card = kp.card; pending = kp.pending;
-      parts.push('Q8 two-stage');
+      parts.push(T('characters.q8_two_stage', 'Q8 two-stage'));
     } else {
       const proOn = (document.getElementById('extend_steps') || {}).value === '30';
       card = proOn ? tier.extend_price_pro : tier.extend_price_draft;
-      parts.push(proOn ? 'Q8 Pro' : 'Q8 Draft');
+      parts.push(proOn ? 'Q8 Pro' : T('characters.q8_draft', 'Q8 Draft'));
     }
     if (card && pending) {
       parts.push('pricing…');
@@ -4492,7 +4489,7 @@ function updateShotSetupSummary() {
       parts.push(`${card.width}×${card.height}`);
       parts.push(card.eta);
     } else {
-      parts.push('needs more memory than this Mac has');
+      parts.push(T('characters.needs_more_memory_than_this', 'needs more memory than this Mac has'));
     }
   } else {
     let cell = null;
@@ -4510,7 +4507,7 @@ function updateShotSetupSummary() {
     // summary must not advertise the tuned wall clock for a draft render.
     let eta = '';
     try { eta = ltxCellEta(cell); } catch (_) {}
-    if (!eta && typeof schedPresetActive === 'function' && schedPresetActive()) eta = 'fast draft';
+    if (!eta && typeof schedPresetActive === 'function' && schedPresetActive()) eta = T('characters.fast_draft', 'fast draft');
     if (eta) parts.push(eta);
   }
   const seed = String((document.getElementById('seed') || {}).value || '-1').trim();
@@ -4536,24 +4533,24 @@ function updateFinishSummary() {
     if (up === 'fit_720p') {
       parts.push(upscaling720
         ? `720p export (upscaled from ${cell.width}×${cell.height}, not added detail)`
-        : '720p export');
+        : T('characters.720p_export', '720p export'));
     }
     else if (up === 'fit_1080p') {
       parts.push(upscaling1080
         ? `1080p export (upscaled from ${cell.width}×${cell.height}, not added detail)`
-        : '1080p export');
+        : T('characters.1080p_export', '1080p export'));
     }
-    else if (up === 'ltx_x2') parts.push('native + Upscale & Face Fix after');
-    else parts.push('native export');
+    else if (up === 'ltx_x2') parts.push(T('characters.native_upscale_face_fix_after', 'native + Upscale & Face Fix after'));
+    else parts.push(T('characters.native_export', 'native export'));
   } else {
     const up = (document.getElementById('upscale') || {}).value || 'off';
     const method = (document.getElementById('upscale_method') || {}).value || 'lanczos';
     const tag = (method === 'pipersr' || method === 'model') ? ' sharp' : '';
-    if (up === 'fit_720p') parts.push('720p export' + tag);
-    else if (up === 'x2') parts.push('2× export' + tag);
-    else parts.push('native export');
+    if (up === 'fit_720p') parts.push(T('characters.720p_export', '720p export') + tag);
+    else if (up === 'x2') parts.push(T('characters.2_export', '2× export') + tag);
+    else parts.push(T('characters.native_export', 'native export'));
   }
-  if ((document.getElementById('open_when_done') || {}).checked) parts.push('opens when done');
+  if ((document.getElementById('open_when_done') || {}).checked) parts.push(T('characters.opens_when_done', 'opens when done'));
   el.textContent = parts.join(' · ');
 }
 function updateAdvancedSummary() {
@@ -4570,7 +4567,7 @@ function updateAdvancedSummary() {
     // with an empty box is exactly the clutter this redesign is removing.
     // Hidden, not removed: the inputs stay in the form, so the posted
     // FormData is byte-identical on both engines.
-    el.textContent = 'LTX only';
+    el.textContent = T('characters.ltx_only', 'LTX only');
     if (adv) { adv.open = false; adv.hidden = true; }
     return;
   }
@@ -4589,16 +4586,16 @@ function updateAdvancedSummary() {
   const stg = parseFloat((document.getElementById('stgScale') || {}).value || '0');
   if (stg > 0) parts.push('STG ' + stg.toFixed(1));
   const temporal = (document.getElementById('temporal_mode') || {}).value || 'native';
-  if (temporal === 'fps12_interp24') parts.push('12→24fps long clip');
-  else if (temporal === 'windows') parts.push('chained windows');
+  if (temporal === 'fps12_interp24') parts.push(T('characters.12_24fps_long_clip', '12→24fps long clip'));
+  else if (temporal === 'windows') parts.push(T('characters.chained_windows', 'chained windows'));
   if (currentMode === 'i2v'
       && ((document.getElementById('i2vMode') || {}).value === 'i2v_clean_audio')) {
-    parts.push('external audio');
+    parts.push(T('characters.external_audio', 'external audio'));
   }
   // Inspire changes what the reference DOES; it lives in the composer, but the
   // sentence is worth carrying where the rest of the deviations are listed.
   if (typeof i2vInspireActive === 'function' && i2vInspireActive() && currentMode === 'i2v') {
-    parts.push('inspire · new shot from the image');
+    parts.push(T('characters.inspire_new_shot_from_the', 'inspire · new shot from the image'));
   }
   el.textContent = parts.length ? parts.join(' · ') : 'defaults';
 }
@@ -4640,8 +4637,8 @@ function applyExtendPillPrices() {
     if (spec) spec.textContent = `${stepsLabel} · ${card.width}×${card.height} safe`;
     if (tierEl) tierEl.textContent = `${card.pipeline_note} · ${card.eta}`;
   };
-  fill(draftBtn, tier.extend_price_draft, '8 steps');
-  fill(proBtn, tier.extend_price_pro, '30 steps');
+  fill(draftBtn, tier.extend_price_draft, T('characters.8_steps', '8 steps'));
+  fill(proBtn, tier.extend_price_pro, T('characters.30_steps', '30 steps'));
   // Pro pushes the render past what Comfortable/Compact tiers can hold
   // resident (the hint text already said so) — hide it below "high" rather
   // than let it look like an equally-safe option.
@@ -4655,21 +4652,21 @@ function applyExtendPillPrices() {
 function updatePromptPlaceholder() {
   const prompt = document.getElementById('prompt');
   if (!prompt) return;
-  const base = 'Describe the scene, action and camera. Include dialogue and sound cues — they are generated with the video.';
-  const keyframeTwo = 'Describe the full first-to-last transition in one prompt. Include motion, camera, mood, and audio cues; the start/end images anchor the visual endpoints.';
-  const keyframeMulti = `One prompt controls the whole ${window._kfMode}-keyframe shot; the Beat at(s) controls define segment timing. Write one continuous action with the beats described in order, plus audio cues.`;
+  const base = T('characters.describe_the_scene_action_and', 'Describe the scene, action and camera. Include dialogue and sound cues — they are generated with the video.');
+  const keyframeTwo = T('characters.describe_the_full_first_to', 'Describe the full first-to-last transition in one prompt. Include motion, camera, mood, and audio cues; the start/end images anchor the visual endpoints.');
+  const keyframeMulti = T('characters.one_prompt_controls_the_whole', 'One prompt controls the whole {_kfMode}-keyframe shot; the Beat at(s) controls define segment timing. Write one continuous action with the beats described in order, plus audio cues.', {_kfMode: window._kfMode});
   if (currentMode === 'keyframe') {
     prompt.placeholder = window._kfMode >= 3 ? keyframeMulti : keyframeTwo;
   } else if (currentMode === 'i2v') {
-    prompt.placeholder = 'Describe how the reference image should move. Include dialogue and sound cues — they are generated with the video.';
+    prompt.placeholder = T('characters.describe_how_the_reference_image', 'Describe how the reference image should move. Include dialogue and sound cues — they are generated with the video.');
   } else if (currentMode === 'ingredients') {
-    prompt.placeholder = "Describe WHAT'S in the reference sheet — each character, prop, and the location. e.g. a friendly cartoon hedgehog with rounded chestnut fur; a green coiled garden hose; the bright interior of a 'Greenfield' garden store. (The Action field above describes the shot itself.)";
+    prompt.placeholder = T('characters.describe_what_s_in_the', "Describe WHAT'S in the reference sheet — each character, prop, and the location. e.g. a friendly cartoon hedgehog with rounded chestnut fur; a green coiled garden hose; the bright interior of a 'Greenfield' garden store. (The Action field above describes the shot itself.)");
   } else if (currentMode === 'v2a') {
-    prompt.placeholder = 'Describe the sound this clip should have — e.g. a busy kitchen, a pan sizzling, a knife on a board, two people murmuring off-screen. The picture stays exactly as it is.';
+    prompt.placeholder = T('characters.describe_the_sound_this_clip', 'Describe the sound this clip should have — e.g. a busy kitchen, a pan sizzling, a knife on a board, two people murmuring off-screen. The picture stays exactly as it is.');
   } else if (currentMode === 'extend' && document.body.dataset.engine === 'h3') {
-    prompt.placeholder = 'What happens next — the action, the camera, and the sound. Hailuo H3 carries on from the last 17 frames and their sound.';
+    prompt.placeholder = T('characters.what_happens_next_the_action', 'What happens next — the action, the camera, and the sound. Hailuo H3 carries on from the last 17 frames and their sound.');
   } else if (currentMode === 'control') {
-    prompt.placeholder = "Describe the NEW subject/scene to paint onto the control clip's motion and structure — plus sound cues. e.g. a red origami crane unfolding on a black table · soft paper rustle. The control video drives the composition; this prompt swaps what's in it.";
+    prompt.placeholder = T('characters.describe_the_new_subject_scene', "Describe the NEW subject/scene to paint onto the control clip's motion and structure — plus sound cues. e.g. a red origami crane unfolding on a black table · soft paper rustle. The control video drives the composition; this prompt swaps what's in it.");
   } else {
     prompt.placeholder = base;
   }
@@ -4713,10 +4710,10 @@ document.querySelectorAll('#remixSubGroup .pill-btn').forEach(b => b.onclick = (
       return;
     }
     if (typeof phosToast === 'function') {
-      phosToast('Ingredients needs the LTX-2.3 generation — its reference '
-        + 'adapter has no 2.5 release yet, so on 2.5 your references would '
-        + 'be ignored. For reference-guided work here, use Image mode with '
-        + 'Inspire.', { kind: 'danger' });
+      phosToast(T('characters.ingredients_needs_the_ltx_2', 'Ingredients needs the LTX-2.3 generation — its reference ')
+        + T('characters.adapter_has_no_2_5', 'adapter has no 2.5 release yet, so on 2.5 your references would ')
+        + T('characters.be_ignored_for_reference_guided', 'be ignored. For reference-guided work here, use Image mode with ')
+        + T('characters.inspire', 'Inspire.'), { kind: 'danger' });
     }
     return;
   }
@@ -4744,19 +4741,19 @@ function _ltx23Switchable() {
     // and the tooltip. A chip that can switch to 2.3 must stay clickable, so it
     // gets its own muted-but-live class instead.
     chip.classList.add(_ltx23Switchable() ? 'needs-switch' : 'disabled');
-    chip.title = 'Needs LTX-2.3 — the 2.5 reference adapter is not published '
-               + 'yet. Use Image mode with Inspire for reference-guided work '
-               + 'on 2.5, or install the 2.3 pack from the Train tab. '
-               + '(The same two routes the server names if you get here.)';
+    chip.title = T('characters.needs_ltx_2_3_the', 'Needs LTX-2.3 — the 2.5 reference adapter is not published ')
+               + T('characters.yet_use_image_mode_with', 'yet. Use Image mode with Inspire for reference-guided work ')
+               + T('characters.on_2_5_or_install', 'on 2.5, or install the 2.3 pack from the Train tab. ')
+               + T('characters.the_same_two_routes_the', '(The same two routes the server names if you get here.)');
     if (!_ltx23Switchable()) chip.setAttribute('aria-disabled', 'true');
     const sub = chip.querySelector('.mc-sub');
-    if (sub) sub.textContent = 'needs LTX-2.3';
+    if (sub) sub.textContent = T('characters.needs_ltx_2_3', 'needs LTX-2.3');
     if (_ltx23Switchable()) {
       // Switchable: say what the click does, and keep it off the greyed look.
-      chip.title = 'Ingredients needs LTX-2.3. Click to switch to LTX-2.3 - the '
-                 + 'panel restarts, and you can switch back to 2.5 from the '
-                 + 'LTX generation row in the engine menu.';
-      if (sub) sub.textContent = 'click to switch to LTX-2.3';
+      chip.title = T('characters.ingredients_needs_ltx_2_3', 'Ingredients needs LTX-2.3. Click to switch to LTX-2.3 - the ')
+                 + T('characters.panel_restarts_and_you_can', 'panel restarts, and you can switch back to 2.5 from the ')
+                 + T('characters.ltx_generation_row_in_the', 'LTX generation row in the engine menu.');
+      if (sub) sub.textContent = T('characters.click_to_switch_to_ltx', 'click to switch to LTX-2.3');
     }
   };
   if (document.readyState === 'loading') {

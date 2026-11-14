@@ -140,8 +140,8 @@ function _restoreSelectedOutputAfterLive() {
         <path d="M23 19 L37 28 L23 37 Z" fill="currentColor" fill-opacity="0.45"/>
       </svg>
     </div>
-    <div class="ps-empty-title">No outputs yet</div>
-    <div class="ps-empty-sub">Generate something on the left and the result lands here.</div>
+    <div class="ps-empty-title">${T('preview.no_outputs_yet', 'No outputs yet')}</div>
+    <div class="ps-empty-sub">${T('preview.generate_something_on_the_left', 'Generate something on the left and the result lands here.')}</div>
   </div>`;
   const surface = wrap.closest('.player-surface');
   if (surface) { surface.removeAttribute('data-song'); clearStageAspect(surface); }
@@ -223,7 +223,7 @@ function _renderLiveStageFrame(s, preview) {
     const brandMark = document.querySelector('header .ph-mark');
     wrap.innerHTML = `<div class="live-stage-warming">
       <div id="studioStageMark" class="ph-mark studio-stage-mark" aria-hidden="true">${brandMark ? brandMark.innerHTML : ''}</div>
-      <div class="live-stage-progress" role="progressbar" aria-label="Stage render progress" aria-valuemin="0" aria-valuemax="100"></div>
+      <div class="live-stage-progress" role="progressbar" aria-label="${TA('preview.stage_render_progress', 'Stage render progress')}" aria-valuemin="0" aria-valuemax="100"></div>
       <strong class="live-stage-phase"></strong>
     </div>`;
     wrap.classList.remove('has-live-frame');
@@ -239,7 +239,7 @@ function _renderLiveStageFrame(s, preview) {
     progress.style.setProperty('--p', String(pct / 100));
     progress.setAttribute('aria-valuenow', String(Math.round(pct)));
   }
-  if (phase) phase.textContent = stopping ? 'Stopping render…'
+  if (phase) phase.textContent = stopping ? T('preview.stopping_render', 'Stopping render…')
     : ((cur.progress || {}).phase_label || 'Preparing your video');
   if (preview.url) {
     let img = wrap.querySelector('.live-stage-image');
@@ -274,17 +274,17 @@ function _renderLiveStageFrame(s, preview) {
     ? ` · step ${preview.estimate}/${preview.total}` : '';
   if (title) title.textContent = preview.meaningful
     ? `forming take${step}`
-    : (preview.url ? `forming take${step} · rough` : 'forming take · warming');
+    : (preview.url ? `forming take${step} · rough` : T('preview.forming_take_warming', 'forming take · warming'));
   if (eta) {
-    eta.textContent = stopping ? 'Stopping render…'
+    eta.textContent = stopping ? T('preview.stopping_render', 'Stopping render…')
       : (preview.remaining_sec != null && preview.remaining_sec > 0
           ? `~${fmtMin(preview.remaining_sec)} left`
-          : 'ETA settling…');
+          : T('preview.eta_settling', 'ETA settling…'));
   }
   if (stop) {
     stop.hidden = !(preview.meaningful && preview.abortable);
     stop.disabled = stopping;
-    stop.textContent = stopping ? 'Stopping…' : 'Stop early';
+    stop.textContent = stopping ? T('preview.stopping', 'Stopping…') : T('preview.stop_early', 'Stop early');
   }
 }
 
@@ -335,13 +335,13 @@ function renderLiveStage(s, preview) {
         const eta = document.getElementById('liveStageEta');
         const stop = document.getElementById('liveStageStop');
         if (badge) badge.textContent = 'DONE';
-        if (title) title.textContent = 'preparing finished take';
-        if (eta) eta.textContent = 'Loading the full clip…';
+        if (title) title.textContent = T('preview.preparing_finished_take', 'preparing finished take');
+        if (eta) eta.textContent = T('preview.loading_the_full_clip', 'Loading the full clip…');
         if (stop) stop.hidden = true;
       }
       return;
     } else {
-      _showLiveReturnChip('DONE · view finished take', pending.path);
+      _showLiveReturnChip(T('preview.done_view_finished_take', 'DONE · view finished take'), pending.path);
       return;
     }
   }
@@ -356,7 +356,7 @@ function renderLiveStage(s, preview) {
   const forced = window._liveStageForcedJobId === currentId;
   if (!window._liveStageOwnsPlayer && !forced && _liveStageMediaHeld()) {
     const label = preview.meaningful ? 'LIVE · return to render'
-                                     : 'LIVE · render warming';
+                                     : T('preview.live_render_warming', 'LIVE · render warming');
     _showLiveReturnChip(label, '');
     return;
   }
@@ -469,7 +469,7 @@ function renderNowPreview(s, prog, previewData) {
   //
   // `off` is absent on purpose: that absence was the user's own choice.
   const PREVIEW_ABSENCE_CTA = {
-    missing_decoder: { label: 'Install it', run: 'openModelsModal()' },
+    missing_decoder: { label: T('preview.install_it', 'Install it'), run: 'openModelsModal()' },
     stale_engine: null,
   };
   // H3 gets the SAME courtesy, from its own bootstrap block. Its absence has
@@ -526,7 +526,7 @@ function renderNowPreview(s, prog, previewData) {
     const dot = document.createElement('button');
     dot.type = 'button';
     dot.className = 'help-dot now-thumb-help';
-    dot.title = 'What am I looking at?';
+    dot.title = T('preview.what_am_i_looking_at', 'What am I looking at?');
     dot.setAttribute('aria-expanded', 'false');
     dot.setAttribute('aria-controls', 'nowThumbHelpNote');
     dot.textContent = '?';
@@ -566,16 +566,16 @@ function renderNowPreview(s, prog, previewData) {
     const saves = (prev.saves_sec != null && prev.saves_sec > 0)
       ? ` — saves about ${fmtMin(prev.saves_sec)}` : '';   // absent -> drop the sentence
     const line = stopping
-      ? 'Stopping render…'
+      ? T('preview.stopping_render', 'Stopping render…')
       : (prev.meaningful
-          ? `This is the shot it's making. Stop now if it's wrong${saves}.`
-          : (prev.url ? 'The shot is forming. It sharpens as the render settles.' : 'Finding the shot…'));
+          ? T('preview.this_is_the_shot_it', 'This is the shot it\'s making. Stop now if it\'s wrong{saves}.', {saves})
+          : (prev.url ? T('preview.the_shot_is_forming_it', 'The shot is forming. It sharpens as the render settles.') : T('preview.finding_the_shot', 'Finding the shot…')));
     meta.innerHTML += `<br><span style="color:var(--muted)">${escapeHtml(line)}</span>`;
   }
   if (actions && prev.abortable) {
     if (stopping) {
       actions.dataset.stopEarly = '1';
-      actions.innerHTML = `<button type="button" class="qchip" disabled>Stopping…</button>`;
+      actions.innerHTML = `<button type="button" class="qchip" disabled>${T('preview.stopping', 'Stopping…')}</button>`;
     } else if (actions.dataset.stopEarly !== '1' || !actions.querySelector('[data-action="stop-early"]')) {
       actions.dataset.stopEarly = '1';
       actions.innerHTML =
@@ -609,9 +609,9 @@ async function stopEarly() {
   const prev = normalizeLivePreview(s, cur.progress || null) || {};
   const saves = (prev.saves_sec != null && prev.saves_sec > 0)
     ? `About ${fmtMin(prev.saves_sec)} of work is dropped. ` : '';
-  if (!confirm('Stop this render?\n\n' +
-      "The shot you're looking at is a preview — it was never finished, so nothing is saved.\n" +
-      saves + 'The queue carries on with the next job.')) return;
+  if (!confirm(T('preview.stop_this_render', 'Stop this render?\n\n') +
+      T('preview.the_shot_you_re_looking', "The shot you're looking at is a preview — it was never finished, so nothing is saved.\n") +
+      saves + T('preview.the_queue_carries_on_with', 'The queue carries on with the next job.'))) return;
   window._stopEarlyRequested = cur.id;
   try {
     await api('/stop?id=' + encodeURIComponent(cur.id), 'POST');
@@ -638,9 +638,9 @@ let _noVoiceTouched = false;
 function markNoVoiceTouched() {
   _noVoiceTouched = true;
   const lbl = document.getElementById('noVoiceLabel');
-  if (lbl) lbl.textContent = 'No voice';
+  if (lbl) lbl.textContent = T('preview.no_voice', 'No voice');
   const pill = document.getElementById('noVoicePill');
-  if (pill) pill.title = "Skip the character's voice LoRA for this render. The face still locks, but audio stays ambient — no speech, no gibberish.";
+  if (pill) pill.title = T('preview.skip_the_character_s_voice', "Skip the character's voice LoRA for this render. The face still locks, but audio stays ambient — no speech, no gibberish.");
 }
 function refreshNoVoiceAuto() {
   // Only while the pill is untouched THIS SESSION. Once the user has an
@@ -653,9 +653,9 @@ function refreshNoVoiceAuto() {
   const prompt = (document.getElementById('prompt') || {}).value || '';
   const hasSpeech = SPEECH.test(prompt);
   cb.checked = !hasSpeech;
-  lbl.textContent = hasSpeech ? 'No voice' : 'No voice · auto';
-  pill.title = "Skip the character's voice LoRA for this render. The face still locks, but audio stays ambient — no speech, no gibberish."
-    + (hasSpeech ? '' : '\nSet on its own because there are no spoken lines in the prompt — click to override.');
+  lbl.textContent = hasSpeech ? T('preview.no_voice', 'No voice') : T('preview.no_voice_auto', 'No voice · auto');
+  pill.title = T('preview.skip_the_character_s_voice', "Skip the character's voice LoRA for this render. The face still locks, but audio stays ambient — no speech, no gibberish.")
+    + (hasSpeech ? '' : T('preview.set_on_its_own_because', '\nSet on its own because there are no spoken lines in the prompt — click to override.'));
 }
 (function wireNoVoiceAuto() {
   const attach = () => {
@@ -764,8 +764,8 @@ async function _renderCharactersManageList() {
     const chars = (data && Array.isArray(data.characters)) ? data.characters : [];
     if (!chars.length) {
       list.innerHTML = `<div class="hint" style="padding:18px 4px">
-        No trained characters yet — train one in the
-        <a href="#" onclick="closeCharactersManageModal(); workflowSwitch('train'); return false;">Train tab</a>.
+        ${T('preview.no_trained_characters_yet_train', 'No trained characters yet — train one in the')}
+        <a href="#" onclick="closeCharactersManageModal(); workflowSwitch('train'); return false;">${T('preview.train_tab', 'Train tab')}</a>.
       </div>`;
       return;
     }
@@ -782,12 +782,12 @@ async function _renderCharactersManageList() {
         <input type="text" class="cm-name-input"
                value="${escapeHtml(name)}" maxlength="120"
                data-original="${escapeHtml(name)}">
-        <span class="cm-trigger" title="Trigger word — baked into the trained weights, can't be renamed">${escapeHtml(trigger)}</span>
+        <span class="cm-trigger" title="${TA('preview.trigger_word_baked_into_the', 'Trigger word — baked into the trained weights, can\'t be renamed')}">${escapeHtml(trigger)}</span>
         <span class="cm-actions">
           <button type="button" class="cm-btn cm-btn-save"
-                  onclick="_charactersManageSave(${idAttr}, this)">Save</button>
+                  onclick="_charactersManageSave(${idAttr}, this)">${T('preview.save', 'Save')}</button>
           <button type="button" class="cm-btn cm-btn-delete"
-                  onclick="_charactersManageDelete(${idAttr}, this)">Delete</button>
+                  onclick="_charactersManageDelete(${idAttr}, this)">${T('preview.delete', 'Delete')}</button>
         </span>
       </div>`;
     }).join('');
@@ -802,7 +802,7 @@ async function _charactersManageSave(cid, btn) {
   if (!row || !input) return;
   const newName = (input.value || '').trim();
   if (!newName) {
-    alert('Name cannot be empty.');
+    alert(T('preview.name_cannot_be_empty', 'Name cannot be empty.'));
     input.focus();
     return;
   }
@@ -815,18 +815,18 @@ async function _charactersManageSave(cid, btn) {
                          { method: 'POST', body: fd });
     const data = await r.json();
     if (!r.ok || !data.ok) {
-      alert('Rename failed: ' + (data.error || `HTTP ${r.status}`));
+      alert(T('preview.rename_failed', 'Rename failed: ') + (data.error || `HTTP ${r.status}`));
       btn.disabled = false;
       return;
     }
     input.dataset.original = newName;
-    btn.textContent = 'Saved';
-    setTimeout(() => { btn.textContent = 'Save'; btn.disabled = false; }, 900);
+    btn.textContent = T('preview.saved', 'Saved');
+    setTimeout(() => { btn.textContent = T('preview.save', 'Save'); btn.disabled = false; }, 900);
     // Refresh the inline avatar strip + LoRA picker so the new name
     // appears immediately on the main form.
     try { refreshManualCharacters(); } catch (_) {}
   } catch (e) {
-    alert('Rename failed: ' + (e.message || e));
+    alert(T('preview.rename_failed', 'Rename failed: ') + (e.message || e));
     btn.disabled = false;
   }
 }
@@ -835,19 +835,19 @@ async function _charactersManageDelete(cid, btn) {
   const row = btn.closest('.chars-manage-row');
   const nameInput = row && row.querySelector('.cm-name-input');
   const displayName = nameInput ? nameInput.value : cid;
-  if (!confirm(`Delete "${displayName}"?\n\nThis removes the face LoRA, audio LoRA, voice clip, and avatar cache. Your training dataset under state/train_character/ is kept so you can retrain.`)) {
+  if (!confirm(T('preview.delete_this_removes_the_face', 'Delete "{displayName}"?\n\nThis removes the face LoRA, audio LoRA, voice clip, and avatar cache. Your training dataset under state/train_character/ is kept so you can retrain.', {displayName}))) {
     return;
   }
   btn.disabled = true;
-  btn.textContent = 'Deleting…';
+  btn.textContent = T('preview.deleting', 'Deleting…');
   try {
     const r = await fetch(`/characters/${encodeURIComponent(cid)}/delete`,
                          { method: 'POST' });
     const data = await r.json();
     if (!r.ok || !data.ok) {
-      alert('Delete failed: ' + (data.error || `HTTP ${r.status}`));
+      alert(T('preview.delete_failed', 'Delete failed: ') + (data.error || `HTTP ${r.status}`));
       btn.disabled = false;
-      btn.textContent = 'Delete';
+      btn.textContent = T('preview.delete', 'Delete');
       return;
     }
     // Remove the row from the modal + refresh the avatar strip.
@@ -861,9 +861,9 @@ async function _charactersManageDelete(cid, btn) {
     }
     try { refreshManualCharacters(); } catch (_) {}
   } catch (e) {
-    alert('Delete failed: ' + (e.message || e));
+    alert(T('preview.delete_failed', 'Delete failed: ') + (e.message || e));
     btn.disabled = false;
-    btn.textContent = 'Delete';
+    btn.textContent = T('preview.delete', 'Delete');
   }
 }
 
@@ -1034,7 +1034,7 @@ function _applySchedPresetRowVisibility() {
   }
   if (offered && cell) {
     const fastSub = document.getElementById('schedFastSub');
-    if (fastSub) fastSub.textContent = cell.fast_eta + ' · different take';
+    if (fastSub) fastSub.textContent = cell.fast_eta + T('preview.different_take', ' · different take');
     const tunedSub = document.getElementById('schedTunedSub');
     if (tunedSub) tunedSub.textContent = cell.eta || 'default schedule';
   }
@@ -1161,29 +1161,29 @@ function _civitaiFamilyForCurrentEngine() {
 function _civitaiContextMeta(ctx, fam) {
   if (ctx === 'image') {
     return {
-      title: 'Browse CivitAI for image LoRAs',
-      hint: 'Qwen-Image-Edit, HiDream-O1.',
-      empty: 'No image LoRAs match',
+      title: T('preview.browse_civitai_for_image_loras', 'Browse CivitAI for image LoRAs'),
+      hint: T('preview.qwen_image_edit_hidream_o1', 'Qwen-Image-Edit, HiDream-O1.'),
+      empty: T('preview.no_image_loras_match', 'No image LoRAs match'),
     };
   }
   if (fam === 'h3') {
     return {
-      title: 'Browse CivitAI for Hailuo H3 LoRAs',
+      title: T('preview.browse_civitai_for_hailuo_h3', 'Browse CivitAI for Hailuo H3 LoRAs'),
       hint: 'MiniMax H3.',
-      empty: 'No MiniMax H3 LoRAs match',
+      empty: T('preview.no_minimax_h3_loras_match', 'No MiniMax H3 LoRAs match'),
     };
   }
   if (fam === 'ltx') {
     return {
-      title: 'Browse CivitAI for LTX 2.3 LoRAs',
-      hint: 'LTX-Video 2.3.',
-      empty: 'No LTX 2.3 LoRAs match',
+      title: T('preview.browse_civitai_for_ltx_2', 'Browse CivitAI for LTX 2.3 LoRAs'),
+      hint: T('preview.ltx_video_2_3', 'LTX-Video 2.3.'),
+      empty: T('preview.no_ltx_2_3_loras', 'No LTX 2.3 LoRAs match'),
     };
   }
   return {
-    title: 'Browse CivitAI for video LoRAs',
-    hint: 'LTX-Video 2.3 and MiniMax H3.',
-    empty: 'No video LoRAs match',
+    title: T('preview.browse_civitai_for_video_loras', 'Browse CivitAI for video LoRAs'),
+    hint: T('preview.ltx_video_2_3_and', 'LTX-Video 2.3 and MiniMax H3.'),
+    empty: T('preview.no_video_loras_match', 'No video LoRAs match'),
   };
 }
 
@@ -1245,7 +1245,7 @@ function civitaiRenderFamilyPills(available, active) {
   const all = ['all', ...available];
   row.style.display = 'flex';
   row.innerHTML = all.map(f => {
-    const label = f === 'all' ? 'All' : (labels[f] || f);
+    const label = f === 'all' ? T('preview.all', 'All') : (labels[f] || f);
     const isActive = (f === 'all' ? !active || active === 'all' : active === f);
     return `<button type="button"
               class="pill-btn${isActive ? ' active' : ''}"
@@ -1349,24 +1349,23 @@ function renderCivitaiAuthBanner(haveKey, mode) {
   if (m === 'view' && haveKey) {
     box.classList.add('set');
     box.innerHTML = `
-      <span><svg class="ph" aria-hidden="true" style="color:var(--success,#3fb950);margin-right:4px;vertical-align:-2px"><use href="#ph-check-bold"/></svg><strong style="color:var(--success,#3fb950)"></strong> CivitAI API key set —
-      LoRA downloads will work.</span>
+      <span><svg class="ph" aria-hidden="true" style="color:var(--success,#3fb950);margin-right:4px;vertical-align:-2px"><use href="#ph-check-bold"/></svg><strong style="color:var(--success,#3fb950)"></strong> ${T('preview.civitai_api_key_set_lora', 'CivitAI API key set —\n      LoRA downloads will work.')}</span>
       <span class="grow"></span>
-      <a class="changekey" onclick="renderCivitaiAuthBanner(true,'edit')">change key</a>`;
+      <a class="changekey" onclick="renderCivitaiAuthBanner(true,'edit')">${T('preview.change_key', 'change key')}</a>`;
     return;
   }
   // edit / missing mode — render input + Save.
   box.classList.add(m === 'err' ? 'err' : 'missing');
   const intro = m === 'err'
-    ? `<strong>That key didn't work.</strong> Double-check it from <a href="https://civitai.com/user/account" target="_blank" rel="noopener">civitai.com/user/account</a> and try again.`
+    ? `<strong>${T('preview.that_key_didn_t_work', 'That key didn\'t work.')}</strong> ${T('preview.double_check_it_from', 'Double-check it from')} <a href="https://civitai.com/user/account" target="_blank" rel="noopener">civitai.com/user/account</a> ${T('preview.and_try_again', 'and try again.')}`
     : haveKey
-      ? `Replace your CivitAI API key. The current one stays active until you save a new one.`
-      : `<strong>CivitAI requires an API key</strong> to download LoRAs. Get one at <a href="https://civitai.com/user/account" target="_blank" rel="noopener">civitai.com/user/account</a> and paste it here:`;
+      ? T('preview.replace_your_civitai_api_key', 'Replace your CivitAI API key. The current one stays active until you save a new one.')
+      : `<strong>${T('preview.civitai_requires_an_api_key', 'CivitAI requires an API key')}</strong> ${T('preview.to_download_loras_get_one', 'to download LoRAs. Get one at')} <a href="https://civitai.com/user/account" target="_blank" rel="noopener">civitai.com/user/account</a> ${T('preview.and_paste_it_here', 'and paste it here:')}`;
   box.innerHTML = `
     <div class="grow" style="flex-basis:100%; margin-bottom:6px;">${intro}</div>
-    <input type="password" id="civitaiAuthInput" placeholder="paste API key — usually 32 hex chars"
+    <input type="password" id="civitaiAuthInput" placeholder="${TA('preview.paste_api_key_usually_32', 'paste API key — usually 32 hex chars')}"
            autocomplete="off" spellcheck="false">
-    <button type="button" id="civitaiAuthSave" onclick="civitaiAuthSave()">Save & test</button>
+    <button type="button" id="civitaiAuthSave" onclick="civitaiAuthSave()">${T('preview.save_test', 'Save & test')}</button>
     ${haveKey ? '<a class="changekey" onclick="renderCivitaiAuthBanner(true,\'view\')">cancel</a>' : ''}`;
   // Pressing Enter inside the input triggers save.
   const inp = document.getElementById('civitaiAuthInput');
@@ -1381,7 +1380,7 @@ async function civitaiAuthSave() {
   if (!inp) return;
   const key = (inp.value || '').trim();
   if (!key) { inp.focus(); return; }
-  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  if (btn) { btn.disabled = true; btn.textContent = T('preview.saving', 'Saving…'); }
   // Save via /settings (single source of truth for tokens). After save
   // we hit /civitai/test to verify before flipping the banner to "set" —
   // that catches the most common error (typo'd key) right at the moment
@@ -1394,7 +1393,7 @@ async function civitaiAuthSave() {
     const data = await r.json();
     if (!r.ok || !data.ok) throw new Error(data.error || `HTTP ${r.status}`);
     // Verify
-    if (btn) btn.textContent = 'Testing…';
+    if (btn) btn.textContent = T('preview.testing', 'Testing…');
     const t = await fetch('/civitai/test');
     const td = await t.json();
     if (!td.ok) {
@@ -1405,7 +1404,7 @@ async function civitaiAuthSave() {
     // Re-run the search so any 401-blocked thumbnails reload as authed.
     civitaiSearch();
   } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = 'Save & test'; }
+    if (btn) { btn.disabled = false; btn.textContent = T('preview.save_test', 'Save & test'); }
     renderCivitaiAuthBanner(false, 'err');
   }
 }
@@ -1422,7 +1421,7 @@ function civitaiSetSource(src) {
   document.querySelectorAll('#civitaiSourceRow [data-civitai-source]').forEach(b =>
     b.classList.toggle('active', b.dataset.civitaiSource === _civitaiSource));
   const q = document.getElementById('civitaiQuery');
-  if (q) q.placeholder = _civitaiSource === 'huggingface' ? 'Search Hugging Face — a name, author:someone, or owner/repo' : 'Search by name, style, creator…';
+  if (q) q.placeholder = _civitaiSource === 'huggingface' ? T('preview.search_hugging_face_a_name', 'Search Hugging Face — a name, author:someone, or owner/repo') : T('preview.search_by_name_style_creator', 'Search by name, style, creator…');
   // The heading and the CivitAI key banner belong to CivitAI; Hugging Face
   // needs neither.
   const title = document.getElementById('civitaiModalTitle');
@@ -1458,13 +1457,13 @@ function _hfLoraPaint() {
   _hfLoraItems.forEach(it => { const k = it.kind || 'other'; counts[k] = (counts[k] || 0) + 1; });
   document.querySelectorAll('#civitaiKindRow [data-civitai-kind]').forEach(b => {
     const k = b.dataset.civitaiKind; const n = k === 'all' ? _hfLoraItems.length : (counts[k] || 0);
-    b.textContent = { all: 'All', character: 'Characters', style: 'Styles', motion: 'Motion', speed: 'Speed', other: 'Other' }[k] + (n ? ` · ${n}` : '');
+    b.textContent = { all: T('preview.all', 'All'), character: T('preview.characters', 'Characters'), style: T('preview.styles', 'Styles'), motion: T('preview.motion', 'Motion'), speed: T('preview.speed', 'Speed'), other: T('preview.other', 'Other') }[k] + (n ? ` · ${n}` : '');
   });
   if (_hfLoraItems.length && !items.length) {
-    grid.innerHTML = `<div class="hint">Nothing of that kind in these results${withEx ? ' with an example' : ''}. Try another filter or a different search.</div>`;
+    grid.innerHTML = `<div class="hint">${T('preview.nothing_of_that_kind_in', 'Nothing of that kind in these results{v}. Try another filter or a different search.', {v: withEx ? T('preview.with_an_example', ' with an example') : ''})}</div>`;
   }
   if (status) {
-    status.textContent = `${items.length} of ${_hfLoraItems.length} LoRAs on Hugging Face — a card plays the repo's own example when it has one. Read the repo before you install; Phosphene lists what matches, nothing more.`;
+    status.textContent = T('preview.of_loras_on_hugging_face', '{items} of {_hfLoraItems} LoRAs on Hugging Face — a card plays the repo\'s own example when it has one. Read the repo before you install; Phosphene lists what matches, nothing more.', {items: items.length, _hfLoraItems: _hfLoraItems.length});
     status.className = 'civitai-status-line';
   }
 }
@@ -1496,7 +1495,7 @@ async function _hfLoraSearch(grid, status, loadMore) {
   loadMore.style.display = 'none';
   if (_hfLoraItems.length === 0) {
     renderCivitaiGrid([], false);
-    grid.innerHTML = `<div class="hint">Nothing on Hugging Face for ${_civitaiFamily === 'h3' ? 'Hailuo H3' : 'LTX'}${q ? ` matching "${escapeHtml(q)}"` : ''}. Try a name, <code>author:someone</code>, or <code>owner/repo</code>.</div>`;
+    grid.innerHTML = `<div class="hint">${T('preview.nothing_on_hugging_face_for', 'Nothing on Hugging Face for {v}{v2}. Try a name,', {v: _civitaiFamily === 'h3' ? 'Hailuo H3' : 'LTX', v2: q ? ` matching "${escapeHtml(q)}"` : ''})} <code>author:someone</code>, or <code>owner/repo</code>.</div>`;
     status.textContent = '';
   } else {
     civitaiSetKind();
@@ -1546,10 +1545,10 @@ async function civitaiSearch() {
     if (data.has_more) loadMore.style.display = '';
     if ((data.items || []).length === 0) {
       const meta = _civitaiContextMeta(_civitaiContext, _civitaiFamily);
-      grid.innerHTML = `<div class="hint">${meta.empty} "${escapeHtml(q || '')}"${(civitaiNsfwRequested() || isMacApp()) ? '' : ' (try Show NSFW for more)'}. Try one shorter word — CivitAI matches whole words in the title and tags — or switch the engine pill above.</div>`;
+      grid.innerHTML = `<div class="hint">${T('preview.try_one_shorter_word_civitai', '{empty} "{v}"{v2}. Try one shorter word — CivitAI matches whole words in the title and tags — or switch the engine pill above.', {empty: meta.empty, v: escapeHtml(q || ''), v2: (civitaiNsfwRequested() || isMacApp()) ? '' : T('preview.try_show_nsfw_for_more', ' (try Show NSFW for more)')})}</div>`;
     }
   } catch (e) {
-    status.textContent = 'Network error: ' + (e.message || e);
+    status.textContent = T('preview.network_error', 'Network error: ') + (e.message || e);
     status.className = 'civitai-status-line err';
   } finally {
     _civitaiSearching = false;
@@ -1562,7 +1561,7 @@ async function civitaiLoadMore() {
   _civitaiSearching = true;
   const loadMore = document.getElementById('civitaiLoadMore');
   loadMore.disabled = true;
-  loadMore.textContent = 'Loading…';
+  loadMore.textContent = T('preview.loading', 'Loading…');
   try {
     const params = new URLSearchParams();
     const q = document.getElementById('civitaiQuery').value.trim();
@@ -1583,12 +1582,12 @@ async function civitaiLoadMore() {
     _civitaiCursor = data.next_cursor || '';
     loadMore.style.display = data.has_more ? '' : 'none';
   } catch (e) {
-    document.getElementById('civitaiStatus').textContent = 'Network error: ' + (e.message || e);
+    document.getElementById('civitaiStatus').textContent = T('preview.network_error', 'Network error: ') + (e.message || e);
     document.getElementById('civitaiStatus').className = 'civitai-status-line err';
   } finally {
     _civitaiSearching = false;
     loadMore.disabled = false;
-    loadMore.textContent = 'Load more';
+    loadMore.textContent = T('preview.load_more', 'Load more');
   }
 }
 
@@ -1611,7 +1610,7 @@ function renderCivitaiGrid(items, append) {
     // cross-origin loads work without a panel-side proxy.
     let previewHtml;
     if (!it.preview_url) {
-      previewHtml = `<div class="preview-empty">no preview</div>`;
+      previewHtml = `<div class="preview-empty">${T('preview.no_preview', 'no preview')}</div>`;
     } else if (it.preview_type === 'video' || /\.mp4($|\?)/i.test(it.preview_url)) {
       previewHtml = `<video class="preview" src="${escapeHtml(it.preview_url)}"
                             autoplay muted loop playsinline preload="metadata"></video>`;
@@ -1624,19 +1623,19 @@ function renderCivitaiGrid(items, append) {
         <div class="ttl" title="${escapeHtml(it.name)}">${escapeHtml(it.name)}</div>
         <div class="meta">
           <span>by ${escapeHtml(it.creator)}</span>
-          ${it.source === 'huggingface' ? `<span title="likes on Hugging Face">♥ ${Number(it.likes || 0)}</span>` : `<span>↓ ${dl}</span>`}
+          ${it.source === 'huggingface' ? `<span title="${TA('preview.likes_on_hugging_face', 'likes on Hugging Face')}">♥ ${Number(it.likes || 0)}</span>` : `<span>↓ ${dl}</span>`}
           <span>${sizeMb} MB</span>
           ${it.nsfw ? '<span class="nsfw-badge">NSFW</span>' : ''}
         </div>
-        ${triggers ? `<div class="meta"><span title="trigger words">trigger: ${escapeHtml(triggers)}</span></div>` : ''}
+        ${triggers ? `<div class="meta"><span title="${TA('preview.trigger_words', 'trigger words')}">trigger: ${escapeHtml(triggers)}</span></div>` : ''}
         ${it.civitai_url
-          ? `<div class="meta"><a class="civitai-source-link" href="${escapeHtml(it.civitai_url)}" target="_blank" rel="noopener" title="Open the original CivitAI page — usage notes, examples, comments">Read instructions on CivitAI <svg class="ph" aria-hidden="true" style="margin-left:3px;vertical-align:-2px"><use href="#ph-arrow-square-out"/></svg></a></div>`
+          ? `<div class="meta"><a class="civitai-source-link" href="${escapeHtml(it.civitai_url)}" target="_blank" rel="noopener" title="${TA('preview.open_the_original_civitai_page', 'Open the original CivitAI page — usage notes, examples, comments')}">${T('preview.read_instructions_on_civitai', 'Read instructions on CivitAI')} <svg class="ph" aria-hidden="true" style="margin-left:3px;vertical-align:-2px"><use href="#ph-arrow-square-out"/></svg></a></div>`
           : (it.hf_url
-              ? `<div class="meta"><a class="civitai-source-link" href="${escapeHtml(it.hf_url)}" target="_blank" rel="noopener" title="Open the Hugging Face repo — the author's example clip and notes">Open on Hugging Face <svg class="ph" aria-hidden="true" style="margin-left:3px;vertical-align:-2px"><use href="#ph-arrow-square-out"/></svg></a></div>`
+              ? `<div class="meta"><a class="civitai-source-link" href="${escapeHtml(it.hf_url)}" target="_blank" rel="noopener" title="${TA('preview.open_the_hugging_face_repo', 'Open the Hugging Face repo — the author\'s example clip and notes')}">${T('preview.open_on_hugging_face', 'Open on Hugging Face')} <svg class="ph" aria-hidden="true" style="margin-left:3px;vertical-align:-2px"><use href="#ph-arrow-square-out"/></svg></a></div>`
               : '')}
       </div>
       <div class="actions">
-        <button type="button" class="primary-btn" data-id="${it.id}">Install</button>
+        <button type="button" class="primary-btn" data-id="${it.id}">${T('preview.install', 'Install')}</button>
       </div>`;
     const btn = card.querySelector('button[data-id]');
     btn.addEventListener('click', () => civitaiInstall(btn, it));
@@ -1650,14 +1649,14 @@ function renderCivitaiGrid(items, append) {
 // sent no length. Pure, so it is tested by running it.
 function civitaiProgressLabel(st) {
   const mb = (n) => Math.round((Number(n) || 0) / (1024 * 1024));
-  if (!st || !st.ok) return 'Downloading…';
-  if (st.state === 'cancelled') return 'Cancelling…';
-  if (st.state === 'installing') return 'Installing…';
+  if (!st || !st.ok) return T('preview.downloading', 'Downloading…');
+  if (st.state === 'cancelled') return T('preview.cancelling', 'Cancelling…');
+  if (st.state === 'installing') return T('preview.installing', 'Installing…');
   if (st.total > 0) {
     const pct = Math.max(0, Math.min(100, Math.floor(100 * st.bytes / st.total)));
     return `Downloading ${pct}% · ${mb(st.bytes)} of ${mb(st.total)} MB`;
   }
-  return st.bytes > 0 ? `Downloading · ${mb(st.bytes)} MB` : 'Downloading…';
+  return st.bytes > 0 ? `Downloading · ${mb(st.bytes)} MB` : T('preview.downloading', 'Downloading…');
 }
 
 function _civitaiToken() {
@@ -1673,7 +1672,7 @@ function _civitaiToken() {
 async function civitaiInstall(btn, item) {
   btn.disabled = true;
   const origLabel = btn.textContent;
-  btn.textContent = 'Downloading…';
+  btn.textContent = T('preview.downloading', 'Downloading…');
   const fd = new FormData();
   const fromHf = item.source === 'huggingface';
   if (fromHf) {
@@ -1693,11 +1692,11 @@ async function civitaiInstall(btn, item) {
     cancelBtn = document.createElement('button');
     cancelBtn.type = 'button';
     cancelBtn.className = 'ghost-btn civitai-cancel-btn';
-    cancelBtn.textContent = 'Cancel';
-    cancelBtn.title = 'Stop this download — nothing half-downloaded is kept';
+    cancelBtn.textContent = T('preview.cancel', 'Cancel');
+    cancelBtn.title = T('preview.stop_this_download_nothing_half', 'Stop this download — nothing half-downloaded is kept');
     cancelBtn.addEventListener('click', async () => {
       cancelBtn.disabled = true;
-      cancelBtn.textContent = 'Cancelling…';
+      cancelBtn.textContent = T('preview.cancelling', 'Cancelling…');
       let ok = false;
       try {
         const r = await fetch('/civitai/download/cancel', { method: 'POST', body: new URLSearchParams({ token }) });
@@ -1705,7 +1704,7 @@ async function civitaiInstall(btn, item) {
       } catch (e) {}
       // Refused = it already arrived and is being put in place (or just
       // finished): say so instead of a "Cancelling…" that never happens.
-      if (!ok && cancelBtn.isConnected) cancelBtn.textContent = 'Too late — finishing';
+      if (!ok && cancelBtn.isConnected) cancelBtn.textContent = T('preview.too_late_finishing', 'Too late — finishing');
     });
     btn.insertAdjacentElement('afterend', cancelBtn);
     const tick = async () => {
@@ -1733,7 +1732,7 @@ async function civitaiInstall(btn, item) {
     stopProgress();
     if (data && data.cancelled) {
       const status = document.getElementById('civitaiStatus');
-      status.textContent = 'Download cancelled — nothing was kept.';
+      status.textContent = T('preview.download_cancelled_nothing_was_kept', 'Download cancelled — nothing was kept.');
       status.className = 'civitai-status-line';
       btn.disabled = false;
       btn.textContent = origLabel;
@@ -1747,7 +1746,7 @@ async function civitaiInstall(btn, item) {
       btn.textContent = origLabel;
       return;
     }
-    btn.textContent = data.skipped ? 'Already installed ✓' : 'Installed ✓';
+    btn.textContent = data.skipped ? T('preview.already_installed', 'Already installed ✓') : T('preview.installed', 'Installed ✓');
     // The server routes by the item's OWN base model, so a MiniMax H3 LoRA
     // lands in the H3 library even if it was found while the browser showed
     // "All". Auto-enable only when that library is the one the active engine
@@ -1766,13 +1765,13 @@ async function civitaiInstall(btn, item) {
     const where = data.skipped ? `Already in ${data.path}` : `Saved to ${data.path}`;
     status.textContent = where + (
       laneMatches
-        ? ' — auto-enabled below.'
+        ? T('preview.auto_enabled_below', ' — auto-enabled below.')
         : (lane === 'h3'
-            ? ' — it is a Hailuo H3 LoRA, so switch the engine to Hailuo H3 to use it.'
-            : ' — it is an LTX LoRA, so switch the engine to LTX to use it.'))
+            ? T('preview.it_is_a_hailuo_h3', ' — it is a Hailuo H3 LoRA, so switch the engine to Hailuo H3 to use it.')
+            : T('preview.it_is_an_ltx_lora', ' — it is an LTX LoRA, so switch the engine to LTX to use it.')))
       + (data.converted
           ? ' Converted from the ComfyUI key layout on install (a key rename;'
-            + ' the tensors are untouched).'
+            + T('preview.the_tensors_are_untouched', ' the tensors are untouched).')
           : '');
     status.className = 'civitai-status-line ok';
     // Refresh the local picker so the new LoRA appears, then auto-enable.
@@ -1799,7 +1798,7 @@ async function civitaiInstall(btn, item) {
     if (det) det.open = true;
   } catch (e) {
     stopProgress();
-    document.getElementById('civitaiStatus').textContent = 'Network error: ' + (e.message || e);
+    document.getElementById('civitaiStatus').textContent = T('preview.network_error', 'Network error: ') + (e.message || e);
     document.getElementById('civitaiStatus').className = 'civitai-status-line err';
     btn.disabled = false;
     btn.textContent = origLabel;
@@ -1858,27 +1857,27 @@ document.addEventListener('DOMContentLoaded', () => {
 // A refusal that names a file Pinokio already has (res.pinokio): the server's sentence, then two
 // actions - use it from Pinokio first, download second.
 function pinokioReuseToast(res, retry) {
-  const el = phosToast(`${res.pinokio.name || 'This file'} is already in your Pinokio install. Use it from there (no download).`, { kind: 'warning', duration: 0 });
+  const el = phosToast(T('preview.is_already_in_your_pinokio', '{v} is already in your Pinokio install. Use it from there (no download).', {v: res.pinokio.name || 'This file'}), { kind: 'warning', duration: 0 });
   if (!el) return true;
   const mk = (label, fn) => {
     const a = document.createElement('a'); a.href = '#'; a.className = 'phos-toast-action'; a.textContent = label;
     a.onclick = (ev) => { ev.preventDefault(); el.remove(); fn(); }; el.appendChild(a);
   };
-  mk('Use it from your Pinokio install', async () => {
+  mk(T('preview.use_it_from_your_pinokio', 'Use it from your Pinokio install'), async () => {
     await reuseFromPinokio(res.pinokio.repo_key);
     if (typeof retry === 'function') retry();
   });
-  mk('Download instead', () => openModelsModal());
+  mk(T('preview.download_instead', 'Download instead'), () => openModelsModal());
   return true;
 }
 async function reuseFromPinokio(key, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = 'Reusing…'; }
+  if (btn) { btn.disabled = true; btn.textContent = T('preview.reusing', 'Reusing…'); }
   try {
     const res = await api('/models/reuse-pinokio', 'POST', `repo_key=${encodeURIComponent(key)}`);
     if (res && res.error) throw new Error(res.error);
-    if (typeof phosToast === 'function') phosToast('Reusing your Pinokio copy: done, nothing downloaded.');
+    if (typeof phosToast === 'function') phosToast(T('preview.reusing_your_pinokio_copy_done', 'Reusing your Pinokio copy: done, nothing downloaded.'));
   } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = 'Reuse from Pinokio'; }
+    if (btn) { btn.disabled = false; btn.textContent = T('preview.reuse_from_pinokio', 'Reuse from Pinokio'); }
     const m = (e && e.message) || 'Could not reuse the Pinokio copy.';
     if (typeof phosToast === 'function') phosToast(m); else alert(m);
   }
@@ -1903,7 +1902,7 @@ async function refreshModelsModal({ silent = false } = {}) {
   let data;
   try { data = await api('/models'); }
   catch (e) {
-    if (!silent) hint.textContent = 'Failed to load models. Panel might be restarting — try again.';
+    if (!silent) hint.textContent = T('preview.failed_to_load_models_panel', 'Failed to load models. Panel might be restarting — try again.');
     return;
   }
   // SYS-17: the modal listed repos in registry order, which put the
@@ -1925,11 +1924,11 @@ async function refreshModelsModal({ silent = false } = {}) {
   });
   const active = data.active_download;
   hint.innerHTML = data.hf_available
-    ? `Each row shows what's on disk. Click <b>Download</b> to fetch the missing files; progress streams to the log at the bottom of the page. Everything is resumable and checksum-verified.`
-    : `<span style="color:var(--warning,#d29922)"><svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-fill"/></svg><code>hf</code> not found</span> — ` + distText(
-        `this Pinokio install doesn't have <code>huggingface_hub&gt;=1.0</code> in the venv. Run Update from Pinokio, then come back.`,
-        `this install doesn't have <code>huggingface_hub&gt;=1.0</code> in the venv. Quit Phosphene and open it again to rerun setup, then come back.`)
-      + ` The LTX-2.5 rows do not need it — they download from a GitHub release.`;
+    ? `${T('preview.each_row_shows_what_s', 'Each row shows what\'s on disk. Click')} <b>${T('preview.download', 'Download')}</b> ${T('preview.to_fetch_the_missing_files', 'to fetch the missing files; progress streams to the log at the bottom of the page. Everything is resumable and checksum-verified.')}`
+    : `<span style="color:var(--warning,#d29922)"><svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-fill"/></svg><code>hf</code> ${T('preview.not_found', 'not found')}</span> — ` + distText(
+        `${T('preview.this_pinokio_install_doesn_t', 'this Pinokio install doesn\'t have')} <code>huggingface_hub&gt;=1.0</code> ${T('preview.in_the_venv_run_update', 'in the venv. Run Update from Pinokio, then come back.')}`,
+        `${T('preview.this_install_doesn_t_have', 'this install doesn\'t have')} <code>huggingface_hub&gt;=1.0</code> ${T('preview.in_the_venv_quit_phosphene', 'in the venv. Quit Phosphene and open it again to rerun setup, then come back.')}`)
+      + T('preview.the_ltx_2_5_rows', ' The LTX-2.5 rows do not need it — they download from a GitHub release.');
   // A row whose HOST pack is missing cannot usefully be downloaded: the add-on
   // lands INSIDE that pack's directory and loads from there by name, so
   // fetching it alone produces a folder holding two files and nothing else. The
@@ -1959,24 +1958,24 @@ async function refreshModelsModal({ silent = false } = {}) {
       cls = 'downloading';
       icon = '<svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise-bold"/></svg>';
       statusText = (data.app_models && data.app_models.state === 'paused')
-        ? 'Download paused' : 'Downloading in the background';
+        ? T('preview.download_paused', 'Download paused') : T('preview.downloading_in_the_background', 'Downloading in the background');
       btnHtml = '';
     } else if (active && active.key === r.key) {
       cls = 'downloading';
       icon = '<svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise-bold"/></svg>';
       const elapsed = Math.max(0, Math.round((Date.now()/1000) - (active.started_ts || 0)));
       const last = active.last_line ? `<div class="progress">${escapeHtml(active.last_line)}</div>` : '';
-      statusText = `${active.background ? 'Downloading in the background' : 'Downloading'} · ${elapsed}s${last}`;
-      btnHtml = `<button class="ghost" onclick="cancelDownload()">${active.background ? 'Skip' : 'Cancel'}</button>`;
+      statusText = `${active.background ? T('preview.downloading_in_the_background', 'Downloading in the background') : T('preview.downloading_2', 'Downloading')} · ${elapsed}s${last}`;
+      btnHtml = `<button class="ghost" onclick="cancelDownload()">${active.background ? T('preview.skip', 'Skip') : T('preview.cancel', 'Cancel')}</button>`;
     } else if (r.complete) {
       cls = 'ready'; icon = '<svg class="ph" aria-hidden="true"><use href="#ph-check-bold"/></svg>';
       // `where: 'hf_cache'` means the files were resolved from
       // ~/.cache/huggingface/ rather than the canonical mlx_models/
       // dir. Common on manual / dev installs that pre-existed Pinokio
       // and pulled the model via `huggingface-cli` or first-run helper.
-      const tag = r.availability === 'read_only' ? 'read-only' : (r.where === 'hf_cache' ? 'HF cache' : 'local');
+      const tag = r.availability === 'read_only' ? 'read-only' : (r.where === 'hf_cache' ? T('preview.hf_cache', 'HF cache') : 'local');
       statusText = `Ready · ${r.total_files} files · ~${r.size_gb || '?'} GB · ${tag}`;
-      btnHtml = `<button class="ghost" disabled>Installed</button>`;
+      btnHtml = `<button class="ghost" disabled>${T('preview.installed_2', 'Installed')}</button>`;
     } else if (r.present_files > 0) {
       cls = 'partial'; icon = '<svg class="ph" aria-hidden="true"><use href="#ph-download-simple"/></svg>';
       const left = r.total_files - r.present_files;
@@ -1984,41 +1983,41 @@ async function refreshModelsModal({ silent = false } = {}) {
         ? `Queued · downloads in the background after setup · ${r.present_files}/${r.total_files} files so far`
         : `Partial · ${r.present_files}/${r.total_files} files · ${left} missing — resume to finish`;
       btnHtml = hostMissing
-        ? `<button disabled title="Install the Q8 weights first — the add-on lives inside that folder.">Needs Q8</button>`
+        ? `<button disabled title="${TA('preview.install_the_q8_weights_first', 'Install the Q8 weights first — the add-on lives inside that folder.')}">${T('preview.needs_q8', 'Needs Q8')}</button>`
         : hfOk
-        ? `<button onclick="startDownload('${escapeHtml(r.key)}')" ${slotBlocked || (active && !queuedKeys.has(r.key)) ? 'disabled' : ''}>${queuedKeys.has(r.key) && active ? 'Download next' : 'Resume'}</button>`
-        : `<button disabled>Resume</button>`;
+        ? `<button onclick="startDownload('${escapeHtml(r.key)}')" ${slotBlocked || (active && !queuedKeys.has(r.key)) ? 'disabled' : ''}>${queuedKeys.has(r.key) && active ? T('preview.download_next', 'Download next') : T('preview.resume', 'Resume')}</button>`
+        : `<button disabled>${T('preview.resume', 'Resume')}</button>`;
     } else {
       cls = 'missing'; icon = '<svg class="ph" aria-hidden="true"><use href="#ph-x-circle"/></svg>';
       statusText = queuedKeys.has(r.key)
         ? `Queued · downloads in the background after setup · ~${r.size_gb || '?'} GB`
         : `Not installed · ~${r.size_gb || '?'} GB`;
       btnHtml = hostMissing
-        ? `<button disabled title="Install the Q8 weights first — the add-on lives inside that folder.">Needs Q8</button>`
+        ? `<button disabled title="${TA('preview.install_the_q8_weights_first', 'Install the Q8 weights first — the add-on lives inside that folder.')}">${T('preview.needs_q8', 'Needs Q8')}</button>`
         : hfOk
-        ? `<button onclick="startDownload('${escapeHtml(r.key)}')" ${slotBlocked || (active && !queuedKeys.has(r.key)) ? 'disabled' : ''}>${queuedKeys.has(r.key) && active ? 'Download next' : 'Download'}</button>`
-        : `<button disabled>Download</button>`;
+        ? `<button onclick="startDownload('${escapeHtml(r.key)}')" ${slotBlocked || (active && !queuedKeys.has(r.key)) ? 'disabled' : ''}>${queuedKeys.has(r.key) && active ? T('preview.download_next', 'Download next') : T('preview.download', 'Download')}</button>`
+        : `<button disabled>${T('preview.download', 'Download')}</button>`;
     }
     // Next update: Pinokio already holds this pack whole - reuse it first (no download, no extra
     // disk), download second. Shown only while the pack is missing here.
     if (r.pinokio && !r.complete && !r.app_owned && !(active && active.key === r.key)) {
       const pk = r.pinokio, gb = pk.bytes ? ` (${(pk.bytes / 1e9).toFixed(1)} GB)` : '';
-      statusText += `<div style="color:#c9b8ff;margin-top:2px">It is already in your Pinokio install${gb}. Reuse it: no download${pk.same_volume ? ', no extra disk' : ''}.</div>`;
+      statusText += `<div style="color:#c9b8ff;margin-top:2px">${T('preview.it_is_already_in_your', 'It is already in your Pinokio install{gb}. Reuse it: no download{v}.', {gb, v: pk.same_volume ? T('preview.no_extra_disk', ', no extra disk') : ''})}</div>`;
       const _dl = (hostMissing ? '' : btnHtml.replace(/>(Download|Resume)([^<]*)</, '>Download instead<').replace(/^<button onclick/, '<button class="ghost" onclick'));
       btnHtml = '<span style="display:flex;flex-direction:column;gap:6px;align-items:stretch">' + (pk.same_volume
-        ? `<button onclick="reuseFromPinokio('${escapeHtml(r.key)}', this)">Reuse from Pinokio</button>`
-        : `<button disabled title="Pinokio is on another drive; reusing would copy the model here. Download it instead.">Reuse from Pinokio</button>`)
+        ? `<button onclick="reuseFromPinokio('${escapeHtml(r.key)}', this)">${T('preview.reuse_from_pinokio', 'Reuse from Pinokio')}</button>`
+        : `<button disabled title="${TA('preview.pinokio_is_on_another_drive', 'Pinokio is on another drive; reusing would copy the model here. Download it instead.')}">${T('preview.reuse_from_pinokio', 'Reuse from Pinokio')}</button>`)
         + _dl + '</span>';
     }
     // "required" means required BY THIS BUILD. A base pack from the retired
     // generation is neither required nor optional — it is previous, and saying
     // so is the difference between an inventory and a claim.
     const kindBadge = (r.active === false)
-      ? `<span style="color:var(--muted)">previous generation</span>`
+      ? `<span style="color:var(--muted)">${T('preview.previous_generation', 'previous generation')}</span>`
       // 4.20: queued by a fresh install for after Start - not something the
       // renderer is waiting on, whatever its registry kind says.
       : queuedKeys.has(r.key)
-      ? `<span style="color:var(--muted)">arrives after setup</span>`
+      ? `<span style="color:var(--muted)">${T('preview.arrives_after_setup', 'arrives after setup')}</span>`
       : r.kind === 'optional'
       ? `<span style="color:var(--muted)">optional</span>`
       : `<span style="color:var(--success,#3fb950)">required</span>`;
@@ -2037,7 +2036,7 @@ async function refreshModelsModal({ silent = false } = {}) {
           <span class="ttl">${escapeHtml(r.name)} · ${kindBadge}</span>
           <span class="sub">${statusText}${r.blurb ? ' · ' + escapeHtml(r.blurb) : ''}</span>
           <details class="model-row-details">
-            <summary>Details</summary>
+            <summary>${T('preview.details', 'Details')}</summary>
             <span class="sub">${escapeHtml(r.repo_id)} → ${escapeHtml(r.local_dir)}</span>
           </details>
         </div>
@@ -2060,23 +2059,23 @@ async function refreshModelsModal({ silent = false } = {}) {
         : '<svg class="ph" aria-hidden="true"><use href="#ph-x-circle"/></svg>';
       const statusText = ready
         ? distText(`Ready · engine picker unlocked · ${escapeHtml(h3.root || '')}`,
-                   'Ready · engine picker unlocked')
+                   T('preview.ready_engine_picker_unlocked', 'Ready · engine picker unlocked'))
         : h3.preparing
-        ? 'Getting ready on this Mac'
-        : distText('Available to install · one click in the Pinokio sidebar',
+        ? T('preview.getting_ready_on_this_mac', 'Getting ready on this Mac')
+        : distText(T('preview.available_to_install_one_click', 'Available to install · one click in the Pinokio sidebar'),
                    (h3.app_install && h3.app_install.supported && h3.app_install.ram_ok)
-                     ? (h3.app_install.active ? 'Downloading on this Mac' : 'Ready to download · one click')
-                     : 'Not available on this Mac');
+                     ? (h3.app_install.active ? T('preview.downloading_on_this_mac', 'Downloading on this Mac') : T('preview.ready_to_download_one_click', 'Ready to download · one click'))
+                     : T('preview.not_available_on_this_mac', 'Not available on this Mac'));
       const btn = ready
-        ? `<button class="ghost" disabled>Installed</button>`
+        ? `<button class="ghost" disabled>${T('preview.installed_2', 'Installed')}</button>`
         : h3.preparing ? ''
-        : `<button onclick="openH3InstallCard()">${distText('How to install', (h3.app_install && h3.app_install.supported && h3.app_install.ram_ok) ? 'Download' : 'About H3')}</button>`;
+        : `<button onclick="openH3InstallCard()">${distText(T('preview.how_to_install', 'How to install'), (h3.app_install && h3.app_install.supported && h3.app_install.ram_ok) ? T('preview.download', 'Download') : T('preview.about_h3', 'About H3'))}</button>`;
       h3Row = `
         <li class="${cls}">
           <span class="icon">${icon}</span>
           <div class="meta">
-            <span class="ttl">Hailuo H3 (MiniMax-H3 FL2VA) · <span style="color:var(--muted)">second video engine</span></span>
-            <span class="sub">A peer of LTX — one prompt in, video + synced dialogue + sound out</span>
+            <span class="ttl">${T('preview.hailuo_h3_minimax_h3_fl2va', 'Hailuo H3 (MiniMax-H3 FL2VA) ·')} <span style="color:var(--muted)">${T('preview.second_video_engine', 'second video engine')}</span></span>
+            <span class="sub">${T('preview.a_peer_of_ltx_one', 'A peer of LTX — one prompt in, video + synced dialogue + sound out')}</span>
             <span class="sub">${statusText} · ${escapeHtml(h3.size_note || '')}</span>
           </div>
           ${btn}
@@ -2088,17 +2087,17 @@ async function refreshModelsModal({ silent = false } = {}) {
   if (music && music.capable) {
     const inst = (LAST_STATUS && LAST_STATUS.music_install) || {};
     const statusText = music.available
-      ? `Ready · Compose unlocked in the Audio tab · ${escapeHtml(music.root || '')}`
+      ? T('preview.ready_compose_unlocked_in_the', 'Ready · Compose unlocked in the Audio tab · {v}', {v: escapeHtml(music.root || '')})
       : inst.active ? `Installing… ${inst.percent || 1}% · ${escapeHtml(inst.step_label || '')}`
-      : music.repairable ? distText('Weights on disk · engine needs repair', 'Weights on disk · needs a quick setup')
-      : `Available to install · one click here or in Audio → Compose · ~11 GB · needs ${music.min_ram_gb} GB unified memory`;
+      : music.repairable ? distText(T('preview.weights_on_disk_engine_needs', 'Weights on disk · engine needs repair'), T('preview.weights_on_disk_needs_a', 'Weights on disk · needs a quick setup'))
+      : T('preview.available_to_install_one_click_2', 'Available to install · one click here or in Audio → Compose · ~11 GB · needs {min_ram_gb} GB unified memory', {min_ram_gb: music.min_ram_gb});
     musicRow = `<li class="${music.available ? 'ready' : 'missing'}">
       <span class="icon">♪</span><div class="meta">
-        <span class="ttl">YuE2 · music engine</span>
-        <span class="sub">Lyrics and a style description in, a finished song out — vocals and arrangement together</span>
+        <span class="ttl">${T('preview.yue2_music_engine', 'YuE2 · music engine')}</span>
+        <span class="sub">${T('preview.lyrics_and_a_style_description', 'Lyrics and a style description in, a finished song out — vocals and arrangement together')}</span>
         <span class="sub">${statusText}</span></div>
       ${music.available ? '<button class="ghost" disabled>Installed</button>'
-        : `<button onclick="openMusicInstallCard()">${inst.active ? 'Progress' : music.repairable ? 'Repair' : 'Install'}</button>`}
+        : `<button onclick="openMusicInstallCard()">${inst.active ? T('preview.progress', 'Progress') : music.repairable ? T('preview.repair', 'Repair') : T('preview.install', 'Install')}</button>`}
     </li>`;
   }
   const html = (rows + h3Row + musicRow) || `<li class="empty-state">No model manifest found — required_files.json is missing or unreadable.</li>`;
@@ -2128,7 +2127,7 @@ async function startDownload(key) {
   try {
     res = await api('/models/download', 'POST', `repo_key=${encodeURIComponent(key)}`);
   } catch (e) {
-    alert('Download failed to start: ' + (e?.message || e));
+    alert(T('preview.download_failed_to_start', 'Download failed to start: ') + (e?.message || e));
     return;
   }
   // The api() helper coerces 409 (busy) to { error: 'busy' } — surface that
@@ -2160,7 +2159,7 @@ function packNeededToast(res) {
   // waiting_disk is NOT fetching: the background download is paused for room,
   // so the useful action is the explicit Download (not held to the floor).
   const fetching = res.pack_state === 'downloading';
-  a.textContent = fetching ? 'Show progress'
+  a.textContent = fetching ? T('preview.show_progress', 'Show progress')
     : `Download now${res.pack_size ? ' (' + res.pack_size + ')' : ''}`;
   a.onclick = (ev) => {
     ev.preventDefault();
@@ -2172,7 +2171,7 @@ function packNeededToast(res) {
   return true;
 }
 async function cancelDownload() {
-  if (!confirm('Cancel the active download? Partial files stay on disk; clicking Download/Resume later picks up where you left off.')) return;
+  if (!confirm(T('preview.cancel_the_active_download_partial', 'Cancel the active download? Partial files stay on disk; clicking Download/Resume later picks up where you left off.'))) return;
   try { await api('/models/cancel', 'POST'); } catch (e) {}
   refreshModelsModal();
 }

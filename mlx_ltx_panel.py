@@ -73,6 +73,7 @@ SEQ_NOUN_CAP = "Sequence"
 # External agents drive Phosphene via the HTTP API documented in docs/API.md.
 # Pre-removal snapshot: git tag pre-agent-removal-2026-05-15.
 import image_engine as agent_image_engine
+import i18n as _i18n
 import hostinfo
 import h3_loudness
 import pro_speedup
@@ -1628,6 +1629,8 @@ def _settings_defaults() -> dict:
         # never changes the result, and it is what makes Stop early
         # possible at all.
         "live_preview": "on",
+        # Studio language: "auto" follows the Mac (i18n.py resolve()).
+        "ui_language": "auto",
         # H3 FP16 VAE decode — ON since 4.16.0. See h3_vae_fp16_decode().
         # Measured 2026-09-23 on a real 1152x640/124f latent: decode 105.1 s ->
         # 90.2 s (-14 %), peak 11.1 -> 8.0 GiB, PSNR 72.8 dB against the float32
@@ -1938,6 +1941,15 @@ def _validate_settings_patch(patch: dict) -> tuple[dict, str | None]:
             out["room_tone_auto"] = str(v).strip().lower() in ("1", "true", "yes", "on")
 
 
+    if "ui_language" in patch:
+        # "auto" or a language with a file in i18n/studio/ (i18n.py). An
+        # unknown code is refused, never silently kept.
+        ul = str(patch["ui_language"]).strip()
+        codes = [a["code"] for a in _i18n.available()]
+        if ul != "auto" and ul not in codes:
+            return {}, f"ui_language must be auto or one of {', '.join(codes)}, got: {ul}"
+        out["ui_language"] = ul
+
     if "live_preview" in patch:
         # Two states, and anything unrecognised is refused rather than
         # silently coerced — a settings field that accepts junk and means
@@ -2106,6 +2118,7 @@ def get_settings_public() -> dict:
         "first_run_card_dismissed": bool(s.get("first_run_card_dismissed", False)),
         "spicy_mode": bool(s.get("spicy_mode", False)) and not _dist.is_mac_app(),
         "live_preview": str(s.get("live_preview", "on")),
+        "ui_language": str(s.get("ui_language", "auto")),
         "notify_done": bool(s.get("notify_done", True)),
         "room_tone_auto": bool(s.get("room_tone_auto", False)),
         # Push: can the panel send at all, and how many browsers listen.
@@ -22931,7 +22944,12 @@ def _star_prompt_after_job(job: dict) -> None:
 PRO_HINT_MIN_SAVED_SEC = 60.0
 PRO_HINT_MAX_DISMISSALS = 3
 PRO_HINT_WHERE = ("topbar", "remote_hint", "remote_panel", "pro_modal", "star_card",
-                  "speedup_line", "feature_gate", "settings", "whats_new")
+                  "speedup_line", "feature_gate", "settings", "whats_new",
+                  "whats_new_speed", "your_pro")
+# pro_click (docs/ANALYTICS.md): `open` the Pro window opened, `get` a Get Pro / plan link pressed,
+# and inside the window `restore` (Restore Pro), `key` (a licence key submitted; never the key), `close`.
+PRO_CLICK_ACTIONS = ("open", "get", "restore", "key", "close")
+PRO_CLICK_PLANS = ("monthly", "yearly", "founding")
 PRO_HINT_ACTIONS = ("shown", "dismissed", "opened")
 PRO_HINT_LANES = {
     # lane: (Free s, Pro s) measured
@@ -23034,9 +23052,13 @@ def pro_hint_answer(job_id: str, action: str) -> bool:
     return True
 
 
-def pro_click_report(where: str, action: str) -> None:
-    if where in PRO_HINT_WHERE and action in ("open", "get"):
-        _analytics_capture("pro_click", {"where": where, "action": action, "version": running_version()})
+def pro_click_report(where: str, action: str, plan: str = "") -> None:
+    if where in PRO_HINT_WHERE and action in PRO_CLICK_ACTIONS:
+        props = {"where": where, "action": action, "version": running_version()}
+        # Which plan button, only on a Get Pro press in the Pro window.
+        if plan in PRO_CLICK_PLANS and action == "get" and where == "pro_modal":
+            props["plan"] = plan
+        _analytics_capture("pro_click", props)
 
 
 def _remote_devices() -> list:
@@ -52496,12 +52518,20 @@ def drop_pinokio_doc_blocks(md: str) -> str:
     return "\n".join(out)
 
 
-def page(theme: str = "") -> str:
+def page(theme: str = "", accept_language: str = "") -> str:
     """The served page. `theme` is the palette cookie the browser sent
     ("light" / "dark" / ""); "light" is stamped on <html> so the first paint
-    is light — the module that applies Appearance runs after parse."""
+    is light — the module that applies Appearance runs after parse.
+    `accept_language` is the browser's header, the last resort when the
+    Studio setting is "auto" and the Mac's language list names nothing
+    installed (i18n.py)."""
     cap_tier = _resolve_cap_tier()
+    i18n_boot = _i18n.boot_payload(str(get_settings().get("ui_language", "auto")),
+                                   accept_language)
     bootstrap = json.dumps({
+        # The UI language and its strings (docs/TRANSLATING.md). Only the
+        # chosen language travels; English is in the code itself.
+        "i18n": i18n_boot,
         # Pinokio or the Mac app, and the edition label (distribution.py).
         # The page picks its Mac-app wording and defers updates to the app
         # from these; Pinokio reads {"distribution": "pinokio", "edition": ""}.
@@ -52539,6 +52569,8 @@ def page(theme: str = "") -> str:
         "tier": {
             "key": SYSTEM_TIER,
             "label": SYSTEM_CAPS["label"],
+            # Whole GB, for the Pro window's "On this Mac" line (the Pro ledger's memory floors).
+            "ram_gb": int(round(SYSTEM_RAM_GB or 0)),
             # VA-11 / VA-12: real, clamped-canvas prices for keyframe/extend
             # on first paint, so the Shot setup summary never shows the
             # Quality-strip's number for a pipeline that isn't the one that
@@ -52639,10 +52671,11 @@ def page(theme: str = "") -> str:
             .replace("<title>Phosphene</title>",
                      "<title>Phosphene TEST</title>" if is_test
                      else "<title>Phosphene</title>")
-            .replace("__BOOTSTRAP__", bootstrap)
             .replace("__PROFILE_BADGE__", profile_badge)
             .replace('<html lang="en">',
-                     '<html lang="en" data-theme="light">' if theme == "light" else '<html lang="en">')
+                     '<html lang="' + html.escape(i18n_boot["lang"]) + '"'
+                     + (' dir="rtl"' if i18n_boot["dir"] == "rtl" else '')
+                     + (' data-theme="light"' if theme == "light" else '') + '>')
             .replace("__Q8_CHARACTER_INSTALL_COPY__",
                      q8_character_install_copy())
             .replace("__BUILD_STAMP__", html.escape(build_stamp_text()))
@@ -52662,7 +52695,11 @@ def page(theme: str = "") -> str:
             # Mac app only: the distribution/edition hooks on <body>. Pinokio
             # serves the tag exactly as before.
             .replace('<body data-cap-tier="' + cap_tier + '"',
-                     '<body data-cap-tier="' + cap_tier + '"' + _dist_body_attrs()))
+                     '<body data-cap-tier="' + cap_tier + '"' + _dist_body_attrs())
+            # LAST, so no later substitution can reach inside the JSON: BOOT
+            # carries translated text, and a seam word in it (or "</script>")
+            # must stay inert. "</" is escaped for the same reason.
+            .replace("__BOOTSTRAP__", bootstrap.replace("</", "<\\/")))
 
 
 def _dist_body_attrs() -> str:

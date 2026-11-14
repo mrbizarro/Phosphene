@@ -13491,17 +13491,57 @@ button.primary:hover::before, #genBtn:hover::before, #genForm .batch-queue-btn:h
 .pro-entry { color: #b69cff; background: rgba(139,92,246,0.16); border: 1px solid rgba(139,92,246,0.5); font-weight: 700; letter-spacing: 0.12em; }
 .pro-entry:hover { background: rgba(139,92,246,0.26); color: #cbb8ff; }
 .pro-entry[hidden] { display: none; }
-.models-card.pro-card { width: min(820px, calc(100vw - 32px)); max-width: 820px; padding: 24px; background: var(--bg, #0a0a0b); }
-.pro-prices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 20px; }
-.pro-price { border: 1px solid var(--border); border-radius: var(--r-md); padding: 18px; }
-.pro-price h3 { font-size: 13px; margin: 0 0 16px; }
-.pro-price p { font-size: 13px; margin: 0 0 12px; }
-.pro-price strong { font-size: 30px; font-weight: 740; }
-.pro-price span { color: var(--muted, #b4b4bb); font-size: 13px; line-height: 1.5; }
-.pro-founding { border-color: #8d744d; }
+.models-card.pro-card { width: min(860px, calc(100vw - 32px)); max-width: 860px; padding: 24px; background: var(--bg, #0a0a0b); }
+/* What Pro does on this Mac: one line under the header, from BOOT.tier.ram_gb. */
+.pro-this-mac { margin: 18px 0 0; padding: 12px 14px; border: 1px solid var(--pro-edge, rgba(139,92,246,.5)); border-radius: var(--r-md);
+  background: var(--pro-bg, rgba(139,92,246,.13)); color: var(--text); font-size: 14px; line-height: 1.5; }
+.pro-this-mac b { color: var(--pro-ink, #b69cff); font-weight: 650; margin-right: 4px; }
+.pro-this-mac[hidden] { display: none; }
+/* Two plan cards, like the site's pricing page: what Pro does, then buttons that name the action. */
+.pro-plans { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+.pro-plan { display: flex; flex-direction: column; gap: 10px; min-width: 0; border: 1px solid var(--border); border-radius: var(--r-md); padding: 20px; }
+.pro-plan h3 { margin: 0; font-size: 16px; font-weight: 700; color: var(--text); text-transform: none; letter-spacing: 0; }
+.pro-plan h3 span { margin-left: 6px; font: 500 12px/1 var(--mono); color: var(--muted); }
+.pro-plan-price { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.pro-plan-price strong { margin-right: 4px; color: var(--text); font-size: 38px; font-weight: 760; line-height: 1; letter-spacing: -.01em; }
+.pro-plan-line { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.pro-plan-saving { margin: -4px 0 0; color: #f0c674; font-size: 13px; }
+.pro-checks { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 7px; }
+.pro-checks li { position: relative; padding-left: 22px; color: var(--text); font-size: 13px; line-height: 1.45; }
+.pro-checks li::before { content: ''; position: absolute; left: 3px; top: 4px; width: 9px; height: 5px; border-left: 2px solid #5eeaff; border-bottom: 2px solid #5eeaff; transform: rotate(-45deg); }
+.pro-plan-ctas { display: grid; gap: 8px; margin-top: auto; padding-top: 8px; }
+.pro-cta { display: flex; align-items: center; justify-content: center; min-height: 42px; padding: 8px 14px; border-radius: 10px; text-align: center;
+  background: var(--text); color: var(--bg, #0a0a0b); font-size: 14px; font-weight: 650; text-decoration: none; line-height: 1.25; }
+.pro-cta:hover { filter: brightness(.92); text-decoration: none; }
+.pro-cta:focus-visible { outline: 2px solid #5eeaff; outline-offset: 2px; }
+.pro-plan-founding { border-color: color-mix(in srgb, #ec4899 55%, var(--border)); background: linear-gradient(160deg, rgba(236,72,153,.07), rgba(94,234,255,.04) 70%); }
+.pro-cta-founding { background: linear-gradient(90deg, #ec4899, #8b5cf6 55%, #5eeaff); color: #0b0b10; }
+/* Reassurance under the plans: refund, when the key comes, nothing renews by surprise. */
+.pro-safe { list-style: none; margin: 12px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.pro-safe li { display: grid; gap: 4px; align-content: start; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-md); }
+.pro-safe b { color: var(--text); font-size: 13px; font-weight: 650; }
+.pro-safe span { color: var(--muted); font-size: 13px; line-height: 1.45; }
+/* The speed proof: the measured times as text first, the clip under them at full width. */
+.pro-race { display: grid; gap: 10px; }
+.pro-race-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 14px; }
+.pro-race-name { color: var(--muted); font-size: 14px; font-weight: 600; }
+.pro-race-bar { height: 12px; border-radius: 6px; background: color-mix(in srgb, var(--text) 7%, transparent); overflow: hidden; }
+.pro-race-bar i { display: block; height: 100%; border-radius: 6px; background: color-mix(in srgb, var(--text) 45%, transparent); }
+.pro-race-pro .pro-race-bar i { background: linear-gradient(90deg, #8b5cf6, #b69cff); }
+.pro-race-pro .pro-race-name { color: var(--pro-ink, #b69cff); }
+.pro-race-time { min-width: 7.2ch; color: var(--text); font: 700 26px/1 var(--sans); font-variant-numeric: tabular-nums; text-align: right; }
+.pro-race-note { margin: 12px 0 14px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.pro-race-note b { color: var(--text); font-weight: 650; }
+/* The header is a greeting here, not the whole page: shorter, so the plans start above the fold. */
+#proModal .lights-on-header { padding: 20px 24px; }
+#proModal .lights-on-header h2 { font-size: 34px; }
+#proModal .lights-on-lead { margin-top: 12px; max-width: 60ch; }
 .pro-benefits { margin: 28px 0; }
 .pro-hardship { margin: 20px 0 0; color: var(--muted); font-size: var(--fs-xs); }
-@media (max-width: 560px) { .pro-prices { grid-template-columns: 1fr; } }
+@media (max-width: 720px) {
+  .pro-plans, .pro-safe { grid-template-columns: 1fr; }
+  .pro-race-time { font-size: 20px; }
+}
 
 /* Storage rows contain one text column, with long model paths wrapping. */
 #storageList li { grid-template-columns: minmax(0, 1fr); }
@@ -15524,6 +15564,61 @@ html[data-pro=""] .tool-rail .workflow-tabs button[data-workflow="remote"] .new-
 
 #h3Hint.engine-credit { margin: 6px 0; font-size: 13px; }
 #h3Hint.engine-credit a { color: inherit; }
+
+/* ---------- other languages (docs/TRANSLATING.md) ----------
+   Long languages: German and Russian run ~30% longer than English and use
+   long compound words, so tight labels may break inside a word (with a
+   hyphen where the browser knows the language) instead of spilling out of
+   their tile. English never needs it: no rule here changes an English
+   layout, because English labels already fit. */
+html:not([lang="en"]) .tool-rail .workflow-tabs button,
+html:not([lang="en"]) .tool-rail .rail-foot .icon-btn,
+html:not([lang="en"]) .form-pane > #modeGroup .mode-chip,
+html:not([lang="en"]) .pill-btn,
+html:not([lang="en"]) .ghost-btn,
+html:not([lang="en"]) .primary-btn,
+html:not([lang="en"]) .now-tabs button,
+html:not([lang="en"]) label {
+  overflow-wrap: anywhere; hyphens: auto;
+}
+
+/* Chinese, Japanese, Korean: break lines the native way. Never before a
+   small kana or the long-vowel mark (エディタ|ー), keep Korean words whole,
+   and drop the break-anywhere rule above, which is for long Latin words. */
+html:is([lang="ja"], [lang="zh-Hans"], [lang="ko"]) { line-break: strict; }
+html[lang="ko"] { word-break: keep-all; }
+html:is([lang="ja"], [lang="zh-Hans"], [lang="ko"]) :is(.tool-rail .workflow-tabs button, .tool-rail .rail-foot .icon-btn,
+  .form-pane > #modeGroup .mode-chip, .pill-btn, .ghost-btn, .primary-btn, .now-tabs button, label) {
+  overflow-wrap: normal; hyphens: manual;
+}
+
+/* Short tab labels stay on one line (they have room to grow sideways). */
+html:not([lang="en"]) #bottomPane .tabs button { white-space: nowrap; }
+
+/* The form's sticky footer must keep its English height, or a longer
+   language pushes the Generate button under the bottom pane: the four
+   queue buttons stay on one row (each may shorten), and the bottom pane's
+   status line stays one line. */
+html:not([lang="en"]) #bottomPane .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html:not([lang="en"]) #formActionFooter .queue-strip {
+  display: grid; grid-template-columns: repeat(4, minmax(0, max-content)) 1fr; align-items: center;
+}
+html:not([lang="en"]) #formActionFooter .queue-strip .qchip { min-width: 0; overflow: hidden; white-space: nowrap; justify-content: flex-start; }
+html:not([lang="en"]) #formActionFooter .queue-strip .qchip-derived { grid-column: 1 / -1; justify-self: start; }
+
+/* Right-to-left (Arabic, Hebrew, Persian): page() stamps dir="rtl" on
+   <html>; flex rows and text already mirror. These rules move the pieces
+   placed with physical left/right — the tool rail and the column rules. */
+html[dir="rtl"] main.layout { padding-left: 0; padding-right: var(--rail-w); }
+html[dir="rtl"] .tool-rail {
+  inset: 0 0 0 auto; border-right: 0; border-left: 1px solid var(--site-line-soft);
+}
+html[dir="rtl"] main.layout > .form-pane { border-right: 0; border-left: 1px solid var(--v3-rule); }
+html[dir="rtl"] .form-pane > #modeGroup .mode-chip { text-align: right; align-items: flex-start; }
+html[dir="rtl"] .models-hint, html[dir="rtl"] .hint { text-align: right; }
+/* Prompts, paths, numbers and code stay left-to-right inside RTL text. */
+html[dir="rtl"] code, html[dir="rtl"] kbd, html[dir="rtl"] input[type="number"],
+html[dir="rtl"] .mono { direction: ltr; unicode-bidi: isolate; }
 
 /* "Move to another drive…" row in Settings > Models and the Models screen (Mac app; settings.js). */
 .models-drive-row { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 10px 0 4px; }

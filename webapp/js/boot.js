@@ -70,7 +70,9 @@ function siteLinkApply(a) {
     // Anonymous count of Get Pro clicks and which surface (owner, 8 Nov 2026); opt-out is the server's.
     if (a && a.dataset.utmCampaign === 'get-pro' && typeof _uiEvent === 'function') {
       const where = (a.dataset.utmContent || '').replace(/-/g, '_');
-      if (where && where !== 'speedup_line') _uiEvent('pro_click', {where, action: 'get'});
+      // The Pro window's plan buttons also say which plan (monthly, yearly, founding); nothing else rides along.
+      const plan = where === 'pro_modal' && ['monthly', 'yearly', 'founding'].includes(a.dataset.plan) ? a.dataset.plan : null;
+      if (where && where !== 'speedup_line') _uiEvent('pro_click', plan ? {where, action: 'get', plan} : {where, action: 'get'});
     }
   }, true);
 })();
@@ -145,12 +147,12 @@ function setKeyframeMode(n) {
   const hint = document.getElementById('keyframeHint');
   if (hint && document.body.dataset.engine === 'h3') {
     hint.textContent = n >= 3
-      ? `Hailuo H3 passes through every still at its At(s) time and lands exactly on the end frame — with the sound and dialogue made around them.`
-      : 'Hailuo H3 starts on the start frame and lands exactly on the end frame. The start frame is optional: leave it empty and H3 invents the opening, then arrives at your end frame.';
+      ? T('boot.hailuo_h3_passes_through_every', 'Hailuo H3 passes through every still at its At(s) time and lands exactly on the end frame — with the sound and dialogue made around them.')
+      : T('boot.hailuo_h3_starts_on_the', 'Hailuo H3 starts on the start frame and lands exactly on the end frame. The start frame is optional: leave it empty and H3 invents the opening, then arrives at your end frame.');
   } else if (hint) {
     hint.textContent = n >= 3
-      ? `${n} Keyframes needs Q8 — it always renders the Q8 two-stage pass, whatever the Quality pill says. Intermediate beats are locked at their At(s) times below.`
-      : 'FFLF needs Q8 — it always renders the Q8 two-stage pass, whatever the Quality pill says. The model interpolates between the first and last frames.';
+      ? T('boot.keyframes_needs_q8_it_always', '{n} Keyframes needs Q8 — it always renders the Q8 two-stage pass, whatever the Quality pill says. Intermediate beats are locked at their At(s) times below.', {n})
+      : T('boot.fflf_needs_q8_it_always', 'FFLF needs Q8 — it always renders the Q8 two-stage pass, whatever the Quality pill says. The model interpolates between the first and last frames.');
   }
   if (currentMode === 'keyframe') {
     document.querySelectorAll('#modeGroup .pill-btn').forEach(b => {
@@ -218,16 +220,16 @@ function renderKeyframeDynamicSlots() {
           <div class="picker-drop" id="picker_drop_${imageKey}">
             <div class="picker-empty">
               <div class="picker-icon"><svg class="ph"><use href="#ph-film-strip"/></svg></div>
-              <div class="picker-cta">Drop <strong>${slot.label.toLowerCase()}</strong>, or <strong>click to browse</strong></div>
-              <div class="hint">Intermediate motion anchor between Start and End.</div>
+              <div class="picker-cta">${T('boot.drop', 'Drop')} <strong>${slot.label.toLowerCase()}</strong>, or <strong>${T('boot.click_to_browse', 'click to browse')}</strong></div>
+              <div class="hint">${T('boot.intermediate_motion_anchor_between_start', 'Intermediate motion anchor between Start and End.')}</div>
             </div>
             <img class="picker-preview" id="picker_preview_${imageKey}" alt="" style="display:none">
-            <button type="button" class="picker-clear" id="picker_clear_${imageKey}" title="Clear" style="display:none"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+            <button type="button" class="picker-clear" id="picker_clear_${imageKey}" title="${TA('boot.clear', 'Clear')}" style="display:none"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
           </div>
           <input type="file" id="picker_file_${imageKey}" accept="image/*" style="display:none">
           <input type="hidden" name="${imageKey}" id="${imageKey}" value="${escapeHtml(path)}" data-kf-image-key="1">
           <div class="picker-recent" id="picker_recent_${imageKey}_wrap" style="display:none">
-            <div class="picker-recent-label">Recent uploads · click to use</div>
+            <div class="picker-recent-label">${T('boot.recent_uploads_click_to_use', 'Recent uploads · click to use')}</div>
             <div class="picker-recent-strip" id="picker_recent_${imageKey}"></div>
           </div>
         </div>
@@ -427,9 +429,20 @@ function setOutputsQuery(v) {
 // was cleared, and "0 photos" where "0 matches" was true.
 function outputsTitleText() {
   const n = filteredMainOutputs().length;
-  const kind = mainOutputsFilter === 'all' ? '' : (' ' + mainOutputsFilter);
-  if (_outputsQuery) return 'Outputs · ' + n + ' match' + (n === 1 ? '' : 'es') + kind;
-  return 'Outputs · ' + n + (kind || (n === 1 ? ' output' : ' outputs'));
+  const kind = mainOutputsFilter === 'all' ? '' : (' ' + outputsKindWord(mainOutputsFilter));
+  if (_outputsQuery) return TP('boot.outputs_n_matches', n, {one: 'Outputs · {count} match{kind}', other: 'Outputs · {count} matches{kind}'}, {kind});
+  if (kind) return outputsCountTitle(n, mainOutputsFilter);
+  return TP('boot.outputs_n_outputs', n, {one: 'Outputs · {count} output', other: 'Outputs · {count} outputs'});
+}
+// The gallery filter's word (videos / photos / audio) in the page's language.
+function outputsKindWord(kind) {
+  return ({ videos: T('boot.kind_videos', 'videos'), photos: T('boot.kind_photos', 'photos'),
+            audio: T('boot.kind_audio', 'audio') })[kind] || kind;
+}
+// "Outputs · 23" (All) or "Outputs · 23 photos" (a filter chip).
+function outputsCountTitle(n, kind) {
+  if (!kind || kind === 'all') return T('boot.outputs_n', 'Outputs · {count}', {count: n});
+  return T('boot.outputs_n_kind', 'Outputs · {count} {kind}', {count: n, kind: outputsKindWord(kind)});
 }
 function outputsQueryText() { return _outputsQuery; }
 function paintOutputsCount() {
@@ -450,7 +463,7 @@ async function outputsLoadAll() {
   // and the latter responses clobber each other's renders.
   if (window._outputsLoadAllInFlight) return window._outputsLoadAllInFlight;
   const btn = document.getElementById('outputsShowAllBtn');
-  if (btn) { btn.textContent = 'Loading…'; btn.disabled = true; }
+  if (btn) { btn.textContent = T('boot.loading', 'Loading…'); btn.disabled = true; }
   const p = (async () => {
     try {
       const r = await fetch('/outputs?limit=10000&offset=0');
@@ -462,11 +475,10 @@ async function outputsLoadAll() {
       renderCarousel();
       // Update the title count to reflect the new visible total.
       const _visible = filteredMainOutputs();
-      const _kindLabel = mainOutputsFilter === 'all' ? '' : ` ${mainOutputsFilter}`;
       const t = document.getElementById('carouselTitle');
-      if (t) t.textContent = `Outputs · ${_visible.length}${_kindLabel}`;
+      if (t) t.textContent = outputsCountTitle(_visible.length, mainOutputsFilter);
     } catch (e) {
-      if (btn) { btn.textContent = 'Show all'; btn.disabled = false; }
+      if (btn) { btn.textContent = T('boot.show_all', 'Show all'); btn.disabled = false; }
       console.warn('outputsLoadAll failed:', e);
     } finally {
       window._outputsLoadAllInFlight = null;
@@ -558,8 +570,7 @@ function setMainOutputsFilter(mode) {
   // Count badge mirrors the active filter (e.g. "Outputs · 23 photos").
   const titleEl = document.getElementById('carouselTitle');
   if (titleEl && filterMode !== 'hidden') {
-    const label = mode === 'all' ? '' : ` ${mode}`;
-    titleEl.textContent = `Outputs · ${visible.length}${label}`;
+    titleEl.textContent = outputsCountTitle(visible.length, mode);
   }
 }
 // Auto-set helper called from setMode(). DOES NOT persist (writing to
@@ -593,7 +604,7 @@ function _autoMainOutputsFilterForMode(mode) {
   const titleEl = document.getElementById('carouselTitle');
   if (titleEl && filterMode !== 'hidden') {
     const visible = filteredMainOutputs();
-    titleEl.textContent = `Outputs · ${visible.length} ${target}`;
+    titleEl.textContent = outputsCountTitle(visible.length, target);
   }
   // Swap the player to a matching entry if the current active is now
   // off-filter (e.g. mode=image but the viewer is showing a video).
@@ -626,7 +637,7 @@ function _modelCreditLabel(raw) {
   if (!m) return '';
   if (/\/hailuo-h3\//.test(m) || /\bh3-dit-(q8|bf16)\b/.test(m)) {
     return /\bh3-dit-q8\b|\/models\/h3-dit-q8\//.test(m) || /deepbeep-pruned-q8/.test(m)
-      ? 'Hailuo H3 · compact (Q8)' : 'Hailuo H3 · full (bf16)';
+      ? T('boot.hailuo_h3_compact_q8', 'Hailuo H3 · compact (Q8)') : T('boot.hailuo_h3_full_bf16', 'Hailuo H3 · full (bf16)');
   }
   let label = m;
   const idx = m.indexOf('mlx_models/');
@@ -653,8 +664,8 @@ function updateModelCredit(path) {
     if (entry && entry.kind === 'audio' && entry.engine === 'music' && onAudioTab) {
       // The slot is a short chip beside the Now/Queue tabs: the full credit
       // lives in the tooltip and on the Compose form.
-      el.textContent = 'YuE2 · MLX by vanch007';
-      el.title = 'Generated with YuE2 by Multimodal Art Projection · MLX port by vanch007';
+      el.textContent = T('boot.yue2_mlx_by_vanch007', 'YuE2 · MLX by vanch007');
+      el.title = T('boot.generated_with_yue2_by_multimodal', 'Generated with YuE2 by Multimodal Art Projection · MLX port by vanch007');
       el.href = 'https://github.com/vanch007/mlx-Yue';
       return;
     }
@@ -673,7 +684,7 @@ function updateModelCredit(path) {
   // render on H3 entirely. Fall back to whichever engine is actually active.
   if (!raw && !entry && document.body.dataset.engine === 'h3') {
     const kind = (typeof H3 !== 'undefined' && H3.dit_choice && H3.dit_choice.kind) || 'bf16';
-    el.textContent = kind === 'q8' ? 'Hailuo H3 · compact (Q8)' : 'Hailuo H3 · full (bf16)';
+    el.textContent = kind === 'q8' ? T('boot.hailuo_h3_compact_q8', 'Hailuo H3 · compact (Q8)') : T('boot.hailuo_h3_full_bf16', 'Hailuo H3 · full (bf16)');
     el.title = `Current engine: ${el.textContent} — MiniMax H3 (FL2VA)`;
     el.href = 'https://github.com/mrbizarro/minimax-h3-mlx';
     return;
@@ -681,7 +692,7 @@ function updateModelCredit(path) {
   const label = _modelCreditLabel(raw || BOOT.model);
   el.textContent = label;
   const isH3Label = label.indexOf('Hailuo H3') === 0;
-  const credit = isH3Label ? 'MiniMax H3 (FL2VA)' : 'MLX port by @dgrauet';
+  const credit = isH3Label ? T('boot.minimax_h3_fl2va', 'MiniMax H3 (FL2VA)') : T('boot.mlx_port_by_dgrauet', 'MLX port by @dgrauet');
   // SYS-39: this label follows the SELECTED clip (deliberately — see the
   // comment above; it used to credit the currently-loaded engine and
   // mis-attributed every older-generation clip). Without any hint of
@@ -690,7 +701,7 @@ function updateModelCredit(path) {
   // actually is; `raw` set means "this clip", the fallback means "no clip
   // selected yet".
   el.title = raw
-    ? `This clip was rendered with ${label} — ${credit}`
+    ? T('boot.this_clip_was_rendered_with', 'This clip was rendered with {label} — {credit}', {label, credit})
     : `Current engine: ${label} — ${credit}`;
   el.href = isH3Label
     ? 'https://github.com/mrbizarro/minimax-h3-mlx'
@@ -719,7 +730,7 @@ function toggleAvoidRow(forceOpen) {
   const wantOpen = (forceOpen === true) ? true : !row.classList.contains('show');
   row.classList.toggle('show', wantOpen);
   if (btn) btn.classList.toggle('active', wantOpen);
-  if (lbl) lbl.textContent = wantOpen ? 'Avoid −' : 'Avoid +';
+  if (lbl) lbl.textContent = wantOpen ? T('boot.avoid', 'Avoid −') : T('boot.avoid_2', 'Avoid +');
   if (wantOpen && ta) {
     try { ta.focus(); } catch (e) {}
   }
@@ -798,7 +809,7 @@ function setMode(mode) {
   // directly.
   if (mode === 'ingredients' && !ingredientsServed()) {
     console.warn('setMode(ingredients): not served by this generation — '
-                 + 'snapping to ' + defaultRemixMode());
+                 + T('boot.snapping_to', 'snapping to ') + defaultRemixMode());
     mode = defaultRemixMode();
   }
   // Capability guard — Q4 (sub-48GB) tier can't run FFLF or Extend

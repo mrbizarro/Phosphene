@@ -175,3 +175,9 @@ speech-mlx
 
 # FLUX 3 has a separate MLX environment.
 /flux3-worker/
+
+# i18n (docs/TRANSLATING.md): pseudo-locales are generated for layout checks;
+# rounds/ holds the export/reply files of a translation round.
+i18n/studio/en-XA.json
+i18n/studio/ar-XB.json
+i18n/rounds/

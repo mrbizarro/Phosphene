@@ -102,15 +102,15 @@ function renderVersionPill() {
     pill.innerHTML = `<b class="vp-ver">${_phEsc(vlabel)}</b>` + (sha ? `<span class="vp-detail"> · ${_phEsc(sha)}</span>` : '');
     _renderAppUpdatePill(s);
     pill.title = `Phosphene ${_versionBuildLabel(s.local_version, s.local_short)}. `
-      + 'To update, use Phosphene \u2192 Check for Updates\u2026'
-      + '\nClick to copy your build details for a bug report.';
+      + T('health.to_update_use_phosphene_check', 'To update, use Phosphene \u2192 Check for Updates\u2026')
+      + T('health.click_to_copy_your_build', '\nClick to copy your build details for a bug report.');
     return;
   }
 
   const repair = s.post_update || {};
   if (repair.outcome === 'pending' && repair.state !== 'done') {
     pill.classList.add('pill-busy');
-    pill.textContent = repair.state === 'failed' ? 'Retry update' : 'Preparing update';
+    pill.textContent = repair.state === 'failed' ? T('health.retry_update', 'Retry update') : T('health.preparing_update', 'Preparing update');
     pill.title = repair.error || 'Waiting for dependency repair to finish.';
     return;
   }
@@ -131,8 +131,8 @@ function renderVersionPill() {
     // (panelRestart(), same as the stale-process case below) instead of
     // asking for a manual Stop -> Start.
     pill.title = s.pull_requires_full_update
-      ? `Pulled ${v}. This update touched dependencies — use Pinokio's Update button (not just Stop+Start).`
-      : `Pulled ${v}. Click to restart and apply it.`;
+      ? T('health.pulled_this_update_touched_dependencies', 'Pulled {v}. This update touched dependencies — use Pinokio\'s Update button (not just Stop+Start).', {v})
+      : T('health.pulled_click_to_restart_and', 'Pulled {v}. Click to restart and apply it.', {v});
     return;
   }
   // Same restart affordance for a checkout that advanced UNDER this
@@ -150,7 +150,7 @@ function renderVersionPill() {
     // process loaded 4.6.0" — an alarm that names nothing.
     pill.title = `Running ${_versionBuildLabel(s.local_version, s.local_short)}`
       + ` — but ${_versionBuildLabel(s.disk_version, s.disk_short)} is on disk.`
-      + ` Click Stop → Start in Pinokio (or restart the panel) to load it.`;
+      + T('health.click_stop_start_in_pinokio', ' Click Stop → Start in Pinokio (or restart the panel) to load it.');
     return;
   }
   // Suppressed (dev branch / dirty tree / no git).
@@ -178,23 +178,23 @@ function renderVersionPill() {
     // budget and clips the health chip; below 1400px CSS hides .vp-detail.
     const _esc = (t) => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
     pill.innerHTML = `${_esc(local)} · ${_esc(branchLabel)}<span class="vp-detail">${_esc(trail)}</span>`;
-    pill.title = `Update check paused: ${s.suppress_reason}.`
+    pill.title = T('health.update_check_paused', 'Update check paused: {suppress_reason}.', {suppress_reason: s.suppress_reason})
       + (sha ? `\nFull SHA: ${s.local_sha || sha}` : '')
-      + `\nClick to copy a paste-ready debug string.`;
+      + T('health.click_to_copy_a_paste', '\nClick to copy a paste-ready debug string.');
     return;
   }
   // Behind origin/main — eye-catching action prompt.
   if (!s.error && s.checked_ts && (s.behind_by | 0) > 0) {
     pill.classList.add('pill-update');
     pill.innerHTML = `<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-arrow-up"/></svg>Update to ${remote}`;
-    pill.title = `You're on ${local}; latest is ${remote}. Click to pull the update.`;
+    pill.title = T('health.you_re_on_latest_is', 'You\'re on {local}; latest is {remote}. Click to pull the update.', {local, remote});
     return;
   }
   // Last check errored (offline).
   if (s.error) {
     pill.classList.add('pill-dev');
     pill.textContent = `${local} · offline`;
-    pill.title = `Couldn't reach github.com (${s.error}). Click to retry.`;
+    pill.title = T('health.couldn_t_reach_github_com', 'Couldn\'t reach github.com ({error}). Click to retry.', {error: s.error});
     return;
   }
   // Current with origin/main.
@@ -202,14 +202,14 @@ function renderVersionPill() {
     pill.classList.add('pill-current');
     // The words sit in their own span so a narrow title bar can drop them and
     // keep the tick and the number (the tick already says "up to date").
-    pill.innerHTML = `<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-check-bold"/></svg><span class="vp-state">Up to date · </span>${local}`;
-    pill.title = `You're on ${local}, the latest version. Click to re-check now.`;
+    pill.innerHTML = `<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-check-bold"/></svg><span class="vp-state">${T('health.up_to_date', 'Up to date ·')} </span>${local}`;
+    pill.title = T('health.you_re_on_the_latest', 'You\'re on {local}, the latest version. Click to re-check now.', {local});
     return;
   }
   // First poll hasn't landed yet.
   pill.classList.add('pill-checking');
   pill.textContent = `Checking · ${local}`;
-  pill.title = 'Checking for updates…';
+  pill.title = T('health.checking_for_updates', 'Checking for updates…');
 }
 
 
@@ -314,17 +314,17 @@ function _maybeShowUpdateModal(st) {
   window._updModalShownThisLoad = true;
   _uiEvent('update_prompt', {action: 'shown'});
   _phModalShow({
-    kicker: 'Update available',
+    kicker: T('health.update_available', 'Update available'),
     title: `Phosphene ${remote} is out — you're on ${local}`,
-    body: 'Updates are mostly bug fixes: renders that fail less and explain '
-        + 'themselves better. Updating takes about a minute and keeps your '
-        + 'queue, settings and models.',
-    primaryLabel: 'Update now',
-    secondaryLabel: 'Later',
+    body: T('health.updates_are_mostly_bug_fixes', 'Updates are mostly bug fixes: renders that fail less and explain ')
+        + T('health.themselves_better_updating_takes_about', 'themselves better. Updating takes about a minute and keeps your ')
+        + T('health.queue_settings_and_models', 'queue, settings and models.'),
+    primaryLabel: T('health.update_now', 'Update now'),
+    secondaryLabel: T('health.later', 'Later'),
     onPrimary: () => {
       _uiEvent('update_prompt', {action: 'update_now'});
       const go = document.getElementById('ubUpdate');
-      if (go) { go.disabled = true; go.textContent = 'Updating…'; }
+      if (go) { go.disabled = true; go.textContent = T('health.updating', 'Updating…'); }
       versionDoPull({skipConfirm: true});
     },
     // Later = this page load only. The banner (per-version dismissal)
@@ -342,10 +342,10 @@ function _maybeShowBroadcastModal(st) {
   window._bcHandled[b.id] = true;
   _phModalShow({
     broadcast: true,
-    kicker: 'From the developer',
+    kicker: T('health.from_the_developer', 'From the developer'),
     title: b.title || 'A note from Phosphene',
     body: b.body || '',
-    primaryLabel: 'Got it',
+    primaryLabel: T('health.got_it', 'Got it'),
     onPrimary: () => {
       _uiEvent('broadcast_seen', {});
       const ids = seen.concat([b.id]).slice(-50);
@@ -395,7 +395,7 @@ function _ubRender(s) {
   document.getElementById('ubTitle').textContent =
     `Phosphene ${remote} is available`;
   document.getElementById('ubSub').textContent =
-    `You are on ${local}.` + (s.behind_more_than ? ' 30+ commits behind.' : '');
+    T('health.you_are_on', 'You are on {local}.', {local}) + (s.behind_more_than ? T('health.30_commits_behind', ' 30+ commits behind.') : '');
   const star = document.getElementById('ubStar');
   if (star) star.hidden = !!cfg.star_prompt_done;
   el.hidden = false;
@@ -431,16 +431,16 @@ function _ubRestartState(newVersion, requiresFullUpdate) {
   const pu = ((_versionState || {}).post_update) || {};
   if (pu.pending || pu.active || pu.state === 'failed') {
     if (title) title.textContent = pu.state === 'failed'
-      ? 'The update did not finish'
+      ? T('health.the_update_did_not_finish', 'The update did not finish')
       : `Preparing version ${newVersion}...`;
     if (sub) sub.textContent = pu.state === 'failed'
-      ? (pu.error || 'post_update.sh failed') + ' \u2014 use Pinokio\u2019s Update (Stop, then Update), or try again.'
-      : 'Installing what the new version needs (the same step Pinokio\u2019s Update runs). '
-        + 'Restart becomes available when it finishes. ' + ((pu.log || []).slice(-1)[0] || '');
+      ? (pu.error || 'post_update.sh failed') + T('health.use_pinokio_s_update_stop', ' \u2014 use Pinokio\u2019s Update (Stop, then Update), or try again.')
+      : T('health.installing_what_the_new_version', 'Installing what the new version needs (the same step Pinokio\u2019s Update runs). ')
+        + T('health.restart_becomes_available_when_it', 'Restart becomes available when it finishes. ') + ((pu.log || []).slice(-1)[0] || '');
     if (go) {
       go.hidden = pu.state !== 'failed';
       go.disabled = false;
-      go.textContent = 'Try again';
+      go.textContent = T('health.try_again', 'Try again');
       go.onclick = async () => {
         go.disabled = true;
         try { await fetch('/version/finish', { method: 'POST' }); } catch (e) {}
@@ -449,18 +449,18 @@ function _ubRestartState(newVersion, requiresFullUpdate) {
     }
     if (pu.state !== 'failed') _ubFollowPostUpdate(newVersion);
   } else if (requiresFullUpdate && !pu.state) {
-    if (sub) sub.textContent = 'This update touched Python dependencies, so use Pinokio\u2019s Update button (not just Stop and Start) so they reinstall.';
+    if (sub) sub.textContent = T('health.this_update_touched_python_dependencies', 'This update touched Python dependencies, so use Pinokio\u2019s Update button (not just Stop and Start) so they reinstall.');
     if (go) go.hidden = true;
   } else {
-    if (sub) sub.textContent = 'Your queue and settings are preserved across the restart.';
+    if (sub) sub.textContent = T('health.your_queue_and_settings_are', 'Your queue and settings are preserved across the restart.');
     if (go) {
       go.hidden = false;
       go.disabled = false;
-      go.textContent = 'Restart now';
+      go.textContent = T('health.restart_now', 'Restart now');
       go.onclick = async () => {
         _uiEvent('update_prompt', {action: 'banner_restart'});
         go.disabled = true;
-        go.textContent = 'Restarting\u2026';
+        go.textContent = T('health.restarting', 'Restarting\u2026');
         // Codex UI-10: a refused restart (409 while a render runs) or a
         // failed one used to leave this button disabled on "Restarting…"
         // for good. panelRestart() says whether a restart is under way;
@@ -468,12 +468,12 @@ function _ubRestartState(newVersion, requiresFullUpdate) {
         const started = await panelRestart();
         if (!started) {
           go.disabled = false;
-          go.textContent = 'Restart now';
+          go.textContent = T('health.restart_now', 'Restart now');
         }
       };
     }
   }
-  if (later) { later.textContent = 'Dismiss'; }
+  if (later) { later.textContent = T('health.dismiss', 'Dismiss'); }
   el.classList.add('ub-done');
   return true;
 }
@@ -513,7 +513,7 @@ function _ubWire() {
   if (go) go.onclick = () => {
     _uiEvent('update_prompt', {action: 'banner_update'});
     go.disabled = true;
-    go.textContent = 'Updating…';
+    go.textContent = T('health.updating', 'Updating…');
     // Straight to the pull, with no confirm: this button already said what it
     // does. Reuses the pill's implementation, not a second copy of it.
     versionDoPull({skipConfirm: true});
@@ -725,8 +725,8 @@ async function panelRestart() {
       }
     } catch (e) { /* still down */ }
   }
-  phosToast(distText('Panel did not come back within 60s — start it from Pinokio.',
-                     'The studio did not come back within 60s — use Studio \u2192 Restart Engine.'), 'error');
+  phosToast(distText(T('health.panel_did_not_come_back', 'Panel did not come back within 60s — start it from Pinokio.'),
+                     T('health.the_studio_did_not_come', 'The studio did not come back within 60s — use Studio \u2192 Restart Engine.')), 'error');
   return false;
 }
 
@@ -772,11 +772,11 @@ function appUpdateName(parts, joiner) {
 }
 
 const APP_UPDATE_WAITS = {
-  render: 'the clip that is rendering finishes',
-  queue: 'the queue is empty',
-  model_download: 'the model download finishes',
-  engine_install: 'the engine install finishes',
-  app_quit: 'you quit Phosphene and open it again',
+  render: T('health.the_clip_that_is_rendering', 'the clip that is rendering finishes'),
+  queue: T('health.the_queue_is_empty', 'the queue is empty'),
+  model_download: T('health.the_model_download_finishes', 'the model download finishes'),
+  engine_install: T('health.the_engine_install_finishes', 'the engine install finishes'),
+  app_quit: T('health.you_quit_phosphene_and_open', 'you quit Phosphene and open it again'),
 };
 
 // Everything the pill and the toast say, from the app's push alone. Pure: (push) -> view.
@@ -797,18 +797,18 @@ function appUpdateView(a) {
   const v = { state, parts, key, show: false, label: '', title: '', action: null, toast: null, busy: false };
   if (state === 'idle') return v;
   if (state === 'done') {
-    v.toast = { kind: 'success', text: said || (thing ? `${thing} is installed.` : 'Phosphene is up to date.') };
+    v.toast = { kind: 'success', text: said || (thing ? `${thing} is installed.` : T('health.phosphene_is_up_to_date', 'Phosphene is up to date.')) };
     return v;
   }
   v.show = true;
   if (state === 'available') {
-    v.label = 'Update ' + name;
-    v.title = 'A newer version is out. Click to install it.';
+    v.label = T('health.update', 'Update ') + name;
+    v.title = T('health.a_newer_version_is_out', 'A newer version is out. Click to install it.');
     v.action = 'updateAll';
   } else if (state === 'downloading') {
     const pct = Number.isFinite(a.progress) ? ` ${Math.round(Math.max(0, Math.min(1, a.progress)) * 100)}%` : '';
     v.label = `Downloading ${thing}${pct}`;
-    v.title = 'The update is downloading. Nothing to do.';
+    v.title = T('health.the_update_is_downloading_nothing', 'The update is downloading. Nothing to do.');
     v.busy = true;
     v.toast = { kind: 'info', text: said || `Downloading ${thing}.` };
   } else if (state === 'waiting') {
@@ -819,12 +819,12 @@ function appUpdateView(a) {
     v.toast = { kind: 'info', text: v.title };
   } else if (state === 'needs_app') {
     const need = a.need_app ? ` (v${String(a.need_app).replace(/^v/i, '')} or newer)` : '';
-    v.label = 'Update the Phosphene app first';
+    v.label = T('health.update_the_phosphene_app_first', 'Update the Phosphene app first');
     v.title = said || `${thing || 'This update'} needs a newer Phosphene app${need}. Click to update the app.`;
     v.action = 'checkUpdate';
     v.toast = { kind: 'warning', text: v.title };
   } else if (state === 'failed') {
-    v.label = 'Update failed. Try again';
+    v.label = T('health.update_failed_try_again', 'Update failed. Try again');
     v.title = said || `${thing || 'The update'} could not be installed. Click to try again.`;
     v.action = 'updateAll';
     v.toast = { kind: 'danger', text: v.title };
@@ -910,8 +910,8 @@ function _appUpdatePillClick() {
   }
   const name = appUpdateName(v.parts) || 'the newest version';
   phosToast(canAll
-    ? `Asked Phosphene to update ${name}. This button goes away when it is installed.`
-    : `Asked Phosphene to update ${name}. If this stays, quit Phosphene (⌘Q) and open it again — it updates when it opens.`, 'info');
+    ? T('health.asked_phosphene_to_update_this', 'Asked Phosphene to update {name}. This button goes away when it is installed.', {name})
+    : T('health.asked_phosphene_to_update_if', 'Asked Phosphene to update {name}. If this stays, quit Phosphene (⌘Q) and open it again — it updates when it opens.', {name}), 'info');
 }
 window.addEventListener('phos-app-update', () => {
   try { renderVersionPill(); } catch (e) {}
@@ -933,7 +933,7 @@ async function _appVersionPillClick() {
     + (phEdition() ? ` \u00b7 ${phEdition()}` : '')
     + ` \u00b7 ${s.local_short || 'sha?'}`;
   try { await navigator.clipboard.writeText(debug); } catch (e) {}
-  if (_macCheckForUpdates()) phosToast('Checking for updates\u2026', 'info');
+  if (_macCheckForUpdates()) phosToast(T('health.checking_for_updates', 'Checking for updates\u2026'), 'info');
   else phosToast(`${debug}. To update, use Phosphene \u2192 Check for Updates\u2026`, 'info');
 }
 
@@ -959,14 +959,14 @@ async function versionPillClick() {
     const _pu = s.post_update || {};
     if (_pu.pending || _pu.active || _pu.state === 'failed') {
       phosToast(_pu.state === 'failed'
-        ? 'The update did not finish: ' + (_pu.error || '') + ' Use Pinokio\u2019s Update.'
-        : 'Finishing the update first \u2014 restart becomes available when it is done.', 'warn');
+        ? T('health.the_update_did_not_finish_2', 'The update did not finish: ') + (_pu.error || '') + T('health.use_pinokio_s_update', ' Use Pinokio\u2019s Update.')
+        : T('health.finishing_the_update_first_restart', 'Finishing the update first \u2014 restart becomes available when it is done.'), 'warn');
       return;
     }
     if (s.pull_requires_full_update && !_pu.state) {
       // Genuinely can't self-restart into this one -- dependencies /
       // patches changed, and only Pinokio's own Update reinstalls those.
-      alert("Pulled. Because this update touched Python deps / patches, use Pinokio's Update button (it reinstalls + reapplies patches). After that click Start.");
+      alert(T('health.pulled_because_this_update_touched', "Pulled. Because this update touched Python deps / patches, use Pinokio's Update button (it reinstalls + reapplies patches). After that click Start."));
       return;
     }
     // SYS-29: same fix as the update banner's button -- finish the update
@@ -986,10 +986,10 @@ async function versionPillClick() {
   if (false) {
     const s = _versionState || {};
     alert(`Phosphene ${s.disk_version || s.disk_short || '(newer)'} is on `
-      + `disk, but this running panel loaded `
+      + T('health.disk_but_this_running_panel', 'disk, but this running panel loaded ')
       + `${s.local_version || s.local_short || 'an older build'} before the `
-      + `update landed.\n\nClick Stop, then Start in Pinokio (or restart `
-      + `the panel process) to load it. Your queue and settings are `
+      + T('health.update_landed_click_stop_then', 'update landed.\n\nClick Stop, then Start in Pinokio (or restart ')
+      + T('health.the_panel_process_to_load', 'the panel process) to load it. Your queue and settings are ')
       + `preserved.`);
     return;
   }
@@ -1004,22 +1004,22 @@ async function versionPillClick() {
       + `· ${s.local_branch || 'branch?'} `
       + `· ${s.local_short || 'sha?'}`
       + (s.local_commit_date ? ` (${s.local_commit_date})` : '')
-      + (s.local_dirty ? ' · dirty tree' : '')
+      + (s.local_dirty ? T('health.dirty_tree', ' · dirty tree') : '')
       // The whole point of this string is "which build produced the bug".
       // If the tree has moved on, the panel is running neither what the
       // header first suggested nor what a maintainer would check out.
       + (s.stale_process ? ` · NOT RESTARTED, disk is at ${s.disk_short || '?'}` : '');
     try {
       await navigator.clipboard.writeText(debug);
-      alert(`Update check is paused: ${s.suppress_reason}.\n\n`
-        + `Copied this debug string to your clipboard so you can paste `
+      alert(T('health.update_check_is_paused', 'Update check is paused: {suppress_reason}.\n\n', {suppress_reason: s.suppress_reason})
+        + T('health.copied_this_debug_string_to', 'Copied this debug string to your clipboard so you can paste ')
         + `it into a bug report:\n\n${debug}`);
     } catch (e) {
-      alert(`Update check is paused: ${s.suppress_reason}.\n\n`
+      alert(T('health.update_check_is_paused', 'Update check is paused: {suppress_reason}.\n\n', {suppress_reason: s.suppress_reason})
         + `Your build:\n${debug}\n\n`
-        + `Phosphene only checks GitHub when you're on a clean main `
-        + `branch. Commit your local changes (or switch back to main) `
-        + `to re-enable updates.`);
+        + T('health.phosphene_only_checks_github_when', 'Phosphene only checks GitHub when you\'re on a clean main ')
+        + T('health.branch_commit_your_local_changes', 'branch. Commit your local changes (or switch back to main) ')
+        + T('health.to_re_enable_updates', 'to re-enable updates.'));
     }
     return;
   }
@@ -1051,8 +1051,8 @@ async function versionDoRefresh() {
 async function versionDoPull(opts) {
   opts = opts || {};
   if (isMacApp()) {               // the server refuses it too (409 app_updates)
-    if (_macCheckForUpdates()) phosToast('Checking for updates\u2026', 'info');
-    else phosToast('To update Phosphene, use Phosphene \u2192 Check for Updates\u2026', 'info');
+    if (_macCheckForUpdates()) phosToast(T('health.checking_for_updates', 'Checking for updates\u2026'), 'info');
+    else phosToast(T('health.to_update_phosphene_use_phosphene', 'To update Phosphene, use Phosphene \u2192 Check for Updates\u2026'), 'info');
     return;
   }
   const s = _versionState || {};
@@ -1063,10 +1063,10 @@ async function versionDoPull(opts) {
   // that also does four other things depending on state.
   if (!opts.skipConfirm) {
     const ok = confirm(
-      `Pull update from ${local} → ${target}?\n\n` +
-      `This runs git pull on your phosphene install. After it succeeds, ` +
-      `you'll need to click Stop, then Start in Pinokio to load the new code. ` +
-      `Your queue and settings are preserved across restarts.`
+      T('health.pull_update_from', 'Pull update from {local} → {target}?\n\n', {local, target}) +
+      T('health.this_runs_git_pull_on', 'This runs git pull on your phosphene install. After it succeeds, ') +
+      T('health.you_ll_need_to_click', 'you\'ll need to click Stop, then Start in Pinokio to load the new code. ') +
+      T('health.your_queue_and_settings_are_2', 'Your queue and settings are preserved across restarts.')
     );
     if (!ok) return;
   }
@@ -1087,7 +1087,7 @@ async function versionDoPull(opts) {
       pill.classList.remove('pill-busy');
       renderVersionPill();
       alert(`Pull failed:\n\n${(data && data.error) || 'unknown error'}\n\n` +
-            `Keep your local edits. Save or commit them before retrying Update.`);
+            T('health.keep_your_local_edits_save', 'Keep your local edits. Save or commit them before retrying Update.'));
       return;
     }
     // 4.17.5: a pull that moved nothing is not an update - no restart, no
@@ -1098,10 +1098,10 @@ async function versionDoPull(opts) {
       pill.classList.remove('pill-busy');
       renderVersionPill();
       const go = document.getElementById('ubUpdate');
-      if (go) { go.disabled = false; go.textContent = 'Update now'; }
+      if (go) { go.disabled = false; go.textContent = T('health.update_now', 'Update now'); }
       try { _ubRender(_versionState); } catch (e) {}
       if (typeof phosToast === 'function') {
-        phosToast('Already up to date - nothing to restart.', { kind: 'success' });
+        phosToast(T('health.already_up_to_date_nothing', 'Already up to date - nothing to restart.'), { kind: 'success' });
       }
       return;
     }
@@ -1111,11 +1111,11 @@ async function versionDoPull(opts) {
     const newVersion = (data.state && (data.state.pull_pulled_to_version || data.state.pull_pulled_to_short)) || 'new version';
     const _puNow = (data.state && data.state.post_update) || {};
     const fullUpdateNote = (_puNow.pending || _puNow.active)
-      ? `\n\nPhosphene is now finishing the update in the background (the same ` +
-        `step Pinokio's Update runs). Restart once the banner says it is done.`
+      ? T('health.phosphene_is_now_finishing_the', '\n\nPhosphene is now finishing the update in the background (the same ') +
+        T('health.step_pinokio_s_update_runs', 'step Pinokio\'s Update runs). Restart once the banner says it is done.')
       : data.state && data.state.pull_requires_full_update
-      ? `\n\n⚠ This update touched Python dependencies / patches. Use ` +
-        `Pinokio's Update button (not just Stop+Start) so deps reinstall.`
+      ? T('health.this_update_touched_python_dependencies_2', '\n\n⚠ This update touched Python dependencies / patches. Use ') +
+        T('health.pinokio_s_update_button_not', 'Pinokio\'s Update button (not just Stop+Start) so deps reinstall.')
       : '';
     // Inline, not a modal: the banner is already on screen and is where the
     // user is looking. An alert here was the second click in "I had to click
@@ -1124,7 +1124,7 @@ async function versionDoPull(opts) {
         && _ubRestartState(newVersion, !!(data.state && data.state.pull_requires_full_update))) {
       // handled inline
     } else {
-      alert(`Pulled to ${newVersion}.\n\nClick Stop, then Start in Pinokio to apply.${fullUpdateNote}`);
+      alert(T('health.pulled_to_click_stop_then', 'Pulled to {newVersion}.\n\nClick Stop, then Start in Pinokio to apply.{fullUpdateNote}', {newVersion, fullUpdateNote}));
     }
   } catch (e) {
     pill.classList.remove('pill-busy');
@@ -1452,7 +1452,7 @@ async function _starCardOpenReview() {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'url=' + encodeURIComponent(STAR_CARD_REVIEW_URL),
     });
-    if (r.ok) { try { phosToast && phosToast('Opening the App Store…'); } catch (_) {} return; }
+    if (r.ok) { try { phosToast && phosToast(T('health.opening_the_app_store', 'Opening the App Store…')); } catch (_) {} return; }
   } catch (_) {}
   try { window.open(STAR_CARD_REVIEW_WEB_URL, '_blank', 'noopener'); } catch (_) {}
 }
@@ -1484,7 +1484,7 @@ async function starCardStar() {
   if (_starCardInfo && _starCardInfo.gh) {
     const label = btn && btn.querySelector('.star-card-label');
     if (btn) btn.disabled = true;
-    if (label) label.textContent = 'Starring…';
+    if (label) label.textContent = T('health.starring', 'Starring…');
     let r = null;
     try {
       r = await fetch('/star-prompt/star', {method: 'POST',
@@ -1492,7 +1492,7 @@ async function starCardStar() {
         .then((x) => x.json()).catch(() => null);
     } catch (_) { r = null; }
     if (btn) btn.disabled = false;
-    if (label) label.textContent = 'Star on GitHub';
+    if (label) label.textContent = T('health.star_on_github', 'Star on GitHub');
     if (r && r.ok) { _starCardThank(r.stars); return; }
   }
   starCardAnswer('star');
@@ -1592,14 +1592,14 @@ async function noticeRefresh() {
   bar.appendChild(t);
   if (n.action === 'update' || (n.action === 'link' && n.link)) {
     const b = document.createElement('button');
-    b.textContent = n.action === 'update' ? 'Update now' : 'Read more';
+    b.textContent = n.action === 'update' ? T('health.update_now', 'Update now') : T('health.read_more', 'Read more');
     b.style.cssText = 'padding:5px 10px;border-radius:7px;border:0;background:#8b5cf6;color:#fff;cursor:pointer';
     b.onclick = () => { remember(); bar.remove();
       if (n.action === 'link') window.open(n.link, '_blank', 'noopener'); else versionPillClick(); };
     bar.appendChild(b);
   }
   const x = document.createElement('button');
-  x.textContent = '\u2715'; x.title = 'Dismiss'; x.setAttribute('aria-label', 'Dismiss');
+  x.textContent = '\u2715'; x.title = T('health.dismiss', 'Dismiss'); x.setAttribute('aria-label', T('health.dismiss', 'Dismiss'));
   x.style.cssText = 'border:0;background:transparent;color:#9aa3b8;cursor:pointer;font-size:14px';
   x.onclick = () => { remember(); bar.remove(); };
   bar.appendChild(x);

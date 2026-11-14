@@ -181,6 +181,7 @@ on. Properties: the super properties above (without the Studio-only ones) plus:
 | `mac_engine` | the app starting the Studio | `step` is `studio`, `outcome` (`ok`, `failed`, `exited` when it quit by itself), `error_class`, `error_signature`, `exit_status`, `seconds_bucket` |
 | `mac_update` | Sparkle, the app's updater | `stage` `check` with `outcome` `found` or `failed` (with `error_domain` and `error_code`, numbers only, never the message; at most once per cause per six hours), or `stage` `installed` with `outcome` `ok`, `from_version`, `to_version` (noticed the next time the new app opens) |
 | `mac_crash` | the app did not quit cleanly last time | `outcome` is `crashed` |
+| `mac_pro` | (app 5.0.24) the app's own Pro window (top bar Pro chip, the Phosphene Pro menu item) | `action` (`open`, `get`, `restore`, `key`, `close`); on `open`, `where` (`topbar`, `menu`, `automation`); on `get`, `plan` (`monthly`, `yearly`, `founding`). `key` means a licence key was submitted; the key never leaves the Mac. Same closed words as the Studio's `pro_click`, below |
 
 A copy of every `mac_*` event is written, as sent, to `mac-usage-log.jsonl` in the app's
 `state` folder (the key is not in it). Success steps are reported once per launch; nothing
@@ -461,7 +462,7 @@ broken install no retry renders through. Those fire with `n_failed: 1` and
 | `queued` | int | `12` | Jobs left waiting |
 | `error_class` | string | `"model_missing"` | The same closed taxonomy as `render_failed` |
 
-The browser reports `update_prompt`, `broadcast_seen`, the `feature_used` values `editor_open`, `editor_export`, `enhance_prompt` and `share`, and the single `install_step` value `first_use` through **one** route, `POST /analytics/ui`, which allowlists every (event, value) pair and answers 400 to anything else. Everything else is emitted server-side.
+The browser reports `update_prompt`, `broadcast_seen`, `pro_click` (its `where`, `action` and `plan` words only), the `feature_used` values `editor_open`, `editor_export`, `enhance_prompt` and `share`, and the single `install_step` value `first_use` through **one** route, `POST /analytics/ui`, which allowlists every (event, value) pair and answers 400 to anything else. Everything else is emitted server-side.
 
 ### `render_refused`
 
@@ -909,11 +910,19 @@ from events where event='queue_paused_breaker' and timestamp > now() - interval 
 
 ### `pro_click`
 
-(5.0.7, owner 8 Nov 2026.) Someone opened the Pro window or pressed **Get Pro**. Two closed
-fields: `where` is the surface (`topbar`, `remote_hint`, `remote_panel`, `pro_modal`,
-`star_card`, `speedup_line`, `feature_gate`, `settings`) and `action` is `open` (the Pro window
-opened) or `get` (the Get Pro / See Pro link was pressed). Nothing else; the usual super
-properties (edition, chip family, RAM) ride along. Same opt-out as every event.
+(5.0.7, owner 8 Nov 2026; widened in 5.0.24, owner 14 Nov 2026: "I want to know how many people
+are opening it".) Someone opened the Pro window, pressed **Get Pro** or a plan, or used a button
+inside the Pro window. Closed fields only:
+
+| prop | type | values | why |
+|---|---|---|---|
+| `where` | string | `topbar`, `remote_hint`, `remote_panel`, `pro_modal`, `star_card`, `speedup_line`, `feature_gate`, `settings`, `whats_new`, `whats_new_speed`, `your_pro` | The surface. On `action: open` it is the door the window was opened from: `topbar` (the header Pro button), `remote_hint` (Remote Control's "Open Pro settings"), `your_pro` (Your Pro's "Your licence" button), `feature_gate` (a locked Pro feature, e.g. AI fill or a Pro engine answering 402). Inside the window it is `pro_modal`. `whats_new_speed` (What's new's "How it was measured" link) and `your_pro` were added in 5.0.24; before that the page sent `whats_new_speed` and the server dropped it |
+| `action` | string | `open`, `get`, `restore`, `key`, `close` | `open`: the Pro window opened (once per opening). `get`: a Get Pro / See Pro / plan link was pressed. 5.0.24, Pro window only: `restore` (the Restore Pro link), `key` (a licence key was submitted; the key itself never leaves the Mac, and nothing says whether it worked), `close` (the window closed by its X, Close, Escape or a click outside) |
+| `plan` | string | `monthly`, `yearly`, `founding` | 5.0.24. Only on `where: pro_modal`, `action: get`, and only from the window's plan buttons; the footer Get Pro link carries none |
+
+Nothing else; the usual super properties (edition, chip family, RAM) ride along. Same opt-out
+as every event. Every plan button opens the same page with the same tags as before
+(`utm_campaign=get-pro`, `utm_content=pro-modal`), so the site funnel reads them as one door.
 
 ### `pro_hint`
 

@@ -18,7 +18,7 @@
 // Escape, the X, Close or a click outside closes it. Clips play only while on screen; reduced motion: none plays.
 
 const WN = { el: null, data: null, retried: false, view: 'now', prevFocus: null, io: null };
-const WN_ASK = 'Phosphene stays free and open source. Pro gets new features and speed-ups first, and keeps the project going.';
+const WN_ASK = T('whatsnew.phosphene_stays_free_and_open', 'Phosphene stays free and open source. Pro gets new features and speed-ups first, and keeps the project going.');
 
 function wnEsc(t) {
   return String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
@@ -108,8 +108,8 @@ function wnShowcase(items) {
   if (!items || !items.length) return '';
   return items.map(it => `<figure class="wn-measured">`
     + (it.media ? wnMedia(it, it.text) : '')
-    + `<figcaption><span class="wn-measured-k">Measured on one Mac</span><span>${wnEsc(it.text)}`
-    + (it.link ? ` <a class="dlg-link" href="${wnEsc(it.link)}" data-utm-campaign="get-pro" data-utm-content="whats-new-speed" target="_blank" rel="noopener">How it was measured <span aria-hidden="true">↗</span></a>` : '')
+    + `<figcaption><span class="wn-measured-k">${T('whatsnew.measured_on_one_mac', 'Measured on one Mac')}</span><span>${wnEsc(it.text)}`
+    + (it.link ? ` <a class="dlg-link" href="${wnEsc(it.link)}" data-utm-campaign="get-pro" data-utm-content="whats-new-speed" target="_blank" rel="noopener">${T('whatsnew.how_it_was_measured', 'How it was measured')} <span aria-hidden="true">↗</span></a>` : '')
     + '</span></figcaption></figure>').join('');
 }
 
@@ -130,7 +130,7 @@ function wnProSec(r, proUser, opts) {
   if (full && !proUser) {
     body += wnShowcase(r.showcase)
       + `<div class="wn-ask"><p>${wnEsc(WN_ASK)}</p>`
-      + `<a class="wn-ask-link" href="${wnEsc(r.pricing_url || 'https://phosphene.video/pricing/')}" data-utm-campaign="support" data-utm-content="whats-new" target="_blank" rel="noopener">Support Phosphene <span aria-hidden="true">↗</span></a></div>`;
+      + `<a class="wn-ask-link" href="${wnEsc(r.pricing_url || 'https://phosphene.video/pricing/')}" data-utm-campaign="support" data-utm-content="whats-new" target="_blank" rel="noopener">${T('whatsnew.support_phosphene', 'Support Phosphene')} <span aria-hidden="true">↗</span></a></div>`;
   }
   return `<section class="wn-sec wn-sec-pro">${wnSecHead(r.pro_title || 'New in Pro', 'is-pro', (r.pro || []).length)}${body}</section>`;
 }
@@ -138,9 +138,9 @@ function wnProSec(r, proUser, opts) {
 // ---- 5. how it works --------------------------------------------------------------------------------------------
 function wnTake(c, pro, title, proUser, heading) {
   if (!c) return '';
-  const label = String(c.label || (pro ? 'Pro' : '')).replace(/^Pro:\s*/, '').replace(/^Pro$/, 'With Pro');
+  const label = String(c.label || (pro ? 'Pro' : '')).replace(/^Pro:\s*/, '').replace(/^Pro$/, T('whatsnew.with_pro', 'With Pro'));
   const link = pro && !proUser
-    ? ` <a class="dlg-link" href="https://phosphene.video/pricing/#plans" data-utm-campaign="get-pro" data-utm-content="how-take" target="_blank" rel="noopener">About Pro <span aria-hidden="true">↗</span></a>` : '';
+    ? ` <a class="dlg-link" href="https://phosphene.video/pricing/#plans" data-utm-campaign="get-pro" data-utm-content="how-take" target="_blank" rel="noopener">${T('whatsnew.about_pro', 'About Pro')} <span aria-hidden="true">↗</span></a>` : '';
   return `<figure class="wn-take${pro ? ' is-pro' : ''}" style="--ar:${wnShape(c).ar.toFixed(4)}">${wnMedia(c, c.label || title)}`
     + '<figcaption>' + (heading ? `<h4 class="wn-feat-t">${wnEsc(heading)}</h4>` : '')
     + (heading && !pro ? '' : `<strong class="wn-take-l">${pro ? '<span class="pro-tag is-lead">Pro</span>' : ''}${wnEsc(label)}</strong>`)
@@ -192,7 +192,7 @@ function wnEarlier(d) {
       + wnHowSec(e.how, proUser) + '</article>';
   }).join('');
   return (rows || `<p class="wn-empty">No earlier releases to show.</p>`)
-    + `<p class="wn-more"><a class="dlg-link" href="${wnEsc(d.changelog_url)}" data-utm-campaign="changelog" data-utm-content="whats-new" target="_blank" rel="noopener">Every release since the first, on phosphene.video <span aria-hidden="true">↗</span></a></p>`;
+    + `<p class="wn-more"><a class="dlg-link" href="${wnEsc(d.changelog_url)}" data-utm-campaign="changelog" data-utm-content="whats-new" target="_blank" rel="noopener">${T('whatsnew.every_release_since_the_first', 'Every release since the first, on phosphene.video')} <span aria-hidden="true">↗</span></a></p>`;
 }
 
 // The shell both windows share: head (kicker, title, date and headline, the x), body, foot.
@@ -212,11 +212,11 @@ function wnShell(o) {
 function wnRender(d) {
   const now = WN.view === 'now';
   const earlierBtn = (d.earlier || []).length || d.changelog_url
-    ? `<button type="button" class="ghost-btn" data-wn-view>${now ? 'Earlier releases' : '<span aria-hidden="true">←</span> Back to ' + wnEsc(d.version)}</button>`
+    ? `<button type="button" class="ghost-btn" data-wn-view>${now ? T('whatsnew.earlier_releases', 'Earlier releases') : '<span aria-hidden="true">←</span> Back to ' + wnEsc(d.version)}</button>`
     : '';
   return wnShell({
-    kicker: now ? "What's new" : 'Earlier releases',
-    title: now ? `Phosphene <span class="wn-ver">${wnEsc(d.version)}</span>` : 'Every past release',
+    kicker: now ? T('whatsnew.what_s_new', "What's new") : T('whatsnew.earlier_releases', 'Earlier releases'),
+    title: now ? `Phosphene <span class="wn-ver">${wnEsc(d.version)}</span>` : T('whatsnew.every_past_release', 'Every past release'),
     date: now ? d.date : '', headline: now ? d.headline : '', proUser: now && !!d.pro_active,
     body: now ? wnNow(d) : wnEarlier(d), footLeft: earlierBtn,
   });
@@ -317,7 +317,7 @@ async function openWhatsNew(force) {
     d = await r.json();
   } catch (e) { return; }
   if (!d || !d.show) {
-    if (force && typeof phosToast === 'function') phosToast('Nothing new to show for this version.', 'info');
+    if (force && typeof phosToast === 'function') phosToast(T('whatsnew.nothing_new_to_show_for', 'Nothing new to show for this version.'), 'info');
     return;
   }
   WN.data = d;
@@ -341,7 +341,7 @@ async function openHowClip(id) {
   if (WN.el) wnClose();
   let h = null;
   try { h = (await (await fetch('/whats-new/how?id=' + encodeURIComponent(id), {cache: 'no-store'})).json()).how; } catch (e) { h = null; }
-  if (!h) { if (typeof phosToast === 'function') phosToast('No how-to clip for this yet.', 'info'); return; }
+  if (!h) { if (typeof phosToast === 'function') phosToast(T('whatsnew.no_how_to_clip_for', 'No how-to clip for this yet.'), 'info'); return; }
   const proUser = !!document.documentElement.dataset.pro;
   WN.data = null;
   const el = wnMount(wnShell({kicker: 'How it works', title: wnEsc(wnFeatureName(h.title)), proUser: false,

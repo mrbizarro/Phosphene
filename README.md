@@ -2,7 +2,7 @@
 
 **Phosphene is a free, open-source Mac app that makes AI video with sound, pictures, songs and speech on your own Apple Silicon Mac.** It runs LTX-2.5, MiniMax H3 (Hailuo H3) and MiniMax-H3-Image locally with MLX: offline, no cloud, no API key, no account, no NVIDIA GPU.
 
-**Current release: v5.0.23.** Mac app or Pinokio · M1 to M5 · from 16 GB of memory · MIT licence · made by Mr Bizarro
+**Current release: v5.0.24.** Mac app or Pinokio · M1 to M5 · from 16 GB of memory · MIT licence · made by Mr Bizarro
 
 <p align="center">
   <a href="https://phosphene.video/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=home&amp;utm_content=hero"><img src="assets/readme/app_video.webp" alt="The Phosphene Mac app: the Video tab with LTX-2.5 selected, a prompt box, the player and a gallery of AI video clips made locally on a Mac" width="100%"></a>
@@ -155,7 +155,7 @@ Phosphene is open source under MIT and stays free. Every engine and feature avai
 | iPhone Remote | Drive the studio from your iPhone with the Phosphene Remote app |
 | Priority support | Your bug reports and feature requests come first |
 
-Pro is monthly or yearly, or Founding: one payment for three years of Pro, with nothing to renew. If you can't afford Pro, write to support@phosphene.video and you will get a free licence.
+Pro is monthly or yearly, or Founding: one payment for three years of Pro, with nothing to renew. Contributed to Phosphene over time? We sometimes grant a Pro licence to long-time contributors: support@phosphene.video.
 [Plans and measured speed-ups](https://phosphene.video/pricing/?utm_source=github&utm_medium=readme&utm_campaign=pricing&utm_content=pro-section).
 
 ## Agents, scripts and the API

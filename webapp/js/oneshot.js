@@ -139,8 +139,8 @@ function osRenderEngine() {
   const meta = osEl('osEngineMeta');
   if (meta) {
     meta.textContent = OS.engine === 'h3'
-      ? 'Hailuo H3 — 15-second parts that continue from each other · motion, landscapes, crowds'
-      : 'LTX 2.5 — 10-second parts that continue from the last frame · faces, voices, dialogue';
+      ? T('oneshot.hailuo_h3_15_second_parts', 'Hailuo H3 — 15-second parts that continue from each other · motion, landscapes, crowds')
+      : T('oneshot.ltx_2_5_10_second', 'LTX 2.5 — 10-second parts that continue from the last frame · faces, voices, dialogue');
   }
   const cb = osEl('osCharacterBlock');
   if (cb) cb.hidden = OS.engine === 'h3';
@@ -192,29 +192,29 @@ function osRenderQualities() {
   const meta = osEl('osQualityMeta');
   if (meta) {
     meta.textContent = OS.engine === 'h3'
-      ? 'the size of every part · exports fit 720p'
-      : (OS.character ? 'a trained face keeps its identity on Pro · Draft is a quick look'
-                      : 'every part renders at this quality · Balanced exports at 720p');
+      ? T('oneshot.the_size_of_every_part', 'the size of every part · exports fit 720p')
+      : (OS.character ? T('oneshot.a_trained_face_keeps_its', 'a trained face keeps its identity on Pro · Draft is a quick look')
+                      : T('oneshot.every_part_renders_at_this', 'every part renders at this quality · Balanced exports at 720p'));
   }
 }
 function osRenderCharacters() {
   const g = osEl('osCharacterGroup');
   if (!g) return;
   const chars = ((OS.options || {}).characters || []);
-  const pills = [{ id: '', name: 'Nobody in particular', sub: 'the prompt describes them' }]
-    .concat(chars.map(c => ({ id: c.id, name: c.name || c.id, sub: c.has_voice ? 'face + voice' : 'face' })));
+  const pills = [{ id: '', name: T('oneshot.nobody_in_particular', 'Nobody in particular'), sub: T('oneshot.the_prompt_describes_them', 'the prompt describes them') }]
+    .concat(chars.map(c => ({ id: c.id, name: c.name || c.id, sub: c.has_voice ? T('oneshot.face_voice', 'face + voice') : 'face' })));
   g.innerHTML = pills.map(c => `<button type="button" class="pill-btn${c.id === OS.character ? ' active' : ''}" data-os-character="${osEsc(c.id)}">
       <span>${osEsc(c.name)}</span><span class="sub">${osEsc(c.sub)}</span></button>`).join('');
   g.querySelectorAll('[data-os-character]').forEach(b => b.onclick = () => osSetCharacter(b.dataset.osCharacter));
   const meta = osEl('osCharacterMeta');
   if (meta) meta.textContent = chars.length
-    ? 'optional · a trained character, with its own face and voice'
-    : 'optional · train a character (Train Character tab) and it appears here';
+    ? T('oneshot.optional_a_trained_character_with', 'optional · a trained character, with its own face and voice')
+    : T('oneshot.optional_train_a_character_train', 'optional · train a character (Train Character tab) and it appears here');
   const note = osEl('osCharacterNote');
   if (note) {
     note.hidden = !OS.character;
     note.textContent = OS.character
-      ? 'Quality is now the character\'s own set, and "Hand off where the line ends" is on so the next part starts while the mouth still moves — both can be changed below.'
+      ? T('oneshot.quality_is_now_the_character', 'Quality is now the character\'s own set, and "Hand off where the line ends" is on so the next part starts while the mouth still moves — both can be changed below.')
       : '';
   }
 }
@@ -231,7 +231,7 @@ function osRenderAnchor() {
   if (thumb) { thumb.hidden = !on; if (on) thumb.src = `/file?path=${encodeURIComponent(OS.image)}`; else thumb.removeAttribute('src'); }
   if (clear) clear.hidden = !on;
   if (name) name.textContent = on ? OS.image.split('/').pop() : '';
-  if (pick) pick.textContent = on ? 'Change the image' : 'Choose an image';
+  if (pick) pick.textContent = on ? T('oneshot.change_the_image', 'Change the image') : T('oneshot.choose_an_image', 'Choose an image');
 }
 // One row per five seconds, the stamp beside its own field. A row past the
 // length is shown, marked, and dropped on submit — the user sees exactly
@@ -246,7 +246,7 @@ function osRenderBeats() {
   box.innerHTML = Array.from({ length: rows }, (_, i) => {
     const over = i >= n;
     const stamp = over ? '·' : osClock(i * 5);
-    const ph = i === 0 ? 'what happens in the first five seconds' : (over ? 'past the end — will be dropped' : '');
+    const ph = i === 0 ? T('oneshot.what_happens_in_the_first', 'what happens in the first five seconds') : (over ? T('oneshot.past_the_end_will_be', 'past the end — will be dropped') : '');
     return `<div class="os-beat-row${over ? ' over' : ''}"><span class="os-stamp">${stamp}</span>`
       + `<input type="text" class="sb-input os-beat" data-os-beat="${i}" value="${osEsc(beats[i] || '')}" placeholder="${osEsc(ph)}" `
       + `autocomplete="off" spellcheck="false" aria-label="beat at ${osClock(i * 5)}"></div>`;
@@ -286,9 +286,9 @@ function osBeatsInput() {
   const filled = lines.filter(Boolean).length;
   const extra = lines.length - n;
   hint.textContent = filled === 0
-    ? `one line per five seconds · none written — the prompt carries the whole shot`
+    ? T('oneshot.one_line_per_five_seconds', 'one line per five seconds · none written — the prompt carries the whole shot')
     : `${n} lines of 5 s · ${filled} written`
-      + (filled < n ? ' · a blank row holds that moment' : '')
+      + (filled < n ? T('oneshot.a_blank_row_holds_that', ' · a blank row holds that moment') : '')
       + (extra > 0 ? ` · ${extra} row${extra === 1 ? '' : 's'} past the end will be dropped` : '');
 }
 function osRenderSummary() {
@@ -402,15 +402,15 @@ function osSplitPrompt() {
   const hint = osEl('osBeatsHint');
   if (left > 0 && hint) {
     hint.textContent = `${n} lines of 5 s · ${left} sentence${left === 1 ? '' : 's'} did not fit and ${left === 1 ? 'was' : 'were'} left out`
-      + ' — shorten the prompt or write the beats yourself';
+      + T('oneshot.shorten_the_prompt_or_write', ' — shorten the prompt or write the beats yourself');
   }
 }
 async function osPlanBeats() {
   const btn = osEl('osPlanBtn'), hint = osEl('osBeatsHint');
   const prompt = String((osEl('osPrompt') || {}).value || '').trim();
-  if (!prompt) { if (hint) hint.textContent = 'write the shot first — the planner writes the beats from it'; return; }
-  if (btn) { btn.disabled = true; btn.textContent = 'Writing the beats…'; }
-  if (hint) hint.textContent = 'the planner is writing one beat per five seconds — about half a minute';
+  if (!prompt) { if (hint) hint.textContent = T('oneshot.write_the_shot_first_the', 'write the shot first — the planner writes the beats from it'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = T('oneshot.writing_the_beats', 'Writing the beats…'); }
+  if (hint) hint.textContent = T('oneshot.the_planner_is_writing_one', 'the planner is writing one beat per five seconds — about half a minute');
   try {
     const r = await fetch('/oneshot/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, seconds: OS.seconds, engine: OS.engine }) });
@@ -420,7 +420,7 @@ async function osPlanBeats() {
   } catch (e) {
     if (hint) hint.textContent = `could not write the beats: ${e.message || e}`;
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Write the beats for me'; }
+    if (btn) { btn.disabled = false; btn.textContent = T('oneshot.write_the_beats_for_me', 'Write the beats for me'); }
   }
 }
 async function osEstimate() {
@@ -446,7 +446,7 @@ async function osEstimate() {
       : '';
     el.textContent = `${osLengthLabel(d.seconds)} · ${osPartsText(d.seconds)}`
       + (bareEta ? ` · about ${bareEta} on this Mac` : '') + worstBit
-      + (OS.retake === 'on' ? ' · a part that drifts or doesn’t sync is rendered again' : '');
+      + (OS.retake === 'on' ? T('oneshot.a_part_that_drifts_or', ' · a part that drifts or doesn’t sync is rendered again') : '');
     osRenderSummary();
   } catch (e) {
     if (seq === OS.estimateSeq) el.textContent = '';
@@ -474,11 +474,11 @@ async function osGenerate() {
   const btn = osEl('osGenBtn'), est = osEl('osEstimate');
   const doc = osDocument();
   if (!doc.prompt) {
-    if (est) est.textContent = 'write the shot first — one paragraph is a complete request';
+    if (est) est.textContent = T('oneshot.write_the_shot_first_one', 'write the shot first — one paragraph is a complete request');
     const p = osEl('osPrompt'); if (p) p.focus();
     return;
   }
-  if (btn) { btn.disabled = true; btn.textContent = 'Queueing…'; }
+  if (btn) { btn.disabled = true; btn.textContent = T('oneshot.queueing', 'Queueing…'); }
   try {
     const r = await fetch('/oneshot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(doc) });
     const d = await r.json();
@@ -494,7 +494,7 @@ async function osGenerate() {
   } catch (e) {
     if (est) est.textContent = `not queued: ${e.message || e}`;
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Generate'; }
+    if (btn) { btn.disabled = false; btn.textContent = T('oneshot.generate', 'Generate'); }
   }
 }
 function osVerdict(v) {
@@ -525,12 +525,12 @@ function osPaintStatus(d) {
       + (queued.length ? ` · ${queued.length} more waiting` : '');
   } else if (t && queued.indexOf(t) >= 0) {
     const place = queued.indexOf(t);
-    if (title) title.textContent = `${paused ? 'Queued, paused' : 'Waiting'}${name(t)}`;
+    if (title) title.textContent = `${paused ? T('oneshot.queued_paused', 'Queued, paused') : T('oneshot.waiting', 'Waiting')}${name(t)}`;
     if (meta) meta.textContent = `${osLengthLabel(t.seconds)} in ${t.parts} parts`
-      + (place === 0 ? (cur ? ' · next after the one rendering' : (paused ? ' · starts when you resume the queue' : ' · starts now')) : ` · ${place} ahead of it`)
-      + (paused && place > 0 ? ' · the queue is paused' : '');
+      + (place === 0 ? (cur ? T('oneshot.next_after_the_one_rendering', ' · next after the one rendering') : (paused ? T('oneshot.starts_when_you_resume_the', ' · starts when you resume the queue') : T('oneshot.starts_now', ' · starts now'))) : ` · ${place} ahead of it`)
+      + (paused && place > 0 ? T('oneshot.the_queue_is_paused', ' · the queue is paused') : '');
   } else {
-    const st = recent.status === 'done' ? 'Done' : recent.status === 'cancelled' ? 'Stopped' : 'Failed';
+    const st = recent.status === 'done' ? T('oneshot.done', 'Done') : recent.status === 'cancelled' ? T('oneshot.stopped', 'Stopped') : T('oneshot.failed', 'Failed');
     if (title) title.textContent = `${st}${recent.label ? ` · ${recent.label}` : ''}`;
     if (meta) meta.textContent = recent.status === 'done'
       ? `${osLengthLabel(recent.seconds)} · in the gallery on the right${recent.elapsed_sec ? ` · ${Math.round(recent.elapsed_sec / 60)} min` : ''}`
@@ -545,7 +545,7 @@ function osPaintStatus(d) {
         const v = osVerdict((t.lipsync || [])[i]);
         cls = v.cls; text = `part ${k} · ${v.text}`;
         const drift = (t.drift || [])[i];
-        if (typeof drift === 'number' && drift > 0.28) text += ' · light drifted';
+        if (typeof drift === 'number' && drift > 0.28) text += T('oneshot.light_drifted', ' · light drifted');
       } else if (cur && k === (cur.part || 1)) { cls = 'now'; text = `part ${k} · rendering`; }
       return `<span class="os-part ${cls}">${osEsc(text)}</span>`;
     }).join('');

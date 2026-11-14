@@ -71,6 +71,12 @@ function makeEl(id) {
 }
 
 export function installShim(globalsSeed = {}) {
+  // The modules call T()/TA()/TP() (webapp/js/i18n.js): English-only stand-ins.
+  globalThis.T = (k, en, v) => (v ? String(en).replace(/\{([A-Za-z_]\w*)\}/g, (m, n) => (n in v ? String(v[n]) : m)) : String(en == null ? '' : en));
+  globalThis.TA = globalThis.T;
+  globalThis.i18nLang = () => 'en';
+  globalThis.i18nAgo = (s) => Math.round(s) + ' s ago';
+  globalThis.TP = (k, n, f, v) => globalThis.T(k, (Number(n) === 1 && f.one) ? f.one : (f.other || f.one || ''), Object.assign({ count: n }, v || {}));
   globalThis.document = {
     getElementById: (id) => el(id),
     querySelector: () => null,

@@ -79,8 +79,8 @@ function speechRenderVoices() {
     if (ch.value !== keep) { speechConsentReset(); speechLoadCharacterWords(); }
     const hint = _sel('speechCharacterHint');
     if (hint) hint.textContent = list.length
-      ? "Uses the voice sample from this character's training."
-      : "Add a voice sample when training a character in Train, or use a clip here.";
+      ? T('speech.uses_the_voice_sample_from', "Uses the voice sample from this character's training.")
+      : T('speech.add_a_voice_sample_when', "Add a voice sample when training a character in Train, or use a clip here.");
   }
   const lang = _sel('speechLanguage');
   if (lang && v.languages && !lang.options.length) {
@@ -148,7 +148,7 @@ function speechRenderClip() {
   const slot = _sel('speechClipSlot');
   if (!slot) return;
   slot.innerHTML = SPEECH.clipPath
-    ? `<div class="ss-tag">${_sesc(SPEECH.clipName || SPEECH.clipPath.split('/').pop())}</div><div class="hint">Click to replace</div>`
+    ? `<div class="ss-tag">${_sesc(SPEECH.clipName || SPEECH.clipPath.split('/').pop())}</div><div class="hint">${T('speech.click_to_replace', 'Click to replace')}</div>`
     : '<div class="hint">Add 5–20 seconds of clear speech from one person, no music (WAV, MP3, M4A or FLAC)</div>';
 }
 
@@ -156,7 +156,7 @@ async function speechClipUpload(files) {
   const file = files && files[0];
   if (!file) return;
   const status = _sel('speechStatus');
-  if (status) status.textContent = 'Uploading the clip…';
+  if (status) status.textContent = T('speech.uploading_the_clip', 'Uploading the clip…');
   try {
     const fd = new FormData();
     fd.append('audio', file);
@@ -168,7 +168,7 @@ async function speechClipUpload(files) {
     speechConsentReset();
     if (status) status.textContent = '';
   } catch (e) {
-    if (status) status.textContent = 'Clip upload failed: ' + (e.message || 'unknown');
+    if (status) status.textContent = T('speech.clip_upload_failed', 'Clip upload failed: ') + (e.message || 'unknown');
   }
   speechFormChanged();
 }
@@ -193,7 +193,7 @@ function speechFormChanged() {
   const lang = (_sel('speechLanguage') || {}).value || 'english';
   const seed = Number((_sel('speechSeed') || {}).value || -1);
   const sum = _sel('speechAdvancedSummary');
-  if (sum) sum.textContent = `${lang[0].toUpperCase() + lang.slice(1)} · ${seed >= 0 ? 'seed ' + seed : 'random seed'}`;
+  if (sum) sum.textContent = `${lang[0].toUpperCase() + lang.slice(1)} · ${seed >= 0 ? 'seed ' + seed : T('speech.random_seed', 'random seed')}`;
   try { if (_sel('speechVoice').value) localStorage.setItem('phos_speech_voice', _sel('speechVoice').value); } catch (_) {}
   const st = speechStatusCache || {};
   const ready = !!st.available;
@@ -206,10 +206,10 @@ function speechFormChanged() {
   const installing = !!(speechInstall && speechInstall.active);
   if (btn) {
     btn.disabled = SPEECH.busy || installing || (ready && (!text || needsConsent || noVoice));
-    btn.textContent = ready ? 'Generate' : installing ? 'Installing…' : `Install Speech (~${st.install_gb || 6} GB)`;
-    btn.title = !ready ? 'Downloads the voice models once, then Generate works offline'
-      : !text ? 'Write the line first' : needsConsent ? 'Tick the voice confirmation first'
-      : noVoice ? (kind === 'clip' ? 'Add a clip of the voice first' : 'Pick a character with a voice sample') : '';
+    btn.textContent = ready ? T('speech.generate', 'Generate') : installing ? T('speech.installing', 'Installing…') : `Install Speech (~${st.install_gb || 6} GB)`;
+    btn.title = !ready ? T('speech.downloads_the_voice_models_once', 'Downloads the voice models once, then Generate works offline')
+      : !text ? T('speech.write_the_line_first', 'Write the line first') : needsConsent ? T('speech.tick_the_voice_confirmation_first', 'Tick the voice confirmation first')
+      : noVoice ? (kind === 'clip' ? T('speech.add_a_clip_of_the', 'Add a clip of the voice first') : T('speech.pick_a_character_with_a', 'Pick a character with a voice sample')) : '';
   }
   speechEstimateSoon(text, speed);
 }
@@ -228,8 +228,8 @@ function speechEstimateSoon(text, speed) {
       const e = await r.json();
       if (req !== SPEECH.estReq) return;
       if (fit) {
-        fit.textContent = `About ${e.audio_sec} s of speech.` + (e.lipsync_fits ? ' Fits one lip-sync clip.'
-          : ` One lip-sync clip fits about ${(speechStatusCache || {}).lipsync_max_sec || 10} s. Split your script into shorter parts.`);
+        fit.textContent = `About ${e.audio_sec} s of speech.` + (e.lipsync_fits ? T('speech.fits_one_lip_sync_clip', ' Fits one lip-sync clip.')
+          : T('speech.one_lip_sync_clip_fits', ' One lip-sync clip fits about {v} s. Split your script into shorter parts.', {v: (speechStatusCache || {}).lipsync_max_sec || 10}));
         fit.classList.toggle('warn', !e.lipsync_fits);
       }
       if (est) est.textContent = (speechStatusCache || {}).available ? `≈ ${e.eta_sec} s · estimate` : '';
@@ -249,24 +249,24 @@ function speechRenderInstall() {
   const size = `~${st.install_gb || 6} GB`;
   let html;
   if (st.capable === false) {
-    html = `<p class="mi-lead">Speech needs about ${_sesc(st.min_ram_gb || 16)} GB of unified memory, so it can't run on this Mac.</p>`;
+    html = `<p class="mi-lead">${T('speech.speech_needs_about_gb_of', 'Speech needs about {v} GB of unified memory, so it can\'t run on this Mac.', {v: _sesc(st.min_ram_gb || 16)})}</p>`;
   } else if (inst.active) {
     const pct = inst.percent || 1;
     const bytes = inst.bytes_total ? ` · ${(inst.bytes_done / 1e9).toFixed(1)} of ${(inst.bytes_total / 1e9).toFixed(1)} GB` : '';
-    html = `<p class="mi-lead"><b>${inst.state === 'stopping' ? 'Stopping…' : 'Installing Speech…'}</b> ${pct}%</p>
+    html = `<p class="mi-lead"><b>${inst.state === 'stopping' ? T('speech.stopping', 'Stopping…') : T('speech.installing_speech', 'Installing Speech…')}</b> ${pct}%</p>
       <div class="progress-bar"><div class="fill" style="width:${pct}%"></div></div>
       <p class="mi-sub">Step ${(inst.step_index || 0) + 1} of ${inst.steps || 4} · ${_sesc(inst.step_label || '')}${bytes}</p>
       <p class="mi-line">${_sesc(inst.last_line || '')}</p>
-      <div class="mi-actions"><button type="button" class="danger" onclick="speechInstallStop()" ${inst.state === 'stopping' ? 'disabled' : ''}>Stop</button>
-      <span class="mi-note">Keep working. Speech is ready to use when the install finishes.</span></div>`;
+      <div class="mi-actions"><button type="button" class="danger" onclick="speechInstallStop()" ${inst.state === 'stopping' ? 'disabled' : ''}>${T('speech.stop', 'Stop')}</button>
+      <span class="mi-note">${T('speech.keep_working_speech_is_ready', 'Keep working. Speech is ready to use when the install finishes.')}</span></div>`;
   } else {
     const failed = inst.state === 'failed' && inst.error;
     const stopped = inst.state === 'stopped';
-    html = `<p class="mi-lead">Turn a script into speech with nine preset voices, your character's voice or a clip you add. Download the engine and voice models once (${size}). Interrupted downloads resume. After installation, Speech works offline.</p>
+    html = `<p class="mi-lead">${T('speech.turn_a_script_into_speech', 'Turn a script into speech with nine preset voices, your character\'s voice or a clip you add. Download the engine and voice models once ({size}). Interrupted downloads resume. After installation, Speech works offline.', {size})}</p>
       ${failed ? `<p class="mi-error">${_sesc(inst.error)}</p>` : ''}
       ${stopped ? '<p class="mi-sub">Install stopped. Click again to resume where it left off.</p>' : ''}
-      <div class="mi-actions"><button type="button" class="primary" onclick="speechInstallStart()">${failed || stopped ? 'Resume install' : 'Install Speech'} (${size})</button></div>
-      <p class="mi-note">Needs at least ${_sesc(st.min_ram_gb || 16)} GB of unified memory and about ${Math.ceil((st.install_gb || 6) + 2)} GB of free disk.</p>`;
+      <div class="mi-actions"><button type="button" class="primary" onclick="speechInstallStart()">${failed || stopped ? T('speech.resume_install', 'Resume install') : T('speech.install_speech', 'Install Speech')} (${size})</button></div>
+      <p class="mi-note">${T('speech.needs_at_least_gb_of', 'Needs at least {v} GB of unified memory and about {v2} GB of free disk.', {v: _sesc(st.min_ram_gb || 16), v2: Math.ceil((st.install_gb || 6) + 2)})}</p>`;
   }
   el.innerHTML = html;
 }
@@ -302,7 +302,7 @@ function speechStatusUpdate(s) {
     else if (was) {
       speechInstallSeenActive = false;
       if (speechInstall.state === 'done' && typeof phosToast === 'function') {
-        phosToast('Speech is ready. Write a script and click Generate.', { kind: 'success' });
+        phosToast(T('speech.speech_is_ready_write_a', 'Speech is ready. Write a script and click Generate.'), { kind: 'success' });
       }
     }
   }
@@ -314,7 +314,7 @@ function speechStatusUpdate(s) {
     const j = s.history.find(x => x.id === SPEECH.lastJobId);
     if (j && j.status === 'done' && j.output_path && j.output_path !== SPEECH.lastShown) speechShowLast(j.output_path);
     if (j && ['failed', 'stopped', 'cancelled'].includes(j.status)) {
-      _sel('speechStatus').textContent = j.status === 'failed' ? (j.error || 'Speech failed.') : 'Stopped. Nothing was saved.';
+      _sel('speechStatus').textContent = j.status === 'failed' ? (j.error || 'Speech failed.') : T('speech.stopped_nothing_was_saved', 'Stopped. Nothing was saved.');
       SPEECH.lastJobId = null;
     }
   }
@@ -329,11 +329,11 @@ function speechShowLast(path) {
   const attr = _sesc(JSON.stringify(path));
   box.innerHTML = `<audio controls preload="metadata" src="${_sesc(url)}"></audio>
     <div class="actions">
-      <button type="button" class="primary" onclick="speechLipSync(${attr})">Lip-sync it</button>
-      <button type="button" class="ghost-btn" aria-haspopup="menu" onclick="openAudioUseMenu(event, ${attr})">Use this audio for…</button>
+      <button type="button" class="primary" onclick="speechLipSync(${attr})">${T('speech.lip_sync_it', 'Lip-sync it')}</button>
+      <button type="button" class="ghost-btn" aria-haspopup="menu" onclick="openAudioUseMenu(event, ${attr})">${T('speech.use_this_audio_for', 'Use this audio for…')}</button>
     </div>`;
   box.hidden = false;
-  _sel('speechStatus').textContent = 'Done. Also saved in Outputs.';
+  _sel('speechStatus').textContent = T('speech.done_also_saved_in_outputs', 'Done. Also saved in Outputs.');
 }
 
 function speechLipSync(path) {
@@ -368,13 +368,13 @@ async function speechGenerate() {
   if (kind !== 'preset' && _sel('speechConsent').checked) fd.set('speech_voice_consent', '1');
   SPEECH.busy = true;
   speechFormChanged();
-  status.textContent = 'Queueing…';
+  status.textContent = T('speech.queueing', 'Queueing…');
   try {
     const r = await fetch('/queue/add', { method: 'POST', body: new URLSearchParams(fd) });
     const res = await r.json();
     if (!r.ok || res.error) throw new Error(res.error || 'Could not queue the line');
     SPEECH.lastJobId = res.id;
-    status.textContent = "Queued. Your speech plays here when it's ready.";
+    status.textContent = T('speech.queued_your_speech_plays_here', "Queued. Your speech plays here when it's ready.");
     if (typeof setMainOutputsFilter === 'function') setMainOutputsFilter('audio');
     if (typeof poll === 'function') await poll();
   } catch (e) {

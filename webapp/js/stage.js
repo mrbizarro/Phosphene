@@ -45,29 +45,29 @@ function imgStudioUpdateValidity() {
     // add-on name differs per family. Ideogram 4 ships as part of mflux
     // 0.18+, so its "missing" case is really "update mflux", not a Qwen hint.
     invalidReason = (eng.value === 'ideogram4_inline')
-      ? 'The Ideogram 4 engine needs mflux 0.18+ (the mflux-generate-ideogram4 CLI). Update the mflux add-on, then come back and Generate.'
-      : distText('The Qwen-Image-Edit engine isn\'t installed. It ships with the image-engine pack: click Update in Pinokio\'s Phosphene sidebar (NOT in this panel), then come back and Generate. If it\'s still missing after Update, the sidebar also shows "Reinstall image engines (Ideogram 4 + Qwen-Edit)" — ~30 s, ~150 MB.',
-                 'The Qwen-Image-Edit engine isn\'t installed, and the image-engine pack isn\'t available in the Mac app yet.');
+      ? T('stage.the_ideogram_4_engine_needs', 'The Ideogram 4 engine needs mflux 0.18+ (the mflux-generate-ideogram4 CLI). Update the mflux add-on, then come back and Generate.')
+      : distText(T('stage.the_qwen_image_edit_engine', 'The Qwen-Image-Edit engine isn\'t installed. It ships with the image-engine pack: click Update in Pinokio\'s Phosphene sidebar (NOT in this panel), then come back and Generate. If it\'s still missing after Update, the sidebar also shows "Reinstall image engines (Ideogram 4 + Qwen-Edit)" — ~30 s, ~150 MB.'),
+                 T('stage.the_qwen_image_edit_engine_2', 'The Qwen-Image-Edit engine isn\'t installed, and the image-engine pack isn\'t available in the Mac app yet.'));
   } else if (engInfo && engInfo.fits_mac === false) {
-    invalidReason = 'This engine needs a ' + engInfo.mac_gb_needed + ' GB Mac — this one has '
-      + (_IMG_HOST_RAM_GB || '?') + ' GB. Auto (the 4B FLUX engine) fits here.';
+    invalidReason = T('stage.this_engine_needs_a', 'This engine needs a ') + engInfo.mac_gb_needed + T('stage.gb_mac_this_one_has', ' GB Mac — this one has ')
+      + (_IMG_HOST_RAM_GB || '?') + T('stage.gb_auto_the_4b_flux', ' GB. Auto (the 4B FLUX engine) fits here.');
   } else if (refsCount > ((engInfo && engInfo.max_refs) || 3)) {
     // The server's cap (image_max_refs, via /image/engine_status). Fleet
     // 4.19.16: a job over it was queued and failed on its turn.
     const cap = (engInfo && engInfo.max_refs) || 3;
-    invalidReason = 'This engine takes at most ' + cap + ' reference images — remove '
-      + (refsCount - cap) + ' to generate.';
+    invalidReason = T('stage.this_engine_takes_at_most', 'This engine takes at most ') + cap + T('stage.reference_images_remove', ' reference images — remove ')
+      + (refsCount - cap) + T('stage.to_generate', ' to generate.');
   } else if (needsRefs && refsCount === 0) {
     // SYS-14: "Pick a reference image" was the whole message -- for
     // someone who came here to make a FIRST picture from words (no photo
     // to drop yet), that's a dead end with no next step. Names the
     // engine that actually does this.
-    invalidReason = 'This engine composes against a photo — drop one into a slot above, or pick FLUX.2, FLUX 3 or Ideogram 4 in Model (top of the column) to make a picture from words alone.';
+    invalidReason = T('stage.this_engine_composes_against_a', 'This engine composes against a photo — drop one into a slot above, or pick FLUX.2, FLUX 3 or Ideogram 4 in Model (top of the column) to make a picture from words alone.');
   }
   if (!invalidReason && flux3 && _IMG_HOST_RAM_GB < 32) {
     const aspect = (document.getElementById('imgStudioAspect') || {}).value || '';
     if (!aspect.endsWith('s') || refsCount > 1) {
-      invalidReason = 'On a 24 GB Mac, choose Q4, a small image size and at most one reference.';
+      invalidReason = T('stage.on_a_24_gb_mac', 'On a 24 GB Mac, choose Q4, a small image size and at most one reference.');
     }
   }
   // Non-blocking notice (does NOT disable Generate): Ideogram is text-only,
@@ -80,7 +80,7 @@ function imgStudioUpdateValidity() {
       && eng.value === 'ideogram4_inline'
       && refsCount >= 1
       && !(typeof ideoState === 'object' && ideoState.refBridge)) {
-    softNotice = 'Heads up: Ideogram is text-only, so your reference image will be IGNORED. Turn on "Use reference" above to have Ideogram redraw it from a description, or switch to a Reference Edit engine for a faithful copy.';
+    softNotice = T('stage.heads_up_ideogram_is_text', 'Heads up: Ideogram is text-only, so your reference image will be IGNORED. Turn on "Use reference" above to have Ideogram redraw it from a description, or switch to a Reference Edit engine for a faithful copy.');
   }
   // SYS-13: `image_ram` is the #1 refusal (78 installs/30d) and the
   // FREE-memory branch specifically fires at RENDER time, after the job
@@ -100,15 +100,15 @@ function imgStudioUpdateValidity() {
     const freeGb = Math.max(0, (Number(mem.total_gb) || 0) - (Number(mem.used_gb) || 0));
     if (freeGb < engInfo.ram_need_gb) {
       softNotice = `Heads up: this engine typically needs ~${engInfo.ram_need_gb.toFixed(0)} GB free, `
-        + `and only ~${freeGb.toFixed(1)} GB is free right now. It may still work — Phosphene frees `
-        + `the idle video engine first — but closing other apps (browsers, another render) first is safer.`;
+        + T('stage.and_only_gb_is_free', 'and only ~{v} GB is free right now. It may still work — Phosphene frees ', {v: freeGb.toFixed(1)})
+        + T('stage.the_idle_video_engine_first', 'the idle video engine first — but closing other apps (browsers, another render) first is safer.');
     }
   }
   // Don't override the busy state — imgStudioGenerate manages disabled
   // during in-flight gens.
   if (!IMG_STUDIO.busy) {
     btn.disabled = !!invalidReason;
-    btn.title = invalidReason || ('Generate' + ((typeof shortcutHint === 'function') ? ' (' + shortcutHint('prompt.generate') + ')' : ''));
+    btn.title = invalidReason || (T('stage.generate', 'Generate') + ((typeof shortcutHint === 'function') ? ' (' + shortcutHint('prompt.generate') + ')' : ''));
     if (status && !status.textContent.startsWith('Generating')) {
       if (invalidReason) {
         status.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-fill"/></svg>' + escapeHtml(invalidReason);
@@ -199,7 +199,7 @@ function imgStudioWireRefSlots() {
   });
 }
 
-const _STUDIO_REF_TAGS = ['Primary', 'Multi-ref', 'Multi-ref'];
+const _STUDIO_REF_TAGS = [T('stage.primary', 'Primary'), 'Multi-ref', 'Multi-ref'];
 
 // ---- MiniMax-H3-Image edit (5.0.19) ----------------------------------------------------------
 // The model edits Picture 1 by instruction and can take more pictures in the same edit ("Picture 2",
@@ -299,7 +299,7 @@ function imgStudioRenderSlot(idx) {
     slot.innerHTML = `
       <span class="ref-tag${h3 ? ' pic' : ''}">${tag}</span>
       <img src="/image?path=${encodeURIComponent(ref.path)}&w=320" alt="">
-      <button class="clear-x" type="button" onclick="imgStudioClearRef(${idx});event.stopPropagation()" title="Remove"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+      <button class="clear-x" type="button" onclick="imgStudioClearRef(${idx});event.stopPropagation()" title="${TA('stage.remove', 'Remove')}"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
     `;
   } else {
     slot.classList.remove('has-image');
@@ -361,18 +361,18 @@ function imgStudioUpdateRefWarning() {
     }
     if (prompt) {
       prompt.placeholder = refsCount >= 2
-        ? 'Put the hat from Picture 2 on the man in Picture 1. Keep his face, the light and the background the same.'
+        ? T('stage.put_the_hat_from_picture', 'Put the hat from Picture 2 on the man in Picture 1. Keep his face, the light and the background the same.')
         : refsCount === 1
-        ? 'Make the jacket in Picture 1 bright red. Keep everything else the same.'
-        : 'A long, detailed English description of the whole picture: subject, place, light, lens, mood. Exact text goes in quotes.';
+        ? T('stage.make_the_jacket_in_picture', 'Make the jacket in Picture 1 bright red. Keep everything else the same.')
+        : T('stage.a_long_detailed_english_description', 'A long, detailed English description of the whole picture: subject, place, light, lens, mood. Exact text goes in quotes.');
     }
     if (refsCount < 1) { box.hidden = true; box.innerHTML = ''; return; }
     box.hidden = false;
     box.classList.add('h3-edit-tip');
-    box.innerHTML = `<strong>Editing with MiniMax-H3-Image.</strong> Picture 1 is the one that changes. `
-      + `Say what to change and what to keep. With more pictures, name them: `
-      + `<em>"the hat from Picture 2 on the man in Picture 1"</em>. `
-      + `<a href="#" onclick="openHowClip('h3-image-edit');return false">See how</a>`;
+    box.innerHTML = `<strong>${T('stage.editing_with_minimax_h3_image', 'Editing with MiniMax-H3-Image.')}</strong> ${T('stage.picture_1_is_the_one', 'Picture 1 is the one that changes.')} `
+      + T('stage.say_what_to_change_and', 'Say what to change and what to keep. With more pictures, name them: ')
+      + `<em>${T('stage.the_hat_from_picture_2', '"the hat from Picture 2 on the man in Picture 1"')}</em>. `
+      + `<a href="#" onclick="openHowClip('h3-image-edit');return false">${T('stage.see_how', 'See how')}</a>`;
     return;
   }
   box.classList.remove('h3-edit-tip');
@@ -388,10 +388,10 @@ function imgStudioUpdateRefWarning() {
       /* leave Ideogram's placeholder alone */
     } else if (refsCount >= 2) {
       prompt.placeholder =
-        'the man from reference 1 and the woman from reference 2 sitting at a candlelit dinner, warm tungsten light, soft bokeh, photorealistic';
+        T('stage.the_man_from_reference_1', 'the man from reference 1 and the woman from reference 2 sitting at a candlelit dinner, warm tungsten light, soft bokeh, photorealistic');
     } else {
       prompt.placeholder =
-        'A cinematic medium close-up of a woman in a sunlit kitchen, soft morning light through blinds, shallow depth of field, photorealistic';
+        T('stage.a_cinematic_medium_close_up', 'A cinematic medium close-up of a woman in a sunlit kitchen, soft morning light through blinds, shallow depth of field, photorealistic');
     }
   }
   if (refsCount < 2) {
@@ -401,12 +401,10 @@ function imgStudioUpdateRefWarning() {
   }
   box.hidden = false;
   box.innerHTML = `
-    <strong>Multi-subject tip:</strong> the model can't tell which reference is which subject
-    unless you name them explicitly. Use the pattern
+    <strong>${T('stage.multi_subject_tip', 'Multi-subject tip:')}</strong> ${T('stage.the_model_can_t_tell', 'the model can\'t tell which reference is which subject\n    unless you name them explicitly. Use the pattern')}
     <em>"the &lt;A&gt; from reference 1 and the &lt;B&gt; from reference 2 …"</em>.
     Example:
-    <code>the man from reference 1 and the woman from reference 2 sitting at a candlelit dinner, warm tungsten light, photorealistic</code>.
-    Without those anchors both Qwen Edit and HiDream blend the references and produce ghost-arm fusions like the one you just got.
+    <code>${T('stage.the_man_from_reference_1_2', 'the man from reference 1 and the woman from reference 2 sitting at a candlelit dinner, warm tungsten light, photorealistic')}</code>${T('stage.without_those_anchors_both_qwen', '.\n    Without those anchors both Qwen Edit and HiDream blend the references and produce ghost-arm fusions like the one you just got.')}
   `;
 }
 
@@ -436,13 +434,13 @@ function imgStudioApplyMemoryFit() {
     if (!info || info.fits_mac !== false) return;
     if (!opt.dataset.ramTagged) {
       opt.dataset.ramTagged = '1';
-      opt.textContent = opt.textContent + ' — needs a ' + info.mac_gb_needed + ' GB Mac';
+      opt.textContent = opt.textContent + T('stage.needs_a', ' — needs a ') + info.mac_gb_needed + T('stage.gb_mac', ' GB Mac');
     }
     opt.disabled = true;
     if (opt.selected) { sel.value = 'auto'; moved = true; }
   });
   if (moved) {
-    try { phosToast && phosToast('That image engine needs more memory than this Mac has — switched to Auto, which fits here.'); } catch (_) {}
+    try { phosToast && phosToast(T('stage.that_image_engine_needs_more', 'That image engine needs more memory than this Mac has — switched to Auto, which fits here.')); } catch (_) {}
     try { imgStudioRenderEnginePill(); } catch (_) {}
     try { imgStudioUpdateEstimate(); } catch (_) {}
     try { ideoSyncVisibility && ideoSyncVisibility(); } catch (_) {}
@@ -493,7 +491,7 @@ async function openExternal(url) {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'url=' + encodeURIComponent(url),
     });
-    if (r.ok) { try { phosToast && phosToast('Opening ' + (new URL(url)).host + '…'); } catch (_) {} return; }
+    if (r.ok) { try { phosToast && phosToast(T('stage.opening', 'Opening ') + (new URL(url)).host + '…'); } catch (_) {} return; }
   } catch (_) {}
   try { window.open(url, '_blank', 'noopener'); } catch (_) {}
 }
@@ -537,14 +535,14 @@ function imgStudioRenderEnginePill() {
   if (v === 'auto') {
     pill.dataset.state = 'unknown';
     pill.textContent = 'auto';
-    pill.title = 'Uses your saved Settings engine';
+    pill.title = T('stage.uses_your_saved_settings_engine', 'Uses your saved Settings engine');
     return;
   }
   const info = _IMG_ENGINE_STATUS[v];
   if (!info) {
     pill.dataset.state = 'unknown';
     pill.textContent = '…';
-    pill.title = 'Checking weights…';
+    pill.title = T('stage.checking_weights', 'Checking weights…');
     return;
   }
   if (v.startsWith('ph3image') && info.ph3image_reason) {
@@ -560,17 +558,17 @@ function imgStudioRenderEnginePill() {
   // every other state is moot.
   if (info.fits_mac === false) {
     pill.dataset.state = 'missing-engine';
-    pill.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-bold"/></svg>needs a ' + info.mac_gb_needed + ' GB Mac';
-    pill.title = 'This engine holds ~' + info.ram_need_gb + ' GB of weights in memory; this Mac has '
-               + (_IMG_HOST_RAM_GB || '?') + ' GB. Auto (the 4B FLUX engine) fits here.';
+    pill.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-bold"/></svg>needs a ' + info.mac_gb_needed + T('stage.gb_mac', ' GB Mac');
+    pill.title = T('stage.this_engine_holds', 'This engine holds ~') + info.ram_need_gb + ' GB of weights in memory; this Mac has '
+               + (_IMG_HOST_RAM_GB || '?') + T('stage.gb_auto_the_4b_flux', ' GB. Auto (the 4B FLUX engine) fits here.');
     return;
   }
   if (info.family_installed === false) {
     pill.dataset.state = 'missing-engine';
     if (v === 'ideogram4_inline') {
       pill.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-bold"/></svg>update mflux';
-      pill.title = 'The Ideogram 4 engine needs mflux 0.18+ ' +
-                   '(the mflux-generate-ideogram4 CLI). Update the mflux add-on.';
+      pill.title = T('stage.the_ideogram_4_engine_needs_2', 'The Ideogram 4 engine needs mflux 0.18+ ') +
+                   T('stage.the_mflux_generate_ideogram4_cli', '(the mflux-generate-ideogram4 CLI). Update the mflux add-on.');
     } else {
       // Status pill, NOT a button — label it as a state ("not installed"), not
       // an imperative ("install ..."), or users click the pill, get the help
@@ -578,25 +576,25 @@ function imgStudioRenderEnginePill() {
       // @poppy0396). The real action lives in Pinokio's sidebar, not here.
       pill.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-bold"/></svg>Qwen-Image-Edit not installed';
       pill.title = isMacApp()
-        ? 'The Qwen-Image-Edit engine isn\'t installed.\nThe image-engine pack isn\'t available in the Mac app yet.'
-        : 'The Qwen-Image-Edit engine isn\'t installed.\n' +
-                   'This pill is a status indicator — the action is in Pinokio\'s\n' +
-                   'Phosphene sidebar, not in this panel: click Update there.\n' +
-                   'If it\'s still missing afterwards, the sidebar also shows\n' +
-                   '"Reinstall image engines (Ideogram 4 + Qwen-Edit)" — ~30 s, ~150 MB.';
+        ? T('stage.the_qwen_image_edit_engine_3', 'The Qwen-Image-Edit engine isn\'t installed.\nThe image-engine pack isn\'t available in the Mac app yet.')
+        : T('stage.the_qwen_image_edit_engine_4', 'The Qwen-Image-Edit engine isn\'t installed.\n') +
+                   T('stage.this_pill_is_a_status', 'This pill is a status indicator — the action is in Pinokio\'s\n') +
+                   T('stage.phosphene_sidebar_not_in_this', 'Phosphene sidebar, not in this panel: click Update there.\n') +
+                   T('stage.if_it_s_still_missing', 'If it\'s still missing afterwards, the sidebar also shows\n') +
+                   T('stage.reinstall_image_engines_ideogram_4', '"Reinstall image engines (Ideogram 4 + Qwen-Edit)" — ~30 s, ~150 MB.');
     }
     return;
   }
   if (info.lazy_install && !info.worker_installed) {
     pill.dataset.state = 'missing';
-    pill.textContent = 'sets up on first use';
-    pill.title = 'Generate installs the image engine, then downloads the selected model. Stop cancels either step.';
+    pill.textContent = T('stage.sets_up_on_first_use', 'sets up on first use');
+    pill.title = T('stage.generate_installs_the_image_engine', 'Generate installs the image engine, then downloads the selected model. Stop cancels either step.');
     return;
   }
   if (info.cached) {
     pill.dataset.state = 'ready';
     pill.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-check-bold"/></svg>ready';
-    pill.title = 'Weights are cached locally';
+    pill.title = T('stage.weights_are_cached_locally', 'Weights are cached locally');
   } else if (info.partial) {
     // A download that stopped partway (#73). Generate resumes it — say so,
     // instead of "ready" (the old lie) or a fresh full-size download.
@@ -604,14 +602,14 @@ function imgStudioRenderEnginePill() {
     const done = info.partial_gb || 0;
     const gb = info.download_gb || 0;
     pill.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-download-simple"/></svg>resume' + (gb > 0 ? ` · ${done.toFixed(0)} of ~${gb.toFixed(0)} GB` : '');
-    pill.title = `The weight download was interrupted at ${done.toFixed(1)} GB — Generate resumes it. Nothing already downloaded is fetched again.`;
+    pill.title = T('stage.the_weight_download_was_interrupted', 'The weight download was interrupted at {v} GB — Generate resumes it. Nothing already downloaded is fetched again.', {v: done.toFixed(1)});
   } else {
     pill.dataset.state = 'missing';
     const gb = info.download_gb || 0;
     pill.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-download-simple"/></svg>' + (gb > 0 ? gb.toFixed(0) + ' GB' : 'fetch');
     pill.title = (gb > 0
-      ? `Weights not cached — first run will download ~${gb.toFixed(0)} GB`
-      : 'Weights not cached — first run will fetch');
+      ? T('stage.weights_not_cached_first_run', 'Weights not cached — first run will download ~{v} GB', {v: gb.toFixed(0)})
+      : T('stage.weights_not_cached_first_run_2', 'Weights not cached — first run will fetch'));
   }
 }
 
@@ -628,7 +626,7 @@ function imgStudioUpdateEstimate() {
   // fold theirs into sec_per_image (cold_start_sec=0). The auto preset
   // doesn't know its target ahead of time so we hide.
   const info = _IMG_ENGINE_STATUS[eng];
-  let label = 'Generate';
+  let label = T('stage.generate', 'Generate');
   if (info && !info.cached && info.partial) {
     label = `Generate · resumes the download first (${(info.partial_gb || 0).toFixed(0)} GB done)`;
   } else if (info && !info.cached && (info.download_gb || 0) > 0) {
@@ -719,11 +717,11 @@ function imgStudioMarkRecentInUse() {
 // licence on a 451). The chip says what is missing in plain words and starts the download.
 function ph3imageNotReady(info) {
   const r = info.ph3image_reason;
-  if (info.installing) return 'P-H3-Image is downloading (about 18 GB, once). Generate unlocks when it is done.';
-  if (r === 'h3_missing') return 'P-H3-Image runs on the Hailuo H3 video pack. Install Hailuo H3 first, then come back.';
-  if (r === 'engine_too_old') return distText('P-H3-Image needs the newer Hailuo H3 runner: click "Update Hailuo H3 runner" in Pinokio\'s Phosphene sidebar (your weights stay).',
-                                              'P-H3-Image needs a newer Hailuo H3 runner than this Mac app has.');
-  if (r === 'not_downloaded') return 'P-H3-Image needs its one-time download (about 18 GB from Pruna). Click the download chip next to Engine.';
+  if (info.installing) return T('stage.p_h3_image_is_downloading', 'P-H3-Image is downloading (about 18 GB, once). Generate unlocks when it is done.');
+  if (r === 'h3_missing') return T('stage.p_h3_image_runs_on', 'P-H3-Image runs on the Hailuo H3 video pack. Install Hailuo H3 first, then come back.');
+  if (r === 'engine_too_old') return distText(T('stage.p_h3_image_needs_the', 'P-H3-Image needs the newer Hailuo H3 runner: click "Update Hailuo H3 runner" in Pinokio\'s Phosphene sidebar (your weights stay).'),
+                                              T('stage.p_h3_image_needs_a', 'P-H3-Image needs a newer Hailuo H3 runner than this Mac app has.'));
+  if (r === 'not_downloaded') return T('stage.p_h3_image_needs_its', 'P-H3-Image needs its one-time download (about 18 GB from Pruna). Click the download chip next to Engine.');
   return '';
 }
 
@@ -737,7 +735,7 @@ function ph3imageRenderPill(pill, info) {
     pill.dataset.state = 'missing';
     pill.dataset.ph3 = 'downloading';
     pill.innerHTML = dl + 'downloading…';
-    pill.title = (info.install_step ? 'Now: ' + info.install_step + '\n' : '') + (info.credit || '');
+    pill.title = (info.install_step ? T('stage.now', 'Now: ') + info.install_step + '\n' : '') + (info.credit || '');
     if (!_PH3IMAGE_POLL) _PH3IMAGE_POLL = setInterval(() => { imgStudioRefreshEngineStatus(); }, 5000);
     return true;
   }
@@ -745,16 +743,16 @@ function ph3imageRenderPill(pill, info) {
   if (r === 'h3_missing' || r === 'engine_too_old') {
     pill.dataset.state = 'missing-engine';
     if (isMacApp()) pill.dataset.ph3 = 'h3-setup';
-    pill.innerHTML = warn + (r === 'h3_missing' ? 'needs Hailuo H3' : 'update the H3 runner');
+    pill.innerHTML = warn + (r === 'h3_missing' ? T('stage.needs_hailuo_h3', 'needs Hailuo H3') : T('stage.update_the_h3_runner', 'update the H3 runner'));
     pill.title = ph3imageNotReady(info);
     return true;
   }
   if (r === 'not_downloaded') {
     pill.dataset.state = 'missing';
     pill.dataset.ph3 = 'download';
-    pill.innerHTML = dl + (info.install_error ? 'download failed: try again' : 'download ~' + Math.round(info.download_gb || 18) + ' GB');
-    pill.title = (info.install_error ? 'Last try: ' + info.install_error + '\n' : '')
-      + 'Click to download P-H3-Image once from Pruna (pinned and checked, never re-hosted).\n' + (info.credit || '');
+    pill.innerHTML = dl + (info.install_error ? T('stage.download_failed_try_again', 'download failed: try again') : T('stage.download', 'download ~') + Math.round(info.download_gb || 18) + ' GB');
+    pill.title = (info.install_error ? T('stage.last_try', 'Last try: ') + info.install_error + '\n' : '')
+      + T('stage.click_to_download_p_h3', 'Click to download P-H3-Image once from Pruna (pinned and checked, never re-hosted).\n') + (info.credit || '');
     return true;
   }
   return false;   // ready: the generic "ready" chip below
@@ -766,12 +764,12 @@ async function ph3imageInstall() {
     const r = await fetch('/image/ph3image/install', { method: 'POST' });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || j.ok === false) {
-      if (s) s.textContent = (j && (j.error || j.message)) || ('Download did not start (HTTP ' + r.status + ').');
+      if (s) s.textContent = (j && (j.error || j.message)) || (T('stage.download_did_not_start_http', 'Download did not start (HTTP ') + r.status + ').');
     } else if (s) {
-      s.textContent = j.already_installed ? 'P-H3-Image is already downloaded.' : 'Downloading P-H3-Image from Pruna (about 18 GB, once)…';
+      s.textContent = j.already_installed ? T('stage.p_h3_image_is_already', 'P-H3-Image is already downloaded.') : T('stage.downloading_p_h3_image_from', 'Downloading P-H3-Image from Pruna (about 18 GB, once)…');
     }
   } catch (e) {
-    if (s) s.textContent = 'Download did not start: ' + e.message;
+    if (s) s.textContent = T('stage.download_did_not_start', 'Download did not start: ') + e.message;
   }
   imgStudioRefreshEngineStatus();
 }
@@ -783,11 +781,11 @@ async function ph3imageInstall() {
 function h3imageNotReady(info) {
   const r = info.h3image_reason;
   const gb = Math.round(info.download_gb || 66);
-  if (info.installing) return 'MiniMax-H3-Image is downloading (about ' + gb + ' GB, once). Generate unlocks when it is done.';
-  if (r === 'h3_missing') return 'MiniMax-H3-Image shares the Hailuo H3 text encoder. Install Hailuo H3 first, then come back.';
-  if (r === 'engine_too_old') return distText('MiniMax-H3-Image needs the newer Hailuo H3 runner: click "Update Hailuo H3 runner" in Pinokio\'s Phosphene sidebar (your weights stay).',
-                                              'MiniMax-H3-Image needs a newer Hailuo H3 runner than this Mac app has.');
-  if (r === 'not_downloaded') return 'MiniMax-H3-Image needs its one-time download (about ' + gb + ' GB from MiniMaxAI, about 30 GB of free disk while it prepares). Click the download chip next to Version.';
+  if (info.installing) return T('stage.minimax_h3_image_is_downloading', 'MiniMax-H3-Image is downloading (about ') + gb + T('stage.gb_once_generate_unlocks_when', ' GB, once). Generate unlocks when it is done.');
+  if (r === 'h3_missing') return T('stage.minimax_h3_image_shares_the', 'MiniMax-H3-Image shares the Hailuo H3 text encoder. Install Hailuo H3 first, then come back.');
+  if (r === 'engine_too_old') return distText(T('stage.minimax_h3_image_needs_the', 'MiniMax-H3-Image needs the newer Hailuo H3 runner: click "Update Hailuo H3 runner" in Pinokio\'s Phosphene sidebar (your weights stay).'),
+                                              T('stage.minimax_h3_image_needs_a', 'MiniMax-H3-Image needs a newer Hailuo H3 runner than this Mac app has.'));
+  if (r === 'not_downloaded') return T('stage.minimax_h3_image_needs_its', 'MiniMax-H3-Image needs its one-time download (about ') + gb + T('stage.gb_from_minimaxai_about_30', ' GB from MiniMaxAI, about 30 GB of free disk while it prepares). Click the download chip next to Version.');
   return '';
 }
 
@@ -802,7 +800,7 @@ function h3imageRenderPill(pill, info) {
     pill.dataset.h3i = 'downloading';
     const part = (info.install_shard && info.install_shards) ? ' ' + info.install_shard + '/' + info.install_shards : '';
     pill.innerHTML = dl + 'downloading' + part + '…';
-    pill.title = (info.install_step ? 'Now: ' + info.install_step + '\n' : '') + (info.credit || '');
+    pill.title = (info.install_step ? T('stage.now', 'Now: ') + info.install_step + '\n' : '') + (info.credit || '');
     if (!_H3IMAGE_POLL) _H3IMAGE_POLL = setInterval(() => { imgStudioRefreshEngineStatus(); }, 5000);
     return true;
   }
@@ -810,16 +808,16 @@ function h3imageRenderPill(pill, info) {
   if (r === 'h3_missing' || r === 'engine_too_old') {
     pill.dataset.state = 'missing-engine';
     if (isMacApp()) pill.dataset.h3i = 'h3-setup';
-    pill.innerHTML = warn + (r === 'h3_missing' ? 'needs Hailuo H3' : 'update the H3 runner');
+    pill.innerHTML = warn + (r === 'h3_missing' ? T('stage.needs_hailuo_h3', 'needs Hailuo H3') : T('stage.update_the_h3_runner', 'update the H3 runner'));
     pill.title = h3imageNotReady(info);
     return true;
   }
   if (r === 'not_downloaded') {
     pill.dataset.state = 'missing';
     pill.dataset.h3i = 'download';
-    pill.innerHTML = dl + (info.install_error ? 'download failed: try again' : 'download ~' + Math.round(info.download_gb || 66) + ' GB');
-    pill.title = (info.install_error ? 'Last try: ' + info.install_error + '\n' : '')
-      + 'Click to download MiniMax-H3-Image once from MiniMaxAI (pinned and checked, never re-hosted).\n' + (info.credit || '');
+    pill.innerHTML = dl + (info.install_error ? T('stage.download_failed_try_again', 'download failed: try again') : T('stage.download', 'download ~') + Math.round(info.download_gb || 66) + ' GB');
+    pill.title = (info.install_error ? T('stage.last_try', 'Last try: ') + info.install_error + '\n' : '')
+      + T('stage.click_to_download_minimax_h3', 'Click to download MiniMax-H3-Image once from MiniMaxAI (pinned and checked, never re-hosted).\n') + (info.credit || '');
     return true;
   }
   return false;   // ready: the generic "ready" chip below
@@ -831,12 +829,12 @@ async function h3imageInstall() {
     const r = await fetch('/image/h3image/install', { method: 'POST' });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || j.ok === false) {
-      if (s) s.textContent = (j && (j.error || j.message)) || ('Download did not start (HTTP ' + r.status + ').');
+      if (s) s.textContent = (j && (j.error || j.message)) || (T('stage.download_did_not_start_http', 'Download did not start (HTTP ') + r.status + ').');
     } else if (s) {
-      s.textContent = j.already_installed ? 'MiniMax-H3-Image is already downloaded.' : 'Downloading MiniMax-H3-Image from MiniMaxAI (about ' + Math.round(j.download_gb || 66) + ' GB, once)…';
+      s.textContent = j.already_installed ? T('stage.minimax_h3_image_is_already', 'MiniMax-H3-Image is already downloaded.') : T('stage.downloading_minimax_h3_image_from', 'Downloading MiniMax-H3-Image from MiniMaxAI (about ') + Math.round(j.download_gb || 66) + T('stage.gb_once', ' GB, once)…');
     }
   } catch (e) {
-    if (s) s.textContent = 'Download did not start: ' + e.message;
+    if (s) s.textContent = T('stage.download_did_not_start', 'Download did not start: ') + e.message;
   }
   imgStudioRefreshEngineStatus();
 }
@@ -847,14 +845,14 @@ function imgStudioOnPillClick() {
   if (pill && pill.dataset.h3i === 'download') { h3imageInstall(); return; }
   if (pill && pill.dataset.h3i === 'downloading') {
     const st = document.getElementById('imgStudioStatus');
-    if (st) st.textContent = 'MiniMax-H3-Image is still downloading (about 66 GB, once). Generate unlocks when it is done.';
+    if (st) st.textContent = T('stage.minimax_h3_image_is_still', 'MiniMax-H3-Image is still downloading (about 66 GB, once). Generate unlocks when it is done.');
     return;
   }
   if (pill && pill.dataset.ph3 === 'h3-setup') { openH3InstallCard('image'); return; }
   if (pill && pill.dataset.ph3 === 'download') { ph3imageInstall(); return; }
   if (pill && pill.dataset.ph3 === 'downloading') {
     const st = document.getElementById('imgStudioStatus');
-    if (st) st.textContent = 'P-H3-Image is still downloading (about 18 GB, once). Generate unlocks when it is done.';
+    if (st) st.textContent = T('stage.p_h3_image_is_still', 'P-H3-Image is still downloading (about 18 GB, once). Generate unlocks when it is done.');
     return;
   }
   if (!pill || pill.dataset.state !== 'missing') return;
@@ -863,7 +861,7 @@ function imgStudioOnPillClick() {
   btn.focus();
   try { btn.scrollIntoView({behavior:'smooth', block:'center'}); } catch (e) {}
   const s = document.getElementById('imgStudioStatus');
-  if (s) s.textContent = 'Click Generate to start — first run will download the engine weights.';
+  if (s) s.textContent = T('stage.click_generate_to_start_first', 'Click Generate to start — first run will download the engine weights.');
 }
 
 function imgStudioClearRef(idx) {
@@ -885,7 +883,7 @@ async function imgStudioUploadRef(idx, file) {
     imgStudioRenderSlot(idx);
   } catch (e) {
     const s = document.getElementById('imgStudioStatus');
-    if (s) s.textContent = 'Upload failed: ' + e.message;
+    if (s) s.textContent = T('stage.upload_failed', 'Upload failed: ') + e.message;
   }
 }
 
@@ -1048,18 +1046,18 @@ function ideoApplyComposerChrome(){
   if (promptLabel){
     if (layout){
       promptLabel.hidden = false;
-      promptLabel.textContent = 'Scene & background';
+      promptLabel.textContent = T('stage.scene_background', 'Scene & background');
     } else {
       promptLabel.hidden = true;
     }
   }
   if (prompt){
     if (layout){
-      prompt.placeholder = 'Describe the overall scene and background — e.g. "Near-black background with subtle aged-paper texture and a soft vignette."';
+      prompt.placeholder = T('stage.describe_the_overall_scene_and', 'Describe the overall scene and background — e.g. "Near-black background with subtle aged-paper texture and a soft vignette."');
     } else if (active){
-      prompt.placeholder = 'Describe the image you want — Ideogram 4 renders text especially well. e.g. "A bold typographic poster that reads HELLO WORLD in chunky retro letters."';
+      prompt.placeholder = T('stage.describe_the_image_you_want', 'Describe the image you want — Ideogram 4 renders text especially well. e.g. "A bold typographic poster that reads HELLO WORLD in chunky retro letters."');
     } else {
-      prompt.placeholder = 'A cinematic medium close-up of a woman in a sunlit kitchen, soft morning light through blinds, shallow depth of field, photorealistic';
+      prompt.placeholder = T('stage.a_cinematic_medium_close_up', 'A cinematic medium close-up of a woman in a sunlit kitchen, soft morning light through blinds, shallow depth of field, photorealistic');
     }
   }
 }
@@ -1312,7 +1310,7 @@ function ideoBuildBoxToolbar(box, stage){
     });
     html += '<span class="ideo-fab-sep"></span>';
     // text style picker (Headline/Subhead/Body/Caps/Script/Serif)
-    const STY = [['headline','Headline'],['subhead','Subhead'],['body','Body'],['caps','Caps'],['script','Script'],['serif','Serif']];
+    const STY = [['headline',T('stage.headline', 'Headline')],['subhead',T('stage.subhead', 'Subhead')],['body',T('stage.body', 'Body')],['caps',T('stage.caps', 'Caps')],['script',T('stage.script', 'Script')],['serif',T('stage.serif', 'Serif')]];
     html += '<select class="ideo-fab-style" title="Text style">';
     STY.forEach(([v, lbl]) => {
       html += '<option value="' + v + '"' + (box.style === v ? ' selected' : '') + '>' + lbl + '</option>';
@@ -1357,7 +1355,7 @@ function ideoRenderBoxes(){
     el.setAttribute('role', 'group');
     el.setAttribute('tabindex', '0');
     el.setAttribute('aria-label',
-      (box.type === 'text' ? ('Text box: ' + (box.text || '(empty)')) : ('Object region: ' + (box.descManual || 'unlabeled'))));
+      (box.type === 'text' ? (T('stage.text_box', 'Text box: ') + (box.text || '(empty)')) : (T('stage.object_region', 'Object region: ') + (box.descManual || 'unlabeled'))));
     if (box.type === 'text'){
       const t = document.createElement('div');
       t.className = 'ideo-box-text al-' + box.align + ' st-' + box.style;
@@ -1366,7 +1364,7 @@ function ideoRenderBoxes(){
       // scale font roughly to box height so the preview reads as placement
       const px = Math.max(8, Math.min(40, Math.round(box.h * (stage.clientHeight || 300) * 0.55)));
       t.style.fontSize = px + 'px';
-      t.setAttribute('data-ph', 'Type text…');
+      t.setAttribute('data-ph', T('stage.type_text', 'Type text…'));
       // Inline editing: the selected-for-edit box becomes a live caret target.
       // plaintext-only means a paste drops formatting → clean caption text.
       if (box.id === ideoState._editId){
@@ -1393,7 +1391,7 @@ function ideoRenderBoxes(){
         lbl.contentEditable = 'plaintext-only';
         lbl.spellcheck = false;
         lbl.classList.add('editing');
-        lbl.setAttribute('data-ph', 'Describe the object…');
+        lbl.setAttribute('data-ph', T('stage.describe_the_object', 'Describe the object…'));
         lbl.textContent = box.descManual || '';
         lbl.addEventListener('input', e => ideoObjDescInput(e, box.id));
         lbl.addEventListener('focus', () => { ideoState._editing = true; });
@@ -1413,8 +1411,8 @@ function ideoRenderBoxes(){
     const del = document.createElement('button');
     del.type = 'button';
     del.className = 'ideo-box-del';
-    del.setAttribute('aria-label', 'Delete this box');
-    del.title = 'Delete (Backspace)';
+    del.setAttribute('aria-label', T('stage.delete_this_box', 'Delete this box'));
+    del.title = T('stage.delete_backspace', 'Delete (Backspace)');
     del.innerHTML = '&times;';
     del.addEventListener('pointerdown', e => { e.stopPropagation(); e.preventDefault(); });
     del.addEventListener('click', e => { e.stopPropagation(); ideoState.selId = box.id; ideoDeleteSel(); });
@@ -1472,8 +1470,8 @@ function ideoSyncInspector(){
   if (alignCell) alignCell.style.display = (isText && !onStage) ? '' : 'none';
   const descLabel = document.querySelector('#ideoInspDescRow .mf-label');
   if (descLabel) descLabel.textContent = isText
-    ? 'Describe it (optional — refines look)'
-    : 'Describe the object (what should appear here)';
+    ? T('stage.describe_it_optional_refines_look', 'Describe it (optional — refines look)')
+    : T('stage.describe_the_object_what_should', 'Describe the object (what should appear here)');
   // values
   const tInp = document.getElementById('ideoInspText');
   if (tInp && document.activeElement !== tInp) tInp.value = box.text || '';
@@ -1487,7 +1485,7 @@ function ideoSyncInspector(){
   ideoRenderInspectorSwatches(box);
   const bb = ideoRectToBbox(box);
   const bbEl = document.getElementById('ideoInspBbox');
-  if (bbEl) bbEl.textContent = 'bbox [' + bb.join(', ') + ']';
+  if (bbEl) bbEl.textContent = T('stage.bbox', 'bbox [') + bb.join(', ') + ']';
 }
 
 function ideoRenderInspectorSwatches(box){
@@ -1500,7 +1498,7 @@ function ideoRenderInspectorSwatches(box){
     sw.className = 'ideo-swatch' + (ideoNormHex(box.color) === hex ? ' selected' : '');
     sw.style.background = hex;
     sw.title = hex;
-    sw.setAttribute('aria-label', 'Set color ' + hex);
+    sw.setAttribute('aria-label', T('stage.set_color', 'Set color ') + hex);
     sw.onclick = () => ideoUpdateSel({ color: hex });
     wrap.appendChild(sw);
   });
@@ -1509,8 +1507,8 @@ function ideoRenderInspectorSwatches(box){
   native.type = 'color';
   native.className = 'ideo-swatch-color';
   native.value = ideoNormHex(box.color);
-  native.title = 'Custom color';
-  native.setAttribute('aria-label', 'Custom text color');
+  native.title = T('stage.custom_color', 'Custom color');
+  native.setAttribute('aria-label', T('stage.custom_text_color', 'Custom text color'));
   native.oninput = () => ideoUpdateSel({ color: ideoNormHex(native.value) });
   wrap.appendChild(native);
 }
@@ -1530,7 +1528,7 @@ function ideoAddImagePaletteColor(){
   if (!inp) return;
   const hex = ideoNormHex(inp.value);
   if (ideoState.imagePalette.length >= 16){
-    if (typeof phosToast === 'function') phosToast('Image palette is capped at 16 colors', { kind:'warning' });
+    if (typeof phosToast === 'function') phosToast(T('stage.image_palette_is_capped_at', 'Image palette is capped at 16 colors'), { kind:'warning' });
     return;
   }
   if (!ideoState.imagePalette.includes(hex)){
@@ -1551,8 +1549,8 @@ function ideoRenderImagePalette(){
     sw.type = 'button';
     sw.className = 'ideo-swatch removable';
     sw.style.background = hex;
-    sw.title = hex + ' — click to remove';
-    sw.setAttribute('aria-label', 'Remove palette color ' + hex);
+    sw.title = hex + T('stage.click_to_remove', ' — click to remove');
+    sw.setAttribute('aria-label', T('stage.remove_palette_color', 'Remove palette color ') + hex);
     sw.onclick = () => { ideoSnapshot(); ideoState.imagePalette.splice(i,1); ideoRenderImagePalette(); ideoRefreshRaw(); };
     wrap.appendChild(sw);
   });
@@ -1561,14 +1559,14 @@ function ideoRenderImagePalette(){
 // ---- desc prose synthesis (style + align → natural-language desc) ----
 function ideoSynthDesc(box){
   if (box.descManual && box.descManual.trim()) return box.descManual.trim();
-  if (box.type === 'obj') return 'An object in the scene.';
+  if (box.type === 'obj') return T('stage.an_object_in_the_scene', 'An object in the scene.');
   const styleWord = {
-    headline: 'a bold headline',
+    headline: T('stage.a_bold_headline', 'a bold headline'),
     subhead: 'a medium-weight subheading',
-    body: 'clean body text',
+    body: T('stage.clean_body_text', 'clean body text'),
     caps: 'small-caps lettering',
-    script: 'a flowing script',
-    serif: 'an elegant serif',
+    script: T('stage.a_flowing_script', 'a flowing script'),
+    serif: T('stage.an_elegant_serif', 'an elegant serif'),
   }[box.style] || 'text';
   const alignWord = { left: 'left-aligned', center: 'centered', right: 'right-aligned' }[box.align] || 'centered';
   const colorName = ideoColorName(box.color);
@@ -1578,9 +1576,9 @@ function ideoColorName(hex){
   const map = {
     '#FFFFFF':'white', '#0A0A0A':'near-black', '#000000':'black',
     '#F5C518':'gold', '#E63946':'red', '#2F81F7':'blue',
-    '#3FB950':'green', '#8B5E3C':'brown', '#5A6B3A':'olive green',
+    '#3FB950':'green', '#8B5E3C':'brown', '#5A6B3A':T('stage.olive_green', 'olive green'),
   };
-  return map[ideoNormHex(hex)] || ('the color ' + ideoNormHex(hex));
+  return map[ideoNormHex(hex)] || (T('stage.the_color', 'the color ') + ideoNormHex(hex));
 }
 
 // ---- THE SERIALIZER — canvas state → exact Ideogram4 caption schema ----
@@ -1605,14 +1603,14 @@ function ideoBuildCaption(){
   const style = {};
   if (ideoState.render === 'photo'){
     // order: aesthetics, lighting, photo, medium, color_palette
-    style.aesthetics = 'clean, considered, balanced composition';
-    style.lighting = 'natural, well-exposed lighting';
-    style.photo = 'eye-level, 50mm lens, natural depth of field';
+    style.aesthetics = T('stage.clean_considered_balanced_composition', 'clean, considered, balanced composition');
+    style.lighting = T('stage.natural_well_exposed_lighting', 'natural, well-exposed lighting');
+    style.photo = T('stage.eye_level_50mm_lens_natural', 'eye-level, 50mm lens, natural depth of field');
     style.medium = 'photograph';
   } else {
     // order: aesthetics, lighting, medium, art_style, color_palette
-    style.aesthetics = 'bold, graphic, high-contrast';
-    style.lighting = 'even graphic lighting';
+    style.aesthetics = T('stage.bold_graphic_high_contrast', 'bold, graphic, high-contrast');
+    style.lighting = T('stage.even_graphic_lighting', 'even graphic lighting');
     style.medium = 'graphic_design';
     style.art_style = 'clean vector-style graphic design with strong typography and clear layout';
   }
@@ -1645,7 +1643,7 @@ function ideoValidateCaption(cap){
   const out = [];
   const HEX = /^#[0-9A-F]{6}$/;
   const isStr = v => typeof v === 'string';
-  if (typeof cap !== 'object' || cap === null || Array.isArray(cap)){ out.push('root must be an object'); return out; }
+  if (typeof cap !== 'object' || cap === null || Array.isArray(cap)){ out.push(T('stage.root_must_be_an_object', 'root must be an object')); return out; }
   const rootKnown = ['high_level_description','style_description','compositional_deconstruction'];
   Object.keys(cap).forEach(k => { if (!rootKnown.includes(k)) out.push('root: unknown key ' + k); });
   if ('high_level_description' in cap && !isStr(cap.high_level_description)) out.push('high_level_description must be a string');
@@ -1662,11 +1660,11 @@ function ideoValidateCaption(cap){
       const present = Object.keys(sd).filter(k => order.includes(k));
       const want = order.filter(k => k !== 'color_palette' || 'color_palette' in sd);
       if (present.join(',') !== want.join(',')) out.push('style_description: key order ' + present.join(',') + ' != ' + want.join(','));
-      Object.keys(sd).forEach(k => { if (!order.includes(k)) out.push('style_description: key ' + k + ' not allowed'); });
+      Object.keys(sd).forEach(k => { if (!order.includes(k)) out.push('style_description: key ' + k + T('stage.not_allowed', ' not allowed')); });
       order.forEach(k => { if (k !== 'color_palette' && !(k in sd)) out.push('style_description: missing ' + k); });
       if ('color_palette' in sd){
         if (!Array.isArray(sd.color_palette)) out.push('style_description.color_palette must be a list');
-        else { if (sd.color_palette.length > 16) out.push('style_description.color_palette: >16 colors'); sd.color_palette.forEach(c => { if (!HEX.test(c)) out.push('style_description.color_palette: ' + c + ' not uppercase #RRGGBB'); }); }
+        else { if (sd.color_palette.length > 16) out.push('style_description.color_palette: >16 colors'); sd.color_palette.forEach(c => { if (!HEX.test(c)) out.push('style_description.color_palette: ' + c + T('stage.not_uppercase_rrggbb', ' not uppercase #RRGGBB')); }); }
       }
     }
   }
@@ -1677,25 +1675,25 @@ function ideoValidateCaption(cap){
   const cdPresent = Object.keys(cd).filter(k => ['background','elements'].includes(k));
   const cdWant = ['background','elements'].filter(k => k in cd);
   if (cdPresent.join(',') !== cdWant.join(',')) out.push('compositional_deconstruction: key order');
-  Object.keys(cd).forEach(k => { if (!['background','elements'].includes(k)) out.push('compositional_deconstruction: key ' + k + ' not allowed'); });
+  Object.keys(cd).forEach(k => { if (!['background','elements'].includes(k)) out.push('compositional_deconstruction: key ' + k + T('stage.not_allowed', ' not allowed')); });
   if (!('background' in cd)) out.push("compositional_deconstruction: 'background' should exist");
   else if (!isStr(cd.background)) out.push('compositional_deconstruction.background must be a string');
   if (!('elements' in cd)) { out.push("compositional_deconstruction: 'elements' should exist"); return out; }
   if (!Array.isArray(cd.elements)) { out.push('compositional_deconstruction.elements must be a list'); return out; }
   cd.elements.forEach((el, i) => {
     const p = 'elements[' + i + ']';
-    if (typeof el !== 'object' || el === null || Array.isArray(el)){ out.push(p + ' must be an object'); return; }
+    if (typeof el !== 'object' || el === null || Array.isArray(el)){ out.push(p + T('stage.must_be_an_object', ' must be an object')); return; }
     const elKnown = ['type','bbox','text','desc','color_palette'];
-    Object.keys(el).forEach(k => { if (!elKnown.includes(k)) out.push(p + ': unknown key ' + k); });
-    if (el.type !== 'obj' && el.type !== 'text'){ out.push(p + ": type must be 'obj' or 'text'"); return; }
+    Object.keys(el).forEach(k => { if (!elKnown.includes(k)) out.push(p + T('stage.unknown_key', ': unknown key ') + k); });
+    if (el.type !== 'obj' && el.type !== 'text'){ out.push(p + T('stage.type_must_be_obj_or', ": type must be 'obj' or 'text'")); return; }
     const order = el.type === 'text' ? ['type','bbox','text','desc','color_palette'] : ['type','bbox','desc','color_palette'];
     const present = Object.keys(el).filter(k => order.includes(k));
     const want = order.filter(k => (k !== 'bbox' && k !== 'color_palette') || k in el);
-    if (present.join(',') !== want.join(',')) out.push(p + ': key order ' + present.join(',') + ' != ' + want.join(','));
-    if (!('desc' in el)) out.push(p + ": 'desc' should exist");
+    if (present.join(',') !== want.join(',')) out.push(p + T('stage.key_order', ': key order ') + present.join(',') + ' != ' + want.join(','));
+    if (!('desc' in el)) out.push(p + T('stage.desc_should_exist', ": 'desc' should exist"));
     else if (!isStr(el.desc)) out.push(p + '.desc must be a string');
     if (el.type === 'text'){
-      if (!('text' in el)) out.push(p + ": text elements should include 'text'");
+      if (!('text' in el)) out.push(p + T('stage.text_elements_should_include_text', ": text elements should include 'text'"));
       else if (!isStr(el.text)) out.push(p + '.text must be a string');
     }
     if ('bbox' in el){
@@ -1710,7 +1708,7 @@ function ideoValidateCaption(cap){
     }
     if ('color_palette' in el){
       if (!Array.isArray(el.color_palette)) out.push(p + '.color_palette must be a list');
-      else { if (el.color_palette.length > 5) out.push(p + '.color_palette: >5 colors'); el.color_palette.forEach(c => { if (!HEX.test(c)) out.push(p + '.color_palette: ' + c + ' not uppercase #RRGGBB'); }); }
+      else { if (el.color_palette.length > 5) out.push(p + '.color_palette: >5 colors'); el.color_palette.forEach(c => { if (!HEX.test(c)) out.push(p + '.color_palette: ' + c + T('stage.not_uppercase_rrggbb', ' not uppercase #RRGGBB')); }); }
     }
   });
   return out;
@@ -1724,7 +1722,7 @@ function ideoRefreshRaw(){
   if (!ta) return;
   let cap, problems;
   try { cap = ideoBuildCaption(); problems = ideoValidateCaption(cap); }
-  catch(e){ problems = ['serialize error: ' + e.message]; }
+  catch(e){ problems = [T('stage.serialize_error', 'serialize error: ') + e.message]; }
   if (cap) ta.value = JSON.stringify(cap, null, 2);
   ideoSetValidityChip(problems);
 }
@@ -1734,7 +1732,7 @@ function ideoSetValidityChip(problems){
   if (!problems || problems.length === 0){
     chip.dataset.ok = 'yes';
     chip.textContent = 'valid';
-    chip.title = 'Caption matches the Ideogram 4 schema';
+    chip.title = T('stage.caption_matches_the_ideogram_4', 'Caption matches the Ideogram 4 schema');
   } else {
     chip.dataset.ok = 'no';
     chip.textContent = problems.length + ' issue' + (problems.length === 1 ? '' : 's');
@@ -1748,10 +1746,10 @@ function ideoOnRawInput(){
   if (!ta) return;
   let problems;
   try { problems = ideoValidateCaption(JSON.parse(ta.value)); }
-  catch(e){ problems = ['invalid JSON: ' + e.message]; }
+  catch(e){ problems = [T('stage.invalid_json', 'invalid JSON: ') + e.message]; }
   ideoSetValidityChip(problems);
   if (msg){
-    if (problems.length === 0){ msg.textContent = 'Valid — click Apply edits to load it into the canvas.'; msg.className = 'ideo-raw-msg ok'; }
+    if (problems.length === 0){ msg.textContent = T('stage.valid_click_apply_edits_to', 'Valid — click Apply edits to load it into the canvas.'); msg.className = 'ideo-raw-msg ok'; }
     else { msg.textContent = problems[0]; msg.className = 'ideo-raw-msg err'; }
   }
 }
@@ -1762,9 +1760,9 @@ function ideoApplyRaw(){
   if (!ta) return;
   let cap;
   try { cap = JSON.parse(ta.value); }
-  catch(e){ if (msg){ msg.textContent = 'Cannot apply — invalid JSON: ' + e.message; msg.className = 'ideo-raw-msg err'; } return; }
+  catch(e){ if (msg){ msg.textContent = T('stage.cannot_apply_invalid_json', 'Cannot apply — invalid JSON: ') + e.message; msg.className = 'ideo-raw-msg err'; } return; }
   const problems = ideoValidateCaption(cap);
-  if (problems.length){ if (msg){ msg.textContent = 'Fix first: ' + problems[0]; msg.className = 'ideo-raw-msg err'; } return; }
+  if (problems.length){ if (msg){ msg.textContent = T('stage.fix_first', 'Fix first: ') + problems[0]; msg.className = 'ideo-raw-msg err'; } return; }
   ideoSnapshot();
   // background → prompt textarea
   const bg = cap.compositional_deconstruction?.background;
@@ -1795,48 +1793,48 @@ function ideoApplyRaw(){
   ideoRender();
   ideoRenderImagePalette();
   ideoRefreshRaw();
-  if (msg){ msg.textContent = 'Applied to canvas.'; msg.className = 'ideo-raw-msg ok'; }
+  if (msg){ msg.textContent = T('stage.applied_to_canvas', 'Applied to canvas.'); msg.className = 'ideo-raw-msg ok'; }
 }
 
 // ---- examples (literal canvas-state objects lifted from the README) ----
 const IDEO_EXAMPLES = {
   poster: {  // 16:9 jazz-fest event poster
     render: 'art', preset: 'V4_TURBO_12',
-    background: 'Near-black background with subtle aged paper texture.',
+    background: T('stage.near_black_background_with_subtle', 'Near-black background with subtle aged paper texture.'),
     imagePalette: ['#0A0A0A','#F5C518','#E63946','#FFFFFF'],
     boxes: [
-      { type:'text', x:0.10, y:0.03, w:0.80, h:0.15, text:'NEW ORLEANS JAZZ FEST', style:'serif', align:'center', color:'#FFFFFF', descManual:'Bold uppercase serif headline in bright white spanning the top of the poster.' },
-      { type:'obj',  x:0.30, y:0.20, w:0.40, h:0.65, text:'', style:'headline', align:'center', color:'#F5C518', descManual:'A silhouette of a trumpet player mid-performance, arm raised, dramatic pose, rendered in deep gold against the dark background.' },
-      { type:'text', x:0.20, y:0.87, w:0.60, h:0.09, text:'JULY 12 . ARMSTRONG PARK', style:'body', align:'center', color:'#E63946', descManual:'Smaller red sans-serif text at the bottom with the date and venue.' },
+      { type:'text', x:0.10, y:0.03, w:0.80, h:0.15, text:T('stage.new_orleans_jazz_fest', 'NEW ORLEANS JAZZ FEST'), style:'serif', align:'center', color:'#FFFFFF', descManual:T('stage.bold_uppercase_serif_headline_in', 'Bold uppercase serif headline in bright white spanning the top of the poster.') },
+      { type:'obj',  x:0.30, y:0.20, w:0.40, h:0.65, text:'', style:'headline', align:'center', color:'#F5C518', descManual:T('stage.a_silhouette_of_a_trumpet', 'A silhouette of a trumpet player mid-performance, arm raised, dramatic pose, rendered in deep gold against the dark background.') },
+      { type:'text', x:0.20, y:0.87, w:0.60, h:0.09, text:T('stage.july_12_armstrong_park', 'JULY 12 . ARMSTRONG PARK'), style:'body', align:'center', color:'#E63946', descManual:T('stage.smaller_red_sans_serif_text', 'Smaller red sans-serif text at the bottom with the date and venue.') },
     ],
   },
   logo: {  // 1:1 hand-sketched wordmark
     render: 'art', preset: 'V4_DEFAULT_20',
-    background: 'Warm cream aged parchment filling the square frame with soft deckle edges.',
+    background: T('stage.warm_cream_aged_parchment_filling', 'Warm cream aged parchment filling the square frame with soft deckle edges.'),
     imagePalette: ['#F3E9D2','#5A6B3A','#8B5E3C','#C4A574','#3E3228'],
     boxes: [
-      { type:'text', x:0.25, y:0.18, w:0.50, h:0.20, text:'OLIVA', style:'serif', align:'center', color:'#8B5E3C', descManual:'Large hand-drawn wordmark in warm sepia-brown ink with cross-hatched shading inside the letterforms, sketched not printed.' },
-      { type:'obj',  x:0.20, y:0.42, w:0.60, h:0.40, text:'', style:'headline', align:'center', color:'#5A6B3A', descManual:'Hand-sketched olive branch with leaves and ripe olives in olive-green and sepia ink cross-hatching, the central focal point.' },
-      { type:'text', x:0.20, y:0.85, w:0.60, h:0.08, text:'Cold Pressed . Organic', style:'caps', align:'center', color:'#C4A574', descManual:'Small hand-sketched lettering in golden-ochre ink beneath the branch.' },
+      { type:'text', x:0.25, y:0.18, w:0.50, h:0.20, text:'OLIVA', style:'serif', align:'center', color:'#8B5E3C', descManual:T('stage.large_hand_drawn_wordmark_in', 'Large hand-drawn wordmark in warm sepia-brown ink with cross-hatched shading inside the letterforms, sketched not printed.') },
+      { type:'obj',  x:0.20, y:0.42, w:0.60, h:0.40, text:'', style:'headline', align:'center', color:'#5A6B3A', descManual:T('stage.hand_sketched_olive_branch_with', 'Hand-sketched olive branch with leaves and ripe olives in olive-green and sepia ink cross-hatching, the central focal point.') },
+      { type:'text', x:0.20, y:0.85, w:0.60, h:0.08, text:T('stage.cold_pressed_organic', 'Cold Pressed . Organic'), style:'caps', align:'center', color:'#C4A574', descManual:T('stage.small_hand_sketched_lettering_in', 'Small hand-sketched lettering in golden-ochre ink beneath the branch.') },
     ],
   },
   label: {  // 9:16 product label
     render: 'art', preset: 'V4_DEFAULT_20',
-    background: 'Warm ivory paper with letterpress texture and margin ticks filling the tall narrow frame.',
+    background: T('stage.warm_ivory_paper_with_letterpress', 'Warm ivory paper with letterpress texture and margin ticks filling the tall narrow frame.'),
     imagePalette: ['#F3E9D2','#5A6B3A','#3E3228'],
     boxes: [
-      { type:'text', x:0.10, y:0.05, w:0.80, h:0.07, text:'EXTRA VIRGIN OLIVE OIL', style:'caps', align:'center', color:'#5A6B3A', descManual:'Hand-sketched uppercase lettering in muted olive-green ink arced gently across the top of the label.' },
-      { type:'obj',  x:0.20, y:0.30, w:0.60, h:0.45, text:'', style:'headline', align:'center', color:'#5A6B3A', descManual:'Vertical botanical olive-branch illustration in olive-green and sepia ink, the central focal point.' },
-      { type:'text', x:0.20, y:0.88, w:0.60, h:0.06, text:'750 ml', style:'body', align:'center', color:'#3E3228', descManual:'Tiny hand-sketched volume note in sepia ink near the bottom.' },
+      { type:'text', x:0.10, y:0.05, w:0.80, h:0.07, text:T('stage.extra_virgin_olive_oil', 'EXTRA VIRGIN OLIVE OIL'), style:'caps', align:'center', color:'#5A6B3A', descManual:T('stage.hand_sketched_uppercase_lettering_in', 'Hand-sketched uppercase lettering in muted olive-green ink arced gently across the top of the label.') },
+      { type:'obj',  x:0.20, y:0.30, w:0.60, h:0.45, text:'', style:'headline', align:'center', color:'#5A6B3A', descManual:T('stage.vertical_botanical_olive_branch_illustra', 'Vertical botanical olive-branch illustration in olive-green and sepia ink, the central focal point.') },
+      { type:'text', x:0.20, y:0.88, w:0.60, h:0.06, text:'750 ml', style:'body', align:'center', color:'#3E3228', descManual:T('stage.tiny_hand_sketched_volume_note', 'Tiny hand-sketched volume note in sepia ink near the bottom.') },
     ],
   },
   meme: {  // 1:1 top/bottom meme
     render: 'photo', preset: 'V4_DEFAULT_20',
-    background: 'A single bold photographic scene filling the square frame.',
+    background: T('stage.a_single_bold_photographic_scene', 'A single bold photographic scene filling the square frame.'),
     imagePalette: ['#FFFFFF','#0A0A0A'],
     boxes: [
-      { type:'text', x:0.05, y:0.03, w:0.90, h:0.16, text:'WHEN THE BUILD PASSES', style:'caps', align:'center', color:'#FFFFFF', descManual:'Bold white uppercase impact-style meme caption across the top with a heavy dark outline.' },
-      { type:'text', x:0.05, y:0.81, w:0.90, h:0.16, text:'ON THE FIRST TRY', style:'caps', align:'center', color:'#FFFFFF', descManual:'Bold white uppercase impact-style meme caption across the bottom with a heavy dark outline.' },
+      { type:'text', x:0.05, y:0.03, w:0.90, h:0.16, text:T('stage.when_the_build_passes', 'WHEN THE BUILD PASSES'), style:'caps', align:'center', color:'#FFFFFF', descManual:T('stage.bold_white_uppercase_impact_style', 'Bold white uppercase impact-style meme caption across the top with a heavy dark outline.') },
+      { type:'text', x:0.05, y:0.81, w:0.90, h:0.16, text:T('stage.on_the_first_try', 'ON THE FIRST TRY'), style:'caps', align:'center', color:'#FFFFFF', descManual:T('stage.bold_white_uppercase_impact_style_2', 'Bold white uppercase impact-style meme caption across the bottom with a heavy dark outline.') },
     ],
   },
 };
@@ -1860,7 +1858,7 @@ function ideoLoadExample(name){
   ideoRender();
   ideoRenderImagePalette();
   ideoRefreshRaw();
-  if (typeof phosToast === 'function') phosToast('Loaded example — tweak the boxes, then Generate', { kind:'success' });
+  if (typeof phosToast === 'function') phosToast(T('stage.loaded_example_tweak_the_boxes', 'Loaded example — tweak the boxes, then Generate'), { kind:'success' });
 }
 
 // ---- pointer interaction (create / move / resize) ----
@@ -2058,29 +2056,29 @@ async function imgStudioGenerate() {
   if (typeof ideoInLayout === 'function' && ideoInLayout()) {
     let caption, problems;
     try { caption = ideoBuildCaption(); problems = ideoValidateCaption(caption); }
-    catch (e) { problems = ['serialize error: ' + e.message]; }
+    catch (e) { problems = [T('stage.serialize_error', 'serialize error: ') + e.message]; }
     if (problems && problems.length) {
       document.getElementById('imgStudioStatus').innerHTML =
         '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-fill"/></svg>' +
-        'Fix the caption before generating: ' + escapeHtml(problems[0]);
+        T('stage.fix_the_caption_before_generating', 'Fix the caption before generating: ') + escapeHtml(problems[0]);
       const det = document.getElementById('ideoRawDetails'); if (det) det.open = true;
-      if (typeof phosToast === 'function') phosToast('Caption has ' + problems.length + ' schema issue' + (problems.length===1?'':'s'), { kind:'danger' });
+      if (typeof phosToast === 'function') phosToast(TP('stage.caption_has_schema_issues', problems.length, {one: 'Caption has {count} schema issue', other: 'Caption has {count} schema issues'}), { kind:'danger' });
       return;
     }
     const hasText = (caption.compositional_deconstruction.elements || []).some(e => e.type === 'text');
     if (!hasText && (caption.compositional_deconstruction.elements || []).length === 0) {
-      document.getElementById('imgStudioStatus').textContent = 'Add at least one text or object box (or switch to Simple mode for a plain prompt).';
+      document.getElementById('imgStudioStatus').textContent = T('stage.add_at_least_one_text', 'Add at least one text or object box (or switch to Simple mode for a plain prompt).');
       return;
     }
     // Warn (non-blocking) if the user left a text box empty — it was dropped.
     const emptyText = (ideoState.boxes || []).filter(b => b.type === 'text' && !b.text.trim()).length;
-    if (emptyText && typeof phosToast === 'function') phosToast(emptyText + ' empty text box' + (emptyText===1?'':'es') + ' dropped from the caption', { kind:'warning' });
+    if (emptyText && typeof phosToast === 'function') phosToast(TP('stage.empty_text_boxes_dropped', emptyText, {one: '{count} empty text box dropped from the caption', other: '{count} empty text boxes dropped from the caption'}), { kind:'warning' });
     prompt = JSON.stringify(caption);
     ideoPreset = ideoState.preset || 'V4_DEFAULT_20';
   } else {
     prompt = (document.getElementById('imgStudioPrompt').value || '').trim();
     if (!prompt) {
-      document.getElementById('imgStudioStatus').textContent = 'Prompt is required.';
+      document.getElementById('imgStudioStatus').textContent = T('stage.prompt_is_required', 'Prompt is required.');
       return;
     }
     // Simple-mode Ideogram still carries its Quality preset.
@@ -2116,7 +2114,7 @@ async function imgStudioGenerate() {
   document.getElementById('imgStudioResults').innerHTML =
     '<div class="hint">Submitted to queue. Watch the Now / Recent tabs on the right ' +
     '(Recent → Photos for just images).</div>';
-  document.getElementById('imgStudioStatus').textContent = 'Queueing…';
+  document.getElementById('imgStudioStatus').textContent = T('stage.queueing', 'Queueing…');
   try {
     const fd = new URLSearchParams();
     fd.set('mode', 'image');
@@ -2159,7 +2157,7 @@ async function imgStudioGenerate() {
     // visible the moment the render starts.
     if (typeof ideoInLayout === 'function' && ideoInLayout() && typeof stageSetMode === 'function') stageSetMode('result');
     document.getElementById('imgStudioStatus').textContent =
-      'Submitted. Watch Now / Recent → Photos.';
+      T('stage.submitted_watch_now_recent_photos', 'Submitted. Watch Now / Recent → Photos.');
     // Non-blocking toast — the user can stay focused on the form (e.g.
     // queue a second variant) without reading the inline status line.
     if (typeof phosToast === 'function') {
@@ -2183,9 +2181,9 @@ async function imgStudioGenerate() {
       if (typeof imgStudioRefreshEngineStatus === 'function') imgStudioRefreshEngineStatus();
     }, 2000);
   } catch (e) {
-    document.getElementById('imgStudioStatus').textContent = 'Submit failed: ' + e.message;
+    document.getElementById('imgStudioStatus').textContent = T('stage.submit_failed', 'Submit failed: ') + e.message;
     if (typeof phosToast === 'function') {
-      phosToast('Image submit failed: ' + (e.message || 'unknown'),
+      phosToast(T('stage.image_submit_failed', 'Image submit failed: ') + (e.message || 'unknown'),
                 { kind: 'danger', duration: 5000 });
     }
   } finally {
@@ -2226,13 +2224,13 @@ function imgStudioCopyPath(path) {
       ta.select();
       const ok = document.execCommand('copy');
       document.body.removeChild(ta);
-      flash(ok ? 'Path copied.' : 'Copy failed — select the path manually.');
+      flash(ok ? T('stage.path_copied', 'Path copied.') : T('stage.copy_failed_select_the_path', 'Copy failed — select the path manually.'));
     } catch (e) {
-      flash('Copy failed: ' + (e.message || 'unknown'));
+      flash(T('stage.copy_failed', 'Copy failed: ') + (e.message || 'unknown'));
     }
   };
   if (!navigator.clipboard || !navigator.clipboard.writeText) { legacy(); return; }
-  navigator.clipboard.writeText(path).then(() => flash('Path copied.')).catch(() => legacy());
+  navigator.clipboard.writeText(path).then(() => flash(T('stage.path_copied', 'Path copied.'))).catch(() => legacy());
 }
 
 

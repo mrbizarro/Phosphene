@@ -67,7 +67,7 @@ async function songCardRender(o) {
     const noArt = !data.has_artifacts;
     for (const b of _el('songActions').querySelectorAll('button')) {
       const kind = (b.getAttribute('onclick') || '').match(/musicVariation\('(\w+)'\)/);
-      if (kind) { b.disabled = noArt; b.title = noArt ? 'This song kept no artifacts (made before v4.16). Compose it again to get takes.' : b.title; }
+      if (kind) { b.disabled = noArt; b.title = noArt ? T('music.this_song_kept_no_artifacts', 'This song kept no artifacts (made before v4.16). Compose it again to get takes.') : b.title; }
     }
   } catch (e) {
     if (req === songReq) _say(e.message || String(e));
@@ -101,19 +101,19 @@ function _loraLabel(file) {
 
 function _badges(m) {
   const out = [];
-  if (m.variation) out.push(`<span class="song-badge">${_esc({take: 'new take', sound: 're-rolled', restyle: 'restyled'}[m.variation] || m.variation)}</span>`);
+  if (m.variation) out.push(`<span class="song-badge">${_esc({take: T('music.new_take', 'new take'), sound: 're-rolled', restyle: 'restyled'}[m.variation] || m.variation)}</span>`);
   if (m.cover) out.push('<span class="song-badge">cover</span>');
   if (m.instrumental) out.push(`<span class="song-badge muted"${
     m.instrumental_recipe === 'mothersuperior-ar-lora'
       ? ' title="Made with Mothersuperior\'s instrumental AR adapter at strength 1"' : ''
-    }>instrumental${m.instrumental_recipe === 'mothersuperior-ar-lora' ? ' · lora' : ''}</span>`);
+    }>instrumental${m.instrumental_recipe === 'mothersuperior-ar-lora' ? T('music.lora', ' · lora') : ''}</span>`);
   // Which adapters made this song. The sidecar keeps their hashes; the badge
   // keeps the two things a listener compares by — which one, and how hard.
   for (const l of (_loraList(m))) {
     out.push(`<span class="song-badge" title="LoRA ${_esc(l.name || '')}">${
       _esc(_loraLabel(l.name))}${l.strength != null ? ` ${Number(l.strength).toFixed(2)}` : ''}</span>`);
   }
-  if (m.mode && m.mode !== 'off') out.push(`<span class="song-badge muted">${_esc(m.mode === 'full' ? 'melody + chords' : 'melody')}</span>`);
+  if (m.mode && m.mode !== 'off') out.push(`<span class="song-badge muted">${_esc(m.mode === 'full' ? T('music.melody_chords', 'melody + chords') : 'melody')}</span>`);
   if (m.ended_naturally === false) out.push('<span class="song-badge muted" title="The song hit Max length before it ended on its own">cut at max length</span>');
   return out.join('');
 }
@@ -122,7 +122,7 @@ function _renderLineage(d) {
   const el = _el('songLineage');
   if (!d.parent) { el.innerHTML = ''; return; }
   const parentName = String(d.parent).split('/').pop();
-  const how = {take: 'a new take of', sound: 'a re-recording of', restyle: 'a restyle of'}[d.variation] || 'made from';
+  const how = {take: T('music.a_new_take_of', 'a new take of'), sound: 'a re-recording of', restyle: T('music.a_restyle_of', 'a restyle of')}[d.variation] || 'made from';
   // The handler's argument is JSON inside an HTML attribute, so it is
   // ESCAPED for the attribute: the bare JSON's opening quote used to close
   // `onclick="` and every parent link was a syntax error (M6-10).
@@ -156,7 +156,7 @@ function _drawAbc(host, abc) {
       paddingtop: 4, paddingbottom: 4, paddingleft: 4, paddingright: 4,
     });
   } catch (e) {
-    host.innerHTML = `<div class="song-score-empty">Could not draw this score: ${_esc(e.message || e)}</div>`;
+    host.innerHTML = `<div class="song-score-empty">${T('music.could_not_draw_this_score', 'Could not draw this score: {v}', {v: _esc(e.message || e)})}</div>`;
   }
 }
 
@@ -184,14 +184,14 @@ async function musicVariation(kind, path) {
   const target = path || (SONG && SONG.path);
   if (!target) return;
   const seed = _el('musicSeed') ? _el('musicSeed').value : '-1';
-  _say(kind === 'sound' ? 'Queueing a re-recording…' : 'Queueing a new take…');
-  if (typeof phosToast === 'function' && path) phosToast(kind === 'sound' ? 'Re-recording queued' : 'New take queued');
+  _say(kind === 'sound' ? T('music.queueing_a_re_recording', 'Queueing a re-recording…') : T('music.queueing_a_new_take', 'Queueing a new take…'));
+  if (typeof phosToast === 'function' && path) phosToast(kind === 'sound' ? T('music.re_recording_queued', 'Re-recording queued') : T('music.new_take_queued', 'New take queued'));
   try {
     const fd = new URLSearchParams({path: target, kind, seed});
     const r = await fetch('/music/variation', {method: 'POST', body: fd});
     const data = await r.json();
     if (!r.ok || data.error) throw new Error(data.error || 'Could not queue');
-    _say(kind === 'sound' ? 'Re-recording queued — a fraction of a full song.' : 'New take queued.');
+    _say(kind === 'sound' ? T('music.re_recording_queued_a_fraction', 'Re-recording queued — a fraction of a full song.') : T('music.new_take_queued_2', 'New take queued.'));
     if (typeof poll === 'function') poll();
   } catch (e) { _say(e.message || String(e)); }
 }
@@ -218,7 +218,7 @@ async function _songFor(path) {
 async function musicSongAction(path, action) {
   if (typeof selectOutput === 'function') selectOutput(path);
   const song = await _songFor(path);
-  if (!song) { _say('Could not read that song — nothing was done.'); return; }
+  if (!song) { _say(T('music.could_not_read_that_song', 'Could not read that song — nothing was done.')); return; }
   if (action === 'restyle') return musicRestyleFromSong(song);
   if (action === 'cover') return musicCoverFromSong(song);
   if (action === 'edit') {
@@ -230,15 +230,15 @@ async function musicSongAction(path, action) {
 
 async function musicRestyleFromSong(song) {
   song = (song && song.path) ? song : SONG;
-  if (!song) { _say('Still reading this song — try again in a moment.'); return; }
+  if (!song) { _say(T('music.still_reading_this_song_try', 'Still reading this song — try again in a moment.')); return; }
   const style = (_el('musicStyle') || {}).value || '';
   const lyrics = (_el('musicLyrics') || {}).value || '';
   if (!style.trim() && !lyrics.trim()) {
-    _say('Put the new style and/or lyrics in the composer first, then click again.');
+    _say(T('music.put_the_new_style_and', 'Put the new style and/or lyrics in the composer first, then click again.'));
     if (typeof audioModeSet === 'function') audioModeSet('compose');
     return;
   }
-  _say('Queueing a restyle…');
+  _say(T('music.queueing_a_restyle', 'Queueing a restyle…'));
   try {
     // Max length is the composer's like the style is: the slider on screen,
     // not the limit the parent happened to be made with (M6-01).
@@ -249,21 +249,21 @@ async function musicRestyleFromSong(song) {
     const r = await fetch('/music/variation', {method: 'POST', body: fd});
     const data = await r.json();
     if (!r.ok || data.error) throw new Error(data.error || 'Could not queue');
-    _say('Restyle queued: this score, your new words and style.');
+    _say(T('music.restyle_queued_this_score_your', 'Restyle queued: this score, your new words and style.'));
     if (typeof poll === 'function') poll();
   } catch (e) { _say(e.message || String(e)); }
 }
 
 function musicCoverFromSong(song) {
   song = (song && song.path) ? song : SONG;
-  if (!song) { _say('Still reading this song — try again in a moment.'); return; }
+  if (!song) { _say(T('music.still_reading_this_song_try', 'Still reading this song — try again in a moment.')); return; }
   const src = _el('musicSourceAudio');
   if (src) src.value = song.path;
   const task = _el('musicTask');
   if (task) musicTaskSet('cover');
   if (typeof audioModeSet === 'function') audioModeSet('compose');
   if (typeof musicFormChanged === 'function') musicFormChanged();
-  _say('Loaded as the source in Cover a song.');
+  _say(T('music.loaded_as_the_source_in', 'Loaded as the source in Cover a song.'));
 }
 
 function musicOpenSong(path) {
@@ -295,14 +295,14 @@ function musicScoreEditToggle(on) {
 function musicScorePreview() {
   const abc = _el('songScoreText').value;
   _drawAbc(_el('songScore'), abc);
-  _el('songScoreSum').textContent = _abcFacts(abc) + ' · edited';
+  _el('songScoreSum').textContent = _abcFacts(abc) + T('music.edited', ' · edited');
 }
 
 async function musicRenderEditedScore() {
   if (!SONG) return;
   const abc = _el('songScoreText').value;
-  if (!/^K:/m.test(abc)) { _say('That is not a complete ABC score (no K: key line).'); return; }
-  _say('Queueing the edited score…');
+  if (!/^K:/m.test(abc)) { _say(T('music.that_is_not_a_complete', 'That is not a complete ABC score (no K: key line).')); return; }
+  _say(T('music.queueing_the_edited_score', 'Queueing the edited score…'));
   try {
     const fd = new URLSearchParams({path: SONG.path, abc,
       style: (_el('musicStyle') || {}).value || '', lyrics: (_el('musicLyrics') || {}).value || '',
@@ -312,7 +312,7 @@ async function musicRenderEditedScore() {
     const r = await fetch('/music/score/render', {method: 'POST', body: fd});
     const data = await r.json();
     if (!r.ok || data.error) throw new Error(data.error || 'Could not queue');
-    _say('Edited score queued. The new song lands beside this one.');
+    _say(T('music.edited_score_queued_the_new', 'Edited score queued. The new song lands beside this one.'));
     musicScoreEditToggle(false);
     if (typeof poll === 'function') poll();
   } catch (e) { _say(e.message || String(e)); }
@@ -320,8 +320,8 @@ async function musicRenderEditedScore() {
 
 async function musicScoreCopy() {
   if (!SONG || !SONG.abc) return;
-  try { await navigator.clipboard.writeText(SONG.abc); _say('ABC copied.'); }
-  catch (_) { _say('Could not copy — select the text in Edit the score instead.'); }
+  try { await navigator.clipboard.writeText(SONG.abc); _say(T('music.abc_copied', 'ABC copied.')); }
+  catch (_) { _say(T('music.could_not_copy_select_the', 'Could not copy — select the text in Edit the score instead.')); }
 }
 
 // ---- composer helpers borrowed by characters.js --------------------------
@@ -341,7 +341,7 @@ function musicTaskSet(task) {
     const el = _el(id); if (el) el.disabled = task === 'score';
   }
   const btn = _el('musicGenBtn');
-  if (btn) btn.textContent = task === 'score' ? 'Get the score' : task === 'cover' ? 'Cover it' : 'Compose';
+  if (btn) btn.textContent = task === 'score' ? T('music.get_the_score', 'Get the score') : task === 'cover' ? T('music.cover_it', 'Cover it') : T('music.compose', 'Compose');
 }
 function musicTaskPick(button) { musicTaskSet(button.dataset.value); if (typeof musicFormChanged === 'function') musicFormChanged(); }
 
@@ -397,7 +397,7 @@ function musicModeSet(mode) {
   const notice = _el('musicSimpleNotice');
   if (notice && musicMode === 'simple') notice.hidden = true;
   const btn = _el('musicGenBtn');
-  if (musicMode === 'simple') { if (btn) btn.textContent = 'Compose'; }
+  if (musicMode === 'simple') { if (btn) btn.textContent = T('music.compose', 'Compose'); }
   else musicTaskSet((_el('musicTask') || {}).value || 'write');
   if (typeof musicFormChanged === 'function') musicFormChanged();
 }
@@ -418,14 +418,14 @@ async function musicSimpleCompose() {
   const notice = _el('musicSimpleNotice');
   const desc = (box || {}).value || '';
   if (!desc.trim()) {
-    if (status) status.textContent = 'Say what the song should be first.';
+    if (status) status.textContent = T('music.say_what_the_song_should', 'Say what the song should be first.');
     if (box) box.focus();
     return;
   }
   const btn = _el('musicGenBtn');
   if (notice) notice.hidden = true;
-  if (btn) { btn.disabled = true; btn.textContent = 'Writing…'; }
-  if (status) status.textContent = 'Gemma is writing the style and the words (the first time loads the model, ~15 s)…';
+  if (btn) { btn.disabled = true; btn.textContent = T('music.writing', 'Writing…'); }
+  if (status) status.textContent = T('music.gemma_is_writing_the_style', 'Gemma is writing the style and the words (the first time loads the model, ~15 s)…');
   try {
     musicSimpleMirror('out');
     const fd = new URLSearchParams({
@@ -444,7 +444,7 @@ async function musicSimpleCompose() {
     musicTaskSet('write');
     musicModeSet('custom');
     if (notice) {
-      notice.textContent = 'Written from your description — edit anything, then Compose.';
+      notice.textContent = T('music.written_from_your_description_edit', 'Written from your description — edit anything, then Compose.');
       notice.hidden = false;
     }
     if (status) status.textContent = '';
@@ -452,7 +452,7 @@ async function musicSimpleCompose() {
   } catch (e) {
     if (status) status.textContent = e.message || String(e);
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Compose'; }
+    if (btn) { btn.disabled = false; btn.textContent = T('music.compose', 'Compose'); }
     if (typeof musicFormChanged === 'function') musicFormChanged();
   }
 }
@@ -470,7 +470,7 @@ async function musicSimpleCompose() {
 // editor read. Text mode is the same truth, typed by hand — it re-parses into
 // sections on blur, so neither view can drift from the other.
 
-const LYRIC_LABELS = ['Intro', 'Verse', 'Pre-Chorus', 'Chorus', 'Bridge', 'Instrumental', 'Outro'];
+const LYRIC_LABELS = [T('music.intro', 'Intro'), 'Verse', 'Pre-Chorus', T('music.chorus', 'Chorus'), T('music.bridge', 'Bridge'), T('music.instrumental', 'Instrumental'), T('music.outro', 'Outro')];
 let LYRICS = [];              // [{tag: 'Verse', body: 'a line\nanother line'}]
 let lyricsView = 'sections';  // 'sections' | 'text'
 let lyricsBusy = -1;          // index of the section Gemma is rewriting
@@ -507,7 +507,7 @@ function _lyricsLineCount(body) {
 // What the section costs, in the unit a lyricist counts in. No words is not
 // nothing: it is how an instrumental passage is written.
 function _lyricsCountLabel(n) {
-  return n ? n + (n === 1 ? ' line' : ' lines') : 'no words';
+  return n ? n + (n === 1 ? ' line' : ' lines') : T('music.no_words', 'no words');
 }
 
 // Every path that changes the sections ends here: the hidden field is the
@@ -549,19 +549,19 @@ function musicLyricsRender() {
     const busy = lyricsBusy === i;
     return `<div class="lyr-sec${n ? '' : ' wordless'}">
       <div class="lyr-sec-head">
-        <span class="lyr-tag-wrap"><select class="lyr-tag" aria-label="Section" onchange="musicLyricsRetag(${i}, this.value)">${opts}</select></span>
+        <span class="lyr-tag-wrap"><select class="lyr-tag" aria-label="${TA('music.section', 'Section')}" onchange="musicLyricsRetag(${i}, this.value)">${opts}</select></span>
         <span class="lyr-count">${count}</span>
         <span class="lyr-acts">
           <button type="button" class="lyr-btn"${busy ? ' disabled' : ''} onclick="musicLyricsRewrite(${i})"
-                  title="Gemma rewrites this section only, in the style you gave">${busy ? 'Writing…' : 'Rewrite'}</button>
-          <button type="button" class="lyr-ico"${i === 0 ? ' disabled' : ''} onclick="musicLyricsMove(${i}, -1)" title="Move up" aria-label="Move up">&#8593;</button>
-          <button type="button" class="lyr-ico"${i === LYRICS.length - 1 ? ' disabled' : ''} onclick="musicLyricsMove(${i}, 1)" title="Move down" aria-label="Move down">&#8595;</button>
-          <button type="button" class="lyr-ico lyr-del" onclick="musicLyricsRemove(${i})" title="Delete this section" aria-label="Delete this section">&#10005;</button>
+                  title="${TA('music.gemma_rewrites_this_section_only', 'Gemma rewrites this section only, in the style you gave')}">${busy ? T('music.writing', 'Writing…') : T('music.rewrite', 'Rewrite')}</button>
+          <button type="button" class="lyr-ico"${i === 0 ? ' disabled' : ''} onclick="musicLyricsMove(${i}, -1)" title="${TA('music.move_up', 'Move up')}" aria-label="${TA('music.move_up', 'Move up')}">&#8593;</button>
+          <button type="button" class="lyr-ico"${i === LYRICS.length - 1 ? ' disabled' : ''} onclick="musicLyricsMove(${i}, 1)" title="${TA('music.move_down', 'Move down')}" aria-label="${TA('music.move_down', 'Move down')}">&#8595;</button>
+          <button type="button" class="lyr-ico lyr-del" onclick="musicLyricsRemove(${i})" title="${TA('music.delete_this_section', 'Delete this section')}" aria-label="${TA('music.delete_this_section', 'Delete this section')}">&#10005;</button>
         </span>
       </div>
       <textarea class="lyr-lines" rows="1" aria-label="${_esc(s.tag || 'Lyrics')} lines"
                 oninput="musicLyricsType(${i}, this)">${_esc(s.body)}</textarea>
-      <div class="lyr-wordless">Nothing sung here — an instrumental passage. Type to give it words.</div>
+      <div class="lyr-wordless">${T('music.nothing_sung_here_an_instrumental', 'Nothing sung here — an instrumental passage. Type to give it words.')}</div>
     </div>`;
   }).join('');
   host.querySelectorAll('textarea.lyr-lines').forEach(_lyricsGrow);
@@ -668,7 +668,7 @@ async function musicLyricsRewrite(i) {
   if (!s || lyricsBusy >= 0) return;
   const status = _el('musicStatus');
   lyricsBusy = i; musicLyricsRender();
-  if (status) status.textContent = `Gemma is rewriting the ${s.tag || 'section'}…`;
+  if (status) status.textContent = T('music.gemma_is_rewriting_the', 'Gemma is rewriting the {v}…', {v: s.tag || 'section'});
   try {
     const fd = new URLSearchParams({
       section: s.tag || 'Verse', lines: s.body,
@@ -704,9 +704,9 @@ async function musicWriteLyrics() {
   const concept = (_el('musicConcept') || {}).value || '';
   const btn = _el('musicWriteLyricsBtn');
   const status = _el('musicStatus');
-  if (!concept.trim()) { if (status) status.textContent = 'Say what the song is about first.'; _el('musicConcept').focus(); return; }
-  if (btn) { btn.disabled = true; btn.textContent = 'Writing…'; }
-  if (status) status.textContent = 'Gemma is writing the lyrics (the first time loads the model, ~15 s)…';
+  if (!concept.trim()) { if (status) status.textContent = T('music.say_what_the_song_is', 'Say what the song is about first.'); _el('musicConcept').focus(); return; }
+  if (btn) { btn.disabled = true; btn.textContent = T('music.writing', 'Writing…'); }
+  if (status) status.textContent = T('music.gemma_is_writing_the_lyrics', 'Gemma is writing the lyrics (the first time loads the model, ~15 s)…');
   try {
     const fd = new URLSearchParams({concept, style: (_el('musicStyle') || {}).value || '',
       seconds: (_el('musicMaxSeconds') || {}).value || '150'});
@@ -714,11 +714,11 @@ async function musicWriteLyrics() {
     const data = await r.json();
     if (!r.ok || data.error) throw new Error(data.error || 'No lyrics came back');
     musicLyricsSet(data.lyrics);
-    if (status) status.textContent = `Lyrics written in ${Math.round(data.elapsed_sec || 0)} s — edit anything, then Compose.`;
+    if (status) status.textContent = T('music.lyrics_written_in_s_edit', 'Lyrics written in {v} s — edit anything, then Compose.', {v: Math.round(data.elapsed_sec || 0)});
   } catch (e) {
     if (status) status.textContent = e.message || String(e);
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Write lyrics'; }
+    if (btn) { btn.disabled = false; btn.textContent = T('music.write_lyrics', 'Write lyrics'); }
   }
 }
 
@@ -726,14 +726,14 @@ async function musicWriteLyrics() {
 async function musicTranscribe() {
   const src = (_el('musicSourceAudio') || {}).value || '';
   const status = _el('musicStatus');
-  if (!src.trim()) { if (status) status.textContent = 'Pick the recording to read.'; return; }
-  if (status) status.textContent = 'Queueing the transcription…';
+  if (!src.trim()) { if (status) status.textContent = T('music.pick_the_recording_to_read', 'Pick the recording to read.'); return; }
+  if (status) status.textContent = T('music.queueing_the_transcription', 'Queueing the transcription…');
   try {
     const fd = new URLSearchParams({path: src, task: (_el('musicCoverTask') || {}).value || 'melody-full'});
     const r = await fetch('/music/transcribe', {method: 'POST', body: fd});
     const data = await r.json();
     if (!r.ok || data.error) throw new Error(data.error || 'Could not queue');
-    if (status) status.textContent = 'Listening… the score appears here when it is done.';
+    if (status) status.textContent = T('music.listening_the_score_appears_here', 'Listening… the score appears here when it is done.');
     _watchScoreJob(data.id);
     if (typeof poll === 'function') poll();
   } catch (e) { if (status) status.textContent = e.message || String(e); }
@@ -750,13 +750,13 @@ function _watchScoreJob(id) {
         SONG = {path: d.path, abc: d.abc, title: d.title, style: '', lyrics: '', has_artifacts: false};
         card.hidden = false;
         _el('songTitle').textContent = d.title || 'Score';
-        _el('songStyle').textContent = d.cover ? `read from ${String(d.cover.artifacts || '').split('/').pop() ? 'the recording' : 'the recording'} · ${d.cover.task}` : '';
+        _el('songStyle').textContent = d.cover ? `read from ${String(d.cover.artifacts || '').split('/').pop() ? T('music.the_recording', 'the recording') : T('music.the_recording', 'the recording')} · ${d.cover.task}` : '';
         _el('songBadges').innerHTML = '<span class="song-badge">score</span>';
         _el('songLineage').innerHTML = '';
         for (const b of _el('songActions').querySelectorAll('button')) b.disabled = true;
         _renderScore(d.abc);
         _renderLyrics('');
-        if (status) status.textContent = 'Score ready — it is on the card. Edit it and render, or copy the ABC.';
+        if (status) status.textContent = T('music.score_ready_it_is_on', 'Score ready — it is on the card. Edit it and render, or copy the ABC.');
         return;
       }
       if (d.status === 'failed' || d.status === 'cancelled') { if (status) status.textContent = d.error || 'The transcription did not finish.'; return; }
@@ -866,9 +866,9 @@ function renderSongList(el, songs) {
         <div class="song-row-sub">${_styleChips(m.style)}${m.has_score ? '<span class="song-chip score" title="Has sheet music">♪ score</span>' : ''}</div>
       </div>
       <div class="song-dur">${o.clip_sec ? _mmss(o.clip_sec) : ''}</div>
-      <button type="button" class="song-play${playing ? ' on' : ''}" title="${playing ? 'Pause' : 'Play'}" aria-label="${playing ? 'Pause' : 'Play'}"
+      <button type="button" class="song-play${playing ? ' on' : ''}" title="${playing ? T('music.pause', 'Pause') : T('music.play', 'Play')}" aria-label="${playing ? T('music.pause', 'Pause') : T('music.play', 'Play')}"
               onclick="event.stopPropagation(); musicBarToggle(${attr})">${playing ? _svgPause() : _svgPlay()}</button>
-      <button type="button" class="song-more" title="More" aria-label="More actions"
+      <button type="button" class="song-more" title="${TA('music.more', 'More')}" aria-label="${TA('music.more_actions', 'More actions')}"
               onclick="event.stopPropagation(); musicMenuOpen(event, ${attr})">⋯</button>
     </div>`;
   });
@@ -888,7 +888,7 @@ function songHero(o) {
     <div class="song-hero-text">
       <div class="song-hero-title">${_esc(_songTitle(o))}</div>
       <div class="song-hero-style">${_esc(m.style || '')}</div>
-      <div class="song-hero-meta">${o.clip_sec ? _mmss(o.clip_sec) : ''}${m.mode && m.mode !== 'off' ? ' · sheet music' : ''}${m.cover ? ' · cover' : ''}</div>
+      <div class="song-hero-meta">${o.clip_sec ? _mmss(o.clip_sec) : ''}${m.mode && m.mode !== 'off' ? T('music.sheet_music', ' · sheet music') : ''}${m.cover ? T('music.cover', ' · cover') : ''}</div>
       <button type="button" class="primary song-hero-play" onclick="musicBarToggle(${pathAttr})">${_svgPlay()} Play</button>
     </div>
   </div>`;
@@ -906,22 +906,22 @@ function musicMenuOpen(ev, path) {
     `<button type="button" class="song-menu-item" ${disabled ? `disabled title="${_esc(why || '')}"` : ''} onclick="musicMenuClose(); ${fn}">${label}${sub ? `<span class="sub">${sub}</span>` : ''}</button>`;
   const noArt = !m.has_artifacts, noScore = !m.has_score;
   menu.innerHTML = [
-    item('Play', '', `musicBarToggle(${attr})`),
-    item('Open', 'score, lyrics, family', `selectOutput(${attr})`),
+    item(T('music.play', 'Play'), '', `musicBarToggle(${attr})`),
+    item(T('music.open', 'Open'), T('music.score_lyrics_family', 'score, lyrics, family'), `selectOutput(${attr})`),
     '<div class="song-menu-sep"></div>',
-    item('New take', 'same song, performed again', `musicVariation('take', ${attr})`, noArt, 'This song kept no artifacts'),
-    item('Re-roll the sound', 'same performance, new recording · fast', `musicVariation('sound', ${attr})`, noArt, 'This song kept no artifacts'),
-    item('New style on this score', "the composer's style + lyrics", `musicSongAction(${attr}, 'restyle')`, noScore, 'No score on this song'),
-    item('Cover it', 'read the tune, write it fresh', `musicSongAction(${attr}, 'cover')`),
-    item('Edit the score', '', `musicSongAction(${attr}, 'edit')`, noScore, 'No score on this song'),
+    item(T('music.new_take_2', 'New take'), T('music.same_song_performed_again', 'same song, performed again'), `musicVariation('take', ${attr})`, noArt, T('music.this_song_kept_no_artifacts_2', 'This song kept no artifacts')),
+    item(T('music.re_roll_the_sound', 'Re-roll the sound'), T('music.same_performance_new_recording_fast', 'same performance, new recording · fast'), `musicVariation('sound', ${attr})`, noArt, T('music.this_song_kept_no_artifacts_2', 'This song kept no artifacts')),
+    item(T('music.new_style_on_this_score', 'New style on this score'), T('music.the_composer_s_style_lyrics', "the composer's style + lyrics"), `musicSongAction(${attr}, 'restyle')`, noScore, T('music.no_score_on_this_song', 'No score on this song')),
+    item(T('music.cover_it', 'Cover it'), T('music.read_the_tune_write_it', 'read the tune, write it fresh'), `musicSongAction(${attr}, 'cover')`),
+    item(T('music.edit_the_score', 'Edit the score'), '', `musicSongAction(${attr}, 'edit')`, noScore, T('music.no_score_on_this_song', 'No score on this song')),
     '<div class="song-menu-sep"></div>',
     // 4.18.0: the same destinations the gallery's "Use this audio for…" offers.
-    item('Lip-sync', 'a face in your picture sings it', `audioUseApply(${attr}, 'lipsync')`),
-    item('Music video', 'your pictures, planned and cut to it', `audioUseApply(${attr}, 'musicvideo')`),
-    item('Soundtrack for a video', 'image-to-video, with this as its sound', `audioUseApply(${attr}, 'soundtrack')`),
+    item('Lip-sync', T('music.a_face_in_your_picture', 'a face in your picture sings it'), `audioUseApply(${attr}, 'lipsync')`),
+    item('Music video', T('music.your_pictures_planned_and_cut', 'your pictures, planned and cut to it'), `audioUseApply(${attr}, 'musicvideo')`),
+    item(T('music.soundtrack_for_a_video', 'Soundtrack for a video'), T('music.image_to_video_with_this', 'image-to-video, with this as its sound'), `audioUseApply(${attr}, 'soundtrack')`),
     '<div class="song-menu-sep"></div>',
-    item('Show in Finder', 'the outputs folder', `if (typeof openOutputsFolder === 'function') openOutputsFolder()`),
-    item('Delete', '', `if (typeof deleteOutput === 'function') deleteOutput(${attr})`),
+    item(T('music.show_in_finder', 'Show in Finder'), T('music.the_outputs_folder', 'the outputs folder'), `if (typeof openOutputsFolder === 'function') openOutputsFolder()`),
+    item(T('music.delete', 'Delete'), '', `if (typeof deleteOutput === 'function') deleteOutput(${attr})`),
   ].join('');
   menu.hidden = false;
   const r = ev.currentTarget.getBoundingClientRect();
@@ -990,7 +990,7 @@ function _barSyncButtons() {
   const a = _barAudio();
   const playing = a && !a.paused;
   const btn = _el('musicBarPlay');
-  if (btn) { btn.innerHTML = playing ? _svgPause() : _svgPlay(); btn.title = playing ? 'Pause' : 'Play'; }
+  if (btn) { btn.innerHTML = playing ? _svgPause() : _svgPlay(); btn.title = playing ? T('music.pause', 'Pause') : T('music.play', 'Play'); }
   document.querySelectorAll('.song-row .song-play').forEach(b => {
     const row = b.closest('.song-row');
     const on = playing && _barSong && row && row.dataset.path === _barSong.path;
@@ -1204,7 +1204,7 @@ async function mvUploadSong(file) {
     mvRenderSong();
     mvSay('');
   } catch (e) {
-    mvSay('Could not read that song: ' + (e.message || e));
+    mvSay(T('music.could_not_read_that_song_2', 'Could not read that song: ') + (e.message || e));
   }
 }
 
@@ -1261,7 +1261,7 @@ async function mvAddPictures(files) {
       MV.cast.push({ path: data.path, name: f.name,
                      role: MV.cast.length === 0 ? 'singer' : '', prompt: '' });
     } catch (e) {
-      mvSay(`Could not add ${f.name}: ` + (e.message || e));
+      mvSay(T('music.could_not_add', 'Could not add {name}: ', {name: f.name}) + (e.message || e));
       mvRenderCast();
       return;
     }
@@ -1287,9 +1287,9 @@ function mvRemovePicture(i) {
 }
 
 const MV_ROLES = [
-  ['singer', 'Singer', 'Filmed singing, in sync with the song'],
-  ['instrument', 'Instrument', 'B-roll — hands, keys, strings'],
-  ['room', 'Room', 'B-roll — the wide, the lights, the audience'],
+  ['singer', T('music.singer', 'Singer'), T('music.filmed_singing_in_sync_with', 'Filmed singing, in sync with the song')],
+  ['instrument', T('music.instrument', 'Instrument'), T('music.b_roll_hands_keys_strings', 'B-roll — hands, keys, strings')],
+  ['room', T('music.room', 'Room'), T('music.b_roll_the_wide_the', 'B-roll — the wide, the lights, the audience')],
 ];
 
 function mvRenderCast() {
@@ -1343,13 +1343,13 @@ Object.assign(MV, { pendingSections: null });
 
 async function mvPlan() {
   if (MV.busy) return;
-  if (!MV.song) { mvSay('Pick a song first.'); return; }
-  if (!MV.cast.length) { mvSay('Drop at least one picture.'); return; }
+  if (!MV.song) { mvSay(T('music.pick_a_song_first', 'Pick a song first.')); return; }
+  if (!MV.cast.length) { mvSay(T('music.drop_at_least_one_picture', 'Drop at least one picture.')); return; }
   // FILM-12: a picture with no role picked is one nobody has told the
   // planner what to do with — mvAddPictures() no longer guesses "Room" for
   // it, so pressing Plan on an unlabelled cast asks instead of misfiring.
   if (MV.cast.some(c => !c.role)) {
-    mvSay('Pick a role for every picture — Singer, Instrument or Room.');
+    mvSay(T('music.pick_a_role_for_every', 'Pick a role for every picture — Singer, Instrument or Room.'));
     mvRenderCast();
     return;
   }
@@ -1369,8 +1369,8 @@ async function _mvPlanRequest(opts) {
   if (MV.busy) return;
   const btn = _el('mvPlanBtn');
   MV.busy = true;
-  if (btn) { btn.disabled = true; btn.textContent = 'Reading the song…'; }
-  mvSay('Reading the beat and writing the shot list…');
+  if (btn) { btn.disabled = true; btn.textContent = T('music.reading_the_song', 'Reading the song…'); }
+  mvSay(T('music.reading_the_beat_and_writing', 'Reading the beat and writing the shot list…'));
   try {
     const fd = new URLSearchParams();
     fd.set('song', MV.song);
@@ -1408,10 +1408,10 @@ async function _mvPlanRequest(opts) {
     if (typeof workflowSwitch === 'function') workflowSwitch('storyboard');
     if (typeof sbOpen === 'function') await sbOpen(data.board_id);
   } catch (e) {
-    mvSay('Could not plan that video: ' + (e.message || e));
+    mvSay(T('music.could_not_plan_that_video', 'Could not plan that video: ') + (e.message || e));
   } finally {
     MV.busy = false;
-    if (btn) { btn.disabled = false; btn.textContent = 'Plan the video'; }
+    if (btn) { btn.disabled = false; btn.textContent = T('music.plan_the_video', 'Plan the video'); }
   }
 }
 
@@ -1441,7 +1441,7 @@ function mvRenderSections() {
         const vocal = String(s.kind || '').toLowerCase() === 'vocal';
         return `<button type="button" class="pill-btn mv-section-chip${vocal ? ' active' : ''}" data-i="${i}"
                   title="${_esc(s.name || '')}: ${_mvClock(s.start)}–${_mvClock(s.end)}">
-                  ${_mvClock(s.start)}–${_mvClock(s.end)} · ${vocal ? 'Sung' : 'Instrumental'}
+                  ${_mvClock(s.start)}–${_mvClock(s.end)} · ${vocal ? T('music.sung', 'Sung') : T('music.instrumental', 'Instrumental')}
                 </button>`;
       }).join('')
     + '</div>'

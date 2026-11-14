@@ -29,6 +29,10 @@ function _wireModeGroupTabSemantics() {
 }
 
 // ====== Init ======
+// Translate the markup first (docs/TRANSLATING.md) — a no-op in English —
+// so every later startup step reads the page in its final language.
+applyI18n(document);
+i18nFillLanguageMenu();
 studioMotionInit();
 // Licence screens (4.19.8): wrap fetch() first, so a 451 licence_required
 // from any later call opens the model's licence instead of a bare error.
@@ -56,7 +60,7 @@ document.getElementById('modeGroup')?.addEventListener('click', modeChipEngineCl
   const btn = document.getElementById('enhanceBtn');
   if (!btn) return;
   const gen = ((BOOT.ltx || {}).generation === 'ltx23') ? '2.3' : '2.5';
-  btn.title = `Use Gemma to rewrite your prompt in the style LTX ${gen} was trained on`;
+  btn.title = T('main.use_gemma_to_rewrite_your', 'Use Gemma to rewrite your prompt in the style LTX {gen} was trained on', {gen});
 })();
 // Skip poll when the tab is backgrounded — at 1.5s cadence with a fan-
 // spinning render in the background, every saved request matters. Pinokio

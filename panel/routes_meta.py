@@ -603,9 +603,11 @@ def post_analytics_ui(h, path, qs, ctype) -> None:
         P._analytics_install_step("first_use", "ok")
     elif event == "pro_click":
         where, action = str(_f("where")).strip(), str(_f("action")).strip()
-        if where not in P.PRO_HINT_WHERE or action not in ("open", "get"):
+        plan = str(_f("plan")).strip()
+        if (where not in P.PRO_HINT_WHERE or action not in P.PRO_CLICK_ACTIONS
+                or (plan and plan not in P.PRO_CLICK_PLANS)):
             h._json({"ok": False, "error": "unknown pro_click"}, 400); return
-        P.pro_click_report(where, action)
+        P.pro_click_report(where, action, plan)
     elif event == "feature_used":
         feature = str(_f("feature")).strip()
         if feature not in ("editor_open", "editor_export", "enhance_prompt", "share"):
@@ -988,4 +990,5 @@ def get_root(h, parsed) -> None:
         _theme = _ck["phos_theme"].value if "phos_theme" in _ck else ""
     except Exception:                                              # noqa: BLE001
         _theme = ""
-    h._ok(P.page(theme=_theme).encode())
+    h._ok(P.page(theme=_theme,
+                 accept_language=h.headers.get("Accept-Language") or "").encode())

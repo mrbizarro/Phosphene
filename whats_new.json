@@ -295,5 +295,14 @@
     "pro": [],
     "date": "2026-11-14",
     "headline": "Fewer failed renders: fixes for trained styles on small Macs, graphics stops on M1 and M2 Macs, and deleted inputs."
+  },
+  "5.0.24": {
+    "free": [
+      "Phosphene speaks your language: English, Spanish, German, French, Italian, Portuguese, Russian, Japanese, Korean and Chinese (Simplified). It follows your Mac, or pick one in Settings, Language.",
+      "The Pro window now says what Pro does on your Mac, shows both plans with their prices, the 14-day refund and how your key arrives."
+    ],
+    "pro": [],
+    "date": "2026-11-14",
+    "headline": "Phosphene now speaks your language: ten languages, picked from your Mac or in Settings."
   }
 }

@@ -1,0 +1,2298 @@
+{
+ "about": "Core Phosphene UI terms: what each IS, and the agreed word per language. Shared by the Studio and the Mac app tools. 'match' = English words, whole words (case-sensitive when written with a capital, so 'Outputs' the tab is not 'output codec') that count as this term. Per language: 'use' is the agreed word shown to translators; 'accept' lists the stems a translation must contain (any one) when the English uses the term. 'strict': true refuses a translation that drops the agreed word; otherwise it is a warning. A language with no entry gets the meaning only, and the translator proposes a word (python3 scripts/i18n_tool.py glossary <lang> lists them to fill in). One neutral file per language: no regional variants (zh-Hans for Chinese).",
+ "terms": [
+  {
+   "term": "Outputs",
+   "match": [
+    "Outputs"
+   ],
+   "strict": true,
+   "meaning": "the gallery of everything the user has made: their own videos, pictures and sounds. Not a technical 'output'.",
+   "es": {
+    "use": "Galería (the gallery); in a sentence 'tus creaciones' or 'tus videos'",
+    "accept": [
+     "galer",
+     "creacion",
+     "video",
+     "imagen",
+     "resultado"
+    ]
+   },
+   "ja": {
+    "use": "ギャラリー（作品一覧）",
+    "accept": [
+     "ギャラリー",
+     "作品",
+     "ライブラリ",
+     "動画",
+     "画像"
+    ]
+   },
+   "zh-Hans": {
+    "use": "作品（我的作品）",
+    "accept": [
+     "作品",
+     "图库",
+     "画廊",
+     "视频",
+     "图片"
+    ]
+   },
+   "de": {
+    "use": "Galerie (in a sentence: 'deine Kreationen')",
+    "accept": [
+     "galerie",
+     "kreation",
+     "video",
+     "bild"
+    ]
+   },
+   "fr": {
+    "use": "Galerie (in a sentence: 'vos créations')",
+    "accept": [
+     "galerie",
+     "création",
+     "vidéo",
+     "image"
+    ]
+   },
+   "pt": {
+    "use": "Galeria (in a sentence: 'suas criações')",
+    "accept": [
+     "galeria",
+     "criaç",
+     "vídeo",
+     "imagem"
+    ]
+   },
+   "ru": {
+    "use": "Галерея (in a sentence: 'ваши работы')",
+    "accept": [
+     "галере",
+     "работ",
+     "видео",
+     "изображ"
+    ]
+   },
+   "ko": {
+    "use": "갤러리 (문장에서는 '내 작품')",
+    "accept": [
+     "갤러리",
+     "작품",
+     "영상",
+     "이미지"
+    ]
+   },
+   "it": {
+    "use": "Galleria (in a sentence: 'le tue creazioni')",
+    "accept": [
+     "galleria",
+     "creazion",
+     "video",
+     "immagin"
+    ]
+   }
+  },
+  {
+   "term": "Queue",
+   "match": [
+    "Queue",
+    "queued"
+   ],
+   "strict": false,
+   "meaning": "the list of videos waiting to be made, one after another",
+   "es": {
+    "use": "Cola (en cola)",
+    "accept": [
+     "cola",
+     "espera"
+    ]
+   },
+   "ja": {
+    "use": "キュー（待機中）",
+    "accept": [
+     "キュー",
+     "待機",
+     "順番",
+     "予約"
+    ]
+   },
+   "zh-Hans": {
+    "use": "队列（等待中）",
+    "accept": [
+     "队列",
+     "排队",
+     "等待"
+    ]
+   },
+   "de": {
+    "use": "Warteschlange",
+    "accept": [
+     "warteschlange",
+     "schlange"
+    ]
+   },
+   "fr": {
+    "use": "File d'attente",
+    "accept": [
+     "file d'attente",
+     "attente"
+    ]
+   },
+   "pt": {
+    "use": "Fila",
+    "accept": [
+     "fila"
+    ]
+   },
+   "ru": {
+    "use": "Очередь",
+    "accept": [
+     "очеред"
+    ]
+   },
+   "ko": {
+    "use": "대기열",
+    "accept": [
+     "대기열",
+     "대기"
+    ]
+   },
+   "it": {
+    "use": "Coda",
+    "accept": [
+     "coda"
+    ]
+   }
+  },
+  {
+   "term": "Now",
+   "match": [],
+   "strict": false,
+   "meaning": "tab showing the video being made right now",
+   "es": {
+    "use": "En curso",
+    "accept": [
+     "curso",
+     "ahora"
+    ]
+   },
+   "ja": {
+    "use": "作成中",
+    "accept": [
+     "作成中",
+     "実行中",
+     "現在",
+     "進行中"
+    ]
+   },
+   "zh-Hans": {
+    "use": "进行中",
+    "accept": [
+     "进行中",
+     "当前",
+     "正在"
+    ]
+   },
+   "de": {
+    "use": "Jetzt",
+    "accept": [
+     "jetzt",
+     "aktuell"
+    ]
+   },
+   "fr": {
+    "use": "En cours",
+    "accept": [
+     "en cours",
+     "maintenant"
+    ]
+   },
+   "pt": {
+    "use": "Agora",
+    "accept": [
+     "agora",
+     "atual",
+     "em andamento"
+    ]
+   },
+   "ru": {
+    "use": "Сейчас",
+    "accept": [
+     "сейчас",
+     "текущ",
+     "идёт"
+    ]
+   },
+   "ko": {
+    "use": "현재",
+    "accept": [
+     "현재",
+     "지금",
+     "진행"
+    ]
+   },
+   "it": {
+    "use": "In corso",
+    "accept": [
+     "in corso",
+     "ora",
+     "adesso"
+    ]
+   }
+  },
+  {
+   "term": "Recent",
+   "match": [],
+   "strict": false,
+   "meaning": "tab listing the videos finished most recently",
+   "es": {
+    "use": "Recientes",
+    "accept": [
+     "recient"
+    ]
+   },
+   "ja": {
+    "use": "最近",
+    "accept": [
+     "最近",
+     "履歴",
+     "新着"
+    ]
+   },
+   "zh-Hans": {
+    "use": "最近",
+    "accept": [
+     "最近",
+     "历史",
+     "最新"
+    ]
+   },
+   "de": {
+    "use": "Zuletzt",
+    "accept": [
+     "zuletzt",
+     "neueste",
+     "letzte"
+    ]
+   },
+   "fr": {
+    "use": "Récents",
+    "accept": [
+     "récent",
+     "dernier"
+    ]
+   },
+   "pt": {
+    "use": "Recentes",
+    "accept": [
+     "recente",
+     "últimos"
+    ]
+   },
+   "ru": {
+    "use": "Недавние",
+    "accept": [
+     "недавн",
+     "последн"
+    ]
+   },
+   "ko": {
+    "use": "최근",
+    "accept": [
+     "최근"
+    ]
+   },
+   "it": {
+    "use": "Recenti",
+    "accept": [
+     "recent",
+     "ultim"
+    ]
+   }
+  },
+  {
+   "term": "Logs",
+   "match": [
+    "Logs"
+   ],
+   "strict": false,
+   "meaning": "technical messages from the engine, for troubleshooting",
+   "es": {
+    "use": "Registro",
+    "accept": [
+     "registro"
+    ]
+   },
+   "ja": {
+    "use": "ログ",
+    "accept": [
+     "ログ"
+    ]
+   },
+   "zh-Hans": {
+    "use": "日志",
+    "accept": [
+     "日志"
+    ]
+   },
+   "de": {
+    "use": "Protokolle",
+    "accept": [
+     "protokoll",
+     "log"
+    ]
+   },
+   "fr": {
+    "use": "Journaux",
+    "accept": [
+     "journa",
+     "log"
+    ]
+   },
+   "pt": {
+    "use": "Registros (logs)",
+    "accept": [
+     "registro",
+     "log"
+    ]
+   },
+   "ru": {
+    "use": "Журнал",
+    "accept": [
+     "журнал",
+     "лог"
+    ]
+   },
+   "ko": {
+    "use": "로그",
+    "accept": [
+     "로그",
+     "기록"
+    ]
+   },
+   "it": {
+    "use": "Registri (log)",
+    "accept": [
+     "registr",
+     "log"
+    ]
+   }
+  },
+  {
+   "term": "Generate",
+   "match": [
+    "Generate"
+   ],
+   "strict": false,
+   "meaning": "the main button: start making the video, picture or song",
+   "es": {
+    "use": "Generar",
+    "accept": [
+     "gener",
+     "crea"
+    ]
+   },
+   "ja": {
+    "use": "生成",
+    "accept": [
+     "生成",
+     "作成"
+    ]
+   },
+   "zh-Hans": {
+    "use": "生成",
+    "accept": [
+     "生成"
+    ]
+   },
+   "de": {
+    "use": "Generieren",
+    "accept": [
+     "generier",
+     "erstell"
+    ]
+   },
+   "fr": {
+    "use": "Générer",
+    "accept": [
+     "génér",
+     "créer"
+    ]
+   },
+   "pt": {
+    "use": "Gerar",
+    "accept": [
+     "ger",
+     "cria"
+    ]
+   },
+   "ru": {
+    "use": "Создать (сгенерировать)",
+    "accept": [
+     "создат",
+     "создан",
+     "генер"
+    ]
+   },
+   "ko": {
+    "use": "생성",
+    "accept": [
+     "생성",
+     "만들"
+    ]
+   },
+   "it": {
+    "use": "Genera",
+    "accept": [
+     "gener",
+     "crea"
+    ]
+   }
+  },
+  {
+   "term": "Render",
+   "match": [
+    "render",
+    "renders",
+    "rendering",
+    "rendered"
+   ],
+   "strict": false,
+   "meaning": "the computer making a video (or one finished video). Users of video apps know 'render'.",
+   "es": {
+    "use": "render / renderizar (el render, renderizando)",
+    "accept": [
+     "render",
+     "gener",
+     "creand",
+     "procesa"
+    ]
+   },
+   "ja": {
+    "use": "レンダリング（書き出し）",
+    "accept": [
+     "レンダリング",
+     "書き出し",
+     "生成",
+     "描画"
+    ]
+   },
+   "zh-Hans": {
+    "use": "渲染（导出）",
+    "accept": [
+     "渲染",
+     "生成",
+     "导出"
+    ]
+   },
+   "de": {
+    "use": "Rendern (das Rendering, gerendert)",
+    "accept": [
+     "render"
+    ]
+   },
+   "fr": {
+    "use": "Rendu (rendre, en cours de rendu)",
+    "accept": [
+     "rendu",
+     "render",
+     "rendre"
+    ]
+   },
+   "pt": {
+    "use": "Renderização (renderizar, render)",
+    "accept": [
+     "render"
+    ]
+   },
+   "ru": {
+    "use": "Рендер (рендеринг, рендерить)",
+    "accept": [
+     "рендер"
+    ]
+   },
+   "ko": {
+    "use": "렌더링 (렌더)",
+    "accept": [
+     "렌더"
+    ]
+   },
+   "it": {
+    "use": "Render (renderizzare, rendering)",
+    "accept": [
+     "render"
+    ]
+   }
+  },
+  {
+   "term": "Draft",
+   "match": [
+    "Draft",
+    "drafts"
+   ],
+   "strict": false,
+   "meaning": "a fast, lower-quality version to check the idea before the final one",
+   "es": {
+    "use": "Borrador",
+    "accept": [
+     "borrador"
+    ]
+   },
+   "ja": {
+    "use": "ドラフト（試作）",
+    "accept": [
+     "ドラフト",
+     "下書き",
+     "試作",
+     "プレビュー"
+    ]
+   },
+   "zh-Hans": {
+    "use": "草稿（预览版）",
+    "accept": [
+     "草稿",
+     "预览",
+     "试做"
+    ]
+   },
+   "de": {
+    "use": "Entwurf",
+    "accept": [
+     "entwurf",
+     "vorschau",
+     "entw"
+    ]
+   },
+   "fr": {
+    "use": "Brouillon",
+    "accept": [
+     "brouillon",
+     "aperçu"
+    ]
+   },
+   "pt": {
+    "use": "Rascunho",
+    "accept": [
+     "rascunho",
+     "prévia"
+    ]
+   },
+   "ru": {
+    "use": "Черновик",
+    "accept": [
+     "черновик",
+     "предпросмотр"
+    ]
+   },
+   "ko": {
+    "use": "초안",
+    "accept": [
+     "초안",
+     "미리보기"
+    ]
+   },
+   "it": {
+    "use": "Bozza",
+    "accept": [
+     "bozza",
+     "anteprima",
+     "bozz"
+    ]
+   }
+  },
+  {
+   "term": "Final",
+   "match": [],
+   "strict": false,
+   "meaning": "the full-quality version of a shot, made after the draft",
+   "es": {
+    "use": "Final",
+    "accept": [
+     "final"
+    ]
+   },
+   "ja": {
+    "use": "最終版",
+    "accept": [
+     "最終",
+     "本番",
+     "仕上げ"
+    ]
+   },
+   "zh-Hans": {
+    "use": "最终版",
+    "accept": [
+     "最终",
+     "成片",
+     "正式"
+    ]
+   },
+   "de": {
+    "use": "Final (Endfassung)",
+    "accept": [
+     "final",
+     "endfassung",
+     "endgültig"
+    ]
+   },
+   "fr": {
+    "use": "Final (version finale)",
+    "accept": [
+     "final",
+     "définitif"
+    ]
+   },
+   "pt": {
+    "use": "Final (versão final)",
+    "accept": [
+     "final",
+     "definitiv"
+    ]
+   },
+   "ru": {
+    "use": "Финал (финальная версия)",
+    "accept": [
+     "финал",
+     "итогов"
+    ]
+   },
+   "ko": {
+    "use": "최종",
+    "accept": [
+     "최종",
+     "파이널"
+    ]
+   },
+   "it": {
+    "use": "Finale (versione finale)",
+    "accept": [
+     "final",
+     "definitiv"
+    ]
+   }
+  },
+  {
+   "term": "Extend",
+   "match": [
+    "Extend"
+   ],
+   "strict": false,
+   "meaning": "make an existing clip longer by continuing it",
+   "es": {
+    "use": "Extender",
+    "accept": [
+     "extend",
+     "alarg"
+    ]
+   },
+   "ja": {
+    "use": "延長",
+    "accept": [
+     "延長",
+     "拡張",
+     "続き"
+    ]
+   },
+   "zh-Hans": {
+    "use": "延长",
+    "accept": [
+     "延长",
+     "扩展",
+     "续写"
+    ]
+   },
+   "de": {
+    "use": "Verlängern",
+    "accept": [
+     "verlänger"
+    ]
+   },
+   "fr": {
+    "use": "Prolonger",
+    "accept": [
+     "prolong",
+     "étend",
+     "rallong"
+    ]
+   },
+   "pt": {
+    "use": "Estender",
+    "accept": [
+     "estend",
+     "prolong",
+     "alongar"
+    ]
+   },
+   "ru": {
+    "use": "Продлить",
+    "accept": [
+     "продл",
+     "удлин",
+     "расшир"
+    ]
+   },
+   "ko": {
+    "use": "연장",
+    "accept": [
+     "연장",
+     "확장",
+     "이어"
+    ]
+   },
+   "it": {
+    "use": "Estendi",
+    "accept": [
+     "esten",
+     "prolung",
+     "allung"
+    ]
+   }
+  },
+  {
+   "term": "Upscale",
+   "match": [
+    "Upscale",
+    "upscaling",
+    "upscaled"
+   ],
+   "strict": false,
+   "meaning": "make a finished video sharper and bigger (higher resolution)",
+   "es": {
+    "use": "Aumentar resolución (mejorar resolución)",
+    "accept": [
+     "resoluci",
+     "escal",
+     "nitidez"
+    ]
+   },
+   "ja": {
+    "use": "アップスケール（高画質化）",
+    "accept": [
+     "アップスケール",
+     "高画質",
+     "高解像",
+     "拡大"
+    ]
+   },
+   "zh-Hans": {
+    "use": "超清放大（超分）",
+    "accept": [
+     "超分",
+     "放大",
+     "高清",
+     "分辨率"
+    ]
+   },
+   "de": {
+    "use": "Hochskalieren (Auflösung erhöhen)",
+    "accept": [
+     "hochskal",
+     "skalier",
+     "auflösung"
+    ]
+   },
+   "fr": {
+    "use": "Améliorer la résolution (upscale)",
+    "accept": [
+     "résolution",
+     "upscal",
+     "agrand",
+     "mise à l'échelle"
+    ]
+   },
+   "pt": {
+    "use": "Aumentar resolução (upscale)",
+    "accept": [
+     "resolução",
+     "upscal",
+     "ampli"
+    ]
+   },
+   "ru": {
+    "use": "Увеличить разрешение (апскейл)",
+    "accept": [
+     "разрешени",
+     "апскейл",
+     "увелич",
+     "масштаб"
+    ]
+   },
+   "ko": {
+    "use": "업스케일 (해상도 높이기)",
+    "accept": [
+     "업스케일",
+     "해상도",
+     "확대"
+    ]
+   },
+   "it": {
+    "use": "Aumenta risoluzione (upscale)",
+    "accept": [
+     "risoluzione",
+     "upscal",
+     "ingrand"
+    ]
+   }
+  },
+  {
+   "term": "Seed",
+   "match": [
+    "Seed"
+   ],
+   "strict": false,
+   "meaning": "the number that makes a result repeatable; same seed + same settings = same video",
+   "es": {
+    "use": "Semilla",
+    "accept": [
+     "semilla"
+    ]
+   },
+   "ja": {
+    "use": "シード",
+    "accept": [
+     "シード"
+    ]
+   },
+   "zh-Hans": {
+    "use": "种子",
+    "accept": [
+     "种子"
+    ]
+   },
+   "de": {
+    "use": "Seed",
+    "accept": [
+     "seed"
+    ]
+   },
+   "fr": {
+    "use": "Seed (graine)",
+    "accept": [
+     "seed",
+     "graine"
+    ]
+   },
+   "pt": {
+    "use": "Seed",
+    "accept": [
+     "seed",
+     "semente"
+    ]
+   },
+   "ru": {
+    "use": "Сид (seed)",
+    "accept": [
+     "сид",
+     "seed"
+    ]
+   },
+   "ko": {
+    "use": "시드",
+    "accept": [
+     "시드",
+     "seed"
+    ]
+   },
+   "it": {
+    "use": "Seed",
+    "accept": [
+     "seed"
+    ]
+   }
+  },
+  {
+   "term": "Prompt",
+   "match": [
+    "prompt",
+    "prompts"
+   ],
+   "strict": false,
+   "meaning": "the text where the user describes the video or picture they want",
+   "es": {
+    "use": "prompt (descripción)",
+    "accept": [
+     "prompt",
+     "descrip"
+    ]
+   },
+   "ja": {
+    "use": "プロンプト",
+    "accept": [
+     "プロンプト"
+    ]
+   },
+   "zh-Hans": {
+    "use": "提示词",
+    "accept": [
+     "提示词",
+     "Prompt"
+    ]
+   },
+   "de": {
+    "use": "Prompt (Beschreibung)",
+    "accept": [
+     "prompt",
+     "beschreibung"
+    ]
+   },
+   "fr": {
+    "use": "Prompt (description)",
+    "accept": [
+     "prompt",
+     "description"
+    ]
+   },
+   "pt": {
+    "use": "Prompt (descrição)",
+    "accept": [
+     "prompt",
+     "descrição"
+    ]
+   },
+   "ru": {
+    "use": "Промпт (описание)",
+    "accept": [
+     "промпт",
+     "описани",
+     "prompt"
+    ]
+   },
+   "ko": {
+    "use": "프롬프트",
+    "accept": [
+     "프롬프트",
+     "prompt"
+    ]
+   },
+   "it": {
+    "use": "Prompt (descrizione)",
+    "accept": [
+     "prompt",
+     "descrizione"
+    ]
+   }
+  },
+  {
+   "term": "Avoid",
+   "match": [
+    "Avoid"
+   ],
+   "strict": false,
+   "meaning": "the list of things the user does NOT want in the video (a negative prompt)",
+   "es": {
+    "use": "Evitar",
+    "accept": [
+     "evit"
+    ]
+   },
+   "ja": {
+    "use": "除外（ネガティブプロンプト）",
+    "accept": [
+     "除外",
+     "ネガティブ",
+     "避け"
+    ]
+   },
+   "zh-Hans": {
+    "use": "排除（反向提示词）",
+    "accept": [
+     "排除",
+     "反向",
+     "避免"
+    ]
+   },
+   "de": {
+    "use": "Vermeiden",
+    "accept": [
+     "vermeid",
+     "ausschließ"
+    ]
+   },
+   "fr": {
+    "use": "Éviter",
+    "accept": [
+     "évit",
+     "exclu"
+    ]
+   },
+   "pt": {
+    "use": "Evitar",
+    "accept": [
+     "evit",
+     "exclu"
+    ]
+   },
+   "ru": {
+    "use": "Исключить",
+    "accept": [
+     "исключ",
+     "избега",
+     "не нужно"
+    ]
+   },
+   "ko": {
+    "use": "제외할 요소",
+    "accept": [
+     "제외",
+     "피할",
+     "네거티브"
+    ]
+   },
+   "it": {
+    "use": "Da evitare",
+    "accept": [
+     "evit",
+     "escludi"
+    ]
+   }
+  },
+  {
+   "term": "Enhance",
+   "match": [
+    "Enhance"
+   ],
+   "strict": false,
+   "meaning": "button that rewrites the user's prompt into a richer one the model understands better",
+   "es": {
+    "use": "Mejorar",
+    "accept": [
+     "mejor"
+    ]
+   },
+   "ja": {
+    "use": "強化",
+    "accept": [
+     "強化",
+     "改善",
+     "最適化",
+     "ブラッシュ"
+    ]
+   },
+   "zh-Hans": {
+    "use": "优化",
+    "accept": [
+     "优化",
+     "增强",
+     "润色"
+    ]
+   },
+   "de": {
+    "use": "Verbessern",
+    "accept": [
+     "verbesser",
+     "optimier"
+    ]
+   },
+   "fr": {
+    "use": "Améliorer",
+    "accept": [
+     "amélior",
+     "optimis",
+     "enrichir"
+    ]
+   },
+   "pt": {
+    "use": "Aprimorar",
+    "accept": [
+     "aprimor",
+     "melhor",
+     "otimiz"
+    ]
+   },
+   "ru": {
+    "use": "Улучшить",
+    "accept": [
+     "улучш",
+     "доработ"
+    ]
+   },
+   "ko": {
+    "use": "향상",
+    "accept": [
+     "향상",
+     "개선",
+     "보강"
+    ]
+   },
+   "it": {
+    "use": "Migliora",
+    "accept": [
+     "miglior",
+     "potenzia"
+    ]
+   }
+  },
+  {
+   "term": "LoRA",
+   "match": [
+    "LoRA",
+    "LoRAs"
+   ],
+   "strict": true,
+   "meaning": "a small add-on file that teaches the model a style, character or effect",
+   "es": {
+    "use": "LoRA (keep as written)",
+    "accept": [
+     "lora"
+    ]
+   },
+   "ja": {
+    "use": "LoRA",
+    "accept": [
+     "LoRA",
+     "ローラ"
+    ]
+   },
+   "zh-Hans": {
+    "use": "LoRA",
+    "accept": [
+     "LoRA"
+    ]
+   },
+   "de": {
+    "use": "LoRA",
+    "accept": [
+     "lora"
+    ]
+   },
+   "fr": {
+    "use": "LoRA",
+    "accept": [
+     "lora"
+    ]
+   },
+   "pt": {
+    "use": "LoRA",
+    "accept": [
+     "lora"
+    ]
+   },
+   "ru": {
+    "use": "LoRA",
+    "accept": [
+     "lora"
+    ]
+   },
+   "ko": {
+    "use": "LoRA",
+    "accept": [
+     "lora"
+    ]
+   },
+   "it": {
+    "use": "LoRA",
+    "accept": [
+     "lora"
+    ]
+   }
+  },
+  {
+   "term": "Character",
+   "match": [
+    "Character",
+    "Characters"
+   ],
+   "strict": true,
+   "meaning": "a person, face or look the user taught the model from photos, reusable in any video",
+   "es": {
+    "use": "Personaje",
+    "accept": [
+     "personaje"
+    ]
+   },
+   "ja": {
+    "use": "キャラクター",
+    "accept": [
+     "キャラクター",
+     "キャラ"
+    ]
+   },
+   "zh-Hans": {
+    "use": "角色",
+    "accept": [
+     "角色"
+    ]
+   },
+   "de": {
+    "use": "Charakter",
+    "accept": [
+     "charakter",
+     "figur"
+    ]
+   },
+   "fr": {
+    "use": "Personnage",
+    "accept": [
+     "personnage"
+    ]
+   },
+   "pt": {
+    "use": "Personagem",
+    "accept": [
+     "personagem",
+     "personag"
+    ]
+   },
+   "ru": {
+    "use": "Персонаж",
+    "accept": [
+     "персонаж"
+    ]
+   },
+   "ko": {
+    "use": "캐릭터",
+    "accept": [
+     "캐릭터"
+    ]
+   },
+   "it": {
+    "use": "Personaggio",
+    "accept": [
+     "personaggio",
+     "personagg"
+    ]
+   }
+  },
+  {
+   "term": "Train Character",
+   "match": [
+    "Train Character"
+   ],
+   "strict": false,
+   "meaning": "teaching the model a character from the user's photos (takes a while, runs on the Mac)",
+   "es": {
+    "use": "Entrenar personaje (entrenamiento)",
+    "accept": [
+     "entren"
+    ]
+   },
+   "ja": {
+    "use": "キャラクターを学習",
+    "accept": [
+     "学習",
+     "トレーニング",
+     "訓練"
+    ]
+   },
+   "zh-Hans": {
+    "use": "训练角色",
+    "accept": [
+     "训练",
+     "学习"
+    ]
+   },
+   "de": {
+    "use": "Charakter trainieren",
+    "accept": [
+     "trainier"
+    ]
+   },
+   "fr": {
+    "use": "Entraîner un personnage",
+    "accept": [
+     "entraîn",
+     "personnage"
+    ]
+   },
+   "pt": {
+    "use": "Treinar personagem",
+    "accept": [
+     "trein",
+     "personagem"
+    ]
+   },
+   "ru": {
+    "use": "Обучить персонажа",
+    "accept": [
+     "обуч",
+     "персонаж"
+    ]
+   },
+   "ko": {
+    "use": "캐릭터 학습",
+    "accept": [
+     "학습",
+     "훈련",
+     "캐릭터"
+    ]
+   },
+   "it": {
+    "use": "Addestra personaggio",
+    "accept": [
+     "addestr",
+     "personaggio"
+    ]
+   }
+  },
+  {
+   "term": "Storyboard",
+   "match": [
+    "Storyboard"
+   ],
+   "strict": true,
+   "meaning": "the tool that plans a short film shot by shot and then makes every shot",
+   "es": {
+    "use": "Storyboard (film people say storyboard)",
+    "accept": [
+     "storyboard"
+    ]
+   },
+   "ja": {
+    "use": "絵コンテ",
+    "accept": [
+     "絵コンテ",
+     "ストーリーボード"
+    ]
+   },
+   "zh-Hans": {
+    "use": "分镜",
+    "accept": [
+     "分镜",
+     "故事板"
+    ]
+   },
+   "de": {
+    "use": "Storyboard",
+    "accept": [
+     "storyboard"
+    ]
+   },
+   "fr": {
+    "use": "Storyboard",
+    "accept": [
+     "storyboard"
+    ]
+   },
+   "pt": {
+    "use": "Storyboard",
+    "accept": [
+     "storyboard"
+    ]
+   },
+   "ru": {
+    "use": "Storyboard (раскадровка)",
+    "accept": [
+     "storyboard",
+     "раскадров"
+    ]
+   },
+   "ko": {
+    "use": "스토리보드",
+    "accept": [
+     "스토리보드",
+     "storyboard"
+    ]
+   },
+   "it": {
+    "use": "Storyboard",
+    "accept": [
+     "storyboard"
+    ]
+   }
+  },
+  {
+   "term": "Editor",
+   "match": [
+    "Editor"
+   ],
+   "strict": false,
+   "meaning": "the video-editing timeline that puts clips, sound and titles together into a film",
+   "es": {
+    "use": "Editor",
+    "accept": [
+     "editor",
+     "edici"
+    ]
+   },
+   "ja": {
+    "use": "エディター",
+    "accept": [
+     "エディター",
+     "編集"
+    ]
+   },
+   "zh-Hans": {
+    "use": "编辑器",
+    "accept": [
+     "编辑器",
+     "剪辑"
+    ]
+   },
+   "de": {
+    "use": "Editor",
+    "accept": [
+     "editor",
+     "schnitt"
+    ]
+   },
+   "fr": {
+    "use": "Éditeur",
+    "accept": [
+     "éditeur",
+     "montage"
+    ]
+   },
+   "pt": {
+    "use": "Editor",
+    "accept": [
+     "editor",
+     "edição"
+    ]
+   },
+   "ru": {
+    "use": "Редактор",
+    "accept": [
+     "редактор",
+     "монтаж"
+    ]
+   },
+   "ko": {
+    "use": "편집기",
+    "accept": [
+     "편집"
+    ]
+   },
+   "it": {
+    "use": "Editor",
+    "accept": [
+     "editor",
+     "montaggio"
+    ]
+   }
+  },
+  {
+   "term": "One Shot",
+   "match": [
+    "One Shot"
+   ],
+   "strict": true,
+   "meaning": "the mode that makes one long continuous video with no cuts (a feature name)",
+   "es": {
+    "use": "One Shot (keep the feature name)",
+    "accept": [
+     "one shot"
+    ]
+   },
+   "ja": {
+    "use": "ワンショット",
+    "accept": [
+     "ワンショット",
+     "One Shot"
+    ]
+   },
+   "zh-Hans": {
+    "use": "一镜到底",
+    "accept": [
+     "一镜到底",
+     "One Shot"
+    ]
+   },
+   "de": {
+    "use": "One Shot",
+    "accept": [
+     "one shot"
+    ]
+   },
+   "fr": {
+    "use": "One Shot",
+    "accept": [
+     "one shot"
+    ]
+   },
+   "pt": {
+    "use": "One Shot",
+    "accept": [
+     "one shot"
+    ]
+   },
+   "ru": {
+    "use": "One Shot",
+    "accept": [
+     "one shot"
+    ]
+   },
+   "ko": {
+    "use": "One Shot",
+    "accept": [
+     "one shot"
+    ]
+   },
+   "it": {
+    "use": "One Shot",
+    "accept": [
+     "one shot"
+    ]
+   }
+  },
+  {
+   "term": "Shot",
+   "match": [
+    "shot",
+    "shots"
+   ],
+   "strict": false,
+   "meaning": "one camera shot of a film (a piece between two cuts)",
+   "es": {
+    "use": "plano",
+    "accept": [
+     "plano",
+     "toma"
+    ]
+   },
+   "ja": {
+    "use": "ショット",
+    "accept": [
+     "ショット",
+     "カット"
+    ]
+   },
+   "zh-Hans": {
+    "use": "镜头",
+    "accept": [
+     "镜头"
+    ]
+   },
+   "de": {
+    "use": "Einstellung",
+    "accept": [
+     "einstellung",
+     "szene",
+     "shot"
+    ]
+   },
+   "fr": {
+    "use": "Plan",
+    "accept": [
+     "plan"
+    ]
+   },
+   "pt": {
+    "use": "Plano",
+    "accept": [
+     "plano",
+     "cena",
+     "shot"
+    ]
+   },
+   "ru": {
+    "use": "Кадр",
+    "accept": [
+     "кадр",
+     "план",
+     "шот"
+    ]
+   },
+   "ko": {
+    "use": "샷",
+    "accept": [
+     "샷",
+     "장면"
+    ]
+   },
+   "it": {
+    "use": "Inquadratura",
+    "accept": [
+     "inquadratura",
+     "scena",
+     "shot",
+     "inquadratur"
+    ]
+   }
+  },
+  {
+   "term": "Clip",
+   "match": [
+    "clip",
+    "clips"
+   ],
+   "strict": false,
+   "meaning": "one short video",
+   "es": {
+    "use": "clip",
+    "accept": [
+     "clip",
+     "video"
+    ]
+   },
+   "ja": {
+    "use": "クリップ",
+    "accept": [
+     "クリップ"
+    ]
+   },
+   "zh-Hans": {
+    "use": "片段",
+    "accept": [
+     "片段",
+     "剪辑"
+    ]
+   },
+   "de": {
+    "use": "Clip",
+    "accept": [
+     "clip"
+    ]
+   },
+   "fr": {
+    "use": "Clip",
+    "accept": [
+     "clip"
+    ]
+   },
+   "pt": {
+    "use": "Clipe",
+    "accept": [
+     "clipe",
+     "clip"
+    ]
+   },
+   "ru": {
+    "use": "Клип",
+    "accept": [
+     "клип"
+    ]
+   },
+   "ko": {
+    "use": "클립",
+    "accept": [
+     "클립"
+    ]
+   },
+   "it": {
+    "use": "Clip",
+    "accept": [
+     "clip"
+    ]
+   }
+  },
+  {
+   "term": "Timeline",
+   "match": [
+    "timeline"
+   ],
+   "strict": false,
+   "meaning": "the Editor's strip where clips and sounds sit in time order",
+   "es": {
+    "use": "línea de tiempo",
+    "accept": [
+     "línea de tiempo",
+     "linea de tiempo"
+    ]
+   },
+   "ja": {
+    "use": "タイムライン",
+    "accept": [
+     "タイムライン"
+    ]
+   },
+   "zh-Hans": {
+    "use": "时间线",
+    "accept": [
+     "时间线"
+    ]
+   },
+   "de": {
+    "use": "Zeitleiste",
+    "accept": [
+     "zeitleiste",
+     "timeline"
+    ]
+   },
+   "fr": {
+    "use": "Timeline (chronologie)",
+    "accept": [
+     "timeline",
+     "chronologie",
+     "piste"
+    ]
+   },
+   "pt": {
+    "use": "Linha do tempo",
+    "accept": [
+     "linha do tempo",
+     "timeline"
+    ]
+   },
+   "ru": {
+    "use": "Таймлайн (монтажная линейка)",
+    "accept": [
+     "таймлайн",
+     "монтажн",
+     "шкала"
+    ]
+   },
+   "ko": {
+    "use": "타임라인",
+    "accept": [
+     "타임라인"
+    ]
+   },
+   "it": {
+    "use": "Timeline (linea temporale)",
+    "accept": [
+     "timeline",
+     "linea temporale"
+    ]
+   }
+  },
+  {
+   "term": "Lip-sync",
+   "match": [
+    "Lip-sync",
+    "lip sync"
+   ],
+   "strict": false,
+   "meaning": "a face in the picture talks or sings in time with the user's audio",
+   "es": {
+    "use": "Sincronización labial",
+    "accept": [
+     "labial",
+     "labios"
+    ]
+   },
+   "ja": {
+    "use": "リップシンク",
+    "accept": [
+     "リップシンク",
+     "口パク"
+    ]
+   },
+   "zh-Hans": {
+    "use": "对口型",
+    "accept": [
+     "对口型",
+     "唇形"
+    ]
+   },
+   "de": {
+    "use": "Lippensynchronisation",
+    "accept": [
+     "lippensynchron",
+     "lip-sync",
+     "lipsync"
+    ]
+   },
+   "fr": {
+    "use": "Synchronisation labiale",
+    "accept": [
+     "synchronisation labiale",
+     "lip-sync",
+     "labial"
+    ]
+   },
+   "pt": {
+    "use": "Sincronização labial",
+    "accept": [
+     "sincroniza",
+     "labial",
+     "lip-sync"
+    ]
+   },
+   "ru": {
+    "use": "Синхронизация губ",
+    "accept": [
+     "синхрониз",
+     "губ",
+     "lip-sync"
+    ]
+   },
+   "ko": {
+    "use": "립싱크",
+    "accept": [
+     "립싱크",
+     "lip"
+    ]
+   },
+   "it": {
+    "use": "Sincronizzazione labiale",
+    "accept": [
+     "sincronizza",
+     "labial",
+     "lip-sync"
+    ]
+   }
+  },
+  {
+   "term": "Keyframes",
+   "match": [
+    "Keyframes",
+    "keyframe"
+   ],
+   "strict": false,
+   "meaning": "pictures the video must pass through at chosen moments",
+   "es": {
+    "use": "Fotogramas clave",
+    "accept": [
+     "fotograma"
+    ]
+   },
+   "ja": {
+    "use": "キーフレーム",
+    "accept": [
+     "キーフレーム"
+    ]
+   },
+   "zh-Hans": {
+    "use": "关键帧",
+    "accept": [
+     "关键帧"
+    ]
+   },
+   "de": {
+    "use": "Keyframes",
+    "accept": [
+     "keyframe",
+     "schlüsselbild"
+    ]
+   },
+   "fr": {
+    "use": "Images clés",
+    "accept": [
+     "images clés",
+     "image clé",
+     "keyframe"
+    ]
+   },
+   "pt": {
+    "use": "Quadros-chave",
+    "accept": [
+     "quadro",
+     "keyframe",
+     "chave"
+    ]
+   },
+   "ru": {
+    "use": "Ключевые кадры",
+    "accept": [
+     "ключев",
+     "кадр",
+     "keyframe"
+    ]
+   },
+   "ko": {
+    "use": "키프레임",
+    "accept": [
+     "키프레임",
+     "keyframe"
+    ]
+   },
+   "it": {
+    "use": "Keyframe (fotogrammi chiave)",
+    "accept": [
+     "keyframe",
+     "fotogramm",
+     "chiave"
+    ]
+   }
+  },
+  {
+   "term": "Settings",
+   "match": [
+    "Settings"
+   ],
+   "strict": true,
+   "meaning": "the app's options window",
+   "es": {
+    "use": "Configuración",
+    "accept": [
+     "configuraci"
+    ]
+   },
+   "ja": {
+    "use": "設定",
+    "accept": [
+     "設定"
+    ]
+   },
+   "zh-Hans": {
+    "use": "设置",
+    "accept": [
+     "设置"
+    ]
+   },
+   "de": {
+    "use": "Einstellungen",
+    "accept": [
+     "einstellung"
+    ]
+   },
+   "fr": {
+    "use": "Réglages",
+    "accept": [
+     "réglage",
+     "paramètre"
+    ]
+   },
+   "pt": {
+    "use": "Ajustes",
+    "accept": [
+     "ajuste",
+     "configura"
+    ]
+   },
+   "ru": {
+    "use": "Настройки",
+    "accept": [
+     "настройк",
+     "параметр"
+    ]
+   },
+   "ko": {
+    "use": "설정",
+    "accept": [
+     "설정"
+    ]
+   },
+   "it": {
+    "use": "Impostazioni",
+    "accept": [
+     "impostazion"
+    ]
+   }
+  },
+  {
+   "term": "Docs",
+   "match": [
+    "Docs"
+   ],
+   "strict": false,
+   "meaning": "the built-in help pages",
+   "es": {
+    "use": "Ayuda",
+    "accept": [
+     "ayuda",
+     "guía",
+     "guia",
+     "documenta"
+    ]
+   },
+   "ja": {
+    "use": "ヘルプ",
+    "accept": [
+     "ヘルプ",
+     "ドキュメント",
+     "ガイド"
+    ]
+   },
+   "zh-Hans": {
+    "use": "帮助文档",
+    "accept": [
+     "帮助",
+     "文档",
+     "指南"
+    ]
+   },
+   "de": {
+    "use": "Dokumentation (Docs)",
+    "accept": [
+     "doku",
+     "hilfe"
+    ]
+   },
+   "fr": {
+    "use": "Documentation (Docs)",
+    "accept": [
+     "doc",
+     "aide"
+    ]
+   },
+   "pt": {
+    "use": "Documentação (Docs)",
+    "accept": [
+     "doc",
+     "ajuda"
+    ]
+   },
+   "ru": {
+    "use": "Документация (Docs)",
+    "accept": [
+     "документац",
+     "справк",
+     "docs"
+    ]
+   },
+   "ko": {
+    "use": "문서 (Docs)",
+    "accept": [
+     "문서",
+     "도움말",
+     "docs"
+    ]
+   },
+   "it": {
+    "use": "Documentazione (Docs)",
+    "accept": [
+     "document",
+     "guida",
+     "docs"
+    ]
+   }
+  },
+  {
+   "term": "Remote Control",
+   "match": [
+    "Remote Control"
+   ],
+   "strict": false,
+   "meaning": "using the Studio from the user's iPhone with the free Phosphene Remote app",
+   "es": {
+    "use": "Control remoto",
+    "accept": [
+     "remoto"
+    ]
+   },
+   "ja": {
+    "use": "リモート操作",
+    "accept": [
+     "リモート"
+    ]
+   },
+   "zh-Hans": {
+    "use": "远程控制",
+    "accept": [
+     "远程"
+    ]
+   },
+   "de": {
+    "use": "Fernsteuerung",
+    "accept": [
+     "fernsteuer",
+     "remote"
+    ]
+   },
+   "fr": {
+    "use": "Télécommande",
+    "accept": [
+     "télécommande",
+     "remote",
+     "distance"
+    ]
+   },
+   "pt": {
+    "use": "Controle remoto",
+    "accept": [
+     "controle remoto",
+     "remot"
+    ]
+   },
+   "ru": {
+    "use": "Пульт (удалённое управление)",
+    "accept": [
+     "пульт",
+     "удалён",
+     "remote"
+    ]
+   },
+   "ko": {
+    "use": "원격 제어",
+    "accept": [
+     "원격",
+     "리모컨",
+     "리모트"
+    ]
+   },
+   "it": {
+    "use": "Controllo remoto",
+    "accept": [
+     "controllo remoto",
+     "remot",
+     "telecomando"
+    ]
+   }
+  },
+  {
+   "term": "Video",
+   "match": [
+    "video",
+    "videos"
+   ],
+   "strict": false,
+   "meaning": "a video the user makes",
+   "es": {
+    "use": "video (neutral Spanish, no accent)",
+    "accept": [
+     "video",
+     "clip"
+    ]
+   },
+   "ja": {
+    "use": "動画",
+    "accept": [
+     "動画",
+     "ビデオ"
+    ]
+   },
+   "zh-Hans": {
+    "use": "视频",
+    "accept": [
+     "视频"
+    ]
+   },
+   "de": {
+    "use": "Video",
+    "accept": [
+     "video"
+    ]
+   },
+   "fr": {
+    "use": "Vidéo",
+    "accept": [
+     "vidéo",
+     "video"
+    ]
+   },
+   "pt": {
+    "use": "Vídeo",
+    "accept": [
+     "vídeo",
+     "video"
+    ]
+   },
+   "ru": {
+    "use": "Видео",
+    "accept": [
+     "видео"
+    ]
+   },
+   "ko": {
+    "use": "영상 (비디오)",
+    "accept": [
+     "영상",
+     "비디오"
+    ]
+   },
+   "it": {
+    "use": "Video",
+    "accept": [
+     "video"
+    ]
+   }
+  },
+  {
+   "term": "Studio",
+   "match": [],
+   "strict": false,
+   "meaning": "the main Phosphene window where the user makes things (a product name)",
+   "es": {
+    "use": "Studio (product name, keep)",
+    "accept": [
+     "studio"
+    ]
+   },
+   "ja": {
+    "use": "Studio",
+    "accept": [
+     "Studio",
+     "スタジオ"
+    ]
+   },
+   "zh-Hans": {
+    "use": "Studio",
+    "accept": [
+     "Studio",
+     "工作室"
+    ]
+   },
+   "de": {
+    "use": "Studio",
+    "accept": [
+     "studio"
+    ]
+   },
+   "fr": {
+    "use": "Studio",
+    "accept": [
+     "studio"
+    ]
+   },
+   "pt": {
+    "use": "Studio",
+    "accept": [
+     "studio"
+    ]
+   },
+   "ru": {
+    "use": "Studio",
+    "accept": [
+     "studio",
+     "студи"
+    ]
+   },
+   "ko": {
+    "use": "Studio",
+    "accept": [
+     "studio",
+     "스튜디오"
+    ]
+   },
+   "it": {
+    "use": "Studio",
+    "accept": [
+     "studio"
+    ]
+   }
+  },
+  {
+   "term": "Pro",
+   "match": [],
+   "strict": false,
+   "meaning": "Phosphene Pro, the optional paid membership that funds the open-source project (a name, never translate)",
+   "es": {
+    "use": "Pro",
+    "accept": [
+     "pro"
+    ]
+   },
+   "ja": {
+    "use": "Pro",
+    "accept": [
+     "Pro"
+    ]
+   },
+   "zh-Hans": {
+    "use": "Pro",
+    "accept": [
+     "Pro"
+    ]
+   },
+   "de": {
+    "use": "Pro",
+    "accept": [
+     "pro"
+    ]
+   },
+   "fr": {
+    "use": "Pro",
+    "accept": [
+     "pro"
+    ]
+   },
+   "pt": {
+    "use": "Pro",
+    "accept": [
+     "pro"
+    ]
+   },
+   "ru": {
+    "use": "Pro",
+    "accept": [
+     "pro"
+    ]
+   },
+   "ko": {
+    "use": "Pro",
+    "accept": [
+     "pro",
+     "프로"
+    ]
+   },
+   "it": {
+    "use": "Pro",
+    "accept": [
+     "pro"
+    ]
+   }
+  }
+ ]
+}
