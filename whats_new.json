@@ -304,5 +304,13 @@
     "pro": [],
     "date": "2026-11-14",
     "headline": "Phosphene now speaks your language: ten languages, picked from your Mac or in Settings."
+  },
+  "5.0.25": {
+    "free": [
+      "Long LTX clips use a third less memory at the end of the render: on Macs over 32 GB, clips longer than 5 seconds finish in pieces. On a 10-second clip the peak drops from 20 GB to 12.7 GB, same speed."
+    ],
+    "pro": [],
+    "date": "2026-11-15",
+    "headline": "Long LTX clips use a third less memory at the end of the render, on every Mac over 32 GB."
   }
 }

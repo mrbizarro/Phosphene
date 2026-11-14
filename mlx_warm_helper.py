@@ -1318,6 +1318,86 @@ def _int32_safe_decode_tiling(orig, latent_shape, frame_rate=24.0, T=None):
         f"corrupted. Use a smaller size.")
 
 
+# 5.0.25 (lab L50, 14 Nov 2026): a LONG clip's decode is the render's memory
+# peak, and on Macs over 32 GB it ran in one piece (25 to 32 GB Macs get a
+# small budget from the Studio, so the tiler already cut theirs). Upstream's
+# tiler only cuts
+# the decode when ONE bf16 activation passes LTX2_VAE_DECODE_BUDGET_GB (8 GB
+# there), an estimate 10-17x below the real peak: 1.2 GB counted against a
+# measured 20.05 GB for 10 s at 1024x576, 1.8 GB against 30.2 GB at 1280x704.
+# A 36 or 48 GB Mac paid that at the very end of a ten-minute render. Measured on
+# this Mac (M4 Max, Q8 LTX-2.5 decoder, 241 frames): 128-frame chunks with a
+# 32-frame blend decode 1024x576 at 12.73 GB instead of 20.05 in the same time
+# (35.1 s vs 36.2) at 52.6 dB against the whole decode (bit-identical first 13
+# frames; the difference is fine noise, no seam), and 1280x704 at 19.0 GB
+# instead of 30.2 at 54.4 dB. So a whole-volume decode of 17+ latent frames
+# (129+ frames: every 10 s clip, never a 5 s one) becomes those chunks. The
+# LTX-2.5 decoder is non-causal, so a chunk's quality is set by its overlap:
+# 8 frames (the OpenVINO port's default) is 29 dB, visible; 32 is not.
+# Left alone: a decode upstream (or the int32 guard above) already tiles, and
+# the streamed path (24 GB and smaller), whose exact chunked decode
+# (ltx_lowram.install_chunked_decode) is bit-identical and halves the peak on
+# its own; 5.0.20 doubled those Macs' budget so a 10 s clip stays ONE exact
+# pass. LTX_LONG_DECODE_TILES=off keeps the whole decode; "T/O" sets the
+# chunk and blend (multiples of 8, chunk 16+, blend below the chunk).
+_LONG_DECODE_TILE_FRAMES = 128
+_LONG_DECODE_TILE_OVERLAP = 32
+_LONG_DECODE_MIN_LATENT_FRAMES = 17
+
+
+def _long_decode_tiles():
+    """(chunk frames, blend frames) for a long clip's decode, or None when the
+    user switched the chunks off. A value the tiler would refuse falls back to
+    the measured 128/32."""
+    raw = (os.environ.get("LTX_LONG_DECODE_TILES") or "").strip().lower()
+    if raw in ("0", "off", "no", "false", "whole"):
+        return None
+    tile, overlap = _LONG_DECODE_TILE_FRAMES, _LONG_DECODE_TILE_OVERLAP
+    if raw:
+        try:
+            tile, overlap = (int(x) for x in raw.split("/", 1))
+        except ValueError:
+            return (_LONG_DECODE_TILE_FRAMES, _LONG_DECODE_TILE_OVERLAP)
+    if tile < 16 or tile % 8 or overlap < 0 or overlap % 8 or overlap >= tile:
+        return (_LONG_DECODE_TILE_FRAMES, _LONG_DECODE_TILE_OVERLAP)
+    return (tile, overlap)
+
+
+def _exact_chunked_decode_on() -> bool:
+    """True on the streamed path once ltx_lowram's exact chunked decode is in."""
+    try:
+        import ltx_lowram as _lowram
+        return bool(_lowram._DECODE_PATCH.get("on"))
+    except Exception:                                      # noqa: BLE001
+        return False
+
+
+def _long_clip_decode_tiling(cfg, latent_shape, frame_rate: float = 24.0, T=None,
+                             exact_chunks=None):
+    """`cfg` (the tiler's answer after the int32 guard), or 128/32 temporal
+    chunks when it is a whole-volume decode of a long clip (see above).
+    Pure arithmetic; the returned config is checked against the int32 cap."""
+    if cfg is not None:
+        return cfg
+    f_lat = int(latent_shape[2])
+    if f_lat < _LONG_DECODE_MIN_LATENT_FRAMES:
+        return cfg
+    if exact_chunks is None:
+        exact_chunks = _exact_chunked_decode_on()
+    if exact_chunks:
+        return cfg
+    tiles = _long_decode_tiles()
+    if tiles is None or tiles[0] // 8 >= f_lat:
+        return cfg
+    if T is None:
+        from ltx_core_mlx.model.video_vae import tiling as T
+    chunked = T.TilingConfig(temporal_config=T.TemporalTilingConfig(
+        tile_size_in_frames=tiles[0], tile_overlap_in_frames=tiles[1]))
+    if _decode_tiling_peak_elements(chunked, latent_shape, T) > _DECODE_MAX_ELEMENTS:
+        return cfg
+    return chunked
+
+
 def _install_decode_int32_guard() -> None:
     """Route every conv-VAE decode through `_int32_safe_decode_tiling`.
 
@@ -1349,6 +1429,18 @@ def _install_decode_int32_guard() -> None:
                           + (f" × {sc.tile_size_in_pixels}px squares "
                              f"(overlap {sc.tile_overlap_in_pixels}px)"
                              if sc is not None else "")})
+        # 5.0.25: a long clip's whole-volume decode runs in 128-frame chunks.
+        chunked = _long_clip_decode_tiling(cfg, latent_shape, frame_rate=frame_rate)
+        if chunked is not cfg:
+            _, _, f_lat, h_lat, w_lat = (int(v) for v in latent_shape)
+            tc = chunked.temporal_config
+            emit({"event": "log",
+                  "line": f"vae-decode: {8 * f_lat - 7} frames at "
+                          f"{w_lat * 32}×{h_lat * 32} decode in chunks of "
+                          f"{tc.tile_size_in_frames} frames "
+                          f"(blend {tc.tile_overlap_in_frames}), a third less "
+                          f"memory at the end of the render"})
+            return chunked
         return cfg
 
     _guarded._phosphene_int32_guard = True

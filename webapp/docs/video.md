@@ -76,6 +76,8 @@ Quick, Balanced and Standard run on the fast (distilled) model; High and High ·
 
 **Length**: 3s, 5s (default), 7s, 10s — and 20s, which is offered at Quick only.
 
+Long LTX clips use a third less memory at the end of the render (5.0.25). The last step of a render, turning the finished shot into frames, is where memory peaks. On Macs with more than 32 GB, an LTX clip longer than 5 seconds now does it in 128-frame pieces. Measured on 10-second clips: about 12.7 GB instead of 20 GB at 1024×576, and 19 GB instead of 30 GB at 720p, in the same time and with no visible difference. Macs with 32 GB or less already worked in pieces and are unchanged.
+
 On the fast qualities, a **Speed** row offers **Tuned** or **Fast draft** — a faster schedule that changes the take. High has a **STG — detail guidance** slider.
 
 With a trained character selected the chips become **Q8 Draft** (704×384), **Q8 Pro** (1024×576, *best identity*) and, on LTX-2.5, High and High · 720p. Trained faces hold best on Q8 Pro.
