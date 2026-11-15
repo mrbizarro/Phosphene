@@ -1392,7 +1392,7 @@ function sbRenderPlan(r) {
   if (viewTog) viewTog.hidden = shots.length < 12;
   if (!sbTypingInShots() && !sbSelectOpen()) {
     const html = SB.shotView === 'grid'
-      ? shots.map(sbShotGridTile).join('')
+      ? shots.map(s => sbShotGridTile(s, errs)).join('')
       : shots.map(s => sbShotCard(s, r, errs)).join('');
     if (html !== _sbShotsHtml || box.childElementCount !== shots.length) {
       box.innerHTML = html;
@@ -1431,9 +1431,15 @@ function sbRenderPlan(r) {
   sbEl('sbTally').hidden = !anyClip;
   const btn = sbEl('sbRenderBtn');
   btn.disabled = errs.length > 0 || rendering;
-  btn.title = errs.length ? `Fix the ${errs.length} problem${errs.length > 1 ? 's' : ''} above first.` : '';
+  // The hover text and the note NAME the problems. In Grid view the shot cards
+  // (and their error rows) are not on screen, so the old "fix the problems above" pointed at
+  // nothing; a Pro user sent a screenshot of a disabled button with no problem
+  // anywhere in sight.
+  const problems = sbProblemsLine(errs);
+  btn.title = problems;
   sbEl('sbActionNote').textContent =
-    `${est.shots || 0} shot${est.shots === 1 ? '' : 's'} · ${sbFmtWall(est.total_secs)}`;
+    `${est.shots || 0} shot${est.shots === 1 ? '' : 's'} · ${sbFmtWall(est.total_secs)}` +
+    (problems ? ` · ${problems}` : '');
   if (anyClip) sbRenderTally(shots, r);
   if (!sbTypingInShots()) sbAutoGrowPrompts();
   sbSyncStage();
@@ -1472,8 +1478,28 @@ function sbGridTileOpen(n) {
   sbSetShotView('list');
   requestAnimationFrame(() => sbScrollToShot(n));
 }
-function sbShotGridTile(s) {
+// A validator error as one plain sentence (the same copy as the card's row,
+// tags stripped) — for hover text, the action note and the grid tile.
+function sbErrText(e) {
+  const copy = SB_ERR_COPY[e.code];
+  let html;
+  try {
+    html = !copy ? escapeHtml(e.message || e.code)
+         : (typeof copy.html === 'function' ? copy.html(e) : copy.html);
+  } catch (err) { html = escapeHtml(e.message || e.code); }
+  return String(html).replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, ' ').trim();
+}
+// "Fix 2 problems first: Shot 3 has no prompt. … · Shot 5 …" — or '' when clean.
+function sbProblemsLine(errs) {
+  errs = errs || [];
+  if (!errs.length) return '';
+  return `Fix ${errs.length} problem${errs.length > 1 ? 's' : ''} first: ` + errs.map(sbErrText).join(' · ');
+}
+function sbShotGridTile(s, errs) {
   const n = s.n;
+  const mine = (errs || []).filter(e => e.n === n);
   const clip = s.final_output || s.draft_output;
   const dur = Number(s.duration_s || 0);
   const gradeDot = s.grade
@@ -1487,10 +1513,19 @@ function sbShotGridTile(s) {
   const thumb = clip
     ? `<video class="sb-grid-thumb" preload="metadata" muted playsinline src="/file?path=${encodeURIComponent(clip)}#t=0.1"></video>`
     : `<div class="sb-grid-thumb sb-grid-thumb-empty" aria-hidden="true"></div>`;
-  return `<li class="sb-grid-tile" data-n="${n}" onclick="sbGridTileOpen(${n})" role="button" tabindex="0"
-      title="${escapeHtml((s.title || s.prompt || '').slice(0, 140))}">
+  // A shot with a validator error is marked here too, not only on its list
+  // card: the tile goes red, carries a "!" and its hover text names the problem.
+  const errMark = mine.length
+    ? `<span class="sb-grid-err" aria-label="problem">!</span>`
+    : '';
+  const tip = mine.length
+    ? mine.map(sbErrText).join(' · ')
+    : (s.title || s.prompt || '').slice(0, 140);
+  return `<li class="sb-grid-tile ${mine.length ? 'has-error' : ''}" data-n="${n}" onclick="sbGridTileOpen(${n})" role="button" tabindex="0"
+      title="${escapeHtml(tip)}">
     ${thumb}
     <div class="sb-grid-meta">
+      ${errMark}
       <span class="sb-grid-n">${String(n).padStart(2, '0')}</span>
       <span class="sb-grid-dur">${dur ? dur.toFixed(1) + 's' : ''}</span>
       <span class="sb-grid-status sb-grid-status-${escapeHtml(s.status || 'pending')}">${escapeHtml(s.status || 'pending')}</span>

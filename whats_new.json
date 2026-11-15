@@ -312,5 +312,13 @@
     "pro": [],
     "date": "2026-11-15",
     "headline": "Long LTX clips use a third less memory at the end of the render, on every Mac over 32 GB."
+  },
+  "5.0.26": {
+    "free": [
+      "Storyboard in Grid view: a shot with a problem is marked red and says what is wrong; the Render button names every problem instead of pointing at shots that were not on screen."
+    ],
+    "pro": [],
+    "date": "2026-11-15",
+    "headline": "Storyboard Grid view shows which shot has a problem, and the Render button names it."
   }
 }

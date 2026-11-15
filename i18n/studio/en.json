@@ -22236,7 +22236,7 @@
   "storyboard.about": {
    "text": "About ",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb render remaining · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «About … The shots you already have are untouched. … You can pause or stop after any shot.»",
-   "where": "storyboard.js:1794"
+   "where": "storyboard.js:1829"
   },
   "storyboard.about_a_minute": {
    "text": "About a minute",
@@ -22251,7 +22251,7 @@
   "storyboard.added": {
    "text": "Added",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb add active to board",
-   "where": "storyboard.js:2721"
+   "where": "storyboard.js:2756"
   },
   "storyboard.all_rendered": {
    "text": "all rendered",
@@ -22261,12 +22261,12 @@
   "storyboard.and_appears_here": {
    "text": "and appears here.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb film paint",
-   "where": "storyboard.js:2434"
+   "where": "storyboard.js:2469"
   },
   "storyboard.approve": {
    "text": "Approve",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1632"
+   "where": "storyboard.js:1667"
   },
   "storyboard.approve_all": {
    "text": "Approve all",
@@ -22276,12 +22276,12 @@
   "storyboard.approve_this_still_before_it": {
    "text": "approve this still before it renders",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1630"
+   "where": "storyboard.js:1665"
   },
   "storyboard.assembling": {
    "text": "Assembling…",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb export",
-   "where": "storyboard.js:2305"
+   "where": "storyboard.js:2340"
   },
   "storyboard.audio": {
    "text": "Audio",
@@ -22301,12 +22301,12 @@
   "storyboard.back_to_the_cut_this": {
    "text": "Back to the cut this was assembled from — re-cut it in the Editor and render again.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb film paint",
-   "where": "storyboard.js:2465"
+   "where": "storyboard.js:2500"
   },
   "storyboard.but_not_pixel_identical_to": {
    "text": "but not pixel-identical to the draft you approved.\n",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb finish · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «About … Each shot renders a NEW take at delivery size — same prompt, same seed, … but not pixel-identical to the draft you approved. … The drafts stay in your gallery.»",
-   "where": "storyboard.js:2242"
+   "where": "storyboard.js:2277"
   },
   "storyboard.cast_cleared_hailuo_h3_can": {
    "text": "Cast cleared — Hailuo H3 can’t load a trained character.",
@@ -22321,7 +22321,7 @@
   "storyboard.character": {
    "text": "Character",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card · this label is the term “Character”: a person, face or look the user taught the model from photos, reusable in any video",
-   "where": "storyboard.js:1689"
+   "where": "storyboard.js:1724"
   },
   "storyboard.checking_the_plan": {
    "text": "Checking the plan",
@@ -22341,12 +22341,12 @@
   "storyboard.clips_land_in_mlx_outputs": {
    "text": "Clips land in mlx_outputs/ and show up in your gallery like any other render.\n\n",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb render drafts · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «About … One model load, then every shot back to back. … Clips land in mlx_outputs/ and show up in your gallery like any other render. … You can pause or stop after any shot.»",
-   "where": "storyboard.js:2203"
+   "where": "storyboard.js:2238"
   },
   "storyboard.cut_it": {
    "text": "Cut it",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1673"
+   "where": "storyboard.js:1708"
   },
   "storyboard.day_ago": {
    "text": " day ago",
@@ -22361,7 +22361,7 @@
   "storyboard.delete": {
    "text": "Delete",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb delete board",
-   "where": "storyboard.js:2661"
+   "where": "storyboard.js:2696"
   },
   "storyboard.delete_shot": {
    "text": "Delete shot",
@@ -22371,22 +22371,22 @@
   "storyboard.delete_storyboard": {
    "text": "Delete storyboard",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb delete board",
-   "where": "storyboard.js:2659"
+   "where": "storyboard.js:2694"
   },
   "storyboard.delete_this_shot": {
    "text": "Delete this shot",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1712"
+   "where": "storyboard.js:1747"
   },
   "storyboard.delete_this_storyboard": {
    "text": "Delete this storyboard…",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb board row menu",
-   "where": "storyboard.js:2555"
+   "where": "storyboard.js:2590"
   },
   "storyboard.deletes_the_plan_the_clips": {
    "text": "Deletes the plan. The clips it already rendered stay in your outputs.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb delete board",
-   "where": "storyboard.js:2656"
+   "where": "storyboard.js:2691"
   },
   "storyboard.delivery": {
    "text": "Delivery",
@@ -22411,7 +22411,7 @@
   "storyboard.drafts_done": {
    "text": "drafts done",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb board chip",
-   "where": "storyboard.js:2501"
+   "where": "storyboard.js:2536"
   },
   "storyboard.drafts_done_ready_for_delivery": {
    "text": "Drafts done · ready for delivery",
@@ -22421,22 +22421,22 @@
   "storyboard.drag_to_reorder": {
    "text": "Drag to reorder",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1713"
+   "where": "storyboard.js:1748"
   },
   "storyboard.duplicate_this_storyboard": {
    "text": "Duplicate this storyboard",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb board row",
-   "where": "storyboard.js:2574"
+   "where": "storyboard.js:2609"
   },
   "storyboard.each_shot_renders_a_new": {
    "text": "Each shot renders a NEW take at delivery size — same prompt, same seed, ",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb finish · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «About … Each shot renders a NEW take at delivery size — same prompt, same seed, … but not pixel-identical to the draft you approved. … The drafts stay in your gallery.»",
-   "where": "storyboard.js:2241"
+   "where": "storyboard.js:2276"
   },
   "storyboard.earlier_films": {
    "text": "Earlier films",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb film paint",
-   "where": "storyboard.js:2468"
+   "where": "storyboard.js:2503"
   },
   "storyboard.edit": {
    "text": "Edit",
@@ -22446,7 +22446,7 @@
   "storyboard.edit_amp_re_render_unlocks": {
    "text": "Edit &amp; re-render — unlocks the prompt and renders a new take with a fresh seed. The old clip is kept, not deleted. No planner call, so it works even while other shots are queued.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1710"
+   "where": "storyboard.js:1745"
   },
   "storyboard.every_shot_on_hailuo_h3": {
    "text": "Every shot on Hailuo H3 — it renders dialogue, voices and sound with the picture. No trained characters.",
@@ -22471,7 +22471,7 @@
   "storyboard.everything_already_rendered_stays": {
    "text": "Everything already rendered stays.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb stop film",
-   "where": "storyboard.js:2289"
+   "where": "storyboard.js:2324"
   },
   "storyboard.export": {
    "text": "Export",
@@ -22501,7 +22501,7 @@
   "storyboard.finish_keepers": {
    "text": "Finish keepers",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb render tally",
-   "where": "storyboard.js:1746"
+   "where": "storyboard.js:1781"
   },
   "storyboard.fixing_the_plan": {
    "text": "Fixing the plan",
@@ -22561,12 +22561,12 @@
   "storyboard.keep_all_ungraded": {
    "text": "Keep all ungraded ({ungradedWithClip})",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb render tally · placeholders {ungradedWithClip} are filled in by the app",
-   "where": "storyboard.js:1756"
+   "where": "storyboard.js:1791"
   },
   "storyboard.keep_it": {
    "text": "Keep it",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb delete board",
-   "where": "storyboard.js:2662"
+   "where": "storyboard.js:2697"
   },
   "storyboard.keyframes": {
    "text": "Keyframes",
@@ -22576,12 +22576,12 @@
   "storyboard.length": {
    "text": "Length",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1692"
+   "where": "storyboard.js:1727"
   },
   "storyboard.lives_in": {
    "text": "Lives in",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb film paint",
-   "where": "storyboard.js:2460"
+   "where": "storyboard.js:2495"
   },
   "storyboard.loading_the_planner": {
    "text": "Loading the planner",
@@ -22591,12 +22591,12 @@
   "storyboard.locked_to_the_song_reordering": {
    "text": "Locked to the song — reordering it would move its mouth off the words.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1703"
+   "where": "storyboard.js:1738"
   },
   "storyboard.make_a_new_still_and": {
    "text": "Make a new still and render this shot from it",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1634"
+   "where": "storyboard.js:1669"
   },
   "storyboard.make_it_5_s": {
    "text": "Make it 5 s",
@@ -22611,17 +22611,17 @@
   "storyboard.making_the_still": {
    "text": "making the still…",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1636"
+   "where": "storyboard.js:1671"
   },
   "storyboard.making_the_still_2": {
    "text": "making the still · ",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb render run bar",
-   "where": "storyboard.js:1816"
+   "where": "storyboard.js:1851"
   },
   "storyboard.mark_at_least_one_shot": {
    "text": "Mark at least one shot KEEP first.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb render tally",
-   "where": "storyboard.js:1748"
+   "where": "storyboard.js:1783"
   },
   "storyboard.minute_ago": {
    "text": " minute ago",
@@ -22636,22 +22636,22 @@
   "storyboard.more": {
    "text": "More",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb board row menu",
-   "where": "storyboard.js:2547"
+   "where": "storyboard.js:2582"
   },
   "storyboard.more_actions_for_this_film": {
    "text": "More actions for this film",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb board row menu",
-   "where": "storyboard.js:2547"
+   "where": "storyboard.js:2582"
   },
   "storyboard.move_down": {
    "text": "Move down",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1704"
+   "where": "storyboard.js:1739"
   },
   "storyboard.move_up": {
    "text": "Move up",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1703"
+   "where": "storyboard.js:1738"
   },
   "storyboard.music_video_one_shot_per_bars": {
    "text": {
@@ -22669,12 +22669,12 @@
   "storyboard.new_still": {
    "text": "New still",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1634"
+   "where": "storyboard.js:1669"
   },
   "storyboard.no_film_yet": {
    "text": "No film yet.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb film paint",
-   "where": "storyboard.js:2427"
+   "where": "storyboard.js:2462"
   },
   "storyboard.no_locations_every_shot_invents": {
    "text": "no locations — every shot invents its own",
@@ -22684,12 +22684,12 @@
   "storyboard.no_still_rendered_unanchored": {
    "text": "no still — rendered unanchored",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1637"
+   "where": "storyboard.js:1672"
   },
   "storyboard.no_trained_characters_on_this": {
    "text": "No trained characters on this Mac yet.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot action",
-   "where": "storyboard.js:2020"
+   "where": "storyboard.js:2055"
   },
   "storyboard.not_enough_free_memory_to": {
    "text": "Not enough free memory to load the planner. Close some apps and try again.",
@@ -22699,7 +22699,7 @@
   "storyboard.nothing_graded_yet": {
    "text": "nothing graded yet",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb render tally",
-   "where": "storyboard.js:1733"
+   "where": "storyboard.js:1768"
   },
   "storyboard.nothing_left_to_render": {
    "text": "nothing left to render",
@@ -22709,12 +22709,12 @@
   "storyboard.nothing_on_this_board_has": {
    "text": "Nothing on this board has rendered yet.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb play board",
-   "where": "storyboard.js:1911"
+   "where": "storyboard.js:1946"
   },
   "storyboard.nothing_rendered_yet": {
    "text": "nothing rendered yet",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb film paint",
-   "where": "storyboard.js:2423"
+   "where": "storyboard.js:2458"
   },
   "storyboard.nothing_rendered_yet_arrange_the": {
    "text": "Nothing rendered yet — arrange the shots and render the timeline.",
@@ -22729,17 +22729,17 @@
   "storyboard.old_take": {
    "text": "old take",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «old take … · rewritten, not rendered yet»",
-   "where": "storyboard.js:1647"
+   "where": "storyboard.js:1682"
   },
   "storyboard.one_line_per_5_seconds": {
    "text": "one line per 5 seconds · the first beat is the prompt above",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1718"
+   "where": "storyboard.js:1753"
   },
   "storyboard.one_model_load_then_every": {
    "text": "One model load, then every shot back to back.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb render drafts",
-   "where": "storyboard.js:2202"
+   "where": "storyboard.js:2237"
   },
   "storyboard.one_shot": {
    "text": "One shot",
@@ -22749,12 +22749,12 @@
   "storyboard.open_in_editor": {
    "text": "Open in Editor",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb row action",
-   "where": "storyboard.js:2525"
+   "where": "storyboard.js:2560"
   },
   "storyboard.open_the_still": {
    "text": "Open the still",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1628"
+   "where": "storyboard.js:1663"
   },
   "storyboard.open_this_film_in_the": {
    "text": "Open this film in the Editor: trim, reorder, cut to the beat, then render the film.",
@@ -22764,7 +22764,7 @@
   "storyboard.open_this_film_in_the_2": {
    "text": "Open this film in the Editor",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb row action",
-   "where": "storyboard.js:2523"
+   "where": "storyboard.js:2558"
   },
   "storyboard.optional_a_track_makes_it": {
    "text": "optional — a track makes it a music video cut to the beat",
@@ -22774,7 +22774,7 @@
   "storyboard.pause": {
    "text": "Pause",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb render run bar",
-   "where": "storyboard.js:1865"
+   "where": "storyboard.js:1900"
   },
   "storyboard.per_shot": {
    "text": "per shot",
@@ -22799,7 +22799,7 @@
   "storyboard.plan_only": {
    "text": "plan only",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb board chip",
-   "where": "storyboard.js:2500"
+   "where": "storyboard.js:2535"
   },
   "storyboard.planning": {
    "text": "Planning…",
@@ -22819,17 +22819,17 @@
   "storyboard.quality_is_set_for_the": {
    "text": "Quality is set for the whole film.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot action",
-   "where": "storyboard.js:2049"
+   "where": "storyboard.js:2084"
   },
   "storyboard.re_cut_in_the_editor": {
    "text": "Re-cut in the Editor",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb film paint",
-   "where": "storyboard.js:2465"
+   "where": "storyboard.js:2500"
   },
   "storyboard.re_render_new_seed": {
    "text": "Re-render (new seed)",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1634"
+   "where": "storyboard.js:1669"
   },
   "storyboard.read_the_shot_list_fix": {
    "text": "Read the shot list, fix a prompt, render, grade what came back.",
@@ -22849,17 +22849,17 @@
   "storyboard.remove_shot_from_the_film": {
    "text": "Remove shot {n} from the film?\n\nThe clip stays in mlx_outputs/.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot action · placeholders {n} are filled in by the app",
-   "where": "storyboard.js:2061"
+   "where": "storyboard.js:2096"
   },
   "storyboard.rename": {
    "text": "Rename",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb board row",
-   "where": "storyboard.js:2573"
+   "where": "storyboard.js:2608"
   },
   "storyboard.render_a_new_take_from": {
    "text": "Render a new take from this photo (new seed) — your photo is kept",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1634"
+   "where": "storyboard.js:1669"
   },
   "storyboard.render_a_shot_first": {
    "text": "Render a shot first.",
@@ -22874,22 +22874,22 @@
   "storyboard.render_some_shots_first_a": {
    "text": "Render some shots first — a film is the shots, joined. Nothing to arrange yet.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb film paint",
-   "where": "storyboard.js:2435"
+   "where": "storyboard.js:2470"
   },
   "storyboard.render_the_video_from_this": {
    "text": "Render the video from this still",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1632"
+   "where": "storyboard.js:1667"
   },
   "storyboard.render_the_video_without_a": {
    "text": "Render the video without a still to start from",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1639"
+   "where": "storyboard.js:1674"
   },
   "storyboard.render_without_a_still": {
    "text": "Render without a still",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1639"
+   "where": "storyboard.js:1674"
   },
   "storyboard.renders_on_hailuo_h3_video": {
    "text": "Renders on Hailuo H3 — video, dialogue and sound together. A 75 GB install.",
@@ -22909,32 +22909,32 @@
   "storyboard.resume": {
    "text": "Resume",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb render run bar",
-   "where": "storyboard.js:1865"
+   "where": "storyboard.js:1900"
   },
   "storyboard.retry_this_shot": {
    "text": "Retry this shot",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1672"
+   "where": "storyboard.js:1707"
   },
   "storyboard.rewrite_1_shot": {
    "text": "Rewrite 1 shot",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb render tally",
-   "where": "storyboard.js:1744"
+   "where": "storyboard.js:1779"
   },
   "storyboard.rewritten_not_rendered_yet": {
    "text": "· rewritten, not rendered yet",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1647"
+   "where": "storyboard.js:1682"
   },
   "storyboard.seed_same_number_same_roll": {
    "text": "Seed {seed} — same number, same roll of the dice. Fix it so the delivery render matches the draft you approved.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card · placeholders {seed} are filled in by the app",
-   "where": "storyboard.js:1706"
+   "where": "storyboard.js:1741"
   },
   "storyboard.seed_same_number_same_roll_2": {
    "text": "Seed — same number, same roll of the dice. Fix it so the delivery render matches the draft you approved.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1706"
+   "where": "storyboard.js:1741"
   },
   "storyboard.several_minutes_for_shots": {
    "text": {
@@ -22947,7 +22947,7 @@
   "storyboard.shot_type": {
    "text": "Shot type",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1686"
+   "where": "storyboard.js:1721"
   },
   "storyboard.shots": {
    "text": "Shots",
@@ -22960,27 +22960,27 @@
     "other": "{count} shots have rendered. Open the timeline, arrange them and render the film. The finished film lands in"
    },
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb film paint · placeholders {count} are filled in by the app · plural: {count} is the number",
-   "where": "storyboard.js:2434"
+   "where": "storyboard.js:2469"
   },
   "storyboard.shots_joined": {
    "text": " shots joined",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb film paint",
-   "where": "storyboard.js:2456"
+   "where": "storyboard.js:2491"
   },
   "storyboard.show_in_finder": {
    "text": "Show in Finder",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb film paint",
-   "where": "storyboard.js:2463"
+   "where": "storyboard.js:2498"
   },
   "storyboard.singing_shots_are_locked_to": {
    "text": "Singing shots are locked to the song — mode, length and order can't change here.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1677"
+   "where": "storyboard.js:1712"
   },
   "storyboard.some_shots_are_still_at": {
    "text": "some shots are still at draft size. Finish keepers (or KEEP them) before rendering the film.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb render tally · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «This film mixes {size} clip sizes ({v}) — … some shots are still at draft size. Finish keepers (or KEEP them) before rendering the film.»",
-   "where": "storyboard.js:1771"
+   "where": "storyboard.js:1806"
   },
   "storyboard.something_else_is_using_the": {
    "text": "Something else is using the GPU. Wait for the queue to empty and try again.",
@@ -23000,27 +23000,27 @@
   "storyboard.starts_from_this_still": {
    "text": "starts from this still",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1630"
+   "where": "storyboard.js:1665"
   },
   "storyboard.starts_from_your_photo": {
    "text": "starts from your photo",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1630"
+   "where": "storyboard.js:1665"
   },
   "storyboard.still_for_shot_of": {
    "text": "Still for shot {n} of {shots}",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb render run bar · placeholders {n} {shots} are filled in by the app",
-   "where": "storyboard.js:1813"
+   "where": "storyboard.js:1848"
   },
   "storyboard.stop_this_storyboard": {
    "text": "Stop this storyboard?\n\n",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb stop film",
-   "where": "storyboard.js:2287"
+   "where": "storyboard.js:2322"
   },
   "storyboard.text": {
    "text": "Text",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1687"
+   "where": "storyboard.js:1722"
   },
   "storyboard.text_character": {
    "text": "Text & Character",
@@ -23040,12 +23040,12 @@
   "storyboard.the_clips_and_the_shot": {
    "text": "The clips and the shot list are in {dir}, but the film could ",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb film with the song · placeholders {dir} are filled in by the app",
-   "where": "storyboard.js:2406"
+   "where": "storyboard.js:2441"
   },
   "storyboard.the_drafts_stay_in_your": {
    "text": "The drafts stay in your gallery.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb finish",
-   "where": "storyboard.js:2243"
+   "where": "storyboard.js:2278"
   },
   "storyboard.the_panel_restarted_while_the": {
    "text": "The panel restarted while the planner was running, so the plan never finished. Nothing was lost — press Try again.",
@@ -23055,7 +23055,7 @@
   "storyboard.the_photo_this_shot_starts": {
    "text": "The photo this shot starts from",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1627"
+   "where": "storyboard.js:1662"
   },
   "storyboard.the_plan_decides_per_shot": {
    "text": "The plan decides per shot: a shot with one of your trained characters goes to LTX, everything else to Hailuo H3.",
@@ -23075,7 +23075,7 @@
   "storyboard.the_planner_loads_again_1": {
    "text": "The planner loads again (~1 min) and rewrites just {v}, using your notes.\n",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb rewrite · placeholders {v} are filled in by the app",
-   "where": "storyboard.js:2271"
+   "where": "storyboard.js:2306"
   },
   "storyboard.the_planner_model_didn_t": {
    "text": "The planner model didn't finish downloading. Check your connection and try again — it resumes where it stopped.",
@@ -23090,12 +23090,12 @@
   "storyboard.the_renderer_is_using_the": {
    "text": "The renderer is using the memory. Planning can start when the queue is empty.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb poll hook",
-   "where": "storyboard.js:2763"
+   "where": "storyboard.js:2798"
   },
   "storyboard.the_rest_of_the_film": {
    "text": "The rest of the film is untouched. Nothing renders while it runs.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb rewrite",
-   "where": "storyboard.js:2272"
+   "where": "storyboard.js:2307"
   },
   "storyboard.the_shot_that_s_rendering": {
    "text": {
@@ -23103,32 +23103,32 @@
     "other": "The shot that's rendering is cancelled — its clip is lost. The {count} shots still waiting are removed from the queue.\n"
    },
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb stop film · placeholders {count} are filled in by the app · plural: {count} is the number",
-   "where": "storyboard.js:2288"
+   "where": "storyboard.js:2323"
   },
   "storyboard.the_shots_you_already_have": {
    "text": "The shots you already have are untouched.\n\n",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb render remaining · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «About … The shots you already have are untouched. … You can pause or stop after any shot.»",
-   "where": "storyboard.js:1795"
+   "where": "storyboard.js:1830"
   },
   "storyboard.the_single_film_could_not": {
    "text": "The single film could not be assembled: {v}",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb export · placeholders {v} are filled in by the app",
-   "where": "storyboard.js:2333"
+   "where": "storyboard.js:2368"
   },
   "storyboard.the_still_could_not_be": {
    "text": "the still could not be made — held until you choose",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1637"
+   "where": "storyboard.js:1672"
   },
   "storyboard.the_still_this_shot_starts": {
    "text": "The still this shot starts from",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1627"
+   "where": "storyboard.js:1662"
   },
   "storyboard.this_film_mixes_clip_sizes": {
    "text": "This film mixes {size} clip sizes ({v}) — ",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb render tally · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «This film mixes {size} clip sizes ({v}) — … some shots are still at draft size. Finish keepers (or KEEP them) before rendering the film.» · placeholders {size} {v} are filled in by the app",
-   "where": "storyboard.js:1770"
+   "where": "storyboard.js:1805"
   },
   "storyboard.this_mac": {
    "text": ", this Mac",
@@ -23153,17 +23153,17 @@
   "storyboard.this_one": {
    "text": "this one",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb rewrite · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «this one … The rest of the film is untouched. Nothing renders while it runs.»",
-   "where": "storyboard.js:2271"
+   "where": "storyboard.js:2306"
   },
   "storyboard.this_one_s_already_rendering": {
    "text": "This one's already rendering.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1712"
+   "where": "storyboard.js:1747"
   },
   "storyboard.this_shot_has_spoken_lines": {
    "text": "This shot has spoken lines, so the character's voice loads.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1695"
+   "where": "storyboard.js:1730"
   },
   "storyboard.timeline_render": {
    "text": "Timeline render",
@@ -23173,17 +23173,17 @@
   "storyboard.try_again": {
    "text": "Try again",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1638"
+   "where": "storyboard.js:1673"
   },
   "storyboard.try_the_still_again": {
    "text": "Try the still again",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1638"
+   "where": "storyboard.js:1673"
   },
   "storyboard.undo": {
    "text": "Undo",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot action",
-   "where": "storyboard.js:2067"
+   "where": "storyboard.js:2102"
   },
   "storyboard.voice_sound": {
    "text": "voice + sound",
@@ -23198,17 +23198,17 @@
   "storyboard.watch_the_finished_film_2": {
    "text": "Watch the finished film",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb row action",
-   "where": "storyboard.js:2516"
+   "where": "storyboard.js:2551"
   },
   "storyboard.what_should_change_goes_back": {
    "text": "What should change? (goes back to the planner)",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1665"
+   "where": "storyboard.js:1700"
   },
   "storyboard.who_s_in_this_shot": {
    "text": "Who's in this shot",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb shot card",
-   "where": "storyboard.js:1691"
+   "where": "storyboard.js:1726"
   },
   "storyboard.write_a_couple_of_sentences": {
    "text": "Write a couple of sentences about the film first.",
@@ -23228,7 +23228,7 @@
   "storyboard.you_can_pause_or_stop": {
    "text": "You can pause or stop after any shot.",
    "note": "Studio · in Storyboard: plan a short film shot by shot, then make every shot · written by the code that handles sb render remaining",
-   "where": "storyboard.js:1796"
+   "where": "storyboard.js:1831"
   },
   "studioSection.aspect": {
    "text": "Aspect",

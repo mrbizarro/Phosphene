@@ -1081,6 +1081,11 @@
       transition: border-color var(--t-fast);
     }
     .sb-grid-tile:hover { border-color: var(--border-strong); }
+    .sb-grid-tile.has-error { border-color: var(--danger); }
+    .sb-grid-err {
+      flex: 0 0 auto; color: var(--danger); font-weight: 700;
+      width: 14px; text-align: center;
+    }
     .sb-grid-thumb {
       width: 100%; aspect-ratio: 16 / 9; object-fit: cover;
       background: var(--bg-2); display: block;
