@@ -252,7 +252,9 @@ def main():
     try:
         tx = Transaction(Path(__file__).resolve().parent)
         rec = tx.prepare()
-        if rec['phase'] == 'current':
+        # prepare() returns the succeeded record when that update already
+        # started and upstream has nothing newer: also nothing to restart.
+        if rec['phase'] in ('current', 'succeeded'):
             print('Already up to date. Nothing to restart.')
         else:
             tx.dependencies()
