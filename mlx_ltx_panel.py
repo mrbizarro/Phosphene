@@ -16710,6 +16710,257 @@ def _h3image_install(push_log, fetch_fn=None) -> dict:
             "download_gb": H3IMAGE_DOWNLOAD_GB}
 
 
+
+# ---- Restyle a picture on Hailuo H3 (R&D L55, 15 Nov 2026) ---------------------------------------
+# A photo or picture in, the same scene back in the style the prompt names (clay, flat vector, pixel
+# art, felt, a painting). No new model: the H3 video pack's FL2VA Q8 DiT and text encoder, the
+# P-H3-Image single-frame decoder every P-H3-Image user already holds, and a 298 MB rank-16 adapter
+# from its author's Hugging Face repo (Apache-2.0), fetched at a pinned revision and digest, never
+# re-hosted. The Studio's own scripts/h3_restyle.py runs it in the H3 pack's interpreter against the
+# INSTALLED engine checkout, so the engine pin does not move. Free for everyone (owner, card #788).
+# Measured on an M4 Max 64 GB (research/lab/L55.md): 5 of 6 pictures restyled with their content
+# kept, about 2 minutes per 1 MP picture, 27.6 GB peak.
+H3RESTYLE_DIRNAME = "restyle"
+H3RESTYLE_REPO = "witcherderivia/minimax-h3-image-restyle"
+H3RESTYLE_REVISION = "b506c0bbd4b1cb64e17e9cf897aa9abc2defa878"
+H3RESTYLE_FILE = "h3-lora-image-restyle.safetensors"       # the 8500-step file the recipe was measured with
+H3RESTYLE_BYTES = 298_260_384
+H3RESTYLE_SHA256 = "9e6486eed8deaf1f7f5afcb7bca355402ef5fe21c71de9bd2d6703dcb55db194"
+H3RESTYLE_URL = f"https://huggingface.co/{H3RESTYLE_REPO}/resolve/{H3RESTYLE_REVISION}/{H3RESTYLE_FILE}"
+H3RESTYLE_SCALE = 1.3          # adapter strength; 1.0-1.3 measured, 1.3 carried the hard pairs
+H3RESTYLE_STEPS = 16           # sigma points
+H3RESTYLE_FORWARDS = H3RESTYLE_STEPS - 1
+H3RESTYLE_MP = 1.0             # output megapixels, at the content picture's shape
+H3RESTYLE_DOWNLOAD_GB = 0.3
+H3RESTYLE_DISK_NEED_GB = 1.0   # the file plus its re-keyed copy
+H3RESTYLE_PEAK_GB = 28.0       # 27.6 GB measured (the text encoder phase sets it)
+H3RESTYLE_MEASURED_ETA = 120.0  # seconds per 1 MP picture, M4 Max 64 GB, 15 forwards
+H3RESTYLE_LICENSE = "Apache-2.0 adapter on MiniMax H3 (MiniMax H3 Community License)"
+H3RESTYLE_NAME = "Restyle"
+H3RESTYLE_LABEL = "Restyle a picture (on MiniMax H3)"
+H3RESTYLE_CREDIT = ("Restyle adapter by Shiwen Zhang (witcherderivia), Apache-2.0, on MiniMax-H3 by MiniMax. "
+                    "Fetched from Hugging Face at a pinned revision, never re-hosted.")
+H3RESTYLE_NOTICE = PH3IMAGE_NOTICE
+_h3restyle_dl_lock = threading.Lock()
+_h3restyle_dl_state: dict = {}
+
+
+def _h3restyle_dir() -> Path:
+    """Beside the other H3 weight components."""
+    for root in _h3_model_roots():
+        if _h3_holds_dit(root):
+            return root / H3RESTYLE_DIRNAME
+    return H3_MODELS / H3RESTYLE_DIRNAME
+
+
+def _h3restyle_script() -> Path:
+    return ROOT / "scripts" / "h3_restyle.py"
+
+
+def h3restyle_supported() -> bool:
+    """Whether the INSTALLED H3 engine carries every module the runner stages: the single-frame
+    image decoder, the keyframe encoder and the run-time LoRA. Feature-detected by FILE."""
+    return _h3restyle_script().is_file() and all(
+        (H3_ROOT / "minimax_h3_mlx" / f).is_file()
+        for f in ("ph3_image_vae.py", "pipeline.py", "lora.py", "adaln.py", "packing.py"))
+
+
+def _h3restyle_decoder_dir() -> Path:
+    return _ph3image_dir() / "vae"
+
+
+def h3restyle_decoder_ready() -> bool:
+    d = _h3restyle_decoder_dir()
+    return (d / "decoder.safetensors").is_file() and (d / "config.json").is_file()
+
+
+def h3restyle_paths() -> dict:
+    """The adapter at its exact size (no glob)."""
+    root = _h3restyle_dir()
+    f = root / H3RESTYLE_FILE
+    try:
+        ok = f.is_file() and f.stat().st_size == H3RESTYLE_BYTES
+    except OSError:
+        ok = False
+    return {"dir": root, "file": f, "files_ok": bool(ok), "missing": [] if ok else ["the restyle adapter"]}
+
+
+def h3restyle_status() -> dict:
+    """/status block: can the engine run it, are the pieces here, what does it cost."""
+    supported = h3restyle_supported()
+    paths = h3restyle_paths()
+    downloaded = bool(paths["files_ok"])
+    h3_ready = not h3_paths()["missing"]
+    decoder = h3restyle_decoder_ready()
+    return {
+        "available": bool(supported and downloaded and h3_ready and decoder),
+        "supported": supported, "downloaded": downloaded, "h3_ready": h3_ready, "decoder": decoder,
+        "reason": ("h3_missing" if not h3_ready else "engine_too_old" if not supported
+                   else "decoder_missing" if not decoder else "not_downloaded" if not downloaded else "ok"),
+        "modes": ["edit"], "max_refs": 1,
+        "forwards": H3RESTYLE_FORWARDS, "steps": H3RESTYLE_STEPS, "scale": H3RESTYLE_SCALE, "mp": H3RESTYLE_MP,
+        "eta_sec": H3RESTYLE_MEASURED_ETA,
+        "download_gb": H3RESTYLE_DOWNLOAD_GB, "disk_need_gb": H3RESTYLE_DISK_NEED_GB,
+        "repo": H3RESTYLE_REPO, "license": H3RESTYLE_LICENSE,
+        "name": H3RESTYLE_NAME, "label": H3RESTYLE_LABEL,
+        "credit": H3RESTYLE_CREDIT, "notice": H3RESTYLE_NOTICE,
+        "missing": list(paths["missing"]) + ([] if decoder else ["the P-H3-Image picture decoder"]),
+        "install_available": bool(supported and h3_ready and decoder),
+        "installing": _h3restyle_dl_state.get("status") == "downloading",
+        "download": dict(_h3restyle_dl_state),
+    }
+
+
+def h3restyle_engine_config():
+    """One recipe, the measured one."""
+    py = _h3_python()
+    paths = h3_paths()
+    dit = ph3image_dit_path()
+    return agent_image_engine.ImageEngineConfig(
+        kind="h3restyle",
+        h3restyle_python_path=str(py) if py else "",
+        h3restyle_script_path=str(_h3restyle_script()),
+        h3restyle_engine_root=str(H3_ROOT),
+        h3restyle_dit=str(dit) if dit else "",
+        h3restyle_text_dir=str(paths.get("compact_root") or ""),
+        h3restyle_text_config=str(paths.get("text_config") or ""),
+        h3restyle_decoder=str(_h3restyle_decoder_dir()),
+        h3restyle_lora=str(h3restyle_paths()["file"]),
+        h3restyle_lora_bytes=int(H3RESTYLE_BYTES),
+        h3restyle_scale=float(H3RESTYLE_SCALE),
+        h3restyle_steps=int(H3RESTYLE_STEPS),
+        h3restyle_mp=float(H3RESTYLE_MP),
+    )
+
+
+def h3restyle_engine_rows() -> list[dict]:
+    """The one /image/engines row (the Image Studio's engine table). `sec_per_image` is the
+    measured time until the user has two renders of their own."""
+    status = h3restyle_status()
+    need = H3RESTYLE_PEAK_GB
+    try:
+        fits, mac_gb = _image_engine_fit(need)
+    except Exception:                                              # noqa: BLE001
+        fits, mac_gb = True, 0
+    engine = "h3restyle_inline"
+    sec, samples = float(H3RESTYLE_MEASURED_ETA), "bench-m4max-64gb"
+    observed = _IMG_ENGINE_TIMING.get(engine) or []
+    if len(observed) >= 2:
+        sec = round(sum(max(1.0, el / max(1, n)) for (n, el) in observed) / len(observed), 1)
+        samples = f"observed-{len(observed)}"
+    return [{
+        "engine": engine, "max_refs": 1, "repo_id": H3RESTYLE_REPO,
+        "cached": bool(status["downloaded"] and status["decoder"]), "ram_need_gb": round(float(need), 1),
+        "mac_gb_needed": int(mac_gb), "fits_mac": bool(fits), "partial": False, "partial_gb": 0,
+        "family_installed": bool(status["supported"] and status["h3_ready"]),
+        "download_gb": H3RESTYLE_DOWNLOAD_GB, "sec_per_image": sec, "cold_start_sec": 0.0,
+        "samples_source": samples, "gated": False, "megapixels": H3RESTYLE_MP,
+        "version_label": f"{H3RESTYLE_LABEL} (1 MP, {_h3image_eta_text(sec)})",
+        "license": H3RESTYLE_LICENSE, "label": H3RESTYLE_LABEL, "credit": H3RESTYLE_CREDIT,
+        "h3restyle_reason": status["reason"], "installing": bool(status["installing"]),
+        "install_error": (status["download"] or {}).get("error"),
+        "install_mb": (status["download"] or {}).get("mb"), "install_total_mb": (status["download"] or {}).get("total_mb"),
+    }]
+
+
+def _h3restyle_sidecar_credit() -> dict:
+    """What a restyled picture's sidecar records: the pinned adapter and the credits."""
+    return {"model": f"{H3RESTYLE_REPO}@{H3RESTYLE_REVISION[:7]}",
+            "h3_restyle": {"repo": H3RESTYLE_REPO, "revision": H3RESTYLE_REVISION, "file": H3RESTYLE_FILE,
+                           "sha256": H3RESTYLE_SHA256, "scale": H3RESTYLE_SCALE, "forwards": H3RESTYLE_FORWARDS,
+                           "license": H3RESTYLE_LICENSE, "credit": H3RESTYLE_CREDIT, "notice": H3RESTYLE_NOTICE}}
+
+
+def _h3restyle_download_bg(target_dir, push_log, opener=None) -> None:
+    """Stream the digest-pinned adapter into the H3 pack (size and sha256 checked, atomic rename)."""
+    import hashlib
+    import urllib.request
+    total_mb = H3RESTYLE_BYTES // (1 << 20)
+    tmp = None
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / H3RESTYLE_FILE
+        tmp = target.with_suffix(target.suffix + ".partial")
+        push_log(f"[image:restyle] downloading {H3RESTYLE_FILE} from {H3RESTYLE_REPO} @ {H3RESTYLE_REVISION[:7]} (~{total_mb} MB)")
+        req = urllib.request.Request(H3RESTYLE_URL, headers={"User-Agent": "Phosphene"})
+        h = hashlib.sha256()
+        written = 0
+        last_log = 0.0
+        with (opener or urllib.request.urlopen)(req, timeout=60) as resp, open(tmp, "wb") as fh:
+            while True:
+                chunk = resp.read(1 << 20)
+                if not chunk:
+                    break
+                fh.write(chunk)
+                h.update(chunk)
+                written += len(chunk)
+                now = time.time()
+                if now - last_log > 2.5:
+                    _h3restyle_dl_state.update(status="downloading", mb=written // (1 << 20), total_mb=total_mb, error=None)
+                    push_log(f"[image:restyle] {written // (1 << 20)} / {total_mb} MB")
+                    last_log = now
+        if written != H3RESTYLE_BYTES:
+            raise RuntimeError(f"size mismatch: got {written}, expected {H3RESTYLE_BYTES}; please retry")
+        if h.hexdigest() != H3RESTYLE_SHA256:
+            raise RuntimeError("checksum mismatch (download corrupt); please retry")
+        tmp.replace(target)
+        _h3restyle_dl_state.clear()
+        _h3restyle_dl_state.update(status="done", mb=total_mb, total_mb=total_mb, error=None)
+        push_log(f"[image:restyle] adapter installed -> {target}")
+    except Exception as exc:                                       # noqa: BLE001
+        if tmp is not None:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+        _h3restyle_dl_state.clear()
+        _h3restyle_dl_state.update(status="error", mb=0, total_mb=total_mb, error=str(exc)[:200])
+        push_log(f"[image:restyle] download failed: {exc}")
+    finally:
+        h3_status_invalidate()
+
+
+def _h3restyle_install(push_log, fetch_fn=None) -> dict:
+    """On-demand fetch of the restyle adapter (one at a time). The route has already checked the licence."""
+    paths = h3_paths()
+    if paths["missing"]:
+        return {"ok": False,
+                "error": "Restyle runs on the Hailuo H3 pack, and H3 isn't fully installed yet: " + "; ".join(paths["missing"])}
+    if not h3restyle_supported():
+        return {"ok": False,
+                "error": _dist.say(
+                    "This Hailuo H3 runner predates Restyle. Run 'Update Hailuo H3 runner' from the "
+                    "Phosphene sidebar in Pinokio - your weights stay.",
+                    H3_MAC_RUNNER_BEHIND)}
+    if not h3restyle_decoder_ready():
+        return {"ok": False,
+                "error": "Restyle decodes with the P-H3-Image picture decoder. Download P-H3-Image first "
+                         "(its row in the engine list), then come back."}
+    resolved = h3restyle_paths()
+    target = resolved["dir"]
+    if resolved["files_ok"]:
+        return {"ok": True, "started": False, "already_installed": True, "dir": str(target)}
+    with _h3restyle_dl_lock:
+        if _h3restyle_dl_state.get("status") == "downloading":
+            return {"ok": False, "error": "a Restyle download is already active"}
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+            free_gb = shutil.disk_usage(target).free / 1e9
+        except OSError:
+            free_gb = None
+        if free_gb is not None and free_gb < H3RESTYLE_DISK_NEED_GB:
+            return {"ok": False,
+                    "error": f"Restyle needs about {H3RESTYLE_DISK_NEED_GB:g} GB free ({H3RESTYLE_DOWNLOAD_GB:g} GB download). "
+                             f"This disk has {free_gb:.1f} GB free."}
+        _h3restyle_dl_state.clear()
+        _h3restyle_dl_state.update(status="downloading", mb=0, total_mb=H3RESTYLE_BYTES // (1 << 20), error=None)
+    fn = fetch_fn or _h3restyle_download_bg
+    threading.Thread(target=fn, args=(target, push_log), daemon=True, name="h3restyle-fetch").start()
+    return {"ok": True, "started": True, "dir": str(target), "repo": H3RESTYLE_REPO,
+            "revision": H3RESTYLE_REVISION, "sha256": H3RESTYLE_SHA256, "bytes": H3RESTYLE_BYTES,
+            "license": H3RESTYLE_LICENSE, "credit": H3RESTYLE_CREDIT, "download_gb": H3RESTYLE_DOWNLOAD_GB}
+
+
 # ---- lightx2v v1.3 (Best at High) — resolver, argv, status, fetch ------------
 def h3_supports_video_shift() -> bool:
     """Whether the INSTALLED runner takes `--video-shift` (v1.3's own shift 6;
@@ -18777,6 +19028,8 @@ def h3_status() -> dict:
         "ph3image": ph3image_status(),
         # MiniMax-H3-Image (Images lane). Same shape, same reason ladder.
         "h3image": h3image_status(),
+        # Restyle a picture on H3 (Images lane, R&D L55). Same shape, one more rung (the P-H3-Image decoder).
+        "h3restyle": h3restyle_status(),
         # Pika H3 Flex — a Speed choice of its own. Same three-cause shape.
         "flex": (h3_flex_status() if available else
                  {"available": False, "supported": False, "downloaded": False,
@@ -20702,6 +20955,13 @@ ENGINES: tuple[dict, ...] = (
          "modes": ("t2i", "edit"), "serves_label": "Text and Edit", "preview": True,
          "image_engines": ("h3image_draft_inline", "h3image_standard_inline", "h3image_high_inline"),
          "capability": "images.h3_image"},
+        {"id": "h3_restyle", "label": "Restyle", "sublabel": "same scene, new style",
+         "tagline": "your picture back in the style you name (clay, flat vector, pixel art, felt), on MiniMax H3",
+         "mark": "eng-mark-img-h3r", "accent": "#F5A623",
+         "accent_dim": "rgba(245,166,35,0.14)", "accent_soft": "rgba(245,166,35,0.42)",
+         "modes": ("edit",), "serves_label": "Edit", "preview": True,
+         "image_engines": ("h3restyle_inline",),
+         "capability": "images.h3_restyle"},
     )),
     # ---- Flux Video ---------------------------------------------------------
     # Weights are announced, not released. The entry is real (and rendered as
@@ -26309,6 +26569,291 @@ def ltx_speedup_decide(p: dict, *, mode: str, quality: str, width: int, height: 
                  "This clip renders at the usual speed.")
         return False
     return True
+
+
+# ---- Crisper detail on LTX-2.5 clips (Pro ledger row ltx-crisper-detail) -----------------------
+# One more adapter on the clip's stack, asked of the Pro add-on by name (`_ps.extra("crisper_detail")`,
+# the door H3 Flex Turbo already uses). Which published file, from where, its checksum, its
+# strength, how its keys are spelled for the engine and the lanes it was measured on all come from
+# the add-on; the Studio fetches that file once, verifies it, writes it under a neutral name and
+# puts it on the stack. Free has no add-on and renders exactly as before. Measured (R&D, 14 Nov
+# 2026, M4 Max 64 GB, same seed and recipe): visibly finer detail, about the same wall time (+2-7 %)
+# and the same peak memory; the take changes, so an old seed does not give the same clip with it on.
+CRISPER_DETAIL_NAME = "Crisper detail"
+CRISPER_DETAIL_DISK_NEED_GB = 3.0
+_crisper_dl_lock = threading.Lock()
+_crisper_dl_state: dict = {"status": "idle", "mb": 0, "total_mb": 0, "error": None}
+
+
+def crisper_detail_spec() -> dict | None:
+    """What Crisper detail fetches and applies, from the Pro add-on. None on Free."""
+    if not bool(pro_status().get("active")):  # the Pro gate of ledger row ltx-crisper-detail
+        return None
+    spec = _h3_pro_addon("crisper_detail")
+    if not spec or not all(spec.get(k) for k in ("file", "bytes", "sha256", "url", "strength")):
+        return None
+    return spec
+
+
+def crisper_detail_toggle_on(value) -> bool:
+    """The form's switch: a plain yes. Off is the default; nothing is added unasked."""
+    return str(value if value is not None else "off").strip().lower() in ("on", "1", "true", "yes")
+
+
+def _crisper_detail_dir() -> Path:
+    return LORAS_DIR / "quality"
+
+
+def crisper_detail_paths(spec: dict | None = None) -> dict:
+    """The installed adapter, or why not. A file counts only with the receipt its install wrote
+    beside it (source checksum + final size), so a half-written or foreign file is never used."""
+    directory = _crisper_detail_dir()
+    spec = spec if spec is not None else crisper_detail_spec()
+    if not spec:
+        return {"dir": directory, "lora": None, "files_ok": False,
+                "missing": [f"{CRISPER_DETAIL_NAME} is part of Phosphene Pro"]}
+    final = directory / str(spec["file"])
+    receipt = final.with_suffix(final.suffix + ".ok")
+    ok = False
+    try:
+        if final.is_file() and receipt.is_file():
+            doc = json.loads(receipt.read_text("utf-8"))
+            ok = (str(doc.get("sha256")) == str(spec["sha256"])
+                  and int(doc.get("bytes") or -1) == final.stat().st_size)
+    except (OSError, ValueError, TypeError):
+        ok = False
+    if ok:
+        return {"dir": directory, "lora": final, "files_ok": True, "missing": []}
+    return {"dir": directory, "lora": None, "files_ok": False,
+            "missing": [f"{CRISPER_DETAIL_NAME} (a one-time ~{float(spec.get('gb') or 1.2):g} GB download)"]}
+
+
+def crisper_detail_status() -> dict:
+    """/pro/status block: {pro, pro_active, offered, downloaded, available, downloading, reason, gb}."""
+    active = bool(pro_status().get("active"))
+    spec = crisper_detail_spec() if active else None
+    paths = crisper_detail_paths(spec) if spec else {"files_ok": False, "lora": None}
+    downloaded = bool(paths["files_ok"])
+    with _crisper_dl_lock:
+        dl = dict(_crisper_dl_state)
+    return {
+        "pro": True,
+        "pro_active": active,
+        "offered": spec is not None,
+        "downloaded": downloaded,
+        "available": bool(spec is not None and downloaded),
+        "downloading": dl.get("status") == "downloading",
+        "mb": int(dl.get("mb") or 0), "total_mb": int(dl.get("total_mb") or 0),
+        "error": dl.get("error"),
+        "reason": ("pro_required" if not active else "not_in_this_install" if spec is None
+                   else "not_downloaded" if not downloaded else "ok"),
+        "gb": (spec or {}).get("gb"),
+        "lanes": (spec or {}).get("lanes"),
+        "name": CRISPER_DETAIL_NAME,
+        "credit": (spec or {}).get("credit"),
+        "license": (spec or {}).get("license"),
+        "adapter": str(paths["lora"]) if paths.get("lora") else None,
+    }
+
+
+def crisper_detail_wanted(p: dict, *, spec: dict | None, version: str, mode: str,
+                          quality: str) -> tuple[bool, str]:
+    """Whether this LTX render takes the adapter: the switch on, and the render inside the lanes
+    the add-on names (the ones that were measured). Everything else renders as before and says why."""
+    if not crisper_detail_toggle_on(p.get("crisper_detail")):
+        return False, "off"
+    lanes = (spec or {}).get("lanes") or {}
+    if version not in (lanes.get("versions") or ("ltx25",)):
+        return False, "LTX-2.5 clips only"
+    if mode not in (lanes.get("modes") or ("t2v", "i2v")):
+        return False, "text or picture to video only"
+    if quality not in (lanes.get("qualities") or ("quick", "balanced", "standard")):
+        return False, "Quick, Balanced and Standard only"
+    preset = str(p.get("schedule_preset") or "").strip().lower()
+    if preset and preset not in (lanes.get("presets") or ("default",)):
+        return False, "not with this Speed choice"
+    if p.get("character_id"):
+        return False, "not with a character yet"
+    if p.get("hdr"):
+        return False, "not with HDR"
+    if str(p.get("long_mode") or "native") == "windows":
+        return False, "not on windowed long clips"
+    return True, ""
+
+
+def crisper_detail_install(push_log, fetch_fn=None) -> dict:
+    """On-demand download of the Crisper detail adapter (Pro, one at a time)."""
+    spec = crisper_detail_spec()
+    if not spec:
+        return {"ok": False, "pro_required": True,
+                "error": f"{CRISPER_DETAIL_NAME} is part of Phosphene Pro."}
+    paths = crisper_detail_paths(spec)
+    if paths["files_ok"]:
+        return {"ok": True, "started": False, "already_installed": True, "path": str(paths["lora"])}
+    target = paths["dir"]
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        free_gb = shutil.disk_usage(target).free / 1e9
+    except OSError:
+        free_gb = None
+    if free_gb is not None and free_gb < CRISPER_DETAIL_DISK_NEED_GB:
+        return {"ok": False,
+                "error": f"{CRISPER_DETAIL_NAME} needs about {CRISPER_DETAIL_DISK_NEED_GB:g} GB free "
+                         f"(a {float(spec.get('gb') or 1.2):g} GB download). This disk has {free_gb:.1f} GB free."}
+    with _crisper_dl_lock:
+        if _crisper_dl_state.get("status") == "downloading":
+            return {"ok": False, "already_running": True,
+                    "error": f"a {CRISPER_DETAIL_NAME} download is already active"}
+        _crisper_dl_state.clear()
+        _crisper_dl_state.update(status="downloading", mb=0, total_mb=int(spec["bytes"]) >> 20, error=None)
+    fn = fetch_fn or _crisper_detail_fetch_bg
+    threading.Thread(target=fn, args=(target, push_log), daemon=True, name="crisper-detail-fetch").start()
+    return {"ok": True, "started": True, "dir": str(target)}
+
+
+def _rekey_safetensors(src: Path, dst: Path, rename) -> int:
+    """Rewrite one safetensors file with its tensor names re-spelled by prefix (`rename` is a list of
+    [old, new] pairs, first match wins); tensor bytes are copied as they are and the file's own
+    metadata is dropped. Streams: nothing bigger than the header is held in memory. Returns the
+    tensor count."""
+    import struct
+    rules = [(str(a), str(b)) for a, b in (rename or []) if a]
+    with open(src, "rb") as fh:
+        n = struct.unpack("<Q", fh.read(8))[0]
+        header = json.loads(fh.read(n).decode("utf-8"))
+        out: dict = {}
+        for key, val in header.items():
+            if key == "__metadata__":
+                continue
+            new_key = key
+            for old, new in rules:
+                if new_key.startswith(old):
+                    new_key = new + new_key[len(old):]
+                    break
+            if new_key in out:
+                raise RuntimeError(f"two tensors would share the name {new_key!r}")
+            out[new_key] = val
+        if not out:
+            raise RuntimeError("the file holds no tensors")
+        out["__metadata__"] = {"format": "pt"}
+        hb = json.dumps(out, separators=(",", ":")).encode("utf-8")
+        hb += b" " * ((8 - len(hb) % 8) % 8)
+        with open(dst, "wb") as oh:
+            oh.write(struct.pack("<Q", len(hb)))
+            oh.write(hb)
+            shutil.copyfileobj(fh, oh, 1 << 22)
+    return len(out) - 1
+
+
+def _crisper_detail_fetch_bg(target_dir, push_log, opener=None) -> None:
+    """Download the published file at its pinned revision (resumable .part), verify size + sha256,
+    re-spell its tensor names the way the add-on says, check it against the installed transformer,
+    write the receipt and rename into place. Never re-hosted."""
+    import hashlib
+    import urllib.request
+    target_dir = Path(target_dir)
+    spec = crisper_detail_spec()
+
+    def _fail(msg: str, total_mb: int = 0) -> None:
+        with _crisper_dl_lock:
+            _crisper_dl_state.clear()
+            _crisper_dl_state.update(status="error", mb=0, total_mb=total_mb, error=msg[:200])
+        push_log(f"[crisper-detail] FAILED: {msg}")
+
+    if not spec:
+        _fail(f"{CRISPER_DETAIL_NAME} is part of Phosphene Pro.")
+        return
+    want_bytes = int(spec["bytes"])
+    final = target_dir / str(spec["file"])
+    part = target_dir / (final.name + ".part")
+    rekeyed = target_dir / (final.name + ".tmp")
+    receipt = final.with_suffix(final.suffix + ".ok")
+    want_sha, url = str(spec["sha256"]), str(spec["url"])
+    total_mb = want_bytes >> 20
+    try:
+        push_log(f"[crisper-detail] fetching the adapter (~{total_mb} MB, {spec.get('license') or 'open licence'})")
+        have = part.stat().st_size if part.exists() else 0
+        if have > want_bytes:
+            part.unlink()
+            have = 0
+        if have < want_bytes:
+            req = urllib.request.Request(url, headers={"User-Agent": "Phosphene"})
+            if have:
+                req.add_header("Range", f"bytes={have}-")
+            with (opener or urllib.request.urlopen)(req, timeout=60) as r:
+                resumed = bool(have and getattr(r, "status", 200) == 206)
+                if not resumed:
+                    have = 0
+                with open(part, "ab" if resumed else "wb") as fh:
+                    while True:
+                        b = r.read(1 << 20)
+                        if not b:
+                            break
+                        fh.write(b)
+                        have += len(b)
+                        with _crisper_dl_lock:
+                            _crisper_dl_state.update(status="downloading", mb=have >> 20,
+                                                     total_mb=total_mb, error=None)
+        if part.stat().st_size != want_bytes:
+            raise RuntimeError(f"download stopped at {part.stat().st_size} of {want_bytes} bytes")
+        h = hashlib.sha256()
+        with open(part, "rb") as fh:
+            for b in iter(lambda: fh.read(1 << 22), b""):
+                h.update(b)
+        if h.hexdigest() != want_sha:
+            part.unlink()
+            raise RuntimeError("the downloaded file does not match its checksum - try again")
+        count = _rekey_safetensors(part, rekeyed, spec.get("rekey") or [])
+        if count < 1:
+            raise RuntimeError("the adapter holds no tensors")
+        try:
+            compat = _ltx_lora_compatibility(rekeyed)
+        except Exception as exc:  # noqa: BLE001 - the check is advisory when the base is not here
+            compat = {"ltx_compatible": None, "ltx_compat_reason": type(exc).__name__}
+        if compat.get("ltx_compatible") is False:
+            rekeyed.unlink(missing_ok=True)
+            raise RuntimeError(f"the adapter does not fit the installed engine: {compat.get('ltx_compat_reason')}")
+        receipt.write_text(json.dumps({"sha256": want_sha, "bytes": rekeyed.stat().st_size,
+                                       "tensors": count, "credit": spec.get("credit"),
+                                       "license": spec.get("license")}), "utf-8")
+        rekeyed.replace(final)
+        part.unlink(missing_ok=True)
+        push_log(f"[crisper-detail] ready -> {final} ({count} tensors"
+                 f"{', fit checked' if compat.get('ltx_compatible') else ''})")
+        with _crisper_dl_lock:
+            _crisper_dl_state.clear()
+            _crisper_dl_state.update(status="done", mb=total_mb, total_mb=total_mb, error=None)
+    except Exception as e:  # noqa: BLE001
+        rekeyed.unlink(missing_ok=True)
+        _fail(str(e), total_mb)
+
+
+def crisper_detail_decide(p: dict, *, mode: str, quality: str) -> dict | None:
+    """The adapter entry to add to this render's stack, or None. The first time a Pro member asks,
+    it starts the one-time download and this clip renders without it. Free: a note, nothing else."""
+    if not crisper_detail_toggle_on(p.get("crisper_detail")):
+        return None
+    spec = crisper_detail_spec()
+    if spec is None:
+        push(f"{CRISPER_DETAIL_NAME} is part of Phosphene Pro; this clip renders without it."
+             if not bool(pro_status().get("active"))
+             else f"{CRISPER_DETAIL_NAME} is not in this install; this clip renders without it.")
+        return None
+    ok, why = crisper_detail_wanted(p, spec=spec, version=ACTIVE_MODEL_VERSION, mode=mode, quality=quality)
+    if not ok:
+        push(f"{CRISPER_DETAIL_NAME}: not used for this render ({why}).")
+        return None
+    paths = crisper_detail_paths(spec)
+    if not paths["files_ok"]:
+        r = crisper_detail_install(push)
+        if r.get("started") or r.get("already_running"):
+            push(f"{CRISPER_DETAIL_NAME}: getting ready, a one-time download of about "
+                 f"{float(spec.get('gb') or 1.2):g} GB. This clip renders without it.")
+        else:
+            push(f"{CRISPER_DETAIL_NAME}: not ready ({r.get('error') or 'the download did not start'}); "
+                 "this clip renders without it.")
+        return None
+    return {"path": str(paths["lora"]), "strength": float(spec["strength"]), "kind": "crisper_detail"}
 
 
 # One authority for config selection and admission immediately before a private render.
@@ -37235,6 +37780,8 @@ def image_max_refs(engine_override) -> int:
     eng = str(engine_override or "auto").strip().lower()
     if eng.startswith("h3image"):
         return h3image_max_refs()
+    if eng.startswith("h3restyle"):
+        return 1                      # the picture to restyle; a second anchor makes the model copy one
     return IMAGE_MAX_REFS_FLUX3 if eng in flux3_engine.PRESETS else IMAGE_MAX_REFS
 
 
@@ -38659,6 +39206,9 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # it as a LoRA. The worker resolves it to the curated HDR
             # repo before submitting to the helper.
             "hdr": f("hdr", "off") == "on",
+            # Crisper detail (Pro ledger row ltx-crisper-detail): the switch only. Whether a render
+            # takes it is crisper_detail_decide() in the worker; Free renders ignore it with a note.
+            "crisper_detail": crisper_detail_toggle_on(f("crisper_detail", "off")),
             # Q8 HQ tuning knobs — exposed for experiments / power use.
             # Defaults are the "5-min sweet spot" recovered from the
             # clip 11–17 cluster on 2026-05-10 (stage1=10, stage2=3,
@@ -39232,6 +39782,8 @@ def _preflight_estimate_ram_gb(cfg) -> float:
         return PH3IMAGE_PEAK_GB
     if cfg.kind == "h3image":
         return H3IMAGE_PEAK_GB
+    if cfg.kind == "h3restyle":
+        return H3RESTYLE_PEAK_GB
     if cfg.kind == "hidream":
         # 2026-05-31 review fix: HiDream-O1 BF16 was exempt from the RAM gate
         # (fell through to the 1.0 GB `!= mflux` branch). Its Metal residency
@@ -39459,6 +40011,14 @@ def _preflight_image_job(cfg, *, engine_override: str = "auto") -> None:
             "MiniMax-H3-Image isn't ready on this Mac: it runs on the Hailuo H3 pack and needs its own "
             "download. Pick it in Image Studio and click its download chip, or use FLUX 3 Klein "
             "to make a picture from text now.")
+    if str(engine_override or "").lower().startswith("h3restyle") and not h3restyle_status().get("available"):
+        # The same door for a queued or API request as the picker gives: every piece checked (engine
+        # modules, both decoder files, the adapter at its exact size) before the expensive part starts.
+        raise RenderRefused(
+            "pack_missing",
+            "Restyle on Hailuo H3 isn't ready on this Mac: it runs on the Hailuo H3 pack, decodes with "
+            "P-H3-Image and needs its own one-time download. Pick Restyle a picture in Image Studio and "
+            "click its download chip.")
     if str(engine_override or "").lower().startswith("hidream") and not _hidream_available():
         raise RenderRefused(
             "pack_missing",
@@ -39810,6 +40370,7 @@ def run_image_job_inner(job: dict) -> None:
             **({"flux3": c} if cfg.kind == "flux3" else {}),
             **(_ph3image_sidecar_credit() if cfg.kind == "ph3image" else {}),
             **(_h3image_sidecar_credit() if cfg.kind == "h3image" else {}),
+            **(_h3restyle_sidecar_credit() if cfg.kind == "h3restyle" else {}),
         }
         try:
             sidecar_path.write_text(json.dumps(sidecar, indent=2), encoding="utf-8")
@@ -46953,6 +47514,14 @@ def run_job_inner(job: dict) -> None:
                 "path": CURATED_LORAS["hdr"]["repo_id"],
                 "strength": float(CURATED_LORAS["hdr"]["default_strength"]),
             })
+        # Crisper detail (Pro): one more adapter on this stack, last, when the switch is on
+        # and the add-on offers it for this lane. Added before the speed-up decision on
+        # purpose: the two were not measured together, and the speed-up already stands
+        # aside for any added adapter, so a Crisper detail clip renders at the usual speed.
+        _crisp = crisper_detail_decide(p, mode=mode, quality=quality)
+        if _crisp:
+            loras.append(_crisp)
+            p["crisper_detail_applied"] = True
         # CHARACTERS RENDER ON THE Q8 WEIGHTS, ON THE DISTILLED PIPELINE.
         #
         # This is the `pack=q8` half of the 2.5 character recipe, and without it
@@ -48411,6 +48980,9 @@ def _build_image_engine_config(
     if engine_override in ("h3image_draft_inline", "h3image_standard_inline", "h3image_high_inline"):
         # MiniMax-H3-Image: the quality tier is the megapixel count (4 / 8 / 16 MP).
         return h3image_engine_config(engine_override[len("h3image_"):-len("_inline")])
+    if engine_override == "h3restyle_inline":
+        # Restyle a picture on H3: one recipe, the measured one (L55).
+        return h3restyle_engine_config()
     if engine_override == "mock_inline":
         return agent_image_engine.ImageEngineConfig(kind="mock")
     if engine_override == "flux2_klein_inline":

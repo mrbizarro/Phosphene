@@ -1,6 +1,6 @@
 # Images
 
-The Images tab makes stills. Pick the model first: **Model**, at the top of the column, is the same picker the Video tab uses. Models here: **FLUX.2 [klein]**, the recommended first model, **FLUX 3 Klein**, **Reference Edit**, which reworks an image you give it, **Ideogram 4**, which puts words on a picture, **P-H3-Image**, which makes large photographs and posters from words alone, and **MiniMax-H3-Image**, MiniMax's own image model for detailed scenes from words, which also edits your pictures.
+The Images tab makes stills. Pick the model first: **Model**, at the top of the column, is the same picker the Video tab uses. Models here: **FLUX.2 [klein]**, the recommended first model, **FLUX 3 Klein**, **Reference Edit**, which reworks an image you give it, **Ideogram 4**, which puts words on a picture, **P-H3-Image**, which makes large photographs and posters from words alone, **MiniMax-H3-Image**, MiniMax's own image model for detailed scenes from words, which also edits your pictures, and **Restyle a picture**, which redraws a picture of yours in a style you name.
 
 ## Choosing the model {#engines}
 
@@ -103,3 +103,11 @@ Drop a picture into **Picture 1** and say what to change: *"Make the clay in Pic
 Editing is free: one picture, several pictures combined, and changing the shape while editing.
 
 *Powered by MiniMax-H3-Image (MiniMax). Fetched from MiniMaxAI, never re-hosted; the only change made on your Mac is quantising the model to 8 bit and precomputing its timestep tables for the MLX runner, noted inside the files. MiniMax-H3-Image is licensed under the MiniMax-H3-Image Community License Agreement, Copyright (c) 2026 MiniMax. All Rights Reserved.*
+
+## Restyle a picture on Hailuo H3 {#restyle}
+
+Restyle keeps what is in your picture and changes how it is drawn. Choose **Restyle a picture (on MiniMax H3)** under **Model**, drop the photo or drawing into the **Picture to restyle** slot, and name the style in the prompt together with what is in the picture: "A clay figurine of a horse, soft studio light.", "A flat vector icon of a snowy cathedral, teal and orange.", "Retro 16-bit pixel art of a lighthouse at dusk." The result keeps the shape of your picture, at about 1 megapixel, and takes about 2 minutes (measured on an M4 Max 64 GB, 27.6 GB peak; the pre-flight says whether your Mac fits). Bold styles work best: clay, flat vector, pixel art, felt. Soft paintings (watercolour, oil) are hit and miss. Free for everyone, since 5.0.27.
+
+**First use.** It runs on the Hailuo H3 video pack and decodes its pictures with P-H3-Image, so install Hailuo H3 and P-H3-Image first (the chip offers that download). Then the chip next to **Version** reads *download ~300 MB*: click it. Phosphene shows the MiniMax H3 licence, then fetches the Restyle adapter once from Hugging Face at a pinned version and checks it. If it reads *update the H3 runner*, update Hailuo H3 first (your weights stay).
+
+*The Restyle adapter is a community add-on for MiniMax H3 (Apache-2.0), fetched from its Hugging Face repository at a pinned revision, never re-hosted; the only change made on your Mac is re-arranging its tensors for the MLX runner. Powered by MiniMax H3. MiniMax H3 is licensed under the MiniMax H3 Community License Agreement, Copyright (c) 2026 MiniMax. All Rights Reserved.*

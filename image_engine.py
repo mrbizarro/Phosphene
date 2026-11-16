@@ -533,6 +533,22 @@ class ImageEngineConfig:
     h3image_text_config: str = ""    # upstream-meta/FL2VA/text_encoder/config.json
     h3image_mp: float = 8.0
 
+    # Restyle a picture on Hailuo H3 (R&D L55): the Studio's own scripts/h3_restyle.py in the H3 pack's
+    # interpreter against the installed engine checkout. One content picture in, the same scene back in
+    # the style the prompt names. The panel fills the paths; the recipe values are the measured ones.
+    h3restyle_python_path: str = ""
+    h3restyle_script_path: str = ""   # <studio>/scripts/h3_restyle.py
+    h3restyle_engine_root: str = ""   # the installed H3 engine checkout (H3_ROOT)
+    h3restyle_dit: str = ""           # the H3 FL2VA Q8 DiT folder
+    h3restyle_text_dir: str = ""      # the H3 Q8 components folder (text encoder + video VAE)
+    h3restyle_text_config: str = ""   # upstream-meta/FL2VA/text_encoder/config.json
+    h3restyle_decoder: str = ""       # the P-H3-Image vae folder (single-frame decoder)
+    h3restyle_lora: str = ""          # the restyle adapter file
+    h3restyle_lora_bytes: int = 0     # its exact size when known (a partial file is "not downloaded")
+    h3restyle_scale: float = 1.3      # adapter strength, measured 1.0-1.3
+    h3restyle_steps: int = 16         # sigma points (15 forwards)
+    h3restyle_mp: float = 1.0         # output megapixels at the content's shape
+
     def to_public_dict(self) -> dict:
         d = asdict(self)
         if d.get("bfl_api_key"):
@@ -615,7 +631,8 @@ def generate(*, prompt: str, n: int, output_dir: Path,
     # Validate ref paths up-front so we fail fast — Qwen-Edit-2509 supports
     # 1-3 input images; more than 3 is unsupported by the model.
     if refs:
-        if len(refs) > (10 if config.kind == "flux3" else H3IMAGE_MAX_REFERENCES if config.kind == "h3image" else 3):
+        if len(refs) > (10 if config.kind == "flux3" else H3IMAGE_MAX_REFERENCES if config.kind == "h3image"
+                        else 1 if config.kind == "h3restyle" else 3):
             raise ValueError(
                 f"refs: Qwen-Image-Edit-2509 supports 1-3 input images, got {len(refs)}"
             )
@@ -652,6 +669,8 @@ def generate(*, prompt: str, n: int, output_dir: Path,
         return _generate_ph3image(prompt, n, aspect, output_dir, base_seed, config, refs=refs, on_log=on_log)
     if config.kind == "h3image":
         return _generate_h3image(prompt, n, aspect, output_dir, base_seed, config, refs=refs, on_log=on_log)
+    if config.kind == "h3restyle":
+        return _generate_h3restyle(prompt, n, output_dir, base_seed, config, refs=refs, on_log=on_log)
     raise ValueError(f"unknown image engine kind: {config.kind!r}")
 
 
@@ -698,6 +717,11 @@ def health_check(config: ImageEngineConfig) -> tuple[bool, str]:
         if missing:
             return False, "MiniMax-H3-Image is not installed: " + "; ".join(missing)
         return True, f"MiniMax-H3-Image ready ({config.h3image_mp:g} MP, 6 steps)"
+    if config.kind == "h3restyle":
+        missing = h3restyle_missing(config)
+        if missing:
+            return False, "Restyle on Hailuo H3 is not installed: " + "; ".join(missing)
+        return True, f"Restyle on Hailuo H3 ready ({config.h3restyle_mp:g} MP, {max(1, config.h3restyle_steps - 1)} steps)"
     return False, f"unknown engine kind: {config.kind!r}"
 
 
@@ -2865,6 +2889,134 @@ def _generate_h3image(prompt: str, n: int, aspect: str, output_dir: Path, base_s
             pass
         results.append({"png_path": str(png), "seed": seed, "engine": "h3-image",
                         "references": len(refs), "refs_ignored": False,
+                        "width": int(info.get("width") or 0), "height": int(info.get("height") or 0),
+                        "seconds": float(info.get("request_seconds") or info.get("total_seconds") or 0.0)})
+    return results
+
+
+# ---- Restyle a picture on Hailuo H3 (R&D L55) ------------------------------------------------------
+H3RESTYLE_MAX_REFERENCES = 1      # the content picture; a second anchor makes the model copy one of them
+
+
+def h3restyle_missing(config: ImageEngineConfig) -> list[str]:
+    """What is not on disk yet, in plain words ([] = ready)."""
+    out: list[str] = []
+    py = config.h3restyle_python_path
+    if not py or not Path(py).exists():
+        out.append("the H3 engine is not installed")
+    if not config.h3restyle_script_path or not Path(config.h3restyle_script_path).is_file():
+        out.append("this Studio has no restyle runner")
+    root = Path(config.h3restyle_engine_root) if config.h3restyle_engine_root else None
+    # Every module the runner stages (the same five h3restyle_supported() probes), not just the decoder:
+    # an old or half-updated engine would otherwise fail at import after the expensive part began.
+    if root is None or not all((root / "minimax_h3_mlx" / f).is_file()
+                               for f in ("ph3_image_vae.py", "pipeline.py", "lora.py", "adaln.py", "packing.py")):
+        out.append("this H3 engine build has no single-frame image decoder (update the Hailuo H3 runner)")
+    if not config.h3restyle_dit or not Path(config.h3restyle_dit).is_dir():
+        out.append("the H3 video model is missing")
+    if not config.h3restyle_text_dir or not (Path(config.h3restyle_text_dir) / "video_vae.safetensors").is_file():
+        out.append("the H3 text encoder is missing")
+    if not config.h3restyle_text_config or not Path(config.h3restyle_text_config).is_file():
+        out.append("the H3 text encoder config is missing")
+    dec = Path(config.h3restyle_decoder) if config.h3restyle_decoder else None
+    # Both decoder files: the runner reads config.json after denoising, so a lost config would cost the whole run.
+    if dec is None or not (dec / "decoder.safetensors").is_file() or not (dec / "config.json").is_file():
+        out.append("the P-H3-Image picture decoder is not downloaded")
+    lora = Path(config.h3restyle_lora) if config.h3restyle_lora else None
+    try:
+        lora_ok = bool(lora and lora.is_file() and lora.stat().st_size > 0
+                       and (not config.h3restyle_lora_bytes or lora.stat().st_size == int(config.h3restyle_lora_bytes)))
+    except OSError:
+        lora_ok = False
+    if not lora_ok:
+        out.append("the restyle adapter is not downloaded")
+    return out
+
+
+def _generate_h3restyle(prompt: str, n: int, output_dir: Path, base_seed: int | None,
+                        config: ImageEngineConfig, refs: list[str] | None = None,
+                        on_log: "callable | None" = None) -> list[dict]:
+    """One picture per subprocess (the runner stages text encoder, DiT and decoder itself). The
+    output takes the content picture's shape; the Studio's aspect choice does not apply."""
+    import json as _json
+    import os
+    import random
+    import subprocess
+
+    missing = h3restyle_missing(config)
+    if missing:
+        raise FileNotFoundError("Restyle on Hailuo H3 is not ready: " + "; ".join(missing))
+    refs = list(refs or [])
+    if len(refs) != 1:
+        raise ValueError("Restyle takes exactly one picture: the one to restyle (Picture 1).")
+    content = refs[0]
+    forwards = max(1, int(config.h3restyle_steps) - 1)
+    if on_log:
+        on_log(f"[restyle] {Path(content).name} -> the style in the prompt, {forwards} steps, strength {config.h3restyle_scale:g}")
+    results: list[dict] = []
+    ts = int(time.time() * 1000)
+    for i in range(n):
+        seed = (base_seed + i) if base_seed is not None else random.randint(0, 2**31 - 1)
+        png = output_dir / f"cand_{i:02d}_h3restyle_{ts}.png"
+        metrics = output_dir / f"cand_{i:02d}_h3restyle_{ts}.json"
+        # Options first, then "--" and the prompt as data: a prompt that starts with "-" ("--watercolour")
+        # must reach the runner as the prompt, not as an option (5.0.27 review).
+        cmd = [config.h3restyle_python_path, config.h3restyle_script_path, "-o", str(png),
+               "--content", str(content), "--engine-root", config.h3restyle_engine_root,
+               "--dit", config.h3restyle_dit, "--text-dir", config.h3restyle_text_dir,
+               "--text-config", config.h3restyle_text_config, "--decoder", config.h3restyle_decoder,
+               "--lora", config.h3restyle_lora, "--lora-scale", f"{float(config.h3restyle_scale):g}",
+               "--steps", str(int(config.h3restyle_steps)), "--mp", f"{float(config.h3restyle_mp):g}",
+               "--seed", str(seed), "--metrics", str(metrics), "--", prompt]
+        if on_log:
+            on_log(f"[restyle] image {i + 1}/{n}: {config.h3restyle_mp:g} MP at the picture's shape, seed {seed}")
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                errors="replace", env=_clean_subprocess_env(), start_new_session=True)
+        _register_active_proc(proc)
+        deadline = float(os.environ.get("PHOSPHENE_H3RESTYLE_TIMEOUT_S", "3600"))
+        timed_out = {"v": False}
+
+        def _kill():
+            timed_out["v"] = True
+            try:
+                proc.kill()          # the runner creates no children
+            except ProcessLookupError:
+                pass
+
+        wd = threading.Timer(deadline, _kill)
+        wd.daemon = True
+        wd.start()
+        try:
+            if proc.stdout is not None:
+                for line in proc.stdout:
+                    line = line.rstrip()
+                    if line and on_log:
+                        on_log(f"[restyle] {line}")
+            rc = proc.wait()
+        except BaseException:
+            proc.kill()
+            proc.wait()
+            raise
+        finally:
+            wd.cancel()
+            _unregister_active_proc(proc)
+            if proc.stdout is not None:
+                proc.stdout.close()
+        if timed_out["v"]:
+            raise RuntimeError(f"Restyle exceeded its {deadline:.0f}s deadline and was stopped")
+        if rc in (-15, 143, -9, 137):
+            raise ImageJobCancelled(f"Restyle cancelled by /stop (rc={rc})")
+        if rc != 0:
+            raise RuntimeError(f"Restyle failed with rc={rc}")
+        if not png.exists():
+            raise RuntimeError(f"Restyle finished but no PNG at {png}")
+        info: dict = {}
+        try:
+            info = _json.loads(metrics.read_text())
+        except Exception:
+            pass
+        results.append({"png_path": str(png), "seed": seed, "engine": "h3-restyle",
+                        "references": 1, "refs_ignored": False,
                         "width": int(info.get("width") or 0), "height": int(info.get("height") or 0),
                         "seconds": float(info.get("request_seconds") or info.get("total_seconds") or 0.0)})
     return results

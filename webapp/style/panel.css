@@ -4300,6 +4300,8 @@
     .studio-ref-warn.h3-edit-tip strong { color: var(--text); }
     /* More than three picture slots (H3-Image edit, up to 6): two rows of three. */
     .studio-ref-grid.many .studio-ref-slot { aspect-ratio: 4 / 3; }
+    /* One picture slot (Restyle on H3): the slot sits alone at the grid's natural width. */
+    .studio-ref-grid.one { grid-template-columns: minmax(0, 240px); }
     /* "Picture n" (H3-Image edit) is longer than "Primary": smaller and unspaced so it clears the x. */
     .studio-ref-slot .ref-tag.pic { font-size: 13px; letter-spacing: 0; text-transform: none; z-index: 2; }
     /* On a photo the name must read: a solid chip (a later theme rule clears the tag background). */

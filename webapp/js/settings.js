@@ -1697,9 +1697,71 @@ async function proStatusRefresh() {
   if (btn) { btn.hidden = isMacApp(); btn.textContent = active ? T('settings.licence', 'Licence') : 'Pro'; }
   if (mark) { mark.hidden = !active; mark.textContent = active && st.label ? st.label : 'Pro'; }
   globalThis.proSpeedStatus = (st && st.ltx_speedup) || null;
+  globalThis.proCrisperStatus = (st && st.crisper_detail) || null;
   proMarksApply();
   proSpeedRender();
+  crisperRender();
   return st;
+}
+
+// ---- Crisper detail, in the composer tools (Pro ledger row ltx-crisper-detail) -------------------------------
+// Free: the pill with a "Pro" tag; a click opens the Pro door and the box stays off. Pro: a real switch, off by
+// default and remembered; ticking it starts the one-time download when the adapter is not here yet. Whether a
+// render takes it is decided by the Studio and the Pro add-on (the lanes it was measured on), never here.
+const CRISPER_KEY = 'phos_crisper_detail';
+function crisperRender() {
+  const pill = document.getElementById('crisperPill');
+  const box = document.getElementById('crisperToggle');
+  if (!pill || !box) return;
+  const st = globalThis.proCrisperStatus || {};
+  if (!proIsOn()) {                             // Free: what Pro adds, and the door
+    pill.hidden = false; box.checked = false;
+    pill.title = proSpotText('ltx-crisper-detail', false);
+    return;
+  }
+  if (!st.offered) { pill.hidden = true; box.checked = false; return; }   // Pro without the add-on: nothing to switch
+  pill.hidden = false;
+  let choice = 'off';
+  try { choice = localStorage.getItem(CRISPER_KEY) || 'off'; } catch (e) { /* keep off */ }
+  box.checked = choice === 'on';
+  const q = (document.getElementById('quality') || {}).value || '';
+  // A failed or refused download is said plainly (the install reply or the download state), never hidden
+  // behind "first use downloads": switching the pill off and on asks again.
+  const err = st.error || globalThis._crisperInstallError || '';
+  pill.title = !box.checked ? T('settings.crisper_off_title', 'Crisper detail: off. Switch it on for noticeably finer detail on LTX-2.5 clips (Quick, Balanced and Standard) in about the same render time; the take changes.')
+    : q === 'high' ? T('settings.crisper_high_title', 'Crisper detail is on for Quick, Balanced and Standard; High renders as usual.')
+    : (err && !st.downloaded && !st.downloading) ? T('settings.crisper_failed_title', 'Crisper detail: the download did not finish ({error}). Switch it off and on to try again; until then this clip renders as usual.', {error: err})
+    : st.downloading ? (st.total_mb ? T('settings.crisper_downloading_title', 'Crisper detail: getting ready (one-time download, {mb} of {total} MB).', {mb: st.mb, total: st.total_mb})
+      : T('settings.crisper_downloading_short', 'Crisper detail: getting ready (one-time download).'))
+    : !st.downloaded ? T('settings.crisper_first_use_title', 'Crisper detail: on. The first use downloads {gb} GB once.', {gb: st.gb || 1.2})
+    : T('settings.crisper_on_title', 'Crisper detail: on. This clip renders in about the usual time with finer detail.');
+  if (box.checked && !st.downloaded && !st.downloading && !err && !globalThis._crisperAsked) {
+    globalThis._crisperAsked = true;
+    crisperPrepare();
+  }
+  // Until the one-time download is done, look again every 20 s so the tooltip moves on by itself.
+  if (box.checked && !st.downloaded && !err && !globalThis._crisperTimer) {
+    globalThis._crisperTimer = setTimeout(() => { globalThis._crisperTimer = null; proStatusRefresh(); }, 20000);
+  }
+}
+function crisperChanged() {
+  const box = document.getElementById('crisperToggle');
+  if (!box) return;
+  if (!proIsOn()) { box.checked = false; openProModal(document.getElementById('crisperPill')); return; }
+  try { localStorage.setItem(CRISPER_KEY, box.checked ? 'on' : 'off'); } catch (e) { /* not remembered */ }
+  globalThis._crisperAsked = false;
+  globalThis._crisperInstallError = '';
+  crisperRender();
+}
+async function crisperPrepare() {
+  // Read the reply: a refusal (low disk, Pro required) arrives here and nowhere else.
+  try {
+    const r = await fetch('/pro/crisper-detail/install', { method: 'POST', cache: 'no-store' });
+    let body = {};
+    try { body = await r.json(); } catch (_) { body = {}; }
+    if (!r.ok && !body.already_running) globalThis._crisperInstallError = String(body.error || ('HTTP ' + r.status));
+  } catch (_) { globalThis._crisperInstallError = T('settings.crisper_no_reply', 'no reply from the Studio'); }
+  setTimeout(proStatusRefresh, 1500);
 }
 
 // ---- Pro speed-up, beside Quality (Pro ledger row ltx-faster) -----------------------------------------------
@@ -1755,6 +1817,10 @@ function proSpeedChanged() {
 // anything going Free. AI fill has no ledger row yet; its words are the 5.0.16 release notes.
 // Display text only. Whether a feature runs is decided where it runs, from the signed licence.
 const PRO_FEATURES = [
+  { id: 'ltx-crisper-detail', name: T('settings.crisper_detail', 'Crisper detail'),
+    line: T('settings.crisper_detail_line', 'Noticeably finer detail on LTX-2.5 clips: skin, hair, fabric and backgrounds, in about the same render time (Quick, Balanced and Standard). Off by default; the take changes when it is on.'),
+    short: T('settings.crisper_detail_short', 'noticeably finer detail on LTX-2.5 clips in about the same render time.'),
+    where: T('settings.crisper_detail_where', 'The Crisper detail pill under the prompt, on LTX-2.5') },
   { id: 'ltx-faster', name: T('settings.faster_ltx_clips', 'Faster LTX clips'),
     line: T('settings.ltx_2_5_clips_render', 'LTX-2.5 clips render with less waiting: about a quarter less on a 5-second clip and about a fifth less on a 10-second clip (Balanced; measured on an M4 Max 64 GB). On by default; switch it off for any render. Macs with 16 GB or more.'),
     short: T('settings.about_a_quarter_less_waiting_2', 'about a quarter less waiting on LTX clips, on Macs with 16 GB or more.'),
@@ -1924,6 +1990,7 @@ function closeProModal() {
 
 Object.assign(globalThis, {
   proSpeedRender, proSpeedChanged,
+  crisperRender, crisperChanged, crisperPrepare,
   downloadFirstVideo,
   openProModal, closeProModal, proStatusRefresh,
   openYourPro, closeYourPro, proMarksApply, proSpotText, proNoteHtml,

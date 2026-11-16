@@ -80,6 +80,8 @@ Long LTX clips use a third less memory at the end of the render (5.0.25). The la
 
 On the fast qualities, a **Speed** row offers **Tuned** or **Fast draft** — a faster schedule that changes the take. High has a **STG — detail guidance** slider.
 
+**Crisper detail** <span class="pro-chip">Pro</span> (5.0.27): a switch under the prompt for noticeably finer detail on LTX-2.5 clips (skin, hair, fabric and backgrounds) on Quick, Balanced and Standard, in about the same render time. Measured on an M4 Max 64 GB: about 50 to 70 % sharper fine detail, for about 10 seconds more on a 2 min 20 s clip. Off by default; the take changes when it is on. The first use downloads a 1.2 GB add-on once. Not on High or Fast draft yet, and not with a character or HDR; the Pro speed-up stands aside on a Crisper detail clip. Free users see the switch marked Pro and render exactly as before.
+
 With a trained character selected the chips become **Q8 Draft** (704×384), **Q8 Pro** (1024×576, *best identity*) and, on LTX-2.5, High and High · 720p. Trained faces hold best on Q8 Pro.
 
 ### Sliding windows on LTX {#ltx-windows}

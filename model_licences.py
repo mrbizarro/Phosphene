@@ -363,6 +363,8 @@ def licence_for_image_cfg(cfg) -> str | None:
         return "flux3"
     if cfg is not None and getattr(cfg, "kind", "") == "ph3image":
         return "h3"      # a MiniMax H3 Model Derivative: the same screen as H3 itself
+    if cfg is not None and getattr(cfg, "kind", "") == "h3restyle":
+        return "h3"      # Restyle runs the H3 model itself (5.0.27 review): the H3 screen, on render as on install
     if cfg is not None and getattr(cfg, "kind", "") == "h3image":
         return "minimax-h3-image"   # its own licence (1 M USD limit, own AUP): its own screen
     if cfg is None or getattr(cfg, "kind", "") != "mflux":

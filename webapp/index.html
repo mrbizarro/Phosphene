@@ -104,6 +104,7 @@
 <symbol id="eng-mark-img-edit" viewBox="0 0 24 24"><rect x="3.4" y="4.4" width="13.2" height="13.2" rx="2.4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12.4 19.6l1-3.4 6-6 2.4 2.4-6 6z" fill="currentColor"/></symbol>
 <symbol id="eng-mark-img-ideogram" viewBox="0 0 24 24"><rect x="3.4" y="4.4" width="17.2" height="15.2" rx="2.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 9h8M12 9v7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
 <symbol id="eng-mark-img-h3i" viewBox="0 0 24 24"><rect x="3.4" y="4.4" width="17.2" height="15.2" rx="2.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 8.6v6.8M12.4 8.6v6.8M8 12h4.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M15.4 9.2h2.4M16.6 9.2v5.6M15.4 14.8h2.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+<symbol id="eng-mark-img-h3r" viewBox="0 0 24 24"><rect x="3.4" y="4.4" width="17.2" height="15.2" rx="2.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7.4 15.6l4.2-4.2 2.4 2.4 3.2-3.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8.6" cy="8.8" r="1.3" fill="currentColor"/></symbol>
 <symbol id="eng-mark-img-ph3" viewBox="0 0 24 24"><rect x="3.4" y="4.4" width="17.2" height="15.2" rx="2.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 8.6v6.8M12.4 8.6v6.8M8 12h4.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M15.6 10.6v2.8M17.6 9.4v5.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
 <symbol id="ph-speaker-slash" viewBox="0 0 256 256"><line x1="48" y1="40" x2="208" y2="216" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M80,168H32a8,8,0,0,1-8-8V96a8,8,0,0,1,8-8H80l72-56V147" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><path d="M152,179v45L94.4,179.2" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></symbol>
 </defs>
@@ -1273,6 +1274,18 @@
                imports all stay in place. Re-exposing is a one-line
                un-comment when Phase 2 lands. -->
           <input type="hidden" id="hdr" name="hdr" value="off">
+          <!-- Crisper detail (Pro ledger row ltx-crisper-detail), crisperRender() in settings.js:
+               noticeably finer detail on LTX-2.5 Quick/Balanced/Standard clips in about the same render
+               time. A Pro member gets the switch (off by default, remembered); a Free user sees what
+               Pro adds and the Pro door. What it fetches and applies comes from the Pro add-on,
+               never from here. -->
+          <label class="toggle-pill" id="crisperPill" data-ltx-only
+                 title="Noticeably finer detail on LTX-2.5 clips (Quick, Balanced and Standard), in about the same render time." data-i18n-title="crisperPill.title.noticeably_finer_detail_on">
+            <input type="checkbox" id="crisperToggle" name="crisper_detail" onchange="crisperChanged()" aria-label="Crisper detail" data-i18n-aria-label="crisperToggle.aria-label.crisper_detail">
+            <span class="toggle-dot"></span>
+            <span data-i18n="crisperPill.crisper_detail">Crisper detail</span>
+            <span class="pro-tag" id="crisperTag" data-pro-feature="ltx-crisper-detail" style="margin-left:4px">Pro</span>
+          </label>
           <!--
           <label class="toggle-pill" id="hdrPill"
                  title="HDR via the official Lightricks LTX-2.3-22b IC-LoRA-HDR.">
@@ -2836,6 +2849,10 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
               <option value="h3image_draft_inline" data-i18n="imgStudioEngine.minimax_h3_image_draft">MiniMax-H3-Image &mdash; Draft (4 MP)</option>
               <option value="h3image_standard_inline" data-i18n="imgStudioEngine.minimax_h3_image_standard">MiniMax-H3-Image &mdash; Standard (8 MP)</option>
               <option value="h3image_high_inline" data-i18n="imgStudioEngine.minimax_h3_image_high">MiniMax-H3-Image &mdash; High (16 MP)</option>
+              <!-- Restyle a picture on Hailuo H3 (R&D L55): one picture in, the same scene back in the style the
+                   prompt names. Free (owner, card 788). The time in the label is replaced at load by
+                   /image/engine_status `version_label` (H3RESTYLE_MEASURED_ETA in mlx_ltx_panel.py). -->
+              <option value="h3restyle_inline" data-i18n="imgStudioEngine.restyle_a_picture">Restyle a picture (on MiniMax H3) (1 MP, ~2 min)</option>
               <option value="mock_inline" id="imgStudioMockOption" hidden data-i18n="imgStudioMockOption.mock_testing_debug_only">Mock (testing — debug only)</option>
             </select>
             <span class="studio-version-only" id="imgStudioVersionOnly" hidden></span>

@@ -1018,6 +1018,45 @@ five-tap Qwen3-VL-4B text encoder + connector and a new single-frame ViT image d
   (`h3image_edit_supported()`); aspect key `match` = Same as picture. All of it is Free (owner, 12 Nov 2026). The engine pin has NOT moved to `42fdc21`: the branch must be
   pushed to the engine repo and `scripts/pinokio/h3_checkout.sh` bumped before users get it. Gap table: `docs/H3_IMAGE_GAPS.md`.
 
+## Restyle a picture (R&D L55, 15 Nov 2026) — content-preserving style transfer on the H3 runner
+
+One picture in, the same scene back in the style the prompt names (a clay figurine, a flat vector icon, pixel art, a felt
+doll, a painting). No new model: the H3 video pack's FL2VA Q8 DiT and text encoder, the P-H3-Image single-frame decoder, and
+a 298 MB rank-16 adapter (`witcherderivia/minimax-h3-image-restyle` @ b506c0bb, `h3-lora-image-restyle.safetensors`, the
+8500-step file, Apache-2.0) fetched at a pinned revision and digest, never re-hosted. Free for everyone (owner, card #788).
+Lab record: `research/lab/L55.md` in the PM hub.
+
+- The recipe, as measured: the content picture is the ONLY keyframe anchor (FL2VA's `first` slot held at its training noise
+  level, 0.999); the style comes from the prompt, never from a second picture (a style picture in `last` makes the model copy one
+  of the two anchors: 2 of 4 with two anchors, 5 of 6 with one); one latent target frame plus two throw-away audio latents; 16
+  sigma points, video shift 12 (15 forwards, no guidance); the adapter at run time, scale 1.3 (1.0 is enough for the easy
+  pairs, 1.3 carried the hard ones); the P-H3-Image single-frame decoder (the video VAE cannot decode one latent frame).
+- Adapter layout: the file is a ComfyUI export (`lora_unet_blocks_N_attn_qkv_proj.lora_down.weight`, fused qkv rows
+  contiguous q|k|v; the engine's row-norm F-test says 160 under that grouping vs 3.7 under ours, all 50 blocks). The runner
+  re-keys it ONCE beside itself (`h3-lora-image-restyle.ourkeys.safetensors`) and applies it with `permute_qkv=True`,
+  `swap_fc1=False`; alpha 16 = rank 16, so scale is applied as given. 200 modules apply (no adaLN pairs in the file).
+- Runner: the STUDIO's own `scripts/h3_restyle.py PROMPT -o OUT --content PIC --engine-root <H3 checkout> --dit <q8 dit>
+  --text-dir <ddalcu-q8> --text-config <upstream text_encoder/config.json> --decoder <p-h3-image>/vae --lora <adapter>
+  [--lora-scale 1.3 --steps 16 --mp 1.0 --seed N --metrics M]`, run in the H3 pack's interpreter. It imports only the engine's
+  own modules (`adaln`, `packing`, `scheduler`, `text_encoder`, `pipeline.encode_keyframe_rows`, `vae_stream`, `load`, `lora`,
+  `ph3_image_vae`), all present at the current engine pin 953ec46, so the pin does NOT move for this feature. Staged: text
+  encoder out, keyframe encoder out, DiT + adapter, decoder. Fresh scheduler objects per picture (a reused one continues past
+  the last sigma: NaN, black picture); a non-finite latent exits 4 instead of writing a black PNG.
+- Fetch: the panel's own digest-pinned download (`_h3restyle_download_bg`: bytes + sha256, atomic rename), `POST
+  /image/h3restyle/install` behind the H3 licence screen (the adapter is Apache-2.0, the base is MiniMax H3). It refuses until
+  the P-H3-Image decoder is on disk (the chip offers that download first).
+- Studio: `image_engine.kind = "h3restyle"`, engine `h3restyle_inline` (one recipe), exactly one reference (the picture to
+  restyle; `image_max_refs` = 1), the output takes the picture's shape (the size choice is disabled), `/status` block
+  `h3restyle` (reason ladder `h3_missing` / `engine_too_old` / `decoder_missing` / `not_downloaded` / `ok`), picker entry
+  `h3_restyle`, capability row `images.h3_restyle` (`preview`, `edit`, 15 steps, not Pro), pre-flight priced at
+  `H3RESTYLE_PEAK_GB`. Gate: `test_h3_restyle.py`.
+- Measured, M4 Max 64 GB (L55; 1 MP at the content's shape, 15 forwards, one anchor): 105-108 s denoise, about 2 min per
+  picture end to end in one process, 27.6 GB peak (the text-encoder phase sets it; the DiT phase is lower). 5 of 6 pairs
+  restyled with their content kept (clay horse, flat-icon cathedral, modernist group painting, felt doll, pixel lighthouse);
+  the watercolour pair came back as a photo. Painterly targets are the adapter's weak spot (it is at 1.6 % of its planned
+  training); 3D/clay, flat vector, pixel and felt are its strong ones. The author's 10000-step file is stronger on the group
+  photo but was not the file the recipe was measured with, so the 8500 one ships.
+
 ## What H3 does *not* do
 
 - **Modes**: Remix and Character are LTX-pipeline-specific; the picker snaps

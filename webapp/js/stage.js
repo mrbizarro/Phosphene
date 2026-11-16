@@ -17,7 +17,8 @@ globalThis.IMG_STUDIO = {
 function imgStudioRequiresRefs(engineOverride) {
   return engineOverride === 'qwen_edit_inline'
       || engineOverride === 'qwen_edit_lightning_inline'
-      || engineOverride === 'qwen_edit_high_inline';
+      || engineOverride === 'qwen_edit_high_inline'
+      || engineOverride === 'h3restyle_inline';     // Restyle starts from the picture to restyle
 }
 
 function imgStudioUpdateValidity() {
@@ -37,7 +38,8 @@ function imgStudioUpdateValidity() {
   const engInfo = (typeof _IMG_ENGINE_STATUS === 'object' && _IMG_ENGINE_STATUS)
     ? _IMG_ENGINE_STATUS[eng.value] : null;
   const ph3Why = (eng.value.startsWith('ph3image') && engInfo) ? ph3imageNotReady(engInfo)
-    : (eng.value.startsWith('h3image') && engInfo) ? h3imageNotReady(engInfo) : '';
+    : (eng.value.startsWith('h3image') && engInfo) ? h3imageNotReady(engInfo)
+    : (eng.value.startsWith('h3restyle') && engInfo) ? h3restyleNotReady(engInfo) : '';
   if (ph3Why) {
     invalidReason = ph3Why;
   } else if (engInfo && engInfo.family_installed === false) {
@@ -57,6 +59,8 @@ function imgStudioUpdateValidity() {
     const cap = (engInfo && engInfo.max_refs) || 3;
     invalidReason = T('stage.this_engine_takes_at_most', 'This engine takes at most ') + cap + T('stage.reference_images_remove', ' reference images — remove ')
       + (refsCount - cap) + T('stage.to_generate', ' to generate.');
+  } else if (needsRefs && refsCount === 0 && _imgStudioIsRestyle()) {
+    invalidReason = T('stage.restyle_needs_the_picture', 'Drop the picture to restyle into the slot above, then say the style you want in the prompt (a clay figurine, a flat vector icon, pixel art, a felt doll).');
   } else if (needsRefs && refsCount === 0) {
     // SYS-14: "Pick a reference image" was the whole message -- for
     // someone who came here to make a FIRST picture from words (no photo
@@ -207,6 +211,9 @@ const _STUDIO_REF_TAGS = [T('stage.primary', 'Primary'), 'Multi-ref', 'Multi-ref
 // (image_max_refs, 6) and offers "Same as picture" as the shape. All of it is Free (owner, 12 Nov 2026).
 const H3IMG_FIXED_SLOTS = 3;
 const _imgStudioIsH3 = () => ((document.getElementById('imgStudioEngine') || {}).value || '').startsWith('h3image');
+// Restyle a picture on H3 (R&D L55): one picture in, the same scene back in the style the prompt names.
+// Exactly one slot (a second anchor makes the model copy one of them); the output keeps the picture's shape.
+const _imgStudioIsRestyle = () => ((document.getElementById('imgStudioEngine') || {}).value || '').startsWith('h3restyle');
 const _imgStudioRefCount = () => IMG_STUDIO.refs.filter(r => r && r.path).length;
 function _imgStudioH3Cap() {
   const info = (typeof _IMG_ENGINE_STATUS === 'object' && _IMG_ENGINE_STATUS)
@@ -220,7 +227,9 @@ function imgStudioSyncSlots() {
   const cap = _imgStudioIsH3() ? _imgStudioH3Cap() : 0;
   let lastFilled = -1;
   IMG_STUDIO.refs.forEach((r, i) => { if (r && r.path) lastFilled = i; });
-  const want = Math.max(H3IMG_FIXED_SLOTS, Math.min(cap, lastFilled + 2), lastFilled + 1);
+  const want = _imgStudioIsRestyle()
+    ? Math.max(1, lastFilled + 1)                      // Restyle: the one picture to restyle
+    : Math.max(H3IMG_FIXED_SLOTS, Math.min(cap, lastFilled + 2), lastFilled + 1);
   while (IMG_STUDIO.refs.length < want) IMG_STUDIO.refs.push(null);
   let slots = grid.querySelectorAll('.studio-ref-slot');
   for (let i = slots.length; i < want; i++) {
@@ -234,6 +243,7 @@ function imgStudioSyncSlots() {
     if (!(IMG_STUDIO.refs[i] && IMG_STUDIO.refs[i].path)) { slots[i].remove(); IMG_STUDIO.refs.length = i; }
   }
   grid.classList.toggle('many', want > H3IMG_FIXED_SLOTS);
+  grid.classList.toggle('one', _imgStudioIsRestyle());
   const fresh = Array.from(grid.querySelectorAll('.studio-ref-slot')).filter(el => el.dataset.wired !== '1');
   if (fresh.length) imgStudioWireRefSlots();
 }
@@ -245,6 +255,10 @@ function imgStudioSyncAspect() {
   const offer = _imgStudioIsH3() && _imgStudioH3Cap() > 0 && _imgStudioRefCount() > 0;
   opt.hidden = !offer;
   opt.disabled = !offer;
+  // Restyle keeps the picture's shape: the size choice does not apply (the server ignores it), say so.
+  const restyle = _imgStudioIsRestyle();
+  sel.disabled = restyle;
+  sel.title = restyle ? T('stage.restyle_keeps_the_pictures_shape', 'Restyle keeps the shape of the picture you drop in.') : '';
   if (offer && !IMG_STUDIO.matchOffered) {
     IMG_STUDIO.matchOffered = true;
     IMG_STUDIO.aspectBeforeMatch = sel.value;
@@ -284,7 +298,8 @@ function imgStudioRenderSlotTag(idx) {
   const tagEl = slot && slot.querySelector('.ref-tag');
   if (!tagEl) return;
   const h3 = _imgStudioIsH3() && _imgStudioH3Cap() > 0;
-  const want = h3 ? `Picture ${idx + 1}` : (_STUDIO_REF_TAGS[idx] || `Ref ${idx + 1}`);
+  const want = _imgStudioIsRestyle() ? T('stage.picture_to_restyle', 'Picture to restyle')
+    : h3 ? `Picture ${idx + 1}` : (_STUDIO_REF_TAGS[idx] || `Ref ${idx + 1}`);
   if (tagEl.textContent !== want) imgStudioRenderSlot(idx);
 }
 function imgStudioRenderSlot(idx) {
@@ -292,8 +307,10 @@ function imgStudioRenderSlot(idx) {
     `.studio-ref-slot[data-slot="${idx}"], .img-ref-slot[data-slot="${idx}"]`);
   if (!slot) return;
   const ref = IMG_STUDIO.refs[idx];
-  const h3 = _imgStudioIsH3() && _imgStudioH3Cap() > 0;
-  const tag = h3 ? `Picture ${idx + 1}` : (_STUDIO_REF_TAGS[idx] || `Ref ${idx + 1}`);
+  const restyle = _imgStudioIsRestyle();
+  const h3 = restyle || (_imgStudioIsH3() && _imgStudioH3Cap() > 0);
+  const tag = restyle ? T('stage.picture_to_restyle', 'Picture to restyle')
+    : h3 ? `Picture ${idx + 1}` : (_STUDIO_REF_TAGS[idx] || `Ref ${idx + 1}`);
   if (ref && ref.path) {
     slot.classList.add('has-image');
     slot.innerHTML = `
@@ -303,7 +320,9 @@ function imgStudioRenderSlot(idx) {
     `;
   } else {
     slot.classList.remove('has-image');
-    const cta = h3
+    const cta = restyle
+      ? T('stage.drop_click_picture_to_restyle', 'Drop · click<br>picture to restyle')
+      : h3
       ? (idx === 0 ? 'Drop · click<br>picture to edit' : 'Drop · click<br>add a picture')
       : idx === 0
       ? 'Drop · click<br>character'
@@ -351,6 +370,28 @@ function imgStudioUpdateRefWarning() {
   const prompt = document.getElementById('imgStudioPrompt');
   if (!box) return;
   const refsCount = (IMG_STUDIO.refs || []).filter(r => r && r.path).length;
+  // Restyle on H3: one slot, its own name, and the tip says where the style comes from (the prompt).
+  // Leaving Restyle re-syncs the slots too, so the three ordinary slots come back.
+  const grid = document.getElementById('imgStudioRefs');
+  if (_imgStudioIsRestyle() || (grid && grid.classList.contains('one'))) {
+    if (!_imgStudioSyncing) {
+      _imgStudioSyncing = true;
+      try {
+        imgStudioSyncSlots(); imgStudioSyncAspect();
+        IMG_STUDIO.refs.forEach((_, i) => imgStudioRenderSlotTag(i));
+      } finally { _imgStudioSyncing = false; }
+    }
+  }
+  if (_imgStudioIsRestyle()) {
+    if (prompt) {
+      prompt.placeholder = T('stage.restyle_placeholder', 'Say the style you want and what is in the picture: "A clay figurine of a horse, soft studio light." or "A flat vector icon of a snowy cathedral, teal and orange." or "Retro 16-bit pixel art of a lighthouse at dusk."');
+    }
+    box.hidden = false;
+    box.classList.add('h3-edit-tip');
+    box.innerHTML = `<strong>${T('stage.restyle_on_hailuo_h3', 'Restyle on Hailuo H3.')}</strong> ${T('stage.restyle_keeps_what_is_in', 'The picture you drop in keeps its content; the prompt names the style.')} `
+      + T('stage.restyle_works_best_with', 'Works best with clay, flat vector, pixel art, felt and other bold styles; soft paintings (watercolour, oil) are hit and miss. One picture, about 2 minutes.');
+    return;
+  }
   if (_imgStudioIsH3() && _imgStudioH3Cap() > 0) {
     if (!_imgStudioSyncing) {
       _imgStudioSyncing = true;
@@ -530,6 +571,11 @@ function imgStudioRenderEnginePill() {
     pill.dataset.h3i = '';
     if (_H3IMAGE_POLL) { clearInterval(_H3IMAGE_POLL); _H3IMAGE_POLL = null; }
   }
+  if (!v.startsWith('h3restyle')) {
+    // And for Restyle on H3: its download flag must never leak onto another chip.
+    pill.dataset.h3r = '';
+    if (_H3RESTYLE_POLL) { clearInterval(_H3RESTYLE_POLL); _H3RESTYLE_POLL = null; }
+  }
   // 'auto' resolves to whatever the user saved in Settings — we don't try
   // to second-guess that here, just show a neutral pill.
   if (v === 'auto') {
@@ -550,6 +596,9 @@ function imgStudioRenderEnginePill() {
   }
   if (v.startsWith('h3image') && info.h3image_reason) {
     if (h3imageRenderPill(pill, info)) return;
+  }
+  if (v.startsWith('h3restyle') && info.h3restyle_reason) {
+    if (h3restyleRenderPill(pill, info)) return;
   }
   // Family-install gate (issue #12): the mflux family binary itself
   // needs to be installed BEFORE the user can submit. Distinct from
@@ -647,6 +696,7 @@ function imgStudioUpdateEstimate() {
     const refs = IMG_STUDIO.refs.filter(r => r && r.path).length;
     perImage = perImage * (1 + 1.4 * refs * Math.min(1, 4 / info.megapixels));
   }
+  // Restyle (h3restyle): the measured time already includes its one picture; nothing to add.
   const total = coldStart + safeN * perImage;
   out.textContent = '~' + _imgStudioFmtDuration(total) + (safeN > 1 ? ` · ${safeN} imgs` : '');
   out.classList.remove('dim');
@@ -839,8 +889,88 @@ async function h3imageInstall() {
   imgStudioRefreshEngineStatus();
 }
 
+// ---- Restyle a picture on Hailuo H3 (R&D L55) -----------------------------------
+// A 298 MB adapter from its author's repo at a pinned revision (POST /image/h3restyle/install, the
+// MiniMax H3 licence screen on a 451), decoded by the P-H3-Image picture decoder: when that pack is not
+// here yet the chip says so and starts THAT download. The chip says what is missing in plain words.
+function h3restyleNotReady(info) {
+  const r = info.h3restyle_reason;
+  if (info.installing) return T('stage.restyle_is_downloading', 'Restyle is downloading its adapter (about 300 MB, once). Generate unlocks when it is done.');
+  if (r === 'h3_missing') return T('stage.restyle_runs_on_hailuo_h3', 'Restyle runs on Hailuo H3. Install Hailuo H3 first, then come back.');
+  if (r === 'engine_too_old') return distText(T('stage.restyle_needs_the_newer_h3', 'Restyle needs the newer Hailuo H3 runner: click "Update Hailuo H3 runner" in Pinokio\'s Phosphene sidebar (your weights stay).'),
+                                              T('stage.restyle_needs_a_newer_h3', 'Restyle needs a newer Hailuo H3 runner than this Mac app has.'));
+  if (r === 'decoder_missing') return T('stage.restyle_decodes_with_p_h3', 'Restyle decodes its pictures with P-H3-Image. Click the chip to download P-H3-Image once (about 18 GB), then come back.');
+  if (r === 'not_downloaded') return T('stage.restyle_needs_its_adapter', 'Restyle needs its one-time download (about 300 MB from Hugging Face). Click the download chip next to Version.');
+  return '';
+}
+
+let _H3RESTYLE_POLL = null;
+function h3restyleRenderPill(pill, info) {
+  const warn = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-bold"/></svg>';
+  const dl = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-download-simple"/></svg>';
+  const r = info.h3restyle_reason;
+  pill.dataset.h3r = '';
+  if (info.installing) {
+    pill.dataset.state = 'missing';
+    pill.dataset.h3r = 'downloading';
+    const part = (info.install_mb != null && info.install_total_mb) ? ' ' + info.install_mb + '/' + info.install_total_mb + ' MB' : '';
+    pill.innerHTML = dl + 'downloading' + part + '…';
+    pill.title = info.credit || '';
+    if (!_H3RESTYLE_POLL) _H3RESTYLE_POLL = setInterval(() => { imgStudioRefreshEngineStatus(); }, 5000);
+    return true;
+  }
+  if (_H3RESTYLE_POLL) { clearInterval(_H3RESTYLE_POLL); _H3RESTYLE_POLL = null; }
+  if (r === 'h3_missing' || r === 'engine_too_old') {
+    pill.dataset.state = 'missing-engine';
+    if (isMacApp()) pill.dataset.h3r = 'h3-setup';
+    pill.innerHTML = warn + (r === 'h3_missing' ? T('stage.needs_hailuo_h3', 'needs Hailuo H3') : T('stage.update_the_h3_runner', 'update the H3 runner'));
+    pill.title = h3restyleNotReady(info);
+    return true;
+  }
+  if (r === 'decoder_missing') {
+    pill.dataset.state = 'missing';
+    pill.dataset.h3r = 'ph3-download';
+    pill.innerHTML = dl + T('stage.needs_p_h3_image', 'needs P-H3-Image');
+    pill.title = h3restyleNotReady(info);
+    return true;
+  }
+  if (r === 'not_downloaded') {
+    pill.dataset.state = 'missing';
+    pill.dataset.h3r = 'download';
+    pill.innerHTML = dl + (info.install_error ? T('stage.download_failed_try_again', 'download failed: try again') : T('stage.download_300_mb', 'download ~300 MB'));
+    pill.title = (info.install_error ? T('stage.last_try', 'Last try: ') + info.install_error + '\n' : '')
+      + T('stage.click_to_download_the_restyle', 'Click to download the Restyle adapter once from Hugging Face (pinned and checked, never re-hosted).\n') + (info.credit || '');
+    return true;
+  }
+  return false;   // ready: the generic "ready" chip below
+}
+
+async function h3restyleInstall() {
+  const s = document.getElementById('imgStudioStatus');
+  try {
+    const r = await fetch('/image/h3restyle/install', { method: 'POST' });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.ok === false) {
+      if (s) s.textContent = (j && (j.error || j.message)) || (T('stage.download_did_not_start_http', 'Download did not start (HTTP ') + r.status + ').');
+    } else if (s) {
+      s.textContent = j.already_installed ? T('stage.restyle_is_already_downloaded', 'The Restyle adapter is already downloaded.') : T('stage.downloading_the_restyle_adapter', 'Downloading the Restyle adapter from Hugging Face (about 300 MB, once)…');
+    }
+  } catch (e) {
+    if (s) s.textContent = T('stage.download_did_not_start', 'Download did not start: ') + e.message;
+  }
+  imgStudioRefreshEngineStatus();
+}
+
 function imgStudioOnPillClick() {
   const pill = document.getElementById('imgStudioEnginePill');
+  if (pill && pill.dataset.h3r === 'h3-setup') { openH3InstallCard('image'); return; }
+  if (pill && pill.dataset.h3r === 'ph3-download') { ph3imageInstall(); return; }
+  if (pill && pill.dataset.h3r === 'download') { h3restyleInstall(); return; }
+  if (pill && pill.dataset.h3r === 'downloading') {
+    const st = document.getElementById('imgStudioStatus');
+    if (st) st.textContent = T('stage.restyle_is_still_downloading', 'Restyle is still downloading its adapter (about 300 MB, once). Generate unlocks when it is done.');
+    return;
+  }
   if (pill && pill.dataset.h3i === 'h3-setup') { openH3InstallCard('image'); return; }
   if (pill && pill.dataset.h3i === 'download') { h3imageInstall(); return; }
   if (pill && pill.dataset.h3i === 'downloading') {

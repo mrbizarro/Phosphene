@@ -243,6 +243,24 @@ VARIANTS: dict[str, dict] = {
             "inputs": "MiniMax-H3-Image takes up to 6 reference pictures.",
         },
     },
+    "images.h3_restyle": {
+        # Restyle a picture on Hailuo H3 (R&D L55, 15 Nov 2026): one content picture in, the same scene
+        # back in the style the prompt names; a rank-16 adapter on the H3 video model, decoded by the
+        # P-H3-Image single-frame decoder. 15 forwards, no guidance, 1 MP at the picture's shape.
+        # PREVIEW. Free for everyone (owner, card #788): no Pro gate, no ledger gate.
+        "engine": "images", "label": "Restyle", "pick": {},
+        "status": "preview",
+        "modes": ["edit"],
+        "qualities": ["standard"],
+        "inputs": ["reference_image"],
+        "outputs": ["image"],
+        "options": [],
+        "steps": 15,
+        "reasons": {
+            "modes": "Restyle changes the style of one picture you give it; it does not start from words alone.",
+            "inputs": "Restyle takes exactly one picture: the one to restyle.",
+        },
+    },
     "images.flux2": {
         # FLUX.2 [klein] 4B, the Images default ("auto"): text to image, and edits from references.
         "engine": "images", "label": "FLUX.2 [klein]", "pick": {"image_engine": "auto"}, "status": "ready",

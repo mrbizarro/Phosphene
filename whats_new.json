@@ -320,5 +320,15 @@
     "pro": [],
     "date": "2026-11-15",
     "headline": "Storyboard Grid view shows which shot has a problem, and the Render button names it."
+  },
+  "5.0.27": {
+    "free": [
+      "Restyle a picture on Hailuo H3: drop in a photo or drawing, name the style (clay, flat vector, pixel art, felt), and get the same scene back in that style in about 2 minutes."
+    ],
+    "pro": [
+      "Crisper detail on LTX-2.5 clips: a switch under the prompt for noticeably finer detail on Quick, Balanced and Standard clips, in about the same render time. Off by default."
+    ],
+    "date": "2026-11-16",
+    "headline": "Restyle a picture on Hailuo H3 for everyone, and Crisper detail on LTX-2.5 clips for Pro."
   }
 }
