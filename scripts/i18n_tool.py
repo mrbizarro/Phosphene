@@ -508,14 +508,24 @@ def js_strings():
             key = m.group(2)
             where = f"{f.name}:{src.count(chr(10), 0, m.start()) + 1}"
             ob = src.find("{", m.end())
-            seg = src[ob:ob + 600]
+            # Only inside this call's forms object: a brace inside a string
+            # ("{count}") does not close it, and the NEXT call's forms nearby
+            # must not overwrite these.
+            k, depth = ob, 0
+            while k < len(src) and k < ob + 600:
+                lit = by_start.get(k)
+                if lit is not None:
+                    k = lit.end; continue
+                depth += {"{": 1, "}": -1}.get(src[k], 0)
+                k += 1
+                if depth == 0:
+                    break
+            seg = src[ob:k]
             forms = {}
             for fm in re.finditer(r"\b(zero|one|two|few|many|other)\s*:\s*", seg):
                 lit = by_start.get(ob + fm.end())
                 if lit is not None and lit.kind == "str":
                     forms[fm.group(1)] = _deseam(lit.value, seams)
-                if "}" in seg[:fm.start()].replace("{", "", 1):
-                    break
             if "other" not in forms:
                 problems.append(f"{where}: tp('{key}', n, {{one, other}}) — needs at least an 'other' form")
                 continue

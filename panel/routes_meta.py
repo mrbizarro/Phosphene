@@ -703,8 +703,20 @@ def post_star_prompt_star(h, path, qs, ctype) -> None:
              "stars": (P.star_github_check().get("stars"))})
 
 
+#: How many edited file names a local-edits refusal carries; `files_total` has the count.
+VERSION_PULL_FILES_MAX = 20
+
+
 @post("/version/pull")
 def post_version_pull(h, path, qs, ctype) -> None:
+    # `edits` (form field) is the person's answer to a local-edits refusal:
+    # "stash" or "discard". Without it local edits stop the update exactly as
+    # before; nothing is stashed or discarded unless the request says so.
+    _rb = h._read_form_body()
+    if _rb is None:
+        return
+    _, form = _rb
+    edits = (form.get("edits") or [None])[0]
     if P._dist.is_mac_app():
         h._json({"ok": False, "app_updates": True,
                  "error": P._dist.MAC_APP_UPDATES}, 409)
@@ -713,10 +725,14 @@ def post_version_pull(h, path, qs, ctype) -> None:
     if branch != "main":
         h._json({"ok": False, "error": f"Update needs main; this copy is on '{branch}'. Keep local branch work before switching."}, 409)
         return
+    if edits is not None and edits not in P.update_transaction.EDITS_CHOICES:
+        h._json({"ok": False, "code": "bad_choice",
+                 "error": "Unknown choice for local edits. Nothing was changed."}, 400)
+        return
     try:
         tx = P.update_transaction.Transaction(P.ROOT)
         before = P._git_capture(["rev-parse", "HEAD"])
-        rec = tx.prepare()
+        rec = tx.prepare(edits)
         P._detect_local_install_state()
         current = rec["phase"] in ("current", "succeeded") and not P.get_version_state().get("stale_process")
         changed = tx.git("diff", "--name-only", before, rec["candidate"]).splitlines()
@@ -739,7 +755,20 @@ def post_version_pull(h, path, qs, ctype) -> None:
             if code >= 400:
                 h._json(payload, code)
                 return
-        h._json({"ok": True, "moved": before != rec["candidate"], "state": P.get_version_state()})
+        aside = (rec.get("set_aside") or None) if edits else None
+        if aside:
+            aside = {"how": aside.get("how"), "message": aside.get("message", ""),
+                     "files": aside.get("files", [])[:VERSION_PULL_FILES_MAX],
+                     "files_total": len(aside.get("files", []))}
+        h._json({"ok": True, "moved": before != rec["candidate"], "set_aside": aside,
+                 "state": P.get_version_state()})
+    except P.update_transaction.LocalEdits as exc:
+        # No update is in flight, so the page may ask: set aside, discard or cancel.
+        with P._VERSION_LOCK:
+            P._VERSION_STATE.update(pull_state="error", pull_message=str(exc))
+        h._json({"ok": False, "error": str(exc), "code": "local_edits",
+                 "files": exc.files[:VERSION_PULL_FILES_MAX], "files_total": len(exc.files),
+                 "state": P.get_version_state()}, 409)
     except P.update_transaction.UpdateError as exc:
         with P._VERSION_LOCK:
             P._VERSION_STATE.update(pull_state="error", pull_message=str(exc))

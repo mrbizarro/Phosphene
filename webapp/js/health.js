@@ -246,6 +246,14 @@ function _phModalShow(opts) {
   document.getElementById('phModalBody').textContent = opts.body || '';
   const prim = document.getElementById('phModalPrimary');
   const sec = document.getElementById('phModalSecondary');
+  // An optional third, quieter choice on the far left (the local-edits
+  // update question: discard). Hidden unless the caller names it.
+  const ter = document.getElementById('phModalTertiary');
+  if (ter) {
+    ter.hidden = !opts.tertiaryLabel;
+    ter.textContent = opts.tertiaryLabel || '';
+    ter.onclick = () => { _phModalClose(); if (opts.onTertiary) opts.onTertiary(); };
+  }
   prim.textContent = opts.primaryLabel || 'OK';
   prim.className = toneClass;
   prim.onclick = () => { _phModalClose(); if (opts.onPrimary) opts.onPrimary(); };
@@ -265,6 +273,8 @@ function _phModalShow(opts) {
   wrap._cancelModal = () => { _phModalClose(); if (opts.onCancel) opts.onCancel(); };
   wrap.hidden = false;
   window._phModalOpen = true;
+  // The scaffold focuses the first button unless focus is already inside.
+  if (opts.focusPrimary) prim.focus();
   return true;
 }
 
@@ -1048,6 +1058,72 @@ async function versionDoRefresh() {
   renderVersionPill();
 }
 
+// Update refused because tracked files have uncommitted edits (/version/pull
+// answers code "local_edits" only while no update is in flight). The person
+// chooses: set them aside with git stash (the default), discard them (asked
+// twice, naming the files), or cancel. Pure: payload -> what the shared
+// dialog shows. File names stay plain strings; _phModalShow sets textContent.
+// step: 'ask' (the refusal), 'discard' (the second confirmation) or 'done'
+// (the payload is the success response's set_aside).
+function _updEditsDialog(step, d) {
+  d = d || {};
+  const files = (Array.isArray(d.files) ? d.files : []).map(String);
+  const total = Math.max(Number(d.files_total) || 0, files.length);
+  const more = total - files.length;
+  const list = files.map(f => '• ' + f).join('\n')
+    + (more > 0 ? '\n' + TP('health.update_edits_more', more,
+      {one: '…and 1 more file', other: '…and {count} more files'}) : '');
+  if (step === 'discard') {
+    return {
+      tone: 'danger',
+      kicker: T('health.update_edits_discard_kicker', 'Discard your changes?'),
+      title: TP('health.update_edits_discard_title', total,
+        {one: 'Your change to 1 file will be lost', other: 'Your changes to {count} files will be lost'}),
+      body: list + '\n\n' + T('health.update_edits_discard_body',
+        'Each file goes back to how this version shipped it. This cannot be undone. Files Git does not track are not touched.'),
+      primaryLabel: T('health.update_edits_discard_go', 'Discard and update'),
+      secondaryLabel: T('health.update_edits_keep', 'Keep my changes'),
+    };
+  }
+  if (step === 'done') {
+    const stashed = d.how === 'stash';
+    return {
+      kicker: stashed ? T('health.update_edits_done_kicker', 'Changes set aside')
+                      : T('health.update_edits_discarded_kicker', 'Changes discarded'),
+      title: stashed
+        ? TP('health.update_edits_done_title', total, {one: 'Your change to 1 file is set aside', other: 'Your changes to {count} files are set aside'})
+        : TP('health.update_edits_discarded_title', total, {one: 'Your change to 1 file was discarded', other: 'Your changes to {count} files were discarded'}),
+      body: stashed
+        ? list + '\n\n' + T('health.update_edits_done_body',
+          'They are in the Git stash as "{message}". After the new version starts, bring them back with: git stash pop\n\nUpdate does not do this for you: your changes could clash with the new version’s own changes to the same files.',
+          {message: String(d.message || '')})
+        : list,
+      primaryLabel: T('health.got_it', 'Got it'),
+    };
+  }
+  return {
+    kicker: T('health.update_edits_kicker', 'Local changes'),
+    title: TP('health.update_edits_title', total,
+      {one: 'You changed 1 file in this copy', other: 'You changed {count} files in this copy'}),
+    body: list + '\n\n' + T('health.update_edits_body',
+      'Update can set them aside and continue. Nothing is deleted; bring them back later with: git stash pop'),
+    primaryLabel: T('health.update_edits_stash', 'Set aside and update'),
+    secondaryLabel: T('health.update_edits_cancel', 'Cancel'),
+    tertiaryLabel: T('health.update_edits_discard', 'Discard my changes…'),
+    focusPrimary: true,
+  };
+}
+
+function _updEditsAsk(d) {
+  if (typeof _phModalShow !== 'function') return false;
+  return _phModalShow(Object.assign(_updEditsDialog('ask', d), {
+    onPrimary: () => versionDoPull({skipConfirm: true, edits: 'stash'}),
+    onTertiary: () => _phModalShow(Object.assign(_updEditsDialog('discard', d), {
+      onPrimary: () => versionDoPull({skipConfirm: true, edits: 'discard'}),
+    })),
+  }));
+}
+
 async function versionDoPull(opts) {
   opts = opts || {};
   if (isMacApp()) {               // the server refuses it too (409 app_updates)
@@ -1080,16 +1156,27 @@ async function versionDoPull(opts) {
   // tail of every successful Update click.
   window._suppressOfflineBanner = true;
   try {
-    const r = await fetch('/version/pull', { method: 'POST' });
+    // `edits` is sent only as the person's own answer to the local-edits question.
+    const r = await fetch('/version/pull', opts.edits
+      ? { method: 'POST', body: new URLSearchParams({edits: opts.edits}) }
+      : { method: 'POST' });
     const data = await r.json();
     if (data && data.state) _versionState = data.state;
     if (!r.ok || !data.ok) {
       pill.classList.remove('pill-busy');
       renderVersionPill();
+      if (data && data.code === 'local_edits') {
+        // Cancel must leave the banner's button usable again.
+        const go = document.getElementById('ubUpdate');
+        if (go) { go.disabled = false; go.textContent = T('health.update_now', 'Update now'); }
+        if (_updEditsAsk(data)) return;
+      }
       alert(`Pull failed:\n\n${(data && data.error) || 'unknown error'}\n\n` +
             T('health.keep_your_local_edits_save', 'Keep your local edits. Save or commit them before retrying Update.'));
       return;
     }
+    // Said once, before anything else: where the edits went.
+    if (data.set_aside && typeof _phModalShow === 'function') _phModalShow(_updEditsDialog('done', data.set_aside));
     // 4.17.5: a pull that moved nothing is not an update - no restart, no
     // "Updated to" banner (the restart came back on the same build and was
     // counted as a failed update). A stale process still gets its own pill.

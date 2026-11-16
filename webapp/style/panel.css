@@ -303,7 +303,7 @@
       white-space: pre-wrap; max-height: 46vh; overflow-y: auto;
     }
     #phModalActions {
-      display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px;
+      display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 18px;
     }
     #phModalActions button { width: auto; padding: 8px 16px; font-size: 13px; }
     #phModalPrimary {
@@ -319,6 +319,16 @@
     }
     #phModalSecondary:hover { color: var(--ink, #e8eaf0); }
     #phModalSecondary[hidden] { display: none; }
+    /* A third, quieter choice pushed to the far left: the destructive way
+       out of a question whose safe answer is the primary (local edits on
+       Update: discard, behind its own confirmation). */
+    #phModalTertiary {
+      margin-right: auto; background: transparent; color: var(--danger, #f85149);
+      border: 1px solid rgba(248,81,73,.4); border-radius: 9px; cursor: pointer;
+    }
+    #phModalTertiary:hover { background: rgba(248,81,73,.1); }
+    #phModal:has(#phModalTertiary:not([hidden])) { width: min(540px, calc(100vw - 48px)); }
+    #phModalTertiary[hidden] { display: none; }
 
     #updateBanner {
       background: linear-gradient(180deg, rgba(240,185,64,0.14), rgba(240,185,64,0.07));
