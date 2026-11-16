@@ -12,8 +12,11 @@ replace a candidate awaiting repair or restart. After a successful boot, a new
 Update can fetch a newer candidate.
 
 Local tracked edits, local commits and conflicting untracked or ignored files
-are kept. Save or commit edits before retrying. Divergent history now stops for
-manual reconciliation instead of resetting local commits. Update never runs
+are kept. Save or commit edits before retrying. A copy whose local commits sit
+on top of the newest upstream source is already up to date. Divergent history
+stops for manual reconciliation instead of resetting local commits: Update
+says so before it records a candidate or moves anything, and works again once
+the commits are rebased or merged onto upstream. Update never runs
 `git clean`, stashes changes, or resets the source with `--hard`.
 
 ## What the record preserves
