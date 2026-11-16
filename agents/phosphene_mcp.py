@@ -96,7 +96,7 @@ TOOLS = [
      "inputSchema": {"type": "object", "required": ["text"], "additionalProperties": False, "properties": {
          "text": {"type": "string"},
          "voice": {"type": "string", "description": "A preset voice name (default ryan)."},
-         "speed": {"type": "number"}, "wait": _WAIT}}},
+         "speed": {"type": "number"}, "seed": _SEED, "wait": _WAIT}}},
     {"name": "phosphene_make_music",
      "description": "Queue a song (style + lyrics) or an instrumental (style only), if the music pack is installed.",
      "inputSchema": {"type": "object", "required": ["style"], "additionalProperties": False, "properties": {
@@ -190,8 +190,8 @@ class Tools:
         doc = self.ph().image(prompt, n=n, aspect=aspect, seed=seed)
         return self._queued(doc["id"], wait)
 
-    def phosphene_make_speech(self, text, voice=None, speed=None, wait=False) -> dict:
-        doc = self.ph().speech(text, voice=voice, speed=speed)
+    def phosphene_make_speech(self, text, voice=None, speed=None, seed=None, wait=False) -> dict:
+        doc = self.ph().speech(text, voice=voice, speed=speed, seed=seed)
         return self._queued(doc.get("job_id") or doc.get("id"), wait)
 
     def phosphene_make_music(self, style, lyrics="", seconds=None, title=None, seed=None, wait=False) -> dict:
