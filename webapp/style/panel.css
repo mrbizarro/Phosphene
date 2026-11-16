@@ -12742,7 +12742,10 @@ label > .ph:first-child:not(:only-child),
 .song-row:hover .song-chip, .song-row.active .song-chip { background: var(--bg-2); }
 .song-chip.score { color: var(--accent-bright); border-color: var(--accent-dim); }
 .song-dur { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
-.song-play, .song-more { width: 32px; height: 32px; border-radius: var(--r-pill); border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+/* padding: 0 — these are fixed 32px circles. The global button padding (8px 11px)
+   left a content box 8px wide, narrower than the 14px glyph, so the icon overflowed
+   from the padding edge instead of being centred: ▶ sat 3px right, ⋯ 3px right and low. */
+.song-play, .song-more { width: 32px; height: 32px; padding: 0; border-radius: var(--r-pill); border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
   display: grid; place-items: center; cursor: pointer; transition: background var(--t-fast), border-color var(--t-fast), transform var(--t-fast); }
 .song-play:hover, .song-more:hover { border-color: var(--border-strong); background: var(--panel); }
 .song-play.on { background: var(--accent); border-color: var(--accent); color: #fff; }
