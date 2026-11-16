@@ -880,7 +880,10 @@ def post_image_generate(h, path, qs, ctype) -> None:
             h._json({"error": f"ref path not under uploads/outputs: {r}"}, 403); return
         if not rp.is_file():
             h._json({"error": f"ref image not found: {r}"}, 404); return
-        refs_resolved.append(str(rp))
+        try:
+            refs_resolved.append(P.copy_attached_reference(str(rp)))
+        except ValueError as exc:
+            h._json({"error": str(exc)}, 400); return
 
     # Engine override: "auto" (use saved Settings config), or
     # one of the inline shorthands the modal exposes. Catalogue

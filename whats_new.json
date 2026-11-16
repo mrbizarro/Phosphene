@@ -346,5 +346,15 @@
     "pro": [],
     "date": "2026-11-16",
     "headline": "Song row buttons are properly centred."
+  },
+  "5.0.30": {
+    "free": [
+      "A reference picture you move or delete after attaching it no longer fails the render.",
+      "Songs on smaller Macs wait for memory after a video instead of stopping.",
+      "The picture engine repairs its own install when its first download was interrupted."
+    ],
+    "pro": [],
+    "date": "2026-11-16",
+    "headline": "Fixes: moved reference pictures, songs on small Macs, picture engine repair."
   }
 }

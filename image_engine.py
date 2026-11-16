@@ -877,9 +877,11 @@ def mflux_missing_message(bin_name: str, fam: str, install_problem: str | None =
         way = _dist.say(
             "In Pinokio, click \"Install/repair image engines (Ideogram 4 + "
             "Qwen-Edit)\" in Phosphene's menu; it keeps every model. ",
-            "Check that this Mac is online and has a few GB free, then make the "
-            "image again; if it keeps happening, report it with "
-            f"{_dist.MAC_REPORT_MENU} ")
+            ("Free a few GB of disk space. " if "disk is full" in install_problem else
+             "Check that this Mac is online. If a VPN or firewall blocks downloads, "
+             "allow Phosphene to connect. ")
+            + "Wait 10 minutes, then press Retry on the image. "
+            + "If it still fails, report it with " + _dist.MAC_REPORT_MENU + " ")
     else:
         head = "The image engine is not installed, so images cannot start. "
         way = _dist.say(

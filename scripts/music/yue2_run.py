@@ -151,6 +151,7 @@ def parse_args(argv=None):
     p.add_argument("--steps", type=int, default=32, help="flow-matching midpoint steps (32 = reference)")
     p.add_argument("--cfg-scale", type=float, default=None)
     p.add_argument("--precision", choices=("bf16", "8bit", "4bit"), default="bf16")
+    p.add_argument("--admission-only", action="store_true", help="check memory without loading models")
     p.add_argument("--memory-budget-gib", type=float, default=None)
     p.add_argument("--vae-core-frames", type=int, default=256)
     p.add_argument("--artifacts", type=Path, default=None, help="also keep score/tokens/latents here")
@@ -211,8 +212,29 @@ def relax_guard():
             "max_swap_growth_mib": swap_growth, "counters": counters}
 
 
+def music_admission_snapshot() -> dict:
+    # Read the same macOS availability used by the running guard. No MLX,
+    # model imports, directories, or GPU allocations in this path.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    import hostinfo
+    total = hostinfo.total_ram_bytes() / 2**30
+    free = hostinfo.available_bytes() / 2**30
+    level = hostinfo.pressure_level()
+    # Measured song peak is about 11 GiB. Leave the guard's minimum free
+    # beside that peak, rather than the old 6 GiB pre-load threshold.
+    need = 11.0 + float(os.environ.get("YUE2_MIN_AVAILABLE_GIB", "1.5"))
+    verdict = ("unknown" if total <= 0 else "cannot" if total < 16 else
+               "busy" if free < need or level != 1 else "ok")
+    return {"verdict": verdict, "need_gib": need, "free_gib": free,
+            "message": "other apps are using the memory this song needs"}
+
+
 def main(argv=None):
     args = parse_args(argv)
+    if args.admission_only:
+        check = music_admission_snapshot()
+        print("MUSIC_ADMISSION " + json.dumps(check), flush=True)
+        return {"ok": 0, "busy": 77, "cannot": 76}.get(check["verdict"], 1)
     t0 = time.perf_counter()
     os.environ.setdefault("MLX_ENABLE_TF32", "0")
     # lyra/pipeline.py rejects these PyTorch MPS vars (it's an MLX runtime; fallback

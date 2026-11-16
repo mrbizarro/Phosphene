@@ -36,6 +36,7 @@ import tempfile
 import threading
 import time
 import unicodedata
+import uuid
 import zipfile
 from email import policy
 from email.message import Message as _EmailMessage
@@ -382,13 +383,14 @@ ENGINE_REPAIR: dict = {"state": "idle", "active": False}
 ENGINE_REPAIR_TIMEOUT_S = 1800
 
 
-def _kill_group_after(proc: subprocess.Popen, seconds: float) -> threading.Timer:
+def _kill_group_after(proc: subprocess.Popen, seconds: float, *,
+                      kill_signal=signal.SIGTERM) -> threading.Timer:
     """End `proc`'s own process group after `seconds` (it was started with
     start_new_session, so its pgid is its pid). `timer.fired` says it did."""
     def _fire():
         timer.fired = True
         try:
-            os.killpg(proc.pid, signal.SIGTERM)
+            os.killpg(proc.pid, kill_signal)
         except OSError:
             pass
     timer = threading.Timer(seconds, _fire)
@@ -20189,49 +20191,64 @@ def music_memory_guard_message(tail) -> str:
             + (f" ({cause.strip()})" if cause else ""))
 
 
-#: A song needs ~11 GiB; on a 24 GB Mac or smaller the runner's guard stops it
-#: when the rest of the Mac is short. Fleet 8 Nov: 7 of 22 songs on 16 GB Macs
-#: died that way, after up to 10 minutes. Wait for memory BEFORE the first note.
-MUSIC_HOLD_MAX_RAM_GB = 24.5
-MUSIC_HOLD_NEED_GB = float(os.environ.get("MUSIC_HOLD_NEED_GB") or 6.0)
-MUSIC_HOLD_WAIT_S = float(os.environ.get("MUSIC_HOLD_WAIT_S") or 90.0)
+# A model-free runner check uses the same admission contract as H3.
+MUSIC_HOLD_WAIT_S = float(os.environ.get("MUSIC_HOLD_WAIT_S") or 300.0)
+MUSIC_HOLD_POLL_S = 15.0
 
 
-def music_memory_hold(job: dict | None) -> None:
-    """On a Mac of 24 GB or less: start a song only when macOS reports normal
-    memory pressure and enough memory is available; wait up to MUSIC_HOLD_WAIT_S
-    (the Now card says so), else refuse plainly instead of failing mid-song."""
+def music_admission_check(cmd: list[str], env: dict | None) -> dict:
+    unknown = {"verdict": "unknown", "need_gib": None, "free_gib": None}
     try:
-        if not 0 < float(SYSTEM_RAM_GB or 0) <= MUSIC_HOLD_MAX_RAM_GB:
-            return
-    except (TypeError, ValueError):
-        return
-    snap = memory_snapshot()
+        # Like H3, probe only a runner that advertises this model-free path.
+        # Older/custom runners must never mistake admission for a real song.
+        if "--admission-only" not in MUSIC_RUNNER.read_text(encoding="utf-8"):
+            return unknown
+        res = subprocess.run(list(cmd) + ["--admission-only"], cwd=str(MUSIC_ROOT),
+                             env=env, capture_output=True, text=True,
+                             errors="replace", timeout=30)
+        for line in (res.stdout or "").splitlines():
+            if line.startswith("MUSIC_ADMISSION "):
+                check = json.loads(line[len("MUSIC_ADMISSION "):])
+                if not isinstance(check, dict):
+                    return unknown
+                check["verdict"] = {0: "ok", 76: "cannot", 77: "busy"}.get(
+                    res.returncode, "unknown")
+                for key in ("need_gib", "free_gib"):
+                    check[key] = float(check[key])
+                    if not math.isfinite(check[key]) or check[key] < 0:
+                        return unknown
+                return check
+    except (OSError, ValueError, TypeError, KeyError, subprocess.TimeoutExpired):
+        pass
+    return unknown
 
-    def ok(sn):
-        return int(sn.get("level") or 1) <= 1 and (
-            not sn.get("avail_gb") or float(sn["avail_gb"]) >= MUSIC_HOLD_NEED_GB)
 
-    t0 = time.time()
+def music_memory_hold(job: dict | None, cmd: list[str], env: dict | None,
+                      *, sleep=None, clock=None) -> None:
+    """Wait before loading the song, with H3's message and cancellation path."""
+    sleep = sleep or time.sleep
+    clock = clock or time.monotonic
+    t0 = clock()
     try:
-        while not ok(snap):
+        while True:
             if job is not None and job.get("cancel_requested"):
-                raise JobCancelled("Stopped while waiting for memory.")
-            if time.time() - t0 > MUSIC_HOLD_WAIT_S:
-                raise RenderRefused(
-                    "memory_low",
-                    f"Not enough free memory to start a song: this "
-                    f"{SYSTEM_RAM_GB:.0f} GB Mac has {snap['avail_gb']:.1f} GB available "
-                    f"and a song needs about {MUSIC_HOLD_NEED_GB:.0f} GB free beside "
-                    f"the music engine. Quit other apps (browsers with many tabs, "
-                    f"games, other AI apps), then compose again.")
+                raise JobStopped("Music stopped")
+            check = music_admission_check(cmd, env)
+            if check["verdict"] == "cannot":
+                raise RenderRefused("music_ram", "This song needs a Mac with at least 16 GB of memory.")
+            if check["verdict"] != "busy":
+                return  # Older runners and unavailable probes keep the existing guard.
+            apps = memory_top_apps()
+            need, free = check["need_gib"], check["free_gib"]
+            detail = f"this song needs about {need:.0f} GB and {free:.1f} GB is free. "
+            top = f"Using the most: {_memory_top_apps_words(apps)}. " if apps else ""
+            if clock() - t0 >= MUSIC_HOLD_WAIT_S:
+                raise RenderRefused("memory_low", "Not enough free memory to start a song: "
+                                    + detail + top + "Quit some apps, then press Retry.")
             if job is not None:
-                job["waiting_note"] = (
-                    f"Waiting for memory - {snap['avail_gb']:.1f} GB available, about "
-                    f"{MUSIC_HOLD_NEED_GB:.0f} GB needed to start a song on this "
-                    f"{SYSTEM_RAM_GB:.0f} GB Mac. Quit other apps and it starts by itself.")
-            time.sleep(2.0)
-            snap = memory_snapshot()
+                job["waiting_note"] = ("Waiting for memory - " + detail + top
+                                       + "Quit some apps and it starts by itself.")
+            sleep(MUSIC_HOLD_POLL_S)
     finally:
         if job is not None:
             job.pop("waiting_note", None)
@@ -20274,7 +20291,6 @@ def run_music_job_inner(job: dict) -> None:
     if (not p["music_style"] and not p["music_lyrics"] and not p["music_instrumental"]
             and p["music_variation"] not in ("take", "sound", "score")):
         raise RenderRefused("music_input", "Give it something to work with — lyrics, a style description, or both.")
-    music_memory_hold(job)
     if p["music_variation"] == "score" and not p["music_source_audio"]:
         raise RenderRefused("music_input", "Getting the score needs a recording to listen to.")
     if p["music_source_audio"] and not music_cover_status()["ready"]:
@@ -20308,8 +20324,12 @@ def run_music_job_inner(job: dict) -> None:
         job["raw_path"] = str(output)
         cmd = music_argv(job, paths, output)
         job["command"] = shlex.join(cmd)
+        child_env = music_child_env()
+        music_memory_hold(job, cmd, child_env)
+        if job.get("cancel_requested"):
+            raise JobStopped("Music stopped")
         t0 = time.time()
-        proc = subprocess.Popen(cmd, cwd=str(MUSIC_ROOT), env=music_child_env(),
+        proc = subprocess.Popen(cmd, cwd=str(MUSIC_ROOT), env=child_env,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                 errors="replace", bufsize=1, start_new_session=True)
         with LOCK:
@@ -21879,9 +21899,12 @@ def image_engine_autoinstall(on_log=None, now: float | None = None) -> str | Non
             return None
         now = time.time() if now is None else now
         st = IMAGE_ENGINE_AUTO
+        if st["last_fail_ts"]:
+            if now - st["last_fail_ts"] < IMAGE_ENGINE_RETRY_AFTER_S:
+                return st["error"] or "it did not install"
+            # A recovered connection must work without restarting Studio.
+            st["attempts"] = 0
         if st["attempts"] >= IMAGE_ENGINE_AUTO_MAX:
-            return st["error"] or "it did not install"
-        if st["last_fail_ts"] and now - st["last_fail_ts"] < IMAGE_ENGINE_RETRY_AFTER_S:
             return st["error"] or "it did not install"
         venv = HELPER_PYTHON.parent.parent
         # The pack installs into ./ltx-2-mlx/env under the studio folder: it must
@@ -21900,7 +21923,6 @@ def image_engine_autoinstall(on_log=None, now: float | None = None) -> str | Non
                              "the setup tool is missing; quit Phosphene and open it again")
         if _engine_install_running():
             return "the video engine is being repaired; make the image again when that finishes"
-        st["attempts"] += 1
         say("the image engine is not installed yet; adding it now "
             "(about a minute, once; no models are downloaded)")
         env = _music_install_env()
@@ -21916,33 +21938,55 @@ def image_engine_autoinstall(on_log=None, now: float | None = None) -> str | Non
                         "UV_PYTHON_PREFERENCE": "only-managed", "UV_NO_CONFIG": "1",
                         "UV_PYTHON_BIN_DIR": str(runtime / "python-bin"),
                         "UV_TOOL_BIN_DIR": str(runtime / "tool-bin")})
-        tail: list[str] = []
+        # Bound both individual requests and the whole repair. Keep uv's
+        # cache so an interrupted download can be reused by the next attempt.
+        env["UV_HTTP_TIMEOUT"] = "60"
+        env["UV_HTTP_RETRIES"] = "3"
         error = None
-        timer = None
-        try:
-            proc = subprocess.Popen(["/bin/bash", str(IMAGE_ENGINE_PACK)], cwd=str(ROOT),
-                                    env=env, stdin=subprocess.DEVNULL,
-                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                    text=True, bufsize=1, errors="replace",
-                                    start_new_session=True)
-            timer = _kill_group_after(proc, IMAGE_ENGINE_WAIT_S)
-            for raw in proc.stdout:
-                for line in raw.replace("\r", "\n").splitlines():
-                    line = line.rstrip()
-                    if line:
-                        tail = (tail + [line])[-12:]
-            proc.wait(timeout=60)
-            if getattr(timer, "fired", False):
-                error = f"the install took longer than {IMAGE_ENGINE_WAIT_S // 60} minutes"
-        except Exception as exc:                                 # noqa: BLE001
-            error = f"the install could not run: {exc}"
-        finally:
-            if timer is not None:
-                timer.cancel()
-        if error is None and not _mflux_cli_present():
-            # mflux_pack.sh always exits 0 (best effort); uv's own text is not
-            # for people, so the reason is told in a few plain words.
-            error = _image_engine_install_reason(tail)
+        for attempt in range(min(2, IMAGE_ENGINE_AUTO_MAX - st["attempts"])):
+            st["attempts"] += 1
+            tail: list[str] = []
+            error = None
+            timer = None
+            proc = None
+            try:
+                proc = subprocess.Popen(["/bin/bash", str(IMAGE_ENGINE_PACK)], cwd=str(ROOT),
+                                        env=env, stdin=subprocess.DEVNULL,
+                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                        text=True, bufsize=1, errors="replace",
+                                        start_new_session=True)
+                timer = _kill_group_after(proc, IMAGE_ENGINE_WAIT_S / 2,
+                                          kill_signal=signal.SIGKILL)
+                for raw in proc.stdout:
+                    for line in raw.replace("\r", "\n").splitlines():
+                        line = line.rstrip()
+                        if line:
+                            tail = (tail + [line])[-12:]
+                proc.wait(timeout=60)
+                if getattr(timer, "fired", False):
+                    error = f"the install took longer than {IMAGE_ENGINE_WAIT_S // 120} minutes"
+            except Exception as exc:                                 # noqa: BLE001
+                error = "the installer could not run"
+            finally:
+                if proc is not None and proc.poll() is None:
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                        proc.wait(timeout=10)
+                    except (OSError, subprocess.TimeoutExpired):
+                        pass
+                if timer is not None:
+                    timer.cancel()
+            if error is None and not _mflux_cli_present():
+                # mflux_pack.sh always exits 0 (best effort); uv's own text is not
+                # for people, so the reason is told in a few plain words.
+                error = _image_engine_install_reason(tail)
+            if error is None:
+                break
+            transient = (error == "it could not reach the download server"
+                         or error.startswith("the install took longer"))
+            if not transient or attempt == 1:
+                break
+            say("the download was interrupted; trying once more")
         if error:
             st.update(last_fail_ts=time.time(), error=error)
             say(f"the image engine did not install ({error})")
@@ -38074,8 +38118,98 @@ def job_input_refusal(params: dict) -> str | None:
     return None
 
 
+def copy_attached_reference(value: str) -> str:
+    """Keep an owned snapshot when an existing local reference is attached.
+
+    Missing paths stay intact for the existing input refusals and internal
+    chains whose preceding job has not written its output yet.
+    """
+    value = normalize_pasted_path(value)
+    if not value:
+        return value
+    src = Path(value)
+    if not src.is_absolute() and not src.is_file():
+        src = UPLOADS / src
+    if not src.is_file():
+        return value
+    src = src.resolve()
+    if src.is_relative_to(UPLOADS.resolve()):
+        return str(src)
+    if src.suffix.lower() not in {
+            ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff",
+            ".heic", ".heif", ".avif", ".mp4", ".mov", ".m4v", ".mkv", ".avi",
+            ".webm", ".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus",
+            ".aif", ".aiff"}:
+        raise ValueError("Attach an image, audio or video file as the reference.")
+    UPLOADS.mkdir(parents=True, exist_ok=True)
+    # Unique names avoid overwriting an earlier attachment with the same name.
+    dest = UPLOADS / (uuid.uuid4().hex + "_" + _unicode_slug(src.stem, max_chars=40,
+                              fallback="reference") + src.suffix[:10])
+    temporary = dest.with_name(dest.name + ".partial")
+    marker = Path(str(dest) + ".json")
+    try:
+        shutil.copyfile(src, temporary)
+        # Speech-to-lip-sync uses this one provenance fact to add scene sound.
+        # Keep only that fact, not arbitrary contents of a neighbour JSON file.
+        speech = False
+        try:
+            sidecar = Path(str(src) + ".json")
+            if sidecar.is_file() and sidecar.stat().st_size <= 1024 * 1024:
+                meta = json.loads(sidecar.read_text(encoding="utf-8"))
+                speech = isinstance(meta, dict) and meta.get("engine") == "speech"
+        except (OSError, ValueError):
+            pass
+        if speech:
+            marker.write_text('{"engine": "speech"}', encoding="utf-8")
+        temporary.replace(dest)
+    except OSError as exc:
+        temporary.unlink(missing_ok=True)
+        marker.unlink(missing_ok=True)
+        raise ValueError("Phosphene could not keep a copy of this reference. "
+                         "Check that the file is readable and the disk has free space, "
+                         "then attach it again.") from exc
+    return str(dest)
+
+
+def _copy_reference_form(form: dict) -> dict:
+    form = dict(form)
+    copied = {}
+    def keep(value):
+        if not isinstance(value, str) or not value.strip():
+            return value
+        if value not in copied:
+            copied[value] = copy_attached_reference(value)
+        return copied[value]
+    for key in PASTED_PATH_FIELDS:
+        if key == "ingredient_char_lora" or key not in form:
+            continue
+        value = form[key]
+        form[key] = [keep(v) for v in value] if isinstance(value, list) else keep(value)
+    for key in ("refs", "ingredient_images_json", "keyframes_json"):
+        if not form.get(key):
+            continue
+        value = form[key]
+        raw = value[0] if isinstance(value, list) else value
+        try:
+            items = json.loads(raw)
+        except (ValueError, TypeError):
+            continue  # The normal parser owns malformed input errors.
+        if not isinstance(items, list):
+            continue
+        if key == "keyframes_json":
+            items = [dict(item, image_path=keep(item.get("image_path", "")))
+                     if isinstance(item, dict) else item for item in items]
+        else:
+            items = [keep(item) for item in items]
+        encoded = json.dumps(items)
+        form[key] = [encoded] if isinstance(value, list) else encoded
+    return form
+
+
 def make_job(form: dict[str, list[str]] | dict[str, str], *,
              override_prompt: str | None = None) -> dict:
+    form = _copy_reference_form(form)
+
     def f(name: str, default: str = "") -> str:
         val = form.get(name, default)
         if isinstance(val, list):
@@ -40161,7 +40295,8 @@ def run_image_job_inner(job: dict) -> None:
         # anchor stills are drawn from a character's own sheet.
         allowed = [UPLOADS.resolve(), OUTPUT.resolve(), _CHARACTERS_CACHE_PATH.resolve()]
         if not any(rp.is_relative_to(root) for root in allowed):
-            raise RuntimeError(f"ref path not under uploads/outputs: {r}")
+            raise RuntimeError("This queued reference is outside Phosphene’s uploads and outputs folders. "
+                               "Attach the reference again so Phosphene can keep a copy, then retry.")
         if not rp.is_file():
             raise RuntimeError(f"ref image not found: {r}")
         refs_resolved.append(str(rp))
@@ -41811,6 +41946,7 @@ def queue_face_fix(source_path: str, *, board_id: str = "",
                          frames=src_frames)
     job = make_job(form)
     job["params"]["face_fix"] = True
+    job["params"]["face_fix_origin"] = str(src)
     target = [board_id, str(clip_id)] if (board_id and clip_id) else None
     if target:
         job["params"]["face_fix_targets"] = [target]
@@ -41825,7 +41961,7 @@ def queue_face_fix(source_path: str, *, board_id: str = "",
         for j in cands:
             jp = (j or {}).get("params") or {}
             if (jp.get("mode") == "upscale" and jp.get("face_fix")
-                    and jp.get("upscale_source_path") == str(src)):
+                    and (jp.get("face_fix_origin") or jp.get("upscale_source_path")) == str(src)):
                 dup = j
                 break
         if dup is None:
@@ -46247,7 +46383,7 @@ def run_job_inner(job: dict) -> None:
         for _t in _ff_targets:
             try:
                 _face_fix_note(str(_t[0]), str(_t[1]), job=job["id"],
-                               **{"from": str(source)}, **_ff_result)
+                               **{"from": p.get("face_fix_origin") or str(source)}, **_ff_result)
             except Exception as exc:                           # noqa: BLE001
                 push(f"{FACE_FIX_NAME}: could not tell the Editor ({exc}); the "
                      "fixed clip is in Outputs.")
