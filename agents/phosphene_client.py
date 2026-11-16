@@ -293,7 +293,9 @@ class Phosphene:
         if seed is not None:
             form["seed"] = seed
         if label:
-            form["label"] = label
+            # make_job reads the queue label from `preset_label` (the page's hidden
+            # field); a `label` key is not in its allowlist and was dropped.
+            form["preset_label"] = label
         form["open_when_done"] = "off"
         form.update(extra or {})
         return self.post("/queue/add", form=form)
@@ -304,7 +306,7 @@ class Phosphene:
         if seed is not None:
             form["seed"] = seed
         if label:
-            form["label"] = label
+            form["preset_label"] = label   # as for video
         return self.post("/queue/add", form=form)
 
     def speech(self, text: str, *, voice: str | None = None, speed: float | None = None) -> dict:
