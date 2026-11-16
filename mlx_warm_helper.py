@@ -5496,6 +5496,26 @@ for line in sys.__stdin__:
                 "- Rhyme when it lands naturally; never force a rhyme with a weak line.",
                 f"- Match this musical style: {style}." if style else "- Fit a contemporary song.",
                 f"- Write in {language}." if language else "- Write in the language of the concept.",
+                # Issue #88: stock Gemma turned dark or angry concepts into
+                # greeting-card verse (conflict dropped, hope added, hard
+                # details swapped for storms and shadows). The block below is
+                # adapted from the reporter's tested prompt. It cannot lift the
+                # model's own guard-rails, but it stops the prompt from inviting
+                # the softening.
+                "",
+                "TREAT THE SUBJECT HONESTLY:",
+                "- Do not sanitise, soften or sentimentalise the subject. Keep the",
+                "  uncomfortable details from the concept when they matter.",
+                "- Do not swap hard things (poverty, addiction, grief, abuse, failure)",
+                "  for generic metaphors about darkness, storms or shadows.",
+                "- People may be flawed, angry, selfish or contradictory. Not everyone",
+                "  has to be noble or inspiring.",
+                "- Do not add hope the concept does not have. If there is hope, keep it",
+                "  small and earned. If it is unresolved, leave it unresolved.",
+                "- If the material is angry, let it sound angry. A blunt line can hit",
+                "  harder than a polished one.",
+                "- Lines the user already wrote that are strong, specific and singable",
+                "  stay as they are. Improve only what needs it.",
             ]
             if section:
                 system = "\n".join([
@@ -5620,6 +5640,9 @@ for line in sys.__stdin__:
                 "concrete images over abstractions, a chorus that is the hook, rhyme",
                 "only where it lands. Write in the language the client used unless they",
                 "asked for another.",
+                # Issue #88, same rule as write_lyrics' honesty block.
+                "Treat the subject honestly: keep its hard or uncomfortable details,",
+                "do not soften it or add hope it does not have.",
             ])
             messages = [{"role": "system", "content": system},
                         {"role": "user", "content": description}]

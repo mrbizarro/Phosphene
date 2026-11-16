@@ -356,5 +356,13 @@
     "pro": [],
     "date": "2026-11-16",
     "headline": "Fixes: moved reference pictures, songs on small Macs, picture engine repair."
+  },
+  "5.0.31": {
+    "free": [
+      "Song lyrics keep the hard parts of a dark or angry idea instead of turning them into greeting-card verse."
+    ],
+    "pro": [],
+    "date": "2026-11-16",
+    "headline": "Fix: song lyrics stay honest to your idea."
   }
 }
