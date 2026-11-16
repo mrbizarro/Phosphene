@@ -2672,7 +2672,8 @@ def _generate_ph3image(prompt: str, n: int, aspect: str, output_dir: Path, base_
                 _ph3image_scrub_private_metrics(request["metrics"])
             results.append({"png_path": request["output"], "seed": request["seed"], "engine": "p-h3-image",
                             "width": int(info.get("width") or 0), "height": int(info.get("height") or 0),
-                            "seconds": float(info.get("request_seconds") or 0.0)})
+                            "seconds": float(info.get("request_seconds") or 0.0),
+                            "refs_ignored": bool(refs)})
         else:
             return results
     # A staged request must evict a worker left by an earlier warm request,
@@ -2757,7 +2758,8 @@ def _generate_ph3image(prompt: str, n: int, aspect: str, output_dir: Path, base_
                 _ph3image_scrub_private_metrics(metrics)
             results.append({"png_path": str(png), "seed": request["seed"], "engine": "p-h3-image",
                             "width": int(info.get("width") or 0), "height": int(info.get("height") or 0),
-                            "seconds": float(info.get("total_seconds") or 0.0)})
+                            "seconds": float(info.get("total_seconds") or 0.0),
+                            "refs_ignored": bool(refs)})
     return results
 
 

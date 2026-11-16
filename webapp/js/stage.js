@@ -86,6 +86,10 @@ function imgStudioUpdateValidity() {
       && !(typeof ideoState === 'object' && ideoState.refBridge)) {
     softNotice = T('stage.heads_up_ideogram_is_text', 'Heads up: Ideogram is text-only, so your reference image will be IGNORED. Turn on "Use reference" above to have Ideogram redraw it from a description, or switch to a Reference Edit engine for a faithful copy.');
   }
+  // P-H3-Image is text-to-image only: a loaded picture is dropped. Say so, and name the model that edits.
+  if (!invalidReason && !softNotice && eng.value.startsWith('ph3image') && refsCount >= 1) {
+    softNotice = T('stage.ph3image_reference_ignored', 'Heads up: P-H3-Image makes pictures from words only, so your reference picture will be IGNORED. To edit or reuse a picture, switch Model to MiniMax-H3-Image.');
+  }
   // SYS-13: `image_ram` is the #1 refusal (78 installs/30d) and the
   // FREE-memory branch specifically fires at RENDER time, after the job
   // waited in the queue -- the fits_mac check above already prevents
@@ -435,7 +439,9 @@ function imgStudioUpdateRefWarning() {
         T('stage.a_cinematic_medium_close_up', 'A cinematic medium close-up of a woman in a sunlit kitchen, soft morning light through blinds, shallow depth of field, photorealistic');
     }
   }
-  if (refsCount < 2) {
+  // P-H3-Image ignores references (the Generate notice says so): naming them would contradict it.
+  const _engSel = document.getElementById('imgStudioEngine');
+  if (refsCount < 2 || (_engSel && String(_engSel.value || '').startsWith('ph3image'))) {
     box.hidden = true;
     box.innerHTML = '';
     return;

@@ -330,5 +330,13 @@
     ],
     "date": "2026-11-16",
     "headline": "Restyle a picture on Hailuo H3 for everyone, and Crisper detail on LTX-2.5 clips for Pro."
+  },
+  "5.0.28": {
+    "free": [
+      "P-H3-Image now tells you when it ignores a reference picture, and points to MiniMax-H3-Image, which can edit and reuse your pictures."
+    ],
+    "pro": [],
+    "date": "2026-11-16",
+    "headline": "P-H3-Image says when it ignores your reference picture."
   }
 }
