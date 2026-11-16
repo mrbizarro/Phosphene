@@ -20,6 +20,7 @@ _TIMESTAMP = re.compile(r"\bAt\s+\d{1,2}:\d{2}(?:\.\d+)?\s*,", re.I)
 _SPEAKER = re.compile(r"\(\s*S\d+\s*\)")
 _REFTAG = re.compile(r"<\s*(?:Picture|Image|Audio|Video)\s*\d+\s*>(?:\s*\(from[^)]*\))?", re.I)
 _DIALOGUE = re.compile(r"<d>[\s\S]*?</d>", re.I)
+_LINE = re.compile(r"([\s:,;]*)<d>([\s\S]*?)</d>", re.I)
 _ALIGN = re.compile(r"^\s*For the target video, at 0(?:\.0+)? seconds[^\n]*\n?", re.I)
 # "vh5tape, worn VHS tape recording..." : a LoRA trigger lead-in, not the scene.
 _TRIGGER_LEAD = re.compile(r"^[A-Za-z]*\d[A-Za-z0-9_]*\s*,|^[a-z0-9_]*trn\s*,", re.I)
@@ -43,6 +44,27 @@ def _sentences(t: str) -> list[str]:
     return [s.strip() for s in re.split(r"(?<=[.!?])\s+", t) if s.strip()]
 
 
+def _drop_dialogue(t: str) -> str:
+    """The prompt without its <d>…</d> lines.
+
+    A line that ends its sentence ("says <d>We have to go.</d> She runs")
+    leaves a sentence break behind, or the next sentence is glued onto the
+    title ("…says She runs"). Only a capital letter after the line says a new
+    sentence starts: "whispers <d>run.</d> and turns away", or Korean and
+    Japanese, where the verb follows the line (<d>가자.</d>라고 말한다), keep
+    the space they had.
+    """
+    def repl(m):
+        lead, line = m.group(1), m.group(2)
+        before = _clean(_DIALOGUE.sub(" ", m.string[:m.start()]))
+        after = m.string[m.end():].lstrip()
+        if (before and re.search(r"[.!?。！？][\"'”’」』]*\s*$", line)
+                and after[:1].isupper()):
+            return ". "
+        return lead + " "
+    return _LINE.sub(repl, t)
+
+
 def _trim(t: str, limit: int) -> str:
     if len(t) <= limit:
         return t
@@ -57,7 +79,7 @@ def display_title(prompt, label=None, limit: int = TITLE_MAX) -> str:
     if lab:
         return _trim(lab, limit)
     orig = str(prompt or "")
-    t = _clean(_DIALOGUE.sub(" ", orig))
+    t = _clean(_drop_dialogue(orig))
     if not t:
         inner = " ".join(re.findall(r"<d>([\s\S]*?)</d>", orig, re.I))
         t = _clean(re.sub(r"^\s*\[[A-Za-z ]+\]\s*", "", inner))
