@@ -338,5 +338,13 @@
     "pro": [],
     "date": "2026-11-16",
     "headline": "P-H3-Image says when it ignores your reference picture."
+  },
+  "5.0.29": {
+    "free": [
+      "The play and more buttons on song rows are now centred."
+    ],
+    "pro": [],
+    "date": "2026-11-16",
+    "headline": "Song row buttons are properly centred."
   }
 }
