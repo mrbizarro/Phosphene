@@ -10957,8 +10957,8 @@
        STILL AT REST, PULSES ON HOVER (4.19.12). It used to pulse forever: an
        animated `filter: drop-shadow()` repaints the button on the main
        thread every frame, so this glow and the X link's below kept Chrome
-       ~20% of a core busy all day, renders included (measured, PM hub
-       review-2026-10-22-glow). The resting glow is the pulse's own 0%/100%
+       ~20% of a core busy all day, renders included (measured 22 Oct
+       2026). The resting glow is the pulse's own 0%/100%
        frame, so a hover starts the pulse without a jump. Gate:
        test_header_glow_static.py. */
     body > header #bugBtn.bug-btn {

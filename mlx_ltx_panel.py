@@ -9468,8 +9468,8 @@ H3_MIN_RAM_GB_Q8 = 36.0
 # Low-memory lane (8 Nov 2026). When the INSTALLED runner has `--low-memory`, the Q8 engine
 # streams the prompt encoder, the video model's blocks and the picture decoder from disk, so a
 # 16 GB Mac renders the same clip, byte for byte, in about 8 GB of working memory (7-9 GB
-# measured on a 64 GB Mac capped to behave like 16 / 18 / 24 GB; see
-# today-2026-11-08/h3-lowram/REPORT.md). An older runner without the flag keeps the 36 GB floor.
+# measured on a 64 GB Mac capped to behave like 16 / 18 / 24 GB, 8 Nov 2026).
+# An older runner without the flag keeps the 36 GB floor.
 H3_MIN_RAM_GB_LOWMEM = 16.0
 
 
@@ -9678,7 +9678,7 @@ H3_TRISTEP_QUALITIES = ("draft", "preview", "fast_hd", "standard", "high")
 # that does not change (int8), then each audio step runs the audio rows alone
 # (~4.5% of a forward each, measured 1.9 s vs 43 s at Draft on an M4 Max).
 # Character LoRAs stay on (a trained voice keeps its voice); only the Fast
-# adapter is dropped. Measurements: PM hub review-2026-10-19-h3/H3_WEEK_REPORT.
+# adapter is dropped. Measured 19 Oct 2026.
 H3_REVOICE_POINTS = 9                 # sigma points -> 8 audio steps
 H3_REVOICE_STEP_SHARE = 0.045         # one audio-only step, as a share of a forward
 H3_REVOICE_DEFAULT = False            # decided by the ear test (see report)
@@ -9712,7 +9712,7 @@ H3_TRISTEP_MEASURED_ETA: dict[tuple[str, str, str], tuple[float, str]] = {
 # 1024x576, 124 frames, same seed: today's Best 15 forwards 1950 s end to end,
 # v1.3 6 forwards 870 s (-55%); the owner's read of the side-by-side: the fast
 # clip looks better, richer, higher quality. More prompts (two-person
-# dialogue, fast body motion, typography) in the PM hub's speed/ folder.
+# dialogue, fast body motion, typography) were compared the same way.
 #
 # Where it runs: Best on the High canvas, Text and Image, every 5 s-window
 # length. A Steps pin keeps the full sampler (that is the opt-out), Fast and
@@ -9820,7 +9820,7 @@ H3_FLEX_CREDIT = ("Pika H3 Flex by Pika Labs (Mellis, Inc.), running natively on
 H3_FLEX_NOTICE = ("MiniMax H3 is licensed under the MiniMax H3 Community License "
                   "Agreement, Copyright © 2026 MiniMax. All Rights Reserved.")
 # End-to-end wall clocks, M4 Max 64 GB, keyed (quality, length, mode); filled
-# from the port's validation renders (PM hub notes/flex-port-2026-10-30.md).
+# from the port's validation renders (30 Oct 2026).
 # 2026-10-30: Draft 640x384 5 s 301 s (6 x 40.8 s); High 1024x576 5 s 976 s
 # (6 x 143 s, decode 92 s, peak 27.2 GiB on the Q8 DiT).
 H3_FLEX_MEASURED_ETA: dict[tuple[str, str, str], tuple[float, str]] = {
@@ -9833,21 +9833,33 @@ H3_FLEX_MEASURED_ETA: dict[tuple[str, str, str], tuple[float, str]] = {
 # and how long a render is expected to take. How it renders is answered by the
 # Pro add-on (h3_flex_turbo_spec); without the add-on, or without an active
 # licence, there is no answer and the option stays a locked row in the picker.
-# Credit: akhaliq, LightX2V, Pika Labs, MiniMax (H3); weights under the MiniMax
-# H3 Community License.
-H3_FLEX_TURBO_FORWARDS = 4                               # what the estimate is priced on
+# The adapter's own credit line comes with that answer (spec["credit"]) and is
+# shown wherever the option is offered and in every sidecar it renders; weights
+# under the MiniMax H3 Community License.
 H3_FLEX_TURBO_DOWNLOAD_GB = 0.31
 H3_FLEX_TURBO_DISK_NEED_GB = 1.5
 H3_FLEX_TURBO_NAME = "H3 Flex Turbo"
 H3_FLEX_TURBO_LABEL = "H3 Flex Turbo (preview, Pro) · faster"
-H3_FLEX_TURBO_CREDIT = ("H3 Flex Turbo: Pika H3 Flex Turbo LoRA by akhaliq, fusing Pika H3 Flex "
-                        "(Pika Labs) with LightX2V's MiniMax-H3 Turbo distill, running natively "
-                        "on Apple Silicon (MLX) in Phosphene. Powered by MiniMax H3. "
-                        "Weights: MiniMax H3 Community License.")
+H3_FLEX_TURBO_CREDIT = ("H3 Flex Turbo: Pika H3 Flex (Pika Labs) with LightX2V's MiniMax-H3 Turbo "
+                        "distill, running natively on Apple Silicon (MLX) in Phosphene. Powered by "
+                        "MiniMax H3. Weights: MiniMax H3 Community License.")
 H3_FLEX_TURBO_MEASURED_ETA: dict[tuple[str, str, str], tuple[float, str]] = {
     ("draft", "5s", "t2v"): (3.6, "~3.5 min"),
     ("high", "5s", "t2v"): (11.0, "~11 min"),
 }
+
+
+def h3_flex_turbo_credit(spec: dict | None = None) -> str:
+    """The credit line for H3 Flex Turbo: the adapter's own, from the Pro add-on, when it answers."""
+    spec = spec if spec is not None else h3_flex_turbo_spec()
+    return str((spec or {}).get("credit") or H3_FLEX_TURBO_CREDIT)
+
+
+def _h3_flex_turbo_priced_forwards() -> int:
+    """What an unmeasured cell's Flex Turbo estimate is priced on: Flex's forwards scaled by the
+    measured High 5 s Turbo/Flex wall-time ratio (the add-on's own schedule is not in this file)."""
+    hi = ("high", "5s", "t2v")
+    return max(1, round(H3_FLEX_FORWARDS * H3_FLEX_TURBO_MEASURED_ETA[hi][0] / H3_FLEX_MEASURED_ETA[hi][0]))
 # Upscale & Face Fix (1 refine step from the clip, ×2) after a 5 s render, by
 # source canvas. 640×384 → 1280×768 measured 2.5–2.8 min; 1024×576 measured
 # 8.2–9.9 min (panel history, 2026-09-16/17); 768×448 is interpolated between
@@ -11588,7 +11600,7 @@ def _fmt_eta_range(p25_min: float, p75_min: float) -> str:
 
 
 # Pro estimate while Pro render times per Mac are unmeasured (owner ruling 2026-10-27): the fleet's p75 times
-# the WORST (slowest-gain) measured Pro/Free wall-time ratio per engine, from today-2026-10-26/PRO_SPEED.md
+# the WORST (slowest-gain) measured Pro/Free wall-time ratio per engine (26 Oct 2026 measurements)
 # (H3 602.93/893.49 = 0.675, LTX 0.79 per owner (measured 0.78-0.79); FLUX 9.59/14.76 = 0.65).
 # Other engines get no Pro number. Always labelled an estimate.
 PRO_EST_RATIOS = {"h3": 0.675, "ltx": 0.79, "image": 0.65, "flux": 0.65, "mflux": 0.65}
@@ -12028,15 +12040,14 @@ def _build_h3_tiers() -> dict[str, dict]:
                              "flex_forwards": windows * H3_FLEX_FORWARDS})
                 # H3 Flex Turbo (Pro): priced at Flex's per-forward cost.
                 t_min = h3_estimate_minutes(
-                    w, h, window_frames, windows, H3_FLEX_TURBO_FORWARDS) * H3_FLEX_FORWARD_COST
+                    w, h, window_frames, windows, _h3_flex_turbo_priced_forwards()) * H3_FLEX_FORWARD_COST
                 t_eta, t_meas = _fmt_eta(t_min), False
                 hit = H3_FLEX_TURBO_MEASURED_ETA.get((q["key"], ln["key"], "t2v"))
                 if hit:
                     t_min, t_meas = hit[0] * hw, True
                     t_eta = hit[1] if hw == 1.0 else _fmt_eta(t_min)
                 flex.update({"flex_turbo_min": round(t_min, 2), "flex_turbo_eta": t_eta,
-                             "flex_turbo_measured": t_meas,
-                             "flex_turbo_forwards": windows * H3_FLEX_TURBO_FORWARDS})
+                             "flex_turbo_measured": t_meas})
             spec = f"{w}×{h} · {frames}f"
             if windows > 1:
                 spec += f" · {windows}×5s"
@@ -15946,7 +15957,7 @@ def h3_flex_turbo_status() -> dict:
         "reason": ("runner_too_old" if not supported else "pro_required" if not pro
                    else "not_downloaded" if not downloaded else "ok"),
         "steps": (spec or {}).get("steps"),
-        "forwards": H3_FLEX_TURBO_FORWARDS,
+        "forwards": (spec or {}).get("forwards"),
         "modes": list(H3_FLEX_MODES),
         "download_gb": H3_FLEX_TURBO_DOWNLOAD_GB,
         "disk_need_gb": H3_FLEX_TURBO_DISK_NEED_GB,
@@ -15954,7 +15965,8 @@ def h3_flex_turbo_status() -> dict:
         "license": H3_FLEX_LICENSE,
         "name": H3_FLEX_TURBO_NAME,
         "label": H3_FLEX_TURBO_LABEL,
-        "credit": H3_FLEX_TURBO_CREDIT,
+        "credit": h3_flex_turbo_credit(spec),
+        "credit_by": (spec or {}).get("credit_by"),
         "notice": H3_FLEX_NOTICE,
         "adapter": str(paths["lora"]) if paths["lora"] else None,
         "install_available": bool(supported and pro),
@@ -16312,9 +16324,8 @@ def ph3image_status() -> dict:
 
 
 def _ph3image_pro_dirs() -> list[Path]:
-    """Where the private Fast pair can be: the signed Pro pack's own engine first (the pack
-    installs this Studio with its engine beside it as pro_engine/h3, the same place the Pro H3
-    video route uses), then beside the Free runner (a developer checkout). The public H3
+    """Where the private Fast pair can be: inside the signed Pro pack first (the same place
+    the Pro H3 video route uses), then beside the Free runner (a developer checkout). The public H3
     checkout never has the pair, so a Free install never finds it. Presence never grants Pro:
     the caller asks pro_status() first."""
     return [Path(__file__).resolve().parent / "pro_engine" / "h3" / "scripts", _ph3image_script().parent]
@@ -16328,6 +16339,16 @@ def _ph3image_private_script() -> Path | None:
     return None
 
 
+def _ph3image_fast_spec() -> dict | None:
+    """The Pro Fast picture profile (its canvas and measured time), from the Pro add-on.
+    None on Free, or when the add-on does not answer for it."""
+    spec = _h3_pro_addon("ph3image_fast")
+    try:
+        return spec if spec and float(spec["mp"]) > 0 else None
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def ph3image_engine_config(tier: str = "fast"):
     """Measured Fast default, with explicit 2/4/8 MP choices."""
     py = _h3_python()
@@ -16336,7 +16357,9 @@ def ph3image_engine_config(tier: str = "fast"):
     # Pro ledger row ph3-image-fast-pro: the signed-token Pro status, then the pack's private pair.
     ph3_pro = str(tier).lower() == "fast" and bool(pro_status().get("active"))
     private_script = _ph3image_private_script() if ph3_pro else None
-    pro_fast = private_script is not None
+    # The Pro Fast profile's canvas comes from the Pro add-on with the runner; no add-on, no profile.
+    pro_spec = _ph3image_fast_spec() if private_script is not None else None
+    pro_fast = pro_spec is not None
     warm = hostinfo.total_ram_bytes() >= 64 * 1024**3
     return agent_image_engine.ImageEngineConfig(
         kind="ph3image",
@@ -16346,7 +16369,8 @@ def ph3image_engine_config(tier: str = "fast"):
         ph3image_dit=str(dit) if dit else "",
         ph3image_warm_service=warm,
         ph3image_pro_profile=pro_fast,
-        ph3image_mp=1.0 if pro_fast else float(PH3IMAGE_TIERS.get(str(tier).lower(), PH3IMAGE_TIERS["fast"])),
+        ph3image_mp=(float(pro_spec["mp"]) if pro_fast
+                     else float(PH3IMAGE_TIERS.get(str(tier).lower(), PH3IMAGE_TIERS["fast"]))),
     )
 
 
@@ -16367,7 +16391,7 @@ def ph3image_engine_rows() -> list[dict]:
         cfg = ph3image_engine_config(tier)
         sec, samples = PH3IMAGE_SEC_PER_IMAGE[tier], "bench-m4max-64gb"
         if cfg.ph3image_pro_profile:
-            sec, samples = 30, "bench-m4max-64gb-pro"
+            sec, samples = (_ph3image_fast_spec() or {}).get("sec") or sec, "bench-m4max-64gb-pro"
         observed = _IMG_ENGINE_TIMING.get(engine) or []
         if len(observed) >= 2 and not cfg.ph3image_pro_profile:
             sec = round(sum(max(1.0, el / max(1, n)) for (n, el) in observed) / len(observed), 1)
@@ -16379,7 +16403,7 @@ def ph3image_engine_rows() -> list[dict]:
             "family_installed": bool(status["supported"] and status["h3_ready"]),
             "download_gb": PH3IMAGE_DOWNLOAD_GB, "sec_per_image": sec, "cold_start_sec": 0.0,
             "samples_source": samples, "gated": False, "megapixels": cfg.ph3image_mp,
-            "version_label": ("P-H3-Image — Fast (1 MP, Pro)" if cfg.ph3image_pro_profile
+            "version_label": (f"P-H3-Image — Fast ({cfg.ph3image_mp:g} MP, Pro)" if cfg.ph3image_pro_profile
                               else "P-H3-Image — Fast (1.5 MP, ~1 min)") if tier == "fast" else None,
             "pro_profile": cfg.ph3image_pro_profile,
             "license": PH3IMAGE_LICENSE, "label": PH3IMAGE_LABEL, "credit": PH3IMAGE_CREDIT,
@@ -19091,11 +19115,11 @@ def h3_status() -> dict:
                  "name": H3_V13_NAME, "label": H3_V13_LABEL, "credit": H3_V13_CREDIT,
                  "adapter": None, "install_available": False, "installing": False,
                  "download": {}, "dir": str(_h3_turbo_dir()), "missing": []}),
-        # H3 Flex Turbo (Pro) — the four-step Flex. Same shape as Flex.
+        # H3 Flex Turbo (Pro) — the faster Flex. Same shape as Flex.
         "flex_turbo": (h3_flex_turbo_status() if available else
                        {"available": False, "supported": False, "downloaded": False, "pro": True,
                         "pro_active": h3_flex_turbo_allowed(), "reason": "h3_" + paths["reason"],
-                        "steps": None, "forwards": H3_FLEX_TURBO_FORWARDS,
+                        "steps": None, "forwards": None,
                         "modes": list(H3_FLEX_MODES), "download_gb": H3_FLEX_TURBO_DOWNLOAD_GB,
                         "disk_need_gb": H3_FLEX_TURBO_DISK_NEED_GB, "repo": None,
                         "license": H3_FLEX_LICENSE, "name": H3_FLEX_TURBO_NAME,
@@ -19262,7 +19286,7 @@ def h3_status() -> dict:
 
 
 # YuE2 receipts, measured 2026-09-17 on an M4 Max 64 GB (8-bit AR, runner
-# sidecars in the PM hub notes/yue2/MEASUREMENTS.md):
+# sidecars):
 #   Final 32 steps: 177.8 s song in 180.2 s · 120.0 s in 113.8 s · 60.0 s in 58.5 s
 #   Draft  8 steps: 120.0 s song in 64.2 s
 #   Score planning + resident loads ≈ 12 s per song; peak process footprint
@@ -26776,26 +26800,13 @@ SIDECAR_WARNING = ("The clip was saved, but its settings record ({name}) could n
 
 
 # ---------------------------------------------------------------- Pro (the paid speed profiles)
-# Measured on the M4 Max / 64 GB reference, same clip, same seed (today-2026-10-26/pro-speed/comparisons):
+# Measured on the M4 Max / 64 GB reference, same clip, same seed (26 Oct 2026):
 # the ratio of Free wall time to Pro wall time per engine. A receipt uses the ratio for the ONE number it
 # shows ("saved ~N min"); it never claims a time that was not measured.
 # The ratios come from pro_perks.json (the one list of Pro perks and their measurements).
 PRO_SPEEDUPS = {"h3": pro_perks.ratio("h3-faster", 1.48), "ltx": pro_perks.ratio("ltx-faster", 1.29),
                 "image": pro_perks.ratio("ph3-image-fast-pro", 1.54)}
 PRO_PLANS = {"monthly": "Pro", "yearly": "Pro", "founding": "Founding", "hardship": "Pro", "pro": "Pro", "dev": "Pro"}
-
-
-def _pro_test_override() -> str:
-    """The test suite's Pro switch. It needs the suite's own conftest.py beside this file, and
-    that file is never part of an installed copy (Free or Pro), so there the answer is always
-    "" whatever the environment says. Two environment variables used to be enough."""
-    if not _PRO_TEST_MARKER.is_file() or os.environ.get("PHOSPHENE_TEST_RIG") != "1":
-        return ""
-    env = (os.environ.get("PHOSPHENE_PRO") or "").strip().lower()
-    return "" if env in ("0", "no", "off", "false") else env
-
-
-_PRO_TEST_MARKER = Path(__file__).resolve().with_name("conftest.py")
 
 
 def pro_status() -> dict:
@@ -26805,13 +26816,9 @@ def pro_status() -> dict:
     state/pro.json that nothing wrote: a paying Mac-app user read as Free here (H3 Flex Turbo
     refused) while anyone could switch Pro on by writing that file. A file is no longer read.
     PHOSPHENE_PRO_PLAN (set by the app) only names the plan on a valid token; it never turns
-    Pro on. Free is the default and carries no message. The test suite has its own switch
-    (_pro_test_override); it does not exist in an installed copy."""
+    Pro on. Free is the default and carries no message. There is no other switch: no setting,
+    file or environment variable turns Pro on (the test suite patches this function)."""
     off = {"active": False, "plan": None, "label": None, "until": None, "holder": None}
-    env = _pro_test_override()
-    if env:
-        plan = env if env in PRO_PLANS else "dev"
-        return {"active": True, "plan": plan, "label": PRO_PLANS[plan], "until": None, "holder": None, "source": "env"}
     try:
         import pro_token
         st = pro_token.status()
@@ -37959,7 +37966,7 @@ def a2v_separator_boot() -> None:
 # --- A2V CHARACTER LORA: KEEP THE FACE, FREE THE MOUTH -----------------------
 # A character LoRA at full strength through both a2v stages mutes the singer.
 # Measured on the 4.17 power ballad (same still, seed, vocal stem, prompt and
-# audio slice; only the LoRA changed - PM hub lipsync_quality.txt): with
+# audio slice; only the LoRA changed): with
 # bizarrotrn_v2 at 1.0 the mouth opened about half as wide on sung frames
 # (voiced aperture 0.082 vs 0.158 without it) and did not follow the voice
 # (zero-lag correlation 0.07 vs 0.47). The owner's verdict on the LoRA take:
@@ -39147,7 +39154,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # six-step ladder); where it cannot, the render says so and falls back.
     _h3_flex_want = (f("h3_flex", "") or "").strip().lower() in ("1", "true", "on", "yes")
     _h3_flex = False
-    # H3 Flex Turbo (Pro): h3_flex_turbo=1 asks for the four-step Flex. It rides
+    # H3 Flex Turbo (Pro): h3_flex_turbo=1 asks for the faster Flex. It rides
     # every Flex gate (modes, 5 s windows) and adds the Pro one.
     _h3_flex_turbo_want = (f("h3_flex_turbo", "") or "").strip().lower() in ("1", "true", "on", "yes")
     _h3_flex_turbo = False
@@ -39310,7 +39317,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             else:
                 _h3_flex_turbo = True
                 if _h3_tristep or _h3_turbo or _h3_steps:
-                    push(f"{H3_FLEX_TURBO_NAME} runs its own {H3_FLEX_TURBO_FORWARDS}-step "
+                    push(f"{H3_FLEX_TURBO_NAME} runs its own step "
                          "ladder - Fast, Turbo and any Steps pin are off for this render.")
                 _h3_tristep = _h3_turbo = _h3_clean_sound = False
                 _h3_steps = 0
@@ -43212,7 +43219,7 @@ def run_h3_job_inner(job: dict) -> None:
     # with another step-distillation adapter.
     flex = bool(p.get("h3_flex"))
     flex_paths: dict = {}
-    # H3 Flex Turbo (Pro): its own LoRA and euler ladder; re-checked here (a
+    # H3 Flex Turbo (Pro): its own LoRA and step ladder; re-checked here (a
     # queued job outlives a licence and a file).
     flex_turbo = bool(p.get("h3_flex_turbo"))
     flex_turbo_paths: dict = {}
@@ -43241,8 +43248,8 @@ def run_h3_job_inner(job: dict) -> None:
                   f"again in the engine picker to download it.")
         flex_turbo_spec = h3_flex_turbo_spec() or {}
         steps = int(flex_turbo_spec.get("steps") or 0)
-        push(f"[h3] {H3_FLEX_TURBO_NAME}: the faster Pika H3 Flex (akhaliq's fused LoRA with "
-             f"LightX2V's Turbo), running natively on Apple Silicon (MLX). Powered by MiniMax H3.")
+        push(f"[h3] {H3_FLEX_TURBO_NAME}: the faster Pika H3 Flex, running natively on Apple "
+             f"Silicon (MLX). Powered by MiniMax H3. {h3_flex_turbo_credit(flex_turbo_spec or None)}")
     if flex and (tristep or turbo or v13 or not h3_cell_takes_flex(tier)
                  or mode not in H3_FLEX_MODES):
         flex = False
@@ -44470,10 +44477,10 @@ def run_h3_job_inner(job: dict) -> None:
             "flex_turbo": ({"lora": str(flex_turbo_paths["lora"]),
                             "name": H3_FLEX_TURBO_NAME,
                             "license": H3_FLEX_LICENSE,
-                            "credit": H3_FLEX_TURBO_CREDIT,
+                            "credit": h3_flex_turbo_credit(flex_turbo_spec or None),
                             "notice": H3_FLEX_NOTICE,
                             "scale": 1.0, "steps": steps,
-                            "forwards": H3_FLEX_TURBO_FORWARDS,
+                            "forwards": flex_turbo_spec.get("forwards"),
                             **dict(flex_turbo_spec.get("record") or {})}
                            if flex_turbo else None),
             # The fast 3-step sampler's provenance: which file, where it came from,
@@ -45545,51 +45552,60 @@ def run_sharp_export_job_inner(job: dict) -> None:
 # runs through the ordinary queue like Sharp export so it shows in Now/Queue and
 # never races a render's own ffmpeg mux. The AI fill (outpaint IC-LoRA) is the
 # second layer: the same job mode with fill=ai.
+def vertical_ai_fill_spec() -> dict | None:
+    """The AI fill's recipe (adapter, strength, steps, band colour), from the Pro add-on.
+    None on Free, or when the add-on does not answer for it: the option stays a Pro row."""
+    if not bool(pro_status().get("active")):
+        return None
+    spec = _h3_pro_addon("ai_fill")
+    need = ("repo", "file", "sha256", "bytes", "strength", "stage1_steps", "refine_steps", "fill_rgb")
+    return spec if spec and all(k in spec for k in need) else None
+
+
 def vertical_ai_fill_status() -> dict:
-    """Can this Mac run the Pro AI fill for Make it vertical. Pro on, and a Mac
-    of the size it was measured on: the Q8 distilled model on a 48 GB+ Mac
-    (four 5-second clips, 12 to 15 minutes each on an M4 Max 64 GB). The
-    adapter itself is fetched on first use (_ensure_outpaint_lora), so a
-    missing file is not a refusal."""
-    import vertical_outpaint as vo
-    lora = LORAS_DIR / "ic" / vo.OUTPAINT_LORA_FILE
-    pro = bool(pro_status().get("active"))
+    """Can this Mac run the Pro AI fill for Make it vertical. The Pro add-on answering for it,
+    and a Mac of the size it was measured on: the Q8 distilled model on a 48 GB+ Mac (four
+    5-second clips, 12 to 15 minutes each on an M4 Max 64 GB). The adapter itself is fetched
+    on first use (_ensure_outpaint_lora), so a missing file is not a refusal."""
+    spec = vertical_ai_fill_spec()
     big = bool(SYSTEM_CAPS.get("allows_q8"))
-    reason = ("pro_required" if not pro else "mac_too_small" if not big
+    reason = ("pro_required" if spec is None else "mac_too_small" if not big
               else "model_missing" if hq_surface_missing() else "ok")
-    return {"available": reason == "ok", "pro_active": pro, "reason": reason,
-            "lora": str(lora), "downloaded": _outpaint_lora_ok(lora)}
+    lora = (LORAS_DIR / "ic" / str(spec["file"])) if spec else None
+    return {"available": reason == "ok", "pro_active": spec is not None, "reason": reason,
+            "lora": str(lora) if lora else None,
+            "downloaded": bool(lora and _outpaint_lora_ok(lora, spec))}
 
 
-def _outpaint_lora_ok(path: Path) -> bool:
-    import vertical_outpaint as vo
+def _outpaint_lora_ok(path: Path, spec: dict) -> bool:
     try:
-        return path.is_file() and path.stat().st_size == vo.OUTPAINT_LORA_BYTES
-    except OSError:
+        return path.is_file() and path.stat().st_size == int(spec["bytes"])
+    except (OSError, KeyError, TypeError, ValueError):
         return False
 
 
-def _ensure_outpaint_lora() -> str:
-    """The AI fill's adapter on disk, fetched on first use (1.3 GB, once).
+def _ensure_outpaint_lora(spec: dict) -> str:
+    """The AI fill's adapter on disk, fetched on first use (once), as the Pro add-on names it.
 
-    ONE file from the un-gated public copy via hf_hub_download, never a
-    snapshot of that repository (it is hundreds of GB; see
-    _ensure_ingredients_lora). Size and sha256 are checked against the
-    official file before it is used; a wrong file is removed."""
-    import vertical_outpaint as vo
+    ONE file via hf_hub_download, never a snapshot of its repository (see
+    _ensure_ingredients_lora). Size and sha256 are checked before it is used; a wrong
+    file is removed."""
     dest_dir = LORAS_DIR / "ic"
-    dest = dest_dir / vo.OUTPAINT_LORA_FILE
-    if _outpaint_lora_ok(dest):
+    dest = dest_dir / str(spec["file"])
+    if _outpaint_lora_ok(dest, spec):
         return str(dest)
     dest_dir.mkdir(parents=True, exist_ok=True)
+    size = int(spec["bytes"])
+    gb = f"{size / 1e9:.1f} GB"
     free = shutil.disk_usage(str(dest_dir)).free
-    if free < vo.OUTPAINT_LORA_BYTES + 2 * 1024 ** 3:
-        raise RuntimeError("not enough free disk space to download the AI fill add-on (1.3 GB)")
-    push("Make it vertical: downloading the AI fill add-on (1.3 GB, first time only)…")
+    if free < size + 2 * 1024 ** 3:
+        raise RuntimeError(f"not enough free disk space to download the AI fill add-on ({gb})")
+    push(f"Make it vertical: downloading the AI fill add-on ({gb}, first time only)…")
     from huggingface_hub import hf_hub_download
-    got = Path(hf_hub_download(repo_id=vo.OUTPAINT_LORA_REPO, filename=vo.OUTPAINT_LORA_FILE,
-                               local_dir=str(dest_dir)))
-    if not _outpaint_lora_ok(got) or _sha256_file(got) != vo.OUTPAINT_LORA_SHA256:
+    kw = {"revision": spec["revision"]} if spec.get("revision") else {}
+    got = Path(hf_hub_download(repo_id=str(spec["repo"]), filename=str(spec["file"]),
+                               local_dir=str(dest_dir), **kw))
+    if not _outpaint_lora_ok(got, spec) or _sha256_file(got) != str(spec["sha256"]):
         try:
             got.unlink()
         except OSError:
@@ -45672,14 +45688,17 @@ def _vertical_blur(source: Path, final_out: Path, sw: int, sh: int, ratio: str) 
 
 def _vertical_ai_fill(job: dict, source: Path, final_out: Path, sw: int, sh: int,
                       ratio: str) -> dict:
-    """The Pro layer: the outpaint IC-LoRA paints the bands (helper action
-    generate_outpaint; recipe in vertical_outpaint.py). Raises on any failure
-    so the caller can fall back to the blurred fill."""
+    """The Pro layer: an IC-LoRA paints the bands (helper action generate_outpaint; the
+    recipe comes from the Pro add-on, vertical_ai_fill_spec). Raises on any failure so the
+    caller can fall back to the blurred fill."""
     import vertical_reframe as vr
     import vertical_outpaint as vo
     st = vertical_ai_fill_status()
     if not st["available"]:
         raise RuntimeError("AI fill is not available on this Mac (" + st["reason"] + ")")
+    recipe = vertical_ai_fill_spec()
+    if recipe is None:
+        raise RuntimeError("AI fill is not available on this Mac (pro_required)")
     out_w, out_h = vr.target_size(ratio, sw, sh)
     frames = _probe_video_frames(str(source))
     fps = _probe_video_fps(str(source)) or float(FPS)
@@ -45687,7 +45706,7 @@ def _vertical_ai_fill(job: dict, source: Path, final_out: Path, sw: int, sh: int
         raise RuntimeError(f"could not count the frames of {source.name}")
     quant = "q8"                      # the only pack the fill was measured on
     ltx_pack_preflight(quant, "Make it vertical (AI fill)")
-    lora_path = _ensure_outpaint_lora()
+    lora_path = _ensure_outpaint_lora(recipe)
     prompt = ""
     try:
         _sc = json.loads(Path(str(source) + ".json").read_text(encoding="utf-8"))
@@ -45701,7 +45720,11 @@ def _vertical_ai_fill(job: dict, source: Path, final_out: Path, sw: int, sh: int
         "output_path": str(final_out), "work_dir": str(work),
         "src_width": sw, "src_height": sh, "out_width": out_w, "out_height": out_h,
         "frames": frames, "frame_rate": fps, "seed": random.randint(0, 2**31 - 1),
-        "prompt": prompt, "lora_path": lora_path, "lora_strength": vo.OUTPAINT_LORA_STRENGTH,
+        "prompt": prompt, "lora_path": lora_path, "lora_strength": float(recipe["strength"]),
+        "stage1_steps": int(recipe["stage1_steps"]), "refine_steps": int(recipe["refine_steps"]),
+        "fill": vo.fill_hex(recipe["fill_rgb"]),
+        **{k: int(recipe[k]) for k in ("seam_inset", "keep_inset", "half_seam_inset", "half_keep_inset")
+           if k in recipe},
         "crf": output_codec_settings()["crf"], "keep_audio": True}}
     push(f"Make it vertical: {source.name} → {ratio}, AI fill ({frames} frames). "
          "This takes about 15 minutes for a 5-second clip.")
@@ -46893,8 +46916,8 @@ def run_job_inner(job: dict) -> None:
         # reference images at all"). THE MEASUREMENTS ABOVE WERE TAKEN WITH NO
         # ADAPTER. This lane forces Q4 and FUSED the IC-LoRA, and fusing re-
         # quantises W + B@A back onto the int4 grid: measured on the real
-        # Ingredients adapter against real Q4 block weights (12 layers, PM hub
-        # rel4192/evidence/ing_fuse_retention.json) what survives differs from
+        # Ingredients adapter against real Q4 block weights (12 layers, 4.19.2
+        # evidence) what survives differs from
         # the intended delta by 0.3x-5x its own size, cosine 0.03-0.96, median
         # ~0.2 - the adapter was mostly quantisation noise. Without it, a
         # pinned sheet is copied (s=1.0, as measured) and a free one is

@@ -4,7 +4,7 @@
 // GET /bench/plan and /bench/status and posts the buttons. It computes no time,
 // no canvas and no eligibility of its own (Structure Law, rule 6).
 //
-// Copy: Codex (today-2026-10-22/bench/codex/copy_out.json), fact-checked.
+// Copy: Codex, fact-checked.
 
 const BENCH_COPY = {
   badge: {

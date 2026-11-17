@@ -1176,8 +1176,8 @@ class Runner:
 
 # ---- copy ----------------------------------------------------------------------
 # Strings the SERVER renders (the card and the copied text). The browser's
-# strings live in webapp/index.html and webapp/js/bench.js. Written by Codex
-# (today-2026-10-22/bench/codex/), fact-checked against this module.
+# strings live in webapp/index.html and webapp/js/bench.js. Written by Codex,
+# fact-checked against this module.
 COPY = {
     "copy_results_header": "Phosphene Bench PB1 results",
     "result_incomplete": "Incomplete: a core step did not finish. This run cannot go on the leaderboard.",

@@ -5363,18 +5363,18 @@ for line in sys.__stdin__:
 
     if action == "generate_outpaint":
         # "Make it vertical", Pro layer: the bands above and below a landscape
-        # clip are painted by the In/Outpainting IC-LoRA instead of a blur.
-        # Lightricks' LTX-2.5 outpaint workflow, step for step (the geometry,
-        # the green reference and the blends are vertical_outpaint.py):
-        #   reference: source centred on the canvas, bands flat #66FF00
-        #   stage 1:   half res, 8 distilled steps, IC-LoRA 1.0 (unfused: Q4
+        # clip are painted by an IC-LoRA instead of a blur (geometry, reference
+        # and blends: vertical_outpaint.py):
+        #   reference: source centred on the canvas, bands one flat colour
+        #   stage 1:   half res on the distilled table, the IC-LoRA unfused (Q4
         #              cannot hold a fused adapter, see generate_restore)
         #   blend:     stage-1 frames pyramid-blended with the real source
-        #   stage 2:   the blend upsampled x2 and refined 2 steps from sigma
-        #              0.725 with the reference re-applied (source_video mode
-        #              of ICLoraPipeline; its 2-step tail IS 0.725/0.4219/0)
+        #   stage 2:   the blend upsampled x2 and refined with the reference
+        #              re-applied (source_video mode of ICLoraPipeline)
         #   final:     scaled to the output canvas, blended with the source
         #              again, the middle pasted back untouched, source audio.
+        # The recipe (adapter, strength, step counts, band colour) arrives in the
+        # job from the Pro add-on; a job without it is refused, never guessed.
         # Windows (long takes) are rendered one after another in this one
         # job and joined; the pipeline is built once and reused.
         job_id = msg.get("id", "?")
@@ -5405,7 +5405,15 @@ for line in sys.__stdin__:
             fps = float(p.get("frame_rate") or 24.0)
             total = int(p["frames"])
             lora = _resolve_lora_path(str(p["lora_path"]))
-            strength = float(p.get("lora_strength") or vo.OUTPAINT_LORA_STRENGTH)
+            try:
+                strength = float(p["lora_strength"])
+                stage1_steps, refine_steps = int(p["stage1_steps"]), int(p["refine_steps"])
+                fill = str(p["fill"])
+            except (KeyError, TypeError, ValueError):
+                raise RuntimeError("the AI fill job carries no recipe (it comes from Phosphene Pro)")
+            seam, keep = int(p.get("seam_inset", vo.SEAM_INSET)), int(p.get("keep_inset", vo.KEEP_INSET))
+            half_seam = int(p.get("half_seam_inset", max(1, seam // 2)))
+            half_keep = int(p.get("half_keep_inset", max(1, keep // 2)))
             _preflight_distilled_loras([(lora, strength)], model_dir)
             release_pipelines("outpaint render incoming")
             try:
@@ -5423,13 +5431,13 @@ for line in sys.__stdin__:
             emit({"event": "log", "line":
                   f"step:generate_outpaint {src_w}x{src_h} -> canvas {cw}x{ch} -> "
                   f"{out_w}x{out_h} {total}f in {len(wins)} window(s), "
-                  f"stage1={vo.STAGE1_STEPS} refine={vo.REFINE_STEPS} lora x{strength}"})
+                  f"lora x{strength}"})
             parts = []
             for wi, (start, count) in enumerate(wins):
                 n = vo.render_frames(count)
                 _apply_vae_streaming_decision(n)
                 ref = str(work / f"w{wi}_ref.mp4")
-                r = subprocess.run(vo.reference_args(src, ref, src_w, src_h, cw, ch, n,
+                r = subprocess.run(vo.reference_args(src, ref, src_w, src_h, cw, ch, n, fill=fill,
                                                      start_frame=start, fps=fps, ffmpeg=ffmpeg),
                                    capture_output=True, text=True, errors="replace")
                 if r.returncode != 0:
@@ -5440,23 +5448,24 @@ for line in sys.__stdin__:
                 pipe.generate_and_save(
                     prompt=prompt, output_path=s1, video_conditioning=[(ref, 1.0)],
                     height=ch, width=cw, num_frames=n, frame_rate=fps, seed=seed + wi,
-                    stage1_steps=_thin_cap(model_dir, "stage1_steps", vo.STAGE1_STEPS),
+                    stage1_steps=_thin_cap(model_dir, "stage1_steps", stage1_steps),
                     skip_stage_2=True)
                 _mlx_phase_mem(f"outpaint w{wi} stage 1")
                 s1b = str(work / f"w{wi}_s1_blend.mp4")
                 vo.composite_video(s1, ref, s1b, cw // 2, ch // 2, src_w, src_h, n,
-                                   fps=fps, lossless=True, seam_inset=3, keep_inset=20,
+                                   fps=fps, lossless=True, seam_inset=half_seam, keep_inset=half_keep,
                                    ffmpeg=ffmpeg, source_is_canvas=True)
                 emit({"event": "log", "line": f"outpaint window {wi + 1}/{len(wins)}: stage 2"})
                 s2 = str(work / f"w{wi}_s2.mp4")
                 pipe.generate_and_save(
                     prompt=prompt, output_path=s2, video_conditioning=[(ref, 1.0)],
                     height=ch, width=cw, num_frames=n, frame_rate=fps, seed=seed + wi,
-                    source_video=s1b, refine_steps=vo.REFINE_STEPS)
+                    source_video=s1b, refine_steps=refine_steps)
                 _mlx_phase_mem(f"outpaint w{wi} stage 2")
                 part = str(work / f"w{wi}_final.mp4")
                 vo.composite_video(s2, src, part, out_w, out_h, src_w, src_h, count,
-                                   start_frame=start, fps=fps, lossless=True, ffmpeg=ffmpeg)
+                                   start_frame=start, fps=fps, lossless=True, ffmpeg=ffmpeg,
+                                   seam_inset=seam, keep_inset=keep)
                 parts.append(part)
             vo.join_parts(parts, src, out_path, fps=fps, crf=p.get("crf", 18),
                           audio=bool(p.get("keep_audio", True)), ffmpeg=ffmpeg,

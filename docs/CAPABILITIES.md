@@ -19,7 +19,7 @@
     "inherits": "h3.flex",                        # everything Flex declares...
     "status": "preview",
     "pro": True, "ledger": "h3-flex-turbo",       # ...plus Pro, tied to pro/ledger.json
-    "steps": 4,
+    "steps": None,                                # its own, from the Pro add-on
     "fallback": "h3.flex",                        # what renders instead when it cannot
     "reasons": {"modes": "H3 Flex Turbo makes videos from text or an image. Switch to H3 for this.", ...},
 },

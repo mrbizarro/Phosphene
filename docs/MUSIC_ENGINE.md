@@ -875,7 +875,7 @@ Three things decide whether a singing shot lip-syncs, and only one of them is
 the sampler. The numbers below were measured on ONE shot at one seed with the
 image, the audio window and the prompt held fixed, scored as the per-second
 correlation between the inner-lip aperture and the vocal-band energy of the
-same audio (`~/AI/projects/phosphene/notes/yue2/MAESTRO_LIPSYNC_STUDY.md`).
+same audio.
 
 **1. Audio guidance has a different meaning on each lane, and the panel's old
 default switched it off.** The Q4 distilled pipeline multiplies the audio

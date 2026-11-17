@@ -735,7 +735,9 @@ def health_check(config: ImageEngineConfig) -> tuple[bool, str]:
         missing = ph3image_missing(config)
         if missing:
             return False, "P-H3-Image is not installed: " + "; ".join(missing)
-        return True, f"P-H3-Image ready ({config.ph3image_mp:g} MP, {5 if config.ph3image_pro_profile else 8} steps)"
+        if config.ph3image_pro_profile:
+            return True, f"P-H3-Image ready ({config.ph3image_mp:g} MP, Pro)"
+        return True, f"P-H3-Image ready ({config.ph3image_mp:g} MP, 8 steps)"
     if config.kind == "h3image":
         missing = h3image_missing(config)
         if missing:
@@ -2651,8 +2653,8 @@ def ph3image_resident_headroom_gb(config):
     return max(6.0, min(12.0, float(config.ph3image_mp) * 2.0))
 
 
-# What a private profile must not leave beside a picture: the schedule that makes it faster.
-# The profile name stays (it is how a render proves which path ran); the method does not.
+# A private profile's metrics file keeps only what the Studio shows; the profile name stays
+# (it is how a render proves which path ran).
 _PH3IMAGE_PRIVATE_METRIC_KEYS = ("sigmas", "forwards", "steps", "schedule", "timesteps")
 
 

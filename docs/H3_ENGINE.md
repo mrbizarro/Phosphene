@@ -495,9 +495,10 @@ answered by the Pro add-on (`h3_flex_turbo_spec()` in the panel asks it), so a F
 shows the row as a Pro option and nothing more. Panel: `h3_flex_turbo_status()` in `/status` as
 `h3.flex_turbo`, `h3_flex_turbo=1` in make_job (rides every Flex gate), `POST
 /h3/flex-turbo/install` (402 without Pro), picker entry `h3flexturbo`, timing lane `flex_turbo`.
-Pro gate: `h3_flex_turbo_allowed()` (Pro ledger row `h3-flex-turbo`). Credit: the Pika H3 Flex
-Turbo LoRA by akhaliq, fusing Pika H3 Flex (Pika Labs) with LightX2V's MiniMax-H3 Turbo; weights
-under the MiniMax H3 Community License.
+Pro gate: `h3_flex_turbo_allowed()` (Pro ledger row `h3-flex-turbo`). Credit: Pika H3 Flex (Pika
+Labs) with LightX2V's MiniMax-H3 Turbo; weights under the MiniMax H3 Community License. The
+adapter's own credit line comes with the Pro add-on's answer and is shown in the picker, the log
+and every sidecar the option renders.
 
 ### Pika H3 Flex: Pika Labs' six-step H3, natively on Apple Silicon (2026-10-30)
 
@@ -720,8 +721,7 @@ Picture 1). The prompt the user typed is kept in the sidecar; `h3.reference`
 records the still that was packed.
 
 Identity, Standard Fast text-only cafe scene, two seeds, ArcFace against the
-Mr Bizarro still centroid with the reference photo itself excluded (PM hub report
-for every arm):
+Mr Bizarro still centroid with the reference photo itself excluded (every arm):
 
 | Arm | seed 5201 median (min) | seed 5202 median (min) | Time |
 |---|---|---|---|
@@ -979,7 +979,7 @@ five-tap Qwen3-VL-4B text encoder + connector and a new single-frame ViT image d
   and checked against `DECODER_SHA256` 0415dda9; the 5.6 GB original is deleted after and never fetched again.
 - Studio: `image_engine.kind = "ph3image"`, engines `ph3image_draft_inline` / `ph3image_standard_inline` / `ph3image_inline`
   (2 / 4 / 8 MP), `POST /image/ph3image/install` (H3 licence gate), `/status` block `ph3image`, capability row `images.p_h3_image`.
-- Measured, M4 Max 64 GB (ports/p-h3-image-pruna/bench/RESULT.md in the PM hub): 2 MP 75 s, 4 MP 146 s (15.4 s/step),
+- Measured, M4 Max 64 GB: 2 MP 75 s, 4 MP 146 s (15.4 s/step),
   8 MP 312 s; peak 24.2 / 24.7 / 25.5 GB. Real-weight parity vs Pruna's code: text taps cos >= 0.99994, connector 1.000,
   decoder fp32 126.8 dB.
 - Not ported: edit mode (1-8 reference images; needs the VAE encoder mapping and the vision tower), the 19 GB prompt rewriter.
@@ -988,8 +988,7 @@ five-tap Qwen3-VL-4B text encoder + connector and a new single-frame ViT image d
 
 `MiniMaxAI/MiniMax-H3-Image` @ 6534ea1c: a 33B DiT (H3 minus audio), six forwards with one fused output head each
 (`pdd_fused_heads.safetensors`), no guidance and no negative prompt, 4 to 16 MP (a request below 4 MP is generated on a
-4 MP canvas and resized back), text to image and edit (5.0.19, below). Port notes:
-`ports/minimax-h3-image` in the PM hub.
+4 MP canvas and resized back), text to image and edit (5.0.19, below).
 
 - Runner: `scripts/generate_h3_image.py PROMPT -o OUT --root <models>/minimax-h3-image --text-dir <ddalcu-q8> --text-config
   <upstream-meta/FL2VA/text_encoder/config.json> --aspect A --mp 4|8|16 --seed N --metrics M`. Staged: text encoder out, then the
@@ -1024,7 +1023,6 @@ One picture in, the same scene back in the style the prompt names (a clay figuri
 doll, a painting). No new model: the H3 video pack's FL2VA Q8 DiT and text encoder, the P-H3-Image single-frame decoder, and
 a 298 MB rank-16 adapter (`witcherderivia/minimax-h3-image-restyle` @ b506c0bb, `h3-lora-image-restyle.safetensors`, the
 8500-step file, Apache-2.0) fetched at a pinned revision and digest, never re-hosted. Free for everyone (owner, card #788).
-Lab record: `research/lab/L55.md` in the PM hub.
 
 - The recipe, as measured: the content picture is the ONLY keyframe anchor (FL2VA's `first` slot held at its training noise
   level, 0.999); the style comes from the prompt, never from a second picture (a style picture in `last` makes the model copy one

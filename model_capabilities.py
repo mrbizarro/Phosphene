@@ -198,12 +198,12 @@ VARIANTS: dict[str, dict] = {
         "inherits": "h3.flex",
         "status": "preview",
         "pro": True, "ledger": "h3-flex-turbo",
-        "steps": 4,
+        "steps": None,                 # its own, from the Pro add-on with the option
         "fallback": "h3.flex",
         "reasons": {
             "modes": "H3 Flex Turbo makes videos from text or an image. Switch to H3 for this.",
             "cells": "H3 Flex Turbo runs on 5-second windows. Switch to H3 for this.",
-            "options": "H3 Flex Turbo runs its own 4 steps. " + _H3_SAMPLER_TIP,
+            "options": "H3 Flex Turbo runs its own steps. " + _H3_SAMPLER_TIP,
             "inputs": "H3 Flex Turbo takes text or a first frame. Switch to H3 for this.",
             "pro": "H3 Flex Turbo is part of Phosphene Pro. H3 Flex renders this for free.",
         },

@@ -6890,7 +6890,7 @@
   "engines.5s_windows": {
    "text": " × 5s windows",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles render h3 window prompts",
-   "where": "engines.js:2863"
+   "where": "engines.js:2866"
   },
   "engines.a_conversion_of": {
    "text": " (a conversion of ",
@@ -6905,7 +6905,7 @@
   "engines.add_sound": {
    "text": "Add sound",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 sync prompt helper",
-   "where": "engines.js:3076"
+   "where": "engines.js:3079"
   },
   "engines.add_sound_picture_kept": {
    "text": "Add sound · picture kept · ≈ ",
@@ -6915,7 +6915,7 @@
   "engines.already_structured_the_three_fields": {
    "text": "Already structured — the three fields are there.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 insert prompt structure",
-   "where": "engines.js:2973"
+   "where": "engines.js:2976"
   },
   "engines.auto_s_render_time_at": {
    "text": "× Auto's render time at this shape",
@@ -6925,7 +6925,7 @@
   "engines.available_to_install": {
    "text": " — available to install (",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles engine tooltip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «— needs its compact engine built; your weights are already on disk. Click for the one-click fix. … — needs repair; your weights are still on disk. Click for the one-click fix. … — available to install ( … ). Click to see what it does.»",
-   "where": "engines.js:2199"
+   "where": "engines.js:2202"
   },
   "engines.best": {
    "text": "Best",
@@ -6952,11 +6952,6 @@
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 speed sub",
    "where": "engines.js:797"
   },
-  "engines.by_akhaliq_pika_h3_flex": {
-   "text": " By akhaliq (Pika H3 Flex by Pika Labs + LightX2V Turbo), running on your Mac. Powered by MiniMax H3.",
-   "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo tooltip",
-   "where": "engines.js:1727"
-  },
   "engines.clearer_voices_same_picture_adds": {
    "text": "clearer voices, same picture · adds about ",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 sync clean sound",
@@ -6965,7 +6960,7 @@
   "engines.click_to_see_what_it": {
    "text": "). Click to see what it does.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles engine tooltip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «— needs its compact engine built; your weights are already on disk. Click for the one-click fix. … — needs repair; your weights are still on disk. Click for the one-click fix. … — available to install ( … ). Click to see what it does.»",
-   "where": "engines.js:2200"
+   "where": "engines.js:2203"
   },
   "engines.click_update_hailuo_h3_runner": {
    "text": "Click \"Update Hailuo H3 runner\" in the Pinokio sidebar. Your weights stay.",
@@ -6985,12 +6980,12 @@
   "engines.downloading_h3_flex_turbo": {
    "text": "Downloading H3 Flex Turbo: ",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo note",
-   "where": "engines.js:1738"
+   "where": "engines.js:1741"
   },
   "engines.downloading_h3_flex_turbo_0": {
    "text": "Downloading H3 Flex Turbo (0.3 GB). It switches on by itself when ready.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo install",
-   "where": "engines.js:1773"
+   "where": "engines.js:1776"
   },
   "engines.downloading_lightx2v_s_lightx2v_v1": {
    "text": "Downloading LightX2V's lightx2v v1.3 (1.4 GB), then preparing it on your Mac. ",
@@ -7010,7 +7005,7 @@
   "engines.exactly_as_the_line_ends": {
    "text": "Exactly as the line ends, NAME's mouth settles closed.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 insert dialogue line",
-   "where": "engines.js:3004"
+   "where": "engines.js:3007"
   },
   "engines.extend": {
    "text": "Extend +",
@@ -7020,7 +7015,7 @@
   "engines.extend_2": {
    "text": "Extend",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 sync prompt helper · this label is the term “Extend”: make an existing clip longer by continuing it",
-   "where": "engines.js:3076"
+   "where": "engines.js:3079"
   },
   "engines.face_fix": {
    "text": " + Face Fix",
@@ -7030,7 +7025,7 @@
   "engines.falling_back_to": {
    "text": " Falling back to ",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 apply shape",
-   "where": "engines.js:2721"
+   "where": "engines.js:2724"
   },
   "engines.fast": {
    "text": "Fast",
@@ -7040,7 +7035,7 @@
   "engines.fast_draft": {
    "text": " · fast draft",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles ltx cell eta",
-   "where": "engines.js:2540"
+   "where": "engines.js:2543"
   },
   "engines.fast_hd": {
    "text": "Fast HD · ",
@@ -7080,17 +7075,22 @@
   "engines.faster_flex_turbo_on_with": {
    "text": "Faster Flex Turbo. On with your Pro: about 1.5× faster than Flex on Free. A little softer; for drafts. Try ideas fast, then render the keeper on Flex or Best.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo tooltip",
-   "where": "engines.js:1732"
+   "where": "engines.js:1735"
   },
   "engines.faster_flex_turbo_pro_adds": {
    "text": "Faster Flex Turbo. Pro adds: about 1.5× faster than Flex on Free. A little softer; for drafts. Click to see Pro.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo tooltip",
-   "where": "engines.js:1728"
+   "where": "engines.js:1731"
   },
   "engines.faster_flex_turbo_quick_drafts": {
    "text": "Faster Flex Turbo · quick drafts · Pro",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo picker entry",
    "where": "engines.js:1705"
+  },
+  "engines.flex_turbo_credit": {
+   "text": " Pika H3 Flex by Pika Labs + LightX2V Turbo, running on your Mac. Powered by MiniMax H3.",
+   "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo tooltip",
+   "where": "engines.js:1729"
   },
   "engines.forwards": {
    "text": " forwards) — ",
@@ -7115,7 +7115,7 @@
   "engines.gb_unified_memory": {
    "text": " GB unified memory",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles engine tooltip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «— needs … GB unified memory»",
-   "where": "engines.js:2186"
+   "where": "engines.js:2189"
   },
   "engines.get_it": {
    "text": "Get it · ",
@@ -7125,7 +7125,7 @@
   "engines.getting_ready": {
    "text": "getting ready",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles render engine switch",
-   "where": "engines.js:2015"
+   "where": "engines.js:2018"
   },
   "engines.h3_flex": {
    "text": "H3 Flex",
@@ -7195,17 +7195,17 @@
   "engines.h3_flex_turbo_2": {
    "text": "H3 Flex Turbo: ",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo install",
-   "where": "engines.js:1775"
+   "where": "engines.js:1778"
   },
   "engines.h3_flex_turbo_click_to": {
    "text": "H3 Flex Turbo: click to download it (",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo tooltip",
-   "where": "engines.js:1731"
+   "where": "engines.js:1734"
   },
   "engines.h3_flex_turbo_downloading": {
    "text": "H3 Flex Turbo: downloading (",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo tooltip",
-   "where": "engines.js:1730"
+   "where": "engines.js:1733"
   },
   "engines.h3_flex_turbo_faster_draft": {
    "text": "H3 Flex Turbo (faster draft, Pro)",
@@ -7215,37 +7215,37 @@
   "engines.h3_flex_turbo_is_already": {
    "text": "H3 Flex Turbo is already installed.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo install",
-   "where": "engines.js:1772"
+   "where": "engines.js:1775"
   },
   "engines.h3_flex_turbo_is_part": {
    "text": "H3 Flex Turbo is part of Phosphene Pro. This render uses H3 Flex.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo note",
-   "where": "engines.js:1736"
+   "where": "engines.js:1739"
   },
   "engines.h3_flex_turbo_is_part_2": {
    "text": "H3 Flex Turbo is part of Phosphene Pro.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo picker click",
-   "where": "engines.js:1785"
+   "where": "engines.js:1788"
   },
   "engines.h3_flex_turbo_needs_a": {
    "text": "H3 Flex Turbo needs a newer H3 runner.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo note",
-   "where": "engines.js:1737"
+   "where": "engines.js:1740"
   },
   "engines.h3_flex_turbo_needs_hailuo": {
    "text": "H3 Flex Turbo needs Hailuo H3 first. Click to get it.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo tooltip",
-   "where": "engines.js:1729"
+   "where": "engines.js:1732"
   },
   "engines.h3_flex_turbo_pick_it": {
    "text": "H3 Flex Turbo: pick it in the engine picker to download it (0.3 GB).",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo note",
-   "where": "engines.js:1739"
+   "where": "engines.js:1742"
   },
   "engines.h3_only": {
    "text": "H3 only",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles tier chip html",
-   "where": "engines.js:2335"
+   "where": "engines.js:2338"
   },
   "engines.has_no_fast_pass_yet": {
    "text": " has no Fast pass yet — it always renders on Best.",
@@ -7255,7 +7255,7 @@
   "engines.high_detail": {
    "text": " · High detail",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles ltx cell eta",
-   "where": "engines.js:2544"
+   "where": "engines.js:2547"
   },
   "engines.image": {
    "text": "Image",
@@ -7285,7 +7285,7 @@
   "engines.install_needed": {
    "text": "install needed",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles ltx cell install label",
-   "where": "engines.js:2600"
+   "where": "engines.js:2603"
   },
   "engines.installing_fast_180_mb_watch": {
    "text": "Installing Fast (180 MB) — watch the log. It switches on by itself when it lands.",
@@ -7295,7 +7295,7 @@
   "engines.is_getting_ready_on_this": {
    "text": " is getting ready on this Mac. It turns on by itself when it is ready.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles engine tooltip",
-   "where": "engines.js:2189"
+   "where": "engines.js:2192"
   },
   "engines.is_not_on_this_mac": {
    "text": " is not on this Mac yet. Pick it in the model menu to get it, or pick H3 to render now.",
@@ -7320,7 +7320,7 @@
   "engines.keyframes": {
    "text": "Keyframes",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 sync prompt helper · this label is the term “Keyframes”: pictures the video must pass through at chosen moments",
-   "where": "engines.js:3076"
+   "where": "engines.js:3079"
   },
   "engines.license": {
    "text": "). License: ",
@@ -7340,7 +7340,7 @@
   "engines.line_here": {
    "text": "line here",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 insert dialogue line",
-   "where": "engines.js:3011"
+   "where": "engines.js:3014"
   },
   "engines.long_start_and_walk_away": {
    "text": " · long, start and walk away",
@@ -7350,7 +7350,7 @@
   "engines.ltx_generation": {
    "text": "LTX generation",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles ltx gen switch html",
-   "where": "engines.js:2091"
+   "where": "engines.js:2094"
   },
   "engines.makes_videos_from_text_or": {
    "text": " makes videos from text or an image, on 5-second windows: you are on ",
@@ -7375,12 +7375,12 @@
   "engines.name_s1_says": {
    "text": "NAME (S1) says: ",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 insert dialogue line",
-   "where": "engines.js:3002"
+   "where": "engines.js:3005"
   },
   "engines.needs": {
    "text": " — needs ",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles engine tooltip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «— needs … GB unified memory»",
-   "where": "engines.js:2185"
+   "where": "engines.js:2188"
   },
   "engines.needs_a_download": {
    "text": " needs a download.",
@@ -7400,12 +7400,12 @@
   "engines.needs_its_compact_engine_built": {
    "text": " — needs its compact engine built; your weights are already on disk. Click for the one-click fix.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles engine tooltip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «— needs its compact engine built; your weights are already on disk. Click for the one-click fix. … — needs repair; your weights are still on disk. Click for the one-click fix. … — available to install ( … ). Click to see what it does.»",
-   "where": "engines.js:2196"
+   "where": "engines.js:2199"
   },
   "engines.needs_repair_your_weights_are": {
    "text": " — needs repair; your weights are still on disk. Click for the one-click fix.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles engine tooltip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «— needs its compact engine built; your weights are already on disk. Click for the one-click fix. … — needs repair; your weights are still on disk. Click for the one-click fix. … — available to install ( … ). Click to see what it does.»",
-   "where": "engines.js:2198"
+   "where": "engines.js:2201"
   },
   "engines.not_at_this_shape": {
    "text": "not at this shape",
@@ -7420,7 +7420,7 @@
   "engines.only_and_this_mode_isn": {
    "text": " only, and this mode isn't one of them.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles engine tooltip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «— renders … only, and this mode isn't one of them.»",
-   "where": "engines.js:2204"
+   "where": "engines.js:2207"
   },
   "engines.optional_2_face_and_sound": {
    "text": "optional · 2× · face and sound kept",
@@ -7430,7 +7430,7 @@
   "engines.panel_did_not_come_back": {
    "text": "Panel did not come back within 60s - start it from Pinokio.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles switch ltx generation",
-   "where": "engines.js:2162"
+   "where": "engines.js:2165"
   },
   "engines.per_5_s_of_clip": {
    "text": " per 5 s of clip",
@@ -7485,7 +7485,7 @@
   "engines.pro_fast_draft": {
    "text": " · Pro fast draft",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles ltx cell eta",
-   "where": "engines.js:2538"
+   "where": "engines.js:2541"
   },
   "engines.quality": {
    "text": "Quality",
@@ -7495,12 +7495,12 @@
   "engines.rendering_with_ltx": {
    "text": "Rendering with LTX-",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles ltx gen switch html",
-   "where": "engines.js:2095"
+   "where": "engines.js:2098"
   },
   "engines.renders": {
    "text": " — renders ",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles engine tooltip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «— renders … only, and this mode isn't one of them.»",
-   "where": "engines.js:2203"
+   "where": "engines.js:2206"
   },
   "engines.renders_on_best_fast_is": {
    "text": " renders on Best — Fast is not validated at this shape yet.",
@@ -7510,7 +7510,7 @@
   "engines.restarts_the_panel": {
    "text": " (restarts the panel)",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles ltx gen switch html · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Rendering with LTX- … Switch to LTX- … (restarts the panel)»",
-   "where": "engines.js:2096"
+   "where": "engines.js:2099"
   },
   "engines.running_on_your_mac_powered": {
    "text": " Running on your Mac. Powered by MiniMax H3.",
@@ -7530,7 +7530,7 @@
   "engines.shot_1_who_is_on": {
    "text": "[Shot 1] Who is on screen, two or three anchors (build, clothes), ",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 insert prompt structure · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «[Shot 1] Who is on screen, two or three anchors (build, clothes), … where they are and the light. What happens, described plainly.»",
-   "where": "engines.js:2980"
+   "where": "engines.js:2983"
   },
   "engines.sidebar_your_weights_stay": {
    "text": "sidebar — your weights stay.",
@@ -7565,12 +7565,12 @@
   "engines.switch_to_ltx": {
    "text": "Switch to LTX-",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles ltx gen switch html",
-   "where": "engines.js:2096"
+   "where": "engines.js:2099"
   },
   "engines.switching_ltx_generation_restarting_the": {
    "text": "Switching LTX generation - restarting the panel…",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles switch ltx generation",
-   "where": "engines.js:2153"
+   "where": "engines.js:2156"
   },
   "engines.text": {
    "text": "Text",
@@ -7600,7 +7600,7 @@
   "engines.the_studio_did_not_come": {
    "text": "The studio did not come back within 60s - use Studio → Restart Engine.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles switch ltx generation",
-   "where": "engines.js:2163"
+   "where": "engines.js:2166"
   },
   "engines.then_its_2_8_gb": {
    "text": "), then its 2.8 GB add-on. Click to get them.",
@@ -7630,7 +7630,7 @@
   "engines.where_they_are_and_the": {
    "text": "where they are and the light. What happens, described plainly.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 insert prompt structure · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «[Shot 1] Who is on screen, two or three anchors (build, clothes), … where they are and the light. What happens, described plainly.»",
-   "where": "engines.js:2981"
+   "where": "engines.js:2984"
   },
   "enhanceAcceptBtn.accept": {
    "text": "Accept",

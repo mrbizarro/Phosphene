@@ -1,31 +1,14 @@
 """Make it vertical, the Pro layer: AI fill (outpaint) for the bands.
 
 The Free layer (vertical_reframe.py) fills the bands above and below a
-landscape clip with a blurred copy of itself. This layer asks LTX to paint
-real picture there instead, with Lightricks' In/Outpainting IC-LoRA
-(`ltx-2.3-22b-ic-lora-in-outpainting`, which Lightricks reuses unchanged on
-LTX-2.5: their own example workflow
-`example_workflows/2.5/LTX-2.5_ICLoRA_Outpaint_Two_Stage_Distilled.json`).
+landscape clip with a blurred copy of itself. This layer has LTX paint real
+picture there instead, with an IC-LoRA on a reference clip: the source centred
+on a tall canvas with the bands flat in one colour, a first pass at half size,
+a refine pass at full size, and the source blended back over the middle.
 
-We follow that workflow's recipe, written for MLX:
-
-1. Reference. The source is scaled to the canvas width and centred on a tall
-   canvas; the new bands are flat green #66FF00. That green IS the mask the
-   LoRA was trained on (`LTXVInpaintPreprocess` composites exactly this colour
-   under the mask). No attention mask: the official graph leaves the guide
-   node's attention_mask unconnected. Written losslessly so the green edge
-   does not bleed through chroma subsampling.
-2. Stage 1. Half resolution, the 8-step distilled table, the IC-LoRA at 1.0
-   with the reference on the IC channel.
-3. Blend. Laplacian-pyramid blend of the stage-1 frames with the source, so
-   the middle is the real picture again before refining.
-4. Stage 2. The blended clip is upsampled ×2 and refined for 2 steps from
-   sigma 0.725 (the workflow's own `0.725, 0.4219, 0.0`), the reference
-   re-applied at full size (ICLoraPipeline's source_video mode).
-5. Final. The refined frames are scaled to the output canvas and blended
-   with the ORIGINAL source a last time; well inside the source rectangle the
-   original pixels are pasted back untouched, so the subject is never
-   re-rendered.
+The recipe (which adapter, its strength, the step counts and the band colour)
+is not in this file: it comes from the Phosphene Pro add-on with the option
+(`vertical_ai_fill_spec()` in mlx_ltx_panel.py) and travels in the job.
 
 This file holds the geometry, the ffmpeg arguments and the frame blending
 (numpy, cv2 when present). The model calls live in mlx_warm_helper.py
@@ -38,22 +21,6 @@ from dataclasses import dataclass
 
 import vertical_reframe as vr
 
-# Lightricks' official In/Outpainting IC-LoRA (gated repo
-# Lightricks/LTX-2.3-22b-IC-LoRA-In-Outpainting; byte-identical un-gated copy
-# in DeepBeepMeep/LTX-2, sha256 73dd0841...6dae6b5, 1,308,778,338 bytes).
-# NOT the older `ltx-2.3-22b-ic-lora-outpaint.safetensors` from the same
-# mirror (sha256 32c5d3e0..., a different, unofficial outpaint adapter).
-OUTPAINT_LORA_FILE = "ltx-2.3-22b-ic-lora-in-outpainting-0.9.safetensors"
-OUTPAINT_LORA_SHA256 = "73dd0841c0d4f0eb26fb1f017781b841b2752021944ac5ecefe57917f6dae6b5"
-OUTPAINT_LORA_BYTES = 1308778338
-OUTPAINT_LORA_STRENGTH = 1.0
-# Where the Studio fetches it on first use: the un-gated public copy (one file,
-# never the whole repository). Licence: LTX-2 Community License (LICENSES/).
-OUTPAINT_LORA_REPO = "DeepBeepMeep/LTX-2"
-GREEN_HEX = "0x66FF00"
-GREEN_RGB = (0x66, 0xFF, 0x00)
-STAGE1_STEPS = 8
-REFINE_STEPS = 2
 # Longest clip one pass renders (frames, 1 + 8k). Past this the job splits
 # the clip into windows (see windows()).
 MAX_WINDOW_FRAMES = 129
@@ -118,17 +85,24 @@ def windows(n: int, max_frames: int = MAX_WINDOW_FRAMES) -> list[tuple[int, int]
     return out
 
 
+def fill_hex(rgb) -> str:
+    """(r, g, b) -> the ffmpeg colour 0xRRGGBB."""
+    r, g, b = (max(0, min(255, int(v))) for v in rgb)
+    return f"0x{r:02X}{g:02X}{b:02X}"
+
+
 def reference_args(src: str, dest: str, src_w: int, src_h: int, canvas_w: int, canvas_h: int,
-                   frames: int, *, start_frame: int = 0, fps: float = 24.0,
+                   frames: int, *, fill: str, start_frame: int = 0, fps: float = 24.0,
                    ffmpeg: str = "ffmpeg") -> list[str]:
-    """ffmpeg: the source fitted to the canvas width, centred on flat green,
-    `frames` long (the last frame held if the clip is shorter), lossless."""
+    """ffmpeg: the source fitted to the canvas width, centred on the flat `fill`
+    colour (0xRRGGBB), `frames` long (the last frame held if the clip is
+    shorter), lossless so the band edge does not bleed through chroma subsampling."""
     r = source_rect(src_w, src_h, canvas_w, canvas_h)
     vf = []
     if start_frame:
         vf.append(f"trim=start_frame={int(start_frame)},setpts=PTS-STARTPTS")
     vf += [f"fps={fps:g}", f"scale={r.w}:{r.h}:flags=lanczos",
-           f"pad={canvas_w}:{canvas_h}:{r.x}:{r.y}:color={GREEN_HEX}",
+           f"pad={canvas_w}:{canvas_h}:{r.x}:{r.y}:color={fill}",
            f"tpad=stop_mode=clone:stop={int(frames)}", "setsar=1"]
     return [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", src,
             "-vf", ",".join(vf), "-frames:v", str(int(frames)), "-an",

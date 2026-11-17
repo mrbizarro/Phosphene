@@ -1721,10 +1721,13 @@ function h3FlexTurboPickerStatus() {
     progress: ft.installing ? Math.min(99, Math.round(100 * (d.mb || 0) / (d.total_mb || 295))) + '%' : '',
     error: d.error || '',
     download_gb: ft.download_gb || 0.31,
+    credit_by: ft.credit_by || '',
   };
 }
 function _h3FlexTurboTooltip(st) {
-  const credit = T('engines.by_akhaliq_pika_h3_flex', ' By akhaliq (Pika H3 Flex by Pika Labs + LightX2V Turbo), running on your Mac. Powered by MiniMax H3.');
+  // The adapter's author line comes from the Pro add-on with the option (credit_by), never from this file.
+  const credit = T('engines.flex_turbo_credit', ' Pika H3 Flex by Pika Labs + LightX2V Turbo, running on your Mac. Powered by MiniMax H3.')
+    + (st.credit_by ? ' ' + st.credit_by : '');
   if (!st.pro_active) return T('engines.faster_flex_turbo_pro_adds', 'Faster Flex Turbo. Pro adds: about 1.5× faster than Flex on Free. A little softer; for drafts. Click to see Pro.');
   if (!st.h3_ready) return T('engines.h3_flex_turbo_needs_hailuo', 'H3 Flex Turbo needs Hailuo H3 first. Click to get it.') + credit;
   if (st.installing) return T('engines.h3_flex_turbo_downloading', 'H3 Flex Turbo: downloading (') + st.progress + ').' + credit;

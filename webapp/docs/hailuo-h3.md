@@ -137,7 +137,7 @@ Powered by MiniMax H3. Pika H3 Flex by Pika Labs (Mellis, Inc.): the weights are
 - **Times on an M4 Max, 64 GB, per 5 s:** Draft about 3.5 minutes, High about 10 to 12 minutes (H3 Flex: about 16 minutes on the same shots).
 - **Good to know:** pictures come out a little softer than H3 Flex, and very fast motion can wobble a little more. Faces and speech held in our tests.
 
-Powered by MiniMax H3. H3 Flex Turbo runs the Pika H3 Flex Turbo LoRA by akhaliq, which fuses Pika H3 Flex (Pika Labs) with LightX2V's MiniMax-H3 Turbo; the weights are a MiniMax H3 Model Derivative under the MiniMax H3 Community License. Phosphene downloads the published file unchanged.
+Powered by MiniMax H3. H3 Flex Turbo runs a published Turbo LoRA for Pika H3 Flex (Pika Labs) with LightX2V's MiniMax-H3 Turbo; its author is credited in the engine picker when the option is on. The weights are a MiniMax H3 Model Derivative under the MiniMax H3 Community License. Phosphene downloads the published file unchanged.
 
 ## Faster Hailuo H3 (Pro) {#faster-h3}
 

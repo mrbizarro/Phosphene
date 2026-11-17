@@ -465,5 +465,13 @@
     ],
     "date": "2026-11-17",
     "headline": "Fix: Pro settings now live in the Pro pack."
+  },
+  "5.0.43": {
+    "free": [],
+    "pro": [
+      "Pro AI fill and Pro Fast images now take their settings from the Pro pack; Free renders are identical and Pro works the same."
+    ],
+    "date": "2026-11-17",
+    "headline": "Fix: the Studio reads Pro settings from the Pro pack."
   }
 }

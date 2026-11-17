@@ -154,8 +154,7 @@ and tell it the language code (or put the brief below in a file and pass
 `@file`). The agent's brief:
 
 > Translate Phosphene into **ja** following docs/TRANSLATING.md, as a native
-> ja speaker. Studio repo: this folder. Mac app repo:
-> ~/AI/projects/phosphene/wt/app-i18n.
+> ja speaker. Studio repo: this folder. Mac app repo: its own checkout.
 > 1. `python3 scripts/i18n_tool.py glossary ja`; read the file it names, write
 >    your answer to the reply path it prints, run the `--import` line.
 > 2. `python3 scripts/i18n_tool.py export ja`. For every `ja.partNN.txt`, read
