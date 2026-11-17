@@ -425,5 +425,13 @@
     "pro": [],
     "date": "2026-11-17",
     "headline": "Fix: outside reference pictures, phone clips in Upscale, Qwen-Edit GPU crash, FLUX.1 style check, i2v stall."
+  },
+  "5.0.38": {
+    "free": [
+      "When macOS's graphics driver stops a render, the message says Phosphene already retried and what to try, instead of a GitHub link that does not open."
+    ],
+    "pro": [],
+    "date": "2026-11-17",
+    "headline": "Fix: graphics-driver crash messages say what to try, not a dead GitHub link."
   }
 }

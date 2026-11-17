@@ -3394,7 +3394,7 @@ function friendlyJobError(raw, engine) {
   if (rawLower.includes('sigabrt')) {
     // The watchdog signature (kIOGPUCommandBufferCallbackErrorTimeout) is
     // the specific, common case on M1/M2-class GPUs; anything else that
-    // aborts at the C level still gets the crashlog ask, just demoted.
+    // aborts at the C level gets the plain driver advice (H20).
     const isWatchdog = rawLower.includes('gpu watchdog') || rawLower.includes('gpu timeout')
       || rawLower.includes('commandbuffercallbackerrortimeout')
       || rawLower.includes('impacting interactivity')
@@ -3409,16 +3409,15 @@ function friendlyJobError(raw, engine) {
         ...(onH3 ? {} : { smaller: true }),
         details: T('queue.the_macos_gpu_watchdog_killed', 'The macOS GPU watchdog killed a Metal command buffer that ran ')
                 + 'too long (kIOGPUCommandBufferCallbackErrorTimeout), seen on '
-                + T('queue.m1_m2_class_gpus_if', 'M1/M2-class GPUs. If it keeps happening on Quick at 3 s, please ')
-                + 'open an issue with your chip + macOS version and the crashlog at '
-                + T('queue.library_logs_diagnosticreports_python3_1', '~/Library/Logs/DiagnosticReports/python3.11_*.ips to ')
-                + 'github.com/mrbizarro/phosphene/issues/44.',
+                + T('queue.m1_m2_class_gpus_retried', 'M1/M2-class GPUs. Phosphene already retried it; if it keeps happening, ')
+                + T('queue.update_macos_period', 'update macOS.'),
         docsAnchor: 'gpu-watchdog',
       };
     }
-    return { friendly: T('queue.helper_hit_a_c_level', 'Helper hit a C-level assertion and aborted.'),
-             hint: T('queue.share_the_crashlog_at_library', 'Share the crashlog at ~/Library/Logs/DiagnosticReports/python3.11_*.crash ') +
-                   T('queue.on_github_com_mrbizarro_phosphene_2', 'on github.com/mrbizarro/phosphene/issues.') };
+    // H20: no issue-tracker ask (a driver abort is not fixed by a report).
+    return { friendly: T('queue.graphics_driver_stopped_render', 'The Mac\'s graphics driver stopped the render. Phosphene already retried it.'),
+             hint: T('queue.try_shorter_quit_graphics_apps', 'Try a shorter clip or a smaller size · quit other apps that use graphics ')
+                 + T('queue.graphics_apps_update_macos', '(browser video, games, other AI apps) · update macOS.') };
   }
   if (rawLower.includes('helper exited from') || rawLower.includes('helper pipe closed') ||
       rawLower.includes('helper died') || rawLower.includes('helper exited')) {

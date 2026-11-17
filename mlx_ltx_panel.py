@@ -10935,7 +10935,7 @@ def m1_m2_long_clip_watchdog_refusal(mode: str, quality: str, model_frames: int)
     return (
         f"This {_hw_chip_family()} ({SYSTEM_RAM_GB:.0f} GB) is a chip generation "
         f"where macOS's own GPU watchdog has killed long renders outright — a "
-        f"driver limit (github.com/mrbizarro/phosphene/issues/44), not a "
+        f"driver limit, not a "
         f"Phosphene bug. A clip this long runs as one long GPU command buffer. "
         f"Try Quick or a 5 s clip first — if that's reliable on this Mac, "
         f"sliding windows (Video → Advanced → long clip mode) renders a longer "
@@ -28295,12 +28295,15 @@ class WarmHelper:
                     # 37 "watchdog" failures: no such line, no retry). The
                     # watchdog has its own sentence below, used only when
                     # its line really is in the log.
+                    # H20: no GitHub ask (the account is hidden, and the
+                    # user cannot fix a driver abort through an issue).
                     "SIGABRT": (
-                        "C-level abort inside the render engine; no GPU "
-                        "watchdog line reached the panel. Please open an issue "
-                        "with your chip + macOS version, the last lines of the "
-                        "Logs tab, and the crashlog at "
-                        "~/Library/Logs/DiagnosticReports/python3.11_*.ips"
+                        "the Mac's graphics driver stopped the render (a "
+                        "native Metal abort, not a Phosphene setting). "
+                        "Phosphene already retried it. Try a shorter clip or "
+                        "a smaller size, quit other apps that use graphics "
+                        "(browser video, games, other AI apps), and update "
+                        "macOS"
                     ),
                     "SIGBUS":  "memory access fault — could indicate a Metal driver issue or a bad weight file",
                 }.get(sig_name, "external kill")
@@ -28327,10 +28330,11 @@ class WarmHelper:
                         "the macOS GPU watchdog killed a Metal command buffer "
                         "(kIOGPUCommandBufferCallbackErrorTimeout) — that line is "
                         "in this job's log, so this is a driver-level kill, not a "
-                        "Phosphene assertion." + _tried + " Please add your chip + "
-                        "macOS version and the crashlog at "
-                        "~/Library/Logs/DiagnosticReports/python3.11_*.ips to "
-                        "https://github.com/mrbizarro/phosphene/issues/44"
+                        "Phosphene assertion: the Mac's graphics driver stopped "
+                        "the render." + _tried + " Phosphene already retried it. "
+                        "Try a shorter clip or a smaller size, quit other apps "
+                        "that use graphics (browser video, games, other AI "
+                        "apps), and update macOS."
                     )
                 raise RuntimeError(
                     f"helper exited from {sig_name} ({hint}); returncode={rc}"
