@@ -457,5 +457,13 @@
     "pro": [],
     "date": "2026-11-17",
     "headline": "Fix: Mac app setup downloads its video models again on every path."
+  },
+  "5.0.42": {
+    "free": [],
+    "pro": [
+      "The Pro pack now carries its own settings for Pro AI fill and Pro Fast images; nothing changes in how they work."
+    ],
+    "date": "2026-11-17",
+    "headline": "Fix: Pro settings now live in the Pro pack."
   }
 }
