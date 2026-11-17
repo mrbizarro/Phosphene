@@ -215,12 +215,9 @@ function renderVersionPill() {
 
 // ---- The pop-up: updates announce themselves, broadcasts reach everyone ----
 //
-// Owner ruling 2026-09-01: a new version must be a POP-UP on app open, not a
-// banner someone has to notice — and re-shown every page load until they
-// update ("people who don't update will be annoyed by it every time they open
-// the app" is the intended behaviour, verbatim). The broadcast is the
-// maintainer's channel: BROADCAST.json on public main, fetched by the same
-// 30-minute server poll, shown ONCE per message id, dismissed forever.
+// Announce a new release at startup, and remember Later for that release.
+// The header remains available for a manual update. Developer notices use a
+// separate once-per-id dismissal and the same 30-minute server poll.
 // The one Phosphene loading mark, small: the header's own markup (footer mark), cloned.
 // CSS .ph-mark-mini sets the size; Reduce Motion stops it like every other mark.
 window.phosMiniMark = function phosMiniMark() {
@@ -311,14 +308,17 @@ function _maybeShowUpdateModal(st) {
   if ((st.behind_by | 0) <= 0 || _versionRestartPending) return;
   const remote = st.remote_version || st.remote_short || 'a new version';
   const local = st.local_version || st.local_short || 'your build';
+  // Wait for saved preferences, then respect Later for this release across reloads.
+  if (!window._ubStarSettings) return;
+  if (String(window._ubStarSettings.update_banner_dismissed || '') === String(remote)) return;
   window._updModalShownThisLoad = true;
   _uiEvent('update_prompt', {action: 'shown'});
   _phModalShow({
     kicker: T('health.update_available', 'Update available'),
-    title: `Phosphene ${remote} is out — you're on ${local}`,
-    body: T('health.updates_are_mostly_bug_fixes', 'Updates are mostly bug fixes: renders that fail less and explain ')
-        + T('health.themselves_better_updating_takes_about', 'themselves better. Updating takes about a minute and keeps your ')
-        + T('health.queue_settings_and_models', 'queue, settings and models.'),
+    title: T('health.release_available', 'Phosphene {remote} is available. You are on {local}.', {remote, local}),
+    // Owner, 16 Nov 2026: this pop-up only says a new version is out and
+    // how to update. No invitation to move to the Mac app here.
+    body: T('health.update_how', 'To update, press Update now, then Restart now when it is ready (about a minute). Your queue, settings and models stay. You can also use Update in Pinokio, then Start.'),
     primaryLabel: T('health.update_now', 'Update now'),
     secondaryLabel: T('health.later', 'Later'),
     onPrimary: () => {
@@ -327,14 +327,17 @@ function _maybeShowUpdateModal(st) {
       if (go) { go.disabled = true; go.textContent = T('health.updating', 'Updating…'); }
       versionDoPull({skipConfirm: true});
     },
-    // Later = this page load only. The banner (per-version dismissal)
-    // remains as the quieter in-session reminder.
-    onSecondary: () => { _uiEvent('update_prompt', {action: 'later'}); },
+    onSecondary: () => {
+      _uiEvent('update_prompt', {action: 'later'});
+      window._ubStarSettings.update_banner_dismissed = String(remote);
+      _ubSaveSetting({update_banner_dismissed: String(remote)});
+      _ubRender(st);
+    },
   });
 }
 
 function _maybeShowBroadcastModal(st) {
-  if (window._phModalOpen) return;
+  if (window._phModalOpen || !window._ubStarSettings) return;
   const b = st && st.broadcast;
   if (!b || !b.id || window._bcHandled[b.id]) return;
   const seen = ((window._ubStarSettings || {}).broadcast_seen_ids) || [];
@@ -522,6 +525,7 @@ function _ubWire() {
   if (later) later.onclick = () => {
     _uiEvent('update_prompt', {action: 'banner_later'});
     const s = _versionState || {};
+    if (window._ubStarSettings) window._ubStarSettings.update_banner_dismissed = String(s.remote_version || s.remote_short || '');
     _ubSaveSetting({update_banner_dismissed: String(s.remote_version || s.remote_short || '')});
     const el = document.getElementById('updateBanner');
     if (el) el.hidden = true;
@@ -576,7 +580,9 @@ document.addEventListener('DOMContentLoaded', () => {
       };
       // Until they have starred, the header star twinkles now and then (CSS, reduced-motion aware).
       if (!st.star_prompt_done) document.getElementById('starLink')?.classList.add('is-calling');
-      if (_versionState) { try { _ubRender(_versionState); } catch (e) {} }
+      if (_versionState) {
+        try { _ubRender(_versionState); _maybeShowUpdateModal(_versionState); _maybeShowBroadcastModal(_versionState); } catch (e) {}
+      }
     })
     .catch(() => {});
 });
@@ -805,6 +811,7 @@ function appUpdateView(a) {
     v.label = T('health.update', 'Update ') + name;
     v.title = T('health.a_newer_version_is_out', 'A newer version is out. Click to install it.');
     v.action = 'updateAll';
+    v.toast = { kind: 'info', text: T('health.update_ready_when_you_are', 'An update is available. Use the Update button when you are ready.') };
   } else if (state === 'downloading') {
     const pct = Number.isFinite(a.progress) ? ` ${Math.round(Math.max(0, Math.min(1, a.progress)) * 100)}%` : '';
     v.label = `Downloading ${thing}${pct}`;

@@ -575,7 +575,7 @@ def post_analytics_ui(h, path, qs, ctype) -> None:
     if event == "update_prompt":
         action = str(_f("action")).strip()
         if action not in ("shown", "later", "update_now", "banner_update",
-                          "banner_later", "restart_needed"):
+                          "banner_later", "restart_needed", "banner_restart"):
             h._json({"ok": False, "error": "unknown action"}, 400); return
         P._analytics_capture("update_prompt", {
             "action": action, "version": P.running_version()})

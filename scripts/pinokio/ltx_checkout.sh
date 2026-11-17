@@ -75,7 +75,10 @@
 # in install.js, bump the three pyprojects AND _LTX_EXPECTED_VERSION, run
 # `node scripts/check_ltx_pin.js`, smoke-test on dev, push.
 LTX_PIN="v0.14.19+ltx25.7"
-LTX_FORK_URL="https://github.com/mrbizarro/ltx-2-mlx.git"
+# 17 Nov 2026: our own server first (same tags, same commits), GitHub second. GitHub hid the
+# publisher's account that day and every install stopped here. Either source alone is enough.
+LTX_FORK_URL="https://phosphene.video/git/ltx-2-mlx.git"
+LTX_FORK_URL_GITHUB="https://github.com/mrbizarro/ltx-2-mlx.git"
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT/ltx-2-mlx" || { echo "FATAL error: the video engine folder is missing ($ROOT/ltx-2-mlx) - its download did not finish. Click Install again (or Update again) with a working internet connection."; exit 1; }
@@ -106,9 +109,15 @@ git remote set-url fork "$LTX_FORK_URL"
 # And the fetch is FATAL. Without the pin fetched there is nothing correct to
 # check out; carrying on would either fail obscurely or, worse, succeed against
 # a stale local tag. An Update that stops here has changed nothing.
-if ! git fetch fork "+refs/tags/$LTX_PIN:refs/tags/$LTX_PIN"; then
-  echo "FATAL error: could not download the video engine version Phosphene needs ($LTX_PIN from $LTX_FORK_URL). Nothing was changed - check your internet connection (a VPN, proxy or blocked GitHub is the usual cause), then click Install again, or Update again."
-  exit 1
+# The first source's own output is defanged (an "error:" line there must not stop Pinokio while the
+# second source can still answer); the second one is the real verdict.
+git fetch fork "+refs/tags/$LTX_PIN:refs/tags/$LTX_PIN" 2>&1 | sed -u -e 's/[Ee]rror:/problem -/g' -e 's/[Ee]rrno /errno-/g'
+if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+  echo "WARN: $LTX_FORK_URL did not answer; trying $LTX_FORK_URL_GITHUB"
+  if ! git fetch "$LTX_FORK_URL_GITHUB" "+refs/tags/$LTX_PIN:refs/tags/$LTX_PIN"; then
+    echo "FATAL error: could not download the video engine version Phosphene needs ($LTX_PIN from $LTX_FORK_URL or $LTX_FORK_URL_GITHUB). Nothing was changed - check your internet connection (a VPN or proxy is the usual cause), then click Install again, or Update again."
+    exit 1
+  fi
 fi
 
 # --- 3.8.1 HOTFIX: discard local edits BEFORE the pin move -------------------

@@ -364,5 +364,14 @@
     "pro": [],
     "date": "2026-11-16",
     "headline": "Fix: song lyrics stay honest to your idea."
+  },
+  "5.0.32": {
+    "free": [
+      "The update pop-up on Pinokio says plainly how to update, reaches Macs where GitHub's check is blocked, and remembers Later.",
+      "Mac app: developer notices now arrive, plus a quiet hint when an update is ready."
+    ],
+    "pro": [],
+    "date": "2026-11-16",
+    "headline": "Fix: update pop-up says how to update and reaches more Macs."
   }
 }

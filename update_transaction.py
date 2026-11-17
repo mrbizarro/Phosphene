@@ -24,6 +24,16 @@ class UpdateError(RuntimeError):
     pass
 
 
+# 17 Nov 2026: GitHub hid the publisher's account and every Pinokio Update
+# stopped at `git fetch origin`. Public main is published to our own server
+# FIRST (same commits, same SHAs) and to GitHub second, so an install whose
+# origin is the public repo (on GitHub or ours) fetches main from here first
+# and falls back to its origin. Forks, branches and other remotes keep their
+# own origin. PHOSPHENE_GIT_MIRROR="" turns the mirror off.
+OWN_GIT_MIRROR = os.environ.get('PHOSPHENE_GIT_MIRROR', 'https://phosphene.video/git/phosphene.git')
+_PUBLIC_REMOTES = re.compile(r'(github\.com[:/]mrbizarro/phosphene|phosphene\.video/git/phosphene)(\.git)?/?$', re.I)
+
+
 class Busy(UpdateError):
     pass
 
@@ -45,6 +55,22 @@ class Transaction:
 
     def git(self, *args):
         return self.command(['git', *args])
+
+    def fetch_upstream(self, upstream):
+        """Fetch the tracked branch: our server first for public main, then origin."""
+        remote, _, branch = upstream.partition('/')
+        if OWN_GIT_MIRROR and branch == 'main':
+            try:
+                url = self.git('config', '--get', f'remote.{remote}.url')
+            except UpdateError:
+                url = ''
+            if _PUBLIC_REMOTES.search(url.strip()):
+                try:
+                    self.git('fetch', OWN_GIT_MIRROR, f'+refs/heads/main:refs/remotes/{remote}/main')
+                    return
+                except UpdateError:
+                    pass
+        self.git('fetch', remote)
 
     def read(self):
         try:
@@ -108,7 +134,7 @@ class Transaction:
                 return self._resume_source(rec)
             if rec.get('phase') == 'succeeded':
                 self.clean()
-                self.git('fetch', rec['upstream'].split('/')[0])
+                self.fetch_upstream(rec['upstream'])
                 if (self.git('rev-parse', 'HEAD') == rec['candidate']
                         and self.git('rev-parse', rec['upstream'] + '^{commit}') == rec['candidate']):
                     return rec
@@ -135,7 +161,7 @@ class Transaction:
                 # No source/dependency mutation has begun. A user may have
                 # committed the edits that blocked the first attempt.
                 self.save(rec, previous=head)
-            self.git('fetch', rec['upstream'].split('/')[0])
+            self.fetch_upstream(rec['upstream'])
             target = self.git('rev-parse', rec['upstream'] + '^{commit}')
             if target == rec['previous']:
                 return self.save(rec, phase='current', candidate=target)

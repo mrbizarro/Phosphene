@@ -127,11 +127,12 @@ module.exports = {
     // second checkout the panel never uses and could fetch ~75 GB of duplicate
     // weights (Codex INST-09). Hence no `path:` and no `when: exists(...)`:
     // both can only name the default location.
+    // 17 Nov 2026: our own server first (same commits), GitHub second.
     {
       method: "shell.run",
       params: {
         message: [
-          ". scripts/pinokio/h3_roots.sh && { [ -d \"$H3_CHECKOUT/.git\" ] || git clone --branch " + H3_BRANCH + " https://github.com/mrbizarro/minimax-h3-mlx.git \"$H3_CHECKOUT\"; }"
+          ". scripts/pinokio/h3_roots.sh && { [ -d \"$H3_CHECKOUT/.git\" ] || git clone --branch " + H3_BRANCH + " https://phosphene.video/git/minimax-h3-mlx.git \"$H3_CHECKOUT\" || git clone --branch " + H3_BRANCH + " https://github.com/mrbizarro/minimax-h3-mlx.git \"$H3_CHECKOUT\"; }"
         ]
       }
     },

@@ -4704,6 +4704,12 @@ SAMPLE_CHARACTER = {
     "filename": "bizarrotrn_v2.safetensors",
     "url": ("https://github.com/mrbizarro/phosphene/releases/download/"
             "sample-character-bizarro/bizarrotrn_v2.safetensors"),
+    # Our own copy first, GitHub second (GitHub hid the account on 16 Nov 2026);
+    # the sha256 below decides which bytes are kept, not the address.
+    "urls": ("https://phosphene.video/app/Phosphene-mirror/"
+             "sample-character-bizarro/bizarrotrn_v2.safetensors",
+             "https://github.com/mrbizarro/phosphene/releases/download/"
+             "sample-character-bizarro/bizarrotrn_v2.safetensors"),
     "sha256": "a52e648a4e3edccd279363acdc85337d1d9813ca5dab30f8948f79393a4ba615",
     "size_bytes": 855966824,
 }
@@ -4753,25 +4759,35 @@ def _download_sample_character_bg() -> None:
             return
         tmp = target.with_suffix(target.suffix + ".partial")
         push(f"[sample-character] downloading {spec['name']} (~{total_mb} MB)…")
-        req = urllib.request.Request(spec["url"], headers={"User-Agent": "Phosphene"})
-        h = hashlib.sha256()
-        written = 0
-        last_log = 0.0
-        with urllib.request.urlopen(req, timeout=60) as resp, open(tmp, "wb") as fh:
-            while True:
-                chunk = resp.read(1 << 20)
-                if not chunk:
-                    break
-                fh.write(chunk)
-                h.update(chunk)
-                written += len(chunk)
-                now = time.time()
-                if now - last_log > 2.5:
-                    _set_sample_state(status="downloading", mb=written // (1 << 20),
-                                      total_mb=total_mb, error=None)
-                    last_log = now
-        if h.hexdigest() != spec["sha256"]:
-            raise RuntimeError("checksum mismatch (download corrupt) — please retry")
+        last_err: Exception | None = None
+        for url in spec.get("urls") or (spec["url"],):
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "Phosphene"})
+                h = hashlib.sha256()
+                written = 0
+                last_log = 0.0
+                with urllib.request.urlopen(req, timeout=60) as resp, open(tmp, "wb") as fh:
+                    while True:
+                        chunk = resp.read(1 << 20)
+                        if not chunk:
+                            break
+                        fh.write(chunk)
+                        h.update(chunk)
+                        written += len(chunk)
+                        now = time.time()
+                        if now - last_log > 2.5:
+                            _set_sample_state(status="downloading", mb=written // (1 << 20),
+                                              total_mb=total_mb, error=None)
+                            last_log = now
+                if h.hexdigest() != spec["sha256"]:
+                    raise RuntimeError("checksum mismatch (download corrupt) — please retry")
+                last_err = None
+                break
+            except Exception as e:  # noqa: BLE001 — try the next copy
+                last_err = e
+                push(f"[sample-character] {url.split('/')[2]} failed ({e}); trying the next source")
+        if last_err is not None:
+            raise last_err
         tmp.replace(target)
         _set_sample_state(status="done", mb=total_mb, total_mb=total_mb, error=None)
         push(f"[sample-character] installed → character '{spec['trigger']}' ({spec['name']})")
@@ -5100,11 +5116,15 @@ from version_check import (  # noqa: E402,F401  (re-exported on purpose)
     _check_remote_once,
     _detect_local_install_state,
     _fetch_broadcast,
+    _fetch_main_text,
     _fetch_raw_text,
     _fetch_remote_commits,
     _git_capture,
+    _main_file_urls,
     _parse_broadcast,
     _read_local_version,
+    _report_no_prompt_reason,
+    _version_only_fallback,
     boot_build_stamp,
     build_stamp_text,
     get_version_state,

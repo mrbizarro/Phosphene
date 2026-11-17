@@ -194,6 +194,54 @@ def asset_url(mirror: dict, asset: str) -> str:
             f"/releases/download/{mirror['tag']}/{asset}")
 
 
+#: Our own copy of every release asset, tried BEFORE GitHub (owner rule since GitHub hid
+#: the account on 16 Nov 2026: our server first, GitHub second). Same file names, laid out
+#: as <base>/<tag>/<asset>; every shard is still checked against the manifest's sha256, so
+#: a copy can never change what lands on disk. PHOSPHENE_PACK_MIRRORS (space separated)
+#: replaces the list, for test rooms; an empty value means GitHub only.
+OWN_MIRRORS: tuple[str, ...] = ("https://phosphene.video/app/Phosphene-mirror",)
+
+
+def _own_mirrors() -> tuple[str, ...]:
+    env = os.environ.get("PHOSPHENE_PACK_MIRRORS")
+    if env is not None:
+        return tuple(b for b in env.split() if b)
+    return OWN_MIRRORS
+
+
+def asset_urls(mirror: dict, asset: str) -> list[str]:
+    """Every place this asset can come from, in order: our server(s), then GitHub."""
+    urls = [f"{b.rstrip('/')}/{mirror['tag']}/{asset}" for b in _own_mirrors()]
+    urls.append(asset_url(mirror, asset))
+    return urls
+
+
+class _Gone(Exception):
+    """The server answered 404/403/410 for this URL: try the next source at once."""
+
+
+def _first_source(urls: list[str], fn, label: str):
+    """Run ``fn(url)`` on each source in turn until one works; the last error wins.
+
+    A source that answers "not there" is skipped without the per-source retries; a
+    source that fails after its retries hands over to the next one."""
+    last: BaseException | None = None
+    for i, url in enumerate(urls):
+        try:
+            return fn(url)
+        except _Gone as e:
+            last = e
+            if i + 1 < len(urls):
+                log(f"[fetch] {label}: not at {url.split('/')[2]} ({e}), trying the next source")
+        except (RuntimeError, SystemExit) as e:
+            last = e
+            if i + 1 < len(urls):
+                log(f"[fetch] {label}: {url.split('/')[2]} failed ({e}), trying the next source")
+    if isinstance(last, SystemExit):
+        raise last
+    raise RuntimeError(str(last))
+
+
 # --------------------------------------------------------------------------- #
 # HTTP
 # --------------------------------------------------------------------------- #
@@ -253,7 +301,15 @@ def download_shard(url: str, dest: Path, expect_bytes: int, expect_sha: str,
                 dest.unlink(missing_ok=True)
                 raise RuntimeError(f"shard size mismatch (expected {expect_bytes}, got {size})")
             return
-        except (urllib.error.URLError, urllib.error.HTTPError, OSError, RuntimeError) as e:
+        except urllib.error.HTTPError as e:
+            if e.code in (403, 404, 410):
+                raise _Gone(f"HTTP {e.code}") from e
+            last_err = e
+            if attempt < attempts:
+                back = 5 * attempt
+                log(f"[fetch] {label} attempt {attempt}/{attempts} failed ({e}) — retrying in {back}s")
+                time.sleep(back)
+        except (urllib.error.URLError, OSError, RuntimeError) as e:
             last_err = e
             if attempt < attempts:
                 back = 5 * attempt
@@ -269,7 +325,13 @@ def fetch_json(url: str, *, attempts: int, timeout: int) -> dict:
             req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
-        except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError) as e:
+        except urllib.error.HTTPError as e:
+            if e.code in (403, 404, 410):
+                raise _Gone(f"HTTP {e.code}") from e
+            last_err = e
+            if attempt < attempts:
+                time.sleep(5 * attempt)
+        except (urllib.error.URLError, OSError, ValueError) as e:
             last_err = e
             if attempt < attempts:
                 time.sleep(5 * attempt)
@@ -397,9 +459,11 @@ def assemble_file(name: str, spec: dict, dest_dir: Path, mirror: dict,
         asset = shard["asset"]
         label = f"{name} [{idx + 1}/{len(shards)}]"
         shard_path = _pack_path(parts_dir, asset)
-        download_shard(asset_url(mirror, asset), shard_path,
-                       int(shard["bytes"]), shard["sha256"],
-                       attempts=attempts, timeout=timeout, label=label)
+        _first_source(asset_urls(mirror, asset),
+                      lambda url: download_shard(url, shard_path,
+                                                 int(shard["bytes"]), shard["sha256"],
+                                                 attempts=attempts, timeout=timeout, label=label),
+                      label)
         with open(partial, "ab") as out, open(shard_path, "rb") as src:
             shutil.copyfileobj(src, out, CHUNK)
             out.flush()
@@ -461,11 +525,12 @@ def fetch_pack(repo_key: str, root: Path, dest: Path | None,
     model_root = Path(configured) if configured else (root / "mlx_models" if dest is None else dest.parent)
     model_path_guard.require(model_root, dest_dir, write=not check_only,
                              allow_new=not configured and dest is None)
-    url = asset_url(mirror, mirror["manifest_asset"])
+    urls = asset_urls(mirror, mirror["manifest_asset"])
 
     log(f"[fetch] {repo_key}: {repo.get('name', repo_key)} → {dest_dir}")
-    log(f"[fetch] manifest {url}")
-    manifest = fetch_json(url, attempts=attempts, timeout=timeout)
+    log(f"[fetch] manifest {urls[0]}")
+    manifest = _first_source(urls, lambda url: fetch_json(url, attempts=attempts, timeout=timeout),
+                             f"{repo_key} manifest")
     files = manifest.get("files")
     if not isinstance(files, dict) or not files:
         raise SystemExit(f"release manifest for {repo_key} declares no files")

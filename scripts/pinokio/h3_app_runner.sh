@@ -31,6 +31,9 @@ H3_ARCHIVE_FOR="953ec466586d6b35823e475ce64e43b43fa7f39a"
 H3_ARCHIVE_SHA256="551f68aa1f5483872edf764fc1540457c5e8de944dc575ad1f2de74273f13f1a"
 H3_ARCHIVE_BYTES=408523
 H3_ARCHIVE_URL="https://codeload.github.com/mrbizarro/minimax-h3-mlx/tar.gz/$H3_ARCHIVE_FOR"
+# Our own copy first, GitHub second (GitHub hid the account on 16 Nov 2026). Same bytes:
+# the sha256 and size checks below decide, not the address. Test rooms set PHOSPHENE_H3_ARCHIVE_URLS.
+H3_ARCHIVE_URLS="${PHOSPHENE_H3_ARCHIVE_URLS:-https://phosphene.video/app/Phosphene-mirror/minimax-h3-mlx-${H3_ARCHIVE_FOR:0:12}.tar.gz $H3_ARCHIVE_URL}"
 PY_VERSION="3.11"
 
 PIN=$(sed -n 's/^H3_PIN_SHA="\([0-9a-f]*\)".*/\1/p' "$HERE/h3_checkout.sh" 2>/dev/null | head -1)
@@ -107,8 +110,14 @@ ARC="$DL/minimax-h3-mlx-${PIN:0:12}.tar.gz"
 sha_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 if [ -s "$ARC" ] && [ "$(sha_of "$ARC")" != "$H3_ARCHIVE_SHA256" ]; then retire "$ARC"; fi
 if [ ! -s "$ARC" ]; then
-  curl -fsSL --connect-timeout 20 --max-time 600 -o "$ARC.part" "$H3_ARCHIVE_URL" 2>"$ARC.err" \
-    || { retire "$ARC.part"; fail "could not download the engine (check the internet connection)."; }
+  got_arc=""
+  for u in $H3_ARCHIVE_URLS; do
+    if curl -fsSL --connect-timeout 20 --max-time 600 -o "$ARC.part" "$u" 2>"$ARC.err" \
+       && [ "$(sha_of "$ARC.part")" = "$H3_ARCHIVE_SHA256" ]; then got_arc=1; break; fi
+    echo "H3 runner: no good copy at ${u%%/tar.gz*}; trying the next source."
+    retire "$ARC.part"
+  done
+  [ -n "$got_arc" ] || fail "could not download the engine (check the internet connection)."
   mv "$ARC.part" "$ARC"
 fi
 [ "$(sha_of "$ARC")" = "$H3_ARCHIVE_SHA256" ] || { retire "$ARC"; fail "the engine download was damaged."; }

@@ -137,12 +137,12 @@
   </div>
 </div>
 
-<!-- ONE MODAL, TWO SPEAKERS (v4.9): the update pop-up and the maintainer
-     broadcast share this chrome. A POP-UP, not just the banner, is the owner's
-     explicit ruling: "it should be a pop-up... people who don't update will be
-     annoyed by it every time they open the app" — that is the design, not a
-     defect. Dismissal lasts one page load for updates; broadcasts dismiss
-     forever per message id. Body renders as textContent, never HTML. -->
+<!-- ONE MODAL, TWO SPEAKERS: updates and developer notices.
+     A new release is announced when Studio opens.
+     Later is remembered for that release across page reloads.
+     The header still offers the update when the person is ready.
+     Developer notices use their own once-per-message dismissal.
+     Both use textContent for the body, never HTML. -->
 <div id="phModalWrap" hidden>
   <div id="phModal" role="dialog" aria-modal="true" aria-labelledby="phModalTitle">
     <div id="phModalKicker"></div>

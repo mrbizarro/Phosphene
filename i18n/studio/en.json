@@ -8409,32 +8409,32 @@
   "health.30_commits_behind": {
    "text": " 30+ commits behind.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles ub render · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «You are on {local}. … 30+ commits behind.»",
-   "where": "health.js:398"
+   "where": "health.js:401"
   },
   "health.a_newer_version_is_out": {
    "text": "A newer version is out. Click to install it.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
-   "where": "health.js:806"
+   "where": "health.js:812"
   },
   "health.already_up_to_date_nothing": {
    "text": "Already up to date - nothing to restart.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull",
-   "where": "health.js:1104"
+   "where": "health.js:1111"
   },
   "health.asked_phosphene_to_update_if": {
    "text": "Asked Phosphene to update {name}. If this stays, quit Phosphene (⌘Q) and open it again — it updates when it opens.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update pill click · placeholders {name} are filled in by the app",
-   "where": "health.js:914"
+   "where": "health.js:921"
   },
   "health.asked_phosphene_to_update_this": {
    "text": "Asked Phosphene to update {name}. This button goes away when it is installed.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update pill click · placeholders {name} are filled in by the app",
-   "where": "health.js:913"
+   "where": "health.js:920"
   },
   "health.branch_commit_your_local_changes": {
    "text": "branch. Commit your local changes (or switch back to main) ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Update check is paused: {suppress_reason}. … Phosphene only checks GitHub when you're on a clean main … branch. Commit your local changes (or switch back to main) … to re-enable updates.»",
-   "where": "health.js:1021"
+   "where": "health.js:1028"
   },
   "health.checking_for_updates": {
    "text": "Checking for updates…",
@@ -8459,7 +8459,7 @@
   "health.copied_this_debug_string_to": {
    "text": "Copied this debug string to your clipboard so you can paste ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Update check is paused: {suppress_reason}. … Copied this debug string to your clipboard so you can paste»",
-   "where": "health.js:1015"
+   "where": "health.js:1022"
   },
   "health.couldn_t_reach_github_com": {
    "text": "Couldn't reach github.com ({error}). Click to retry.",
@@ -8469,42 +8469,42 @@
   "health.dirty_tree": {
    "text": " · dirty tree",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click",
-   "where": "health.js:1007"
+   "where": "health.js:1014"
   },
   "health.disk_but_this_running_panel": {
    "text": "disk, but this running panel loaded ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «disk, but this running panel loaded … update landed.\n\nClick Stop, then Start in Pinokio (or restart … the panel process) to load it. Your queue and settings are»",
-   "where": "health.js:989"
+   "where": "health.js:996"
   },
   "health.dismiss": {
    "text": "Dismiss",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles ub restart state",
-   "where": "health.js:476"
+   "where": "health.js:479"
   },
   "health.finishing_the_update_first_restart": {
    "text": "Finishing the update first — restart becomes available when it is done.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click",
-   "where": "health.js:963"
+   "where": "health.js:970"
   },
   "health.from_the_developer": {
    "text": "From the developer",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles maybe show broadcast modal",
-   "where": "health.js:345"
+   "where": "health.js:348"
   },
   "health.got_it": {
    "text": "Got it",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles maybe show broadcast modal",
-   "where": "health.js:348"
+   "where": "health.js:351"
   },
   "health.installing_what_the_new_version": {
    "text": "Installing what the new version needs (the same step Pinokio’s Update runs). ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles ub restart state · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Installing what the new version needs (the same step Pinokio’s Update runs). … Restart becomes available when it finishes.»",
-   "where": "health.js:438"
+   "where": "health.js:441"
   },
   "health.keep_your_local_edits_save": {
    "text": "Keep your local edits. Save or commit them before retrying Update.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull",
-   "where": "health.js:1090"
+   "where": "health.js:1097"
   },
   "health.later": {
    "text": "Later",
@@ -8514,32 +8514,32 @@
   "health.opening_the_app_store": {
    "text": "Opening the App Store…",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles star card open review",
-   "where": "health.js:1455"
+   "where": "health.js:1462"
   },
   "health.panel_did_not_come_back": {
    "text": "Panel did not come back within 60s — start it from Pinokio.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles panel restart",
-   "where": "health.js:728"
+   "where": "health.js:734"
   },
   "health.phosphene_is_now_finishing_the": {
    "text": "\n\nPhosphene is now finishing the update in the background (the same ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Phosphene is now finishing the update in the background (the same … step Pinokio's Update runs). Restart once the banner says it is done.»",
-   "where": "health.js:1114"
+   "where": "health.js:1121"
   },
   "health.phosphene_is_up_to_date": {
    "text": "Phosphene is up to date.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
-   "where": "health.js:800"
+   "where": "health.js:806"
   },
   "health.phosphene_only_checks_github_when": {
    "text": "Phosphene only checks GitHub when you're on a clean main ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Update check is paused: {suppress_reason}. … Phosphene only checks GitHub when you're on a clean main … branch. Commit your local changes (or switch back to main) … to re-enable updates.»",
-   "where": "health.js:1020"
+   "where": "health.js:1027"
   },
   "health.pinokio_s_update_button_not": {
    "text": "Pinokio's Update button (not just Stop+Start) so deps reinstall.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull",
-   "where": "health.js:1118"
+   "where": "health.js:1125"
   },
   "health.preparing_update": {
    "text": "Preparing update",
@@ -8549,12 +8549,12 @@
   "health.pull_update_from": {
    "text": "Pull update from {local} → {target}?\n\n",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Pull update from {local} → {target}? … This runs git pull on your phosphene install. After it succeeds, … you'll need to click Stop, then Start in Pinokio to load the new code. … Your queue and settings are preserved across restarts.» · placeholders {local} {target} are filled in by the app",
-   "where": "health.js:1066"
+   "where": "health.js:1073"
   },
   "health.pulled_because_this_update_touched": {
    "text": "Pulled. Because this update touched Python deps / patches, use Pinokio's Update button (it reinstalls + reapplies patches). After that click Start.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click",
-   "where": "health.js:969"
+   "where": "health.js:976"
   },
   "health.pulled_click_to_restart_and": {
    "text": "Pulled {v}. Click to restart and apply it.",
@@ -8569,32 +8569,32 @@
   "health.pulled_to_click_stop_then": {
    "text": "Pulled to {newVersion}.\n\nClick Stop, then Start in Pinokio to apply.{fullUpdateNote}",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull · placeholders {fullUpdateNote} {newVersion} are filled in by the app",
-   "where": "health.js:1127"
-  },
-  "health.queue_settings_and_models": {
-   "text": "queue, settings and models.",
-   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles maybe show update modal · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Updates are mostly bug fixes: renders that fail less and explain … themselves better. Updating takes about a minute and keeps your … queue, settings and models.»",
-   "where": "health.js:321"
+   "where": "health.js:1134"
   },
   "health.read_more": {
    "text": "Read more",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles notice refresh",
-   "where": "health.js:1595"
+   "where": "health.js:1602"
+  },
+  "health.release_available": {
+   "text": "Phosphene {remote} is available. You are on {local}.",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles maybe show update modal · placeholders {local} {remote} are filled in by the app",
+   "where": "health.js:318"
   },
   "health.restart_becomes_available_when_it": {
    "text": "Restart becomes available when it finishes. ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles ub restart state · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Installing what the new version needs (the same step Pinokio’s Update runs). … Restart becomes available when it finishes.»",
-   "where": "health.js:439"
+   "where": "health.js:442"
   },
   "health.restart_now": {
    "text": "Restart now",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles ub restart state",
-   "where": "health.js:459"
+   "where": "health.js:462"
   },
   "health.restarting": {
    "text": "Restarting…",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles ub restart state",
-   "where": "health.js:463"
+   "where": "health.js:466"
   },
   "health.retry_update": {
    "text": "Retry update",
@@ -8604,92 +8604,87 @@
   "health.star_on_github": {
    "text": "Star on GitHub",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles star card star",
-   "where": "health.js:1495"
+   "where": "health.js:1502"
   },
   "health.starring": {
    "text": "Starring…",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles star card star",
-   "where": "health.js:1487"
+   "where": "health.js:1494"
   },
   "health.step_pinokio_s_update_runs": {
    "text": "step Pinokio's Update runs). Restart once the banner says it is done.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Phosphene is now finishing the update in the background (the same … step Pinokio's Update runs). Restart once the banner says it is done.»",
-   "where": "health.js:1115"
+   "where": "health.js:1122"
   },
   "health.the_clip_that_is_rendering": {
    "text": "the clip that is rendering finishes",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update name",
-   "where": "health.js:775"
+   "where": "health.js:781"
   },
   "health.the_engine_install_finishes": {
    "text": "the engine install finishes",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update name",
-   "where": "health.js:778"
+   "where": "health.js:784"
   },
   "health.the_model_download_finishes": {
    "text": "the model download finishes",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update name",
-   "where": "health.js:777"
+   "where": "health.js:783"
   },
   "health.the_panel_process_to_load": {
    "text": "the panel process) to load it. Your queue and settings are ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «disk, but this running panel loaded … update landed.\n\nClick Stop, then Start in Pinokio (or restart … the panel process) to load it. Your queue and settings are»",
-   "where": "health.js:992"
+   "where": "health.js:999"
   },
   "health.the_queue_is_empty": {
    "text": "the queue is empty",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update name",
-   "where": "health.js:776"
+   "where": "health.js:782"
   },
   "health.the_studio_did_not_come": {
    "text": "The studio did not come back within 60s — use Studio → Restart Engine.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles panel restart",
-   "where": "health.js:729"
+   "where": "health.js:735"
   },
   "health.the_update_did_not_finish": {
    "text": "The update did not finish",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles ub restart state",
-   "where": "health.js:434"
+   "where": "health.js:437"
   },
   "health.the_update_did_not_finish_2": {
    "text": "The update did not finish: ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «The update did not finish: … Use Pinokio’s Update.»",
-   "where": "health.js:962"
+   "where": "health.js:969"
   },
   "health.the_update_is_downloading_nothing": {
    "text": "The update is downloading. Nothing to do.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
-   "where": "health.js:811"
-  },
-  "health.themselves_better_updating_takes_about": {
-   "text": "themselves better. Updating takes about a minute and keeps your ",
-   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles maybe show update modal · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Updates are mostly bug fixes: renders that fail less and explain … themselves better. Updating takes about a minute and keeps your … queue, settings and models.»",
-   "where": "health.js:320"
+   "where": "health.js:818"
   },
   "health.this_runs_git_pull_on": {
    "text": "This runs git pull on your phosphene install. After it succeeds, ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Pull update from {local} → {target}? … This runs git pull on your phosphene install. After it succeeds, … you'll need to click Stop, then Start in Pinokio to load the new code. … Your queue and settings are preserved across restarts.»",
-   "where": "health.js:1067"
+   "where": "health.js:1074"
   },
   "health.this_update_touched_python_dependencies": {
    "text": "This update touched Python dependencies, so use Pinokio’s Update button (not just Stop and Start) so they reinstall.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles ub restart state",
-   "where": "health.js:452"
+   "where": "health.js:455"
   },
   "health.this_update_touched_python_dependencies_2": {
    "text": "\n\n⚠ This update touched Python dependencies / patches. Use ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «⚠ This update touched Python dependencies / patches. Use … Pinokio's Update button (not just Stop+Start) so deps reinstall.»",
-   "where": "health.js:1117"
+   "where": "health.js:1124"
   },
   "health.to_re_enable_updates": {
    "text": "to re-enable updates.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Update check is paused: {suppress_reason}. … Phosphene only checks GitHub when you're on a clean main … branch. Commit your local changes (or switch back to main) … to re-enable updates.»",
-   "where": "health.js:1022"
+   "where": "health.js:1029"
   },
   "health.to_update_phosphene_use_phosphene": {
    "text": "To update Phosphene, use Phosphene → Check for Updates…",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull",
-   "where": "health.js:1055"
+   "where": "health.js:1062"
   },
   "health.to_update_use_phosphene_check": {
    "text": "To update, use Phosphene → Check for Updates…",
@@ -8699,7 +8694,7 @@
   "health.try_again": {
    "text": "Try again",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles ub restart state",
-   "where": "health.js:443"
+   "where": "health.js:446"
   },
   "health.up_to_date": {
    "text": "Up to date ·",
@@ -8709,7 +8704,7 @@
   "health.update": {
    "text": "Update ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
-   "where": "health.js:805"
+   "where": "health.js:811"
   },
   "health.update_available": {
    "text": "Update available",
@@ -8719,7 +8714,7 @@
   "health.update_check_is_paused": {
    "text": "Update check is paused: {suppress_reason}.\n\n",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Update check is paused: {suppress_reason}. … Copied this debug string to your clipboard so you can paste» · placeholders {suppress_reason} are filled in by the app",
-   "where": "health.js:1014"
+   "where": "health.js:1021"
   },
   "health.update_check_paused": {
    "text": "Update check paused: {suppress_reason}.",
@@ -8729,27 +8724,32 @@
   "health.update_failed_try_again": {
    "text": "Update failed. Try again",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
-   "where": "health.js:827"
+   "where": "health.js:834"
+  },
+  "health.update_how": {
+   "text": "To update, press Update now, then Restart now when it is ready (about a minute). Your queue, settings and models stay. You can also use Update in Pinokio, then Start.",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles maybe show update modal",
+   "where": "health.js:321"
   },
   "health.update_landed_click_stop_then": {
    "text": "update landed.\n\nClick Stop, then Start in Pinokio (or restart ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «disk, but this running panel loaded … update landed.\n\nClick Stop, then Start in Pinokio (or restart … the panel process) to load it. Your queue and settings are»",
-   "where": "health.js:991"
+   "where": "health.js:998"
   },
   "health.update_now": {
    "text": "Update now",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles maybe show update modal",
    "where": "health.js:322"
   },
+  "health.update_ready_when_you_are": {
+   "text": "An update is available. Use the Update button when you are ready.",
+   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
+   "where": "health.js:814"
+  },
   "health.update_the_phosphene_app_first": {
    "text": "Update the Phosphene app first",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update view",
-   "where": "health.js:822"
-  },
-  "health.updates_are_mostly_bug_fixes": {
-   "text": "Updates are mostly bug fixes: renders that fail less and explain ",
-   "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles maybe show update modal · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Updates are mostly bug fixes: renders that fail less and explain … themselves better. Updating takes about a minute and keeps your … queue, settings and models.»",
-   "where": "health.js:319"
+   "where": "health.js:829"
   },
   "health.updating": {
    "text": "Updating…",
@@ -8759,27 +8759,27 @@
   "health.use_pinokio_s_update": {
    "text": " Use Pinokio’s Update.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version pill click · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «The update did not finish: … Use Pinokio’s Update.»",
-   "where": "health.js:962"
+   "where": "health.js:969"
   },
   "health.use_pinokio_s_update_stop": {
    "text": " — use Pinokio’s Update (Stop, then Update), or try again.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles ub restart state",
-   "where": "health.js:437"
+   "where": "health.js:440"
   },
   "health.you_are_on": {
    "text": "You are on {local}.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles ub render · placeholders {local} are filled in by the app",
-   "where": "health.js:398"
+   "where": "health.js:401"
   },
   "health.you_ll_need_to_click": {
    "text": "you'll need to click Stop, then Start in Pinokio to load the new code. ",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Pull update from {local} → {target}? … This runs git pull on your phosphene install. After it succeeds, … you'll need to click Stop, then Start in Pinokio to load the new code. … Your queue and settings are preserved across restarts.»",
-   "where": "health.js:1068"
+   "where": "health.js:1075"
   },
   "health.you_quit_phosphene_and_open": {
    "text": "you quit Phosphene and open it again",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles app update name",
-   "where": "health.js:779"
+   "where": "health.js:785"
   },
   "health.you_re_on_latest_is": {
    "text": "You're on {local}; latest is {remote}. Click to pull the update.",
@@ -8794,12 +8794,12 @@
   "health.your_queue_and_settings_are": {
    "text": "Your queue and settings are preserved across the restart.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles ub restart state",
-   "where": "health.js:455"
+   "where": "health.js:458"
   },
   "health.your_queue_and_settings_are_2": {
    "text": "Your queue and settings are preserved across restarts.",
    "note": "Studio · in the top bar's status chips, the update banner and app notices · written by the code that handles version do pull",
-   "where": "health.js:1069"
+   "where": "health.js:1076"
   },
   "healthChip.title.system_health_click_for": {
    "text": "System health — click for detail",
