@@ -27633,13 +27633,17 @@ class WarmHelper:
             # times. Say it in one second with the fix in the sentence, rather
             # than spawning a helper whose only job is to print an ImportError
             # half a minute later.
+            # H29: an install still writing the venv comes FIRST. A render
+            # pressed seconds after a fresh install's first boot found a
+            # Python with no packages yet and was told to Repair a venv that
+            # the running install finished on its own minutes later.
+            busy = engine_env_busy()
+            if busy:
+                raise RuntimeError(f"Not started: {busy}. Press Retry then.")
             fault = engine_env_fault()
             if fault:
                 raise RuntimeError(f"engine venv is not usable: {fault}. "
                                    f"{_dist.say(ENGINE_ENV_REPAIR, ENGINE_ENV_REPAIR_MAC)}")
-            busy = engine_env_busy()
-            if busy:
-                raise RuntimeError(f"Not started: {busy}. Press Retry then.")
             env = os.environ.copy()
             env["PATH"] = media_tool_path(env.get("PATH", ""))
             env["LTX_MODEL"] = base_model_dir()

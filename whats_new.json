@@ -1659,5 +1659,69 @@
         ]
       }
     }
+  },
+  "5.0.50": {
+    "free": [
+      "A video started right after installing, while Phosphene is still setting up, now says to wait a few minutes and press Retry, instead of asking you to repair something that is fine."
+    ],
+    "pro": [],
+    "date": "2026-11-18",
+    "headline": "A video started during setup now says to wait and press Retry.",
+    "i18n": {
+      "de": {
+        "headline": "Ein Video, das während der Einrichtung startet, sagt jetzt: kurz warten und Retry drücken.",
+        "free": [
+          "Ein Video direkt nach der Installation, während Phosphene sich noch einrichtet, sagt jetzt: ein paar Minuten warten und Retry drücken, statt eine unnötige Reparatur zu verlangen."
+        ]
+      },
+      "es": {
+        "headline": "Un vídeo iniciado durante la configuración ahora te dice que esperes y pulses Retry.",
+        "free": [
+          "Un vídeo iniciado justo después de instalar, mientras Phosphene aún se configura, ahora te dice que esperes unos minutos y pulses Retry, en vez de pedirte reparar algo que está bien."
+        ]
+      },
+      "fr": {
+        "headline": "Une vidéo lancée pendant l'installation vous dit maintenant d'attendre puis d'appuyer sur Retry.",
+        "free": [
+          "Une vidéo lancée juste après l'installation, pendant que Phosphene se prépare, dit maintenant d'attendre quelques minutes puis d'appuyer sur Retry, au lieu d'une réparation inutile."
+        ]
+      },
+      "it": {
+        "headline": "Un video avviato durante la configurazione ora ti dice di aspettare e premere Retry.",
+        "free": [
+          "Un video avviato subito dopo l'installazione, mentre Phosphene si sta ancora preparando, ora ti dice di aspettare qualche minuto e premere Retry, invece di chiederti di riparare qualcosa che funziona."
+        ]
+      },
+      "ja": {
+        "headline": "セットアップ中に始めたビデオは、少し待ってから Retry を押すよう表示されます。",
+        "free": [
+          "インストール直後、Phosphene がまだ準備中のときに始めたビデオは、問題のない部分の修復を求めるのではなく、数分待ってから Retry を押すよう表示されるようになりました。"
+        ]
+      },
+      "ko": {
+        "headline": "설정 중에 시작한 비디오는 이제 잠시 기다렸다가 Retry를 누르라고 알려 줘요.",
+        "free": [
+          "설치 직후 Phosphene이 아직 준비 중일 때 시작한 비디오는 이제 멀쩡한 것을 고치라고 하는 대신, 몇 분 기다렸다가 Retry를 누르라고 알려 줘요."
+        ]
+      },
+      "pt": {
+        "headline": "Um vídeo iniciado durante a configuração agora pede para esperar e tocar em Retry.",
+        "free": [
+          "Um vídeo iniciado logo após instalar, enquanto o Phosphene ainda se prepara, agora pede para esperar alguns minutos e tocar em Retry, em vez de pedir para reparar algo que está bem."
+        ]
+      },
+      "ru": {
+        "headline": "Видео, запущенное во время настройки, теперь просит подождать и нажать Retry.",
+        "free": [
+          "Видео, запущенное сразу после установки, пока Phosphene ещё настраивается, теперь просит подождать несколько минут и нажать Retry, а не чинить то, что исправно."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "在设置过程中开始的视频现在会提示你稍等并按 Retry。",
+        "free": [
+          "安装后立刻开始的视频，如果 Phosphene 还在设置中，现在会提示你等几分钟再按 Retry，而不是让你去修复本来没有问题的东西。"
+        ]
+      }
+    }
   }
 }
