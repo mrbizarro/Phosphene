@@ -18,6 +18,19 @@ to it (GET /whats-new/how?id=...). Every new feature gets one: it is the habit, 
 One fixed format (5.0.20): every release reads header (version, date, "headline"), optional hero, New for everyone,
 New in Pro, How it works. Each piece of media carries its real "w"/"h", read here from its poster or still, so the
 window sizes every frame to the clip before the clip loads: no empty boxes, no jump, tall and wide both right.
+
+Now in Pro (owner, 14 Nov 2026: "The Now in Pro section should be on the upper side of the report ... and should link
+to the Pro page. We want to make conversions from the app."): a version may name Pro perks by id in "pro_perks"; their
+line and measured gain come from pro_perks.json (the one list of Pro speed-ups and features, pro_perks.py) and sit
+high in the window, right after the free changes and before the hero, with the release's plain pro[] lines. Free users
+get one button to the Pro page; a Pro member reads "Included in your Pro" and no sell. A perk that is not released
+(since null) never shows as new. The free changes come first and short (owner, 14 Nov, on the first build: "make sure
+that users can also see what is new in general for normal users"), so both fit the first screen.
+
+Coming next in Pro (owner, 14 Nov 2026: "it could be cool also if we have it coming in the pipeline next. Then for Pro,
+if we don't have something to release in Pro, we can still tease it"): the unreleased perks that carry a 'next' line in
+pro_perks.json are teased under the Now in Pro items; when a release adds nothing to Pro the block still shows, as
+"Coming next in Pro" alone, so every update window has a Pro story and a Get Pro button for Free users.
 """
 from __future__ import annotations
 
@@ -25,9 +38,20 @@ import json
 import re
 from pathlib import Path
 
+import pro_perks
+
 MAX_LINES = 8          # per section: a card, not a changelog
 FREE_TITLE = "New for everyone"
 PRO_TITLE = "New in Pro"
+NOW_PRO_TITLE = "Now in Pro"
+NOW_PRO_TITLE_MEMBER = "Included in your Pro"
+NOW_PRO_CTA = "Get Pro"
+NOW_PRO_ALSO = "Also in Pro"
+COMING_TITLE = "Coming next in Pro"
+COMING_TITLE_MEMBER = "Coming next in your Pro"
+COMING_TAG = "Soon"
+MAX_ALSO = 6
+MAX_COMING = 3
 THANKS = "Thank you for supporting Phosphene. This is what your Pro licence added."
 PRICING_URL = "https://phosphene.video/pricing/"
 PLANS_URL = "https://phosphene.video/pricing/#plans"
@@ -236,8 +260,52 @@ def _merge(entries: list[tuple[str, dict]], key: str, extra: dict, pro_user: boo
     return out[:MAX_LINES]
 
 
+def _perk_ids(ent: dict) -> list[str]:
+    ids = ent.get("pro_perks") if isinstance(ent, dict) else None
+    return [str(i) for i in ids if isinstance(i, str) and i.strip()] if isinstance(ids, list) else []
+
+
+def _perk_lines(ent: dict, perks_path: Path | None = None) -> list[dict]:
+    """The released perks one version names, as What's new lines (text + gain)."""
+    out = []
+    for pid in _perk_ids(ent):
+        p = pro_perks.perk(pid, perks_path)
+        if pro_perks.released(p):
+            out.append(pro_perks.line(p))
+    return out
+
+
+def now_in_pro(picked: list[tuple[str, dict]], pro_lines: list[dict], pro_active: bool,
+               perks_path: Path | None = None) -> dict | None:
+    """The Now in Pro block for the top of the window, or None when this release adds nothing to Pro AND nothing
+    is being teased (no heading over an empty box). items: the named perks first (newest release first), then the
+    plain pro[] lines that are not already a perk's line. coming: the unreleased perks with a 'next' line, teased
+    under the items; with no items the block is titled "Coming next in Pro" and the tease is the whole block.
+    also: the other released perks' names, for Free users."""
+    items, seen = [], set()
+    for _, ent in sorted(picked, key=lambda e: vkey(e[0]), reverse=True):
+        for ln in _perk_lines(ent, perks_path):
+            if ln["id"] not in seen:
+                seen.add(ln["id"])
+                items.append(ln)
+    texts = {i["text"] for i in items}
+    items += [dict(ln) for ln in pro_lines if ln["text"] not in texts]
+    coming = [c for c in pro_perks.coming(perks_path) if c["id"] not in seen][:MAX_COMING]
+    if not items and not coming:
+        return None
+    teasing = not items                      # nothing new for Pro this time: the tease carries the block
+    coming_title = COMING_TITLE_MEMBER if pro_active else COMING_TITLE
+    title = coming_title if teasing else (NOW_PRO_TITLE_MEMBER if pro_active else NOW_PRO_TITLE)
+    also = [] if pro_active else [p["name"] for p in pro_perks.perks(perks_path)
+                                   if pro_perks.released(p) and p["id"] not in seen and p.get("name")][:MAX_ALSO]
+    return {"title": title, "teasing": teasing,
+            "items": items[:MAX_LINES], "also": also, "also_title": NOW_PRO_ALSO,
+            "coming": coming, "coming_title": coming_title, "coming_tag": COMING_TAG,
+            "cta": None if pro_active else {"label": NOW_PRO_CTA, "url": pro_perks.pro_url(perks_path)}}
+
+
 def card(root: Path, state_dir: Path, version: str, pro_active: bool, force: bool = False,
-         pack_json: Path | None = None) -> dict:
+         pack_json: Path | None = None, perks_path: Path | None = None) -> dict:
     """The card for this Studio. show=False when there is nothing new or it was already closed."""
     pub = _load(root / "whats_new.json")
     extra = _load(pack_json) if (pack_json and pro_active) else {}
@@ -251,6 +319,8 @@ def card(root: Path, state_dir: Path, version: str, pro_active: bool, force: boo
         picked += [(v, {}) for v in extra if vkey(v) == cur and v not in pub]
     free = _merge(picked, "free", extra, pro_active)
     pro = _merge(picked, "pro", extra, pro_active)
+    # A tease alone never opens the window: it rides along with a release that has something to say.
+    nip = now_in_pro(picked, pro, pro_active, perks_path) if (free or pro or any(_perk_ids(e) for _, e in picked)) else None
     seen_now = bool(last) and vkey(last) >= cur
     newest = sorted(picked, key=lambda e: vkey(e[0]), reverse=True)
     hero = next((h for h in (_hero(e.get("hero")) for _, e in newest) if h), None)
@@ -274,7 +344,8 @@ def card(root: Path, state_dir: Path, version: str, pro_active: bool, force: boo
         if v in shown or vkey(v) > cur:
             continue
         ent = {"version": v, "date": e.get("date") if isinstance(e.get("date"), str) else None,
-               "headline": _headline(e), "free": _lines(e.get("free")), "pro": _lines(e.get("pro")),
+               "headline": _headline(e), "free": _lines(e.get("free")),
+               "pro": [{"text": ln["text"]} for ln in _perk_lines(e, perks_path)] + _lines(e.get("pro")),
                "how": [h for h in _hows(e) if how_home.get(h["id"]) == v]}
         h = _hero(e.get("hero"))
         if h and h.get("still"):
@@ -288,7 +359,7 @@ def card(root: Path, state_dir: Path, version: str, pro_active: bool, force: boo
     headline = next((hl for hl in (_headline(e) for _, e in newest) if hl), None)
     return {
         "version": version, "pro_active": bool(pro_active),
-        "show": bool(free or pro) and (force or not seen_now),
+        "show": bool(free or pro or nip) and (force or not seen_now),   # nip alone cannot be set without free/pro
         "title": "What's new in %s" % version,
         "free": free, "pro": pro,
         "free_title": FREE_TITLE, "pro_title": PRO_TITLE,
@@ -297,4 +368,5 @@ def card(root: Path, state_dir: Path, version: str, pro_active: bool, force: boo
         "date": date, "headline": headline, "hero": hero, "how": hows,
         "showcase": [] if pro_active else _showcase(root / "whats_new.json"),
         "earlier": earlier,
+        "now_in_pro": nip,
     }

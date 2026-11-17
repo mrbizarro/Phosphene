@@ -2533,6 +2533,10 @@ function ltxCellEta(cell) {
   // range of its own yet, so this branch keeps the point estimate.
   if (cell.fast_eta && typeof schedPresetActive === 'function'
       && schedPresetActive()) {
+    // Pro Fast draft (settings.js proDraftRender): the server's own estimate for it on this Mac.
+    if (cell.pro_draft_eta && document.documentElement.dataset.pro && (globalThis.proSpeedStatus || {}).offered) {
+      return cell.pro_draft_eta + T('engines.pro_fast_draft', ' · Pro fast draft');
+    }
     return cell.fast_eta + T('engines.fast_draft', ' · fast draft');
   }
   // VC-23: "Q8 HQ" names the internal quantization + pipeline, not

@@ -1,5 +1,5 @@
 {
-  "_note": "One entry per released version, newest last. free[] and pro[] are plain lines that every user sees (Free users see the Pro list too, it is public marketing copy like the pricing page). Plain benefit wording only: no engine, trick or recipe names. Anything internal belongs in the Pro pack's own whats_new_pro.json. A line is a string, or {\"text\": \"...\", \"media\": \"/webapp/docs/..png\"}. The release gate fails when the entry for VERSION is missing. Optional per version: \"date\" (YYYY-MM-DD), \"headline\" (one plain line under the version in the window header, the release in a sentence) and \"hero\", the big visual at the top of the card and the website changelog: {\"kind\": \"vertical\", \"title\", \"original\", \"free\", \"pro\"} (each {\"video\", \"poster\"}) or {\"kind\": \"media\", \"video\" or \"image\", \"poster\", \"caption\"}. \"showcase\" holds the standing \"What Pro adds\" items (measured, never projected) shown to Free users under New in Pro. Media goes in assets/whats_new/ (served at /assets/whats_new/; the website copies it with its sync script). Per version \"how\": [{\"id\", \"title\", \"free\": {\"video\", \"poster\", \"caption\"}, \"pro\": {...}}], a few seconds of the real Studio showing where the button is and what you get; every new feature gets one, and the feature links to it by id.",
+  "_note": "One entry per released version, newest last. free[] and pro[] are plain lines that every user sees (Free users see the Pro list too, it is public marketing copy like the pricing page). Plain benefit wording only: no engine, trick or recipe names. Anything internal belongs in the Pro pack's own whats_new_pro.json. A line is a string, or {\"text\": \"...\", \"media\": \"/webapp/docs/..png\"}. The release gate fails when the entry for VERSION is missing. Optional per version: \"date\" (YYYY-MM-DD), \"headline\" (one plain line under the version in the window header, the release in a sentence) and \"hero\", the big visual at the top of the card and the website changelog: {\"kind\": \"vertical\", \"title\", \"original\", \"free\", \"pro\"} (each {\"video\", \"poster\"}) or {\"kind\": \"media\", \"video\" or \"image\", \"poster\", \"caption\"}. \"showcase\" holds the standing \"What Pro adds\" items (measured, never projected) shown to Free users under New in Pro. Media goes in assets/whats_new/ (served at /assets/whats_new/; the website copies it with its sync script). Per version \"how\": [{\"id\", \"title\", \"free\": {\"video\", \"poster\", \"caption\"}, \"pro\": {...}}], a few seconds of the real Studio showing where the button is and what you get; every new feature gets one, and the feature links to it by id. Optional per version \"pro_perks\": ids from pro_perks.json (the one list of Pro speed-ups and features with their measured numbers); they lead the window as Now in Pro, above everything else, with a Get Pro button for Free users. A perk not yet released there (since null) is never shown.",
   "showcase": {
     "pro": [
       {
@@ -373,5 +373,17 @@
     "pro": [],
     "date": "2026-11-16",
     "headline": "Fix: update pop-up says how to update and reaches more Macs."
+  },
+  "5.0.33": {
+    "free": [
+      "After an update, What's new shows what the release gave you first, then what is new in Pro.",
+      "A new install notes once where you found Phosphene (our website, Pinokio, or unknown) in the anonymous usage counts. It holds nothing about you; Settings, Anonymous usage analytics turns it off."
+    ],
+    "pro": [],
+    "date": "2026-11-17",
+    "headline": "Pro: Fast draft makes LTX-2.5 Balanced clips in about half the time, on any Mac with 16 GB or more.",
+    "pro_perks": [
+      "ltx-fast-draft"
+    ]
   }
 }

@@ -26,7 +26,8 @@ function distText(pinokio, macApp) { return isMacApp() ? macApp : pinokio; }
 // twin; test_site_links.py keeps the two campaign lists identical). The ONLY
 // place a phosphene.video link gets its tags: siteLink(path, campaign, content).
 // BOOT.site_utm = {source: 'app', medium: 'mac-app' | 'pinokio'} comes from the
-// server. Nothing else goes into the link: no install id, no version, no email.
+// server. Nothing else goes into the link: no install id, no version, no email
+// (Get Pro / pricing links add the two install-source slugs, below).
 const SITE_ORIGIN = 'https://phosphene.video';
 const SITE_CAMPAIGNS = [
   'get-pro', 'upgrade', 'pricing', 'docs', 'download', 'support',
@@ -35,6 +36,9 @@ const SITE_CAMPAIGNS = [
   'install', 'release-body',
 ];
 const SITE_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const SITE_PRO_CAMPAIGNS = ['get-pro', 'upgrade', 'pricing'];
+const SITE_INSTALL_SLUG_RE = /^[a-z0-9_.~-]{1,40}$/;
+const SITE_INSTALL_VIAS = ['site-match', 'pinokio-list', 'no-match', 'before-tracking'];
 // Merge into any query already on the url: an old utm_* is replaced, never
 // doubled; other parameters and the #fragment stay.
 function siteLink(path, campaign, content) {
@@ -50,6 +54,20 @@ function siteLink(path, campaign, content) {
   u.searchParams.set('utm_medium', base.medium);
   u.searchParams.set('utm_campaign', campaign);
   if (content) u.searchParams.set('utm_content', content);
+  // Get Pro / pricing links also say where this install first came from (install
+  // source): is=<install_source>&iv=<install_via>, only once resolved. BOOT.install
+  // ({is, iv} or {}) is first-paint; /status refreshes it (queue.js) when it resolves
+  // after the page loaded. Two closed slugs, never an id.
+  if (SITE_PRO_CAMPAIGNS.includes(campaign) || u.pathname.startsWith('/pricing')) {
+    const inst = (typeof BOOT !== 'undefined' && BOOT.install) || {};
+    // Always drop an old pair first: an already-tagged href re-applied after an analytics
+    // opt-out (BOOT.install now {}) must not keep sending it (docs/ANALYTICS.md).
+    u.searchParams.delete('is'); u.searchParams.delete('iv');
+    if (SITE_INSTALL_SLUG_RE.test(inst.is || '') && SITE_INSTALL_VIAS.includes(inst.iv)) {
+      u.searchParams.set('is', inst.is);
+      u.searchParams.set('iv', inst.iv);
+    }
+  }
   return u.toString();
 }
 // Anchors in the markup say WHAT they are, never how they are tagged:

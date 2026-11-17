@@ -56,6 +56,8 @@ def get_status(h, parsed) -> None:
     payload["outputs"] = _outs
     payload["outputs_total"] = _outs_total
     payload["hidden_count"] = hidden_count
+    # Install source ({is, iv} or {}): Get Pro / pricing links carry it once resolved.
+    payload["install"] = P.install_source_tags()
     # The one-time "star us on GitHub" card (owner, 2 Nov 2026): true only
     # between the third finished render and the page putting the card up.
     payload["star_prompt_due"] = P.star_prompt_due()
@@ -437,7 +439,7 @@ def post_queue_retry(h, path, qs, ctype) -> None:
             h._json({"error": "overrides must be JSON"}, 400); return
         if not isinstance(overrides, dict):
             h._json({"error": "overrides must be a JSON object"}, 400); return
-        allowed = {"quality", "frames", "pro_speedup_choice"}
+        allowed = {"quality", "frames", "pro_speedup_choice", "pro_fast_draft"}
         unknown = set(overrides) - allowed
         if unknown:
             h._json({"error": f"overrides may only set {sorted(allowed)}, "
@@ -447,6 +449,8 @@ def post_queue_retry(h, path, qs, ctype) -> None:
             h._json({"error": f"unknown quality {overrides['quality']!r}"}, 400); return
         if "pro_speedup_choice" in overrides and overrides["pro_speedup_choice"] not in ("on", "off"):
             h._json({"error": "pro_speedup_choice must be on or off"}, 400); return
+        if "pro_fast_draft" in overrides and overrides["pro_fast_draft"] not in ("on", "off"):
+            h._json({"error": "pro_fast_draft must be on or off"}, 400); return
         if "frames" in overrides:
             try:
                 overrides["frames"] = int(overrides["frames"])

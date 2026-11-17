@@ -1009,6 +1009,7 @@ function setSchedPreset(v) {
   if (typeof renderTierAxes === 'function') { try { renderTierAxes('ltx'); } catch (e) {} }
   if (typeof updateDerived === 'function') { try { updateDerived(); } catch (e) {} }
   if (typeof updateCustomizeSummary === 'function') { try { updateCustomizeSummary(); } catch (e) {} }
+  if (typeof proDraftRender === 'function') { try { proDraftRender(); } catch (e) {} }
 }
 function schedPresetActive() {
   return (document.getElementById('schedule_preset') || {}).value === 'fast';
@@ -1034,7 +1035,11 @@ function _applySchedPresetRowVisibility() {
   }
   if (offered && cell) {
     const fastSub = document.getElementById('schedFastSub');
-    if (fastSub) fastSub.textContent = cell.fast_eta + T('preview.different_take', ' · different take');
+    // A Pro member whose Mac runs the Pro Fast draft sees the server's estimate for it
+    // (cell.pro_draft_eta: this Mac's fleet times x the measured Fast draft ratio).
+    const proDraft = cell.pro_draft_eta && document.documentElement.dataset.pro
+      && (globalThis.proSpeedStatus || {}).offered;
+    if (fastSub) fastSub.textContent = (proDraft ? cell.pro_draft_eta : cell.fast_eta) + T('preview.different_take', ' · different take');
     const tunedSub = document.getElementById('schedTunedSub');
     if (tunedSub) tunedSub.textContent = cell.eta || 'default schedule';
   }

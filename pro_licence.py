@@ -5,7 +5,7 @@ capability token the server answers with (see pro_token.py for what that token i
 install has no app, so it did that nowhere and Pro could not turn on. This module does the same
 thing the app does, against the same server, with the same rules:
 
-    POST https://phosphene.video/api/v1/licenses/activate    license_key, instance_name
+    POST https://phosphene.video/api/v1/licenses/activate    license_key, instance_name [, install_source, install_via]
     POST https://phosphene.video/api/v1/licenses/validate    license_key, instance_id, device_id, bundle_version
     POST https://phosphene.video/api/v1/licenses/deactivate  license_key, instance_id
 
@@ -241,6 +241,31 @@ def _same(a: dict | None, b: dict | None) -> bool:
     return bool(a and b and a.get("key") == b.get("key") and a.get("instance_id") == b.get("instance_id"))
 
 
+# ----------------------------------------------------------------------------- install source
+
+#: Where this install first came from (install source, 16 Nov 2026). The panel sets this to a
+#: callable returning {"install_source": slug, "install_via": word} once resolved, else {}
+#: (mlx_ltx_panel.install_source_form; nothing while analytics is off). Activation sends the two
+#: optional fields when known; validate and deactivate never do.
+install_fields = None
+_INSTALL_SLUG_RE = re.compile(r"^[a-z0-9_.~-]{1,40}$")
+_INSTALL_VIAS = ("site-match", "pinokio-list", "no-match", "before-tracking")
+
+
+def _install_form() -> dict:
+    fn = install_fields
+    if fn is None:
+        return {}
+    try:
+        d = fn() or {}
+        src, via = d.get("install_source"), d.get("install_via")
+    except Exception:  # noqa: BLE001 - never stop an activation for this
+        return {}
+    if isinstance(src, str) and _INSTALL_SLUG_RE.match(src) and via in _INSTALL_VIAS:
+        return {"install_source": src, "install_via": via}
+    return {}
+
+
 # ----------------------------------------------------------------------------- the server
 
 class Offline(Exception):
@@ -344,7 +369,8 @@ def activate(key: str, opener=None, now=None) -> dict:
         if prob == "corrupt":
             _backup_corrupt()
         try:
-            r = _post("activate", {"license_key": key, "instance_name": instance_name(dev)}, opener)
+            r = _post("activate", {"license_key": key, "instance_name": instance_name(dev),
+                                   **_install_form()}, opener)
         except Offline:
             return {"ok": False, "message": MESSAGES["unreachable"], "keep_key": True, **status()}
         inst = r.get("instance") or {}

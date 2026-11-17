@@ -161,6 +161,7 @@ event below also carries these, unless the event already names the field itself:
 | `app_version`, `app_build` | e.g. `1.0.3`, `27`; Mac app only | The app and the Studio update separately |
 | `studio_version` | e.g. `5.0.3` | The Studio build that sent it (same as `version`) |
 | `os_version`, `chip_family`, `ram_gb` | `26.4`, `M4 Max`, `64` | The coarse machine class, so any event can be split by hardware |
+| `install_source`, `install_via` | e.g. `chatgpt.com` + `site-match`, `pinokio` + `pinokio-list`, `unknown` + `no-match`, `before-tracking` + `before-tracking`; only once resolved (5.0.30) | Where this install first came from, fixed once per install. See [Install source](#install-source-5030) below |
 
 All are closed words, version numbers or whole numbers. No path, no name, no
 prompt. The Mac app also sends its own few events (`mac_*`, below) with the same
@@ -168,6 +169,38 @@ rules and the same off switch. The Settings toggle and
 `PHOSPHENE_ANALYTICS_DISABLED=1` switch both off. When the Mac app minted this
 Mac's random id before the Studio first ran, the Studio keeps that same id
 (`PHOSPHENE_ANALYTICS_INSTALL_ID`), so one install is one id.
+
+### Install source (5.0.30)
+
+Two words that say where an install first came from, resolved **once** per install,
+saved in `state/panel_settings.json` and never changed afterwards:
+
+- `install_source`: a short lower-case slug (`^[a-z0-9_.~-]{1,40}$`; anything else is
+  dropped, never sent). The website's first touch when the licence server matched this
+  install to a download from the site (`chatgpt.com`, `google.com`, `reddit.com`,
+  `direct`...: the site's own `utm_source`, else the referring site, else `direct`);
+  `pinokio` for a Studio install in Pinokio with no site download to match; `unknown`
+  for a Mac app install with no single matching download; `before-tracking` for an
+  install that existed before this version.
+- `install_via`: `site-match`, `pinokio-list`, `no-match` or `before-tracking`.
+
+How it is found, in order: the saved pair; the Mac app's hand-over
+(`PHOSPHENE_INSTALL_SOURCE`, `PHOSPHENE_INSTALL_VIA`, adopted only when nothing is saved
+yet; the app found it itself); an install that had already reported `app_installed` is
+`before-tracking`; otherwise a **new Pinokio install** makes one request to
+`https://phosphene.video/api/v1/install/match` whose body is only
+`{"kind": "pinokio", "app_version": "<version>"}`. The server compares the address the
+request came from (salted and hashed, rotated daily, kept 7 days) with the downloads from
+the website in the last 6 hours and answers with one match or none. Two or more
+candidates are no match. A real answer is final; when there was no answer at all
+(offline), the request is tried once more on the next launch. The Studio under the Mac
+app never makes this request.
+
+Besides riding on every event, the two words go on the Get Pro and pricing links the
+Studio opens (`is=<install_source>&iv=<install_via>`, next to the `utm_*` tags), and on a
+licence activation (`install_source`, `install_via` form fields), so a sale can be traced
+to the channel that brought the install, never to a person. With analytics off, none of
+this happens: no request, nothing resolved, nothing on links or activation.
 
 ### The Mac app's own events (`mac_*`)
 
@@ -205,6 +238,9 @@ reports, immediately before its first `app_boot`.
 | `version` | string | `"3.7.0"` | Which release a new install actually landed on |
 | `chip_family` | string | `"M4 Max"` | Same hardware *class* as on `app_boot` |
 | `ram_gb` | int | `64` | Unified memory, rounded to whole GB |
+
+Plus the super properties, `install_source` / `install_via` included: the first boot
+resolves them before sending this event (waiting at most about 6 seconds for the match).
 
 **Why it exists:** it is the denominator. Without it, "new installs over time"
 has to be reverse-engineered from first-sightings of unique install ids, which
@@ -926,8 +962,12 @@ as every event. Every plan button opens the same page with the same tags as befo
 
 ### `pro_hint`
 
-(5.0.7.) The one quiet "Pro would have made this faster" line under a finished Free render.
-`action` is `shown`, `dismissed` or `opened` (once each per line); `lane` names the measured
-setting it was for (`h3_high_i2v_5s`, `h3_high_i2v_10s`, `ltx_high_t2v_5s`, `ltx_high_i2v_5s`).
-No times, no prompt, no file. The line itself appears only on a Mac and settings with a measured
-speed-up, at most once a day, and ends after three dismissals.
+(5.0.7; rebuilt around Fast draft in 5.0.20.) The one quiet "Pro would have made this clip in
+about 50 s instead of 98 s, with Fast draft" line under a finished Free LTX-2.5 clip.
+`action` is `shown`, `dismissed` or `opened` (once each per line). `lane` names the measured
+setting it was for (`ltx_fast_draft_5s`). `mac_class` is `streamed` (24 GB or less, the model
+streams from disk) or `resident` (32 GB and more): the Mac class whose measured ratio the number
+came from. No times, no prompt, no file. The line appears only where Fast draft would have served
+the clip and a measured ratio exists for this Mac class; never twice in one run of the app, at
+least two days apart, never on the render the star card asks about, and it ends after three
+dismissals. Read it as views (`shown`) against clicks (`opened`) and against Pro sales.

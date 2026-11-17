@@ -31,7 +31,10 @@ class UpdateError(RuntimeError):
 # and falls back to its origin. Forks, branches and other remotes keep their
 # own origin. PHOSPHENE_GIT_MIRROR="" turns the mirror off.
 OWN_GIT_MIRROR = os.environ.get('PHOSPHENE_GIT_MIRROR', 'https://phosphene.video/git/phosphene.git')
-_PUBLIC_REMOTES = re.compile(r'(github\.com[:/]mrbizarro/phosphene|phosphene\.video/git/phosphene)(\.git)?/?$', re.I)
+# 5.0.33: the public GitLab copy (it mirrors our server, same SHAs) is the second source,
+# before the install's own origin. PHOSPHENE_GIT_MIRROR2="" leaves it out.
+SECOND_GIT_MIRROR = os.environ.get('PHOSPHENE_GIT_MIRROR2', 'https://gitlab.com/phosphene1/phosphene.git')
+_PUBLIC_REMOTES = re.compile(r'(github\.com[:/]mrbizarro/phosphene|phosphene\.video/git/phosphene|gitlab\.com[:/]phosphene1/phosphene)(\.git)?/?$', re.I)
 
 
 class Busy(UpdateError):
@@ -65,11 +68,14 @@ class Transaction:
             except UpdateError:
                 url = ''
             if _PUBLIC_REMOTES.search(url.strip()):
-                try:
-                    self.git('fetch', OWN_GIT_MIRROR, f'+refs/heads/main:refs/remotes/{remote}/main')
-                    return
-                except UpdateError:
-                    pass
+                for mirror in (OWN_GIT_MIRROR, SECOND_GIT_MIRROR):
+                    if not mirror:
+                        continue
+                    try:
+                        self.git('fetch', mirror, f'+refs/heads/main:refs/remotes/{remote}/main')
+                        return
+                    except UpdateError:
+                        pass
         self.git('fetch', remote)
 
     def read(self):

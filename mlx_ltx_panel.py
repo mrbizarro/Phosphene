@@ -77,6 +77,7 @@ import image_engine as agent_image_engine
 import i18n as _i18n
 import hostinfo
 import h3_loudness
+import pro_perks
 import pro_speedup
 # 4.20: what install.js fetches before Start and what the panel fetches after
 # (required_files.json -> install). Stdlib only; install.js runs it too.
@@ -12930,7 +12931,28 @@ def _build_ltx_tiers() -> dict[str, dict]:
                                            speed="")
             if fleet:
                 tiers[key]["fleet_range"] = fleet
+            # Pro Fast draft on this Mac: the fleet's own times for this cell times the MEASURED
+            # Fast draft ratio for this Mac's class (pro_speedup.py). Only where that ratio was
+            # measured (Balanced, 5 s); the Speed row shows it to a Pro member with Fast draft on.
+            _dr = pro_speedup.draft_ratio(pro_speedup.mac_class(low_ram_streaming_enabled()), frames)
+            if fleet and _dr and q["key"] == "balanced":
+                tiers[key]["pro_draft_eta"] = _fmt_eta_range(round(fleet["p25_min"] * _dr, 2),
+                                                             round(fleet["p75_min"] * _dr, 2))
     return tiers
+
+
+# Above the tier table: _build_ltx_tiers() asks it (the Pro Fast draft estimate).
+def low_ram_streaming_enabled() -> bool:
+    """Whether renders on this Mac stream transformer blocks from disk."""
+    forced = (os.environ.get("LTX_LOW_RAM_STREAM") or "").strip().lower()
+    if forced in ("1", "true", "yes"):
+        return True
+    if forced in ("0", "false", "no"):
+        return False
+    try:
+        return float(SYSTEM_RAM_GB or 0) <= LOW_RAM_STREAM_RAM_GB
+    except (TypeError, ValueError):
+        return False
 
 
 LTX_TIERS: dict[str, dict] = _build_ltx_tiers()
@@ -21420,19 +21442,6 @@ def _settings_set_internal(**kv) -> None:
         pass
 
 
-def low_ram_streaming_enabled() -> bool:
-    """Whether renders on this Mac stream transformer blocks from disk."""
-    forced = (os.environ.get("LTX_LOW_RAM_STREAM") or "").strip().lower()
-    if forced in ("1", "true", "yes"):
-        return True
-    if forced in ("0", "false", "no"):
-        return False
-    try:
-        return float(SYSTEM_RAM_GB or 0) <= LOW_RAM_STREAM_RAM_GB
-    except (TypeError, ValueError):
-        return False
-
-
 def _analytics_enabled() -> bool:
     """Master switch. Settings toggle (default ON), with an env kill-switch
     for users who want it off before the panel ever writes a settings file
@@ -22695,10 +22704,176 @@ def _boot_app_build() -> int:
     return int(raw) if raw.isdigit() else 0
 
 
+# ---- Install source (5.0.30): where this install first came from -------------
+# Two closed words, resolved ONCE per install, saved in settings, never changed:
+#   install_source  a slug: the site's first touch when the server matched this
+#                   install to a site download ("chatgpt.com", "reddit.com",
+#                   "direct"...), "pinokio" (found in Pinokio's own list),
+#                   "unknown" (Mac app, no single matching download), or
+#                   "before-tracking" (the install existed before this version)
+#   install_via     "site-match" | "pinokio-list" | "no-match" | "before-tracking"
+# Order: the saved pair -> the Mac app's hand-over (PHOSPHENE_INSTALL_SOURCE /
+# PHOSPHENE_INSTALL_VIA, adopted only when nothing is saved, like the install id)
+# -> an install that already reported app_installed before this version is
+# "before-tracking" -> a NEW Pinokio install asks the licence server once
+# (POST /api/v1/install/match, body: kind + app version, nothing else). The
+# Studio under the Mac app never asks: the app resolved it (kind "mac").
+# Analytics off = nothing is resolved, nothing is asked, nothing is sent.
+# They ride as super properties, on Get Pro / pricing links (is= / iv=) and on
+# licence activation. See docs/ANALYTICS.md "Install source".
+INSTALL_MATCH_URL_DEFAULT = "https://phosphene.video/api/v1/install/match"
+INSTALL_MATCH_TIMEOUT_SEC = 5
+INSTALL_SOURCE_WAIT_SEC = 6      # the most the first-boot app_installed waits for it
+_INSTALL_SLUG_RE = re.compile(r"^[a-z0-9_.~-]{1,40}$")
+_INSTALL_VIAS = ("site-match", "pinokio-list", "no-match", "before-tracking")
+_INSTALL_SOURCE_LOCK = threading.Lock()
+
+
+def _install_slug(raw) -> str:
+    """A valid slug or "" (anything else, upper case included, is dropped, never sent)."""
+    s = raw.strip() if isinstance(raw, str) else ""
+    return s if _INSTALL_SLUG_RE.match(s) else ""
+
+
+def _install_pair(src, via) -> tuple[str, str]:
+    s = _install_slug(src)
+    v = via.strip() if isinstance(via, str) else ""
+    return (s, v) if s and v in _INSTALL_VIAS else ("", "")
+
+
+def install_source() -> tuple[str, str]:
+    """(install_source, install_via) once resolved and while analytics is on, else ("", "").
+    Read-only: never resolves, never opens a socket."""
+    try:
+        if not _analytics_enabled():
+            return "", ""
+        s = get_settings()
+        return _install_pair(s.get("install_source"), s.get("install_via"))
+    except Exception:                                          # noqa: BLE001
+        return "", ""
+
+
+def install_source_tags() -> dict:
+    """{"is": .., "iv": ..} for a Get Pro / pricing link; {} until resolved."""
+    src, via = install_source()
+    return {"is": src, "iv": via} if src else {}
+
+
+def install_source_form() -> dict:
+    """The two optional licence-activation form fields; {} until resolved."""
+    src, via = install_source()
+    return {"install_source": src, "install_via": via} if src else {}
+
+
+def _install_match_url() -> str:
+    return (os.environ.get("PHOSPHENE_INSTALL_MATCH_URL") or "").strip() or INSTALL_MATCH_URL_DEFAULT
+
+
+def _install_match_post(kind: str):
+    """POST the match. The parsed answer (a dict), {} for a refusal that is still an
+    answer (4xx), or None for NO answer at all (offline, timeout, 5xx, unreadable)."""
+    body = json.dumps({"kind": kind, "app_version": running_version()}).encode("utf-8")
+    req = urllib.request.Request(_install_match_url(), data=body, method="POST", headers={
+        "Content-Type": "application/json", "Accept": "application/json",
+        "User-Agent": "phosphene-panel-install"})
+    try:
+        with urllib.request.urlopen(req, timeout=INSTALL_MATCH_TIMEOUT_SEC) as resp:
+            raw = resp.read(4096)
+    except urllib.error.HTTPError as e:
+        return None if (e.code >= 500 or e.code == 429) else {}
+    except Exception:                                          # noqa: BLE001
+        return None
+    try:
+        d = json.loads(raw.decode("utf-8"))
+    except Exception:                                          # noqa: BLE001
+        return None
+    return d if isinstance(d, dict) else None
+
+
+def _install_source_save(src: str, via: str) -> tuple[str, str]:
+    _settings_set_internal(install_source=src, install_via=via, install_source_pending=False)
+    return src, via
+
+
+def _install_match_tries(s: dict) -> int:
+    try:
+        return max(0, int(s.get("install_match_tries") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _install_source_resolve(network: bool = True) -> tuple[str, str]:
+    """Resolve and save the pair if it can be; returns it, or ("", "") for not (yet).
+
+    `network=False` settles every case that needs no server (saved, the Mac app's
+    hand-over, before-tracking) and marks a new install as pending. The match is one
+    attempt per install, plus one retry on a later launch only when the first got no
+    answer at all; a real answer, match or not, is final. Never raises."""
+    try:
+        with _INSTALL_SOURCE_LOCK:
+            if not _analytics_enabled():
+                return "", ""
+            s = get_settings()
+            cur = _install_pair(s.get("install_source"), s.get("install_via"))
+            if cur[0]:
+                return cur
+            env = _install_pair(os.environ.get("PHOSPHENE_INSTALL_SOURCE"),
+                                os.environ.get("PHOSPHENE_INSTALL_VIA"))
+            if env[0]:
+                return _install_source_save(*env)
+            if not bool(s.get("install_source_pending")):
+                # First look under this version. An install that already reported
+                # app_installed existed before tracking; otherwise it is new.
+                if bool(s.get("analytics_install_reported")):
+                    return _install_source_save("before-tracking", "before-tracking")
+                _settings_set_internal(install_source_pending=True)
+            if _dist.is_mac_app() or not network:
+                return "", ""     # the app hands it over (kind "mac"); this Studio never asks
+            tries = _install_match_tries(s)
+            if tries >= 2:
+                return _install_source_save("pinokio", "pinokio-list")
+            _settings_set_internal(install_match_tries=tries + 1)
+            ans = _install_match_post("pinokio")
+            if ans is None and tries == 0:
+                return "", ""     # no answer at all: one retry on the next launch
+            if (ans or {}).get("via") == "site-match":
+                src = _install_slug((ans or {}).get("source"))
+                if src:
+                    return _install_source_save(src, "site-match")
+            return _install_source_save("pinokio", "pinokio-list")
+    except Exception:                                          # noqa: BLE001
+        return "", ""
+
+
+def _install_source_needs_match() -> bool:
+    """After a network-free resolve: is this a Pinokio install still waiting for its match?"""
+    try:
+        if not _analytics_enabled() or _dist.is_mac_app():
+            return False
+        s = get_settings()
+        return (not _install_pair(s.get("install_source"), s.get("install_via"))[0]
+                and bool(s.get("install_source_pending"))
+                and _install_match_tries(s) < 2)
+    except Exception:                                          # noqa: BLE001
+        return False
+
+
+# pro_licence.py (no panel import of its own) asks this for the activation form fields.
+try:
+    import pro_licence as _pro_licence_for_install
+    _pro_licence_for_install.install_fields = install_source_form
+except Exception:                                              # noqa: BLE001
+    pass
+
+
 def _analytics_context() -> dict:
     """The super properties above. Never raises; a missing piece is simply absent."""
     ctx: dict = {}
     try:
+        _is, _iv = install_source()
+        if _is:
+            ctx["install_source"] = _is
+            ctx["install_via"] = _iv
         ctx["distribution"] = _dist.distribution()
         ctx["edition"] = _analytics_edition()
         if _dist.is_mac_app():
@@ -22809,11 +22984,48 @@ def _analytics_boot() -> None:
     """Emit app_boot plus any pack transitions since the previous boot.
 
     Called once from __main__ — never at import time, so `import
-    mlx_ltx_panel` from a test or a script sends nothing."""
+    mlx_ltx_panel` from a test or a script sends nothing.
+
+    Install source (5.0.30): app_installed carries install_source / install_via,
+    so they are resolved first. Every case but one is instant (saved, the Mac
+    app's hand-over, before-tracking). The one that is not, a new Pinokio install
+    asking the licence server, runs the whole boot report on a background thread
+    (the match waits at most INSTALL_SOURCE_WAIT_SEC), so the server's main thread
+    goes on to serve at once and app_installed still precedes app_boot."""
     try:
         if not _analytics_enabled():
             return
         _analytics_disclose_once()
+        _install_source_resolve(network=False)
+        if _install_source_needs_match():
+            threading.Thread(target=_analytics_boot_after_match, daemon=True,
+                             name="analytics-capture-boot").start()
+            return
+    except Exception:
+        return
+    _analytics_boot_events()
+
+
+def _analytics_boot_after_match() -> None:
+    """The boot report after the install-source match, waiting for it at most
+    INSTALL_SOURCE_WAIT_SEC (a slow DNS lookup can outlast the socket timeout);
+    an answer that comes later is still saved for the next events."""
+    try:
+        t = threading.Thread(target=_install_source_resolve, daemon=True,
+                             name="install-source-match")
+        t.start()
+        t.join(INSTALL_SOURCE_WAIT_SEC)
+    except Exception:
+        pass
+    _analytics_boot_events()
+
+
+def _analytics_boot_events() -> None:
+    """app_installed (first boot only), app_updated, app_boot, pack changes,
+    the install funnel steps and the last Update's outcome."""
+    try:
+        if not _analytics_enabled():
+            return
         packs = _analytics_pack_state()
         # app_installed: fired exactly once, the first boot this install ever
         # reports. Gives a clean "new installs over time" counter and an
@@ -23256,17 +23468,21 @@ def _star_prompt_after_job(job: dict) -> None:
         pass
 
 
-# ---- Pro at the right moment (owner, 8 Nov 2026) -----------------------------------
-# After a FREE render on a Mac and settings where Pro has a MEASURED speed-up, the finished
-# card carries one quiet line: "Pro would have made this in about 4 min" + "See Pro".
-# Measured only: the ratios below are Pro / Free wall time from the matched, same-seed runs on
-# an M4 Max with 64 GB (PRO_SPEED.md, 26 Oct 2026; Pro covers exactly these lanes and this
-# Mac). Any other Mac, mode or setting has no measured number, so it shows nothing. Free's
-# reference time is the benchmark reference run (phosphene.video/benchmarks) for that setting;
-# a render far from it (a busy Mac) shows nothing either. At most one line a day, three
-# dismissals end it for good, never during a render, never a pop-up. Words: "faster" only.
-PRO_HINT_MIN_SAVED_SEC = 60.0
+# ---- Pro at the right moment (owner, 8 Nov 2026; rebuilt around Fast draft, 12 Nov 2026) --------
+# Right after a FREE LTX-2.5 clip that Pro's Fast draft would have served, the finished card carries
+# one quiet line with the time Pro would have taken for THIS clip on THIS Mac, and "See Pro":
+#   "Pro would have made this clip in about 50 s instead of 98 s, with Fast draft. Pro keeps
+#    Phosphene free."
+# The number is this clip's own measured time times the MEASURED Fast draft ratio for this Mac's
+# class (pro_speedup.FAST_DRAFT_MEASURED: streamed for 24 GB and less, resident above). A class or a
+# length nothing was measured on shows nothing. A clip that took far longer than the fleet's own
+# times for this Mac (a busy Mac, a cold start) shows nothing either.
+# How often: never twice in one run of the Studio, at least PRO_HINT_GAP_SEC apart (so a few times a
+# week at most), never on the render the star card asks about, and three dismissals end it for good.
+# A line, not a pop-up; it may show while the next render runs. Counted: pro_hint shown / opened /
+# dismissed (docs/ANALYTICS.md), counts only.
 PRO_HINT_MAX_DISMISSALS = 3
+PRO_HINT_GAP_SEC = 48 * 3600
 PRO_HINT_WHERE = ("topbar", "remote_hint", "remote_panel", "pro_modal", "star_card",
                   "speedup_line", "feature_gate", "settings", "whats_new",
                   "whats_new_speed", "your_pro")
@@ -23275,79 +23491,89 @@ PRO_HINT_WHERE = ("topbar", "remote_hint", "remote_panel", "pro_modal", "star_ca
 PRO_CLICK_ACTIONS = ("open", "get", "restore", "key", "close")
 PRO_CLICK_PLANS = ("monthly", "yearly", "founding")
 PRO_HINT_ACTIONS = ("shown", "dismissed", "opened")
-PRO_HINT_LANES = {
-    # lane: (Free s, Pro s) measured
-    "h3_high_i2v_5s": (893.49, 602.93),
-    "h3_high_i2v_10s": (1960.05, 1320.73),
-    "ltx_high_t2v_5s": (243.10, 186.61),
-    "ltx_high_i2v_5s": (261.33, 203.39),
-}
-# Release qualification is separate from historical benchmark measurements.
-# 5.0.8: the shipped H3 pin changed; LTX acceleration is not admitted.
-# Enable a lane only after a matched run against the shipping Pro pack.
-PRO_HINT_QUALIFIED_LANES = frozenset()
-PRO_HINT_MAC = ("M4 Max", 64)          # chip family, RAM in GB: the Mac those runs were made on
+PRO_HINT_LANE = "ltx_fast_draft_5s"
+_PRO_HINT_THIS_RUN = {"shown": False}
 
 
-def pro_hint_lane(params: dict) -> str:
-    """The measured lane a finished job belongs to, or "" when none of them fits."""
+def pro_hint_fits(params: dict) -> bool:
+    """Whether Pro's Fast draft would have served this finished render (the same rule a Pro render
+    is held to, pro_speedup.wanted), with nothing slow added after it."""
     p = params or {}
-    if p.get("loras") or p.get("character_id") or str(p.get("upscale") or "off") not in ("off", ""):
-        return ""
-    engine = str(p.get("engine") or "ltx").strip().lower()
-    mode = str(p.get("mode") or "")
-    if engine == "h3":
-        if mode != "i2v" or any(p.get(k) for k in ("h3_tristep", "h3_turbo", "h3_flex",
-                                                    "h3_flex_turbo", "h3_v13")):
-            return ""
-        return {"high_5s": "h3_high_i2v_5s", "high_10s": "h3_high_i2v_10s"}.get(
-            str(h3_resolve_tier(p.get("h3_tier")) or ""), "")
-    if engine == "ltx" and mode in ("t2v", "i2v") and str(p.get("quality") or "") == "high":
-        try:
-            ok = (int(p.get("width") or 0), int(p.get("height") or 0), int(p.get("frames") or 0)) == (1024, 576, 121)
-        except (TypeError, ValueError):
-            ok = False
-        return f"ltx_high_{mode}_5s" if ok else ""
-    return ""
+    if str(p.get("engine") or "ltx").strip().lower() != "ltx":
+        return False
+    if str(p.get("model_version") or ACTIVE_MODEL_VERSION) != "ltx25":
+        return False
+    up = str(p.get("upscale") or "off")
+    if up not in ("off", "", "fit_720p") or (up == "fit_720p" and str(p.get("upscale_method") or "lanczos") != "lanczos"):
+        return False
+    try:
+        ok, _ = pro_speedup.wanted(
+            toggle="on", version="ltx25", quality=str(p.get("quality") or ""), mode=str(p.get("mode") or ""),
+            added_styles=p.get("loras") or [], character=bool(p.get("character_id")), hdr=bool(p.get("hdr")),
+            inspire=(p.get("i2v_reference_mode") == "inspire"), schedule_preset="",
+            fps=float(p.get("frame_rate") or p.get("fps") or pro_speedup.FPS),
+            frames=int(p.get("frames") or 0), width=int(p.get("width") or 0), height=int(p.get("height") or 0),
+            windows=str(p.get("long_mode") or "native") == "windows")
+    except (TypeError, ValueError):
+        return False
+    return bool(ok)
 
 
-def pro_hint_for_job(job: dict, edition: str, chip: str, ram_gb: float) -> dict | None:
+def pro_hint_for_job(job: dict, edition: str, chip: str, ram_gb: float, *, low_memory_mac: bool | None = None,
+                     fleet_p75_sec: float | None = None) -> dict | None:
     """Pure. {"lane", "pro_sec", "saved_sec", "text"} or None. Free only."""
     if edition != "free" or not isinstance(job, dict) or job.get("status") != "done":
         return None
-    if chip != PRO_HINT_MAC[0] or int(round(float(ram_gb or 0))) != PRO_HINT_MAC[1]:
+    if not str(chip or "").startswith("M"):
+        return None                      # an Apple chip family ("M4 Max"); anything else was not measured
+    p = job.get("params") or {}
+    if not pro_hint_fits(p):
         return None
-    lane = pro_hint_lane(job.get("params") or {})
     try:
         took = float(job.get("elapsed_sec") or 0)
     except (TypeError, ValueError):
         return None
-    if lane not in PRO_HINT_QUALIFIED_LANES or took <= 0:
+    if fleet_p75_sec and took > 2.0 * float(fleet_p75_sec):
+        return None                      # far slower than Macs like this one: not the measured situation
+    low = low_ram_streaming_enabled() if low_memory_mac is None else bool(low_memory_mac)
+    m = pro_speedup.moment(took=took, cls=pro_speedup.mac_class(low), frames=int(p.get("frames") or 0),
+                           fits=True, ram_gb=ram_gb)
+    if not m:
         return None
-    free_ref, pro_ref = PRO_HINT_LANES[lane]
-    if not (0.6 * free_ref <= took <= 1.6 * free_ref):
-        return None                      # not the measured situation (cold start, busy Mac)
-    pro_sec = took * (pro_ref / free_ref)
-    if took - pro_sec < PRO_HINT_MIN_SAVED_SEC:
+    return {"lane": PRO_HINT_LANE, **m}
+
+
+def _pro_hint_fleet_p75(params: dict) -> float | None:
+    try:
+        hit = fleet_estimate_range("ltx", str(params.get("mode") or "t2v"), "balanced", params.get("frames"))
+        return float(hit["p75_min"]) * 60.0 if hit else None
+    except Exception:
         return None
-    mins = max(2, int(round(pro_sec / 60.0)))
-    return {"lane": lane, "pro_sec": round(pro_sec, 1), "saved_sec": round(took - pro_sec, 1),
-            "text": f"Pro would have made this in about {mins} min"}
 
 
 def _pro_hint_after_job(job: dict) -> None:
-    """worker_loop's finally. Sets job["pro_hint"] once a day at most. Never raises."""
+    """worker_loop's finally. Sets job["pro_hint"] when it is due. Never raises."""
     try:
-        hint = pro_hint_for_job(job, _analytics_edition(), _analytics_chip_family(), SYSTEM_RAM_GB)
+        if _PRO_HINT_THIS_RUN["shown"]:
+            return
+        params = job.get("params") or {}
+        hint = pro_hint_for_job(job, _analytics_edition(), _analytics_chip_family(), SYSTEM_RAM_GB,
+                                fleet_p75_sec=_pro_hint_fleet_p75(params))
         if not hint:
             return
         st = get_settings()
-        today = time.strftime("%Y-%m-%d")
-        if str(st.get("pro_hint_day") or "") == today:
-            return
         if int(st.get("pro_hint_dismissed") or 0) >= PRO_HINT_MAX_DISMISSALS:
             return
-        _settings_set_internal(pro_hint_day=today)
+        try:
+            last = float(st.get("pro_hint_at") or 0)
+        except (TypeError, ValueError):
+            last = 0.0
+        if time.time() - last < PRO_HINT_GAP_SEC:
+            return
+        if str(st.get("star_prompt_state") or "") == "due" and not st.get("star_prompt_done"):
+            return                       # the star card has this moment
+        _PRO_HINT_THIS_RUN["shown"] = True
+        _settings_set_internal(pro_hint_at=round(time.time()))
         job["pro_hint"] = hint
     except Exception:
         pass
@@ -23372,7 +23598,9 @@ def pro_hint_answer(job_id: str, action: str) -> bool:
             job.pop("pro_hint", None)
     if action == "dismissed":
         _settings_set_internal(pro_hint_dismissed=int(get_settings().get("pro_hint_dismissed") or 0) + 1)
-    _analytics_capture("pro_hint", {"action": action, "lane": lane, "version": running_version()})
+    _analytics_capture("pro_hint", {"action": action, "lane": lane,
+                                    "mac_class": pro_speedup.mac_class(low_ram_streaming_enabled()),
+                                    "version": running_version()})
     return True
 
 
@@ -26499,7 +26727,9 @@ SIDECAR_WARNING = ("The clip was saved, but its settings record ({name}) could n
 # Measured on the M4 Max / 64 GB reference, same clip, same seed (today-2026-10-26/pro-speed/comparisons):
 # the ratio of Free wall time to Pro wall time per engine. A receipt uses the ratio for the ONE number it
 # shows ("saved ~N min"); it never claims a time that was not measured.
-PRO_SPEEDUPS = {"h3": 1.48, "ltx": 1.29, "image": 1.54}
+# The ratios come from pro_perks.json (the one list of Pro perks and their measurements).
+PRO_SPEEDUPS = {"h3": pro_perks.ratio("h3-faster", 1.48), "ltx": pro_perks.ratio("ltx-faster", 1.29),
+                "image": pro_perks.ratio("ph3-image-fast-pro", 1.54)}
 PRO_PLANS = {"monthly": "Pro", "yearly": "Pro", "founding": "Founding", "hardship": "Pro", "pro": "Pro", "dev": "Pro"}
 
 
@@ -26569,7 +26799,8 @@ def ltx_speedup_status() -> dict:
     """{pro_active, offered, ready, downloading, gb, reason} for the UI and the job builder."""
     pro = bool(pro_status().get("active"))  # the Pro gate of ledger row ltx-faster
     out = {"pro_active": pro, "offered": False, "ready": False,
-           "downloading": _LTX_SPEEDUP_DL["status"] == "downloading", "gb": None, "reason": "pro_required"}
+           "downloading": _LTX_SPEEDUP_DL["status"] == "downloading", "gb": None, "reason": "pro_required",
+           "fast_draft": fast_draft_facts()}
     if not pro:
         return out
     if ACTIVE_MODEL_VERSION != "ltx25":
@@ -26589,6 +26820,18 @@ def ltx_speedup_status() -> dict:
     if not doc.get("on"):
         return {**out, "reason": "mac_too_small"}
     return {**out, "offered": True, "ready": bool(doc.get("ready")), "gb": doc.get("gb"), "reason": "ok"}
+
+
+def fast_draft_facts() -> dict:
+    """What the Fast draft spots say, for Free and Pro alike: this Mac's class and its measured
+    5-second clip (pro_speedup.FAST_DRAFT_MEASURED), plus both rows for the per-class times."""
+    cls = pro_speedup.mac_class(low_ram_streaming_enabled())
+    rows = {k: {"free_s": v["free_s"], "draft_s": v["draft_s"], "where": v["where"]}
+            for k, v in pro_speedup.FAST_DRAFT_MEASURED.items() if v.get("free_s") and v.get("draft_s")}
+    r = pro_speedup.draft_ratio(cls)
+    return {"mac_class": cls, "ratio": round(r, 3) if r else None, "measured": rows,
+            "min_ram_gb": pro_speedup.FAST_DRAFT_MIN_RAM_GB,
+            "fits_this_mac": float(SYSTEM_RAM_GB or 0) >= pro_speedup.FAST_DRAFT_MIN_RAM_GB}
 
 
 def ltx_speedup_prepare_async() -> bool:
@@ -26612,27 +26855,35 @@ def ltx_speedup_prepare_async() -> bool:
 
 
 def ltx_speedup_decide(p: dict, *, mode: str, quality: str, width: int, height: int, frames: int,
-                       fps: float, added_styles: list, character: bool, windows: bool) -> bool:
-    """Whether this LTX render asks for the Pro speed-up. Starts the one-time download (and
-    renders this clip at the usual speed) when the speed-up is on offer but not on disk yet."""
+                       fps: float, added_styles: list, character: bool, windows: bool) -> str:
+    """What this LTX render asks of the Pro add-on: "" (nothing), "on" (the speed-up) or "draft"
+    (the speed-up and Fast draft). Starts the one-time download (and renders this clip the usual
+    way) when the speed-up is on offer but not on disk yet."""
     st = ltx_speedup_status()
     if not st["offered"]:
-        return False
+        return ""
+    draft = pro_speedup.draft_on(p.get("pro_fast_draft"))
     ok, why = pro_speedup.wanted(
-        toggle=p.get("pro_speedup_choice"), version=ACTIVE_MODEL_VERSION, quality=quality, mode=mode,
+        toggle="on" if draft else p.get("pro_speedup_choice"), version=ACTIVE_MODEL_VERSION,
+        quality=quality, mode=mode,
         added_styles=added_styles, character=character, hdr=bool(p.get("hdr")),
-        inspire=(p.get("i2v_reference_mode") == "inspire"), schedule_preset=p.get("schedule_preset") or "",
+        inspire=(p.get("i2v_reference_mode") == "inspire"),
+        # Fast draft arrives with the Speed row's fast schedule armed (the pill Free uses); the Pro
+        # draft replaces that schedule, so it does not count as a speed preset here.
+        schedule_preset="" if draft else (p.get("schedule_preset") or ""),
         fps=fps, frames=frames, width=width, height=height, windows=windows)
     if not ok:
-        if pro_speedup.toggle_on(p.get("pro_speedup_choice")):
+        if draft:
+            push(f"Pro Fast draft: not used for this render ({why}).")
+        elif pro_speedup.toggle_on(p.get("pro_speedup_choice")):
             push(f"Pro speed-up: not used for this render ({why}).")
-        return False
+        return ""
     if not st["ready"]:
         if ltx_speedup_prepare_async():
             push(f"Pro speed-up: getting ready, a one-time download of about {st['gb'] or 1.2:g} GB. "
                  "This clip renders at the usual speed.")
-        return False
-    return True
+        return ""
+    return "draft" if draft else "on"
 
 
 # ---- Crisper detail on LTX-2.5 clips (Pro ledger row ltx-crisper-detail) -----------------------
@@ -26935,9 +27186,17 @@ def pro_receipt(payload: dict) -> dict | None:
     engine = str(payload.get("engine") or params.get("engine") or "ltx").lower()
     key = "image" if payload.get("mode") == "image" or engine in ("flux", "mflux", "image") else ("h3" if engine == "h3" else "ltx")
     ratio = float(payload.get("pro_speedup") or PRO_SPEEDUPS.get(key, 1.0))
+    measured_on = "M4 Max · 64 GB"
+    if params.get("pro_fast_draft_ran"):
+        # A Fast draft: the measured Free / Fast draft ratio for this Mac's class (pro_speedup.py).
+        cls = pro_speedup.mac_class(low_ram_streaming_enabled())
+        r = pro_speedup.draft_ratio(cls)
+        if r:
+            ratio = 1.0 / r
+            measured_on = pro_speedup.FAST_DRAFT_MEASURED[cls]["where"]
     free_equivalent = round(float(elapsed) * ratio, 1)
     return {"profile": str(profile)[:40], "engine_key": key, "speedup": round(ratio, 2), "elapsed_sec": round(float(elapsed), 1),
-            "free_equivalent_sec": free_equivalent, "saved_sec": round(free_equivalent - float(elapsed), 1), "measured_on": "M4 Max · 64 GB"}
+            "free_equivalent_sec": free_equivalent, "saved_sec": round(free_equivalent - float(elapsed), 1), "measured_on": measured_on}
 
 
 def write_sidecar(path: Path, payload: dict) -> bool:
@@ -27644,10 +27903,12 @@ class WarmHelper:
         """
         if not line:
             return
-        if line.startswith("[pro] speed-up"):
+        if line.startswith("[pro] speed-up") or line.startswith("[pro] fast draft"):
             _job = _thread_job()
             if _job is not None:
-                _job["pro_speedup_ran"] = line.strip() == "[pro] speed-up on"
+                # "[pro] fast draft on" is the speed-up AND Fast draft (pro_speedup.py).
+                _job["pro_speedup_ran"] = line.strip() in ("[pro] speed-up on", "[pro] fast draft on")
+                _job["pro_fast_draft_ran"] = line.strip() == "[pro] fast draft on"
         if not self._metal_timeout_seen and self._METAL_TIMEOUT_RX.search(line):
             self._metal_timeout_seen = True
         if not self._past_prompt_encode and self._PAST_PROMPT_ENCODE_RX.search(line):
@@ -39224,6 +39485,9 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # "off"); whether a render may use it is ltx_speedup_decide().
             # SAME allowlist trap as every key here.
             "pro_speedup_choice": ("on" if pro_speedup.toggle_on(f("pro_speedup_choice", "on")) else "off"),
+            # Pro Fast draft beside Quality ("off" unless the form says "on"); whether a
+            # render may use it is ltx_speedup_decide(). SAME allowlist trap as every key here.
+            "pro_fast_draft": ("on" if pro_speedup.draft_on(f("pro_fast_draft", "off")) else "off"),
             # i2v reference mode: "anchor" (animate the image) or "inspire"
             # (2.5: guide subject/style, re-imagine the composition). Already
             # lane-gated above. SAME allowlist trap as every key here.
@@ -47742,7 +48006,8 @@ def run_job_inner(job: dict) -> None:
                 # The 2.5 distilled schedule preset, already lane-gated by
                 # make_job; the helper forwards it to generate_two_stage,
                 # whose resolver validates it before any GPU is spent.
-                "schedule_preset": p.get("schedule_preset") or "",
+                # A Pro Fast draft replaces the Free fast schedule (ltx_speedup_decide).
+                "schedule_preset": "" if _speedup == "draft" else (p.get("schedule_preset") or ""),
                 # Inspire: the engine skips its masked-sample re-pin so the
                 # reference guides subject/style while the composition is
                 # re-imagined. Lane-gated in make_job; the helper only
@@ -47750,7 +48015,9 @@ def run_job_inner(job: dict) -> None:
                 "loose_reference": (p.get("i2v_reference_mode") == "inspire"),
                 # Pro speed-up: one yes, only when this render may use it. The
                 # Pro add-on in the helper decides the rest, or renders Free.
+                # Fast draft rides on the same yes (pro_speedup.py).
                 **({"pro_speedup": True} if _speedup else {}),
+                **({"pro_fast_draft": True} if _speedup == "draft" else {}),
                 "memory_policy": memory_plan["effective"],
                 "vae_full_decode_max_frames": memory_plan["full_decode_max_frames"],
                 # Sharp/PiperSR is a panel-side post-render pass. Do not pass it
@@ -47797,6 +48064,7 @@ def run_job_inner(job: dict) -> None:
         _w0_dir.mkdir(parents=True, exist_ok=True)
         job_spec["params"]["output_path"] = str(_w0_dir / (raw_out.stem + "_w0" + raw_out.suffix))
     job.pop("pro_speedup_ran", None)
+    job.pop("pro_fast_draft_ran", None)
     result = HELPER.run(job_spec)
     if "seed_used" in result:
         push(f"seed used: {result['seed_used']}")
@@ -47810,8 +48078,10 @@ def run_job_inner(job: dict) -> None:
     for _k in ("pro_profile", "pro_speedup_quiet"):
         p.pop(_k, None)
     p["pro_speedup"] = bool(job_spec["params"].get("pro_speedup") and job.get("pro_speedup_ran"))
+    p["pro_fast_draft_ran"] = bool(p["pro_speedup"] and job_spec["params"].get("pro_fast_draft")
+                                   and job.get("pro_fast_draft_ran"))
     if p["pro_speedup"]:
-        p["pro_profile"] = "Pro"
+        p["pro_profile"] = "Pro Fast draft" if p["pro_fast_draft_ran"] else "Pro"
         speedup_sound = h3_loudness.level_clip(FFMPEG, raw_out, ffprobe=FFPROBE)
         push("Pro speed-up: " + h3_loudness.describe(speedup_sound))
         if pro_speedup.came_out_quiet(speedup_sound, p.get("prompt") or "", h3_loudness.SILENT_BELOW_LUFS):
@@ -53270,6 +53540,9 @@ def page(theme: str = "", accept_language: str = "") -> str:
         "app_build": _boot_app_build(),
         # {source: app, medium: mac-app | pinokio} for siteLink() in boot.js.
         "site_utm": _site_links.utm_base(),
+        # {is, iv} once the install source is resolved, else {}: siteLink() adds
+        # them to Get Pro / pricing links (docs/ANALYTICS.md "Install source").
+        "install": install_source_tags(),
         "presets": PRESETS, "aspects": aspect_presets_for_this_mac(),
         "default_image": str(REFERENCE),
         "default_audio": str(AUDIO_DEFAULT),

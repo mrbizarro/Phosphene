@@ -1701,6 +1701,7 @@ async function proStatusRefresh() {
   proMarksApply();
   proSpeedRender();
   crisperRender();
+  proDraftRender();
   return st;
 }
 
@@ -1805,6 +1806,49 @@ function proSpeedRender() {
     globalThis._proSpeedTimer = setTimeout(() => { globalThis._proSpeedTimer = null; proStatusRefresh(); }, 20000);
   }
 }
+// ---- Pro Fast draft, on the Speed row's Fast draft pill ---------------------------------------------
+// Free: the pill runs the engine's fast schedule, and a quiet line says what Pro adds, with the measured
+// times (server facts: ltx_speedup.fast_draft). Pro: the same pill asks for the Pro draft
+// (#pro_fast_draft=on); the server decides whether this render can use it and falls back to the fast
+// schedule when not. Words only here; no number is computed in the page.
+function proDraftFmt(sec, unitOf) {
+  // one unit per pair (pro_speedup.fmt_secs): seconds unless the larger time is 10 minutes or more
+  const n = Number(sec) || 0, big = Math.max(n, Number(unitOf) || 0);
+  return big < 600 ? Math.round(n) + ' s' : Math.max(1, Math.round(n / 60)) + ' min';
+}
+const PRO_DRAFT_CLASS_LABEL = {resident: T('settings.on_a_64_gb_mac', 'on a 64 GB Mac'), streamed: T('settings.with_a_16_gb_memory_limit', 'with a 16 GB memory limit')};
+function proDraftMeasuredText(fd) {
+  const rows = (fd && fd.measured) || {};
+  const parts = ['resident', 'streamed'].filter(k => rows[k]).map(k =>
+    T('settings.free_to_draft_where', '{free} to {draft} {where}', {free: proDraftFmt(rows[k].free_s), draft: proDraftFmt(rows[k].draft_s, rows[k].free_s), where: PRO_DRAFT_CLASS_LABEL[k] || ''}).trim());
+  return parts.length ? T('settings.measured_on_a_5_second_clip', ' Measured on a 5-second clip: {parts}.', {parts: parts.join('; ')}) : '';
+}
+function proDraftRender() {
+  const note = document.getElementById('proDraftNote');
+  const field = document.getElementById('pro_fast_draft');
+  const st = globalThis.proSpeedStatus || {};
+  const fd = st.fast_draft || {};
+  const armed = typeof schedPresetActive === 'function' && schedPresetActive();
+  const pro = proIsOn();
+  if (field) field.value = (pro && armed && st.offered) ? 'on' : 'off';
+  if (!note) return;
+  if (!armed || fd.fits_this_mac === false) { note.hidden = true; return; }
+  const q = (document.getElementById('quality') || {}).value || '';
+  let text;
+  if (!pro) {
+    text = T('settings.pro_adds_fast_draft_in_about_half', 'Pro adds: Fast draft in about half the time, a different take of the same scene.')
+      + proDraftMeasuredText(fd);
+  } else if (!st.offered) {
+    note.hidden = true; return;                    // not in this install: the pill is the Free fast schedule
+  } else if (q !== 'balanced') {
+    text = T('settings.on_with_your_pro_fast_draft_runs_on', 'On with your Pro: Fast draft runs on Balanced. At this quality the pill uses the usual fast schedule.');
+  } else {
+    text = T('settings.on_with_your_pro_fast_draft_about_half', 'On with your Pro: Fast draft, about half the time of a usual clip, a different take of the same scene.')
+      + (st.ready ? '' : T('settings.first_use_downloads_gb_once', ' First use downloads {gb} GB once.', {gb: st.gb || 1.2}));
+  }
+  note.innerHTML = proNoteHtml(text);
+  note.hidden = false;
+}
 function proSpeedChanged() {
   const box = document.getElementById('proSpeedToggle');
   try { localStorage.setItem(PRO_SPEED_KEY, box.checked ? 'on' : 'off'); } catch (e) { /* this render only */ }
@@ -1825,6 +1869,10 @@ const PRO_FEATURES = [
     line: T('settings.ltx_2_5_clips_render', 'LTX-2.5 clips render with less waiting: about a quarter less on a 5-second clip and about a fifth less on a 10-second clip (Balanced; measured on an M4 Max 64 GB). On by default; switch it off for any render. Macs with 16 GB or more.'),
     short: T('settings.about_a_quarter_less_waiting_2', 'about a quarter less waiting on LTX clips, on Macs with 16 GB or more.'),
     where: T('settings.beside_quality_on_ltx_2', 'Beside Quality, on LTX-2.5 Balanced') },
+  { id: 'ltx-fast-draft', name: T('settings.fast_draft_in_half_the_time', 'Fast draft in half the time'),
+    line: T('settings.pick_fast_draft_on_the_speed_row', 'Pick Fast draft on the Speed row and an LTX-2.5 Balanced clip comes back in about half the time of a usual clip: a different take of the same scene, for trying ideas. Measured on a 5-second clip: 50 s instead of 98 s with a 16 GB memory limit, 76 s instead of 150 s on a 64 GB Mac. Macs with 16 GB or more.'),
+    short: T('settings.fast_draft_in_about_half_the_time', 'Fast draft in about half the time of a usual LTX clip, on Macs with 16 GB or more.'),
+    where: T('settings.speed_row_fast_draft_on_ltx', 'Speed row, Fast draft, on LTX-2.5 Balanced') },
   { id: 'h3-flex-turbo', name: T('settings.faster_flex_turbo', 'Faster Flex Turbo'),
     line: T('settings.flex_turbo_renders_about_1', 'Flex Turbo renders about 1.5× faster than Flex on Free (M4 Max 64 GB; Macs with 36 GB or more). A little softer; for drafts.'),
     short: 'about 1.5× faster than Flex on Free. A little softer; for drafts.',
@@ -1989,7 +2037,7 @@ function closeProModal() {
 }
 
 Object.assign(globalThis, {
-  proSpeedRender, proSpeedChanged,
+  proSpeedRender, proSpeedChanged, proDraftRender,
   crisperRender, crisperChanged, crisperPrepare,
   downloadFirstVideo,
   openProModal, closeProModal, proStatusRefresh,

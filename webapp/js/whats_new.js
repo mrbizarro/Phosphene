@@ -1,11 +1,25 @@
 // webapp/js/whats_new.js - the once-per-version "What's new" window and the feature "How it works" viewer.
 //
+// NOW IN PRO (5.0.23). The owner, 14 Nov: "The Now in Pro section should be on the upper side of the report of the new
+// things in the app and should link to the Pro page. We want to make conversions from the app." When a release names
+// Pro perks (whats_new.json "pro_perks", their words and measured gains from pro_perks.json), they come high up, before
+// the hero and How it works: one plain line each with its measured gain, one Get Pro button for Free users (utm:
+// get-pro / whats-new), "Included in your Pro" and no button for a member. The old New in Pro box below is then not
+// drawn (no line twice).
+//
+// NEW FOR EVERYONE STAYS IN SIGHT (the owner, 14 Nov, on the first build: "make sure that users can also see what is
+// new in general for normal users"; the Pro block had pushed the free changes below the fold). So the free changes are
+// drawn FIRST, right under the header, as a short list, and the Pro block comes straight after it, with its tease folded
+// into one line, so a Free user sees what they got AND the Get Pro button on the first screen without scrolling.
+//
 // ONE FIXED FORMAT (5.0.20). The owner, 12 Nov, on the 5.0.19 window: empty boxes, small off-centre clips, no
 // structure, it read as a debug page. Every release now reads the same, top to bottom, from whats_new.json:
 //   1. header: the version, the date, the release's one-line "headline"
-//   2. the hero, when the release has one
-//   3. New for everyone   (only when the release has something for everyone)
-//   4. New in Pro         (only when the release adds something to Pro: the owner, 12 Nov, "if there is nothing
+//   2. New for everyone   (only when the release has something for everyone; first, so nobody misses it)
+//   2b. Now in Pro        (when the release adds to Pro or teases what is next; see above)
+//   3. the hero, when the release has one
+//   4. New in Pro         (only without the Now in Pro block, and only when the release adds something to Pro: the
+//                          owner, 12 Nov, "if there is nothing
 //                          new in Pro, then we shouldn't have this written in there". A member reads a thank-you
 //                          and what their licence added; a Free user reads the same lines, the measured "What Pro
 //                          adds" item and one quiet support link)
@@ -114,9 +128,10 @@ function wnShowcase(items) {
 }
 
 // A section that has nothing in it is not drawn: no "New in Pro" heading over an empty box.
-function wnFreeSec(r) {
+// first: the current window draws it right under the header, tighter, so it shares the first screen with the Pro block.
+function wnFreeSec(r, first) {
   if (!(r.free && r.free.length)) return '';
-  return `<section class="wn-sec wn-sec-free">${wnSecHead(r.free_title || 'New for everyone', 'is-free', (r.free || []).length)}`
+  return `<section class="wn-sec wn-sec-free${first ? ' is-first' : ''}">${wnSecHead(r.free_title || 'New for everyone', 'is-free', (r.free || []).length)}`
     + wnLines(r.free) + '</section>';
 }
 
@@ -133,6 +148,39 @@ function wnProSec(r, proUser, opts) {
       + `<a class="wn-ask-link" href="${wnEsc(r.pricing_url || 'https://phosphene.video/pricing/')}" data-utm-campaign="support" data-utm-content="whats-new" target="_blank" rel="noopener">${T('whatsnew.support_phosphene', 'Support Phosphene')} <span aria-hidden="true">↗</span></a></div>`;
   }
   return `<section class="wn-sec wn-sec-pro">${wnSecHead(r.pro_title || 'New in Pro', 'is-pro', (r.pro || []).length)}${body}</section>`;
+}
+
+// ---- 0. Now in Pro, at the top ------------------------------------------------------------------------------------
+function wnNowPro(d) {
+  const n = d.now_in_pro;
+  const items = (n && n.items) || [], coming = (n && n.coming) || [];
+  if (!n || (!items.length && !coming.length)) return '';
+  const proUser = !!d.pro_active;
+  const teasing = !items.length;   // nothing new for Pro this release: the tease carries the block (owner, 14 Nov 2026)
+  const comingTitle = proUser ? T('whatsnew.coming_next_in_your_pro', 'Coming next in your Pro') : T('whatsnew.coming_next_in_pro', 'Coming next in Pro');
+  const title = teasing ? comingTitle
+    : (proUser ? T('whatsnew.included_in_your_pro', 'Included in your Pro') : T('whatsnew.now_in_pro', 'Now in Pro'));
+  const soon = `<span class="wn-np-soon">${T('whatsnew.soon', 'Soon')}</span>`;
+  const lines = items.map(it => `<li><span class="wn-np-t">${wnEsc(it.text)}</span>`
+    + (it.gain ? `<span class="wn-np-gain">${wnEsc(it.gain)}</span>` : '') + '</li>').join('');
+  const comingLines = coming.map(it => `<li class="is-coming"><span class="wn-np-t">${wnEsc(it.text)}</span>`
+    + `<span class="wn-np-tags">${soon}${it.gain ? `<span class="wn-np-gain">${wnEsc(it.gain)}</span>` : ''}</span></li>`).join('');
+  // Under real items the tease is ONE brief line (name and gain per perk), so the block stays short and the free
+  // changes above and the Get Pro button below share the first screen. With no items the tease is the block: full lines.
+  const comingBrief = coming.map(it => `<span class="wn-np-coming-it">${wnEsc(it.name || it.text)}`
+    + (it.gain ? ` <span class="wn-np-gain">${wnEsc(it.gain)}</span>` : '') + '</span>').join('<span class="wn-np-dot" aria-hidden="true"> · </span>');
+  const comingBlock = !coming.length ? ''
+    : teasing ? `<div class="wn-np-coming is-lead"><ul class="wn-np-lines">${comingLines}</ul></div>`
+    : `<p class="wn-np-coming is-brief"><span class="wn-np-coming-k">${wnEsc(comingTitle)}</span>${soon}${comingBrief}</p>`;
+  const also = !proUser && n.also && n.also.length
+    ? `<p class="wn-np-also"><span class="wn-np-also-k">${T('whatsnew.also_in_pro', 'Also in Pro')}</span> ${n.also.map(wnEsc).join(' · ')}</p>` : '';
+  const cta = !proUser && n.cta
+    ? `<div class="wn-np-foot"><p>${wnEsc(WN_ASK)}</p>`
+      + `<a class="wn-np-cta" href="${wnEsc(n.cta.url || d.pricing_url)}" data-utm-campaign="get-pro" data-utm-content="whats-new" target="_blank" rel="noopener">`
+      + `${T('whatsnew.get_pro', 'Get Pro')} <span aria-hidden="true">↗</span></a></div>` : '';
+  return `<section class="wn-np${proUser ? ' is-member' : ''}${teasing ? ' is-teasing' : ''}" aria-label="${wnEsc(title)}">`
+    + `<div class="wn-np-h"><span class="pro-tag is-lead${proUser ? ' pro-on' : ''}">${proUser ? 'Pro ✓' : 'Pro'}</span><h3>${wnEsc(title)}</h3></div>`
+    + (lines ? `<ul class="wn-np-lines">${lines}</ul>` : '') + `${comingBlock}${also}${cta}</section>`;
 }
 
 // ---- 5. how it works --------------------------------------------------------------------------------------------
@@ -176,7 +224,9 @@ function wnHowSec(hows, proUser) {
 // ---- the views ----------------------------------------------------------------------------------------------------
 function wnNow(d) {
   const proUser = !!d.pro_active;
-  return wnHero(d.hero) + wnFreeSec(d) + wnProSec(d, proUser, {full: true}) + wnHowSec(d.how, proUser);
+  const top = wnNowPro(d);
+  // the free changes first (everyone reads what they got), the Pro block straight after, then the hero and the rest
+  return wnFreeSec(d, true) + top + wnHero(d.hero) + (top ? '' : wnProSec(d, proUser, {full: true})) + wnHowSec(d.how, proUser);
 }
 
 function wnEarlier(d) {

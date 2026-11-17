@@ -1,0 +1,228 @@
+{
+  "_note": "THE public list of every Pro speed-up and Pro feature, with the numbers measured for it. One entry per perk; adding a speed-up = adding one entry here, plus its id in that release's \"pro_perks\" in whats_new.json. It feeds the Now in Pro section at the top of What's new (whats_new.py), the Pro moment after a Free render (pro_speedup.py: the Fast draft ratios and the moment line) and the saved-time figure (PRO_SPEEDUPS in mlx_ltx_panel.py). Ids are stable across the Studio. Public wording only: what people get and the measured gain, never how it works (no step counts, adapters, decoders or recipe names; the H3 speed perk is 'Faster Flex Turbo'). Every number is a measurement described in measured.source. 'since' is the Studio version a perk first shipped in, null while it is not released yet (Now in Pro never shows those as new). An unreleased perk with a 'next' line is TEASED instead: 'Coming next in Pro' under Now in Pro, or on its own when a release adds nothing to Pro (owner, 14 Nov 2026: \"if we don't have something to release in Pro, we can still tease it\"). No 'next' = kept quiet. A 'next' line is public, plain and only measured facts; remove it (or let the gate remind you) when 'since' is set. 'now' is the one line Now in Pro shows; 'gain' the short measured figure; 'moment' the gentle in-app line ({pro} and {free} are filled from this Mac's own render time; shown at most a few times a week, see PRO_HINT_* in mlx_ltx_panel.py).",
+  "schema": 1,
+  "pro_url": "https://phosphene.video/pricing/",
+  "perks": [
+    {
+      "id": "h3-quick-draft",
+      "kind": "speed-up",
+      "name": "Hailuo H3 Quick draft",
+      "now": "Hailuo H3 drafts in about 1 minute instead of 3: a rough 5 seconds to check the framing, the motion and the spoken line before the real take.",
+      "next": "Hailuo H3 Quick draft: a rough 5 seconds in about 1 minute instead of 3, to check the framing, the motion and the spoken line before the real take.",
+      "gain": "about 2.6x faster",
+      "moment": "Pro drafts take 1 minute.",
+      "where": "Hailuo H3, Quick draft",
+      "min_ram_gb": 16,
+      "since": null,
+      "measured": {
+        "machine": "M4 Max 64 GB",
+        "clip": "5 s picture to video, same still and seed",
+        "rows": {
+          "free_s": 182,
+          "pro_s": 70
+        },
+        "source": "14 Nov 2026, M4 Max 64 GB: talking face 1 min 10 s, piano 1 min 08 s, against 3 min 02 s for today's draft on the same still and seed"
+      }
+    },
+    {
+      "id": "ltx-fast-draft",
+      "kind": "speed-up",
+      "name": "Fast draft in half the time",
+      "now": "LTX Fast draft in about half the time: 76 s instead of 150 s for a 5-second clip on a 64 GB Mac, 50 s instead of 98 s on 16 GB.",
+      "gain": "about 2x faster",
+      "moment": "Pro would have made this clip in about {pro} instead of {free}, with Fast draft. Pro keeps Phosphene free.",
+      "where": "Speed row, Fast draft, on LTX-2.5 Balanced",
+      "min_ram_gb": 16,
+      "since": "5.0.33",
+      "measured": {
+        "machine": "M4 Max",
+        "clip": "5 s LTX-2.5 Balanced, 121 frames, same clip and seed",
+        "rows": {
+          "streamed": {
+            "free_s": 98.4,
+            "pro_s": 50.2,
+            "frames": 121,
+            "where": "M4 Max with a 16 GB memory limit, 768x448"
+          },
+          "resident": {
+            "free_s": 149.8,
+            "pro_s": 76.0,
+            "frames": 121,
+            "where": "M4 Max 64 GB, 1024x576"
+          }
+        },
+        "source": "13 Nov 2026, four 5 s clips, seeds 4141 and 7707: Free 147.2/150.5/150.9/150.4 s, Fast draft 75.5/75.9/76.3/76.2 s on 64 GB; 98.4 s and 50.2 s with a 16 GB memory limit"
+      }
+    },
+    {
+      "id": "ltx-standard",
+      "kind": "speed-up",
+      "name": "Faster Standard (720p) clips",
+      "now": "Standard 720p LTX clips: 2 min 57 s with the speed-up and 1 min 58 s with Fast draft, instead of 4 min 4 s, on Macs with 48 GB or more.",
+      "gain": "about 2x faster",
+      "moment": "Pro would have made this clip in about {pro} instead of {free}, with Fast draft. Pro keeps Phosphene free.",
+      "where": "Beside Quality and on the Speed row, LTX-2.5 Standard",
+      "min_ram_gb": 48,
+      "since": null,
+      "measured": {
+        "machine": "M4 Max 64 GB",
+        "clip": "5 s LTX-2.5 Standard picture to video, 1280x704, seed 7707",
+        "rows": {
+          "resident": {
+            "free_s": 239.8,
+            "pro_s": 117.4,
+            "frames": 121,
+            "where": "M4 Max 64 GB, 1280x704"
+          },
+          "speedup": {
+            "free_s": 243.9,
+            "pro_s": 177.3
+          }
+        },
+        "source": "14 Nov 2026, through the Studio: Free 243.9 s, speed-up 177.3 s, Fast draft 118.3 s; three more stills: Free 242.1/239.8/237.4 s, Fast draft 117.6/117.8/116.8 s"
+      }
+    },
+    {
+      "id": "ltx-faster",
+      "kind": "speed-up",
+      "name": "Faster LTX clips",
+      "now": "LTX clips with about a quarter less waiting: 113 s instead of 152 s for a 5-second clip, on by default.",
+      "gain": "about 1.3x faster",
+      "where": "Beside Quality, on LTX-2.5 Balanced",
+      "min_ram_gb": 16,
+      "since": "5.0.18",
+      "ratio": 1.29,
+      "measured": {
+        "machine": "M4 Max 64 GB",
+        "clip": "5 s LTX-2.5 Balanced, same clip and seed",
+        "rows": {
+          "free_s": 152,
+          "pro_s": 113
+        },
+        "source": "11 Nov 2026, same clip and seed: 152 s Free, 113 s Pro on 64 GB; 27 to 30% faster on 16 to 24 GB Macs"
+      }
+    },
+    {
+      "id": "h3-faster",
+      "kind": "speed-up",
+      "name": "Quicker 5-second Hailuo H3 clips",
+      "now": "5-second Hailuo H3 clips in 10:02 instead of 14:57, the same clip on the same Mac.",
+      "gain": "about 1.5x faster",
+      "where": "Hailuo H3, picture to video, 5 seconds",
+      "min_ram_gb": 36,
+      "since": "5.0.0",
+      "ratio": 1.48,
+      "measured": {
+        "machine": "M4 Max 64 GB",
+        "clip": "Hailuo H3 High, picture to video, 5 s, seed 4101",
+        "rows": {
+          "free_s": 896.5,
+          "pro_s": 601.9
+        },
+        "source": "assets/pro/compare.json (h3_5s): Free 896.5 s, Pro 601.9 s, faces, motion, speech and sync reviewed equal"
+      }
+    },
+    {
+      "id": "h3-flex-turbo",
+      "kind": "speed-up",
+      "name": "Faster Flex Turbo",
+      "now": "Faster Flex Turbo: about 1.5x faster than Flex on Free. A little softer; for drafts.",
+      "gain": "about 1.5x faster",
+      "where": "Model menu, Faster Flex Turbo",
+      "min_ram_gb": 36,
+      "since": "5.0.0",
+      "measured": {
+        "machine": "M4 Max 64 GB",
+        "clip": "Hailuo H3, 5 s",
+        "rows": {
+          "ratio": 1.5
+        },
+        "source": "Flex Turbo against Flex on Free, same clip, M4 Max 64 GB"
+      }
+    },
+    {
+      "id": "ph3-image-fast-pro",
+      "kind": "speed-up",
+      "name": "Faster Fast pictures",
+      "now": "P-H3-Image Fast makes the next picture in about 22 s instead of 56 s, at a smaller size.",
+      "gain": "about 2.5x faster",
+      "where": "Images, P-H3-Image, Version Fast",
+      "since": "5.0.3",
+      "ratio": 1.54,
+      "measured": {
+        "machine": "M4 Max 64 GB",
+        "clip": "one P-H3-Image picture, the next one after the first",
+        "rows": {
+          "free_s": 56,
+          "pro_s": 22
+        },
+        "source": "the next picture after the first, M4 Max 64 GB: 22 s on Pro Fast, 56 s on Free's default"
+      }
+    },
+    {
+      "id": "h3-image-ultra",
+      "kind": "feature",
+      "name": "Ultra pictures (24 MP)",
+      "now": "Ultra pictures: 24 MP from MiniMax-H3-Image, past the model's 16 MP, in about 15 minutes.",
+      "next": "Ultra pictures: 24 MP from MiniMax-H3-Image, past the model's own 16 MP, in about 15 minutes.",
+      "gain": "24 MP",
+      "where": "Images, MiniMax-H3-Image, Ultra",
+      "since": null,
+      "measured": {
+        "machine": "M4 Max 64 GB",
+        "clip": "one 24 MP picture",
+        "rows": {
+          "pro_s": 900
+        },
+        "source": "one 24 MP picture, about 15 minutes, M4 Max 64 GB"
+      }
+    },
+    {
+      "id": "ai-fill",
+      "kind": "feature",
+      "name": "AI fill for Make it vertical",
+      "now": "Make it vertical with AI fill: real picture painted above and below instead of a blur.",
+      "gain": "no blur bars",
+      "where": "More, on any finished clip",
+      "min_ram_gb": 48,
+      "since": "5.0.16",
+      "measured": {
+        "machine": "M4 Max 64 GB",
+        "clip": "5 s clip made vertical",
+        "rows": {
+          "pro_s": 721
+        },
+        "source": "10 Nov 2026, one 5 s export through the Studio: 721 s"
+      }
+    },
+    {
+      "id": "remote",
+      "kind": "feature",
+      "name": "iPhone Remote",
+      "now": "Start and watch renders from your iPhone with the Phosphene Remote app.",
+      "gain": "renders from your phone",
+      "where": "Remote Control, in the left bar",
+      "since": "5.0.0",
+      "measured": null
+    },
+    {
+      "id": "h3-image-keep",
+      "kind": "speed-up",
+      "name": "Faster repeat pictures",
+      "now": "Hailuo H3 pictures after the first come in about 90 s instead of 127 s at the Draft size when you keep the same prompt (more seeds, make another), on Macs with 64 GB or more. Same pictures.",
+      "gain": "about 1.4x faster after the first picture",
+      "where": "Images, Hailuo H3 picture model, every picture after the first of one prompt",
+      "min_ram_gb": 64,
+      "since": null,
+      "measured": {
+        "machine": "M4 Max 64 GB",
+        "clip": "2048 x 2048 picture, same prompt and seeds",
+        "rows": {
+          "free_s": 127,
+          "pro_s": 90
+        },
+        "source": "15 Nov 2026, M4 Max 64 GB: same prompt, seeds 7 then 8 at 2048 x 2048; baseline 127 s per picture, Pro 121 s then 90 s; pictures identical pixel for pixel; 236 s to 208 s at the Standard size"
+      }
+    }
+  ]
+}

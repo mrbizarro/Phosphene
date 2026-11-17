@@ -9,7 +9,10 @@ from, without knowing who the person is. A link from the Studio carries
     utm_content=<placement>          (optional: settings, banner, pro-modal ...)
 
 and NOTHING else: no install id, no email, no version, no licence. The tags say
-which button was pressed in which kind of install, never by whom.
+which button was pressed in which kind of install, never by whom. The one
+addition (install source, 16 Nov 2026): a Get Pro / pricing link also carries
+is=<install_source>&iv=<install_via>, two closed slugs saying where this install
+first came from (e.g. is=chatgpt.com&iv=site-match), only once resolved.
 
 Code that builds a link calls site_link() here. The browser page has the same
 function (siteLink in webapp/js/boot.js), fed from BOOT.site_utm, which comes
@@ -54,6 +57,11 @@ CAMPAIGNS = (
 
 _NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 UTM_KEYS = ("utm_source", "utm_medium", "utm_campaign", "utm_content")
+#: Links that also carry the install source (is= / iv=): these campaigns, or any /pricing path.
+PRO_CAMPAIGNS = ("get-pro", "upgrade", "pricing")
+INSTALL_KEYS = ("is", "iv")
+INSTALL_VIAS = ("site-match", "pinokio-list", "no-match", "before-tracking")
+_INSTALL_SLUG_RE = re.compile(r"^[a-z0-9_.~-]{1,40}$")
 
 
 def medium(env=None) -> str:
@@ -72,10 +80,22 @@ def _check(name: str, what: str) -> str:
     return name
 
 
-def tag_url(url: str, source: str, medium_: str, campaign: str, content: str | None = None) -> str:
+def install_tags(install) -> list:
+    """[("is", source), ("iv", via)] for a valid pair ({"is": .., "iv": ..}), else []."""
+    if not isinstance(install, dict):
+        return []
+    src, via = install.get("is"), install.get("iv")
+    if isinstance(src, str) and _INSTALL_SLUG_RE.match(src) and via in INSTALL_VIAS:
+        return [("is", src), ("iv", via)]
+    return []
+
+
+def tag_url(url: str, source: str, medium_: str, campaign: str, content: str | None = None,
+            install: dict | None = None) -> str:
     """Add the four UTM tags to `url`, MERGING with any query it already has:
     an existing utm_* tag is replaced (never doubled), every other parameter
-    and the #fragment are kept. Only phosphene.video links may be tagged."""
+    and the #fragment are kept. Only phosphene.video links may be tagged.
+    A Get Pro / pricing link also gets is= / iv= from `install` when valid."""
     _check(source, "utm_source")
     _check(medium_, "utm_medium")
     _check(campaign, "utm_campaign")
@@ -91,18 +111,25 @@ def tag_url(url: str, source: str, medium_: str, campaign: str, content: str | N
     tags = [("utm_source", source), ("utm_medium", medium_), ("utm_campaign", campaign)]
     if content:
         tags.append(("utm_content", content))
+    if campaign in PRO_CAMPAIGNS or (parts.path or "").startswith("/pricing"):
+        # An already-tagged link never keeps an old install source: after an analytics opt-out
+        # install_tags() is empty and the stale is=/iv= must go too (docs/ANALYTICS.md).
+        keep = [(k, v) for k, v in keep if k not in INSTALL_KEYS]
+        tags += install_tags(install)
     query = urlencode(keep + tags)
     return urlunsplit((parts.scheme, parts.netloc, parts.path or "/", query, parts.fragment))
 
 
-def site_link(path: str, campaign: str, content: str | None = None, env=None) -> str:
+def site_link(path: str, campaign: str, content: str | None = None, env=None,
+              install: dict | None = None) -> str:
     """A tagged link from the Studio to the website.
     site_link("/pricing/", "get-pro", "pro-modal") ->
     https://phosphene.video/pricing/?utm_source=app&utm_medium=pinokio&utm_campaign=get-pro&utm_content=pro-modal
-    `path` may carry its own query and #fragment; both are kept."""
+    `path` may carry its own query and #fragment; both are kept. `install` is the
+    panel's install_source_tags() ({"is", "iv"} or {}), for Get Pro / pricing links."""
     if not path.startswith("/"):
         raise ValueError(f"path must start with '/': {path!r}")
-    return tag_url(SITE + path, SOURCE_APP, medium(env), campaign, content)
+    return tag_url(SITE + path, SOURCE_APP, medium(env), campaign, content, install)
 
 
 def github_link(path: str, medium_: str, campaign: str, content: str | None = None) -> str:

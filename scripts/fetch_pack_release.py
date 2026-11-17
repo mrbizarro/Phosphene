@@ -220,17 +220,23 @@ class _Gone(Exception):
     """The server answered 404/403/410 for this URL: try the next source at once."""
 
 
-def _first_source(urls: list[str], fn, label: str):
+class _NowhereYet(RuntimeError):
+    """Every source answered "not there" (404/403/410): nothing to retry."""
+
+
+def _first_source(urls: list[str], fn, label: str, gone_all: bool = False):
     """Run ``fn(url)`` on each source in turn until one works; the last error wins.
 
     A source that answers "not there" is skipped without the per-source retries; a
     source that fails after its retries hands over to the next one."""
     last: BaseException | None = None
+    gone = 0
     for i, url in enumerate(urls):
         try:
             return fn(url)
         except _Gone as e:
             last = e
+            gone += 1
             if i + 1 < len(urls):
                 log(f"[fetch] {label}: not at {url.split('/')[2]} ({e}), trying the next source")
         except (RuntimeError, SystemExit) as e:
@@ -239,6 +245,8 @@ def _first_source(urls: list[str], fn, label: str):
                 log(f"[fetch] {label}: {url.split('/')[2]} failed ({e}), trying the next source")
     if isinstance(last, SystemExit):
         raise last
+    if gone_all and gone == len(urls):
+        raise _NowhereYet(str(last))
     raise RuntimeError(str(last))
 
 
@@ -529,8 +537,14 @@ def fetch_pack(repo_key: str, root: Path, dest: Path | None,
 
     log(f"[fetch] {repo_key}: {repo.get('name', repo_key)} → {dest_dir}")
     log(f"[fetch] manifest {urls[0]}")
-    manifest = _first_source(urls, lambda url: fetch_json(url, attempts=attempts, timeout=timeout),
-                             f"{repo_key} manifest")
+    try:
+        manifest = _first_source(urls, lambda url: fetch_json(url, attempts=attempts, timeout=timeout),
+                                 f"{repo_key} manifest", gone_all=True)
+    except _NowhereYet:
+        # 17 Nov 2026: q8_25 / hq_25 are not on our server yet and GitHub hides the account.
+        log(f"[fetch] {repo_key}: this model isn't available for download right now; the standard models work. "
+            "It comes back soon.")
+        raise RuntimeError("not available for download right now (no source has it)")
     files = manifest.get("files")
     if not isinstance(files, dict) or not files:
         raise SystemExit(f"release manifest for {repo_key} declares no files")

@@ -15409,7 +15409,7 @@ html[data-pro=""] .tool-rail .workflow-tabs button[data-workflow="remote"] .new-
 .wn-head::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 2px; background: var(--site-brand); opacity: .85; }
 .wn-head-main { min-width: 0; }
 .models-modal .wn-title { margin-top: 6px; font-size: 28px; }
-.wn-ver { background: var(--site-brand); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.wn-ver { color: var(--site-pink); }   /* solid: no gradient text (owner, 14 Nov 2026) */
 .wn-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
 .wn-meta time { font: 500 var(--fs-xs)/1 var(--mono); letter-spacing: .02em; color: var(--muted); }
 .wn-meta time::before { content: "·"; margin-right: 12px; color: var(--faint, var(--muted)); }
@@ -15430,6 +15430,10 @@ html[data-pro=""] .tool-rail .workflow-tabs button[data-workflow="remote"] .new-
 
 /* the two boxed lists */
 .wn-sec-free, .wn-sec-pro { padding: 20px 22px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg-2); }
+/* first under the header (the current release): tighter, so it and the Pro block share the first screen */
+.wn-sec-free.is-first { padding: 14px 18px 16px; }
+.wn-sec-free.is-first .wn-sec-h { margin-bottom: 8px; }
+.wn-sec-free.is-first + .wn-np { margin-top: 18px; }
 .wn-sec-pro { border-color: var(--pro-edge);
   background: linear-gradient(160deg, color-mix(in srgb, var(--site-violet) 12%, transparent), color-mix(in srgb, var(--site-violet) 4%, transparent) 60%), var(--bg-2); }
 .wn-sec-pro .wn-sec-h h3 { color: var(--pro-ink); }
@@ -15458,6 +15462,59 @@ html[data-pro=""] .tool-rail .workflow-tabs button[data-workflow="remote"] .new-
   transition: background var(--t-fast); }
 .wn-ask-link:hover { background: color-mix(in srgb, var(--site-violet) 24%, transparent); }
 .wn-ask-link:focus-visible { outline: none; box-shadow: var(--ring); }
+
+/* NOW IN PRO (5.0.23): the first block under the header when a release adds to Pro. Black, the logo's colours as a glow
+   around it and a hairline on top; plain white type (no gradient text). One line per perk with its measured gain in a
+   violet chip; Free users get one primary Get Pro button, a member reads "Included in your Pro" and nothing to buy. */
+.wn-np { --pro-ink: color-mix(in srgb, var(--site-violet) 58%, #fff); --muted: #a3a3ad;   /* always on black, both themes */
+  position: relative; padding: 22px 24px; border: 1px solid var(--pro-edge); border-radius: var(--r-lg); background: var(--v2-stage, #040405);
+  box-shadow: 0 0 0 1px rgba(177, 74, 255, .10), 0 18px 46px -22px rgba(255, 46, 159, .45), 0 0 64px -26px rgba(94, 234, 255, .45),
+    inset 0 0 40px -18px rgba(177, 74, 255, .35); overflow: hidden; }
+.wn-np::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 2px; background: var(--site-brand); opacity: .9; }
+.wn-np.is-member { box-shadow: 0 0 0 1px rgba(177, 74, 255, .08), 0 0 48px -26px rgba(177, 74, 255, .5); }
+.wn-np-h { display: flex; align-items: center; gap: 2px; margin: 0 0 14px; }
+.wn-np-h h3 { margin: 0; font: 680 19px/1.25 var(--sans); letter-spacing: -.005em; color: #fff; text-transform: none; }
+.wn-np-lines { list-style: none; margin: 0; padding: 0; }
+.wn-np-lines li { display: flex; align-items: baseline; gap: 16px; padding: 12px 0; border-top: 1px solid color-mix(in srgb, var(--site-violet) 22%, transparent); }
+.wn-np-lines li:first-child { border-top: 0; padding-top: 2px; }
+.wn-np-t { flex: 1 1 auto; min-width: 0; max-width: 70ch; color: #f4f4f6; font-size: 16px; line-height: 1.5; text-wrap: pretty; }
+.wn-np-gain { flex: none; margin-left: auto; padding: 4px 9px; border: 1px solid var(--pro-edge); border-radius: var(--r-pill); background: var(--pro-bg);
+  color: var(--pro-ink); font: 600 12px/1.2 var(--mono); white-space: nowrap; }
+/* Coming next in Pro (owner, 14 Nov 2026): the unreleased Pro perks, teased under the items, or the whole block when a
+   release adds nothing to Pro. Softer type, a dashed hairline, a small "Soon" chip beside the measured gain. */
+.wn-np-coming { margin-top: 16px; padding-top: 12px; border-top: 1px dashed color-mix(in srgb, var(--site-violet) 34%, transparent); }
+.wn-np-coming.is-lead { margin-top: 0; padding-top: 0; border-top: 0; }
+.wn-np-coming-k { margin: 0 0 4px; font: 600 var(--fs-2xs)/1.3 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--pro-ink); }
+.wn-np-coming .wn-np-lines li { border-top-style: dashed; }
+.wn-np-coming .wn-np-lines li.is-coming .wn-np-t { color: #d7d7de; }
+.wn-np-coming.is-lead .wn-np-lines li.is-coming .wn-np-t { color: #f4f4f6; }
+.wn-np-tags { flex: none; display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.wn-np-tags .wn-np-gain { margin-left: 0; }
+.wn-np-soon { padding: 4px 9px; border: 1px dashed var(--pro-edge); border-radius: var(--r-pill); color: var(--pro-ink);
+  font: 600 var(--fs-2xs)/1.3 var(--sans); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+/* the brief tease under real items: one line, kicker + Soon + "name gain · name gain" */
+.wn-np-coming.is-brief { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 12px 0 0; padding-top: 12px;
+  color: #d7d7de; font-size: var(--fs-sm); line-height: 1.5; }
+.wn-np-coming.is-brief .wn-np-coming-k { margin: 0 2px 0 0; }
+.wn-np-coming.is-brief .wn-np-gain { margin-left: 0; padding: 2px 7px; font-size: 13px; }
+.wn-np-coming-it { display: inline-flex; align-items: center; gap: 6px; }
+.wn-np-dot { color: var(--muted); }
+.wn-np-also { margin: 14px 0 0; padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--site-violet) 22%, transparent);
+  color: var(--muted); font-size: var(--fs-sm); line-height: 1.5; }
+.wn-np-also-k { margin-right: 6px; font: 600 var(--fs-2xs)/1.3 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--pro-ink); }
+.wn-np-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin-top: 18px; }
+.wn-np-foot p { flex: 1 1 320px; margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: 1.5; }
+.wn-np-cta { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 20px; border-radius: 8px;
+  color: #fff; font-weight: 650; font-size: 15px; text-decoration: none; background-color: #4f3191; background-image: var(--v2-action);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .16), var(--v2-action-glow); transition: box-shadow var(--t-fast); }
+.wn-np-cta:hover { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .26), 0 14px 30px -14px rgba(177, 74, 255, .85); }
+.wn-np-cta:focus-visible { outline: none; box-shadow: var(--ring), var(--v2-action-glow); }
+@media (max-width: 720px) {
+  .wn-np { padding: 18px 16px; }
+  .wn-np-lines li { flex-direction: column; gap: 8px; }
+  .wn-np-gain { margin-left: 0; }
+  .wn-np-tags { margin-left: 0; }
+}
 
 /* every picture and clip: its own shape, one frame style */
 .wn-m { display: block; width: 100%; height: auto; aspect-ratio: var(--ar, 16 / 9); object-fit: cover; border: 1px solid var(--border);
@@ -15544,13 +15601,16 @@ html[data-pro=""] .tool-rail .workflow-tabs button[data-workflow="remote"] .new-
   #playerMorePop { min-width: 264px; }
   #playerMorePop button { white-space: nowrap; }
 }
-/* Pro at the right moment: one quiet line under a finished Free render. */
-.row-list li.pro-hint-row { display: flex; align-items: center; gap: 10px; padding: 2px 12px 8px; margin-top: -4px;
-  background: none; border: 0; font-size: 13px; color: #8e8e96; }
-.row-list li.pro-hint-row .pro-hint-see { color: #b4b4bb; text-decoration: underline; }
-.row-list li.pro-hint-row .pro-hint-see:hover { color: #d8d8de; }
-.row-list li.pro-hint-row .pro-hint-x { margin-left: auto; background: none; border: 0; color: #8e8e96; font-size: 16px; line-height: 1; cursor: pointer; }
-.row-list li.pro-hint-row .pro-hint-x:hover { color: #d8d8de; }
+/* Pro at the right moment: one quiet line under a finished Free render, in the Pro tag and line styles
+   above (theme tokens, so it holds on light and dark). */
+.row-list li.pro-hint-row { display: flex; align-items: center; gap: 8px; padding: 2px 12px 8px; margin-top: -4px;
+  background: none; border: 0; font-size: var(--fs-xs); line-height: 1.45; color: var(--muted); }
+.row-list li.pro-hint-row .pro-tag { margin: 0; }
+.row-list li.pro-hint-row .pro-hint-text { min-width: 0; }
+.row-list li.pro-hint-row .pro-hint-see { flex: none; color: var(--pro-ink); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.row-list li.pro-hint-row .pro-hint-see:hover { color: var(--text); }
+.row-list li.pro-hint-row .pro-hint-x { flex: none; margin-left: auto; background: none; border: 0; color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; }
+.row-list li.pro-hint-row .pro-hint-x:hover { color: var(--text); }
 
 /* Compact orientation segments must not inherit full-width, column buttons. */
 #aspectRow {

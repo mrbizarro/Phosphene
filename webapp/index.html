@@ -704,6 +704,9 @@
       <input type="hidden" name="schedule_preset" id="schedule_preset" value="">
       <!-- The Pro speed-up switch's value ("on"/"off"), written by proSpeedRender(). -->
       <input type="hidden" name="pro_speedup_choice" id="pro_speedup_choice" value="on">
+      <!-- Pro Fast draft ("on"/"off"), written by proDraftRender(): on for a Pro member with the Speed
+           row's Fast draft armed. The server decides whether the render can use it. -->
+      <input type="hidden" name="pro_fast_draft" id="pro_fast_draft" value="off">
 
       <div id="warnBanner" class="warn-banner"></div>
 
@@ -1613,10 +1616,13 @@
                 </button>
                 <button type="button" class="pill-btn" data-sched-preset="fast"
                         title="The engine's fast draft schedule (5+2 forwards). Renders a DIFFERENT take — the same prompt and seed land on a different shot than Tuned, so use it to explore, then re-render keepers on Tuned." data-i18n-title="schedPresetGroup.title.the_engine_s_fast">
-                  <span data-i18n="schedPresetGroup.fast_draft">Fast draft</span>
+                  <span><span data-i18n="schedPresetGroup.fast_draft">Fast draft</span><span class="pro-tag" data-pro-feature="ltx-fast-draft">Pro</span></span>
                   <span class="sub" id="schedFastSub" data-i18n="schedFastSub.different_take">different take</span>
                 </button>
               </div>
+              <!-- Pro Fast draft (proDraftRender, settings.js): with Fast draft picked, one quiet line.
+                   Free: what Pro adds, with the measured times. Pro: that it is on, or why not here. -->
+              <p class="pro-note" id="proDraftNote" hidden></p>
             </div>
             <div>
               <div class="qs-label">

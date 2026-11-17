@@ -3645,6 +3645,8 @@ async function poll() {
     return;
   }
   LAST_STATUS = s;
+  // Install source resolved after first paint: Get Pro links pick it up (boot.js siteLink).
+  if (s && s.install && typeof BOOT !== 'undefined') BOOT.install = s.install;
   // PUBLISHED HERE, AT THE TOP, and that position is the fix for R2-B1.
   // It used to be assigned ~230 lines further down — AFTER the block that
   // repaints the tier strips. So the one repaint that fires (the first poll,
@@ -4445,7 +4447,7 @@ async function poll() {
       ${hsbBadge}
       <span class="params">${fmtMin(j.elapsed_sec)} · ${j.finished_at ? j.finished_at.slice(11) : ''}</span>
       <span>${actionHtml}</span>
-    </li>${proHintRow(j, !!s.current)}`;
+    </li>${proHintRow(j)}`;
   }).join('');
   }
 
@@ -7182,7 +7184,7 @@ async function speedupQuietRetry() {
   const box = document.getElementById('speedupQuiet');
   const id = box && box.dataset.jobId;
   if (!id) return;
-  await retryJob(id, { overrides: { pro_speedup_choice: 'off' } });
+  await retryJob(id, { overrides: { pro_speedup_choice: 'off', pro_fast_draft: 'off' } });
   phosToast(T('queue.queued_again_without_the_speed', 'Queued again without the speed-up: same prompt, seed and settings.'), { kind: 'success', duration: 5000 });
 }
 function verticalHintDismiss() {
@@ -9783,17 +9785,18 @@ function studioMotionInit() {
 Object.assign(globalThis, {studioMotionInit, studioProgress, viewerVideo, viewerBarMute});
 
 
-// Pro at the right moment (5.0.7): the server puts `pro_hint` on a finished FREE render only
-// when Pro has a measured speed-up for this Mac and these settings (at most once a day).
-// One quiet line under the finished row. Never a pop-up, never while a render runs.
+// Pro at the right moment (5.0.7, rebuilt around Fast draft in 5.0.20): the server puts `pro_hint`
+// on a finished FREE clip only when Pro's Fast draft would have served it and a measured ratio exists
+// for this Mac's class (a few times a week at most, never twice in one run). One quiet line under the
+// finished row, never a pop-up; it stays while the next render runs.
 const _proHintShown = new Set();
-function proHintRow(j, rendering) {
+function proHintRow(j) {
   const h = j && j.status === 'done' && j.pro_hint;
-  if (!h || !h.text || rendering) return '';   // nothing while a render is running
+  if (!h || !h.text) return '';
   if (!_proHintShown.has(j.id)) { _proHintShown.add(j.id); proHintPost(j.id, 'shown'); }
   const id = escapeHtml(JSON.stringify(j.id));
-  return `<li class="pro-hint-row" data-pro-hint="${escapeHtml(j.id)}"><span class="pro-hint-text">${escapeHtml(h.text)}</span>`
-    + `<a class="pro-hint-see" href="https://phosphene.video/pricing/" data-utm-campaign="get-pro" data-utm-content="speedup-line" target="_blank" rel="noopener" onclick='proHintSee(${id})'>${T('queue.see_pro', 'See Pro')}</a>`
+  return `<li class="pro-hint-row" data-pro-hint="${escapeHtml(j.id)}"><span class="pro-tag is-lead">Pro</span><span class="pro-hint-text">${escapeHtml(h.text)}</span>`
+    + `<a class="pro-hint-see" href="https://phosphene.video/pricing/" data-utm-campaign="get-pro" data-utm-content="fast-draft-line" target="_blank" rel="noopener" onclick='proHintSee(${id})'>${T('queue.see_pro', 'See Pro')}</a>`
     + `<button type="button" class="pro-hint-x" aria-label="${TA('queue.hide_this', 'Hide this')}" title="${TA('queue.hide_this', 'Hide this')}" onclick='proHintDismiss(${id})'>×</button></li>`;
 }
 function proHintPost(job, action) {

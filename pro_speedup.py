@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import re
 
+import pro_perks
+
 # What was measured, and nothing past it.
 QUALITIES = ("balanced",)
 MODES = ("t2v", "i2v")
@@ -35,6 +37,91 @@ _SOUND_RX = re.compile(
 QUIET_NOTE = ("This clip's sound came out almost silent, and the prompt asked for sound. "
               "That can happen with the Pro speed-up. Render it again without the speed-up "
               "for the usual sound.")
+
+
+def draft_on(value) -> bool:
+    """The per-render Fast draft choice from the form: off unless it says on."""
+    return str(value if value is not None else "off").strip().lower() in ("1", "true", "on", "yes")
+
+
+# ---- Fast draft (owner, 12 Nov 2026: "LTX fast drafts for Pro") ----------------------------------
+# The Speed row's Fast draft pill. On Free it runs the engine's fast schedule (about 13 % faster). For
+# a Pro member, on a render the Pro speed-up serves, the Pro add-on makes the draft instead: about
+# half the time of the usual clip, a different take of the same scene. How is the add-on's business.
+#
+# MEASURED, per Mac class, on the same clip and seed (5-second LTX-2.5 Balanced, 121 frames). A Mac
+# with 24 GB or less streams the model from disk, so it gets the streamed row; 32 GB and up the
+# resident one. Every number shown to a user is one of these ratios times a real time (this clip's
+# own, or the fleet's for this Mac), never a guess. "where" says how it was measured.
+# The numbers live in pro_perks.json (perk "ltx-fast-draft", with how it was measured),
+# the one list every Pro surface reads; here they keep the shape this module always used ({free_s, draft_s,
+# frames, where}). 5 s Balanced, 13 Nov 2026: Free 147.2/150.5/150.9/150.4 s, Fast draft 75.5/75.9/76.3/76.2 s
+# on 64 GB.
+def _draft_row(row) -> dict:
+    if not isinstance(row, dict) or not row.get("free_s") or not row.get("pro_s"):
+        return {}
+    return {"free_s": float(row["free_s"]), "draft_s": float(row["pro_s"]),
+            "frames": int(row.get("frames") or 121), "where": str(row.get("where") or "")}
+
+
+FAST_DRAFT_MEASURED = {cls: r for cls, r in ((c, _draft_row(pro_perks.rows("ltx-fast-draft").get(c)))
+                                            for c in ("streamed", "resident")) if r}
+FAST_DRAFT_MIN_RAM_GB = 16
+# The Pro moment never claims a saving smaller than this.
+MOMENT_MIN_SAVED_SEC = 20.0
+
+
+def mac_class(low_memory_mac: bool) -> str:
+    return "streamed" if low_memory_mac else "resident"
+
+
+def draft_ratio(cls: str, frames: int | None = None) -> float | None:
+    """Fast draft / Free wall time for this Mac class, or None where nothing was measured."""
+    row = FAST_DRAFT_MEASURED.get(cls) or {}
+    free_s, draft_s = row.get("free_s"), row.get("draft_s")
+    if not free_s or not draft_s or (frames is not None and int(frames) != int(row.get("frames") or 0)):
+        return None
+    return float(draft_s) / float(free_s)
+
+
+def fmt_secs(sec: float, unit_of: float | None = None) -> str:
+    """'50 s', or '4 min' when the larger time of the pair (`unit_of`) is 10 minutes or more, so a pair
+    always reads in one unit: '79 s instead of 155 s', never '79 s instead of 3 min'."""
+    sec = max(1.0, float(sec))
+    big = max(sec, float(unit_of or 0))
+    return f"{int(round(sec))} s" if big < 600 else f"{max(1, int(round(sec / 60.0)))} min"
+
+
+def moment(*, took: float, cls: str, frames: int, fits: bool, ram_gb: float) -> dict | None:
+    """The Pro moment's numbers for one finished Free clip, or None: {"pro_sec", "saved_sec", "text"}.
+    `took` is this clip's own time on this Mac; `fits` is whether Fast draft would have served it."""
+    if not fits or float(ram_gb or 0) < FAST_DRAFT_MIN_RAM_GB:
+        return None
+    ratio = draft_ratio(cls, frames)
+    try:
+        took = float(took)
+    except (TypeError, ValueError):
+        return None
+    if ratio is None or took <= 0:
+        return None
+    pro_sec = took * ratio
+    if took - pro_sec < MOMENT_MIN_SAVED_SEC:
+        return None
+    return {"pro_sec": round(pro_sec, 1), "saved_sec": round(took - pro_sec, 1),
+            "text": moment_text("ltx-fast-draft",
+                                pro=fmt_secs(pro_sec, took), free=fmt_secs(took))}
+
+
+MOMENT_FALLBACK = "Pro would have made this clip in about {pro} instead of {free}, with Fast draft. Pro keeps Phosphene free."
+
+
+def moment_text(perk_id: str, *, pro: str, free: str) -> str:
+    """The perk's own moment line from pro_perks.json, with this clip's two times filled in."""
+    t = pro_perks.moment(perk_id) or MOMENT_FALLBACK
+    try:
+        return t.format(pro=pro, free=free)
+    except (KeyError, IndexError, ValueError):
+        return MOMENT_FALLBACK.format(pro=pro, free=free)
 
 
 def toggle_on(value) -> bool:
