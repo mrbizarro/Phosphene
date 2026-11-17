@@ -175,6 +175,12 @@ function imgStudioWireRefSlots() {
   // 3-column flat grid. The new restyled composer uses `.studio-ref-slot`.
   // Wire both so any in-flight upgrade path keeps working.
   document.querySelectorAll('.studio-ref-slot, .img-ref-slot').forEach(slot => {
+    // H21 (17 Nov 2026): `.studio-ref-slot` is also the class of the Music
+    // Video song slot (data-slot="song") and the audio slots. Wiring them here
+    // marked them wired first, so their own song handler never attached and a
+    // click opened a picture-only picker: a song could not be dropped or
+    // picked. Only the numbered picture slots belong to this studio.
+    if (!/^\d+$/.test(slot.dataset.slot || '')) return;
     if (slot.dataset.wired === '1') return;
     slot.dataset.wired = '1';
     const idx = parseInt(slot.dataset.slot, 10);

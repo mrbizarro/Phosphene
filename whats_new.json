@@ -441,5 +441,13 @@
     "pro": [],
     "date": "2026-11-17",
     "headline": "Fix: big model downloads come from Hugging Face, so High quality works again."
+  },
+  "5.0.40": {
+    "free": [
+      "Audio > Music Video: a song can be dragged into the song slot or picked with a click again, even after opening the Image Studio."
+    ],
+    "pro": [],
+    "date": "2026-11-17",
+    "headline": "Fix: the Music Video song slot takes a song again."
   }
 }

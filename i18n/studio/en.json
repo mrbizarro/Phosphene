@@ -21402,47 +21402,47 @@
   "stage.a_bold_headline": {
    "text": "a bold headline",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo synth desc",
-   "where": "stage.js:1700"
+   "where": "stage.js:1706"
   },
   "stage.a_cinematic_medium_close_up": {
    "text": "A cinematic medium close-up of a woman in a sunlit kitchen, soft morning light through blinds, shallow depth of field, photorealistic",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio update ref warning",
-   "where": "stage.js:439"
+   "where": "stage.js:445"
   },
   "stage.a_flowing_script": {
    "text": "a flowing script",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo synth desc",
-   "where": "stage.js:1704"
+   "where": "stage.js:1710"
   },
   "stage.a_long_detailed_english_description": {
    "text": "A long, detailed English description of the whole picture: subject, place, light, lens, mood. Exact text goes in quotes.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio update ref warning",
-   "where": "stage.js:412"
+   "where": "stage.js:418"
   },
   "stage.a_silhouette_of_a_trumpet": {
    "text": "A silhouette of a trumpet player mid-performance, arm raised, dramatic pose, rendered in deep gold against the dark background.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1943"
+   "where": "stage.js:1949"
   },
   "stage.a_single_bold_photographic_scene": {
    "text": "A single bold photographic scene filling the square frame.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1969"
+   "where": "stage.js:1975"
   },
   "stage.add_at_least_one_text": {
    "text": "Add at least one text or object box (or switch to Simple mode for a plain prompt).",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio generate",
-   "where": "stage.js:2206"
+   "where": "stage.js:2212"
   },
   "stage.an_elegant_serif": {
    "text": "an elegant serif",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo synth desc",
-   "where": "stage.js:1705"
+   "where": "stage.js:1711"
   },
   "stage.an_object_in_the_scene": {
    "text": "An object in the scene.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo synth desc",
-   "where": "stage.js:1698"
+   "where": "stage.js:1704"
   },
   "stage.and_only_gb_is_free": {
    "text": "and only ~{v} GB is free right now. It may still work — Phosphene frees ",
@@ -21452,47 +21452,47 @@
   "stage.applied_to_canvas": {
    "text": "Applied to canvas.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1932"
+   "where": "stage.js:1938"
   },
   "stage.bbox": {
    "text": "bbox [",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo sync inspector",
-   "where": "stage.js:1624"
+   "where": "stage.js:1630"
   },
   "stage.body": {
    "text": "Body",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo build box toolbar",
-   "where": "stage.js:1449"
+   "where": "stage.js:1455"
   },
   "stage.bold_graphic_high_contrast": {
    "text": "bold, graphic, high-contrast",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo build caption",
-   "where": "stage.js:1748"
+   "where": "stage.js:1754"
   },
   "stage.bold_uppercase_serif_headline_in": {
    "text": "Bold uppercase serif headline in bright white spanning the top of the poster.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1942"
+   "where": "stage.js:1948"
   },
   "stage.bold_white_uppercase_impact_style": {
    "text": "Bold white uppercase impact-style meme caption across the top with a heavy dark outline.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1972"
+   "where": "stage.js:1978"
   },
   "stage.bold_white_uppercase_impact_style_2": {
    "text": "Bold white uppercase impact-style meme caption across the bottom with a heavy dark outline.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1973"
+   "where": "stage.js:1979"
   },
   "stage.cannot_apply_invalid_json": {
    "text": "Cannot apply — invalid JSON: ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1899"
+   "where": "stage.js:1905"
   },
   "stage.caps": {
    "text": "Caps",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo build box toolbar",
-   "where": "stage.js:1449"
+   "where": "stage.js:1455"
   },
   "stage.caption_has_schema_issues": {
    "text": {
@@ -21500,167 +21500,167 @@
     "other": "Caption has {count} schema issues"
    },
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio generate · placeholders {count} are filled in by the app · plural: {count} is the number",
-   "where": "stage.js:2201"
+   "where": "stage.js:2207"
   },
   "stage.caption_matches_the_ideogram_4": {
    "text": "Caption matches the Ideogram 4 schema",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo set validity chip",
-   "where": "stage.js:1871"
+   "where": "stage.js:1877"
   },
   "stage.checking_weights": {
    "text": "Checking weights…",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render engine pill",
-   "where": "stage.js:597"
+   "where": "stage.js:603"
   },
   "stage.clean_body_text": {
    "text": "clean body text",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo synth desc",
-   "where": "stage.js:1702"
+   "where": "stage.js:1708"
   },
   "stage.clean_considered_balanced_composition": {
    "text": "clean, considered, balanced composition",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo build caption",
-   "where": "stage.js:1742"
+   "where": "stage.js:1748"
   },
   "stage.click_generate_to_start_first": {
    "text": "Click Generate to start — first run will download the engine weights.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio on pill click",
-   "where": "stage.js:1000"
+   "where": "stage.js:1006"
   },
   "stage.click_to_download_minimax_h3": {
    "text": "Click to download MiniMax-H3-Image once from MiniMaxAI (pinned and checked, never re-hosted).\n",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3image render pill · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Last try: … Click to download MiniMax-H3-Image once from MiniMaxAI (pinned and checked, never re-hosted).»",
-   "where": "stage.js:876"
+   "where": "stage.js:882"
   },
   "stage.click_to_download_p_h3": {
    "text": "Click to download P-H3-Image once from Pruna (pinned and checked, never re-hosted).\n",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ph3image render pill · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Last try: … Click to download P-H3-Image once from Pruna (pinned and checked, never re-hosted).»",
-   "where": "stage.js:811"
+   "where": "stage.js:817"
   },
   "stage.click_to_download_the_restyle": {
    "text": "Click to download the Restyle adapter once from Hugging Face (pinned and checked, never re-hosted).\n",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3restyle render pill · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Last try: … Click to download the Restyle adapter once from Hugging Face (pinned and checked, never re-hosted).»",
-   "where": "stage.js:948"
+   "where": "stage.js:954"
   },
   "stage.click_to_remove": {
    "text": " — click to remove",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo render image palette",
-   "where": "stage.js:1688"
+   "where": "stage.js:1694"
   },
   "stage.cold_pressed_organic": {
    "text": "Cold Pressed . Organic",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1954"
+   "where": "stage.js:1960"
   },
   "stage.copy_failed": {
    "text": "Copy failed: ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio copy path",
-   "where": "stage.js:2365"
+   "where": "stage.js:2371"
   },
   "stage.copy_failed_select_the_path": {
    "text": "Copy failed — select the path manually.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio copy path",
-   "where": "stage.js:2363"
+   "where": "stage.js:2369"
   },
   "stage.custom_color": {
    "text": "Custom color",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo render inspector swatches",
-   "where": "stage.js:1646"
+   "where": "stage.js:1652"
   },
   "stage.custom_text_color": {
    "text": "Custom text color",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo render inspector swatches",
-   "where": "stage.js:1647"
+   "where": "stage.js:1653"
   },
   "stage.delete_backspace": {
    "text": "Delete (Backspace)",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo render boxes",
-   "where": "stage.js:1551"
+   "where": "stage.js:1557"
   },
   "stage.delete_this_box": {
    "text": "Delete this box",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo render boxes",
-   "where": "stage.js:1550"
+   "where": "stage.js:1556"
   },
   "stage.desc_should_exist": {
    "text": ": 'desc' should exist",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo validate caption",
-   "where": "stage.js:1829"
+   "where": "stage.js:1835"
   },
   "stage.describe_it_optional_refines_look": {
    "text": "Describe it (optional — refines look)",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo sync inspector",
-   "where": "stage.js:1609"
+   "where": "stage.js:1615"
   },
   "stage.describe_the_image_you_want": {
    "text": "Describe the image you want — Ideogram 4 renders text especially well. e.g. \"A bold typographic poster that reads HELLO WORLD in chunky retro letters.\"",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply composer chrome",
-   "where": "stage.js:1194"
+   "where": "stage.js:1200"
   },
   "stage.describe_the_object": {
    "text": "Describe the object…",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo render boxes",
-   "where": "stage.js:1530"
+   "where": "stage.js:1536"
   },
   "stage.describe_the_object_what_should": {
    "text": "Describe the object (what should appear here)",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo sync inspector",
-   "where": "stage.js:1610"
+   "where": "stage.js:1616"
   },
   "stage.describe_the_overall_scene_and": {
    "text": "Describe the overall scene and background — e.g. \"Near-black background with subtle aged-paper texture and a soft vignette.\"",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply composer chrome",
-   "where": "stage.js:1192"
+   "where": "stage.js:1198"
   },
   "stage.download": {
    "text": "download ~",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ph3image render pill",
-   "where": "stage.js:809"
+   "where": "stage.js:815"
   },
   "stage.download_300_mb": {
    "text": "download ~300 MB",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3restyle render pill",
-   "where": "stage.js:946"
+   "where": "stage.js:952"
   },
   "stage.download_did_not_start": {
    "text": "Download did not start: ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ph3image install",
-   "where": "stage.js:828"
+   "where": "stage.js:834"
   },
   "stage.download_did_not_start_http": {
    "text": "Download did not start (HTTP ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ph3image install",
-   "where": "stage.js:823"
+   "where": "stage.js:829"
   },
   "stage.download_failed_try_again": {
    "text": "download failed: try again",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ph3image render pill",
-   "where": "stage.js:809"
+   "where": "stage.js:815"
   },
   "stage.downloading_minimax_h3_image_from": {
    "text": "Downloading MiniMax-H3-Image from MiniMaxAI (about ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3image install · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Downloading MiniMax-H3-Image from MiniMaxAI (about … GB, once)…»",
-   "where": "stage.js:890"
+   "where": "stage.js:896"
   },
   "stage.downloading_p_h3_image_from": {
    "text": "Downloading P-H3-Image from Pruna (about 18 GB, once)…",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ph3image install",
-   "where": "stage.js:825"
+   "where": "stage.js:831"
   },
   "stage.downloading_the_restyle_adapter": {
    "text": "Downloading the Restyle adapter from Hugging Face (about 300 MB, once)…",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3restyle install",
-   "where": "stage.js:962"
+   "where": "stage.js:968"
   },
   "stage.drop_click_picture_to_restyle": {
    "text": "Drop · click<br>picture to restyle",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render slot",
-   "where": "stage.js:328"
+   "where": "stage.js:334"
   },
   "stage.editing_with_minimax_h3_image": {
    "text": "Editing with MiniMax-H3-Image.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio update ref warning",
-   "where": "stage.js:417"
+   "where": "stage.js:423"
   },
   "stage.empty_text_boxes_dropped": {
    "text": {
@@ -21668,32 +21668,32 @@
     "other": "{count} empty text boxes dropped from the caption"
    },
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio generate · placeholders {count} are filled in by the app · plural: {count} is the number",
-   "where": "stage.js:2211"
+   "where": "stage.js:2217"
   },
   "stage.even_graphic_lighting": {
    "text": "even graphic lighting",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo build caption",
-   "where": "stage.js:1749"
+   "where": "stage.js:1755"
   },
   "stage.extra_virgin_olive_oil": {
    "text": "EXTRA VIRGIN OLIVE OIL",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1962"
+   "where": "stage.js:1968"
   },
   "stage.eye_level_50mm_lens_natural": {
    "text": "eye-level, 50mm lens, natural depth of field",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo build caption",
-   "where": "stage.js:1744"
+   "where": "stage.js:1750"
   },
   "stage.fix_first": {
    "text": "Fix first: ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1901"
+   "where": "stage.js:1907"
   },
   "stage.fix_the_caption_before_generating": {
    "text": "Fix the caption before generating: ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio generate",
-   "where": "stage.js:2199"
+   "where": "stage.js:2205"
   },
   "stage.gb_auto_the_4b_flux": {
    "text": " GB. Auto (the 4B FLUX engine) fits here.",
@@ -21703,12 +21703,12 @@
   "stage.gb_from_minimaxai_about_30": {
    "text": " GB from MiniMaxAI, about 30 GB of free disk while it prepares). Click the download chip next to Version.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3image not ready · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «MiniMax-H3-Image needs its one-time download (about … GB from MiniMaxAI, about 30 GB of free disk while it prepares). Click the download chip next to Version.»",
-   "where": "stage.js:844"
+   "where": "stage.js:850"
   },
   "stage.gb_mac": {
    "text": " GB Mac",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio apply memory fit · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «— needs a … GB Mac»",
-   "where": "stage.js:484"
+   "where": "stage.js:490"
   },
   "stage.gb_mac_this_one_has": {
    "text": " GB Mac — this one has ",
@@ -21718,12 +21718,12 @@
   "stage.gb_once": {
    "text": " GB, once)…",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3image install · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Downloading MiniMax-H3-Image from MiniMaxAI (about … GB, once)…»",
-   "where": "stage.js:890"
+   "where": "stage.js:896"
   },
   "stage.gb_once_generate_unlocks_when": {
    "text": " GB, once). Generate unlocks when it is done.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3image not ready · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «MiniMax-H3-Image is downloading (about … GB, once). Generate unlocks when it is done.»",
-   "where": "stage.js:840"
+   "where": "stage.js:846"
   },
   "stage.generate": {
    "text": "Generate",
@@ -21733,22 +21733,22 @@
   "stage.generate_installs_the_image_engine": {
    "text": "Generate installs the image engine, then downloads the selected model. Stop cancels either step.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render engine pill",
-   "where": "stage.js:646"
+   "where": "stage.js:652"
   },
   "stage.hand_sketched_olive_branch_with": {
    "text": "Hand-sketched olive branch with leaves and ripe olives in olive-green and sepia ink cross-hatching, the central focal point.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1953"
+   "where": "stage.js:1959"
   },
   "stage.hand_sketched_uppercase_lettering_in": {
    "text": "Hand-sketched uppercase lettering in muted olive-green ink arced gently across the top of the label.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1962"
+   "where": "stage.js:1968"
   },
   "stage.headline": {
    "text": "Headline",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo build box toolbar",
-   "where": "stage.js:1449"
+   "where": "stage.js:1455"
   },
   "stage.heads_up_ideogram_is_text": {
    "text": "Heads up: Ideogram is text-only, so your reference image will be IGNORED. Turn on \"Use reference\" above to have Ideogram redraw it from a description, or switch to a Reference Edit engine for a faithful copy.",
@@ -21758,152 +21758,152 @@
   "stage.if_it_s_still_missing": {
    "text": "If it's still missing afterwards, the sidebar also shows\n",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render engine pill · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «The Qwen-Image-Edit engine isn't installed. … This pill is a status indicator — the action is in Pinokio's … Phosphene sidebar, not in this panel: click Update there. … If it's still missing afterwards, the sidebar also shows … \"Reinstall image engines (Ideogram 4 + Qwen-Edit)\" — ~30 s, ~150 MB.»",
-   "where": "stage.js:638"
+   "where": "stage.js:644"
   },
   "stage.image_palette_is_capped_at": {
    "text": "Image palette is capped at 16 colors",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo add image palette color",
-   "where": "stage.js:1667"
+   "where": "stage.js:1673"
   },
   "stage.image_submit_failed": {
    "text": "Image submit failed: ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio generate",
-   "where": "stage.js:2322"
+   "where": "stage.js:2328"
   },
   "stage.invalid_json": {
    "text": "invalid JSON: ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo on raw input",
-   "where": "stage.js:1885"
+   "where": "stage.js:1891"
   },
   "stage.july_12_armstrong_park": {
    "text": "JULY 12 . ARMSTRONG PARK",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1944"
+   "where": "stage.js:1950"
   },
   "stage.key_order": {
    "text": ": key order ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo validate caption",
-   "where": "stage.js:1828"
+   "where": "stage.js:1834"
   },
   "stage.large_hand_drawn_wordmark_in": {
    "text": "Large hand-drawn wordmark in warm sepia-brown ink with cross-hatched shading inside the letterforms, sketched not printed.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1952"
+   "where": "stage.js:1958"
   },
   "stage.last_try": {
    "text": "Last try: ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ph3image render pill · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Last try: … Click to download P-H3-Image once from Pruna (pinned and checked, never re-hosted).»",
-   "where": "stage.js:810"
+   "where": "stage.js:816"
   },
   "stage.loaded_example_tweak_the_boxes": {
    "text": "Loaded example — tweak the boxes, then Generate",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo load example",
-   "where": "stage.js:1997"
+   "where": "stage.js:2003"
   },
   "stage.make_the_jacket_in_picture": {
    "text": "Make the jacket in Picture 1 bright red. Keep everything else the same.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio update ref warning",
-   "where": "stage.js:411"
+   "where": "stage.js:417"
   },
   "stage.minimax_h3_image_is_already": {
    "text": "MiniMax-H3-Image is already downloaded.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3image install",
-   "where": "stage.js:890"
+   "where": "stage.js:896"
   },
   "stage.minimax_h3_image_is_downloading": {
    "text": "MiniMax-H3-Image is downloading (about ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3image not ready · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «MiniMax-H3-Image is downloading (about … GB, once). Generate unlocks when it is done.»",
-   "where": "stage.js:840"
+   "where": "stage.js:846"
   },
   "stage.minimax_h3_image_is_still": {
    "text": "MiniMax-H3-Image is still downloading (about 66 GB, once). Generate unlocks when it is done.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio on pill click",
-   "where": "stage.js:984"
+   "where": "stage.js:990"
   },
   "stage.minimax_h3_image_needs_a": {
    "text": "MiniMax-H3-Image needs a newer Hailuo H3 runner than this Mac app has.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3image not ready",
-   "where": "stage.js:843"
+   "where": "stage.js:849"
   },
   "stage.minimax_h3_image_needs_its": {
    "text": "MiniMax-H3-Image needs its one-time download (about ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3image not ready · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «MiniMax-H3-Image needs its one-time download (about … GB from MiniMaxAI, about 30 GB of free disk while it prepares). Click the download chip next to Version.»",
-   "where": "stage.js:844"
+   "where": "stage.js:850"
   },
   "stage.minimax_h3_image_needs_the": {
    "text": "MiniMax-H3-Image needs the newer Hailuo H3 runner: click \"Update Hailuo H3 runner\" in Pinokio's Phosphene sidebar (your weights stay).",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3image not ready",
-   "where": "stage.js:842"
+   "where": "stage.js:848"
   },
   "stage.minimax_h3_image_shares_the": {
    "text": "MiniMax-H3-Image shares the Hailuo H3 text encoder. Install Hailuo H3 first, then come back.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3image not ready",
-   "where": "stage.js:841"
+   "where": "stage.js:847"
   },
   "stage.multi_subject_tip": {
    "text": "Multi-subject tip:",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio update ref warning",
-   "where": "stage.js:451"
+   "where": "stage.js:457"
   },
   "stage.must_be_an_object": {
    "text": " must be an object",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo validate caption",
-   "where": "stage.js:1821"
+   "where": "stage.js:1827"
   },
   "stage.natural_well_exposed_lighting": {
    "text": "natural, well-exposed lighting",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo build caption",
-   "where": "stage.js:1743"
+   "where": "stage.js:1749"
   },
   "stage.near_black_background_with_subtle": {
    "text": "Near-black background with subtle aged paper texture.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1939"
+   "where": "stage.js:1945"
   },
   "stage.needs_a": {
    "text": " — needs a ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio apply memory fit · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «— needs a … GB Mac»",
-   "where": "stage.js:484"
+   "where": "stage.js:490"
   },
   "stage.needs_hailuo_h3": {
    "text": "needs Hailuo H3",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ph3image render pill",
-   "where": "stage.js:802"
+   "where": "stage.js:808"
   },
   "stage.needs_p_h3_image": {
    "text": "needs P-H3-Image",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3restyle render pill",
-   "where": "stage.js:939"
+   "where": "stage.js:945"
   },
   "stage.new_orleans_jazz_fest": {
    "text": "NEW ORLEANS JAZZ FEST",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1942"
+   "where": "stage.js:1948"
   },
   "stage.not_allowed": {
    "text": " not allowed",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo validate caption",
-   "where": "stage.js:1799"
+   "where": "stage.js:1805"
   },
   "stage.not_uppercase_rrggbb": {
    "text": " not uppercase #RRGGBB",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo validate caption",
-   "where": "stage.js:1803"
+   "where": "stage.js:1809"
   },
   "stage.now": {
    "text": "Now: ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ph3image render pill · this label is the term “Now”: tab showing the video being made right now",
-   "where": "stage.js:794"
+   "where": "stage.js:800"
   },
   "stage.object_region": {
    "text": "Object region: ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo render boxes · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Text box: … Object region:»",
-   "where": "stage.js:1494"
+   "where": "stage.js:1500"
   },
   "stage.olive_green": {
    "text": "olive green",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo color name",
-   "where": "stage.js:1715"
+   "where": "stage.js:1721"
   },
   "stage.on_a_24_gb_mac": {
    "text": "On a 24 GB Mac, choose Q4, a small image size and at most one reference.",
@@ -21913,52 +21913,52 @@
   "stage.on_the_first_try": {
    "text": "ON THE FIRST TRY",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1973"
+   "where": "stage.js:1979"
   },
   "stage.opening": {
    "text": "Opening ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles open external",
-   "where": "stage.js:541"
+   "where": "stage.js:547"
   },
   "stage.p_h3_image_is_already": {
    "text": "P-H3-Image is already downloaded.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ph3image install",
-   "where": "stage.js:825"
+   "where": "stage.js:831"
   },
   "stage.p_h3_image_is_downloading": {
    "text": "P-H3-Image is downloading (about 18 GB, once). Generate unlocks when it is done.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ph3image not ready",
-   "where": "stage.js:776"
+   "where": "stage.js:782"
   },
   "stage.p_h3_image_is_still": {
    "text": "P-H3-Image is still downloading (about 18 GB, once). Generate unlocks when it is done.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio on pill click",
-   "where": "stage.js:991"
+   "where": "stage.js:997"
   },
   "stage.p_h3_image_needs_a": {
    "text": "P-H3-Image needs a newer Hailuo H3 runner than this Mac app has.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ph3image not ready",
-   "where": "stage.js:779"
+   "where": "stage.js:785"
   },
   "stage.p_h3_image_needs_its": {
    "text": "P-H3-Image needs its one-time download (about 18 GB from Pruna). Click the download chip next to Engine.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ph3image not ready",
-   "where": "stage.js:780"
+   "where": "stage.js:786"
   },
   "stage.p_h3_image_needs_the": {
    "text": "P-H3-Image needs the newer Hailuo H3 runner: click \"Update Hailuo H3 runner\" in Pinokio's Phosphene sidebar (your weights stay).",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ph3image not ready",
-   "where": "stage.js:778"
+   "where": "stage.js:784"
   },
   "stage.p_h3_image_runs_on": {
    "text": "P-H3-Image runs on the Hailuo H3 video pack. Install Hailuo H3 first, then come back.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ph3image not ready",
-   "where": "stage.js:777"
+   "where": "stage.js:783"
   },
   "stage.path_copied": {
    "text": "Path copied.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio copy path",
-   "where": "stage.js:2363"
+   "where": "stage.js:2369"
   },
   "stage.ph3image_reference_ignored": {
    "text": "Heads up: P-H3-Image makes pictures from words only, so your reference picture will be IGNORED. To edit or reuse a picture, switch Model to MiniMax-H3-Image.",
@@ -21968,37 +21968,37 @@
   "stage.phosphene_sidebar_not_in_this": {
    "text": "Phosphene sidebar, not in this panel: click Update there.\n",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render engine pill · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «The Qwen-Image-Edit engine isn't installed. … This pill is a status indicator — the action is in Pinokio's … Phosphene sidebar, not in this panel: click Update there. … If it's still missing afterwards, the sidebar also shows … \"Reinstall image engines (Ideogram 4 + Qwen-Edit)\" — ~30 s, ~150 MB.»",
-   "where": "stage.js:637"
+   "where": "stage.js:643"
   },
   "stage.picture_1_is_the_one": {
    "text": "Picture 1 is the one that changes.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio update ref warning",
-   "where": "stage.js:417"
+   "where": "stage.js:423"
   },
   "stage.picture_to_restyle": {
    "text": "Picture to restyle",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render slot tag",
-   "where": "stage.js:305"
+   "where": "stage.js:311"
   },
   "stage.primary": {
    "text": "Primary",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio wire ref slots",
-   "where": "stage.js:210"
+   "where": "stage.js:216"
   },
   "stage.prompt_is_required": {
    "text": "Prompt is required.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio generate",
-   "where": "stage.js:2217"
+   "where": "stage.js:2223"
   },
   "stage.put_the_hat_from_picture": {
    "text": "Put the hat from Picture 2 on the man in Picture 1. Keep his face, the light and the background the same.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio update ref warning",
-   "where": "stage.js:409"
+   "where": "stage.js:415"
   },
   "stage.queueing": {
    "text": "Queueing…",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio generate",
-   "where": "stage.js:2253"
+   "where": "stage.js:2259"
   },
   "stage.reference_images_remove": {
    "text": " reference images — remove ",
@@ -22008,62 +22008,62 @@
   "stage.reinstall_image_engines_ideogram_4": {
    "text": "\"Reinstall image engines (Ideogram 4 + Qwen-Edit)\" — ~30 s, ~150 MB.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render engine pill",
-   "where": "stage.js:639"
+   "where": "stage.js:645"
   },
   "stage.remove": {
    "text": "Remove",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render slot",
-   "where": "stage.js:323"
+   "where": "stage.js:329"
   },
   "stage.remove_palette_color": {
    "text": "Remove palette color ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo render image palette",
-   "where": "stage.js:1689"
+   "where": "stage.js:1695"
   },
   "stage.restyle_decodes_with_p_h3": {
    "text": "Restyle decodes its pictures with P-H3-Image. Click the chip to download P-H3-Image once (about 18 GB), then come back.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3restyle not ready",
-   "where": "stage.js:908"
+   "where": "stage.js:914"
   },
   "stage.restyle_is_already_downloaded": {
    "text": "The Restyle adapter is already downloaded.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3restyle install",
-   "where": "stage.js:962"
+   "where": "stage.js:968"
   },
   "stage.restyle_is_downloading": {
    "text": "Restyle is downloading its adapter (about 300 MB, once). Generate unlocks when it is done.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3restyle not ready",
-   "where": "stage.js:904"
+   "where": "stage.js:910"
   },
   "stage.restyle_is_still_downloading": {
    "text": "Restyle is still downloading its adapter (about 300 MB, once). Generate unlocks when it is done.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio on pill click",
-   "where": "stage.js:977"
+   "where": "stage.js:983"
   },
   "stage.restyle_keeps_the_pictures_shape": {
    "text": "Restyle keeps the shape of the picture you drop in.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio sync aspect",
-   "where": "stage.js:265"
+   "where": "stage.js:271"
   },
   "stage.restyle_keeps_what_is_in": {
    "text": "The picture you drop in keeps its content; the prompt names the style.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio update ref warning",
-   "where": "stage.js:395"
+   "where": "stage.js:401"
   },
   "stage.restyle_needs_a_newer_h3": {
    "text": "Restyle needs a newer Hailuo H3 runner than this Mac app has.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3restyle not ready",
-   "where": "stage.js:907"
+   "where": "stage.js:913"
   },
   "stage.restyle_needs_its_adapter": {
    "text": "Restyle needs its one-time download (about 300 MB from Hugging Face). Click the download chip next to Version.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3restyle not ready",
-   "where": "stage.js:909"
+   "where": "stage.js:915"
   },
   "stage.restyle_needs_the_newer_h3": {
    "text": "Restyle needs the newer Hailuo H3 runner: click \"Update Hailuo H3 runner\" in Pinokio's Phosphene sidebar (your weights stay).",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3restyle not ready",
-   "where": "stage.js:906"
+   "where": "stage.js:912"
   },
   "stage.restyle_needs_the_picture": {
    "text": "Drop the picture to restyle into the slot above, then say the style you want in the prompt (a clay figurine, a flat vector icon, pixel art, a felt doll).",
@@ -22073,117 +22073,117 @@
   "stage.restyle_on_hailuo_h3": {
    "text": "Restyle on Hailuo H3.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio update ref warning",
-   "where": "stage.js:395"
+   "where": "stage.js:401"
   },
   "stage.restyle_placeholder": {
    "text": "Say the style you want and what is in the picture: \"A clay figurine of a horse, soft studio light.\" or \"A flat vector icon of a snowy cathedral, teal and orange.\" or \"Retro 16-bit pixel art of a lighthouse at dusk.\"",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio update ref warning",
-   "where": "stage.js:391"
+   "where": "stage.js:397"
   },
   "stage.restyle_runs_on_hailuo_h3": {
    "text": "Restyle runs on Hailuo H3. Install Hailuo H3 first, then come back.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles h3restyle not ready",
-   "where": "stage.js:905"
+   "where": "stage.js:911"
   },
   "stage.restyle_works_best_with": {
    "text": "Works best with clay, flat vector, pixel art, felt and other bold styles; soft paintings (watercolour, oil) are hit and miss. One picture, about 2 minutes.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio update ref warning",
-   "where": "stage.js:396"
+   "where": "stage.js:402"
   },
   "stage.root_must_be_an_object": {
    "text": "root must be an object",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo validate caption",
-   "where": "stage.js:1782"
+   "where": "stage.js:1788"
   },
   "stage.say_what_to_change_and": {
    "text": "Say what to change and what to keep. With more pictures, name them: ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio update ref warning · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Editing with MiniMax-H3-Image. … Picture 1 is the one that changes. … Say what to change and what to keep. With more pictures, name them: … \"the hat from Picture 2 on the man in Picture 1\"»",
-   "where": "stage.js:418"
+   "where": "stage.js:424"
   },
   "stage.scene_background": {
    "text": "Scene & background",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply composer chrome",
-   "where": "stage.js:1185"
+   "where": "stage.js:1191"
   },
   "stage.script": {
    "text": "Script",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo build box toolbar",
-   "where": "stage.js:1449"
+   "where": "stage.js:1455"
   },
   "stage.see_how": {
    "text": "See how",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio update ref warning",
-   "where": "stage.js:420"
+   "where": "stage.js:426"
   },
   "stage.serialize_error": {
    "text": "serialize error: ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo refresh raw",
-   "where": "stage.js:1861"
+   "where": "stage.js:1867"
   },
   "stage.serif": {
    "text": "Serif",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo build box toolbar",
-   "where": "stage.js:1449"
+   "where": "stage.js:1455"
   },
   "stage.set_color": {
    "text": "Set color ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo render inspector swatches",
-   "where": "stage.js:1637"
+   "where": "stage.js:1643"
   },
   "stage.sets_up_on_first_use": {
    "text": "sets up on first use",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render engine pill",
-   "where": "stage.js:645"
+   "where": "stage.js:651"
   },
   "stage.small_hand_sketched_lettering_in": {
    "text": "Small hand-sketched lettering in golden-ochre ink beneath the branch.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1954"
+   "where": "stage.js:1960"
   },
   "stage.smaller_red_sans_serif_text": {
    "text": "Smaller red sans-serif text at the bottom with the date and venue.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1944"
+   "where": "stage.js:1950"
   },
   "stage.subhead": {
    "text": "Subhead",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo build box toolbar",
-   "where": "stage.js:1449"
+   "where": "stage.js:1455"
   },
   "stage.submit_failed": {
    "text": "Submit failed: ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio generate",
-   "where": "stage.js:2320"
+   "where": "stage.js:2326"
   },
   "stage.submitted_watch_now_recent_photos": {
    "text": "Submitted. Watch Now / Recent → Photos.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio generate",
-   "where": "stage.js:2296"
+   "where": "stage.js:2302"
   },
   "stage.text_box": {
    "text": "Text box: ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo render boxes · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Text box: … Object region:»",
-   "where": "stage.js:1494"
+   "where": "stage.js:1500"
   },
   "stage.text_elements_should_include_text": {
    "text": ": text elements should include 'text'",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo validate caption",
-   "where": "stage.js:1832"
+   "where": "stage.js:1838"
   },
   "stage.that_image_engine_needs_more": {
    "text": "That image engine needs more memory than this Mac has — switched to Auto, which fits here.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio apply memory fit",
-   "where": "stage.js:490"
+   "where": "stage.js:496"
   },
   "stage.the_color": {
    "text": "the color ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo color name",
-   "where": "stage.js:1717"
+   "where": "stage.js:1723"
   },
   "stage.the_hat_from_picture_2": {
    "text": "\"the hat from Picture 2 on the man in Picture 1\"",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio update ref warning",
-   "where": "stage.js:419"
+   "where": "stage.js:425"
   },
   "stage.the_ideogram_4_engine_needs": {
    "text": "The Ideogram 4 engine needs mflux 0.18+ (the mflux-generate-ideogram4 CLI). Update the mflux add-on, then come back and Generate.",
@@ -22193,7 +22193,7 @@
   "stage.the_ideogram_4_engine_needs_2": {
    "text": "The Ideogram 4 engine needs mflux 0.18+ ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render engine pill · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «The Ideogram 4 engine needs mflux 0.18+ … (the mflux-generate-ideogram4 CLI). Update the mflux add-on.»",
-   "where": "stage.js:625"
+   "where": "stage.js:631"
   },
   "stage.the_idle_video_engine_first": {
    "text": "the idle video engine first — but closing other apps (browsers, another render) first is safer.",
@@ -22203,22 +22203,22 @@
   "stage.the_man_from_reference_1": {
    "text": "the man from reference 1 and the woman from reference 2 sitting at a candlelit dinner, warm tungsten light, soft bokeh, photorealistic",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio update ref warning",
-   "where": "stage.js:436"
+   "where": "stage.js:442"
   },
   "stage.the_man_from_reference_1_2": {
    "text": "the man from reference 1 and the woman from reference 2 sitting at a candlelit dinner, warm tungsten light, photorealistic",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio update ref warning · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «the man from reference 1 and the woman from reference 2 sitting at a candlelit dinner, warm tungsten light, photorealistic … .\n    Without those anchors both Qwen Edit and HiDream blend the references and produce ghost-arm fusions like the one you just got.»",
-   "where": "stage.js:454"
+   "where": "stage.js:460"
   },
   "stage.the_mflux_generate_ideogram4_cli": {
    "text": "(the mflux-generate-ideogram4 CLI). Update the mflux add-on.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render engine pill",
-   "where": "stage.js:626"
+   "where": "stage.js:632"
   },
   "stage.the_model_can_t_tell": {
    "text": "the model can't tell which reference is which subject\n    unless you name them explicitly. Use the pattern",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio update ref warning · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Multi-subject tip: … the model can't tell which reference is which subject\n    unless you name them explicitly. Use the pattern»",
-   "where": "stage.js:451"
+   "where": "stage.js:457"
   },
   "stage.the_qwen_image_edit_engine": {
    "text": "The Qwen-Image-Edit engine isn't installed. It ships with the image-engine pack: click Update in Pinokio's Phosphene sidebar (NOT in this panel), then come back and Generate. If it's still missing after Update, the sidebar also shows \"Reinstall image engines (Ideogram 4 + Qwen-Edit)\" — ~30 s, ~150 MB.",
@@ -22233,17 +22233,17 @@
   "stage.the_qwen_image_edit_engine_3": {
    "text": "The Qwen-Image-Edit engine isn't installed.\nThe image-engine pack isn't available in the Mac app yet.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render engine pill",
-   "where": "stage.js:634"
+   "where": "stage.js:640"
   },
   "stage.the_qwen_image_edit_engine_4": {
    "text": "The Qwen-Image-Edit engine isn't installed.\n",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render engine pill · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «The Qwen-Image-Edit engine isn't installed. … This pill is a status indicator — the action is in Pinokio's … Phosphene sidebar, not in this panel: click Update there. … If it's still missing afterwards, the sidebar also shows … \"Reinstall image engines (Ideogram 4 + Qwen-Edit)\" — ~30 s, ~150 MB.»",
-   "where": "stage.js:635"
+   "where": "stage.js:641"
   },
   "stage.the_weight_download_was_interrupted": {
    "text": "The weight download was interrupted at {v} GB — Generate resumes it. Nothing already downloaded is fetched again.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render engine pill · placeholders {v} are filled in by the app",
-   "where": "stage.js:660"
+   "where": "stage.js:666"
   },
   "stage.this_engine_composes_against_a": {
    "text": "This engine composes against a photo — drop one into a slot above, or pick FLUX.2, FLUX 3 or Ideogram 4 in Model (top of the column) to make a picture from words alone.",
@@ -22253,7 +22253,7 @@
   "stage.this_engine_holds": {
    "text": "This engine holds ~",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render engine pill",
-   "where": "stage.js:617"
+   "where": "stage.js:623"
   },
   "stage.this_engine_needs_a": {
    "text": "This engine needs a ",
@@ -22268,12 +22268,12 @@
   "stage.this_pill_is_a_status": {
    "text": "This pill is a status indicator — the action is in Pinokio's\n",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render engine pill · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «The Qwen-Image-Edit engine isn't installed. … This pill is a status indicator — the action is in Pinokio's … Phosphene sidebar, not in this panel: click Update there. … If it's still missing afterwards, the sidebar also shows … \"Reinstall image engines (Ideogram 4 + Qwen-Edit)\" — ~30 s, ~150 MB.»",
-   "where": "stage.js:636"
+   "where": "stage.js:642"
   },
   "stage.tiny_hand_sketched_volume_note": {
    "text": "Tiny hand-sketched volume note in sepia ink near the bottom.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1964"
+   "where": "stage.js:1970"
   },
   "stage.to_generate": {
    "text": " to generate.",
@@ -22283,77 +22283,77 @@
   "stage.type_must_be_obj_or": {
    "text": ": type must be 'obj' or 'text'",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo validate caption",
-   "where": "stage.js:1824"
+   "where": "stage.js:1830"
   },
   "stage.type_text": {
    "text": "Type text…",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo render boxes",
-   "where": "stage.js:1503"
+   "where": "stage.js:1509"
   },
   "stage.unknown_key": {
    "text": ": unknown key ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo validate caption",
-   "where": "stage.js:1823"
+   "where": "stage.js:1829"
   },
   "stage.update_the_h3_runner": {
    "text": "update the H3 runner",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ph3image render pill",
-   "where": "stage.js:802"
+   "where": "stage.js:808"
   },
   "stage.upload_failed": {
    "text": "Upload failed: ",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio upload ref",
-   "where": "stage.js:1022"
+   "where": "stage.js:1028"
   },
   "stage.uses_your_saved_settings_engine": {
    "text": "Uses your saved Settings engine",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render engine pill",
-   "where": "stage.js:590"
+   "where": "stage.js:596"
   },
   "stage.valid_click_apply_edits_to": {
    "text": "Valid — click Apply edits to load it into the canvas.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo on raw input",
-   "where": "stage.js:1888"
+   "where": "stage.js:1894"
   },
   "stage.vertical_botanical_olive_branch_illustra": {
    "text": "Vertical botanical olive-branch illustration in olive-green and sepia ink, the central focal point.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1963"
+   "where": "stage.js:1969"
   },
   "stage.warm_cream_aged_parchment_filling": {
    "text": "Warm cream aged parchment filling the square frame with soft deckle edges.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1949"
+   "where": "stage.js:1955"
   },
   "stage.warm_ivory_paper_with_letterpress": {
    "text": "Warm ivory paper with letterpress texture and margin ticks filling the tall narrow frame.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1959"
+   "where": "stage.js:1965"
   },
   "stage.weights_are_cached_locally": {
    "text": "Weights are cached locally",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render engine pill",
-   "where": "stage.js:652"
+   "where": "stage.js:658"
   },
   "stage.weights_not_cached_first_run": {
    "text": "Weights not cached — first run will download ~{v} GB",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render engine pill · placeholders {v} are filled in by the app",
-   "where": "stage.js:666"
+   "where": "stage.js:672"
   },
   "stage.weights_not_cached_first_run_2": {
    "text": "Weights not cached — first run will fetch",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio render engine pill",
-   "where": "stage.js:667"
+   "where": "stage.js:673"
   },
   "stage.when_the_build_passes": {
    "text": "WHEN THE BUILD PASSES",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles ideo apply raw",
-   "where": "stage.js:1972"
+   "where": "stage.js:1978"
   },
   "stage.without_those_anchors_both_qwen": {
    "text": ".\n    Without those anchors both Qwen Edit and HiDream blend the references and produce ghost-arm fusions like the one you just got.",
    "note": "Studio · in the Images screen and its text-on-picture layout editor · written by the code that handles img studio update ref warning · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «the man from reference 1 and the woman from reference 2 sitting at a candlelit dinner, warm tungsten light, photorealistic … .\n    Without those anchors both Qwen Edit and HiDream blend the references and produce ghost-arm fusions like the one you just got.»",
-   "where": "stage.js:454"
+   "where": "stage.js:460"
   },
   "stageModeToggle.aria-label.stage_view": {
    "text": "Stage view",
