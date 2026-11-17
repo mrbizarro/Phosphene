@@ -28,6 +28,21 @@ class Busy(UpdateError):
     pass
 
 
+EDITS_MESSAGE = 'Local source edits are present. Save or commit them before retrying Update. Nothing was discarded.'
+EDITS_CHOICES = ('stash', 'discard')
+
+
+class LocalEdits(UpdateError):
+    """Tracked files have uncommitted edits and no update is in flight.
+
+    Only then may a caller ask the person and retry with prepare(edits=...):
+    nothing is pinned and nothing has moved, so setting the edits aside
+    cannot leave a half-applied update behind."""
+    def __init__(self, files):
+        super().__init__(EDITS_MESSAGE)
+        self.files = files
+
+
 class Transaction:
     def __init__(self, root):
         self.root = Path(root).resolve()
@@ -35,13 +50,13 @@ class Transaction:
         self.directory = Path(self.git('rev-parse', '--absolute-git-dir'))
         self.path = self.directory / 'phosphene-update.json'
 
-    def command(self, args, *, env=None):
+    def command(self, args, *, env=None, strip=True):
         p = subprocess.run(args, cwd=self.root, env=env, capture_output=True,
                            text=True, errors='replace', timeout=180,
                            pass_fds=(() if self.fd is None else (self.fd,)))
         if p.returncode:
             raise UpdateError((p.stdout + p.stderr).strip() or f'Command stopped (exit {p.returncode}).')
-        return p.stdout.strip()
+        return p.stdout.strip() if strip else p.stdout
 
     def git(self, *args):
         return self.command(['git', *args])
@@ -95,32 +110,121 @@ class Transaction:
         cmd = 'cd ' + shlex.quote(str(self.root)) + ' && bash scripts/pinokio/update_transaction.sh'
         note = ('Python packages may have changed; restoring source alone does not restore them.'
                 if rec.get('dependencies_started') else 'Dependency repair has not started.')
-        return f'Retry this same update: {cmd}. Previous source: {ref or rec.get("previous", "unknown")}. {note}'
+        aside = self.edits_note(rec)
+        return (f'Retry this same update: {cmd}. Previous source: {ref or rec.get("previous", "unknown")}. {note}'
+                + (' ' + aside if aside else ''))
 
-    def clean(self):
+    def edits_note(self, rec):
+        # Only while that update is unfinished: afterwards the stash is the person's.
+        aside = rec.get('set_aside') or {}
+        if aside.get('how') != 'stash' or rec.get('phase') in ('succeeded', 'current'):
+            return ''
+        return (f'Your edits are in the Git stash as "{aside["message"]}"; '
+                'bring them back with git stash pop after the update.')
+
+    def clean(self, offer=False):
         if self.git('status', '--porcelain', '-uno'):
-            raise UpdateError('Local source edits are present. Save or commit them before retrying Update. Nothing was discarded.')
+            if offer:
+                raise LocalEdits(self.edited())
+            raise UpdateError(EDITS_MESSAGE)
 
-    def prepare(self):
+    def edited(self):
+        """Tracked paths with staged or unstaged edits; a rename names both sides."""
+        fields = self.command(['git', 'status', '--porcelain', '-z', '-uno'], strip=False).split('\0')
+        files = []
+        while fields and fields[0]:
+            entry = fields.pop(0)
+            files.append(entry[3:])
+            if 'R' in entry[:2] or 'C' in entry[:2]:
+                files.append(fields.pop(0))
+        return files
+
+    def _set_aside(self, rec, edits):
+        # The person's own answer, honoured only before a candidate is pinned.
+        # HEAD does not move; untracked and ignored files are not touched.
+        files = self.edited()
+        when = time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())
+        before = self.git('stash', 'list', '-1', '--format=%H')
+        snapshot = ''
+        try:
+            if edits == 'stash':
+                message = f'Phosphene update {when}'
+                self.git('stash', 'push', '-q', '-m', message)
+                aside = dict(how='stash', message=message,
+                             commit=self.git('rev-parse', 'refs/stash'), files=files)
+            else:
+                # The person confirmed the loss. The snapshot commit has no
+                # ref, so Git prunes it on its own schedule: recorded for
+                # support, never offered as an undo.
+                snapshot = self.git('stash', 'create', f'Phosphene update {when} (discarded)')
+                self.git('reset', '-q', '--hard', 'HEAD')
+                aside = dict(how='discard', commit=snapshot, files=files)
+        except UpdateError as exc:
+            if snapshot:
+                where = (f'Some edits may already be discarded; a copy of all of them is in commit '
+                         f'{snapshot} (git stash apply {snapshot}).')
+            elif self.git('stash', 'list', '-1', '--format=%H') != before:
+                where = 'They are in the Git stash; bring them back with git stash pop.'
+            else:
+                where = 'Nothing was set aside or discarded.'
+            raise UpdateError(f'Could not set the local edits aside: {exc} {where}') from exc
+        return self.save(rec, set_aside=aside)
+
+    def contains(self, tip, commit):
+        # Whether commit is in tip's history. Counting also answers for
+        # unrelated histories, where merge-base exits nonzero.
+        return self.git('rev-list', '--count', tip + '..' + commit) == '0'
+
+    def _never_applies(self, rec):
+        # Earlier versions pinned any upstream tip, including one HEAD already
+        # contained (a local commit on main) or could not fast-forward to. Such
+        # a record never moved source or started repair, and its checks refuse
+        # every later Update. A real candidate is always a fast-forward of
+        # previous, so this cannot release an update that is in flight.
+        return (rec['phase'] in ('source_pending', 'source_ready')
+                and not rec.get('dependencies_started')
+                and not self.contains(rec['candidate'], rec['previous']))
+
+    def prepare(self, edits=None):
+        """edits=None refuses local edits (LocalEdits when none is in flight).
+        'stash' or 'discard' is the person's answer to that refusal."""
+        if edits is not None and edits not in EDITS_CHOICES:
+            raise UpdateError(f'Unknown choice for local edits: {edits!r}. Nothing was changed.')
         with self.locked():
-            rec = self.read()
-            if rec and rec['phase'] not in ('succeeded', 'current'):
-                return self._resume_source(rec)
-            if rec.get('phase') == 'succeeded':
-                self.clean()
-                self.git('fetch', rec['upstream'].split('/')[0])
-                if (self.git('rev-parse', 'HEAD') == rec['candidate']
-                        and self.git('rev-parse', rec['upstream'] + '^{commit}') == rec['candidate']):
-                    return rec
-            old = self.git('rev-parse', 'HEAD')
-            upstream = self.git('rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}')
-            rec = dict(schema=1, id=uuid.uuid4().hex, previous=old,
-                       previous_ref='', candidate='', upstream=upstream,
-                       phase='fetching', dependencies_started=False)
-            self.save(rec)
-            return self._resume_source(rec)
+            try:
+                return self._prepare(edits)
+            except (LocalEdits, Busy):
+                raise
+            except UpdateError as exc:
+                # Whatever stops the update after a stash says where the edits are.
+                note = self.edits_note(self.read())
+                if note and note not in str(exc):
+                    raise UpdateError(f'{exc} {note}') from exc
+                raise
 
-    def _resume_source(self, rec):
+    def _prepare(self, edits):
+        rec = self.read()
+        if rec and rec['phase'] not in ('succeeded', 'current') and not self._never_applies(rec):
+            # The answer only counts in 'fetching' (nothing pinned; the usual
+            # state after the refusal it answers). Later, a dirty tree may be
+            # an interrupted checkout, so the existing refusal stands.
+            return self._resume_source(rec, edits)
+        if rec.get('phase') == 'succeeded':
+            if edits is None:
+                self.clean(offer=True)
+            self.git('fetch', rec['upstream'].split('/')[0])
+            if (self.git('rev-parse', 'HEAD') == rec['candidate']
+                    and self.git('rev-parse', rec['upstream'] + '^{commit}') == rec['candidate']):
+                return rec
+        old = self.git('rev-parse', 'HEAD')
+        upstream = self.git('rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}')
+        rec = dict(schema=1, id=uuid.uuid4().hex, previous=old,
+                   previous_ref='', candidate='', upstream=upstream,
+                   phase='fetching', dependencies_started=False)
+        self.save(rec)
+        return self._resume_source(rec, edits)
+
+    def _resume_source(self, rec, edits=None):
         phase = rec['phase']
         if phase in ('awaiting_restart', 'restart_requested', 'succeeded', 'dependencies', 'dependencies_failed', 'source_ready'):
             if self.git('rev-parse', 'HEAD') != rec['candidate']:
@@ -129,7 +233,10 @@ class Transaction:
         # Fetch does not change source. A retry may fetch again, but once a
         # candidate is recorded every retry uses that exact commit.
         if phase == 'fetching':
-            self.clean()
+            if edits is None:
+                self.clean(offer=True)
+            elif not self.git('status', '--porcelain', '-uno'):
+                edits = None   # nothing to set aside
             head = self.git('rev-parse', 'HEAD')
             if head != rec['previous']:
                 # No source/dependency mutation has begun. A user may have
@@ -137,8 +244,26 @@ class Transaction:
                 self.save(rec, previous=head)
             self.git('fetch', rec['upstream'].split('/')[0])
             target = self.git('rev-parse', rec['upstream'] + '^{commit}')
-            if target == rec['previous']:
-                return self.save(rec, phase='current', candidate=target)
+            if self.contains(rec['previous'], target):
+                # Upstream itself, or upstream plus local commits: nothing to
+                # apply. Pinning upstream here would leave HEAD != candidate.
+                return self.save(rec, phase='current', candidate=rec['previous'])
+            if not self.contains(target, rec['previous']):
+                # Diverged: --ff-only can never reach this target. Nothing has
+                # moved, so close the record rather than pin a candidate that
+                # would refuse every Update after the user reconciles.
+                message = (f'This copy has commits that {rec["upstream"]} does not, and '
+                           f'{rec["upstream"]} has commits this copy lacks, so Update cannot '
+                           'fast-forward. Nothing was changed. Rebase or merge your commits '
+                           f'onto {rec["upstream"]} (for example git pull --rebase in the app '
+                           'folder), then run Update again.')
+                self.save(rec, phase='current', candidate=rec['previous'], error=message)
+                raise UpdateError(message)
+            if edits:
+                # The last moment before a candidate is pinned: the fetch
+                # worked and there is something to apply. Up to date or
+                # diverged above leaves the edits exactly where they were.
+                self._set_aside(rec, edits)
             ref = 'refs/phosphene/updates/' + rec['id'] + '/previous'
             self.git('update-ref', ref, rec['previous'])
             self.save(rec, phase='source_pending', candidate=target, previous_ref=ref)

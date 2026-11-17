@@ -12,9 +12,30 @@ replace a candidate awaiting repair or restart. After a successful boot, a new
 Update can fetch a newer candidate.
 
 Local tracked edits, local commits and conflicting untracked or ignored files
-are kept. Save or commit edits before retrying. Divergent history now stops for
-manual reconciliation instead of resetting local commits. Update never runs
-`git clean`, stashes changes, or resets the source with `--hard`.
+are kept. Save or commit edits before retrying. A copy whose local commits sit
+on top of the newest upstream source is already up to date. Divergent history
+stops for manual reconciliation instead of resetting local commits: Update
+says so before it records a candidate or moves anything, and works again once
+the commits are rebased or merged onto upstream. Update never runs
+`git clean`, and it never stashes or discards edits, or resets the source
+with `--hard`, without being asked.
+
+Being asked happens in one place: the studio's own Update button, when
+tracked files have uncommitted edits and no update is in flight. It names the
+files and offers three answers. **Set aside and update** runs `git stash`
+(tracked edits only, message `Phosphene update <UTC time>`); bring them back
+with `git stash pop` after the new version starts. Update never pops them
+itself, because they could clash with the new version's changes to the same
+files. **Discard my changes** asks a second time, naming the files, then
+restores tracked files to the current commit; it cannot be undone from the
+studio. (The record's `set_aside.commit` names an unreferenced snapshot that
+Git prunes on its own schedule; it is for support, not an undo.) **Cancel**
+changes nothing. Untracked and ignored files are never touched. The answer is
+honoured only before a candidate is recorded: after the fetch, and not when
+the copy is already up to date or has diverged. While an update is in flight
+a dirty tree may be an interrupted checkout, so Update keeps refusing. If an
+update stops after a stash, its message says the edits are in the stash.
+Pinokio's Update has no dialog and still stops on local edits.
 
 ## What the record preserves
 

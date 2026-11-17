@@ -1102,6 +1102,14 @@ packages, weights) is not installed by it. Since 4.17.4 the panel installs a
 missing Lip-sync voice separator itself at the next start (see
 `/a2v/separator`).
 
+When tracked files have uncommitted edits and no update is in flight,
+`/version/pull` answers `409` with `code: "local_edits"`, `files` (at most 20
+tracked paths) and `files_total`. The form field `edits=stash` or
+`edits=discard` is the person's answer (`docs/UPDATE_RECOVERY.md`); any other
+value is `400` with `code: "bad_choice"` and changes nothing. A response to an
+answer carries `set_aside: {how, message, files, files_total}` when the edits
+were set aside or discarded, and `null` when there was nothing to do.
+
 ### `POST /engine/repair`
 
 Re-runs only the engine-environment step (`scripts/pinokio/ltx_engine_env.sh`,
