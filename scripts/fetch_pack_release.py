@@ -81,6 +81,7 @@ import shutil
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -216,6 +217,82 @@ def asset_urls(mirror: dict, asset: str) -> list[str]:
     return urls
 
 
+#: Hugging Face: the same bytes on our own account (pages open since 17 Nov 2026, card #872).
+#: HF holds each file WHOLE, so a shard is asked for as a byte range of it (HF answers
+#: ranges from its CDN). Big files come from HF FIRST and our server keeps only small
+#: files (owner, card #871: "don't serve big files from the server"); small files keep
+#: our server first and HF last. Only repos under our account qualify, plus the exact
+#: official files listed in HF_OFFICIAL_COPIES. A gated repo answers 401 without a key,
+#: which counts as "not there". The shard sha256 check is unchanged, so no source can
+#: change what lands on disk. PHOSPHENE_PACK_HF replaces the base (test rooms); an
+#: empty value turns HF off.
+HF_BASE = "https://huggingface.co"
+HF_OWN_ACCOUNT = "mrbizarro"
+_RANGE_MARK = "#bytes="
+#: A file at least this big is "big": HF first, our server only as a fallback.
+BIG_FILE_BYTES = 32 << 20
+#: Official upstream files that open public pages hold byte for byte, by sha256 of the
+#: whole file -> (repo, path) pairs tried after our own repo. Checked 17 Nov 2026.
+HF_OFFICIAL_COPIES: dict[str, tuple[tuple[str, str], ...]] = {
+    # LTX-2.5 distilled LoRA (Lightricks' file; the High add-on's second piece)
+    "86370bbf79a9eb4edaa158907e2b48a5188fe4c5dc8ce30c7eb8f2f131a9bbf5": (
+        ("comfyicu/LTX-2.5", "loras/ltx-2.5-22b-distilled-lora-450-bf16.safetensors"),
+    ),
+}
+
+
+def _hf_base() -> str:
+    env = os.environ.get("PHOSPHENE_PACK_HF")
+    return HF_BASE if env is None else env.strip()
+
+
+def hf_repo_of(repo: dict) -> str | None:
+    rid = str(repo.get("repo_id") or "")
+    if rid.split("/", 1)[0].lower() != HF_OWN_ACCOUNT or "/" not in rid:
+        return None
+    return rid
+
+
+def _hf_slice(rid: str, path: str, start: int, length: int) -> str | None:
+    base = _hf_base()
+    if not rid or not base or length <= 0:
+        return None
+    quoted = urllib.parse.quote(path)
+    return f"{base.rstrip('/')}/{rid}/resolve/main/{quoted}{_RANGE_MARK}{start}-{start + length - 1}"
+
+
+def hf_range_url(mirror: dict, name: str, start: int, length: int) -> str | None:
+    """URL for bytes [start, start+length) of ``name`` in our HF repo, or None."""
+    return _hf_slice(mirror.get("hf_repo") or "", name, start, length)
+
+
+def hf_sources(mirror: dict, name: str, sha256: str, start: int, length: int) -> list[str]:
+    """Every HF place for this slice: our own repo, then official copies of the same file."""
+    urls = [hf_range_url(mirror, name, start, length)]
+    urls += [_hf_slice(rid, path, start, length)
+             for rid, path in HF_OFFICIAL_COPIES.get(sha256, ())]
+    return [u for u in urls if u]
+
+
+def shard_sources(mirror: dict, name: str, spec: dict, asset: str,
+                  start: int, length: int) -> list[str]:
+    """Where one shard can come from, in order. Big file: HF, then our server, then
+    GitHub. Small file: our server, then GitHub, then HF."""
+    ours = asset_urls(mirror, asset)
+    hf = hf_sources(mirror, name, str(spec.get("sha256") or ""), start, length)
+    if int(spec.get("bytes") or 0) >= BIG_FILE_BYTES:
+        return hf + ours
+    return ours + hf
+
+
+def _split_range(url: str) -> tuple[str, int | None, int | None]:
+    if _RANGE_MARK in url:
+        bare, rng = url.split(_RANGE_MARK, 1)
+        a, b = rng.split("-", 1)
+        return bare, int(a), int(b)
+    return url, None, None
+
+
 class _Gone(Exception):
     """The server answered 404/403/410 for this URL: try the next source at once."""
 
@@ -260,7 +337,16 @@ def _open(url: str, offset: int, timeout: int):
     ignored the Range header (some proxies do) -- the caller then restarts the
     shard from zero rather than assuming a byte position it cannot verify.
     """
+    url, start, end = _split_range(url)
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    if start is not None:
+        # A slice of a whole file (the HF source): only a 206 is the slice we asked for.
+        req.add_header("Range", f"bytes={start + offset}-{end}")
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        if resp.status != 206:
+            resp.close()
+            raise RuntimeError(f"source ignored the byte range (HTTP {resp.status})")
+        return resp, bool(offset)
     if offset:
         req.add_header("Range", f"bytes={offset}-")
     resp = urllib.request.urlopen(req, timeout=timeout)
@@ -310,7 +396,7 @@ def download_shard(url: str, dest: Path, expect_bytes: int, expect_sha: str,
                 raise RuntimeError(f"shard size mismatch (expected {expect_bytes}, got {size})")
             return
         except urllib.error.HTTPError as e:
-            if e.code in (403, 404, 410):
+            if e.code in (401, 403, 404, 410):
                 raise _Gone(f"HTTP {e.code}") from e
             last_err = e
             if attempt < attempts:
@@ -334,7 +420,7 @@ def fetch_json(url: str, *, attempts: int, timeout: int) -> dict:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
-            if e.code in (403, 404, 410):
+            if e.code in (401, 403, 404, 410):
                 raise _Gone(f"HTTP {e.code}") from e
             last_err = e
             if attempt < attempts:
@@ -461,13 +547,17 @@ def assemble_file(name: str, spec: dict, dest_dir: Path, mirror: dict,
     elif partial.exists():
         partial.unlink()
 
+    offsets = [0]
+    for shard in shards:
+        offsets.append(offsets[-1] + int(shard["bytes"]))
     for idx, shard in enumerate(shards):
         if idx < done:
             continue
         asset = shard["asset"]
         label = f"{name} [{idx + 1}/{len(shards)}]"
         shard_path = _pack_path(parts_dir, asset)
-        _first_source(asset_urls(mirror, asset),
+        sources = shard_sources(mirror, name, spec, asset, offsets[idx], int(shard["bytes"]))
+        _first_source(sources,
                       lambda url: download_shard(url, shard_path,
                                                  int(shard["bytes"]), shard["sha256"],
                                                  attempts=attempts, timeout=timeout, label=label),
@@ -520,7 +610,7 @@ def check_pack(manifest: dict, dest_dir: Path) -> list[str]:
 def fetch_pack(repo_key: str, root: Path, dest: Path | None,
                *, attempts: int, timeout: int, check_only: bool) -> int:
     repo = load_repo_entry(repo_key, root)
-    mirror = mirror_of(repo)
+    mirror = dict(mirror_of(repo), hf_repo=hf_repo_of(repo))
     dest_dir = dest or (root / repo["local_dir"])
     # Native bootstrap uses Python -I, which omits the script directory from
     # sys.path. Load our sibling by its exact source path in that mode too.
