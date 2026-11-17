@@ -25655,6 +25655,22 @@ UPSCALE_FULL_CLIP_FRAMES = 129
 # tier's own size cap included), not on a blind ×2.
 UPSCALE_MAX_OUTPUT_W = 2560
 UPSCALE_MAX_OUTPUT_H = 1440
+# H14 (2026-11-16): QHD is a 96 GB number. The ×2 refine's peak is
+# activations (~0.8 MB per token, lab L53): 2048×1152 measured 53 GB on Q8
+# and Q4 alike, so QHD (1.56× the pixels) needs ~80 GB. 64 GB Macs were
+# allowed QHD and jetsam killed the helper every time ("helper exited from
+# SIGKILL", one M1 Max 64 GB six times across 5.0.22-5.0.25), while the
+# message told them to retry. Under 96 GB the limit is the measured lane.
+UPSCALE_MAX_OUTPUT_RAM_GB = 96
+UPSCALE_MAX_OUTPUT_SMALL_W = 2048
+UPSCALE_MAX_OUTPUT_SMALL_H = 1152
+
+
+def upscale_max_output() -> tuple[int, int]:
+    """The landscape (w, h) whose PIXELS bound an Upscale ×2 on this Mac."""
+    if float(SYSTEM_RAM_GB or 0) < UPSCALE_MAX_OUTPUT_RAM_GB:
+        return UPSCALE_MAX_OUTPUT_SMALL_W, UPSCALE_MAX_OUTPUT_SMALL_H
+    return UPSCALE_MAX_OUTPUT_W, UPSCALE_MAX_OUTPUT_H
 
 
 def upscale_output_canvas(src_w, src_h) -> tuple[int, int] | None:
@@ -25682,12 +25698,12 @@ def upscale_output_refusal(src_w, src_h) -> str | None:
     out_w, out_h = canvas
     # PIXELS, not a rectangle (Codex 4.19.2): a square 768 source becomes
     # 1536x1536 - 2.4 MP, well under QHD's 3.7 MP - and a box test refused it.
-    if out_w * out_h <= UPSCALE_MAX_OUTPUT_W * UPSCALE_MAX_OUTPUT_H:
+    max_w, max_h = upscale_max_output()
+    if out_w * out_h <= max_w * max_h:
         return None
     sw, sh = int(src_w), int(src_h)
     portrait = sh > sw
-    lim_w, lim_h = ((UPSCALE_MAX_OUTPUT_H, UPSCALE_MAX_OUTPUT_W) if portrait
-                    else (UPSCALE_MAX_OUTPUT_W, UPSCALE_MAX_OUTPUT_H))
+    lim_w, lim_h = (max_h, max_w) if portrait else (max_w, max_h)
     return (f"The source is {sw}×{sh}; ×2 would be {out_w}×{out_h}, above the "
             f"{lim_w}×{lim_h} limit. Render the source at "
             f"{lim_w // 2}×{lim_h // 2} or smaller.")

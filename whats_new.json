@@ -405,5 +405,13 @@
     "pro": [],
     "date": "2026-11-17",
     "headline": "Fix: steadier LTX on M2 Pro/Max, faster H3 finish on 16-24 GB Macs."
+  },
+  "5.0.36": {
+    "free": [
+      "Upscale x2 on Macs under 96 GB stops at 2048x1152, the size that fits, instead of being stopped for memory after a long wait."
+    ],
+    "pro": [],
+    "date": "2026-11-17",
+    "headline": "Fix: Upscale x2 on 64 GB Macs no longer runs out of memory."
   }
 }
