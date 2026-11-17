@@ -62,7 +62,7 @@ function rmIsMember(st) {
 function rmWaitView(st) {
   const parts = st.parts || {};
   let title = T('remote.remote_control_is_being_set', 'Remote Control is being set up');
-  let body = T('remote.your_pro_licence_is_active', 'Your Pro licence is active. Checking for the Remote Control components.');
+  let body = T('remote.your_pro_licence_is_active_getting', 'Your Pro licence is active. Getting Remote Control ready.');
   let err = '';
   let retry = false, settings = false;
   let start = false;
@@ -70,7 +70,7 @@ function rmWaitView(st) {
     // Pro was switched on after the engine started: the engine that is running is the Free one
     // and Remote lives in the Pro one. The app starts it for you, no restart of Phosphene needed.
     title = T('remote.set_up_remote', 'Set up Remote');
-    body = T('remote.pro_is_on_one_step', 'Pro is on. One step left: start Remote. Phosphene restarts its engine for a moment; your clips and queue are kept.');
+    body = T('remote.pro_is_on_one_step_left', 'Pro is on. One step left: start Remote. Phosphene restarts for a moment; your clips and queue stay.');
     start = true;
   } else if (st.needs_licence) {
     title = T('remote.one_more_step_your_key', 'One more step: your key in this Studio');
@@ -78,7 +78,7 @@ function rmWaitView(st) {
     settings = true;
   } else if (parts.restart_needed) {
     title = T('remote.restart_the_studio_to_finish', 'Restart the Studio to finish');
-    body = T('remote.new_remote_control_components_are', 'New Remote Control components are installed. ') + distText(
+    body = T('remote.remote_control_is_installed', 'Remote Control is installed. ') + distText(
       T('remote.restart_phosphene_in_pinokio_to', 'Restart Phosphene in Pinokio to start using them.'),
       T('remote.use_studio_restart_engine_to', 'Use Studio \u2192 Restart Engine to start using them.'));
   } else if (parts.busy) {
@@ -87,7 +87,7 @@ function rmWaitView(st) {
     body = T('remote.this_takes_a_minute_this', 'This takes a minute. This page updates by itself.');
   } else if (parts.error) {
     title = T('remote.remote_control_could_not_be', 'Remote Control could not be installed yet');
-    body = T('remote.your_pro_licence_is_fine', 'Your Pro licence is fine. The components did not install.');
+    body = T('remote.your_pro_licence_is_fine_but', 'Your Pro licence is fine, but Remote Control did not install. Press Try again.');
     err = parts.message || 'Try again in a moment.';
     retry = true;
   } else if (st.next) {

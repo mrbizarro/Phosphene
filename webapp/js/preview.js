@@ -1930,10 +1930,10 @@ async function refreshModelsModal({ silent = false } = {}) {
   const active = data.active_download;
   hint.innerHTML = data.hf_available
     ? `${T('preview.each_row_shows_what_s', 'Each row shows what\'s on disk. Click')} <b>${T('preview.download', 'Download')}</b> ${T('preview.to_fetch_the_missing_files', 'to fetch the missing files; progress streams to the log at the bottom of the page. Everything is resumable and checksum-verified.')}`
-    : `<span style="color:var(--warning,#d29922)"><svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-fill"/></svg><code>hf</code> ${T('preview.not_found', 'not found')}</span> — ` + distText(
-        `${T('preview.this_pinokio_install_doesn_t', 'this Pinokio install doesn\'t have')} <code>huggingface_hub&gt;=1.0</code> ${T('preview.in_the_venv_run_update', 'in the venv. Run Update from Pinokio, then come back.')}`,
-        `${T('preview.this_install_doesn_t_have', 'this install doesn\'t have')} <code>huggingface_hub&gt;=1.0</code> ${T('preview.in_the_venv_quit_phosphene', 'in the venv. Quit Phosphene and open it again to rerun setup, then come back.')}`)
-      + T('preview.the_ltx_2_5_rows', ' The LTX-2.5 rows do not need it — they download from a GitHub release.');
+    : `<span style="color:var(--warning,#d29922)"><svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-fill"/></svg>${T('preview.the_download_tool_is_missing', 'The download tool is missing.')}</span> ` + distText(
+        T('preview.press_update_in_pinokio_then', 'Press Update in Pinokio, then come back.'),
+        T('preview.quit_phosphene_and_open_it', 'Quit Phosphene and open it again to repair it, then come back.'))
+      + T('preview.the_ltx_2_5_models_still', ' The LTX-2.5 models still download without it.');
   // A row whose HOST pack is missing cannot usefully be downloaded: the add-on
   // lands INSIDE that pack's directory and loads from there by name, so
   // fetching it alone produces a folder holding two files and nothing else. The

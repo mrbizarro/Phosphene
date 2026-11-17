@@ -35,6 +35,8 @@ If you installed Phosphene through Pinokio on this Mac, the app reuses its model
 You need an Apple Silicon Mac (M1 or newer).
 [[/mac-app]]
 
+> **If GitHub is down** The same code is also on GitLab: `https://gitlab.com/phosphene1/phosphene`. Paste that address in **Download from URL** instead.
+
 ## What gets downloaded, and how much space you need {#disk}
 
 [[pinokio]]

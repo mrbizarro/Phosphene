@@ -131,8 +131,8 @@ function renderVersionPill() {
     // (panelRestart(), same as the stale-process case below) instead of
     // asking for a manual Stop -> Start.
     pill.title = s.pull_requires_full_update
-      ? T('health.pulled_this_update_touched_dependencies', 'Pulled {v}. This update touched dependencies — use Pinokio\'s Update button (not just Stop+Start).', {v})
-      : T('health.pulled_click_to_restart_and', 'Pulled {v}. Click to restart and apply it.', {v});
+      ? T('health.v_is_downloaded_finish_in_pinokio', '{v} is downloaded. To finish, stop Phosphene in Pinokio and press Update there (Stop and Start is not enough this time).', {v})
+      : T('health.v_is_downloaded_click_to', '{v} is downloaded. Click to restart and use it.', {v});
     return;
   }
   // Same restart affordance for a checkout that advanced UNDER this
@@ -187,7 +187,7 @@ function renderVersionPill() {
   if (!s.error && s.checked_ts && (s.behind_by | 0) > 0) {
     pill.classList.add('pill-update');
     pill.innerHTML = `<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-arrow-up"/></svg>Update to ${remote}`;
-    pill.title = T('health.you_re_on_latest_is', 'You\'re on {local}; latest is {remote}. Click to pull the update.', {local, remote});
+    pill.title = T('health.you_have_local_remote_is', 'You have {local}; {remote} is out. Click to update.', {local, remote});
     return;
   }
   // Last check errored (offline).
@@ -436,10 +436,18 @@ function _ubRestartState(newVersion, requiresFullUpdate) {
     if (title) title.textContent = pu.state === 'failed'
       ? T('health.the_update_did_not_finish', 'The update did not finish')
       : `Preparing version ${newVersion}...`;
-    if (sub) sub.textContent = pu.state === 'failed'
-      ? (pu.error || 'post_update.sh failed') + T('health.use_pinokio_s_update_stop', ' \u2014 use Pinokio\u2019s Update (Stop, then Update), or try again.')
-      : T('health.installing_what_the_new_version', 'Installing what the new version needs (the same step Pinokio\u2019s Update runs). ')
-        + T('health.restart_becomes_available_when_it', 'Restart becomes available when it finishes. ') + ((pu.log || []).slice(-1)[0] || '');
+    if (sub) {
+      // Plain words (17 Nov 2026): the raw reason stays one click away under
+      // Details, never the main line.
+      const esc = (t) => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+      if (pu.state === 'failed') {
+        sub.innerHTML = esc(T('health.press_try_again_if_it', 'Press Try again. If it fails again, stop Phosphene in Pinokio and press Update there.'))
+          + (pu.error ? '<details class="h3-diag"><summary>' + esc(T('health.details_for_troubleshooting', 'Details for troubleshooting'))
+            + '</summary><p>' + esc(pu.error) + '</p></details>' : '');
+      } else {
+        sub.textContent = T('health.finishing_the_update_restart_now', 'Finishing the update. Restart now appears when it is done, in about a minute.');
+      }
+    }
     if (go) {
       go.hidden = pu.state !== 'failed';
       go.disabled = false;
@@ -452,7 +460,7 @@ function _ubRestartState(newVersion, requiresFullUpdate) {
     }
     if (pu.state !== 'failed') _ubFollowPostUpdate(newVersion);
   } else if (requiresFullUpdate && !pu.state) {
-    if (sub) sub.textContent = T('health.this_update_touched_python_dependencies', 'This update touched Python dependencies, so use Pinokio\u2019s Update button (not just Stop and Start) so they reinstall.');
+    if (sub) sub.textContent = T('health.to_finish_this_update_stop', 'To finish this update, stop Phosphene in Pinokio and press Update there. Stop and Start is not enough this time.');
     if (go) go.hidden = true;
   } else {
     if (sub) sub.textContent = T('health.your_queue_and_settings_are', 'Your queue and settings are preserved across the restart.');
@@ -966,14 +974,14 @@ async function versionPillClick() {
     const _pu = s.post_update || {};
     if (_pu.pending || _pu.active || _pu.state === 'failed') {
       phosToast(_pu.state === 'failed'
-        ? T('health.the_update_did_not_finish_2', 'The update did not finish: ') + (_pu.error || '') + T('health.use_pinokio_s_update', ' Use Pinokio\u2019s Update.')
+        ? T('health.the_update_did_not_finish_press', 'The update did not finish. Press Try again on the update bar. If it fails again, stop Phosphene in Pinokio and press Update there.')
         : T('health.finishing_the_update_first_restart', 'Finishing the update first \u2014 restart becomes available when it is done.'), 'warn');
       return;
     }
     if (s.pull_requires_full_update && !_pu.state) {
       // Genuinely can't self-restart into this one -- dependencies /
       // patches changed, and only Pinokio's own Update reinstalls those.
-      alert(T('health.pulled_because_this_update_touched', "Pulled. Because this update touched Python deps / patches, use Pinokio's Update button (it reinstalls + reapplies patches). After that click Start."));
+      alert(T('health.the_update_is_downloaded_to', 'The update is downloaded. To finish it, stop Phosphene in Pinokio, press Update there (Stop and Start is not enough this time), then press Start.'));
       return;
     }
     // SYS-29: same fix as the update banner's button -- finish the update
@@ -1070,9 +1078,8 @@ async function versionDoPull(opts) {
   // that also does four other things depending on state.
   if (!opts.skipConfirm) {
     const ok = confirm(
-      T('health.pull_update_from', 'Pull update from {local} → {target}?\n\n', {local, target}) +
-      T('health.this_runs_git_pull_on', 'This runs git pull on your phosphene install. After it succeeds, ') +
-      T('health.you_ll_need_to_click', 'you\'ll need to click Stop, then Start in Pinokio to load the new code. ') +
+      T('health.update_from_local_to', 'Update from {local} to {target}?\n\n', {local, target}) +
+      T('health.this_downloads_the_new_version', 'This downloads the new version. When it is done, click Restart Phosphene to use it. ') +
       T('health.your_queue_and_settings_are_2', 'Your queue and settings are preserved across restarts.')
     );
     if (!ok) return;

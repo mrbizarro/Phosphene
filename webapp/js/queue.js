@@ -725,7 +725,7 @@ function setEngine(engine, opts) {
       // A third case joined them: the Mac whose only gap is the local Q8
       // engine build. The server writes that sentence; do not paraphrase it.
       reason = st.needs_q8_dit
-        ? (st.ram_note || (e.label + T('queue.needs_its_low_ram_engine', ' needs its low-RAM engine built.')))
+        ? (st.ram_note || (e.label + T('queue.needs_a_one_time_setup', ' needs a one-time setup step to fit this Mac\u2019s memory.')))
         : st.repairable
         ? e.label + T('queue.needs_repair_your_weights_are', ' needs repair — your weights are still on disk. Click the chip.')
         : e.label + T('queue.isn_t_installed_yet', " isn't installed yet.");
@@ -735,14 +735,13 @@ function setEngine(engine, opts) {
              + T('queue.only_back_on', ' only — back on ') + fallback.label + T('queue.for_this_mode', ' for this mode.');
     } else if (currentMode === 'i2v' && st.first_frame === false) {
       target = fallback.id;
-      reason = T('queue.this', 'This ') + e.label + T('queue.build_has_no_first_frame', ' build has no first-frame support — ')
-             + T('queue.update_the_pack_to_use', 'update the pack to use Image mode.');
+      reason = e.label + T('queue.cannot_start_from_your_picture', ' cannot start from your picture in this version. Update Phosphene to use Image mode.');
     } else if (H3_MODE_CAP[currentMode] && st[H3_MODE_CAP[currentMode]] === false) {
       // 4.19 modes ride on runner flags an older H3 pack does not have.
       target = fallback.id;
-      reason = T('queue.this', 'This ') + e.label + T('queue.runner_predates', ' runner predates ') + (H3_MODE_LABEL[currentMode] || currentMode)
-             + distText(T('queue.press_update_in_pinokio_your', ' — press Update in Pinokio (your weights stay). Back on '),
-                        T('queue.phosphene_brings_it_up_to', '. Phosphene brings it up to date by itself (quit and reopen Phosphene if this stays). Back on '))
+      reason = (H3_MODE_LABEL[currentMode] || currentMode) + T('queue.needs_a_hailuo_h3_update', ' needs a Hailuo H3 update. ')
+             + distText(T('queue.press_update_in_pinokio_using', 'Press Update in Pinokio (your downloads stay). Using '),
+                        T('queue.phosphene_installs_it_using', 'Phosphene installs it by itself; if this stays, quit and reopen Phosphene. Using '))
              + fallback.label + T('queue.for_now', ' for now.');
     }
   }
@@ -1062,18 +1061,11 @@ function openH3InstallCard(source) {
     // server's sentence names the build and the sidebar entry that runs it.
     const diagnosis = (H3.reason === 'missing_q8_dit' && H3.ram_note)
         ? escapeHtml(H3.ram_note)
-        : H3.venv_broken
-        ? T('queue.what_broke_h3_s_python', 'What broke: H3’s Python environment points at a moved or deleted ')
-          + T('queue.interpreter_rebuilding_the_environment_t', 'interpreter. Rebuilding the environment takes about two minutes.')
-        : _missVenv
-        ? T('queue.what_broke_h3_s_python_2', 'What broke: H3’s Python environment was never built (or was ')
-          + T('queue.removed_building_it_takes_about', 'removed). Building it takes about two minutes and re-downloads ')
-          + 'nothing.'
+        : (H3.venv_broken || _missVenv)
+        ? T('queue.h3_quick_repair_two_minutes', 'Hailuo H3 needs a quick repair: about 2 minutes, nothing to download.')
         : _missRunner
-        ? T('queue.what_broke_the_engine_s', 'What broke: the engine’s code checkout is missing or incomplete. ')
-          + T('queue.re_cloning_it_takes_about', 'Re-cloning it takes about a minute.')
-        : T('queue.what_broke', 'What broke: ') + (_missing[0] || 'a component the probe lists below')
-          + '.';
+        ? T('queue.h3_quick_repair_one_minute', 'Hailuo H3 needs a quick repair: about a minute, nothing to download.')
+        : T('queue.h3_quick_repair', 'Hailuo H3 needs a quick repair. Nothing is downloaded again.');
     // H3-05: "repairable" covers two different real situations and they
     // need two different CTAs. missing_q8_dit means every weight is present
     // and only the local compact build is missing — pinokio.js shows ONLY a
@@ -1086,9 +1078,8 @@ function openH3InstallCard(source) {
       ? T('queue.build_hailuo_h3_compact_engine', 'Build Hailuo H3 compact engine (weights kept — no re-download)')
       : T('queue.repair_hailuo_h3_weights_kept', 'Repair Hailuo H3 (weights kept — no re-download)');
     const fixBlurb = needsBuildOnly
-      ? `<b>${T('queue.hailuo_h3_is_installed_it', 'Hailuo H3 is installed — it just needs its compact engine built.')}</b>
-         Your weights (~75 GB) are already on disk; the build downloads
-         nothing.`
+      ? `<b>${T('queue.hailuo_h3_needs_one_last', 'Hailuo H3 needs one last setup step: about 5 minutes, nothing to download.')}</b>
+         ${T('queue.everything_it_needs_is_already', 'Everything it needs (about 75 GB) is already on this Mac.')}`
       : `<b>${T('queue.hailuo_h3_is_installed_it_2', 'Hailuo H3 is installed — it just needs repairing.')}</b> ${T('queue.your_weights_75_gb_are', 'Your weights\n         (~75 GB) are still on disk and are')} <em>not</em> re-downloaded.`;
     const intro = (isMacApp() && (H3.repairable || H3.preparing)) ? `
       <p style="margin:0 0 10px">
@@ -1099,9 +1090,6 @@ function openH3InstallCard(source) {
       </p>
       <p style="margin:0 0 10px;color:var(--muted)">
         ${diagnosis}
-      </p>
-      <p style="margin:0 0 10px;color:var(--muted);font-size:12px">
-        ${_missing.length ? T('queue.missing', 'Missing: ') + _missing.map(escapeHtml).join(' · ') : ''}
       </p>
       <p style="margin:0 0 10px">
         ${distText(`${T('queue.fix_it_from_pinokio_open', 'Fix it from Pinokio: open the')} <b>Phosphene</b> ${T('queue.entry_in_the_pinokio_sidebar', 'entry in the Pinokio\n        sidebar and click')} <b>“${escapeHtml(fixMenuText)}”</b> ${T('queue.it_appears_in_place_of', '(it appears in\n        place of the install entry). The step is idempotent — it skips every\n        weight already on disk. The panel picks the engine back up within a\n        couple of seconds, no restart.')}`,
@@ -1145,7 +1133,7 @@ function openH3InstallCard(source) {
     const title = document.getElementById('h3InstallTitle');
     if (title) {
       title.textContent = (isMacApp() && (H3.repairable || H3.preparing)) ? 'Hailuo H3'
-        : needsBuildOnly ? T('queue.build_the_compact_engine_5', 'Build the compact engine · ~5 min, no download')
+        : needsBuildOnly ? T('queue.finish_setting_up_hailuo_h3_title', 'Finish setting up Hailuo H3 · about 5 min, no download')
         : H3.repairable ? T('queue.repair_hailuo_h3_no_download', 'Repair Hailuo H3 · no download')
         : T('queue.hailuo_h3_75_gb', 'Hailuo H3 · 75 GB');
     }
@@ -3000,7 +2988,7 @@ function renderIntegrityBanner(integ) {
     '<span style="font-weight:700">'
     + (corrupt.length ? T('queue.model_files_look_incomplete_corrupt', 'Model files look incomplete / corrupt')
        : misplaced.length ? T('queue.model_files_are_in_the', 'Model files are in the wrong place')
-       : T('queue.renders_are_not_being_encoded', 'Renders are not being encoded as requested')) + '</span>'
+       : T('queue.clips_are_saving_at_lower', 'Clips are saving at lower quality than they should')) + '</span>'
     + (corrupt.length
         ? '<span style="opacity:.92">' + escapeHtml(corrupt.map(b => b.file).join(', '))
           + T('queue.this_produces_garbled_mosaic_output', ' — this produces garbled / "mosaic" output (usually an interrupted ')
@@ -3013,13 +3001,10 @@ function renderIntegrityBanner(integ) {
         : '')
     + (codecBad.length
         ? '<span style="opacity:.92;flex-basis:100%">'
-          + codecBad.map(b => escapeHtml(b.file + ' — ' + b.reason)).join('<br>')
-          + distText(T('queue.the_codec_patch_may_not', '. The codec patch may not be applied — click Update in Pinokio ')
-          + T('queue.if_it_persists_reinstall_clips', '(if it persists, reinstall). Clips rendered like this carry ')
-          + T('queue.avoidable_compression_on_faces', 'avoidable compression on faces.'),
-          T('queue.the_codec_patch_may_not_2', '. The codec patch may not be applied — use Phosphene \u2192 Check for Updates\u2026 ')
-          + T('queue.if_it_persists_help_report', '(if it persists, Help \u2192 Report a Bug\u2026). Clips rendered like this carry ')
-          + T('queue.avoidable_compression_on_faces', 'avoidable compression on faces.')) + '</span>'
+          + distText(T('queue.faces_look_over_compressed_pinokio', 'Faces look over-compressed. Press Update in Pinokio; if it stays, reinstall Phosphene.'),
+          T('queue.faces_look_over_compressed_app', 'Faces look over-compressed. Use Phosphene \u2192 Check for Updates\u2026; if it stays, use Help \u2192 Report a Bug\u2026')) + '</span>'
+          + '<details class="h3-diag" style="flex-basis:100%"><summary>' + T('queue.details_for_troubleshooting', 'Details for troubleshooting')
+          + '</summary><p>' + codecBad.map(b => escapeHtml(b.file + ': ' + b.reason)).join('<br>') + '</p></details>'
         : '')
     + '<span style="margin-left:auto;display:flex;gap:8px">'
     + repos.map(k => '<button class="btn btn-primary" onclick="repairModel(\'' + escapeHtml(k)
@@ -3063,36 +3048,35 @@ function engineEnvBannerHtml(st) {
     timeout: T('queue.the_last_install_timed_out', 'The last install timed out downloading packages - check the connection.'),
     disk: T('queue.the_last_install_ran_out', 'The last install ran out of disk space - free some space first.'),
     uv_error: T('queue.the_last_install_could_not_2', 'The last install could not resolve or build a package.'),
-    python_missing: distText(T('queue.the_engine_python_stopped_working', 'The engine Python stopped working - run Install from Pinokio to rebuild it (models kept).'),
-                             T('queue.the_engine_python_stopped_working_2', 'The engine Python stopped working - quit Phosphene and open it again so setup can rebuild it (models kept).')),
+    python_missing: distText(T('queue.video_tools_stopped_working_pinokio', 'Phosphene\u2019s video tools stopped working. Press Install in Pinokio to repair them. Your models stay.'),
+                             T('queue.video_tools_stopped_working_app', 'Phosphene\u2019s video tools stopped working. Quit Phosphene and open it again to repair them. Your models stay.')),
   };
   if (!st || st.ok) return '';
   const rep = st.repair || {};
   const last = (rep.log || []).slice(-1)[0] || '';
   if (st.installing || rep.active) {
-    return '<span style="font-weight:700">Installing the render engine\u2026</span>'
-      + '<span style="opacity:.92">' + escapeHtml(_redactLocalPaths(last) || 'Installing its Python packages')
-      + ' \u2014 renders can start when it finishes. Models are not touched.</span>';
+    return '<span style="font-weight:700">' + T('queue.installing_video_tools', 'Installing Phosphene\u2019s video tools\u2026') + '</span>'
+      + '<span style="opacity:.92">' + T('queue.renders_can_start_when_it', 'Renders can start when it finishes, in a few minutes. Your models are not touched.') + '</span>';
   }
   // The Mac app has no sidebar: the in-studio Repair button is the only one.
-  const pinokio = isMacApp() ? '' : '<span style="opacity:.85;flex-basis:100%">Or from Pinokio: Stop Phosphene, then '
-    + 'click \u201cRepair Phosphene engine (models kept)\u201d.</span>';
+  const pinokio = isMacApp() ? '' : '<span style="opacity:.85;flex-basis:100%">'
+    + T('queue.or_from_pinokio_stop_phosphene', 'Or from Pinokio: stop Phosphene, then click \u201cRepair Phosphene engine (models kept)\u201d.') + '</span>';
   if (rep.state === 'failed') {
-    return '<span style="font-weight:700">The engine repair did not finish:</span>'
-      + '<span style="opacity:.92">' + escapeHtml(rep.error || 'unknown error') + '</span>'
+    return '<span style="font-weight:700">' + T('queue.the_repair_did_not_finish', 'The repair did not finish.') + '</span>'
+      + '<span style="opacity:.92">' + T('queue.check_your_internet_and_disk', 'Check your internet connection and free disk space, then press Try again.') + '</span>'
       + '<span style="margin-left:auto;display:flex;gap:8px">'
-      + '<button class="btn btn-primary" data-action="repair-engine">Try again</button></span>'
+      + '<button class="btn btn-primary" data-action="repair-engine">' + T('queue.try_again', 'Try again') + '</button></span>'
+      + (rep.error ? '<details class="h3-diag" style="flex-basis:100%"><summary>' + T('queue.details_for_troubleshooting', 'Details for troubleshooting')
+        + '</summary><p>' + escapeHtml(_redactLocalPaths(rep.error) || rep.error) + '</p></details>' : '')
       + pinokio;
   }
   // 4.17.5: why the last install stopped, when its installer recorded it.
   const why = ENGINE_ENV_CAUSE_TEXT[st.cause] || '';
-  return '<span style="font-weight:700">The render engine did not finish installing</span>'
-    + '<span style="opacity:.92">Its Python packages are missing from its environment, so '
-    + T('queue.renders_cannot_start', 'renders cannot start. ') + (why ? escapeHtml(why) + ' ' : '')
-    + 'Repair re-installs only those packages (a few minutes); '
-    + 'every model is kept.</span>'
+  return '<span style="font-weight:700">' + T('queue.video_tools_did_not_finish', 'Phosphene\u2019s video tools did not finish installing, so renders cannot start.') + '</span>'
+    + '<span style="opacity:.92">' + (why ? escapeHtml(why) + ' ' : '')
+    + T('queue.press_repair_it_takes_a', 'Press Repair: it takes a few minutes and keeps all your models.') + '</span>'
     + '<span style="margin-left:auto;display:flex;gap:8px">'
-    + '<button class="btn btn-primary" data-action="repair-engine">Repair engine</button></span>'
+    + '<button class="btn btn-primary" data-action="repair-engine">' + T('queue.repair_btn', 'Repair') + '</button></span>'
     + pinokio;
 }
 function renderEngineEnvBanner(st) {
@@ -3228,8 +3212,8 @@ function nowWaitNote(s) {
              text: hold.text + (mins >= 1 ? ` ${mins} min so far.` : '') };
   }
   if (restart.restarting) {
-    return { kind: 'engine_restart', title: T('queue.engine_restarting', 'Engine restarting'),
-             text: restart.text || 'Engine restarting. The next clip takes about a minute longer to start.' };
+    return { kind: 'engine_restart', title: T('queue.restarting', 'Restarting'),
+             text: restart.text || T('queue.restarting_next_clip_minute', 'Phosphene is restarting. The next clip takes about a minute longer to start.') };
   }
   if (queued && !running) {
     return { kind: 'next', title: T('queue.starting_the_next_clip', 'Starting the next clip'),
@@ -3269,7 +3253,7 @@ function nowCardFailureActions(last, info) {
     && !((_h3EnvLast.repair || {}).active);
   if (action === 'repair_h3' && !h3Fixed) {
     return `<button type="button" class="now-card-retry" data-action="repair-h3" ` +
-      `title="Re-install only Hailuo H3's Python packages, at the set this release was tested with (about a minute, weights kept)">` +
+      `title="${TA('queue.repairs_hailuo_h3_title', 'Repairs Hailuo H3: about a minute, nothing to download again')}">` +
       `<svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise"/></svg>` +
       `<span>${T('queue.repair_hailuo_h3', 'Repair Hailuo H3')}</span></button>` + dismiss;
   }
@@ -3277,9 +3261,9 @@ function nowCardFailureActions(last, info) {
   // same way until they are, so the card offers the repair, never a Retry.
   if (action === 'repair_engine') {
     return `<button type="button" class="now-card-retry" data-action="repair-engine" ` +
-      `title="Re-install only the render engine's Python packages (a few minutes, models kept)">` +
+      `title="${TA('queue.repairs_video_tools_title', 'Repairs Phosphene\u2019s video tools: a few minutes, your models stay')}">` +
       `<svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise"/></svg>` +
-      `<span>${T('queue.repair_engine', 'Repair engine')}</span></button>` + dismiss;
+      `<span>${T('queue.repair_btn', 'Repair')}</span></button>` + dismiss;
   }
   // 4.17.5: a size refused because macOS's GPU watchdog stopped it (even in
   // short GPU steps) has one way forward - smaller. Retry as is would only be
@@ -3329,9 +3313,9 @@ function friendlyJobError(raw, engine) {
   // One gave up after three. Point at the one-click repair instead.
   if (/engine venv is not usable|venv has a Python but no packages|never finished installing into it/i.test(raw)) {
     return {
-      friendly: T('queue.the_render_engine_did_not', 'The render engine did not finish installing.'),
-      hint: T('queue.its_python_packages_are_missing', 'Its Python packages are missing, so no render can start. Press Repair engine: ')
-          + T('queue.it_re_installs_only_those', 'it re-installs only those packages (a few minutes) and keeps every model. ')
+      friendly: T('queue.setup_did_not_finish', 'Setup did not finish.'),
+      hint: T('queue.renders_cannot_start_yet', 'Renders cannot start yet. ')
+          + T('queue.press_repair_few_minutes_models', 'Press Repair: it takes a few minutes and keeps all your models. ')
           + T('queue.retrying_as_is_fails_the', 'Retrying as is fails the same way.'),
       details: _redactLocalPaths(raw) || raw,
       action: 'repair_engine',
@@ -3342,10 +3326,8 @@ function friendlyJobError(raw, engine) {
   // fails the same way; the repair re-installs only H3's packages.
   if (/Hailuo H3 venv/i.test(raw)) {
     return {
-      friendly: T('queue.hailuo_h3_s_python_packages', 'Hailuo H3\u2019s Python packages need a repair.'),
-      hint: T('queue.they_are_not_the_versions', 'They are not the versions this release was tested with, so H3 stopped before using ')
-          + T('queue.the_gpu_press_repair_hailuo', 'the GPU. Press Repair Hailuo H3: it re-installs only those packages (about a minute) ')
-          + T('queue.and_keeps_every_weight_ltx', 'and keeps every weight. LTX renders are not affected.'),
+      friendly: T('queue.h3_needs_quick_repair_short', 'Hailuo H3 needs a quick repair.'),
+      hint: T('queue.press_repair_hailuo_h3_about', 'Press Repair Hailuo H3. It takes about a minute and keeps everything you downloaded. LTX videos still work.'),
       details: _redactLocalPaths(raw) || raw,
       action: 'repair_h3',
     };
@@ -3387,9 +3369,9 @@ function friendlyJobError(raw, engine) {
     };
   }
   if (rawLower.includes('sigsegv') || rawLower.includes('sigbus')) {
-    return { friendly: T('queue.helper_crashed_at_the_native', 'Helper crashed at the native level (MLX/Metal fault).'),
-             hint: T('queue.share_the_crashlog_at_library', 'Share the crashlog at ~/Library/Logs/DiagnosticReports/python3.11_*.crash ') +
-                   T('queue.on_github_com_mrbizarro_phosphene', 'on github.com/mrbizarro/phosphene/issues so we can fix it.') };
+    return { friendly: T('queue.the_render_crashed', 'The render crashed.'),
+             hint: T('queue.press_retry_if_it_keeps_crashing', 'Press Retry. If it keeps crashing, press Report a bug at the top of the window: it sends us what we need.'),
+             details: _redactLocalPaths(raw) || raw };
   }
   if (rawLower.includes('sigabrt')) {
     // The watchdog signature (kIOGPUCommandBufferCallbackErrorTimeout) is
@@ -3421,9 +3403,9 @@ function friendlyJobError(raw, engine) {
   }
   if (rawLower.includes('helper exited from') || rawLower.includes('helper pipe closed') ||
       rawLower.includes('helper died') || rawLower.includes('helper exited')) {
-    return { friendly: T('queue.helper_exited_unexpectedly', 'Helper exited unexpectedly.'),
-             hint: T('queue.check_the_log_for_the', 'Check the log for the last "step:*" breadcrumb (tells us which ') +
-                   T('queue.phase_died_if_memory_pressured', 'phase died). If memory-pressured, close other apps and retry.') };
+    return { friendly: T('queue.the_render_stopped_unexpectedly', 'The render stopped unexpectedly.'),
+             hint: T('queue.close_other_apps_to_free', 'Close other apps to free memory, then press Retry.'),
+             details: _redactLocalPaths(raw) || raw };
   }
   // SYS-31: the generic "training exited with code N" case (no known
   // signature to name a more specific cause for — the watchdog/OOM/canvas
@@ -3540,15 +3522,35 @@ function friendlyJobError(raw, engine) {
   // exit-code one WITH its raw metrics_path (an absolute local path, often
   // containing the user's real name on macOS) shown verbatim on screen.
   if (/h3 render (timed out|exited with code)/i.test(raw)) {
+    const timedOut = rawLower.includes('timed out');
     return {
-      friendly: rawLower.includes('timed out')
-        ? T('queue.h3_stopped_no_progress_for', 'H3 stopped — no progress for 20 minutes.')
-        : T('queue.h3_render_failed', 'H3 render failed.'),
-      hint: _redactLocalPaths(raw) ||
-        'Try Fast, a shorter length, or Draft; quit Chrome/Slack if memory is tight.',
+      // The card shows two short lines of headline: keep it short, the rest goes in the hint.
+      friendly: timedOut
+        ? T('queue.hailuo_h3_stalled', 'Hailuo H3 stalled.')
+        : T('queue.hailuo_h3_stopped', 'Hailuo H3 stopped.'),
+      hint: timedOut
+        ? T('queue.no_progress_for_20_minutes', 'No progress for 20 minutes, most likely because the Mac ran out of memory. Try a shorter length or a smaller size, and close other apps.')
+        : T('queue.press_retry_if_it_stops_h3', 'Press Retry. If it stops again, try Fast or a shorter length, or press Report a bug at the top of the window.'),
+      details: _redactLocalPaths(raw) || raw,
     };
   }
-  return { friendly: T('queue.job_failed', 'Job failed.'), hint: _redactLocalPaths(raw) || raw };
+  // Plain words (17 Nov 2026): the catch-all. A server message that is already
+  // a plain sentence (a refusal written for people) stays the main line; raw
+  // engine text (exit codes, exceptions, paths, code words) goes under Details.
+  const shown = _redactLocalPaths(raw) || raw;
+  // A message is plain when a creator could read it: a short sentence with no
+  // code words, file paths, exit codes or exception names.
+  const looksPlain = (t) => {
+    const x = String(t || '').trim();
+    if (!x || x.length > 280 || !/[.!?]$/.test(x) || !/\s/.test(x)) return false;
+    return !/[_{}<>\[\]\\|`]|\/\w|\w\.(py|js|json|sh|so|dylib|safetensors)\b|traceback|exception|error:|errno|exit(ed)?( with)? code|returncode|status \d|0x[0-9a-f]|\bhelper\b|\bvenv\b|\bpython\b|\bmlx\b|\bmetal\b|\bcuda\b|\bpid\b|\bsig[a-z]+\b/i.test(x);
+  };
+  if (looksPlain(shown)) {
+    return { friendly: T('queue.the_render_stopped', 'The render stopped.'), hint: shown };
+  }
+  return { friendly: T('queue.the_render_stopped', 'The render stopped.'),
+           hint: T('queue.press_retry_if_it_stops', 'Press Retry. If it stops again, press Report a bug at the top of the window so we can see why.'),
+           details: shown };
 }
 
 // ---- Completion alerts ------------------------------------------------------
@@ -3734,16 +3736,16 @@ async function poll() {
   // after-timeout state.
   const hp = document.getElementById('helperPill');
   if (s.helper && s.helper.alive) {
-    hp.innerHTML = `<span class="dot"></span>${T('queue.engine_ready', 'engine ready')}`;
+    hp.innerHTML = `<span class="dot"></span>${T('queue.ready_pill', 'ready')}`;
     hp.className = 'pill pill-good';
-    hp.title = T('queue.the_render_engine_is_loaded', 'The render engine is loaded and ready.');
+    hp.title = T('queue.ready_to_render', 'Ready to render.');
   } else {
     // Helper auto-respawns on the next job (see WarmHelper._ensure). "Cold"
     // is normal after the idle timeout, not an error — first job after a
     // cold start eats a ~30s pipeline-load cost.
-    hp.innerHTML = `<span class="dot"></span>${T('queue.engine_resting', 'engine resting')}`;
+    hp.innerHTML = `<span class="dot"></span>${T('queue.resting_pill', 'resting')}`;
     hp.className = 'pill';
-    hp.title = T('queue.the_render_engine_unloaded_after', 'The render engine unloaded after being idle — normal, not a problem. The next render reloads it, a one-time ~30s delay.');
+    hp.title = T('queue.phosphene_freed_up_memory_idle', 'Phosphene freed up memory while it sat idle. Your next render takes about 30 seconds longer to start.');
   }
 
   // Tier pill — what this Mac's RAM tier allows. Click to open the
@@ -4158,7 +4160,7 @@ async function poll() {
         `<br><span style="color: var(--text)">${escapeHtml(hint)}</span>` +
         // SYS-33: errors rarely linked to Docs even where a section already
         // existed. docsAnchor names one of troubleshooting.md's own anchors.
-        (details ? `<details class="h3-diag"><summary>${T('queue.details_for_troubleshooting', 'Details for troubleshooting')}</summary><p>${details}` +
+        (details ? `<details class="h3-diag"><summary>${T('queue.details_for_troubleshooting', 'Details for troubleshooting')}</summary><p>${escapeHtml(details)}` +
           (docsAnchor ? ` <a href="#" onclick="openDocs('troubleshooting','${docsAnchor}');return false;">${T('queue.learn_more', 'Learn more →')}</a>` : '') +
           `</p></details>` : '');
       // Action row: Retry (re-submit same params via /queue/retry), plus
@@ -6801,7 +6803,7 @@ function useAsAddSoundSource(path) {
   if (!path) { phosToast(T('queue.pick_a_clip_first', 'Pick a clip first.'), { kind: 'warn' }); return; }
   if (typeof h3CanServe !== 'function' || !h3CanServe('v2a')) {
     phosToast(distText(T('queue.add_sound_needs_hailuo_h3', 'Add sound needs Hailuo H3 with an up-to-date runner — press Update in Pinokio.'),
-                       T('queue.add_sound_needs_an_up', 'Add sound needs an up-to-date Hailuo H3 runner. Phosphene brings the Hailuo H3 runner up to date by itself; quit and reopen Phosphene if this stays.')), { kind: 'warn', duration: 6000 });
+                       T('queue.add_sound_needs_a_hailuo', 'Add sound needs a Hailuo H3 update. Phosphene installs it by itself. If this message stays, quit and reopen Phosphene.')), { kind: 'warn', duration: 6000 });
     return;
   }
   if (typeof workflowSwitch === 'function') { try { workflowSwitch('manual'); } catch (e) {} }

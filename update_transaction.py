@@ -24,16 +24,18 @@ class UpdateError(RuntimeError):
     pass
 
 
-# 17 Nov 2026: GitHub hid the publisher's account and every Pinokio Update
-# stopped at `git fetch origin`. Public main is published to our own server
-# FIRST (same commits, same SHAs) and to GitHub second, so an install whose
-# origin is the public repo (on GitHub or ours) fetches main from here first
-# and falls back to its origin. Forks, branches and other remotes keep their
-# own origin. PHOSPHENE_GIT_MIRROR="" turns the mirror off.
+# Public main lives in three places with the same commits and SHAs: GitHub, our own
+# server and the GitLab copy. Owner, 17 Nov 2026: GitHub FIRST, our server and GitLab
+# only when GitHub fails (our server's bandwidth is for outages). An install whose
+# origin is the public repo (on any of the three) fetches main in that order; forks,
+# branches and other remotes keep their own origin. PHOSPHENE_GIT_GITHUB,
+# PHOSPHENE_GIT_MIRROR and PHOSPHENE_GIT_MIRROR2 replace each address ("" leaves it out).
+GITHUB_GIT = os.environ.get('PHOSPHENE_GIT_GITHUB', 'https://github.com/mrbizarro/phosphene.git')
 OWN_GIT_MIRROR = os.environ.get('PHOSPHENE_GIT_MIRROR', 'https://phosphene.video/git/phosphene.git')
-# 5.0.33: the public GitLab copy (it mirrors our server, same SHAs) is the second source,
-# before the install's own origin. PHOSPHENE_GIT_MIRROR2="" leaves it out.
 SECOND_GIT_MIRROR = os.environ.get('PHOSPHENE_GIT_MIRROR2', 'https://gitlab.com/phosphene1/phosphene.git')
+# A GitHub that hangs must hand over quickly: no credential prompt (a hidden repo answers
+# 401/404), and a transfer slower than 1 KB/s for 20 s counts as failed.
+_FAST_FAIL = ('-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=20', '-c', 'credential.helper=')
 _PUBLIC_REMOTES = re.compile(r'(github\.com[:/]mrbizarro/phosphene|phosphene\.video/git/phosphene|gitlab\.com[:/]phosphene1/phosphene)(\.git)?/?$', re.I)
 
 
@@ -45,6 +47,7 @@ class Transaction:
     def __init__(self, root):
         self.root = Path(root).resolve()
         self.fd = None
+        self.source = ''      # which place served public main this run: github | own | gitlab | origin
         self.directory = Path(self.git('rev-parse', '--absolute-git-dir'))
         self.path = self.directory / 'phosphene-update.json'
 
@@ -60,23 +63,61 @@ class Transaction:
         return self.command(['git', *args])
 
     def fetch_upstream(self, upstream):
-        """Fetch the tracked branch: our server first for public main, then origin."""
+        """Fetch the tracked branch. Public main: GitHub, then our server, then GitLab."""
         remote, _, branch = upstream.partition('/')
-        if OWN_GIT_MIRROR and branch == 'main':
+        if branch == 'main':
             try:
                 url = self.git('config', '--get', f'remote.{remote}.url')
             except UpdateError:
                 url = ''
             if _PUBLIC_REMOTES.search(url.strip()):
-                for mirror in (OWN_GIT_MIRROR, SECOND_GIT_MIRROR):
-                    if not mirror:
-                        continue
+                self.source = self._fetch_public_main(remote)
+                if self.source:
+                    return
+        self.git('fetch', remote)
+        self.source = 'origin'
+
+    def _fetch_public_main(self, remote):
+        """The first public source that answers; '' when none did. A GitHub that answers
+        but has nothing newer than this install is double-checked against our server with
+        one tiny ls-remote (no download), so a GitHub that fell behind never hides a release."""
+        env = dict(os.environ, GIT_TERMINAL_PROMPT='0')
+        ref = f'+refs/heads/main:refs/remotes/{remote}/main'
+        for name, mirror in (('github', GITHUB_GIT), ('own', OWN_GIT_MIRROR), ('gitlab', SECOND_GIT_MIRROR)):
+            if not mirror:
+                continue
+            try:
+                self.command(['git', *_FAST_FAIL, 'fetch', mirror, ref], env=env)
+            except UpdateError:
+                continue
+            if name == 'github' and OWN_GIT_MIRROR and not self._has_news(remote):
+                try:
+                    out = self.command(['git', *_FAST_FAIL, 'ls-remote', OWN_GIT_MIRROR, 'refs/heads/main'], env=env)
+                    tip = out.split()[0] if out.split() else ''
+                except UpdateError:
+                    tip = ''
+                if tip and not self._known(tip):
                     try:
-                        self.git('fetch', mirror, f'+refs/heads/main:refs/remotes/{remote}/main')
-                        return
+                        self.command(['git', *_FAST_FAIL, 'fetch', OWN_GIT_MIRROR, ref], env=env)
+                        return 'own'
                     except UpdateError:
                         pass
-        self.git('fetch', remote)
+            return name
+        return ''
+
+    def _known(self, sha):
+        try:
+            self.git('cat-file', '-e', f'{sha}^{{commit}}')
+            return True
+        except UpdateError:
+            return False
+
+    def _has_news(self, remote):
+        """True when the fetched main has commits this checkout lacks."""
+        try:
+            return self.git('rev-list', '--count', f'HEAD..refs/remotes/{remote}/main') not in ('', '0')
+        except UpdateError:
+            return True
 
     def read(self):
         try:
@@ -170,10 +211,10 @@ class Transaction:
             self.fetch_upstream(rec['upstream'])
             target = self.git('rev-parse', rec['upstream'] + '^{commit}')
             if target == rec['previous']:
-                return self.save(rec, phase='current', candidate=target)
+                return self.save(rec, phase='current', candidate=target, source=self.source)
             ref = 'refs/phosphene/updates/' + rec['id'] + '/previous'
             self.git('update-ref', ref, rec['previous'])
-            self.save(rec, phase='source_pending', candidate=target, previous_ref=ref)
+            self.save(rec, phase='source_pending', candidate=target, previous_ref=ref, source=self.source)
         self.clean()
         head = self.git('rev-parse', 'HEAD')
         if head not in (rec['previous'], rec['candidate']):

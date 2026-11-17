@@ -40,8 +40,10 @@ H3_PIN_SHA="0158f42514f95ee7abd89640cf7cebf6969c9c44"
 H3_PIN_REF="phosphene/v5.0-image8"
 H3_LOCAL_BRANCH="phosphene-pinned"
 H3_URL="https://github.com/mrbizarro/minimax-h3-mlx.git"
-# 17 Nov 2026: our own server first (same commits), the checkout's origin second.
+# GitHub first (owner, 17 Nov 2026), our own server (same commits) as the backup, then the
+# checkout's origin. No credential prompt: a hidden GitHub repo must move on at once.
 H3_MIRROR_URL="https://phosphene.video/git/minimax-h3-mlx.git"
+export GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=20
 H3_DIR="${1:-}"
 if [ -z "$H3_DIR" ] || [ ! -d "$H3_DIR/.git" ]; then
   echo "FATAL error: the Hailuo H3 engine is not on this Mac ('${H3_DIR:-<none>}' is missing) - its download did not finish. Check your internet connection (a VPN, proxy or blocked GitHub is the usual cause), then click Install again."
@@ -53,6 +55,7 @@ have_pin() { git cat-file -e "${H3_PIN_SHA}^{commit}" 2>/dev/null; }
 # The ref first (one round trip, and it keeps the pin reachable locally); the
 # bare commit as a fallback for a remote where the ref was renamed but the
 # commit is still reachable from something else.
+have_pin || git fetch --force "$H3_URL" "$H3_PIN_REF" >/dev/null 2>&1 || true
 have_pin || git fetch --force "$H3_MIRROR_URL" "$H3_PIN_REF" >/dev/null 2>&1 || true
 have_pin || git fetch --force "$H3_MIRROR_URL" "$H3_PIN_SHA" >/dev/null 2>&1 || true
 have_pin || git fetch --force origin "$H3_PIN_REF" >/dev/null 2>&1 || true

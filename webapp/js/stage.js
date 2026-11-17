@@ -47,9 +47,9 @@ function imgStudioUpdateValidity() {
     // add-on name differs per family. Ideogram 4 ships as part of mflux
     // 0.18+, so its "missing" case is really "update mflux", not a Qwen hint.
     invalidReason = (eng.value === 'ideogram4_inline')
-      ? T('stage.the_ideogram_4_engine_needs', 'The Ideogram 4 engine needs mflux 0.18+ (the mflux-generate-ideogram4 CLI). Update the mflux add-on, then come back and Generate.')
+      ? T('stage.ideogram_4_needs_newer_picture', 'Ideogram 4 needs newer picture tools. Press Update in Pinokio, then come back and press Generate.')
       : distText(T('stage.the_qwen_image_edit_engine', 'The Qwen-Image-Edit engine isn\'t installed. It ships with the image-engine pack: click Update in Pinokio\'s Phosphene sidebar (NOT in this panel), then come back and Generate. If it\'s still missing after Update, the sidebar also shows "Reinstall image engines (Ideogram 4 + Qwen-Edit)" — ~30 s, ~150 MB.'),
-                 T('stage.the_qwen_image_edit_engine_2', 'The Qwen-Image-Edit engine isn\'t installed, and the image-engine pack isn\'t available in the Mac app yet.'));
+                 T('stage.qwen_edit_not_installed_mac', 'Qwen-Edit is not installed, and the Mac app cannot install it yet. Pick another picture model.'));
   } else if (engInfo && engInfo.fits_mac === false) {
     invalidReason = T('stage.this_engine_needs_a', 'This engine needs a ') + engInfo.mac_gb_needed + T('stage.gb_mac_this_one_has', ' GB Mac — this one has ')
       + (_IMG_HOST_RAM_GB || '?') + T('stage.gb_auto_the_4b_flux', ' GB. Auto (the 4B FLUX engine) fits here.');
@@ -627,9 +627,8 @@ function imgStudioRenderEnginePill() {
   if (info.family_installed === false) {
     pill.dataset.state = 'missing-engine';
     if (v === 'ideogram4_inline') {
-      pill.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-bold"/></svg>update mflux';
-      pill.title = T('stage.the_ideogram_4_engine_needs_2', 'The Ideogram 4 engine needs mflux 0.18+ ') +
-                   T('stage.the_mflux_generate_ideogram4_cli', '(the mflux-generate-ideogram4 CLI). Update the mflux add-on.');
+      pill.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-bold"/></svg>' + T('stage.needs_an_update_pill', 'needs an update');
+      pill.title = T('stage.ideogram_4_needs_newer_picture_2', 'Ideogram 4 needs newer picture tools. Press Update in Pinokio.');
     } else {
       // Status pill, NOT a button — label it as a state ("not installed"), not
       // an imperative ("install ..."), or users click the pill, get the help
@@ -637,7 +636,7 @@ function imgStudioRenderEnginePill() {
       // @poppy0396). The real action lives in Pinokio's sidebar, not here.
       pill.innerHTML = '<svg class="ph" aria-hidden="true" style="margin-right:4px;vertical-align:-2px"><use href="#ph-warning-bold"/></svg>Qwen-Image-Edit not installed';
       pill.title = isMacApp()
-        ? T('stage.the_qwen_image_edit_engine_3', 'The Qwen-Image-Edit engine isn\'t installed.\nThe image-engine pack isn\'t available in the Mac app yet.')
+        ? T('stage.qwen_edit_not_installed_mac', 'Qwen-Edit is not installed, and the Mac app cannot install it yet. Pick another picture model.')
         : T('stage.the_qwen_image_edit_engine_4', 'The Qwen-Image-Edit engine isn\'t installed.\n') +
                    T('stage.this_pill_is_a_status', 'This pill is a status indicator — the action is in Pinokio\'s\n') +
                    T('stage.phosphene_sidebar_not_in_this', 'Phosphene sidebar, not in this panel: click Update there.\n') +
@@ -780,9 +779,9 @@ function imgStudioMarkRecentInUse() {
 function ph3imageNotReady(info) {
   const r = info.ph3image_reason;
   if (info.installing) return T('stage.p_h3_image_is_downloading', 'P-H3-Image is downloading (about 18 GB, once). Generate unlocks when it is done.');
-  if (r === 'h3_missing') return T('stage.p_h3_image_runs_on', 'P-H3-Image runs on the Hailuo H3 video pack. Install Hailuo H3 first, then come back.');
+  if (r === 'h3_missing') return T('stage.p_h3_image_needs_hailuo_h3', 'P-H3-Image needs Hailuo H3. Install Hailuo H3 first, then come back.');
   if (r === 'engine_too_old') return distText(T('stage.p_h3_image_needs_the', 'P-H3-Image needs the newer Hailuo H3 runner: click "Update Hailuo H3 runner" in Pinokio\'s Phosphene sidebar (your weights stay).'),
-                                              T('stage.p_h3_image_needs_a', 'P-H3-Image needs a newer Hailuo H3 runner than this Mac app has.'));
+                                              T('stage.p_h3_image_needs_a_newer_phosphene', 'P-H3-Image needs a newer Phosphene. Use Phosphene \u2192 Check for Updates\u2026'));
   if (r === 'not_downloaded') return T('stage.p_h3_image_needs_its', 'P-H3-Image needs its one-time download (about 18 GB from Pruna). Click the download chip next to Engine.');
   return '';
 }
@@ -846,7 +845,7 @@ function h3imageNotReady(info) {
   if (info.installing) return T('stage.minimax_h3_image_is_downloading', 'MiniMax-H3-Image is downloading (about ') + gb + T('stage.gb_once_generate_unlocks_when', ' GB, once). Generate unlocks when it is done.');
   if (r === 'h3_missing') return T('stage.minimax_h3_image_shares_the', 'MiniMax-H3-Image shares the Hailuo H3 text encoder. Install Hailuo H3 first, then come back.');
   if (r === 'engine_too_old') return distText(T('stage.minimax_h3_image_needs_the', 'MiniMax-H3-Image needs the newer Hailuo H3 runner: click "Update Hailuo H3 runner" in Pinokio\'s Phosphene sidebar (your weights stay).'),
-                                              T('stage.minimax_h3_image_needs_a', 'MiniMax-H3-Image needs a newer Hailuo H3 runner than this Mac app has.'));
+                                              T('stage.minimax_h3_image_needs_a_newer_phosphene', 'MiniMax-H3-Image needs a newer Phosphene. Use Phosphene \u2192 Check for Updates\u2026'));
   if (r === 'not_downloaded') return T('stage.minimax_h3_image_needs_its', 'MiniMax-H3-Image needs its one-time download (about ') + gb + T('stage.gb_from_minimaxai_about_30', ' GB from MiniMaxAI, about 30 GB of free disk while it prepares). Click the download chip next to Version.');
   return '';
 }
@@ -910,7 +909,7 @@ function h3restyleNotReady(info) {
   if (info.installing) return T('stage.restyle_is_downloading', 'Restyle is downloading its adapter (about 300 MB, once). Generate unlocks when it is done.');
   if (r === 'h3_missing') return T('stage.restyle_runs_on_hailuo_h3', 'Restyle runs on Hailuo H3. Install Hailuo H3 first, then come back.');
   if (r === 'engine_too_old') return distText(T('stage.restyle_needs_the_newer_h3', 'Restyle needs the newer Hailuo H3 runner: click "Update Hailuo H3 runner" in Pinokio\'s Phosphene sidebar (your weights stay).'),
-                                              T('stage.restyle_needs_a_newer_h3', 'Restyle needs a newer Hailuo H3 runner than this Mac app has.'));
+                                              T('stage.restyle_needs_a_newer_phosphene', 'Restyle needs a newer Phosphene. Use Phosphene \u2192 Check for Updates\u2026'));
   if (r === 'decoder_missing') return T('stage.restyle_decodes_with_p_h3', 'Restyle decodes its pictures with P-H3-Image. Click the chip to download P-H3-Image once (about 18 GB), then come back.');
   if (r === 'not_downloaded') return T('stage.restyle_needs_its_adapter', 'Restyle needs its one-time download (about 300 MB from Hugging Face). Click the download chip next to Version.');
   return '';

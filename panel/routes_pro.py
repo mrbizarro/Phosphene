@@ -107,7 +107,9 @@ def _licence_call(h, name: str, with_key: bool = False) -> None:
     try:
         doc = getattr(pro_licence, name)(form.get("key", "")) if with_key else getattr(pro_licence, name)()
     except Exception as exc:  # noqa: BLE001
-        doc = {"ok": False, "message": "The licence check failed: %s" % type(exc).__name__}
+        # Plain words (17 Nov 2026): the exception name goes to the log, not the screen.
+        print("[pro] licence check failed: %s" % type(exc).__name__, flush=True)
+        doc = {"ok": False, "message": "Could not check your licence just now. Check your internet connection, then try again."}
     doc["pro_status"] = P.pro_status()
     h._json(doc)
 

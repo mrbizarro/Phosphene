@@ -314,7 +314,7 @@ function updateModelsCard(s) {
       : '<svg class="ph" aria-hidden="true"><use href="#ph-download-simple"/></svg>';
     title.textContent = T('settings.hailuo_h3_can_run_on', 'Hailuo H3 can run on this Mac');
     sub.textContent = built
-      ? T('settings.its_compact_engine_just_needs', 'Its compact engine just needs building — no download.')
+      ? T('settings.one_last_setup_step', 'One last setup step: about 5 minutes, nothing to download.')
       : T('settings.needs_its_compact_q8_engine', 'Needs its compact (Q8) engine, built during install.');
     setActions(`<button onclick="openH3InstallCard()">${T('settings.set_up_h3', 'Set up H3 →')}</button>`);
     return;
@@ -328,16 +328,11 @@ function updateModelsCard(s) {
     // two-way venv_broken guess blamed the checkout whenever the venv was
     // simply never built.
     const _miss = (h3s.missing || []).map(String);
-    sub.innerHTML = h3s.venv_broken
-      ? T('settings.h3_s_python_environment_points', 'H3’s Python environment points at a moved or deleted interpreter. ')
-        + 'Rebuilding takes ~2 minutes and <b>re-downloads nothing</b>.'
-      : _miss.some(m => m.includes('venv'))
-      ? T('settings.h3_s_python_environment_was', 'H3’s Python environment was never built. Building it takes ~2 ')
-        + 'minutes and <b>re-downloads nothing</b>.'
+    sub.innerHTML = (h3s.venv_broken || _miss.some(m => m.includes('venv')))
+      ? T('settings.h3_quick_repair_two_minutes', 'A quick repair: about 2 minutes, nothing to download.')
       : _miss.some(m => m.includes('runner') || m.includes('scripts/'))
-      ? T('settings.h3_s_code_checkout_is', 'H3’s code checkout is missing or incomplete. Restoring it takes ~1 ')
-        + 'minute and <b>re-downloads nothing</b>.'
-      : T('settings.missing', 'Missing: ') + escapeHtml(_miss[0] || 'see the repair card') + '.';
+      ? T('settings.h3_quick_repair_one_minute', 'A quick repair: about a minute, nothing to download.')
+      : T('settings.h3_quick_repair', 'A quick repair. Nothing is downloaded again.');
     setActions(`<button onclick="openH3InstallCard()">${T('settings.how_to_repair_h3', 'How to repair H3')}</button>`);
     return;
   }
@@ -554,8 +549,8 @@ function openTierModal() {
     // look "broken" with empty content.
     document.getElementById('tierModalBlurb').innerHTML =
       '<div style="color: var(--danger, #f85149)">' + distText(
-        T('settings.could_not_load_tier_info', 'Could not load tier info — the panel server may have stopped responding. Check the Pinokio terminal and restart the panel if needed.'),
-        T('settings.could_not_load_tier_info_2', 'Could not load tier info — the studio server may have stopped responding. Check the logs with Help \u2192 Open Logs Folder and use Studio \u2192 Restart Engine if needed.')) + '</div>';
+        T('settings.could_not_check_this_mac_pinokio', 'Could not check what this Mac can run. Restart Phosphene in Pinokio, then open this again.'),
+        T('settings.could_not_check_this_mac_app', 'Could not check what this Mac can run. Use Studio \u2192 Restart Engine, then open this again.')) + '</div>';
     document.getElementById('tierCapsList').innerHTML = '';
     console.error('tier modal fetch failed:', err);
   });
@@ -1558,7 +1553,7 @@ async function applySettings() {
       return;
     }
     status.textContent = data.helper_restarted
-      ? T('settings.saved_helper_restarted_takes_effect', 'Saved. Helper restarted — takes effect on the next render.')
+      ? T('settings.saved_next_render_uses_it', 'Saved. Your next render uses it.')
       : T('settings.saved', 'Saved.');
     status.className = 'settings-status ok';
     btn.disabled = false;

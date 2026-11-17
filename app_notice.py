@@ -19,6 +19,7 @@ import os
 import re
 import threading
 import time
+import urllib.error
 import urllib.request
 
 import pro_token
@@ -30,6 +31,7 @@ MAX_BYTES = 4096
 INTERVAL_SEC = 600
 
 _lock = threading.Lock()
+_etags: dict = {}      # url -> (ETag, body) of the last full answer
 _current: dict | None = None
 _last = "not checked"
 
@@ -111,9 +113,28 @@ def refresh(version: str, url: str | None = None) -> None:
     url = url or os.environ.get("PHOSPHENE_NOTICE_URL") or NOTICE_URL
 
     def get(u, limit):
-        req = urllib.request.Request(u, headers={"User-Agent": f"PhospheneStudio/{version}"})
-        with urllib.request.urlopen(req, timeout=8) as r:
-            return r.read(limit + 1)
+        # Conditional GET (17 Nov 2026): every Studio asks every 10 minutes, and the file is
+        # 64 KB; an unchanged file now costs our server a ~200-byte "304 Not Modified".
+        headers = {"User-Agent": f"PhospheneStudio/{version}"}
+        with _lock:
+            tag, cached = _etags.get(u, (None, None))
+        if tag and cached is not None:
+            headers["If-None-Match"] = tag
+        req = urllib.request.Request(u, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=8) as r:
+                data = r.read(limit + 1)
+                new_tag = r.headers.get("ETag")
+        except urllib.error.HTTPError as e:
+            if e.code == 304 and cached is not None:
+                return cached
+            raise
+        with _lock:
+            if new_tag and len(data) <= limit:
+                _etags[u] = (new_tag, data)
+            else:
+                _etags.pop(u, None)
+        return data
 
     try:
         body, sig = get(url, MAX_BYTES), get(url + ".sig", 1024)

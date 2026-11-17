@@ -608,6 +608,25 @@ A `true → false` transition means a pack that *was* installed is no longer
 detectable — a broken install, not a user choice. This is the whole reason
 this event exists: nothing else in the panel notices that today.
 
+### `model_download` (5.0.42)
+
+Fired once when a model pack download started from the Studio finishes or gives up. It says
+which kind of place served the files, so a fall-back to our own server (which costs us
+bandwidth) is visible. GitHub is asked first; Hugging Face and our server are backups.
+
+| Field | Type | Example |
+|---|---|---|
+| `pack` | string | `"q8_25"`: a key from required_files.json, `"code"`, `"engine"`, `"h3"` or `"uv"` (the Mac app's setup downloads), else `"other"` |
+| `outcome` | string | `"ok"` or `"failed"` |
+| `source` | string | `"github"`, `"hf"`, `"own"`, `"mixed"` or `"none"` |
+| `from_github` / `from_hf` / `from_own` | int | files served by each kind of place |
+
+The Mac app's first setup downloads before the Studio runs: its setup notes the same counts
+in a local file (`state/download_sources.jsonl`) and the Studio sends them once when it
+starts, then deletes the file. With analytics off nothing is sent.
+
+No address, no file name, no path, nothing about you.
+
 ### `star_prompt`
 
 Fired when someone answers the one-time GitHub star ask — at most once per

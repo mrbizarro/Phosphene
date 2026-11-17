@@ -1319,5 +1319,79 @@
         ]
       }
     }
+  },
+  "5.0.45": {
+    "free": [
+      "When a render, an update or a repair stops, the message now says what happened and what to press next, in your language.",
+      "The technical text is still there, under Details for troubleshooting."
+    ],
+    "pro": [],
+    "date": "2026-11-17",
+    "headline": "When something goes wrong, the message now says what happened and what to press.",
+    "i18n": {
+      "de": {
+        "headline": "Wenn etwas schiefgeht, sagt die Meldung jetzt, was passiert ist und was du drücken kannst.",
+        "free": [
+          "Wenn ein Render, ein Update oder eine Reparatur stoppt, sagt die Meldung jetzt in deiner Sprache, was passiert ist und was du als Nächstes drücken kannst.",
+          "Der technische Text steht weiter unter „Details zur Fehlersuche“."
+        ]
+      },
+      "es": {
+        "headline": "Cuando algo falla, el mensaje ahora dice qué pasó y qué pulsar.",
+        "free": [
+          "Cuando un render, una actualización o una reparación se detiene, el mensaje ahora dice en tu idioma qué pasó y qué pulsar después.",
+          "El texto técnico sigue ahí, en «Detalles para solucionar problemas»."
+        ]
+      },
+      "fr": {
+        "headline": "Quand quelque chose échoue, le message dit maintenant ce qui s'est passé et sur quoi appuyer.",
+        "free": [
+          "Quand un rendu, une mise à jour ou une réparation s'arrête, le message dit maintenant dans votre langue ce qui s'est passé et sur quoi appuyer ensuite.",
+          "Le texte technique est toujours là, sous « Détails pour le dépannage »."
+        ]
+      },
+      "it": {
+        "headline": "Quando qualcosa va storto, il messaggio ora dice cosa è successo e cosa premere.",
+        "free": [
+          "Quando un render, un aggiornamento o una riparazione si ferma, il messaggio ora dice nella tua lingua cosa è successo e cosa premere dopo.",
+          "Il testo tecnico è ancora lì, sotto «Dettagli per la risoluzione dei problemi»."
+        ]
+      },
+      "ja": {
+        "headline": "問題が起きたとき、何が起きたのか、どれを押せばよいかがメッセージに表示されるようになりました。",
+        "free": [
+          "レンダリング、アップデート、修復が止まったとき、何が起きたのか、次にどれを押せばよいかをメッセージがあなたの言語で伝えます。",
+          "技術的な内容は引き続き「トラブルシューティングの詳細」にあります。"
+        ]
+      },
+      "ko": {
+        "headline": "문제가 생기면 이제 메시지가 무슨 일이 있었는지, 무엇을 누르면 되는지 알려 줍니다.",
+        "free": [
+          "렌더, 업데이트 또는 복구가 멈추면 이제 메시지가 무슨 일이 있었는지, 다음에 무엇을 누르면 되는지 사용자의 언어로 알려 줍니다.",
+          "기술적인 내용은 계속 '문제 해결용 상세 정보'에 있습니다."
+        ]
+      },
+      "pt": {
+        "headline": "Quando algo dá errado, a mensagem agora diz o que aconteceu e o que tocar.",
+        "free": [
+          "Quando uma renderização, uma atualização ou um reparo para, a mensagem agora diz no seu idioma o que aconteceu e o que tocar em seguida.",
+          "O texto técnico continua lá, em “Detalhes para solução de problemas”."
+        ]
+      },
+      "ru": {
+        "headline": "Если что-то пошло не так, сообщение теперь говорит, что случилось и что нажать.",
+        "free": [
+          "Когда рендер, обновление или восстановление останавливается, сообщение теперь говорит на вашем языке, что случилось и что нажать дальше.",
+          "Технический текст по-прежнему в разделе «Подробности для диагностики»."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "出现问题时，提示现在会说明发生了什么，以及该按哪个按钮。",
+        "free": [
+          "当渲染、更新或修复停止时，提示现在会用你的语言说明发生了什么，以及下一步该按什么。",
+          "技术信息仍在“故障排查详情”中。"
+        ]
+      }
+    }
   }
 }

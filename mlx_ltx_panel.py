@@ -4739,11 +4739,11 @@ SAMPLE_CHARACTER = {
     "filename": "bizarrotrn_v2.safetensors",
     "url": ("https://github.com/mrbizarro/phosphene/releases/download/"
             "sample-character-bizarro/bizarrotrn_v2.safetensors"),
-    # Our own copy first, GitHub second (GitHub hid the account on 16 Nov 2026);
-    # the sha256 below decides which bytes are kept, not the address.
-    "urls": ("https://phosphene.video/app/Phosphene-mirror/"
+    # GitHub first, our own copy as the backup (owner, 17 Nov 2026: our server's
+    # bandwidth is for outages); the sha256 below decides which bytes are kept.
+    "urls": ("https://github.com/mrbizarro/phosphene/releases/download/"
              "sample-character-bizarro/bizarrotrn_v2.safetensors",
-             "https://github.com/mrbizarro/phosphene/releases/download/"
+             "https://phosphene.video/app/Phosphene-mirror/"
              "sample-character-bizarro/bizarrotrn_v2.safetensors"),
     "sha256": "a52e648a4e3edccd279363acdc85337d1d9813ca5dab30f8948f79393a4ba615",
     "size_bytes": 855966824,
@@ -4801,7 +4801,9 @@ def _download_sample_character_bg() -> None:
                 h = hashlib.sha256()
                 written = 0
                 last_log = 0.0
-                with urllib.request.urlopen(req, timeout=60) as resp, open(tmp, "wb") as fh:
+                # GitHub gets a short wait so a failing GitHub hands over to our copy quickly.
+                wait = 15 if "github.com" in url else 60
+                with urllib.request.urlopen(req, timeout=wait) as resp, open(tmp, "wb") as fh:
                     while True:
                         chunk = resp.read(1 << 20)
                         if not chunk:
@@ -7929,6 +7931,7 @@ def _download_thread(repo: dict) -> str:
                 if is_release_mirror else repo_id)
 
     failure_lines = []
+    served_by: dict = {}          # fetcher's "[fetch] sources" line: kind -> file count
     with DOWNLOAD_LOCK:
         DOWNLOAD["error"] = ""
     max_attempts = 3
@@ -7979,6 +7982,8 @@ def _download_thread(repo: dict) -> str:
                     line = buf.strip()
                     buf = ""
                     if line:
+                        if is_release_mirror and line.startswith("[fetch] sources "):
+                            served_by = _pack_sources_from_line(line) or served_by
                         failure_lines = (failure_lines + [line])[-12:]
                         with DOWNLOAD_LOCK:
                             DOWNLOAD["last_line"] = line[:200]
@@ -8022,6 +8027,8 @@ def _download_thread(repo: dict) -> str:
     except Exception as exc:
         push(f"[{dl_tag}] {dl_label} crashed: {exc}")
     finally:
+        if is_release_mirror and outcome in ("ok", "failed"):
+            _analytics_model_download(str(repo.get("key") or ""), outcome, served_by)
         with DOWNLOAD_LOCK:
             if outcome == "failed":
                 DOWNLOAD["error"] = model_download_failure_message(" ".join(failure_lines))
@@ -8035,6 +8042,64 @@ def _download_thread(repo: dict) -> str:
             DOWNLOAD["cancelled"] = False
             DOWNLOAD["background"] = False
     return outcome
+
+
+_PACK_SOURCE_KINDS = ("github", "hf", "own", "other")
+
+
+def _pack_sources_from_line(line: str) -> dict:
+    """{kind: count} from fetch_pack_release.py's `[fetch] sources {...}` line; {} if odd."""
+    try:
+        rec = json.loads(line.split("[fetch] sources ", 1)[1])
+        served = rec.get("served") or {}
+        return {k: int(v) for k, v in served.items() if k in _PACK_SOURCE_KINDS and int(v) > 0}
+    except (ValueError, TypeError, AttributeError, IndexError):
+        return {}
+
+
+#: Lines the Mac app's setup left (fetch_pack_release.py / bootstrap.sh, PHOSPHENE_SOURCES_LOG)
+#: for files it downloaded before this Studio was up: reported once at start, then removed.
+SETUP_SOURCES_FILE = "download_sources.jsonl"
+#: What else the setup downloads besides model packs (closed list for the `pack` field).
+_SETUP_DOWNLOADS = ("code", "engine", "h3", "uv")
+
+
+def _analytics_setup_sources() -> None:
+    path = Path(os.environ.get("LTX_STATE_DIR") or (ROOT / "state")) / SETUP_SOURCES_FILE
+    try:
+        lines = path.read_text().splitlines()[-50:]
+        path.unlink()
+    except OSError:
+        return
+    for raw in lines:
+        try:
+            rec = json.loads(raw)
+            served = _pack_sources_from_line("[fetch] sources " + json.dumps(rec))
+            _analytics_model_download(str(rec.get("pack") or ""), "ok", served)
+        except (ValueError, TypeError, AttributeError):
+            continue
+
+
+def _analytics_model_download(key: str, outcome: str, served: dict) -> None:
+    """One anonymous `model_download` event: the pack's registry key, ok/failed, and the
+    kind of place that served it (github / hf / own / mixed / none). Closed values only."""
+    try:
+        known = {str(r.get("key")) for r in (_load_required_files().get("repos") or [])} if key else set()
+    except Exception:
+        known = set()
+    kinds = sorted(k for k in served if k in _PACK_SOURCE_KINDS)
+    source = "none" if not kinds else (kinds[0] if len(kinds) == 1 else "mixed")
+    try:
+        _analytics_capture("model_download", {
+            "pack": key if (key in known or key in _SETUP_DOWNLOADS) else "other",
+            "outcome": outcome,
+            "source": source,
+            "from_github": int(served.get("github", 0)),
+            "from_hf": int(served.get("hf", 0)),
+            "from_own": int(served.get("own", 0)),
+        })
+    except Exception:
+        pass
 
 
 def model_download_failure_message(detail: str) -> str:
@@ -22715,6 +22780,10 @@ _ANALYTICS_EVENTS = (
     # opened Pro or pressed Get Pro, and from which surface (closed list). `pro_hint`:
     # the one quiet "Pro would have made this faster" line was shown / dismissed / opened.
     "pro_click", "pro_hint",
+    # 5.0.42 (owner, 17 Nov 2026: GitHub first, our server only as a backup): one per
+    # finished pack download, naming which KIND of place served it (closed list), so a
+    # failover to our server shows up instead of silently costing bandwidth.
+    "model_download",
 )
 
 
@@ -23106,6 +23175,7 @@ def _analytics_boot_events() -> None:
             })
         if _prev_ver != running_version():
             _settings_set_internal(analytics_last_version=running_version())
+        _analytics_setup_sources()
         _analytics_capture("app_boot", {
             "version": running_version(),
             "os_version": _analytics_os_version(),
@@ -27416,7 +27486,7 @@ class JobStopped(Exception):
 # card through /status `engine_restart`, cleared when the helper is up again.
 ENGINE_RESTART: dict = {"count": 0, "last_ts": None, "pending": False}
 ENGINE_RESTART_LOCK = threading.Lock()
-ENGINE_RESTART_TEXT = ("Engine restarting. The next clip takes about a minute "
+ENGINE_RESTART_TEXT = ("Phosphene is restarting. The next clip takes about a minute "
                        "longer to start.")
 #: A flag nobody cleared (the helper never came back) stops being shown.
 ENGINE_RESTART_SHOW_S = 15 * 60

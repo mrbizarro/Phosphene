@@ -191,16 +191,24 @@ def mirror_of(repo: dict) -> dict:
 
 
 def asset_url(mirror: dict, asset: str) -> str:
-    return (f"https://github.com/{mirror['release_repo']}"
+    """The GitHub release address of ``asset`` (PHOSPHENE_PACK_GITHUB replaces the host)."""
+    return (f"{(_github_base() or GITHUB_BASE).rstrip('/')}/{mirror['release_repo']}"
             f"/releases/download/{mirror['tag']}/{asset}")
 
 
-#: Our own copy of every release asset, tried BEFORE GitHub (owner rule since GitHub hid
-#: the account on 16 Nov 2026: our server first, GitHub second). Same file names, laid out
-#: as <base>/<tag>/<asset>; every shard is still checked against the manifest's sha256, so
-#: a copy can never change what lands on disk. PHOSPHENE_PACK_MIRRORS (space separated)
-#: replaces the list, for test rooms; an empty value means GitHub only.
+#: Our own copy of every release asset: a BACKUP since 17 Nov 2026 (owner: GitHub first, our
+#: server only when GitHub fails, so normal days cost our server no bandwidth). Same file
+#: names, laid out as <base>/<tag>/<asset>; every shard is still checked against the
+#: manifest's sha256, so a copy can never change what lands on disk.
+#: PHOSPHENE_PACK_MIRRORS (space separated) replaces the list, for test rooms; an empty value
+#: means no own server at all.
 OWN_MIRRORS: tuple[str, ...] = ("https://phosphene.video/app/Phosphene-mirror",)
+#: GitHub gets ONE short try per file: a 404/403/5xx or a stall moves on at once instead of
+#: spending the per-source retries there (seconds; PHOSPHENE_GITHUB_TIMEOUT for test rooms).
+GITHUB_TIMEOUT = int(os.environ.get("PHOSPHENE_GITHUB_TIMEOUT") or 15)
+#: Base of GitHub's release downloads; PHOSPHENE_PACK_GITHUB replaces it (test rooms: a local
+#: server, or an unreachable address to prove the backups). Empty = skip GitHub.
+GITHUB_BASE = "https://github.com"
 
 
 def _own_mirrors() -> tuple[str, ...]:
@@ -210,18 +218,56 @@ def _own_mirrors() -> tuple[str, ...]:
     return OWN_MIRRORS
 
 
+def _github_base() -> str:
+    env = os.environ.get("PHOSPHENE_PACK_GITHUB")
+    return GITHUB_BASE if env is None else env.strip()
+
+
+#: Every GitHub address handed out this run (so a test room's stand-in counts as GitHub too).
+_GITHUB_URLS: set[str] = set()
+
+
+def github_url(mirror: dict, asset: str) -> list[str]:
+    if not _github_base():
+        return []
+    url = asset_url(mirror, asset)
+    _GITHUB_URLS.add(url)
+    return [url]
+
+
+def own_urls(mirror: dict, asset: str) -> list[str]:
+    return [f"{b.rstrip('/')}/{mirror['tag']}/{asset}" for b in _own_mirrors()]
+
+
 def asset_urls(mirror: dict, asset: str) -> list[str]:
-    """Every place this asset can come from, in order: our server(s), then GitHub."""
-    urls = [f"{b.rstrip('/')}/{mirror['tag']}/{asset}" for b in _own_mirrors()]
-    urls.append(asset_url(mirror, asset))
-    return urls
+    """Every place this asset can come from, in order: GitHub, then our server(s)."""
+    return github_url(mirror, asset) + own_urls(mirror, asset)
+
+
+def is_github(url: str) -> bool:
+    return url in _GITHUB_URLS
+
+
+def source_name(url: str) -> str:
+    """Anonymous label of the place a file came from (for the log and analytics)."""
+    if is_github(url):
+        return "github"
+    if _RANGE_MARK in url or "huggingface.co" in url:
+        return "hf"
+    if any(url.startswith(b.rstrip("/") + "/") for b in _own_mirrors()):
+        return "own"
+    return "other"
+
+
+#: name -> source label of every file this run downloaded (what served its LAST shard).
+SERVED: dict[str, str] = {}
 
 
 #: Hugging Face: the same bytes on our own account (pages open since 17 Nov 2026, card #872).
 #: HF holds each file WHOLE, so a shard is asked for as a byte range of it (HF answers
-#: ranges from its CDN). Big files come from HF FIRST and our server keeps only small
-#: files (owner, card #871: "don't serve big files from the server"); small files keep
-#: our server first and HF last. Only repos under our account qualify, plus the exact
+#: ranges from its CDN). Big files come from HF right after GitHub and our server is
+#: their last resort (owner, card #871: "don't serve big files from the server"); small
+#: files try HF last. Only repos under our account qualify, plus the exact
 #: official files listed in HF_OFFICIAL_COPIES. A gated repo answers 401 without a key,
 #: which counts as "not there". The shard sha256 check is unchanged, so no source can
 #: change what lands on disk. PHOSPHENE_PACK_HF replaces the base (test rooms); an
@@ -276,13 +322,23 @@ def hf_sources(mirror: dict, name: str, sha256: str, start: int, length: int) ->
 
 def shard_sources(mirror: dict, name: str, spec: dict, asset: str,
                   start: int, length: int) -> list[str]:
-    """Where one shard can come from, in order. Big file: HF, then our server, then
-    GitHub. Small file: our server, then GitHub, then HF."""
-    ours = asset_urls(mirror, asset)
+    """Where one shard can come from, in order (owner, 17 Nov 2026: GitHub first).
+    Big file: GitHub, then Hugging Face, then our server (it costs bandwidth, HF is free).
+    Small file: GitHub, then our server, then Hugging Face."""
+    gh = github_url(mirror, asset)
+    ours = own_urls(mirror, asset)
     hf = hf_sources(mirror, name, str(spec.get("sha256") or ""), start, length)
     if int(spec.get("bytes") or 0) >= BIG_FILE_BYTES:
-        return hf + ours
-    return ours + hf
+        return gh + hf + ours
+    return gh + ours + hf
+
+
+def _tries_for(url: str, attempts: int, timeout: int) -> tuple[int, int]:
+    """(attempts, timeout) for one source: GitHub gets one short try, so a failing GitHub
+    hands over to the backups at once; the backups keep the full retries."""
+    if is_github(url):
+        return 1, max(1, min(timeout, GITHUB_TIMEOUT))
+    return attempts, timeout
 
 
 def _split_range(url: str) -> tuple[str, int | None, int | None]:
@@ -412,7 +468,7 @@ def download_shard(url: str, dest: Path, expect_bytes: int, expect_sha: str,
     raise RuntimeError(f"{label}: giving up after {attempts} attempts — {last_err}")
 
 
-def fetch_json(url: str, *, attempts: int, timeout: int) -> dict:
+def fetch_json(url: str, attempts: int, timeout: int) -> dict:
     last_err: Exception | None = None
     for attempt in range(1, attempts + 1):
         try:
@@ -557,11 +613,15 @@ def assemble_file(name: str, spec: dict, dest_dir: Path, mirror: dict,
         label = f"{name} [{idx + 1}/{len(shards)}]"
         shard_path = _pack_path(parts_dir, asset)
         sources = shard_sources(mirror, name, spec, asset, offsets[idx], int(shard["bytes"]))
-        _first_source(sources,
-                      lambda url: download_shard(url, shard_path,
-                                                 int(shard["bytes"]), shard["sha256"],
-                                                 attempts=attempts, timeout=timeout, label=label),
-                      label)
+        def _one(url, shard=shard, shard_path=shard_path, label=label):
+            a, t = _tries_for(url, attempts, timeout)
+            download_shard(url, shard_path, int(shard["bytes"]), shard["sha256"],
+                           attempts=a, timeout=t, label=label)
+            return url
+        served = _first_source(sources, _one, label)
+        SERVED[name] = source_name(served)
+        if SERVED[name] != "github":
+            log(f"[fetch] {label}: served by {SERVED[name]} (GitHub did not answer)")
         with open(partial, "ab") as out, open(shard_path, "rb") as src:
             shutil.copyfileobj(src, out, CHUNK)
             out.flush()
@@ -628,7 +688,7 @@ def fetch_pack(repo_key: str, root: Path, dest: Path | None,
     log(f"[fetch] {repo_key}: {repo.get('name', repo_key)} → {dest_dir}")
     log(f"[fetch] manifest {urls[0]}")
     try:
-        manifest = _first_source(urls, lambda url: fetch_json(url, attempts=attempts, timeout=timeout),
+        manifest = _first_source(urls, lambda url: fetch_json(url, *_tries_for(url, attempts, timeout)),
                                  f"{repo_key} manifest", gone_all=True)
     except _NowhereYet:
         # 17 Nov 2026: q8_25 / hq_25 are not on our server yet and GitHub hides the account.
@@ -693,6 +753,7 @@ def fetch_pack(repo_key: str, root: Path, dest: Path | None,
 def _fetch_locked(repo_key: str, files: dict, dest_dir: Path, mirror: dict,
                   *, attempts: int, timeout: int) -> int:
     _validate_pack_paths(files, dest_dir)
+    SERVED.clear()
     total_gb = sum(int(s["bytes"]) for s in files.values()) / 1e9
     log(f"[fetch] {len(files)} file(s), {total_gb:.2f} GB — resumable, sha256-verified")
 
@@ -718,7 +779,31 @@ def _fetch_locked(repo_key: str, files: dict, dest_dir: Path, mirror: dict,
             f"only what is missing")
         return 1
     log(f"[fetch] {repo_key}: done — {len(files)} file(s) verified against the manifest")
+    _log_sources(repo_key)
     return 0
+
+
+def _log_sources(repo_key: str) -> None:
+    """One machine-readable line naming which kind of source served this pack's files
+    (github / hf / own / other, counts only; no addresses, no user data). The Studio's
+    downloader turns it into the anonymous `source` field of its download event, so
+    failovers to our server show up in analytics."""
+    if not SERVED:
+        return
+    counts: dict[str, int] = {}
+    for v in SERVED.values():
+        counts[v] = counts.get(v, 0) + 1
+    line = json.dumps({"pack": repo_key, "served": counts}, sort_keys=True)
+    log("[fetch] sources " + line)
+    # The Mac app's setup runs this script before any Studio is up: it names a file
+    # (PHOSPHENE_SOURCES_LOG) and the Studio reports the lines once when it starts.
+    side = os.environ.get("PHOSPHENE_SOURCES_LOG")
+    if side:
+        try:
+            with open(side, "a") as fh:
+                fh.write(line + "\n")
+        except OSError:
+            pass
 
 
 def main(argv: list[str] | None = None) -> int:

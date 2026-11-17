@@ -856,7 +856,7 @@ function renderH3Turbo() {
     fastBtn.classList.toggle('cell-only-best', cellOnlyBest);
     fastBtn.title = !tri.supported
       ? distText(T('engines.fast_needs_a_newer_h3', 'Fast needs a newer H3 runner — run "Update Hailuo H3 runner" in the Pinokio sidebar (weights stay).'),
-                 T('engines.fast_needs_a_newer_hailuo', 'Fast needs a newer Hailuo H3 runner. Phosphene brings the Hailuo H3 runner up to date by itself; quit and reopen Phosphene if this stays.'))
+                 T('engines.fast_needs_a_hailuo_h3', 'Fast needs a Hailuo H3 update. Phosphene installs it by itself. If this message stays, quit and reopen Phosphene.'))
       : !tri.downloaded
         ? T('engines.3_steps_about_4_faster', '3 steps — about 4× faster, great for drafts and most shots. One click installs the ')
           + T('engines.180_mb_adapter', '180 MB adapter (') + (tri.license || 'MiniMax H3 Community License') + ').'
@@ -946,9 +946,9 @@ function _h3RenderFlexNote() {
   let msg = '';
   let canGet = false;
   if (!fx.supported) {
-    msg = name + T('engines.needs_a_newer_h3_runner', ' needs a newer H3 runner. ') + distText(
+    msg = name + T('engines.needs_a_hailuo_h3_update', ' needs a Hailuo H3 update. ') + distText(
       T('engines.click_update_hailuo_h3_runner', 'Click "Update Hailuo H3 runner" in the Pinokio sidebar. Your weights stay.'),
-      T('engines.phosphene_brings_the_hailuo_h3', 'Phosphene brings the Hailuo H3 runner up to date by itself; quit and reopen Phosphene if this stays.'));
+      T('engines.phosphene_installs_the_hailuo_h3', 'Phosphene installs it by itself. If this message stays, quit and reopen Phosphene.'));
   } else if (fx.installing) {
     const d = fx.download || {};
     msg = d.status === 'building' ? T('engines.preparing', 'Preparing ') + name + T('engines.on_your_mac', ' on your Mac…')
@@ -1014,7 +1014,7 @@ function _h3RenderV13Note() {
   if (!v.supported) {
     msg = name + T('engines.needs_an_update', ' needs an update. ') + distText(
       T('engines.update_h3_click_update_hailuo', 'Update H3: click "Update Hailuo H3 runner" in the Pinokio sidebar. Your weights stay.'),
-      T('engines.it_needs_a_newer_h3', 'It needs a newer H3 runner, but the Mac app can\u2019t update the runner yet.'));
+      T('engines.update_phosphene_to_use_it', 'Update Phosphene to use it: Phosphene \u2192 Check for Updates\u2026'));
   } else if (v.installing) {
     const d = v.download || {};
     msg = d.status === 'building' ? T('engines.preparing', 'Preparing ') + name + T('engines.on_your_mac', ' on your Mac…')
@@ -1217,7 +1217,7 @@ async function h3SpeedClick(which) {
     if (!fx.supported) {
       toastF(distText(T('engines.pika_h3_flex_needs_a', 'Pika H3 Flex needs a newer Hailuo H3 runner. Run "Update Hailuo H3 runner" in the ')
              + T('engines.pinokio_sidebar_your_weights_stay', 'Pinokio sidebar — your weights stay.'),
-             T('engines.pika_h3_flex_needs_a_2', 'Pika H3 Flex needs a newer Hailuo H3 runner. Phosphene brings the Hailuo H3 runner up to date by itself; quit and reopen Phosphene if this stays.')), 'danger');
+             T('engines.pika_h3_flex_needs_a_hailuo', 'Pika H3 Flex needs a Hailuo H3 update. Phosphene installs it by itself. If this message stays, quit and reopen Phosphene.')), 'danger');
       return;
     }
     // Show the note (credit + the Get button) for the one explicit click.
@@ -1233,7 +1233,7 @@ async function h3SpeedClick(which) {
   if (!tri.supported) {
     toast(distText(T('engines.fast_needs_a_newer_hailuo_2', 'Fast needs a newer Hailuo H3 runner. Run "Update Hailuo H3 runner" in the Pinokio ')
           + T('engines.sidebar_your_weights_stay', 'sidebar — your weights stay.'),
-          T('engines.fast_needs_a_newer_hailuo', 'Fast needs a newer Hailuo H3 runner. Phosphene brings the Hailuo H3 runner up to date by itself; quit and reopen Phosphene if this stays.')), 'danger');
+          T('engines.fast_needs_a_hailuo_h3', 'Fast needs a Hailuo H3 update. Phosphene installs it by itself. If this message stays, quit and reopen Phosphene.')), 'danger');
     return;
   }
   if (tri.installing) { toast(T('engines.the_fast_adapter_is_already', 'The Fast adapter is already installing — watch the log.'), 'ok'); return; }
@@ -1737,7 +1737,8 @@ function _h3FlexTurboTooltip(st) {
 function _h3FlexTurboNote(cell) {
   const ft = h3FlexTurboState();
   if (!ft.pro_active) return T('engines.h3_flex_turbo_is_part', 'H3 Flex Turbo is part of Phosphene Pro. This render uses H3 Flex.');
-  if (!ft.supported) return T('engines.h3_flex_turbo_needs_a', 'H3 Flex Turbo needs a newer H3 runner.');
+  if (!ft.supported) return distText(T('engines.flex_turbo_needs_update_pinokio', 'Flex Turbo needs a Hailuo H3 update. Click "Update Hailuo H3 runner" in the Pinokio sidebar.'),
+                                     T('engines.flex_turbo_needs_update_app', 'Flex Turbo needs a Hailuo H3 update. Phosphene installs it by itself; if this stays, quit and reopen Phosphene.'));
   if (ft.installing) { const d = ft.download || {}; return T('engines.downloading_h3_flex_turbo', 'Downloading H3 Flex Turbo: ') + (d.mb || 0) + ' / ' + (d.total_mb || 295) + ' MB.'; }
   if (!ft.downloaded) return T('engines.h3_flex_turbo_pick_it', 'H3 Flex Turbo: pick it in the engine picker to download it (0.3 GB).');
   if (h3FlexTurboOn(cell)) return '';
@@ -2196,7 +2197,7 @@ function _engineTooltip(e, st, modeOk) {
     // only the local compact build is missing) — a genuinely different fix
     // than "repair", with its own Pinokio menu entry (Build, not Repair).
     return (st.repairable && st.reason === 'missing_q8_dit')
-      ? name + T('engines.needs_its_compact_engine_built', ' — needs its compact engine built; your weights are already on disk. Click for the one-click fix.')
+      ? name + T('engines.needs_one_last_setup_step', ' needs one last setup step: about 5 minutes, nothing to download. Click to finish it.')
       : st.repairable
       ? name + T('engines.needs_repair_your_weights_are', ' — needs repair; your weights are still on disk. Click for the one-click fix.')
       : name + T('engines.available_to_install', ' — available to install (') + (e.install_size || '')

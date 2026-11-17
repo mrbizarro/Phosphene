@@ -15671,6 +15671,10 @@ html:not([lang="en"]) #bottomPane .tabs button { white-space: nowrap; }
    queue buttons stay on one row (each may shorten), and the bottom pane's
    status line stays one line. */
 html:not([lang="en"]) #bottomPane .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Plain words (17 Nov 2026): a failed or stopped render's card is the exception. Its lines say what
+   to press next, so they wrap in every language instead of ending in "…" after a few words. */
+html:not([lang="en"]) #bottomPane .now-card.failed .meta,
+html:not([lang="en"]) #bottomPane .now-card.stopped .meta { white-space: normal; overflow: visible; text-overflow: clip; }
 html:not([lang="en"]) #formActionFooter .queue-strip {
   display: grid; grid-template-columns: repeat(4, minmax(0, max-content)) 1fr; align-items: center;
 }

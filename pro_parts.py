@@ -420,7 +420,7 @@ PLAIN = {
 def explain(code) -> str | None:
     if not code:
         return None
-    return PLAIN.get(str(code), "Remote Control components could not be installed (%s). Try again, or contact support." % str(code)[:40])
+    return PLAIN.get(str(code), "Remote Control could not be installed. Try again, or contact support.")
 
 
 def status() -> dict:

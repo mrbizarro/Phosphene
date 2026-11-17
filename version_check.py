@@ -63,10 +63,11 @@ P = None  # the running mlx_ltx_panel module; assigned at wiring time
 _VERSION_LOCK = threading.Lock()
 _VERSION_REPO_OWNER = "mrbizarro"
 _VERSION_REPO_NAME = "phosphene"
-# 17 Nov 2026: GitHub hid the publisher's account and every check below
-# failed. Each release now writes public main's VERSION, BROADCAST.json and
-# its last 30 commits (the GitHub commits-API shape) to our own server
-# FIRST; GitHub stays the second source. "" turns our server off.
+# Since 17 Nov 2026 every release also writes public main's VERSION, BROADCAST.json
+# and its last 30 commits (the GitHub commits-API shape) to our own server. That copy
+# is the BACKUP (owner: GitHub first, our server only when GitHub fails, so the
+# 30-minute check of every install costs our server nothing on normal days).
+# "" turns our server off.
 _OWN_MAIN_MIRROR = os.environ.get(
     "PHOSPHENE_MAIN_MIRROR", "https://phosphene.video/app/Phosphene-mirror/main/")
 _VERSION_POLL_INTERVAL_SEC = 30 * 60          # 30 minutes between checks
@@ -143,23 +144,32 @@ def _fetch_raw_text(url: str, timeout: int = 10) -> str | None:
 
 
 def _main_file_urls(name: str) -> list[str]:
-    """Where public main's `name` can be read: our server first (only for
-    the public repo itself), then raw.githubusercontent.com."""
-    urls = []
+    """Where public main's `name` can be read: raw.githubusercontent.com first,
+    then our server (only for the public repo itself)."""
+    urls = [f"https://raw.githubusercontent.com/{P._VERSION_REPO_OWNER}/"
+            f"{P._VERSION_REPO_NAME}/main/{name}"]
     if (_OWN_MAIN_MIRROR and P._VERSION_REPO_OWNER == "mrbizarro"
             and P._VERSION_REPO_NAME.lower() == "phosphene"):
         urls.append(_OWN_MAIN_MIRROR + name)
-    urls.append(f"https://raw.githubusercontent.com/{P._VERSION_REPO_OWNER}/"
-                f"{P._VERSION_REPO_NAME}/main/{name}")
     return urls
 
 
 def _fetch_main_text(name: str) -> str | None:
-    """Public main's `name` as text from the first source that answers."""
-    for url in _main_file_urls(name):
+    """Public main's `name` as text from the first source that answers.
+
+    VERSION alone is also read from our server (a few bytes) and the newer of the
+    two wins: a GitHub that answers but fell behind (a push that has not happened
+    yet) must never hide a release from every install."""
+    urls = _main_file_urls(name)
+    for i, url in enumerate(urls):
         text = P._fetch_raw_text(url)
-        if text:
-            return text
+        if not text:
+            continue
+        if name == "VERSION" and i == 0 and len(urls) > 1:
+            other = P._fetch_raw_text(urls[-1])
+            if other and P._version_is_newer(other.strip(), text.strip()):
+                return other
+        return text
     return None
 
 
@@ -308,16 +318,6 @@ def _fetch_remote_commits(limit: int = 30) -> list[dict] | None:
     the user every 30 minutes when their wifi is flaky."""
     import urllib.request as _urlreq
     import urllib.error as _urlerr
-    own = _main_file_urls("commits.json")
-    if len(own) > 1:
-        raw = P._fetch_raw_text(own[0])
-        try:
-            data = json.loads(raw) if raw else None
-        except ValueError:
-            data = None
-        if (isinstance(data, list) and data and isinstance(data[0], dict)
-                and data[0].get("sha")):
-            return data[:limit]
     url = (f"https://api.github.com/repos/{P._VERSION_REPO_OWNER}/"
            f"{P._VERSION_REPO_NAME}/commits?sha=main&per_page={limit}")
     req = _urlreq.Request(url, headers={
@@ -327,11 +327,22 @@ def _fetch_remote_commits(limit: int = 30) -> list[dict] | None:
     try:
         with _urlreq.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        if not isinstance(data, list):
-            return None
-        return data
+        if isinstance(data, list):
+            return data
     except (_urlerr.URLError, _urlerr.HTTPError, OSError, ValueError, TimeoutError):
-        return None
+        pass
+    # GitHub did not answer (or hides the repo): our server's copy, same shape.
+    own = _main_file_urls("commits.json")
+    if len(own) > 1:
+        raw = P._fetch_raw_text(own[-1])
+        try:
+            data = json.loads(raw) if raw else None
+        except ValueError:
+            data = None
+        if (isinstance(data, list) and data and isinstance(data[0], dict)
+                and data[0].get("sha")):
+            return data[:limit]
+    return None
 
 
 def _parse_broadcast(raw: bytes | str, local_version: str = "") -> dict | None:
