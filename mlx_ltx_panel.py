@@ -25250,9 +25250,11 @@ def _probe_video_dims(path: str) -> tuple[int, int]:
              "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", path],
             capture_output=True, text=True, errors="replace", timeout=10,
         ).stdout.strip()
-        if "x" in out:
-            w, h = out.split("x", 1)
-            return int(w), int(h)
+        # H16: a clip with a rotation tag (phone videos) makes ffprobe print
+        # side data after the size, "1920x1080x" -- read the first two fields.
+        parts = out.splitlines()[0].split("x") if out else []
+        if len(parts) >= 2:
+            return int(parts[0]), int(parts[1])
     except Exception:
         pass
     return 0, 0

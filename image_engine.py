@@ -1185,6 +1185,25 @@ def lora_input_width(path) -> int | None:
     return width if hits * 5 >= sum(counts.values()) * 2 else None   # >= 40 %
 
 
+def lora_is_flux1_shaped(path, width: int) -> bool:
+    """True when a LoRA as wide as the FLUX.2 model was made for FLUX.1.
+
+    FLUX.1 is 3072 wide, the same as FLUX.2 [klein] 4B, so the width check
+    passes it; its feed-forward writes 4 x width (12288; the BFL single-block
+    linear1 7 x width), while FLUX.2 writes 6 x width (18432) and never 4 or
+    7 x. mflux attaches it by key name and the first denoise step dies with
+    "[broadcast_shapes] Shapes (1,1024,18432)" - hotfix H19 (5.0.19-5.0.28,
+    7 renders on 2 Macs, "The render stopped on a layer-size mismatch")."""
+    import lora_compat
+    for key, meta in lora_compat.read_tensor_header(path).items():
+        if not key.endswith((".lora_B.weight", ".lora_up.weight")):
+            continue
+        shape = meta.get("shape") if isinstance(meta, dict) else None
+        if isinstance(shape, list) and len(shape) == 2 and shape[0] in (4 * width, 7 * width):
+            return True
+    return False
+
+
 _SHAPE_ERROR_MARKS = ("[broadcast_shapes]", "[matmul]", "[addmm]", "Shapes (")
 
 
@@ -1256,6 +1275,12 @@ def mflux_lora_problem(config: ImageEngineConfig) -> tuple[str, str] | None:
             if type(exc).__name__ == "LoraCompatibilityError":
                 return ("damaged", str(exc))
             continue
+        if want and have == want and lora_is_flux1_shaped(p, want):
+            runs = FLUX2_WIDTH_NAMES[want]
+            return ("mismatch",
+                    f"The LoRA {name} was made for FLUX.1 and cannot load on "
+                    f"{runs}, the model this image engine runs. Un-pick it in "
+                    f"the LoRA list, or pick a LoRA made for {runs}.")
         if want and have and have != want:
             made_for = FLUX2_WIDTH_NAMES.get(have)
             runs = FLUX2_WIDTH_NAMES[want]
@@ -1712,6 +1737,15 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
     if fam == "ideogram":
         env.setdefault("MLX_DISABLE_COMPILE", "1")
         env.setdefault("MLX_METAL_FAST_SYNCH", "1")
+    # H17 (fleet, 11-17 Nov): Qwen-Edit was stopped by the macOS Metal
+    # watchdog (SIGABRT, error_class metal_watchdog) on M1 Max, M2 Max and
+    # M4 Max 36 GB - 9 failures, 3 Macs, most within 2 minutes. The watchdog
+    # times ONE command buffer; smaller buffers keep each one under it and
+    # change no kernel, so the picture is bit-identical. Same buffer size
+    # the LTX helper uses on M1/M2 (GPU_STEPS_M1M2 in mlx_ltx_panel.py).
+    if fam == "qwen_edit":
+        env.setdefault("MLX_MAX_OPS_PER_BUFFER", "10")
+        env.setdefault("MLX_MAX_MB_PER_BUFFER", "10")
     # FBCache toggle for the Qwen-Edit transformer (skips middle blocks
     # when the layer-0 residual is stable step-to-step). The patch is
     # injected by patch_mflux_fbcache.py at install/update time and is

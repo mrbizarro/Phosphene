@@ -413,5 +413,17 @@
     "pro": [],
     "date": "2026-11-17",
     "headline": "Fix: Upscale x2 on 64 GB Macs no longer runs out of memory."
+  },
+  "5.0.37": {
+    "free": [
+      "A reference picture from your Desktop, Downloads or anywhere on your Mac is copied in and used, instead of the render failing.",
+      "Upscale x2 works on phone videos again: no more 'could not read the size' on clips with a rotation tag.",
+      "Qwen-Edit picture edits no longer stop with a GPU crash on M1, M2 and M4 Max; same picture.",
+      "A style file made for FLUX.1, picked for Auto or Klein pictures, is refused at once with a plain message, not halfway through.",
+      "Image-to-video carries on with the picture as is when its quick ffmpeg pass stalls, instead of failing."
+    ],
+    "pro": [],
+    "date": "2026-11-17",
+    "headline": "Fix: outside reference pictures, phone clips in Upscale, Qwen-Edit GPU crash, FLUX.1 style check, i2v stall."
   }
 }

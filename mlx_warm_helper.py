@@ -1748,6 +1748,7 @@ def _install_a2v_frame_rate_patch() -> None:
     presence as evidence the upstream bug is still live.
     """
     global _A2V_FRAME_RATE_PATCH_INSTALLED
+    _install_image_crf_fallback()  # H18: every pipe builder runs this; a stalled one-frame ffmpeg must not kill i2v
     if _A2V_FRAME_RATE_PATCH_INSTALLED:
         return
     try:
@@ -1797,6 +1798,35 @@ def _install_a2v_frame_rate_patch() -> None:
         # will take effect on its later import (uses _orchestration name)
         pass
     _A2V_FRAME_RATE_PATCH_INSTALLED = True
+
+
+def _install_image_crf_fallback() -> None:
+    """H18: the engine round-trips the start picture through a one-frame
+    ffmpeg H.264 encode (``media_io.preprocess``) with a 60 s timeout. When
+    that ffmpeg stalls, the whole render died with
+    "Command '[ffmpeg, -y, -f, rawvideo, -pix_fmt, rgb24, -s, ...]' timed
+    out after 60 seconds". The round-trip only softens the picture to match
+    training, so on any ffmpeg failure use the picture as it is and go on.
+    Idempotent."""
+    try:
+        import ltx_pipelines_mlx.utils.media_io as _mio
+    except Exception:  # noqa: BLE001 — engine missing: nothing to patch
+        return
+    _orig = getattr(_mio, "preprocess", None)
+    if _orig is None or getattr(_orig, "_phos_crf_fallback", False):
+        return
+    import subprocess as _sp
+
+    def _preprocess(image, crf=getattr(_mio, "DEFAULT_IMAGE_CRF", 33)):
+        try:
+            return _orig(image, crf)
+        except (_sp.TimeoutExpired, _sp.CalledProcessError, RuntimeError, OSError) as exc:
+            print(f"[warm-helper] start picture ffmpeg round-trip failed, "
+                  f"using the picture as is: {str(exc)[:160]}", flush=True)
+            return image
+
+    _preprocess._phos_crf_fallback = True
+    _mio.preprocess = _preprocess
 
 
 def _attach_streamed_loras(pipe, model, active) -> None:

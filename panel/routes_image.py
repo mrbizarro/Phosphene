@@ -867,17 +867,13 @@ def post_image_generate(h, path, qs, ctype) -> None:
             rp = (P.UPLOADS / r).resolve()
         else:
             rp = rp.resolve()
-        # Security: refs must live under UPLOADS or the public
-        # outputs dir. Prevents the JSON body from naming /etc/...
-        # Use Path.is_relative_to (3.9+) — string startswith() lets
-        # `panel_uploads_evil/` slip through because it shares the
-        # `panel_uploads` prefix without being under it. Both ends
-        # are already .resolved() so symlink/.. tricks are
-        # neutralized. Mirrors the agent-side _ensure_under
-        # convention in agent/tools.py.
-        allowed_roots = [P.UPLOADS.resolve(), P.OUTPUT.resolve()]
-        if not any(rp.is_relative_to(root) for root in allowed_roots):
-            h._json({"error": f"ref path not under uploads/outputs: {r}"}, 403); return
+        # A picture outside uploads/outputs (Desktop, Downloads, an old
+        # library) used to be refused here with "ref path not under
+        # uploads/outputs" (H15: 6 failed renders on 4 Macs). Like every
+        # other render since 5.0.30, it is copied into UPLOADS below;
+        # copy_attached_reference resolves symlinks and refuses anything
+        # that is not an image, audio or video file, so the JSON body still
+        # cannot read /etc/... through this route.
         if not rp.is_file():
             h._json({"error": f"ref image not found: {r}"}, 404); return
         try:
