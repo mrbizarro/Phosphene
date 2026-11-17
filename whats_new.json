@@ -449,5 +449,13 @@
     "pro": [],
     "date": "2026-11-17",
     "headline": "Fix: the Music Video song slot takes a song again."
+  },
+  "5.0.41": {
+    "free": [
+      "Mac app setup: a new install that uses its built-in Studio still gets its video models, now from Hugging Face."
+    ],
+    "pro": [],
+    "date": "2026-11-17",
+    "headline": "Fix: Mac app setup downloads its video models again on every path."
   }
 }
