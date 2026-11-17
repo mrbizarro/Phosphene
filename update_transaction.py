@@ -361,7 +361,10 @@ def main():
     try:
         tx = Transaction(Path(__file__).resolve().parent)
         rec = tx.prepare()
-        if rec['phase'] == 'current':
+        # prepare() hands back a 'succeeded' receipt only when nothing new arrived since the last
+        # finished update, so that press is "up to date" too (17 Nov 2026: it used to say
+        # "Update prepared. Restart Phosphene..." although nothing had changed).
+        if rec['phase'] in ('current', 'succeeded'):
             print('Already up to date. Nothing to restart.')
         else:
             tx.dependencies()

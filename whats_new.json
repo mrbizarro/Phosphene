@@ -1521,5 +1521,69 @@
         ]
       }
     }
+  },
+  "5.0.48": {
+    "free": [
+      "Pinokio: pressing Update right after an update, when nothing new has come out, now says you are already up to date, instead of asking you to restart for nothing."
+    ],
+    "pro": [],
+    "date": "2026-11-17",
+    "headline": "Pressing Update when you are up to date no longer asks you to restart.",
+    "i18n": {
+      "de": {
+        "headline": "Update drücken, wenn du aktuell bist, verlangt keinen Neustart mehr.",
+        "free": [
+          "Pinokio: Update direkt nach einem Update, ohne etwas Neues, sagt jetzt, dass alles aktuell ist, statt grundlos einen Neustart zu verlangen."
+        ]
+      },
+      "es": {
+        "headline": "Pulsar Update cuando ya estás al día ya no te pide reiniciar.",
+        "free": [
+          "Pinokio: si pulsas Update justo después de actualizar y no hay nada nuevo, ahora te dice que ya estás al día, en lugar de pedirte reiniciar sin motivo."
+        ]
+      },
+      "fr": {
+        "headline": "Appuyer sur Update quand vous êtes à jour ne demande plus de redémarrer.",
+        "free": [
+          "Pinokio : appuyer sur Update juste après une mise à jour, sans rien de nouveau, indique maintenant que vous êtes à jour, au lieu de demander un redémarrage inutile."
+        ]
+      },
+      "it": {
+        "headline": "Premere Update quando sei aggiornato non chiede più di riavviare.",
+        "free": [
+          "Pinokio: se premi Update subito dopo un aggiornamento e non c'è niente di nuovo, ora vedi che sei già aggiornato, invece di una richiesta di riavvio inutile."
+        ]
+      },
+      "ja": {
+        "headline": "最新のときに Update を押しても、再起動を求められなくなりました。",
+        "free": [
+          "Pinokio：更新した直後に新しいものがない状態で Update を押すと、意味のない再起動を求めるのではなく、すでに最新であることが表示されます。"
+        ]
+      },
+      "ko": {
+        "headline": "최신일 때 Update를 눌러도 더 이상 재시작하라고 하지 않아요.",
+        "free": [
+          "Pinokio: 업데이트 직후 새로운 것이 없을 때 Update를 누르면, 쓸데없이 재시작하라고 하지 않고 이미 최신 상태라고 알려 줘요."
+        ]
+      },
+      "pt": {
+        "headline": "Pressionar Update quando você já está atualizado não pede mais para reiniciar.",
+        "free": [
+          "Pinokio: se você pressionar Update logo depois de atualizar e não houver nada novo, agora aparece que você já está atualizado, em vez de pedir para reiniciar à toa."
+        ]
+      },
+      "ru": {
+        "headline": "Нажатие Update, когда всё актуально, больше не просит перезапуск.",
+        "free": [
+          "Pinokio: если нажать Update сразу после обновления, когда ничего нового нет, теперь видно, что всё актуально, а не просьба перезапустить без причины."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "已是最新时按 Update，不再要求你重启。",
+        "free": [
+          "Pinokio：刚更新完、没有新内容时按 Update，现在会提示你已是最新，而不是无故要求重启。"
+        ]
+      }
+    }
   }
 }
