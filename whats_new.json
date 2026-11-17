@@ -1,5 +1,5 @@
 {
-  "_note": "One entry per released version, newest last. free[] and pro[] are plain lines that every user sees (Free users see the Pro list too, it is public marketing copy like the pricing page). Plain benefit wording only: no engine, trick or recipe names. Anything internal belongs in the Pro pack's own whats_new_pro.json. A line is a string, or {\"text\": \"...\", \"media\": \"/webapp/docs/..png\"}. The release gate fails when the entry for VERSION is missing. Optional per version: \"date\" (YYYY-MM-DD), \"headline\" (one plain line under the version in the window header, the release in a sentence) and \"hero\", the big visual at the top of the card and the website changelog: {\"kind\": \"vertical\", \"title\", \"original\", \"free\", \"pro\"} (each {\"video\", \"poster\"}) or {\"kind\": \"media\", \"video\" or \"image\", \"poster\", \"caption\"}. \"showcase\" holds the standing \"What Pro adds\" items (measured, never projected) shown to Free users under New in Pro. Media goes in assets/whats_new/ (served at /assets/whats_new/; the website copies it with its sync script). Per version \"how\": [{\"id\", \"title\", \"free\": {\"video\", \"poster\", \"caption\"}, \"pro\": {...}}], a few seconds of the real Studio showing where the button is and what you get; every new feature gets one, and the feature links to it by id. Optional per version \"pro_perks\": ids from pro_perks.json (the one list of Pro speed-ups and features with their measured numbers); they lead the window as Now in Pro, above everything else, with a Get Pro button for Free users. A perk not yet released there (since null) is never shown.",
+  "_note": "One entry per released version, newest last. free[] and pro[] are plain lines that every user sees (Free users see the Pro list too, it is public marketing copy like the pricing page). Plain benefit wording only: no engine, trick or recipe names. Anything internal belongs in the Pro pack's own whats_new_pro.json. A line is a string, or {\"text\": \"...\", \"media\": \"/webapp/docs/..png\"}. The release gate fails when the entry for VERSION is missing. Optional per version: \"date\" (YYYY-MM-DD), \"headline\" (one plain line under the version in the window header, the release in a sentence) and \"hero\", the big visual at the top of the card and the website changelog: {\"kind\": \"vertical\", \"title\", \"original\", \"free\", \"pro\"} (each {\"video\", \"poster\"}) or {\"kind\": \"media\", \"video\" or \"image\", \"poster\", \"caption\"}. \"showcase\" holds the standing \"What Pro adds\" items (measured, never projected) shown to Free users under New in Pro. Media goes in assets/whats_new/ (served at /assets/whats_new/; the website copies it with its sync script). Per version \"how\": [{\"id\", \"title\", \"free\": {\"video\", \"poster\", \"caption\"}, \"pro\": {...}}], a few seconds of the real Studio showing where the button is and what you get; every new feature gets one, and the feature links to it by id. Optional per version \"pro_perks\": ids from pro_perks.json (the one list of Pro speed-ups and features with their measured numbers); they lead the window as Now in Pro, above everything else, with a Get Pro button for Free users. A perk not yet released there (since null) is never shown. PLAIN WORDS (owner, 17 Nov 2026): every line passes 'would a creator who has never seen our code understand it and know what to try?': what the user gets, named as the app names it, never our code (no pack, engine, settings, file names; never 'identical' or 'works the same'). A release users cannot notice is {\"silent\": true, \"date\": ...}: no lines, no window. From 5.0.30 on every entry with lines carries \"i18n\": {lang: {\"headline\", \"free\": [...], \"pro\": [...]}} for every language in i18n/studio/ (de es fr it ja ko pt ru zh-Hans); scripts/check_whats_new.py refuses a missing one.",
   "showcase": {
     "pro": [
       {
@@ -349,129 +349,975 @@
   },
   "5.0.30": {
     "free": [
-      "A reference picture you move or delete after attaching it no longer fails the render.",
-      "Songs on smaller Macs wait for memory after a video instead of stopping.",
-      "The picture engine repairs its own install when its first download was interrupted."
+      "A reference picture you moved or deleted after adding it no longer makes the render fail.",
+      "On 16 and 24 GB Macs, a song started right after a video now waits for memory and finishes, instead of stopping.",
+      "If the first download of the picture tools was cut off, they now finish setting themselves up."
     ],
     "pro": [],
     "date": "2026-11-16",
-    "headline": "Fixes: moved reference pictures, songs on small Macs, picture engine repair."
+    "headline": "Fewer failed renders: moved pictures, songs on smaller Macs, picture setup.",
+    "i18n": {
+      "de": {
+        "headline": "Weniger abgebrochene Renderings: verschobene Bilder, Songs auf kleineren Macs, Bild-Einrichtung.",
+        "free": [
+          "Ein Referenzbild, das du nach dem Hinzufügen verschoben oder gelöscht hast, lässt das Rendering nicht mehr scheitern.",
+          "Auf Macs mit 16 und 24 GB wartet ein Song, der direkt nach einem Video startet, jetzt auf freien Speicher und wird fertig, statt abzubrechen.",
+          "Wurde der erste Download der Bildwerkzeuge unterbrochen, richten sie sich jetzt selbst fertig ein."
+        ]
+      },
+      "es": {
+        "headline": "Menos renders fallidos: imágenes movidas, canciones en Macs más pequeños y configuración de imágenes.",
+        "free": [
+          "Una imagen de referencia que moviste o borraste después de añadirla ya no hace fallar el render.",
+          "En Macs de 16 y 24 GB, una canción que empieza justo después de un video ahora espera a que haya memoria y termina, en lugar de detenerse.",
+          "Si la primera descarga de las herramientas de imagen se cortó, ahora terminan de instalarse solas."
+        ]
+      },
+      "fr": {
+        "headline": "Moins de rendus qui échouent : images déplacées, chansons sur les petits Mac, outils d'image.",
+        "free": [
+          "Une image de référence déplacée ou supprimée après l'avoir ajoutée ne fait plus échouer le rendu.",
+          "Sur les Mac de 16 et 24 GB, une chanson lancée juste après une vidéo attend maintenant que la mémoire se libère et va jusqu'au bout, au lieu de s'arrêter.",
+          "Si le premier téléchargement des outils d'image a été interrompu, ils terminent maintenant leur installation tout seuls."
+        ]
+      },
+      "it": {
+        "headline": "Meno render falliti: immagini spostate, brani sui Mac più piccoli, configurazione delle immagini.",
+        "free": [
+          "Un'immagine di riferimento spostata o eliminata dopo averla aggiunta non fa più fallire il render.",
+          "Sui Mac da 16 e 24 GB, un brano avviato subito dopo un video ora aspetta che si liberi memoria e arriva alla fine, invece di fermarsi.",
+          "Se il primo download degli strumenti per le immagini si era interrotto, ora finiscono di configurarsi da soli."
+        ]
+      },
+      "ja": {
+        "headline": "失敗するレンダリングを削減：移動した画像、小さめのMacでの曲、画像ツールのセットアップ。",
+        "free": [
+          "追加したあとで移動・削除した参照画像が原因で、レンダリングが失敗することはなくなりました。",
+          "16 GB・24 GBのMacで、動画の直後に始めた曲は止まらずにメモリが空くのを待ち、最後まで仕上がるようになりました。",
+          "画像ツールの初回ダウンロードが途中で切れていても、自動でセットアップを完了するようになりました。"
+        ]
+      },
+      "ko": {
+        "headline": "실패하는 렌더링 감소: 옮긴 이미지, 작은 Mac에서의 노래, 이미지 도구 설치.",
+        "free": [
+          "추가한 뒤 옮기거나 삭제한 참조 이미지 때문에 렌더링이 실패하지 않아요.",
+          "16 GB와 24 GB Mac에서 영상 바로 다음에 시작한 노래가 멈추지 않고 메모리를 기다렸다가 끝까지 만들어져요.",
+          "이미지 도구의 첫 다운로드가 끊겼더라도 이제 스스로 설치를 마쳐요."
+        ]
+      },
+      "pt": {
+        "headline": "Menos renderizações com falha: imagens movidas, músicas em Macs menores, instalação das imagens.",
+        "free": [
+          "Uma imagem de referência que você moveu ou apagou depois de adicionar não faz mais a renderização falhar.",
+          "Em Macs de 16 e 24 GB, uma música iniciada logo depois de um vídeo agora espera a memória liberar e termina, em vez de parar.",
+          "Se o primeiro download das ferramentas de imagem foi interrompido, agora elas terminam de se instalar sozinhas."
+        ]
+      },
+      "ru": {
+        "headline": "Меньше сбоев рендера: перемещённые изображения, песни на небольших Mac, настройка изображений.",
+        "free": [
+          "Референсное изображение, которое вы переместили или удалили после добавления, больше не обрывает рендер.",
+          "На Mac с 16 и 24 GB песня, запущенная сразу после видео, теперь ждёт свободную память и доходит до конца, а не останавливается.",
+          "Если первая загрузка инструментов для изображений прервалась, теперь они сами завершают установку."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "渲染失败更少：移动过的图片、小内存 Mac 上的歌曲、图片工具安装。",
+        "free": [
+          "添加后又被移动或删除的参考图片，不会再导致渲染失败。",
+          "在 16 GB 和 24 GB 的 Mac 上，紧接视频开始的歌曲现在会等待内存空出并完成，而不是中途停止。",
+          "如果图片工具的首次下载中断了，现在它们会自动完成安装。"
+        ]
+      }
+    }
   },
   "5.0.31": {
     "free": [
-      "Song lyrics keep the hard parts of a dark or angry idea instead of turning them into greeting-card verse."
+      "Song lyrics keep the dark or angry parts of your idea, instead of softening them into greeting-card verse."
     ],
     "pro": [],
     "date": "2026-11-16",
-    "headline": "Fix: song lyrics stay honest to your idea."
+    "headline": "Songs stay true to your idea.",
+    "i18n": {
+      "de": {
+        "headline": "Songs bleiben deiner Idee treu.",
+        "free": [
+          "Songtexte behalten die düsteren oder wütenden Seiten deiner Idee, statt sie zu Glückwunschkarten-Reimen zu glätten."
+        ]
+      },
+      "es": {
+        "headline": "Las canciones respetan tu idea.",
+        "free": [
+          "Las letras conservan las partes oscuras o rabiosas de tu idea, en lugar de suavizarlas hasta sonar a tarjeta de felicitación."
+        ]
+      },
+      "fr": {
+        "headline": "Les chansons restent fidèles à votre idée.",
+        "free": [
+          "Les paroles gardent les côtés sombres ou en colère de votre idée, au lieu de les adoucir en vers de carte de vœux."
+        ]
+      },
+      "it": {
+        "headline": "I brani restano fedeli alla tua idea.",
+        "free": [
+          "I testi mantengono le parti cupe o rabbiose della tua idea, invece di addolcirle in versi da biglietto d'auguri."
+        ]
+      },
+      "ja": {
+        "headline": "曲があなたのアイデアに忠実に。",
+        "free": [
+          "歌詞が、アイデアの暗い部分や怒りの部分をそのまま残すようになりました。グリーティングカードのような当たり障りのない言葉に和らげません。"
+        ]
+      },
+      "ko": {
+        "headline": "노래가 내 아이디어에 충실해져요.",
+        "free": [
+          "가사가 아이디어의 어둡거나 화난 부분을 축하 카드 문구처럼 순하게 바꾸지 않고 그대로 살려요."
+        ]
+      },
+      "pt": {
+        "headline": "As músicas ficam fiéis à sua ideia.",
+        "free": [
+          "As letras mantêm as partes sombrias ou raivosas da sua ideia, em vez de suavizá-las em versos de cartão de felicitações."
+        ]
+      },
+      "ru": {
+        "headline": "Песни остаются верны вашей идее.",
+        "free": [
+          "Тексты песен сохраняют мрачные или злые стороны вашей идеи и не сглаживают их до стихов с открытки."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "歌曲忠于你的想法。",
+        "free": [
+          "歌词会保留你想法中阴暗或愤怒的部分，不再把它们改得像贺卡上的客套话。"
+        ]
+      }
+    }
   },
   "5.0.32": {
     "free": [
-      "The update pop-up on Pinokio says plainly how to update, reaches Macs where GitHub's check is blocked, and remembers Later.",
-      "Mac app: developer notices now arrive, plus a quiet hint when an update is ready."
+      "Pinokio: the update message now says exactly how to update, shows up on more Macs, and remembers when you press Later.",
+      "Mac app: short notes from us now reach you inside the app, with a quiet hint when an update is ready."
     ],
     "pro": [],
     "date": "2026-11-16",
-    "headline": "Fix: update pop-up says how to update and reaches more Macs."
+    "headline": "Updates are easier to get.",
+    "i18n": {
+      "de": {
+        "headline": "Updates sind leichter zu bekommen.",
+        "free": [
+          "Pinokio: Die Update-Meldung sagt jetzt genau, wie du aktualisierst, erscheint auf mehr Macs und merkt sich, wenn du auf Später klickst.",
+          "Mac-App: Kurze Hinweise von uns erreichen dich jetzt direkt in der App, mit einem dezenten Zeichen, wenn ein Update bereitsteht."
+        ]
+      },
+      "es": {
+        "headline": "Las actualizaciones son más fáciles de conseguir.",
+        "free": [
+          "Pinokio: el aviso de actualización ahora explica exactamente cómo actualizar, aparece en más Macs y recuerda cuando pulsas Más tarde.",
+          "App para Mac: ahora te llegan notas breves nuestras dentro de la app, con un aviso discreto cuando hay una actualización lista."
+        ]
+      },
+      "fr": {
+        "headline": "Les mises à jour sont plus simples à obtenir.",
+        "free": [
+          "Pinokio : le message de mise à jour explique maintenant précisément comment mettre à jour, s'affiche sur plus de Mac et se souvient quand vous cliquez sur Plus tard.",
+          "App Mac : nos petits messages vous parviennent maintenant dans l'app, avec un signal discret quand une mise à jour est prête."
+        ]
+      },
+      "it": {
+        "headline": "Gli aggiornamenti sono più facili da ottenere.",
+        "free": [
+          "Pinokio: il messaggio di aggiornamento ora spiega esattamente come aggiornare, compare su più Mac e ricorda quando premi Più tardi.",
+          "App per Mac: le nostre brevi note ora ti arrivano dentro l'app, con un segnale discreto quando c'è un aggiornamento pronto."
+        ]
+      },
+      "ja": {
+        "headline": "アップデートを受け取りやすく。",
+        "free": [
+          "Pinokio：アップデートの案内に更新方法がはっきり書かれ、より多くのMacで表示され、「あとで」を押したことも覚えておくようになりました。",
+          "Macアプリ：私たちからの短いお知らせがアプリ内に届き、アップデートの準備ができると控えめに知らせます。"
+        ]
+      },
+      "ko": {
+        "headline": "업데이트를 더 쉽게 받을 수 있어요.",
+        "free": [
+          "Pinokio: 업데이트 안내가 업데이트 방법을 정확히 알려 주고, 더 많은 Mac에 표시되며, 나중에를 누른 것도 기억해요.",
+          "Mac 앱: 저희가 보내는 짧은 소식을 이제 앱 안에서 받고, 업데이트가 준비되면 조용히 알려 드려요."
+        ]
+      },
+      "pt": {
+        "headline": "Ficou mais fácil receber atualizações.",
+        "free": [
+          "Pinokio: o aviso de atualização agora diz exatamente como atualizar, aparece em mais Macs e lembra quando você clica em Depois.",
+          "App para Mac: nossos recados curtos agora chegam a você dentro do app, com um aviso discreto quando há uma atualização pronta."
+        ]
+      },
+      "ru": {
+        "headline": "Обновления проще получить.",
+        "free": [
+          "Pinokio: сообщение об обновлении теперь точно объясняет, как обновиться, появляется на большем числе Mac и запоминает, если вы нажали «Позже».",
+          "Приложение для Mac: короткие заметки от нас теперь приходят прямо в приложение, а когда готово обновление, появляется ненавязчивая подсказка."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "更新更容易获取。",
+        "free": [
+          "Pinokio：更新提示现在会清楚说明如何更新，在更多 Mac 上显示，并会记住你点过“稍后”。",
+          "Mac 应用：我们的简短通知现在会直接出现在应用里，有更新可用时也会低调提醒。"
+        ]
+      }
+    }
   },
   "5.0.33": {
     "free": [
-      "After an update, What's new shows what the release gave you first, then what is new in Pro.",
-      "A new install notes once where you found Phosphene (our website, Pinokio, or unknown) in the anonymous usage counts. It holds nothing about you; Settings, Anonymous usage analytics turns it off."
+      "The What's new window now shows what changed for you first, then what is new in Pro.",
+      "Anonymous usage counts now note once where you found Phosphene (our website or Pinokio). Nothing about you. Turn it off in Settings, Anonymous usage analytics."
     ],
     "pro": [],
     "date": "2026-11-17",
-    "headline": "Pro: Fast draft makes LTX-2.5 Balanced clips in about half the time, on any Mac with 16 GB or more.",
+    "headline": "Pro: Fast draft makes LTX clips in about half the time, on any Mac with 16 GB or more.",
     "pro_perks": [
       "ltx-fast-draft"
-    ]
+    ],
+    "i18n": {
+      "de": {
+        "headline": "Pro: Schneller Entwurf macht LTX-Clips in etwa der halben Zeit, auf jedem Mac mit 16 GB oder mehr.",
+        "free": [
+          "Das Fenster Neuigkeiten zeigt jetzt zuerst, was sich für dich geändert hat, dann, was in Pro neu ist.",
+          "Die anonyme Nutzungsstatistik vermerkt jetzt einmalig, wo du Phosphene gefunden hast (unsere Website oder Pinokio). Nichts über dich. Abschalten unter Einstellungen, Anonyme Nutzungsstatistik."
+        ]
+      },
+      "es": {
+        "headline": "Pro: Borrador rápido crea clips de LTX en casi la mitad de tiempo, en cualquier Mac con 16 GB o más.",
+        "free": [
+          "La ventana Novedades ahora muestra primero lo que cambió para ti y después lo nuevo en Pro.",
+          "La analítica de uso anónima ahora anota una sola vez dónde encontraste Phosphene (nuestra web o Pinokio). Nada sobre ti. Desactívala en Configuración, Analítica de uso anónima."
+        ]
+      },
+      "fr": {
+        "headline": "Pro : Brouillon rapide crée les clips LTX en deux fois moins de temps, sur tout Mac de 16 GB ou plus.",
+        "free": [
+          "La fenêtre Nouveautés montre maintenant d'abord ce qui change pour vous, puis ce qui est nouveau dans Pro.",
+          "Les statistiques anonymes notent une seule fois où vous avez découvert Phosphene (notre site ou Pinokio). Rien sur vous. Désactivables dans Réglages, Statistiques d'utilisation anonymes."
+        ]
+      },
+      "it": {
+        "headline": "Pro: Bozza veloce crea clip LTX in circa metà tempo, su qualsiasi Mac con 16 GB o più.",
+        "free": [
+          "La finestra Novità ora mostra prima cosa è cambiato per te, poi cosa c'è di nuovo in Pro.",
+          "Le statistiche d'uso anonime ora annotano una sola volta dove hai trovato Phosphene (il nostro sito o Pinokio). Niente su di te. Disattivale in Impostazioni, Statistiche d'uso anonime."
+        ]
+      },
+      "ja": {
+        "headline": "Pro：高速ドラフトでLTXクリップが約半分の時間に。16 GB以上のすべてのMacで。",
+        "free": [
+          "「新機能」ウィンドウでは、まずあなたに関係する変更を、続いてProの新機能を表示するようになりました。",
+          "匿名の利用統計に、Phospheneをどこで見つけたか（公式サイトまたはPinokio）を一度だけ記録するようになりました。あなた個人の情報は含みません。設定の「匿名の利用統計」でオフにできます。"
+        ]
+      },
+      "ko": {
+        "headline": "Pro: 빠른 초안으로 LTX 클립을 절반 정도의 시간에 만들어요. 16 GB 이상인 모든 Mac에서.",
+        "free": [
+          "새로운 기능 창에서 나에게 바뀐 점을 먼저 보여 주고, 그다음 Pro의 새 기능을 보여 줘요.",
+          "익명 사용 통계에 Phosphene을 어디서 알게 됐는지(웹사이트 또는 Pinokio)를 한 번만 기록해요. 개인 정보는 없어요. 설정의 익명 사용 통계에서 끌 수 있어요."
+        ]
+      },
+      "pt": {
+        "headline": "Pro: o Rascunho rápido faz clipes LTX em cerca de metade do tempo, em qualquer Mac com 16 GB ou mais.",
+        "free": [
+          "A janela Novidades agora mostra primeiro o que mudou para você e depois o que há de novo no Pro.",
+          "A análise de uso anônima agora registra uma única vez onde você encontrou o Phosphene (nosso site ou o Pinokio). Nada sobre você. Desative em Ajustes, Análise de uso anônima."
+        ]
+      },
+      "ru": {
+        "headline": "Pro: «Быстрый черновик» делает клипы LTX примерно вдвое быстрее, на любом Mac с 16 GB и больше.",
+        "free": [
+          "Окно «Что нового» теперь сначала показывает, что изменилось для вас, а затем, что нового в Pro.",
+          "Анонимная статистика использования теперь один раз отмечает, где вы нашли Phosphene (наш сайт или Pinokio). Ничего о вас. Отключить: Настройки, «Анонимная статистика использования»."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "Pro：快速草稿生成 LTX 片段只需约一半时间，16 GB 及以上的 Mac 均可使用。",
+        "free": [
+          "“新增功能”窗口现在先显示与你相关的变化，再显示 Pro 的新内容。",
+          "匿名使用统计现在会记录一次你是从哪里找到 Phosphene 的（我们的网站或 Pinokio），不涉及你的任何个人信息。可在“设置”的“匿名使用统计”中关闭。"
+        ]
+      }
+    }
   },
   "5.0.34": {
     "free": [
-      "Training goes on when captions don't name your trigger word: it is added to every caption.",
-      "Covers of busy songs no longer stop with 'transcription came out incomplete'.",
-      "FLUX 3 and image errors name the real reason, like no connection to Hugging Face.",
-      "A model file that cannot be opened says to reconnect the drive or press Repair."
+      "Character training no longer stops when your captions leave out the trigger word: Phosphene adds it for you.",
+      "Covers of busy songs now finish, instead of stopping with 'transcription came out incomplete'.",
+      "When a picture fails, the message now says why, for example no internet connection to download the model.",
+      "If a model file can't be opened, the message tells you to reconnect your drive or press Repair."
     ],
     "pro": [],
     "date": "2026-11-17",
-    "headline": "Fix: clearer errors, training and song covers that keep going."
+    "headline": "Character training, song covers and error messages, fixed.",
+    "i18n": {
+      "de": {
+        "headline": "Charaktertraining, Song-Cover und Fehlermeldungen repariert.",
+        "free": [
+          "Das Charaktertraining bricht nicht mehr ab, wenn deinen Bildbeschreibungen das Triggerwort fehlt: Phosphene ergänzt es für dich.",
+          "Cover von vollgepackten Songs werden jetzt fertig, statt mit 'transcription came out incomplete' abzubrechen.",
+          "Scheitert ein Bild, sagt die Meldung jetzt warum, zum Beispiel: keine Internetverbindung, um das Modell zu laden.",
+          "Lässt sich eine Modelldatei nicht öffnen, rät dir die Meldung, dein Laufwerk wieder anzuschließen oder auf Reparieren zu klicken."
+        ]
+      },
+      "es": {
+        "headline": "Entrenamiento de personajes, covers de canciones y mensajes de error, corregidos.",
+        "free": [
+          "El entrenamiento de personajes ya no se detiene cuando tus descripciones no incluyen la palabra activadora: Phosphene la añade por ti.",
+          "Los covers de canciones muy cargadas ahora terminan, en lugar de detenerse con 'transcription came out incomplete'.",
+          "Cuando falla una imagen, el mensaje ahora explica por qué, por ejemplo, que no hay conexión a internet para descargar el modelo.",
+          "Si no se puede abrir un archivo de modelo, el mensaje te indica que vuelvas a conectar tu disco o pulses Reparar."
+        ]
+      },
+      "fr": {
+        "headline": "Entraînement de personnage, reprises de chansons et messages d'erreur : corrigés.",
+        "free": [
+          "L'entraînement d'un personnage ne s'arrête plus quand vos légendes oublient le mot déclencheur : Phosphene l'ajoute pour vous.",
+          "Les reprises de morceaux très chargés vont maintenant jusqu'au bout, au lieu de s'arrêter sur 'transcription came out incomplete'.",
+          "Quand une image échoue, le message dit maintenant pourquoi, par exemple pas de connexion internet pour télécharger le modèle.",
+          "Si un fichier de modèle ne s'ouvre pas, le message vous invite à rebrancher votre disque ou à cliquer sur Réparer."
+        ]
+      },
+      "it": {
+        "headline": "Addestramento personaggi, cover e messaggi di errore: sistemati.",
+        "free": [
+          "L'addestramento del personaggio non si ferma più se nelle descrizioni manca la parola di attivazione: Phosphene la aggiunge per te.",
+          "Le cover di brani molto pieni ora arrivano alla fine, invece di fermarsi con 'transcription came out incomplete'.",
+          "Quando un'immagine non riesce, il messaggio ora spiega perché, per esempio manca la connessione a internet per scaricare il modello.",
+          "Se un file del modello non si apre, il messaggio ti dice di ricollegare il disco o di premere Ripara."
+        ]
+      },
+      "ja": {
+        "headline": "キャラクター学習、曲のカバー、エラーメッセージを修正。",
+        "free": [
+          "キャプションにトリガーワードが入っていなくても、キャラクター学習が止まらなくなりました。Phospheneが自動で追加します。",
+          "音数の多い曲のカバーも、'transcription came out incomplete' で止まらず最後まで仕上がるようになりました。",
+          "画像の生成に失敗したとき、理由が表示されるようになりました。たとえば、モデルをダウンロードするためのインターネット接続がない、などです。",
+          "モデルファイルを開けないときは、ドライブを接続し直すか「修復」を押すよう案内します。"
+        ]
+      },
+      "ko": {
+        "headline": "캐릭터 학습, 노래 커버, 오류 메시지 수정.",
+        "free": [
+          "캡션에 트리거 단어가 빠져도 캐릭터 학습이 멈추지 않아요. Phosphene이 대신 넣어 줘요.",
+          "소리가 꽉 찬 노래의 커버도 'transcription came out incomplete'로 멈추지 않고 끝까지 완성돼요.",
+          "이미지가 실패하면 이제 이유를 알려 줘요. 예를 들어 모델을 받을 인터넷 연결이 없다고요.",
+          "모델 파일을 열 수 없으면 드라이브를 다시 연결하거나 복구를 누르라고 안내해요."
+        ]
+      },
+      "pt": {
+        "headline": "Treino de personagem, covers de músicas e mensagens de erro: corrigidos.",
+        "free": [
+          "O treino de personagem não para mais quando suas legendas deixam de fora a palavra-gatilho: o Phosphene adiciona para você.",
+          "Covers de músicas muito cheias agora chegam ao fim, em vez de parar com 'transcription came out incomplete'.",
+          "Quando uma imagem falha, a mensagem agora diz o motivo, por exemplo, falta de conexão com a internet para baixar o modelo.",
+          "Se um arquivo de modelo não abre, a mensagem pede que você reconecte o disco ou clique em Reparar."
+        ]
+      },
+      "ru": {
+        "headline": "Исправлены обучение персонажей, каверы песен и сообщения об ошибках.",
+        "free": [
+          "Обучение персонажа больше не останавливается, если в подписях нет слова-триггера: Phosphene добавит его сам.",
+          "Каверы насыщенных песен теперь доходят до конца, а не обрываются с 'transcription came out incomplete'.",
+          "Если изображение не получилось, сообщение теперь объясняет причину, например нет интернета, чтобы скачать модель.",
+          "Если файл модели не открывается, сообщение подскажет заново подключить диск или нажать «Починить»."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "角色训练、歌曲翻唱和错误提示已修复。",
+        "free": [
+          "当你的图片描述里漏掉触发词时，角色训练不会再中断：Phosphene 会替你补上。",
+          "编曲繁复的歌曲现在也能翻唱完成，不会再因 'transcription came out incomplete' 而停止。",
+          "图片生成失败时，提示现在会说明原因，例如没有网络连接，无法下载模型。",
+          "如果模型文件无法打开，提示会让你重新连接硬盘或点击“修复”。"
+        ]
+      }
+    }
   },
   "5.0.35": {
     "free": [
-      "Fewer LTX renders stopped by the graphics watchdog on M2 Pro and M2 Max Macs.",
-      "Hailuo H3 on 16-24 GB Macs uses the faster video finish more often: same frames, sooner."
+      "LTX videos on M2 Pro and M2 Max Macs stop halfway much less often.",
+      "Hailuo H3 clips finish sooner on 16 and 24 GB Macs, with the same result."
     ],
     "pro": [],
     "date": "2026-11-17",
-    "headline": "Fix: steadier LTX on M2 Pro/Max, faster H3 finish on 16-24 GB Macs."
+    "headline": "Steadier LTX videos on M2 Pro and M2 Max, quicker Hailuo H3 on 16 and 24 GB Macs.",
+    "i18n": {
+      "de": {
+        "headline": "Zuverlässigere LTX-Videos auf M2 Pro und M2 Max, schnelleres Hailuo H3 auf Macs mit 16 und 24 GB.",
+        "free": [
+          "LTX-Videos auf Macs mit M2 Pro und M2 Max brechen viel seltener mittendrin ab.",
+          "Hailuo-H3-Clips sind auf Macs mit 16 und 24 GB schneller fertig, mit demselben Ergebnis."
+        ]
+      },
+      "es": {
+        "headline": "Videos LTX más estables en M2 Pro y M2 Max, Hailuo H3 más rápido en Macs de 16 y 24 GB.",
+        "free": [
+          "Los videos LTX en Macs con M2 Pro y M2 Max se detienen a medias con mucha menos frecuencia.",
+          "Los clips de Hailuo H3 terminan antes en Macs de 16 y 24 GB, con el mismo resultado."
+        ]
+      },
+      "fr": {
+        "headline": "Vidéos LTX plus stables sur M2 Pro et M2 Max, Hailuo H3 plus rapide sur les Mac de 16 et 24 GB.",
+        "free": [
+          "Les vidéos LTX sur les Mac M2 Pro et M2 Max s'arrêtent beaucoup moins souvent en cours de route.",
+          "Les clips Hailuo H3 se terminent plus tôt sur les Mac de 16 et 24 GB, avec le même résultat."
+        ]
+      },
+      "it": {
+        "headline": "Video LTX più stabili su M2 Pro e M2 Max, Hailuo H3 più veloce sui Mac da 16 e 24 GB.",
+        "free": [
+          "I video LTX sui Mac con M2 Pro e M2 Max si fermano a metà molto più di rado.",
+          "Le clip Hailuo H3 finiscono prima sui Mac da 16 e 24 GB, con lo stesso risultato."
+        ]
+      },
+      "ja": {
+        "headline": "M2 Pro・M2 MaxでLTX動画が安定、16 GB・24 GBのMacでHailuo H3が高速に。",
+        "free": [
+          "M2 Pro・M2 Max搭載のMacで、LTX動画が途中で止まることが大幅に減りました。",
+          "16 GB・24 GBのMacで、Hailuo H3のクリップが同じ仕上がりのまま早く完成します。"
+        ]
+      },
+      "ko": {
+        "headline": "M2 Pro와 M2 Max에서 더 안정적인 LTX 영상, 16 GB와 24 GB Mac에서 더 빠른 Hailuo H3.",
+        "free": [
+          "M2 Pro와 M2 Max Mac에서 LTX 영상이 중간에 멈추는 일이 훨씬 줄었어요.",
+          "16 GB와 24 GB Mac에서 Hailuo H3 클립이 같은 결과로 더 빨리 완성돼요."
+        ]
+      },
+      "pt": {
+        "headline": "Vídeos LTX mais estáveis no M2 Pro e no M2 Max, Hailuo H3 mais rápido em Macs de 16 e 24 GB.",
+        "free": [
+          "Vídeos LTX em Macs com M2 Pro e M2 Max param no meio com muito menos frequência.",
+          "Clipes do Hailuo H3 ficam prontos mais cedo em Macs de 16 e 24 GB, com o mesmo resultado."
+        ]
+      },
+      "ru": {
+        "headline": "Стабильнее LTX на M2 Pro и M2 Max, быстрее Hailuo H3 на Mac с 16 и 24 GB.",
+        "free": [
+          "Видео LTX на Mac с M2 Pro и M2 Max гораздо реже останавливаются на полпути.",
+          "Клипы Hailuo H3 на Mac с 16 и 24 GB готовы раньше, а результат тот же."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "M2 Pro 和 M2 Max 上的 LTX 视频更稳定，16 GB 和 24 GB Mac 上的 Hailuo H3 更快。",
+        "free": [
+          "在 M2 Pro 和 M2 Max 的 Mac 上，LTX 视频中途停止的情况大大减少。",
+          "在 16 GB 和 24 GB 的 Mac 上，Hailuo H3 片段完成得更快，效果不变。"
+        ]
+      }
+    }
   },
   "5.0.36": {
     "free": [
-      "Upscale x2 on Macs under 96 GB stops at 2048x1152, the size that fits, instead of being stopped for memory after a long wait."
+      "Upscale x2 no longer runs out of memory after a long wait on Macs with less than 96 GB: it makes the biggest size that fits, 2048x1152."
     ],
     "pro": [],
     "date": "2026-11-17",
-    "headline": "Fix: Upscale x2 on 64 GB Macs no longer runs out of memory."
+    "headline": "Upscale x2 finishes on Macs with less than 96 GB.",
+    "i18n": {
+      "de": {
+        "headline": "×2 Upscale wird auf Macs mit weniger als 96 GB fertig.",
+        "free": [
+          "Auf Macs mit weniger als 96 GB geht ×2 Upscale nach langem Warten nicht mehr der Speicher aus: Es macht die größte Größe, die passt, 2048x1152."
+        ]
+      },
+      "es": {
+        "headline": "Ampliación ×2 termina en Macs con menos de 96 GB.",
+        "free": [
+          "Ampliación ×2 ya no se queda sin memoria tras una larga espera en Macs con menos de 96 GB: crea el tamaño más grande que cabe, 2048x1152."
+        ]
+      },
+      "fr": {
+        "headline": "Upscale ×2 va jusqu'au bout sur les Mac de moins de 96 GB.",
+        "free": [
+          "Upscale ×2 ne manque plus de mémoire après une longue attente sur les Mac de moins de 96 GB : il produit la plus grande taille possible, 2048x1152."
+        ]
+      },
+      "it": {
+        "headline": "Risoluzione ×2 arriva alla fine sui Mac con meno di 96 GB.",
+        "free": [
+          "Risoluzione ×2 non esaurisce più la memoria dopo una lunga attesa sui Mac con meno di 96 GB: crea la dimensione più grande che ci sta, 2048x1152."
+        ]
+      },
+      "ja": {
+        "headline": "96 GB未満のMacでも×2アップスケールが完了。",
+        "free": [
+          "96 GB未満のMacで、×2アップスケールが長く待ったあとにメモリ不足になることはなくなりました。収まる最大のサイズ、2048x1152で仕上げます。"
+        ]
+      },
+      "ko": {
+        "headline": "96 GB 미만 Mac에서도 2배 업스케일이 끝까지 완료돼요.",
+        "free": [
+          "96 GB 미만 Mac에서 2배 업스케일이 오래 기다린 끝에 메모리 부족으로 실패하지 않아요. 들어갈 수 있는 가장 큰 크기인 2048x1152로 만들어요."
+        ]
+      },
+      "pt": {
+        "headline": "O Aumento de resolução ×2 termina em Macs com menos de 96 GB.",
+        "free": [
+          "O Aumento de resolução ×2 não fica mais sem memória depois de uma longa espera em Macs com menos de 96 GB: ele faz o maior tamanho que cabe, 2048x1152."
+        ]
+      },
+      "ru": {
+        "headline": "«Апскейл ×2» завершается на Mac с памятью меньше 96 GB.",
+        "free": [
+          "На Mac с памятью меньше 96 GB «Апскейл ×2» больше не упирается в нехватку памяти после долгого ожидания: он делает самый большой размер, который помещается, 2048x1152."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "内存低于 96 GB 的 Mac 也能完成 2 倍超分。",
+        "free": [
+          "在内存低于 96 GB 的 Mac 上，2 倍超分不会再在长时间等待后内存不足：它会输出能容纳的最大尺寸 2048x1152。"
+        ]
+      }
+    }
   },
   "5.0.37": {
     "free": [
-      "A reference picture from your Desktop, Downloads or anywhere on your Mac is copied in and used, instead of the render failing.",
-      "Upscale x2 works on phone videos again: no more 'could not read the size' on clips with a rotation tag.",
-      "Qwen-Edit picture edits no longer stop with a GPU crash on M1, M2 and M4 Max; same picture.",
-      "A style file made for FLUX.1, picked for Auto or Klein pictures, is refused at once with a plain message, not halfway through.",
-      "Image-to-video carries on with the picture as is when its quick ffmpeg pass stalls, instead of failing."
+      "A reference picture from your Desktop, Downloads or anywhere on your Mac now works, instead of failing the render.",
+      "Upscale x2 works on videos from your phone again.",
+      "Picture edits with Qwen-Edit no longer crash on M1, M2 and M4 Max Macs.",
+      "Pick a style made for FLUX.1 with Auto or Klein pictures and you are told right away that it does not fit, instead of the picture failing halfway.",
+      "Image to video no longer fails when getting your picture ready takes too long: it goes on with the picture as it is."
     ],
     "pro": [],
     "date": "2026-11-17",
-    "headline": "Fix: outside reference pictures, phone clips in Upscale, Qwen-Edit GPU crash, FLUX.1 style check, i2v stall."
+    "headline": "Fewer failed renders: pictures from anywhere on your Mac, phone videos in Upscale, picture edits.",
+    "i18n": {
+      "de": {
+        "headline": "Weniger abgebrochene Renderings: Bilder von überall auf deinem Mac, Handyvideos beim Hochskalieren, Bildbearbeitung.",
+        "free": [
+          "Ein Referenzbild vom Schreibtisch, aus Downloads oder von irgendwo auf deinem Mac funktioniert jetzt, statt das Rendering scheitern zu lassen.",
+          "×2 Upscale funktioniert wieder mit Videos von deinem Handy.",
+          "Bildbearbeitung mit Qwen-Edit stürzt auf Macs mit M1, M2 und M4 Max nicht mehr ab.",
+          "Wählst du für Auto- oder Klein-Bilder einen Stil, der für FLUX.1 gemacht ist, erfährst du sofort, dass er nicht passt, statt dass das Bild mittendrin scheitert.",
+          "Bild zu Video scheitert nicht mehr, wenn die Vorbereitung deines Bildes zu lange dauert: Es geht mit dem Bild weiter, wie es ist."
+        ]
+      },
+      "es": {
+        "headline": "Menos renders fallidos: imágenes de todo tu Mac, videos del teléfono en Ampliación ×2 y edición de imágenes.",
+        "free": [
+          "Una imagen de referencia del Escritorio, de Descargas o de cualquier lugar de tu Mac ahora funciona, en lugar de hacer fallar el render.",
+          "Ampliación ×2 vuelve a funcionar con videos de tu teléfono.",
+          "La edición de imágenes con Qwen-Edit ya no se cuelga en Macs M1, M2 y M4 Max.",
+          "Si eliges un estilo hecho para FLUX.1 con imágenes Auto o Klein, se te avisa al instante de que no encaja, en lugar de que la imagen falle a medias.",
+          "Imagen a video ya no falla cuando preparar tu imagen tarda demasiado: sigue adelante con la imagen tal como está."
+        ]
+      },
+      "fr": {
+        "headline": "Moins de rendus qui échouent : images de partout sur votre Mac, vidéos de téléphone en Upscale ×2, retouches d'images.",
+        "free": [
+          "Une image de référence venant du Bureau, des Téléchargements ou de n'importe où sur votre Mac fonctionne maintenant, au lieu de faire échouer le rendu.",
+          "Upscale ×2 fonctionne de nouveau avec les vidéos de votre téléphone.",
+          "Les retouches d'images avec Qwen-Edit ne plantent plus sur les Mac M1, M2 et M4 Max.",
+          "Choisissez un style conçu pour FLUX.1 avec des images Auto ou Klein et vous êtes prévenu tout de suite qu'il ne convient pas, au lieu d'un échec à mi-chemin.",
+          "L'image vers vidéo n'échoue plus quand la préparation de votre image prend trop de temps : elle continue avec l'image telle quelle."
+        ]
+      },
+      "it": {
+        "headline": "Meno render falliti: immagini da ogni punto del Mac, video del telefono in Risoluzione ×2, modifiche alle immagini.",
+        "free": [
+          "Un'immagine di riferimento dalla Scrivania, da Download o da qualsiasi punto del tuo Mac ora funziona, invece di far fallire il render.",
+          "Risoluzione ×2 funziona di nuovo con i video del tuo telefono.",
+          "Le modifiche alle immagini con Qwen-Edit non si bloccano più sui Mac M1, M2 e M4 Max.",
+          "Se scegli uno stile pensato per FLUX.1 con immagini Auto o Klein, ti viene detto subito che non è adatto, invece di far fallire l'immagine a metà.",
+          "Da immagine a video non fallisce più quando preparare la tua immagine richiede troppo tempo: va avanti con l'immagine così com'è."
+        ]
+      },
+      "ja": {
+        "headline": "失敗するレンダリングを削減：Mac内のどこにある画像でも、スマホ動画のアップスケール、画像編集。",
+        "free": [
+          "デスクトップやダウンロードなど、Mac内のどこにある参照画像でも、レンダリングが失敗せずに使えるようになりました。",
+          "スマートフォンで撮った動画で、×2アップスケールが再び使えるようになりました。",
+          "M1・M2・M4 MaxのMacで、Qwen-Editによる画像編集がクラッシュしなくなりました。",
+          "自動またはKleinの画像にFLUX.1用のスタイルを選ぶと、途中で失敗する前に、合わないことをすぐにお知らせします。",
+          "画像から動画を作るとき、画像の準備に時間がかかりすぎても失敗せず、そのままの画像で続行します。"
+        ]
+      },
+      "ko": {
+        "headline": "실패하는 렌더링 감소: Mac 어디에 있는 이미지든, 휴대폰 영상 업스케일, 이미지 편집.",
+        "free": [
+          "데스크탑, 다운로드 등 Mac 어디에 있는 참조 이미지든 이제 렌더링 실패 없이 쓸 수 있어요.",
+          "휴대폰으로 찍은 영상에서 2배 업스케일이 다시 작동해요.",
+          "M1, M2, M4 Max Mac에서 Qwen-Edit 이미지 편집이 더 이상 강제 종료되지 않아요.",
+          "자동 또는 Klein 이미지에 FLUX.1용 스타일을 고르면, 이미지가 중간에 실패하는 대신 맞지 않는다고 바로 알려 줘요.",
+          "이미지를 영상으로 만들 때 이미지 준비가 너무 오래 걸려도 실패하지 않고, 이미지를 그대로 써서 계속 진행해요."
+        ]
+      },
+      "pt": {
+        "headline": "Menos renderizações com falha: imagens de qualquer lugar do Mac, vídeos do telefone no ×2, edição de imagens.",
+        "free": [
+          "Uma imagem de referência da Mesa, de Downloads ou de qualquer lugar do seu Mac agora funciona, em vez de fazer a renderização falhar.",
+          "O Aumento de resolução ×2 voltou a funcionar com vídeos do seu telefone.",
+          "A edição de imagens com o Qwen-Edit não trava mais em Macs M1, M2 e M4 Max.",
+          "Escolha um estilo feito para o FLUX.1 com imagens Auto ou Klein e você é avisado na hora que ele não combina, em vez de a imagem falhar no meio.",
+          "Imagem para vídeo não falha mais quando preparar sua imagem demora demais: segue com a imagem como está."
+        ]
+      },
+      "ru": {
+        "headline": "Меньше сбоев рендера: изображения из любой папки на Mac, видео с телефона в апскейле, редактирование изображений.",
+        "free": [
+          "Референсное изображение с Рабочего стола, из Загрузок или из любого места на Mac теперь работает, а не обрывает рендер.",
+          "«Апскейл ×2» снова работает с видео с телефона.",
+          "Редактирование изображений в Qwen-Edit больше не вылетает на Mac с M1, M2 и M4 Max.",
+          "Если выбрать стиль для FLUX.1 с изображениями «Авто» или Klein, вы сразу узнаете, что он не подходит, а не увидите сбой на полпути.",
+          "Изображение в видео больше не срывается, если подготовка картинки занимает слишком долго: работа продолжается с изображением как есть."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "渲染失败更少：Mac 上任意位置的图片、手机视频超分、图片编辑。",
+        "free": [
+          "来自桌面、下载或 Mac 上任意位置的参考图片现在都能用了，不会再导致渲染失败。",
+          "2 倍超分重新支持手机拍摄的视频。",
+          "在 M1、M2 和 M4 Max 的 Mac 上，用 Qwen-Edit 编辑图片不会再崩溃。",
+          "为“自动”或 Klein 图片选择专为 FLUX.1 设计的风格时，会立即提示风格不匹配，而不是让图片中途失败。",
+          "图生视频不会再因为图片准备时间过长而失败：会直接使用原图继续。"
+        ]
+      }
+    }
   },
   "5.0.38": {
     "free": [
-      "When macOS's graphics driver stops a render, the message says Phosphene already retried and what to try, instead of a GitHub link that does not open."
+      "When macOS stops a render with a graphics error, the message now says Phosphene already tried again and what you can do next."
     ],
     "pro": [],
     "date": "2026-11-17",
-    "headline": "Fix: graphics-driver crash messages say what to try, not a dead GitHub link."
+    "headline": "A clearer message when macOS stops a render.",
+    "i18n": {
+      "de": {
+        "headline": "Eine klarere Meldung, wenn macOS ein Rendering stoppt.",
+        "free": [
+          "Stoppt macOS ein Rendering mit einem Grafikfehler, sagt die Meldung jetzt, dass Phosphene es schon erneut versucht hat, und was du als Nächstes tun kannst."
+        ]
+      },
+      "es": {
+        "headline": "Un mensaje más claro cuando macOS detiene un render.",
+        "free": [
+          "Cuando macOS detiene un render por un error gráfico, el mensaje ahora indica que Phosphene ya lo reintentó y qué puedes hacer a continuación."
+        ]
+      },
+      "fr": {
+        "headline": "Un message plus clair quand macOS arrête un rendu.",
+        "free": [
+          "Quand macOS arrête un rendu à cause d'une erreur graphique, le message indique maintenant que Phosphene a déjà réessayé et ce que vous pouvez faire ensuite."
+        ]
+      },
+      "it": {
+        "headline": "Un messaggio più chiaro quando macOS interrompe un render.",
+        "free": [
+          "Quando macOS interrompe un render per un errore grafico, il messaggio ora dice che Phosphene ha già riprovato e cosa puoi fare dopo."
+        ]
+      },
+      "ja": {
+        "headline": "macOSがレンダリングを止めたときのメッセージをわかりやすく。",
+        "free": [
+          "macOSがグラフィックエラーでレンダリングを止めたとき、Phospheneがすでに再試行したことと、次にできることを表示するようになりました。"
+        ]
+      },
+      "ko": {
+        "headline": "macOS가 렌더링을 멈췄을 때 더 알기 쉬운 메시지.",
+        "free": [
+          "macOS가 그래픽 오류로 렌더링을 멈추면, Phosphene이 이미 다시 시도했다는 것과 다음에 할 수 있는 일을 알려 줘요."
+        ]
+      },
+      "pt": {
+        "headline": "Uma mensagem mais clara quando o macOS interrompe uma renderização.",
+        "free": [
+          "Quando o macOS interrompe uma renderização com um erro gráfico, a mensagem agora diz que o Phosphene já tentou de novo e o que você pode fazer em seguida."
+        ]
+      },
+      "ru": {
+        "headline": "Понятнее сообщение, когда macOS останавливает рендер.",
+        "free": [
+          "Когда macOS останавливает рендер из-за графической ошибки, сообщение теперь говорит, что Phosphene уже попробовал ещё раз, и что можно сделать дальше."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "macOS 中止渲染时，提示更清楚。",
+        "free": [
+          "当 macOS 因图形错误中止渲染时，提示现在会说明 Phosphene 已经重试过，以及你接下来可以怎么做。"
+        ]
+      }
+    }
   },
   "5.0.39": {
     "free": [
-      "Video model downloads, including High quality, come from our open Hugging Face pages, so High works again while GitHub is down instead of failing with HTTP 404."
+      "High quality video works again: its download no longer fails with 'HTTP 404'."
     ],
     "pro": [],
     "date": "2026-11-17",
-    "headline": "Fix: big model downloads come from Hugging Face, so High quality works again."
+    "headline": "High quality videos work again.",
+    "i18n": {
+      "de": {
+        "headline": "Videos in Hoher Qualität funktionieren wieder.",
+        "free": [
+          "Hohe Qualität funktioniert wieder: Der Download scheitert nicht mehr mit 'HTTP 404'."
+        ]
+      },
+      "es": {
+        "headline": "Los videos en Alta calidad vuelven a funcionar.",
+        "free": [
+          "El video en Alta calidad vuelve a funcionar: su descarga ya no falla con 'HTTP 404'."
+        ]
+      },
+      "fr": {
+        "headline": "Les vidéos en Haute qualité fonctionnent de nouveau.",
+        "free": [
+          "La vidéo en Haute qualité fonctionne de nouveau : son téléchargement n'échoue plus avec 'HTTP 404'."
+        ]
+      },
+      "it": {
+        "headline": "I video in Alta qualità funzionano di nuovo.",
+        "free": [
+          "Il video in Alta qualità funziona di nuovo: il suo download non fallisce più con 'HTTP 404'."
+        ]
+      },
+      "ja": {
+        "headline": "高画質の動画が再び使えるように。",
+        "free": [
+          "高画質の動画が再び使えるようになりました。ダウンロードが 'HTTP 404' で失敗しなくなりました。"
+        ]
+      },
+      "ko": {
+        "headline": "고품질 영상이 다시 작동해요.",
+        "free": [
+          "고품질 영상이 다시 작동해요. 다운로드가 'HTTP 404'로 실패하지 않아요."
+        ]
+      },
+      "pt": {
+        "headline": "Os vídeos em Alta qualidade voltaram a funcionar.",
+        "free": [
+          "O vídeo em Alta qualidade voltou a funcionar: o download não falha mais com 'HTTP 404'."
+        ]
+      },
+      "ru": {
+        "headline": "Видео в высоком качестве снова работает.",
+        "free": [
+          "Режим «Высокое качество» снова работает: его загрузка больше не обрывается с ошибкой 'HTTP 404'."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "高画质视频恢复正常。",
+        "free": [
+          "高画质视频恢复正常：下载不会再因 'HTTP 404' 失败。"
+        ]
+      }
+    }
   },
   "5.0.40": {
     "free": [
-      "Audio > Music Video: a song can be dragged into the song slot or picked with a click again, even after opening the Image Studio."
+      "Audio, Music Video: you can drop a song into the song slot, or pick one with a click, again, even after opening Image Studio."
     ],
     "pro": [],
     "date": "2026-11-17",
-    "headline": "Fix: the Music Video song slot takes a song again."
+    "headline": "Music Video takes your song again.",
+    "i18n": {
+      "de": {
+        "headline": "Musikvideo nimmt deinen Song wieder an.",
+        "free": [
+          "Audio, Musikvideo: Du kannst wieder einen Song in das Song-Feld ziehen oder per Klick auswählen, auch nachdem du Image Studio geöffnet hast."
+        ]
+      },
+      "es": {
+        "headline": "Video musical vuelve a aceptar tu canción.",
+        "free": [
+          "Audio, Video musical: vuelves a poder arrastrar una canción a su casilla o elegirla con un clic, incluso después de abrir Image Studio."
+        ]
+      },
+      "fr": {
+        "headline": "Vidéo musicale accepte de nouveau votre chanson.",
+        "free": [
+          "Audio, Vidéo musicale : vous pouvez de nouveau déposer une chanson dans son emplacement ou la choisir d'un clic, même après avoir ouvert Image Studio."
+        ]
+      },
+      "it": {
+        "headline": "Video musicale accetta di nuovo il tuo brano.",
+        "free": [
+          "Audio, Video musicale: puoi di nuovo trascinare un brano nel suo spazio o sceglierlo con un clic, anche dopo aver aperto Image Studio."
+        ]
+      },
+      "ja": {
+        "headline": "ミュージックビデオで再び曲を読み込めるように。",
+        "free": [
+          "音声 → ミュージックビデオ：Image Studioを開いたあとでも、曲の欄に曲をドロップしたり、クリックして選んだりできるようになりました。"
+        ]
+      },
+      "ko": {
+        "headline": "뮤직비디오에 다시 노래를 넣을 수 있어요.",
+        "free": [
+          "오디오, 뮤직비디오: Image Studio를 연 뒤에도 노래 칸에 노래를 끌어다 놓거나 클릭해서 다시 고를 수 있어요."
+        ]
+      },
+      "pt": {
+        "headline": "O Videoclipe volta a aceitar sua música.",
+        "free": [
+          "Áudio, Videoclipe: você volta a poder arrastar uma música para o espaço da música ou escolher com um clique, mesmo depois de abrir o Image Studio."
+        ]
+      },
+      "ru": {
+        "headline": "«Музыкальное видео» снова принимает вашу песню.",
+        "free": [
+          "Аудио, «Музыкальное видео»: песню снова можно перетащить в поле для песни или выбрать щелчком, даже после того как вы открыли Image Studio."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "音乐视频又能放入你的歌曲了。",
+        "free": [
+          "音频 > 音乐视频：即使打开过 Image Studio，也能再次把歌曲拖进歌曲栏，或点击选择一首。"
+        ]
+      }
+    }
   },
   "5.0.41": {
     "free": [
-      "Mac app setup: a new install that uses its built-in Studio still gets its video models, now from Hugging Face."
+      "Mac app: first-time setup now always downloads the video models, so you can make your first video right away."
     ],
     "pro": [],
     "date": "2026-11-17",
-    "headline": "Fix: Mac app setup downloads its video models again on every path."
+    "headline": "Mac app: first-time setup finishes again.",
+    "i18n": {
+      "de": {
+        "headline": "Mac-App: Die Ersteinrichtung wird wieder fertig.",
+        "free": [
+          "Mac-App: Die Ersteinrichtung lädt jetzt immer die Videomodelle, damit du sofort dein erstes Video machen kannst."
+        ]
+      },
+      "es": {
+        "headline": "App para Mac: la configuración inicial vuelve a terminar.",
+        "free": [
+          "App para Mac: la configuración inicial ahora siempre descarga los modelos de video, para que puedas crear tu primer video enseguida."
+        ]
+      },
+      "fr": {
+        "headline": "App Mac : la première installation va de nouveau jusqu'au bout.",
+        "free": [
+          "App Mac : la première installation télécharge maintenant toujours les modèles vidéo, pour que vous puissiez faire votre première vidéo tout de suite."
+        ]
+      },
+      "it": {
+        "headline": "App per Mac: la prima configurazione arriva di nuovo alla fine.",
+        "free": [
+          "App per Mac: la prima configurazione ora scarica sempre i modelli video, così puoi creare subito il tuo primo video."
+        ]
+      },
+      "ja": {
+        "headline": "Macアプリ：初回セットアップが再び完了するように。",
+        "free": [
+          "Macアプリ：初回セットアップで必ず動画モデルをダウンロードするようになり、すぐに最初の動画を作れます。"
+        ]
+      },
+      "ko": {
+        "headline": "Mac 앱: 첫 설정이 다시 끝까지 완료돼요.",
+        "free": [
+          "Mac 앱: 첫 설정에서 이제 항상 영상 모델을 내려받아서, 바로 첫 영상을 만들 수 있어요."
+        ]
+      },
+      "pt": {
+        "headline": "App para Mac: a configuração inicial volta a terminar.",
+        "free": [
+          "App para Mac: a configuração inicial agora sempre baixa os modelos de vídeo, para você fazer seu primeiro vídeo na hora."
+        ]
+      },
+      "ru": {
+        "headline": "Приложение для Mac: первая настройка снова завершается.",
+        "free": [
+          "Приложение для Mac: при первой настройке теперь всегда скачиваются модели для видео, так что первое видео можно сделать сразу."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "Mac 应用：首次设置又能顺利完成了。",
+        "free": [
+          "Mac 应用：首次设置现在总会下载视频模型，让你马上就能做出第一个视频。"
+        ]
+      }
+    }
   },
   "5.0.42": {
-    "free": [],
-    "pro": [
-      "The Pro pack now carries its own settings for Pro AI fill and Pro Fast images; nothing changes in how they work."
-    ],
-    "date": "2026-11-17",
-    "headline": "Fix: Pro settings now live in the Pro pack."
+    "silent": true,
+    "date": "2026-11-17"
   },
   "5.0.43": {
-    "free": [],
-    "pro": [
-      "Pro AI fill and Pro Fast images now take their settings from the Pro pack; Free renders are identical and Pro works the same."
+    "silent": true,
+    "date": "2026-11-17"
+  },
+  "5.0.44": {
+    "free": [
+      "The What's new window now shows every line, button and date in your language.",
+      "Each update now tells you plainly what it gives you, and small behind-the-scenes fixes no longer open this window."
     ],
+    "pro": [],
     "date": "2026-11-17",
-    "headline": "Fix: the Studio reads Pro settings from the Pro pack."
+    "headline": "What's new now speaks your language and says plainly what you get.",
+    "i18n": {
+      "de": {
+        "headline": "Neuigkeiten jetzt in deiner Sprache, und klar, was du bekommst.",
+        "free": [
+          "Das Fenster Neuigkeiten zeigt jetzt jede Zeile, jede Schaltfläche und jedes Datum in deiner Sprache.",
+          "Jedes Update sagt jetzt klar, was es dir bringt, und kleine Korrekturen im Hintergrund öffnen dieses Fenster nicht mehr."
+        ]
+      },
+      "es": {
+        "headline": "Novedades ahora habla tu idioma y te dice claramente qué obtienes.",
+        "free": [
+          "La ventana de Novedades ahora muestra cada línea, botón y fecha en tu idioma.",
+          "Cada actualización te dice claramente qué te aporta, y los pequeños arreglos internos ya no abren esta ventana."
+        ]
+      },
+      "fr": {
+        "headline": "Les Nouveautés parlent votre langue et disent clairement ce que vous obtenez.",
+        "free": [
+          "La fenêtre Nouveautés affiche désormais chaque ligne, chaque bouton et chaque date dans votre langue.",
+          "Chaque mise à jour dit clairement ce qu'elle vous apporte, et les petites corrections en coulisses n'ouvrent plus cette fenêtre."
+        ]
+      },
+      "it": {
+        "headline": "Novità ora parla la tua lingua e dice chiaramente cosa ottieni.",
+        "free": [
+          "La finestra Novità ora mostra ogni riga, pulsante e data nella tua lingua.",
+          "Ogni aggiornamento ti dice chiaramente cosa ti porta, e le piccole correzioni dietro le quinte non aprono più questa finestra."
+        ]
+      },
+      "ja": {
+        "headline": "新機能のお知らせがあなたの言語で、わかりやすくなりました。",
+        "free": [
+          "新機能のウィンドウの文章、ボタン、日付がすべてあなたの言語で表示されます。",
+          "アップデートごとに何ができるようになったかをわかりやすく伝えます。目に見えない小さな修正では、このウィンドウは開きません。"
+        ]
+      },
+      "ko": {
+        "headline": "새로운 기능 안내가 이제 사용자의 언어로, 무엇이 달라졌는지 쉽게 알려 줍니다.",
+        "free": [
+          "새로운 기능 창의 모든 문장, 버튼, 날짜가 이제 사용자의 언어로 표시됩니다.",
+          "업데이트마다 무엇을 할 수 있게 되었는지 쉽게 알려 주며, 눈에 띄지 않는 작은 수정에는 이 창이 열리지 않습니다."
+        ]
+      },
+      "pt": {
+        "headline": "Novidades agora fala o seu idioma e diz claramente o que você ganha.",
+        "free": [
+          "A janela de Novidades agora mostra cada linha, botão e data no seu idioma.",
+          "Cada atualização diz claramente o que traz para você, e pequenas correções nos bastidores não abrem mais esta janela."
+        ]
+      },
+      "ru": {
+        "headline": "«Что нового» теперь на вашем языке и простыми словами.",
+        "free": [
+          "Окно «Что нового» теперь показывает каждую строку, кнопку и дату на вашем языке.",
+          "Каждое обновление теперь просто говорит, что оно вам даёт, а мелкие незаметные исправления больше не открывают это окно."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "新增功能现在使用你的语言，清楚说明你得到了什么。",
+        "free": [
+          "新增功能窗口中的每一行文字、按钮和日期现在都以你的语言显示。",
+          "每次更新都会清楚告诉你带来了什么，看不见的小修复不再弹出这个窗口。"
+        ]
+      }
+    }
   }
 }

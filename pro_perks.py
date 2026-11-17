@@ -51,24 +51,48 @@ def released(p: dict | None) -> bool:
     return bool(p and isinstance(p.get("since"), str) and p["since"].strip())
 
 
-def teaser(p: dict | None) -> str:
+def _tr(p: dict, lang: str | None) -> dict:
+    """The perk's own words in the user's language (its "i18n": {lang: {name, now, next, gain}}), {} for English or
+    when there is none: the English then shows."""
+    tr = p.get("i18n") if isinstance(p, dict) else None
+    if not lang or not isinstance(tr, dict) or str(lang).split("-")[0].lower() == "en":
+        return {}
+    if lang in tr and isinstance(tr[lang], dict):
+        return tr[lang]
+    base = str(lang).split("-")[0].lower()
+    for k, v in tr.items():
+        if k.split("-")[0].lower() == base and isinstance(v, dict):
+            return v
+    return {}
+
+
+def _word(p: dict, key: str, lang: str | None) -> str:
+    t = _tr(p, lang).get(key)
+    if isinstance(t, str) and t.strip():
+        return t.strip()
+    v = p.get(key)
+    return v.strip() if isinstance(v, str) else ""
+
+
+def teaser(p: dict | None, lang: str | None = None) -> str:
     """The perk's 'next' line: the one public sentence about what is coming ('' when it has none, or when the
     perk is already released: a released perk is news, not a tease)."""
     if not p or released(p):
         return ""
-    t = p.get("next")
-    return t.strip() if isinstance(t, str) else ""
+    if not (isinstance(p.get("next"), str) and p["next"].strip()):
+        return ""
+    return _word(p, "next", lang)
 
 
-def coming(path: Path | None = None) -> list[dict]:
+def coming(path: Path | None = None, lang: str | None = None) -> list[dict]:
     """What is coming next in Pro (owner, 14 Nov 2026: "if we don't have something to release in Pro, we can still
     tease it"): the unreleased perks that carry a 'next' line, in file order. An unreleased perk without one is kept
     quiet. Same shape as line(), with the teaser as the text."""
     out = []
     for p in perks(path):
-        t = teaser(p)
+        t = teaser(p, lang)
         if t:
-            out.append({**line(p), "text": t})
+            out.append({**line(p, lang), "text": t})
     return out
 
 
@@ -105,10 +129,11 @@ def pro_url(path: Path | None = None) -> str:
     return u if isinstance(u, str) and u.startswith("https://phosphene.video/") else PRO_URL
 
 
-def line(p: dict) -> dict:
-    """What What's new shows for one perk: name, the one line, the measured gain."""
-    return {"id": p["id"], "kind": p.get("kind") or "speed-up", "name": str(p.get("name") or ""),
-            "text": str(p.get("now") or p.get("name") or ""), "gain": str(p.get("gain") or "")}
+def line(p: dict, lang: str | None = None) -> dict:
+    """What What's new shows for one perk: name, the one line, the measured gain (in the user's language)."""
+    name = _word(p, "name", lang)
+    return {"id": p["id"], "kind": p.get("kind") or "speed-up", "name": name,
+            "text": _word(p, "now", lang) or name, "gain": _word(p, "gain", lang)}
 
 
 def problems(path: Path | None = None) -> list[str]:
@@ -135,6 +160,9 @@ def problems(path: Path | None = None) -> list[str]:
         nx = p.get("next")
         if nx is not None and not isinstance(nx, str):
             out.append(f"{pid}: next must be text")
+        tr = p.get("i18n")
+        if tr is not None and not isinstance(tr, dict):
+            out.append(f"{pid}: i18n must be {{lang: {{name, now, next, gain}}}}")
         if released(p) and isinstance(nx, str) and nx.strip():
             out.append(f"{pid}: released in {p['since']} but still carries a 'next' tease: remove it")
     return out

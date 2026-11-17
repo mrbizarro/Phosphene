@@ -24481,97 +24481,137 @@
   "whatsnew.about_pro": {
    "text": "About Pro",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn take",
-   "where": "whats_new.js:191"
+   "where": "whats_new.js:200"
   },
   "whatsnew.also_in_pro": {
    "text": "Also in Pro",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn now pro",
-   "where": "whats_new.js:176"
+   "where": "whats_new.js:185"
+  },
+  "whatsnew.back_to": {
+   "text": "Back to {version}",
+   "note": "Studio · in the What's new window shown after an update · written by the code that handles wn render · placeholders {version} are filled in by the app",
+   "where": "whats_new.js:275"
+  },
+  "whatsnew.close": {
+   "text": "Close",
+   "note": "Studio · in the What's new window shown after an update · written by the code that handles wn shell",
+   "where": "whats_new.js:265"
   },
   "whatsnew.coming_next_in_pro": {
    "text": "Coming next in Pro",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn now pro",
-   "where": "whats_new.js:160"
+   "where": "whats_new.js:169"
   },
   "whatsnew.coming_next_in_your_pro": {
    "text": "Coming next in your Pro",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn now pro",
-   "where": "whats_new.js:160"
+   "where": "whats_new.js:169"
   },
   "whatsnew.earlier_releases": {
    "text": "Earlier releases",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn render",
-   "where": "whats_new.js:265"
+   "where": "whats_new.js:275"
   },
   "whatsnew.every_past_release": {
    "text": "Every past release",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn render",
-   "where": "whats_new.js:269"
+   "where": "whats_new.js:279"
   },
   "whatsnew.every_release_since_the_first": {
    "text": "Every release since the first, on phosphene.video",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn earlier",
-   "where": "whats_new.js:245"
+   "where": "whats_new.js:254"
   },
   "whatsnew.get_pro": {
    "text": "Get Pro",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn now pro",
-   "where": "whats_new.js:180"
+   "where": "whats_new.js:189"
+  },
+  "whatsnew.highlight": {
+   "text": "Highlight",
+   "note": "Studio · in the What's new window shown after an update · written by the code that handles wn hero",
+   "where": "whats_new.js:106"
   },
   "whatsnew.how_it_was_measured": {
    "text": "How it was measured",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn showcase",
-   "where": "whats_new.js:126"
+   "where": "whats_new.js:135"
+  },
+  "whatsnew.how_it_works": {
+   "text": "How it works",
+   "note": "Studio · in the What's new window shown after an update · written by the code that handles wn how sec",
+   "where": "whats_new.js:229"
   },
   "whatsnew.included_in_your_pro": {
    "text": "Included in your Pro",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn now pro",
-   "where": "whats_new.js:162"
+   "where": "whats_new.js:171"
   },
   "whatsnew.measured_on_one_mac": {
    "text": "Measured on one Mac",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn showcase",
-   "where": "whats_new.js:125"
+   "where": "whats_new.js:134"
+  },
+  "whatsnew.new_for_everyone": {
+   "text": "New for everyone",
+   "note": "Studio · in the What's new window shown after an update · written by the code that handles wn free sec",
+   "where": "whats_new.js:143"
+  },
+  "whatsnew.new_in_pro": {
+   "text": "New in Pro",
+   "note": "Studio · in the What's new window shown after an update · written by the code that handles wn pro sec",
+   "where": "whats_new.js:159"
+  },
+  "whatsnew.no_earlier_releases": {
+   "text": "No earlier releases to show.",
+   "note": "Studio · in the What's new window shown after an update · written by the code that handles wn earlier",
+   "where": "whats_new.js:253"
   },
   "whatsnew.no_how_to_clip_for": {
    "text": "No how-to clip for this yet.",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles open how clip",
-   "where": "whats_new.js:394"
+   "where": "whats_new.js:404"
   },
   "whatsnew.nothing_new_to_show_for": {
    "text": "Nothing new to show for this version.",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles open whats new",
-   "where": "whats_new.js:370"
+   "where": "whats_new.js:380"
   },
   "whatsnew.now_in_pro": {
    "text": "Now in Pro",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn now pro",
-   "where": "whats_new.js:162"
+   "where": "whats_new.js:171"
   },
   "whatsnew.phosphene_stays_free_and_open": {
    "text": "Phosphene stays free and open source. Pro gets new features and speed-ups first, and keeps the project going.",
    "note": "Studio · in the What's new window shown after an update",
-   "where": "whats_new.js:35"
+   "where": "whats_new.js:39"
   },
   "whatsnew.soon": {
    "text": "Soon",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn now pro",
-   "where": "whats_new.js:163"
+   "where": "whats_new.js:172"
   },
   "whatsnew.support_phosphene": {
    "text": "Support Phosphene",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn pro sec",
-   "where": "whats_new.js:148"
+   "where": "whats_new.js:157"
+  },
+  "whatsnew.thanks": {
+   "text": "Thank you for supporting Phosphene. This is what your Pro licence added.",
+   "note": "Studio · in the What's new window shown after an update · written by the code that handles wn pro sec",
+   "where": "whats_new.js:152"
   },
   "whatsnew.what_s_new": {
    "text": "What's new",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn render",
-   "where": "whats_new.js:268"
+   "where": "whats_new.js:278"
   },
   "whatsnew.with_pro": {
    "text": "With Pro",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn take",
-   "where": "whats_new.js:189"
+   "where": "whats_new.js:198"
   },
   "width.aria-label.width": {
    "text": "Width",

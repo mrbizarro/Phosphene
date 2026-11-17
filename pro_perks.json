@@ -22,6 +22,62 @@
           "pro_s": 70
         },
         "source": "14 Nov 2026, M4 Max 64 GB: talking face 1 min 10 s, piano 1 min 08 s, against 3 min 02 s for today's draft on the same still and seed"
+      },
+      "i18n": {
+        "de": {
+          "name": "Hailuo H3 Quick draft",
+          "now": "Hailuo-H3-Entwürfe in etwa 1 Minute statt 3: grobe 5 Sekunden, um Bildausschnitt, Bewegung und gesprochenen Satz vor der echten Aufnahme zu prüfen.",
+          "next": "Hailuo H3 Quick draft: grobe 5 Sekunden in etwa 1 Minute statt 3, um Bildausschnitt, Bewegung und gesprochenen Satz vor der echten Aufnahme zu prüfen.",
+          "gain": "etwa 2,6× schneller"
+        },
+        "es": {
+          "name": "Hailuo H3 Quick draft",
+          "now": "Borradores de Hailuo H3 en cerca de 1 minuto en lugar de 3: unos 5 segundos rápidos para revisar el encuadre, el movimiento y la frase hablada antes de la toma real.",
+          "next": "Hailuo H3 Quick draft: unos 5 segundos rápidos en cerca de 1 minuto en lugar de 3, para revisar el encuadre, el movimiento y la frase hablada antes de la toma real.",
+          "gain": "cerca de 2.6× más rápido"
+        },
+        "fr": {
+          "name": "Hailuo H3 Quick draft",
+          "now": "Brouillons Hailuo H3 en 1 minute environ au lieu de 3 : 5 secondes approximatives pour vérifier le cadrage, le mouvement et la réplique avant la vraie prise.",
+          "next": "Hailuo H3 Quick draft : 5 secondes approximatives en 1 minute environ au lieu de 3, pour vérifier le cadrage, le mouvement et la réplique avant la vraie prise.",
+          "gain": "environ 2,6× plus rapide"
+        },
+        "it": {
+          "name": "Hailuo H3 Quick draft",
+          "now": "Bozze Hailuo H3 in circa 1 minuto invece di 3: 5 secondi grezzi per controllare inquadratura, movimento e battuta prima della ripresa vera.",
+          "next": "Hailuo H3 Quick draft: 5 secondi grezzi in circa 1 minuto invece di 3, per controllare inquadratura, movimento e battuta prima della ripresa vera.",
+          "gain": "circa 2,6× più veloce"
+        },
+        "ja": {
+          "name": "Hailuo H3 Quick draft",
+          "now": "Hailuo H3のドラフトが3分から約1分に。本番の前に、構図・動き・セリフを確かめるためのラフな5秒です。",
+          "next": "Hailuo H3 Quick draft：構図・動き・セリフを本番前に確かめるラフな5秒を、3分ではなく約1分で。",
+          "gain": "約2.6倍高速"
+        },
+        "ko": {
+          "name": "Hailuo H3 Quick draft",
+          "now": "Hailuo H3 초안을 3분 대신 약 1분 만에: 본 촬영 전에 구도, 움직임, 대사를 확인하는 거친 5초 영상이에요.",
+          "next": "Hailuo H3 Quick draft: 본 촬영 전에 구도, 움직임, 대사를 확인하는 거친 5초를 3분 대신 약 1분 만에.",
+          "gain": "약 2.6배 빠름"
+        },
+        "pt": {
+          "name": "Hailuo H3 Quick draft",
+          "now": "Rascunhos do Hailuo H3 em cerca de 1 minuto em vez de 3: 5 segundos brutos para conferir o enquadramento, o movimento e a fala antes da tomada real.",
+          "next": "Hailuo H3 Quick draft: 5 segundos brutos em cerca de 1 minuto em vez de 3, para conferir o enquadramento, o movimento e a fala antes da tomada real.",
+          "gain": "cerca de 2,6× mais rápido"
+        },
+        "ru": {
+          "name": "Hailuo H3 Quick draft",
+          "now": "Черновики Hailuo H3 примерно за 1 минуту вместо 3: грубые 5 секунд, чтобы проверить кадр, движение и реплику перед настоящим дублем.",
+          "next": "Hailuo H3 Quick draft: грубые 5 секунд примерно за 1 минуту вместо 3, чтобы проверить кадр, движение и реплику перед настоящим дублем.",
+          "gain": "примерно в 2,6 раза быстрее"
+        },
+        "zh-Hans": {
+          "name": "Hailuo H3 Quick draft",
+          "now": "Hailuo H3 草稿约 1 分钟即可完成，不再需要 3 分钟：先出 5 秒粗略版本，在正式生成前检查构图、动作和台词。",
+          "next": "Hailuo H3 Quick draft：约 1 分钟（原来 3 分钟）生成 5 秒粗略版本，在正式生成前检查构图、动作和台词。",
+          "gain": "约快 2.6 倍"
+        }
       }
     },
     {
@@ -52,6 +108,53 @@
           }
         },
         "source": "13 Nov 2026, four 5 s clips, seeds 4141 and 7707: Free 147.2/150.5/150.9/150.4 s, Fast draft 75.5/75.9/76.3/76.2 s on 64 GB; 98.4 s and 50.2 s with a 16 GB memory limit"
+      },
+      "i18n": {
+        "de": {
+          "name": "Schneller Entwurf in halber Zeit",
+          "now": "LTX Schneller Entwurf in etwa der halben Zeit: 76 s statt 150 s für einen 5-Sekunden-Clip auf einem Mac mit 64 GB, 50 s statt 98 s mit 16 GB.",
+          "gain": "etwa 2× schneller"
+        },
+        "es": {
+          "name": "Borrador rápido en la mitad de tiempo",
+          "now": "Borrador rápido de LTX en casi la mitad de tiempo: 76 s en lugar de 150 s para un clip de 5 segundos en un Mac de 64 GB, y 50 s en lugar de 98 s en uno de 16 GB.",
+          "gain": "cerca de 2× más rápido"
+        },
+        "fr": {
+          "name": "Brouillon rapide en deux fois moins de temps",
+          "now": "Brouillon rapide LTX en deux fois moins de temps environ : 76 s au lieu de 150 s pour un clip de 5 secondes sur un Mac de 64 GB, 50 s au lieu de 98 s sur 16 GB.",
+          "gain": "environ 2× plus rapide"
+        },
+        "it": {
+          "name": "Bozza veloce in metà tempo",
+          "now": "Bozza veloce LTX in circa metà tempo: 76 s invece di 150 s per una clip di 5 secondi su un Mac da 64 GB, 50 s invece di 98 s su 16 GB.",
+          "gain": "circa 2× più veloce"
+        },
+        "ja": {
+          "name": "高速ドラフトが半分の時間に",
+          "now": "LTXの高速ドラフトが約半分の時間に。5秒のクリップで、64 GBのMacなら150秒が76秒に、16 GBなら98秒が50秒になります。",
+          "gain": "約2倍高速"
+        },
+        "ko": {
+          "name": "절반 시간에 끝나는 빠른 초안",
+          "now": "LTX 빠른 초안이 약 절반의 시간에: 5초 클립 기준 64 GB Mac에서 150초 대신 76초, 16 GB에서 98초 대신 50초.",
+          "gain": "약 2배 빠름"
+        },
+        "pt": {
+          "name": "Rascunho rápido na metade do tempo",
+          "now": "Rascunho rápido do LTX em cerca de metade do tempo: 76 s em vez de 150 s para um clipe de 5 segundos num Mac de 64 GB, 50 s em vez de 98 s com 16 GB.",
+          "gain": "cerca de 2× mais rápido"
+        },
+        "ru": {
+          "name": "«Быстрый черновик» вдвое быстрее",
+          "now": "«Быстрый черновик» LTX примерно вдвое быстрее: 76 с вместо 150 с для 5-секундного клипа на Mac с 64 GB, 50 с вместо 98 с на 16 GB.",
+          "gain": "примерно в 2 раза быстрее"
+        },
+        "zh-Hans": {
+          "name": "快速草稿，时间减半",
+          "now": "LTX 快速草稿用时约减半：5 秒片段在 64 GB 的 Mac 上从 150 秒降到 76 秒，在 16 GB 上从 98 秒降到 50 秒。",
+          "gain": "约快 2 倍"
+        }
       }
     },
     {
@@ -80,6 +183,53 @@
           }
         },
         "source": "14 Nov 2026, through the Studio: Free 243.9 s, speed-up 177.3 s, Fast draft 118.3 s; three more stills: Free 242.1/239.8/237.4 s, Fast draft 117.6/117.8/116.8 s"
+      },
+      "i18n": {
+        "de": {
+          "name": "Schnellere Standard-Clips (720p)",
+          "now": "Standard-LTX-Clips in 720p: 2 Min. 57 s mit der Beschleunigung und 1 Min. 58 s mit Schneller Entwurf, statt 4 Min. 4 s, auf Macs mit 48 GB oder mehr.",
+          "gain": "etwa 2× schneller"
+        },
+        "es": {
+          "name": "Clips Estándar (720p) más rápidos",
+          "now": "Clips LTX Estándar en 720p: 2 min 57 s con la aceleración y 1 min 58 s con Borrador rápido, en lugar de 4 min 4 s, en Macs con 48 GB o más.",
+          "gain": "cerca de 2× más rápido"
+        },
+        "fr": {
+          "name": "Clips Standard (720p) plus rapides",
+          "now": "Clips LTX Standard en 720p : 2 min 57 s avec l'accélération et 1 min 58 s avec Brouillon rapide, au lieu de 4 min 4 s, sur les Mac de 48 GB ou plus.",
+          "gain": "environ 2× plus rapide"
+        },
+        "it": {
+          "name": "Clip Standard (720p) più veloci",
+          "now": "Clip LTX Standard in 720p: 2 min 57 s con l'accelerazione e 1 min 58 s con Bozza veloce, invece di 4 min 4 s, sui Mac con 48 GB o più.",
+          "gain": "circa 2× più veloce"
+        },
+        "ja": {
+          "name": "標準（720p）クリップを高速化",
+          "now": "LTXの標準720pクリップ：通常4分4秒のところ、高速化で2分57秒、高速ドラフトなら1分58秒。48 GB以上のMacで。",
+          "gain": "約2倍高速"
+        },
+        "ko": {
+          "name": "더 빠른 Standard (720p) 클립",
+          "now": "LTX Standard 720p 클립: 4분 4초 대신 속도 향상으로 2분 57초, 빠른 초안으로 1분 58초. 48 GB 이상 Mac에서.",
+          "gain": "약 2배 빠름"
+        },
+        "pt": {
+          "name": "Clipes Padrão (720p) mais rápidos",
+          "now": "Clipes LTX Padrão em 720p: 2 min 57 s com a aceleração e 1 min 58 s com o Rascunho rápido, em vez de 4 min 4 s, em Macs com 48 GB ou mais.",
+          "gain": "cerca de 2× mais rápido"
+        },
+        "ru": {
+          "name": "Ускоренные клипы «Стандартное» (720p)",
+          "now": "Клипы LTX «Стандартное» 720p: 2 мин 57 с с ускорением и 1 мин 58 с с «Быстрым черновиком» вместо 4 мин 4 с, на Mac с 48 GB и больше.",
+          "gain": "примерно в 2 раза быстрее"
+        },
+        "zh-Hans": {
+          "name": "更快的标准（720p）片段",
+          "now": "LTX 标准 720p 片段：开启加速 2 分 57 秒，快速草稿 1 分 58 秒，原来需要 4 分 4 秒。适用于 48 GB 及以上的 Mac。",
+          "gain": "约快 2 倍"
+        }
       }
     },
     {
@@ -100,6 +250,53 @@
           "pro_s": 113
         },
         "source": "11 Nov 2026, same clip and seed: 152 s Free, 113 s Pro on 64 GB; 27 to 30% faster on 16 to 24 GB Macs"
+      },
+      "i18n": {
+        "de": {
+          "name": "Schnellere LTX-Clips",
+          "now": "LTX-Clips mit etwa einem Viertel weniger Wartezeit: 113 s statt 152 s für einen 5-Sekunden-Clip, standardmäßig an.",
+          "gain": "etwa 1,3× schneller"
+        },
+        "es": {
+          "name": "Clips de LTX más rápidos",
+          "now": "Clips de LTX con casi una cuarta parte menos de espera: 113 s en lugar de 152 s para un clip de 5 segundos, activado por defecto.",
+          "gain": "cerca de 1.3× más rápido"
+        },
+        "fr": {
+          "name": "Clips LTX plus rapides",
+          "now": "Clips LTX avec environ un quart d'attente en moins : 113 s au lieu de 152 s pour un clip de 5 secondes, activé par défaut.",
+          "gain": "environ 1,3× plus rapide"
+        },
+        "it": {
+          "name": "Clip LTX più veloci",
+          "now": "Clip LTX con circa un quarto di attesa in meno: 113 s invece di 152 s per una clip di 5 secondi, attivo in automatico.",
+          "gain": "circa 1,3× più veloce"
+        },
+        "ja": {
+          "name": "LTXクリップを高速化",
+          "now": "LTXクリップの待ち時間が約4分の1短縮。5秒のクリップで152秒が113秒に。最初からオンです。",
+          "gain": "約1.3倍高速"
+        },
+        "ko": {
+          "name": "더 빠른 LTX 클립",
+          "now": "LTX 클립 대기 시간이 약 4분의 1 줄어요: 5초 클립 기준 152초 대신 113초, 기본으로 켜져 있어요.",
+          "gain": "약 1.3배 빠름"
+        },
+        "pt": {
+          "name": "Clipes LTX mais rápidos",
+          "now": "Clipes LTX com cerca de um quarto a menos de espera: 113 s em vez de 152 s para um clipe de 5 segundos, ativado por padrão.",
+          "gain": "cerca de 1,3× mais rápido"
+        },
+        "ru": {
+          "name": "Ускоренные клипы LTX",
+          "now": "Клипы LTX примерно на четверть быстрее: 113 с вместо 152 с для 5-секундного клипа, включено по умолчанию.",
+          "gain": "примерно в 1,3 раза быстрее"
+        },
+        "zh-Hans": {
+          "name": "更快的 LTX 片段",
+          "now": "LTX 片段等待时间减少约四分之一：5 秒片段从 152 秒降到 113 秒，默认开启。",
+          "gain": "约快 1.3 倍"
+        }
       }
     },
     {
@@ -120,6 +317,53 @@
           "pro_s": 601.9
         },
         "source": "assets/pro/compare.json (h3_5s): Free 896.5 s, Pro 601.9 s, faces, motion, speech and sync reviewed equal"
+      },
+      "i18n": {
+        "de": {
+          "name": "Schnellere 5-Sekunden-Clips mit Hailuo H3",
+          "now": "5-Sekunden-Clips mit Hailuo H3 in 10:02 statt 14:57, derselbe Clip auf demselben Mac.",
+          "gain": "etwa 1,5× schneller"
+        },
+        "es": {
+          "name": "Clips de 5 segundos de Hailuo H3 más rápidos",
+          "now": "Clips de 5 segundos de Hailuo H3 en 10:02 en lugar de 14:57, el mismo clip en el mismo Mac.",
+          "gain": "cerca de 1.5× más rápido"
+        },
+        "fr": {
+          "name": "Clips Hailuo H3 de 5 secondes plus rapides",
+          "now": "Clips Hailuo H3 de 5 secondes en 10:02 au lieu de 14:57, le même clip sur le même Mac.",
+          "gain": "environ 1,5× plus rapide"
+        },
+        "it": {
+          "name": "Clip Hailuo H3 da 5 secondi più veloci",
+          "now": "Clip Hailuo H3 da 5 secondi in 10:02 invece di 14:57, la stessa clip sullo stesso Mac.",
+          "gain": "circa 1,5× più veloce"
+        },
+        "ja": {
+          "name": "5秒のHailuo H3クリップを高速化",
+          "now": "5秒のHailuo H3クリップが14:57から10:02に。同じクリップ、同じMacでの比較です。",
+          "gain": "約1.5倍高速"
+        },
+        "ko": {
+          "name": "더 빠른 5초 Hailuo H3 클립",
+          "now": "5초 Hailuo H3 클립을 14:57 대신 10:02에. 같은 Mac에서 같은 클립 기준이에요.",
+          "gain": "약 1.5배 빠름"
+        },
+        "pt": {
+          "name": "Clipes de 5 segundos do Hailuo H3 mais rápidos",
+          "now": "Clipes de 5 segundos do Hailuo H3 em 10:02 em vez de 14:57, o mesmo clipe no mesmo Mac.",
+          "gain": "cerca de 1,5× mais rápido"
+        },
+        "ru": {
+          "name": "Ускоренные 5-секундные клипы Hailuo H3",
+          "now": "5-секундные клипы Hailuo H3 за 10:02 вместо 14:57: тот же клип на том же Mac.",
+          "gain": "примерно в 1,5 раза быстрее"
+        },
+        "zh-Hans": {
+          "name": "更快的 5 秒 Hailuo H3 片段",
+          "now": "5 秒 Hailuo H3 片段只需 10:02，原来要 14:57。同一片段，同一台 Mac。",
+          "gain": "约快 1.5 倍"
+        }
       }
     },
     {
@@ -138,6 +382,53 @@
           "ratio": 1.5
         },
         "source": "Flex Turbo against Flex on Free, same clip, M4 Max 64 GB"
+      },
+      "i18n": {
+        "de": {
+          "name": "Schnelleres Flex Turbo",
+          "now": "Schnelleres Flex Turbo: etwa 1,5× schneller als Flex in Free. Etwas weicher, gedacht für Entwürfe.",
+          "gain": "etwa 1,5× schneller"
+        },
+        "es": {
+          "name": "Flex Turbo más rápido",
+          "now": "Flex Turbo más rápido: cerca de 1.5× más rápido que Flex en Free. Un poco más suave, pensado para borradores.",
+          "gain": "cerca de 1.5× más rápido"
+        },
+        "fr": {
+          "name": "Flex Turbo plus rapide",
+          "now": "Flex Turbo plus rapide : environ 1,5× plus rapide que Flex en Free. Un peu moins net, pour les brouillons.",
+          "gain": "environ 1,5× plus rapide"
+        },
+        "it": {
+          "name": "Flex Turbo più veloce",
+          "now": "Flex Turbo più veloce: circa 1,5× più veloce di Flex su Free. Un po' più morbido, per le bozze.",
+          "gain": "circa 1,5× più veloce"
+        },
+        "ja": {
+          "name": "Faster Flex Turbo",
+          "now": "Faster Flex Turbo：FreeのFlexより約1.5倍高速。少しやわらかい仕上がりで、ドラフト向けです。",
+          "gain": "約1.5倍高速"
+        },
+        "ko": {
+          "name": "더 빠른 Flex Turbo",
+          "now": "더 빠른 Flex Turbo: Free의 Flex보다 약 1.5배 빨라요. 조금 덜 선명해서 초안용이에요.",
+          "gain": "약 1.5배 빠름"
+        },
+        "pt": {
+          "name": "Flex Turbo mais rápido",
+          "now": "Flex Turbo mais rápido: cerca de 1,5× mais rápido que o Flex no Free. Um pouco mais suave, para rascunhos.",
+          "gain": "cerca de 1,5× mais rápido"
+        },
+        "ru": {
+          "name": "Ускоренный Flex Turbo",
+          "now": "Ускоренный Flex Turbo: примерно в 1,5 раза быстрее, чем Flex во Free. Картинка чуть мягче, для черновиков.",
+          "gain": "примерно в 1,5 раза быстрее"
+        },
+        "zh-Hans": {
+          "name": "Faster Flex Turbo",
+          "now": "Faster Flex Turbo：比 Free 版的 Flex 快约 1.5 倍。画面稍柔和，适合草稿。",
+          "gain": "约快 1.5 倍"
+        }
       }
     },
     {
@@ -157,12 +448,59 @@
           "pro_s": 22
         },
         "source": "the next picture after the first, M4 Max 64 GB: 22 s on Pro Fast, 56 s on Free's default"
+      },
+      "i18n": {
+        "de": {
+          "name": "Schnellerer Schnellmodus",
+          "now": "P-H3-Image Schnell macht das nächste Bild in etwa 22 s statt 56 s, in kleinerer Größe.",
+          "gain": "etwa 2,5× schneller"
+        },
+        "es": {
+          "name": "Modo Rápido más veloz",
+          "now": "P-H3-Image Rápido crea la siguiente imagen en unos 22 s en lugar de 56 s, a un tamaño menor.",
+          "gain": "cerca de 2.5× más rápido"
+        },
+        "fr": {
+          "name": "Mode Rapide accéléré",
+          "now": "P-H3-Image Rapide crée l'image suivante en 22 s environ au lieu de 56 s, dans un format plus petit.",
+          "gain": "environ 2,5× plus rapide"
+        },
+        "it": {
+          "name": "Modalità Veloce più rapida",
+          "now": "P-H3-Image Veloce crea l'immagine successiva in circa 22 s invece di 56 s, a dimensioni più piccole.",
+          "gain": "circa 2,5× più veloce"
+        },
+        "ja": {
+          "name": "高速モードをさらに高速化",
+          "now": "P-H3-Image Fastで、次の画像が56秒から約22秒に。サイズは小さめです。",
+          "gain": "約2.5倍高速"
+        },
+        "ko": {
+          "name": "더 빠른 빠름 모드",
+          "now": "P-H3-Image 빠름 모드가 다음 이미지를 56초 대신 약 22초 만에 만들어요. 크기는 더 작아요.",
+          "gain": "약 2.5배 빠름"
+        },
+        "pt": {
+          "name": "Modo Rápido mais ágil",
+          "now": "O P-H3-Image Rápido faz a próxima imagem em cerca de 22 s em vez de 56 s, num tamanho menor.",
+          "gain": "cerca de 2,5× mais rápido"
+        },
+        "ru": {
+          "name": "Ускоренный режим «Быстро»",
+          "now": "P-H3-Image в режиме «Быстро» делает следующее изображение примерно за 22 с вместо 56 с, в меньшем размере.",
+          "gain": "примерно в 2,5 раза быстрее"
+        },
+        "zh-Hans": {
+          "name": "更快的快速模式",
+          "now": "P-H3-Image Fast 生成下一张图片约需 22 秒，原来要 56 秒，尺寸更小。",
+          "gain": "约快 2.5 倍"
+        }
       }
     },
     {
       "id": "h3-image-ultra",
       "kind": "feature",
-      "name": "Ultra pictures (24 MP)",
+      "name": "Ultra pictures",
       "now": "Ultra pictures: 24 MP from MiniMax-H3-Image, past the model's 16 MP, in about 15 minutes.",
       "next": "Ultra pictures: 24 MP from MiniMax-H3-Image, past the model's own 16 MP, in about 15 minutes.",
       "gain": "24 MP",
@@ -175,6 +513,62 @@
           "pro_s": 900
         },
         "source": "one 24 MP picture, about 15 minutes, M4 Max 64 GB"
+      },
+      "i18n": {
+        "de": {
+          "name": "Ultra-Bilder",
+          "now": "Ultra-Bilder: 24 MP aus MiniMax-H3-Image, über die 16 MP des Modells hinaus, in etwa 15 Minuten.",
+          "next": "Ultra-Bilder: 24 MP aus MiniMax-H3-Image, mehr als die eigenen 16 MP des Modells, in etwa 15 Minuten.",
+          "gain": "24 MP"
+        },
+        "es": {
+          "name": "Imágenes Ultra",
+          "now": "Imágenes Ultra: 24 MP con MiniMax-H3-Image, más allá de los 16 MP del modelo, en unos 15 minutos.",
+          "next": "Imágenes Ultra: 24 MP con MiniMax-H3-Image, por encima de los 16 MP propios del modelo, en unos 15 minutos.",
+          "gain": "24 MP"
+        },
+        "fr": {
+          "name": "Images Ultra",
+          "now": "Images Ultra : 24 MP avec MiniMax-H3-Image, au-delà des 16 MP du modèle, en 15 minutes environ.",
+          "next": "Images Ultra : 24 MP avec MiniMax-H3-Image, au-delà des 16 MP natifs du modèle, en 15 minutes environ.",
+          "gain": "24 MP"
+        },
+        "it": {
+          "name": "Immagini Ultra",
+          "now": "Immagini Ultra: 24 MP da MiniMax-H3-Image, oltre i 16 MP del modello, in circa 15 minuti.",
+          "next": "Immagini Ultra: 24 MP da MiniMax-H3-Image, oltre i 16 MP nativi del modello, in circa 15 minuti.",
+          "gain": "24 MP"
+        },
+        "ja": {
+          "name": "Ultra画像",
+          "now": "Ultra画像：MiniMax-H3-Imageで、モデルの16 MPを超える24 MPを約15分で。",
+          "next": "Ultra画像：MiniMax-H3-Image本来の16 MPを超える24 MPを、約15分で。",
+          "gain": "24 MP"
+        },
+        "ko": {
+          "name": "Ultra 이미지",
+          "now": "Ultra 이미지: MiniMax-H3-Image로 모델의 16 MP를 넘어선 24 MP를 약 15분 만에.",
+          "next": "Ultra 이미지: MiniMax-H3-Image 자체 한계인 16 MP를 넘어선 24 MP를 약 15분 만에.",
+          "gain": "24 MP"
+        },
+        "pt": {
+          "name": "Imagens Ultra",
+          "now": "Imagens Ultra: 24 MP com o MiniMax-H3-Image, além dos 16 MP do modelo, em cerca de 15 minutos.",
+          "next": "Imagens Ultra: 24 MP com o MiniMax-H3-Image, além dos 16 MP nativos do modelo, em cerca de 15 minutos.",
+          "gain": "24 MP"
+        },
+        "ru": {
+          "name": "Изображения Ultra",
+          "now": "Изображения Ultra: 24 MP из MiniMax-H3-Image, больше 16 MP модели, примерно за 15 минут.",
+          "next": "Изображения Ultra: 24 MP из MiniMax-H3-Image, больше собственных 16 MP модели, примерно за 15 минут.",
+          "gain": "24 MP"
+        },
+        "zh-Hans": {
+          "name": "Ultra 图片",
+          "now": "Ultra 图片：用 MiniMax-H3-Image 生成 24 MP，超出模型的 16 MP，约 15 分钟。",
+          "next": "Ultra 图片：用 MiniMax-H3-Image 生成 24 MP，超出模型自身的 16 MP 上限，约 15 分钟。",
+          "gain": "24 MP"
+        }
       }
     },
     {
@@ -193,6 +587,53 @@
           "pro_s": 721
         },
         "source": "10 Nov 2026, one 5 s export through the Studio: 721 s"
+      },
+      "i18n": {
+        "de": {
+          "name": "KI-Füllung für Hochformat",
+          "now": "Hochformat mit KI-Füllung: Oben und unten wird echtes Bild ergänzt, statt unscharfer Balken.",
+          "gain": "keine unscharfen Balken"
+        },
+        "es": {
+          "name": "Relleno con IA para Hacer vertical",
+          "now": "Hacer vertical con relleno con IA: imagen real pintada arriba y abajo en lugar de un desenfoque.",
+          "gain": "sin barras borrosas"
+        },
+        "fr": {
+          "name": "Remplissage IA pour Passer en vertical",
+          "now": "Passer en vertical avec remplissage IA : une vraie image peinte en haut et en bas au lieu d'un flou.",
+          "gain": "plus de bandes floues"
+        },
+        "it": {
+          "name": "Riempimento IA per Rendilo verticale",
+          "now": "Rendilo verticale con riempimento IA: immagine vera dipinta sopra e sotto invece di una sfocatura.",
+          "gain": "niente bande sfocate"
+        },
+        "ja": {
+          "name": "「縦にする」のAI補完",
+          "now": "AI補完で縦にする：上下をぼかしではなく、本物の絵で描き足します。",
+          "gain": "ぼかしの帯なし"
+        },
+        "ko": {
+          "name": "세로 영상 만들기의 AI 채우기",
+          "now": "AI 채우기로 세로 영상 만들기: 위아래를 흐림 대신 실제 그림으로 채워요.",
+          "gain": "흐린 띠 없음"
+        },
+        "pt": {
+          "name": "Preenchimento com IA para Converter em vertical",
+          "now": "Converter em vertical com preenchimento com IA: imagem de verdade pintada em cima e embaixo, em vez de um desfoque.",
+          "gain": "sem faixas borradas"
+        },
+        "ru": {
+          "name": "ИИ-дорисовка для «Сделать вертикальным»",
+          "now": "«Сделать вертикальным» с ИИ-дорисовкой: сверху и снизу дорисовывается настоящее изображение вместо размытия.",
+          "gain": "без размытых полос"
+        },
+        "zh-Hans": {
+          "name": "转为竖屏的 AI 填充",
+          "now": "转为竖屏时使用 AI 填充：上下补出真实画面，而不是模糊背景。",
+          "gain": "没有模糊边条"
+        }
       }
     },
     {
@@ -203,7 +644,54 @@
       "gain": "renders from your phone",
       "where": "Remote Control, in the left bar",
       "since": "5.0.0",
-      "measured": null
+      "measured": null,
+      "i18n": {
+        "de": {
+          "name": "iPhone Remote",
+          "now": "Starte und verfolge Renderings von deinem iPhone aus, mit der App Phosphene Remote.",
+          "gain": "Renderings vom Handy aus"
+        },
+        "es": {
+          "name": "iPhone Remote",
+          "now": "Inicia y sigue tus renders desde el iPhone con la app Phosphene Remote.",
+          "gain": "renders desde tu teléfono"
+        },
+        "fr": {
+          "name": "iPhone Remote",
+          "now": "Lancez et suivez vos rendus depuis votre iPhone avec l'app Phosphene Remote.",
+          "gain": "vos rendus depuis votre téléphone"
+        },
+        "it": {
+          "name": "iPhone Remote",
+          "now": "Avvia e segui i render dal tuo iPhone con l'app Phosphene Remote.",
+          "gain": "render dal tuo telefono"
+        },
+        "ja": {
+          "name": "iPhone Remote",
+          "now": "Phosphene RemoteアプリでiPhoneからレンダリングを開始・確認できます。",
+          "gain": "スマホからレンダリング"
+        },
+        "ko": {
+          "name": "iPhone Remote",
+          "now": "Phosphene Remote 앱으로 iPhone에서 렌더링을 시작하고 지켜볼 수 있어요.",
+          "gain": "휴대폰으로 렌더링"
+        },
+        "pt": {
+          "name": "Remote para iPhone",
+          "now": "Inicie e acompanhe renderizações pelo iPhone com o app Phosphene Remote.",
+          "gain": "renderizações pelo telefone"
+        },
+        "ru": {
+          "name": "Пульт Remote для iPhone",
+          "now": "Запускайте рендеры и следите за ними с iPhone в приложении Phosphene Remote.",
+          "gain": "рендеры с телефона"
+        },
+        "zh-Hans": {
+          "name": "iPhone Remote",
+          "now": "用 Phosphene Remote 应用，在 iPhone 上开始并查看渲染。",
+          "gain": "用手机渲染"
+        }
+      }
     },
     {
       "id": "h3-image-keep",
@@ -222,6 +710,53 @@
           "pro_s": 90
         },
         "source": "15 Nov 2026, M4 Max 64 GB: same prompt, seeds 7 then 8 at 2048 x 2048; baseline 127 s per picture, Pro 121 s then 90 s; pictures identical pixel for pixel; 236 s to 208 s at the Standard size"
+      },
+      "i18n": {
+        "de": {
+          "name": "Schnellere Folgebilder",
+          "now": "Mit gleichem Prompt (mehr Seeds, noch eins) kommen Hailuo-H3-Bilder nach dem ersten in Entwurfsgröße in etwa 90 s statt 127 s, auf Macs ab 64 GB. Gleiche Bilder.",
+          "gain": "etwa 1,4× schneller nach dem ersten Bild"
+        },
+        "es": {
+          "name": "Imágenes repetidas más rápidas",
+          "now": "Con el mismo prompt (más semillas, otra más), las imágenes de Hailuo H3 tras la primera tardan unos 90 s en vez de 127 s en tamaño Borrador, en Macs de 64 GB o más. Mismas imágenes.",
+          "gain": "cerca de 1.4× más rápido tras la primera imagen"
+        },
+        "fr": {
+          "name": "Images suivantes plus rapides",
+          "now": "Avec le même prompt (plus de seeds, une autre), les images Hailuo H3 suivantes arrivent en 90 s environ au lieu de 127 s en taille Brouillon, sur Mac de 64 GB ou plus. Mêmes images.",
+          "gain": "environ 1,4× plus rapide après la première image"
+        },
+        "it": {
+          "name": "Immagini successive più veloci",
+          "now": "Con lo stesso prompt (più seed, un'altra), le immagini Hailuo H3 dopo la prima arrivano in circa 90 s invece di 127 s in formato Bozza, sui Mac da 64 GB in su. Stesse immagini.",
+          "gain": "circa 1,4× più veloce dopo la prima immagine"
+        },
+        "ja": {
+          "name": "2枚目以降の画像を高速化",
+          "now": "同じプロンプトのまま（シードを増やす、もう1枚作る）なら、Hailuo H3の2枚目以降の画像がドラフトサイズで127秒から約90秒に。64 GB以上のMacで、仕上がりは同じです。",
+          "gain": "2枚目以降は約1.4倍高速"
+        },
+        "ko": {
+          "name": "더 빠른 반복 이미지",
+          "now": "같은 프롬프트를 유지하면(시드 추가, 하나 더 만들기) Hailuo H3 이미지가 첫 장 이후 초안 크기에서 127초 대신 약 90초 만에 나와요. 64 GB 이상 Mac, 결과는 같아요.",
+          "gain": "첫 이미지 이후 약 1.4배 빠름"
+        },
+        "pt": {
+          "name": "Imagens repetidas mais rápidas",
+          "now": "Com o mesmo prompt (mais seeds, fazer outra), as imagens do Hailuo H3 após a primeira saem em cerca de 90 s em vez de 127 s no tamanho Rascunho, em Macs de 64 GB ou mais. Mesmas imagens.",
+          "gain": "cerca de 1,4× mais rápido após a primeira imagem"
+        },
+        "ru": {
+          "name": "Ускоренные повторные изображения",
+          "now": "С тем же промптом (больше сидов, ещё одно) изображения Hailuo H3 после первого выходят примерно за 90 с вместо 127 с в размере «Черновик», на Mac с 64 GB и больше. Те же изображения.",
+          "gain": "примерно в 1,4 раза быстрее после первого изображения"
+        },
+        "zh-Hans": {
+          "name": "重复出图更快",
+          "now": "保持同一提示词时（更多种子、再来一张），Hailuo H3 图片从第二张起在草稿尺寸下约 90 秒出图，原来 127 秒。适用于 64 GB 及以上的 Mac，图片完全相同。",
+          "gain": "第一张之后约快 1.4 倍"
+        }
       }
     }
   ]

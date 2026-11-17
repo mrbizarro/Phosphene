@@ -8,6 +8,8 @@ Pro is on only with a signed capability token for this Mac (pro_token.py, passed
 """
 from __future__ import annotations
 
+import re
+
 import json
 from pathlib import Path
 
@@ -43,7 +45,7 @@ def post_crisper_detail_install(h, path, qs, ctype) -> None:
     h._json(result, 202 if result.get("started") else 200)
 
 
-def _whats_new_doc(force: bool) -> dict:
+def _whats_new_doc(force: bool, lang: str | None = None) -> dict:
     import whats_new
     root = Path(P.ROOT)
     try:
@@ -59,15 +61,19 @@ def _whats_new_doc(force: bool) -> dict:
         whats_new.mark_seen(Path(P.STATE_DIR), version)
         return {"show": False}
     return whats_new.card(root, Path(P.STATE_DIR), version, pro, force=force,
-                          pack_json=root / "pro_engine" / "whats_new_pro.json")
+                          pack_json=root / "pro_engine" / "whats_new_pro.json", lang=lang)
 
 
 @get("/whats-new")
 def get_whats_new(h, parsed) -> None:
     """The once-per-version "What's new" card; ?force=1 reopens this version's card (version pill)."""
     from urllib.parse import parse_qs
-    force = (parse_qs(parsed.query).get("force") or [""])[0] in ("1", "true")
-    h._json(_whats_new_doc(force))
+    qs = parse_qs(parsed.query)
+    force = (qs.get("force") or [""])[0] in ("1", "true")
+    # the page's own language (BOOT.i18n.lang), so the lines match the window's buttons (owner, 17 Nov 2026)
+    lang = (qs.get("lang") or [""])[0]
+    lang = lang if re.fullmatch(r"[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?", lang or "") else None
+    h._json(_whats_new_doc(force, lang))
 
 
 @get("/whats-new/how")

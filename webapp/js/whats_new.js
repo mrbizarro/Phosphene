@@ -28,6 +28,10 @@
 // draw each release with the same pieces, so an old release reads like a new one. The server sends every clip's
 // real width and height (read from its poster), so frames are the clip's own shape before a byte of video loads.
 //
+// PLAIN WORDS, IN THEIR LANGUAGE (owner, 17 Nov 2026, on a Spanish window with English lines about "the Pro pack"):
+// every word here is the user's language. The lines come from the server already translated (?lang= the page's own
+// language, whats_new.json "i18n"); every heading and button below goes through T(); the date uses the same language.
+//
 // Shown once per version (POST /whats-new/seen when it closes); the version pill reopens it (openWhatsNew(true)).
 // Escape, the X, Close or a click outside closes it. Clips play only while on screen; reduced motion: none plays.
 
@@ -45,8 +49,13 @@ function wnReduced() {
 function wnDate(d) {
   if (!d) return '';
   try {
-    return new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC'});
+    return new Date(d + 'T00:00:00Z').toLocaleDateString(wnLang(), {month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC'});
   } catch (e) { return d; }
+}
+
+// The page's language (BOOT.i18n.lang, i18n.js), for the server's lines and the date.
+function wnLang() {
+  try { return (typeof BOOT !== 'undefined' && BOOT && BOOT.i18n && BOOT.i18n.lang) || 'en'; } catch (e) { return 'en'; }
 }
 
 const wnIsVideo = src => /\.(mp4|webm|mov)$/i.test(src || '');
@@ -94,12 +103,12 @@ function wnHero(h) {
   const head = (h.title ? `<h3 class="wn-hero-t">${wnEsc(h.title)}</h3>` : '')
     + (h.caption ? `<p class="wn-hero-p">${wnEsc(h.caption)}</p>` : '');
   if (h.kind === 'vertical') {
-    return `<section class="wn-hero" aria-label="${wnEsc(h.title || 'Highlight')}">${head}`
+    return `<section class="wn-hero" aria-label="${wnEsc(h.title || T('whatsnew.highlight', 'Highlight'))}">${head}`
       + `<div class="wn-hero-vert" data-wn-sync>${wnHeroFig(h.original)}`
       + '<span class="wn-hero-arrow" aria-hidden="true">→</span>'
       + wnHeroFig(h.free) + wnHeroFig(h.pro, true) + '</div></section>';
   }
-  return `<section class="wn-hero" aria-label="${wnEsc(h.title || 'Highlight')}">${head}`
+  return `<section class="wn-hero" aria-label="${wnEsc(h.title || T('whatsnew.highlight', 'Highlight'))}">${head}`
     + `<figure class="wn-hfig wn-hfig-one">${wnMedia(h, h.title)}</figure></section>`;
 }
 
@@ -131,7 +140,7 @@ function wnShowcase(items) {
 // first: the current window draws it right under the header, tighter, so it shares the first screen with the Pro block.
 function wnFreeSec(r, first) {
   if (!(r.free && r.free.length)) return '';
-  return `<section class="wn-sec wn-sec-free${first ? ' is-first' : ''}">${wnSecHead(r.free_title || 'New for everyone', 'is-free', (r.free || []).length)}`
+  return `<section class="wn-sec wn-sec-free${first ? ' is-first' : ''}">${wnSecHead(T('whatsnew.new_for_everyone', 'New for everyone'), 'is-free', (r.free || []).length)}`
     + wnLines(r.free) + '</section>';
 }
 
@@ -140,14 +149,14 @@ function wnProSec(r, proUser, opts) {
   if (!(r.pro && r.pro.length)) return '';
   const full = opts && opts.full;
   let body = '';
-  if (full && proUser && r.thanks) body += `<p class="wn-pro-thanks">${wnEsc(r.thanks)}</p>`;
+  if (full && proUser && r.thanks) body += `<p class="wn-pro-thanks">${wnEsc(T('whatsnew.thanks', 'Thank you for supporting Phosphene. This is what your Pro licence added.'))}</p>`;
   body += wnLines(r.pro);
   if (full && !proUser) {
     body += wnShowcase(r.showcase)
       + `<div class="wn-ask"><p>${wnEsc(WN_ASK)}</p>`
       + `<a class="wn-ask-link" href="${wnEsc(r.pricing_url || 'https://phosphene.video/pricing/')}" data-utm-campaign="support" data-utm-content="whats-new" target="_blank" rel="noopener">${T('whatsnew.support_phosphene', 'Support Phosphene')} <span aria-hidden="true">↗</span></a></div>`;
   }
-  return `<section class="wn-sec wn-sec-pro">${wnSecHead(r.pro_title || 'New in Pro', 'is-pro', (r.pro || []).length)}${body}</section>`;
+  return `<section class="wn-sec wn-sec-pro">${wnSecHead(T('whatsnew.new_in_pro', 'New in Pro'), 'is-pro', (r.pro || []).length)}${body}</section>`;
 }
 
 // ---- 0. Now in Pro, at the top ------------------------------------------------------------------------------------
@@ -217,7 +226,7 @@ function wnPairs(hows) {
 
 function wnHowSec(hows, proUser) {
   if (!hows || !hows.length) return '';
-  return `<section class="wn-sec wn-sec-how">${wnSecHead('How it works', 'is-how')}`
+  return `<section class="wn-sec wn-sec-how">${wnSecHead(T('whatsnew.how_it_works', 'How it works'), 'is-how')}`
     + `<div class="wn-feats${wnPairs(hows) ? ' is-pairs' : ''}">${hows.map(h => wnFeature(h, proUser)).join('')}</div></section>`;
 }
 
@@ -241,7 +250,7 @@ function wnEarlier(d) {
       + `<div class="wn-rel-cols">${wnFreeSec(r)}${wnProSec(r, proUser)}</div>`
       + wnHowSec(e.how, proUser) + '</article>';
   }).join('');
-  return (rows || `<p class="wn-empty">No earlier releases to show.</p>`)
+  return (rows || `<p class="wn-empty">${T('whatsnew.no_earlier_releases', 'No earlier releases to show.')}</p>`)
     + `<p class="wn-more"><a class="dlg-link" href="${wnEsc(d.changelog_url)}" data-utm-campaign="changelog" data-utm-content="whats-new" target="_blank" rel="noopener">${T('whatsnew.every_release_since_the_first', 'Every release since the first, on phosphene.video')} <span aria-hidden="true">↗</span></a></p>`;
 }
 
@@ -253,16 +262,17 @@ function wnShell(o) {
     + `<div class="wn-meta"><span class="dlg-kicker">${wnEsc(o.kicker)}</span>${meta}</div>`
     + `<h2 class="dlg-title wn-title" id="wnTitle">${o.title}</h2>`
     + (o.headline ? `<p class="wn-headline">${wnEsc(o.headline)}</p>` : '') + '</div>'
-    + '<button type="button" class="dlg-x" aria-label="Close" title="Close" data-wn-close><svg class="ph" aria-hidden="true"><use href="#ph-x"/></svg></button></header>'
+    + `<button type="button" class="dlg-x" aria-label="${TA('whatsnew.close', 'Close')}" title="${TA('whatsnew.close', 'Close')}" data-wn-close>`
+    + '<svg class="ph" aria-hidden="true"><use href="#ph-x"/></svg></button></header>'
     + `<div class="dlg-body wn-body">${o.body}</div>`
     + `<footer class="dlg-foot wn-foot">${o.footLeft || ''}<div class="dlg-foot-r">`
-    + '<button type="button" class="ghost-btn" data-wn-close>Close</button></div></footer>';
+    + `<button type="button" class="ghost-btn" data-wn-close>${T('whatsnew.close', 'Close')}</button></div></footer>`;
 }
 
 function wnRender(d) {
   const now = WN.view === 'now';
   const earlierBtn = (d.earlier || []).length || d.changelog_url
-    ? `<button type="button" class="ghost-btn" data-wn-view>${now ? T('whatsnew.earlier_releases', 'Earlier releases') : '<span aria-hidden="true">←</span> Back to ' + wnEsc(d.version)}</button>`
+    ? `<button type="button" class="ghost-btn" data-wn-view>${now ? T('whatsnew.earlier_releases', 'Earlier releases') : '<span aria-hidden="true">←</span> ' + wnEsc(T('whatsnew.back_to', 'Back to {version}', {version: d.version}))}</button>`
     : '';
   return wnShell({
     kicker: now ? T('whatsnew.what_s_new', "What's new") : T('whatsnew.earlier_releases', 'Earlier releases'),
@@ -363,7 +373,7 @@ async function openWhatsNew(force) {
   if (WN.el) return;
   let d;
   try {
-    const r = await fetch('/whats-new' + (force ? '?force=1' : ''), {cache: 'no-store'});
+    const r = await fetch('/whats-new?lang=' + encodeURIComponent(wnLang()) + (force ? '&force=1' : ''), {cache: 'no-store'});
     d = await r.json();
   } catch (e) { return; }
   if (!d || !d.show) {
@@ -394,7 +404,7 @@ async function openHowClip(id) {
   if (!h) { if (typeof phosToast === 'function') phosToast(T('whatsnew.no_how_to_clip_for', 'No how-to clip for this yet.'), 'info'); return; }
   const proUser = !!document.documentElement.dataset.pro;
   WN.data = null;
-  const el = wnMount(wnShell({kicker: 'How it works', title: wnEsc(wnFeatureName(h.title)), proUser: false,
+  const el = wnMount(wnShell({kicker: T('whatsnew.how_it_works', 'How it works'), title: wnEsc(wnFeatureName(h.title)), proUser: false,
     body: wnFeature(h, proUser, true)}));
   el.querySelector('.dlg').classList.add('wn-dlg-how');
   wnWire(el);

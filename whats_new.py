@@ -31,6 +31,13 @@ Coming next in Pro (owner, 14 Nov 2026: "it could be cool also if we have it com
 if we don't have something to release in Pro, we can still tease it"): the unreleased perks that carry a 'next' line in
 pro_perks.json are teased under the Now in Pro items; when a release adds nothing to Pro the block still shows, as
 "Coming next in Pro" alone, so every update window has a Pro story and a Get Pro button for Free users.
+
+Plain words, in the user's language (owner, 17 Nov 2026, on the 5.0.43 window "Fix: the Studio reads Pro settings from
+the Pro pack": "people don't even understand what you're talking about"). Every line follows the project's PLAIN_WORDS
+rule: what the user gets, in their words, never our code. A release users cannot notice is {"silent": true}: no lines,
+no window. Each entry carries "i18n": {lang: {"headline", "free": [...], "pro": [...]}} for every language the Studio
+speaks (scripts/check_whats_new.py refuses a missing one); card(lang=...) shows those lines, English when one is missing.
+pro_perks.json carries the same per perk ("i18n": {lang: {"name", "now", "next", "gain"}}).
 """
 from __future__ import annotations
 
@@ -224,6 +231,55 @@ def _load(path: Path) -> dict:
         return {}
 
 
+def _tr_lines(raw, tr) -> list:
+    """raw lines with their text swapped for the translated line at the same place (media and links kept)."""
+    if not isinstance(tr, list):
+        return list(raw or [])
+    out = []
+    for i, it in enumerate(raw or []):
+        t = tr[i] if i < len(tr) and isinstance(tr[i], str) and tr[i].strip() else None
+        if t is None:
+            out.append(it)
+        elif isinstance(it, dict):
+            out.append({**it, "text": t})
+        else:
+            out.append(t)
+    return out
+
+
+def pick_lang(lang: str | None, have) -> str | None:
+    """The translation key to use for a UI language: exact, then the base tag (pt-BR -> pt, zh -> zh-Hans)."""
+    if not lang or not have:
+        return None
+    lang = str(lang)
+    if lang in have:
+        return lang
+    base = lang.split("-")[0].lower()
+    for k in have:
+        if k.lower() == base or k.split("-")[0].lower() == base:
+            return k
+    return None
+
+
+def localise(ent: dict, lang: str | None) -> dict:
+    """One version's entry as the user reads it: silent -> no lines; otherwise headline/free/pro in their language."""
+    if not isinstance(ent, dict):
+        return {}
+    if ent.get("silent"):
+        return {k: v for k, v in ent.items() if k not in ("free", "pro", "headline", "pro_perks", "hero", "how")}
+    tr_all = ent.get("i18n") if isinstance(ent.get("i18n"), dict) else {}
+    key = pick_lang(lang, tr_all) if lang and str(lang).split("-")[0].lower() != "en" else None
+    tr = tr_all.get(key) if key else None
+    if not isinstance(tr, dict):
+        return ent
+    out = dict(ent)
+    if isinstance(tr.get("headline"), str) and tr["headline"].strip():
+        out["headline"] = tr["headline"]
+    for k in ("free", "pro"):
+        out[k] = _tr_lines(ent.get(k), tr.get(k))
+    return out
+
+
 def read_seen(state_dir: Path) -> str | None:
     try:
         return str(json.loads((state_dir / "whats_new_seen.json").read_text("utf-8")).get("last_seen") or "") or None
@@ -265,18 +321,18 @@ def _perk_ids(ent: dict) -> list[str]:
     return [str(i) for i in ids if isinstance(i, str) and i.strip()] if isinstance(ids, list) else []
 
 
-def _perk_lines(ent: dict, perks_path: Path | None = None) -> list[dict]:
+def _perk_lines(ent: dict, perks_path: Path | None = None, lang: str | None = None) -> list[dict]:
     """The released perks one version names, as What's new lines (text + gain)."""
     out = []
     for pid in _perk_ids(ent):
         p = pro_perks.perk(pid, perks_path)
         if pro_perks.released(p):
-            out.append(pro_perks.line(p))
+            out.append(pro_perks.line(p, lang))
     return out
 
 
 def now_in_pro(picked: list[tuple[str, dict]], pro_lines: list[dict], pro_active: bool,
-               perks_path: Path | None = None) -> dict | None:
+               perks_path: Path | None = None, lang: str | None = None) -> dict | None:
     """The Now in Pro block for the top of the window, or None when this release adds nothing to Pro AND nothing
     is being teased (no heading over an empty box). items: the named perks first (newest release first), then the
     plain pro[] lines that are not already a perk's line. coming: the unreleased perks with a 'next' line, teased
@@ -284,19 +340,19 @@ def now_in_pro(picked: list[tuple[str, dict]], pro_lines: list[dict], pro_active
     also: the other released perks' names, for Free users."""
     items, seen = [], set()
     for _, ent in sorted(picked, key=lambda e: vkey(e[0]), reverse=True):
-        for ln in _perk_lines(ent, perks_path):
+        for ln in _perk_lines(ent, perks_path, lang):
             if ln["id"] not in seen:
                 seen.add(ln["id"])
                 items.append(ln)
     texts = {i["text"] for i in items}
     items += [dict(ln) for ln in pro_lines if ln["text"] not in texts]
-    coming = [c for c in pro_perks.coming(perks_path) if c["id"] not in seen][:MAX_COMING]
+    coming = [c for c in pro_perks.coming(perks_path, lang) if c["id"] not in seen][:MAX_COMING]
     if not items and not coming:
         return None
     teasing = not items                      # nothing new for Pro this time: the tease carries the block
     coming_title = COMING_TITLE_MEMBER if pro_active else COMING_TITLE
     title = coming_title if teasing else (NOW_PRO_TITLE_MEMBER if pro_active else NOW_PRO_TITLE)
-    also = [] if pro_active else [p["name"] for p in pro_perks.perks(perks_path)
+    also = [] if pro_active else [pro_perks.line(p, lang)["name"] for p in pro_perks.perks(perks_path)
                                    if pro_perks.released(p) and p["id"] not in seen and p.get("name")][:MAX_ALSO]
     return {"title": title, "teasing": teasing,
             "items": items[:MAX_LINES], "also": also, "also_title": NOW_PRO_ALSO,
@@ -305,10 +361,11 @@ def now_in_pro(picked: list[tuple[str, dict]], pro_lines: list[dict], pro_active
 
 
 def card(root: Path, state_dir: Path, version: str, pro_active: bool, force: bool = False,
-         pack_json: Path | None = None, perks_path: Path | None = None) -> dict:
-    """The card for this Studio. show=False when there is nothing new or it was already closed."""
-    pub = _load(root / "whats_new.json")
-    extra = _load(pack_json) if (pack_json and pro_active) else {}
+         pack_json: Path | None = None, perks_path: Path | None = None, lang: str | None = None) -> dict:
+    """The card for this Studio, in the user's language (lang, e.g. "es"). show=False when there is nothing new,
+    the release is silent, or it was already closed."""
+    pub = {v: localise(e, lang) for v, e in _load(root / "whats_new.json").items()}
+    extra = {v: localise(e, lang) for v, e in _load(pack_json).items()} if (pack_json and pro_active) else {}
     last = read_seen(state_dir)
     cur = vkey(version)
     if force or not last:
@@ -320,7 +377,7 @@ def card(root: Path, state_dir: Path, version: str, pro_active: bool, force: boo
     free = _merge(picked, "free", extra, pro_active)
     pro = _merge(picked, "pro", extra, pro_active)
     # A tease alone never opens the window: it rides along with a release that has something to say.
-    nip = now_in_pro(picked, pro, pro_active, perks_path) if (free or pro or any(_perk_ids(e) for _, e in picked)) else None
+    nip = now_in_pro(picked, pro, pro_active, perks_path, lang) if (free or pro or any(_perk_ids(e) for _, e in picked)) else None
     seen_now = bool(last) and vkey(last) >= cur
     newest = sorted(picked, key=lambda e: vkey(e[0]), reverse=True)
     hero = next((h for h in (_hero(e.get("hero")) for _, e in newest) if h), None)
@@ -345,7 +402,7 @@ def card(root: Path, state_dir: Path, version: str, pro_active: bool, force: boo
             continue
         ent = {"version": v, "date": e.get("date") if isinstance(e.get("date"), str) else None,
                "headline": _headline(e), "free": _lines(e.get("free")),
-               "pro": [{"text": ln["text"]} for ln in _perk_lines(e, perks_path)] + _lines(e.get("pro")),
+               "pro": [{"text": ln["text"]} for ln in _perk_lines(e, perks_path, lang)] + _lines(e.get("pro")),
                "how": [h for h in _hows(e) if how_home.get(h["id"]) == v]}
         h = _hero(e.get("hero"))
         if h and h.get("still"):
