@@ -101,10 +101,25 @@ class Transaction:
         if self.git('status', '--porcelain', '-uno'):
             raise UpdateError('Local source edits are present. Save or commit them before retrying Update. Nothing was discarded.')
 
+    def contains(self, tip, commit):
+        # Whether commit is in tip's history. Counting also answers for
+        # unrelated histories, where merge-base exits nonzero.
+        return self.git('rev-list', '--count', tip + '..' + commit) == '0'
+
+    def _never_applies(self, rec):
+        # Earlier versions pinned any upstream tip, including one HEAD already
+        # contained (a local commit on main) or could not fast-forward to. Such
+        # a record never moved source or started repair, and its checks refuse
+        # every later Update. A real candidate is always a fast-forward of
+        # previous, so this cannot release an update that is in flight.
+        return (rec['phase'] in ('source_pending', 'source_ready')
+                and not rec.get('dependencies_started')
+                and not self.contains(rec['candidate'], rec['previous']))
+
     def prepare(self):
         with self.locked():
             rec = self.read()
-            if rec and rec['phase'] not in ('succeeded', 'current'):
+            if rec and rec['phase'] not in ('succeeded', 'current') and not self._never_applies(rec):
                 return self._resume_source(rec)
             if rec.get('phase') == 'succeeded':
                 self.clean()
@@ -137,8 +152,21 @@ class Transaction:
                 self.save(rec, previous=head)
             self.git('fetch', rec['upstream'].split('/')[0])
             target = self.git('rev-parse', rec['upstream'] + '^{commit}')
-            if target == rec['previous']:
-                return self.save(rec, phase='current', candidate=target)
+            if self.contains(rec['previous'], target):
+                # Upstream itself, or upstream plus local commits: nothing to
+                # apply. Pinning upstream here would leave HEAD != candidate.
+                return self.save(rec, phase='current', candidate=rec['previous'])
+            if not self.contains(target, rec['previous']):
+                # Diverged: --ff-only can never reach this target. Nothing has
+                # moved, so close the record rather than pin a candidate that
+                # would refuse every Update after the user reconciles.
+                message = (f'This copy has commits that {rec["upstream"]} does not, and '
+                           f'{rec["upstream"]} has commits this copy lacks, so Update cannot '
+                           'fast-forward. Nothing was changed. Rebase or merge your commits '
+                           f'onto {rec["upstream"]} (for example git pull --rebase in the app '
+                           'folder), then run Update again.')
+                self.save(rec, phase='current', candidate=rec['previous'], error=message)
+                raise UpdateError(message)
             ref = 'refs/phosphene/updates/' + rec['id'] + '/previous'
             self.git('update-ref', ref, rec['previous'])
             self.save(rec, phase='source_pending', candidate=target, previous_ref=ref)
