@@ -385,5 +385,16 @@
     "pro_perks": [
       "ltx-fast-draft"
     ]
+  },
+  "5.0.34": {
+    "free": [
+      "Training goes on when captions don't name your trigger word: it is added to every caption.",
+      "Covers of busy songs no longer stop with 'transcription came out incomplete'.",
+      "FLUX 3 and image errors name the real reason, like no connection to Hugging Face.",
+      "A model file that cannot be opened says to reconnect the drive or press Repair."
+    ],
+    "pro": [],
+    "date": "2026-11-17",
+    "headline": "Fix: clearer errors, training and song covers that keep going."
   }
 }

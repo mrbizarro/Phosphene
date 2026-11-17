@@ -183,6 +183,23 @@ def _redact(line):
     return re.sub(r"hf_[A-Za-z0-9]+", "[redacted]", line)
 
 
+_PROGRESS = re.compile(r"^(\[download\]|FLUX 3 download:|FLUX 3: (verifying|rendering seed|checking)\b)|%\||[0-9.]+s/it|it/s\]")
+
+
+def _failure_reason(tail, rc):
+    """The worker's own reason, not its last progress line (hotfix H7).
+
+    The message used to join the last 15 log lines oldest first, so users and
+    the fleet saw "model weights: 9.92 GB of 9.92 GB" or "verifying vae/..."
+    and the worker's real error was cut off at the bottom."""
+    lines = [l.strip() for l in tail if l.strip()]
+    for line in reversed(lines):
+        if not _PROGRESS.search(line):
+            return line[len("FLUX 3: "):] if line.startswith("FLUX 3: ") else line
+    return (f"the image worker stopped (exit code {rc}) without saying why. "
+            "Retry; if it stops again, restart Phosphene and free some memory.")
+
+
 def _run(cmd, env, on_log, request=None, timeout=7200, guard=(), tail_out=None):
     """Stream progress and share the studio's cancellation registry, including install."""
     import image_engine
@@ -243,7 +260,7 @@ def _run(cmd, env, on_log, request=None, timeout=7200, guard=(), tail_out=None):
         if rc < 0:
             raise image_engine.ImageJobCancelled("FLUX 3 stopped.")
         if rc:
-            raise RuntimeError("FLUX 3 did not finish: " + "\n".join(tail))
+            raise RuntimeError("FLUX 3 did not finish: " + _failure_reason(tail, rc))
         return receipts
     finally:
         if proc.poll() is None:

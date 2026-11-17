@@ -51,6 +51,21 @@ def say(*parts):
     print("[music]", *parts, flush=True)
 
 
+def cover_transcription_problem(transcription) -> "str | None":
+    """Why a cover cannot go on from this transcription, or None.
+
+    `truncated` means one window's decoder ran out of room before its end
+    token on a dense passage; the score is still written and stitched from the
+    overlapping windows. Refusing it failed every retry of the same recording
+    (fleet, 5.0.28: "the transcription came out incomplete", 5 fails, 1 Mac),
+    and a shorter excerpt cannot help: the limit is per window, not per song.
+    Only a missing score stops the cover."""
+    if transcription.get("status") != "complete":
+        return ("could not read a score off this recording. Try a cleaner "
+                "recording, or a different part of the song.")
+    return None
+
+
 def cover_decode_reason(exc) -> str:
     """ffmpeg's own last line for a recording it could not decode, without
     the path (the history card and the fleet's grouping read this line)."""
@@ -407,12 +422,16 @@ def main(argv=None):
             return 2
         gc.collect()
         mx.clear_cache()
-        if transcription.get("status") != "complete" or transcription.get("truncated"):
-            say("error", "the transcription came out incomplete — try a shorter "
-                         "excerpt with --cover-seconds, or a cleaner recording")
+        problem = cover_transcription_problem(transcription)
+        if problem:
+            say("error", problem)
             return 2
+        if transcription.get("truncated"):
+            say("listen", "a busy passage ran past the transcriber's room; "
+                          "the cover follows the score it did read")
         abc = (work / "score.abc").read_text(encoding="utf-8")
         cover_info = {"source_sha256": transcription.get("source_audio_sha256"),
+                      "truncated": bool(transcription.get("truncated")),
                       "task": args.cover_task,
                       "seconds_read": args.cover_seconds,
                       "artifacts": str(work)}

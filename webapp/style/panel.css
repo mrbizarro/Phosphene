@@ -12125,7 +12125,7 @@ body[data-workflow="oneshot"] #audioSectionTab { display: none !important; }
     .h3-facefix-after { align-items: flex-start; margin: 10px 0 2px; line-height: 1.45; }
     .h3-facefix-after input { margin-top: 2px; }
     .h3-facefix-after .cz-label-hint { display: block; margin-left: 0; }
-    /* Clean up sound (4.20): the same quiet checkbox line, under the Speed switch. */
+    /* Keep the audio checkbox aligned beneath the speed switch. */
     .h3-clean-sound { align-items: flex-start; margin: 8px 0 2px; line-height: 1.45; }
     .h3-clean-sound input { margin-top: 2px; }
     .h3-clean-sound input:disabled + span { opacity: 0.55; }
@@ -13524,7 +13524,8 @@ button.primary:hover::before, #genBtn:hover::before, #genForm .batch-queue-btn:h
   background: var(--text); color: var(--bg, #0a0a0b); font-size: 14px; font-weight: 650; text-decoration: none; line-height: 1.25; }
 .pro-cta:hover { filter: brightness(.92); text-decoration: none; }
 .pro-cta:focus-visible { outline: 2px solid #5eeaff; outline-offset: 2px; }
-.pro-plan-founding { border-color: color-mix(in srgb, #ec4899 55%, var(--border)); background: linear-gradient(160deg, rgba(236,72,153,.07), rgba(94,234,255,.04) 70%); }
+.pro-plan-founding { position: relative; padding-top: 30px; border-color: color-mix(in srgb, #ec4899 55%, var(--border)); background: linear-gradient(160deg, rgba(236,72,153,.07), rgba(94,234,255,.04) 70%); }
+.pro-plan-badge { position: absolute; top: 0; right: 12px; transform: translateY(-50%); max-width: calc(100% - 24px); box-sizing: border-box; padding: 4px 10px; border-radius: 999px; background: #ec4899; color: #160b12; font-size: 13px; font-weight: 700; line-height: 1.35; text-align: center; }
 .pro-cta-founding { background: linear-gradient(90deg, #ec4899, #8b5cf6 55%, #5eeaff); color: #0b0b10; }
 /* Reassurance under the plans: refund, when the key comes, nothing renews by surprise. */
 .pro-safe { list-style: none; margin: 12px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }

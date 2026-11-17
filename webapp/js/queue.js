@@ -3462,6 +3462,20 @@ function friendlyJobError(raw, engine) {
       action: 'models',
     };
   }
+  // H12 (fleet, 11 renders on 7 Macs, 4.19.5-5.0.28): the engine could not
+  // open a model weight file ("[load_safetensors] Failed to open file
+  // <path>") - it was removed, or its folder (often an external drive) was
+  // gone. It fell to the bare "Job failed." whose Retry fails the same way.
+  if (/failed to open file/i.test(raw) && /load_safetensors|\.safetensors/i.test(raw)) {
+    return {
+      friendly: T('queue.a_model_file_could_not', 'A model file could not be opened.'),
+      hint: T('queue.if_your_models_are_on', 'If your models are on an external drive, reconnect it. Otherwise press ')
+          + T('queue.repair_in_models_it_re', 'Repair in Models: it re-downloads only the missing files. Retrying as ')
+          + T('queue.is_fails_the_same_way', 'is fails the same way.'),
+      details: _redactLocalPaths(raw) || raw,
+      action: 'models',
+    };
+  }
   // Next-release fix (fleet 4.17.x: 11 input_missing failures on 3 installs,
   // each re-tried as is): a picture, audio, video or LoRA file the job points
   // at is gone, or an image mode was sent without one. Retry re-queues the

@@ -3693,6 +3693,40 @@ def _caption_retrigger(caption_files: list[Path], trigger: str) -> str | None:
     return old
 
 
+def _caption_add_trigger(caption_files: list[Path], trigger: str) -> int:
+    """Put ``trigger`` at the front of every caption that lacks it; return
+    how many files were written.
+
+    Hotfix H6 (16 Nov 2026): "training stopped: caption_check" still reached
+    the fleet after fw-20261110-1411, for caption sets the rename above does
+    not take (free-form text, empty files, or two different old words). The
+    refusal told people to delete a captions/ folder the Mac app never shows,
+    so the run could not be started again from the app at all. The #62 worry
+    was a LoRA that never answers to the job's word; naming the word in every
+    caption removes that worry, so the run goes on."""
+    written = 0
+    for cap in caption_files:
+        try:
+            text = cap.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if trigger.lower() in text.lower():
+            continue
+        m = re.match(r"(\s*\[VISUAL\]:\s*)", text)
+        if m:
+            new = m.group(1) + trigger + ", " + text[m.end():]
+        elif text.strip():
+            new = f"{trigger}, {text.lstrip()}"
+        else:
+            new = f"[VISUAL]: {trigger}\n[TEXT]: None\n"
+        try:
+            cap.write_text(new, encoding="utf-8")
+            written += 1
+        except OSError:
+            pass
+    return written
+
+
 def _caption_trigger_mismatches(
     caption_files: list[Path], trigger: str
 ) -> tuple[list[str], tuple[str, int] | None]:
@@ -41029,16 +41063,10 @@ def run_train_job_inner(job: dict) -> None:
                      f"renamed it to {trigger!r} in all {len(user_cap_files)} caption files "
                      "so the LoRA answers to the word this job was started with.")
             elif len(mismatched) == len(user_cap_files):
-                job["train_error"], job["train_stage"] = "caption_check", "caption"
-                raise RuntimeError(
-                    f"none of the {len(user_cap_files)} existing caption files "
-                    f"contain the trigger {trigger!r} this job was submitted "
-                    f"with{other_desc}. This dataset's captions/ almost "
-                    "certainly carries leftovers from an earlier training run "
-                    "on the same photos. Training would silently produce a "
-                    f"LoRA that never responds to {trigger!r} — delete or "
-                    "regenerate captions/ for this trigger before retrying."
-                )
+                added = _caption_add_trigger(user_cap_files, trigger)
+                push(f"[train] none of the {len(user_cap_files)} caption files named "
+                     f"the trigger {trigger!r}{other_desc}; added it to {added} of them "
+                     "so the LoRA answers to the word this job was started with.")
             else:
                 push(f"[train] WARNING: {len(mismatched)} / {len(user_cap_files)} "
                      f"existing caption files do not contain the trigger "

@@ -253,6 +253,30 @@ def _download_stopped_note(repo_id, env, cause: str = "") -> "str | None":
             f"continue it; if it stops again, check the network and free disk space.")
 
 
+def _hub_unreachable_note(repo_id, cause: str = "") -> "str | None":
+    """The first line of an engine failure whose model could not be fetched
+    from Hugging Face because the network failed, or None.
+
+    Fleet, hotfix H10 (16 Nov 2026): Macs in mainland China failed every image
+    as "mflux-generate-flux2 failed (exit 1) on batch of 1 seeds; last line:
+    huggingface_hub...LocalEntryNotFoundError" - nothing on disk yet, so the
+    unfinished-download note never fired, and the user was told nothing."""
+    c = str(cause or "")
+    low = c.lower()
+    if "huggingface" not in low and "hf_hub" not in low:
+        return None
+    if not ("localentrynotfound" in low or "connect" in low or "timed out" in low
+            or "timeout" in low or "nodename nor servname" in low
+            or "network is unreachable" in low or "internet connection" in low):
+        return None
+    model = f" {repo_id}" if _is_hf_repo_id(repo_id) else " this model"
+    return (f"Phosphene could not download{model} from Hugging Face: this Mac could "
+            f"not reach huggingface.co. The model is needed once and kept afterwards. "
+            f"Check that this Mac is online and can open huggingface.co (in some "
+            f"countries it is blocked and needs a VPN), then Generate again. "
+            f"The engine's last line: {c[:220]}.")
+
+
 _REPAIR_MEMO: dict = {}   # repo_id -> on_disk_gb at the last repair attempt
 
 
@@ -2039,6 +2063,10 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
         if _dl_note:
             raise RuntimeError(
                 f"{_dl_note}\n\nTail of stdout/stderr:\n{stderr_tail[-1200:]}")
+        _hub_note = _hub_unreachable_note(getattr(config, "mflux_model", None), cause)
+        if _hub_note:
+            raise RuntimeError(
+                f"{_hub_note}\n\nTail of stdout/stderr:\n{stderr_tail[-1200:]}")
         _shape_note = _lora_shape_note(config, _lora_paths_in, cause)
         if _shape_note:
             raise RuntimeError(
