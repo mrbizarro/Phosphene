@@ -3040,82 +3040,94 @@ async function repairModel(key) {
 // Pinokio's own Install is still writing the venv it says "installing" and
 // offers nothing: a second installer into the same venv would race it.
 let _engineEnvWasBroken = false;
-function engineEnvBannerHtml(st) {
+let _engineDoneTimer = 0;
+// The visible words never name Python, packages or environments: the owner
+// asked (16 Nov) for a calm "finish setting up" card. The raw error stays
+// behind a Details disclosure and is never inline.
+function engineEnvBannerModel(st) {
   // /status.engine_env.cause (4.17.5) in the user's words. Server vocabulary:
   // ENGINE_ENV_CAUSES in mlx_ltx_panel.py; "unknown" and "installing" say nothing.
-  const ENGINE_ENV_CAUSE_TEXT = {
-    network: T('queue.the_last_install_could_not', 'The last install could not reach the package server - check the connection.'),
-    timeout: T('queue.the_last_install_timed_out', 'The last install timed out downloading packages - check the connection.'),
-    disk: T('queue.the_last_install_ran_out', 'The last install ran out of disk space - free some space first.'),
-    uv_error: T('queue.the_last_install_could_not_2', 'The last install could not resolve or build a package.'),
-    python_missing: distText(T('queue.video_tools_stopped_working_pinokio', 'Phosphene\u2019s video tools stopped working. Press Install in Pinokio to repair them. Your models stay.'),
-                             T('queue.video_tools_stopped_working_app', 'Phosphene\u2019s video tools stopped working. Quit Phosphene and open it again to repair them. Your models stay.')),
+  const CAUSE_TEXT = {
+    network: T('queue.setup_cause_network', 'Check your internet connection, then try again.'),
+    timeout: T('queue.setup_cause_timeout', 'The connection was too slow. Check it, then try again.'),
+    disk: T('queue.setup_cause_disk', 'There was not enough free disk space. Free some up, then try again.'),
+    python_missing: distText(T('queue.setup_cause_rebuild_pinokio', 'Run Install from Pinokio to rebuild it. Your models stay.'),
+                             T('queue.setup_cause_rebuild_app', 'Quit Phosphene and open it again so setup can finish. Your models stay.')),
   };
-  if (!st || st.ok) return '';
+  if (!st || st.ok) return null;
   const rep = st.repair || {};
-  const last = (rep.log || []).slice(-1)[0] || '';
   if (st.installing || rep.active) {
-    return '<span style="font-weight:700">' + T('queue.installing_video_tools', 'Installing Phosphene\u2019s video tools\u2026') + '</span>'
-      + '<span style="opacity:.92">' + T('queue.renders_can_start_when_it', 'Renders can start when it finishes, in a few minutes. Your models are not touched.') + '</span>';
+    return { state: 'busy', title: T('queue.setup_running', 'Finishing setup… (about 3 min)'),
+             sub: T('queue.setup_running_sub', 'You can keep this window open. Your models stay.') };
   }
-  // The Mac app has no sidebar: the in-studio Repair button is the only one.
-  const pinokio = isMacApp() ? '' : '<span style="opacity:.85;flex-basis:100%">'
-    + T('queue.or_from_pinokio_stop_phosphene', 'Or from Pinokio: stop Phosphene, then click \u201cRepair Phosphene engine (models kept)\u201d.') + '</span>';
+  // The Mac app has no sidebar: the in-studio button is the only one.
+  const pinokio = isMacApp() ? '' : T('queue.setup_pinokio_fallback', 'Or from Pinokio: Stop Phosphene, then click “Repair Phosphene engine (models kept)”.');
   if (rep.state === 'failed') {
-    return '<span style="font-weight:700">' + T('queue.the_repair_did_not_finish', 'The repair did not finish.') + '</span>'
-      + '<span style="opacity:.92">' + T('queue.check_your_internet_and_disk', 'Check your internet connection and free disk space, then press Try again.') + '</span>'
-      + '<span style="margin-left:auto;display:flex;gap:8px">'
-      + '<button class="btn btn-primary" data-action="repair-engine">' + T('queue.try_again', 'Try again') + '</button></span>'
-      + (rep.error ? '<details class="h3-diag" style="flex-basis:100%"><summary>' + T('queue.details_for_troubleshooting', 'Details for troubleshooting')
-        + '</summary><p>' + escapeHtml(_redactLocalPaths(rep.error) || rep.error) + '</p></details>' : '')
-      + pinokio;
+    return { state: 'failed', title: T('queue.setup_failed', 'Setup didn’t finish.'),
+             sub: CAUSE_TEXT[st.cause] || '', button: T('queue.setup_try_again', 'Try again'),
+             details: _redactLocalPaths(rep.error || '') || T('queue.setup_unknown_error', 'unknown error'), pinokio };
   }
-  // 4.17.5: why the last install stopped, when its installer recorded it.
-  const why = ENGINE_ENV_CAUSE_TEXT[st.cause] || '';
-  return '<span style="font-weight:700">' + T('queue.video_tools_did_not_finish', 'Phosphene\u2019s video tools did not finish installing, so renders cannot start.') + '</span>'
-    + '<span style="opacity:.92">' + (why ? escapeHtml(why) + ' ' : '')
-    + T('queue.press_repair_it_takes_a', 'Press Repair: it takes a few minutes and keeps all your models.') + '</span>'
-    + '<span style="margin-left:auto;display:flex;gap:8px">'
-    + '<button class="btn btn-primary" data-action="repair-engine">' + T('queue.repair_btn', 'Repair') + '</button></span>'
-    + pinokio;
+  return { state: 'needed', title: T('queue.setup_needed', 'Phosphene needs to finish setting up before it can make videos.'),
+           sub: (CAUSE_TEXT[st.cause] ? CAUSE_TEXT[st.cause] + ' ' : '') + T('queue.setup_needed_sub', 'A few minutes. Your models stay.'),
+           button: T('queue.setup_finish', 'Finish setup'), pinokio };
+}
+function engineEnvBannerHtml(m) {
+  const glyph = m.state === 'done' ? 'ph-check-bold' : 'ph-gear-six';
+  return '<svg class="ph setup-card-icon" aria-hidden="true"><use href="#' + glyph + '"/></svg>'
+    + '<div class="setup-card-text"><div class="setup-card-title">' + escapeHtml(m.title) + '</div>'
+    + (m.sub ? '<div class="setup-card-sub">' + escapeHtml(m.sub) + '</div>' : '')
+    + (m.pinokio ? '<div class="setup-card-sub">' + escapeHtml(m.pinokio) + '</div>' : '')
+    + (m.details ? '<details class="setup-card-details"><summary>' + escapeHtml(T('queue.setup_details', 'Details'))
+        + '</summary><pre>' + escapeHtml(m.details) + '</pre></details>' : '')
+    + '</div>'
+    + (m.button ? '<button class="btn btn-primary setup-card-btn" data-action="repair-engine">' + escapeHtml(m.button) + '</button>' : '');
 }
 function renderEngineEnvBanner(st) {
-  const html = engineEnvBannerHtml(st);
+  const m = engineEnvBannerModel(st);
   let el = document.getElementById('engineEnvBanner');
-  if (!html) {
-    if (el) el.remove();
-    if (_engineEnvWasBroken && st && st.ok && typeof phosToast === 'function') {
-      phosToast(T('queue.the_render_engine_is_repaired', 'The render engine is repaired \u2014 renders can run. Press Retry on a failed render.'),
-                { kind: 'success', duration: 8000 });
+  if (!m) {
+    if (_engineEnvWasBroken && st && st.ok) {
+      // "All set." for a few seconds, then the card goes away.
+      _engineEnvWasBroken = false;
+      const done = { state: 'done', title: T('queue.setup_done', 'All set.'),
+                     sub: T('queue.setup_done_sub', 'Press Retry on a failed video to make it again.') };
+      if (el) {
+        el.className = 'setup-card is-done';
+        el.innerHTML = engineEnvBannerHtml(done);
+        el.dataset.html = '';
+        clearTimeout(_engineDoneTimer);
+        _engineDoneTimer = setTimeout(() => { const e = document.getElementById('engineEnvBanner'); if (e) e.remove(); }, 5000);
+      }
+      return;
     }
-    _engineEnvWasBroken = false;
+    if (el && !(el.classList.contains('is-done'))) el.remove();
     return;
   }
   _engineEnvWasBroken = true;
+  clearTimeout(_engineDoneTimer);
   if (!el) {
     el = document.createElement('div');
     el.id = 'engineEnvBanner';
-    document.body.appendChild(el);
+    // Below the header, never over it: the header and its update button stay visible.
+    const main = document.querySelector('main.layout');
+    if (main) main.before(el); else document.body.appendChild(el);
   }
-  const busy = !!(st.installing || (st.repair || {}).active);
-  const above = document.getElementById('integrityBanner');
-  el.style.cssText = 'position:fixed;left:0;right:0;z-index:9998;'
-    + 'top:' + (above ? above.offsetHeight : 0) + 'px;'
-    + 'background:' + (busy ? '#6b4a00' : '#7a1f1f') + ';color:#fff;padding:10px 16px;'
-    + 'font-size:13px;line-height:1.4;display:flex;align-items:center;gap:12px;'
-    + 'flex-wrap:wrap;box-shadow:0 2px 10px rgba(0,0,0,.45)';
+  el.className = ['setup-card', 'is-' + m.state].join(' ');
+  el.setAttribute('role', 'status');
+  const html = engineEnvBannerHtml(m);
   if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
 }
+
 async function engineRepairStart() {
   try {
     const r = await fetch('/engine/repair', { method: 'POST', body: new URLSearchParams({}) });
     const res = await r.json().catch(() => ({}));
     if (!r.ok && typeof phosToast === 'function') {
-      phosToast(res.error || (T('queue.repair_could_not_start_http', 'Repair could not start: HTTP ') + r.status),
+      phosToast(res.error || (T('queue.setup_could_not_start_http', 'Setup could not start: HTTP ') + r.status),
                 { kind: res.installing ? 'info' : 'danger', duration: 8000 });
     }
   } catch (e) {
-    if (typeof phosToast === 'function') phosToast(T('queue.repair_could_not_start', 'Repair could not start: ') + (e.message || e), { kind: 'danger' });
+    if (typeof phosToast === 'function') phosToast(T('queue.setup_could_not_start', 'Setup could not start: ') + (e.message || e), { kind: 'danger' });
   }
   if (typeof poll === 'function') poll();
 }
@@ -3128,12 +3140,12 @@ async function h3RepairStart() {
     const r = await fetch('/h3/repair', { method: 'POST', body: new URLSearchParams({}) });
     const res = await r.json().catch(() => ({}));
     if (typeof phosToast === 'function') {
-      phosToast(r.ok ? T('queue.repairing_hailuo_h3_s_packages', 'Repairing Hailuo H3\u2019s packages\u2026 (about a minute, weights kept)')
-                     : (res.error || (T('queue.repair_could_not_start_http', 'Repair could not start: HTTP ') + r.status)),
+      phosToast(r.ok ? T('queue.setup_h3_running', 'Finishing Hailuo H3 setup\u2026 (about a minute)')
+                     : (res.error || (T('queue.setup_could_not_start_http', 'Setup could not start: HTTP ') + r.status)),
                 { kind: r.ok ? 'info' : 'danger', duration: 8000 });
     }
   } catch (e) {
-    if (typeof phosToast === 'function') phosToast(T('queue.repair_could_not_start', 'Repair could not start: ') + (e.message || e), { kind: 'danger' });
+    if (typeof phosToast === 'function') phosToast(T('queue.setup_could_not_start', 'Setup could not start: ') + (e.message || e), { kind: 'danger' });
   }
   if (typeof poll === 'function') poll();
 }
@@ -3145,8 +3157,8 @@ function noteH3EnvRepair(st) {
   const now = rep.state || '';
   if (_h3RepairWas === 'running' && (now === 'done' || now === 'failed') && typeof phosToast === 'function') {
     phosToast(now === 'done'
-      ? T('queue.hailuo_h3_is_repaired_h3', 'Hailuo H3 is repaired \u2014 H3 renders can run. Press Retry on the failed render.')
-      : T('queue.the_hailuo_h3_repair_did', 'The Hailuo H3 repair did not finish: ') + _redactLocalPaths(rep.error || 'unknown error'),
+      ? T('queue.setup_h3_done', 'All set. Hailuo H3 can make videos again. Press Retry on the failed one.')
+      : T('queue.setup_h3_failed', 'Hailuo H3 setup didn\u2019t finish. Try again.'),
       { kind: now === 'done' ? 'success' : 'danger', duration: 10000 });
   }
   _h3RepairWas = now;
@@ -3253,17 +3265,17 @@ function nowCardFailureActions(last, info) {
     && !((_h3EnvLast.repair || {}).active);
   if (action === 'repair_h3' && !h3Fixed) {
     return `<button type="button" class="now-card-retry" data-action="repair-h3" ` +
-      `title="${TA('queue.repairs_hailuo_h3_title', 'Repairs Hailuo H3: about a minute, nothing to download again')}">` +
+      `title="${escapeHtml(T('queue.setup_h3_title', 'Finish setting up Hailuo H3 (about a minute, your models stay)'))}">` +
       `<svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise"/></svg>` +
-      `<span>${T('queue.repair_hailuo_h3', 'Repair Hailuo H3')}</span></button>` + dismiss;
+      `<span>${T('queue.setup_finish', 'Finish setup')}</span></button>` + dismiss;
   }
   // 4.17.4: the engine's packages are not installed - every render fails the
   // same way until they are, so the card offers the repair, never a Retry.
   if (action === 'repair_engine') {
     return `<button type="button" class="now-card-retry" data-action="repair-engine" ` +
-      `title="${TA('queue.repairs_video_tools_title', 'Repairs Phosphene\u2019s video tools: a few minutes, your models stay')}">` +
+      `title="${escapeHtml(T('queue.setup_finish_title', 'Finish setting up (a few minutes, your models stay)'))}">` +
       `<svg class="ph" aria-hidden="true"><use href="#ph-arrow-clockwise"/></svg>` +
-      `<span>${T('queue.repair_btn', 'Repair')}</span></button>` + dismiss;
+      `<span>${T('queue.setup_finish', 'Finish setup')}</span></button>` + dismiss;
   }
   // 4.17.5: a size refused because macOS's GPU watchdog stopped it (even in
   // short GPU steps) has one way forward - smaller. Retry as is would only be
@@ -3313,10 +3325,8 @@ function friendlyJobError(raw, engine) {
   // One gave up after three. Point at the one-click repair instead.
   if (/engine venv is not usable|venv has a Python but no packages|never finished installing into it/i.test(raw)) {
     return {
-      friendly: T('queue.setup_did_not_finish', 'Setup did not finish.'),
-      hint: T('queue.renders_cannot_start_yet', 'Renders cannot start yet. ')
-          + T('queue.press_repair_few_minutes_models', 'Press Repair: it takes a few minutes and keeps all your models. ')
-          + T('queue.retrying_as_is_fails_the', 'Retrying as is fails the same way.'),
+      friendly: T('queue.setup_needed', 'Phosphene needs to finish setting up before it can make videos.'),
+      hint: T('queue.setup_card_hint', 'Press Finish setup. It takes a few minutes and your models stay.'),
       details: _redactLocalPaths(raw) || raw,
       action: 'repair_engine',
     };
@@ -3326,8 +3336,8 @@ function friendlyJobError(raw, engine) {
   // fails the same way; the repair re-installs only H3's packages.
   if (/Hailuo H3 venv/i.test(raw)) {
     return {
-      friendly: T('queue.h3_needs_quick_repair_short', 'Hailuo H3 needs a quick repair.'),
-      hint: T('queue.press_repair_hailuo_h3_about', 'Press Repair Hailuo H3. It takes about a minute and keeps everything you downloaded. LTX videos still work.'),
+      friendly: T('queue.setup_h3_needed', 'Hailuo H3 needs to finish setting up before it can make videos.'),
+      hint: T('queue.setup_h3_hint', 'Press Finish setup. It takes about a minute and your models stay. Other video types are not affected.'),
       details: _redactLocalPaths(raw) || raw,
       action: 'repair_h3',
     };

@@ -1506,10 +1506,9 @@ OUTPUT_PRESETS: dict[str, dict[str, str]] = {
         "pix_fmt": "yuv444p",
         "crf": "0",
         "label": "Video production (lossless)",
-        "blurb": "Mathematically lossless — full 4:4:4 chroma, no "
-                 "compression artifacts. ~50 MB per 5s clip. For pro "
-                 "workflows: color grading, compositing, VFX, anywhere "
-                 "you'll re-encode downstream and need every frame intact.",
+        "blurb": "Lossless, full colour, no compression marks. ~50 MB per "
+                 "5s clip. For colour grading, compositing and VFX, anywhere "
+                 "the clip is edited again and every frame must stay intact.",
     },
     "standard": {
         "pix_fmt": "yuv420p",
@@ -1524,8 +1523,8 @@ OUTPUT_PRESETS: dict[str, dict[str, str]] = {
         "crf": "23",
         "label": "Web / social",
         "blurb": "Smallest files. ~3 MB per 5s clip. For embedding, mobile, "
-                 "or quick previews where bandwidth matters more than peak "
-                 "fidelity.",
+                 "or quick previews where a small file matters more than "
+                 "the last bit of detail.",
     },
 }
 

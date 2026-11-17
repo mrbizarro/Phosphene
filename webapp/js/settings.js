@@ -891,7 +891,10 @@ function renderModelsDriveRows() {
 async function openSettingsModal() {
   const modal = document.getElementById('settingsModal');
   modal.style.display = 'flex';
+  _settingsCloseArmed = false;
   renderModelsDriveRows();
+  renderSettingsPro();
+  renderMacStatsRow();
   document.getElementById('settingsStatus').textContent = '';
   document.getElementById('settingsStatus').className = 'settings-status';
   refreshStorageSection();
@@ -924,7 +927,7 @@ async function openSettingsModal() {
       <div class="preset-text">
         <div class="preset-label">${escapeHtml(p.label)}</div>
         <div class="preset-blurb">${escapeHtml(p.blurb)}</div>
-        <div class="preset-spec">pix_fmt=${p.pix_fmt} · crf=${p.crf}</div>
+        <div class="preset-spec">${escapeHtml(settingsFormatWords(p.pix_fmt, p.crf))}</div>
       </div>`;
     card.addEventListener('click', () => selectPreset(key));
     grid.appendChild(card);
@@ -938,8 +941,8 @@ async function openSettingsModal() {
     <input type="radio" name="settingsPreset" value="custom" ${cur.output_preset === 'custom' ? 'checked' : ''}>
     <div class="preset-text">
       <div class="preset-label">${T('settings.custom', 'Custom')}</div>
-      <div class="preset-blurb">${T('settings.set_pix_fmt_and_crf', 'Set pix_fmt and CRF manually. For unusual workflows: 10-bit HDR, format-specific delivery, or non-standard CRF for video production work.')}</div>
-      <div class="preset-spec">pix_fmt=${cur.output_pix_fmt} · crf=${cur.output_crf}</div>
+      <div class="preset-blurb">${T('settings.choose_colour_detail_and_quality', 'Choose colour detail and quality yourself: 10-bit for HDR, a specific delivery format, or a different quality number.')}</div>
+      <div class="preset-spec">${escapeHtml(settingsFormatWords(cur.output_pix_fmt, cur.output_crf))}</div>
     </div>`;
   custom.addEventListener('click', () => selectPreset('custom'));
   grid.appendChild(custom);
@@ -990,17 +993,33 @@ async function openSettingsModal() {
       const fits = h3s.bf16_fits !== false;
       fullOpt.disabled = !fits;
       fullOpt.textContent = fits
-        ? T('settings.full_bf16_42_gib_peak', 'Full (bf16) — 42 GiB peak')
-        : T('settings.full_bf16_needs', 'Full (bf16) — needs ') + Math.round(h3s.min_ram_gb || 60) + T('settings.gb_of_memory_not_this', ' GB of memory, not this Mac');
+        ? T('settings.full_quality_needs_about_42', 'Full quality: needs about 42 GB of memory')
+        : T('settings.full_quality_needs', 'Full quality: needs ') + Math.round(h3s.min_ram_gb || 60) + T('settings.gb_of_memory_more_than', ' GB of memory, more than this Mac has');
       if (h3s.bf16_fits === false && ditSelect.value === 'bf16') ditSelect.value = 'auto';
     }
   }
 
-  // Token rows. We never receive the actual key from the server (the
-  // /settings GET returns has_X booleans only), so we display either
-  // "set" with an empty placeholder input, or "—" with the placeholder.
-  // Inputs start empty on every modal open; user pastes when they want
-  // to change.
+  renderGroupBaseline();
+  renderTokenRows(cur);
+
+  // Spicy mode — render current state. _spicyArmed is the mid-confirm
+  // state (clicked once, waiting for the second click). It lives only
+  // on the JS side; only ON/OFF gets persisted.
+  _spicyArmed = false;
+  renderSpicyState(!!cur.spicy_mode);
+
+  // Anonymous usage analytics — badge, hint (shows the actual install id
+  // so "you are a random ID" is verifiable, not a claim), and the two
+  // maintainer key rows. Same has_X-boolean treatment as the other
+  // secrets: the keys never come back from the server.
+  renderAnalyticsState(cur);
+}
+
+// Token rows. We never receive the actual key from the server (the
+// /settings GET returns has_X booleans only), so we display either
+// "set" with an empty placeholder input, or "—" with the placeholder.
+// Inputs start empty; user pastes when they want to change.
+function renderTokenRows(cur) {
   setTokenStatus('civitaiKey', cur.has_civitai_key);
   setTokenStatus('hfToken', cur.has_hf_token);
   // Placeholders reflect the saved state so an empty input doesn't read
@@ -1018,18 +1037,129 @@ async function openSettingsModal() {
     : 'hf_…';
   document.getElementById('civitaiKeyClear').style.display = cur.has_civitai_key ? '' : 'none';
   document.getElementById('hfTokenClear').style.display = cur.has_hf_token ? '' : 'none';
+}
 
-  // Spicy mode — render current state. _spicyArmed is the mid-confirm
-  // state (clicked once, waiting for the second click). It lives only
-  // on the JS side; only ON/OFF gets persisted.
-  _spicyArmed = false;
-  renderSpicyState(!!cur.spicy_mode);
+// ---- "While rendering": the one group that waits for Save -------------------
+// Everything else in Settings saves on change. These three controls (live
+// preview, H3 model, output format) are deferred because an output-format save
+// restarts the render helper. Save/Undo light up only when something differs
+// from what is saved; Done/Close/Esc with unsaved changes asks once.
+const PIX_FMT_WORDS = {
+  yuv420p: T('settings.standard_colour', 'Standard colour'), yuv422p: T('settings.more_colour', 'More colour'), yuv444p: T('settings.full_colour', 'Full colour'),
+  yuv420p10le: T('settings.10_bit_colour', '10-bit colour'), yuv422p10le: T('settings.10_bit_more_colour', '10-bit, more colour'), yuv444p10le: T('settings.10_bit_full_colour', '10-bit, full colour'),
+};
+function settingsFormatWords(pixFmt, crf) {
+  const c = Number(crf);
+  const q = c === 0 ? 'lossless' : ('quality ' + c);
+  return (PIX_FMT_WORDS[pixFmt] || pixFmt) + ' \u00b7 ' + q;
+}
+let _settingsCloseArmed = false;
+function renderGroupValues() {
+  const checked = document.querySelector('#settingsPresets input[type="radio"]:checked');
+  const preset = checked ? checked.value : 'standard';
+  const v = {
+    preset,
+    live: document.getElementById('settingsLivePreview')?.value || 'on',
+    dit: document.getElementById('settingsH3Dit')?.value || 'auto',
+  };
+  if (preset === 'custom') {
+    v.pix = document.getElementById('settingsPixFmt').value;
+    v.crf = String(document.getElementById('settingsCrfNum').value);
+  }
+  return JSON.stringify(v);
+}
+let _settingsGroupBaseline = '';
+function renderGroupBaseline() {
+  _settingsGroupBaseline = renderGroupValues();
+  const grp = document.getElementById('settingsRenderGroup');
+  if (grp && !grp.dataset.wired) {
+    grp.dataset.wired = '1';
+    grp.addEventListener('change', renderGroupDirty);
+  }
+  renderGroupDirty();
+}
+function renderGroupIsDirty() {
+  return !!_settingsGroupBaseline && renderGroupValues() !== _settingsGroupBaseline;
+}
+function renderGroupDirty() {
+  const dirty = renderGroupIsDirty();
+  const save = document.getElementById('settingsApplyBtn');
+  const undo = document.getElementById('settingsUndoBtn');
+  if (save) save.disabled = !dirty;
+  if (undo) undo.disabled = !dirty;
+  const st = document.getElementById('settingsRenderStatus');
+  const notSaved = T('settings.not_saved_yet', 'Not saved yet.');
+  if (st && dirty) { st.textContent = notSaved; st.className = 'settings-status'; }
+  else if (st && st.textContent === notSaved) { st.textContent = ''; }
+  if (!dirty) _settingsCloseArmed = false;
+}
+// Put the group back to what is saved (the old footer Cancel only closed the
+// dialog and left these edits in place for the next open).
+function undoRenderSettings() {
+  const cur = (_settingsCache && _settingsCache.settings) || {};
+  selectPreset(cur.output_preset || 'standard');
+  document.getElementById('settingsPixFmt').value = cur.output_pix_fmt;
+  document.getElementById('settingsCrfRange').value = cur.output_crf;
+  document.getElementById('settingsCrfNum').value = cur.output_crf;
+  const lp = document.getElementById('settingsLivePreview');
+  if (lp) lp.value = (cur.live_preview === 'off') ? 'off' : 'on';
+  const dit = document.getElementById('settingsH3Dit');
+  if (dit) { const v = String(cur.h3_dit || 'auto').toLowerCase(); dit.value = ['auto', 'bf16', 'q8'].includes(v) ? v : 'auto'; }
+  renderGroupDirty();
+  const st = document.getElementById('settingsRenderStatus');
+  if (st) { st.textContent = T('settings.back_to_your_saved_choices', 'Back to your saved choices.'); st.className = 'settings-status'; }
+}
 
-  // Anonymous usage analytics — badge, hint (shows the actual install id
-  // so "you are a random ID" is verifiable, not a claim), and the two
-  // maintainer key rows. Same has_X-boolean treatment as the other
-  // secrets: the keys never come back from the server.
-  renderAnalyticsState(cur);
+// ---- Pro, inside Settings -----------------------------------------------------
+// Pinokio: the Studio's own Pro dialog takes the licence key (openProModal).
+// Mac app: the licence lives in the app; the button opens the app's Pro sheet
+// (native cap "pro", app 5.0.23+), else says where it is in the menu bar.
+async function renderSettingsPro() {
+  const badge = document.getElementById('settingsProBadge');
+  const text = document.getElementById('settingsProText');
+  const btn = document.getElementById('settingsProBtn');
+  if (!badge || !text || !btn) return;
+  let st = null;
+  try { const r = await fetch('/pro/status', { cache: 'no-store' }); if (r.ok) st = await r.json(); } catch (_) { st = null; }
+  const on = !!(st && st.active);
+  badge.textContent = on ? 'ON' : 'FREE';
+  badge.className = 'spicy-state' + (on ? ' on' : '');
+  const caps = Array.isArray(window.__phosNativeCaps) ? window.__phosNativeCaps : [];
+  if (isMacApp()) {
+    text.textContent = on ? T('settings.pro_is_on_for_this', 'Pro is on for this Mac.') : T('settings.free_pro_adds_faster_renders', 'Free. Pro adds faster renders and more.');
+    btn.textContent = on ? T('settings.manage_licence', 'Manage licence\u2026') : T('settings.get_pro_or_enter_a', 'Get Pro or enter a licence key\u2026');
+    btn.hidden = !caps.includes('pro');
+    if (!caps.includes('pro')) text.textContent += ' Licence: Phosphene > Phosphene Pro\u2026 in the menu bar.';
+  } else {
+    text.textContent = on ? T('settings.pro_is_on_for_this', 'Pro is on for this Mac.') : T('settings.free_paste_the_licence_key', 'Free. Paste the licence key from your purchase email to turn Pro on.');
+    btn.textContent = on ? T('settings.manage_licence_2', 'Manage licence') : T('settings.enter_licence_key', 'Enter licence key');
+    btn.hidden = false;
+  }
+}
+function settingsProOpen(btn) {
+  if (isMacApp()) {
+    try { window.webkit.messageHandlers.phosphene.postMessage({ type: 'openPro' }); return; }
+    catch (_) { phosToast('Choose Phosphene > Phosphene Pro\u2026 in the menu bar.', 'info'); return; }
+  }
+  openProModal(btn);
+}
+
+// ---- Mac app: one analytics switch ---------------------------------------------
+// The app's own switch (Phosphene > Settings…, Privacy) governs the app and this
+// Studio, so the Studio's section is hidden there (data-hide-mac-app) and this
+// row points to it. "modelStorage" is the 5.0.22 message that opens the app's
+// Settings window; the row only shows when the app can do that.
+function renderMacStatsRow() {
+  const row = document.getElementById('settingsMacStatsSection');
+  if (!row) return;
+  row.hidden = !isMacApp();
+  const caps = Array.isArray(window.__phosNativeCaps) ? window.__phosNativeCaps : [];
+  const btn = document.getElementById('settingsMacStatsBtn');
+  if (btn) btn.hidden = !caps.includes('modelStorage');
+}
+function openMacAppSettings() {
+  try { window.webkit.messageHandlers.phosphene.postMessage({ type: 'modelStorage' }); }
+  catch (_) { phosToast('Choose Phosphene > Settings\u2026 in the menu bar.', 'info'); }
 }
 
 // ---- Appearance ------------------------------------------------------------
@@ -1085,6 +1215,7 @@ function renderNotifyState(cur) {
       : perm === 'unsupported' ? T('settings.a_chime_in_this_tab_3', 'A chime in this tab.')
       : T('settings.a_chime_in_this_tab_4', 'A chime in this tab. Allow browser alerts to be told when the tab is in the background')
           + (cur.push_available ? T('settings.or_even_when_it_is', ', or even when it is closed.') : '.');
+    hint.textContent = T('settings.saves_right_away', 'Saves right away. ') + hint.textContent;
   }
   // PUSH, for a closed tab. Offered when the install can sign pushes and the
   // browser can hold a subscription; the button says which state it is in.
@@ -1114,7 +1245,7 @@ async function toggleNotify() {
   } catch (e) {}
   if (target && typeof playDoneChime === 'function') playDoneChime(false);
   renderNotifyState((_settingsCache && _settingsCache.settings) || {});
-  if (typeof phosToast === 'function') phosToast(target ? T('settings.completion_alerts_on_saved', 'Completion alerts on — saved.') : T('settings.completion_alerts_off_saved', 'Completion alerts off — saved.'), { duration: 2500 });
+  if (typeof phosToast === 'function') phosToast(target ? T('settings.render_finished_alerts_on_saved', 'Render-finished alerts on. Saved.') : T('settings.render_finished_alerts_off_saved', 'Render-finished alerts off. Saved.'), { duration: 2500 });
 }
 // ---- Push: the alert that reaches a closed tab ---------------------------
 // The browser keeps a subscription for this origin; the panel signs pushes
@@ -1189,7 +1320,7 @@ function renderAnalyticsState(cur) {
       hint.textContent = T('settings.off_nothing_is_sent_and', 'Off — nothing is sent, and nothing is written to ')
         + T('settings.the_local_usage_log_either', 'the local usage log either.');
     } else if (!cur.has_analytics_key) {
-      hint.innerHTML = T('settings.on_but_no_project_key', 'On, but no project key is configured — this panel is ')
+      hint.innerHTML = T('settings.on_but_no_project_key_2', 'On, but no project key is configured — Phosphene is ')
         + 'sending <b>nothing</b> over the network. Events are only written to '
         + T('settings.the_local_log', 'the local log.');
     } else {
@@ -1225,8 +1356,8 @@ async function toggleAnalytics() {
     renderAnalyticsState(_settingsCache.settings || {});
     if (status) {
       status.textContent = target
-        ? T('settings.anonymous_usage_analytics_on', 'Anonymous usage analytics ON')
-        : T('settings.anonymous_usage_analytics_off_nothing', 'Anonymous usage analytics OFF · nothing will be sent or logged');
+        ? T('settings.usage_stats_on_saved', 'Usage stats on. Saved.')
+        : T('settings.usage_stats_off_saved_nothing', 'Usage stats off. Saved: nothing will be sent or logged.');
       status.className = 'settings-status ok';
     }
   } catch (e) {
@@ -1393,10 +1524,10 @@ function toggleTokenVisibility(inputId, btn) {
   if (!inp) return;
   if (inp.type === 'password') {
     inp.type = 'text';
-    btn.textContent = 'hide';
+    btn.textContent = T('settings.hide', 'Hide');
   } else {
     inp.type = 'password';
-    btn.textContent = 'show';
+    btn.textContent = T('settings.show', 'Show');
   }
 }
 
@@ -1480,18 +1611,40 @@ async function clearToken(which) {
       body: new URLSearchParams(fd),
     });
     const data = await r.json();
+    const hint = document.getElementById(which === 'civitai' ? 'civitaiTestResult' : 'hfTestResult');
     if (!r.ok || data.error) {
-      alert(T('settings.could_not_clear', 'Could not clear: ') + (data.error || `HTTP ${r.status}`));
+      if (hint) hint.textContent = T('settings.could_not_remove_the_key', 'Could not remove the key: ') + (data.error || `HTTP ${r.status}`);
       return;
     }
-    // Refresh the modal so the status flips back to "not set".
-    openSettingsModal();
+    // Flip only the token rows back to "not set": reopening the whole dialog
+    // would also throw away unsaved "While rendering" changes.
+    if (data.settings) {
+      _settingsCache = { ...(_settingsCache || {}), settings: data.settings };
+      renderTokenRows(data.settings);
+    } else {
+      openSettingsModal();
+    }
   } catch (e) {
-    alert(T('settings.network_error', 'Network error: ') + (e.message || e));
+    const hint = document.getElementById(which === 'civitai' ? 'civitaiTestResult' : 'hfTestResult');
+    if (hint) hint.textContent = T('settings.could_not_reach_phosphene', 'Could not reach Phosphene: ') + (e.message || e);
   }
 }
 
+// Done, Close, a click outside and Esc all land here. Unsaved "While
+// rendering" changes are never dropped silently: the first try says so and
+// the second closes without them (the next open reads the saved values).
 function closeSettingsModal() {
+  if (renderGroupIsDirty() && !_settingsCloseArmed) {
+    _settingsCloseArmed = true;
+    const st = document.getElementById('settingsStatus');
+    if (st) {
+      st.textContent = T('settings.your_rendering_changes_are_not', 'Your rendering changes are not saved. Click Save, or Done again to close without them.');
+      st.className = 'settings-status err';
+    }
+    document.getElementById('settingsRenderGroup')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    return;
+  }
+  _settingsCloseArmed = false;
   document.getElementById('settingsModal').style.display = 'none';
 }
 
@@ -1503,13 +1656,11 @@ function selectPreset(key) {
   });
   document.getElementById('settingsCustomSection').style.display =
     key === 'custom' ? 'block' : 'none';
-  // Clear status so it doesn't claim "saved" after a fresh selection.
-  document.getElementById('settingsStatus').textContent = '';
-  document.getElementById('settingsStatus').className = 'settings-status';
+  renderGroupDirty();
 }
 
 async function applySettings() {
-  const status = document.getElementById('settingsStatus');
+  const status = document.getElementById('settingsRenderStatus');
   const btn = document.getElementById('settingsApplyBtn');
   status.textContent = T('settings.saving', 'Saving…');
   status.className = 'settings-status';
@@ -1526,14 +1677,8 @@ async function applySettings() {
   fd.set('live_preview', document.getElementById('settingsLivePreview')?.value || 'on');
   const _dit = document.getElementById('settingsH3Dit')?.value;
   if (_dit) fd.set('h3_dit', _dit);
-  // Tokens — only send a key when the input has a value. Empty input
-  // means "leave as-is" (clearing is explicit via the Clear button).
-  // This protects against accidentally wiping a saved key by clicking
-  // Apply on an unchanged form.
-  const civInput = document.getElementById('civitaiKeyInput').value.trim();
-  if (civInput) fd.set('civitai_api_key', civInput);
-  const hfInput = document.getElementById('hfTokenInput').value.trim();
-  if (hfInput)  fd.set('hf_token', hfInput);
+  // Keys are not part of this Save: each key row saves with its own
+  // "Save & test" button (the hint says so).
   try {
     // Convert FormData → URLSearchParams so the body is sent as
     // x-www-form-urlencoded — the panel's parse_qs only understands
@@ -1552,13 +1697,15 @@ async function applySettings() {
       btn.disabled = false;
       return;
     }
+    // Refresh cache so a re-open shows the new values without a stale flash.
+    _settingsCache = { ...(_settingsCache || {}), settings: data.settings };
+    renderGroupBaseline();
     status.textContent = data.helper_restarted
       ? T('settings.saved_next_render_uses_it', 'Saved. Your next render uses it.')
       : T('settings.saved', 'Saved.');
     status.className = 'settings-status ok';
-    btn.disabled = false;
-    // Refresh cache so a re-open shows the new values without a stale flash.
-    _settingsCache = { ...(_settingsCache || {}), settings: data.settings };
+    const top = document.getElementById('settingsStatus');
+    if (top && top.className.includes('err')) { top.textContent = ''; top.className = 'settings-status'; }
   } catch (e) {
     status.textContent = T('settings.network_error', 'Network error: ') + (e.message || e);
     status.className = 'settings-status err';
@@ -2043,7 +2190,8 @@ Object.assign(globalThis, {
   renderNotifyState, toggleNotify, askNotifyPermission,
   updateModelsCard, dismissModelsCard, applyTierGates, openTierModal,
   closeTierModal, openBugModal, closeBugModal, submitBugReport, copyBugDiagnostics, bugWhatInput,
-  openSettingsModal, renderModelsDriveRows, modelsDriveView, toggleAnalytics, saveAnalyticsKey, clearAnalyticsKey,
+  openSettingsModal, renderModelsDriveRows, renderGroupDirty, undoRenderSettings, settingsProOpen,
+  openMacAppSettings, renderSettingsPro, modelsDriveView, toggleAnalytics, saveAnalyticsKey, clearAnalyticsKey,
   toggleSpicyMode, onTokenInput, toggleTokenVisibility, testToken,
   clearToken, closeSettingsModal, applySettings, _applyHdrPillAvailability,
   // inline-handler targets: generated markup resolves these through the

@@ -6466,10 +6466,23 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
       <h2 id="settingsModalTitle" data-i18n="settingsModalTitle.settings">Settings</h2>
       <button class="ghost-btn" onclick="closeSettingsModal()" data-i18n="settingsModal.close">Close</button>
     </div>
-    <div class="models-hint" data-i18n="settingsModal.models_rendering_output_format">
-      Models, rendering, output format, accounts and privacy. Saved to
-      <code>panel_settings.json</code> and applied to every new render.
-      Files already in the gallery are not re-encoded.
+    <div class="models-hint" data-i18n="settingsModal.your_choices_are_saved">
+      Your choices are saved on this Mac and used for every new render.
+      Finished files are not changed. Most choices save right away; the
+      rendering choices wait for their own Save button.
+    </div>
+
+    <!-- Phosphene Pro: status and licence entry inside Settings (settings.js
+         renderSettingsPro). Pinokio opens the Studio's own Pro dialog, which
+         takes the key; the Mac app keeps its licence in the app, so the button
+         opens the app's Pro sheet (native cap "pro", else the menu-bar path). -->
+    <div class="settings-section" id="settingsProSection">
+      <h3>Phosphene Pro</h3>
+      <div class="spicy-row">
+        <span class="spicy-state" id="settingsProBadge" data-i18n="settingsProBadge.free">FREE</span>
+        <span class="hint" id="settingsProText" style="flex:1" data-i18n="settingsProText.free_on_this_mac">Free on this Mac.</span>
+        <button type="button" class="ghost-btn" id="settingsProBtn" onclick="settingsProOpen(this)" data-i18n="settingsProBtn.enter_licence_key">Enter licence key</button>
+      </div>
     </div>
 
     <!-- SYS-28: reordered 2026-09-29 to match how people actually reach
@@ -6515,17 +6528,14 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
     </div>
 
     <div class="settings-section">
-      <h3 data-i18n="settingsModal.model_files">Model files</h3>
-      <div class="hint" style="margin-bottom:8px" data-i18n="settingsModal.verify_every_installed_model">
-        Verify every installed model weight against the official checksums on
-        Hugging Face. A file that's the right size but the wrong content — an
-        interrupted, mirrored, or stale download — decodes to garbled / "mosaic"
-        video. This catches it and offers a one-click re-download. Takes 1–2
-        minutes (it hashes every file).
+      <h3 data-i18n="settingsModal.check_model_files">Check model files</h3>
+      <div class="hint" style="margin-bottom:8px" data-i18n="settingsModal.if_videos_come_out">
+        If videos come out garbled, check that every model downloaded
+        correctly. Anything broken gets a one-click re-download. Takes 1–2 minutes.
       </div>
       <div class="settings-row">
         <button type="button" class="primary-btn" id="deepVerifyBtn"
-                onclick="startDeepVerify()" data-i18n="deepVerifyBtn.verify_model_files_checksum">Verify model files (checksum)</button>
+                onclick="startDeepVerify()" data-i18n="deepVerifyBtn.check_now">Check now</button>
         <span class="hint" id="deepVerifyStatus" style="margin-left:10px"></span>
       </div>
     </div>
@@ -6543,105 +6553,113 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
       </div>
     </div>
 
-    <div class="settings-section">
-      <h3 data-i18n="settingsModal.memory_speed">Memory / speed</h3>
+    <!-- Rendering choices: the ONE group that waits for Save (settings.js
+         renderGroup*). Everything else in this dialog saves the moment it is
+         changed and says so. Before 5.0.23 a footer Apply/Cancel looked like it
+         covered the whole dialog while only these controls waited for it, and
+         Cancel did not undo the instant ones. These stay deferred because an
+         output-format save restarts the render helper: saving on every click
+         (or every quality-slider step) would restart it again and again. -->
+    <div class="settings-group" id="settingsRenderGroup">
+      <div class="settings-group-head">
+        <h3 data-i18n="settingsRenderGroup.while_rendering">While rendering</h3>
+        <span class="hint" data-i18n="settingsRenderGroup.these_wait_for_save">These wait for Save.</span>
+      </div>
       <!-- The Memory-policy select that lived here was REMOVED (owner ruling
-           2026-09-01): the helper never read the value, so Safe/Auto/Fast
-           changed nothing about any render — the engine's own budget-aware
-           decoder has owned this since the v0.14.8 pin. A control that does
-           nothing teaches users not to trust the ones that do. -->
-      <div class="settings-row" style="margin-top:10px">
-        <label data-i18n="settingsModal.live_preview">Live preview</label>
+           2026-09-01): the helper never read the value. -->
+      <div class="settings-row">
+        <label for="settingsLivePreview" data-i18n="settingsRenderGroup.live_preview">Live preview</label>
         <select id="settingsLivePreview" style="flex:1">
-          <option value="on" data-i18n="settingsLivePreview.on_show_the_shot">On — show the shot as it forms</option>
+          <option value="on" data-i18n="settingsLivePreview.on_show_the_shot">On: show the shot as it forms</option>
           <option value="off" data-i18n="settingsLivePreview.off">Off</option>
         </select>
       </div>
-      <!-- SYS-28: the select above used to read as "On" whenever the SAVED
-           preference was on, even when the 22 MB decoder (TAE) is missing
-           from disk and every render is silently preview-less — the same gap
-           the Now card's `preview_state.reason === 'missing_decoder'` branch
-           (preview.js) already covers on the main screen. Settings had no
-           equivalent, so a user who only ever opens Settings never learns
-           why the toggle "does nothing." BOOT.ltx.preview_state is server-
-           computed (mlx_ltx_panel.py, live_preview_state()) — this just
-           surfaces it here too, with the same one-click fix. -->
+      <!-- Hint sits directly under its own control (before 5.0.23 it sat under
+           the H3 paragraph and read as a claim about the H3 model). -->
+      <div class="hint" style="margin-top:6px" data-i18n="settingsRenderGroup.never_changes_the_finished">
+        Never changes the finished video and costs almost no time. Turning it
+        off also removes the Stop early button.
+      </div>
+      <!-- SYS-28: shown when the 22 MB preview add-on is missing
+           (BOOT.ltx.preview_state.reason === 'missing_decoder'). -->
       <div class="hint" id="settingsLivePreviewNote" style="margin-top:6px" hidden></div>
-      <!-- H3 DiT. The setting has been honoured by `h3_dit_choice()` and
-           validated by the settings handler since it was added, and its own
-           docstring says "`h3_dit` in Settings" — but no control was ever
-           built, so the only way to reach it was a hand-written POST. The
-           owner watched H3 sit at ~50 GB and asked why we could not reduce it;
-           the answer was a setting he could not see. Numbers here are measured,
-           not estimated (640x384/73f, seed 424242, same-seed A/B). -->
-      <div class="settings-row" style="margin-top:10px" id="settingsH3DitRow" hidden>
-        <label data-i18n="settingsH3DitRow.hailuo_h3_model">Hailuo H3 model</label>
+      <!-- H3 model size (h3_dit: auto | bf16 | q8, honoured by h3_dit_choice()).
+           Plain words in the menu; the engine names stay out of the labels.
+           Measured 640x384/73f same-seed A/B: Full 38.9 GiB in 196.9 s,
+           Compact 21.4 GiB in 200.1 s. -->
+      <div class="settings-row" style="margin-top:12px" id="settingsH3DitRow" hidden>
+        <label for="settingsH3Dit" data-i18n="settingsH3DitRow.hailuo_h3_model">Hailuo H3 model</label>
         <select id="settingsH3Dit" style="flex:1">
-          <option value="auto" data-i18n="settingsH3Dit.automatic_best_quality_this">Automatic — best quality this Mac can hold</option>
-          <option value="bf16" data-i18n="settingsH3Dit.full_bf16_42_gib">Full (bf16) — 42 GiB peak</option>
-          <option value="q8" data-i18n="settingsH3Dit.compact_q8_21_gib">Compact (Q8) — 21 GiB peak, half the memory</option>
+          <option value="auto" data-i18n="settingsH3Dit.automatic_recommended">Automatic (recommended)</option>
+          <option value="bf16" data-i18n="settingsH3Dit.full_quality_needs_about">Full quality: needs about 42 GB of memory</option>
+          <option value="q8" data-i18n="settingsH3Dit.compact_about_21_gb">Compact: about 21 GB, same look</option>
         </select>
       </div>
-      <div class="hint" id="settingsH3DitHint" style="margin-top:6px" hidden data-i18n="settingsH3DitHint.measured_on_the_same">
-        Measured on the same prompt and seed: <b>Full 38.9 GiB</b> peak in 196.9 s
-        versus <b>Compact 21.4 GiB</b> in 200.1 s — <b>45 % less memory for 1.6 %
-        more time</b>. Automatic prefers the Compact engine on every size of Mac;
-        Full runs only when you choose it here — or when the Compact engine is
-        not built on this install (re-run the H3 engine Install to build it).
-        The memory Compact gives back is memory H3 was holding, not memory it
-        needed.
+      <div class="hint" id="settingsH3DitHint" style="margin-top:6px" hidden data-i18n="settingsH3DitHint.compact_uses_about_half">
+        Compact uses about half the memory for about 2 % more time, and is what
+        Automatic picks.
       </div>
-      <div class="hint" style="margin-top:6px" data-i18n="settingsModal.never_changes_the_result">
-        Never changes the result — the clip is byte-for-byte the same either way.
-        Costs a fraction of the render: about 0.2 % on High, a few per cent on a
-        short draft, where the render is short enough for the decode to show.
-        Turning it off also removes the Stop-early button.
-      </div>
-    </div>
 
-    <div class="settings-section">
-      <h3 data-i18n="settingsModal.output_format">Output format</h3>
+      <h4 class="settings-subhead" data-i18n="settingsRenderGroup.output_format">Output format</h4>
       <div class="preset-grid" id="settingsPresets">
         <!-- populated by openSettingsModal() from /settings -->
       </div>
-    </div>
 
-    <div class="settings-section" id="settingsCustomSection" style="display:none">
-      <h3 data-i18n="settingsCustomSection.custom_advanced">Custom (advanced)</h3>
-      <div class="settings-row" style="margin-bottom:10px">
-        <label data-i18n="settingsCustomSection.pix_fmt">pix_fmt</label>
-        <select id="settingsPixFmt" style="flex:1">
-          <option value="yuv420p" data-i18n="settingsPixFmt.yuv420p_web_standard_broad">yuv420p — web standard, broad support</option>
-          <option value="yuv422p" data-i18n="settingsPixFmt.yuv422p_pro_more_chroma">yuv422p — pro, more chroma than 420p</option>
-          <option value="yuv444p" data-i18n="settingsPixFmt.yuv444p_full_chroma_no">yuv444p — full chroma, no subsampling</option>
-          <option value="yuv420p10le" data-i18n="settingsPixFmt.yuv420p10le_10_bit_hdr">yuv420p10le — 10-bit, HDR-ready</option>
-          <option value="yuv422p10le" data-i18n="settingsPixFmt.yuv422p10le_10_bit_pro">yuv422p10le — 10-bit pro</option>
-          <option value="yuv444p10le" data-i18n="settingsPixFmt.yuv444p10le_10_bit_full">yuv444p10le — 10-bit, full chroma</option>
-        </select>
+      <div id="settingsCustomSection" style="display:none; margin-top:10px">
+        <div class="settings-row" style="margin-bottom:10px">
+          <label for="settingsPixFmt" data-i18n="settingsCustomSection.colour_detail">Colour detail</label>
+          <select id="settingsPixFmt" style="flex:1">
+            <option value="yuv420p" data-i18n="settingsPixFmt.standard_plays_everywhere">Standard: plays everywhere</option>
+            <option value="yuv422p" data-i18n="settingsPixFmt.more_colour_for_editing">More colour, for editing</option>
+            <option value="yuv444p" data-i18n="settingsPixFmt.full_colour">Full colour</option>
+            <option value="yuv420p10le" data-i18n="settingsPixFmt.10_bit_ready_for">10-bit, ready for HDR</option>
+            <option value="yuv422p10le" data-i18n="settingsPixFmt.10_bit_more_colour">10-bit, more colour</option>
+            <option value="yuv444p10le" data-i18n="settingsPixFmt.10_bit_full_colour">10-bit, full colour</option>
+          </select>
+        </div>
+        <div class="settings-row">
+          <label for="settingsCrfRange" data-i18n="settingsCustomSection.quality">Quality</label>
+          <input type="range" id="settingsCrfRange" min="0" max="30" step="1"
+                 style="flex:1; width:auto" oninput="document.getElementById('settingsCrfNum').value = this.value; renderGroupDirty()">
+          <input type="number" id="settingsCrfNum" min="0" max="30" step="1"
+                 style="width:60px" aria-label="Quality number"
+                 oninput="document.getElementById('settingsCrfRange').value = this.value; renderGroupDirty()" data-i18n-aria-label="settingsCrfNum.aria-label.quality_number">
+        </div>
+        <div class="hint" style="margin-top:6px" data-i18n="settingsCustomSection.lower_number_bigger_better">
+          Lower number = bigger, better file. 0 is lossless, 18 looks lossless,
+          23 is typical for the web.
+        </div>
+        <details class="settings-details">
+          <summary data-i18n="settingsCustomSection.details">Details</summary>
+          <div class="hint" data-i18n="settingsCustomSection.colour_detail_is_the">
+            Colour detail is the ffmpeg pixel format (yuv420p, yuv422p, yuv444p,
+            and their 10-bit "10le" forms). Quality is the H.264 CRF value.
+          </div>
+        </details>
       </div>
-      <div class="settings-row">
-        <label data-i18n="settingsCustomSection.crf">CRF</label>
-        <input type="range" id="settingsCrfRange" min="0" max="30" step="1"
-               style="flex:1; width:auto" oninput="document.getElementById('settingsCrfNum').value = this.value">
-        <input type="number" id="settingsCrfNum" min="0" max="30" step="1"
-               style="width:60px"
-               oninput="document.getElementById('settingsCrfRange').value = this.value">
-      </div>
-      <div class="hint" style="margin-top:6px" data-i18n="settingsCustomSection.0_mathematically_lossless_18">
-        0 = mathematically lossless · 18 = visually lossless ·
-        23 = web default · 28+ = lossy
+
+      <div class="settings-group-foot">
+        <span class="settings-status" id="settingsRenderStatus" role="status" aria-live="polite"></span>
+        <button type="button" class="ghost-btn" id="settingsUndoBtn" onclick="undoRenderSettings()" disabled data-i18n="settingsUndoBtn.undo_changes">Undo changes</button>
+        <button type="button" class="primary-btn" id="settingsApplyBtn" onclick="applySettings()" disabled data-i18n="settingsApplyBtn.save">Save</button>
       </div>
     </div>
 
     <div class="settings-section">
-      <h3 data-i18n="settingsModal.api_tokens">API tokens</h3>
-      <div class="hint" style="margin-bottom:8px" data-i18n="settingsModal.saved_locally_in_never">
-        Saved locally in <code>panel_settings.json</code>. Never sent
-        anywhere except as auth headers to civitai.com / huggingface.co.
-        Power users can override with <code>CIVITAI_API_KEY</code> /
-        <code>HF_TOKEN</code> env vars; the saved value here wins when
-        both are set.
+      <h3 data-i18n="settingsModal.download_keys">Download keys</h3>
+      <div class="hint" style="margin-bottom:8px" data-i18n="settingsModal.kept_on_this_mac">
+        Kept on this Mac and only ever sent to civitai.com or huggingface.co
+        when you download from them. Each key saves when you click
+        Save &amp; test.
       </div>
+      <details class="settings-details" data-hide-mac-app>
+        <summary data-i18n="settingsModal.details">Details</summary>
+        <div class="hint" data-i18n="settingsModal.saved_in_the_environment">
+          Saved in <code>panel_settings.json</code>. The environment variables
+          <code>CIVITAI_API_KEY</code> and <code>HF_TOKEN</code> also work; a key
+          saved here wins when both are set.
+        </div>
+      </details>
 
       <!-- CivitAI token row -->
       <div class="token-row">
@@ -6651,14 +6669,14 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
         </div>
         <div class="token-row-input">
           <input type="password" id="civitaiKeyInput" autocomplete="off"
-                 placeholder="paste key here…"
-                 oninput="onTokenInput('civitai')" data-i18n-placeholder="civitaiKeyInput.placeholder.paste_key_here">
+                 placeholder="paste key here…" aria-label="CivitAI API key"
+                 oninput="onTokenInput('civitai')" data-i18n-placeholder="civitaiKeyInput.placeholder.paste_key_here" data-i18n-aria-label="civitaiKeyInput.aria-label.civitai_api_key">
           <button type="button" class="ghost-btn" id="civitaiKeyToggle"
-                  onclick="toggleTokenVisibility('civitaiKeyInput', this)" data-i18n="civitaiKeyToggle.show">show</button>
+                  onclick="toggleTokenVisibility('civitaiKeyInput', this)" data-i18n="civitaiKeyToggle.show">Show</button>
           <button type="button" class="primary-btn token-savetest"
-                  onclick="testToken('civitai')" title="Save the pasted key and verify it with CivitAI" data-i18n-title="settingsModal.title.save_the_pasted_key" data-i18n="settingsModal.save_test">save & test</button>
+                  onclick="testToken('civitai')" title="Save the pasted key and verify it with CivitAI" data-i18n-title="settingsModal.title.save_the_pasted_key" data-i18n="settingsModal.save_test">Save &amp; test</button>
           <button type="button" class="ghost-btn" id="civitaiKeyClear"
-                  onclick="clearToken('civitai')" style="display:none" data-i18n="civitaiKeyClear.clear">clear</button>
+                  onclick="clearToken('civitai')" style="display:none" data-i18n="civitaiKeyClear.remove">Remove</button>
         </div>
         <div class="hint" id="civitaiTestResult" data-i18n="civitaiTestResult.required_for_installing_civitai">
           Required for installing CivitAI LoRAs.
@@ -6675,14 +6693,14 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
         </div>
         <div class="token-row-input">
           <input type="password" id="hfTokenInput" autocomplete="off"
-                 placeholder="hf_…"
-                 oninput="onTokenInput('hf')" data-i18n-placeholder="hfTokenInput.placeholder.hf">
+                 placeholder="hf_…" aria-label="Hugging Face token"
+                 oninput="onTokenInput('hf')" data-i18n-placeholder="hfTokenInput.placeholder.hf" data-i18n-aria-label="hfTokenInput.aria-label.hugging_face_token">
           <button type="button" class="ghost-btn" id="hfTokenToggle"
-                  onclick="toggleTokenVisibility('hfTokenInput', this)" data-i18n="hfTokenToggle.show">show</button>
+                  onclick="toggleTokenVisibility('hfTokenInput', this)" data-i18n="hfTokenToggle.show">Show</button>
           <button type="button" class="primary-btn token-savetest"
-                  onclick="testToken('hf')" title="Save the pasted token and verify it with Hugging Face" data-i18n-title="settingsModal.title.save_the_pasted_token" data-i18n="settingsModal.save_test_2">save & test</button>
+                  onclick="testToken('hf')" title="Save the pasted token and verify it with Hugging Face" data-i18n-title="settingsModal.title.save_the_pasted_token" data-i18n="settingsModal.save_test_2">Save &amp; test</button>
           <button type="button" class="ghost-btn" id="hfTokenClear"
-                  onclick="clearToken('hf')" style="display:none" data-i18n="hfTokenClear.clear">clear</button>
+                  onclick="clearToken('hf')" style="display:none" data-i18n="hfTokenClear.remove">Remove</button>
         </div>
         <div class="hint" id="hfTestResult" data-i18n="hfTestResult.required_for_gated_loras">
           <!-- SYS-28: this used to say "HDR + Control LoRAs" needed a token,
@@ -6709,8 +6727,8 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
          tampered client can't bypass this. -->
     <div class="settings-section">
       <h3 data-i18n="settingsModal.spicy_mode_adult_content">Spicy mode <span class="hint" style="font-weight:400">(adult content)</span></h3>
-      <div class="hint" style="margin-bottom:10px" data-i18n="settingsModal.when_off_the_civitai">
-        When OFF, the CivitAI LoRA browser hides NSFW models entirely —
+      <div class="hint" style="margin-bottom:10px" data-i18n="settingsModal.saves_right_away_when">
+        Saves right away. When OFF, the CivitAI LoRA browser hides NSFW models entirely —
         the "Show NSFW" toggle disappears and any NSFW result the API
         returns is filtered out. When ON, you can choose per-search whether
         to include NSFW results. The server enforces this gate even if the
@@ -6736,10 +6754,15 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
          receiver, or the project owner switching the fleet on, pastes
          keys there. Reuses the spicy-row / token-row markup so this
          section inherits the modal's existing styling with no new CSS. -->
-    <div class="settings-section">
-      <h3 data-i18n="settingsModal.anonymous_usage_analytics">Anonymous usage analytics</h3>
-      <div class="hint" style="margin-bottom:10px" data-i18n="settingsModal.sends_anonymous_counts_so">
-        Sends anonymous counts so bugs in the field get noticed: panel
+    <!-- Mac app: ONE analytics switch, the app's own (Phosphene > Settings…,
+         Privacy). It governs the app and this Studio (the app starts the Studio
+         with PHOSPHENE_ANALYTICS_DISABLED=1 when it is off and posts the change
+         here at once), so this section is hidden there and the row after it
+         points to the app's switch instead. Pinokio keeps this section. -->
+    <div class="settings-section" data-hide-mac-app>
+      <h3 data-i18n="settingsModal.share_anonymous_usage_stats">Share anonymous usage stats</h3>
+      <div class="hint" style="margin-bottom:10px" data-i18n="settingsModal.saves_right_away_sends">
+        Saves right away. Sends anonymous counts so bugs in the field get noticed: Phosphene
         version, hardware class (e.g. <em>M4 Max, 64 GB</em>), which
         model generation you render with, which optional packs are
         installed, and for each render the engine,
@@ -6747,13 +6770,13 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
         plus the first line of the error when one fails.
         <b>Never your prompts, filenames, paths, images or video.</b>
         You are a random ID, generated on this Mac and tied to nothing.
-        The panel sends no location, but the address your computer
+        Phosphene sends no location, but the address your computer
         connects from resolves to a <b>country and city</b> at the
         receiver, and those are kept next to the event; the address
-        itself is discarded. That is the one thing on this list the
-        panel doesn't send and can't stop — turning analytics off is
+        itself is discarded. That is the one thing on this list
+        Phosphene doesn't send and can't stop — turning analytics off is
         what stops it, because then no request is made at all.
-        <span data-hide-mac-app data-i18n="settingsModal.everything_the_panel_would">Everything the panel would send is also written in plain text to
+        <span data-hide-mac-app data-i18n="settingsModal.everything_phosphene_would_send">Everything Phosphene would send is also written in plain text to
         <code>state/usage-log.jsonl</code> so you can read it yourself;
         the full schema is in <code>docs/ANALYTICS.md</code>.</span>
       </div>
@@ -6823,6 +6846,15 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
       </details>
     </div>
 
+    <div class="settings-section" id="settingsMacStatsSection" hidden>
+      <h3 data-i18n="settingsMacStatsSection.share_anonymous_usage_stats">Share anonymous usage stats</h3>
+      <div class="hint" style="margin-bottom:8px" data-i18n="settingsMacStatsSection.one_switch_covers_the">
+        One switch covers the whole app: it is in the app's own Settings,
+        under Privacy.
+      </div>
+      <button type="button" class="ghost" id="settingsMacStatsBtn" onclick="openMacAppSettings()" data-i18n="settingsMacStatsBtn.open_phosphene_settings">Open Phosphene Settings…</button>
+    </div>
+
     <!-- Appearance. Three answers — dark, light, follow the system — kept
          in this browser and applied before the first paint from main.js.
          Same row shape as the switches below. -->
@@ -6840,7 +6872,7 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
 
     <div class="settings-section">
       <h3 data-i18n="settingsModal.appearance">Appearance</h3>
-      <div class="hint" style="margin-bottom:10px" data-i18n="settingsModal.the_panel_s_palette">The panel's palette. "System" follows the Mac's own light or dark setting and switches live. Saved in this browser only.</div>
+      <div class="hint" style="margin-bottom:10px" data-i18n="settingsModal.phosphene_s_colours_system">Phosphene's colours. "System" follows the Mac's own light or dark setting. Saves right away.</div>
       <div class="pill-group cols-3" id="appearanceGroup">
         <button type="button" class="pill-btn active" data-appearance="dark" onclick="setAppearance('dark')" data-i18n="appearanceGroup.dark">Dark</button>
         <button type="button" class="pill-btn" data-appearance="light" onclick="setAppearance('light')" data-i18n="appearanceGroup.light">Light</button>
@@ -6853,7 +6885,7 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
          background — once the person has allowed them. Same row shape as
          the analytics switch below. -->
     <div class="settings-section">
-      <h3 data-i18n="settingsModal.completion_alerts">Completion alerts</h3>
+      <h3 data-i18n="settingsModal.tell_me_when_a">Tell me when a render finishes</h3>
       <div class="hint" style="margin-bottom:10px" id="notifyHint"></div>
       <div class="spicy-row">
         <span class="spicy-state on" id="notifyStateBadge" data-i18n="notifyStateBadge.on">ON</span>
@@ -6870,10 +6902,12 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
       </div>
     </div>
 
+    <!-- One Done. Everything outside "While rendering" is already saved;
+         Done with unsaved rendering changes asks first (settings.js
+         closeSettingsModal) instead of dropping them silently. -->
     <div class="settings-foot">
-      <span class="settings-status" id="settingsStatus"></span>
-      <button class="ghost-btn" onclick="closeSettingsModal()" data-i18n="settingsModal.cancel">Cancel</button>
-      <button class="primary-btn" id="settingsApplyBtn" onclick="applySettings()" data-i18n="settingsApplyBtn.apply">Apply</button>
+      <span class="settings-status" id="settingsStatus" role="status" aria-live="polite"></span>
+      <button class="primary-btn" id="settingsDoneBtn" onclick="closeSettingsModal()" data-i18n="settingsDoneBtn.done">Done</button>
     </div>
   </div>
 </div>

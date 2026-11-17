@@ -1,6 +1,6 @@
 # Settings
 
-The gear in the header opens Settings. Changes are saved to `panel_settings.json` when you press **Apply** and affect every new render; files already in the gallery are not re-encoded.
+The gear in the header opens Settings. The choices for how videos are made (**Output format** and **Live preview**) sit in one box with their own **Save** and **Undo changes**: they wait for **Save**, then apply to every new render, and files already in the gallery are not re-encoded. Everything else saves the moment you change it.
 
 ## Output format {#output-format}
 

@@ -40,6 +40,10 @@ Do that, then choose Settings → **Hailuo H3 model** → Automatic or Compact. 
 - *"Stopped before rendering — the model weights are incomplete"* — a download was interrupted. Open the Models window and resume it. Settings → **Verify model files** checks every file and offers a re-download of any that are damaged.
 
 [[pinokio]]
+## Phosphene needs to finish setting up {#finish-setup}
+
+If setup did not finish (for example, the connection dropped during the install), a calm card under the top bar says *Phosphene needs to finish setting up before it can make videos.* Press **Finish setup**: it takes a few minutes and keeps your models. When it is done the card says **All set.** Then press **Retry** on any video that failed in the meantime. If setup stops again, the card says why (the connection or the free disk space) and offers **Try again**; **Details** holds the message to send us.
+
 ## Update stops right away {#update-stops}
 
 On some Macs, Pinokio's **Update** in versions before 4.19.7 stopped in its first second: Pinokio's terminal read the words "error:" in Update's own command text as a failure (#114). Pinokio runs the Update script of the version you already have, so the fix can only take over after one update.

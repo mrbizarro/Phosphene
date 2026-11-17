@@ -320,6 +320,35 @@
     #phModalSecondary:hover { color: var(--ink, #e8eaf0); }
     #phModalSecondary[hidden] { display: none; }
 
+    /* ===== SETUP CARD (engine / H3 "finish setting up") =====
+       A calm card in the content area, below the header, so the header and its
+       update button stay visible. Brand pink->violet edge, never red. */
+    .setup-card {
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      margin: 12px 18px 0; padding: 14px 16px;
+      background: linear-gradient(135deg, rgba(255,61,134,0.10), rgba(142,77,223,0.10));
+      border: 1px solid rgba(186,92,228,0.38); border-radius: var(--r-lg);
+      box-shadow: var(--shadow-1);
+    }
+    svg.ph.setup-card-icon { width: 22px; height: 22px; flex: 0 0 auto; color: #ba5ce4; }
+    .setup-card.is-busy .setup-card-icon { animation: setup-card-spin 2.4s linear infinite; }
+    .setup-card.is-done { border-color: rgba(63,185,80,0.45); background: rgba(63,185,80,0.08); }
+    .setup-card.is-done .setup-card-icon { color: var(--success); }
+    .setup-card-text { flex: 1 1 260px; min-width: 0; }
+    .setup-card-title { font-size: 14px; font-weight: 600; color: var(--text); }
+    .setup-card-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+    /* the global `button { width:100% }` would stretch it across the card */
+    .setup-card-btn { flex: 0 0 auto; width: auto; padding: 8px 18px; }
+    .setup-card-details { margin-top: 6px; font-size: 13px; color: var(--muted); }
+    .setup-card-details summary { cursor: pointer; }
+    .setup-card-details pre {
+      margin: 6px 0 0; padding: 8px 10px; max-height: 160px; overflow: auto;
+      white-space: pre-wrap; word-break: break-word;
+      background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-sm);
+    }
+    @keyframes setup-card-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .setup-card.is-busy .setup-card-icon { animation: none; } }
+
     #updateBanner {
       background: linear-gradient(180deg, rgba(240,185,64,0.14), rgba(240,185,64,0.07));
       border-bottom: 1px solid rgba(240,185,64,0.34);
@@ -10016,7 +10045,7 @@
       font-size: 13px; color: var(--muted); line-height: 1.4;
     }
     .preset-card .preset-spec {
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-family: inherit;
       font-size: 13px; color: var(--accent-bright);
       margin-top: 4px; letter-spacing: 0.02em;
     }
@@ -15698,3 +15727,26 @@ html[dir="rtl"] .mono { direction: ltr; unicode-bidi: isolate; }
 /* "Move to another drive…" row in Settings > Models and the Models screen (Mac app; settings.js). */
 .models-drive-row { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 10px 0 4px; }
 .models-drive-row[hidden] { display: none; }
+
+/* Settings (5.0.23): "While rendering" is the one group that waits for Save,
+   so it is drawn as a box with its own Save/Undo row; everything outside it
+   saves on change. Same surface tokens as .spicy-row, no new colours. */
+.settings-group {
+  margin-top: 16px; padding: 12px 14px 12px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+}
+.settings-group-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.settings-group-head h3 {
+  font-size: 13px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--muted); margin: 0;
+}
+.settings-subhead {
+  font-size: 13px; font-weight: 600; color: var(--muted);
+  margin: 16px 0 8px 0; text-transform: uppercase; letter-spacing: 0.08em;
+}
+.settings-group-foot {
+  display: flex; gap: 10px; justify-content: flex-end; align-items: center;
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);
+}
+.settings-details { margin-top: 8px; }
+.settings-details > summary { cursor: pointer; font-size: 13px; color: var(--muted); }

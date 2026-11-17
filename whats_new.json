@@ -1723,5 +1723,79 @@
         ]
       }
     }
+  },
+  "5.0.51": {
+    "free": [
+      "Settings speak plain words: the choices for how videos are made sit in one box with their own Save and Undo, and everything else saves the moment you change it.",
+      "If Phosphene has not finished setting up, a calm card under the top bar says so in one sentence, with one Finish setup button, instead of a red warning."
+    ],
+    "pro": [],
+    "date": "2026-11-18",
+    "headline": "Settings are easier to read, and a calm card helps you finish setting up.",
+    "i18n": {
+      "de": {
+        "headline": "Die Einstellungen sind leichter zu lesen, und eine ruhige Karte hilft beim Abschließen der Einrichtung.",
+        "free": [
+          "Die Einstellungen sprechen Klartext: Alles, wie Videos entstehen, steht in einem Bereich mit eigenem Sichern und Widerrufen; alles andere wird sofort gespeichert.",
+          "Ist Phosphene noch nicht fertig eingerichtet, sagt eine ruhige Karte unter der oberen Leiste das in einem Satz, mit einer Taste Einrichtung abschließen, statt einer roten Warnung."
+        ]
+      },
+      "es": {
+        "headline": "Los ajustes se leen mejor y una tarjeta tranquila te ayuda a terminar la configuración.",
+        "free": [
+          "Los ajustes usan palabras claras: las opciones de cómo se crean los vídeos están en un solo bloque con su propio Guardar y Deshacer, y lo demás se guarda al instante.",
+          "Si Phosphene no ha terminado de configurarse, una tarjeta tranquila bajo la barra superior lo dice en una frase, con un botón Terminar configuración, en vez de un aviso rojo."
+        ]
+      },
+      "fr": {
+        "headline": "Les réglages sont plus clairs, et une carte discrète vous aide à terminer l'installation.",
+        "free": [
+          "Les réglages parlent simplement : la façon dont les vidéos sont créées tient dans un seul bloc avec Enregistrer et Annuler, le reste s'enregistre aussitôt.",
+          "Si Phosphene n'a pas fini de s'installer, une carte discrète sous la barre du haut le dit en une phrase, avec un bouton Terminer la configuration, au lieu d'une alerte rouge."
+        ]
+      },
+      "it": {
+        "headline": "Le impostazioni sono più chiare e una scheda tranquilla ti aiuta a completare la configurazione.",
+        "free": [
+          "Le impostazioni parlano chiaro: le scelte su come nascono i video stanno in un solo riquadro con Salva e Annulla, tutto il resto si salva subito.",
+          "Se Phosphene non ha finito di prepararsi, una scheda tranquilla sotto la barra in alto lo dice in una frase, con il pulsante Completa la configurazione, invece di un avviso rosso."
+        ]
+      },
+      "ja": {
+        "headline": "設定がわかりやすくなり、落ち着いたカードでセットアップを完了できます。",
+        "free": [
+          "設定がやさしい言葉になりました。ビデオの作り方に関する項目は保存と取り消し付きのひとつの枠にまとまり、それ以外は変えた瞬間に保存されます。",
+          "Phosphene のセットアップが終わっていないときは、赤い警告の代わりに、上部バーの下の落ち着いたカードがひとことで知らせ、「セットアップを完了」ボタンを表示します。"
+        ]
+      },
+      "ko": {
+        "headline": "설정이 더 읽기 쉬워졌고, 차분한 카드가 설정 마치기를 도와줘요.",
+        "free": [
+          "설정이 쉬운 말로 바뀌었어요. 비디오를 만드는 방식에 관한 항목은 저장과 되돌리기가 있는 한 상자에 모였고, 나머지는 바꾸는 즉시 저장돼요.",
+          "Phosphene 설정이 아직 끝나지 않았다면, 빨간 경고 대신 위쪽 막대 아래의 차분한 카드가 한 문장으로 알려 주고 설정 마치기 버튼 하나를 보여 줘요."
+        ]
+      },
+      "pt": {
+        "headline": "Os ajustes ficaram mais fáceis de ler, e um cartão tranquilo ajuda a concluir a configuração.",
+        "free": [
+          "Os ajustes usam palavras simples: as opções de como os vídeos são feitos ficam num só bloco com Salvar e Desfazer, e o resto é salvo na hora.",
+          "Se o Phosphene ainda não terminou de se configurar, um cartão tranquilo abaixo da barra superior avisa numa frase, com um botão Concluir a configuração, em vez de um alerta vermelho."
+        ]
+      },
+      "ru": {
+        "headline": "Настройки стали понятнее, а спокойная карточка помогает завершить настройку.",
+        "free": [
+          "Настройки теперь простыми словами: всё о том, как создаются видео, собрано в одном блоке со своими кнопками Сохранить и Отменить, остальное сохраняется сразу.",
+          "Если Phosphene ещё не завершил настройку, спокойная карточка под верхней панелью скажет об этом одной фразой и покажет кнопку Завершить настройку вместо красного предупреждения."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "设置更易读了，一张安静的卡片帮你完成设置。",
+        "free": [
+          "设置改用通俗的说法：与视频生成方式相关的选项集中在一个区域，带有自己的保存和撤销，其他选项一改就立即保存。",
+          "如果 Phosphene 还没完成设置，顶部栏下方会出现一张安静的卡片，用一句话说明，并提供一个完成设置按钮，不再显示红色警告。"
+        ]
+      }
+    }
   }
 }
