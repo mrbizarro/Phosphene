@@ -1457,5 +1457,69 @@
         ]
       }
     }
+  },
+  "5.0.47": {
+    "free": [
+      "Pinokio: pressing Update when you already have the newest version now tells you that you are up to date, instead of saying the update did not finish and blocking your next update."
+    ],
+    "pro": [],
+    "date": "2026-11-17",
+    "headline": "Pressing Update when you are already up to date now just says so.",
+    "i18n": {
+      "de": {
+        "headline": "Update drücken, wenn du schon aktuell bist, sagt das jetzt einfach.",
+        "free": [
+          "Pinokio: Update bei schon neuester Version zeigt jetzt, dass alles aktuell ist, statt „Update nicht fertig“, was auch das nächste Update blockiert hat."
+        ]
+      },
+      "es": {
+        "headline": "Pulsar Update cuando ya estás al día ahora simplemente te lo dice.",
+        "free": [
+          "Pinokio: si pulsas Update y ya tienes la versión más nueva, ahora te dice que estás al día, en lugar de decir que la actualización no terminó y bloquear la siguiente."
+        ]
+      },
+      "fr": {
+        "headline": "Appuyer sur Update quand vous êtes déjà à jour le dit maintenant simplement.",
+        "free": [
+          "Pinokio : appuyer sur Update avec déjà la dernière version indique maintenant que vous êtes à jour, au lieu d'une erreur qui bloquait aussi la mise à jour suivante."
+        ]
+      },
+      "it": {
+        "headline": "Premere Update quando sei già aggiornato ora te lo dice e basta.",
+        "free": [
+          "Pinokio: se premi Update e hai già la versione più recente, ora vedi che sei aggiornato, invece di un messaggio che diceva che l'aggiornamento non era finito e bloccava anche il successivo."
+        ]
+      },
+      "ja": {
+        "headline": "すでに最新のときに Update を押すと、そのことが表示されるようになりました。",
+        "free": [
+          "Pinokio：すでに最新バージョンのときに Update を押すと、「更新が完了しませんでした」というエラーではなく、最新であることが表示されます。次の更新が止まることもなくなりました。"
+        ]
+      },
+      "ko": {
+        "headline": "이미 최신일 때 Update를 누르면 이제 그렇다고 알려 줘요.",
+        "free": [
+          "Pinokio: 이미 최신 버전인데 Update를 누르면 이제 최신 상태라고 알려 줘요. 업데이트가 끝나지 않았다는 오류가 나오고 다음 업데이트까지 막히던 문제가 사라졌어요."
+        ]
+      },
+      "pt": {
+        "headline": "Pressionar Update quando você já está atualizado agora simplesmente avisa isso.",
+        "free": [
+          "Pinokio: se você pressionar Update e já tiver a versão mais nova, agora aparece que você está atualizado, em vez de dizer que a atualização não terminou e bloquear a próxima."
+        ]
+      },
+      "ru": {
+        "headline": "Если нажать Update, когда у вас уже последняя версия, теперь просто так и написано.",
+        "free": [
+          "Pinokio: если нажать Update, когда у вас уже последняя версия, теперь видно, что всё актуально, а не сообщение, что обновление не завершилось, которое ещё и блокировало следующее обновление."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "已是最新版本时按 Update，现在会直接告诉你已是最新。",
+        "free": [
+          "Pinokio：已经是最新版本时按 Update，现在会提示你已是最新，而不是显示“更新未完成”并挡住下一次更新。"
+        ]
+      }
+    }
   }
 }

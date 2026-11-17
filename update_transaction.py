@@ -102,6 +102,12 @@ class Transaction:
                         return 'own'
                     except UpdateError:
                         pass
+                elif tip and self._ahead_of_remote(remote, tip):
+                    # Our tip is already here (this checkout is on it, or fetched it before)
+                    # and GitHub's main is older: point the tracking ref at our tip with no
+                    # download, so a GitHub that fell behind never becomes the "update".
+                    self.git('update-ref', f'refs/remotes/{remote}/main', tip)
+                    return 'own'
             return name
         return ''
 
@@ -111,6 +117,29 @@ class Transaction:
             return True
         except UpdateError:
             return False
+
+    def _ahead_of_remote(self, remote, sha):
+        """True when sha is a newer descendant of the fetched main (never moves it backwards)."""
+        try:
+            cur = self.git('rev-parse', f'refs/remotes/{remote}/main^{{commit}}')
+        except UpdateError:
+            return True
+        return cur != sha and self._is_ancestor(cur, sha)
+
+    def _is_ancestor(self, older, newer):
+        try:
+            self.git('merge-base', '--is-ancestor', older, newer)
+            return True
+        except UpdateError:
+            return False
+
+    def _stale_candidate(self, rec, head):
+        """An upstream OLDER than this checkout (a mirror that fell behind) is no update.
+        Hotfix (17 Nov 2026): 5.0.45 took a stale GitHub main as the candidate when already
+        current, then stopped with 'Source changed outside this update' on every later Update."""
+        cand = rec.get('candidate') or ''
+        return (bool(cand) and cand != head and head == rec.get('previous')
+                and not rec.get('dependencies_started') and self._is_ancestor(cand, head))
 
     def _has_news(self, remote):
         """True when the fetched main has commits this checkout lacks."""
@@ -196,7 +225,11 @@ class Transaction:
     def _resume_source(self, rec):
         phase = rec['phase']
         if phase in ('awaiting_restart', 'restart_requested', 'succeeded', 'dependencies', 'dependencies_failed', 'source_ready'):
-            if self.git('rev-parse', 'HEAD') != rec['candidate']:
+            head = self.git('rev-parse', 'HEAD')
+            if phase == 'source_ready' and self._stale_candidate(rec, head):
+                # A receipt left by that bug: nothing was changed, so this install is current.
+                return self.save(rec, phase='current', candidate=head, error='')
+            if head != rec['candidate']:
                 raise UpdateError('Source moved outside this update. ' + self.recovery(rec))
             return rec
         # Fetch does not change source. A retry may fetch again, but once a
@@ -210,13 +243,16 @@ class Transaction:
                 self.save(rec, previous=head)
             self.fetch_upstream(rec['upstream'])
             target = self.git('rev-parse', rec['upstream'] + '^{commit}')
-            if target == rec['previous']:
+            if target == rec['previous'] or self._is_ancestor(target, rec['previous']):
+                target = rec['previous']
                 return self.save(rec, phase='current', candidate=target, source=self.source)
             ref = 'refs/phosphene/updates/' + rec['id'] + '/previous'
             self.git('update-ref', ref, rec['previous'])
             self.save(rec, phase='source_pending', candidate=target, previous_ref=ref, source=self.source)
         self.clean()
         head = self.git('rev-parse', 'HEAD')
+        if self._stale_candidate(rec, head):
+            return self.save(rec, phase='current', candidate=head, error='')
         if head not in (rec['previous'], rec['candidate']):
             raise UpdateError('Source changed outside this update. ' + self.recovery(rec))
         if head != rec['candidate']:
