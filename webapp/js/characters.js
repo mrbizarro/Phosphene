@@ -356,7 +356,7 @@ async function musicCoverInstall() {
 async function musicGenerate() {
   if (musicBusy) return;
   // Pressing Compose before the engine exists IS the request to install it.
-  if (!window._ENGINE_PROBES.music.available) { openMusicInstallCard(); return; }
+  if (!window._ENGINE_PROBES.music.available || (typeof musicInstall === 'object' && musicInstall && musicInstall.active)) { openMusicInstallCard(); return; }
   // Simple mode does not render: it asks Gemma for the style and the words
   // and shows them in the Custom fields, because a song is minutes of this
   // Mac's GPU and nobody should spend that on a brief they have not read.

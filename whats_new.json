@@ -1393,5 +1393,69 @@
         ]
       }
     }
+  },
+  "5.0.46": {
+    "free": [
+      "Pressing Compose while the music maker is still downloading now shows how far the download has got, instead of an error."
+    ],
+    "pro": [],
+    "date": "2026-11-17",
+    "headline": "Compose during the music download now shows its progress.",
+    "i18n": {
+      "de": {
+        "headline": "Komponieren während des Musik-Downloads zeigt jetzt den Fortschritt.",
+        "free": [
+          "Wenn du auf Komponieren drückst, während die Musik noch herunterlädt, siehst du jetzt, wie weit der Download ist, statt einer Fehlermeldung."
+        ]
+      },
+      "es": {
+        "headline": "Componer durante la descarga de música ahora muestra el progreso.",
+        "free": [
+          "Si pulsas Componer mientras la música aún se descarga, ahora ves cuánto lleva la descarga, en lugar de un error."
+        ]
+      },
+      "fr": {
+        "headline": "Composer pendant le téléchargement de la musique affiche maintenant la progression.",
+        "free": [
+          "Si vous appuyez sur Composer pendant que la musique se télécharge encore, vous voyez maintenant où en est le téléchargement, au lieu d'une erreur."
+        ]
+      },
+      "it": {
+        "headline": "Componi durante il download della musica ora mostra l'avanzamento.",
+        "free": [
+          "Se premi Componi mentre la musica si sta ancora scaricando, ora vedi a che punto è il download, invece di un errore."
+        ]
+      },
+      "ja": {
+        "headline": "音楽のダウンロード中に作曲を押すと、進み具合が表示されるようになりました。",
+        "free": [
+          "音楽のダウンロードがまだ終わっていないときに作曲を押すと、エラーではなくダウンロードの進み具合が表示されます。"
+        ]
+      },
+      "ko": {
+        "headline": "음악 다운로드 중에 작곡을 누르면 이제 진행 상황이 보여요.",
+        "free": [
+          "음악이 아직 다운로드 중일 때 작곡을 누르면 오류 대신 다운로드가 얼마나 진행됐는지 보여 줘요."
+        ]
+      },
+      "pt": {
+        "headline": "Compor durante o download da música agora mostra o progresso.",
+        "free": [
+          "Se você tocar em Compor enquanto a música ainda está baixando, agora vê quanto do download já foi feito, em vez de um erro."
+        ]
+      },
+      "ru": {
+        "headline": "«Сочинить» во время загрузки музыки теперь показывает ход загрузки.",
+        "free": [
+          "Если нажать «Сочинить», пока музыка ещё загружается, теперь видно, сколько уже загружено, а не ошибку."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "音乐下载期间点作曲，现在会显示下载进度。",
+        "free": [
+          "音乐还在下载时点作曲，现在会显示下载进度，而不是报错。"
+        ]
+      }
+    }
   }
 }

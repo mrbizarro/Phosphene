@@ -24173,6 +24173,16 @@ _ANALYTICS_REFUSAL_REASONS = (
     # volume" wording (a render_failed until 4.19.17), for replayed logs.
     ("image_disk", ("not enough disk space for",
                     "free on the hf cache volume")),
+    # Hotfix H22 (fleet 17 Nov 2026): Music Studio refusals that were
+    # raised as RenderRefused but missing here, so they rode render_failed.
+    ("music_ram", ("yue2 needs about",
+                   "this song needs a mac with at least 16 gb of memory")),
+    ("music_installing", ("the music engine is still installing",)),
+    ("music_input", ("give it something to work with",
+                     "getting the score needs a recording")),
+    # Ingredients with fewer than 2 pictures, or pictures gone from disk.
+    ("ingredients_input", ("ingredients needs 2-8 reference images",
+                           "reference image(s) not found on disk")),
 )
 
 _ANALYTICS_REFUSAL_SLUGS = tuple(s for s, _ in _ANALYTICS_REFUSAL_REASONS)
@@ -46849,7 +46859,8 @@ def run_job_inner(job: dict) -> None:
             image_paths = []
         image_paths = [normalize_pasted_path(str(x)) for x in image_paths if x]
         if len(image_paths) < 2:
-            raise RuntimeError(
+            raise RenderRefused(
+                "ingredients_input",
                 f"Ingredients needs 2-8 reference images (got {len(image_paths)}). "
                 "Upload a face + a prop + a location in the Ingredients picker."
             )
@@ -46860,7 +46871,8 @@ def run_job_inner(job: dict) -> None:
             image_paths = image_paths[:8]
         missing = [ip for ip in image_paths if not Path(ip).exists()]
         if missing:
-            raise RuntimeError(
+            raise RenderRefused(
+                "ingredients_input",
                 f"Ingredients: {len(missing)} reference image(s) not found on disk, "
                 f"e.g. {missing[0]!r}. Re-upload them in the Ingredients picker."
             )
