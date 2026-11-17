@@ -396,5 +396,14 @@
     "pro": [],
     "date": "2026-11-17",
     "headline": "Fix: clearer errors, training and song covers that keep going."
+  },
+  "5.0.35": {
+    "free": [
+      "Fewer LTX renders stopped by the graphics watchdog on M2 Pro and M2 Max Macs.",
+      "Hailuo H3 on 16-24 GB Macs uses the faster video finish more often: same frames, sooner."
+    ],
+    "pro": [],
+    "date": "2026-11-17",
+    "headline": "Fix: steadier LTX on M2 Pro/Max, faster H3 finish on 16-24 GB Macs."
   }
 }

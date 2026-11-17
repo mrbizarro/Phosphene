@@ -1146,3 +1146,7 @@ restart. `GET /status` → `.h3` tells you what resolved:
 Metrics for every run are kept at `state/h3_metrics/<job_id>.json` (the runner's
 own phase timings, peak GiB, packed rows), and summarised into the render's
 `<output>.mp4.json` sidecar under the `h3` key.
+
+## Pin 0158f42 (5.0.35, 17 Nov 2026)
+
+`phosphene/v5.0-image8` = 953ec46 + two fixes: `memory_plan` prices the video decoder from its measured curve and steps the decode ladder only when the decode pass itself does not fit (16-24 GB Macs no longer drop to one tile per call when the faster finish fits; frames unchanged), and `scripts/run_tests.sh` exits 1 on a failed test. The Mac app's runner archive is OUR archive of that commit (`git archive | gzip -n -9`, Phosphene-mirror), not GitHub's tarball.

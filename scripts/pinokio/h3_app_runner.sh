@@ -24,15 +24,16 @@ HP="${PHOSPHENE_HOME:-}"
 result() { echo "@@result h3 $1"; }
 [ -n "$HP" ] && [ -d "$HP" ] || { echo "H3 runner: no Phosphene home folder; nothing done."; result skipped_setup; exit 0; }
 
-# The archive of the commit this Studio pins (measured from GitHub's tarball of that commit).
+# The archive of the commit this Studio pins. Since 5.0.35 measured from OUR archive of that commit
+# (git archive --prefix=minimax-h3-mlx-<sha>/ | gzip -n -9), published under Phosphene-mirror/.
 # h3_checkout.sh owns the commit; this must be re-measured with every pin move
 # (test_h3_app_runner.py fails when the two disagree).
-H3_ARCHIVE_FOR="953ec466586d6b35823e475ce64e43b43fa7f39a"
-H3_ARCHIVE_SHA256="551f68aa1f5483872edf764fc1540457c5e8de944dc575ad1f2de74273f13f1a"
-H3_ARCHIVE_BYTES=408523
+H3_ARCHIVE_FOR="0158f42514f95ee7abd89640cf7cebf6969c9c44"
+H3_ARCHIVE_SHA256="50d9601efccdc948c6cb3be4cb3a151a15c994dc7651f6273fe0fc8d29a0fba5"
+H3_ARCHIVE_BYTES=410774
 H3_ARCHIVE_URL="https://codeload.github.com/mrbizarro/minimax-h3-mlx/tar.gz/$H3_ARCHIVE_FOR"
-# Our own copy first, GitHub second (GitHub hid the account on 16 Nov 2026). Same bytes:
-# the sha256 and size checks below decide, not the address. Test rooms set PHOSPHENE_H3_ARCHIVE_URLS.
+# Our own copy first, GitHub second (GitHub hid the account on 16 Nov 2026). GitHub's tarball has
+# different bytes, so only our copy passes; the sha256 and size checks below decide, not the address. Test rooms set PHOSPHENE_H3_ARCHIVE_URLS.
 H3_ARCHIVE_URLS="${PHOSPHENE_H3_ARCHIVE_URLS:-https://phosphene.video/app/Phosphene-mirror/minimax-h3-mlx-${H3_ARCHIVE_FOR:0:12}.tar.gz $H3_ARCHIVE_URL}"
 PY_VERSION="3.11"
 

@@ -1563,6 +1563,8 @@ def _install_split_prompt_encode_patch() -> None:
     are refused below 48 GB anyway. Off the streamed path nothing changes."""
     global _SPLIT_ENCODE_PATCH_INSTALLED
     _install_lowram_decode()
+    import ltx_watchdog
+    ltx_watchdog.install()
     if _SPLIT_ENCODE_PATCH_INSTALLED:
         return
     import ltx_pipelines_mlx.utils.blocks as _blocks

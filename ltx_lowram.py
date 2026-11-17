@@ -249,7 +249,8 @@ class _OneSideAtATime:
             linear = p[name]
             _materialize(linear.parameters())
             scale = math.sqrt(linear.weight.shape[0] / p.embedding_dim)
-            y = linear(hidden_states * scale)
+            from ltx_watchdog import project
+            y = project(linear, hidden_states * scale)
             _materialize(y)
             outs.append(y)
             p.pop(name, None)
