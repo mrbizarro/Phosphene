@@ -1585,5 +1585,79 @@
         ]
       }
     }
+  },
+  "5.0.49": {
+    "free": [
+      "If your video model's folder goes missing while clips wait (a drive unplugged, a folder moved), the clip now says to put it back or download the model again.",
+      "On a busy Mac, a render that takes more than two minutes to get going now waits a few minutes longer instead of failing and telling you to reinstall."
+    ],
+    "pro": [],
+    "date": "2026-11-18",
+    "headline": "Renders on a busy Mac wait instead of failing, and a missing model folder tells you what to do.",
+    "i18n": {
+      "de": {
+        "headline": "Renders auf einem ausgelasteten Mac warten, statt abzubrechen, und ein fehlender Modellordner sagt dir, was zu tun ist.",
+        "free": [
+          "Verschwindet der Ordner deines Videomodells, während Clips warten (Laufwerk abgezogen, Ordner verschoben), sagt der Clip jetzt: Ordner zurücklegen oder Modell neu laden.",
+          "Auf einem ausgelasteten Mac wartet ein Render, der länger als zwei Minuten zum Starten braucht, jetzt ein paar Minuten länger, statt abzubrechen und eine Neuinstallation zu empfehlen."
+        ]
+      },
+      "es": {
+        "headline": "Los renders en un Mac ocupado esperan en vez de fallar, y si falta la carpeta del modelo te dice qué hacer.",
+        "free": [
+          "Si la carpeta de tu modelo de vídeo desaparece con clips en espera (disco desconectado, carpeta movida), el clip te pide devolverla o descargar el modelo de nuevo.",
+          "En un Mac ocupado, un render que tarda más de dos minutos en arrancar ahora espera unos minutos más en vez de fallar y decirte que reinstales."
+        ]
+      },
+      "fr": {
+        "headline": "Sur un Mac occupé, les rendus attendent au lieu d'échouer, et un dossier de modèle manquant vous dit quoi faire.",
+        "free": [
+          "Si le dossier de votre modèle vidéo disparaît pendant que des clips attendent (disque débranché, dossier déplacé), le clip demande de le remettre ou de retélécharger le modèle.",
+          "Sur un Mac occupé, un rendu qui met plus de deux minutes à démarrer attend maintenant quelques minutes de plus au lieu d'échouer en vous conseillant de réinstaller."
+        ]
+      },
+      "it": {
+        "headline": "Sui Mac occupati i render aspettano invece di fallire, e se manca la cartella del modello ti dice cosa fare.",
+        "free": [
+          "Se la cartella del tuo modello video sparisce con clip in attesa (disco scollegato, cartella spostata), il clip ora ti chiede di rimetterla o di riscaricare il modello.",
+          "Su un Mac occupato, un render che impiega più di due minuti a partire ora aspetta qualche minuto in più invece di fallire e dirti di reinstallare."
+        ]
+      },
+      "ja": {
+        "headline": "混み合った Mac でもレンダリングが失敗せずに待つようになり、モデルのフォルダが見つからないときは対処法を表示します。",
+        "free": [
+          "クリップの待機中にビデオモデルのフォルダがなくなった場合（ドライブを外した、フォルダを移動したなど）、フォルダを元に戻すかモデルをもう一度ダウンロードするよう表示されます。",
+          "混み合った Mac で開始に 2 分以上かかるレンダリングは、失敗して再インストールを勧めるのではなく、あと数分待つようになりました。"
+        ]
+      },
+      "ko": {
+        "headline": "바쁜 Mac에서도 렌더가 실패하지 않고 기다리며, 모델 폴더가 없으면 어떻게 할지 알려 줘요.",
+        "free": [
+          "클립이 대기 중일 때 비디오 모델 폴더가 사라지면(드라이브 분리, 폴더 이동 등) 폴더를 되돌려 놓거나 모델을 다시 다운로드하라고 알려 줘요.",
+          "바쁜 Mac에서 시작하는 데 2분 넘게 걸리는 렌더는 이제 실패하고 재설치를 권하는 대신 몇 분 더 기다려요."
+        ]
+      },
+      "pt": {
+        "headline": "Renders num Mac ocupado esperam em vez de falhar, e uma pasta de modelo em falta diz o que fazer.",
+        "free": [
+          "Se a pasta do seu modelo de vídeo sumir com clipes na fila (disco desconectado, pasta movida), o clipe agora pede para recolocá-la ou baixar o modelo de novo.",
+          "Num Mac ocupado, um render que leva mais de dois minutos para começar agora espera alguns minutos a mais em vez de falhar e mandar você reinstalar."
+        ]
+      },
+      "ru": {
+        "headline": "На загруженном Mac рендеры ждут, а не падают, а пропавшая папка модели подсказывает, что делать.",
+        "free": [
+          "Если папка с видеомоделью пропала, пока клипы ждут (отключили диск, переместили папку), клип теперь просит вернуть папку или скачать модель заново.",
+          "На загруженном Mac рендер, которому нужно больше двух минут на запуск, теперь ждёт ещё несколько минут, а не падает с советом переустановить программу."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "繁忙的 Mac 上渲染会继续等待而不是失败，模型文件夹不见时会告诉你该怎么做。",
+        "free": [
+          "如果在片段排队时视频模型所在的文件夹不见了（拔掉了硬盘、移动了文件夹），片段现在会提示你把文件夹放回去或重新下载模型。",
+          "在繁忙的 Mac 上，启动超过两分钟的渲染现在会多等几分钟，而不是失败并让你重新安装。"
+        ]
+      }
+    }
   }
 }

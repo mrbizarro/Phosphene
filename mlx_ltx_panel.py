@@ -5968,6 +5968,22 @@ def model_dir_refusal(job_spec: dict | None) -> None:
     raise RenderRefused("pack_incomplete", VIDEO_MODEL_FIRST)
 
 
+def plain_model_load_error(error) -> str:
+    """The helper's error as the user should read it. A model folder that went
+    away after the job passed its gates (a drive unplugged, a folder moved
+    mid-queue) reaches the loader as a path that is not on disk, which it reads
+    as a Hugging Face name: "Repo id must be in the form 'repo_name' or
+    'namespace/repo_name': '/Users/...'" (H28, fleet 16-17 Nov). Say what to do."""
+    text = str(error or "")
+    if "repo id must be in the form" not in text.lower() or ": '/" not in text:
+        return text
+    try:
+        reason = model_path_problem()
+    except Exception:                                              # noqa: BLE001
+        reason = ""
+    return reason or VIDEO_MODEL_FIRST
+
+
 def plain_pause_reason(n_failed: int, error) -> str:
     """The sentence shown above Generate when three clips in a row fail the same
     way. It names the way out, never the engine's own words: the raw error is on
@@ -27740,6 +27756,12 @@ class WarmHelper:
         # helper it no longer owns.
         ready = self._read_until(["ready", "error", "exit"], timeout=120,
                                  collect_tail=self._boot_tail)
+        if helper_slow_start(ready, proc):
+            push("[helper] still starting after 120 s; waiting up to "
+                 f"{HELPER_SLOW_START_EXTRA_S} s more")
+            ready = self._read_until(["ready", "error", "exit"],
+                                     timeout=HELPER_SLOW_START_EXTRA_S,
+                                     collect_tail=self._boot_tail)
         with self.lock:
             stopped = self.proc is not proc          # kill() cleared it
         if stopped:
@@ -28442,7 +28464,7 @@ class WarmHelper:
             # went wrong.
             raise JobStopped(ev.get("reason") or "stopped early")
         if ev.get("event") == "error":
-            raise RuntimeError(ev.get("error", "helper error"))
+            raise RuntimeError(plain_model_load_error(ev.get("error", "helper error")))
         if ev.get("event") == "exit":
             raise RuntimeError(f"helper exited mid-job: {ev.get('reason')}")
         return ev
@@ -37420,6 +37442,23 @@ def breaker_threshold(exc: BaseException) -> int:
         if helper_start_broken_package(text.split(" — last line: ", 1)[1]):
             return 1
     return 3
+
+
+#: Extra wait for a helper that is still alive but silent after the first
+#: 120 s. Fleet H30 (5.0.18-5.0.23, 8 GB M2 to 64 GB M5 Pro): "it never
+#: reported ready" with no last line, and the next render on the same Mac
+#: worked - a slow start on a busy Mac, not a broken install.
+HELPER_SLOW_START_EXTRA_S = 240
+
+
+def helper_slow_start(ready, proc) -> bool:
+    """True when the handshake timed out but the helper is still running."""
+    if ready is not None or proc is None:
+        return False
+    try:
+        return proc.poll() is None
+    except Exception:
+        return False
 
 
 def _helper_start_failure(ready: dict | None, tail) -> str:
