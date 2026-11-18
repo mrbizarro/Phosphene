@@ -126,6 +126,7 @@ import storyboard_planner
 # failures (lines sung, invented rings, dialogue nouns on screen, ellipses).
 # Pure stdlib; applied in run_h3_job_inner right before the runner argv.
 import h3_prompt_guards
+import h3_refs
 import clip_title
 
 # --- Paths -------------------------------------------------------------------
@@ -15892,6 +15893,76 @@ def h3_supports_reference() -> bool:
     return _h3_runner_has_flag("--reference")
 
 
+# ---- References (Pro ledger row h3-references): MiniMax H3's own reference model -------------
+# Up to three pictures (people, things, places) that the shot is built around, rendered with the
+# H3 reference model instead of the first-frame model (h3_refs.py has the why and the numbers).
+# Which files, the adapter strength and the sampler come from the Pro add-on by name; Free has
+# no add-on and the switch is not offered.
+def h3_refs_spec() -> dict | None:
+    """What References fetches and runs, from the Pro add-on. None on Free."""
+    if not bool(pro_status().get("active")):  # the Pro gate of ledger row h3-references
+        return None
+    spec = _h3_pro_addon("h3_references")
+    return spec if h3_refs.spec_ok(spec) else None
+
+
+def _h3_refs_models_root() -> Path | None:
+    root = h3_paths().get("models_root")
+    return Path(root) if root else None
+
+
+def h3_refs_paths(spec: dict | None = None) -> dict:
+    spec = spec if spec is not None else h3_refs_spec()
+    return h3_refs.paths(_h3_refs_models_root(), spec)
+
+
+def _h3_refs_free_gb(root: Path | None) -> float | None:
+    try:
+        return shutil.disk_usage(root).free / 1e9 if root else None
+    except OSError:
+        return None
+
+
+def h3_refs_status() -> dict:
+    """/status h3.references: offered / ready / building, and why not (no recipe).
+
+    THE TIER IS ONE SWITCH: `locked` (Free sees the familiar switch greyed with one line) is
+    `not active` here, and the recipe comes from h3_refs_spec(). Moving References to Free is
+    that gate plus the recipe moving into public code (docs/STATE.md, "References to Free")."""
+    active = bool(pro_status().get("active"))
+    spec = h3_refs_spec() if active else None
+    paths = h3_refs_paths(spec) if spec else {"files_ok": False, "missing": []}
+    st = h3_refs.state()
+    root = _h3_refs_models_root()
+    return {
+        "pro": True, "pro_active": active, "offered": spec is not None, "locked": not active,
+        "plan": h3_refs.plan(root, spec, _h3_refs_free_gb(root) if spec else None,
+                             float(SYSTEM_RAM_GB or 0) or None),
+        "available": bool(spec is not None and paths["files_ok"] and h3_supports_reference()),
+        "installing": st.get("status") == "running", "step": st.get("step") or "",
+        "mb": int(st.get("mb") or 0), "total_mb": int(st.get("total_mb") or 0),
+        "error": st.get("error") if st.get("status") == "failed" else None,
+        "reason": ("pro_required" if not active else "not_in_this_install" if spec is None
+                   else "runner" if not h3_supports_reference()
+                   else "not_downloaded" if not paths["files_ok"] else "ok"),
+        "missing": paths.get("missing") or [],
+        "gb": (spec or {}).get("gb"), "download_gb": (spec or {}).get("download_gb"),
+        "max_pictures": int((spec or {}).get("max_pictures") or h3_refs.MAX_PICTURES),
+        "forwards": max(1, int((spec or {}).get("steps") or 5) - 1),
+        "modes": list(h3_refs.MODES), "name": h3_refs.NAME,
+        "credit": (spec or {}).get("credit"), "license": (spec or {}).get("license"),
+    }
+
+
+def h3_refs_install(push_log) -> dict:
+    """POST /h3/references/install: fetch and build References on this Mac (Pro, one at a time)."""
+    spec = h3_refs_spec()
+    root = _h3_refs_models_root()
+    paths = h3_paths()
+    return h3_refs.start(root, spec, H3_ROOT, paths.get("python"), push_log,
+                         free_gb=_h3_refs_free_gb(root), ram_gb=float(SYSTEM_RAM_GB or 0) or None)
+
+
 def h3_reference_prompt(prompt: str, picture_index: int) -> str:
     """Name the reference in the prompt unless the prompt already names a picture."""
     if "<picture" in (prompt or "").lower():
@@ -19435,6 +19506,11 @@ def h3_status() -> dict:
         # Speed switch "Fast" (TaoMate 3-step adapter). Same three-cause shape as Turbo.
         "reference": {"supported": bool(available and h3_supports_reference()),
                       "modes": list(H3_REFERENCE_MODES), "size": H3_REFERENCE_SIZE},
+        # References (Pro): MiniMax H3's own reference model, up to three pictures.
+        "references": (h3_refs_status() if available else
+                       {"pro": True, "offered": False, "locked": False, "available": False, "installing": False,
+                        "reason": "h3_" + paths["reason"], "name": h3_refs.NAME,
+                        "max_pictures": h3_refs.MAX_PICTURES, "modes": list(h3_refs.MODES)}),
         "revoice": (h3_revoice_status() if available else
                     {"supported": False, "default": H3_REVOICE_DEFAULT,
                      "points": H3_REVOICE_POINTS, "label": H3_REVOICE_LABEL}),
@@ -39611,6 +39687,11 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     # Face to keep: an uploaded still the runner packs as a reference image.
     # Kept only for Text / Image on H3; the worker re-checks the file.
     _h3_reference = (f("h3_reference", "") or "").strip()
+    # References (Pro): two more pictures and the switch that renders with MiniMax H3's own
+    # reference model (h3_refs.py). Kept only for H3 Text; the worker re-checks Pro and files.
+    _h3_reference2 = (f("h3_reference2", "") or "").strip()
+    _h3_reference3 = (f("h3_reference3", "") or "").strip()
+    _h3_refs = f("h3_refs", "").strip().lower() in ("1", "true", "on", "yes")
     _h3_chain_prompts: list[str] = []
     if _engine == "h3":
         # The same predicate the switcher uses for the affordance, so the two
@@ -39957,6 +40038,12 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # Face to keep (reference image path). SAME allowlist trap.
             "h3_reference": (_h3_reference if (_engine == "h3" and mode_in in H3_REFERENCE_MODES)
                              else ""),
+            # References (Pro): the switch and pictures 2 and 3. SAME allowlist trap.
+            "h3_refs": bool(_h3_refs and _engine == "h3" and mode_in in h3_refs.MODES),
+            "h3_reference2": (_h3_reference2 if (_h3_refs and _engine == "h3" and mode_in in h3_refs.MODES)
+                              else ""),
+            "h3_reference3": (_h3_reference3 if (_h3_refs and _engine == "h3" and mode_in in h3_refs.MODES)
+                              else ""),
             # 4.17 (Codex H3-2): H3-06 made a typed per-window box ADD to the
             # main prompt. Callers that already send COMPLETE per-window
             # prompts — a One Shot's beats, a storyboard shot's chain — set
@@ -43530,6 +43617,11 @@ def run_h3_job_inner(job: dict) -> None:
                      f"{_total:.2f} — above {H3_LORA_STACK_STRENGTH_ADVISORY:g} the "
                      f"stack tends to break motion. Lower one if the clip judders.")
 
+    # References (Pro) runs on its own sampler: the speed switches never resolve their files for
+    # it (a missing Fast adapter must not stop a References clip). Resolved in full further down.
+    if p.get("h3_refs") and mode in h3_refs.MODES:
+        for _k in ("h3_turbo", "h3_tristep", "h3_v13", "h3_flex", "h3_flex_turbo", "h3_clean_sound"):
+            p[_k] = False
     # ---- Turbo: the 4-step distillation LoRA -----------------------------
     # make_job already gated this and pinned `steps`, but re-resolve the adapter
     # HERE: the queue can sit for an hour and a job must not reach the runner
@@ -43869,12 +43961,67 @@ def run_h3_job_inner(job: dict) -> None:
              "your next LTX render.")
         HELPER.kill()
 
+    # ---- References (Pro): MiniMax H3's reference model --------------------
+    # The switch on, H3 Text, one 5 s window: the reference model, its own
+    # sampler and adapter, up to three pictures, nothing else stacked (no
+    # speed switch, no Clean up sound, no LoRA: none was measured on it).
+    refs_pictures: list[Path] = []
+    refs_spec: dict = {}
+    refs_paths: dict = {}
+    if p.get("h3_refs") and mode in h3_refs.MODES:
+        refs_spec = h3_refs_spec() or {}
+        if not refs_spec:
+            raise RuntimeError(f"{h3_refs.NAME} is part of Phosphene Pro, and Pro is not active "
+                               "on this Mac. Switch References off to render with Face to keep.")
+        # The memory floor first: a smaller Mac never sees Get References, so the
+        # not-downloaded message would point at a button it does not have.
+        _refs_floor = h3_refs.min_ram_gb(refs_spec)
+        if SYSTEM_RAM_GB and float(SYSTEM_RAM_GB) + 0.5 < _refs_floor:
+            raise RuntimeError(f"{h3_refs.NAME} needs a Mac with {_refs_floor:.0f} GB of memory or more; "
+                               f"this Mac has {float(SYSTEM_RAM_GB):.0f} GB. Switch References off to "
+                               "render with Face to keep.")
+        refs_paths = h3_refs_paths(refs_spec)
+        if not refs_paths["files_ok"]:
+            raise RuntimeError(f"{h3_refs.NAME} is not downloaded yet: "
+                               + "; ".join(refs_paths["missing"])
+                               + ". Click Get References under the pictures (once).")
+        if chain_windows > 1:
+            raise RuntimeError(f"{h3_refs.NAME} makes clips of up to 5 seconds for now. "
+                               "Pick 5 s, or switch References off for a longer clip.")
+        for _key in ("h3_reference", "h3_reference2", "h3_reference3"):
+            _src = str(p.get(_key) or "").strip()
+            if not _src:
+                continue
+            if not Path(_src).is_file():
+                raise RuntimeError(f"A reference picture ({Path(_src).name}) is no longer on disk - "
+                                   "pick it again or clear it.")
+            _err = h3_reference_image_error(Path(_src))
+            if _err:
+                raise RuntimeError(_err)
+            refs_pictures.append(Path(_src))
+        refs_pictures = refs_pictures[:int(refs_spec.get("max_pictures") or h3_refs.MAX_PICTURES)]
+        if not refs_pictures:
+            raise RuntimeError(f"{h3_refs.NAME} needs at least one picture.")
+        if tristep or turbo or v13 or flex or flex_turbo or user_lora is not None:
+            push(f"[h3] {h3_refs.NAME} runs on its own sampler - the speed switch and LoRAs "
+                 "stay off for this clip.")
+        tristep = turbo = v13 = flex = flex_turbo = False
+        user_lora = None
+        p["h3_tristep"] = p["h3_turbo"] = p["h3_v13"] = p["h3_flex"] = p["h3_flex_turbo"] = False
+        p["h3_clean_sound"] = False
+        steps = int(refs_spec["steps"])
+    p["h3_refs_used"] = [str(x) for x in refs_pictures]
+
     cmd = [
         # caffeinate keeps the Mac awake for the whole render; being the
         # process-group leader means /stop's killpg takes both down together.
         *hostinfo.keep_awake_prefix(),
         str(paths["python"]), str(paths["runner"]),
     ]
+    if refs_pictures:
+        # References: a small Studio wrapper sizes each picture the way the reference adapter
+        # was distilled, then runs the same pinned runner (the engine checkout is untouched).
+        cmd[-1:] = [str(ROOT / "scripts" / "h3_refs_run.py"), str(H3_ROOT), str(width), str(height)]
     # The positional prompt and `--chain-prompts` are MUTUALLY EXCLUSIVE on the
     # runner ("with both, which one a window should use is a guess"), so the
     # positional argument is dropped entirely on the shot-list path. Everything
@@ -43899,6 +44046,8 @@ def run_h3_job_inner(job: dict) -> None:
              f"{SYSTEM_RAM_GB:.0f} GB and the full engine needs {H3_MIN_RAM_GB:.0f} GB "
              "— rendering with the compact Q8 engine instead.")
     _dit_path = _dit_q8 if (_dit_kind == "q8" and _dit_q8 is not None) else paths["dit"]
+    if refs_pictures:
+        _dit_path = refs_paths["pack"]
     cmd += [
         "--dit", str(_dit_path),
         "--compact-root", str(paths["compact_root"]),
@@ -43978,7 +44127,8 @@ def run_h3_job_inner(job: dict) -> None:
     # to a different prompt" (fleet 4.12.3, a 15 s High chain, every retry).
     _pc_prompt = (chain_prompts[0]
                   if (chain_prompts_path is not None and chain_prompts) else prompt)
-    _pc = h3_prompt_cache_path(_pc_prompt, first_frame) if h3_supports_prompt_cache() else None
+    # (References: the pictures are part of what is encoded, so no prompt cache.)
+    _pc = h3_prompt_cache_path(_pc_prompt, first_frame) if (h3_supports_prompt_cache() and not refs_pictures) else None
     if _pc is not None:
         # Prune BEFORE the render, so the entry this run is about to write is
         # never the one evicted.
@@ -44082,6 +44232,14 @@ def run_h3_job_inner(job: dict) -> None:
     # (cmd[prompt_index]); `p["prompt"]` keeps what the user typed.
     reference = None
     _ref_src = str(p.get("h3_reference") or "").strip()
+    if refs_pictures:
+        # References: the reference model's own prompt layout names each picture.
+        cmd += h3_refs.argv(refs_paths, refs_spec, refs_pictures)
+        if prompt in cmd:
+            cmd[cmd.index(prompt)] = h3_refs.prompt(prompt, len(refs_pictures))
+        push(f"[h3] {h3_refs.NAME}: {len(refs_pictures)} picture(s) on MiniMax H3's reference "
+             "model, running natively on Apple Silicon (MLX). Powered by MiniMax H3.")
+        _ref_src = ""
     if _ref_src and mode in H3_REFERENCE_MODES:
         if not h3_supports_reference():
             push("[h3] Face to keep needs a newer H3 runner (Update in Pinokio) - "

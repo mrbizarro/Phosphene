@@ -507,6 +507,22 @@ def post_h3_flex_turbo_install(h, path, qs, ctype) -> None:
         return
     h._json(result, 202)
 
+# ====== Hailuo H3 · References (Pro) - fetch MiniMax H3's reference model and its speed adapter
+# at the pinned revisions the Pro add-on names (never re-hosted), build the 8-bit pack locally.
+@post("/h3/references/install")
+def post_h3_references_install(h, path, qs, ctype) -> None:
+    P.h3_status_invalidate()
+    # The H3 weights themselves: the same licence screen as H3.
+    _lic = P.licence_refusal_for("h3")
+    if _lic:
+        h._json(_lic, 451); return
+    result = P.h3_refs_install(P.push)
+    if not result.get("ok"):
+        h._json(result, 402 if result.get("pro_required") else
+                409 if result.get("already_running") else 400)
+        return
+    h._json(result, 202 if result.get("started") else 200)
+
 # ====== Images lane · P-H3-Image (Pruna, on MiniMax H3) - fetch Pruna's adapter, text encoder and
 # image decoder at pinned revisions (never re-hosted) and build the decoder layout locally.
 @post("/image/ph3image/install")

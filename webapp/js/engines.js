@@ -676,6 +676,13 @@ function _h3ReferenceExtra(cell, fast) {
 }
 function h3CellEtaMin(cell, opts) {
   if (!cell) return 0;
+  // References (Pro) runs on its own sampler, so the speed switches do not apply: priced from the
+  // shape's own per-forward time (queue.js, measured 17 Nov 2026 on Standard 5 s: 343 s with one
+  // picture, 361 s with two, 384-396 s with three).
+  if (typeof _h3RefsEtaMin === 'function') {
+    const _refs = _h3RefsEtaMin(cell);
+    if (_refs) return _refs;
+  }
   const _fastNow = (opts && opts.fast != null) ? opts.fast : h3TriStepOn(cell);
   const _ref = (typeof _h3ReferenceExtra === 'function') ? _h3ReferenceExtra(cell, _fastNow) : 0;
   return _ref + _h3CellEtaMinCore(cell, opts);
@@ -1191,6 +1198,7 @@ function h3SpeedOfParams(p) {
 // function so all three read the same label from the same field.
 function h3JobSpeedLabel(p) {
   if (!p || p.engine !== 'h3') return '';
+  if (p.h3_refs === true) return T('engines.references', 'References');
   if (h3SpeedOfParams(p) === 'fast') return T('engines.fast', 'Fast');
   if (h3SpeedOfParams(p) === 'flex') return 'Pika H3 Flex';
   if (h3SpeedOfParams(p) === 'flex_turbo') return T('engines.h3_flex_turbo', 'H3 Flex Turbo');
@@ -1341,7 +1349,10 @@ function h3EstimateLine() {
       + cell.final_height + ' ≈ ' + h3FmtEtaMin(m).replace(/^~/, '').replace(/ · batch$/, '');
   }
   const flexLine = !fast && typeof h3FlexOn === 'function' && h3FlexOn(cell);
-  let txt = cell.quality_label + ' · ' + (fast ? T('engines.fast', 'Fast') : (flexLine ? 'Pika H3 Flex' : T('engines.best', 'Best')));
+  // References renders on its own sampler: the summary names it instead of a speed.
+  const refsLine = typeof _h3RefsEtaMin === 'function' && _h3RefsEtaMin(cell) > 0;
+  let txt = cell.quality_label + ' · ' + (refsLine ? T('engines.references', 'References')
+    : fast ? T('engines.fast', 'Fast') : (flexLine ? 'Pika H3 Flex' : T('engines.best', 'Best')));
   if (h3FaceFixOn()) {
     txt += T('engines.face_fix', ' + Face Fix');
     if (cell.facefix_min == null) return txt;

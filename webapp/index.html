@@ -794,12 +794,14 @@
                hidden input is in the make_job allowlist (h3_reference). -->
           <div class="mode-only h3-ref-section" id="h3RefSection">
             <h2 data-i18n="h3RefSection.face_to_keep_optional">Face to keep <span class="h2-hint">· optional · Hailuo H3</span></h2>
+            <div class="h3-refs-p1" id="h3RefsP1" hidden data-i18n="h3RefsP1.picture_1_only">Picture 1</div>
             <div class="picker" data-key="h3_reference">
               <div class="picker-drop" id="picker_drop_h3_reference">
                 <div class="picker-empty">
                   <div class="picker-icon"><svg class="ph"><use href="#ph-user-plus"/></svg></div>
-                  <div class="picker-cta" data-i18n="picker_drop_h3_reference.drop_a_clear_photo">Drop a <strong>clear photo of the face</strong>, or <strong>click to browse</strong></div>
-                  <div class="hint" data-i18n="picker_drop_h3_reference.h3_keeps_this_face">H3 keeps this face in the scene your prompt describes. Adds about a minute at Standard.</div>
+                  <div class="picker-cta h3-refs-p1-cta" data-i18n="picker_drop_h3_reference.drop_a_picture_refs">Drop <strong>a picture</strong>: a person, a thing or a place, or <strong>click to browse</strong></div>
+                  <div class="picker-cta h3-face-cta" data-i18n="picker_drop_h3_reference.drop_a_clear_photo">Drop a <strong>clear photo of the face</strong>, or <strong>click to browse</strong></div>
+                  <div class="hint h3-face-cta" data-i18n="picker_drop_h3_reference.h3_keeps_this_face">H3 keeps this face in the scene your prompt describes. Adds about a minute at Standard.</div>
                 </div>
                 <img class="picker-preview" id="picker_preview_h3_reference" alt="" style="display:none">
                 <button type="button" class="picker-clear" id="picker_clear_h3_reference" title="Clear" style="display:none" data-i18n-title="picker_clear_h3_reference.title.clear"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
@@ -809,6 +811,63 @@
               <div class="picker-recent" id="picker_recent_h3_reference_wrap" style="display:none">
                 <div class="picker-recent-label" data-i18n="picker_recent_h3_reference_wrap.recent_uploads_click_to">Recent uploads · click to use</div>
                 <div class="picker-recent-strip" id="picker_recent_h3_reference"></div>
+              </div>
+            </div>
+            <!-- References (Pro ledger row h3-references): MiniMax H3's own reference model, up to
+                 three pictures (people, things, places) the shot is built around. _h3RefsUpdate() in
+                 queue.js shows it on H3 Text from /status h3.references. ONE tier switch: `locked`
+                 (Free) draws the same switch greyed with one line and the Pro door on click; `offered`
+                 (Pro with the recipe) makes it live. On, the photo above is Picture 1 and two more
+                 slots open; before the first use the Get panel says what the download takes on this
+                 Mac. h3_refs, h3_reference2 and h3_reference3 are in the make_job allowlist. -->
+            <div class="h3-refs" id="h3RefsBlock" style="display:none">
+              <label class="h3-refs-switch" id="h3RefsSwitch"><input type="checkbox" name="h3_refs" id="h3_refs" value="on" onchange="h3RefsChanged()">
+                <span data-i18n="h3RefsBlock.references_build_the_shot"><strong>References</strong> · build the shot around up to 3 pictures: people, things or places</span><span class="pro-tag" data-pro-feature="h3-references">Pro</span></label>
+              <p class="pro-note" id="h3RefsFreeLine" hidden></p>
+              <div class="hint" id="h3RefsHint" style="display:none" data-i18n="h3RefsBlock.hint_pictures">The pictures are not the first frame: your prompt decides the shot and can name them ("the woman from Picture 2"). Clips of 5 seconds.</div>
+              <div class="h3-refs-more" id="h3RefsMore" style="display:none">
+              <div class="picker h3-refs-picker" data-key="h3_reference2">
+                <div class="picker-drop" id="picker_drop_h3_reference2">
+                  <div class="picker-empty">
+                    <div class="picker-icon"><svg class="ph"><use href="#ph-image"/></svg></div>
+                    <div class="picker-cta" data-i18n="picker_drop_h3_reference2.picture_n">Picture 2 <span class="h2-hint">· optional</span></div>
+                  </div>
+                  <img class="picker-preview" id="picker_preview_h3_reference2" alt="" style="display:none">
+                  <button type="button" class="picker-clear" id="picker_clear_h3_reference2" title="Clear" style="display:none" data-i18n-title="picker_clear_h3_reference2.title.clear"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+                </div>
+                <input type="file" id="picker_file_h3_reference2" accept="image/*" style="display:none">
+                <input type="hidden" name="h3_reference2" id="h3_reference2" value="">
+                <div class="picker-recent" id="picker_recent_h3_reference2_wrap" style="display:none">
+                  <div class="picker-recent-strip" id="picker_recent_h3_reference2"></div>
+                </div>
+              </div>
+              <div class="picker h3-refs-picker" data-key="h3_reference3">
+                <div class="picker-drop" id="picker_drop_h3_reference3">
+                  <div class="picker-empty">
+                    <div class="picker-icon"><svg class="ph"><use href="#ph-image"/></svg></div>
+                    <div class="picker-cta" data-i18n="picker_drop_h3_reference3.picture_n">Picture 3 <span class="h2-hint">· optional</span></div>
+                  </div>
+                  <img class="picker-preview" id="picker_preview_h3_reference3" alt="" style="display:none">
+                  <button type="button" class="picker-clear" id="picker_clear_h3_reference3" title="Clear" style="display:none" data-i18n-title="picker_clear_h3_reference3.title.clear"><svg class="ph" aria-hidden="true"><use href="#ph-x-bold"/></svg></button>
+                </div>
+                <input type="file" id="picker_file_h3_reference3" accept="image/*" style="display:none">
+                <input type="hidden" name="h3_reference3" id="h3_reference3" value="">
+                <div class="picker-recent" id="picker_recent_h3_reference3_wrap" style="display:none">
+                  <div class="picker-recent-strip" id="picker_recent_h3_reference3"></div>
+                </div>
+              </div>
+              </div>
+              <div class="h3-refs-get" id="h3RefsGet" style="display:none">
+                <p class="h3-refs-plan" id="h3RefsPlan"></p>
+                <p class="h3-refs-check" id="h3RefsCheck" hidden></p>
+                <div class="h3-refs-progress" id="h3RefsProgress" hidden>
+                  <div class="h3-refs-bar"><span id="h3RefsBarFill"></span></div>
+                  <span class="h3-refs-progress-text" id="h3RefsProgressText"></span>
+                </div>
+                <div class="h3-refs-get-row">
+                  <button type="button" class="btn" id="h3RefsGetBtn" onclick="h3RefsGet()" data-i18n="h3RefsGet.get_references">Get References</button>
+                  <span class="hint" id="h3RefsGetNote"></span>
+                </div>
               </div>
             </div>
           </div>

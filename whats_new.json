@@ -2382,5 +2382,81 @@
         ]
       }
     }
+  },
+  "5.0.61": {
+    "free": [],
+    "pro": [
+      "References on Hailuo H3: build a shot around up to 3 pictures of people, things or places, and they keep their look. Switch it on under Face to keep."
+    ],
+    "date": "2026-11-19",
+    "headline": "Build a Hailuo H3 shot around up to 3 pictures of people, things or places.",
+    "pro_perks": [
+      "h3-references"
+    ],
+    "i18n": {
+      "de": {
+        "headline": "Baue eine Hailuo-H3-Einstellung um bis zu 3 Bilder von Personen, Dingen oder Orten.",
+        "free": [],
+        "pro": [
+          "Referenzen bei Hailuo H3: Baue eine Einstellung um bis zu 3 Bilder von Personen, Dingen oder Orten, die ihr Aussehen behalten. Unter Gesicht zum Beibehalten."
+        ]
+      },
+      "es": {
+        "headline": "Crea un plano de Hailuo H3 alrededor de hasta 3 imágenes de personas, objetos o lugares.",
+        "free": [],
+        "pro": [
+          "Referencias en Hailuo H3: crea un plano alrededor de hasta 3 imágenes de personas, objetos o lugares que conservan su aspecto. Bajo Rostro a conservar."
+        ]
+      },
+      "fr": {
+        "headline": "Construisez un plan Hailuo H3 autour de 3 images au plus de personnes, d’objets ou de lieux.",
+        "free": [],
+        "pro": [
+          "Références sur Hailuo H3 : un plan construit autour de 3 images au plus de personnes, d’objets ou de lieux, qui gardent leur apparence. Sous Visage à conserver."
+        ]
+      },
+      "it": {
+        "headline": "Costruisci un’inquadratura Hailuo H3 attorno a un massimo di 3 immagini di persone, oggetti o luoghi.",
+        "free": [],
+        "pro": [
+          "Riferimenti su Hailuo H3: un’inquadratura attorno a un massimo di 3 immagini di persone, oggetti o luoghi, che restano uguali. Sotto Volto da mantenere."
+        ]
+      },
+      "ja": {
+        "headline": "最大3枚の画像（人物、もの、場所）を軸に、Hailuo H3のショットを作れます。",
+        "free": [],
+        "pro": [
+          "Hailuo H3のリファレンス：最大3枚の画像（人物、もの、場所）を軸にショットを作り、それぞれの見た目を保ちます。「保持する顔」の下でオンにできます。"
+        ]
+      },
+      "ko": {
+        "headline": "최대 3장의 이미지(사람, 사물, 장소)를 중심으로 Hailuo H3 샷을 만들 수 있어요.",
+        "free": [],
+        "pro": [
+          "Hailuo H3 레퍼런스: 최대 3장의 이미지(사람, 사물, 장소)를 중심으로 샷을 만들고 각자의 모습을 유지해요. 유지할 얼굴 아래에서 켜세요."
+        ]
+      },
+      "pt": {
+        "headline": "Monte um plano do Hailuo H3 em torno de até 3 imagens de pessoas, objetos ou lugares.",
+        "free": [],
+        "pro": [
+          "Referências no Hailuo H3: monte um plano em torno de até 3 imagens de pessoas, objetos ou lugares, que mantêm a aparência. Em Rosto a manter."
+        ]
+      },
+      "ru": {
+        "headline": "Постройте кадр Hailuo H3 вокруг 3 картинок или меньше: людей, предметов или мест.",
+        "free": [],
+        "pro": [
+          "Референсы в Hailuo H3: кадр вокруг 3 картинок или меньше с людьми, предметами или местами, которые сохраняют свой вид. Под «Сохраняемым лицом»."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "围绕最多 3 张人物、物品或地点的图片，构建 Hailuo H3 镜头。",
+        "free": [],
+        "pro": [
+          "Hailuo H3 参考图：围绕最多 3 张人物、物品或地点的图片构建镜头，它们保持原样。在“要保留的人脸”下方打开。"
+        ]
+      }
+    }
   }
 }

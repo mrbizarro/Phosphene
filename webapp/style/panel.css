@@ -15759,3 +15759,35 @@ html[dir="rtl"] .mono { direction: ltr; unicode-bidi: isolate; }
 }
 .settings-details { margin-top: 8px; }
 .settings-details > summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+/* References (Pro, Hailuo H3): the switch under Face to keep, two more picture slots side by side, and
+   the Get panel (what the download takes, this Mac's check, progress). Free sees the same switch greyed
+   (.is-locked) with one .pro-note line; the tag is the one Pro tag (.pro-tag). */
+.h3-refs { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.h3-refs-switch { display: flex; align-items: flex-start; justify-content: flex-start; gap: 10px; cursor: pointer; text-align: left; }
+.h3-refs-switch input[type="checkbox"] { flex: 0 0 auto; width: auto; margin: 3px 0 0; }
+.h3-refs-switch > span:first-of-type { flex: 1 1 auto; }
+.h3-refs.is-locked .h3-refs-switch input[type="checkbox"],
+.h3-refs.is-locked .h3-refs-switch > span:first-of-type { opacity: .55; }
+.h3-refs .pro-note { margin: 0 0 0 26px; }
+.h3-refs-p1 { font-size: var(--fs-xs); font-weight: 600; color: var(--text); margin: 0 0 4px; }
+.h3-refs-p1[hidden] { display: none; }
+.h3-refs-more { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.h3-refs-get { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); }
+.h3-refs-plan, .h3-refs-check { margin: 0; font-size: var(--fs-xs); line-height: 1.45; color: var(--muted); }
+.h3-refs-check { color: var(--text); }
+.h3-refs-check[hidden], .h3-refs-progress[hidden] { display: none; }
+.h3-refs-progress { display: flex; flex-direction: column; gap: 4px; }
+.h3-refs-bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
+.h3-refs-bar > span { display: block; height: 100%; width: 0; background: var(--accent, var(--site-violet)); transition: width var(--t-fast); }
+.h3-refs-bar > span.is-busy { opacity: .6; animation: h3-refs-pulse 1.6s ease-in-out infinite; }
+@keyframes h3-refs-pulse { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .h3-refs-bar > span.is-busy { animation: none; } }
+.h3-refs-progress-text { font-size: var(--fs-xs); color: var(--text); }
+.h3-refs-get-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.h3-refs-get-row[hidden], .h3-refs-plan[hidden] { display: none; }
+.h3-refs-get .btn:disabled { opacity: .5; cursor: not-allowed; }
+/* References on: the Speed row does not apply, and Picture 1 asks for any picture (Face to keep's own words return when it is off). */
+body.h3-refs-on #h3SpeedRow { display: none !important; }
+.h3-ref-section .h3-refs-p1-cta { display: none; }
+.h3-ref-section.refs-on .h3-refs-p1-cta { display: block; }
+.h3-ref-section.refs-on .h3-face-cta { display: none; }

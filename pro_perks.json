@@ -758,6 +758,71 @@
           "gain": "第一张之后约快 1.4 倍"
         }
       }
+    },
+    {
+      "id": "h3-references",
+      "kind": "feature",
+      "name": "References on Hailuo H3",
+      "now": "References on Hailuo H3: build a shot around up to 3 pictures of people, things or places, and they keep their look.",
+      "gain": "up to 3 pictures",
+      "where": "Hailuo H3, Text, under Face to keep",
+      "min_ram_gb": 32,
+      "since": "5.0.61",
+      "measured": {
+        "machine": "M4 Max 64 GB",
+        "clip": "5 s Standard clip with 1 to 3 pictures",
+        "rows": {
+          "pro_s": 396
+        },
+        "source": "17 Nov 2026, M4 Max 64 GB: 343 s with 1 picture, 361 s with 2, 384 to 396 s with 3, at Standard, 27 GB memory peak"
+      },
+      "i18n": {
+        "de": {
+          "name": "Referenzen bei Hailuo H3",
+          "now": "Referenzen bei Hailuo H3: Baue eine Einstellung um bis zu 3 Bilder von Personen, Dingen oder Orten, und sie behalten ihr Aussehen.",
+          "gain": "bis zu 3 Bilder"
+        },
+        "es": {
+          "name": "Referencias en Hailuo H3",
+          "now": "Referencias en Hailuo H3: crea un plano alrededor de hasta 3 imágenes de personas, objetos o lugares, y conservan su aspecto.",
+          "gain": "hasta 3 imágenes"
+        },
+        "fr": {
+          "name": "Références sur Hailuo H3",
+          "now": "Références sur Hailuo H3 : construisez un plan autour de 3 images au plus de personnes, d’objets ou de lieux, qui gardent leur apparence.",
+          "gain": "jusqu’à 3 images"
+        },
+        "it": {
+          "name": "Riferimenti su Hailuo H3",
+          "now": "Riferimenti su Hailuo H3: costruisci un’inquadratura attorno a un massimo di 3 immagini di persone, oggetti o luoghi, che mantengono il loro aspetto.",
+          "gain": "fino a 3 immagini"
+        },
+        "ja": {
+          "name": "Hailuo H3のリファレンス",
+          "now": "Hailuo H3のリファレンス：最大3枚の画像（人物、もの、場所）を軸にショットを作り、それぞれの見た目を保ちます。",
+          "gain": "画像は最大3枚"
+        },
+        "ko": {
+          "name": "Hailuo H3 레퍼런스",
+          "now": "Hailuo H3 레퍼런스: 최대 3장의 이미지(사람, 사물, 장소)를 중심으로 샷을 만들고, 각자의 모습을 그대로 유지해요.",
+          "gain": "이미지 최대 3장"
+        },
+        "pt": {
+          "name": "Referências no Hailuo H3",
+          "now": "Referências no Hailuo H3: monte um plano em torno de até 3 imagens de pessoas, objetos ou lugares, e eles mantêm a aparência.",
+          "gain": "até 3 imagens"
+        },
+        "ru": {
+          "name": "Референсы в Hailuo H3",
+          "now": "Референсы в Hailuo H3: постройте кадр вокруг 3 картинок или меньше с людьми, предметами или местами, и они сохранят свой вид.",
+          "gain": "до 3 картинок"
+        },
+        "zh-Hans": {
+          "name": "Hailuo H3 参考图",
+          "now": "Hailuo H3 参考图：围绕最多 3 张人物、物品或地点的图片构建镜头，它们都保持原样。",
+          "gain": "最多 3 张图片"
+        }
+      }
     }
   ]
 }

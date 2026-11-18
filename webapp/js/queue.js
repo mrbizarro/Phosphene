@@ -169,6 +169,10 @@ function h3FinishFieldsFromSidecar(p, tierKey) {
     h3_clean_sound: (p.h3_clean_sound === true || p.h3_clean_sound === false) ? p.h3_clean_sound : null,
     // Face to keep carries over (same person in the finish).
     h3_reference: (typeof p.h3_reference === 'string') ? p.h3_reference : '',
+    // References (Pro) carry over too: the same pictures on the same model.
+    h3_refs: p.h3_refs === true,
+    h3_reference2: (typeof p.h3_reference2 === 'string') ? p.h3_reference2 : '',
+    h3_reference3: (typeof p.h3_reference3 === 'string') ? p.h3_reference3 : '',
     // The shot list carries over, and it is safe to: Finish means SAME LENGTH,
     // higher quality, so the window count is identical by construction and
     // entry i still means window i. Dropping it would silently finish a
@@ -349,6 +353,7 @@ async function h3FinishActive() {
   if (typeof pickerSetImage === 'function' && document.getElementById('h3_reference')) {
     try { pickerSetImage('h3_reference', fields.h3_reference || '', { snapAspect: false }); } catch (e) {}
   }
+  if (typeof _h3RefsRestore === "function") _h3RefsRestore(fields.h3_refs, fields.h3_reference2, fields.h3_reference3);
   // Shape LAST of the H3 controls: setH3Tier stamps width/height/frames/steps
   // from the cell table, so anything geometry-related set after it would be
   // fighting the source of truth. The LENGTH inside `fields.h3_tier` is the
@@ -988,6 +993,8 @@ function updateH3Availability(s) {
                     || (next.flex_turbo || {}).installing || (H3.flex_turbo || {}).installing);
   H3 = next;
   window._ENGINE_PROBES.h3 = next;
+  // References follows every tick: the download's progress, its end, a Pro licence turning on.
+  if (typeof _h3RefsUpdate === 'function') { try { _h3RefsUpdate(); } catch (e) {} }
   // The download card follows every status tick while it is open (5.0.9).
   if (document.getElementById('h3AppInstallBox')) {
     if (_h3AppInstallLocal && !(_h3AppInstallLocal.until > Date.now())) _h3AppInstallLocal = null;
@@ -1920,6 +1927,7 @@ function updateDerived() {
     _h3Ref.classList.toggle('show', document.body.dataset.engine === 'h3' && !!_ref.supported
       && (currentMode === 't2v' || currentMode === 'i2v'));
   }
+  if (typeof _h3RefsUpdate === 'function') _h3RefsUpdate();
   const _restoreSection = document.getElementById('restoreSection');
   if (_restoreSection) _restoreSection.classList.toggle('show', currentMode === 'restore');
   // Upscale ×2 — its own source picker + "keep the shot" slider. The source
@@ -2145,6 +2153,203 @@ function snapA2VSizeToImage(path) {
 // `a2v_image` was added 2026-05-20 to replace the old bespoke
 // studio-ref-slot in the Audio-to-Video tab with the same drop +
 // preview + clear + recent-uploads-strip surface every other mode uses.
+// ---- References (Pro ledger row h3-references): MiniMax H3's reference model, three pictures ----
+// /status h3.references says, for this Mac: `locked` (Free: the same switch greyed, one line, the Pro
+// door only when clicked), `offered` (Pro with the recipe: the switch is live), `available` (files
+// built), `installing` with step/mb/total_mb, `error`, and `plan` (download, what stays, the free disk
+// the build needs, memory floor). Shown only on H3 Text. On, the Face to keep photo is Picture 1 and
+// two more slots open; before the first use the Get panel explains the download. The server
+// re-checks everything (make_job keeps the fields only for H3 Text; the worker re-checks Pro, memory
+// and files). Called from updateDerived() and on every /status tick.
+function _h3RefsInfo() { return (globalThis.H3 && globalThis.H3.references) || {}; }
+let _h3RefsRate = null;   // {t, mb, mbps}: the download speed, measured from the status ticks
+function _h3RefsGb(x) { return (Math.round(Number(x || 0) * 10) / 10).toLocaleString(); }
+function _h3RefsPlanText(pl) {
+  return T('queue.h3_refs_plan', 'Before the first clip, References gets its own model: a one-time download of MiniMax’s reference model (about {dl} GB), then a build on this Mac that keeps about {keep} GB. While it builds it needs about {need} GB free. About 1 hour on a 100 Mbit connection (less on a faster one), plus about 10 minutes to build. You can keep working meanwhile, and a stopped download carries on where it stopped.',
+    { dl: Math.round(pl.download_gb || 42.8), keep: _h3RefsGb(pl.keep_gb || 22.5), need: Math.round(pl.disk_need_gb || 66) });
+}
+function _h3RefsStepText(info) {
+  const step = info.step || '';
+  if (step === 'build') return T('queue.h3_refs_step_build', 'Building it on this Mac (about 10 minutes)');
+  if (step === 'check') return T('queue.h3_refs_step_check', 'Checking the download');
+  if (step === 'adapter') return T('queue.h3_refs_step_adapter', 'Getting the last small file');
+  if (step === 'download') return T('queue.h3_refs_step_download', 'Downloading');
+  return T('queue.h3_refs_step_start', 'Starting');
+}
+function _h3RefsUpdate() {
+  const block = document.getElementById('h3RefsBlock');
+  if (!block) return;
+  const info = _h3RefsInfo();
+  const locked = !!info.locked;
+  const show = document.body.dataset.engine === 'h3' && currentMode === 't2v' && (!!info.offered || locked);
+  block.style.display = show ? '' : 'none';
+  block.classList.toggle('is-locked', locked);
+  const sw = document.getElementById('h3_refs');
+  if (sw && (!show || locked)) sw.checked = false;
+  const on = show && !locked && !!(sw && sw.checked);
+  const free = document.getElementById('h3RefsFreeLine');
+  if (free) {
+    free.hidden = !(show && locked);
+    if (show && locked && typeof proSpotText === 'function') {
+      const txt = proSpotText('h3-references', false);
+      if (free.dataset.txt !== txt) { free.dataset.txt = txt; free.innerHTML = proNoteHtml(txt); }
+    }
+  }
+  const hint = document.getElementById('h3RefsHint');
+  if (hint) hint.style.display = (on && info.available) ? '' : 'none';
+  const p1 = document.getElementById('h3RefsP1');
+  if (p1) p1.hidden = !(on && info.available);
+  // While References renders, the Speed row does not apply (its own sampler), and Picture 1 is any
+  // picture, not only a face: panel.css reads these two classes.
+  document.body.classList.toggle('h3-refs-on', !!(on && info.available));
+  const sec = document.getElementById('h3RefSection');
+  if (sec) sec.classList.toggle('refs-on', !!(on && info.available));
+  const more = document.getElementById('h3RefsMore');
+  if (more) more.style.display = (on && info.available) ? '' : 'none';
+  const get = document.getElementById('h3RefsGet');
+  if (get) get.style.display = (on && !info.available) ? '' : 'none';
+  if (on && !info.available) _h3RefsGetRender(info);
+  if (!on) {
+    for (const k of ['h3_reference2', 'h3_reference3']) {
+      const el = document.getElementById(k);
+      if (el && el.value && typeof pickerSetImage === 'function') { try { pickerSetImage(k, '', { snapAspect: false }); } catch (e) {} }
+    }
+  }
+}
+// The Get panel: what the download takes (always visible before it starts), whether this Mac has the
+// memory and the disk for it (said BEFORE anything is fetched), then live progress, then a plain
+// reason and "Resume" when it stopped.
+function _h3RefsGetRender(info) {
+  const pl = info.plan || {};
+  const plan = document.getElementById('h3RefsPlan');
+  if (plan) plan.textContent = _h3RefsPlanText(pl);
+  const check = document.getElementById('h3RefsCheck');
+  const btn = document.getElementById('h3RefsGetBtn');
+  const note = document.getElementById('h3RefsGetNote');
+  const prog = document.getElementById('h3RefsProgress');
+  let blocker = '';
+  if (pl.ram_ok === false) {
+    blocker = T('queue.h3_refs_too_small', 'References needs a Mac with {min} GB of memory or more; this Mac has {ram} GB. Face to keep above works on this Mac.', { min: pl.min_ram_gb, ram: pl.ram_gb });
+  } else if (pl.disk_ok === false && !info.installing) {
+    blocker = T('queue.h3_refs_no_space', 'The models disk has {free} GB free; References needs about {need} GB free while it builds. Free some space on it, then come back.', { free: pl.free_gb, need: Math.round(pl.disk_need_gb || 66) });
+  }
+  if (check) {
+    check.hidden = !blocker;
+    check.textContent = blocker;
+  }
+  // A Mac below the memory floor gets the one line only: no download to explain, no button to press.
+  const tooSmall = pl.ram_ok === false;
+  if (plan) plan.hidden = tooSmall;
+  const row = document.querySelector('#h3RefsGet .h3-refs-get-row');
+  if (row) row.hidden = tooSmall;
+  if (btn) {
+    btn.disabled = !!info.installing || !!blocker;
+    const resume = !!info.error || Number(pl.have_gb || 0) > 0.5;
+    btn.textContent = info.installing ? T('queue.h3_refs_getting', 'Getting References')
+      : resume ? T('queue.h3_refs_resume', 'Resume') : T('queue.h3_refs_get', 'Get References');
+  }
+  if (prog) prog.hidden = !info.installing;
+  if (info.installing) {
+    const fill = document.getElementById('h3RefsBarFill');
+    const text = document.getElementById('h3RefsProgressText');
+    const mb = Number(info.mb || 0), total = Number(info.total_mb || 0);
+    const pct = (info.step === 'download' && total) ? Math.min(100, Math.round(100 * mb / total)) : null;
+    if (fill) { fill.style.width = (pct == null ? 100 : pct) + '%'; fill.classList.toggle('is-busy', pct == null); }
+    // Speed from the last ticks, for a rough time left (only while bytes are arriving).
+    const now = Date.now();
+    if (info.step === 'download' && total) {
+      if (_h3RefsRate && mb > _h3RefsRate.mb && now > _h3RefsRate.t) {
+        const inst = (mb - _h3RefsRate.mb) / ((now - _h3RefsRate.t) / 1000);
+        _h3RefsRate = { t: now, mb, mbps: _h3RefsRate.mbps ? 0.8 * _h3RefsRate.mbps + 0.2 * inst : inst };
+      } else if (!_h3RefsRate || mb < _h3RefsRate.mb) {
+        _h3RefsRate = { t: now, mb, mbps: 0 };
+      }
+    } else { _h3RefsRate = null; }
+    let line = _h3RefsStepText(info);
+    if (pct != null) {
+      line += ' · ' + T('queue.h3_refs_of_gb', '{have} of {total} GB', { have: _h3RefsGb(mb * 1048576 / 1e9), total: _h3RefsGb(total * 1048576 / 1e9) });   // MB from the server are MiB; GB as the plan says them (1e9)
+      const mbps = _h3RefsRate && _h3RefsRate.mbps;
+      if (mbps > 0.5) {
+        const min = Math.max(1, Math.round((total - mb) / mbps / 60));
+        line += ' · ' + T('queue.h3_refs_minutes_left', 'about {n} min left', { n: min });
+      }
+    }
+    if (text) text.textContent = line;
+  }
+  if (note) {
+    note.textContent = info.installing ? T('queue.h3_refs_keep_working', 'You can keep working; this panel shows when it is ready.')
+      : info.error ? T('queue.h3_refs_stopped', 'Stopped: {why}', { why: info.error })
+      : (!blocker && Number(pl.have_gb || 0) > 0.5)
+        ? T('queue.h3_refs_have_part', '{have} GB already downloaded; Resume carries on from there.', { have: _h3RefsGb(pl.have_gb) })
+      : '';
+  }
+}
+// Minutes for one References clip on this shape, or 0 when References is not what renders. The
+// reference model takes `forwards` passes (4) plus the shape's fixed cost, and each picture adds a
+// little to every pass; the constants are the 17 Nov fit (343 / 361 / 384-396 s on Standard 5 s).
+function _h3RefsOn() {
+  const info = _h3RefsInfo();
+  const sw = document.getElementById('h3_refs');
+  return !!(sw && sw.checked && info.offered && !info.locked && info.available
+    && document.body.dataset.engine === 'h3' && currentMode === 't2v');
+}
+function _h3RefsEtaMin(cell) {
+  if (!cell || !_h3RefsOn() || !cell.per_forward_sec) return 0;
+  const n = ['h3_reference', 'h3_reference2', 'h3_reference3']
+    .filter(k => ((document.getElementById(k) || {}).value || '').trim()).length || 1;
+  const fwd = Number(_h3RefsInfo().forwards || 4);
+  return (Number(cell.fixed_sec || 0) + fwd * Number(cell.per_forward_sec) + 25 + 15 * n) / 60;
+}
+function h3RefsChanged() {
+  const sw = document.getElementById('h3_refs');
+  if (!sw) return;
+  if (_h3RefsInfo().locked) {        // Free: the switch is the door to what Pro adds, nothing else
+    sw.checked = false;
+    if (typeof openProModal === 'function') openProModal(document.getElementById('h3RefsSwitch'));
+    return;
+  }
+  // updateDerived redraws the form (it calls _h3RefsUpdate) and the time estimate with it.
+  if (typeof updateDerived === 'function') updateDerived(); else _h3RefsUpdate();
+}
+function _h3RefsRestore(on, ref2, ref3) {
+  const sw = document.getElementById('h3_refs');
+  if (!sw) return;
+  const info = _h3RefsInfo();
+  sw.checked = !!on && !!info.offered && !info.locked;
+  if (typeof pickerSetImage === 'function') {
+    try { pickerSetImage('h3_reference2', sw.checked ? (ref2 || '') : '', { snapAspect: false }); } catch (e) {}
+    try { pickerSetImage('h3_reference3', sw.checked ? (ref3 || '') : '', { snapAspect: false }); } catch (e) {}
+  }
+  _h3RefsUpdate();
+}
+async function h3RefsGet() {
+  const toast = (m, kind) => { if (typeof phosToast === 'function') phosToast(m, { kind }); };
+  const btn = document.getElementById('h3RefsGetBtn');
+  if (btn) btn.disabled = true;
+  try {
+    // A 451 (the H3 licence not accepted yet) is answered by the licence gate around fetch.
+    const r = await fetch('/h3/references/install', { method: 'POST' });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 402) { if (typeof openProModal === 'function') openProModal(document.getElementById('h3RefsSwitch')); return; }
+    if (r.status === 451) return;
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    toast(j.already_installed ? T('queue.h3_refs_ready', 'References is ready.')
+      : T('queue.h3_refs_downloading', 'Getting References: a one-time download, then a short build on this Mac. You can keep working.'), 'ok');
+    if (globalThis.H3 && globalThis.H3.references && !j.already_installed) {
+      globalThis.H3.references.installing = true;
+      globalThis.H3.references.error = null;
+      globalThis.H3.references.step = 'starting';
+    }
+  } catch (e) {
+    const msg = e.message || '';
+    toast(T('queue.h3_refs_failed', 'References: {why}', { why: msg }), 'danger');
+    if (globalThis.H3 && globalThis.H3.references) globalThis.H3.references.error = msg;
+  } finally {
+    if (btn) btn.disabled = false;
+    _h3RefsUpdate();
+  }
+}
+
 globalThis.PICKERS = [
   'image',
   'start_image',
@@ -2155,6 +2360,8 @@ globalThis.PICKERS = [
   'end_image',
   'a2v_image',
   'h3_reference',
+  'h3_reference2',
+  'h3_reference3',
 ];
 
 function pickerEls(key) {
@@ -8259,14 +8466,17 @@ async function loadParams(recipe) {
                        { snapAspect: false });
       } catch (e) {}
     }
+    if (typeof _h3RefsRestore === "function") _h3RefsRestore(p.h3_refs === true, p.h3_reference2, p.h3_reference3);
     if (typeof setH3Steps === 'function') {
       // A Best clip made on the full sampler, where Best would now run
       // lightx2v v1.3 (High, Text/Image): pin the count it ran, so Load
       // Params reproduces the same sampler instead of quietly switching it.
-      const _fullBestOnV13Cell = !p.h3_v13 && h3SpeedOfParams(p) === 'best'
+      // A References clip ran its own short sampler: never pin that count onto Best.
+      const _refsClip = p.h3_refs === true;
+      const _fullBestOnV13Cell = !_refsClip && !p.h3_v13 && h3SpeedOfParams(p) === 'best'
         && p.h3_quality === 'high' && (p.mode === 't2v' || p.mode === 'i2v')
         && Number(p.steps || 0) > 0 && typeof h3V13State === 'function' && h3V13State().available;
-      const _pin = Number(p.h3_steps || 0) > 0 ? String(p.h3_steps)
+      const _pin = _refsClip ? 'auto' : Number(p.h3_steps || 0) > 0 ? String(p.h3_steps)
         : (_fullBestOnV13Cell ? String(p.steps) : 'auto');
       try { setH3Steps(_pin); } catch (e) {}
     }
@@ -9892,3 +10102,4 @@ function proHintDismiss(job) {
 
 Object.assign(globalThis, {proHintSee, proHintDismiss});
 Object.assign(globalThis, {h3AppInstallStart, h3AppInstallStop, h3AppInstallRender});
+Object.assign(globalThis, {_h3RefsUpdate, _h3RefsRestore, h3RefsGet, h3RefsChanged, _h3RefsEtaMin});

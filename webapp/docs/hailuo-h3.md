@@ -147,6 +147,16 @@ Powered by MiniMax H3. H3 Flex Turbo runs a published Turbo LoRA for Pika H3 Fle
 - **Not sped up:** text-to-video renders exactly as on Free, so Pro is never worse than Free.
 - **Measured on an M4 Max with 64 GB.** Other chips get a smaller gain, and Macs under 36 GB, and Intel Macs, use the Free path.
 
+## References (Pro) {#references}
+
+**References** builds a new Hailuo H3 shot around up to 3 of your pictures: characters, things or places. They keep their look in the scene your prompt describes, and the prompt can name them ("the woman from Picture 2"). It is part of **Phosphene Pro** and needs an Apple Silicon Mac with 32 GB of memory or more.
+
+- **Where:** on **Text**, switch on **References** under the first picture slot. That picture is Picture 1, and two more slots open.
+- **First use:** a one-time download of MiniMax's reference model (about 43 GB), built on your Mac to about 23 GB. It needs about 66 GB free while it builds. A stopped download carries on where it stopped.
+- **Good to know:** clips are 5 seconds. A 5-second Standard clip takes about 6 to 7 minutes on an M4 Max with 64 GB. The speed choice and add-ons do not apply to References clips.
+
+Powered by MiniMax H3, under the MiniMax H3 Community License. Phosphene downloads the published files at a fixed version.
+
 ## How long it takes {#times}
 
 Each quality and length option shows an estimated time for your Mac, based on completed videos from similar Macs. The table shows median times from Phosphene's anonymous usage counts: half finished sooner and half took longer. A dash means there are too few completed videos to give a time.
