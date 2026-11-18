@@ -2254,5 +2254,69 @@
         ]
       }
     }
+  },
+  "5.0.59": {
+    "free": [
+      "Mac app: on a slow connection, your first picture no longer fails with “the install took longer than 10 minutes”. Each try keeps what it downloaded, so trying again finishes."
+    ],
+    "pro": [],
+    "date": "2026-11-18",
+    "headline": "Pictures get going on slow connections.",
+    "i18n": {
+      "de": {
+        "headline": "Bilder klappen auch bei langsamer Verbindung.",
+        "free": [
+          "Mac-App: Bei langsamer Verbindung scheitert dein erstes Bild nicht mehr mit „the install took longer than 10 minutes“. Jeder Versuch behält das Geladene, ein neuer Versuch wird fertig."
+        ]
+      },
+      "es": {
+        "headline": "Las imágenes arrancan con conexiones lentas.",
+        "free": [
+          "App de Mac: con una conexión lenta, tu primera imagen ya no falla con «the install took longer than 10 minutes». Cada intento guarda lo descargado y al reintentar termina."
+        ]
+      },
+      "fr": {
+        "headline": "Les images démarrent même avec une connexion lente.",
+        "free": [
+          "App Mac : avec une connexion lente, ta première image n'échoue plus avec « the install took longer than 10 minutes ». Chaque essai garde ce qu'il a téléchargé, le suivant finit."
+        ]
+      },
+      "it": {
+        "headline": "Le immagini partono anche con connessioni lente.",
+        "free": [
+          "App per Mac: con una connessione lenta, la tua prima immagine non fallisce più con “the install took longer than 10 minutes”. Ogni tentativo tiene ciò che ha scaricato e il successivo finisce."
+        ]
+      },
+      "ja": {
+        "headline": "回線が遅くても画像が作れるようになりました。",
+        "free": [
+          "Mac アプリ：回線が遅いとき、最初の画像が「the install took longer than 10 minutes」で失敗しなくなりました。ダウンロード済みの分は残るので、もう一度試せば完了します。"
+        ]
+      },
+      "ko": {
+        "headline": "느린 연결에서도 이미지가 시작돼요.",
+        "free": [
+          "Mac 앱: 연결이 느려도 첫 이미지가 “the install took longer than 10 minutes”로 실패하지 않아요. 받은 만큼은 남아서 다시 시도하면 끝까지 돼요."
+        ]
+      },
+      "pt": {
+        "headline": "Imagens funcionam mesmo com conexão lenta.",
+        "free": [
+          "App para Mac: com conexão lenta, sua primeira imagem não falha mais com “the install took longer than 10 minutes”. Cada tentativa guarda o que baixou, e a próxima termina."
+        ]
+      },
+      "ru": {
+        "headline": "Картинки запускаются и при медленном интернете.",
+        "free": [
+          "Приложение для Mac: при медленном интернете первая картинка больше не падает с «the install took longer than 10 minutes». Скачанное сохраняется, и следующая попытка доходит до конца."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "网速慢时也能开始生成图片了。",
+        "free": [
+          "Mac 应用：网速慢时，第一张图片不再因“the install took longer than 10 minutes”而失败。每次尝试都会保留已下载的部分，再试一次即可完成。"
+        ]
+      }
+    }
   }
 }

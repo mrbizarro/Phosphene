@@ -22375,6 +22375,12 @@ def image_engine_autoinstall(on_log=None, now: float | None = None) -> str | Non
         # cache so an interrupted download can be reused by the next attempt.
         env["UV_HTTP_TIMEOUT"] = "60"
         env["UV_HTTP_RETRIES"] = "3"
+        # One download at a time (H35, fleet 15-17 Nov: Mac app 5.0.25-5.0.43, 4 Macs,
+        # "the install took longer than 10 minutes" on every try): parallel
+        # downloads on a slow line all die together at the time limit and uv
+        # keeps nothing, so every try started from zero. One at a time, each
+        # finished package stays in the cache and the next try carries on.
+        env["UV_CONCURRENT_DOWNLOADS"] = "1"
         error = None
         for attempt in range(min(2, IMAGE_ENGINE_AUTO_MAX - st["attempts"])):
             st["attempts"] += 1
