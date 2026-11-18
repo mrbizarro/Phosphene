@@ -36,6 +36,10 @@ SECOND_GIT_MIRROR = os.environ.get('PHOSPHENE_GIT_MIRROR2', 'https://gitlab.com/
 # A GitHub that hangs must hand over quickly: no credential prompt (a hidden repo answers
 # 401/404), and a transfer slower than 1 KB/s for 20 s counts as failed.
 _FAST_FAIL = ('-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=20', '-c', 'credential.helper=')
+# Every git the updater runs while holding the lock: no auto gc / auto maintenance.
+_NO_AUTO_MAINTENANCE = ('-c', 'maintenance.auto=false', '-c', 'gc.auto=0')
+# For post_update.sh's own git: maintenance still runs, never detached.
+_GIT_NO_DETACH = "'maintenance.autoDetach'='false' 'gc.autoDetach'='false'"
 _PUBLIC_REMOTES = re.compile(r'(github\.com[:/]mrbizarro/phosphene|phosphene\.video/git/phosphene|gitlab\.com[:/]phosphene1/phosphene)(\.git)?/?$', re.I)
 
 
@@ -43,21 +47,47 @@ class Busy(UpdateError):
     pass
 
 
+# How long prepare()/dependencies()/restart/boot wait for a brief holder of the lock (a
+# background git, the previous step's tail) before saying another update is running.
+# status() never waits: it only asks whether something is running right now.
+try:
+    LOCK_WAIT = max(0.0, float(os.environ.get('PHOSPHENE_UPDATE_LOCK_WAIT', '30')))
+except ValueError:
+    LOCK_WAIT = 30.0
+
+
 class Transaction:
     def __init__(self, root):
         self.root = Path(root).resolve()
         self.fd = None
+        self.lock_wait = LOCK_WAIT
         self.source = ''      # which place served public main this run: github | own | gitlab | origin
         self.directory = Path(self.git('rev-parse', '--absolute-git-dir'))
         self.path = self.directory / 'phosphene-update.json'
 
-    def command(self, args, *, env=None):
+    def command(self, args, *, env=None, lock=True):
+        # Git inside the update never starts background maintenance. Pinokio's git 2.55 ran
+        # `git maintenance run --auto --detach` after fetch/merge; the detached repack
+        # inherited the lock fd below and held the lock ~2 s past prepare(), so the first
+        # Update press stopped at "Another update ... is still running" (5.0.55 -> 5.0.56,
+        # 3/3). The fd itself stays: a git killed mid-merge with its updater must keep the
+        # lock. tidy() runs the same maintenance in the foreground instead.
+        if lock and args[:1] == ['git']:
+            args = ['git', *_NO_AUTO_MAINTENANCE, *args[1:]]
         p = subprocess.run(args, cwd=self.root, env=env, capture_output=True,
                            text=True, errors='replace', timeout=180,
-                           pass_fds=(() if self.fd is None else (self.fd,)))
+                           pass_fds=(() if self.fd is None or not lock else (self.fd,)))
         if p.returncode:
             raise UpdateError((p.stdout + p.stderr).strip() or f'Command stopped (exit {p.returncode}).')
         return p.stdout.strip()
+
+    def tidy(self):
+        """Git's own housekeeping, in the foreground and without the lock fd. Best effort."""
+        try:
+            self.command(['git', '-c', 'maintenance.autoDetach=false', '-c', 'gc.autoDetach=false',
+                          'maintenance', 'run', '--auto', '--quiet'], lock=False)
+        except Exception:  # noqa: BLE001 - old git without `maintenance`, a slow disk: skip
+            pass
 
     def git(self, *args):
         return self.command(['git', *args])
@@ -179,12 +209,18 @@ class Transaction:
         return rec
 
     @contextlib.contextmanager
-    def locked(self):
+    def locked(self, wait=None):
+        wait = self.lock_wait if wait is None else wait
         with (self.directory / 'phosphene-update.lock').open('a') as f:
-            try:
-                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError as exc:
-                raise Busy('Another update or dependency repair is still running. Wait for it to finish.') from exc
+            deadline = time.monotonic() + wait
+            while True:
+                try:
+                    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError as exc:
+                    if time.monotonic() >= deadline:
+                        raise Busy('Another update or dependency repair is still running. Wait for it to finish.') from exc
+                    time.sleep(0.5)
             self.fd = f.fileno()
             try:
                 yield
@@ -205,22 +241,28 @@ class Transaction:
 
     def prepare(self):
         with self.locked():
-            rec = self.read()
-            if rec and rec['phase'] not in ('succeeded', 'current'):
-                return self._resume_source(rec)
-            if rec.get('phase') == 'succeeded':
-                self.clean()
-                self.fetch_upstream(rec['upstream'])
-                if (self.git('rev-parse', 'HEAD') == rec['candidate']
-                        and self.git('rev-parse', rec['upstream'] + '^{commit}') == rec['candidate']):
-                    return rec
-            old = self.git('rev-parse', 'HEAD')
-            upstream = self.git('rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}')
-            rec = dict(schema=1, id=uuid.uuid4().hex, previous=old,
-                       previous_ref='', candidate='', upstream=upstream,
-                       phase='fetching', dependencies_started=False)
-            self.save(rec)
+            try:
+                return self._prepare()
+            finally:
+                self.tidy()
+
+    def _prepare(self):
+        rec = self.read()
+        if rec and rec['phase'] not in ('succeeded', 'current'):
             return self._resume_source(rec)
+        if rec.get('phase') == 'succeeded':
+            self.clean()
+            self.fetch_upstream(rec['upstream'])
+            if (self.git('rev-parse', 'HEAD') == rec['candidate']
+                    and self.git('rev-parse', rec['upstream'] + '^{commit}') == rec['candidate']):
+                return rec
+        old = self.git('rev-parse', 'HEAD')
+        upstream = self.git('rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}')
+        rec = dict(schema=1, id=uuid.uuid4().hex, previous=old,
+                   previous_ref='', candidate='', upstream=upstream,
+                   phase='fetching', dependencies_started=False)
+        self.save(rec)
+        return self._resume_source(rec)
 
     def _resume_source(self, rec):
         phase = rec['phase']
@@ -281,6 +323,11 @@ class Transaction:
                     raise UpdateError('scripts/post_update.sh is missing.')
                 # Child holds the lock if the updater dies. Incomplete repair
                 # reruns on retry; completed repair is never run twice.
+                # Its git (the engine checkout) keeps housekeeping in the foreground: a
+                # detached `git maintenance` would carry the lock past the repair.
+                env = dict(os.environ if env is None else env)
+                env['GIT_CONFIG_PARAMETERS'] = (env.get('GIT_CONFIG_PARAMETERS', '') + " "
+                                                + _GIT_NO_DETACH).strip()
                 with subprocess.Popen(['bash', str(script), str(self.root)],
                                       cwd=self.root, env=env, stdin=subprocess.DEVNULL,
                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -329,7 +376,8 @@ class Transaction:
 
     def acknowledge(self, boot_sha):
         """Called only by a candidate that bound its HTTP listener."""
-        with self.locked():
+        # Runs during panel boot: wait a little, never the full lock_wait.
+        with self.locked(wait=min(self.lock_wait, 5.0)):
             rec = self.read()
             if (rec.get('phase') in ('awaiting_restart', 'restart_requested')
                     and boot_sha == rec.get('candidate')
@@ -346,7 +394,7 @@ class Transaction:
         done = phase in ('awaiting_restart', 'restart_requested', 'succeeded')
         active = False
         try:
-            with self.locked():
+            with self.locked(wait=0):
                 pass
         except Busy:
             active = True

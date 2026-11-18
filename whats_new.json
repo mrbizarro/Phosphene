@@ -2126,5 +2126,69 @@
         "pro": []
       }
     }
+  },
+  "5.0.57": {
+    "free": [
+      "Pinokio: one press of Update is enough again, it no longer stops halfway. This starts with your next update: if this one still stops, press Update again."
+    ],
+    "pro": [],
+    "date": "2026-11-18",
+    "headline": "Pressing Update once is enough again.",
+    "i18n": {
+      "de": {
+        "headline": "Einmal Update drücken reicht wieder.",
+        "free": [
+          "Pinokio: Einmal Update drücken reicht wieder, es bleibt nicht mehr mittendrin stehen. Das gilt ab dem nächsten Update: Hält dieses noch an, drück Update noch einmal."
+        ]
+      },
+      "es": {
+        "headline": "Vuelve a bastar con pulsar Update una vez.",
+        "free": [
+          "Pinokio: vuelve a bastar con pulsar Update una vez, ya no se detiene a medias. Vale desde tu próxima actualización: si esta aún se detiene, pulsa Update otra vez."
+        ]
+      },
+      "fr": {
+        "headline": "Appuyer une fois sur Update suffit de nouveau.",
+        "free": [
+          "Pinokio : un seul appui sur Update suffit, il ne s'arrête plus à mi-chemin. Valable dès la prochaine mise à jour : si celle-ci s'arrête encore, réappuyez sur Update."
+        ]
+      },
+      "it": {
+        "headline": "Premere Update una volta torna a bastare.",
+        "free": [
+          "Pinokio: premere Update una volta torna a bastare, non si ferma più a metà. Vale dal prossimo aggiornamento: se questo si ferma ancora, premi di nuovo Update."
+        ]
+      },
+      "ja": {
+        "headline": "Update は一度押すだけでよくなりました。",
+        "free": [
+          "Pinokio：Update は一度押すだけでよくなり、途中で止まらなくなりました。次回の更新から有効です。今回まだ止まった場合は、もう一度 Update を押してください。"
+        ]
+      },
+      "ko": {
+        "headline": "Update는 다시 한 번만 누르면 돼요.",
+        "free": [
+          "Pinokio: Update는 다시 한 번만 누르면 되고, 더 이상 중간에 멈추지 않아요. 다음 업데이트부터 적용돼요. 이번에 아직 멈추면 Update를 한 번 더 누르세요."
+        ]
+      },
+      "pt": {
+        "headline": "Pressionar Update uma vez volta a bastar.",
+        "free": [
+          "Pinokio: pressionar Update uma vez volta a bastar, ele não para mais no meio. Vale a partir da próxima atualização: se esta ainda parar, pressione Update de novo."
+        ]
+      },
+      "ru": {
+        "headline": "Снова достаточно нажать Update один раз.",
+        "free": [
+          "Pinokio: снова хватает одного нажатия Update, обновление не встаёт на полпути. Работает со следующего обновления: если это ещё встанет, нажмите Update снова."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "按一次 Update 又够了。",
+        "free": [
+          "Pinokio：按一次 Update 又够了，不会再中途停下。从下一次更新开始生效：如果这次仍然停下，请再按一次 Update。"
+        ]
+      }
+    }
   }
 }
