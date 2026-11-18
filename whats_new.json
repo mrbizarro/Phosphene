@@ -1949,5 +1949,99 @@
         ]
       }
     }
+  },
+  "5.0.55": {
+    "free": [
+      "First-time setup in the Mac app now downloads from GitHub and Hugging Face first, with our own server as the backup.",
+      "If setup stops, the Mac app now tells you what to press (Resume setup or Support) instead of showing log lines.",
+      "After an update, the Mac app removes old versions it no longer needs, so they stop filling your disk.",
+      "The Mac app's update checks now use almost no data when nothing has changed."
+    ],
+    "pro": [],
+    "date": "2026-11-18",
+    "headline": "Mac app: setup says what to do when it stops, and old versions no longer fill your disk.",
+    "i18n": {
+      "de": {
+        "headline": "Mac-App: Die Einrichtung sagt dir, was zu tun ist, wenn sie anhält, und alte Versionen füllen deine Festplatte nicht mehr.",
+        "free": [
+          "Die erste Einrichtung der Mac-App lädt jetzt zuerst von GitHub und Hugging Face, unser eigener Server springt nur ein, wenn nötig.",
+          "Hält die Einrichtung an, sagt dir die Mac-App jetzt, was du drücken sollst (Einrichtung fortsetzen oder Support), statt Protokollzeilen zu zeigen.",
+          "Nach einem Update entfernt die Mac-App alte Versionen, die sie nicht mehr braucht, damit sie deine Festplatte nicht mehr füllen.",
+          "Die Update-Prüfungen der Mac-App verbrauchen jetzt fast keine Daten, wenn sich nichts geändert hat."
+        ]
+      },
+      "es": {
+        "headline": "App para Mac: la configuración te dice qué hacer cuando se detiene, y las versiones antiguas ya no llenan tu disco.",
+        "free": [
+          "La primera configuración de la app para Mac ahora descarga primero desde GitHub y Hugging Face, con nuestro propio servidor como respaldo.",
+          "Si la configuración se detiene, la app para Mac ahora te dice qué pulsar (Reanudar configuración o Soporte) en lugar de mostrar líneas de registro.",
+          "Después de una actualización, la app para Mac elimina las versiones antiguas que ya no necesita, para que dejen de llenar tu disco.",
+          "Las comprobaciones de actualizaciones de la app para Mac ahora casi no usan datos cuando no ha cambiado nada."
+        ]
+      },
+      "fr": {
+        "headline": "App Mac : l'installation vous dit quoi faire quand elle s'arrête, et les anciennes versions ne remplissent plus votre disque.",
+        "free": [
+          "La première installation de l'app Mac télécharge désormais d'abord depuis GitHub et Hugging Face, avec notre propre serveur en secours.",
+          "Si l'installation s'arrête, l'app Mac vous indique désormais sur quoi appuyer (Reprendre l'installation ou Support) au lieu d'afficher des lignes de journal.",
+          "Après une mise à jour, l'app Mac supprime les anciennes versions dont elle n'a plus besoin, pour qu'elles ne remplissent plus votre disque.",
+          "Les vérifications de mise à jour de l'app Mac n'utilisent presque plus de données quand rien n'a changé."
+        ]
+      },
+      "it": {
+        "headline": "App per Mac: la configurazione ti dice cosa fare quando si ferma, e le vecchie versioni non riempiono più il disco.",
+        "free": [
+          "La prima configurazione dell'app per Mac ora scarica prima da GitHub e Hugging Face, con il nostro server come riserva.",
+          "Se la configurazione si ferma, l'app per Mac ora ti dice cosa premere (Riprendi configurazione o Supporto) invece di mostrare righe di log.",
+          "Dopo un aggiornamento, l'app per Mac rimuove le vecchie versioni che non le servono più, così non riempiono più il disco.",
+          "I controlli degli aggiornamenti dell'app per Mac ora non usano quasi dati quando non è cambiato nulla."
+        ]
+      },
+      "ja": {
+        "headline": "Mac アプリ：セットアップが止まったときに何をすればよいか表示し、古いバージョンがディスクを圧迫しなくなりました。",
+        "free": [
+          "Mac アプリの初回セットアップは、まず GitHub と Hugging Face からダウンロードし、私たちのサーバーは予備として使うようになりました。",
+          "セットアップが止まったとき、Mac アプリはログの行ではなく、押すボタン（セットアップを再開、またはサポート）を表示するようになりました。",
+          "アップデートのあと、Mac アプリは不要になった古いバージョンを削除するので、ディスクを圧迫しなくなりました。",
+          "何も変わっていないとき、Mac アプリのアップデート確認はほとんど通信量を使わなくなりました。"
+        ]
+      },
+      "ko": {
+        "headline": "Mac 앱: 설정이 멈추면 무엇을 해야 하는지 알려 주고, 오래된 버전이 더 이상 디스크를 채우지 않습니다.",
+        "free": [
+          "Mac 앱의 첫 설정이 이제 GitHub와 Hugging Face에서 먼저 다운로드하고, 저희 서버는 예비로만 사용합니다.",
+          "설정이 멈추면 Mac 앱이 이제 로그 줄 대신 눌러야 할 버튼(설정 재개 또는 지원)을 알려 줍니다.",
+          "업데이트 후 Mac 앱이 더 이상 필요 없는 오래된 버전을 지워서 디스크를 채우지 않습니다.",
+          "바뀐 것이 없을 때 Mac 앱의 업데이트 확인이 이제 데이터를 거의 쓰지 않습니다."
+        ]
+      },
+      "pt": {
+        "headline": "App para Mac: a configuração diz o que fazer quando para, e versões antigas não enchem mais o seu disco.",
+        "free": [
+          "A primeira configuração do app para Mac agora baixa primeiro do GitHub e do Hugging Face, com o nosso próprio servidor como reserva.",
+          "Se a configuração parar, o app para Mac agora diz o que tocar (Retomar configuração ou Suporte) em vez de mostrar linhas de registro.",
+          "Depois de uma atualização, o app para Mac remove versões antigas de que não precisa mais, para que não encham mais o seu disco.",
+          "As verificações de atualização do app para Mac agora quase não usam dados quando nada mudou."
+        ]
+      },
+      "ru": {
+        "headline": "Приложение для Mac: настройка подсказывает, что делать, если она остановилась, а старые версии больше не занимают диск.",
+        "free": [
+          "Первая настройка приложения для Mac теперь сначала скачивает с GitHub и Hugging Face, а наш собственный сервер служит запасным.",
+          "Если настройка остановилась, приложение для Mac теперь подсказывает, что нажать («Продолжить настройку» или «Поддержка»), вместо строк журнала.",
+          "После обновления приложение для Mac удаляет старые версии, которые ему больше не нужны, и они больше не занимают диск.",
+          "Проверки обновлений в приложении для Mac теперь почти не тратят трафик, когда ничего не изменилось."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "Mac 应用：设置中断时会告诉你该怎么做，旧版本也不再占满你的磁盘。",
+        "free": [
+          "Mac 应用的首次设置现在优先从 GitHub 和 Hugging Face 下载，我们自己的服务器作为备用。",
+          "如果设置中断，Mac 应用现在会告诉你该按哪个按钮（继续设置或支持），而不是显示日志行。",
+          "更新之后，Mac 应用会删除不再需要的旧版本，不再占满你的磁盘。",
+          "没有任何变化时，Mac 应用的更新检查现在几乎不消耗流量。"
+        ]
+      }
+    }
   }
 }
