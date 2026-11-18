@@ -7,6 +7,9 @@ panel/__init__.py for why P is assigned rather than imported.
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 import threading
 from urllib.parse import parse_qs
 
@@ -16,6 +19,47 @@ P = None  # the running mlx_ltx_panel module; assigned at wiring time
 
 # SAFETY-7: one recovery join at a time owns STATE["take_join_pgid"].
 _TAKE_JOIN_LOCK = threading.Lock()
+
+
+# ---- /status: send only what changed (L144) --------------------------------
+# The Studio page asks for /status every 1.5 s and the answer carries the whole
+# job history, log, gallery and model lists (~350 KB on a busy Mac). A page that
+# asks `?delta=1` gets a short tag per top-level key with its answer, and on the
+# next ask sends the tags back (`have=key:tag,key:tag`); keys whose tag still
+# matches are left out. A caller that sends nothing (the shipped Mac app, old
+# pages, scripts) gets exactly the answer it always got: no new field, no
+# missing key.
+_HAVE_PAIR = re.compile(r"^[A-Za-z0-9_]{1,64}:[0-9a-f]{10}$")
+
+
+def status_key_tags(payload: dict) -> dict:
+    """One short content tag per top-level key of the /status payload."""
+    tags = {}
+    for key, value in payload.items():
+        blob = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+        tags[key] = hashlib.blake2b(blob.encode(), digest_size=5).hexdigest()
+    return tags
+
+
+def parse_status_have(raw: str) -> dict:
+    """`have=key:tag,key:tag` -> {key: tag}. Anything malformed is ignored (the
+    caller then simply gets that key again)."""
+    have = {}
+    for pair in (raw or "").split(","):
+        if _HAVE_PAIR.match(pair):
+            key, tag = pair.split(":")
+            have[key] = tag
+    return have
+
+
+def status_delta_reply(payload: dict, have: dict) -> dict:
+    """The payload with every key the caller already holds left out, plus
+    `_delta: {"h": {key: tag}}` listing every key now present (so a key that
+    disappeared is dropped by the caller too)."""
+    tags = status_key_tags(payload)
+    out = {k: v for k, v in payload.items() if have.get(k) != tags[k]}
+    out["_delta"] = {"h": tags}
+    return out
 
 
 @get("/status")
@@ -362,6 +406,8 @@ def get_status(h, parsed) -> None:
     # `settings.models_card_dismissed` on each /status tick to know
     # whether to keep the inline models card hidden.
     payload["settings"] = P.get_settings_public()
+    if qs.get("delta", ["0"])[0] == "1":
+        payload = status_delta_reply(payload, parse_status_have(qs.get("have", [""])[0]))
     h._json(payload)
 
 

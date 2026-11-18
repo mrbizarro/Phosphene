@@ -3636,6 +3636,28 @@ function playDoneChime(failed) {
 
 let _pollRequestSerial = 0;
 let _pollAppliedSerial = 0;
+// L144: /status?delta=1 leaves out every key whose tag we already hold. The
+// tags and the answer they describe are kept together (_STATUS_BASE /
+// _STATUS_TAGS) and a poll merges against the pair it was ASKED with, so two
+// polls in flight at once cannot mix up which copy an omitted key refers to.
+let _STATUS_BASE = null;
+let _STATUS_TAGS = null;
+function statusHaveParam(tags) {
+  return Object.keys(tags).map(k => k + ':' + tags[k]).join(',');
+}
+// An ordinary full answer (older server, or no `_delta`) comes back as is.
+// Returns null when a key was left out that we do not hold: ask again in full.
+function mergeStatusDelta(base, resp) {
+  const d = resp && resp._delta;
+  if (!d || !d.h) return resp;
+  const out = {};
+  for (const k of Object.keys(d.h)) {
+    if (k in resp) out[k] = resp[k];
+    else if (base && k in base) out[k] = base[k];
+    else return null;
+  }
+  return out;
+}
 async function poll() {
   const requestSerial = ++_pollRequestSerial;
   // Reflect HDR-vs-character mutual exclusion every poll cycle. character_id
@@ -3647,11 +3669,18 @@ async function poll() {
     try { _applyHdrPillAvailability(); } catch (_) {}
   }
   let s;
-  const url = '/status' + (filterMode === 'hidden' ? '?include_hidden=1' : '');
+  const reqBase = _STATUS_BASE, reqTags = _STATUS_TAGS;
+  const url = '/status?delta=1' + (filterMode === 'hidden' ? '&include_hidden=1' : '')
+    + (reqBase && reqTags ? '&have=' + statusHaveParam(reqTags) : '');
   try {
     s = await (await fetch(url)).json();
     // A slow older poll must not restore a completed job or its old preview.
     if (requestSerial < _pollAppliedSerial) return;
+    const tags = s && s._delta && s._delta.h;
+    s = mergeStatusDelta(reqBase, s);
+    if (s === null) { _STATUS_BASE = null; _STATUS_TAGS = null; return; }
+    _STATUS_BASE = tags ? s : null;
+    _STATUS_TAGS = tags || null;
     _pollAppliedSerial = requestSerial;
     notifyJobsDone(s);
     if (typeof starCardPoll === 'function') { try { starCardPoll(s); } catch (_) {} }
