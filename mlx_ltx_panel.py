@@ -26356,9 +26356,15 @@ def _ensure_downscaled(src: Path, max_dim: int = 768, align: int = 32) -> Path:
     than pad on purpose: pillar/letterbox bars would become in-frame
     content that the model is then asked to continue."""
     src_w, src_h = _probe_video_dims(str(src))
-    if not src_w or not src_h or max(src_w, src_h) <= max_dim:
+    if not src_w or not src_h:
         return src
-    scale = max_dim / max(src_w, src_h)
+    # H33: a source already under max_dim (or max_dim=0, no clamp) still has
+    # to sit on the `align` grid -- a 360-px-wide clip reached the VAE as is
+    # and failed "Cannot reshape array of size ...". Crop it onto the grid.
+    on_grid = src_w % align == 0 and src_h % align == 0
+    if on_grid and (not max_dim or max(src_w, src_h) <= max_dim):
+        return src
+    scale = min(1.0, max_dim / max(src_w, src_h)) if max_dim else 1.0
     new_w = max(align, (int(round(src_w * scale)) // align) * align)
     new_h = max(align, (int(round(src_h * scale)) // align) * align)
     cached = src.parent / f"{src.stem}_dn{new_w}x{new_h}.mp4"
@@ -46455,14 +46461,13 @@ def run_job_inner(job: dict) -> None:
         # repeated extends on the same source skip the re-encode.
         original_src = Path(src)
         ext_max = tier_max_dim("extend")
-        if ext_max:
-            downscaled_src = _ensure_downscaled(original_src, max_dim=ext_max)
-            if downscaled_src != original_src:
-                push(f"Extend: source {original_src.name} downscaled to "
-                     f"{downscaled_src.name} (≤{ext_max} max-side, "
-                     f"{SYSTEM_CAPS['label']} tier).")
-                src = str(downscaled_src)
-        else:
+        downscaled_src = _ensure_downscaled(original_src, max_dim=ext_max or 0)
+        if downscaled_src != original_src:
+            push(f"Extend: source {original_src.name} resized to "
+                 f"{downscaled_src.name} (≤{ext_max or 'no'} max-side, "
+                 f"multiple of 32, {SYSTEM_CAPS['label']} tier).")
+            src = str(downscaled_src)
+        elif not ext_max:
             push(f"Extend: no resolution clamp ({SYSTEM_CAPS['label']} tier).")
         out_name = Path(src).stem + f"_ext{p['extend_frames']}_{stamp}.mp4"
         final_out = OUTPUT / out_name
@@ -49944,6 +49949,14 @@ def _build_image_engine_config(
             mflux_guidance=1.0, mflux_preset=None,
             mflux_lora_paths=[], mflux_lora_scales=[], mflux_python_path="",
         )
+    if engine_override == "mflux" or engine_override in agent_image_engine.MFLUX_FAMILY_BIN:
+        # H32: a bare backend or family name ("mflux", "flux2_edit",
+        # "qwen_edit", "z_image_turbo" - the removed chat agent's names and
+        # the old API.md example) is not a shorthand. Run the person's saved
+        # image engine instead of failing the job.
+        push(f"[image] '{engine_override}' is not an engine shorthand; "
+             f"using the image engine saved in Settings")
+        return low_ram_auto_image_config(_load_agent_image_config(), form)
     raise ValueError(f"unknown engine_override: {engine_override!r}")
 
 

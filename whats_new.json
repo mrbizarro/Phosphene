@@ -2190,5 +2190,69 @@
         ]
       }
     }
+  },
+  "5.0.58": {
+    "free": [
+      "Extend now works on phone clips and videos of an unusual size (like 360×640): it trims a few pixels off the edge instead of stopping with an error."
+    ],
+    "pro": [],
+    "date": "2026-11-18",
+    "headline": "Extend works on phone clips again.",
+    "i18n": {
+      "de": {
+        "headline": "Extend funktioniert wieder mit Handy-Clips.",
+        "free": [
+          "Extend funktioniert jetzt mit Handy-Clips und Videos ungewöhnlicher Größe (etwa 360×640): Es schneidet ein paar Pixel am Rand ab, statt mit einem Fehler anzuhalten."
+        ]
+      },
+      "es": {
+        "headline": "Extend vuelve a funcionar con clips del móvil.",
+        "free": [
+          "Extend ahora funciona con clips del móvil y vídeos de tamaño poco habitual (como 360×640): recorta unos píxeles del borde en vez de pararse con un error."
+        ]
+      },
+      "fr": {
+        "headline": "Extend fonctionne de nouveau avec les clips de téléphone.",
+        "free": [
+          "Extend marche avec les clips de téléphone et les vidéos de taille inhabituelle (comme 360×640) : il rogne quelques pixels au bord au lieu de s'arrêter sur une erreur."
+        ]
+      },
+      "it": {
+        "headline": "Extend torna a funzionare con le clip del telefono.",
+        "free": [
+          "Extend ora funziona con le clip del telefono e i video di dimensioni insolite (come 360×640): taglia qualche pixel dal bordo invece di fermarsi con un errore."
+        ]
+      },
+      "ja": {
+        "headline": "Extend がスマホの動画でも使えるようになりました。",
+        "free": [
+          "Extend がスマホの動画や少し変わったサイズの動画（例：360×640）でも使えます。エラーで止まらず、端を数ピクセル切り取ります。"
+        ]
+      },
+      "ko": {
+        "headline": "Extend가 휴대폰 영상에서도 다시 돼요.",
+        "free": [
+          "Extend가 휴대폰 영상이나 크기가 특이한 영상(예: 360×640)에서도 돼요. 오류로 멈추지 않고 가장자리를 몇 픽셀 잘라 내요."
+        ]
+      },
+      "pt": {
+        "headline": "Extend volta a funcionar com vídeos do celular.",
+        "free": [
+          "Extend agora funciona com vídeos do celular e de tamanho incomum (como 360×640): corta alguns pixels da borda em vez de parar com um erro."
+        ]
+      },
+      "ru": {
+        "headline": "Extend снова работает с роликами с телефона.",
+        "free": [
+          "Extend теперь работает с роликами с телефона и видео необычного размера (например, 360×640): обрезает пару пикселей по краю, а не останавливается с ошибкой."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "Extend 又能用于手机视频了。",
+        "free": [
+          "Extend 现在可以用于手机视频和尺寸不常见的视频（例如 360×640）：会裁掉边缘几个像素，不再报错停下。"
+        ]
+      }
+    }
   }
 }

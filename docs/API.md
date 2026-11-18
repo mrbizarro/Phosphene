@@ -719,7 +719,7 @@ Generates still images via the bundled image engine (mflux, BFL, mock backend). 
 {
   "prompt": "...",
   "n": 4,
-  "engine_override": "mflux",
+  "engine_override": "auto",
   "aspect": "1:1",
   "refs": ["/path/to/ref.png"],
   "loras": [{"path": "...", "strength": 1.0}]
