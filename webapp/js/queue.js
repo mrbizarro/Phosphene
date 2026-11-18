@@ -3347,6 +3347,18 @@ function friendlyJobError(raw, engine) {
       hint: distText(T('queue.install_or_repair_it_from', 'Install or repair it from the Phosphene sidebar in Pinokio. Everything else in the panel is unaffected.'),
                      T('queue.use_install_music_engine_or', 'Use Install music engine or Repair music engine in Audio \u2192 Compose. Everything else in the studio is unaffected.')) };
   }
+  // Fleet 18 Nov 2026: Metal ran out of memory during a Hailuo H3 render
+  // (16 GB Macs on 10-15 s clips). The server says it in English
+  // (h3_metal_oom_message); older Studios sent the raw Metal line.
+  if (/Hailuo H3 ran out of memory/i.test(raw)
+      || (engine === 'h3' && /insufficient memory|commandbuffercallbackerroroutofmemory/i.test(raw))) {
+    return {
+      friendly: T('queue.your_mac_ran_out_of', 'Your Mac ran out of memory.'),
+      hint: T('queue.h3_oom_hint', 'Make a shorter clip (5 s) or pick a lower setting such as Draft, and quit other apps before you retry.'),
+      details: _redactLocalPaths(raw) || raw,
+      docsAnchor: 'memory',
+    };
+  }
   const rawLower = String(raw).toLowerCase();
   // SYS-07: these two are the #1 and #3 fleet failures (54 + 23 installs in
   // 30 days) and the message used to ask for a crashlog/bug report instead

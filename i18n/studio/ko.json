@@ -5125,7 +5125,9 @@
   "yourProModal.close": "닫기",
   "yourProModal.title.close": "닫기",
   "yourProModal.your_licence": "내 라이선스",
-  "yourProTitle.your_pro": "내 Pro"
+  "yourProTitle.your_pro": "내 Pro",
+  "engines.h3_long_needs_more_memory": "이 {gb}GB Mac에서는 Hailuo H3로 최대 5초 클립을 만들 수 있어요. 더 긴 클립은 메모리가 부족하니 5초 클립을 만들어 주세요.",
+  "queue.h3_oom_hint": "더 짧은 클립(5초)을 만들거나 초안 같은 낮은 설정을 고르고, 다른 앱을 종료한 뒤 다시 시도해 주세요."
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -10216,7 +10218,9 @@
   "yourProModal.close": "771bd90492",
   "yourProModal.title.close": "771bd90492",
   "yourProModal.your_licence": "f77c5fa000",
-  "yourProTitle.your_pro": "41115201f8"
+  "yourProTitle.your_pro": "41115201f8",
+  "engines.h3_long_needs_more_memory": "c572da121b",
+  "queue.h3_oom_hint": "e2de8bb844"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "21666252b0",

@@ -2350,7 +2350,7 @@ function _tierChipHtml(engine, kind, item, cell, active) {
   const title = flexLocked ? H3_FLEX_CELL_TIP
     : ok
     ? basis
-    : (cell && cell.unavailable_reason) || 'Not available on this install.';
+    : cellUnavailableReason(cell) || 'Not available on this install.';
   const attr = (kind === 'quality') ? (E.qAttr || `${engine}-quality`)
                                     : (E.lAttr || `${engine}-length`);
   return `
@@ -2704,6 +2704,20 @@ function _h3FallbackCell(cell) {
 //     so it degrades along the same path make_job would take and says so.
 // Either way make_job re-runs the gate server-side, because a stale tab must
 // never win.
+// Fleet 18 Nov 2026: a 16 GB Mac is offered Hailuo H3 up to 5 s (longer clips
+// ran out of memory on every one). The server's reason is English; this one
+// reason has a code so it shows in the user's language.
+function cellUnavailableReason(cell) {
+  if (!cell) return '';
+  if (cell.unavailable_code === 'ram_long') {
+    const gb = Math.round(Number(cell.unavailable_gb) || 0) || 16;
+    return T('engines.h3_long_needs_more_memory',
+      'On this {gb} GB Mac, Hailuo H3 makes clips up to 5 s. Longer clips run out of memory here, so make a 5 s clip.',
+      {gb});
+  }
+  return cell.unavailable_reason || '';
+}
+
 function _h3ApplyShape(qualityKey, lengthKey, opts) {
   opts = opts || {};
   let cell = h3CellFor(qualityKey, lengthKey);
@@ -2712,7 +2726,7 @@ function _h3ApplyShape(qualityKey, lengthKey, opts) {
   if (!cell) return;
   if (cell.available === false) {
     const note = document.getElementById('engineRowNote');
-    const reason = cell.unavailable_reason || '';
+    const reason = cellUnavailableReason(cell);
     if (!opts.fallback) {
       if (note) { note.textContent = reason; note.hidden = !reason; }
       // Re-render so the click leaves the strips exactly as they were.

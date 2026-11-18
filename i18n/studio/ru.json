@@ -5173,7 +5173,9 @@
   "yourProModal.close": "Закрыть",
   "yourProModal.title.close": "Закрыть",
   "yourProModal.your_licence": "Ваша лицензия",
-  "yourProTitle.your_pro": "Ваш Pro"
+  "yourProTitle.your_pro": "Ваш Pro",
+  "engines.h3_long_needs_more_memory": "На этом Mac с {gb} ГБ Hailuo H3 делает клипы до 5 с. Для более длинных клипов здесь не хватает памяти, поэтому сделайте клип на 5 с.",
+  "queue.h3_oom_hint": "Сделайте клип короче (5 с) или выберите более лёгкую настройку, например «Черновик», и закройте другие приложения перед повтором."
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -10264,7 +10266,9 @@
   "yourProModal.close": "771bd90492",
   "yourProModal.title.close": "771bd90492",
   "yourProModal.your_licence": "f77c5fa000",
-  "yourProTitle.your_pro": "41115201f8"
+  "yourProTitle.your_pro": "41115201f8",
+  "engines.h3_long_needs_more_memory": "c572da121b",
+  "queue.h3_oom_hint": "e2de8bb844"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "2997d999fb",

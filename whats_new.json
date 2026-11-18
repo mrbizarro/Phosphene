@@ -1801,5 +1801,79 @@
   "5.0.52": {
     "silent": true,
     "date": "2026-11-18"
+  },
+  "5.0.53": {
+    "free": [
+      "On a Mac with 16 GB, Hailuo H3 offers clips up to 5 s. The 10 s and 15 s choices are greyed out with a short reason, so a long clip no longer stops halfway.",
+      "If a Hailuo H3 clip runs out of memory, Phosphene now tells you what to try: a 5 s clip, a lower setting such as Draft, and quitting other apps."
+    ],
+    "pro": [],
+    "date": "2026-11-18",
+    "headline": "On Macs with 16 GB, Hailuo H3 clips now finish: lengths up to 5 s, and a plain note if memory runs out.",
+    "i18n": {
+      "de": {
+        "headline": "Auf Macs mit 16 GB werden Hailuo-H3-Clips jetzt fertig: Längen bis 5 s und ein klarer Hinweis, wenn der Speicher nicht reicht.",
+        "free": [
+          "Auf einem Mac mit 16 GB bietet Hailuo H3 Clips bis 5 s an. Die Längen 10 s und 15 s sind ausgegraut, mit einem kurzen Grund, damit ein langer Clip nicht mehr mittendrin abbricht.",
+          "Reicht der Speicher für einen Hailuo-H3-Clip nicht, sagt Phosphene jetzt, was du versuchen kannst: einen 5-s-Clip, eine niedrigere Stufe wie Entwurf und andere Apps beenden."
+        ]
+      },
+      "es": {
+        "headline": "En Macs con 16 GB, los clips de Hailuo H3 ahora terminan: duraciones de hasta 5 s y un aviso claro si se acaba la memoria.",
+        "free": [
+          "En un Mac con 16 GB, Hailuo H3 ofrece clips de hasta 5 s. Las opciones de 10 s y 15 s aparecen en gris con un motivo breve, así un clip largo ya no se detiene a mitad.",
+          "Si un clip de Hailuo H3 se queda sin memoria, Phosphene te dice qué probar: un clip de 5 s, un ajuste más bajo como Borrador y cerrar otras apps."
+        ]
+      },
+      "fr": {
+        "headline": "Sur les Mac de 16 Go, les clips Hailuo H3 vont désormais au bout : jusqu'à 5 s, et un message clair si la mémoire manque.",
+        "free": [
+          "Sur un Mac de 16 Go, Hailuo H3 propose des clips jusqu'à 5 s. Les durées 10 s et 15 s sont grisées avec une courte raison, pour qu'un long clip ne s'arrête plus en route.",
+          "Si un clip Hailuo H3 manque de mémoire, Phosphene vous dit quoi essayer : un clip de 5 s, un réglage plus léger comme Brouillon, et quitter les autres apps."
+        ]
+      },
+      "it": {
+        "headline": "Sui Mac con 16 GB i clip Hailuo H3 ora arrivano alla fine: durate fino a 5 s e un avviso chiaro se la memoria finisce.",
+        "free": [
+          "Su un Mac con 16 GB, Hailuo H3 offre clip fino a 5 s. Le durate di 10 s e 15 s sono in grigio con un breve motivo, così un clip lungo non si ferma più a metà.",
+          "Se un clip Hailuo H3 esaurisce la memoria, Phosphene ti dice cosa provare: un clip di 5 s, un'impostazione più leggera come Bozza e chiudere le altre app."
+        ]
+      },
+      "ja": {
+        "headline": "16 GB の Mac で Hailuo H3 のクリップが最後まで仕上がるようになりました。長さは 5 秒まで、メモリが足りないときはわかりやすくお知らせします。",
+        "free": [
+          "16 GB の Mac では、Hailuo H3 のクリップは 5 秒までになります。10 秒と 15 秒は理由つきでグレー表示になり、長いクリップが途中で止まることはなくなります。",
+          "Hailuo H3 のクリップでメモリが足りなくなったら、試すことをお知らせします。5 秒のクリップにする、下書きなど軽い設定を選ぶ、ほかのアプリを終了する、の 3 つです。"
+        ]
+      },
+      "ko": {
+        "headline": "16 GB Mac에서 Hailuo H3 클립이 이제 끝까지 완성됩니다. 길이는 5초까지, 메모리가 부족하면 쉽게 알려 줍니다.",
+        "free": [
+          "16 GB Mac에서는 Hailuo H3 클립을 5초까지 만들 수 있습니다. 10초와 15초는 짧은 이유와 함께 회색으로 표시되어, 긴 클립이 중간에 멈추지 않습니다.",
+          "Hailuo H3 클립의 메모리가 부족하면 Phosphene이 해 볼 방법을 알려 줍니다. 5초 클립, 초안 같은 낮은 설정, 다른 앱 종료입니다."
+        ]
+      },
+      "pt": {
+        "headline": "Em Macs com 16 GB, os clipes do Hailuo H3 agora chegam ao fim: até 5 s e um aviso claro se a memória acabar.",
+        "free": [
+          "Em um Mac com 16 GB, o Hailuo H3 oferece clipes de até 5 s. As opções de 10 s e 15 s ficam em cinza com um motivo curto, para que um clipe longo não pare no meio.",
+          "Se um clipe do Hailuo H3 ficar sem memória, o Phosphene diz o que tentar: um clipe de 5 s, uma configuração mais leve como Rascunho e fechar outros apps."
+        ]
+      },
+      "ru": {
+        "headline": "На Mac с 16 ГБ клипы Hailuo H3 теперь доходят до конца: длина до 5 с и понятная подсказка, если не хватает памяти.",
+        "free": [
+          "На Mac с 16 ГБ Hailuo H3 предлагает клипы до 5 с. Варианты 10 с и 15 с показаны серым с короткой причиной, чтобы длинный клип больше не обрывался на середине.",
+          "Если клипу Hailuo H3 не хватает памяти, Phosphene подскажет, что попробовать: клип на 5 с, режим попроще, например Черновик, и закрыть другие приложения."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "16 GB 的 Mac 上，Hailuo H3 片段现在能顺利做完：时长最多 5 秒，内存不够时会清楚告诉你。",
+        "free": [
+          "在 16 GB 的 Mac 上，Hailuo H3 提供最长 5 秒的片段。10 秒和 15 秒会变灰并附上简短原因，长片段不会再中途停下。",
+          "如果 Hailuo H3 片段内存不够，Phosphene 会告诉你可以试什么：做 5 秒的片段、选草稿这类更轻的设置，并退出其他应用。"
+        ]
+      }
+    }
   }
 }

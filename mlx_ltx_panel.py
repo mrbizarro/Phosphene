@@ -11268,6 +11268,27 @@ def h3_watchdog_line(lines) -> bool:
     return any(_H3_WATCHDOG_RX.search(str(ln) or "") for ln in (lines or ()))
 
 
+_H3_METAL_OOM_RX = re.compile(
+    r"Insufficient Memory|kIOGPUCommandBufferCallbackErrorOutOfMemory",
+    re.IGNORECASE)
+
+
+def h3_metal_oom_line(lines) -> bool:
+    """Did the H3 runner's output say Metal ran out of GPU memory?"""
+    return any(_H3_METAL_OOM_RX.search(str(ln) or "") for ln in (lines or ()))
+
+
+def h3_metal_oom_message(frames: int | None = None) -> str:
+    """The plain sentence for an H3 render Metal stopped for lack of memory.
+    Keeps "the engine reported that it ran out of memory" (the metal_oom
+    analytics needle) and the H3 tag the page keys its translation on."""
+    longer = int(frames or 0) > 130          # longer than one 5 s window
+    return ("Hailuo H3 ran out of memory on this Mac (the engine reported that "
+            "it ran out of memory). "
+            + ("Make a shorter clip (5 s), " if longer else "Try a shorter clip, ")
+            + "or a lower setting such as Draft, and quit other apps before you retry.")
+
+
 def h3_watchdog_mark(now: float | None = None) -> None:
     with _METAL_WATCHDOG_LOCK:
         data = _metal_watchdog_load()
@@ -12274,6 +12295,35 @@ def h3_compose_tier(quality: str | None, length: str | None) -> str | None:
     return key if key in H3_TIERS else None
 
 
+# ---- Hailuo H3 longer than 5 s on a 16 GB Mac (fleet, 18 Nov 2026) ---------
+# "H3 render exited with code 1 — last line: RuntimeError: [METAL] Command
+# buffer execution failed: Insufficient Memory" was the fleet's biggest open
+# H3 failure. PostHog, 30 days to 18 Nov: on Macs under 18 GB (all 16 GB M4/M5,
+# Mac app 5.0.24-5.0.41) NOT ONE chained H3 clip (10 s or 15 s) finished - 0 of
+# 10, 7 of them Metal out-of-memory, the other three unclassified - while 5 s
+# clips finished 18 times on 8 Macs. An 18 GB Mac finished 7 of 7 chained clips
+# and 24 GB Macs 51 of 53. The low-memory plan streams the weights, but a
+# chained clip also holds the earlier windows' frames and sound while the next
+# window denoises, and 16 GB has no room for that (engine follow-up, not built).
+# So a 16 GB Mac is offered H3 up to 5 s: the 10 s / 15 s chips grey with this
+# sentence (h3_visible_tiers), and make_job falls back to the 5 s cell of the
+# same quality (h3_fallback_tier) - the canvas, steps and faces are untouched.
+H3_CHAIN_MIN_RAM_GB = 17.0
+H3_CHAIN_RAM_CODE = "ram_long"
+
+
+def h3_chain_fits_ram(ram_gb: float | None = None) -> bool:
+    """Whether this Mac has room for a chained (longer than 5 s) H3 clip."""
+    ram = float(SYSTEM_RAM_GB if ram_gb is None else ram_gb)
+    return ram <= 0 or ram >= H3_CHAIN_MIN_RAM_GB
+
+
+def h3_chain_ram_reason(ram_gb: float | None = None) -> str:
+    ram = float(SYSTEM_RAM_GB if ram_gb is None else ram_gb)
+    return (f"On this {int(round(ram))} GB Mac, Hailuo H3 makes clips up to 5 s. "
+            "Longer clips run out of memory here, so make a 5 s clip.")
+
+
 def h3_cell_gate(cell: dict) -> tuple[bool, str]:
     """Can THIS install render this cell right now, and if not, why not.
 
@@ -12281,6 +12331,10 @@ def h3_cell_gate(cell: dict) -> tuple[bool, str]:
     Returns (ok, reason) so the UI can grey a chip with a sentence and make_job
     can fall back with the same sentence in the log — one predicate, two
     consumers, no drift."""
+    if ((int(cell.get("chain_windows") or 1) > 1 or int(cell.get("frames") or 0) > 130)
+            and not h3_chain_fits_ram()):
+        # Chained 10 s / 15 s, and the single-pass 10 s (bigger still).
+        return (False, h3_chain_ram_reason())
     if int(cell.get("chain_windows") or 1) > 1 and not h3_supports_chain():
         return (False,
                 f"{cell['length_label']} renders as "
@@ -18989,6 +19043,10 @@ def h3_visible_tiers() -> list[dict]:
         t = dict(t)
         t["available"] = ok
         t["unavailable_reason"] = reason
+        # Lets the page show this one reason in the user's language.
+        if not ok and reason == h3_chain_ram_reason():
+            t["unavailable_code"] = H3_CHAIN_RAM_CODE
+            t["unavailable_gb"] = int(round(SYSTEM_RAM_GB))
         if not per_window and int(t.get("chain_windows") or 1) > 1:
             t["notes"] = [H3_TIER_CHAIN_NOTE_LEGACY
                           if n == H3_TIER_CHAIN_NOTE else n
@@ -44219,6 +44277,12 @@ def run_h3_job_inner(job: dict) -> None:
                 # The runner refused a broken render and said why (NaN/inf
                 # latents, blank decode) — that sentence IS the diagnosis.
                 raise RuntimeError(_runner_msg)
+            if h3_metal_oom_line(list(_h3_tail)):
+                # Fleet 18 Nov: Metal "Insufficient Memory" on 16 GB Macs making
+                # 10-15 s clips reached the user as the raw Metal line. Same
+                # needle the analytics class reads (metal_oom), plain words up
+                # front; the page translates it (friendlyJobError).
+                raise RuntimeError(h3_metal_oom_message(frames))
             if rc in (H3_EXIT_CANNOT, H3_EXIT_BUSY):
                 # Low-memory admission check (runner exit 76 = this Mac cannot make this clip,
                 # 77 = other apps are using the memory right now). Nothing was loaded; the

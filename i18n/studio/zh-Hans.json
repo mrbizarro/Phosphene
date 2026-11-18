@@ -5125,7 +5125,9 @@
   "yourProModal.close": "关闭",
   "yourProModal.title.close": "关闭",
   "yourProModal.your_licence": "你的许可证",
-  "yourProTitle.your_pro": "你的 Pro"
+  "yourProTitle.your_pro": "你的 Pro",
+  "engines.h3_long_needs_more_memory": "在这台 {gb} GB 的 Mac 上，Hailuo H3 最多生成 5 秒的片段。更长的片段在这里会内存不足，请生成 5 秒的片段。",
+  "queue.h3_oom_hint": "请生成更短的片段（5 秒）或选择更低的设置（如“草稿”），并在重试前退出其他应用。"
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -10216,7 +10218,9 @@
   "yourProModal.close": "771bd90492",
   "yourProModal.title.close": "771bd90492",
   "yourProModal.your_licence": "f77c5fa000",
-  "yourProTitle.your_pro": "41115201f8"
+  "yourProTitle.your_pro": "41115201f8",
+  "engines.h3_long_needs_more_memory": "c572da121b",
+  "queue.h3_oom_hint": "e2de8bb844"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "d6e72ae332",

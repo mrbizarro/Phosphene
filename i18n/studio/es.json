@@ -5158,7 +5158,9 @@
   "yourProModal.close": "Cerrar",
   "yourProModal.title.close": "Cerrar",
   "yourProModal.your_licence": "Tu licencia",
-  "yourProTitle.your_pro": "Tu Pro"
+  "yourProTitle.your_pro": "Tu Pro",
+  "engines.h3_long_needs_more_memory": "En este Mac de {gb} GB, Hailuo H3 crea clips de hasta 5 s. Los clips más largos se quedan sin memoria aquí, así que crea un clip de 5 s.",
+  "queue.h3_oom_hint": "Crea un clip más corto (5 s) o elige un ajuste más bajo como Borrador, y cierra otras apps antes de volver a intentarlo."
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -10250,7 +10252,9 @@
   "yourProModal.close": "771bd90492",
   "yourProModal.title.close": "771bd90492",
   "yourProModal.your_licence": "f77c5fa000",
-  "yourProTitle.your_pro": "41115201f8"
+  "yourProTitle.your_pro": "41115201f8",
+  "engines.h3_long_needs_more_memory": "c572da121b",
+  "queue.h3_oom_hint": "e2de8bb844"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "2fed24a3e7",
