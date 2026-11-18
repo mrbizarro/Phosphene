@@ -23,6 +23,7 @@ import math
 import os
 import re
 import shutil
+import signal
 import struct
 import subprocess
 import threading
@@ -37,6 +38,8 @@ ADAPTER_DIRNAME = "h3-ref2va"
 SOURCE_DIRNAME = "h3-ref2va-source"
 # 41.4 GB source + ~21 GB pack while the build runs, then the source goes.
 DISK_NEED_GB = 66.0
+# The adapter alone (the model already built): the download plus its re-laid copy, with room.
+ADAPTER_ONLY_NEED_GB = 2.8
 # Memory floor until a smaller Mac is measured: the reference pack is the 8-bit model (about 20 GB of
 # weights) and a 5 s Standard clip peaked at 27 GB on a 64 GB Mac (17 Nov 2026). The add-on may name
 # its own floor (`min_ram_gb`) once a 16/24 GB proof exists; the Studio never goes below what it names.
@@ -87,15 +90,20 @@ def plan(models_root, spec, free_gb=None, ram_gb=None) -> dict:
     keep_gb = float(spec.get("gb") or KEEP_GB_DEFAULT)
     have_gb = 0.0
     built = False
+    adapter_have = False
     if models_root is not None and spec_ok(spec):
         root = Path(models_root)
         built = pack_complete(root / PACK_DIRNAME)
+        adapter_have = adapter_ok(root / ADAPTER_DIRNAME / str(spec["adapter_file"]), spec)
         try:
             part = root / SOURCE_DIRNAME / str(spec["source"]["file"])
             have_gb = part.stat().st_size / 1e9 if part.is_file() else 0.0
         except OSError:
             have_gb = 0.0
-    need_gb = 1.0 if built else max(1.0, DISK_NEED_GB - have_gb)
+    # Only the adapter missing (the model is built): its download, the re-laid copy beside it while
+    # it converts, and some room (review 19 Nov: this said 1 GB).
+    need_gb = ((1.0 if adapter_have else ADAPTER_ONLY_NEED_GB) if built
+               else max(1.0, DISK_NEED_GB - have_gb))
     floor = min_ram_gb(spec)
     return {
         "download_gb": round(download_gb, 1), "keep_gb": round(keep_gb, 1),
@@ -157,6 +165,22 @@ def match_size(w: int, h: int, canvas_w: int, canvas_h: int) -> tuple[int, int]:
         raise ValueError(f"a reference picture must be within 1:4 and 4:1, got {w}x{h}")
     s = min(1.0, math.sqrt(canvas_w * canvas_h / float(w * h)))
     return max(32, round(w * s / 32) * 32), max(32, round(h * s / 32) * 32)
+
+
+def picture_shape_error(path, n: int) -> str:
+    """"" when picture n can be sized by match_size, else the plain sentence. Checked by the
+    worker before any model loads (review 19 Nov: a very wide picture used to fail minutes in,
+    inside the runner, with a ValueError)."""
+    try:
+        from PIL import Image, ImageOps
+        with Image.open(path) as im:
+            w, h = ImageOps.exif_transpose(im).size
+    except Exception:  # noqa: BLE001 - h3_reference_image_error owns "cannot be read"
+        return ""
+    if w <= 0 or h <= 0 or max(w, h) > 4 * min(w, h):
+        return (f"Picture {n} is too long and thin for References ({w}x{h}). Use a picture no more than "
+                "4 times wider than it is tall (or taller than it is wide), or crop it.")
+    return ""
 
 
 CORE_FIELDS = ("integrated_multimodal_description", "overall_soundscape", "non_diegetic_music")
@@ -358,10 +382,108 @@ def convert_adapter(src: Path, dst: Path) -> int:
         return len(plan)
 
 
+# ---- the build child: its own process group, stopped with the Studio ---------------------------
+
+BUILD_PIDFILE = PACK_DIRNAME + ".partial.pid"
+_child: dict = {"proc": None}
+
+
+def _quantize_pid_alive(pid: int) -> bool:
+    """That pid runs and is a quantize_stream.py build (pids are recycled: the command line decides)."""
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        pass
+    try:
+        out = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True,
+                             timeout=5).stdout.decode("utf-8", "replace")
+    except (OSError, subprocess.SubprocessError):
+        return True          # cannot tell: treat it as alive, waiting is the safe side
+    return "quantize_stream.py" in out
+
+
+def live_build_pid(models_root) -> int | None:
+    """The pid of a build child still writing the .partial folder, or None."""
+    try:
+        pid = int((Path(models_root) / BUILD_PIDFILE).read_text("utf-8").split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+    return pid if _quantize_pid_alive(pid) else None
+
+
+def _wait_for_live_build(models_root, push=print, stop: threading.Event | None = None,
+                         poll: float = 5.0) -> None:
+    said = False
+    while live_build_pid(models_root) is not None:
+        if stop is not None and stop.is_set():
+            raise RuntimeError("stopped")
+        if not said:
+            push("[h3-refs] an earlier References build is still finishing on this Mac - waiting for it")
+            _set(step="wait_build")
+            said = True
+        time.sleep(poll)
+
+
+def run_build_child(cmd, cwd=None, pidfile: Path | None = None):
+    """Run the quantize child in its own process group (so stop_child takes all of it), with its
+    pid written beside the .partial folder while it runs."""
+    proc = subprocess.Popen(cmd, cwd=cwd, start_new_session=True)
+    _child["proc"] = proc
+    try:
+        if pidfile is not None:
+            try:
+                Path(pidfile).write_text(f"{proc.pid}\n", "utf-8")
+            except OSError:
+                pass
+        proc.wait()
+        return proc
+    finally:
+        _child["proc"] = None
+        if pidfile is not None:
+            try:
+                Path(pidfile).unlink()
+            except OSError:
+                pass
+
+
+def stop_child(timeout: float = 10.0) -> None:
+    """Stop a running build child and everything it started (the Studio's atexit)."""
+    proc = _child.get("proc")
+    if proc is None or proc.poll() is not None:
+        return
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(proc.pid, sig)
+        except (OSError, ProcessLookupError):
+            return
+        try:
+            proc.wait(timeout=timeout)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def build_running() -> bool:
+    """True while the build step (the heavy quantize child) holds Hailuo H3 renders."""
+    with _lock:
+        return _state.get("status") == "running" and _state.get("step") == "build"
+
+
+def mark_build() -> None:
+    """The gate's claim (called under the Studio's queue lock)."""
+    _set(step="build")
+
+
 def build(models_root: Path, spec: dict, h3_root: Path, python: Path, push=print,
-          stop: threading.Event | None = None, run=subprocess.run) -> None:
+          stop: threading.Event | None = None, run=None, gate=None) -> None:
     """Fetch the reference model and its adapter, build the 8-bit pack, drop the source.
-    Every step is skipped when its result is already there, so a stopped build resumes."""
+    Every step is skipped when its result is already there, so a stopped build resumes.
+    `gate` (the Studio's) blocks until no Hailuo H3 render runs, then marks step "build"."""
+    run = run or run_build_child
     models_root = Path(models_root)
     pack = models_root / PACK_DIRNAME
     adapter = models_root / ADAPTER_DIRNAME / str(spec["adapter_file"])
@@ -372,12 +494,23 @@ def build(models_root: Path, spec: dict, h3_root: Path, python: Path, push=print
         _set(step="download")
         push(f"[h3-refs] downloading the reference model ({int(spec['source']['bytes']) / 1e9:.1f} GB, once)")
         _download(spec["source"], src, stop)
-        _set(step="build")
-        push("[h3-refs] building the 8-bit model on this Mac (about 5-10 minutes)")
         tmp = models_root / (PACK_DIRNAME + ".partial")
+        # A build a Studio before this one started (it was killed, or another Studio on this Mac
+        # shares the models folder) may still be writing tmp: wait for it, never delete under it.
+        _wait_for_live_build(models_root, push, stop)
+        # The build and a Hailuo H3 render never run together (review 19 Nov: on a 32 GB Mac
+        # both at once swap or fail). The Studio's gate waits for a running H3 render and marks
+        # step "build" under its queue lock, so the queue holds H3 clips from that moment on.
+        if gate is not None:
+            _set(step="wait_render")
+            gate()
+        else:
+            _set(step="build")
+        push("[h3-refs] building the 8-bit model on this Mac (about 5-10 minutes)")
         shutil.rmtree(tmp, ignore_errors=True)
         r = run([str(python), str(Path(h3_root) / "scripts" / "quantize_stream.py"),
-                 "--src", str(src), "--out", str(tmp)], cwd=str(h3_root))
+                 "--src", str(src), "--out", str(tmp)], cwd=str(h3_root),
+                pidfile=models_root / BUILD_PIDFILE)
         if getattr(r, "returncode", 1) != 0:
             raise RuntimeError("building it on this Mac did not finish. The download is kept: Get References again builds it without downloading.")
         (tmp / ".built_ok").write_text(json.dumps({"source_sha256": spec["source"]["sha256"],
@@ -406,7 +539,7 @@ def build(models_root: Path, spec: dict, h3_root: Path, python: Path, push=print
     push(f"[h3-refs] {NAME} is ready")
 
 
-def start(models_root, spec, h3_root, python, push=print, free_gb=None, ram_gb=None) -> dict:
+def start(models_root, spec, h3_root, python, push=print, free_gb=None, ram_gb=None, gate=None) -> dict:
     """Start the one background build; {ok, started|already_installed|error}."""
     if not spec_ok(spec):
         return {"ok": False, "pro_required": True, "error": f"{NAME} is part of Phosphene Pro."}
@@ -432,7 +565,7 @@ def start(models_root, spec, h3_root, python, push=print, free_gb=None, ram_gb=N
 
     def work():
         try:
-            build(Path(models_root), spec, Path(h3_root), Path(python), push)
+            build(Path(models_root), spec, Path(h3_root), Path(python), push, gate=gate)
             _set(status="done", step="ready")
         except Exception as exc:  # noqa: BLE001 - the panel shows it and offers Try again
             msg = str(exc)

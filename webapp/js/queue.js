@@ -2170,6 +2170,8 @@ function _h3RefsPlanText(pl) {
 }
 function _h3RefsStepText(info) {
   const step = info.step || '';
+  if (step === 'wait_render') return T('queue.h3_refs_step_wait_render', 'Downloaded. It builds when your Hailuo H3 clip has finished');
+  if (step === 'wait_build') return T('queue.h3_refs_step_wait_build', 'Waiting for an earlier setup on this Mac to finish');
   if (step === 'build') return T('queue.h3_refs_step_build', 'Building it on this Mac (about 10 minutes)');
   if (step === 'check') return T('queue.h3_refs_step_check', 'Checking the download');
   if (step === 'adapter') return T('queue.h3_refs_step_adapter', 'Getting the last small file');
@@ -2228,7 +2230,14 @@ function _h3RefsGetRender(info) {
   const note = document.getElementById('h3RefsGetNote');
   const prog = document.getElementById('h3RefsProgress');
   let blocker = '';
-  if (pl.ram_ok === false) {
+  // The installed Hailuo H3 is too old for References (its runner has no reference pass): the
+  // download would not help, so the one line says to update Hailuo H3 instead of the Get panel.
+  const oldRunner = info.reason === 'runner';
+  if (oldRunner) {
+    blocker = T('queue.h3_refs_update_h3', 'References needs a newer Hailuo H3. ')
+      + distText(T('queue.h3_refs_update_h3_pinokio', 'Press Update in Pinokio (your downloads stay), then come back.'),
+                 T('queue.h3_refs_update_h3_mac', 'Phosphene updates it by itself; if this stays, quit and reopen Phosphene.'));
+  } else if (pl.ram_ok === false) {
     blocker = T('queue.h3_refs_too_small', 'References needs a Mac with {min} GB of memory or more; this Mac has {ram} GB. Face to keep above works on this Mac.', { min: pl.min_ram_gb, ram: pl.ram_gb });
   } else if (pl.disk_ok === false && !info.installing) {
     blocker = T('queue.h3_refs_no_space', 'The models disk has {free} GB free; References needs about {need} GB free while it builds. Free some space on it, then come back.', { free: pl.free_gb, need: Math.round(pl.disk_need_gb || 66) });
@@ -2238,7 +2247,7 @@ function _h3RefsGetRender(info) {
     check.textContent = blocker;
   }
   // A Mac below the memory floor gets the one line only: no download to explain, no button to press.
-  const tooSmall = pl.ram_ok === false;
+  const tooSmall = pl.ram_ok === false || oldRunner;
   if (plan) plan.hidden = tooSmall;
   const row = document.querySelector('#h3RefsGet .h3-refs-get-row');
   if (row) row.hidden = tooSmall;

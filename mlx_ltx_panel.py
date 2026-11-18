@@ -14525,6 +14525,8 @@ def _h3_repair_hold(next_job: dict | None) -> str:
     refused - and three identical refusals trip the queue breaker."""
     if not isinstance(next_job, dict) or (next_job.get("params") or {}).get("engine") != "h3":
         return ""
+    if h3_refs.build_running():
+        return H3_REFS_BUILD_HOLD
     if not h3_env_busy() and not _h3_auto_repair_start():
         return ""
     return ("Queue held: Hailuo H3's packages are being repaired (about a "
@@ -15960,7 +15962,33 @@ def h3_refs_install(push_log) -> dict:
     root = _h3_refs_models_root()
     paths = h3_paths()
     return h3_refs.start(root, spec, H3_ROOT, paths.get("python"), push_log,
-                         free_gb=_h3_refs_free_gb(root), ram_gb=float(SYSTEM_RAM_GB or 0) or None)
+                         free_gb=_h3_refs_free_gb(root), ram_gb=float(SYSTEM_RAM_GB or 0) or None,
+                         gate=_h3_refs_build_gate)
+
+
+H3_REFS_BUILD_HOLD = ("Queue held: References is being set up on this Mac (about 10 minutes). "
+                      "Your Hailuo H3 clip starts when it is done.")
+
+
+def _h3_refs_build_gate(poll: float = 5.0) -> None:
+    """References' one-time build (quantize_stream.py) and a Hailuo H3 render never run together
+    (review 19 Nov: on a 32 GB Mac both at once swap or fail). Waits while an H3 render runs, then
+    marks the build step under the queue lock: the worker picks its next job under the same lock,
+    so an H3 job is either current now (we wait) or held by _h3_repair_hold from here on."""
+    said = False
+    while True:
+        with LOCK:
+            if not _h3_job_running():
+                h3_refs.mark_build()
+                return
+        if not said:
+            push("[h3-refs] waiting for the Hailuo H3 clip that is rendering, then References "
+                 "is set up on this Mac")
+            said = True
+        time.sleep(poll)
+
+
+atexit.register(h3_refs.stop_child)
 
 
 def h3_reference_prompt(prompt: str, picture_index: int) -> str:
@@ -43988,14 +44016,20 @@ def run_h3_job_inner(job: dict) -> None:
         if chain_windows > 1:
             raise RuntimeError(f"{h3_refs.NAME} makes clips of up to 5 seconds for now. "
                                "Pick 5 s, or switch References off for a longer clip.")
-        for _key in ("h3_reference", "h3_reference2", "h3_reference3"):
+        # The prompt's "Picture 2" means slot 2 (review 19 Nov): an empty Picture 1 with pictures
+        # in slots 2/3 would shift them down and the prompt would name the wrong one.
+        if (not str(p.get("h3_reference") or "").strip()
+                and any(str(p.get(k) or "").strip() for k in ("h3_reference2", "h3_reference3"))):
+            raise RuntimeError("Picture 1 is empty. Put your first picture in Picture 1 (your prompt "
+                               "calls them Picture 1, 2 and 3 in that order), then render again.")
+        for _n, _key in enumerate(("h3_reference", "h3_reference2", "h3_reference3"), start=1):
             _src = str(p.get(_key) or "").strip()
             if not _src:
                 continue
             if not Path(_src).is_file():
                 raise RuntimeError(f"A reference picture ({Path(_src).name}) is no longer on disk - "
                                    "pick it again or clear it.")
-            _err = h3_reference_image_error(Path(_src))
+            _err = h3_reference_image_error(Path(_src)) or h3_refs.picture_shape_error(Path(_src), _n)
             if _err:
                 raise RuntimeError(_err)
             refs_pictures.append(Path(_src))
@@ -49405,12 +49439,17 @@ def queue_hold_status(queue: list | None = None, now: float | None = None) -> di
     queue = list(queue or [])
     if not hold:
         # The one-minute packages repair holds H3 clips too (h3_env_busy).
-        busy = h3_env_busy() if any(_job_needs_h3(j) for j in queue[:1]) else ""
-        if not busy:
-            return None
-        hold = {"what": ("Queue held: Hailuo H3's packages are being repaired (about a "
-                         "minute). The next H3 render starts when it finishes."),
-                "scope": "all", "since_ts": None}
+        h3_next = any(_job_needs_h3(j) for j in queue[:1])
+        if h3_next and h3_refs.build_running():
+            # References' one-time build holds H3 clips the same way (_h3_repair_hold).
+            hold = {"what": H3_REFS_BUILD_HOLD, "scope": "all", "since_ts": None}
+        else:
+            busy = h3_env_busy() if h3_next else ""
+            if not busy:
+                return None
+            hold = {"what": ("Queue held: Hailuo H3's packages are being repaired (about a "
+                             "minute). The next H3 render starts when it finishes."),
+                    "scope": "all", "since_ts": None}
     h3_only = hold.get("scope") == "h3"
     since = hold.get("since_ts")
     eta = None

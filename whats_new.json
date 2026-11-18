@@ -2458,5 +2458,88 @@
         ]
       }
     }
+  },
+  "5.0.62": {
+    "free": [],
+    "pro": [
+      "References on Hailuo H3: while it sets itself up after the download, your Hailuo H3 clips wait in the queue with a line that says so. Other clips keep going.",
+      "A picture References cannot use (Picture 1 left empty, or a very long and thin picture) is now explained before the render starts, not minutes in."
+    ],
+    "date": "2026-11-19",
+    "headline": "References on Hailuo H3 sets itself up more smoothly.",
+    "i18n": {
+      "de": {
+        "headline": "Referenzen bei Hailuo H3 richten sich reibungsloser ein.",
+        "free": [],
+        "pro": [
+          "Referenzen bei Hailuo H3: Während sie sich nach dem Download einrichten, warten deine Hailuo-H3-Clips in der Warteschlange, mit einem Hinweis. Andere Clips laufen weiter.",
+          "Ein Bild, das Referenzen nicht nutzen kann (Bild 1 leer oder ein sehr langes, schmales Bild), wird jetzt vor dem Start erklärt, nicht erst Minuten später."
+        ]
+      },
+      "es": {
+        "headline": "Las Referencias de Hailuo H3 se preparan con más fluidez.",
+        "free": [],
+        "pro": [
+          "Referencias en Hailuo H3: mientras se preparan tras la descarga, tus clips de Hailuo H3 esperan en la cola con un aviso. Los demás clips siguen.",
+          "Una imagen que Referencias no puede usar (Imagen 1 vacía o una imagen muy larga y estrecha) ahora se explica antes de empezar, no minutos después."
+        ]
+      },
+      "fr": {
+        "headline": "Les Références de Hailuo H3 se préparent plus en douceur.",
+        "free": [],
+        "pro": [
+          "Références sur Hailuo H3 : pendant leur préparation après le téléchargement, tes clips Hailuo H3 attendent dans la file, avec un message. Les autres clips continuent.",
+          "Une image que Références ne peut pas utiliser (Image 1 vide, ou image très longue et étroite) est expliquée avant le début, plus des minutes après."
+        ]
+      },
+      "it": {
+        "headline": "I Riferimenti di Hailuo H3 si preparano senza intoppi.",
+        "free": [],
+        "pro": [
+          "Riferimenti su Hailuo H3: mentre si preparano dopo il download, le tue clip Hailuo H3 aspettano in coda con un avviso. Le altre clip continuano.",
+          "Un’immagine che Riferimenti non può usare (Immagine 1 vuota o un’immagine molto lunga e stretta) ora viene spiegata prima dell’avvio, non minuti dopo."
+        ]
+      },
+      "ja": {
+        "headline": "Hailuo H3のリファレンスの準備がスムーズになりました。",
+        "free": [],
+        "pro": [
+          "Hailuo H3のリファレンス：ダウンロード後の準備中は、Hailuo H3のクリップがキューで待ち、その旨が表示されます。ほかのクリップはそのまま進みます。",
+          "リファレンスで使えない画像（画像1が空、または極端に細長い画像）は、数分後ではなく開始前に説明されます。"
+        ]
+      },
+      "ko": {
+        "headline": "Hailuo H3 레퍼런스 준비가 더 매끄러워졌어요.",
+        "free": [],
+        "pro": [
+          "Hailuo H3 레퍼런스: 다운로드 후 준비하는 동안 Hailuo H3 클립은 대기열에서 기다리고, 그 내용이 표시돼요. 다른 클립은 계속 진행돼요.",
+          "레퍼런스에 쓸 수 없는 이미지(이미지 1이 비었거나 아주 길고 가는 이미지)는 몇 분 뒤가 아니라 시작 전에 알려 드려요."
+        ]
+      },
+      "pt": {
+        "headline": "As Referências do Hailuo H3 se preparam com mais fluidez.",
+        "free": [],
+        "pro": [
+          "Referências no Hailuo H3: enquanto se preparam após o download, seus clipes do Hailuo H3 esperam na fila com um aviso. Os outros clipes continuam.",
+          "Uma imagem que Referências não pode usar (Imagem 1 vazia ou muito longa e estreita) agora é explicada antes de começar, não minutos depois."
+        ]
+      },
+      "ru": {
+        "headline": "Референсы в Hailuo H3 настраиваются плавнее.",
+        "free": [],
+        "pro": [
+          "Референсы в Hailuo H3: пока они настраиваются после загрузки, клипы Hailuo H3 ждут в очереди с пояснением. Остальные клипы идут дальше.",
+          "О картинке, которую Референсы не могут использовать (пустая Картинка 1 или очень длинная и узкая), теперь сказано до начала, а не через минуты."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "Hailuo H3 参考图的准备更顺畅了。",
+        "free": [],
+        "pro": [
+          "Hailuo H3 参考图：下载后准备期间，你的 Hailuo H3 片段会在队列中等待，并显示说明。其他片段照常进行。",
+          "参考图无法使用的图片（图片 1 为空，或图片过于细长）现在会在开始前说明，而不是几分钟后。"
+        ]
+      }
+    }
   }
 }

@@ -23,7 +23,11 @@ def main() -> None:
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     sys.path.insert(0, here)
     from h3_refs import match_size
-    sys.path.remove(here)
+    # Neither the Studio's root nor its scripts/ folder (Python put this script's folder first)
+    # may shadow the engine's modules when its runner imports them.
+    scripts = os.path.dirname(os.path.abspath(__file__))
+    sys.path[:] = [x for x in sys.path
+                   if os.path.abspath(x or os.curdir) not in (here, scripts)]
     sys.path.insert(0, engine)
     os.chdir(engine)
     import minimax_h3_mlx.reference as reference
