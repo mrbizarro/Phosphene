@@ -14,6 +14,13 @@ from panel.routes import get, get_when, post, post_when
 P = None  # the running mlx_ltx_panel module; assigned at wiring time
 
 
+def _output_roots() -> list:
+    """OUTPUT plus every saved files folder (P.output_roots); a stub panel
+    without it (unit tests) gets OUTPUT alone, the behaviour before 5.0.60."""
+    f = getattr(P, "output_roots", None)
+    return list(f()) if callable(f) else [P.OUTPUT.resolve()]
+
+
 @get("/uploads")
 def get_uploads(h, parsed) -> None:
     # Recent panel_uploads/* images for the picker's "click to reuse"
@@ -76,7 +83,7 @@ def get_file_exists(h, parsed) -> None:
     raw = (P.parse_qs(parsed.query).get("path", [""])[0] or "").strip()
     try:
         path = P.Path(raw).resolve() if raw else None
-        roots = [P.OUTPUT.resolve(), P.UPLOADS.resolve()]
+        roots = [*_output_roots(), P.UPLOADS.resolve()]
     except Exception:
         path, roots = None, []
     ok = bool(path) and any(path.is_relative_to(r) for r in roots) and path.is_file()
@@ -98,10 +105,17 @@ def get_file(h, parsed) -> None:
     # UPLOADS/timeline and previews them here; with OUTPUT alone, an imported
     # clip showed black in the media pool and the Source monitor.
     try:
-        roots = [P.OUTPUT.resolve(), P.UPLOADS.resolve()]
+        roots = [*_output_roots(), P.UPLOADS.resolve()]
     except Exception:
         h.send_error(500); return
     if not any(path.is_relative_to(r) for r in roots):
+        h.send_error(404); return
+    # The saved files folder is the person's own folder: from there only the
+    # media the Studio copied is served, never whatever else lives beside it.
+    _chosen = getattr(P, "chosen_output_root_for", None)
+    if callable(_chosen) and _chosen(path) is not None and path.suffix.lower() not in (
+            ".mp4", ".mov", ".m4v", ".webm", ".wav", ".flac", ".mp3", ".m4a",
+            ".png", ".jpg", ".jpeg", ".webp"):
         h.send_error(404); return
     if not path.exists():
         h.send_error(404); return
@@ -133,7 +147,7 @@ def get_image(h, parsed) -> None:
     # OUTPUT, UPLOADS, or STATE_DIR. is_relative_to() already handles
     # the symlink/.. tricks since we resolved both ends.
     try:
-        roots = [P.OUTPUT.resolve(), P.UPLOADS.resolve(), P.STATE_DIR.resolve()]
+        roots = [*_output_roots(), P.UPLOADS.resolve(), P.STATE_DIR.resolve()]
     except Exception:
         roots = []
     if not any(path.is_relative_to(r) for r in roots):
@@ -225,7 +239,7 @@ def get_poster(h, parsed) -> None:
     except Exception:
         h.send_error(400); return
     try:
-        roots = [P.OUTPUT.resolve(), P.UPLOADS.resolve()]
+        roots = [*_output_roots(), P.UPLOADS.resolve()]
     except Exception:
         roots = []
     if not any(path.is_relative_to(r) for r in roots):
@@ -279,7 +293,7 @@ def get_sidecar(h, parsed) -> None:
     # Allow both roots so the right-pane Outputs gallery can fetch
     # the prompt for a photo's Animate flow without 404'ing.
     try:
-        roots = [P.OUTPUT.resolve(), P.UPLOADS.resolve()]
+        roots = [*_output_roots(), P.UPLOADS.resolve()]
     except Exception:
         roots = []
     if not any(path.is_relative_to(r) for r in roots):
@@ -524,7 +538,7 @@ def post_output_delete(h, path, qs, ctype) -> None:
     except OSError as e:
         h._json({"error": f"path not resolvable: {e}"}, 400); return
     try:
-        _roots = [P.OUTPUT.resolve(), P.UPLOADS.resolve()]
+        _roots = [*_output_roots(), P.UPLOADS.resolve()]
     except OSError:
         _roots = []
     if not any(_resolved.is_relative_to(r) for r in _roots):
@@ -564,7 +578,17 @@ def post_output_delete(h, path, qs, ctype) -> None:
     # `<stem>.json`) come along too. UPSCALE_TAGS is module-level so
     # this list and compute_upscale_plan's tags can never drift.
 
+    _links: list = []
+
     def _add(seen: set, candidates: list, cand: P.Path) -> None:
+        # A companion copied to the saved files folder is a link here: trash
+        # the real file (the link is removed afterwards), never the link alone.
+        try:
+            if cand.is_symlink():
+                _links.append(cand)
+                cand = cand.resolve()
+        except OSError:
+            return
         key = str(cand)
         if key in seen:
             return
@@ -609,7 +633,7 @@ def post_output_delete(h, path, qs, ctype) -> None:
     # sidecar can't trick us into trashing arbitrary files.
     roots = []
     try:
-        roots = [P.OUTPUT.resolve(), P.UPLOADS.resolve()]
+        roots = [*_output_roots(), P.UPLOADS.resolve()]
     except OSError:
         roots = []
     for sc_cand in (P.Path(str(_resolved) + ".json"),
@@ -665,6 +689,16 @@ def post_output_delete(h, path, qs, ctype) -> None:
     # silently 200ing with an empty trashed list.
     if not candidates:
         h._json({"error": "no files to delete"}, 404); return
+    # In the person's own saved files folder only what the Studio put there
+    # (media and their settings records) may be deleted.
+    _chosen = getattr(P, "chosen_output_root_for", None)
+    if callable(_chosen):
+        _ok_ext = (".mp4", ".mov", ".m4v", ".webm", ".wav", ".flac", ".mp3", ".m4a",
+                   ".png", ".jpg", ".jpeg", ".webp", ".json")
+        candidates = [c for c in candidates
+                      if _chosen(c) is None or c.suffix.lower() in _ok_ext]
+        if not candidates:
+            h._json({"error": "no files to delete"}, 404); return
 
     # A clip or picture a waiting render takes as its input (Extend, Upscale
     # & Face Fix, an Image-to-video reference picked from the gallery) stays
@@ -695,6 +729,23 @@ def post_output_delete(h, path, qs, ctype) -> None:
     # might also have been hidden if the user toggled it.
     for c in candidates:
         P.set_hidden(str(c), False)
+    # A file copied to the saved files folder was clicked through its link in
+    # the outputs folder: the real files went to the Trash above, so the links
+    # left at the old paths (media, sidecars, companions) now point at nothing.
+    try:
+        import output_folder
+        output_folder.unlink_dangling_links(_links)
+        _clicked = P.Path(P.os.path.abspath(str(target)))
+        if _clicked != _resolved:
+            _links = []
+            _cs, _cb = _clicked.stem, _base_stem(_clicked.stem)
+            for _p in _clicked.parent.glob("*"):
+                if _p.name.startswith((_cs, _cb)):
+                    _links.append(_p)
+            output_folder.unlink_dangling_links(_links)
+            P.set_hidden(str(_clicked), False)
+    except Exception:
+        pass
     h._json({"ok": True, "trashed": trashed})
 
 
@@ -732,6 +783,13 @@ def post_output_open_folder(h, path, qs, ctype) -> None:
                 if _mt > newest_mtime:
                     newest_mtime, newest_file = _mt, _p
         if newest_file is not None:
+            # A file copied to the saved files folder is a link here: show
+            # the real one, in the folder the person chose.
+            try:
+                if newest_file.is_symlink() and newest_file.exists():
+                    newest_file = newest_file.resolve()
+            except OSError:
+                pass
             P.subprocess.run(["open", "-R", str(newest_file)], check=False)
             h._json({"ok": True, "opened": str(newest_file.parent)})
         else:
@@ -763,7 +821,7 @@ def post_output_reveal(h, path, qs, ctype) -> None:
     except Exception:
         h._json({"ok": False, "error": "bad path"}, 400); return
     try:
-        roots = [P.OUTPUT.resolve(), P.UPLOADS.resolve()]
+        roots = [*_output_roots(), P.UPLOADS.resolve()]
     except Exception:
         roots = []
     if not any(target.is_relative_to(r) for r in roots):
@@ -796,7 +854,7 @@ def post_output_last_frame(h, path, qs, ctype) -> None:
     except Exception:
         h._json({"ok": False, "error": "bad path"}, 400); return
     try:
-        roots = [P.OUTPUT.resolve(), P.UPLOADS.resolve()]
+        roots = [*_output_roots(), P.UPLOADS.resolve()]
     except Exception:
         roots = []
     if not any(src.is_relative_to(r) for r in roots):
@@ -897,7 +955,7 @@ def post_output_hide(h, path, qs, ctype) -> None:
                     "rejected": [target]}, 400)
         return
     try:
-        _roots = [P.OUTPUT.resolve(), P.UPLOADS.resolve()]
+        _roots = [*_output_roots(), P.UPLOADS.resolve()]
     except OSError:
         _roots = []
     if not any(_resolved.is_relative_to(r) for r in _roots):
@@ -905,8 +963,17 @@ def post_output_hide(h, path, qs, ctype) -> None:
             "path must resolve under outputs/ or uploads/"
         ), "rejected": [target]}, 400)
         return
-    P.set_hidden(str(_resolved), True)
-    h._json({"hidden": str(_resolved)})
+    # A file in the saved files folder is listed through its link: hide the
+    # path the gallery shows, not the drive path behind it.
+    _key = str(_resolved)
+    try:
+        _abs = P.Path(P.os.path.abspath(str(target)))
+        if _abs.is_symlink():
+            _key = str(_abs)
+    except Exception:
+        pass
+    P.set_hidden(_key, True)
+    h._json({"hidden": _key})
 
 
 @post("/output/show")
@@ -1110,3 +1177,70 @@ def get_webapp_file(h, parsed) -> None:
     h.end_headers()
     try: h.wfile.write(body)
     except (BrokenPipeError, ConnectionResetError): pass
+
+
+# ====== Saved files folder (Settings > Saved files) ==========================
+# Where finished videos and pictures are kept. output_folder.py holds the
+# rules; these routes only read, pick and set. Picking uses the Mac's own
+# folder dialog (osascript `choose folder`, which needs no permission); the
+# full-path field next to it is the fallback when the dialog cannot show.
+
+def _outputs_folder_payload() -> dict:
+    data = P.output_folder_status()
+    data["default_path"] = str(P.OUTPUT)
+    return data
+
+
+@get("/outputs/folder")
+def get_outputs_folder(h, parsed) -> None:
+    h._json(_outputs_folder_payload())
+
+
+@post("/outputs/folder/pick")
+def post_outputs_folder_pick(h, path, qs, ctype) -> None:
+    if h._read_form_body() is None:
+        return
+    script = ('POSIX path of (choose folder with prompt '
+              '"Choose where Phosphene saves finished videos and pictures")')
+    try:
+        r = P.subprocess.run(["osascript", "-e", script], capture_output=True,
+                             text=True, errors="replace", timeout=300)
+    except (OSError, P.subprocess.TimeoutExpired):
+        h._json({"error": "The folder window could not open. Paste the folder's full path instead."}, 400)
+        return
+    if r.returncode != 0:
+        h._json({"cancelled": True})
+        return
+    h._json({"path": (r.stdout or "").strip().rstrip("/") or "/"})
+
+
+@post("/outputs/folder/set")
+def post_outputs_folder_set(h, path, qs, ctype) -> None:
+    rb = h._read_form_body()
+    if rb is None:
+        return
+    _, form = rb
+    raw = (form.get("path", [""])[0] or "").strip()
+    try:
+        raw = P.normalize_pasted_path(raw) or raw
+    except Exception:
+        pass
+    import output_folder
+    try:
+        output_folder.set_folder(P.STATE_DIR, raw, [P.ROOT, P.OUTPUT, P.UPLOADS, P.STATE_DIR])
+    except ValueError as exc:
+        h._json({"error": str(exc)}, 400)
+        return
+    P.push(f"Saved files folder set to {output_folder.chosen(P.STATE_DIR)}. "
+           f"New videos and pictures are copied there once finished.")
+    h._json(_outputs_folder_payload())
+
+
+@post("/outputs/folder/reset")
+def post_outputs_folder_reset(h, path, qs, ctype) -> None:
+    if h._read_form_body() is None:
+        return
+    import output_folder
+    output_folder.reset_folder(P.STATE_DIR)
+    P.push("Saved files folder back to the default. Files already copied stay where they are.")
+    h._json(_outputs_folder_payload())

@@ -3970,6 +3970,20 @@ async function poll() {
     }
   }
 
+  // Saved files folder: its drive unplugged. Renders carry on and stay on
+  // this Mac; say so once as a toast and keep a quiet line above Generate.
+  const ofNotice = document.getElementById('outputsFolderNotice');
+  const of = s.outputs_folder;
+  if (ofNotice && of !== undefined) {
+    const offline = !!(of && of.path && of.reachable === false);
+    if (offline) {
+      const line = T('queue.outputs_folder_offline', 'Your saved files folder ({folder}) is not connected. New videos and pictures stay on this Mac and are copied there when it is back.', {folder: of.label || of.path});
+      document.getElementById('outputsFolderNoticeText').textContent = line;
+      if (ofNotice.hidden) phosToast(line, {kind: 'warning', duration: 8000});
+    }
+    ofNotice.hidden = !offline;
+  }
+
   // Q8 / High enable.
   //
   // This block used to WRITE the chip's subtitle as well — "Q8 Pro · 7 min",

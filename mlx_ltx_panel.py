@@ -26769,7 +26769,16 @@ def list_outputs(
         # absence is belt-and-suspenders against any future render whose
         # filename happens to terminate this way.
         return bool(_DN_CACHE_RX.search(p.stem)) and not (p.parent / (p.stem + ".mp4.json")).is_file()
-    video_files = [p for p in sorted(OUTPUT.glob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
+    # A file copied to the saved files folder is a link here; while its drive
+    # is unplugged the link points at nothing and stat() raises. Such files are
+    # left out until the drive is back instead of failing the whole listing.
+    def _mtime_or_none(p: Path):
+        try:
+            return p.stat().st_mtime
+        except OSError:
+            return None
+    video_files = [p for p in sorted((q for q in OUTPUT.glob("*.mp4") if _mtime_or_none(q) is not None),
+                                     key=lambda p: _mtime_or_none(p) or 0.0, reverse=True)
                    if not _is_dn_cache(p)]
     image_root = UPLOADS / "library" / "manual"
     image_exts = {".png", ".jpg", ".jpeg", ".webp"}
@@ -36461,7 +36470,7 @@ def _sbe_pool_path_ok(path: str) -> bool:
         return False
     if not target.is_file():
         return False
-    for root in (OUTPUT, STATE_DIR, UPLOADS):
+    for root in (*output_roots(), STATE_DIR, UPLOADS):
         try:
             if target.is_relative_to(Path(root).resolve()):
                 return True
@@ -41076,7 +41085,7 @@ def run_image_job_inner(job: dict) -> None:
         rp = (rp if rp.is_absolute() else (UPLOADS / r)).resolve()
         # The character sheets are a legitimate reference too: the Storyboard's
         # anchor stills are drawn from a character's own sheet.
-        allowed = [UPLOADS.resolve(), OUTPUT.resolve(), _CHARACTERS_CACHE_PATH.resolve()]
+        allowed = [UPLOADS.resolve(), *output_roots(), _CHARACTERS_CACHE_PATH.resolve()]
         if not any(rp.is_relative_to(root) for root in allowed):
             raise RuntimeError("This queued reference is outside Phosphene’s uploads and outputs folders. "
                                "Attach the reference again so Phosphene can keep a copy, then retry.")
@@ -45883,7 +45892,7 @@ def _sharp_export_contained(source_path: str) -> bool:
         return False
     try:
         src = Path(str(source_path)).resolve()
-        roots = [OUTPUT.resolve(), UPLOADS.resolve()]
+        roots = [*output_roots(), UPLOADS.resolve()]
     except (OSError, RuntimeError, ValueError):
         return False
     return any(src.is_relative_to(r) for r in roots)
@@ -49475,6 +49484,8 @@ def worker_loop() -> None:
                 STATE["pid"] = None
                 STATE["pgid"] = None
             persist_queue()
+            # Copy the finished file to the chosen saved files folder (if any).
+            _OUTPUT_FOLDER_KICK.set()
 
 
 # ---- Image Studio + characters integration ----------------------------------
@@ -49547,6 +49558,112 @@ def gpu_gate_status() -> dict:
     kind = holder.get("kind") or ("queue" if queued else ("other" if busy else None))
     return {"busy": bool(busy), "holder": kind, "since": holder.get("since"),
             "outside_queue": bool(busy and kind != "queue")}
+
+
+# ---- Saved files folder (Settings > Saved files; ticket S5BHS43A) ----------
+#
+# Renders are made where they always were; output_folder.py copies finished
+# files to the folder the person chose, checks each copy, and leaves a link at
+# the old path. These are the panel's three touch points: the roots the file
+# routes accept, the background pass, and the /status summary.
+_OUTPUT_FOLDER_KICK = threading.Event()
+
+
+def output_roots() -> list:
+    """OUTPUT plus every folder finished files were ever copied to. File routes
+    use this where they used `OUTPUT.resolve()`: a link in OUTPUT resolves to
+    the chosen folder, and it must stay playable, reusable and deletable."""
+    roots = [OUTPUT.resolve()]
+    try:
+        import output_folder
+        for r in output_folder.all_roots(STATE_DIR):
+            # Non-strict: an unplugged drive must not raise here.
+            roots.append(Path(os.path.abspath(str(r))))
+    except Exception:
+        pass
+    return roots
+
+
+def chosen_output_root_for(path) -> "Path | None":
+    """The chosen folder a resolved path lives in (and not in OUTPUT/UPLOADS)."""
+    try:
+        rp = Path(path)
+        for base in (OUTPUT.resolve(), UPLOADS.resolve()):
+            if rp.is_relative_to(base):
+                return None
+        for r in output_roots()[1:]:
+            if rp.is_relative_to(r):
+                return r
+    except Exception:
+        return None
+    return None
+
+
+def _output_folder_busy() -> "tuple[set, float | None]":
+    """Paths a running job may still write, and when that job started: files it
+    touched since then are not copied until it is done (intermediates such as
+    `_raw` clips are deleted or rewritten by the job itself)."""
+    busy: set = set()
+    started = None
+    with LOCK:
+        job = STATE.get("current")
+        if job:
+            started = float(job.get("started_ts") or time.time()) - 5.0
+            for k in ("raw_path", "output_path", "native_path", "upscaled_path"):
+                v = job.get(k)
+                if v:
+                    busy.add(str(v))
+        # Inputs of waiting renders (an Extend source, an Image reference)
+        # stay on this Mac until those renders ran: the drive could be gone
+        # by then.
+        strings: list = []
+        for j in list(STATE.get("queue") or []):
+            try:
+                _job_param_strings((j or {}).get("params") or {}, strings)
+            except Exception:
+                continue
+    found: set = set()
+    try:
+        _job_param_paths(strings, found)
+    except Exception:
+        pass
+    busy |= {str(x) for x in found} | {str(x) for x in strings if isinstance(x, str) and "/" in x}
+    if _GPU_HOLDER and started is None:
+        # An inline picture render (outside the queue) is writing now.
+        started = time.time() - 120.0
+    return busy, started
+
+
+def output_folder_sweep() -> dict:
+    import output_folder
+    busy, started = _output_folder_busy()
+    return output_folder.sweep(STATE_DIR, OUTPUT, UPLOADS / "library" / "manual",
+                               busy=busy, busy_after=started, log=push)
+
+
+def output_folder_loop() -> None:
+    """Every 30 s, and right after each job: copy what is finished, retry what
+    waited for the drive. Never raises."""
+    while True:
+        _OUTPUT_FOLDER_KICK.wait(timeout=30)
+        _OUTPUT_FOLDER_KICK.clear()
+        try:
+            import output_folder
+            if output_folder.chosen(STATE_DIR) is not None:
+                output_folder_sweep()
+        except Exception as exc:  # noqa: BLE001
+            try:
+                push(f"saved files folder: {exc}")
+            except Exception:
+                pass
+
+
+def output_folder_status() -> dict:
+    try:
+        import output_folder
+        return output_folder.status(STATE_DIR)
+    except Exception:
+        return {"path": None}
 
 
 def _video_render_active() -> bool:
@@ -50492,13 +50609,17 @@ def _unique_output_path(base: Path, stem: str, ext: str = ".mp4") -> Path:
     suffixes. The full technical metadata is in the sidecar so users can
     still tell renders apart.
     """
+    # A file copied to the saved files folder is a link here. While its drive
+    # is unplugged the link points at nothing and exists() says False, so the
+    # name counts as taken by is_symlink() too: a new render must never be
+    # written through a dead link (the save would fail after the whole render).
     p = base / f"{stem}{ext}"
-    if not p.exists():
+    if not (p.exists() or p.is_symlink()):
         return p
     i = 2
     while True:
         p = base / f"{stem}_{i}{ext}"
-        if not p.exists():
+        if not (p.exists() or p.is_symlink()):
             return p
         i += 1
 
@@ -51779,7 +51900,7 @@ class Handler(BaseHTTPRequestHandler):
                 bid = f("id", "")
                 clip = f("path", "")
                 p = Path(clip)
-                if not p.is_file() or OUTPUT.resolve() not in p.resolve().parents:
+                if not p.is_file() or not any(r in p.resolve().parents for r in output_roots()):
                     self._json({"ok": False, "error": "no such clip"}, 400)
                     return
                 try:
@@ -54385,6 +54506,7 @@ if __name__ == "__main__":
         # …and carries on an in-app Hailuo H3 download that Phosphene quit in the middle of.
         threading.Thread(target=h3_app_install_resume_loop, daemon=True).start()
     threading.Thread(target=worker_loop, daemon=True).start()
+    threading.Thread(target=output_folder_loop, daemon=True, name="phos-outputs-folder").start()
     if VERSION_CHECK_ENABLED and not _dist.is_mac_app():
         threading.Thread(target=version_check_loop, daemon=True).start()
         threading.Thread(target=app_notice.loop, args=(running_version,), daemon=True).start()

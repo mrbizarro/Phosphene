@@ -2475,6 +2475,12 @@ The same wizard walks out of frame. Audio: footsteps on leaves." data-i18n-place
              paused" plus a bare Resume button. This surfaces the same
              reason where the person is actually looking. Populated by
              poll() from /status.paused_reason. -->
+        <!-- Saved files folder unreachable (drive unplugged): renders carry on
+             and stay on this Mac; queue.js fills the sentence from /status. -->
+        <div class="breaker-notice" id="outputsFolderNotice" hidden>
+          <svg class="ph" aria-hidden="true"><use href="#ph-warning-fill"/></svg>
+          <span id="outputsFolderNoticeText"></span>
+        </div>
         <div class="breaker-notice" id="breakerNotice" hidden>
           <svg class="ph" aria-hidden="true"><use href="#ph-warning-fill"/></svg>
           <span id="breakerNoticeText"></span>
@@ -6513,6 +6519,29 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
            renderModelsDriveRows). The move itself is the app's own (its
            Settings window, Models); this row is the door people look for here. -->
       <div class="models-drive-row" hidden></div>
+    </div>
+
+    <!-- Saved files: where finished videos and pictures are kept (settings.js
+         refreshOutputsFolder). Renders are still made on this Mac first; each
+         finished file is copied to the chosen folder and checked. -->
+    <div class="settings-section" id="settingsOutputsFolder">
+      <h3 data-i18n="settingsOutputsFolder.saved_files">Saved files</h3>
+      <div class="hint" style="margin-bottom:8px" data-i18n="settingsOutputsFolder.choose_where_new_videos">
+        Choose where new videos and pictures are saved, for example a folder on an external drive.
+        Each finished file is copied there and checked. Files you already made stay where they are,
+        and your gallery keeps showing everything.
+      </div>
+      <div class="of-current" id="outputsFolderCurrent" role="status"></div>
+      <div class="of-actions">
+        <button type="button" class="primary-btn" id="outputsFolderPickBtn" onclick="pickOutputsFolder()" data-i18n="settingsOutputsFolder.choose_folder">Choose folder…</button>
+        <button type="button" class="ghost" id="outputsFolderResetBtn" onclick="resetOutputsFolder()" hidden data-i18n="settingsOutputsFolder.use_the_default">Use the default folder</button>
+      </div>
+      <details class="of-typed" id="outputsFolderTyped">
+        <summary class="hint" data-i18n="settingsOutputsFolder.or_paste_a_full">Or paste a folder's full path</summary>
+        <input type="text" id="outputsFolderPath" placeholder="/Volumes/My Drive/Phosphene" aria-label="Folder path" data-i18n-aria-label="outputsFolderPath.aria-label.folder_path" data-i18n-placeholder="outputsFolderPath.placeholder.volumes_my_drive_phosphene">
+        <button type="button" class="ghost" onclick="setOutputsFolder(document.getElementById('outputsFolderPath').value)" data-i18n="settingsOutputsFolder.use_this_folder">Use this folder</button>
+      </details>
+      <div class="hint" id="outputsFolderStatus" role="status" aria-live="polite"></div>
     </div>
 
     <!-- Storage stays visible even when there is nothing to reclaim. -->

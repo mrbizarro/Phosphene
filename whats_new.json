@@ -2318,5 +2318,69 @@
         ]
       }
     }
+  },
+  "5.0.60": {
+    "free": [
+      "Choose where your finished videos and pictures are saved, for example on an external drive: Settings > Saved files > Choose folder. Old files stay put; the gallery shows all."
+    ],
+    "pro": [],
+    "date": "2026-11-18",
+    "headline": "Save your videos and pictures where you want.",
+    "i18n": {
+      "de": {
+        "headline": "Speichere Videos und Bilder, wo du willst.",
+        "free": [
+          "Wähle, wo fertige Videos und Bilder gespeichert werden, etwa auf einem externen Laufwerk: Einstellungen > Speicherort > Ordner wählen. Alte Dateien bleiben, die Galerie zeigt alles."
+        ]
+      },
+      "es": {
+        "headline": "Guarda tus vídeos e imágenes donde quieras.",
+        "free": [
+          "Elige dónde se guardan tus vídeos e imágenes, por ejemplo en un disco externo: Configuración > Dónde se guarda > Elegir carpeta. Lo anterior se queda donde está; la galería lo muestra todo."
+        ]
+      },
+      "fr": {
+        "headline": "Enregistre tes vidéos et images où tu veux.",
+        "free": [
+          "Choisis où enregistrer tes vidéos et images, par exemple sur un disque externe : Réglages > Emplacement d’enregistrement > Choisir un dossier. Les anciens fichiers restent ; la galerie montre tout."
+        ]
+      },
+      "it": {
+        "headline": "Salva video e immagini dove vuoi.",
+        "free": [
+          "Scegli dove salvare video e immagini, per esempio su un disco esterno: Impostazioni > Dove salvare > Scegli cartella. I file vecchi restano dove sono; la galleria mostra tutto."
+        ]
+      },
+      "ja": {
+        "headline": "動画と画像を好きな場所に保存できます。",
+        "free": [
+          "完成した動画と画像の保存先を選べます（外付けドライブなど）：設定 > 保存先 > フォルダを選択。これまでのファイルはそのままで、ギャラリーにはすべて表示されます。"
+        ]
+      },
+      "ko": {
+        "headline": "동영상과 사진을 원하는 곳에 저장하세요.",
+        "free": [
+          "완성된 동영상과 사진을 저장할 곳을 고르세요(외장 드라이브 등): 설정 > 저장 위치 > 폴더 선택. 기존 파일은 그대로 있고, 갤러리에는 모두 보여요."
+        ]
+      },
+      "pt": {
+        "headline": "Salve seus vídeos e imagens onde quiser.",
+        "free": [
+          "Escolha onde salvar seus vídeos e imagens, por exemplo num disco externo: Ajustes > Onde salvar > Escolher pasta. Os antigos ficam onde estão; a galeria mostra tudo."
+        ]
+      },
+      "ru": {
+        "headline": "Сохраняйте видео и картинки там, где удобно.",
+        "free": [
+          "Выберите, куда сохранять видео и картинки, например на внешний диск: Настройки > Место сохранения > Выбрать папку. Старые файлы на месте, галерея показывает всё."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "视频和图片想存哪里就存哪里。",
+        "free": [
+          "可以选择视频和图片的保存位置（比如外接硬盘）：设置 > 保存位置 > 选择文件夹。以前的文件保持原位，图库照常显示全部。"
+        ]
+      }
+    }
   }
 }

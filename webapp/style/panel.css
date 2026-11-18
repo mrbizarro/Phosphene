@@ -10055,6 +10055,15 @@
       letter-spacing: 0.08em; color: var(--muted); margin: 0 0 8px 0;
     }
     .settings-row { display: flex; gap: 10px; align-items: center; }
+    /* Settings > Saved files (where finished videos and pictures go). */
+    #settingsOutputsFolder .of-current { font-size: 13px; margin: 4px 0 10px; overflow-wrap: anywhere; }
+    #settingsOutputsFolder .of-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    #settingsOutputsFolder .of-actions button { flex: 0 0 auto; width: auto; white-space: nowrap; }
+    #settingsOutputsFolder .of-typed { margin-top: 10px; }
+    #settingsOutputsFolder .of-typed summary { cursor: pointer; }
+    #settingsOutputsFolder .of-typed input { display: block; width: 100%; box-sizing: border-box; margin: 8px 0; }
+    #settingsOutputsFolder .of-typed button { width: auto; }
+    #settingsOutputsFolder #outputsFolderStatus { margin-top: 8px; overflow-wrap: anywhere; }
     .settings-row label {
       font-size: 13px; color: var(--muted); min-width: 70px;
     }

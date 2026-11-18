@@ -893,6 +893,7 @@ async function openSettingsModal() {
   modal.style.display = 'flex';
   _settingsCloseArmed = false;
   renderModelsDriveRows();
+  refreshOutputsFolder();
   renderSettingsPro();
   renderMacStatsRow();
   document.getElementById('settingsStatus').textContent = '';
@@ -2178,8 +2179,73 @@ function closeProModal() {
   if (proReturnFocus && proReturnFocus.isConnected) proReturnFocus.focus();
 }
 
+// ---- Saved files folder (Settings > Saved files) -------------------------
+// Where finished videos and pictures go. The server keeps the rules
+// (output_folder.py): renders are made on this Mac first, then each finished
+// file is copied to the chosen folder and checked; an unplugged drive only
+// means files wait on this Mac until it is back.
+function outputsFolderSentence(d) {
+  if (!d || !d.path) {
+    return T('settings.outputs_default_folder', 'Saving to the default folder: {path}', {path: d && d.default_path || ''});
+  }
+  if (!d.reachable) {
+    return T('settings.outputs_not_connected', '{folder} is not connected. New videos and pictures stay on this Mac and are copied there when it is back.', {folder: d.path});
+  }
+  let line = T('settings.outputs_saving_to', 'Saving new videos and pictures to {folder}', {folder: d.path});
+  if (d.waiting > 0) line += ' ' + TP('settings.outputs_waiting', d.waiting, {one: '({count} file is waiting to be copied.)', other: '({count} files are waiting to be copied.)'});
+  return line;
+}
+async function refreshOutputsFolder() {
+  const cur = document.getElementById('outputsFolderCurrent');
+  if (!cur) return;
+  try {
+    const r = await fetch('/outputs/folder');
+    const d = await r.json();
+    cur.textContent = outputsFolderSentence(d);
+    document.getElementById('outputsFolderResetBtn').hidden = !d.path;
+    const st = document.getElementById('outputsFolderStatus');
+    if (st) st.textContent = d.last_error || '';
+  } catch (e) { cur.textContent = ''; }
+}
+async function setOutputsFolder(path) {
+  const st = document.getElementById('outputsFolderStatus');
+  path = String(path || '').trim();
+  if (!path) { st.textContent = T('settings.outputs_choose_first', 'Choose a folder first.'); return; }
+  try {
+    const r = await fetch('/outputs/folder/set', {method: 'POST', body: new URLSearchParams({path})});
+    const d = await r.json();
+    if (!r.ok) { st.textContent = d.error || T('settings.outputs_could_not_use', 'That folder could not be used.'); return; }
+    st.textContent = T('settings.outputs_set_done', 'Done. New videos and pictures will be saved in {folder}.', {folder: d.path});
+    refreshOutputsFolder().then(() => { st.textContent = T('settings.outputs_set_done', 'Done. New videos and pictures will be saved in {folder}.', {folder: d.path}); });
+  } catch (e) { st.textContent = e.message || String(e); }
+}
+async function pickOutputsFolder() {
+  const st = document.getElementById('outputsFolderStatus');
+  st.textContent = T('settings.outputs_picker_open', 'A folder window is open. It may be behind this window.');
+  try {
+    const r = await fetch('/outputs/folder/pick', {method: 'POST', body: new URLSearchParams()});
+    const d = await r.json();
+    if (d.cancelled) { st.textContent = ''; return; }
+    if (d.error || !d.path) {
+      st.textContent = d.error || T('settings.outputs_picker_failed', 'The folder window could not open. Paste the folder\'s full path instead.');
+      const det = document.getElementById('outputsFolderTyped'); if (det) det.open = true;
+      return;
+    }
+    await setOutputsFolder(d.path);
+  } catch (e) { st.textContent = e.message || String(e); }
+}
+async function resetOutputsFolder() {
+  const st = document.getElementById('outputsFolderStatus');
+  try {
+    await fetch('/outputs/folder/reset', {method: 'POST', body: new URLSearchParams()});
+    await refreshOutputsFolder();
+    st.textContent = T('settings.outputs_reset_done', 'New files go to the default folder again. Files already copied stay where they are.');
+  } catch (e) { st.textContent = e.message || String(e); }
+}
+
 Object.assign(globalThis, {
-  proSpeedRender, proSpeedChanged, proDraftRender,
+  proSpeedRender,
+  refreshOutputsFolder, setOutputsFolder, pickOutputsFolder, resetOutputsFolder, outputsFolderSentence, proSpeedChanged, proDraftRender,
   crisperRender, crisperChanged, crisperPrepare,
   downloadFirstVideo,
   openProModal, closeProModal, proStatusRefresh,

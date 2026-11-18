@@ -17,6 +17,13 @@ from panel.routes import get, post
 
 P = None  # the running mlx_ltx_panel module; assigned at wiring time
 
+
+def _output_roots() -> list:
+    """OUTPUT plus every saved files folder (P.output_roots); a stub panel
+    without it (unit tests) gets OUTPUT alone, the behaviour before 5.0.60."""
+    f = getattr(P, "output_roots", None)
+    return list(f()) if callable(f) else [P.OUTPUT.resolve()]
+
 # SAFETY-7: one recovery join at a time owns STATE["take_join_pgid"].
 _TAKE_JOIN_LOCK = threading.Lock()
 
@@ -123,6 +130,9 @@ def get_status(h, parsed) -> None:
     # = only Hailuo H3 clips wait; every other clip keeps going.
     payload["hold"] = P.queue_hold_status(payload.get("queue"), payload["server_now"])
     payload["avg_elapsed_sec"] = avg
+    # Saved files folder: where finished files go, and whether its drive is
+    # connected (the page says so in plain words when it is not).
+    payload["outputs_folder"] = P.output_folder_status()
     # v3.0.7 (P2): surface the installed ltx-2-mlx version (from the
     # helper's ready event) so every bug report — not just a mismatch
     # log — carries what's actually running. Empty until the helper
@@ -1153,7 +1163,7 @@ def _lipsync_media_path(raw: str):
     Returns the resolved path, or None when it is outside the roots."""
     try:
         media = P.Path(raw).resolve()
-        roots = [P.OUTPUT.resolve(), P.UPLOADS.resolve(), P.STATE_DIR.resolve()]
+        roots = [*_output_roots(), P.UPLOADS.resolve(), P.STATE_DIR.resolve()]
     except Exception:                                            # noqa: BLE001
         return None
     if not any(media.is_relative_to(r) for r in roots):
@@ -1377,7 +1387,7 @@ def post_queue_newtake(h, path, qs, ctype) -> None:
     except Exception:
         h._json({"error": "bad path"}, 400); return
     try:
-        roots = [P.OUTPUT.resolve(), P.UPLOADS.resolve()]
+        roots = [*_output_roots(), P.UPLOADS.resolve()]
     except Exception:
         roots = []
     if not any(media.is_relative_to(r) for r in roots):
@@ -1526,7 +1536,7 @@ def _load_take_manifest(h, form_or_qs) -> dict | None:
     except Exception:
         h._json({"error": "bad path"}, 400); return None
     try:
-        roots = [P.OUTPUT.resolve(), P.UPLOADS.resolve()]
+        roots = [*_output_roots(), P.UPLOADS.resolve()]
     except Exception:
         roots = []
     if not any(media.is_relative_to(r) for r in roots):

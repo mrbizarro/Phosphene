@@ -64,6 +64,13 @@ def _helper_run(spec: dict, timeout: float):
 
 P = None  # the running mlx_ltx_panel module; assigned at wiring time
 
+
+def _output_roots() -> list:
+    """OUTPUT plus every saved files folder (P.output_roots); a stub panel
+    without it (unit tests) gets OUTPUT alone, the behaviour before 5.0.60."""
+    f = getattr(P, "output_roots", None)
+    return list(f()) if callable(f) else [P.OUTPUT.resolve()]
+
 VARIATIONS = ("take", "sound", "restyle")
 
 
@@ -90,7 +97,7 @@ def _song_output(path: str) -> Path | None:
         p = Path(path).resolve()
     except (OSError, ValueError):
         return None
-    if not p.is_relative_to(P.OUTPUT.resolve()) or not p.is_file():
+    if not any(p.is_relative_to(r) for r in _output_roots()) or not p.is_file():
         return None
     meta = _sidecar(str(p))
     if not isinstance(meta, dict) or meta.get("engine") != "music":
@@ -500,7 +507,7 @@ def _panel_file(path: str) -> Path | None:
         return None
     if not p.is_file():
         return None
-    for root in (P.OUTPUT, P.UPLOADS):
+    for root in (*_output_roots(), P.UPLOADS):
         try:
             if p.is_relative_to(Path(root).resolve()):
                 return p
