@@ -556,6 +556,13 @@ class ImageEngineConfig:
     h3image_text_dir: str = ""       # the H3 video lane's text-encoder folder (ddalcu-q8)
     h3image_text_config: str = ""    # upstream-meta/FL2VA/text_encoder/config.json
     h3image_mp: float = 8.0
+    # Low-memory mode (engine runner with --memory/--budget-gb; empty = the runner's default, the
+    # resident path). The panel sets "auto" and the memory this picture may use right now; the
+    # runner then picks the fastest setting that fits (streamed text encoder / DiT on small Macs).
+    h3image_memory: str = ""
+    h3image_budget_gb: float = 0.0
+    # What the runner chose, from its "memory setting: <name>" line (analytics mem_mode).
+    h3image_memory_setting: str = ""
 
     # Restyle a picture on Hailuo H3 (R&D L55): the Studio's own scripts/h3_restyle.py in the H3 pack's
     # interpreter against the installed engine checkout. One content picture in, the same scene back in
@@ -2907,6 +2914,10 @@ def _generate_h3image(prompt: str, n: int, aspect: str, output_dir: Path, base_s
             cmd += ["--reference", str(ref)]
         if match:
             cmd.append("--match-reference")
+        if config.h3image_memory:
+            cmd += ["--memory", config.h3image_memory]
+            if config.h3image_budget_gb > 0:
+                cmd += ["--budget-gb", f"{config.h3image_budget_gb:.1f}"]
         if on_log:
             on_log(f"[h3-image] image {i + 1}/{n}: {'Picture 1 shape' if match else ratio} at {mp:g} MP, seed {seed}")
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -2930,6 +2941,8 @@ def _generate_h3image(prompt: str, n: int, aspect: str, output_dir: Path, base_s
             if proc.stdout is not None:
                 for line in proc.stdout:
                     line = line.rstrip()
+                    if line.startswith("memory setting: "):
+                        config.h3image_memory_setting = line[len("memory setting: "):].strip()[:40]
                     if line and on_log:
                         on_log(f"[h3-image] {line}")
             rc = proc.wait()

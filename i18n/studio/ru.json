@@ -1447,6 +1447,7 @@
   "engines.gb_unified_memory": " ГБ единой памяти",
   "engines.get_it": "Получить · ",
   "engines.getting_ready": "готовится",
+  "engines.h3_15s_needs_more_memory": "На этом Mac с {gb} ГБ Hailuo H3 делает клипы до 10 с. Для более длинных клипов здесь не хватает памяти, поэтому сделайте клип на 10 с.",
   "engines.h3_flex": "H3 Flex",
   "engines.h3_flex_makes_videos_from": "H3 Flex делает видео из текста или изображения. Переключитесь на H3 для этого.",
   "engines.h3_flex_makes_videos_from_2": "H3 Flex делает видео из текста или изображения, поэтому форма на вкладке ",
@@ -1470,6 +1471,7 @@
   "engines.h3_flex_turbo_needs_a": "Для H3 Flex Turbo нужен более новый раннер H3.",
   "engines.h3_flex_turbo_needs_hailuo": "Для H3 Flex Turbo сначала нужен Hailuo H3. Нажмите, чтобы получить.",
   "engines.h3_flex_turbo_pick_it": "H3 Flex Turbo: выберите его в списке движков, чтобы скачать (0,3 ГБ).",
+  "engines.h3_long_needs_more_memory": "На этом Mac с {gb} ГБ Hailuo H3 делает клипы до 5 с. Для более длинных клипов здесь не хватает памяти, поэтому сделайте клип на 5 с.",
   "engines.h3_only": "только H3",
   "engines.has_no_fast_pass_yet": " пока без быстрого прохода — всегда рендерится в режиме «Лучшее».",
   "engines.high_detail": " · высокая детализация",
@@ -2932,6 +2934,7 @@
   "queue.graphics_apps_update_macos": "(видео в браузере, игры, другие ИИ-приложения) · обновите macOS.",
   "queue.graphics_driver_stopped_render": "Графический драйвер Mac остановил рендер. Phosphene уже повторил попытку.",
   "queue.h3_needs_quick_repair_short": "Hailuo H3 нужна быстрая починка.",
+  "queue.h3_oom_hint": "Сделайте клип короче (5 с) или выберите более лёгкую настройку, например «Черновик», и закройте другие приложения перед повтором.",
   "queue.h3_performs_it_face_body": "H3 исполняет это — лицо, тело и комнату, ваш трек остаётся без изменений",
   "queue.h3_quick_repair": "Hailuo H3 нужна быстрая починка. Ничего не загружается заново.",
   "queue.h3_quick_repair_one_minute": "Hailuo H3 нужна быстрая починка: около минуты, без загрузки.",
@@ -5173,9 +5176,7 @@
   "yourProModal.close": "Закрыть",
   "yourProModal.title.close": "Закрыть",
   "yourProModal.your_licence": "Ваша лицензия",
-  "yourProTitle.your_pro": "Ваш Pro",
-  "engines.h3_long_needs_more_memory": "На этом Mac с {gb} ГБ Hailuo H3 делает клипы до 5 с. Для более длинных клипов здесь не хватает памяти, поэтому сделайте клип на 5 с.",
-  "queue.h3_oom_hint": "Сделайте клип короче (5 с) или выберите более лёгкую настройку, например «Черновик», и закройте другие приложения перед повтором."
+  "yourProTitle.your_pro": "Ваш Pro"
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -6600,6 +6601,7 @@
   "engines.gb_unified_memory": "d47d41a16c",
   "engines.get_it": "4643208b43",
   "engines.getting_ready": "e4fd5262da",
+  "engines.h3_15s_needs_more_memory": "2bbbc921bd",
   "engines.h3_flex": "7f84759c7f",
   "engines.h3_flex_makes_videos_from": "35ff199add",
   "engines.h3_flex_makes_videos_from_2": "72ddb3e02b",
@@ -6623,6 +6625,7 @@
   "engines.h3_flex_turbo_needs_a": "27e2e78d18",
   "engines.h3_flex_turbo_needs_hailuo": "10bde41ca0",
   "engines.h3_flex_turbo_pick_it": "b1cb8b2e65",
+  "engines.h3_long_needs_more_memory": "c572da121b",
   "engines.h3_only": "a1d1c6f562",
   "engines.has_no_fast_pass_yet": "06885920aa",
   "engines.high_detail": "70d64b70dc",
@@ -8070,6 +8073,7 @@
   "queue.graphics_apps_update_macos": "24827c58fb",
   "queue.graphics_driver_stopped_render": "9f65d660ac",
   "queue.h3_needs_quick_repair_short": "0c4ba7a2c0",
+  "queue.h3_oom_hint": "e2de8bb844",
   "queue.h3_performs_it_face_body": "725cef2472",
   "queue.h3_quick_repair": "06d85574d1",
   "queue.h3_quick_repair_one_minute": "11e0183b6e",
@@ -10266,9 +10270,7 @@
   "yourProModal.close": "771bd90492",
   "yourProModal.title.close": "771bd90492",
   "yourProModal.your_licence": "f77c5fa000",
-  "yourProTitle.your_pro": "41115201f8",
-  "engines.h3_long_needs_more_memory": "c572da121b",
-  "queue.h3_oom_hint": "e2de8bb844"
+  "yourProTitle.your_pro": "41115201f8"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "2997d999fb",

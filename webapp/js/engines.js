@@ -2706,13 +2706,21 @@ function _h3FallbackCell(cell) {
 // never win.
 // Fleet 18 Nov 2026: a 16 GB Mac is offered Hailuo H3 up to 5 s (longer clips
 // ran out of memory on every one). The server's reason is English; this one
-// reason has a code so it shows in the user's language.
+// reason has a code so it shows in the user's language. With an H3 engine that
+// has the low-memory chain switches the same Mac is offered 10 s, and 15 s
+// greys with its own coded reason (ram_15s).
 function cellUnavailableReason(cell) {
   if (!cell) return '';
   if (cell.unavailable_code === 'ram_long') {
     const gb = Math.round(Number(cell.unavailable_gb) || 0) || 16;
     return T('engines.h3_long_needs_more_memory',
       'On this {gb} GB Mac, Hailuo H3 makes clips up to 5 s. Longer clips run out of memory here, so make a 5 s clip.',
+      {gb});
+  }
+  if (cell.unavailable_code === 'ram_15s') {
+    const gb = Math.round(Number(cell.unavailable_gb) || 0) || 16;
+    return T('engines.h3_15s_needs_more_memory',
+      'On this {gb} GB Mac, Hailuo H3 makes clips up to 10 s. Longer clips run out of memory here, so make a 10 s clip.',
       {gb});
   }
   return cell.unavailable_reason || '';

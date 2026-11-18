@@ -28,9 +28,9 @@ result() { echo "@@result h3 $1"; }
 # (git archive --prefix=minimax-h3-mlx-<sha>/ | gzip -n -9), published under Phosphene-mirror/.
 # h3_checkout.sh owns the commit; this must be re-measured with every pin move
 # (test_h3_app_runner.py fails when the two disagree).
-H3_ARCHIVE_FOR="0158f42514f95ee7abd89640cf7cebf6969c9c44"
-H3_ARCHIVE_SHA256="50d9601efccdc948c6cb3be4cb3a151a15c994dc7651f6273fe0fc8d29a0fba5"
-H3_ARCHIVE_BYTES=410774
+H3_ARCHIVE_FOR="26010372e81af2224da97e6ea27e6be3bcb6d957"
+H3_ARCHIVE_SHA256="568577fb47c83c614b01a056e7def50599f058a3b74b1d1d271449d4b0d4b64c"
+H3_ARCHIVE_BYTES=425305
 H3_ARCHIVE_URL="https://codeload.github.com/mrbizarro/minimax-h3-mlx/tar.gz/$H3_ARCHIVE_FOR"
 # GitHub first (owner, 17 Nov 2026): OUR archive, uploaded as an asset of the "engine-archives"
 # release; our own server is the backup. codeload's tarball has different bytes and never passes;

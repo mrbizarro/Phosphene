@@ -1443,6 +1443,7 @@
   "engines.gb_unified_memory": " GB de memória unificada",
   "engines.get_it": "Obter · ",
   "engines.getting_ready": "preparando",
+  "engines.h3_15s_needs_more_memory": "Neste Mac de {gb} GB, o Hailuo H3 cria clipes de até 10 s. Clipes mais longos ficam sem memória aqui, então crie um clipe de 10 s.",
   "engines.h3_flex": "H3 Flex",
   "engines.h3_flex_makes_videos_from": "O H3 Flex faz vídeos a partir de texto ou de uma imagem. Mude para o H3 para isso.",
   "engines.h3_flex_makes_videos_from_2": "O H3 Flex faz vídeos a partir de texto ou de uma imagem, então o formulário está em ",
@@ -1466,6 +1467,7 @@
   "engines.h3_flex_turbo_needs_a": "O H3 Flex Turbo precisa de um runner do H3 mais novo.",
   "engines.h3_flex_turbo_needs_hailuo": "O H3 Flex Turbo precisa primeiro do Hailuo H3. Clique para obtê-lo.",
   "engines.h3_flex_turbo_pick_it": "H3 Flex Turbo: escolha-o no seletor de motor para baixá-lo (0,3 GB).",
+  "engines.h3_long_needs_more_memory": "Neste Mac de {gb} GB, o Hailuo H3 cria clipes de até 5 s. Clipes mais longos ficam sem memória aqui, então crie um clipe de 5 s.",
   "engines.h3_only": "Só H3",
   "engines.has_no_fast_pass_yet": " ainda não tem passagem Rápida — sempre renderiza no Melhor.",
   "engines.high_detail": " · Detalhe alto",
@@ -2925,6 +2927,7 @@
   "queue.graphics_apps_update_macos": "(vídeo do navegador, jogos, outros apps de IA) · atualize o macOS.",
   "queue.graphics_driver_stopped_render": "O driver gráfico do Mac interrompeu a renderização. O Phosphene já tentou de novo.",
   "queue.h3_needs_quick_repair_short": "O Hailuo H3 precisa de um reparo rápido.",
+  "queue.h3_oom_hint": "Crie um clipe mais curto (5 s) ou escolha uma configuração mais leve, como Rascunho, e feche outros apps antes de tentar de novo.",
   "queue.h3_performs_it_face_body": "O H3 encena tudo — rosto, corpo e ambiente, com a sua faixa mantida exatamente como está",
   "queue.h3_quick_repair": "O Hailuo H3 precisa de um reparo rápido. Nada é baixado de novo.",
   "queue.h3_quick_repair_one_minute": "O Hailuo H3 precisa de um reparo rápido: cerca de um minuto, sem download.",
@@ -5157,9 +5160,7 @@
   "yourProModal.close": "Fechar",
   "yourProModal.title.close": "Fechar",
   "yourProModal.your_licence": "Sua licença",
-  "yourProTitle.your_pro": "Seu Pro",
-  "engines.h3_long_needs_more_memory": "Neste Mac de {gb} GB, o Hailuo H3 cria clipes de até 5 s. Clipes mais longos ficam sem memória aqui, então crie um clipe de 5 s.",
-  "queue.h3_oom_hint": "Crie um clipe mais curto (5 s) ou escolha uma configuração mais leve, como Rascunho, e feche outros apps antes de tentar de novo."
+  "yourProTitle.your_pro": "Seu Pro"
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -6584,6 +6585,7 @@
   "engines.gb_unified_memory": "d47d41a16c",
   "engines.get_it": "4643208b43",
   "engines.getting_ready": "e4fd5262da",
+  "engines.h3_15s_needs_more_memory": "2bbbc921bd",
   "engines.h3_flex": "7f84759c7f",
   "engines.h3_flex_makes_videos_from": "35ff199add",
   "engines.h3_flex_makes_videos_from_2": "72ddb3e02b",
@@ -6607,6 +6609,7 @@
   "engines.h3_flex_turbo_needs_a": "27e2e78d18",
   "engines.h3_flex_turbo_needs_hailuo": "10bde41ca0",
   "engines.h3_flex_turbo_pick_it": "b1cb8b2e65",
+  "engines.h3_long_needs_more_memory": "c572da121b",
   "engines.h3_only": "a1d1c6f562",
   "engines.has_no_fast_pass_yet": "06885920aa",
   "engines.high_detail": "70d64b70dc",
@@ -8054,6 +8057,7 @@
   "queue.graphics_apps_update_macos": "24827c58fb",
   "queue.graphics_driver_stopped_render": "9f65d660ac",
   "queue.h3_needs_quick_repair_short": "0c4ba7a2c0",
+  "queue.h3_oom_hint": "e2de8bb844",
   "queue.h3_performs_it_face_body": "725cef2472",
   "queue.h3_quick_repair": "06d85574d1",
   "queue.h3_quick_repair_one_minute": "11e0183b6e",
@@ -10250,9 +10254,7 @@
   "yourProModal.close": "771bd90492",
   "yourProModal.title.close": "771bd90492",
   "yourProModal.your_licence": "f77c5fa000",
-  "yourProTitle.your_pro": "41115201f8",
-  "engines.h3_long_needs_more_memory": "c572da121b",
-  "queue.h3_oom_hint": "e2de8bb844"
+  "yourProTitle.your_pro": "41115201f8"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "34c221e682",

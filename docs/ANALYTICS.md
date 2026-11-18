@@ -301,6 +301,11 @@ including image and training jobs.
 | `character_used` | bool | `true` | A cast character drove this render |
 | `audio_mode` | string | `"joint"` | `joint` / `none` (external audio replaces the generated track) / `a2v_dub` / `h3_native` |
 | `h3_sampler` | string | `"v13"` | 4.19.11 — H3 renders only: which sampler ran. **Closed vocabulary**: `best` (the full sampler), `fast`, `turbo`, `v13` (lightx2v v1.3 on Best at High), `flex` (Pika H3 Flex, its six-step re-noise sampler), `flex_turbo` (5.0: H3 Flex Turbo, Pro). Keeps the timing lanes apart, which `steps` alone cannot |
+| `mem_mode` | string | `"lowmem"` | 5.0.56 — Hailuo H3 clips and MiniMax-H3-Image pictures: which memory path ran. **Closed vocabulary**: `resident` (the whole model in memory), `lowmem` (the streamed low-memory path), `lowmem_min` / `lowmem_lightref` (the picture runner's lighter settings; `lightref` copies edit references smaller), `unknown` (a low-memory plan was asked for and the runner left no record). Absent for other engines |
+| `clean_sound` | string | `"dropped_ram"` | 5.0.56 — H3 renders only: Clean up sound `on`, `off`, or `dropped_ram` (asked for, but this Mac's memory could not hold it, so the clip kept its own sound) |
+| `length_capped_from` | string | `"15s"` | 5.0.56 — H3 renders only, present only when the Studio shortened the clip because of this Mac's memory: the length that was asked for (`10s` or `15s`); `tier` is what rendered |
+| `image_tier` | string | `"draft"` | 5.0.56 — MiniMax-H3-Image only: `draft` (4 MP), `standard` (8 MP), `high` (16 MP), or `unknown` |
+| `ref_count` | int | `2` | 5.0.56 — MiniMax-H3-Image only: how many reference pictures the edit had (0-16, the count only) |
 | `first_render` | bool | `true` | Present once per install, on its first successful render ever — the activation funnel without a join |
 | `gpu_steps` | string | `"short"` | 4.17.5 — present only when the render ran in **short GPU steps** (one Metal op per command buffer), the path a macOS GPU-watchdog kill switches a setting to. Closed vocabulary: `short`. Absent = default steps. Answers "does the short path stop the watchdog loop" |
 | `watchdog_retry` | bool | `true` | 4.17.5 — present only when a GPU-watchdog kill was re-run inside the same job (once, on short steps). On `render_completed` it means the retry saved the render |

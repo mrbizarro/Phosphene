@@ -9769,6 +9769,19 @@ H3_REVOICE_LABEL = "Clean up sound"
 H3_REVOICE_KV_BYTES_PER_ROW = 2 * 7168 * 50 * (1 + 4 / 128)
 H3_REVOICE_PEAK_Q8_GIB = 26.0         # Q8 lane's measured run peak (25.6 GiB)
 H3_REVOICE_PEAK_BF16_GIB = 43.0       # bf16 lane (42.2 GiB)
+H3_REVOICE_DISK_MAX_RAM_GB = 36.0     # the on-disk store is for Macs below this; bigger Macs price as before
+# Clean up sound below 36 GB (Nov 2026). A runner with `--revoice-kv-store` keeps
+# that store in a scratch file when it does not fit and reads it back a block at
+# a time (the same bytes, so the same sound): the pass then holds two blocks of
+# it, not fifty. On the streamed lane (16-35 GB) the render's own peak is the
+# low-memory one, a few GB, so the whole pass fits a 16 GB Mac. Peak of the
+# streamed render, GiB, = fixed + per 1,000 packed rows: process footprint on M4
+# Max runs capped like a 16 GB Mac, low-memory engine (Draft 5 s ~9.4k
+# rows ~6.0 GB, Standard 5 s ~12.9k rows 6.4 GB), plus a margin
+# (Nov 2026).
+H3_LOWMEM_PEAK_FIXED_GIB = 4.0
+H3_LOWMEM_PEAK_PER_KROW_GIB = 0.22
+H3_REVOICE_DISK_BLOCKS_HELD = 4       # int8 in use + being read, + the bf16 copy (x2)
 H3_TRISTEP_DEFAULT_QUALITIES = H3_TRISTEP_QUALITIES
 # End-to-end wall clocks for TriStep cells, M4 Max, keyed (quality, length).
 # Keyed (quality, length, mode). All with the character + vh5tape LoRAs on top
@@ -11109,6 +11122,38 @@ _CRASH_LINE_CLASSES = (
     ("assertion", ("assertion failed",)),
 )
 CRASH_LINES = tuple(c for c, _ in _CRASH_LINE_CLASSES) + ("none",)
+#: 5.0.56 - render_*.mem_mode: which memory path a Hailuo H3 clip or a MiniMax-H3-Image picture
+#: ran on. "resident" = the whole model in memory (no plan asked, or the plan kept it resident);
+#: "lowmem" = the streamed low-memory path; "lowmem_min" / "lowmem_lightref" = the picture
+#: runner's lighter rungs (lightref copies edit references smaller, its one lossy setting);
+#: "unknown" = a plan was asked for but the runner left no record (killed before it wrote one).
+MEM_MODES = ("resident", "lowmem", "lowmem_min", "lowmem_lightref", "unknown")
+
+
+def _h3_mem_mode_from_metrics(metrics_path, asked: bool) -> str:
+    """The H3 video runner's memory plan, from its metrics file (written at start, so a failed
+    render has it too; a refused one writes {"status": "refused", "memory_plan": ...})."""
+    try:
+        data = json.loads(Path(metrics_path).read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError, TypeError):
+        data = {}
+    plan = data.get("memory_plan") or (data.get("settings") or {}).get("memory_plan")
+    mode = str((plan or {}).get("mode") or "") if isinstance(plan, dict) else ""
+    if mode in ("lowmem", "resident"):
+        return mode
+    return "unknown" if asked else "resident"
+
+
+def _h3image_mem_mode(setting: str, asked: bool) -> str:
+    """The picture runner's printed memory setting ("memory setting: lowmem-min") as a mem_mode."""
+    s = str(setting or "").strip().lower().replace("-", "_")
+    if s in MEM_MODES:
+        return s
+    if s.startswith("lowmem"):
+        return "lowmem"
+    if s == "resident" or (not s and not asked):
+        return "resident"
+    return "unknown"
 # 4.19.6: the non-watchdog GPU aborts in prompt encoding that pass on a later,
 # fresh start (fleet 4.19.2+: M2 Max / macOS 15.x, M1 Max / macOS 26.6) - see
 # WarmHelper.run. Re-run once, in a fresh helper, after this pause.
@@ -11646,6 +11691,31 @@ def h3_revoice_extra_rows(w: int, h: int, *, keyframes: int = 0, history: bool =
             + (H3_REFERENCE_ROWS if reference else 0))
 
 
+def h3_supports_revoice_disk() -> bool:
+    """Whether the INSTALLED runner can keep the re-voice store on disk.
+
+    False while the module is still importing: H3_TIERS is priced at import, before the
+    runner probes below exist; h3_visible_tiers() re-prices Clean up sound per request."""
+    if "_h3_runner_has_flag" not in globals() or "h3_supports_revoice" not in globals():
+        return False
+    return h3_supports_revoice() and _h3_runner_has_flag("--revoice-kv-store")
+
+
+def h3_revoice_store_fits_memory(w: int, h: int, window_frames: int,
+                                 total_ram_gb: float | None = None) -> bool:
+    """Whether the whole re-voice store fits in memory beside the resident render."""
+    kind = h3_dit_choice()[0]
+    base = H3_REVOICE_PEAK_BF16_GIB if kind == "bf16" else H3_REVOICE_PEAK_Q8_GIB
+    kv = _h3_packed_rows(w, h, window_frames) * H3_REVOICE_KV_BYTES_PER_ROW / 1024 ** 3
+    budget, _ = h3_memory_budget(total_ram_gb)
+    return not budget or base + kv <= budget
+
+
+def h3_lowmem_peak_gib(rows: int) -> float:
+    """The streamed (16-35 GB) lane's measured render peak at this many packed rows."""
+    return H3_LOWMEM_PEAK_FIXED_GIB + H3_LOWMEM_PEAK_PER_KROW_GIB * int(rows) / 1000.0
+
+
 def h3_revoice_fits(w: int, h: int, window_frames: int,
                     total_ram_gb: float | None = None,
                     dit_kind: str | None = None,
@@ -11655,10 +11725,19 @@ def h3_revoice_fits(w: int, h: int, window_frames: int,
     with the engine this install will really use."""
     kind = dit_kind or h3_dit_choice()[0]
     base = H3_REVOICE_PEAK_BF16_GIB if kind == "bf16" else H3_REVOICE_PEAK_Q8_GIB
-    kv = ((_h3_packed_rows(w, h, window_frames) + max(0, int(extra_rows)))
-          * H3_REVOICE_KV_BYTES_PER_ROW / 1024 ** 3)
+    rows = _h3_packed_rows(w, h, window_frames) + max(0, int(extra_rows))
+    kv = rows * H3_REVOICE_KV_BYTES_PER_ROW / 1024 ** 3
     budget, _ = h3_memory_budget(total_ram_gb)
     need = base + kv
+    ram = float(SYSTEM_RAM_GB if total_ram_gb is None else total_ram_gb)
+    if h3_supports_revoice_disk() and 0 < ram < H3_REVOICE_DISK_MAX_RAM_GB:
+        # The store can live on disk: it costs a few blocks, not the whole store. Only on the Macs
+        # under 36 GB this was built and measured for; bigger Macs keep their old price.
+        need = min(need, base + kv * H3_REVOICE_DISK_BLOCKS_HELD / 50.0)
+        if (kind != "bf16" and H3_MIN_RAM_GB_LOWMEM <= ram < H3_MIN_RAM_GB
+                and _h3_runner_has_flag("--low-memory")):
+            # The streamed lane's own peak, not the resident Q8 one.
+            need = min(need, h3_lowmem_peak_gib(rows) + kv * H3_REVOICE_DISK_BLOCKS_HELD / 50.0)
     if budget and need > budget:
         return False, (f"Clean up sound needs about {need:.0f} GB at {w}×{h}; this Mac "
                        f"gives H3 {budget:.0f} GB.")
@@ -12310,18 +12389,55 @@ def h3_compose_tier(quality: str | None, length: str | None) -> str | None:
 # same quality (h3_fallback_tier) - the canvas, steps and faces are untouched.
 H3_CHAIN_MIN_RAM_GB = 17.0
 H3_CHAIN_RAM_CODE = "ram_long"
+# ---- ... and what an engine with the low-memory chain switches lifts (L17, 18 Nov 2026) ----
+# The engine follow-up the note above waited for: on a low-memory plan the runner now encodes a
+# chain's carried frames a few at a time (`--vae-encode-chunk`, bit-identical latents) and prices
+# that pass in its admission check, so a chain's second window no longer jumps from ~7.7 to
+# ~13.9 GB. Measured on a 64 GB Mac held to a 16 GB budget: Draft 10 s 12.9 -> 7.5 GB, Standard
+# 10 s 13.0 -> 7.6 GB. With that runner installed a 16 GB Mac is offered chained 10 s clips; an
+# older engine keeps the 5 s cap above, so an install that has not updated never regresses.
+# Detected from the installed runner's text, like every other H3 runner feature.
+H3_LOWMEM_CHAIN_FLAG = "--vae-encode-chunk"
+# 15 s (three chained windows) on a 16 GB Mac: one switch. On (18 Nov 2026): on the low-memory
+# engine a 15 s Draft held to the 16 GB budget peaked at 8.2 GB (10 s: 9.2 GB), under the 10 GB budget.
+H3_LOWMEM_16GB_ALLOWS_15S = True
+H3_CHAIN_RAM_CODE_15S = "ram_15s"
 
 
-def h3_chain_fits_ram(ram_gb: float | None = None) -> bool:
-    """Whether this Mac has room for a chained (longer than 5 s) H3 clip."""
+def h3_lowmem_chain_supported() -> bool:
+    """Whether the INSTALLED runner has the low-memory chain switches (L17). Setting
+    H3_LOWMEM_CHAIN_FLAG to "" puts the 5 s cap back on every 16 GB Mac (the pull-back switch)."""
+    if not H3_LOWMEM_CHAIN_FLAG:
+        return False
+    return _h3_runner_has_flag("--low-memory") and _h3_runner_has_flag(H3_LOWMEM_CHAIN_FLAG)
+
+
+def h3_max_chain_windows_for_ram(ram_gb: float | None = None) -> int:
+    """How many chained 5 s windows this Mac is offered (0 = no limit)."""
     ram = float(SYSTEM_RAM_GB if ram_gb is None else ram_gb)
-    return ram <= 0 or ram >= H3_CHAIN_MIN_RAM_GB
+    if ram <= 0 or ram >= H3_CHAIN_MIN_RAM_GB:
+        return 0
+    if not h3_lowmem_chain_supported():
+        return 1
+    return 3 if H3_LOWMEM_16GB_ALLOWS_15S else 2
+
+
+def h3_chain_fits_ram(ram_gb: float | None = None, windows: int = 2) -> bool:
+    """Whether this Mac has room for a chained (longer than 5 s) H3 clip of `windows` windows."""
+    cap = h3_max_chain_windows_for_ram(ram_gb)
+    return cap == 0 or int(windows) <= cap
 
 
 def h3_chain_ram_reason(ram_gb: float | None = None) -> str:
     ram = float(SYSTEM_RAM_GB if ram_gb is None else ram_gb)
     return (f"On this {int(round(ram))} GB Mac, Hailuo H3 makes clips up to 5 s. "
             "Longer clips run out of memory here, so make a 5 s clip.")
+
+
+def h3_chain_15s_ram_reason(ram_gb: float | None = None) -> str:
+    ram = float(SYSTEM_RAM_GB if ram_gb is None else ram_gb)
+    return (f"On this {int(round(ram))} GB Mac, Hailuo H3 makes clips up to 10 s. "
+            "Longer clips run out of memory here, so make a 10 s clip.")
 
 
 def h3_cell_gate(cell: dict) -> tuple[bool, str]:
@@ -12331,9 +12447,15 @@ def h3_cell_gate(cell: dict) -> tuple[bool, str]:
     Returns (ok, reason) so the UI can grey a chip with a sentence and make_job
     can fall back with the same sentence in the log — one predicate, two
     consumers, no drift."""
-    if ((int(cell.get("chain_windows") or 1) > 1 or int(cell.get("frames") or 0) > 130)
-            and not h3_chain_fits_ram()):
-        # Chained 10 s / 15 s, and the single-pass 10 s (bigger still).
+    _windows = int(cell.get("chain_windows") or 1)
+    if int(cell.get("frames") or 0) > 130 and _windows <= 1 and h3_max_chain_windows_for_ram() != 0:
+        # The single-pass (dense) 10 s holds every frame in one window: bigger than any chain,
+        # and not measured on a 16 GB budget, so it stays off wherever a cap applies.
+        return (False, h3_chain_ram_reason())
+    if _windows > 1 and not h3_chain_fits_ram(windows=_windows):
+        # Chained 10 s / 15 s past what this Mac is offered.
+        if h3_max_chain_windows_for_ram() >= 2:
+            return (False, h3_chain_15s_ram_reason())
         return (False, h3_chain_ram_reason())
     if int(cell.get("chain_windows") or 1) > 1 and not h3_supports_chain():
         return (False,
@@ -15786,6 +15908,7 @@ def h3_supports_revoice() -> bool:
 def h3_revoice_status() -> dict:
     return {
         "supported": h3_supports_revoice(),
+        "disk_store": h3_supports_revoice_disk(),
         "default": H3_REVOICE_DEFAULT,
         "points": H3_REVOICE_POINTS,
         "label": H3_REVOICE_LABEL,
@@ -16686,6 +16809,25 @@ H3IMAGE_PEAK_GB = 28.5   # measured 27.5-27.7 GB at 4, 8 and 16 MP (bench, 10 No
 # (ports/minimax-h3-image/bench/RESULT.md: 119 / 227 / 513 s). The picker labels, the engine table
 # and the Image Studio estimate all read them.
 H3IMAGE_MEASURED_ETA = {"draft": 120, "standard": 230, "high": 515}
+# Streamed mode (engine runner with --memory/--budget-gb, feature-detected by
+# h3image_lowmem_supported). The text encoder is read one layer at a time and the DiT one block at
+# a time, each read hidden under the previous one's compute, so the largest phase is a few GB
+# instead of the 28 GB resident text encoder. Byte-identical pictures (latents and pixels sha256
+# equal) and no slower: measured M4 Max 64 GB, 12 Nov 2026:
+#   4 MP  resident 107.2 s / 27.96 GB   streamed  99.3 s / 4.83 GB
+#   8 MP  resident 227   s (port bench) streamed 213.2 s / 6.16 GB
+#  16 MP  resident 527.9 s / 27.99 GB   streamed 525.4 s / 8.15 GB
+#   edit, 1 picture, 4 MP: resident 160.9 s / 30.56 GB, streamed 154.9 s / 5.25 GB
+# The runner streams on every Mac and drops to its lightest setting when the pre-flight's free
+# memory is tight. Peak footprint per tier, rounded up:
+H3IMAGE_LOWMEM_PEAK_GB = {"draft": 5.5, "standard": 6.5, "high": 9.0}
+# Each edit reference adds rows to every forward. The runner prices the real pictures and, when
+# nothing exact fits, copies them at the release's 1024 px lower bound (its one lossy setting).
+# What one reference adds at that lightest setting, rounded up: a six-picture 4 MP edit measured
+# 14.08 GB at full size and estimates 9.4 GB light (13 Nov 2026).
+H3IMAGE_LOWMEM_PER_REF_GB = 0.75
+# Whole-image wall seconds, streamed (same Mac as H3IMAGE_MEASURED_ETA).
+H3IMAGE_LOWMEM_ETA = {"draft": 100, "standard": 215, "high": 525}
 _h3image_dl_lock = threading.Lock()
 _h3image_dl_state: dict = {}
 
@@ -16726,6 +16868,60 @@ def h3image_edit_supported() -> bool:
         return "--match-reference" in _h3image_script().read_text(encoding="utf-8", errors="replace")
     except OSError:
         return False
+
+
+def h3image_lowmem_supported() -> bool:
+    """Whether the INSTALLED runner has the low-memory mode (--budget-gb). Feature-detected from the
+    runner's text, like h3image_edit_supported: an older engine pin keeps the resident-only path
+    and its 48 GB floor."""
+    try:
+        return "--budget-gb" in _h3image_script().read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+
+# Macs at or above the old resident floor keep the resident picture path they always had (same
+# pixels, same speed, same memory); the streamed mode is for the Macs that could not run it before.
+H3IMAGE_LOWMEM_MAX_RAM_GB = 48.0
+
+
+def h3image_lowmem_active() -> bool:
+    """Whether pictures on THIS Mac take the streamed low-memory path: the installed runner has it
+    and the Mac is below the old 48 GB resident floor (an unknown RAM size counts as small)."""
+    if not h3image_lowmem_supported():
+        return False
+    ram = float(SYSTEM_RAM_GB or 0)
+    return ram <= 0 or ram < H3IMAGE_LOWMEM_MAX_RAM_GB
+
+
+def h3image_tiers() -> dict:
+    """The quality tiers this install offers (4 / 8 / 16 MP)."""
+    return dict(H3IMAGE_TIERS)
+
+
+def _h3image_tier_of_mp(mp) -> str:
+    try:
+        mp = float(mp)
+    except (TypeError, ValueError):
+        return "standard"
+    return next((t for t, v in h3image_tiers().items() if abs(float(v) - mp) < 1e-6), "standard")
+
+
+def h3image_need_gb(tier: str = "standard", refs: int = 0) -> float:
+    """Memory a picture must have free to start: the resident peak on an engine without the
+    streamed mode, else the streamed peak plus what each reference adds at the runner's lightest
+    setting (the runner drops to a lighter setting below the budget it is given)."""
+    if not h3image_lowmem_active():
+        return H3IMAGE_PEAK_GB
+    peak = float(H3IMAGE_LOWMEM_PEAK_GB.get(tier, H3IMAGE_LOWMEM_PEAK_GB["high"]))
+    return round(peak + H3IMAGE_LOWMEM_PER_REF_GB * max(0, int(refs or 0)), 2)
+
+
+def h3image_eta_sec(tier: str) -> float:
+    """The streamed time when this Mac streams (under 48 GB, new runner), else the resident time."""
+    if h3image_lowmem_active():
+        return float(H3IMAGE_LOWMEM_ETA[tier])
+    return float(H3IMAGE_MEASURED_ETA[tier])
 
 
 def h3image_max_refs() -> int:
@@ -16777,7 +16973,8 @@ def h3image_status() -> dict:
                    else "not_downloaded" if not downloaded else "ok"),
         "modes": ["t2i", "edit"] if h3image_edit_supported() else ["t2i"], "max_refs": h3image_max_refs(),
         "forwards": H3IMAGE_FORWARDS, "steps": H3IMAGE_FORWARDS,
-        "tiers": dict(H3IMAGE_TIERS), "eta_sec": dict(H3IMAGE_MEASURED_ETA),
+        "tiers": h3image_tiers(), "eta_sec": {t: h3image_eta_sec(t) for t in h3image_tiers()},
+        "lowmem": h3image_lowmem_active(),
         "download_gb": H3IMAGE_DOWNLOAD_GB, "disk_need_gb": H3IMAGE_DISK_NEED_GB,
         "repo": H3IMAGE_REPO, "license": H3IMAGE_LICENSE,
         "name": H3IMAGE_NAME, "label": H3IMAGE_LABEL,
@@ -16794,7 +16991,7 @@ def h3image_engine_config(tier: str = "standard"):
     py = _h3_python()
     paths = h3_paths()
     tier = str(tier).lower()
-    mp = H3IMAGE_TIERS.get(tier, H3IMAGE_TIERS["standard"])
+    mp = h3image_tiers().get(tier, H3IMAGE_TIERS["standard"])
     return agent_image_engine.ImageEngineConfig(
         kind="h3image",
         h3image_python_path=str(py) if py else "",
@@ -16803,6 +17000,8 @@ def h3image_engine_config(tier: str = "standard"):
         h3image_text_dir=str(paths.get("compact_root") or ""),
         h3image_text_config=str(paths.get("text_config") or ""),
         h3image_mp=float(mp),
+        # Low-memory mode when the runner has it; the pre-flight fills h3image_budget_gb.
+        h3image_memory="auto" if h3image_lowmem_active() else "",
     )
 
 
@@ -16812,16 +17011,16 @@ def h3image_engine_rows() -> list[dict]:
     `sec_per_image` is H3IMAGE_MEASURED_ETA until the user has two renders of their own on a
     tier; then it is the mean of those, like every other image engine."""
     status = h3image_status()
-    need = H3IMAGE_PEAK_GB
-    try:
-        fits, mac_gb = _image_engine_fit(need)
-    except Exception:                                              # noqa: BLE001
-        fits, mac_gb = True, 0
     rows = []
-    for engine, tier in (("h3image_draft_inline", "draft"), ("h3image_standard_inline", "standard"),
-                         ("h3image_high_inline", "high")):
+    for tier in h3image_tiers():
+        engine = "h3image_%s_inline" % tier
+        need = h3image_need_gb(tier)
+        try:
+            fits, mac_gb = _image_engine_fit(need)
+        except Exception:                                          # noqa: BLE001
+            fits, mac_gb = True, 0
         cfg = h3image_engine_config(tier)
-        sec, samples = float(H3IMAGE_MEASURED_ETA[tier]), "placeholder-awaiting-bench"
+        sec, samples = h3image_eta_sec(tier), "placeholder-awaiting-bench"
         observed = _IMG_ENGINE_TIMING.get(engine) or []
         if len(observed) >= 2:
             sec = round(sum(max(1.0, el / max(1, n)) for (n, el) in observed) / len(observed), 1)
@@ -16834,7 +17033,7 @@ def h3image_engine_rows() -> list[dict]:
             "download_gb": H3IMAGE_DOWNLOAD_GB, "sec_per_image": sec, "cold_start_sec": 0.0,
             "samples_source": samples, "gated": False, "megapixels": cfg.h3image_mp,
             "version_label": "%s — %s (%d MP, %s)" % (
-                H3IMAGE_NAME, tier.capitalize(), H3IMAGE_TIERS[tier], _h3image_eta_text(sec)),
+                H3IMAGE_NAME, tier.capitalize(), h3image_tiers()[tier], _h3image_eta_text(sec)),
             "license": H3IMAGE_LICENSE, "label": H3IMAGE_LABEL, "credit": H3IMAGE_CREDIT,
             # The Image Studio's chip reads these: why it cannot run yet, and the one-time download.
             "h3image_reason": status["reason"], "installing": bool(status["installing"]),
@@ -19047,6 +19246,15 @@ def h3_visible_tiers() -> list[dict]:
         if not ok and reason == h3_chain_ram_reason():
             t["unavailable_code"] = H3_CHAIN_RAM_CODE
             t["unavailable_gb"] = int(round(SYSTEM_RAM_GB))
+        elif not ok and reason == h3_chain_15s_ram_reason():
+            t["unavailable_code"] = H3_CHAIN_RAM_CODE_15S
+            t["unavailable_gb"] = int(round(SYSTEM_RAM_GB))
+        if "revoice_fits" in t:
+            # Priced now, against the runner on disk (one that keeps the store on disk
+            # opens Clean up sound on 16-35 GB Macs).
+            t["revoice_fits"], t["revoice_note"] = h3_revoice_fits(
+                int(t["width"]), int(t["height"]),
+                int(t.get("window_frames") or t["frames"]), dit_kind="q8")
         if not per_window and int(t.get("chain_windows") or 1) > 1:
             t["notes"] = [H3_TIER_CHAIN_NOTE_LEGACY
                           if n == H3_TIER_CHAIN_NOTE else n
@@ -24622,6 +24830,26 @@ def _analytics_render_event(job: dict) -> None:
                                    "flex" if p.get("h3_flex") else
                                    "flex_turbo" if p.get("h3_flex_turbo") else
                                    "v13" if p.get("h3_v13") else "best")
+        # 5.0.56 (16-24 GB H3 release): the low-memory signals, closed vocabularies only, so the
+        # fleet can show per RAM class whether the streamed paths engaged and what the Studio
+        # held back. Present only when the job knows them.
+        if job.get("mem_mode") in MEM_MODES:
+            props["mem_mode"] = job["mem_mode"]
+        if engine == "h3":
+            if p.get("h3_clean_sound_dropped") == "ram":
+                props["clean_sound"] = "dropped_ram"
+            elif "h3_clean_sound" in p:
+                props["clean_sound"] = "on" if p.get("h3_clean_sound") else "off"
+            if p.get("h3_length_capped_from") in ("10s", "15s"):
+                # The Studio shortened this clip because of this Mac's memory (16 GB cap).
+                props["length_capped_from"] = p["h3_length_capped_from"]
+        elif engine == "h3image":
+            _eo = str(p.get("engine_override") or "")
+            _it = _eo[len("h3image_"):-len("_inline")] if (
+                _eo.startswith("h3image_") and _eo.endswith("_inline")) else ""
+            props["image_tier"] = _it if _it in H3IMAGE_TIERS else "unknown"
+            _refs = p.get("refs")
+            props["ref_count"] = min(16, len(_refs)) if isinstance(_refs, list) else 0
         # 4.17.5: did this render run in short GPU steps (the Metal watchdog
         # path), and did a watchdog kill get re-run inside the same job?
         if job.get("gpu_steps") == "short":
@@ -39279,6 +39507,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
     _h3_tier = (h3_compose_tier(f("h3_quality", ""), f("h3_length", ""))
                 or h3_resolve_tier(f("h3_tier", ""))
                 or H3_TIER_DEFAULT)
+    _h3_capped_from = ""
     # Post-render export canvas for an H3 clip (parity with LTX's `upscale`).
     # Separate field because the LTX control is data-ltx-only in the UI and is
     # neutralised below — reusing it would make one pill mean two things.
@@ -39329,6 +39558,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                       else False if _h3_clean_raw in ("0", "false", "off", "no")
                       else None)
     _h3_clean_sound = False
+    _h3_clean_dropped = ""
     # Pika H3 Flex: an explicit Speed choice ("1"), never a default. When it
     # can run it wins over Fast, Turbo, v1.3 and a Steps pin (it owns its own
     # six-step ladder); where it cannot, the render says so and falls back.
@@ -39402,6 +39632,9 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             _fallback = h3_fallback_tier(_h3_tier)
             push(f"h3_tier={_h3_tier!r} can't render here: {_reason} "
                  f"Rendering {_fallback!r} instead.")
+            if _reason in (h3_chain_ram_reason(), h3_chain_15s_ram_reason()):
+                # Analytics (length_capped_from): this Mac's memory shortened the clip.
+                _h3_capped_from = H3_TIERS[_h3_tier]["length"]
             _h3_tier = _fallback
         if _h3_turbo and h3_available():
             _turbo = h3_turbo_status()
@@ -39468,6 +39701,7 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
                         _h3_clean_sound = True
                     elif _h3_clean_want:
                         push(_why + " Rendering with Fast's own sound.")
+                        _h3_clean_dropped = "ram"
         if H3_TIERS[_h3_tier].get("fast_hd"):
             # Fast HD is a recipe, not a canvas: the 3-step Fast pass, then the
             # x2 Upscale & Face Fix. Both are forced here so a stale Speed pill
@@ -39647,6 +39881,9 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             "h3_tier": _h3_tier,
             "h3_quality": H3_TIERS[_h3_tier]["quality"],
             "h3_length": H3_TIERS[_h3_tier]["length"],
+            # Set by make_job itself (never read from the form): the length this Mac's memory
+            # cut the clip down from, for the render event's length_capped_from.
+            "h3_length_capped_from": _h3_capped_from,
             # Export canvas for the H3 post-process (off / fit_720p /
             # fit_1080p). SAME allowlist trap as every key in this dict: a new
             # form field that isn't listed here silently no-ops on /queue/add.
@@ -39670,6 +39907,9 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             # Clean up sound: re-make a Fast render's sound with the adapter
             # off. SAME allowlist trap: leave it out and the switch no-ops.
             "h3_clean_sound": _h3_clean_sound,
+            # Set by make_job (never the form): "ram" when Clean up sound was asked for and this
+            # Mac could not hold it (render event clean_sound=dropped_ram).
+            "h3_clean_sound_dropped": _h3_clean_dropped,
             # Pika H3 Flex, resolved above. SAME allowlist trap.
             "h3_flex": _h3_flex,
             # H3 Flex Turbo (Pro), resolved above. SAME allowlist trap.
@@ -40425,7 +40665,7 @@ def low_ram_auto_image_config(cfg, form: dict | None = None):
         "mflux_python_path": ""})
 
 
-def _preflight_estimate_ram_gb(cfg) -> float:
+def _preflight_estimate_ram_gb(cfg, refs: int = 0) -> float:
     """Return the best-effort RAM estimate (GB) for the given image cfg.
 
     Lookup order:
@@ -40442,7 +40682,7 @@ def _preflight_estimate_ram_gb(cfg) -> float:
     if cfg.kind == "ph3image":
         return PH3IMAGE_PEAK_GB
     if cfg.kind == "h3image":
-        return H3IMAGE_PEAK_GB
+        return h3image_need_gb(_h3image_tier_of_mp(getattr(cfg, "h3image_mp", 8.0)), refs)
     if cfg.kind == "h3restyle":
         return H3RESTYLE_PEAK_GB
     if cfg.kind == "hidream":
@@ -40627,7 +40867,7 @@ def _image_free_gb(mem: dict) -> float:
     return max(ratio_free, min(avail, total_gb) if total_gb else avail)
 
 
-def _preflight_image_job(cfg, *, engine_override: str = "auto") -> None:
+def _preflight_image_job(cfg, *, engine_override: str = "auto", refs: int = 0) -> None:
     """Raise RuntimeError if the host can't safely run this image cfg.
 
     Checks (in order):
@@ -40688,7 +40928,7 @@ def _preflight_image_job(cfg, *, engine_override: str = "auto") -> None:
             "Quality in Image Studio for the same job; the ✦ Quality chip "
             "now picks it on its own.")
 
-    need_gb = _preflight_estimate_ram_gb(cfg)
+    need_gb = _preflight_estimate_ram_gb(cfg, refs)
     mem = get_memory()
     total_gb = float(mem.get("total_gb") or 0.0)
     used_gb = float(mem.get("used_gb") or 0.0)
@@ -40747,6 +40987,10 @@ def _preflight_image_job(cfg, *, engine_override: str = "auto") -> None:
             f"{total_gb:.0f} GB, {used_gb:.1f} GB in use). Close other apps "
             f"— browsers, another render — and try again."
         )
+    if cfg.kind == "h3image" and getattr(cfg, "h3image_memory", ""):
+        # The runner picks the fastest memory setting that fits what is free NOW (less a GB for
+        # the rest of the Mac): a busy 64 GB Mac streams instead of being refused or swapping.
+        cfg.h3image_budget_gb = max(float(need_gb), round(free_gb - 1.0, 1))
 
     cache_root = _hf_cache_root()
     cache_root.mkdir(parents=True, exist_ok=True)
@@ -40905,7 +41149,7 @@ def run_image_job_inner(job: dict) -> None:
     # PHOSPHENE_SKIP_PREFLIGHT=1.
     import image_diagnostics
     diagnostic = image_diagnostics.begin(STATE_DIR, engine_override, _analytics_enabled)
-    _preflight_image_job(cfg, engine_override=engine_override)
+    _preflight_image_job(cfg, engine_override=engine_override, refs=len(refs_resolved))
     # STOP DURING PREFLIGHT. Preflight can unload the helper and wait for
     # memory to settle, and a Stop pressed then found no image process to
     # kill; the engine started anyway and the job was filed done. Checked
@@ -40983,6 +41227,10 @@ def run_image_job_inner(job: dict) -> None:
         raise
     finally:
         _IMG_STUDIO_LOCK.release()
+        if cfg.kind == "h3image":
+            # Analytics mem_mode: the picture runner's own memory setting (printed at start).
+            job["mem_mode"] = _h3image_mem_mode(getattr(cfg, "h3image_memory_setting", ""),
+                                                bool(getattr(cfg, "h3image_memory", "")))
     # A Stop that landed as the engine exited cleanly is still a Stop: the
     # worker must not file an acknowledged cancellation as done.
     _raise_if_cancelled(job, "the image was published")
@@ -43793,6 +44041,7 @@ def run_h3_job_inner(job: dict) -> None:
             reference=bool(p.get("h3_reference")) and mode in H3_REFERENCE_MODES))
         if not _ok:
             clean_sound = False
+            p["h3_clean_sound_dropped"] = "ram"
             push(f"[h3] {_why} Keeping Fast's own sound.")
     if clean_sound:
         # Re-voice: after the picture, the Fast adapter goes off and the base
@@ -43800,6 +44049,12 @@ def run_h3_job_inner(job: dict) -> None:
         # LoRA stays on, so a trained voice keeps its voice.
         cmd += ["--revoice-steps", str(H3_REVOICE_POINTS),
                 "--revoice-drop", str(tristep_paths["lora"])]
+        if (h3_supports_revoice_disk() and "--low-memory" not in cmd
+                and 0 < float(SYSTEM_RAM_GB or 0) < H3_REVOICE_DISK_MAX_RAM_GB
+                and not h3_revoice_store_fits_memory(width, height, window_frames)):
+            # No memory plan runs on this Mac (60 GB and up) to decide it, so say it here:
+            # a store that would not fit beside the render goes to disk (same sound).
+            cmd += ["--revoice-kv-store", "disk"]
     p["h3_clean_sound"] = clean_sound
     # Face to keep: the reference still, named in the prompt as the picture
     # after any first frame. The prompt the runner gets is rewritten in place
@@ -44237,6 +44492,11 @@ def run_h3_job_inner(job: dict) -> None:
             STATE["pid"] = None
             STATE["h3_pgid"] = None
         _proc_guard_clear("h3")
+        try:
+            # Analytics mem_mode: which memory path the runner took (its metrics file).
+            job["mem_mode"] = _h3_mem_mode_from_metrics(metrics_path, "--low-memory" in cmd)
+        except Exception:                                            # noqa: BLE001
+            pass
         if _stop_after_window_sent:
             # H3-11: the engine was asked to stop between windows. Whatever
             # it left at out_path is the whole answer — "publish what it

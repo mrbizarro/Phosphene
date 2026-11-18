@@ -23,6 +23,8 @@ it can.
 | **≥ 36 GB** (`H3_MIN_RAM_GB_Q8`), Q8 DiT pack on disk | quantised Q8 DiT | Renders. |
 | **≥ 36 GB, Q8 DiT pack absent** | — | **Not a hardware verdict.** `scripts/pinokio/h3_build_q8.sh` builds that pack locally in ~5 min / ~22 GB with **no extra download**, and "Install Hailuo H3" runs it automatically below 60 GB. The switcher shows H3 as an offer, the inline card names the step, and `h3_status()` carries `needs_q8_dit: true` with the sentence in `ram_note`. The sentence depends on whether the ~75 GB is already on disk: never installed → the sidebar's **Install Hailuo H3** (a real download, the Q8 build is its last step); weights present → **Build Hailuo H3 compact engine** (minutes, no download). Both entries are in the Pinokio sidebar while the panel runs, too (4.15.3; before that they appeared only with the panel stopped). |
 | **16–35 GB** (`H3_MIN_RAM_GB_LOWMEM`, 5.0.7) | Q8 DiT, streamed (`--low-memory auto`) | Renders when the installed runner has `--low-memory`; Draft and Standard from 16 GB, High from 18 GB. Pin `59da147` (`phosphene/v5.0-image4`). On a runner without the flag the floor stays 36. |
+| **16–35 GB, Clean up sound** | the same streamed lane | Offered when the runner also has `--revoice-kv-store`: the re-voice store goes to a scratch file when it does not fit (same sound byte for byte), and the price is the streamed peak plus four blocks of it (`h3_revoice_fits`, `h3_lowmem_peak_gib`). Measured on a 64 GB Mac capped like a 16 GB one: Standard 5 s 6.4 GiB, Standard 10 s 9.0 GiB. An older runner keeps the resident price, so Clean up sound stays refused below ~36 GB. |
+| **16 GB, clips longer than 5 s** | the same streamed lane | 5.0.53 capped 16 GB Macs at 5 s (`H3_CHAIN_MIN_RAM_GB`): a chain's second window peaked at ~13.9 GB. When the runner also has `--vae-encode-chunk` (`h3_lowmem_chain_supported`), the carried frames are encoded a few at a time and priced in the admission check (Draft 10 s 12.9 → 7.5 GB, Standard 10 s 13.0 → 7.6 GB on a 64 GB Mac held to a 16 GB budget), and 16 GB Macs are offered 10 s. 15 s waits on `H3_LOWMEM_16GB_ALLOWS_15S`; the single-pass 10 s stays off. An older runner keeps the 5 s cap. |
 | **< 16 GB** | — | Genuinely out of reach. The refusal states 16. |
 
 `h3_ram_verdict()` is the single place those bands are decided. The render
@@ -1055,6 +1057,13 @@ a 298 MB rank-16 adapter (`witcherderivia/minimax-h3-image-restyle` @ b506c0bb, 
   training); 3D/clay, flat vector, pixel and felt are its strong ones. The author's 10000-step file is stronger on the group
   photo but was not the file the recipe was measured with, so the 8500 one ships.
 
+### MiniMax-H3-Image streamed memory
+
+- Engine runner flags `--memory resident|lowmem|auto`, `--budget-gb`: the runner streams the Qwen3-VL text encoder
+  per layer and the DiT per block. Same pixels, peak 4.8 / 6.2 / 8.2 GB at 4 / 8 / 16 MP (was 28 GB). The Studio
+  feature-detects the flags from the installed runner (`h3image_lowmem_supported`); an older engine keeps the
+  resident path and its 48 GB floor.
+
 ## What H3 does *not* do
 
 - **Modes**: Remix and Character are LTX-pipeline-specific; the picker snaps
@@ -1144,6 +1153,10 @@ restart. `GET /status` → `.h3` tells you what resolved:
 Metrics for every run are kept at `state/h3_metrics/<job_id>.json` (the runner's
 own phase timings, peak GiB, packed rows), and summarised into the render's
 `<output>.mp4.json` sidecar under the `h3` key.
+
+## Pin 2601037 (5.0.56, 18 Nov 2026)
+
+`phosphene/v5.0-lowram1` = 0158f42 + one low-memory commit: MiniMax-H3-Image gets a streamed memory mode (`--memory auto --budget-gb`, text encoder and DiT read as they run), edit references are priced by size with a lighter-reference rung, long chains hand frames between windows in small chunks (`--vae-encode-chunk`) and count that step in the memory check, Clean up sound can keep its store on disk (`--revoice-kv-store`), and encodes never load the decoder. On 36 GB+ Macs nothing changes (same frames, sound and pixels as 0158f42, measured on an M4 Max 64 GB). The Studio turns on the 16-35 GB paths only when the installed runner has these switches. Mac app runner archive = OUR archive of the commit (sha256 568577fb..., 425,305 bytes).
 
 ## Pin 0158f42 (5.0.35, 17 Nov 2026)
 

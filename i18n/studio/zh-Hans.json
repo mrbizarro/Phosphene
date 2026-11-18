@@ -1435,6 +1435,7 @@
   "engines.gb_unified_memory": " GB 统一内存",
   "engines.get_it": "获取 · ",
   "engines.getting_ready": "准备中",
+  "engines.h3_15s_needs_more_memory": "在这台 {gb} GB 的 Mac 上，Hailuo H3 最多生成 10 秒的片段。更长的片段在这里会内存不足，请生成 10 秒的片段。",
   "engines.h3_flex": "H3 Flex",
   "engines.h3_flex_makes_videos_from": "H3 Flex 支持文生视频和图生视频。此功能请切换到 H3。",
   "engines.h3_flex_makes_videos_from_2": "H3 Flex 支持文生视频和图生视频，因此表单已切换到 ",
@@ -1458,6 +1459,7 @@
   "engines.h3_flex_turbo_needs_a": "H3 Flex Turbo 需要更新版 H3 运行器。",
   "engines.h3_flex_turbo_needs_hailuo": "H3 Flex Turbo 需要先安装 Hailuo H3。点击获取。",
   "engines.h3_flex_turbo_pick_it": "H3 Flex Turbo：在引擎选择器中选中即可下载（0.3 GB）。",
+  "engines.h3_long_needs_more_memory": "在这台 {gb} GB 的 Mac 上，Hailuo H3 最多生成 5 秒的片段。更长的片段在这里会内存不足，请生成 5 秒的片段。",
   "engines.h3_only": "仅 H3",
   "engines.has_no_fast_pass_yet": " 暂无快速模式 — 始终使用最佳渲染。",
   "engines.high_detail": " · 高细节",
@@ -2911,6 +2913,7 @@
   "queue.graphics_apps_update_macos": "（浏览器视频、游戏、其他 AI 应用） · 请更新 macOS。",
   "queue.graphics_driver_stopped_render": "Mac 的显卡驱动停止了渲染。Phosphene 已自动重试。",
   "queue.h3_needs_quick_repair_short": "Hailuo H3 需要快速修复。",
+  "queue.h3_oom_hint": "请生成更短的片段（5 秒）或选择更低的设置（如“草稿”），并在重试前退出其他应用。",
   "queue.h3_performs_it_face_body": "H3 负责表演——面部、身体和场景，音轨原样保留",
   "queue.h3_quick_repair": "Hailuo H3 需要快速修复一下，不会重新下载任何内容。",
   "queue.h3_quick_repair_one_minute": "Hailuo H3 需要快速修复：约 1 分钟，无需下载。",
@@ -5125,9 +5128,7 @@
   "yourProModal.close": "关闭",
   "yourProModal.title.close": "关闭",
   "yourProModal.your_licence": "你的许可证",
-  "yourProTitle.your_pro": "你的 Pro",
-  "engines.h3_long_needs_more_memory": "在这台 {gb} GB 的 Mac 上，Hailuo H3 最多生成 5 秒的片段。更长的片段在这里会内存不足，请生成 5 秒的片段。",
-  "queue.h3_oom_hint": "请生成更短的片段（5 秒）或选择更低的设置（如“草稿”），并在重试前退出其他应用。"
+  "yourProTitle.your_pro": "你的 Pro"
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -6552,6 +6553,7 @@
   "engines.gb_unified_memory": "d47d41a16c",
   "engines.get_it": "4643208b43",
   "engines.getting_ready": "e4fd5262da",
+  "engines.h3_15s_needs_more_memory": "2bbbc921bd",
   "engines.h3_flex": "7f84759c7f",
   "engines.h3_flex_makes_videos_from": "35ff199add",
   "engines.h3_flex_makes_videos_from_2": "72ddb3e02b",
@@ -6575,6 +6577,7 @@
   "engines.h3_flex_turbo_needs_a": "27e2e78d18",
   "engines.h3_flex_turbo_needs_hailuo": "10bde41ca0",
   "engines.h3_flex_turbo_pick_it": "b1cb8b2e65",
+  "engines.h3_long_needs_more_memory": "c572da121b",
   "engines.h3_only": "a1d1c6f562",
   "engines.has_no_fast_pass_yet": "06885920aa",
   "engines.high_detail": "70d64b70dc",
@@ -8022,6 +8025,7 @@
   "queue.graphics_apps_update_macos": "24827c58fb",
   "queue.graphics_driver_stopped_render": "9f65d660ac",
   "queue.h3_needs_quick_repair_short": "0c4ba7a2c0",
+  "queue.h3_oom_hint": "e2de8bb844",
   "queue.h3_performs_it_face_body": "725cef2472",
   "queue.h3_quick_repair": "06d85574d1",
   "queue.h3_quick_repair_one_minute": "11e0183b6e",
@@ -10218,9 +10222,7 @@
   "yourProModal.close": "771bd90492",
   "yourProModal.title.close": "771bd90492",
   "yourProModal.your_licence": "f77c5fa000",
-  "yourProTitle.your_pro": "41115201f8",
-  "engines.h3_long_needs_more_memory": "c572da121b",
-  "queue.h3_oom_hint": "e2de8bb844"
+  "yourProTitle.your_pro": "41115201f8"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "d6e72ae332",

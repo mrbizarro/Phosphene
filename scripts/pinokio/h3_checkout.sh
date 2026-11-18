@@ -36,8 +36,8 @@
 # keeps its H3 step optional: scripts/post_update.sh runs this file through
 # `defang`, which turns the FATAL line into a WARN and never ends the Update.
 set -u
-H3_PIN_SHA="0158f42514f95ee7abd89640cf7cebf6969c9c44"
-H3_PIN_REF="phosphene/v5.0-image8"
+H3_PIN_SHA="26010372e81af2224da97e6ea27e6be3bcb6d957"
+H3_PIN_REF="phosphene/v5.0-lowram1"
 H3_LOCAL_BRANCH="phosphene-pinned"
 H3_URL="https://github.com/mrbizarro/minimax-h3-mlx.git"
 # GitHub first (owner, 17 Nov 2026), our own server (same commits) as the backup, then the

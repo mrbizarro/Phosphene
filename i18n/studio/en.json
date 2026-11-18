@@ -6895,7 +6895,7 @@
   "engines.5s_windows": {
    "text": " × 5s windows",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles render h3 window prompts",
-   "where": "engines.js:2881"
+   "where": "engines.js:2889"
   },
   "engines.a_conversion_of": {
    "text": " (a conversion of ",
@@ -6910,7 +6910,7 @@
   "engines.add_sound": {
    "text": "Add sound",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 sync prompt helper",
-   "where": "engines.js:3094"
+   "where": "engines.js:3102"
   },
   "engines.add_sound_picture_kept": {
    "text": "Add sound · picture kept · ≈ ",
@@ -6920,7 +6920,7 @@
   "engines.already_structured_the_three_fields": {
    "text": "Already structured — the three fields are there.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 insert prompt structure",
-   "where": "engines.js:2991"
+   "where": "engines.js:2999"
   },
   "engines.auto_s_render_time_at": {
    "text": "× Auto's render time at this shape",
@@ -7010,7 +7010,7 @@
   "engines.exactly_as_the_line_ends": {
    "text": "Exactly as the line ends, NAME's mouth settles closed.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 insert dialogue line",
-   "where": "engines.js:3022"
+   "where": "engines.js:3030"
   },
   "engines.extend": {
    "text": "Extend +",
@@ -7020,7 +7020,7 @@
   "engines.extend_2": {
    "text": "Extend",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 sync prompt helper · this label is the term “Extend”: make an existing clip longer by continuing it",
-   "where": "engines.js:3094"
+   "where": "engines.js:3102"
   },
   "engines.face_fix": {
    "text": " + Face Fix",
@@ -7030,7 +7030,7 @@
   "engines.falling_back_to": {
    "text": " Falling back to ",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 apply shape",
-   "where": "engines.js:2739"
+   "where": "engines.js:2747"
   },
   "engines.fast": {
    "text": "Fast",
@@ -7141,6 +7141,11 @@
    "text": "getting ready",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles render engine switch",
    "where": "engines.js:2019"
+  },
+  "engines.h3_15s_needs_more_memory": {
+   "text": "On this {gb} GB Mac, Hailuo H3 makes clips up to 10 s. Longer clips run out of memory here, so make a 10 s clip.",
+   "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles cell unavailable reason · placeholders {gb} are filled in by the app",
+   "where": "engines.js:2722"
   },
   "engines.h3_flex": {
    "text": "H3 Flex",
@@ -7255,7 +7260,7 @@
   "engines.h3_long_needs_more_memory": {
    "text": "On this {gb} GB Mac, Hailuo H3 makes clips up to 5 s. Longer clips run out of memory here, so make a 5 s clip.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles cell unavailable reason · placeholders {gb} are filled in by the app",
-   "where": "engines.js:2714"
+   "where": "engines.js:2716"
   },
   "engines.h3_only": {
    "text": "H3 only",
@@ -7330,7 +7335,7 @@
   "engines.keyframes": {
    "text": "Keyframes",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 sync prompt helper · this label is the term “Keyframes”: pictures the video must pass through at chosen moments",
-   "where": "engines.js:3094"
+   "where": "engines.js:3102"
   },
   "engines.license": {
    "text": "). License: ",
@@ -7350,7 +7355,7 @@
   "engines.line_here": {
    "text": "line here",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 insert dialogue line",
-   "where": "engines.js:3029"
+   "where": "engines.js:3037"
   },
   "engines.long_start_and_walk_away": {
    "text": " · long, start and walk away",
@@ -7385,7 +7390,7 @@
   "engines.name_s1_says": {
    "text": "NAME (S1) says: ",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 insert dialogue line",
-   "where": "engines.js:3020"
+   "where": "engines.js:3028"
   },
   "engines.needs": {
    "text": " — needs ",
@@ -7540,7 +7545,7 @@
   "engines.shot_1_who_is_on": {
    "text": "[Shot 1] Who is on screen, two or three anchors (build, clothes), ",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 insert prompt structure · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «[Shot 1] Who is on screen, two or three anchors (build, clothes), … where they are and the light. What happens, described plainly.»",
-   "where": "engines.js:2998"
+   "where": "engines.js:3006"
   },
   "engines.sidebar_your_weights_stay": {
    "text": "sidebar — your weights stay.",
@@ -7645,7 +7650,7 @@
   "engines.where_they_are_and_the": {
    "text": "where they are and the light. What happens, described plainly.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 insert prompt structure · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «[Shot 1] Who is on screen, two or three anchors (build, clothes), … where they are and the light. What happens, described plainly.»",
-   "where": "engines.js:2999"
+   "where": "engines.js:3007"
   },
   "enhanceAcceptBtn.accept": {
    "text": "Accept",
