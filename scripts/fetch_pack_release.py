@@ -502,7 +502,7 @@ def sha256_file(path: Path) -> str:
 # --------------------------------------------------------------------------- #
 # Assembly
 # --------------------------------------------------------------------------- #
-def _pack_path(root: Path, name: str) -> Path:
+def _pack_path(root: Path, name: str, *, finished: bool = False) -> Path:
     """Confine a publisher's flat filename to the chosen pack directory.
 
     The destination itself may be a user-selected symlink (Pinokio's shared
@@ -510,12 +510,19 @@ def _pack_path(root: Path, name: str) -> Path:
     and progress files are opened for writing, and shards may be resumed.
     This checks existing paths; it is not a sandbox against another local
     process replacing paths concurrently.
+
+    ``finished`` (a declared file's own name, H31): a link there is allowed. The
+    Mac app's "reuse from Pinokio" links finished files into the pack folder.
+    Such a link is only read (hashed), or replaced whole by the rename of a
+    downloaded file; nothing is ever written through it.
     """
     if (not isinstance(name, str) or not name or name in (".", "..")
             or any(c in name for c in ("/", "\\", ":"))
             or any(ord(c) < 32 or ord(c) == 127 for c in name)):
         raise ValueError(f"unsafe pack filename: {name!r}")
     path = root / name
+    if finished and path.is_symlink():
+        return path
     if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()):
         raise ValueError(f"unsafe pack path: {path}")
     return path
@@ -524,7 +531,7 @@ def _pack_path(root: Path, name: str) -> Path:
 def _validate_file_paths(name: str, spec: dict, dest_dir: Path) -> None:
     if name == PARTS_DIRNAME:
         raise ValueError(f"reserved pack filename: {name!r}")
-    _pack_path(dest_dir, name)
+    _pack_path(dest_dir, name, finished=True)
     partial = _pack_path(dest_dir, name + ".partial")
     _pack_path(dest_dir, _progress_path(partial).name)
     parts_dir = _pack_path(dest_dir, PARTS_DIRNAME)
@@ -583,7 +590,7 @@ def assemble_file(name: str, spec: dict, dest_dir: Path, mirror: dict,
     that are already tight enough that we quantised the model for them.
     """
     _validate_file_paths(name, spec, dest_dir)
-    target = _pack_path(dest_dir, name)
+    target = _pack_path(dest_dir, name, finished=True)
     want_sha = spec["sha256"]
     want_bytes = int(spec["bytes"])
 

@@ -200,6 +200,20 @@ def _failure_reason(tail, rc):
             "Retry; if it stops again, restart Phosphene and free some memory.")
 
 
+def _failure_message(tail, context):
+    """Keep the last diagnostic in the fleet's first 80 characters."""
+    lines = [_redact(str(line)).strip() for line in tail if str(line).strip()]
+    # Some CLIs print memory statistics in finally after swallowing an error.
+    # Keep that error ahead of trailing statistics/progress, if it is present.
+    diagnostics = [line for line in lines if re.search(
+        r"error|failed|out of memory|stopping image|battery below|no space|cannot|unable",
+        line, re.IGNORECASE)]
+    reason = (diagnostics or lines or ["The renderer stopped without finishing an image."])[-1]
+    reason = reason.removeprefix("FLUX 3: ")
+    return "FLUX 3: " + reason + " " + context + (
+        " Last lines:\n" + "\n".join(lines[-6:]) if lines else "")
+
+
 def _run(cmd, env, on_log, request=None, timeout=7200, guard=(), tail_out=None):
     """Stream progress and share the studio's cancellation registry, including install."""
     import image_engine
@@ -329,8 +343,5 @@ def _complete_receipts(result, request, output_dir, tail=()):
     if seeds and all(s in got for s in seeds):
         return [got[s] for s in seeds]
     done = sum(1 for s in seeds if s in got)
-    last = "\n".join(str(x) for x in list(tail)[-6:])
-    raise RuntimeError(
-        f"FLUX 3 returned no complete image ({done} of {len(seeds)} finished; "
-        f"the worker exited without an error). Check the log and retry."
-        + (f" Last lines:\n{last}" if last else ""))
+    raise RuntimeError(_failure_message(
+        tail, f"{done} of {len(seeds)} finished. Please retry the missing images."))

@@ -1875,5 +1875,79 @@
         ]
       }
     }
+  },
+  "5.0.54": {
+    "free": [
+      "If you set up Phosphene by reusing models from Pinokio, LTX 2.5 downloads now finish. Pressing Resume no longer stops again a second later.",
+      "When a FLUX 3 picture does not finish, Phosphene now tries it once more. If it stops again, the message tells you why."
+    ],
+    "pro": [],
+    "date": "2026-11-18",
+    "headline": "LTX 2.5 downloads that kept stopping now finish, and FLUX 3 tries a stopped picture once more.",
+    "i18n": {
+      "de": {
+        "headline": "LTX-2.5-Downloads, die immer wieder anhielten, werden jetzt fertig, und FLUX 3 versucht ein abgebrochenes Bild noch einmal.",
+        "free": [
+          "Wenn du Phosphene mit Modellen aus Pinokio eingerichtet hast, werden LTX-2.5-Downloads jetzt fertig. Fortsetzen hält nicht mehr nach einer Sekunde wieder an.",
+          "Wird ein FLUX-3-Bild nicht fertig, versucht Phosphene es jetzt noch einmal. Hält es wieder an, sagt dir die Meldung, warum."
+        ]
+      },
+      "es": {
+        "headline": "Las descargas de LTX 2.5 que se detenían ahora terminan, y FLUX 3 vuelve a intentar una imagen que se detuvo.",
+        "free": [
+          "Si configuraste Phosphene reutilizando modelos de Pinokio, las descargas de LTX 2.5 ahora terminan. Reanudar ya no se vuelve a detener un segundo después.",
+          "Cuando una imagen de FLUX 3 no termina, Phosphene la intenta una vez más. Si vuelve a detenerse, el mensaje te dice por qué."
+        ]
+      },
+      "fr": {
+        "headline": "Les téléchargements LTX 2.5 qui s'arrêtaient vont désormais au bout, et FLUX 3 relance une fois une image interrompue.",
+        "free": [
+          "Si vous avez installé Phosphene en réutilisant les modèles de Pinokio, les téléchargements LTX 2.5 vont désormais au bout. Reprendre ne s'arrête plus une seconde plus tard.",
+          "Quand une image FLUX 3 ne se termine pas, Phosphene la relance une fois. Si elle s'arrête encore, le message vous dit pourquoi."
+        ]
+      },
+      "it": {
+        "headline": "I download di LTX 2.5 che si fermavano ora arrivano alla fine, e FLUX 3 riprova una volta un'immagine interrotta.",
+        "free": [
+          "Se hai configurato Phosphene riusando i modelli di Pinokio, i download di LTX 2.5 ora arrivano alla fine. Riprendi non si ferma più dopo un secondo.",
+          "Quando un'immagine FLUX 3 non arriva alla fine, Phosphene la riprova una volta. Se si ferma di nuovo, il messaggio ti dice perché."
+        ]
+      },
+      "ja": {
+        "headline": "止まってしまっていた LTX 2.5 のダウンロードが最後まで終わるようになり、FLUX 3 は止まった画像をもう一度試すようになりました。",
+        "free": [
+          "Pinokio のモデルを再利用して Phosphene を設定した場合も、LTX 2.5 のダウンロードが最後まで終わるようになりました。再開を押しても 1 秒後にまた止まることはありません。",
+          "FLUX 3 の画像が仕上がらなかったとき、Phosphene がもう一度だけ試します。また止まった場合は、その理由をお知らせします。"
+        ]
+      },
+      "ko": {
+        "headline": "자꾸 멈추던 LTX 2.5 다운로드가 이제 끝까지 완료되고, FLUX 3는 멈춘 이미지를 한 번 더 시도합니다.",
+        "free": [
+          "Pinokio의 모델을 다시 사용해 Phosphene을 설정했다면, 이제 LTX 2.5 다운로드가 끝까지 완료됩니다. 이어받기를 눌러도 1초 뒤에 다시 멈추지 않습니다.",
+          "FLUX 3 이미지가 완성되지 않으면 Phosphene이 한 번 더 시도합니다. 다시 멈추면 메시지가 그 이유를 알려 줍니다."
+        ]
+      },
+      "pt": {
+        "headline": "Os downloads do LTX 2.5 que paravam agora terminam, e o FLUX 3 tenta de novo uma imagem que parou.",
+        "free": [
+          "Se você configurou o Phosphene reaproveitando modelos do Pinokio, os downloads do LTX 2.5 agora terminam. Retomar não para de novo um segundo depois.",
+          "Quando uma imagem do FLUX 3 não termina, o Phosphene tenta mais uma vez. Se parar de novo, a mensagem diz o motivo."
+        ]
+      },
+      "ru": {
+        "headline": "Загрузки LTX 2.5, которые останавливались, теперь доходят до конца, а FLUX 3 ещё раз пробует остановившуюся картинку.",
+        "free": [
+          "Если вы настроили Phosphene, взяв модели из Pinokio, загрузки LTX 2.5 теперь доходят до конца. Кнопка «Продолжить» больше не останавливается через секунду.",
+          "Если картинка FLUX 3 не дорисовалась, Phosphene попробует ещё раз. Если она снова остановится, сообщение объяснит почему."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "之前总是中断的 LTX 2.5 下载现在可以完成了，FLUX 3 也会把中断的图片再试一次。",
+        "free": [
+          "如果你是通过重用 Pinokio 中的模型来设置 Phosphene 的，LTX 2.5 下载现在可以完成了。按下继续后不会再一秒就停下。",
+          "当一张 FLUX 3 图片没有完成时，Phosphene 会再试一次。如果又停下了，提示会告诉你原因。"
+        ]
+      }
+    }
   }
 }
