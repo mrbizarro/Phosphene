@@ -38,6 +38,11 @@ MCP tools: `phosphene_status`, `phosphene_make_video`, `phosphene_make_image`, `
 Renders take minutes: a `make_*` tool queues and returns a job id; `phosphene_wait` blocks up to
 `timeout_sec` (default 1500 s) and can be called again.
 
+**Tool titles and labels.** Every MCP tool has a plain title (for example "Make a video clip") and labels that say
+whether it only reads or can change things (`readOnlyHint`, `destructiveHint`), so Claude, Codex and agent
+directories can show it. Two are marked destructive: `phosphene_stop` cancels the render in progress, and
+`phosphene_fetch` replaces a file with the same name in the folder you give it. No tool deletes your files.
+
 ## The CLI
 
 ```bash

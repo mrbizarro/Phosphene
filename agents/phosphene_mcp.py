@@ -122,6 +122,27 @@ TOOLS = [
 ]
 
 
+# Directory listings (Claude, Codex) need a title and a read-only / destructive hint on every tool.
+# Nothing here deletes a person's files. Two tools are marked destructive: stop cancels the render in
+# progress, and fetch replaces a same-named file in the destination folder. The others read or queue a render.
+_ANNOTATIONS = {
+    "phosphene_status": ("Check Phosphene status", {"readOnlyHint": True}),
+    "phosphene_make_video": ("Make a video clip", {"readOnlyHint": False, "destructiveHint": False}),
+    "phosphene_open_cut": ("Open a cut in the Editor", {"readOnlyHint": False, "destructiveHint": False}),
+    "phosphene_make_image": ("Make images", {"readOnlyHint": False, "destructiveHint": False}),
+    "phosphene_make_speech": ("Make speech", {"readOnlyHint": False, "destructiveHint": False}),
+    "phosphene_make_music": ("Make music", {"readOnlyHint": False, "destructiveHint": False}),
+    "phosphene_list_jobs": ("List render jobs", {"readOnlyHint": True}),
+    "phosphene_wait": ("Wait for a render", {"readOnlyHint": True}),
+    "phosphene_fetch": ("Copy finished files to a folder", {"readOnlyHint": False, "destructiveHint": True}),
+    "phosphene_stop": ("Stop the current render", {"readOnlyHint": False, "destructiveHint": True}),
+}
+for _t in TOOLS:
+    _title, _hints = _ANNOTATIONS[_t["name"]]
+    _t["title"] = _title
+    _t["annotations"] = {"title": _title, **_hints, "openWorldHint": False}
+
+
 def _slim(row: dict) -> dict:
     p = row.get("params") or {}
     out = {"id": row.get("id"), "status": row.get("status"), "mode": p.get("mode"), "engine": p.get("engine", "ltx"),

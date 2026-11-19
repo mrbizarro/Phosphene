@@ -3305,5 +3305,108 @@
         ]
       }
     }
+  },
+  "5.0.73": {
+    "free": [
+      "Using Phosphene from Claude or Codex: each tool now has a plain name and says whether it only looks or can change something."
+    ],
+    "pro": [
+      "iPhone Remote: a new Before you go out card on the Remote Control page.",
+      "It shows that Remote is on, which iPhone is paired and when it was last seen, and whether this Mac can be reached away from home."
+    ],
+    "date": "2026-11-20",
+    "headline": "A Before you go out check for iPhone Remote, and clearer tools for Claude and Codex.",
+    "i18n": {
+      "de": {
+        "headline": "Ein „Bevor du losgehst“-Check für iPhone Remote und klarere Werkzeuge für Claude und Codex.",
+        "free": [
+          "Phosphene mit Claude oder Codex nutzen: Jedes Werkzeug hat jetzt einen klaren Namen und sagt, ob es nur nachschaut oder etwas ändern kann."
+        ],
+        "pro": [
+          "iPhone Remote: neue Karte „Bevor du losgehst“ auf der Seite Fernsteuerung.",
+          "Sie zeigt, ob Remote an ist, welches iPhone gekoppelt ist und wann es zuletzt gesehen wurde, und ob dieser Mac auch unterwegs erreichbar ist."
+        ]
+      },
+      "es": {
+        "headline": "Una comprobación «Antes de salir» para iPhone Remote y herramientas más claras para Claude y Codex.",
+        "free": [
+          "Usar Phosphene desde Claude o Codex: cada herramienta tiene ahora un nombre claro y dice si solo consulta o puede cambiar algo."
+        ],
+        "pro": [
+          "iPhone Remote: nueva tarjeta «Antes de salir» en la página Control remoto.",
+          "Muestra si Remote está activado, qué iPhone está enlazado y cuándo se vio por última vez, y si se puede llegar a este Mac fuera de casa."
+        ]
+      },
+      "fr": {
+        "headline": "Une vérification « Avant de sortir » pour iPhone Remote, et des outils plus clairs pour Claude et Codex.",
+        "free": [
+          "Utiliser Phosphene depuis Claude ou Codex : chaque outil a maintenant un nom clair et indique s’il se contente de regarder ou s’il peut changer quelque chose."
+        ],
+        "pro": [
+          "iPhone Remote : nouvelle carte « Avant de sortir » sur la page Télécommande.",
+          "Elle montre si Remote est activé, quel iPhone est associé et quand il a été vu pour la dernière fois, et si ce Mac est joignable hors de chez vous."
+        ]
+      },
+      "it": {
+        "headline": "Un controllo «Prima di uscire» per iPhone Remote e strumenti più chiari per Claude e Codex.",
+        "free": [
+          "Usare Phosphene da Claude o Codex: ogni strumento ora ha un nome chiaro e dice se guarda soltanto o può cambiare qualcosa."
+        ],
+        "pro": [
+          "iPhone Remote: nuova scheda «Prima di uscire» nella pagina Remote Control.",
+          "Mostra se Remote è acceso, quale iPhone è abbinato e quando è stato visto l’ultima volta, e se questo Mac è raggiungibile fuori casa."
+        ]
+      },
+      "ja": {
+        "headline": "iPhone Remote に「出かける前に」チェック、Claude と Codex のツールもわかりやすく。",
+        "free": [
+          "Claude や Codex から Phosphene を使うとき：各ツールにわかりやすい名前が付き、見るだけか、何かを変更できるかが表示されます。"
+        ],
+        "pro": [
+          "iPhone Remote：リモート操作ページに新しい「出かける前に」カード。",
+          "Remote がオンか、どの iPhone とペアリングしていていつ最後に接続したか、外出先からこの Mac につながるかを一か所で確認できます。"
+        ]
+      },
+      "ko": {
+        "headline": "iPhone Remote에 ‘외출하기 전에’ 확인이 생기고, Claude와 Codex 도구가 더 알기 쉬워졌어요.",
+        "free": [
+          "Claude나 Codex에서 Phosphene 사용: 이제 도구마다 알기 쉬운 이름이 있고, 보기만 하는지 무언가를 바꿀 수 있는지 알려 줘요."
+        ],
+        "pro": [
+          "iPhone Remote: 원격 제어 페이지에 새 ‘외출하기 전에’ 카드가 생겼어요.",
+          "Remote가 켜져 있는지, 어떤 iPhone이 페어링되어 언제 마지막으로 접속했는지, 외부에서 이 Mac에 연결할 수 있는지 한곳에서 보여 줘요."
+        ]
+      },
+      "pt": {
+        "headline": "Uma verificação “Antes de sair” para o iPhone Remote e ferramentas mais claras para Claude e Codex.",
+        "free": [
+          "Usar o Phosphene pelo Claude ou Codex: cada ferramenta agora tem um nome claro e diz se só consulta ou se pode mudar algo."
+        ],
+        "pro": [
+          "iPhone Remote: novo cartão “Antes de sair” na página Controle remoto.",
+          "Mostra se o Remote está ligado, qual iPhone está pareado e quando foi visto pela última vez, e se este Mac pode ser acessado fora de casa."
+        ]
+      },
+      "ru": {
+        "headline": "Проверка «Перед выходом из дома» для iPhone Remote и более понятные инструменты для Claude и Codex.",
+        "free": [
+          "Phosphene из Claude или Codex: у каждого инструмента теперь понятное название, и видно, только ли он смотрит или может что-то изменить."
+        ],
+        "pro": [
+          "iPhone Remote: новая карточка «Перед выходом из дома» на странице «Пульт Remote».",
+          "Она показывает, включён ли Remote, какой iPhone привязан и когда он был в сети, и можно ли подключиться к этому Mac вне дома."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "iPhone Remote 新增“出门之前”检查，Claude 和 Codex 的工具也更清楚了。",
+        "free": [
+          "从 Claude 或 Codex 使用 Phosphene：每个工具现在都有清楚的名称，并说明它只是查看还是会做出更改。"
+        ],
+        "pro": [
+          "iPhone Remote：远程控制页面新增“出门之前”卡片。",
+          "它会显示 Remote 是否打开、配对的是哪台 iPhone 以及上次在线时间，还有在外能否连接这台 Mac。"
+        ]
+      }
+    }
   }
 }

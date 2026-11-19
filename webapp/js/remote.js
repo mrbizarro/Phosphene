@@ -155,6 +155,59 @@ function rmConnection(st) {
   return ['bad', T('remote.offline_no_network_found', 'Offline · no network found')];
 }
 
+/* "Before you go out": the things that decide whether the iPhone can reach this Mac from
+   outside. Each line is true now (green) or says what to do (amber). Remote does not report
+   the Mac's sleep setting yet (wake_net), so that line is a reminder until it does. */
+function rmReadyItems(st) {
+  const devs = (st.devices || []).filter((d) => d.confirmed);
+  const on = !!st.enabled && !!st.running;
+  const out = [];
+  out.push(on ? ['on', T('remote.ready_on', 'Remote Control is on'), '']
+    : ['bad', T('remote.ready_off', 'Remote Control is off'), T('remote.ready_off_sub', 'Switch it on under Connection.')]);
+  if (devs.length) {
+    const d = devs.slice().sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0))[0];
+    const names = devs.map((x) => x.name || 'iPhone').join(', ');
+    const head = devs.length === 1 ? T('remote.ready_paired_one', '{name} is paired', {name: names})
+      : T('remote.ready_paired_many', '{count} iPhones are paired ({names})', {count: devs.length, names});
+    out.push(['on', head, d.connected ? T('remote.ready_connected_now', 'Connected now')
+      : T('remote.ready_last_seen', 'Last seen {ago}', {ago: rmAgo(d.last_seen)})]);
+  } else {
+    out.push(['bad', T('remote.ready_no_phone', 'No iPhone is paired with this Mac'),
+      T('remote.ready_no_phone_sub', 'Show the pairing code above and scan it in the Phosphene Remote app.')]);
+  }
+  const relay = st.relay === 'connected';
+  out.push(relay ? ['on', T('remote.ready_away', 'Reachable away from home'), T('remote.ready_away_sub', 'Your iPhone can reach this Mac over the internet.')]
+    : ['warn', T('remote.ready_not_away', 'Not reachable away from home'), T('remote.ready_not_away_sub', 'This Mac cannot be reached over the internet right now. Check its internet connection.')]);
+  if (st.wake_net === true) out.push(['on', T('remote.ready_wakes', 'Answers while asleep'), T('remote.ready_wakes_sub', 'Wake for network access is on.')]);
+  else if (st.wake_net === false) out.push(['warn', T('remote.ready_sleeps', 'Will not answer while asleep'),
+    T('remote.ready_sleeps_sub', 'Turn on “Wake for network access” in System Settings (Battery or Energy), or keep this Mac awake.')]);
+  else out.push(['warn', T('remote.ready_keep_awake', 'Keep this Mac awake'),
+    T('remote.ready_keep_awake_sub', 'A sleeping Mac cannot answer. Turn on “Wake for network access” in System Settings, or keep it awake.')]);
+  return out;
+}
+
+function rmRenderReady(st) {
+  const ul = $('rmReady');
+  if (!ul) return;
+  ul.textContent = '';
+  for (const [cls, title, sub] of rmReadyItems(st)) {
+    const li = document.createElement('li');
+    li.innerHTML = '<span class="rm-dot"></span><div><b></b><small></small></div>';
+    li.querySelector('.rm-dot').classList.add(cls);
+    li.querySelector('b').textContent = title;
+    li.querySelector('small').textContent = sub;
+    li.querySelector('small').hidden = !sub;
+    ul.appendChild(li);
+  }
+  const note = $('rmIdentityNote'), n = st.identity_note;
+  if (note) {
+    note.hidden = !n;
+    if (n) note.textContent = TP('remote.ready_old_key', n.phones, {
+      one: 'The iPhone that was paired with an earlier Remote key of this Mac cannot connect any more. Pair again: show the code above and scan it in the app.',
+      other: '{count} iPhones that were paired with an earlier Remote key of this Mac cannot connect any more. Pair again: show the code above and scan it in the app.'});
+  }
+}
+
 function rmRender() {
   const st = state;
   if (!st) return;
@@ -218,6 +271,7 @@ function rmRender() {
   }
   $('rmForgetAll').hidden = devs.length === 0;
 
+  rmRenderReady(st);
   $('rmEnable').checked = !!st.enabled && !!st.running;
   $('rmFactLan').textContent = st.lan ? (st.lan_url || st.host || 'Ready') : (st.enabled ? T('remote.no_local_network_found', 'No local network found') : T('remote.off', 'Off'));
   $('rmFactRelay').textContent = ({ connected: T('remote.connected', 'Connected'), connecting: T('remote.connecting', 'Connecting…'), off: T('remote.off', 'Off'), offline: T('remote.offline', 'Offline'),
