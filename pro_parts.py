@@ -1,9 +1,11 @@
-"""Pro parts for a Studio without the Mac app (Pinokio): Remote Control's Mac side.
+"""Pro parts for a Studio without the Mac app (Pinokio): Remote Control's Mac side and the Pro add-on.
 
 The Mac app installs the whole signed Pro pack as its studio, so `import pro_remote` finds the
 compiled module there. A Pinokio Studio is the public tree from GitHub and has no Pro pack. With
-its own licence (Settings > Pro, pro_licence.py) it takes ONLY the Remote modules out of the same
-signed pack, from the same server, with the same checks as the app's ProInstaller:
+its own licence (Settings > Pro, pro_licence.py) it takes ONLY the Remote modules and the Pro add-on
+(`_ps`, the sealed module that answers for the Studio-side Pro options: Faster Flex Turbo, Crisper detail,
+AI fill, References) out of the same signed pack, from the same server, with the same checks as the
+app's ProInstaller:
 
   1. POST <server>/v1/pro/latest  license_key, instance_id, device_id, app_version
      -> base64 manifest, Ed25519 signature, key id, a short-lived download URL
@@ -39,6 +41,12 @@ import distribution as _dist
 
 SO = ".cpython-311-darwin.so"
 PARTS = ("pro_remote", "pro_remote_crypto", "pro_relay_grant")
+# Taken when the pack carries it (every 5.0 pack does). Before 5.0.72 only PARTS were read out, so a
+# paying Pinokio user's licence check said "Pro is active" while every option that asks the add-on
+# (`_ps.extra`) read Free, and clicking Faster Flex Turbo opened the buy window. An install without it
+# is fetched again once (`ADDON` missing from the record, unless the pack had none: `no_addon`).
+OPTIONAL = ("_ps",)
+ADDON = "_ps" + SO
 TRUSTED = {"pro-2026-10": "K/27SibA0PprIa5SZ6W8ITdYs8LExFerEUeiJRMB2qg="}   # the app's ProKeys
 MAX_PART = 32 << 20
 MAX_PACK = 1 << 30
@@ -135,7 +143,8 @@ def _verified(rec: dict | None) -> str | None:
         return None
     d = _dir_of(rec)
     want = {p + SO for p in PARTS}
-    if set(rec["files"]) != want or not _trusted_record(rec):
+    allowed = want | {p + SO for p in OPTIONAL}
+    if not (want <= set(rec["files"]) <= allowed) or not _trusted_record(rec):
         return None
     for name, sha in rec["files"].items():
         p = d / name
@@ -147,6 +156,35 @@ def _verified(rec: dict | None) -> str | None:
 def installed() -> str | None:
     """The verified parts folder, or None."""
     return _verified(_record())
+
+
+def addon_installed() -> bool:
+    """The verified install carries the Pro add-on (`_ps`)."""
+    rec = _record()
+    return bool(rec and ADDON in rec.get("files", {}) and installed())
+
+
+def _needs_addon(rec: dict | None) -> bool:
+    """An install made before the add-on was taken: fetch the same version again, once."""
+    return bool(rec) and ADDON not in rec.get("files", {}) and not rec.get("no_addon")
+
+
+def addon_bundle() -> str | None:
+    """The Pro pack version the add-on THIS process answers with is sealed to: the licence pass must be
+    issued for it (the seal refuses a pass for another pack: wrong_bundle). The loaded module wins over
+    the record (a newer install on disk waits for the next start)."""
+    mod = sys.modules.get("_ps")
+    if mod is not None:
+        try:
+            b = (mod._pro_seal_status() or {}).get("bundle")
+            if isinstance(b, str) and re.fullmatch(r"[A-Za-z0-9._+-]{1,64}", b):
+                return b
+        except Exception:                                           # noqa: BLE001
+            pass
+    rec = _record()
+    if rec and ADDON in rec.get("files", {}) and installed():
+        return rec["version"]
+    return None
 
 
 def rollback() -> str | None:
@@ -254,7 +292,8 @@ def _download(url: str, dest: Path, size: int, licence: str, opener) -> None:
 
 
 def _extract(pack: Path, strip: int, out: Path) -> dict:
-    want = {p + SO for p in PARTS}
+    need = {p + SO for p in PARTS}
+    want = need | {p + SO for p in OPTIONAL}
     got = {}
     with tarfile.open(pack, "r:gz") as t:
         for mem in t:
@@ -271,7 +310,7 @@ def _extract(pack: Path, strip: int, out: Path) -> dict:
             with os.fdopen(fd, "wb") as f:
                 f.write(data)
             got[parts[-1]] = hashlib.sha256(data).hexdigest()
-    if set(got) != want:
+    if not need <= set(got):
         raise ValueError("pack_without_remote")
     return got
 
@@ -307,7 +346,7 @@ def fetch(opener=None) -> dict:
             return _done({"ok": False, "error": "unreachable"})
         m, msg = _verify(offer)
         rec = _record()
-        if rec and rec["version"] == m["version"] and installed():
+        if rec and rec["version"] == m["version"] and installed() and not _needs_addon(rec):
             return _done({"ok": True, "version": m["version"], "changed": False})
         root().mkdir(parents=True, exist_ok=True)
         tmp = root() / (".fetch-%d-%s" % (os.getpid(), os.urandom(4).hex()))
@@ -330,6 +369,8 @@ def fetch(opener=None) -> dict:
         doc = {"version": m["version"], "dir": dest_name, "files": files, "key_id": offer["key_id"],
                "manifest": offer["manifest"], "signature": offer["signature"],
                "installed_at": int(time.time())}
+        if ADDON not in files:
+            doc["no_addon"] = True                  # this pack has none: do not fetch it again for that
         old = _record()
         old_ok = _verified(old) if old else None
         cur = root() / "current.json"
@@ -367,6 +408,8 @@ def _probe(parts_dir: Path) -> bool:
     if not PROBE:
         return True
     code = "import sys; sys.path[:0] = [sys.argv[1], sys.argv[2]]; import pro_remote_crypto, pro_remote, pro_relay_grant"
+    if (parts_dir / ADDON).is_file():
+        code += ", _ps"
     try:
         r = subprocess.run([sys.executable, "-I", "-c", code, str(parts_dir), str(Path(__file__).resolve().parent)],
                            capture_output=True, timeout=60, cwd=str(parts_dir),
@@ -428,7 +471,8 @@ def status() -> dict:
     with _lock:
         st = dict(_state)
     ok = bool(rec and installed())
-    return {"installed": rec["version"] if ok else None, "busy": st["busy"], "phase": st["phase"],
+    return {"installed": rec["version"] if ok else None, "addon": bool(ok and ADDON in rec.get("files", {})),
+            "busy": st["busy"], "phase": st["phase"],
             "error": st["error"], "message": explain(st["error"]), "checked_at": st["checked_at"],
             "restart_needed": st["restart_needed"], "rolled_back": st["rolled_back"]}
 
@@ -466,9 +510,13 @@ def _bring_up(P) -> None:
         with _lock:
             if _state.get("changed_since_load"):
                 _state["restart_needed"] = True        # new components are on disk; the running ones stay until restart
+        if "_ps" not in sys.modules:
+            activate()                                 # the add-on was never loaded: the new folder goes first, no restart
+        _refresh(P)
         return
     if activate() is None:
         return
+    _refresh(P)
     try:
         import importlib
         mod = importlib.import_module("pro_remote")
@@ -481,6 +529,17 @@ def _bring_up(P) -> None:
         return
     P.pro_remote = mod
     mod.boot(P)
+
+
+def _refresh(P) -> None:
+    """New parts on sys.path: the Studio forgets what it cached about Pro options (the H3 block)."""
+    for name in ("h3_status_invalidate", "pro_addon_changed"):
+        fn = getattr(P, name, None)
+        if callable(fn):
+            try:
+                fn()
+            except Exception:                                       # noqa: BLE001
+                pass
 
 
 IDLE_POLL = 30          # no licence yet: a licence pasted in Settings > Pro is noticed this fast

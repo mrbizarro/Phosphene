@@ -1727,6 +1727,9 @@ function h3FlexTurboPickerStatus() {
     capable: !!h3st.capable,
     h3_ready: !!h3st.available,
     pro_active: !!ft.pro_active,
+    // A member whose Pro add-on is not here yet (Pinokio fetching it, or a key to paste): never the buy window.
+    pro_setup: !!(ft.pro_active && ft.addon === false),
+    setup_state: (ft.pro_setup && ft.pro_setup.state) || 'getting_ready',
     available: !!(h3st.available && ft.available),
     installing: !!ft.installing,
     progress: ft.installing ? Math.min(99, Math.round(100 * (d.mb || 0) / (d.total_mb || 295))) + '%' : '',
@@ -1740,6 +1743,7 @@ function _h3FlexTurboTooltip(st) {
   const credit = T('engines.flex_turbo_credit', ' Pika H3 Flex by Pika Labs + LightX2V Turbo, running on your Mac. Powered by MiniMax H3.')
     + (st.credit_by ? ' ' + st.credit_by : '');
   if (!st.pro_active) return T('engines.faster_flex_turbo_pro_adds', 'Faster Flex Turbo. Pro adds: about 1.5× faster than Flex on Free. A little softer; for drafts. Click to see Pro.');
+  if (st.pro_setup) return proAddonText(st.setup_state, T('engines.faster_flex_turbo', 'Faster Flex Turbo'));
   if (!st.h3_ready) return T('engines.h3_flex_turbo_needs_hailuo', 'H3 Flex Turbo needs Hailuo H3 first. Click to get it.') + credit;
   if (st.installing) return T('engines.h3_flex_turbo_downloading', 'H3 Flex Turbo: downloading (') + st.progress + ').' + credit;
   if (!st.available) return T('engines.h3_flex_turbo_click_to', 'H3 Flex Turbo: click to download it (') + st.download_gb + ' GB).' + credit;
@@ -1748,6 +1752,7 @@ function _h3FlexTurboTooltip(st) {
 function _h3FlexTurboNote(cell) {
   const ft = h3FlexTurboState();
   if (!ft.pro_active) return T('engines.h3_flex_turbo_is_part', 'H3 Flex Turbo is part of Phosphene Pro. This render uses H3 Flex.');
+  if (ft.addon === false) return proAddonText((ft.pro_setup && ft.pro_setup.state) || 'getting_ready', T('engines.faster_flex_turbo', 'Faster Flex Turbo'));
   if (!ft.supported) return distText(T('engines.flex_turbo_needs_update_pinokio', 'Flex Turbo needs a Hailuo H3 update. Click "Update Hailuo H3 runner" in the Pinokio sidebar.'),
                                      T('engines.flex_turbo_needs_update_app', 'Flex Turbo needs a Hailuo H3 update. Phosphene installs it by itself; if this stays, quit and reopen Phosphene.'));
   if (ft.installing) { const d = ft.download || {}; return T('engines.downloading_h3_flex_turbo', 'Downloading H3 Flex Turbo: ') + (d.mb || 0) + ' / ' + (d.total_mb || 295) + ' MB.'; }
@@ -1757,7 +1762,8 @@ function _h3FlexTurboNote(cell) {
 }
 function _h3FlexTurboMenuRow(e, active, surfaceMode) {
   const st = h3FlexTurboPickerStatus();
-  const badge = !st.pro_active ? '' : !st.h3_ready ? (engineById('h3').install_size || '').replace(/^~/, '')
+  const badge = !st.pro_active ? '' : st.pro_setup ? T('engines.pro_getting_ready_badge', 'getting ready')
+    : !st.h3_ready ? (engineById('h3').install_size || '').replace(/^~/, '')
     : st.installing ? st.progress : !st.available ? st.download_gb + ' GB' : '';
   const ok = engineServesMode(e, surfaceMode);
   const cls = 'eng-opt eng-opt-flex eng-opt-pro' + (e.id === active ? ' active' : '')
@@ -1783,6 +1789,7 @@ async function h3FlexTurboInstall() {
     const r = await fetch('/h3/flex-turbo/install', { method: 'POST' });
     const j = await r.json().catch(() => ({}));
     if (r.status === 402) { if (typeof openProModal === 'function') openProModal(); return; }
+    if (r.status === 503 && j.pro_setup) { proAddonGetReady(T('engines.faster_flex_turbo', 'Faster Flex Turbo')); return; }
     if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
     toast(j.already_installed ? T('engines.h3_flex_turbo_is_already', 'H3 Flex Turbo is already installed.')
       : T('engines.downloading_h3_flex_turbo_0', 'Downloading H3 Flex Turbo (0.3 GB). It switches on by itself when ready.'), 'ok');
@@ -1800,6 +1807,7 @@ function h3FlexTurboPickerClick() {
     else if (typeof phosToast === 'function') phosToast(T('engines.h3_flex_turbo_is_part_2', 'H3 Flex Turbo is part of Phosphene Pro.'), { kind: 'info' });
     return;
   }
+  if (st.pro_setup) { proAddonGetReady(T('engines.faster_flex_turbo', 'Faster Flex Turbo')); return; }
   _h3SetSpeedPref('flex_turbo');
   if (!st.h3_ready) { engineSegClick('h3'); return; }
   const h3e = engineById('h3');

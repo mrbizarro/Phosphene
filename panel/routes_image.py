@@ -503,6 +503,7 @@ def post_h3_flex_turbo_install(h, path, qs, ctype) -> None:
     result = P._h3_install_flex_turbo(P.push)
     if not result.get("ok"):
         h._json(result, 402 if result.get("pro_required") else
+                503 if result.get("pro_setup") else
                 409 if "active" in result.get("error", "") else 400)
         return
     h._json(result, 202)

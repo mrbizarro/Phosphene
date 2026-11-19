@@ -2065,6 +2065,44 @@ const PRO_FEATURES = [
 const PRO_SUPPORT = { name: T('settings.priority_support', 'Priority support'), line: T('settings.pro_questions_and_feature_requests', 'Pro questions and feature requests go to the front of the queue.') };
 const proFeature = id => PRO_FEATURES.find(f => f.id === id) || null;
 const proIsOn = () => !!document.documentElement.dataset.pro;
+
+// ---- A member's Pro option that waits for the Pro add-on ---------------------------------------------------
+// "Is Pro on" has ONE answer (the licence: /pro/status active, data-pro). Whether the Pro add-on is here to run an
+// option is a second, separate one (/pro/status addon.state, or the option's own `addon`). A member whose add-on
+// is not here yet is told what happens next and the Studio fetches it; the buy window is for Free only.
+// Before 5.0.72 Pinokio never fetched the add-on, Faster Flex Turbo read its own "Pro" from it, and a paying
+// member's every click opened the buy window while Settings > Pro said Pro was on.
+function proAddonText(state, feature) {
+  const f = feature || T('settings.pro_this_option', 'This Pro option');
+  if (state === 'needs_key') return T('settings.pro_addon_needs_key', '{feature} needs your Pro key in this Studio once: paste it in Settings > Pro. It does not use another seat.', {feature: f});
+  if (state === 'restart') return T('settings.pro_addon_restart', '{feature}: quit and reopen Phosphene to finish switching Pro on.', {feature: f});
+  if (state === 'waiting') return T('settings.pro_addon_waiting', '{feature}: getting Pro ready on this Studio. The download server asked to wait, so the Studio tries again by itself in about 15 minutes.', {feature: f});
+  if (state === 'retry') return T('settings.pro_addon_retry', '{feature}: getting Pro ready did not finish. Click again to try again.', {feature: f});
+  return T('settings.pro_addon_getting_ready', '{feature}: getting Pro ready on this Studio (a one-time download). It switches on by itself in a minute or two.', {feature: f});
+}
+async function proAddonGetReady(feature, opener = null) {
+  let st = null;
+  try {
+    const r = await fetch('/pro/addon/get-ready', { method: 'POST', cache: 'no-store' });
+    if (r.status === 402) { openProModal(opener); return null; }   // really Free: show what Pro is
+    st = await r.json().catch(() => null);
+  } catch (_) { st = null; }
+  const state = (st && st.state) || 'getting_ready';
+  if (state === 'ready') return st;
+  if (typeof phosToast === 'function') phosToast(proAddonText(state, feature), { kind: state === 'retry' ? 'danger' : 'info' });
+  // Look again until it is here; each look redraws the options that wait for it.
+  if (state === 'getting_ready' && !globalThis._proAddonTimer) {
+    globalThis._proAddonTimer = setTimeout(async () => {
+      globalThis._proAddonTimer = null;
+      const s2 = await proStatusRefresh();
+      if (s2 && s2.addon && s2.addon.state === 'getting_ready') proAddonGetReady.poll = (proAddonGetReady.poll || 0) + 1;
+      if (s2 && s2.addon && s2.addon.state === 'getting_ready' && proAddonGetReady.poll < 30) {
+        globalThis._proAddonTimer = setTimeout(() => { globalThis._proAddonTimer = null; proStatusRefresh(); }, 10000);
+      }
+    }, 10000);
+  }
+  return st;
+}
 // The words a spot shows, for who is looking: a Pro member is told it is on, a Free user what Pro adds.
 const proLeadText = on => on ? T('settings.on_with_your_pro', 'On with your Pro:') : T('settings.pro_adds', 'Pro adds:');
 function proSpotText(id, on = proIsOn()) {
@@ -2276,7 +2314,7 @@ Object.assign(globalThis, {
   refreshOutputsFolder, setOutputsFolder, pickOutputsFolder, resetOutputsFolder, outputsFolderSentence, proSpeedChanged, proDraftRender,
   crisperRender, crisperChanged, crisperPrepare,
   downloadFirstVideo,
-  openProModal, closeProModal, proStatusRefresh,
+  openProModal, closeProModal, proStatusRefresh, proAddonText, proAddonGetReady,
   openYourPro, closeYourPro, proMarksApply, proSpotText, proNoteHtml,
   proLicenceActivate, proLicenceRefresh, proLicenceDeactivate,
   pushSubscription, pushToggle, pushTest,

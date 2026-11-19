@@ -6895,7 +6895,7 @@
   "engines.5s_windows": {
    "text": " × 5s windows",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles render h3 window prompts",
-   "where": "engines.js:2900"
+   "where": "engines.js:2908"
   },
   "engines.a_conversion_of": {
    "text": " (a conversion of ",
@@ -6910,7 +6910,7 @@
   "engines.add_sound": {
    "text": "Add sound",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 sync prompt helper",
-   "where": "engines.js:3113"
+   "where": "engines.js:3121"
   },
   "engines.add_sound_picture_kept": {
    "text": "Add sound · picture kept · ≈ ",
@@ -6920,7 +6920,7 @@
   "engines.already_structured_the_three_fields": {
    "text": "Already structured — the three fields are there.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 insert prompt structure",
-   "where": "engines.js:3010"
+   "where": "engines.js:3018"
   },
   "engines.auto_s_render_time_at": {
    "text": "× Auto's render time at this shape",
@@ -6930,7 +6930,7 @@
   "engines.available_to_install": {
    "text": " — available to install (",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles engine tooltip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «needs one last setup step: about 5 minutes, nothing to download. Click to finish it. … — needs repair; your weights are still on disk. Click for the one-click fix. … — available to install ( … ). Click to see what it does.»",
-   "where": "engines.js:2214"
+   "where": "engines.js:2222"
   },
   "engines.best": {
    "text": "Best",
@@ -6965,7 +6965,7 @@
   "engines.click_to_see_what_it": {
    "text": "). Click to see what it does.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles engine tooltip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «needs one last setup step: about 5 minutes, nothing to download. Click to finish it. … — needs repair; your weights are still on disk. Click for the one-click fix. … — available to install ( … ). Click to see what it does.»",
-   "where": "engines.js:2215"
+   "where": "engines.js:2223"
   },
   "engines.click_update_hailuo_h3_runner": {
    "text": "Click \"Update Hailuo H3 runner\" in the Pinokio sidebar. Your weights stay.",
@@ -6985,12 +6985,12 @@
   "engines.downloading_h3_flex_turbo": {
    "text": "Downloading H3 Flex Turbo: ",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo note",
-   "where": "engines.js:1753"
+   "where": "engines.js:1758"
   },
   "engines.downloading_h3_flex_turbo_0": {
    "text": "Downloading H3 Flex Turbo (0.3 GB). It switches on by itself when ready.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo install",
-   "where": "engines.js:1788"
+   "where": "engines.js:1795"
   },
   "engines.downloading_lightx2v_s_lightx2v_v1": {
    "text": "Downloading LightX2V's lightx2v v1.3 (1.4 GB), then preparing it on your Mac. ",
@@ -7010,7 +7010,7 @@
   "engines.exactly_as_the_line_ends": {
    "text": "Exactly as the line ends, NAME's mouth settles closed.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 insert dialogue line",
-   "where": "engines.js:3041"
+   "where": "engines.js:3049"
   },
   "engines.extend": {
    "text": "Extend +",
@@ -7020,7 +7020,7 @@
   "engines.extend_2": {
    "text": "Extend",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 sync prompt helper · this label is the term “Extend”: make an existing clip longer by continuing it",
-   "where": "engines.js:3113"
+   "where": "engines.js:3121"
   },
   "engines.face_fix": {
    "text": " + Face Fix",
@@ -7030,7 +7030,7 @@
   "engines.falling_back_to": {
    "text": " Falling back to ",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 apply shape",
-   "where": "engines.js:2758"
+   "where": "engines.js:2766"
   },
   "engines.fast": {
    "text": "Fast",
@@ -7040,7 +7040,7 @@
   "engines.fast_draft": {
    "text": " · fast draft",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles ltx cell eta",
-   "where": "engines.js:2555"
+   "where": "engines.js:2563"
   },
   "engines.fast_hd": {
    "text": "Fast HD · ",
@@ -7080,12 +7080,12 @@
   "engines.faster_flex_turbo_on_with": {
    "text": "Faster Flex Turbo. On with your Pro: about 1.5× faster than Flex on Free. A little softer; for drafts. Try ideas fast, then render the keeper on Flex or Best.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo tooltip",
-   "where": "engines.js:1746"
+   "where": "engines.js:1750"
   },
   "engines.faster_flex_turbo_pro_adds": {
    "text": "Faster Flex Turbo. Pro adds: about 1.5× faster than Flex on Free. A little softer; for drafts. Click to see Pro.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo tooltip",
-   "where": "engines.js:1742"
+   "where": "engines.js:1745"
   },
   "engines.faster_flex_turbo_quick_drafts": {
    "text": "Faster Flex Turbo · quick drafts · Pro",
@@ -7095,17 +7095,17 @@
   "engines.flex_turbo_credit": {
    "text": " Pika H3 Flex by Pika Labs + LightX2V Turbo, running on your Mac. Powered by MiniMax H3.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo tooltip",
-   "where": "engines.js:1740"
+   "where": "engines.js:1743"
   },
   "engines.flex_turbo_needs_update_app": {
    "text": "Flex Turbo needs a Hailuo H3 update. Phosphene installs it by itself; if this stays, quit and reopen Phosphene.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo note",
-   "where": "engines.js:1752"
+   "where": "engines.js:1757"
   },
   "engines.flex_turbo_needs_update_pinokio": {
    "text": "Flex Turbo needs a Hailuo H3 update. Click \"Update Hailuo H3 runner\" in the Pinokio sidebar.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo note",
-   "where": "engines.js:1751"
+   "where": "engines.js:1756"
   },
   "engines.forwards": {
    "text": " forwards) — ",
@@ -7130,7 +7130,7 @@
   "engines.gb_unified_memory": {
    "text": " GB unified memory",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles engine tooltip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «— needs … GB unified memory»",
-   "where": "engines.js:2201"
+   "where": "engines.js:2209"
   },
   "engines.get_it": {
    "text": "Get it · ",
@@ -7140,12 +7140,12 @@
   "engines.getting_ready": {
    "text": "getting ready",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles render engine switch",
-   "where": "engines.js:2030"
+   "where": "engines.js:2038"
   },
   "engines.h3_15s_needs_more_memory": {
    "text": "On this {gb} GB Mac, Hailuo H3 makes clips up to 10 s. Longer clips run out of memory here, so make a 10 s clip.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles cell unavailable reason · placeholders {gb} are filled in by the app",
-   "where": "engines.js:2733"
+   "where": "engines.js:2741"
   },
   "engines.h3_flex": {
    "text": "H3 Flex",
@@ -7215,17 +7215,17 @@
   "engines.h3_flex_turbo_2": {
    "text": "H3 Flex Turbo: ",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo install",
-   "where": "engines.js:1790"
+   "where": "engines.js:1797"
   },
   "engines.h3_flex_turbo_click_to": {
    "text": "H3 Flex Turbo: click to download it (",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo tooltip",
-   "where": "engines.js:1745"
+   "where": "engines.js:1749"
   },
   "engines.h3_flex_turbo_downloading": {
    "text": "H3 Flex Turbo: downloading (",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo tooltip",
-   "where": "engines.js:1744"
+   "where": "engines.js:1748"
   },
   "engines.h3_flex_turbo_faster_draft": {
    "text": "H3 Flex Turbo (faster draft, Pro)",
@@ -7235,37 +7235,37 @@
   "engines.h3_flex_turbo_is_already": {
    "text": "H3 Flex Turbo is already installed.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo install",
-   "where": "engines.js:1787"
+   "where": "engines.js:1794"
   },
   "engines.h3_flex_turbo_is_part": {
    "text": "H3 Flex Turbo is part of Phosphene Pro. This render uses H3 Flex.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo note",
-   "where": "engines.js:1750"
+   "where": "engines.js:1754"
   },
   "engines.h3_flex_turbo_is_part_2": {
    "text": "H3 Flex Turbo is part of Phosphene Pro.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo picker click",
-   "where": "engines.js:1800"
+   "where": "engines.js:1807"
   },
   "engines.h3_flex_turbo_needs_hailuo": {
    "text": "H3 Flex Turbo needs Hailuo H3 first. Click to get it.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo tooltip",
-   "where": "engines.js:1743"
+   "where": "engines.js:1747"
   },
   "engines.h3_flex_turbo_pick_it": {
    "text": "H3 Flex Turbo: pick it in the engine picker to download it (0.3 GB).",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo note",
-   "where": "engines.js:1754"
+   "where": "engines.js:1759"
   },
   "engines.h3_long_needs_more_memory": {
    "text": "On this {gb} GB Mac, Hailuo H3 makes clips up to 5 s. Longer clips run out of memory here, so make a 5 s clip.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles cell unavailable reason · placeholders {gb} are filled in by the app",
-   "where": "engines.js:2727"
+   "where": "engines.js:2735"
   },
   "engines.h3_only": {
    "text": "H3 only",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles tier chip html",
-   "where": "engines.js:2350"
+   "where": "engines.js:2358"
   },
   "engines.has_no_fast_pass_yet": {
    "text": " has no Fast pass yet — it always renders on Best.",
@@ -7275,7 +7275,7 @@
   "engines.high_detail": {
    "text": " · High detail",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles ltx cell eta",
-   "where": "engines.js:2559"
+   "where": "engines.js:2567"
   },
   "engines.image": {
    "text": "Image",
@@ -7305,7 +7305,7 @@
   "engines.install_needed": {
    "text": "install needed",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles ltx cell install label",
-   "where": "engines.js:2615"
+   "where": "engines.js:2623"
   },
   "engines.installing_fast_180_mb_watch": {
    "text": "Installing Fast (180 MB) — watch the log. It switches on by itself when it lands.",
@@ -7315,7 +7315,7 @@
   "engines.is_getting_ready_on_this": {
    "text": " is getting ready on this Mac. It turns on by itself when it is ready.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles engine tooltip",
-   "where": "engines.js:2204"
+   "where": "engines.js:2212"
   },
   "engines.is_not_on_this_mac": {
    "text": " is not on this Mac yet. Pick it in the model menu to get it, or pick H3 to render now.",
@@ -7335,7 +7335,7 @@
   "engines.keyframes": {
    "text": "Keyframes",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 sync prompt helper · this label is the term “Keyframes”: pictures the video must pass through at chosen moments",
-   "where": "engines.js:3113"
+   "where": "engines.js:3121"
   },
   "engines.license": {
    "text": "). License: ",
@@ -7355,7 +7355,7 @@
   "engines.line_here": {
    "text": "line here",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 insert dialogue line",
-   "where": "engines.js:3048"
+   "where": "engines.js:3056"
   },
   "engines.long_start_and_walk_away": {
    "text": " · long, start and walk away",
@@ -7365,7 +7365,7 @@
   "engines.ltx_generation": {
    "text": "LTX generation",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles ltx gen switch html",
-   "where": "engines.js:2106"
+   "where": "engines.js:2114"
   },
   "engines.makes_videos_from_text_or": {
    "text": " makes videos from text or an image, on 5-second windows: you are on ",
@@ -7390,12 +7390,12 @@
   "engines.name_s1_says": {
    "text": "NAME (S1) says: ",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 insert dialogue line",
-   "where": "engines.js:3039"
+   "where": "engines.js:3047"
   },
   "engines.needs": {
    "text": " — needs ",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles engine tooltip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «— needs … GB unified memory»",
-   "where": "engines.js:2200"
+   "where": "engines.js:2208"
   },
   "engines.needs_a_download": {
    "text": " needs a download.",
@@ -7415,12 +7415,12 @@
   "engines.needs_one_last_setup_step": {
    "text": " needs one last setup step: about 5 minutes, nothing to download. Click to finish it.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles engine tooltip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «needs one last setup step: about 5 minutes, nothing to download. Click to finish it. … — needs repair; your weights are still on disk. Click for the one-click fix. … — available to install ( … ). Click to see what it does.»",
-   "where": "engines.js:2211"
+   "where": "engines.js:2219"
   },
   "engines.needs_repair_your_weights_are": {
    "text": " — needs repair; your weights are still on disk. Click for the one-click fix.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles engine tooltip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «needs one last setup step: about 5 minutes, nothing to download. Click to finish it. … — needs repair; your weights are still on disk. Click for the one-click fix. … — available to install ( … ). Click to see what it does.»",
-   "where": "engines.js:2213"
+   "where": "engines.js:2221"
   },
   "engines.not_at_this_shape": {
    "text": "not at this shape",
@@ -7435,7 +7435,7 @@
   "engines.only_and_this_mode_isn": {
    "text": " only, and this mode isn't one of them.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles engine tooltip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «— renders … only, and this mode isn't one of them.»",
-   "where": "engines.js:2219"
+   "where": "engines.js:2227"
   },
   "engines.optional_2_face_and_sound": {
    "text": "optional · 2× · face and sound kept",
@@ -7445,7 +7445,7 @@
   "engines.panel_did_not_come_back": {
    "text": "Panel did not come back within 60s - start it from Pinokio.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles switch ltx generation",
-   "where": "engines.js:2177"
+   "where": "engines.js:2185"
   },
   "engines.per_5_s_of_clip": {
    "text": " per 5 s of clip",
@@ -7500,7 +7500,12 @@
   "engines.pro_fast_draft": {
    "text": " · Pro fast draft",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles ltx cell eta",
-   "where": "engines.js:2553"
+   "where": "engines.js:2561"
+  },
+  "engines.pro_getting_ready_badge": {
+   "text": "getting ready",
+   "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 flex turbo menu row",
+   "where": "engines.js:1765"
   },
   "engines.quality": {
    "text": "Quality",
@@ -7515,12 +7520,12 @@
   "engines.rendering_with_ltx": {
    "text": "Rendering with LTX-",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles ltx gen switch html",
-   "where": "engines.js:2110"
+   "where": "engines.js:2118"
   },
   "engines.renders": {
    "text": " — renders ",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles engine tooltip · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «— renders … only, and this mode isn't one of them.»",
-   "where": "engines.js:2218"
+   "where": "engines.js:2226"
   },
   "engines.renders_on_best_fast_is": {
    "text": " renders on Best — Fast is not validated at this shape yet.",
@@ -7530,7 +7535,7 @@
   "engines.restarts_the_panel": {
    "text": " (restarts the panel)",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles ltx gen switch html · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Rendering with LTX- … Switch to LTX- … (restarts the panel)»",
-   "where": "engines.js:2111"
+   "where": "engines.js:2119"
   },
   "engines.running_on_your_mac_powered": {
    "text": " Running on your Mac. Powered by MiniMax H3.",
@@ -7550,7 +7555,7 @@
   "engines.shot_1_who_is_on": {
    "text": "[Shot 1] Who is on screen, two or three anchors (build, clothes), ",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 insert prompt structure · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «[Shot 1] Who is on screen, two or three anchors (build, clothes), … where they are and the light. What happens, described plainly.»",
-   "where": "engines.js:3017"
+   "where": "engines.js:3025"
   },
   "engines.sidebar_your_weights_stay": {
    "text": "sidebar — your weights stay.",
@@ -7585,12 +7590,12 @@
   "engines.switch_to_ltx": {
    "text": "Switch to LTX-",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles ltx gen switch html",
-   "where": "engines.js:2111"
+   "where": "engines.js:2119"
   },
   "engines.switching_ltx_generation_restarting_the": {
    "text": "Switching LTX generation - restarting the panel…",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles switch ltx generation",
-   "where": "engines.js:2168"
+   "where": "engines.js:2176"
   },
   "engines.text": {
    "text": "Text",
@@ -7620,7 +7625,7 @@
   "engines.the_studio_did_not_come": {
    "text": "The studio did not come back within 60s - use Studio → Restart Engine.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles switch ltx generation",
-   "where": "engines.js:2178"
+   "where": "engines.js:2186"
   },
   "engines.then_its_2_8_gb": {
    "text": "), then its 2.8 GB add-on. Click to get them.",
@@ -7655,7 +7660,7 @@
   "engines.where_they_are_and_the": {
    "text": "where they are and the light. What happens, described plainly.",
    "note": "Studio · in the video engines (LTX, MiniMax H3) and their quality and length choices · written by the code that handles h3 insert prompt structure · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «[Shot 1] Who is on screen, two or three anchors (build, clothes), … where they are and the light. What happens, described plainly.»",
-   "where": "engines.js:3018"
+   "where": "engines.js:3026"
   },
   "enhanceAcceptBtn.accept": {
    "text": "Accept",
@@ -13328,42 +13333,42 @@
   "pro.this_mac_fill": {
    "text": "AI fill for Make it vertical",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro this mac render",
-   "where": "settings.js:2189"
+   "where": "settings.js:2227"
   },
   "pro.this_mac_flex_turbo": {
    "text": "Faster Flex Turbo for Hailuo H3",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro this mac render",
-   "where": "settings.js:2188"
+   "where": "settings.js:2226"
   },
   "pro.this_mac_gives": {
    "text": "Pro gives you {perks}, plus the iPhone Remote, new features first and priority support.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro this mac render · placeholders {perks} are filled in by the app",
-   "where": "settings.js:2192"
+   "where": "settings.js:2230"
   },
   "pro.this_mac_h3": {
    "text": "a third less waiting on Hailuo H3 video",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro this mac render",
-   "where": "settings.js:2188"
+   "where": "settings.js:2226"
   },
   "pro.this_mac_head": {
    "text": "On this Mac ({gb} GB)",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro this mac render · placeholders {gb} are filled in by the app",
-   "where": "settings.js:2190"
+   "where": "settings.js:2228"
   },
   "pro.this_mac_join": {
    "text": ", ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro this mac render · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «, … Pro is mostly support today: the iPhone Remote, new features first and priority support. The speed-ups need 16 GB or more for now.»",
-   "where": "settings.js:2192"
+   "where": "settings.js:2230"
   },
   "pro.this_mac_ltx": {
    "text": "faster LTX video",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro this mac render",
-   "where": "settings.js:2187"
+   "where": "settings.js:2225"
   },
   "pro.this_mac_support_only": {
    "text": "Pro is mostly support today: the iPhone Remote, new features first and priority support. The speed-ups need 16 GB or more for now.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro this mac render",
-   "where": "settings.js:2193"
+   "where": "settings.js:2231"
   },
   "proCompare.10_min_02_s": {
    "text": "10 min 02 s",
@@ -19346,7 +19351,7 @@
   "settings.a_pro_licence_turns_these": {
    "text": "A Pro licence turns these on",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro feature list render",
-   "where": "settings.js:2125"
+   "where": "settings.js:2163"
   },
   "settings.a_quicker_fast_mode_for": {
    "text": "A quicker Fast mode for P-H3-Image: about 22 s for the next picture on a 64 GB M4 Max, at a smaller size. Free keeps its own 56 s default.",
@@ -19541,7 +19546,7 @@
   "settings.could_not_reach_the_studio": {
    "text": "Could not reach the Studio.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro licence post",
-   "where": "settings.js:2168"
+   "where": "settings.js:2206"
   },
   "settings.could_not_read_storage_close": {
    "text": "Could not read storage. Close Settings and try again.",
@@ -19701,7 +19706,7 @@
   "settings.everything_else_stays_free": {
    "text": ". Everything else stays free.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro feature list render · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «in Phosphene … A Pro licence turns these on … in Phosphene … . Everything else stays free.»",
-   "where": "settings.js:2125"
+   "where": "settings.js:2163"
   },
   "settings.extend": {
    "text": "Extend",
@@ -19926,7 +19931,7 @@
   "settings.in_phosphene": {
    "text": " in Phosphene ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro feature list render · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Your licence turns these on … in Phosphene … A Pro licence turns these on … in Phosphene … . Everything else stays free.»",
-   "where": "settings.js:2124"
+   "where": "settings.js:2162"
   },
   "settings.include_latest_crash_reports_zips": {
    "text": "Include latest crash reports (zips up to 5 of {crashCount} .ips files)",
@@ -20096,7 +20101,7 @@
   "settings.on_with_your_pro": {
    "text": "On with your Pro:",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro lead text",
-   "where": "settings.js:2069"
+   "where": "settings.js:2107"
   },
   "settings.on_with_your_pro_fast_draft_about_half": {
    "text": "On with your Pro: Fast draft, about half the time of a usual clip, a different take of the same scene.",
@@ -20136,47 +20141,47 @@
   "settings.outputs_choose_first": {
    "text": "Choose a folder first.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles set outputs folder",
-   "where": "settings.js:2241"
+   "where": "settings.js:2279"
   },
   "settings.outputs_could_not_use": {
    "text": "That folder could not be used.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles set outputs folder",
-   "where": "settings.js:2245"
+   "where": "settings.js:2283"
   },
   "settings.outputs_default_folder": {
    "text": "Saving to the default folder: {path}",
    "note": "Studio · in the Settings window and the models card · written by the code that handles outputs folder sentence · placeholders {path} are filled in by the app",
-   "where": "settings.js:2217"
+   "where": "settings.js:2255"
   },
   "settings.outputs_not_connected": {
    "text": "{folder} is not connected. New videos and pictures stay on this Mac and are copied there when it is back.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles outputs folder sentence · placeholders {folder} are filled in by the app",
-   "where": "settings.js:2220"
+   "where": "settings.js:2258"
   },
   "settings.outputs_picker_failed": {
    "text": "The folder window could not open. Paste the folder's full path instead.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pick outputs folder",
-   "where": "settings.js:2258"
+   "where": "settings.js:2296"
   },
   "settings.outputs_picker_open": {
    "text": "A folder window is open. It may be behind this window.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pick outputs folder",
-   "where": "settings.js:2252"
+   "where": "settings.js:2290"
   },
   "settings.outputs_reset_done": {
    "text": "New files go to the default folder again. Files already copied stay where they are.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles reset outputs folder",
-   "where": "settings.js:2270"
+   "where": "settings.js:2308"
   },
   "settings.outputs_saving_to": {
    "text": "Saving new videos and pictures to {folder}",
    "note": "Studio · in the Settings window and the models card · written by the code that handles outputs folder sentence · placeholders {folder} are filled in by the app",
-   "where": "settings.js:2222"
+   "where": "settings.js:2260"
   },
   "settings.outputs_set_done": {
    "text": "Done. New videos and pictures will be saved in {folder}.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles set outputs folder · placeholders {folder} are filled in by the app",
-   "where": "settings.js:2246"
+   "where": "settings.js:2284"
   },
   "settings.outputs_waiting": {
    "text": {
@@ -20184,7 +20189,7 @@
     "other": "({count} files are waiting to be copied.)"
    },
    "note": "Studio · in the Settings window and the models card · written by the code that handles outputs folder sentence · placeholders {count} are filled in by the app · plural: {count} is the number",
-   "where": "settings.js:2223"
+   "where": "settings.js:2261"
   },
   "settings.phosphene_is_doing_this_by": {
    "text": "Phosphene is doing this by itself. Generate resumes here automatically when it finishes.",
@@ -20216,10 +20221,35 @@
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
    "where": "settings.js:2065"
   },
+  "settings.pro_addon_getting_ready": {
+   "text": "{feature}: getting Pro ready on this Studio (a one-time download). It switches on by itself in a minute or two.",
+   "note": "Studio · in the Settings window and the models card · written by the code that handles pro addon text · placeholders {feature} are filled in by the app",
+   "where": "settings.js:2081"
+  },
+  "settings.pro_addon_needs_key": {
+   "text": "{feature} needs your Pro key in this Studio once: paste it in Settings > Pro. It does not use another seat.",
+   "note": "Studio · in the Settings window and the models card · written by the code that handles pro addon text · placeholders {feature} are filled in by the app",
+   "where": "settings.js:2077"
+  },
+  "settings.pro_addon_restart": {
+   "text": "{feature}: quit and reopen Phosphene to finish switching Pro on.",
+   "note": "Studio · in the Settings window and the models card · written by the code that handles pro addon text · placeholders {feature} are filled in by the app",
+   "where": "settings.js:2078"
+  },
+  "settings.pro_addon_retry": {
+   "text": "{feature}: getting Pro ready did not finish. Click again to try again.",
+   "note": "Studio · in the Settings window and the models card · written by the code that handles pro addon text · placeholders {feature} are filled in by the app",
+   "where": "settings.js:2080"
+  },
+  "settings.pro_addon_waiting": {
+   "text": "{feature}: getting Pro ready on this Studio. The download server asked to wait, so the Studio tries again by itself in about 15 minutes.",
+   "note": "Studio · in the Settings window and the models card · written by the code that handles pro addon text · placeholders {feature} are filled in by the app",
+   "where": "settings.js:2079"
+  },
   "settings.pro_adds": {
    "text": "Pro adds:",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro lead text",
-   "where": "settings.js:2069"
+   "where": "settings.js:2107"
   },
   "settings.pro_adds_fast_draft_in_about_half": {
    "text": "Pro adds: Fast draft in about half the time, a different take of the same scene.",
@@ -20234,12 +20264,17 @@
   "settings.pro_is_on_through_the": {
    "text": "Pro is on through the Phosphene Mac app on this Mac.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro licence show",
-   "where": "settings.js:2149"
+   "where": "settings.js:2187"
   },
   "settings.pro_questions_and_feature_requests": {
    "text": "Pro questions and feature requests go to the front of the queue.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
    "where": "settings.js:2065"
+  },
+  "settings.pro_this_option": {
+   "text": "This Pro option",
+   "note": "Studio · in the Settings window and the models card · written by the code that handles pro addon text",
+   "where": "settings.js:2076"
   },
   "settings.q4_base_model": {
    "text": "Q4 base model",
@@ -20532,12 +20567,12 @@
   "settings.video_models_queued_progress_appears": {
    "text": "Video models queued. Progress appears here.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles download first video",
-   "where": "settings.js:2301"
+   "where": "settings.js:2339"
   },
   "settings.what_pro_turns_on": {
    "text": "What Pro turns on",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro feature list render",
-   "where": "settings.js:2121"
+   "where": "settings.js:2159"
   },
   "settings.what_this_mac_can_do": {
    "text": "What this Mac can do · {v}",
@@ -20547,7 +20582,7 @@
   "settings.where": {
    "text": "Where:",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro feature list html",
-   "where": "settings.js:2108"
+   "where": "settings.js:2146"
   },
   "settings.with_a_16_gb_memory_limit": {
    "text": "with a 16 GB memory limit",
@@ -20567,12 +20602,12 @@
   "settings.your_licence_turns_these_on": {
    "text": "Your licence turns these on",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro feature list render",
-   "where": "settings.js:2124"
+   "where": "settings.js:2162"
   },
   "settings.your_pro": {
    "text": "Your Pro",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro feature list render",
-   "where": "settings.js:2121"
+   "where": "settings.js:2159"
   },
   "settings.your_rendering_changes_are_not": {
    "text": "Your rendering changes are not saved. Click Save, or Done again to close without them.",

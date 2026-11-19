@@ -307,6 +307,17 @@ def current_bundle(opener=None) -> str | None:
     return rel if re.fullmatch(r"[A-Za-z0-9._+-]{1,64}", rel) else None
 
 
+def _addon_bundle() -> str | None:
+    """The pack the Pro add-on this Studio loaded (or will load) is sealed to (pro_parts). The pass is
+    asked for THAT pack: the add-on refuses a pass for another one, and the server's newest pack can be
+    ahead of the parts fetched on this Mac until their next daily check."""
+    try:
+        import pro_parts
+        return pro_parts.addon_bundle()
+    except Exception:                                               # noqa: BLE001
+        return None
+
+
 def _mac_name() -> str:
     try:
         name = socket.gethostname().split(".")[0]
@@ -426,7 +437,7 @@ def validate(opener=None, now=None) -> dict:
     t = int(now if now is not None else time.time())
     snap, gen = dict(rec), _gen[0]
     form = {"license_key": rec["key"], "instance_id": rec["instance_id"]}
-    bundle = current_bundle(opener)
+    bundle = _addon_bundle() or current_bundle(opener)
     if bundle and dev:
         form["device_id"] = dev
         form["bundle_version"] = bundle

@@ -3222,5 +3222,88 @@
         "pro": []
       }
     }
+  },
+  "5.0.72": {
+    "free": [],
+    "pro": [
+      "Pro on Pinokio: faster Hailuo H3 clips, Crisper detail, AI fill for Make it vertical and References now work as soon as Pro is on in Settings > Pro.",
+      "The first time, the Studio gets Pro ready by itself (a one-time download). Until then the button says “getting ready”, and it switches on in a minute or two."
+    ],
+    "date": "2026-11-19",
+    "headline": "Pro on Pinokio: your Pro options now work as soon as Pro is on.",
+    "i18n": {
+      "de": {
+        "headline": "Pro auf Pinokio: Deine Pro-Optionen funktionieren jetzt, sobald Pro an ist.",
+        "free": [],
+        "pro": [
+          "Pro auf Pinokio: schnellere Hailuo H3 Clips, Feinere Details, KI-Füllung für Hochformat und Referenzen funktionieren jetzt, sobald Pro unter Einstellungen > Pro an ist.",
+          "Beim ersten Mal richtet das Studio Pro von selbst ein (ein einmaliger Download). Bis dahin zeigt der Knopf „wird eingerichtet“, und nach ein bis zwei Minuten schaltet er sich ein."
+        ]
+      },
+      "es": {
+        "headline": "Pro en Pinokio: tus opciones Pro ahora funcionan en cuanto Pro está activado.",
+        "free": [],
+        "pro": [
+          "Pro en Pinokio: clips de Hailuo H3 más rápidos, Detalle más nítido, Relleno con IA para Hacer vertical y Referencias ahora funcionan en cuanto Pro está activado en Configuración > Pro.",
+          "La primera vez, el Studio prepara Pro solo (una descarga única). Hasta entonces el botón dice «preparando» y se activa en uno o dos minutos."
+        ]
+      },
+      "fr": {
+        "headline": "Pro sur Pinokio : tes options Pro marchent dès que Pro est activé.",
+        "free": [],
+        "pro": [
+          "Pro sur Pinokio : les clips Hailuo H3 plus rapides, Détail plus net, Remplissage IA pour Passer en vertical et Références marchent maintenant dès que Pro est activé dans Réglages > Pro.",
+          "La première fois, le Studio prépare Pro tout seul (un téléchargement unique). En attendant, le bouton indique « préparation », puis il s’active en une ou deux minutes."
+        ]
+      },
+      "it": {
+        "headline": "Pro su Pinokio: le tue opzioni Pro ora funzionano appena Pro è attivo.",
+        "free": [],
+        "pro": [
+          "Pro su Pinokio: clip Hailuo H3 più veloci, Dettagli più nitidi, Riempimento IA per Rendilo verticale e Riferimenti ora funzionano appena Pro è attivo in Impostazioni > Pro.",
+          "La prima volta lo Studio prepara Pro da solo (un download una tantum). Fino ad allora il pulsante dice «in preparazione» e si attiva in un minuto o due."
+        ]
+      },
+      "ja": {
+        "headline": "Pinokio の Pro：Pro をオンにすれば、Pro の機能がすぐ使えるようになりました。",
+        "free": [],
+        "pro": [
+          "Pinokio の Pro：設定 > Pro で Pro がオンになっていれば、Hailuo H3 の高速化、ディテール強化、「縦にする」のAI補完、リファレンスがすぐ使えます。",
+          "初回だけ、Studio が Pro を自動で準備します（1回だけのダウンロード）。それまでボタンには「準備中」と表示され、1〜2分で使えるようになります。"
+        ]
+      },
+      "ko": {
+        "headline": "Pinokio의 Pro: 이제 Pro를 켜면 바로 Pro 기능을 쓸 수 있어요.",
+        "free": [],
+        "pro": [
+          "Pinokio의 Pro: 설정 > Pro에서 Pro를 켜면 더 빠른 Hailuo H3 클립, 선명한 디테일, 세로 영상 만들기의 AI 채우기, 레퍼런스를 바로 쓸 수 있어요.",
+          "처음 한 번은 Studio가 Pro를 스스로 준비해요(한 번만 받는 다운로드). 그동안 버튼에 “준비 중”이 보이고, 1~2분 뒤 켜져요."
+        ]
+      },
+      "pt": {
+        "headline": "Pro no Pinokio: suas opções Pro agora funcionam assim que o Pro está ativo.",
+        "free": [],
+        "pro": [
+          "Pro no Pinokio: clipes de Hailuo H3 mais rápidos, Detalhe mais nítido, Preenchimento com IA para Converter em vertical e Referências agora funcionam assim que o Pro está ativo em Ajustes > Pro.",
+          "Na primeira vez, o Studio prepara o Pro sozinho (um download único). Até lá o botão mostra “preparando” e liga em um ou dois minutos."
+        ]
+      },
+      "ru": {
+        "headline": "Pro в Pinokio: функции Pro теперь работают сразу, как только Pro включён.",
+        "free": [],
+        "pro": [
+          "Pro в Pinokio: ускоренные клипы Hailuo H3, «Чётче детали», ИИ-дорисовка для «Сделать вертикальным» и «Референсы» теперь работают, как только Pro включён в Настройки > Pro.",
+          "В первый раз Studio сам готовит Pro (одна загрузка, один раз). Пока идёт подготовка, на кнопке написано «готовится», через минуту-две она включится."
+        ]
+      },
+      "zh-Hans": {
+        "headline": "Pinokio 上的 Pro：只要打开 Pro，Pro 功能现在就能直接使用。",
+        "free": [],
+        "pro": [
+          "Pinokio 上的 Pro：在 设置 > Pro 里打开 Pro 后，更快的 Hailuo H3 视频、细节增强、转为竖屏的 AI 填充和参考图都能直接使用。",
+          "第一次使用时，Studio 会自动准备好 Pro（只需下载一次）。准备期间按钮显示“准备中”，一两分钟后就会打开。"
+        ]
+      }
+    }
   }
 }

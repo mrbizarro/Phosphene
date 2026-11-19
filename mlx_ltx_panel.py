@@ -110,6 +110,17 @@ try:
     _pro_parts.activate()
 except Exception:  # noqa: BLE001 - the free Studio runs without it
     _pro_parts = None
+# The Pro add-on (`_ps`, sealed) reads its pass only from PHOSPHENE_PRO_TOKEN / PHOSPHENE_PRO_TOKEN_FILE,
+# which the Mac app sets. Pinokio keeps the pass its own licence fetched in state/pro_studio.token
+# (pro_licence.py): name that file, so the add-on taken out of the signed pack sees the same pass the
+# licence check does. Read on every check, so a renewal is picked up without a restart.
+if (not _dist.is_mac_app() and not os.environ.get("PHOSPHENE_PRO_TOKEN_FILE", "").strip()
+        and not os.environ.get("PHOSPHENE_PRO_TOKEN", "").strip()):
+    try:
+        import pro_token as _pro_token_mod
+        os.environ["PHOSPHENE_PRO_TOKEN_FILE"] = _pro_token_mod.studio_token_path()
+    except Exception:  # noqa: BLE001 - Free runs without it
+        pass
 try:
     import pro_remote
 except ImportError:
@@ -16307,14 +16318,21 @@ def h3_flex_turbo_status() -> dict:
     supported = h3_supports_flex_turbo()
     paths = h3_flex_turbo_paths()
     downloaded = bool(paths["files_ok"])
-    pro = spec is not None
+    # `pro_active` is the licence (pro_is_active, the same answer as Settings > Pro); `addon` is whether
+    # the Pro add-on answers for the option. They used to be one field fed by the add-on alone, so a Pinokio
+    # member without the add-on read as Free and every click opened the buy window.
+    pro = pro_is_active()
+    addon = spec is not None
     return {
-        "available": bool(supported and downloaded and pro),
+        "available": bool(supported and downloaded and addon),
         "supported": supported,
         "downloaded": downloaded,
         "pro": True,
         "pro_active": pro,
-        "reason": ("runner_too_old" if not supported else "pro_required" if not pro
+        "addon": addon,
+        "pro_setup": (pro_addon_state() if pro and not addon else None),
+        "reason": ("pro_required" if not pro else "pro_setup" if not addon
+                   else "runner_too_old" if not supported
                    else "not_downloaded" if not downloaded else "ok"),
         "steps": (spec or {}).get("steps"),
         "forwards": (spec or {}).get("forwards"),
@@ -16398,9 +16416,13 @@ def _h3_flex_turbo_fetch_bg(target_dir, push_log, opener=None) -> None:
 
 def _h3_install_flex_turbo(push_log, fetch_fn=None) -> dict:
     """On-demand download of the H3 Flex Turbo LoRA (Pro, one at a time)."""
-    if not h3_flex_turbo_allowed():
+    if not pro_is_active():
         return {"ok": False, "pro_required": True,
                 "error": "H3 Flex Turbo is part of Phosphene Pro."}
+    if not h3_flex_turbo_allowed():
+        # A member whose Pro add-on is not here yet: get it, never the buy window.
+        return {"ok": False, "pro_setup": pro_addon_get_ready(),
+                "error": "Getting Pro ready on this Studio. Faster Flex Turbo switches on when it is done."}
     paths = h3_paths()
     if paths["missing"]:
         return {"ok": False,
@@ -19572,7 +19594,8 @@ def h3_status() -> dict:
         # H3 Flex Turbo (Pro) — the faster Flex. Same shape as Flex.
         "flex_turbo": (h3_flex_turbo_status() if available else
                        {"available": False, "supported": False, "downloaded": False, "pro": True,
-                        "pro_active": h3_flex_turbo_allowed(), "reason": "h3_" + paths["reason"],
+                        "pro_active": pro_is_active(), "addon": h3_flex_turbo_allowed(),
+                        "reason": "h3_" + paths["reason"],
                         "steps": None, "forwards": None,
                         "modes": list(H3_FLEX_MODES), "download_gb": H3_FLEX_TURBO_DOWNLOAD_GB,
                         "disk_need_gb": H3_FLEX_TURBO_DISK_NEED_GB, "repo": None,
@@ -27360,6 +27383,102 @@ def pro_status() -> dict:
             "holder": None, "source": "licence", "reason": "ok"}
 
 
+def pro_is_active() -> bool:
+    """THE answer to "is this a Pro member" for every gate and every `pro_active` field. Whether the
+    Pro add-on is here to run an option is a different question (pro_addon_state): a member whose
+    add-on is still arriving is told "getting Pro ready", never shown the buy window."""
+    return bool(pro_status().get("active"))
+
+
+_PRO_ADDON_REVALIDATE = {"at": 0.0}
+
+
+def _pro_addon_seal() -> dict | None:
+    """The loaded add-on's own verdict ({ok, reason, bundle}), or None when there is no add-on."""
+    try:
+        import _ps
+        st = _ps._pro_seal_status()
+    except Exception:  # noqa: BLE001
+        return None
+    return st if isinstance(st, dict) else None
+
+
+def pro_addon_changed() -> None:
+    """New Pro parts arrived (pro_parts): ask the add-on again now, not in 5 s."""
+    _h3_pro_addon_memo.clear()
+    _LTX_SPEEDUP_MEMO.clear()
+    try:
+        h3_status_invalidate()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def pro_addon_state() -> dict:
+    """Is the Pro add-on here to answer for the Studio-side Pro options (Faster Flex Turbo, Crisper
+    detail, AI fill, References)? {state, reason}:
+      free           no Pro licence on this Mac (the only state that shows what Pro is)
+      ready          the add-on answers
+      getting_ready  Pinokio: the add-on is being fetched with this Studio's licence, or its pass is being
+                     renewed for it; options switch on by themselves
+      needs_key      Pinokio Pro through the Mac app's pass only: the add-on is fetched with a key pasted
+                     in this Studio (Settings > Pro), it does not use another seat
+      waiting        Pinokio: the server asked to wait or was offline; the Studio asks again by itself
+      retry          Pinokio: the last fetch failed (reason = pro_parts error code)
+      restart        Mac app: the running Studio has no add-on (Pro started after it); reopen Phosphene
+    """
+    if not pro_is_active():
+        return {"state": "free", "reason": None}
+    seal = _pro_addon_seal()
+    if seal and seal.get("ok") is True:
+        return {"state": "ready", "reason": None}
+    if _dist.is_mac_app():
+        return {"state": "restart", "reason": (seal or {}).get("reason") or "no_addon"}
+    if seal is not None:
+        # The add-on is loaded but refuses the pass (most often a pass issued for another pack): renew it
+        # for this add-on's pack in the background, at most every 10 minutes.
+        if time.monotonic() - _PRO_ADDON_REVALIDATE["at"] > 600:
+            _PRO_ADDON_REVALIDATE["at"] = time.monotonic()
+
+            def _renew():
+                try:
+                    import pro_licence
+                    pro_licence.validate()
+                finally:
+                    pro_addon_changed()
+            threading.Thread(target=_renew, name="pro-addon-pass", daemon=True).start()
+        return {"state": "getting_ready", "reason": seal.get("reason")}
+    try:
+        import pro_licence
+        licensed = pro_licence.load() is not None
+    except Exception:  # noqa: BLE001
+        licensed = False
+    if not licensed:
+        return {"state": "needs_key", "reason": "no_licence"}
+    parts = (_pro_parts.status() if _pro_parts is not None else {}) or {}
+    if parts.get("addon") and parts.get("installed") and "_ps" not in sys.modules:
+        # On disk and verified but not importable in this process (e.g. a restart is due).
+        if parts.get("restart_needed"):
+            return {"state": "restart", "reason": "parts_restart"}
+    if parts.get("error") in ("rate_limited", "unreachable", "busy") and not parts.get("busy"):
+        # The server asked to wait (a few pack offers a day) or could not be reached: pro_parts asks again by
+        # itself in 15 minutes, so a click would not help.
+        return {"state": "waiting", "reason": parts.get("error")}
+    if parts.get("error") and not parts.get("busy"):
+        return {"state": "retry", "reason": parts.get("error")}
+    return {"state": "getting_ready", "reason": parts.get("phase") or "checking"}
+
+
+def pro_addon_get_ready() -> dict:
+    """The button a member presses when an option waits for the add-on: on Pinokio, fetch it now."""
+    st = pro_addon_state()
+    if st["state"] in ("getting_ready", "retry") and not _dist.is_mac_app() and _pro_parts is not None:
+        try:
+            st = {**st, "fetch": _pro_parts.retry_now()}
+        except Exception:  # noqa: BLE001
+            pass
+    return st
+
+
 # ---- Pro speed-up for LTX-2.5 clips (Pro ledger row ltx-faster) --------------------------------
 # The Studio only asks the Pro add-on (the compiled `_ps` a Pro install carries) two things: is the
 # speed-up on offer on this Mac and ready, and "get it ready" (a one-time download the add-on does
@@ -27371,6 +27490,11 @@ _LTX_SPEEDUP_DL_LOCK = threading.Lock()
 
 
 def _ltx_speedup_ask(op: str):
+    # The speed-up runs inside the pack's own helper (hooks the public helper does not have), so a
+    # Pinokio Studio that took the add-on out of the pack must not offer it: it would say "on" and
+    # render at Free speed.
+    if not _dist.is_mac_app():
+        return None
     try:
         import _ps
         doc = _ps.ltx_speed(op, root=str(MODELS_DIR))
@@ -27584,6 +27708,9 @@ def crisper_detail_install(push_log, fetch_fn=None) -> dict:
     """On-demand download of the Crisper detail adapter (Pro, one at a time)."""
     spec = crisper_detail_spec()
     if not spec:
+        if pro_is_active():
+            return {"ok": False, "pro_setup": pro_addon_get_ready(),
+                    "error": f"Getting Pro ready on this Studio. {CRISPER_DETAIL_NAME} switches on when it is done."}
         return {"ok": False, "pro_required": True,
                 "error": f"{CRISPER_DETAIL_NAME} is part of Phosphene Pro."}
     paths = crisper_detail_paths(spec)
@@ -46494,10 +46621,11 @@ def vertical_ai_fill_status() -> dict:
     on first use (_ensure_outpaint_lora), so a missing file is not a refusal."""
     spec = vertical_ai_fill_spec()
     big = bool(SYSTEM_CAPS.get("allows_q8"))
-    reason = ("pro_required" if spec is None else "mac_too_small" if not big
+    pro = pro_is_active()
+    reason = ("pro_required" if not pro else "pro_setup" if spec is None else "mac_too_small" if not big
               else "model_missing" if hq_surface_missing() else "ok")
     lora = (LORAS_DIR / "ic" / str(spec["file"])) if spec else None
-    return {"available": reason == "ok", "pro_active": spec is not None, "reason": reason,
+    return {"available": reason == "ok", "pro_active": pro, "addon": spec is not None, "reason": reason,
             "lora": str(lora) if lora else None,
             "downloaded": bool(lora and _outpaint_lora_ok(lora, spec))}
 
@@ -46550,6 +46678,9 @@ def queue_vertical_export(source_path: str, ratio: str = "9:16", fill: str = "bl
         if st["reason"] == "pro_required":
             return {"ok": False, "pro_required": True,
                     "error": "AI fill is part of Phosphene Pro. The blurred fill is free."}
+        if st["reason"] == "pro_setup":
+            return {"ok": False, "pro_setup": pro_addon_get_ready(),
+                    "error": "Getting Pro ready on this Studio. AI fill works once that is done; the blurred fill works now."}
         if st["reason"] == "mac_too_small":
             return {"ok": False, "error": "AI fill needs a Mac with 48 GB of memory or more. "
                                           "The blurred fill works on this Mac now."}

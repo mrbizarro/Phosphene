@@ -2,7 +2,8 @@
 
 GET /pro/status    {active, plan, until, holder, source}; Free is the default and nothing here nags
 GET /pro/compare   the bundled "same clip, Free vs Pro" comparisons (assets/pro/compare.json)
-POST /pro/crisper-detail/install   fetch the Crisper detail adapter (Pro; 402 on Free)
+POST /pro/crisper-detail/install   fetch the Crisper detail adapter (Pro; 402 on Free, 503 while Pro gets ready)
+POST /pro/addon/get-ready   a member's option waits for the Pro add-on: fetch it now (Pinokio)
 
 Pro is on only with a signed capability token for this Mac (pro_token.py, passed by the Mac app).
 """
@@ -25,6 +26,9 @@ def get_pro_status(h, parsed) -> None:
     doc["ltx_speedup"] = P.ltx_speedup_status()
     # Crisper detail (Pro ledger row ltx-crisper-detail): offered / downloaded / downloading, and why not.
     doc["crisper_detail"] = P.crisper_detail_status()
+    # Whether the Pro add-on is here for the options that ask it (pro_addon_state): "free" only without a
+    # licence. A member's option that waits for it shows "getting Pro ready", never the buy window.
+    doc["addon"] = P.pro_addon_state()
     # Pinokio only: whether this Studio can take a licence key itself (the Mac app has its own door).
     doc["licence_here"] = not P._dist.is_mac_app()
     if doc["licence_here"]:
@@ -40,6 +44,7 @@ def post_crisper_detail_install(h, path, qs, ctype) -> None:
     result = P.crisper_detail_install(P.push)
     if not result.get("ok"):
         h._json(result, 402 if result.get("pro_required") else
+                503 if result.get("pro_setup") else
                 409 if result.get("already_running") else 400)
         return
     h._json(result, 202 if result.get("started") else 200)
@@ -142,3 +147,11 @@ def get_pro_compare(h, parsed) -> None:
     except (OSError, ValueError):
         data = {"items": []}
     h._json(data)
+
+
+@post("/pro/addon/get-ready")
+def post_pro_addon_get_ready(h, path, qs, ctype) -> None:
+    """A Pro member pressed an option that waits for the Pro add-on: on Pinokio, fetch it now.
+    Free gets 402 (the page shows what Pro is); a member always gets the add-on's state."""
+    st = P.pro_addon_get_ready()
+    h._json(st, 402 if st.get("state") == "free" else 200)
