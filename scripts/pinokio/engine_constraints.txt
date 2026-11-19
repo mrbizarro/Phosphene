@@ -44,3 +44,8 @@ mlx-metal==0.31.1
 # itself asks only for pillow>=12.1.1, which is the floor here. Video was not
 # affected. image_engine.mflux_env_fault() reads this line.
 pillow>=12.1.1,<13
+# OpenCV below 5 (19 Nov 2026). The lip-sync checks (lipsync_align.py,
+# take_lipsync_score, find_closed_mouth_frame) find the face with the Haar
+# cascades in cv2.data.haarcascades, which OpenCV 5 no longer ships. FLUX 3's
+# own pin (flux3_requirements.txt, 4.14.0.94) sits inside this range.
+opencv-python>=4.10,<5

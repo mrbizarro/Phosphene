@@ -30627,6 +30627,181 @@ def _take_lipsync_score_and_lag(path) -> tuple[float, int, float] | None:
         return None
 
 
+# --- FACE TOOLS (OpenCV) FOR LIP-SYNC ---------------------------------------
+# Support ticket, 19 Nov 2026 (Free, Mac app, M2 Max 32 GB): a 9 s LTX
+# Lip-sync talking head came back "non-synced". Every lip-sync check after the
+# render finds the face with OpenCV's frontal cascade: the timing correction
+# that holds the picture back by the mouth's measured lead (a2v_align_lipsync,
+# shipped 4.19.18), the lip-sync score and One Shot's retake gate
+# (take_lipsync_score), the open-mouth picture warning (mouth_open_ratio) and
+# Continue the song's hand-off frame (find_closed_mouth_frame). Each one
+# returns None when `import cv2` fails, by design, so a missing OpenCV never
+# fails a render. But nothing ever installed OpenCV: on Pinokio it arrives only
+# as a dependency of the FLUX 3 image pack (scripts/pinokio/flux3_requirements
+# .txt), and the Mac app's engine (bootstrap.sh -> ltx_engine_env.sh) never has
+# it. So on every Mac app install all five quietly did nothing: lip-sync clips
+# were delivered with the mouth up to 6 frames ahead of the voice, no score was
+# shown, and Continue the song always said it "could not find a face".
+#
+# Fix: ltx_engine_env.sh installs it with the engine (fresh installs and
+# Repair), and an engine that lacks it gets it here, once, from the lip-sync
+# job that needs it (the image engine's own pattern: image_engine_autoinstall).
+# One package (~40 MB), no models; it changes nothing already installed (the
+# engine's constraints file rides along). OpenCV 5 dropped the Haar cascades
+# these checks use, hence the <5 (also in engine_constraints.txt).
+FACE_TOOLS_SPEC = "opencv-python>=4.10,<5"
+FACE_TOOLS_AUTO: dict = {"attempts": 0, "last_fail_ts": 0.0, "error": None}
+FACE_TOOLS_LOCK = threading.Lock()
+FACE_TOOLS_AUTO_MAX = 3
+FACE_TOOLS_RETRY_AFTER_S = 600
+FACE_TOOLS_WAIT_S = 300
+
+
+def face_tools_ready() -> bool:
+    """True when this Studio's own Python can find faces (cv2 with the Haar
+    cascades every lip-sync check loads)."""
+    try:
+        import cv2  # noqa: PLC0415
+    except Exception:                                              # noqa: BLE001
+        return False
+    data = getattr(getattr(cv2, "data", None), "haarcascades", "") or ""
+    return bool(data) and hasattr(cv2, "CascadeClassifier")
+
+
+def face_tools_autoinstall_enabled() -> bool:
+    if (os.environ.get("PHOSPHENE_FACE_TOOLS_AUTOINSTALL") or "1").strip() == "0":
+        return False
+    if sys.platform != "darwin":
+        return False
+    # A development or test tree whose engine folder is a link to another
+    # install's must never install into that one (image_engine's rule).
+    if not _dist.is_mac_app() and (ROOT / "ltx-2-mlx").is_symlink():
+        return False
+    return not (HELPER_PYTHON.parent.parent / ".phosphene_stub").exists()
+
+
+def _face_tools_install_cmd(uv: Path, constraints: Path | None) -> list[str]:
+    cmd = [str(uv), "pip", "install", "--python", str(HELPER_PYTHON)]
+    if constraints is not None:
+        cmd += ["-c", str(constraints)]
+    return cmd + [FACE_TOOLS_SPEC]
+
+
+def face_tools_autoinstall(on_log=None, now: float | None = None) -> str | None:
+    """Add OpenCV to the engine venv when it is missing. None = the lip-sync
+    checks can run now; else a short plain reason they cannot. Never raises."""
+    def say(line: str) -> None:
+        push(f"[lip-sync] {line}")
+        if on_log is not None:
+            try:
+                on_log(line)
+            except Exception:                                    # noqa: BLE001
+                pass
+
+    with FACE_TOOLS_LOCK:
+        if face_tools_ready():
+            return None
+        if not face_tools_autoinstall_enabled():
+            return "the face-finding tool is not installed in this engine"
+        now = time.time() if now is None else now
+        st = FACE_TOOLS_AUTO
+        if st["last_fail_ts"]:
+            if now - st["last_fail_ts"] < FACE_TOOLS_RETRY_AFTER_S:
+                return st["error"] or "it did not install"
+            st["attempts"] = 0          # a recovered connection works without a restart
+        if st["attempts"] >= FACE_TOOLS_AUTO_MAX:
+            return st["error"] or "it did not install"
+        venv = HELPER_PYTHON.parent.parent
+        try:
+            same = (ROOT / "ltx-2-mlx" / "env").resolve() == venv.resolve()
+        except OSError:
+            same = False
+        if not same:
+            return "the video engine is not in the Studio folder"
+        uv = _image_engine_uv()
+        if uv is None:
+            return "the setup tool is missing"
+        if _engine_install_running():
+            return "the video engine is being repaired"
+        say("adding the face-finding tool the lip-sync timing check needs "
+            "(once, about 40 MB, no models)")
+        env = _music_install_env()
+        env["PATH"] = os.pathsep.join([str(uv.parent)] + [
+            x for x in env.get("PATH", "").split(os.pathsep) if x and x != str(uv.parent)])
+        if _dist.is_mac_app():
+            runtime = uv.parent.parent
+            env.update({"UV_CACHE_DIR": str(runtime / "uv-cache"),
+                        "UV_PYTHON_INSTALL_DIR": str(runtime / "python"),
+                        "UV_PYTHON_PREFERENCE": "only-managed", "UV_NO_CONFIG": "1"})
+        env["UV_HTTP_TIMEOUT"] = "60"
+        env["UV_HTTP_RETRIES"] = "3"
+        # uv 0.11 splits a -c path at spaces and the Mac app lives under
+        # "Application Support" (bootstrap.sh's own workaround): hand it a copy
+        # of the constraints file at a path with no spaces.
+        constraints = None
+        ec = ROOT / "scripts" / "pinokio" / "engine_constraints.txt"
+        tmp_ec = None
+        try:
+            if ec.is_file():
+                fd, tmp_name = tempfile.mkstemp(prefix="phos_ec_", suffix=".txt")
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    fh.write(ec.read_text(encoding="utf-8"))
+                tmp_ec = Path(tmp_name)
+                if " " not in tmp_name:
+                    constraints = tmp_ec
+        except OSError:
+            constraints = None
+        st["attempts"] += 1
+        error = None
+        try:
+            r = subprocess.run(_face_tools_install_cmd(uv, constraints), cwd=str(ROOT),
+                               env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                               text=True, errors="replace", timeout=FACE_TOOLS_WAIT_S)
+            if r.returncode != 0:
+                error = _image_engine_install_reason(
+                    ((r.stdout or "") + "\n" + (r.stderr or "")).splitlines()[-12:])
+        except subprocess.TimeoutExpired:
+            error = f"the install took longer than {FACE_TOOLS_WAIT_S // 60} minutes"
+        except Exception:                                        # noqa: BLE001
+            error = "the installer could not run"
+        finally:
+            if tmp_ec is not None:
+                try:
+                    tmp_ec.unlink()
+                except OSError:
+                    pass
+        importlib.invalidate_caches()
+        if error is None and not face_tools_ready():
+            error = "it installed but does not load"
+        if error:
+            st.update(last_fail_ts=now, error=error)
+            say(f"the face-finding tool did not install ({error})")
+            return error
+        st.update(last_fail_ts=0.0, error=None)
+        say("face-finding tool added")
+        return None
+
+
+def face_tools_ensure(log_prefix: str = "[a2v]") -> bool:
+    """For a lip-sync job about to measure its clip: True when the checks can
+    run. When they cannot, the job log says so in one line instead of the
+    checks vanishing in silence."""
+    reason = face_tools_autoinstall()
+    if reason is None:
+        return True
+    push(f"{log_prefix} lip-sync timing check and score skipped: {reason}")
+    return False
+
+
+def face_tools_kick() -> None:
+    """Start the install in the background (a screen that cannot wait for it,
+    like Continue the song); a no-op when ready or already running."""
+    if face_tools_ready() or FACE_TOOLS_LOCK.locked():
+        return
+    threading.Thread(target=face_tools_autoinstall, daemon=True,
+                     name="phos-face-tools").start()
+
+
 # --- Mouth-openness (lip-sync anchor picking) -------------------------------
 # Reuses take_lipsync_score's face cascade + mouth-ROI-darkness metric on a
 # SINGLE frame rather than a whole clip. Two callers:
@@ -31445,6 +31620,7 @@ def _sb_lipsync_gate(board_id: str, batch: list, key: str, out_key: str, policy:
     # shot 9 of the sitcom: kept -0.09, delivered -0.27).
     best_job: dict = {}  # n -> job id of the kept take
     best_seed: dict = {} # n -> seed of the kept take
+    _faces_checked = False
     for n in ns:
         s = shots.get(n)
         out = s.get(out_key) if s else None
@@ -31452,6 +31628,9 @@ def _sb_lipsync_gate(board_id: str, batch: list, key: str, out_key: str, policy:
             continue
         if not storyboard._SPOKEN_WORDS_RE.search(str(s.get("prompt") or "")):
             continue
+        if not _faces_checked:
+            _faces_checked = True
+            face_tools_ensure("[storyboard]")
         sc = take_lipsync_score(out)
         if sc is None:
             continue
@@ -44973,6 +45152,7 @@ def run_h3_job_inner(job: dict) -> None:
 
     h3_lipsync_align = None
     if mode == "a2v":
+        face_tools_ensure("[h3]")
         h3_lipsync_align = a2v_align_lipsync(
             out_path, plan.get("drive_audio"), plan.get("drive_start") or 0.0,
             crf=native_codec["crf"], pix_fmt=native_codec["pix_fmt"])
@@ -45835,7 +46015,10 @@ def run_take_job_inner(job: dict) -> None:
             # retaken once with a fresh seed, and the better-scoring clip is kept.
             # Measured 2026-09-07: identical settings gave +0.41 on one line and
             # −0.27 on the next, so this is not something the words can secure.
-            ls = take_lipsync_score(out) if take_expects_speech(p, chain) else None
+            _speaks = take_expects_speech(p, chain)
+            if _speaks:
+                face_tools_ensure("[take]")
+            ls = take_lipsync_score(out) if _speaks else None
             if ls is not None:
                 push(f"[take] part {k + 1}: lip-sync {ls:+.2f}" + ("" if ls >= TAKE_LIPSYNC_MIN else
                      f" — under {TAKE_LIPSYNC_MIN:.2f}, the voice is not on his mouth"))
@@ -48183,6 +48366,7 @@ def run_job_inner(job: dict) -> None:
         # The mouth leads the voice by a few frames on this engine too: hold
         # the picture back by the measured lead, against the voice the model
         # followed (the stem when one was used), before the verdict below.
+        face_tools_ensure("[a2v]")
         ltx_lipsync_align = a2v_align_lipsync(
             out_path, cond_audio, a2v_params["audio_start_time"],
             crf=output_codec_settings().get("crf", "18"),

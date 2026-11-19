@@ -2900,5 +2900,88 @@
   "5.0.67": {
     "silent": true,
     "date": "2026-11-19"
+  },
+  "5.0.68": {
+    "free": [
+      "Lip-sync: after each video, the mouth is lined up with the voice again, and the player shows its lip-sync score. On the Mac app this had stopped.",
+      "Continue the song finds the face again. The first time, Phosphene adds a small face-finding tool by itself, once."
+    ],
+    "pro": [],
+    "date": "2026-11-19",
+    "headline": "Lip-sync videos have the lips on the words again.",
+    "i18n": {
+      "de": {
+        "headline": "Bei Lippensynchronisation sitzen die Lippen wieder auf den Worten.",
+        "free": [
+          "Lippensynchronisation: Nach jedem Video wird der Mund wieder an die Stimme angepasst, und der Player zeigt die Lippensync-Bewertung. In der Mac-App war das ausgefallen.",
+          "„Song fortsetzen“ findet das Gesicht wieder. Beim ersten Mal fügt Phosphene einmalig selbst ein kleines Werkzeug zur Gesichtserkennung hinzu."
+        ],
+        "pro": []
+      },
+      "es": {
+        "headline": "En la sincronización labial, los labios vuelven a ir con las palabras.",
+        "free": [
+          "Sincronización labial: después de cada vídeo, la boca vuelve a ajustarse a la voz y el reproductor muestra su puntuación de sincronía. En la app de Mac esto había dejado de funcionar.",
+          "«Continuar la canción» vuelve a encontrar la cara. La primera vez, Phosphene añade por sí solo, una única vez, una pequeña herramienta para encontrar caras."
+        ],
+        "pro": []
+      },
+      "fr": {
+        "headline": "En synchronisation labiale, les lèvres suivent à nouveau les mots.",
+        "free": [
+          "Synchronisation labiale : après chaque vidéo, la bouche est de nouveau calée sur la voix, et le lecteur affiche son score de synchro. Sur l’app Mac, cela ne se faisait plus.",
+          "« Continuer la chanson » retrouve le visage. La première fois, Phosphene ajoute tout seul, une seule fois, un petit outil qui trouve les visages."
+        ],
+        "pro": []
+      },
+      "it": {
+        "headline": "Nella sincronizzazione labiale le labbra tornano sulle parole.",
+        "free": [
+          "Sincronizzazione labiale: dopo ogni video la bocca torna allineata alla voce e il player mostra il punteggio di sincronia. Nell’app per Mac questo si era fermato.",
+          "«Continua la canzone» trova di nuovo il volto. La prima volta Phosphene aggiunge da solo, una volta sola, un piccolo strumento per trovare i volti."
+        ],
+        "pro": []
+      },
+      "ja": {
+        "headline": "リップシンクで、口の動きがまた言葉に合うようになりました。",
+        "free": [
+          "リップシンク：動画ができるたびに、口の動きを声にまた合わせ、プレーヤーにリップシンクのスコアを表示します。Macアプリではこれが止まっていました。",
+          "「曲の続きを作成」がまた顔を見つけられるようになりました。初回だけ、Phosphene が顔を見つける小さなツールを自動で追加します。"
+        ],
+        "pro": []
+      },
+      "ko": {
+        "headline": "립싱크 영상에서 입 모양이 다시 말에 맞아요.",
+        "free": [
+          "립싱크: 영상이 끝날 때마다 입 모양을 다시 목소리에 맞추고, 플레이어에 립싱크 점수를 보여줘요. Mac 앱에서는 이게 멈춰 있었어요.",
+          "「노래 이어 가기」가 다시 얼굴을 찾아요. 처음 한 번만 Phosphene이 얼굴을 찾는 작은 도구를 알아서 추가해요."
+        ],
+        "pro": []
+      },
+      "pt": {
+        "headline": "Na sincronização labial, os lábios voltam a acompanhar as palavras.",
+        "free": [
+          "Sincronização labial: depois de cada vídeo, a boca volta a ser alinhada com a voz e o player mostra a pontuação de sincronia. No app para Mac isso tinha parado.",
+          "«Continuar a música» volta a encontrar o rosto. Na primeira vez, o Phosphene adiciona sozinho, uma única vez, uma pequena ferramenta para encontrar rostos."
+        ],
+        "pro": []
+      },
+      "ru": {
+        "headline": "В синхронизации губ губы снова попадают в слова.",
+        "free": [
+          "Синхронизация губ: после каждого видео рот снова подстраивается под голос, а плеер показывает оценку синхронизации. В приложении для Mac это перестало работать.",
+          "«Продолжить песню» снова находит лицо. В первый раз Phosphene сам, один раз, добавляет небольшой инструмент, который находит лица."
+        ],
+        "pro": []
+      },
+      "zh-Hans": {
+        "headline": "对口型视频的嘴型又能对上台词了。",
+        "free": [
+          "对口型：每个视频完成后，嘴型会重新对齐声音，播放器也会显示对口型评分。在 Mac 应用上这一步之前没有运行。",
+          "“继续这首歌”又能找到人脸了。第一次使用时，Phosphene 会自动添加一个小小的人脸识别工具，只需一次。"
+        ],
+        "pro": []
+      }
+    }
   }
 }

@@ -131,8 +131,13 @@ attempt() {
     --build-constraints ../pip-build-constraints.txt \
     ./packages/ltx-core-mlx ./packages/ltx-pipelines-mlx ./packages/ltx-trainer 2>&1 | defuse || return 1
   uv pip install --python env/bin/python -c "$EC" --no-deps 'mlx-vlm==0.4.4' 2>&1 | defuse || return 1
+  # opencv-python: the lip-sync checks (timing correction, score, Continue the
+  # song). Until 19 Nov 2026 only the FLUX 3 image pack brought it, so the Mac
+  # app's engine never had it and every one of those checks skipped in silence.
+  # The panel also adds it to an older engine on first use (FACE_TOOLS).
   uv pip install --python env/bin/python -c "$EC" certifi pillow numpy 'huggingface-hub>=1.5.0,<2.0' \
-    'hf_transfer>=0.1.6' 'litellm>=1.83.14' 'smolagents>=1.24.0' 'pywebpush>=2.0' 2>&1 | defuse || return 1
+    'hf_transfer>=0.1.6' 'litellm>=1.83.14' 'smolagents>=1.24.0' 'pywebpush>=2.0' \
+    'opencv-python>=4.10,<5' 2>&1 | defuse || return 1
   # The --reinstall above replaced the patched ltx_core_mlx: put the codec patch
   # back before anything renders (install.js runs it again after; idempotent).
   "$PY" "$APP_ROOT/patch_ltx_codec.py" 2>&1 | defuse || return 1

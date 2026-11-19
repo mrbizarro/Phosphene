@@ -1192,7 +1192,10 @@ def post_a2v_mouth_check(h, path, qs, ctype) -> None:
     img = str(media)
     ratio = P.mouth_open_ratio(img)
     if ratio is None:
-        # No face found, or cv2 unavailable — not a verdict either way.
+        # No face found, or cv2 unavailable — not a verdict either way. A
+        # missing OpenCV (every Mac app engine before the 19 Nov 2026 fix) is
+        # added in the background so the next check can measure.
+        P.face_tools_kick()
         h._json({"ok": True, "measured": False}); return
     h._json({"ok": True, "measured": True, "ratio": round(ratio, 4),
              "open": ratio > P.MOUTH_OPEN_WARN,
@@ -1225,6 +1228,21 @@ def post_a2v_continue_song(h, path, qs, ctype) -> None:
     src = str(media)
     hit = P.find_closed_mouth_frame(src)
     if hit is None:
+        if not P.face_tools_ready():
+            # Not "no face": this engine cannot look for one yet (no OpenCV;
+            # see FACE_TOOLS in mlx_ltx_panel.py). Add it in the background
+            # and say what is happening instead of blaming the clip.
+            failed = (P.FACE_TOOLS_AUTO.get("error")
+                      if P.FACE_TOOLS_AUTO.get("attempts", 0) >= P.FACE_TOOLS_AUTO_MAX else None)
+            if failed:
+                h._json({"error": "Continue the song needs a small face-finding tool "
+                                   f"that could not be added ({failed}). Pick a start "
+                                   "frame by hand for now, or try again after "
+                                   "restarting Phosphene."}, 503); return
+            P.face_tools_kick()
+            h._json({"error": "Phosphene is adding the small face-finding tool "
+                               "this needs (once, about a minute). Try Continue "
+                               "the song again in a minute."}, 503); return
         h._json({"error": "could not find a face in the last half-second of "
                            "this clip — pick a start frame by hand instead."},
                  422); return
