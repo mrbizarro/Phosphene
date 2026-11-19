@@ -1017,7 +1017,7 @@
   },
   "characters.832_480_has_been_reported": {
    "text": "832×480 has been reported clean at 721 frames, while 1024×576 ",
-   "note": "Studio · in trained characters, Lip-sync and Train Character · written by the code that handles audio studio duration changed · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «832×480 has been reported clean at 721 frames, while 1024×576 … died around frame 454 on the same machine»",
+   "note": "Studio · in trained characters, Lip-sync and Train Character · written by the code that handles audio studio duration changed · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «832×480 has been reported clean at 721 frames, while 1024×576 … died around frame 454 on the same machine … — field reports, not a limit measured here). … Drop to about 832×480 or smaller and the length comes back. Longer still renders.»",
    "where": "characters.js:1111"
   },
   "characters.8_steps": {
@@ -1302,7 +1302,7 @@
   },
   "characters.died_around_frame_454_on": {
    "text": "died around frame 454 on the same machine ",
-   "note": "Studio · in trained characters, Lip-sync and Train Character · written by the code that handles audio studio duration changed · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «832×480 has been reported clean at 721 frames, while 1024×576 … died around frame 454 on the same machine»",
+   "note": "Studio · in trained characters, Lip-sync and Train Character · written by the code that handles audio studio duration changed · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «832×480 has been reported clean at 721 frames, while 1024×576 … died around frame 454 on the same machine … — field reports, not a limit measured here). … Drop to about 832×480 or smaller and the length comes back. Longer still renders.»",
    "where": "characters.js:1112"
   },
   "characters.digits_split_into_their_own": {
@@ -1447,7 +1447,7 @@
   },
   "characters.field_reports_not_a_limit": {
    "text": "— field reports, not a limit measured here). ",
-   "note": "Studio · in trained characters, Lip-sync and Train Character · written by the code that handles audio studio duration changed · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «— field reports, not a limit measured here). … Drop to about 832×480 or smaller and the length comes back. Longer still renders.»",
+   "note": "Studio · in trained characters, Lip-sync and Train Character · written by the code that handles audio studio duration changed · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «832×480 has been reported clean at 721 frames, while 1024×576 … died around frame 454 on the same machine … — field reports, not a limit measured here). … Drop to about 832×480 or smaller and the length comes back. Longer still renders.»",
    "where": "characters.js:1114"
   },
   "characters.finishes_on_this_mac_every": {
@@ -9832,6 +9832,11 @@
    "note": "Studio · heading · in the Studio, the main Phosphene window where the user makes videos, pictures and music",
    "where": "index.html:7260"
   },
+  "licences.acceptable_use_policy": {
+   "text": "Acceptable Use Policy",
+   "note": "Studio · in model licence screens the user accepts before downloading a model · written by the code that handles open licence",
+   "where": "licences.js:82"
+  },
   "licences.accepted_on_this_mac": {
    "text": "Accepted on this Mac{v}.",
    "note": "Studio · in model licence screens the user accepts before downloading a model · written by the code that handles open licence · placeholders {v} are filled in by the app",
@@ -9840,27 +9845,27 @@
   "licences.close": {
    "text": "Close",
    "note": "Studio · in model licence screens the user accepts before downloading a model · written by the code that handles open licence",
-   "where": "licences.js:95"
+   "where": "licences.js:96"
   },
   "licences.could_not_save": {
    "text": "Could not save: ",
    "note": "Studio · in model licence screens the user accepts before downloading a model · written by the code that handles open licence",
-   "where": "licences.js:140"
+   "where": "licences.js:141"
   },
   "licences.licence_accepted_on_this_mac": {
    "text": "Licence accepted on this Mac.",
    "note": "Studio · in model licence screens the user accepts before downloading a model · written by the code that handles licence status refresh",
-   "where": "licences.js:162"
+   "where": "licences.js:163"
   },
   "licences.not_accepted_yet": {
    "text": "Not accepted yet.",
    "note": "Studio · in model licence screens the user accepts before downloading a model · written by the code that handles licence status refresh",
-   "where": "licences.js:163"
+   "where": "licences.js:164"
   },
   "licences.report_misuse": {
    "text": "Report misuse",
    "note": "Studio · in model licence screens the user accepts before downloading a model · written by the code that handles open licence",
-   "where": "licences.js:84"
+   "where": "licences.js:85"
   },
   "lightsOnTitle.pro_keeps_phosphene_free": {
    "text": "Pro keeps Phosphene<0/>free for everyone.",
@@ -13323,42 +13328,42 @@
   "pro.this_mac_fill": {
    "text": "AI fill for Make it vertical",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro this mac render",
-   "where": "settings.js:2165"
+   "where": "settings.js:2189"
   },
   "pro.this_mac_flex_turbo": {
    "text": "Faster Flex Turbo for Hailuo H3",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro this mac render",
-   "where": "settings.js:2164"
+   "where": "settings.js:2188"
   },
   "pro.this_mac_gives": {
    "text": "Pro gives you {perks}, plus the iPhone Remote, new features first and priority support.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro this mac render · placeholders {perks} are filled in by the app",
-   "where": "settings.js:2168"
+   "where": "settings.js:2192"
   },
   "pro.this_mac_h3": {
    "text": "a third less waiting on Hailuo H3 video",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro this mac render",
-   "where": "settings.js:2164"
+   "where": "settings.js:2188"
   },
   "pro.this_mac_head": {
    "text": "On this Mac ({gb} GB)",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro this mac render · placeholders {gb} are filled in by the app",
-   "where": "settings.js:2166"
+   "where": "settings.js:2190"
   },
   "pro.this_mac_join": {
    "text": ", ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro this mac render · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «, … Pro is mostly support today: the iPhone Remote, new features first and priority support. The speed-ups need 16 GB or more for now.»",
-   "where": "settings.js:2168"
+   "where": "settings.js:2192"
   },
   "pro.this_mac_ltx": {
    "text": "faster LTX video",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro this mac render",
-   "where": "settings.js:2163"
+   "where": "settings.js:2187"
   },
   "pro.this_mac_support_only": {
    "text": "Pro is mostly support today: the iPhone Remote, new features first and priority support. The speed-ups need 16 GB or more for now.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro this mac render",
-   "where": "settings.js:2169"
+   "where": "settings.js:2193"
   },
   "proCompare.10_min_02_s": {
    "text": "10 min 02 s",
@@ -19291,22 +19296,22 @@
   "settings.10_bit_colour": {
    "text": "10-bit colour",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render token rows",
-   "where": "settings.js:1050"
+   "where": "settings.js:1074"
   },
   "settings.10_bit_full_colour": {
    "text": "10-bit, full colour",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render token rows",
-   "where": "settings.js:1050"
+   "where": "settings.js:1074"
   },
   "settings.10_bit_more_colour": {
    "text": "10-bit, more colour",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render token rows",
-   "where": "settings.js:1050"
+   "where": "settings.js:1074"
   },
   "settings.32_char_api_key": {
    "text": "32-char API key",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render token rows",
-   "where": "settings.js:1035"
+   "where": "settings.js:1059"
   },
   "settings.40_and_the_card_says": {
    "text": "40% and the card says helper failed.\" Without it we can't tell what to fix.",
@@ -19316,37 +19321,37 @@
   "settings.a_chime_in_this_tab": {
    "text": "A chime in this tab, and a browser alert when the tab is in the background",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render notify state",
-   "where": "settings.js:1213"
+   "where": "settings.js:1237"
   },
   "settings.a_chime_in_this_tab_2": {
    "text": "A chime in this tab. Browser alerts are blocked for this site in the browser's own settings.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render notify state",
-   "where": "settings.js:1215"
+   "where": "settings.js:1239"
   },
   "settings.a_chime_in_this_tab_3": {
    "text": "A chime in this tab.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render notify state",
-   "where": "settings.js:1216"
+   "where": "settings.js:1240"
   },
   "settings.a_chime_in_this_tab_4": {
    "text": "A chime in this tab. Allow browser alerts to be told when the tab is in the background",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render notify state",
-   "where": "settings.js:1217"
+   "where": "settings.js:1241"
   },
   "settings.a_companion_hdr_npz_tensor": {
    "text": "a companion .hdr.npz tensor (float32 scene-linear) for any pro tool ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles apply hdr pill availability · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Auto-routes to the distilled Q4 path (required by the IC-LoRA pipeline). … First HDR job downloads the LoRA weights from Hugging Face (~330 MB, … gated — needs an HF token in Settings). Output is standard MP4 plus … a companion .hdr.npz tensor (float32 scene-linear) for any pro tool … that wants the»",
-   "where": "settings.js:1775"
+   "where": "settings.js:1799"
   },
   "settings.a_pro_licence_turns_these": {
    "text": "A Pro licence turns these on",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro feature list render",
-   "where": "settings.js:2101"
+   "where": "settings.js:2125"
   },
   "settings.a_quicker_fast_mode_for": {
    "text": "A quicker Fast mode for P-H3-Image: about 22 s for the next picture on a 64 GB M4 Max, at a smaller size. Free keeps its own 56 s default.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2024"
+   "where": "settings.js:2048"
   },
   "settings.a_sentence_or_two_in": {
    "text": "A sentence or two in your own words. The log below is ",
@@ -19356,27 +19361,27 @@
   "settings.about_a_quarter_less_waiting": {
    "text": "About a quarter less waiting on a 5-second LTX-2.5 clip, about a fifth on a 10-second one. Switch it off to render this clip the usual way.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed render",
-   "where": "settings.js:1945"
+   "where": "settings.js:1969"
   },
   "settings.about_a_quarter_less_waiting_2": {
    "text": "about a quarter less waiting on LTX clips, on Macs with 16 GB or more.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2013"
+   "where": "settings.js:2037"
   },
   "settings.ai_paints_real_picture_above": {
    "text": "AI paints real picture above and below, as if the clip was shot tall. For Macs with 48 GB or more.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2032"
+   "where": "settings.js:2056"
   },
   "settings.ai_paints_real_picture_above_2": {
    "text": "AI paints real picture above and below. For Macs with 48 GB or more.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2033"
+   "where": "settings.js:2057"
   },
   "settings.alert_me_here_even_when": {
    "text": "Alert me here even when the tab is closed",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render notify state",
-   "where": "settings.js:1230"
+   "where": "settings.js:1254"
   },
   "settings.all_models": {
    "text": "All models",
@@ -19396,7 +19401,7 @@
   "settings.and_once_you_turn_it": {
    "text": " — and, once you turn it on below, even with the tab closed.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render notify state · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «A chime in this tab, and a browser alert when the tab is in the background … — and, once you turn it on below, even with the tab closed.»",
-   "where": "settings.js:1214"
+   "where": "settings.js:1238"
   },
   "settings.any_size": {
    "text": "Any size",
@@ -19416,12 +19421,12 @@
   "settings.auto_routes_to_the_distilled": {
    "text": "Auto-routes to the distilled Q4 path (required by the IC-LoRA pipeline). ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles apply hdr pill availability · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «HDR via the official Lightricks LTX-2.3-22b IC-LoRA-HDR. … Auto-routes to the distilled Q4 path (required by the IC-LoRA pipeline). … First HDR job downloads the LoRA weights from Hugging Face (~330 MB, … gated — needs an HF token in Settings). Output is standard MP4 plus … a companion .hdr.npz tens»",
-   "where": "settings.js:1772"
+   "where": "settings.js:1796"
   },
   "settings.back_to_your_saved_choices": {
    "text": "Back to your saved choices.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles undo render settings",
-   "where": "settings.js:1111"
+   "where": "settings.js:1135"
   },
   "settings.base_models_are_downloading_you": {
    "text": "Base models are downloading{v}. You can render when they’re ready.",
@@ -19431,7 +19436,7 @@
   "settings.beside_quality_on_ltx_2": {
    "text": "Beside Quality, on LTX-2.5 Balanced",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2014"
+   "where": "settings.js:2038"
   },
   "settings.bigger_model_two_stage_denoising": {
    "text": "Bigger model, two-stage denoising, sharper faces. Needs the optional Q8 download.",
@@ -19446,7 +19451,7 @@
   "settings.building_issue": {
    "text": "Building issue…",
    "note": "Studio · in the Settings window and the models card · written by the code that handles submit bug report",
-   "where": "settings.js:737"
+   "where": "settings.js:757"
   },
   "settings.cancel": {
    "text": "Cancel",
@@ -19461,52 +19466,52 @@
   "settings.check_for_updates": {
    "text": "Check for updates",
    "note": "Studio · in the Settings window and the models card · written by the code that handles models drive view",
-   "where": "settings.js:865"
+   "where": "settings.js:889"
   },
   "settings.choose_colour_detail_and_quality": {
    "text": "Choose colour detail and quality yourself: 10-bit for HDR, a specific delivery format, or a different quality number.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles open settings modal",
-   "where": "settings.js:945"
+   "where": "settings.js:969"
   },
   "settings.click_again_to_confirm": {
    "text": "Click again to confirm",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render spicy state",
-   "where": "settings.js:1419"
+   "where": "settings.js:1443"
   },
   "settings.closed_tab_alerts_are_not": {
    "text": "Closed-tab alerts are not available on this install yet — run Update.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles push toggle",
-   "where": "settings.js:1274"
+   "where": "settings.js:1298"
   },
   "settings.closed_tab_alerts_could_not": {
    "text": "Closed-tab alerts could not be set up in this browser: ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles push toggle",
-   "where": "settings.js:1287"
+   "where": "settings.js:1311"
   },
   "settings.closed_tab_alerts_need_an": {
    "text": ". Closed-tab alerts need an Update on this install.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render notify state",
-   "where": "settings.js:1214"
+   "where": "settings.js:1238"
   },
   "settings.confirms_turning_spicy_mode_on": {
    "text": "Confirms turning Spicy mode ON. NSFW LoRAs will be available in the CivitAI browser. Cancel by closing the modal.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render spicy state",
-   "where": "settings.js:1423"
+   "where": "settings.js:1447"
   },
   "settings.copied_paste_it_anywhere_a": {
    "text": "Copied — paste it anywhere (a forum post, a DM, a translated message).",
    "note": "Studio · in the Settings window and the models card · written by the code that handles copy bug diagnostics",
-   "where": "settings.js:714"
+   "where": "settings.js:734"
   },
   "settings.could_not_change_analytics": {
    "text": "Could not change analytics: ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles toggle analytics",
-   "where": "settings.js:1366"
+   "where": "settings.js:1390"
   },
   "settings.could_not_change_spicy_mode": {
    "text": "Could not change Spicy mode: ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles persist spicy mode",
-   "where": "settings.js:1496"
+   "where": "settings.js:1520"
   },
   "settings.could_not_check_this_mac_app": {
    "text": "Could not check what this Mac can run. Use Studio → Restart Engine, then open this again.",
@@ -19521,117 +19526,122 @@
   "settings.could_not_copy_select_the": {
    "text": "Could not copy — select the text above manually.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles copy bug diagnostics",
-   "where": "settings.js:716"
+   "where": "settings.js:736"
   },
   "settings.could_not_load_settings": {
    "text": "Could not load settings.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles open settings modal",
-   "where": "settings.js:906"
+   "where": "settings.js:930"
   },
   "settings.could_not_reach_phosphene": {
    "text": "Could not reach Phosphene: ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles clear token",
-   "where": "settings.js:1630"
+   "where": "settings.js:1654"
   },
   "settings.could_not_reach_the_studio": {
    "text": "Could not reach the Studio.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro licence post",
-   "where": "settings.js:2144"
+   "where": "settings.js:2168"
   },
   "settings.could_not_read_storage_close": {
    "text": "Could not read storage. Close Settings and try again.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles refresh storage section",
-   "where": "settings.js:803"
+   "where": "settings.js:827"
   },
   "settings.could_not_remove_the_key": {
    "text": "Could not remove the key: ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles clear token",
-   "where": "settings.js:1617"
+   "where": "settings.js:1641"
   },
   "settings.could_not_save_key": {
    "text": "Could not save key: ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles persist analytics key",
-   "where": "settings.js:1388"
+   "where": "settings.js:1412"
+  },
+  "settings.crash_report_bundled_attach": {
+   "text": "Crash report bundled. Attach this file to the email:",
+   "note": "Studio · in the Settings window and the models card · written by the code that handles submit bug report",
+   "where": "settings.js:785"
   },
   "settings.crisper_detail": {
    "text": "Crisper detail",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2007"
+   "where": "settings.js:2031"
   },
   "settings.crisper_detail_line": {
    "text": "Noticeably finer detail on LTX-2.5 clips: skin, hair, fabric and backgrounds, in about the same render time (Quick, Balanced and Standard). Off by default; the take changes when it is on.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2008"
+   "where": "settings.js:2032"
   },
   "settings.crisper_detail_short": {
    "text": "noticeably finer detail on LTX-2.5 clips in about the same render time.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2009"
+   "where": "settings.js:2033"
   },
   "settings.crisper_detail_where": {
    "text": "The Crisper detail pill under the prompt, on LTX-2.5",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2010"
+   "where": "settings.js:2034"
   },
   "settings.crisper_downloading_short": {
    "text": "Crisper detail: getting ready (one-time download).",
    "note": "Studio · in the Settings window and the models card · written by the code that handles crisper render",
-   "where": "settings.js:1879"
+   "where": "settings.js:1903"
   },
   "settings.crisper_downloading_title": {
    "text": "Crisper detail: getting ready (one-time download, {mb} of {total} MB).",
    "note": "Studio · in the Settings window and the models card · written by the code that handles crisper render · placeholders {mb} {total} are filled in by the app",
-   "where": "settings.js:1878"
+   "where": "settings.js:1902"
   },
   "settings.crisper_failed_title": {
    "text": "Crisper detail: the download did not finish ({error}). Switch it off and on to try again; until then this clip renders as usual.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles crisper render · placeholders {error} are filled in by the app",
-   "where": "settings.js:1877"
+   "where": "settings.js:1901"
   },
   "settings.crisper_first_use_title": {
    "text": "Crisper detail: on. The first use downloads {gb} GB once.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles crisper render · placeholders {gb} are filled in by the app",
-   "where": "settings.js:1880"
+   "where": "settings.js:1904"
   },
   "settings.crisper_high_title": {
    "text": "Crisper detail is on for Quick, Balanced and Standard; High renders as usual.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles crisper render",
-   "where": "settings.js:1876"
+   "where": "settings.js:1900"
   },
   "settings.crisper_no_reply": {
    "text": "no reply from the Studio",
    "note": "Studio · in the Settings window and the models card · written by the code that handles crisper prepare",
-   "where": "settings.js:1907"
+   "where": "settings.js:1931"
   },
   "settings.crisper_off_title": {
    "text": "Crisper detail: off. Switch it on for noticeably finer detail on LTX-2.5 clips (Quick, Balanced and Standard) in about the same render time; the take changes.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles crisper render",
-   "where": "settings.js:1875"
+   "where": "settings.js:1899"
   },
   "settings.crisper_on_title": {
    "text": "Crisper detail: on. This clip renders in about the usual time with finer detail.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles crisper render",
-   "where": "settings.js:1881"
+   "where": "settings.js:1905"
   },
   "settings.custom": {
    "text": "Custom",
    "note": "Studio · in the Settings window and the models card · written by the code that handles open settings modal",
-   "where": "settings.js:944"
+   "where": "settings.js:968"
   },
   "settings.disable": {
    "text": "Disable",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render spicy state",
-   "where": "settings.js:1427"
+   "where": "settings.js:1451"
   },
   "settings.done_close": {
    "text": "Done — close",
    "note": "Studio · in the Settings window and the models card · written by the code that handles submit bug report",
-   "where": "settings.js:767"
+   "where": "settings.js:789"
   },
   "settings.done_this_browser_will_be": {
    "text": "Done — this browser will be alerted even when the tab is closed.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles push toggle",
-   "where": "settings.js:1284"
+   "where": "settings.js:1308"
   },
   "settings.download_needs_another_try": {
    "text": "Download needs another try",
@@ -19673,20 +19683,25 @@
    "note": "Studio · in the Settings window and the models card · written by the code that handles open tier modal",
    "where": "settings.js:498"
   },
+  "settings.email_the_report": {
+   "text": "Email the report",
+   "note": "Studio · in the Settings window and the models card · written by the code that handles bug submit label",
+   "where": "settings.js:638"
+  },
   "settings.enable_spicy_mode": {
    "text": "Enable Spicy mode",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render spicy state",
-   "where": "settings.js:1434"
+   "where": "settings.js:1458"
   },
   "settings.enter_licence_key": {
    "text": "Enter licence key",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render settings pro",
-   "where": "settings.js:1136"
+   "where": "settings.js:1160"
   },
   "settings.everything_else_stays_free": {
    "text": ". Everything else stays free.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro feature list render · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «in Phosphene … A Pro licence turns these on … in Phosphene … . Everything else stays free.»",
-   "where": "settings.js:2101"
+   "where": "settings.js:2125"
   },
   "settings.extend": {
    "text": "Extend",
@@ -19706,42 +19721,42 @@
   "settings.fast_draft_in_about_half_the_time": {
    "text": "Fast draft in about half the time of a usual LTX clip, on Macs with 16 GB or more.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2017"
+   "where": "settings.js:2041"
   },
   "settings.fast_draft_in_half_the_time": {
    "text": "Fast draft in half the time",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2015"
+   "where": "settings.js:2039"
   },
   "settings.fast_makes_the_next_picture": {
    "text": "Fast makes the next picture in about 22 s on a 64 GB M4 Max, at a smaller size. Free keeps its own 56 s default.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2025"
+   "where": "settings.js:2049"
   },
   "settings.faster_fast_mode_in_images": {
    "text": "Faster Fast mode in Images",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2023"
+   "where": "settings.js:2047"
   },
   "settings.faster_flex_turbo": {
    "text": "Faster Flex Turbo",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2019"
+   "where": "settings.js:2043"
   },
   "settings.faster_ltx_clips": {
    "text": "Faster LTX clips",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2011"
+   "where": "settings.js:2035"
   },
   "settings.fidelity_may_be_weaker_than": {
    "text": "fidelity may be weaker than a non-HDR render. Try it and judge ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles apply hdr pill availability · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Q8 dev. Mechanically both stack on the pipeline, but character … fidelity may be weaker than a non-HDR render. Try it and judge … the output — that's the only way to know.»",
-   "where": "settings.js:1768"
+   "where": "settings.js:1792"
   },
   "settings.first_hdr_job_downloads_the": {
    "text": "First HDR job downloads the LoRA weights from Hugging Face (~330 MB, ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles apply hdr pill availability · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «HDR via the official Lightricks LTX-2.3-22b IC-LoRA-HDR. … Auto-routes to the distilled Q4 path (required by the IC-LoRA pipeline). … First HDR job downloads the LoRA weights from Hugging Face (~330 MB, … gated — needs an HF token in Settings). Output is standard MP4 plus … a companion .hdr.npz tens»",
-   "where": "settings.js:1773"
+   "where": "settings.js:1797"
   },
   "settings.first_last_frame_fflf": {
    "text": "First / last frame (FFLF)",
@@ -19756,62 +19771,62 @@
   "settings.first_use_downloads_gb_once": {
    "text": " First use downloads {gb} GB once.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro draft render · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «On with your Pro: Fast draft, about half the time of a usual clip, a different take of the same scene. … First use downloads {gb} GB once.» · placeholders {gb} are filled in by the app",
-   "where": "settings.js:1990"
+   "where": "settings.js:2014"
   },
   "settings.flex_turbo_renders_about_1": {
    "text": "Flex Turbo renders about 1.5× faster than Flex on Free (M4 Max 64 GB; Macs with 36 GB or more). A little softer; for drafts.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2020"
+   "where": "settings.js:2044"
   },
   "settings.free_paste_the_licence_key": {
    "text": "Free. Paste the licence key from your purchase email to turn Pro on.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render settings pro",
-   "where": "settings.js:1135"
+   "where": "settings.js:1159"
   },
   "settings.free_pro_adds_faster_renders": {
    "text": "Free. Pro adds faster renders and more.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render settings pro",
-   "where": "settings.js:1130"
+   "where": "settings.js:1154"
   },
   "settings.free_to_draft_where": {
    "text": "{free} to {draft} {where}",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro draft measured text · placeholders {draft} {free} {where} are filled in by the app",
-   "where": "settings.js:1966"
+   "where": "settings.js:1990"
   },
   "settings.free_up_remove_superseded_model": {
    "text": "Free up {reclaimable_label}?\n\nRemove superseded model files in:\n{folders}\n\nThis cannot be undone. Current models, outputs and LoRAs stay on disk.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles cleanup superseded models · placeholders {folders} {reclaimable_label} are filled in by the app",
-   "where": "settings.js:828"
+   "where": "settings.js:852"
   },
   "settings.full_colour": {
    "text": "Full colour",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render token rows",
-   "where": "settings.js:1049"
+   "where": "settings.js:1073"
   },
   "settings.full_quality_needs": {
    "text": "Full quality: needs ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles open settings modal · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Full quality: needs … GB of memory, more than this Mac has»",
-   "where": "settings.js:998"
+   "where": "settings.js:1022"
   },
   "settings.full_quality_needs_about_42": {
    "text": "Full quality: needs about 42 GB of memory",
    "note": "Studio · in the Settings window and the models card · written by the code that handles open settings modal",
-   "where": "settings.js:997"
+   "where": "settings.js:1021"
   },
   "settings.gated_needs_an_hf_token": {
    "text": "gated — needs an HF token in Settings). Output is standard MP4 plus ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles apply hdr pill availability · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «HDR via the official Lightricks LTX-2.3-22b IC-LoRA-HDR. … Auto-routes to the distilled Q4 path (required by the IC-LoRA pipeline). … First HDR job downloads the LoRA weights from Hugging Face (~330 MB, … gated — needs an HF token in Settings). Output is standard MP4 plus … a companion .hdr.npz tens»",
-   "where": "settings.js:1774"
+   "where": "settings.js:1798"
   },
   "settings.gb_of_memory_more_than": {
    "text": " GB of memory, more than this Mac has",
    "note": "Studio · in the Settings window and the models card · written by the code that handles open settings modal · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Full quality: needs … GB of memory, more than this Mac has»",
-   "where": "settings.js:998"
+   "where": "settings.js:1022"
   },
   "settings.gb_once": {
    "text": " GB once",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed render · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «on · first use downloads … GB once»",
-   "where": "settings.js:1943"
+   "where": "settings.js:1967"
   },
   "settings.gemma_text_encoder": {
    "text": "Gemma text encoder",
@@ -19821,7 +19836,7 @@
   "settings.get_pro_or_enter_a": {
    "text": "Get Pro or enter a licence key…",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render settings pro",
-   "where": "settings.js:1131"
+   "where": "settings.js:1155"
   },
   "settings.get_the_video_model": {
    "text": "Get the video model",
@@ -19831,12 +19846,12 @@
   "settings.getting_ready_one_time_download": {
    "text": "getting ready (one-time download)",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed render",
-   "where": "settings.js:1942"
+   "where": "settings.js:1966"
   },
   "settings.github_issue_opened_in_a": {
    "text": "GitHub issue opened in a new tab.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles submit bug report",
-   "where": "settings.js:771"
+   "where": "settings.js:795"
   },
   "settings.h3_quick_repair": {
    "text": "A quick repair. Nothing is downloaded again.",
@@ -19871,12 +19886,12 @@
   "settings.hdr_character_is_experimental_the": {
    "text": "HDR + character is experimental. The HDR IC-LoRA runs on ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles apply hdr pill availability",
-   "where": "settings.js:1765"
+   "where": "settings.js:1789"
   },
   "settings.hdr_via_the_official_lightricks": {
    "text": "HDR via the official Lightricks LTX-2.3-22b IC-LoRA-HDR. ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles apply hdr pill availability · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «HDR via the official Lightricks LTX-2.3-22b IC-LoRA-HDR. … Auto-routes to the distilled Q4 path (required by the IC-LoRA pipeline). … First HDR job downloads the LoRA weights from Hugging Face (~330 MB, … gated — needs an HF token in Settings). Output is standard MP4 plus … a companion .hdr.npz tens»",
-   "where": "settings.js:1771"
+   "where": "settings.js:1795"
   },
   "settings.hf_missing": {
    "text": "hf missing",
@@ -19886,7 +19901,7 @@
   "settings.hide": {
    "text": "Hide",
    "note": "Studio · in the Settings window and the models card · written by the code that handles toggle token visibility",
-   "where": "settings.js:1528"
+   "where": "settings.js:1552"
   },
   "settings.high_quality": {
    "text": "High quality",
@@ -19906,17 +19921,17 @@
   "settings.images_p_h3_image_version": {
    "text": "Images, P-H3-Image, Version Fast",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2026"
+   "where": "settings.js:2050"
   },
   "settings.in_phosphene": {
    "text": " in Phosphene ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro feature list render · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Your licence turns these on … in Phosphene … A Pro licence turns these on … in Phosphene … . Everything else stays free.»",
-   "where": "settings.js:2100"
+   "where": "settings.js:2124"
   },
   "settings.include_latest_crash_reports_zips": {
    "text": "Include latest crash reports (zips up to 5 of {crashCount} .ips files)",
    "note": "Studio · in the Settings window and the models card · written by the code that handles open bug modal · placeholders {crashCount} are filled in by the app",
-   "where": "settings.js:691"
+   "where": "settings.js:711"
   },
   "settings.its_text_encoder": {
    "text": "its text encoder",
@@ -19926,12 +19941,12 @@
   "settings.key_cleared": {
    "text": "Key cleared.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles persist analytics key",
-   "where": "settings.js:1383"
+   "where": "settings.js:1407"
   },
   "settings.key_saved": {
    "text": "Key saved.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles persist analytics key",
-   "where": "settings.js:1383"
+   "where": "settings.js:1407"
   },
   "settings.keyframes": {
    "text": "Keyframes",
@@ -19946,37 +19961,37 @@
   "settings.licence": {
    "text": "Licence",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro status refresh",
-   "where": "settings.js:1840"
+   "where": "settings.js:1864"
   },
   "settings.live_preview_needs_a_22": {
    "text": "Live preview: needs a 22 MB add-on — ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles open settings modal",
-   "where": "settings.js:969"
+   "where": "settings.js:993"
   },
   "settings.ltx_2_5_clips_render": {
    "text": "LTX-2.5 clips render with less waiting: about a quarter less on a 5-second clip and about a fifth less on a 10-second clip (Balanced; measured on an M4 Max 64 GB). On by default; switch it off for any render. Macs with 16 GB or more.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2012"
+   "where": "settings.js:2036"
   },
   "settings.make_it_vertical_ai_fill": {
    "text": "Make it vertical (AI fill)",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2031"
+   "where": "settings.js:2055"
   },
   "settings.manage_licence": {
    "text": "Manage licence…",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render settings pro",
-   "where": "settings.js:1131"
+   "where": "settings.js:1155"
   },
   "settings.manage_licence_2": {
    "text": "Manage licence",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render settings pro",
-   "where": "settings.js:1136"
+   "where": "settings.js:1160"
   },
   "settings.measured_on_a_5_second_clip": {
    "text": " Measured on a 5-second clip: {parts}.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro draft measured text · placeholders {parts} are filled in by the app",
-   "where": "settings.js:1967"
+   "where": "settings.js:1991"
   },
   "settings.model_folder_needs_attention": {
    "text": "Model folder needs attention",
@@ -19986,7 +20001,7 @@
   "settings.model_menu_faster_flex_turbo": {
    "text": "Model menu, Faster Flex Turbo (needs Hailuo H3)",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2022"
+   "where": "settings.js:2046"
   },
   "settings.models": {
    "text": "Models",
@@ -19996,22 +20011,22 @@
   "settings.models_take_the_most_space": {
    "text": "Models take the most space. You can keep them on an external drive instead of this Mac.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles models drive view",
-   "where": "settings.js:856"
+   "where": "settings.js:880"
   },
   "settings.more_colour": {
    "text": "More colour",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render token rows",
-   "where": "settings.js:1049"
+   "where": "settings.js:1073"
   },
   "settings.more_on_any_finished_clip": {
    "text": "More, on any finished clip",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2034"
+   "where": "settings.js:2058"
   },
   "settings.move_to_another_drive": {
    "text": "Move to another drive…",
    "note": "Studio · in the Settings window and the models card · written by the code that handles models drive view",
-   "where": "settings.js:857"
+   "where": "settings.js:881"
   },
   "settings.needs_its_compact_q8_engine": {
    "text": "Needs its compact (Q8) engine, built during install.",
@@ -20026,27 +20041,27 @@
   "settings.network_error": {
    "text": "Network error: ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles apply settings",
-   "where": "settings.js:1711"
+   "where": "settings.js:1735"
   },
   "settings.no_chime_no_browser_alert": {
    "text": "No chime, no browser alert.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render notify state",
-   "where": "settings.js:1212"
+   "where": "settings.js:1236"
   },
   "settings.not_saved_yet": {
    "text": "Not saved yet.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render group dirty",
-   "where": "settings.js:1092"
+   "where": "settings.js:1116"
   },
   "settings.not_set": {
    "text": "not set",
    "note": "Studio · in the Settings window and the models card · written by the code that handles set token status",
-   "where": "settings.js:1513"
+   "where": "settings.js:1537"
   },
   "settings.off_nothing_is_sent_and": {
    "text": "Off — nothing is sent, and nothing is written to ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render analytics state · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Off — nothing is sent, and nothing is written to … the local usage log either.»",
-   "where": "settings.js:1321"
+   "where": "settings.js:1345"
   },
   "settings.off_on_the_tier": {
    "text": "Off on the {label} tier · {need}",
@@ -20061,37 +20076,37 @@
   "settings.on_a_64_gb_mac": {
    "text": "on a 64 GB Mac",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro draft fmt",
-   "where": "settings.js:1962"
+   "where": "settings.js:1986"
   },
   "settings.on_but_no_project_key_2": {
    "text": "On, but no project key is configured — Phosphene is ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render analytics state",
-   "where": "settings.js:1324"
+   "where": "settings.js:1348"
   },
   "settings.on_first_use_downloads": {
    "text": "on · first use downloads ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed render · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «on · first use downloads … GB once»",
-   "where": "settings.js:1943"
+   "where": "settings.js:1967"
   },
   "settings.on_for_balanced_only": {
    "text": "on for Balanced only",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed render",
-   "where": "settings.js:1941"
+   "where": "settings.js:1965"
   },
   "settings.on_with_your_pro": {
    "text": "On with your Pro:",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro lead text",
-   "where": "settings.js:2045"
+   "where": "settings.js:2069"
   },
   "settings.on_with_your_pro_fast_draft_about_half": {
    "text": "On with your Pro: Fast draft, about half the time of a usual clip, a different take of the same scene.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro draft render",
-   "where": "settings.js:1989"
+   "where": "settings.js:2013"
   },
   "settings.on_with_your_pro_fast_draft_runs_on": {
    "text": "On with your Pro: Fast draft runs on Balanced. At this quality the pill uses the usual fast schedule.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro draft render",
-   "where": "settings.js:1987"
+   "where": "settings.js:2011"
   },
   "settings.one_last_setup_step": {
    "text": "One last setup step: about 5 minutes, nothing to download.",
@@ -20100,58 +20115,68 @@
   },
   "settings.open_github_issue": {
    "text": "Open GitHub issue",
-   "note": "Studio · in the Settings window and the models card · written by the code that handles open bug modal",
-   "where": "settings.js:649"
+   "note": "Studio · in the Settings window and the models card · written by the code that handles bug submit label",
+   "where": "settings.js:640"
+  },
+  "settings.open_the_report_page": {
+   "text": "Open the report page",
+   "note": "Studio · in the Settings window and the models card · written by the code that handles bug submit label",
+   "where": "settings.js:639"
+  },
+  "settings.opens_an_email_to_the": {
+   "text": "Opens an email to the Phosphene team. Environment info, version, and the recent log (errors first) are filled in for you.",
+   "note": "Studio · in the Settings window and the models card · written by the code that handles bug target copy",
+   "where": "settings.js:647"
   },
   "settings.or_even_when_it_is": {
    "text": ", or even when it is closed.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render notify state · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «A chime in this tab. Allow browser alerts to be told when the tab is in the background … , or even when it is closed.»",
-   "where": "settings.js:1218"
+   "where": "settings.js:1242"
   },
   "settings.outputs_choose_first": {
    "text": "Choose a folder first.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles set outputs folder",
-   "where": "settings.js:2217"
+   "where": "settings.js:2241"
   },
   "settings.outputs_could_not_use": {
    "text": "That folder could not be used.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles set outputs folder",
-   "where": "settings.js:2221"
+   "where": "settings.js:2245"
   },
   "settings.outputs_default_folder": {
    "text": "Saving to the default folder: {path}",
    "note": "Studio · in the Settings window and the models card · written by the code that handles outputs folder sentence · placeholders {path} are filled in by the app",
-   "where": "settings.js:2193"
+   "where": "settings.js:2217"
   },
   "settings.outputs_not_connected": {
    "text": "{folder} is not connected. New videos and pictures stay on this Mac and are copied there when it is back.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles outputs folder sentence · placeholders {folder} are filled in by the app",
-   "where": "settings.js:2196"
+   "where": "settings.js:2220"
   },
   "settings.outputs_picker_failed": {
    "text": "The folder window could not open. Paste the folder's full path instead.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pick outputs folder",
-   "where": "settings.js:2234"
+   "where": "settings.js:2258"
   },
   "settings.outputs_picker_open": {
    "text": "A folder window is open. It may be behind this window.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pick outputs folder",
-   "where": "settings.js:2228"
+   "where": "settings.js:2252"
   },
   "settings.outputs_reset_done": {
    "text": "New files go to the default folder again. Files already copied stay where they are.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles reset outputs folder",
-   "where": "settings.js:2246"
+   "where": "settings.js:2270"
   },
   "settings.outputs_saving_to": {
    "text": "Saving new videos and pictures to {folder}",
    "note": "Studio · in the Settings window and the models card · written by the code that handles outputs folder sentence · placeholders {folder} are filled in by the app",
-   "where": "settings.js:2198"
+   "where": "settings.js:2222"
   },
   "settings.outputs_set_done": {
    "text": "Done. New videos and pictures will be saved in {folder}.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles set outputs folder · placeholders {folder} are filled in by the app",
-   "where": "settings.js:2222"
+   "where": "settings.js:2246"
   },
   "settings.outputs_waiting": {
    "text": {
@@ -20159,7 +20184,7 @@
     "other": "({count} files are waiting to be copied.)"
    },
    "note": "Studio · in the Settings window and the models card · written by the code that handles outputs folder sentence · placeholders {count} are filled in by the app · plural: {count} is the number",
-   "where": "settings.js:2199"
+   "where": "settings.js:2223"
   },
   "settings.phosphene_is_doing_this_by": {
    "text": "Phosphene is doing this by itself. Generate resumes here automatically when it finishes.",
@@ -20179,7 +20204,7 @@
   "settings.pick_fast_draft_on_the_speed_row": {
    "text": "Pick Fast draft on the Speed row and an LTX-2.5 Balanced clip comes back in about half the time of a usual clip: a different take of the same scene, for trying ideas. Measured on a 5-second clip: 50 s instead of 98 s with a 16 GB memory limit, 76 s instead of 150 s on a 64 GB Mac. Macs with 16 GB or more.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2016"
+   "where": "settings.js:2040"
   },
   "settings.please_tell_us_what_went": {
    "text": "Please tell us what went wrong in a sentence or two ",
@@ -20189,32 +20214,32 @@
   "settings.priority_support": {
    "text": "Priority support",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2041"
+   "where": "settings.js:2065"
   },
   "settings.pro_adds": {
    "text": "Pro adds:",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro lead text",
-   "where": "settings.js:2045"
+   "where": "settings.js:2069"
   },
   "settings.pro_adds_fast_draft_in_about_half": {
    "text": "Pro adds: Fast draft in about half the time, a different take of the same scene.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro draft render",
-   "where": "settings.js:1982"
+   "where": "settings.js:2006"
   },
   "settings.pro_is_on_for_this": {
    "text": "Pro is on for this Mac.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render settings pro",
-   "where": "settings.js:1130"
+   "where": "settings.js:1154"
   },
   "settings.pro_is_on_through_the": {
    "text": "Pro is on through the Phosphene Mac app on this Mac.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro licence show",
-   "where": "settings.js:2125"
+   "where": "settings.js:2149"
   },
   "settings.pro_questions_and_feature_requests": {
    "text": "Pro questions and feature requests go to the front of the queue.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2041"
+   "where": "settings.js:2065"
   },
   "settings.q4_base_model": {
    "text": "Q4 base model",
@@ -20224,7 +20249,7 @@
   "settings.q8_dev_mechanically_both_stack": {
    "text": "Q8 dev. Mechanically both stack on the pipeline, but character ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles apply hdr pill availability · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Q8 dev. Mechanically both stack on the pipeline, but character … fidelity may be weaker than a non-HDR render. Try it and judge … the output — that's the only way to know.»",
-   "where": "settings.js:1767"
+   "where": "settings.js:1791"
   },
   "settings.q8_high_quality_model": {
    "text": "Q8 high-quality model",
@@ -20257,42 +20282,42 @@
   "settings.references_line": {
    "text": "Build a new Hailuo H3 shot around up to 3 pictures of people, things or places: they keep their look in the scene your prompt describes. 5-second clips; a one-time download of about 43 GB. Macs with 32 GB or more.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2028"
+   "where": "settings.js:2052"
   },
   "settings.references_on_hailuo_h3": {
    "text": "References on Hailuo H3",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2027"
+   "where": "settings.js:2051"
   },
   "settings.references_short": {
    "text": "the people, things and places in your pictures keep their look in the shot your prompt describes.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2029"
+   "where": "settings.js:2053"
   },
   "settings.references_where": {
    "text": "Hailuo H3, Text, under Face to keep",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2030"
+   "where": "settings.js:2054"
   },
   "settings.remote_control": {
    "text": "Remote Control",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed · this label is the term “Remote Control”: using the Studio from the user's iPhone with the free Phosphene Remote app",
-   "where": "settings.js:2035"
+   "where": "settings.js:2059"
   },
   "settings.remote_control_in_the_left": {
    "text": "Remote Control, in the left bar",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2038"
+   "where": "settings.js:2062"
   },
   "settings.render_finished_alerts_off_saved": {
    "text": "Render-finished alerts off. Saved.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles toggle notify",
-   "where": "settings.js:1249"
+   "where": "settings.js:1273"
   },
   "settings.render_finished_alerts_on_saved": {
    "text": "Render-finished alerts on. Saved.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles toggle notify",
-   "where": "settings.js:1249"
+   "where": "settings.js:1273"
   },
   "settings.resumes_if_interrupted": {
    "text": " · resumes if interrupted",
@@ -20307,32 +20332,32 @@
   "settings.saved": {
    "text": "Saved.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles apply settings",
-   "where": "settings.js:1706"
+   "where": "settings.js:1730"
   },
   "settings.saved_next_render_uses_it": {
    "text": "Saved. Your next render uses it.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles apply settings",
-   "where": "settings.js:1705"
+   "where": "settings.js:1729"
   },
   "settings.saved_paste_new_to_replace": {
    "text": "•••••••••• saved — paste new to replace",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render token rows",
-   "where": "settings.js:1034"
+   "where": "settings.js:1058"
   },
   "settings.saves_right_away": {
    "text": "Saves right away. ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render notify state",
-   "where": "settings.js:1219"
+   "where": "settings.js:1243"
   },
   "settings.saving": {
    "text": "Saving…",
    "note": "Studio · in the Settings window and the models card · written by the code that handles apply settings",
-   "where": "settings.js:1666"
+   "where": "settings.js:1690"
   },
   "settings.sent_to": {
    "text": "Sent to ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles push test",
-   "where": "settings.js:1294"
+   "where": "settings.js:1318"
   },
   "settings.set_up_h3": {
    "text": "Set up H3 →",
@@ -20342,7 +20367,7 @@
   "settings.show": {
    "text": "Show",
    "note": "Studio · in the Settings window and the models card · written by the code that handles toggle token visibility",
-   "where": "settings.js:1531"
+   "where": "settings.js:1555"
   },
   "settings.smaller_preview_to_scout_prompts": {
    "text": "Smaller preview to scout prompts and seeds before a full-size render.",
@@ -20352,42 +20377,42 @@
   "settings.speed_row_fast_draft_on_ltx": {
    "text": "Speed row, Fast draft, on LTX-2.5 Balanced",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2018"
+   "where": "settings.js:2042"
   },
   "settings.spicy_mode_is_on_nsfw": {
    "text": "Spicy mode is ON. NSFW LoRAs are visible in the CivitAI browser when you tick \"Show NSFW\".",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render spicy state",
-   "where": "settings.js:1431"
+   "where": "settings.js:1455"
   },
   "settings.spicy_mode_off_nsfw_loras": {
    "text": "Spicy mode OFF · NSFW LoRAs hidden",
    "note": "Studio · in the Settings window and the models card · written by the code that handles persist spicy mode",
-   "where": "settings.js:1488"
+   "where": "settings.js:1512"
   },
   "settings.spicy_mode_on_nsfw_loras": {
    "text": "Spicy mode ON · NSFW LoRAs unlocked",
    "note": "Studio · in the Settings window and the models card · written by the code that handles persist spicy mode",
-   "where": "settings.js:1488"
+   "where": "settings.js:1512"
   },
   "settings.standard_colour": {
    "text": "Standard colour",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render token rows",
-   "where": "settings.js:1049"
+   "where": "settings.js:1073"
   },
   "settings.start_and_watch_renders_from": {
    "text": "Start and watch renders from your iPhone while your Mac does the work. Remote is part of Pro: get the Phosphene Remote app on the App Store and connect it to this Mac.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2036"
+   "where": "settings.js:2060"
   },
   "settings.start_and_watch_renders_from_2": {
    "text": "start and watch renders from your iPhone with the Phosphene Remote app.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro speed changed",
-   "where": "settings.js:2037"
+   "where": "settings.js:2061"
   },
   "settings.stop_closed_tab_alerts_in": {
    "text": "Stop closed-tab alerts in this browser",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render notify state",
-   "where": "settings.js:1230"
+   "where": "settings.js:1254"
   },
   "settings.stop_download": {
    "text": "Stop download",
@@ -20397,7 +20422,7 @@
   "settings.testing": {
    "text": "Testing…",
    "note": "Studio · in the Settings window and the models card · written by the code that handles test token",
-   "where": "settings.js:1555"
+   "where": "settings.js:1579"
   },
   "settings.text_video": {
    "text": "Text → video",
@@ -20407,7 +20432,7 @@
   "settings.that_wants_the_raw_hdr": {
    "text": "that wants the raw HDR.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles apply hdr pill availability · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «First HDR job downloads the LoRA weights from Hugging Face (~330 MB, … gated — needs an HF token in Settings). Output is standard MP4 plus … a companion .hdr.npz tensor (float32 scene-linear) for any pro tool … that wants the raw HDR.»",
-   "where": "settings.js:1776"
+   "where": "settings.js:1800"
   },
   "settings.the_base_model": {
    "text": "The base model",
@@ -20417,7 +20442,7 @@
   "settings.the_browser_did_not_allow": {
    "text": "The browser did not allow notifications.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles push toggle",
-   "where": "settings.js:1277"
+   "where": "settings.js:1301"
   },
   "settings.the_high_tier_additionally_needs": {
    "text": "The High tier additionally needs the {v} (~{v2}).",
@@ -20427,37 +20452,37 @@
   "settings.the_local_log": {
    "text": "the local log.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render analytics state",
-   "where": "settings.js:1326"
+   "where": "settings.js:1350"
   },
   "settings.the_local_usage_log_either": {
    "text": "the local usage log either.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render analytics state · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Off — nothing is sent, and nothing is written to … the local usage log either.»",
-   "where": "settings.js:1322"
+   "where": "settings.js:1346"
   },
   "settings.the_output_that_s_the": {
    "text": "the output — that's the only way to know.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles apply hdr pill availability · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Q8 dev. Mechanically both stack on the pipeline, but character … fidelity may be weaker than a non-HDR render. Try it and judge … the output — that's the only way to know.»",
-   "where": "settings.js:1769"
+   "where": "settings.js:1793"
   },
   "settings.then_choose_phosphene_settings_in": {
    "text": "Then choose Phosphene > Settings… in the menu bar, and Move to another drive… under Models.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles models drive view",
-   "where": "settings.js:864"
+   "where": "settings.js:888"
   },
   "settings.this_browser_will_no_longer": {
    "text": "This browser will no longer be alerted when closed.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles push toggle",
-   "where": "settings.js:1271"
+   "where": "settings.js:1295"
   },
   "settings.to_keep_models_on_an": {
    "text": "To keep models on an external drive: in the menu bar, choose Phosphene > Settings… (⌘,). ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles models drive view · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «To keep models on an external drive: in the menu bar, choose Phosphene > Settings… (⌘,). … Under Models, choose Move to another drive…»",
-   "where": "settings.js:860"
+   "where": "settings.js:884"
   },
   "settings.to_keep_models_on_an_2": {
    "text": "To keep models on an external drive, update the Phosphene app first. ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles models drive view · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «To keep models on an external drive, update the Phosphene app first. … Then choose Phosphene > Settings… in the menu bar, and Move to another drive… under Models.»",
-   "where": "settings.js:863"
+   "where": "settings.js:887"
   },
   "settings.try_again": {
    "text": "Try again",
@@ -20472,12 +20497,12 @@
   "settings.turn_off": {
    "text": "Turn off",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render notify state",
-   "where": "settings.js:1206"
+   "where": "settings.js:1230"
   },
   "settings.turn_on": {
    "text": "Turn on",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render notify state",
-   "where": "settings.js:1206"
+   "where": "settings.js:1230"
   },
   "settings.type_a_prompt_get_a": {
    "text": "Type a prompt, get a clip. The default mode.",
@@ -20487,7 +20512,7 @@
   "settings.under_models_choose_move_to": {
    "text": "Under Models, choose Move to another drive…",
    "note": "Studio · in the Settings window and the models card · written by the code that handles models drive view",
-   "where": "settings.js:861"
+   "where": "settings.js:885"
   },
   "settings.updating_the_hailuo_h3_engine": {
    "text": "Updating the Hailuo H3 engine",
@@ -20497,22 +20522,22 @@
   "settings.usage_stats_off_saved_nothing": {
    "text": "Usage stats off. Saved: nothing will be sent or logged.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles toggle analytics",
-   "where": "settings.js:1361"
+   "where": "settings.js:1385"
   },
   "settings.usage_stats_on_saved": {
    "text": "Usage stats on. Saved.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles toggle analytics",
-   "where": "settings.js:1360"
+   "where": "settings.js:1384"
   },
   "settings.video_models_queued_progress_appears": {
    "text": "Video models queued. Progress appears here.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles download first video",
-   "where": "settings.js:2277"
+   "where": "settings.js:2301"
   },
   "settings.what_pro_turns_on": {
    "text": "What Pro turns on",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro feature list render",
-   "where": "settings.js:2097"
+   "where": "settings.js:2121"
   },
   "settings.what_this_mac_can_do": {
    "text": "What this Mac can do · {v}",
@@ -20522,37 +20547,42 @@
   "settings.where": {
    "text": "Where:",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro feature list html",
-   "where": "settings.js:2084"
+   "where": "settings.js:2108"
   },
   "settings.with_a_16_gb_memory_limit": {
    "text": "with a 16 GB memory limit",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro draft fmt",
-   "where": "settings.js:1962"
+   "where": "settings.js:1986"
   },
   "settings.working": {
    "text": "Working…",
    "note": "Studio · in the Settings window and the models card · written by the code that handles submit bug report",
-   "where": "settings.js:736"
+   "where": "settings.js:756"
   },
   "settings.your_anonymous_id": {
    "text": "Your anonymous ID: ",
    "note": "Studio · in the Settings window and the models card · written by the code that handles render analytics state",
-   "where": "settings.js:1328"
+   "where": "settings.js:1352"
   },
   "settings.your_licence_turns_these_on": {
    "text": "Your licence turns these on",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro feature list render",
-   "where": "settings.js:2100"
+   "where": "settings.js:2124"
   },
   "settings.your_pro": {
    "text": "Your Pro",
    "note": "Studio · in the Settings window and the models card · written by the code that handles pro feature list render",
-   "where": "settings.js:2097"
+   "where": "settings.js:2121"
   },
   "settings.your_rendering_changes_are_not": {
    "text": "Your rendering changes are not saved. Click Save, or Done again to close without them.",
    "note": "Studio · in the Settings window and the models card · written by the code that handles close settings modal",
-   "where": "settings.js:1642"
+   "where": "settings.js:1666"
+  },
+  "settings.your_report_opened_in_your": {
+   "text": "Your report opened in your mail app.",
+   "note": "Studio · in the Settings window and the models card · written by the code that handles submit bug report",
+   "where": "settings.js:794"
   },
   "settingsApplyBtn.save": {
    "text": "Save",

@@ -491,6 +491,10 @@ def post_character_generate(h, path, qs, ctype) -> None:
         # submit). Refuse the now-half-character rather than dropping
         # the connection or rendering only its face.
         h._json({"error": str(exc)}, 400); return
+    # 5.0.40: a character render is an LTX render - its licence screen first.
+    _lic = P.job_licence_refusal(job.get("params") or {})
+    if _lic:
+        h._json(_lic, 451); return
     with P.QUEUE_COND:
         P.STATE["queue"].append(job)
         P.QUEUE_COND.notify_all()

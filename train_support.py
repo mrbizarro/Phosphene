@@ -271,8 +271,8 @@ def _train_weak_advice(verdict: str, preset: str = "", is_style: bool = False) -
         f"{head} This was already the High preset, so the next levers are the "
         "dataset rather than the recipe: more images (20-40), sharper and more "
         "varied in pose and lighting, and captions that name the trigger plainly. "
-        "Please attach the training log to https://github.com/mrbizarro/phosphene/issues/62 "
-        "— a weak High run is the case that issue is still open on."
+        "Please send the training log with Report a bug (the bug icon at the top) "
+        "— a weak High run is the case we are still collecting."
     )
 
 

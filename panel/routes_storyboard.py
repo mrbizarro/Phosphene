@@ -218,6 +218,11 @@ def post_storyboard_write(h, path, qs, ctype) -> None:
     if _rb is None:
         return
     body, form = _rb
+    # 5.0.40: the LTX licence screen before a film starts rendering
+    # (model_licences.py; the page turns the 451 into the screen).
+    _lic = P.storyboard_licence_refusal(path[len("/storyboard/"):], form)
+    if _lic:
+        h._json(_lic, 451); return
     h._storyboard_post(path[len("/storyboard/"):], body, form)
 
 

@@ -92,6 +92,7 @@ import install_plan
 import ideogram_caption
 import model_capabilities
 import model_licences
+import report_links as _report_links
 # Pinokio or the Phosphene Mac app (PHOSPHENE_DISTRIBUTION / _EDITION). Every
 # user-facing sentence that names Pinokio picks its Mac-app variant through
 # distribution.say(); unset (Pinokio) keeps every sentence as it was.
@@ -38700,6 +38701,44 @@ def licence_refusal_for(key: str | None) -> dict | None:
     return model_licences.refusal(STATE_DIR, key)
 
 
+def repo_licence_refusal(repo: dict | None) -> dict | None:
+    """The 451 payload before a download the user starts (Models, Repair,
+    the Download-the-video-model card) of a pack whose licence asks for an
+    "I accept" - today the LTX-2.x packs (model_licences.licence_for_repo)."""
+    return model_licences.refusal(STATE_DIR, model_licences.licence_for_repo(repo))
+
+
+#: Storyboard actions that START renders (the shots are queued later by a
+#: thread, past the queue routes' own licence check).
+_SB_RENDER_ACTIONS = ("render", "restill", "edit/generate")
+
+
+def storyboard_licence_refusal(action: str, form: dict) -> dict | None:
+    """5.0.40: the LTX licence screen before a storyboard starts LTX shots.
+
+    A board set to Hailuo H3 is left to H3's own checks; "auto" and LTX
+    boards ask for the LTX licence (most of their shots are LTX)."""
+    if action not in _SB_RENDER_ACTIONS:
+        return None
+
+    def _f(name: str) -> str:
+        v = (form or {}).get(name, "")
+        if isinstance(v, list):
+            v = v[0] if v else ""
+        return str(v or "").strip()
+
+    engine = _f("engine").lower()
+    if not engine:
+        try:
+            board = storyboard.load_storyboard(STATE_DIR, _f("id")) or {}
+            engine = str(board.get("engine_mode") or "").strip().lower()
+        except Exception:  # noqa: BLE001 - an unreadable board fails later, in its own words
+            engine = ""
+    if engine == "h3":
+        return None
+    return licence_refusal_for("ltx")
+
+
 def _raise_if_licence_missing(key: str | None) -> None:
     ref = model_licences.refusal(STATE_DIR, key)
     if ref:
@@ -46504,8 +46543,13 @@ def run_job_inner(job: dict) -> None:
     # 4.19.8: a model whose licence asks for an explicit "I accept" never
     # runs before it is given - whichever way the job arrived. Image jobs are
     # checked again in _preflight_image_job with the config they really run.
-    _raise_if_licence_missing(
-        model_licences.licence_for_job(p, image_cfg_for=None))
+    # 5.0.40: the LTX licence is asked where a render is STARTED (the submit
+    # routes answer 451 and the page shows the screen), never here - a job
+    # already in the saved queue, or the next shot of a storyboard, must not
+    # be stopped half-way by a screen nobody is looking at.
+    _lic_key = model_licences.licence_for_job(p, image_cfg_for=None)
+    if _lic_key not in model_licences.SUBMIT_ONLY:
+        _raise_if_licence_missing(_lic_key)
     # Image jobs share the queue + worker but use a totally different
     # params shape (no width/height/frames, etc.). Dispatch to the
     # image path before any of the video-only validation runs.
@@ -54430,6 +54474,8 @@ def page(theme: str = "", accept_language: str = "") -> str:
         "app_build": _boot_app_build(),
         # {source: app, medium: mac-app | pinokio} for siteLink() in boot.js.
         "site_utm": _site_links.utm_base(),
+        # Where "Report a bug" / misuse reports go (report_links.TARGET).
+        "report_target": _report_links.target(),
         # {is, iv} once the install source is resolved, else {}: siteLink() adds
         # them to Get Pro / pricing links (docs/ANALYTICS.md "Install source").
         "install": install_source_tags(),

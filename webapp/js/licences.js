@@ -79,6 +79,7 @@ async function openLicence(key, opts) {
     <p class="licence-meta">
       ${_licEsc(info.licence)} &middot; ${_licEsc(info.licensor || '')}
       &middot; <a href="${_licEsc(info.url)}" target="_blank" rel="noopener">${_licEsc(ui.full_licence_link || 'Read the full licence')}</a>
+      ${info.aup_url ? `&middot; <a href="${_licEsc(info.aup_url)}" target="_blank" rel="noopener">${T('licences.acceptable_use_policy', 'Acceptable Use Policy')}</a>` : ''}
     </p>
     ${info.report_line && info.report_url ? `<p class="licence-meta">${_licEsc(info.report_line)}
       <a href="${_licEsc(info.report_url)}" target="_blank" rel="noopener">${T('licences.report_misuse', 'Report misuse')}</a></p>` : ''}

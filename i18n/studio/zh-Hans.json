@@ -3110,7 +3110,6 @@
   "queue.nothing_waiting_in_the_queue": "队列中没有等待的任务",
   "queue.nothing_was_saved": "没有保存任何内容。",
   "queue.off": "关闭",
-  "queue.on_github_com_mrbizarro_phosphene": "github.com/mrbizarro/phosphene/issues，方便我们修复。",
   "queue.on_github_com_mrbizarro_phosphene_2": "github.com/mrbizarro/phosphene/issues。",
   "queue.on_the_longer_side_a": "按较长边计：较大的片段会先被缩小，所以新片段 ",
   "queue.on_this_mac_retake_works": "在这台 Mac（{v}）上，重拍最高支持 {cap}px ",
@@ -5199,7 +5198,14 @@
   "yourProModal.your_licence": "你的许可证",
   "yourProTitle.your_pro": "你的 Pro",
   "queue.picture_stall_help": "图像引擎已停止响应30分钟，因此Phosphene将其停止。请再次点击“生成”；如果当时正在下载，将从已完成的文件之后继续。如果再次发生，请重启Phosphene。",
-  "queue.pictures_partial_help": "部分图片已完成，并已保存在图库中。请重试，每次生成一张图片。"
+  "queue.pictures_partial_help": "部分图片已完成，并已保存在图库中。请重试，每次生成一张图片。",
+  "licences.acceptable_use_policy": "可接受使用政策",
+  "queue.and_send_it_with_report_a": "并通过“报告问题”（顶部的虫子图标）发送给我们，以便修复。",
+  "settings.crash_report_bundled_attach": "崩溃报告已打包。请将此文件附加到邮件中：",
+  "settings.email_the_report": "通过邮件发送报告",
+  "settings.open_the_report_page": "打开报告页面",
+  "settings.opens_an_email_to_the": "打开一封发给 Phosphene 团队的邮件。环境信息、版本和最近的日志（错误优先）会为你自动填好。",
+  "settings.your_report_opened_in_your": "你的报告已在邮件应用中打开。"
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -8293,7 +8299,6 @@
   "queue.nothing_waiting_in_the_queue": "b16094d501",
   "queue.nothing_was_saved": "a54f6c67c7",
   "queue.off": "d5eb58574b",
-  "queue.on_github_com_mrbizarro_phosphene": "25b6ae33b7",
   "queue.on_github_com_mrbizarro_phosphene_2": "3e65a6c781",
   "queue.on_the_longer_side_a": "f31805919f",
   "queue.on_this_mac_retake_works": "a2a04c7285",
@@ -10352,7 +10357,14 @@
   "yourProModal.your_licence": "f77c5fa000",
   "yourProTitle.your_pro": "41115201f8",
   "queue.picture_stall_help": "8fdd8e06d7",
-  "queue.pictures_partial_help": "5c313b4a61"
+  "queue.pictures_partial_help": "5c313b4a61",
+  "licences.acceptable_use_policy": "d87e92ab85",
+  "queue.and_send_it_with_report_a": "41d5cf1726",
+  "settings.crash_report_bundled_attach": "e048cff9a5",
+  "settings.email_the_report": "e297c6d81a",
+  "settings.open_the_report_page": "df864ded83",
+  "settings.opens_an_email_to_the": "e2fff64e55",
+  "settings.your_report_opened_in_your": "77bba4d66b"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "d6e72ae332",
@@ -13424,7 +13436,6 @@
   "queue.nothing_waiting_in_the_queue": "62007c94a7",
   "queue.nothing_was_saved": "1cd08b966c",
   "queue.off": "09614cef6c",
-  "queue.on_github_com_mrbizarro_phosphene": "6956f2cb19",
   "queue.on_github_com_mrbizarro_phosphene_2": "1d80e19a60",
   "queue.on_the_longer_side_a": "bbeff95c9f",
   "queue.on_this_mac_retake_works": "8ba8addb13",
@@ -15352,6 +15363,13 @@
   "yourProModal.close": "09614cef6c",
   "yourProModal.title.close": "09614cef6c",
   "yourProModal.your_licence": "bee869a4d4",
-  "yourProTitle.your_pro": "ed80db9b69"
+  "yourProTitle.your_pro": "ed80db9b69",
+  "licences.acceptable_use_policy": "4d0238c4d1",
+  "queue.and_send_it_with_report_a": "cdc6ee2a73",
+  "settings.crash_report_bundled_attach": "f830d21fad",
+  "settings.email_the_report": "93ba7e6317",
+  "settings.open_the_report_page": "ad974ca365",
+  "settings.opens_an_email_to_the": "5c3799b823",
+  "settings.your_report_opened_in_your": "71f52e8dbf"
  }
 }

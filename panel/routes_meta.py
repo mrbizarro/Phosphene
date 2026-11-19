@@ -902,11 +902,10 @@ def post_panel_bug_report(h, path, qs, ctype) -> None:
     # length for JSON / log content).
     if len(body) > 6000:
         body = body[:6000] + "\n\n…(truncated; remaining log on disk)…"
-    from urllib.parse import quote as _urlq
-    issue_url = (
-        f"https://github.com/mrbizarro/phosphene/issues/new"
-        f"?title={_urlq(title)}&body={_urlq(body)}&labels=bug"
-    )
+    # The place follows the one switch in report_links.py (GitHub has been
+    # unreachable since 16 Nov 2026; the mail target trims the body itself).
+    import report_links
+    issue_url = report_links.issue_url(title, body, labels="bug")
 
     zip_path: str | None = None
     if include_crash:
@@ -958,7 +957,8 @@ def post_panel_bug_report(h, path, qs, ctype) -> None:
             # surface the issue URL. Log so we can debug.
             P.push(f"[bug-report] crash-bundle skipped: {exc}")
 
-    h._json({"ok": True, "issueUrl": issue_url, "zipPath": zip_path})
+    h._json({"ok": True, "issueUrl": issue_url, "zipPath": zip_path,
+             "target": report_links.target()})
 
 
 # ---- Agentic Flows GETs removed 2026-05-15.

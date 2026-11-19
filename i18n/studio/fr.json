@@ -3124,7 +3124,6 @@
   "queue.nothing_waiting_in_the_queue": "La file d'attente est vide",
   "queue.nothing_was_saved": "Rien n'a été enregistré.",
   "queue.off": "Désactivé",
-  "queue.on_github_com_mrbizarro_phosphene": "sur github.com/mrbizarro/phosphene/issues pour que nous puissions le corriger.",
   "queue.on_github_com_mrbizarro_phosphene_2": "sur github.com/mrbizarro/phosphene/issues.",
   "queue.on_the_longer_side_a": "sur le côté le plus long : un clip plus grand est d'abord réduit, donc le nouveau clip ",
   "queue.on_this_mac_retake_works": "Sur ce Mac ({v}), la Reprise fonctionne jusqu'à {cap}px ",
@@ -5232,7 +5231,14 @@
   "yourProModal.your_licence": "Votre licence",
   "yourProTitle.your_pro": "Votre Pro",
   "queue.picture_stall_help": "Le moteur d’images n’a pas répondu pendant 30 minutes, alors Phosphene l’a arrêté. Appuyez à nouveau sur Générer ; si un téléchargement était en cours, il reprend après les fichiers déjà terminés. Si cela se reproduit, redémarrez Phosphene.",
-  "queue.pictures_partial_help": "Certaines images sont terminées. Elles sont enregistrées dans la galerie. Réessayez avec une seule image à la fois."
+  "queue.pictures_partial_help": "Certaines images sont terminées. Elles sont enregistrées dans la galerie. Réessayez avec une seule image à la fois.",
+  "licences.acceptable_use_policy": "Politique d'utilisation acceptable",
+  "queue.and_send_it_with_report_a": "et envoie-le avec Signaler un bug (l'icône d'insecte en haut) pour que nous puissions le corriger.",
+  "settings.crash_report_bundled_attach": "Rapport de plantage regroupé. Joins ce fichier à l'e-mail :",
+  "settings.email_the_report": "Envoyer le rapport par e-mail",
+  "settings.open_the_report_page": "Ouvrir la page du rapport",
+  "settings.opens_an_email_to_the": "Ouvre un e-mail à l'équipe Phosphene. Les infos d'environnement, la version et le journal récent (erreurs d'abord) sont remplis pour toi.",
+  "settings.your_report_opened_in_your": "Ton rapport s'est ouvert dans ton app de messagerie."
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -8326,7 +8332,6 @@
   "queue.nothing_waiting_in_the_queue": "b16094d501",
   "queue.nothing_was_saved": "a54f6c67c7",
   "queue.off": "d5eb58574b",
-  "queue.on_github_com_mrbizarro_phosphene": "25b6ae33b7",
   "queue.on_github_com_mrbizarro_phosphene_2": "3e65a6c781",
   "queue.on_the_longer_side_a": "f31805919f",
   "queue.on_this_mac_retake_works": "a2a04c7285",
@@ -10385,7 +10390,14 @@
   "yourProModal.your_licence": "f77c5fa000",
   "yourProTitle.your_pro": "41115201f8",
   "queue.picture_stall_help": "8fdd8e06d7",
-  "queue.pictures_partial_help": "5c313b4a61"
+  "queue.pictures_partial_help": "5c313b4a61",
+  "licences.acceptable_use_policy": "d87e92ab85",
+  "queue.and_send_it_with_report_a": "41d5cf1726",
+  "settings.crash_report_bundled_attach": "e048cff9a5",
+  "settings.email_the_report": "e297c6d81a",
+  "settings.open_the_report_page": "df864ded83",
+  "settings.opens_an_email_to_the": "e2fff64e55",
+  "settings.your_report_opened_in_your": "77bba4d66b"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "2fedfa3d8c",
@@ -13457,7 +13469,6 @@
   "queue.nothing_waiting_in_the_queue": "e69d1d3815",
   "queue.nothing_was_saved": "4ab76a4e0d",
   "queue.off": "6b8f6ef4d5",
-  "queue.on_github_com_mrbizarro_phosphene": "d333f77be4",
   "queue.on_github_com_mrbizarro_phosphene_2": "672fdf648e",
   "queue.on_the_longer_side_a": "b7bf7b3d84",
   "queue.on_this_mac_retake_works": "b031fcdf82",
@@ -15385,6 +15396,13 @@
   "yourProModal.close": "d321031577",
   "yourProModal.title.close": "d321031577",
   "yourProModal.your_licence": "f0fe99be60",
-  "yourProTitle.your_pro": "5147265e53"
+  "yourProTitle.your_pro": "5147265e53",
+  "licences.acceptable_use_policy": "eb5195a378",
+  "queue.and_send_it_with_report_a": "5526b1ae62",
+  "settings.crash_report_bundled_attach": "6d93123e6b",
+  "settings.email_the_report": "e58438e8e9",
+  "settings.open_the_report_page": "1fcd5eb69b",
+  "settings.opens_an_email_to_the": "7f91fca33c",
+  "settings.your_report_opened_in_your": "f0f9ca49a1"
  }
 }

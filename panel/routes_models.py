@@ -18,6 +18,10 @@ P = None  # the running mlx_ltx_panel module; assigned at wiring time
 def post_models_video(h, path, qs, ctype) -> None:
     if h._read_form_body() is None:
         return
+    # 5.0.40: the video model is LTX - its licence screen before the download.
+    _lic = P.licence_refusal_for("ltx")
+    if _lic:
+        h._json(_lic, 451); return
     code, payload = P.request_video_models()
     h._json(payload, code)
 
@@ -65,6 +69,11 @@ def post_models_download(h, path, qs, ctype) -> None:
     reason = P.model_download_room([repo])
     if reason:
         h._json({"error": reason}, 507); return
+    # 5.0.40: an LTX pack shows the LTX licence screen before it downloads
+    # (after the refusals above: no screen for a download that cannot start).
+    _lic = P.repo_licence_refusal(repo)
+    if _lic:
+        h._json(_lic, 451); return
     with P.DOWNLOAD_LOCK:
         busy = P.DOWNLOAD["active"]
         busy_key = P.DOWNLOAD.get("key")
@@ -318,6 +327,10 @@ def post_models_repair(h, path, qs, ctype) -> None:
                  "app_downloading": True}, 409); return
     if P.HF_BIN is None and (repo.get("mirror") or {}).get("kind") != "github-release":
         h._json({"error": "hf binary not found. Reinstall Phosphene."}, 500); return
+    # 5.0.40: re-downloading an LTX pack shows the LTX licence screen first (after the refusals above).
+    _lic = P.repo_licence_refusal(repo)
+    if _lic:
+        h._json(_lic, 451); return
     # CLAIM THE SLOT FIRST, delete second. This deleted the files and only
     # then found another download running — answering 409 "Wait or Cancel"
     # with nothing started to replace what it had just removed (Codex INST-11).

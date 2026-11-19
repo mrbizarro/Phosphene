@@ -26,9 +26,19 @@ the accept box. It does not look up the user's location - the licence asks
 licensees not to use H3 outside its territory and asks products to bind and
 notify users (s. V.2, V.4); it does not ask for geo-blocking.
 
-Apache-2.0 models (FLUX.2 klein, Qwen-Image-Edit, Z-Image-Turbo, Gemma 4) and
-the LTX packs (whose licence binds on download/use and is shipped as a file
-next to the weights) need no screen.
+  * LTX-2.x (the video engine: LTX-2.5 / 2.3 packs, its text-encoder
+    projection, the Lightricks IC-LoRAs) - the LTX-2.x Community License.
+    Its s. 3.1 asks that the use restrictions (s. 4 + Attachment A) be an
+    enforceable part of what the user agrees to, and s. 2.1 that companies
+    with USD 10M+ yearly revenue get a paid licence. Since 5.0.40 it has its
+    own screen: before a download the user starts in the Studio, and before
+    the next LTX render for installs that already have the packs. Unlike
+    the others it is NOT re-checked by the queue worker: a render that is
+    already queued or running (a saved queue, the next shot of a storyboard)
+    is never stopped half-way for it.
+
+Apache-2.0 models (FLUX.2 klein, Qwen-Image-Edit, Z-Image-Turbo, Gemma 4)
+need no screen.
 
 Stdlib only; no import of the panel (the panel imports this).
 """
@@ -42,12 +52,31 @@ import threading
 import time
 from pathlib import Path
 
-REPORT_MISUSE_URL = ("https://github.com/mrbizarro/Phosphene/issues/new"
-                     "?title=Misuse%20report%3A%20")
+# The misuse-report link (MiniMax H3 licence s. V.5) follows the one switch in
+# report_links.py: GitHub has been unreachable since 16 Nov 2026. This module
+# is also run on its own (the installers' bash gates, test fixtures that copy
+# just this file), so a missing report_links falls back to the mail address.
+try:
+    import report_links as _report_links
+    REPORT_MISUSE_URL = _report_links.misuse_url()
+except ImportError:  # pragma: no cover - only outside the app folder
+    REPORT_MISUSE_URL = "mailto:support@phosphene.video?subject=Misuse%20report%3A%20"
 
 # Static facts per model. `version` is the licence's own date: change it when
 # the licence text changes and everyone is asked again.
 LICENCES: dict[str, dict] = {
+    "ltx": {
+        "model": "LTX-2 video engine by Lightricks",
+        "licence": "LTX-2.x Community License Agreement",
+        "licensor": "Lightricks Ltd.",
+        "version": "2026-08-11",
+        # Our open Hugging Face copy of the full text, Attachment A included
+        # (the same file sits next to the weights in every LTX pack folder).
+        "url": "https://huggingface.co/Mrbizarro/ltx-2.5-mlx-q4/blob/main/LICENSE-LTX-2.x-Community-License.md",
+        "aup_url": "https://static.lightricks.com/legal/ltx-acceptable-use-policy.pdf",
+        "non_commercial": False,
+        "covers": "the LTX-2.5 and LTX-2.3 video models, their text encoder and the LTX add-ons (IC-LoRAs)",
+    },
     "flux3": {
         "model": "FLUX 3 Klein by Black Forest Labs",
         "licence": "FLUX Kommunity License v1.0",
@@ -152,7 +181,7 @@ COPY: dict = {'modal_title': 'Model licence',
                             'States. Phosphene does not check your location. Contact '
                             'MiniMax about a licence for these regions.',
         'report_line': 'Report suspected misuse of H3 outputs made with Phosphene '
-                       'through a GitHub issue on the Phosphene repo.',
+                       'to the Phosphene team:',
         'credit_line': 'MiniMax H3'},
  'ideogram4': {'title': 'Ideogram 4 licence',
                'summary': 'You agree to use Ideogram 4 only for non-commercial '
@@ -220,6 +249,32 @@ COPY: dict = {'modal_title': 'Model licence',
           'accept_label': 'I have read and accept the Bria FIBO licence for '
                           'non-commercial use only.'}}
 
+# LTX-2.x Community License, s. 2.1 + s. 4 + Attachment A (licence date
+# 11 Aug 2026), in short. The full list stays one click away ("Read full
+# licence"), and the accept box says the whole Attachment A is accepted.
+COPY["ltx"] = {
+    "title": "LTX-2 licence",
+    "summary": "Phosphene's video engine runs LTX-2 by Lightricks. Its licence is free for "
+               "people and companies under USD 10M yearly revenue, with use restrictions you "
+               "agree to follow.",
+    "terms": [
+        "Companies (with their affiliates) at USD 10M or more in yearly revenue need a paid "
+        "licence from Lightricks for anything beyond non-commercial use.",
+        "No illegal use, nothing that exploits or harms minors, and no defamation, harassment "
+        "or bullying.",
+        "No impersonating anyone (deepfakes) without their consent, and no false content made "
+        "to deceive or defraud.",
+        "Say that content is machine-generated when you publish it.",
+        "No military, weapons or surveillance-style uses, no medical advice, and no automated "
+        "decisions about people's rights, jobs, credit, housing, policing or immigration.",
+        "Do not remove watermarks, provenance or safety features, and follow Lightricks' "
+        "Acceptable Use Policy.",
+    ],
+    "badge": "Free under USD 10M revenue",
+    "accept_label": "I have read and accept the LTX-2.x Community License, including all use "
+                    "restrictions in its Attachment A and the Acceptable Use Policy.",
+}
+
 COPY["flux3"] = {
     "title": "FLUX 3 Klein licence",
     "summary": "The app is MIT. These model weights have a separate licence from Black Forest Labs.",
@@ -256,7 +311,7 @@ COPY["minimax-h3-image"] = {
                         "does not check your location. Contact MiniMax about a licence for these "
                         "regions.",
     "report_line": "Report suspected misuse of MiniMax-H3-Image outputs made with Phosphene "
-                   "through a GitHub issue on the Phosphene repo.",
+                   "to the Phosphene team:",
     "credit_line": "MiniMax-H3-Image",
 }
 
@@ -404,7 +459,35 @@ def licence_for_job(params: dict, image_cfg_for=None) -> str | None:
                 return licence_for_image_cfg(image_cfg_for(override, p))
             except Exception:  # noqa: BLE001 - the worker re-checks with the real cfg
                 return None
-    return None
+        return None
+    if mode in NOT_LTX_MODES or engine == "speech":
+        return None
+    # Everything else the worker runs is an LTX render (t2v, i2v, extend,
+    # keyframe, a2v, the IC-LoRA tools, takes, storyboard and character shots).
+    return "ltx"
+
+
+#: Job modes the queue runs on another engine, or with no model at all.
+NOT_LTX_MODES = frozenset({"image", "music", "speech", "train", "sharp_export",
+                           "vertical_export"})
+
+#: A licence the queue worker does not re-check (see the module docstring:
+#: an LTX render already queued or running is never stopped for it).
+SUBMIT_ONLY = frozenset({"ltx"})
+
+
+def licence_for_repo(repo: dict | None) -> str | None:
+    """The licence a required_files.json download needs, or None.
+
+    Every LTX pack (Lightricks' and our MLX conversions), the LTX-2.5 text
+    encoder (its projection layers are LTX-licensed) and the LTX IC-LoRAs
+    carry "ltx" in their repo id or key; Gemma 3 and the preview decoder
+    do not."""
+    if not isinstance(repo, dict):
+        return None
+    rid = str(repo.get("repo_id") or "").lower()
+    key = str(repo.get("key") or "").lower()
+    return "ltx" if ("ltx" in rid or "ltx" in key) else None
 
 
 def refusal(state_dir, key: str | None) -> dict | None:

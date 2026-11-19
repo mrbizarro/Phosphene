@@ -2813,5 +2813,88 @@
         ]
       }
     }
+  },
+  "5.0.66": {
+    "free": [
+      "Before your first LTX video, Phosphene shows the LTX-2 licence once. Tick the box and press Accept and continue. A video already rendering is never stopped.",
+      "Report a bug and Report misuse now open an email to the Phosphene team. Before, they opened a page that no longer loads."
+    ],
+    "pro": [],
+    "date": "2026-11-19",
+    "headline": "You accept the LTX-2 licence once, and Report a bug now opens an email.",
+    "i18n": {
+      "de": {
+        "headline": "Du akzeptierst die LTX-2-Lizenz einmal, und „Fehler melden“ öffnet jetzt eine E-Mail.",
+        "free": [
+          "Vor deinem ersten LTX-Video zeigt Phosphene einmal die LTX-2-Lizenz. Setze das Häkchen und bestätige. Ein Video, das schon läuft, wird nie gestoppt.",
+          "„Fehler melden“ und „Missbrauch melden“ öffnen jetzt eine E-Mail an das Phosphene-Team. Vorher öffneten sie eine Seite, die nicht mehr lädt."
+        ],
+        "pro": []
+      },
+      "es": {
+        "headline": "Aceptas la licencia de LTX-2 una sola vez, y «Reportar un error» ahora abre un correo.",
+        "free": [
+          "Antes de tu primer vídeo con LTX, Phosphene muestra una vez la licencia de LTX-2. Marca la casilla y acepta. Un vídeo que ya se está haciendo nunca se detiene.",
+          "«Reportar un error» y «Denunciar un mal uso» ahora abren un correo al equipo de Phosphene. Antes abrían una página que ya no carga."
+        ],
+        "pro": []
+      },
+      "fr": {
+        "headline": "Vous acceptez la licence LTX-2 une seule fois, et « Signaler un bug » ouvre maintenant un e-mail.",
+        "free": [
+          "Avant votre première vidéo LTX, Phosphene affiche une fois la licence LTX-2. Cochez la case et acceptez. Une vidéo déjà en cours n'est jamais arrêtée.",
+          "« Signaler un bug » et « Signaler un abus » ouvrent maintenant un e-mail à l'équipe Phosphene. Avant, ils ouvraient une page qui ne se charge plus."
+        ],
+        "pro": []
+      },
+      "it": {
+        "headline": "Accetti la licenza LTX-2 una sola volta, e «Segnala un bug» ora apre un'email.",
+        "free": [
+          "Prima del tuo primo video LTX, Phosphene mostra una volta la licenza LTX-2. Spunta la casella e accetta. Un video già in corso non viene mai fermato.",
+          "«Segnala un bug» e «Segnala un abuso» ora aprono un'email al team di Phosphene. Prima aprivano una pagina che non si carica più."
+        ],
+        "pro": []
+      },
+      "ja": {
+        "headline": "LTX-2のライセンスへの同意は一度だけになり、「バグを報告」はメールが開くようになりました。",
+        "free": [
+          "最初のLTX動画の前に、PhospheneがLTX-2のライセンスを一度だけ表示します。チェックを入れて同意してください。作成中の動画が止まることはありません。",
+          "「バグを報告」と「不正利用を報告」は、Phospheneチームへのメールが開くようになりました。以前は表示されなくなったページが開いていました。"
+        ],
+        "pro": []
+      },
+      "ko": {
+        "headline": "LTX-2 라이선스는 한 번만 동의하면 되고, 「버그 신고」는 이제 이메일을 열어요.",
+        "free": [
+          "첫 LTX 영상 전에 Phosphene이 LTX-2 라이선스를 한 번 보여줘요. 체크하고 동의하면 돼요. 이미 만들고 있는 영상은 절대 멈추지 않아요.",
+          "「버그 신고」와 「오용 신고」는 이제 Phosphene 팀에게 보내는 이메일을 열어요. 전에는 더 이상 열리지 않는 페이지가 열렸어요."
+        ],
+        "pro": []
+      },
+      "pt": {
+        "headline": "Você aceita a licença do LTX-2 uma única vez, e «Relatar um bug» agora abre um e-mail.",
+        "free": [
+          "Antes do seu primeiro vídeo com LTX, o Phosphene mostra uma vez a licença do LTX-2. Marque a caixa e aceite. Um vídeo que já está sendo feito nunca é interrompido.",
+          "«Relatar um bug» e «Denunciar uso indevido» agora abrem um e-mail para a equipe do Phosphene. Antes, abriam uma página que não carrega mais."
+        ],
+        "pro": []
+      },
+      "ru": {
+        "headline": "Лицензию LTX-2 нужно принять один раз, а «Сообщить об ошибке» теперь открывает письмо.",
+        "free": [
+          "Перед первым видео в LTX Phosphene один раз показывает лицензию LTX-2. Поставьте галочку и примите. Видео, которое уже делается, никогда не останавливается.",
+          "«Сообщить об ошибке» и «Сообщить о злоупотреблении» теперь открывают письмо команде Phosphene. Раньше они открывали страницу, которая больше не загружается."
+        ],
+        "pro": []
+      },
+      "zh-Hans": {
+        "headline": "LTX-2 许可只需接受一次，“报告问题”现在会打开一封邮件。",
+        "free": [
+          "在你的第一个 LTX 视频之前，Phosphene 会显示一次 LTX-2 许可。勾选并接受即可。正在生成的视频绝不会被中断。",
+          "“报告问题”和“举报滥用”现在会打开一封发给 Phosphene 团队的邮件。之前它们打开的是一个已经无法加载的页面。"
+        ],
+        "pro": []
+      }
+    }
   }
 }

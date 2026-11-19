@@ -7370,7 +7370,7 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
       <h2 id="bugModalTitle" data-i18n="bugModalTitle.report_a_bug">Report a bug</h2>
       <button class="ghost-btn" onclick="closeBugModal()" data-i18n="bugModal.close">Close</button>
     </div>
-    <div class="models-hint" data-i18n="bugModal.opens_a_pre_filled">
+    <div class="models-hint" id="bugModalHint" data-i18n="bugModal.opens_a_pre_filled">
       Opens a pre-filled GitHub issue in a new tab. Environment info, version,
       and the recent log (errors first) are filled in for you.
     </div>
@@ -7412,7 +7412,7 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
            already are. -->
       <div id="bugSubmitRow" style="display:flex; gap:8px; justify-content:flex-end; align-items:center; flex-wrap:wrap">
         <span id="bugStatus" style="flex:1; font-size:12px; color:var(--muted)"></span>
-        <a href="https://x.com/PhospheneAI" target="_blank" rel="noopener"
+        <a href="https://x.com/PhospheneAI" target="_blank" rel="noopener" id="bugNoGithubLink"
            style="font-size:11.5px; color:var(--muted)" data-i18n="bugSubmitRow.no_github_reach_out">No GitHub? Reach out on X →</a>
         <button class="ghost-btn" onclick="copyBugDiagnostics()" data-i18n="bugSubmitRow.copy_diagnostics">Copy diagnostics</button>
         <button class="ghost-btn" onclick="closeBugModal()" data-i18n="bugSubmitRow.cancel">Cancel</button>

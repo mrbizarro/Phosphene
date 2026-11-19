@@ -1068,9 +1068,21 @@ lists the runs already sent.
 Every licence the panel asks about, with this Mac's acceptance state:
 `{"licences": [{"key": "h3", "model": ..., "licence": ..., "licensor": ..., "version": ..., "url": ...,
 "non_commercial": false, "title": ..., "summary": ..., "terms": [...], "badge": ..., "accept_label": ...,
-"accepted": false, "accepted_at": null, ...}, ...], "ui": {...}}`. Keys: `h3`, `ideogram4`, `yue2`,
-`flux1_dev`, `fibo`. H3's entry also carries `territory_notice`, `excluded_territories`, `report_line`,
-`report_url` and `credit_line`.
+"accepted": false, "accepted_at": null, ...}, ...], "ui": {...}}`. Keys: `ltx`, `flux3`, `h3`,
+`minimax-h3-image`, `ideogram4`, `yue2`, `flux1_dev`, `fibo`. H3's entry also carries `territory_notice`,
+`excluded_territories`, `report_line`, `report_url` and `credit_line`; `ltx` carries `aup_url` (Lightricks'
+Acceptable Use Policy).
+
+**LTX (5.0.40).** Until the LTX-2.x Community License is accepted on this Mac, every route that STARTS an
+LTX render (`/queue/add`, `/queue/retry`, `/queue/batch`, One Shot, a character render, a storyboard
+`render` / `restill` / `edit/generate` on a non-H3 board) and every LTX pack download the user starts
+(`/models/download`, `/models/repair`, `/models/video`) answers HTTP 451 `code=licence_required`,
+`licence=ltx`. The queue worker does not re-check it: a job already queued or running is never stopped.
+An agent that gets this answer should ask the person to open Phosphene once and accept the licence.
+
+**Report links.** The misuse-report link (`report_url`) and the Report a bug flow (`/panel/bug-report`,
+which answers `issueUrl` plus `target`) follow one switch, `report_links.TARGET`: `github`, `gitlab` or
+`mail` (support@phosphene.video, the shipped value while GitHub is unreachable).
 
 ### `POST /licences/accept`
 

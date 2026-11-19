@@ -629,6 +629,25 @@ function bugComposeTitle(title, what) {
   const first = line.length > 72 ? line.slice(0, 71).replace(/\s+\S*$/, '') + '…' : line;
   return '[bug] ' + first;
 }
+// 5.0.40: where a report goes follows ONE server switch (report_links.py,
+// BOOT.report_target): 'github', 'gitlab' or 'mail'. GitHub has been
+// unreachable since 16 Nov 2026, so the bug button must not open a 404.
+function bugTarget() { return (BOOT && BOOT.report_target) || 'github'; }
+function bugSubmitLabel() {
+  const t = bugTarget();
+  if (t === 'mail') return T('settings.email_the_report', 'Email the report');
+  if (t === 'gitlab') return T('settings.open_the_report_page', 'Open the report page');
+  return T('settings.open_github_issue', 'Open GitHub issue');
+}
+function bugTargetCopy() {
+  const hint = document.getElementById('bugModalHint');
+  const x = document.getElementById('bugNoGithubLink');
+  const mail = bugTarget() === 'mail';
+  if (hint && mail) {
+    hint.textContent = T('settings.opens_an_email_to_the', 'Opens an email to the Phosphene team. Environment info, version, and the recent log (errors first) are filled in for you.');
+  }
+  if (x) x.hidden = mail;
+}
 async function openBugModal() {
   const modal = document.getElementById('bugModal');
   modal.style.display = 'flex';
@@ -646,7 +665,8 @@ async function openBugModal() {
   bodyEl.value = 'Loading environment…';
   statusEl.textContent = '';
   submitBtn.disabled = false;
-  submitBtn.textContent = T('settings.open_github_issue', 'Open GitHub issue');
+  submitBtn.textContent = bugSubmitLabel();
+  bugTargetCopy();
   // A finished report rewires this button to "Done — close"; without this
   // the NEXT report's "Open GitHub issue" just closed the dialog.
   submitBtn.onclick = submitBugReport;
@@ -747,7 +767,7 @@ async function submitBugReport() {
       bugWhatShow(true);
       statusEl.textContent = '';
       submitBtn.disabled = false;
-      submitBtn.textContent = T('settings.open_github_issue', 'Open GitHub issue');
+      submitBtn.textContent = bugSubmitLabel();
       document.getElementById('bugWhat')?.focus();
       return;
     }
@@ -761,14 +781,18 @@ async function submitBugReport() {
       // context, which a click handler counts as.
       try { await navigator.clipboard.writeText(data.zipPath); } catch (e) { /* ignore */ }
       statusEl.innerHTML =
-        'Crash report bundled. Drag this file into the GitHub issue:<br>' +
+        (bugTarget() === 'mail'
+          ? T('settings.crash_report_bundled_attach', 'Crash report bundled. Attach this file to the email:')
+          : 'Crash report bundled. Drag this file into the GitHub issue:') + '<br>' +
         '<code style="font-size:11px">' + data.zipPath + '</code><br>' +
         '<span style="color:var(--success,#3fb950)">(path copied to clipboard)</span>';
       submitBtn.textContent = T('settings.done_close', 'Done — close');
       submitBtn.disabled = false;
       submitBtn.onclick = closeBugModal;
     } else {
-      statusEl.textContent = T('settings.github_issue_opened_in_a', 'GitHub issue opened in a new tab.');
+      statusEl.textContent = bugTarget() === 'mail'
+        ? T('settings.your_report_opened_in_your', 'Your report opened in your mail app.')
+        : T('settings.github_issue_opened_in_a', 'GitHub issue opened in a new tab.');
       submitBtn.textContent = T('settings.done_close', 'Done — close');
       submitBtn.disabled = false;
       submitBtn.onclick = closeBugModal;
