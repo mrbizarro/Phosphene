@@ -5293,6 +5293,8 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
             <button type="button" class="smt-btn active" data-sb-stage="list" onclick="sbSetStage('list')" data-i18n="sbStageToggle.shot_list">Shot list</button>
             <button type="button" class="smt-btn" data-sb-stage="player" onclick="sbPlayBoard()" data-i18n="sbStageToggle.player">Player</button>
           </div>
+          <!-- Which clip the player shows: "Shot 3 · Draft · 640×384" and, beside a draft, Make final (owner, 19 Nov 2026). -->
+          <span class="sb-play-pass" id="sbPlayPass" hidden></span>
           <!-- "All storyboards" used to sit here. It lives on the rail now,
                with the rest of the navigation, so there is one place to look
                rather than a different one on every stage state. -->
@@ -5364,6 +5366,8 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
           <button type="button" class="smt-btn active" data-sb-view="list" onclick="sbSetShotView('list')" data-i18n="sbShotViewToggle.list">List</button>
           <button type="button" class="smt-btn" data-sb-view="grid" onclick="sbSetShotView('grid')" data-i18n="sbShotViewToggle.grid">Grid</button>
         </div>
+        <!-- One-time hint: drafts first, then Make final (painted by sbRenderDraftHint). -->
+        <div class="sb-draft-hint" id="sbDraftHint" hidden></div>
         <ol class="sb-shots" id="sbShots"></ol>
         <div class="sb-addrow"><button type="button" class="ghost-btn" onclick="sbAddShot()" data-i18n="sbPlan.add_a_shot">+ Add a shot</button></div>
 

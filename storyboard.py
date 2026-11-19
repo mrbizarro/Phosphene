@@ -293,6 +293,11 @@ _H3_QUALITY_FOR_PASS = {
     "balanced": "standard",
     "standard": "high",
     "high": "high",
+    # The Delivery chips offer "High · 720p" too (STORYBOARD_FINAL_QUALITIES). It was missing here, so a film whose
+    # Delivery was set to the TOP choice fell through to the default and rendered its Hailuo H3 shots at Standard
+    # 768x448: a chosen quality silently ignored (found 19 Nov 2026 while checking the draft complaint).
+    # test_storyboard_h3_quality pins every offered pass quality to a key here.
+    "high_720p": "high",
 }
 
 # Rough per-second-of-video render cost, by quality, in seconds of wall clock. Deliberately

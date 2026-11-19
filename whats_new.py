@@ -22,10 +22,20 @@ window sizes every frame to the clip before the clip loads: no empty boxes, no j
 Now in Pro (owner, 14 Nov 2026: "The Now in Pro section should be on the upper side of the report ... and should link
 to the Pro page. We want to make conversions from the app."): a version may name Pro perks by id in "pro_perks"; their
 line and measured gain come from pro_perks.json (the one list of Pro speed-ups and features, pro_perks.py) and sit
-high in the window, right after the free changes and before the hero, with the release's plain pro[] lines. Free users
-get one button to the Pro page; a Pro member reads "Included in your Pro" and no sell. A perk that is not released
-(since null) never shows as new. The free changes come first and short (owner, 14 Nov, on the first build: "make sure
-that users can also see what is new in general for normal users"), so both fit the first screen.
+at the TOP of the window, right under the title and above the free changes, with the release's plain pro[] lines.
+Free users get one button to the Pro page; a Pro member reads "Included in your Pro", no buy button, and one small
+"What's in Pro" link. A perk that is not released (since null) never shows as new.
+
+PRO BLOCK FIRST, AND IT STAYS FIRST (owner, 19 Nov 2026, on the 5.0.62 window: "why is there not a call to action to
+the landing page in the Pro part, and why is the Pro part below? It should be above. We talk about these things many
+times. Why does stuff keep coming back?"). It had come back because a later change on 14 Nov put the free changes
+first and rewrote the one test that pinned the order in the same commit. scripts/check_whats_new.py now renders the
+release's own window as a Free and as a Pro user and FAILS the release when the Pro block is not first, the Free
+button is missing or points anywhere but the Pro page, or a line repeats. Do not move it; ask the owner.
+
+NO LINE TWICE: two lines are the same line when one is the other with words added at the end (a perk's line and the
+release's own line about the same perk), compared without case, spacing and end punctuation. _same_line() is that
+rule; the merged lists and the Now in Pro block both go through it.
 
 Coming next in Pro (owner, 14 Nov 2026: "it could be cool also if we have it coming in the pipeline next. Then for Pro,
 if we don't have something to release in Pro, we can still tease it"): the unreleased perks that carry a 'next' line in
@@ -303,17 +313,40 @@ def mark_seen(state_dir: Path, version: str) -> bool:
         return False
 
 
+def _norm_line(t: str) -> str:
+    """A line as the duplicate check reads it: no case, one space, no punctuation or space at the end."""
+    return re.sub(r"[\s.!?:;,…]+$", "", re.sub(r"\s+", " ", str(t or "")).strip().lower())
+
+
+def _same_line(a: str, b: str) -> bool:
+    """True when two lines say the same thing: equal, or one is the other with words added at the end (5.0.62
+    showed "References on Hailuo H3: build a shot ... keep their look." and the same sentence plus "Switch it on
+    under Face to keep." one under the other)."""
+    x, y = _norm_line(a), _norm_line(b)
+    if not x or not y:
+        return False
+    short, long_ = (x, y) if len(x) <= len(y) else (y, x)
+    return long_ == short or long_.startswith(short + " ") or long_.startswith(short + ".") \
+        or long_.startswith(short + ",") or long_.startswith(short + ":")
+
+
+def dedupe(lines: list[dict]) -> list[dict]:
+    """Drop every line that repeats an earlier one (_same_line); the first one stays."""
+    out: list[dict] = []
+    for ln in lines:
+        if not any(_same_line(ln.get("text"), o.get("text")) for o in out):
+            out.append(ln)
+    return out
+
+
 def _merge(entries: list[tuple[str, dict]], key: str, extra: dict, pro_user: bool) -> list[dict]:
-    seen, out = set(), []
+    out = []
     for ver, ent in sorted(entries, key=lambda e: vkey(e[0]), reverse=True):
         lines = _lines(ent.get(key))
         if key == "pro" and pro_user:
             lines = lines + _lines((extra.get(ver) or {}).get("pro"))
-        for ln in lines:
-            if ln["text"] not in seen:
-                seen.add(ln["text"])
-                out.append(ln)
-    return out[:MAX_LINES]
+        out += lines
+    return dedupe(out)[:MAX_LINES]
 
 
 def _perk_ids(ent: dict) -> list[str]:
@@ -344,8 +377,7 @@ def now_in_pro(picked: list[tuple[str, dict]], pro_lines: list[dict], pro_active
             if ln["id"] not in seen:
                 seen.add(ln["id"])
                 items.append(ln)
-    texts = {i["text"] for i in items}
-    items += [dict(ln) for ln in pro_lines if ln["text"] not in texts]
+    items = dedupe(items + [dict(ln) for ln in pro_lines])
     coming = [c for c in pro_perks.coming(perks_path, lang) if c["id"] not in seen][:MAX_COMING]
     if not items and not coming:
         return None
@@ -402,7 +434,7 @@ def card(root: Path, state_dir: Path, version: str, pro_active: bool, force: boo
             continue
         ent = {"version": v, "date": e.get("date") if isinstance(e.get("date"), str) else None,
                "headline": _headline(e), "free": _lines(e.get("free")),
-               "pro": [{"text": ln["text"]} for ln in _perk_lines(e, perks_path, lang)] + _lines(e.get("pro")),
+               "pro": dedupe([{"text": ln["text"]} for ln in _perk_lines(e, perks_path, lang)] + _lines(e.get("pro"))),
                "how": [h for h in _hows(e) if how_home.get(h["id"]) == v]}
         h = _hero(e.get("hero"))
         if h and h.get("still"):

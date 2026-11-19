@@ -1196,6 +1196,7 @@ function sbSyncStage() {
 }
 function sbSetStage(mode) {
   SB.stageMode = mode;
+  if (mode !== 'player') { const pp = sbEl('sbPlayPass'); if (pp) pp.hidden = true; }
   // Session-scoped, so a reload mid-film does not re-dock a player the user closed.
   // sessionStorage, not localStorage: this is a working preference for this sitting, not
   // a setting the user should have to find and undo next week.
@@ -1346,9 +1347,16 @@ function sbRenderPlan(r) {
     x.classList.toggle('active', x.dataset.q === dq));
   document.querySelectorAll('#sbFinalQuality .pill-btn').forEach(x =>
     x.classList.toggle('active', x.dataset.q === fq));
+  // A film with Hailuo H3 shots says what THEY render: H3's canvases are not LTX's (the chips print LTX's), and a
+  // draft read as the chosen quality was the whole complaint (owner, 19 Nov 2026).
+  const anyH3 = (b.shots || []).some(x => sbShotEngineOf(x, r) === 'h3');
+  const h3c = SB_BOOT.h3_canvases || {};
+  const h3Meta = anyH3 && h3c[dq] && h3c[fq]
+    ? ` · Hailuo H3: ${T('storyboard.draft', 'Draft')} ${sbDims(h3c[dq])} · ${T('storyboard.delivery', 'Delivery')} ${h3c[fq].label} ${sbDims(h3c[fq])}` : '';
   sbEl('sbQualityMeta').textContent =
     `Draft ${(pol.draft || {}).width}×${(pol.draft || {}).height} · ` +
-    `Delivery ${(pol.final || {}).width}×${(pol.final || {}).height}`;
+    `Delivery ${(pol.final || {}).width}×${(pol.final || {}).height}` + h3Meta;
+  sbRenderDraftHint(b, r);
 
   // --- board-level errors ---
   const errs = r.errors || [];
@@ -1545,6 +1553,55 @@ function sbErrRow(e) {
   return `<div class="sb-err-row"><span class="sb-err-dot"></span><span>${html}</span>${fix}</div>`;
 }
 
+// ---- draft or final, said on every clip (owner, 19 Nov 2026) ---------------
+// Drafting first is the design: every shot renders small and fast, you look, then you make the ones you like final.
+// What was missing was SAYING it. A Pro buyer rendered ~25 Hailuo H3 shots, every one the 640×384 draft, believing he
+// was rendering his chosen 1024 quality, and asked for his money back. So every draft clip now reads
+// "Draft · 640×384" (on the card, its pass chip and in the player), the card carries a "Make final" button that
+// renders that one shot at the film's Delivery quality, and a one-time hint explains draft first, then final.
+// The canvas is the clip's own measured size when the server has it, else what the pass renders on that shot's
+// engine: SB_BOOT.h3_canvases for Hailuo H3 (its canvases differ from LTX's), the board's policy for LTX.
+function sbShotEngineOf(s, r) {
+  return (r && r.h3_available) ? (s.engine || 'ltx') : 'ltx';
+}
+function sbPassCanvas(s, r, pass) {
+  const pol = (((r || {}).board || {}).policy || {})[pass] || {};
+  if (sbShotEngineOf(s, r) === 'h3') {
+    const c = (SB_BOOT.h3_canvases || {})[pol.quality];
+    if (c) return c;
+  }
+  return { width: pol.width, height: pol.height };
+}
+function sbDims(c) {
+  return c && c.width && c.height ? `${c.width}×${c.height}` : '';
+}
+// Is this shot's clip on screen a draft? Judged by the clip itself (measured size against the Delivery canvas), the
+// way FILM-42 already badges the card, else by which file it is.
+function sbClipIsDraft(s, r) {
+  if (!(s.final_output || s.draft_output)) return false;
+  const fin = sbPassCanvas(s, r, 'final');
+  const finalMax = Math.max(Number(fin.width) || 0, Number(fin.height) || 0);
+  if (Array.isArray(s.output_dims) && finalMax) {
+    return Math.max(Number(s.output_dims[0]) || 0, Number(s.output_dims[1]) || 0) < finalMax;
+  }
+  return !s.final_output;
+}
+// "Draft · 640×384" / "Delivery · 1024×576": the clip's measured size, else the pass's canvas on this shot's engine.
+function sbClipLabel(s, r) {
+  const draft = sbClipIsDraft(s, r);
+  const dims = Array.isArray(s.output_dims) && s.output_dims[0]
+    ? `${s.output_dims[0]}×${s.output_dims[1]}` : sbDims(sbPassCanvas(s, r, draft ? 'draft' : 'final'));
+  const word = draft ? T('storyboard.draft', 'Draft') : T('storyboard.delivery', 'Delivery');
+  return dims ? `${word} · ${dims}` : word;
+}
+// The Make final button: the shot's own Delivery canvas on its engine, said on the button.
+function sbMakeFinalBtn(s, r) {
+  const fin = sbDims(sbPassCanvas(s, r, 'final'));
+  return `<button type="button" class="sb-err-fix sb-make-final" data-act="make-final" `
+    + `title="${TA('storyboard.make_final_title', 'Render this shot again at your Delivery quality, same prompt and seed. The draft stays in your gallery.')}">`
+    + T('storyboard.make_final', 'Make final') + (fin ? ' <span class="sub">' + escapeHtml(fin) + '</span>' : '') + '</button>';
+}
+
 function sbShotCard(s, r, errs) {
   const n = s.n;
   const mine = errs.filter(e => e.n === n);
@@ -1643,6 +1700,11 @@ function sbShotCard(s, r, errs) {
     // back to which file this card is actually showing.
     passLabel = s.final_output ? T('storyboard.delivery', 'Delivery') : T('storyboard.draft', 'Draft');
   }
+  // A shot with a clip says what that clip IS, size and all ("Draft · 640×384"); the H3 canvas differs from the
+  // LTX one the film-level chips print, which is how a draft passed for the chosen quality (owner, 19 Nov 2026).
+  if (clip) passLabel = sbClipLabel(s, r);
+  const isDraftClip = !!clip && sbClipIsDraft(s, r);
+  const canMakeFinal = isDraftClip && !stale && s.status !== 'rendering' && s.status !== 'queued' && !(r && r.rendering);
   const seedSet = (s.seed != null && s.seed !== -1);
 
   // ANCHOR STILL. The image the shot starts from, when the board anchors
@@ -1689,7 +1751,8 @@ function sbShotCard(s, r, errs) {
                onmouseleave="this.pause();this.currentTime=2.5"></video>
       </div>
       <div class="info"><span class="name">${escapeHtml(clip.split('/').pop())}</span>
-        <span class="sub">${s.final_output ? 'delivery' : 'draft'}</span></div>
+        <span class="sub sb-clip-pass${isDraftClip ? ' is-draft' : ''}">${escapeHtml(sbClipLabel(s, r))}</span>
+        ${canMakeFinal ? sbMakeFinalBtn(s, r) : ''}</div>
       <div class="sb-grade" role="group" aria-label="Grade shot ${n}">
         <button type="button" class="sb-grade-btn ${s.grade === 'keep' ? 'active' : ''}" data-act="grade" data-g="keep" aria-pressed="${s.grade === 'keep'}">KEEP</button>
         <button type="button" class="sb-grade-btn ${s.grade === 'reroll' ? 'active' : ''}" data-act="grade" data-g="reroll" aria-pressed="${s.grade === 'reroll'}"
@@ -1757,6 +1820,28 @@ function sbShotCard(s, r, errs) {
     ${failBlock}
     ${stillBlock}${outBlock}
   </li>`;
+}
+
+// ONE-TIME HINT: the first time a film has a draft clip on screen, say how drafts work and how to make the final.
+// "Got it" hides it for good on this Mac (a per-viewer convenience: if storage is blocked it simply shows again).
+const SB_DRAFT_HINT_KEY = 'phos.sb.draftHintSeen';
+function sbRenderDraftHint(b, r) {
+  const el = sbEl('sbDraftHint');
+  if (!el) return;
+  let seen = false;
+  try { seen = localStorage.getItem(SB_DRAFT_HINT_KEY) === '1'; } catch (e) {}
+  const drafts = (b.shots || []).filter(x => sbClipIsDraft(x, r));
+  if (seen || !drafts.length) { el.hidden = true; return; }
+  const ex = drafts[0];
+  el.innerHTML = `<p><b>${T('storyboard.draft_hint_title', 'These are drafts.')}</b> `
+    + escapeHtml(T('storyboard.draft_hint_body', 'Every shot renders small and fast first ({label}), so you can check the framing, the motion and the lines. When you like a shot, press Make final on it (or mark shots KEEP and press Finish keepers). It renders again at your Delivery quality.',
+      {label: sbClipLabel(ex, r)}))
+    + `</p><button type="button" class="ghost-btn" onclick="sbDismissDraftHint()">${T('storyboard.got_it', 'Got it')}</button>`;
+  el.hidden = false;
+}
+function sbDismissDraftHint() {
+  try { localStorage.setItem(SB_DRAFT_HINT_KEY, '1'); } catch (e) {}
+  const el = sbEl('sbDraftHint'); if (el) el.hidden = true;
 }
 
 function sbRenderTally(shots, r) {
@@ -1954,6 +2039,7 @@ function sbPlaylistPlay(idx) {
   const pl = SB.playlist;
   if (!pl || idx >= pl.paths.length) { SB.playlist = null; return; }
   pl.idx = idx;
+  sbShowPlayPass((((SB.payload || {}).board || {}).shots || []).find(x => (x.final_output || x.draft_output) === pl.paths[idx]));
   if (typeof selectOutput === 'function') selectOutput(pl.paths[idx], { autoplay: true });
   const v = document.querySelector('#playerWrap video');
   if (v) {
@@ -1967,10 +2053,44 @@ function sbPlaylistPlay(idx) {
   }
 }
 
+// One shot, made final: the Delivery pass for this shot alone, at the film's Delivery quality, same prompt and seed.
+async function sbMakeFinal(n) {
+  const r = SB.payload || {};
+  const s = sbShotById(n);
+  if (!s) return;
+  const fin = sbPassCanvas(s, r, 'final');
+  const q = String((((r.board || {}).policy || {}).final || {}).quality || '');
+  const h3 = sbShotEngineOf(s, r) === 'h3';
+  const tier = h3 ? (((SB_BOOT.h3_canvases || {})[q] || {}).label || '') : q.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+  const est = ((r.per_shot_final_est || {})[String(n)]);
+  if (!confirm(
+      T('storyboard.make_shot_final_q', 'Make shot {n} final?', {n}) + '\n\n' +
+      T('storyboard.make_final_body', 'Renders it again at your Delivery quality: {tier} {dims}, same prompt and seed. It is a new take, so it will not match the draft frame for frame. The draft stays in your gallery.',
+        {tier: (h3 ? 'Hailuo H3 ' : '') + tier, dims: sbDims(fin)}) +
+      (est ? '\n' + sbFmtWall(est).replace(/^about /, T('storyboard.about', 'About ')) + T('storyboard.this_mac', ', this Mac') : ''))) return;
+  sbRenderPass('final', [n]);
+}
+
+// The player says which clip it shows: "Shot 3 · Draft · 640×384", with Make final beside a draft.
+function sbShowPlayPass(s) {
+  const el = sbEl('sbPlayPass');
+  if (!el) return;
+  const r = SB.payload || {};
+  if (!s || !(s.final_output || s.draft_output)) { el.hidden = true; el.innerHTML = ''; return; }
+  const draft = sbClipIsDraft(s, r);
+  const busy = s.status === 'rendering' || s.status === 'queued' || !!r.rendering;
+  el.dataset.n = String(s.n);
+  el.classList.toggle('is-draft', draft);
+  el.innerHTML = `<span class="sb-play-pass-t">${escapeHtml(T('storyboard.shot_n', 'Shot {n}', {n: s.n}))} · ${escapeHtml(sbClipLabel(s, r))}</span>`
+    + (draft && !busy ? sbMakeFinalBtn(s, r) : '');
+  el.hidden = false;
+}
+
 function sbOpenShotClip(n) {
   const s = (((SB.payload || {}).board) || {}).shots.find(x => x.n === n);
   const clip = s && (s.final_output || s.draft_output);
   if (!clip) return;
+  sbShowPlayPass(s);
   // Opening a clip IS the request for the player, so it says so outright rather than
   // dropping back to 'auto' and hoping auto agrees. Since auto now means "stay on the
   // list", the old line would have opened a clip into a hidden player.
@@ -2116,6 +2236,7 @@ function sbShotAction(n, act, el, ev) {
     }
     case 'note': s.note = el.value; sbGrade(n, s.grade, el.value); return;
     case 'retry': sbRenderPass(SB.payload.pass || 'draft', [n]); return;
+    case 'make-final': sbMakeFinal(n); return;
     case 'restill': sbRestill(n); return;
     case 'newtake': sbNewTake(n); return;
     case 'approve-still': sbApproveStill(n); return;
@@ -2233,6 +2354,7 @@ function sbRenderDrafts() {
   const loads = est.pipeline_loads || 1;
   if (!confirm(
       `Render ${nshots} draft${nshots === 1 ? '' : 's'}?\n\n` +
+      T('storyboard.drafts_are_small', 'Drafts are small and quick, to check each shot. Press Make final on the ones you like to render them at your Delivery quality.') + '\n\n' +
       `${sbFmtWall(est.total_secs).replace(/^about /, T('storyboard.about', 'About '))} on this Mac. ` +
       `${loads === 1 ? T('storyboard.one_model_load_then_every', 'One model load, then every shot back to back.') : `${loads} model loads, grouped.`}\n` +
       T('storyboard.clips_land_in_mlx_outputs', 'Clips land in mlx_outputs/ and show up in your gallery like any other render.\n\n') +
@@ -2836,6 +2958,9 @@ document.addEventListener('click', (ev) => {
     sbQueueSave(true);
     return;
   }
+  // The player's own Make final (#sbPlayPass sits outside #sbShots, so the card delegation below never sees it).
+  const pmf = ev.target.closest && ev.target.closest('#sbPlayPass [data-act="make-final"]');
+  if (pmf) { sbMakeFinal(Number((sbEl('sbPlayPass') || {}).dataset.n)); return; }
   const act = ev.target.closest && ev.target.closest('#sbShots [data-act]');
   if (act) {
     const li = act.closest('.sb-shot');
@@ -2983,7 +3108,7 @@ Object.assign(globalThis, {
   sbOpenAt, sbBackToList, sbRailModel, sbRailPaint,
   sbGo, sbLoad, sbShow, sbSyncStage,
   sbSetStage, sbPlayBoard, sbSetShotView, sbGridTileOpen, sbRenderPlan, sbRenderRemaining, sbAddShot,
-  sbTitleSave, sbRenderDrafts, sbFinish, sbRewrite,
+  sbTitleSave, sbRenderDrafts, sbFinish, sbRewrite, sbDismissDraftHint, sbMakeFinal,
   sbStopShot, sbStopFilm, sbExport, sbFilmOpen,
   sbMusicVideoBlock, sbFilmWithTheSong,
   sbFilmPaint, sbBoardChip, sbRowAction, sbAddActiveToBoard,

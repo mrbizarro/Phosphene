@@ -15469,10 +15469,11 @@ html[data-pro=""] .tool-rail .workflow-tabs button[data-workflow="remote"] .new-
 
 /* the two boxed lists */
 .wn-sec-free, .wn-sec-pro { padding: 20px 22px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg-2); }
-/* first under the header (the current release): tighter, so it and the Pro block share the first screen */
+/* the current release's free list sits right under the Pro block (owner, 19 Nov 2026: the Pro block on top): tighter, so both
+   share the first screen */
 .wn-sec-free.is-first { padding: 14px 18px 16px; }
 .wn-sec-free.is-first .wn-sec-h { margin-bottom: 8px; }
-.wn-sec-free.is-first + .wn-np { margin-top: 18px; }
+.wn-np + .wn-sec-free.is-first, .wn-sec-pro + .wn-sec-free.is-first { margin-top: 18px; }
 .wn-sec-pro { border-color: var(--pro-edge);
   background: linear-gradient(160deg, color-mix(in srgb, var(--site-violet) 12%, transparent), color-mix(in srgb, var(--site-violet) 4%, transparent) 60%), var(--bg-2); }
 .wn-sec-pro .wn-sec-h h3 { color: var(--pro-ink); }
@@ -15543,6 +15544,9 @@ html[data-pro=""] .tool-rail .workflow-tabs button[data-workflow="remote"] .new-
 .wn-np-also-k { margin-right: 6px; font: 600 var(--fs-2xs)/1.3 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--pro-ink); }
 .wn-np-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin-top: 18px; }
 .wn-np-foot p { flex: 1 1 320px; margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: 1.5; }
+/* a member's quiet link to the Pro page, under "Included in your Pro" (no buy button) */
+.wn-np-member { margin: 14px 0 0; font-size: var(--fs-sm); }
+.wn-np-member .wn-np-what { color: var(--pro-ink); }
 .wn-np-cta { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 20px; border-radius: 8px;
   color: #fff; font-weight: 650; font-size: 15px; text-decoration: none; background-color: #4f3191; background-image: var(--v2-action);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .16), var(--v2-action-glow); transition: box-shadow var(--t-fast); }
@@ -15791,3 +15795,16 @@ body.h3-refs-on #h3SpeedRow { display: none !important; }
 .h3-ref-section .h3-refs-p1-cta { display: none; }
 .h3-ref-section.refs-on .h3-refs-p1-cta { display: block; }
 .h3-ref-section.refs-on .h3-face-cta { display: none; }
+
+/* Storyboard: draft or final, said on every clip (owner, 19 Nov 2026). The draft label reads as a label, not a
+   footnote; Make final sits beside it; the one-time hint explains draft first, then final. */
+.sb-clip-pass.is-draft { color: var(--warning); font-weight: 600; }
+.sb-shot-out .info .sb-make-final, .sb-play-pass .sb-make-final { margin-top: 6px; }
+.sb-make-final .sub { margin-left: 4px; opacity: .75; font-weight: 500; }
+.sb-play-pass { display: inline-flex; align-items: center; gap: 10px; margin-left: 10px; font-size: var(--fs-sm); color: var(--muted); }
+.sb-play-pass.is-draft .sb-play-pass-t { color: var(--warning); font-weight: 600; }
+.sb-play-pass .sb-make-final { margin-top: 0; }
+.sb-draft-hint { display: flex; align-items: center; gap: 14px; margin: 0 0 12px; padding: 12px 14px; border: 1px solid var(--border);
+  border-radius: var(--r-lg, 10px); background: var(--bg-2); font-size: var(--fs-sm); line-height: 1.5; }
+.sb-draft-hint p { flex: 1 1 auto; margin: 0; }
+.sb-draft-hint[hidden], .sb-play-pass[hidden] { display: none; }

@@ -26,8 +26,9 @@ function distText(pinokio, macApp) { return isMacApp() ? macApp : pinokio; }
 // twin; test_site_links.py keeps the two campaign lists identical). The ONLY
 // place a phosphene.video link gets its tags: siteLink(path, campaign, content).
 // BOOT.site_utm = {source: 'app', medium: 'mac-app' | 'pinokio'} comes from the
-// server. Nothing else goes into the link: no install id, no version, no email
-// (Get Pro / pricing links add the two install-source slugs, below).
+// server. Nothing else goes into the link: no install id, no email (Get Pro /
+// pricing links add the two install-source slugs, below; What's new's Pro
+// button alone names the release it came from, owner 19 Nov 2026).
 const SITE_ORIGIN = 'https://phosphene.video';
 const SITE_CAMPAIGNS = [
   'get-pro', 'upgrade', 'pricing', 'docs', 'download', 'support',
@@ -36,15 +37,21 @@ const SITE_CAMPAIGNS = [
   'install', 'release-body',
 ];
 const SITE_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+// What's new's Pro button (owner, 19 Nov 2026) asks for utm_medium=whats-new and utm_content=<version>: the one
+// medium a link may set for itself, and a release number as its content. Nothing else widens.
+const SITE_MEDIUM_OVERRIDES = ['whats-new'];
+const SITE_VERSION_RE = /^\d+\.\d+\.\d+$/;
 const SITE_PRO_CAMPAIGNS = ['get-pro', 'upgrade', 'pricing'];
 const SITE_INSTALL_SLUG_RE = /^[a-z0-9_.~-]{1,40}$/;
 const SITE_INSTALL_VIAS = ['site-match', 'pinokio-list', 'no-match', 'before-tracking'];
 // Merge into any query already on the url: an old utm_* is replaced, never
 // doubled; other parameters and the #fragment stay.
-function siteLink(path, campaign, content) {
+function siteLink(path, campaign, content, medium) {
   if (!SITE_CAMPAIGNS.includes(campaign)) throw new Error('unknown utm_campaign ' + campaign);
-  if (content != null && !SITE_NAME_RE.test(content)) throw new Error('bad utm_content ' + content);
-  const base = (typeof BOOT !== 'undefined' && BOOT.site_utm) || {source: 'app', medium: 'pinokio'};
+  if (content != null && !SITE_NAME_RE.test(content) && !SITE_VERSION_RE.test(content)) throw new Error('bad utm_content ' + content);
+  if (medium != null && !SITE_MEDIUM_OVERRIDES.includes(medium)) throw new Error('bad utm_medium ' + medium);
+  const base0 = (typeof BOOT !== 'undefined' && BOOT.site_utm) || {source: 'app', medium: 'pinokio'};
+  const base = medium ? {source: base0.source, medium} : base0;
   const u = new URL(String(path).startsWith('http') ? path : SITE_ORIGIN + path);
   if (u.protocol !== 'https:' || (u.hostname !== 'phosphene.video' && u.hostname !== 'www.phosphene.video')) {
     throw new Error('only phosphene.video links are tagged');
@@ -77,7 +84,7 @@ function siteLink(path, campaign, content) {
 function siteLinkApply(a) {
   const campaign = a.dataset.utmCampaign;
   if (!campaign) return;
-  try { a.href = siteLink(a.getAttribute('href'), campaign, a.dataset.utmContent || null); } catch (_) {}
+  try { a.href = siteLink(a.getAttribute('href'), campaign, a.dataset.utmContent || null, a.dataset.utmMedium || null); } catch (_) {}
 }
 (function wireSiteLinks() {
   const go = () => document.querySelectorAll('a[data-utm-campaign]').forEach(siteLinkApply);
@@ -87,7 +94,8 @@ function siteLinkApply(a) {
     if (a) siteLinkApply(a);
     // Anonymous count of Get Pro clicks and which surface (owner, 8 Nov 2026); opt-out is the server's.
     if (a && a.dataset.utmCampaign === 'get-pro' && typeof _uiEvent === 'function') {
-      const where = (a.dataset.utmContent || '').replace(/-/g, '_');
+      // data-pro-where names the surface when utm_content carries something else (What's new: the version).
+      const where = (a.dataset.proWhere || a.dataset.utmContent || '').replace(/-/g, '_');
       // The Pro window's plan buttons also say which plan (monthly, yearly, founding); nothing else rides along.
       const plan = where === 'pro_modal' && ['monthly', 'yearly', 'founding'].includes(a.dataset.plan) ? a.dataset.plan : null;
       if (where && where !== 'speedup_line') _uiEvent('pro_click', plan ? {where, action: 'get', plan} : {where, action: 'get'});

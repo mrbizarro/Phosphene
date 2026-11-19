@@ -32014,6 +32014,10 @@ def storyboard_status() -> dict:
         # the browser computes no canvas of its own (docs/ARCHITECTURE.md).
         "max_dim": _sb_max_dim(),
         "canvases": _sb_canvases(),
+        # What each pass quality renders on HAILUO H3, whose canvases are not LTX's (Draft 640x384, not 640x448;
+        # Balanced 768x448, not 1024x576). The storyboard labels every H3 draft with it (owner, 19 Nov 2026: a
+        # buyer took 640x384 drafts for his chosen 1024 quality). One table, storyboard.h3_quality_for().
+        "h3_canvases": _sb_h3_canvases(),
         "defaults": {
             "shots": s.get("storyboard_shots", 12),
             "draft_quality": s.get("storyboard_draft_quality", "quick"),
@@ -32147,6 +32151,17 @@ _SB_QUALITY_CANVAS = {
     "high":      (1024, 576),
     "high_720p": (1024, 576),
 }
+
+
+def _sb_h3_canvases() -> dict:
+    """Pass quality key -> the Hailuo H3 cell a storyboard shot renders at for it: {key, label, width, height}."""
+    out = {}
+    for q in dict.fromkeys(STORYBOARD_DRAFT_QUALITIES + STORYBOARD_FINAL_QUALITIES):
+        cell = H3_QUALITIES.get(storyboard.h3_quality_for(q)) or {}
+        if cell.get("width") and cell.get("height"):
+            out[q] = {"key": cell["key"], "label": cell.get("label") or cell["key"],
+                      "width": int(cell["width"]), "height": int(cell["height"])}
+    return out
 
 
 def _sb_canvases() -> dict:

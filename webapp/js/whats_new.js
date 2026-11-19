@@ -7,16 +7,21 @@
 // get-pro / whats-new), "Included in your Pro" and no button for a member. The old New in Pro box below is then not
 // drawn (no line twice).
 //
-// NEW FOR EVERYONE STAYS IN SIGHT (the owner, 14 Nov, on the first build: "make sure that users can also see what is
-// new in general for normal users"; the Pro block had pushed the free changes below the fold). So the free changes are
-// drawn FIRST, right under the header, as a short list, and the Pro block comes straight after it, with its tease folded
-// into one line, so a Free user sees what they got AND the Get Pro button on the first screen without scrolling.
+// PRO BLOCK FIRST (owner, 19 Nov 2026, on the 5.0.62 window: "why is there not a call to action to the landing page in
+// the Pro part, and why is the Pro part below? It should be above. We talk about these things many times. Why does
+// stuff keep coming back?"). The Pro block is drawn FIRST, right under the title, for everyone; the free changes come
+// straight after it. A Free user's Pro block ends with one Get Pro button to the Pro page (utm_medium whats-new,
+// utm_content the version); a member reads "Included in your Pro", no buy button, and one small "What's in Pro" link.
+// It came back once already: a 14 Nov change put the free list first (so it would not fall below the fold) and
+// rewrote the test that pinned the order in the same commit. scripts/check_whats_new.py now renders this window as a
+// Free and a Pro user and fails the release if the Pro block is not first. The tease under real items stays one line,
+// so the Pro block stays short and the free changes still show on the first screen. Do not reorder; ask the owner.
 //
 // ONE FIXED FORMAT (5.0.20). The owner, 12 Nov, on the 5.0.19 window: empty boxes, small off-centre clips, no
 // structure, it read as a debug page. Every release now reads the same, top to bottom, from whats_new.json:
 //   1. header: the version, the date, the release's one-line "headline"
-//   2. New for everyone   (only when the release has something for everyone; first, so nobody misses it)
-//   2b. Now in Pro        (when the release adds to Pro or teases what is next; see above)
+//   2. Now in Pro         (when the release adds to Pro or teases what is next; FIRST, see above)
+//   2b. New for everyone  (only when the release has something for everyone; right under the Pro block)
 //   3. the hero, when the release has one
 //   4. New in Pro         (only without the Now in Pro block, and only when the release adds something to Pro: the
 //                          owner, 12 Nov, "if there is nothing
@@ -183,13 +188,20 @@ function wnNowPro(d) {
     : `<p class="wn-np-coming is-brief"><span class="wn-np-coming-k">${wnEsc(comingTitle)}</span>${soon}${comingBrief}</p>`;
   const also = !proUser && n.also && n.also.length
     ? `<p class="wn-np-also"><span class="wn-np-also-k">${T('whatsnew.also_in_pro', 'Also in Pro')}</span> ${n.also.map(wnEsc).join(' · ')}</p>` : '';
+  // The Pro page, tagged utm_medium=whats-new&utm_campaign=get-pro&utm_content=<version> (siteLinkApply adds them from
+  // these data- attributes; data-pro-where keeps the anonymous Get Pro count on its closed word, whats_new).
+  const proPage = wnEsc((n.cta && n.cta.url) || n.pro_url || d.pricing_url);
+  const tag = ` data-utm-medium="whats-new" data-utm-content="${wnEsc(d.version || '')}" data-pro-where="whats_new" target="_blank" rel="noopener"`;
   const cta = !proUser && n.cta
     ? `<div class="wn-np-foot"><p>${wnEsc(WN_ASK)}</p>`
-      + `<a class="wn-np-cta" href="${wnEsc(n.cta.url || d.pricing_url)}" data-utm-campaign="get-pro" data-utm-content="whats-new" target="_blank" rel="noopener">`
+      + `<a class="wn-np-cta" href="${proPage}" data-utm-campaign="get-pro"${tag}>`
       + `${T('whatsnew.get_pro', 'Get Pro')} <span aria-hidden="true">↗</span></a></div>` : '';
+  const memberLink = proUser
+    ? `<p class="wn-np-member"><a class="dlg-link wn-np-what" href="${proPage}" data-utm-campaign="pricing"${tag}>`
+      + `${T('whatsnew.what_s_in_pro', "What's in Pro")} <span aria-hidden="true">↗</span></a></p>` : '';
   return `<section class="wn-np${proUser ? ' is-member' : ''}${teasing ? ' is-teasing' : ''}" aria-label="${wnEsc(title)}">`
     + `<div class="wn-np-h"><span class="pro-tag is-lead${proUser ? ' pro-on' : ''}">${proUser ? 'Pro ✓' : 'Pro'}</span><h3>${wnEsc(title)}</h3></div>`
-    + (lines ? `<ul class="wn-np-lines">${lines}</ul>` : '') + `${comingBlock}${also}${cta}</section>`;
+    + (lines ? `<ul class="wn-np-lines">${lines}</ul>` : '') + `${comingBlock}${also}${cta}${memberLink}</section>`;
 }
 
 // ---- 5. how it works --------------------------------------------------------------------------------------------
@@ -234,8 +246,10 @@ function wnHowSec(hows, proUser) {
 function wnNow(d) {
   const proUser = !!d.pro_active;
   const top = wnNowPro(d);
-  // the free changes first (everyone reads what they got), the Pro block straight after, then the hero and the rest
-  return wnFreeSec(d, true) + top + wnHero(d.hero) + (top ? '' : wnProSec(d, proUser, {full: true})) + wnHowSec(d.how, proUser);
+  // THE PRO BLOCK FIRST, right under the title (owner, 19 Nov 2026), the free changes straight after, then the hero and
+  // the rest. scripts/check_whats_new.py renders this and refuses a release where anything comes before the Pro block.
+  const pro = top || wnProSec(d, proUser, {full: true});
+  return pro + wnFreeSec(d, true) + wnHero(d.hero) + wnHowSec(d.how, proUser);
 }
 
 function wnEarlier(d) {
@@ -247,7 +261,7 @@ function wnEarlier(d) {
       + (e.date ? `<time datetime="${wnEsc(e.date)}">${wnEsc(wnDate(e.date))}</time>` : '')
       + (e.headline ? `<p>${wnEsc(e.headline)}</p>` : '') + '</div>'
       + still
-      + `<div class="wn-rel-cols">${wnFreeSec(r)}${wnProSec(r, proUser)}</div>`
+      + `<div class="wn-rel-cols">${wnProSec(r, proUser)}${wnFreeSec(r)}</div>`
       + wnHowSec(e.how, proUser) + '</article>';
   }).join('');
   return (rows || `<p class="wn-empty">${T('whatsnew.no_earlier_releases', 'No earlier releases to show.')}</p>`)
