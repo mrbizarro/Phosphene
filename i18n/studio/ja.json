@@ -5187,7 +5187,9 @@
   "yourProModal.close": "閉じる",
   "yourProModal.title.close": "閉じる",
   "yourProModal.your_licence": "ライセンス",
-  "yourProTitle.your_pro": "Proの内容"
+  "yourProTitle.your_pro": "Proの内容",
+  "queue.picture_stall_help": "画像エンジンが30分間応答しなかったため、Phospheneが停止しました。もう一度「生成」を押してください。ダウンロード中だった場合、完了したファイルの続きから再開します。再発する場合はPhospheneを再起動してください。",
+  "queue.pictures_partial_help": "一部の画像が完成し、ギャラリーに保存されています。1枚ずつ生成してみてください。"
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -10338,7 +10340,9 @@
   "yourProModal.close": "771bd90492",
   "yourProModal.title.close": "771bd90492",
   "yourProModal.your_licence": "f77c5fa000",
-  "yourProTitle.your_pro": "41115201f8"
+  "yourProTitle.your_pro": "41115201f8",
+  "queue.picture_stall_help": "8fdd8e06d7",
+  "queue.pictures_partial_help": "5c313b4a61"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "2141c67ce2",

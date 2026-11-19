@@ -5220,7 +5220,9 @@
   "yourProModal.close": "Fechar",
   "yourProModal.title.close": "Fechar",
   "yourProModal.your_licence": "Sua licença",
-  "yourProTitle.your_pro": "Seu Pro"
+  "yourProTitle.your_pro": "Seu Pro",
+  "queue.picture_stall_help": "O motor de imagens não respondeu durante 30 minutos, por isso o Phosphene o parou. Prima Gerar novamente; se havia uma transferência em curso, continua a partir dos ficheiros já concluídos. Se voltar a acontecer, reinicie o Phosphene.",
+  "queue.pictures_partial_help": "Algumas imagens ficaram prontas. Estão guardadas na galeria. Tente novamente com uma imagem de cada vez."
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -10371,7 +10373,9 @@
   "yourProModal.close": "771bd90492",
   "yourProModal.title.close": "771bd90492",
   "yourProModal.your_licence": "f77c5fa000",
-  "yourProTitle.your_pro": "41115201f8"
+  "yourProTitle.your_pro": "41115201f8",
+  "queue.picture_stall_help": "8fdd8e06d7",
+  "queue.pictures_partial_help": "5c313b4a61"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "34c221e682",

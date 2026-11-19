@@ -5238,7 +5238,9 @@
   "yourProModal.close": "Закрыть",
   "yourProModal.title.close": "Закрыть",
   "yourProModal.your_licence": "Ваша лицензия",
-  "yourProTitle.your_pro": "Ваш Pro"
+  "yourProTitle.your_pro": "Ваш Pro",
+  "queue.picture_stall_help": "Модуль создания изображений не отвечал 30 минут, поэтому Phosphene остановил его. Нажмите «Создать» ещё раз; если шла загрузка, она продолжится после уже загруженных файлов. Если это повторится, перезапустите Phosphene.",
+  "queue.pictures_partial_help": "Некоторые изображения готовы и сохранены в галерее. Попробуйте снова, создавая по одному изображению."
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -10389,7 +10391,9 @@
   "yourProModal.close": "771bd90492",
   "yourProModal.title.close": "771bd90492",
   "yourProModal.your_licence": "f77c5fa000",
-  "yourProTitle.your_pro": "41115201f8"
+  "yourProTitle.your_pro": "41115201f8",
+  "queue.picture_stall_help": "8fdd8e06d7",
+  "queue.pictures_partial_help": "5c313b4a61"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "2997d999fb",

@@ -5187,7 +5187,9 @@
   "yourProModal.close": "닫기",
   "yourProModal.title.close": "닫기",
   "yourProModal.your_licence": "내 라이선스",
-  "yourProTitle.your_pro": "내 Pro"
+  "yourProTitle.your_pro": "내 Pro",
+  "queue.picture_stall_help": "사진 엔진이 30분 동안 응답하지 않아 Phosphene이 중지했습니다. 생성을 다시 누르세요. 다운로드 중이었다면 완료된 파일 다음부터 계속됩니다. 다시 발생하면 Phosphene을 다시 시작하세요.",
+  "queue.pictures_partial_help": "일부 사진이 완성되어 갤러리에 저장되었습니다. 한 번에 한 장씩 다시 시도하세요."
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -10338,7 +10340,9 @@
   "yourProModal.close": "771bd90492",
   "yourProModal.title.close": "771bd90492",
   "yourProModal.your_licence": "f77c5fa000",
-  "yourProTitle.your_pro": "41115201f8"
+  "yourProTitle.your_pro": "41115201f8",
+  "queue.picture_stall_help": "8fdd8e06d7",
+  "queue.pictures_partial_help": "5c313b4a61"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "21666252b0",

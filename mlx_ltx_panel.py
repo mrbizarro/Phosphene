@@ -24931,6 +24931,13 @@ def _analytics_render_event(job: dict) -> None:
             "source": _analytics_source(p, job),
             "audio_mode": _analytics_audio_mode(p, engine, mode),
         }
+        if mode == "image" and job.get("image_partial"):
+            partial = job["image_partial"]
+            import image_diagnostics
+            props["image_partial"] = True
+            props["images_finished"] = int(partial["finished"])
+            props["images_requested"] = int(partial["requested"])
+            props["image_last_line"] = image_diagnostics.safe_last_line([partial["last_line"]])
         # 4.19.11: which H3 sampler ran, so the fleet's timing lanes never
         # infer it from `steps` (7 points is lightx2v v1.3, Turbo AND a Best
         # pinned to 7). Closed vocabulary; H3 renders only.
@@ -25065,13 +25072,12 @@ def _analytics_render_event(job: dict) -> None:
                     # and no typed text can ride along.
                     ts = str(job.get("train_stage") or "unknown")
                     props["train_stage"] = ts if ts in _TRAIN_STAGES else "unknown"
-                    if not str(job.get("error") or "").startswith("training exited with code"):
-                        props["error_signature"] = (
-                            f"training stopped: {props['train_error']} "
-                            f"(stage {props['train_stage']})")
-                        if props["error_class"] == "other":
-                            props["error_fingerprint"] = _analytics_error_fingerprint(
-                                props["error_signature"])
+                    props["error_signature"] = (
+                        f"training stopped: {props['train_error']} "
+                        f"(stage {props['train_stage']})")
+                    if props["error_class"] == "other":
+                        props["error_fingerprint"] = _analytics_error_fingerprint(
+                            props["error_signature"])
         _analytics_capture(event, props)
     except Exception:
         pass
@@ -38940,6 +38946,12 @@ def job_input_refusal(params: dict) -> str | None:
             what = {"extend": "Extend", "retake": "Retake"}.get(m, "Add sound")
             return (f"{what} needs the clip it continues - pick a finished clip "
                     f"(source {src!r} is not on disk).")
+        if m == "v2a":
+            # H37 (fleet 18 Nov 2026, 5.0.56): a sound file picked for Add sound
+            # reached the engine and died as "H3 render exited with code 2 -
+            # Error opening output files: Invalid argument". Say it here.
+            if video_unreadable_reason(src).startswith("it has no video track"):
+                return unreadable_video_refusal(src, "clip for Add sound")
     elif m == "a2v":
         audio = _audio()
         if not audio:
@@ -41371,6 +41383,9 @@ def run_image_job_inner(job: dict) -> None:
     # worker must not file an acknowledged cancellation as done.
     _raise_if_cancelled(job, "the image was published")
     elapsed = round(time.time() - t0, 2)
+    if candidates and candidates[0].get("partial"):
+        job["image_partial"] = {"finished": len(candidates), "requested": n,
+                                "last_line": candidates[0]["last_line"]}
 
     # Record the observed wall time so /image/engine_status can override
     # the hardcoded baseline with reality. This is what lets the wall-
@@ -41470,7 +41485,9 @@ _TRAIN_ABORT_RX = re.compile(
 #: Mirrors lora_lab.failure.TRAIN_ERROR_CLASSES, which the trainer classifies
 #: into; the panel never forwards a word outside this list.
 TRAIN_ERROR_CLASSES = ("oom", "missing_file", "caption_check", "disk_full",
-                       "import_error", "nan_loss", "other")
+                       "import_error", "nan_loss", "permission", "network", "timeout",
+                       "invalid_data", "shape_mismatch", "metal_error", "io_error",
+                       "type_error", "assertion", "process_exit", "other")
 #: Where the trainer stopped (docs/ANALYTICS.md `train_stage`); mirrors
 #: lora_lab.failure.TRAIN_STAGES.
 _TRAIN_STAGES = ("models", "caption", "config", "ingest", "crop", "preprocess",

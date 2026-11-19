@@ -3523,6 +3523,9 @@ function nowCardFailureActions(last, info) {
 }
 function friendlyJobError(raw, engine) {
   raw = raw || 'unknown error';
+  if (/Picture stalled;|mflux.*stalled: no output for/i.test(raw)) {
+    return { friendly: T('queue.picture_stall_help', 'The picture engine stopped responding for 30 minutes, so Phosphene stopped it. Press Generate again; if a download was running it continues where the finished files left off. If it happens again, restart Phosphene.'), hint: '', smaller: false, details: raw };
+  }
   // 4.17.5: a size macOS's GPU watchdog stopped twice on this Mac (once in
   // short GPU steps) is refused up front instead of failing again - smaller
   // is the way forward, and the card offers exactly that.
@@ -4494,7 +4497,9 @@ async function poll() {
       nowCard.classList.toggle('waiting', !!waitNote && waitNote.kind !== 'paused');
       nowCard.querySelector('.ttl').textContent = waitNote ? waitNote.title : T('queue.idle', 'Idle');
       nowCard.querySelector('.meta').textContent = waitNote
-        ? waitNote.text : T('queue.no_jobs_queued_generate_something', 'No jobs queued. Generate something on the left.');
+        ? waitNote.text : (last && last.image_partial
+          ? T('queue.pictures_partial_help', 'Some pictures finished. They are saved in the gallery. Try again with one picture at a time.')
+          : T('queue.no_jobs_queued_generate_something', 'No jobs queued. Generate something on the left.'));
       // #80: a paused worker used to say "waits for resume" and offer no way
       // to resume from where the user was looking; the only control was the
       // Pause/Resume chip above the queue list, and a restart persisted the

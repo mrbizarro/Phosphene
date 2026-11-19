@@ -5221,7 +5221,9 @@
   "yourProModal.close": "Cerrar",
   "yourProModal.title.close": "Cerrar",
   "yourProModal.your_licence": "Tu licencia",
-  "yourProTitle.your_pro": "Tu Pro"
+  "yourProTitle.your_pro": "Tu Pro",
+  "queue.picture_stall_help": "El motor de imágenes no respondió durante 30 minutos, así que Phosphene lo detuvo. Pulsa Generar de nuevo; si había una descarga en curso, continúa a partir de los archivos ya terminados. Si vuelve a ocurrir, reinicia Phosphene.",
+  "queue.pictures_partial_help": "Algunas imágenes terminaron. Están guardadas en la galería. Inténtalo de nuevo con una imagen cada vez."
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -10373,7 +10375,9 @@
   "yourProModal.close": "771bd90492",
   "yourProModal.title.close": "771bd90492",
   "yourProModal.your_licence": "f77c5fa000",
-  "yourProTitle.your_pro": "41115201f8"
+  "yourProTitle.your_pro": "41115201f8",
+  "queue.picture_stall_help": "8fdd8e06d7",
+  "queue.pictures_partial_help": "5c313b4a61"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "2fed24a3e7",

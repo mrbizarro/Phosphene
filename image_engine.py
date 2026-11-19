@@ -1997,9 +1997,9 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
                 except subprocess.TimeoutExpired:
                     pass
             raise RuntimeError(
-                f"{bin_name} stalled: no output for {int(stall_budget)}s "
-                f"(a hung download or a Metal deadlock). First-run weight pulls "
-                f"stream progress and keep this alive — a genuine stall tripped it."
+                f"Picture stalled; last line: {image_diagnostics.safe_last_line(last_lines)}. "
+                f"{bin_name} stalled: no output for {int(stall_budget)}s."
+
             )
         rc = proc.wait(timeout=30)
     except subprocess.TimeoutExpired as e:

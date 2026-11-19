@@ -19,7 +19,9 @@ from pathlib import Path
 
 #: The closed vocabulary. docs/ANALYTICS.md, `render_failed.train_error`.
 TRAIN_ERROR_CLASSES = ("oom", "missing_file", "caption_check", "disk_full",
-                       "import_error", "nan_loss", "other")
+                       "import_error", "nan_loss", "permission", "network", "timeout",
+                       "invalid_data", "shape_mismatch", "metal_error", "io_error",
+                       "type_error", "assertion", "process_exit", "other")
 
 # MLX / Metal allocation failures. All of these arrive as RuntimeError text.
 _OOM_FRAGMENTS = (
@@ -89,7 +91,31 @@ def classify_exception(exc: BaseException | None) -> str:
         if (type(e).__name__ == "HFValidationError"
                 and "repo id must be in the form" in str(e).lower()):
             return "missing_file"
+    for e in reversed(links):
+        named = classify_detail(type(e).__name__, str(e))
+        if named != "other":
+            return named
     return "other"
+
+
+def classify_detail(name: str, message: str = "") -> str:
+    """Fixed categories only; never return any part of an exception's text."""
+    text = message.lower()
+    if any(x in text for x in ("cannot reshape", "shape mismatch", "shapes are not aligned", "broadcast")):
+        return "shape_mismatch"
+    if any(x in text for x in ("command buffer execution failed", "metal error", "gpu timeout")):
+        return "metal_error"
+    return {
+        "PermissionError": "permission", "TimeoutError": "timeout",
+        "ConnectTimeout": "timeout", "ReadTimeout": "timeout",
+        "ConnectionError": "network", "ConnectionResetError": "network",
+        "ConnectionRefusedError": "network", "HTTPError": "network",
+        "HfHubHTTPError": "network", "URLError": "network",
+        "UnidentifiedImageError": "invalid_data", "JSONDecodeError": "invalid_data",
+        "ValueError": "invalid_data", "EOFError": "invalid_data",
+        "TypeError": "type_error", "AssertionError": "assertion",
+        "OSError": "io_error", "CalledProcessError": "process_exit",
+    }.get(name, "other")
 
 
 def is_finite_loss(value) -> bool:

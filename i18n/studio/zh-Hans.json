@@ -5187,7 +5187,9 @@
   "yourProModal.close": "关闭",
   "yourProModal.title.close": "关闭",
   "yourProModal.your_licence": "你的许可证",
-  "yourProTitle.your_pro": "你的 Pro"
+  "yourProTitle.your_pro": "你的 Pro",
+  "queue.picture_stall_help": "图像引擎已停止响应30分钟，因此Phosphene将其停止。请再次点击“生成”；如果当时正在下载，将从已完成的文件之后继续。如果再次发生，请重启Phosphene。",
+  "queue.pictures_partial_help": "部分图片已完成，并已保存在图库中。请重试，每次生成一张图片。"
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -10338,7 +10340,9 @@
   "yourProModal.close": "771bd90492",
   "yourProModal.title.close": "771bd90492",
   "yourProModal.your_licence": "f77c5fa000",
-  "yourProTitle.your_pro": "41115201f8"
+  "yourProTitle.your_pro": "41115201f8",
+  "queue.picture_stall_help": "8fdd8e06d7",
+  "queue.pictures_partial_help": "5c313b4a61"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "d6e72ae332",

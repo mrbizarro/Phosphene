@@ -5204,7 +5204,9 @@
   "yourProModal.close": "Schließen",
   "yourProModal.title.close": "Schließen",
   "yourProModal.your_licence": "Deine Lizenz",
-  "yourProTitle.your_pro": "Dein Pro"
+  "yourProTitle.your_pro": "Dein Pro",
+  "queue.picture_stall_help": "Die Bilderzeugung hat 30 Minuten lang nicht reagiert, deshalb hat Phosphene sie gestoppt. Klicke erneut auf Generieren. Falls ein Download lief, wird er nach den bereits fertig heruntergeladenen Dateien fortgesetzt. Falls es wieder passiert, starte Phosphene neu.",
+  "queue.pictures_partial_help": "Einige Bilder sind fertig. Sie sind in der Galerie gespeichert. Versuche es erneut mit jeweils einem Bild."
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -10355,7 +10357,9 @@
   "yourProModal.close": "771bd90492",
   "yourProModal.title.close": "771bd90492",
   "yourProModal.your_licence": "f77c5fa000",
-  "yourProTitle.your_pro": "41115201f8"
+  "yourProTitle.your_pro": "41115201f8",
+  "queue.picture_stall_help": "8fdd8e06d7",
+  "queue.pictures_partial_help": "5c313b4a61"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "bbbbf77cc4",

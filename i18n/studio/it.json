@@ -5220,7 +5220,9 @@
   "yourProModal.close": "Chiudi",
   "yourProModal.title.close": "Chiudi",
   "yourProModal.your_licence": "La tua licenza",
-  "yourProTitle.your_pro": "Il tuo Pro"
+  "yourProTitle.your_pro": "Il tuo Pro",
+  "queue.picture_stall_help": "Il motore delle immagini non ha risposto per 30 minuti, quindi Phosphene lo ha fermato. Premi di nuovo Genera; se era in corso un download, riprende dai file già completati. Se succede ancora, riavvia Phosphene.",
+  "queue.pictures_partial_help": "Alcune immagini sono pronte. Sono salvate nella galleria. Riprova con una sola immagine alla volta."
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -10371,7 +10373,9 @@
   "yourProModal.close": "771bd90492",
   "yourProModal.title.close": "771bd90492",
   "yourProModal.your_licence": "f77c5fa000",
-  "yourProTitle.your_pro": "41115201f8"
+  "yourProTitle.your_pro": "41115201f8",
+  "queue.picture_stall_help": "8fdd8e06d7",
+  "queue.pictures_partial_help": "5c313b4a61"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "d40b3fcb5e",

@@ -197,3 +197,26 @@ def bundle_lines(directory, enabled):
     except Exception:
         pass
     return []
+
+
+# Only recognized literal fragments of the last output line can be reported.
+# Blacklisting paths cannot protect arbitrary prompts or caption text.
+LAST_LINE_PHRASES = NATIVE + (
+    'Downloading', 'Fetching', 'Loading weights', 'Loading model',
+    'Encoding prompt', 'Decoding', 'Generating', 'Denoising',
+    'ConnectionError', 'ReadTimeout', 'TimeoutError', 'PermissionError',
+    'No space left on device', 'cannot reshape', 'shape mismatch',
+    'Metal allocation failed', 'worker exited without finishing',
+    'Stopping image generation', 'ValueError', 'RuntimeError',
+    'FileNotFoundError', 'ImportError', 'Connection refused', 'SSL error',
+)
+
+
+def safe_last_line(lines):
+    line = next((str(x).strip() for x in reversed(list(lines)) if str(x).strip()), '')
+    if not line or line == 'no output':
+        return 'no output'
+    if line == 'unrecognized output (text withheld)':
+        return line
+    found = [phrase for phrase in LAST_LINE_PHRASES if phrase.lower() in line.lower()]
+    return '; '.join(found)[:160] if found else 'unrecognized output (text withheld)'

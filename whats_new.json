@@ -2614,5 +2614,88 @@
         "pro": []
       }
     }
+  },
+  "5.0.64": {
+    "free": [
+      "If a batch of pictures stops before the end, the pictures that finished are kept in your gallery. Try the rest one picture at a time.",
+      "Add sound: picking a sound-only file now tells you at once to pick a video clip, instead of failing partway."
+    ],
+    "pro": [],
+    "date": "2026-11-19",
+    "headline": "Finished pictures are kept when a batch stops early.",
+    "i18n": {
+      "de": {
+        "headline": "Fertige Bilder bleiben erhalten, wenn ein Stapel früher stoppt.",
+        "free": [
+          "Stoppt ein Bilderstapel vor dem Ende, bleiben die fertigen Bilder in deiner Galerie. Versuche den Rest Bild für Bild.",
+          "Sound hinzufügen: Wählst du eine reine Tondatei, sagt Phosphene dir sofort, dass du einen Videoclip wählen sollst, statt mittendrin zu scheitern."
+        ],
+        "pro": []
+      },
+      "es": {
+        "headline": "Las imágenes terminadas se guardan si un lote se detiene antes.",
+        "free": [
+          "Si un lote de imágenes se detiene antes del final, las imágenes terminadas se guardan en tu galería. Prueba el resto de una en una.",
+          "Añadir sonido: si eliges un archivo solo de audio, ahora te avisa al instante de que elijas un clip de vídeo, en lugar de fallar a mitad."
+        ],
+        "pro": []
+      },
+      "fr": {
+        "headline": "Les images terminées sont gardées quand un lot s’arrête trop tôt.",
+        "free": [
+          "Si un lot d’images s’arrête avant la fin, les images terminées restent dans ta galerie. Essaie le reste une image à la fois.",
+          "Ajouter du son : si tu choisis un fichier audio seul, Phosphene te demande tout de suite un clip vidéo, au lieu d’échouer en cours de route."
+        ],
+        "pro": []
+      },
+      "it": {
+        "headline": "Le immagini finite restano salvate se un gruppo si ferma prima.",
+        "free": [
+          "Se un gruppo di immagini si ferma prima della fine, quelle finite restano nella tua galleria. Prova le altre una alla volta.",
+          "Aggiungi audio: se scegli un file solo audio, ora ti chiede subito una clip video, invece di fallire a metà."
+        ],
+        "pro": []
+      },
+      "ja": {
+        "headline": "まとめて作った画像が途中で止まっても、完成した画像は残ります。",
+        "free": [
+          "まとめて作った画像が途中で止まっても、完成した画像はギャラリーに残ります。残りは1枚ずつ試してください。",
+          "音を追加：音声だけのファイルを選ぶと、途中で失敗せず、すぐに動画クリップを選ぶよう案内します。"
+        ],
+        "pro": []
+      },
+      "ko": {
+        "headline": "여러 장을 만들다 멈춰도 완성된 이미지는 남아요.",
+        "free": [
+          "여러 장을 만들다 중간에 멈춰도 완성된 이미지는 갤러리에 남아요. 나머지는 한 장씩 다시 해 보세요.",
+          "사운드 추가: 소리만 있는 파일을 고르면 중간에 실패하지 않고 바로 비디오 클립을 고르라고 알려 드려요."
+        ],
+        "pro": []
+      },
+      "pt": {
+        "headline": "As imagens prontas ficam salvas quando um lote para antes.",
+        "free": [
+          "Se um lote de imagens parar antes do fim, as imagens prontas ficam na sua galeria. Tente o resto uma de cada vez.",
+          "Adicionar som: se você escolher um arquivo só de áudio, agora ele pede na hora um clipe de vídeo, em vez de falhar no meio."
+        ],
+        "pro": []
+      },
+      "ru": {
+        "headline": "Готовые картинки сохраняются, если пакет остановился раньше.",
+        "free": [
+          "Если пакет картинок остановился до конца, готовые картинки остаются в галерее. Остальные попробуй по одной.",
+          "Добавить звук: если выбрать файл только со звуком, Phosphene сразу попросит видеоклип, а не сломается на полпути."
+        ],
+        "pro": []
+      },
+      "zh-Hans": {
+        "headline": "一批图片中途停止时，已完成的图片会保留。",
+        "free": [
+          "一批图片在结束前停止时，已完成的图片会保留在你的图库中。剩下的请一张一张地试。",
+          "添加声音：如果选了只有声音的文件，现在会立刻提示你选择视频片段，而不是中途失败。"
+        ],
+        "pro": []
+      }
+    }
   }
 }

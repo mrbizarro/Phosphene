@@ -605,6 +605,8 @@ def train_error_for_exit(rc: int, trainer_error: dict | None, tail=None) -> str:
         return trainer_error["error_class"]
     if rc == -9:
         return "oom"
+    if rc in (-6, 134):
+        return "metal_error"
     exc = train_exception_from_tail(tail)
     if exc:
         return train_class_from_exception_name(*exc)
@@ -684,7 +686,8 @@ def train_class_from_exception_name(name: str, message: str = "") -> str:
         return "import_error"
     if name == "FileNotFoundError":
         return "missing_file"
-    return "other"
+    from lora_lab.failure import classify_detail
+    return classify_detail(name, message)
 
 
 def train_failure_message(rc: int, trainer_error: dict | None, tail=None) -> str:

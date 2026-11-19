@@ -271,9 +271,11 @@ def _run(cmd, env, on_log, request=None, timeout=7200, guard=(), tail_out=None):
         rc = proc.wait(timeout=10)
         if tail_out is not None:
             tail_out[:] = tail
-        if rc < 0:
+        if rc in (-15, -9):
             raise image_engine.ImageJobCancelled("FLUX 3 stopped.")
-        if rc:
+        # A failed batch can still have verified images: recover its receipts
+        # below and publish those instead of losing the entire batch.
+        if rc and request is None:
             raise RuntimeError("FLUX 3 did not finish: " + _failure_reason(tail, rc))
         return receipts
     finally:
@@ -343,5 +345,10 @@ def _complete_receipts(result, request, output_dir, tail=()):
     if seeds and all(s in got for s in seeds):
         return [got[s] for s in seeds]
     done = sum(1 for s in seeds if s in got)
+    if done:
+        import image_diagnostics
+        diagnostic = image_diagnostics.safe_last_line(tail)
+        return [dict(got[s], partial=True, requested=len(seeds),
+                     finished=done, last_line=diagnostic) for s in seeds if s in got]
     raise RuntimeError(_failure_message(
         tail, f"{done} of {len(seeds)} finished. Please retry the missing images."))

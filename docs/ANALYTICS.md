@@ -995,3 +995,15 @@ came from. No times, no prompt, no file. The line appears only where Fast draft 
 the clip and a measured ratio exists for this Mac class; never twice in one run of the app, at
 least two days apart, never on the render the star card asks about, and it ends after three
 dismissals. Read it as views (`shown`) against clicks (`opened`) and against Pro sales.
+
+
+### Image partial results and training causes
+
+An image completion may carry `image_partial: true`, `images_finished`,
+`images_requested`, and `image_last_line`. The last line contains only literal
+recognized diagnostic fragments from `image_diagnostics.LAST_LINE_PHRASES`;
+unknown prose is withheld. No prompts, file names or paths are sent.
+Image stall failure signatures place the same filtered last-line detail first.
+Training `train_error` additionally allows permission, network, timeout,
+invalid_data, shape_mismatch, metal_error, io_error, type_error, assertion,
+and process_exit. Training continues to send only closed category/stage words.
