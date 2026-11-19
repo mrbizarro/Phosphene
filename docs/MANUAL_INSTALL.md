@@ -13,8 +13,8 @@ cd phosphene
 git clone https://github.com/dgrauet/ltx-2-mlx.git ltx-2-mlx
 cd ltx-2-mlx
 git remote add fork https://github.com/mrbizarro/ltx-2-mlx.git
-git fetch fork +refs/tags/v0.14.19+ltx25.7:refs/tags/v0.14.19+ltx25.7
-git checkout v0.14.19+ltx25.7
+git fetch fork +refs/tags/v0.14.19+ltx25.9:refs/tags/v0.14.19+ltx25.9
+git checkout v0.14.19+ltx25.9
 cd ..
 
 # 2. Create the Python 3.11 venv inside ltx-2-mlx (uv-managed).
@@ -77,5 +77,5 @@ uv pip install --python ltx-2-mlx/env/bin/python 'mlx-teacache==0.4.1'
 ./ltx-2-mlx/env/bin/python3.11 mlx_ltx_panel.py
 ```
 
-About the version pins: `mlx 0.31.2` attenuates the LTX vocoder by 22 dB. Stay on 0.31.1. `ltx-2-mlx` is pinned to the fork **tag** `v0.14.19+ltx25.7` (`mrbizarro/ltx-2-mlx`, commit `bf419b6`) — v0.14.19 plus the LTX-2.5 port, because upstream has no 2.5 branch. A tag, not a bare SHA: a force-push upstream would strand every install with an un-fetchable pin and a dead Update button. The installed packages report `0.14.19+ltx25.7` and `_LTX_EXPECTED_VERSION` must match that string exactly, or every render logs a VERSION SKEW warning. `scripts/pinokio/ltx_checkout.sh` holds the pin and `node scripts/check_ltx_pin.js` enforces the agreement. `mflux 0.18.0` is the version `patch_mflux_fbcache.py` is line-targeted against, and it is pinned TOGETHER with mlx — mflux declares its own mlx range, so installing it with deps after pinning mlx can silently move mlx (`node scripts/check_post_update.js` fails if either moves alone). `hatchling<1.32` (in `pip-build-constraints.txt`) is a *build-time* pin: 1.32 rejects the `readme = "../../README.md"` that all three upstream packages declare, which fails the wheel build on every tag.
+About the version pins: `mlx 0.31.2` attenuates the LTX vocoder by 22 dB. Stay on 0.31.1. `ltx-2-mlx` is pinned to the fork **tag** `v0.14.19+ltx25.9` (`mrbizarro/ltx-2-mlx`, commit `cd71080`) — v0.14.19 plus the LTX-2.5 port, because upstream has no 2.5 branch. A tag, not a bare SHA: a force-push upstream would strand every install with an un-fetchable pin and a dead Update button. The installed packages report `0.14.19+ltx25.9` and `_LTX_EXPECTED_VERSION` must match that string exactly, or every render logs a VERSION SKEW warning. `scripts/pinokio/ltx_checkout.sh` holds the pin and `node scripts/check_ltx_pin.js` enforces the agreement. `mflux 0.18.0` is the version `patch_mflux_fbcache.py` is line-targeted against, and it is pinned TOGETHER with mlx — mflux declares its own mlx range, so installing it with deps after pinning mlx can silently move mlx (`node scripts/check_post_update.js` fails if either moves alone). `hatchling<1.32` (in `pip-build-constraints.txt`) is a *build-time* pin: 1.32 rejects the `readme = "../../README.md"` that all three upstream packages declare, which fails the wheel build on every tag.
 

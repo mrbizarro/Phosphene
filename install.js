@@ -1,5 +1,5 @@
 // Install the tested runtime first. Models are requested inside the app.
-// Engine pin: v0.14.19+ltx25.7, shared with Update in ltx_checkout.sh.
+// Engine pin: v0.14.19+ltx25.9, shared with Update in ltx_checkout.sh.
 // fs.link keeps models, outputs and settings across Reset. All steps resume.
 module.exports = {
   requires: {
@@ -128,7 +128,7 @@ module.exports = {
     //      LAUNCHER SCRIPT. Both lanes now call the one implementation in
     //      `scripts/pinokio/ltx_checkout.sh`, which holds the literal:
     //
-    //          v0.14.19+ltx25.7   on mrbizarro/ltx-2-mlx
+    //          v0.14.19+ltx25.9   on mrbizarro/ltx-2-mlx
     //
     //      Two reasons, both structural. (1) A SHA on a branch is not a pin:
     //      v3.8.x fetched `feat/ltx-2.5` and checked out a SHA that the branch

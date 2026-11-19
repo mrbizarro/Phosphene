@@ -47,7 +47,7 @@
 # A tag is the only form of this reference that an upstream history rewrite
 # cannot take away.
 #
-# `v0.14.19+ltx25.7` on mrbizarro/ltx-2-mlx == v0.14.19 plus:
+# `v0.14.19+ltx25.9` on mrbizarro/ltx-2-mlx == v0.14.19 plus:
 #   - the LTX-2.5 port (versioned DiT config, duration head, Euler-ancestral
 #     sampler, the vendored Gemma 4 text tower, encoder keyed off the checkpoint)
 #   - unfused runtime LoRAs (c78cc71..3259338)
@@ -66,15 +66,18 @@
 #   - ltx25.7: IC-LoRA `source_video=` — Upscale ×2 from the clip's own latent
 #     (Stage 1 skipped, latent-upsampled, N-step control-aware refine) and the
 #     2.5 distilled schedules on the IC lane instead of the 2.3 constants.
+#   - ltx25.9: the Gemma attention mask is built in the text tower's own dtype
+#     (H36): a float16 tower stopped every render at once with "Mask type must
+#     promote to output type float16". bfloat16 towers compute the same bytes.
 #
-# The three packages declare `0.14.19+ltx25.7`, and `_LTX_EXPECTED_VERSION` in
+# The three packages declare `0.14.19+ltx25.9`, and `_LTX_EXPECTED_VERSION` in
 # mlx_warm_helper.py must equal that string. Move the two together or the
 # version-skew gate reports a permanent false alarm.
 #
 # To bump: retag on the fork, change LTX_PIN here, change the documented value
 # in install.js, bump the three pyprojects AND _LTX_EXPECTED_VERSION, run
 # `node scripts/check_ltx_pin.js`, smoke-test on dev, push.
-LTX_PIN="v0.14.19+ltx25.7"
+LTX_PIN="v0.14.19+ltx25.9"
 # GitHub first, our own server (same tags, same commits) as the backup (owner, 17 Nov 2026:
 # our server's bandwidth is for outages). Either source alone is enough. No credential prompt:
 # a hidden GitHub repo answers 401, which must move on, not wait for a password.

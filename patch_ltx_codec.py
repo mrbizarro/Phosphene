@@ -289,7 +289,7 @@ def _shout(*lines: str) -> None:
 
 
 def main() -> int:
-    print("Applying LTX23MLX patches (ltx-2-mlx v0.14.19+ltx25.7 — codec + Gemma truncation):")
+    print("Applying LTX23MLX patches (ltx-2-mlx v0.14.19+ltx25.9 — codec + Gemma truncation):")
 
     # `upgrade_marker="+faststart"` lets us upgrade installs where the
     # earlier version of this patch was applied (LTX_OUTPUT_PIX_FMT marker
