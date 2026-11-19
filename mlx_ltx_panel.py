@@ -22860,7 +22860,9 @@ def h3_app_install_start(kind: str = "install") -> tuple[int, dict]:
     if not h3_app_install_ram_ok():
         return 400, {"error": f"Hailuo H3 needs at least {H3_MIN_RAM_GB_LOWMEM:.0f} GB of unified memory; "
                               f"this Mac reports {SYSTEM_RAM_GB:.0f} GB. The rest of Phosphene is unaffected."}
-    if h3_available():
+    # Files alone are not "nothing to do": a 16-59 GB Mac also needs the compact engine built.
+    # Otherwise the failed card's "Finish setting up Hailuo H3" button built nothing (APHDSAA9).
+    if h3_available() and not h3_ram_verdict().get("needs_q8_dit"):
         return 200, {"ok": True, "nothing_to_do": True}
     plan = h3_app_install_plan(force=True)
     if plan.get("error"):
@@ -22983,10 +22985,17 @@ def _h3_app_install_thread() -> None:
             break
     h3_status_invalidate()
     stopped = _H3_APP_INSTALL_STOP.is_set()
-    ok = not stopped and error is None and h3_available()
+    # "Done" is what the engine switcher agrees with: files present AND, on a Mac that
+    # renders on the compact engine, that engine built (needs_q8_dit). Judging by files
+    # alone said "done" here while the switcher said "getting ready" forever (APHDSAA9).
+    ok = (not stopped and error is None and h3_available()
+          and not h3_ram_verdict().get("needs_q8_dit"))
     if not stopped and error is None and not ok:
-        error = ("The download finished but Hailuo H3 still reports: "
-                 + "; ".join(h3_paths()["missing"][:3] or ["the compact engine is not built"]))
+        missing = h3_paths()["missing"][:3]
+        error = ("The download finished but Hailuo H3 still reports: " + "; ".join(missing)
+                 if missing else
+                 "The download finished but the compact engine was not built. "
+                 "Press Finish setting up Hailuo H3: nothing already downloaded is lost.")
     with H3_APP_INSTALL_LOCK:
         H3_APP_INSTALL.update(active=False, finished_ts=time.time(), pgid=None,
                               state="stopped" if stopped else "done" if ok else "failed",

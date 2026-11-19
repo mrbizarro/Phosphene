@@ -2983,5 +2983,78 @@
         "pro": []
       }
     }
+  },
+  "5.0.69": {
+    "free": [
+      "If setting up Hailuo H3 stops before the end, the Studio now says so and shows “Finish setting up Hailuo H3”. Nothing you already downloaded is lost."
+    ],
+    "pro": [],
+    "date": "2026-11-19",
+    "headline": "Hailuo H3 no longer waits forever on “getting ready”.",
+    "i18n": {
+      "de": {
+        "headline": "Hailuo H3 hängt nicht mehr ewig bei „wird vorbereitet“.",
+        "free": [
+          "Bricht die Einrichtung von Hailuo H3 vor dem Ende ab, sagt das Studio das jetzt und zeigt „Einrichtung von Hailuo H3 abschließen“. Bereits Heruntergeladenes bleibt erhalten."
+        ],
+        "pro": []
+      },
+      "es": {
+        "headline": "Hailuo H3 ya no se queda para siempre en «preparándose».",
+        "free": [
+          "Si la configuración de Hailuo H3 se detiene antes de terminar, el Studio ahora lo indica y muestra «Terminar de configurar Hailuo H3». No pierdes nada de lo que ya descargaste."
+        ],
+        "pro": []
+      },
+      "fr": {
+        "headline": "Hailuo H3 ne reste plus bloqué sur « préparation en cours ».",
+        "free": [
+          "Si la configuration de Hailuo H3 s’arrête avant la fin, le Studio le dit maintenant et affiche « Terminer la configuration de Hailuo H3 ». Rien de ce qui est déjà téléchargé n’est perdu."
+        ],
+        "pro": []
+      },
+      "it": {
+        "headline": "Hailuo H3 non resta più per sempre su «preparazione».",
+        "free": [
+          "Se la configurazione di Hailuo H3 si ferma prima della fine, lo Studio ora lo dice e mostra «Completa la configurazione di Hailuo H3». Quello che hai già scaricato non va perso."
+        ],
+        "pro": []
+      },
+      "ja": {
+        "headline": "Hailuo H3 が「準備中」のまま止まらなくなりました。",
+        "free": [
+          "Hailuo H3 のセットアップが途中で止まった場合、Studio がそれを知らせ、「Hailuo H3のセットアップを完了」を表示します。ダウンロード済みのものは失われません。"
+        ],
+        "pro": []
+      },
+      "ko": {
+        "headline": "Hailuo H3가 더 이상 ‘준비 중’에 계속 머물지 않아요.",
+        "free": [
+          "Hailuo H3 설정이 끝나기 전에 멈추면, 이제 Studio가 알려 주고 ‘Hailuo H3 설정 마무리’를 보여 줘요. 이미 받은 파일은 그대로 남아요."
+        ],
+        "pro": []
+      },
+      "pt": {
+        "headline": "O Hailuo H3 não fica mais para sempre em “preparando”.",
+        "free": [
+          "Se a configuração do Hailuo H3 parar antes do fim, o Studio agora avisa e mostra “Concluir a configuração do Hailuo H3”. Nada do que você já baixou se perde."
+        ],
+        "pro": []
+      },
+      "ru": {
+        "headline": "Hailuo H3 больше не висит бесконечно в состоянии «готовится».",
+        "free": [
+          "Если настройка Hailuo H3 остановилась до конца, Studio теперь сообщает об этом и показывает «Завершить настройку Hailuo H3». Уже скачанное не пропадает."
+        ],
+        "pro": []
+      },
+      "zh-Hans": {
+        "headline": "Hailuo H3 不会再一直卡在“准备中”。",
+        "free": [
+          "如果 Hailuo H3 的设置中途停下，Studio 现在会告诉你，并显示“完成 Hailuo H3 的设置”。已经下载的内容不会丢失。"
+        ],
+        "pro": []
+      }
+    }
   }
 }
