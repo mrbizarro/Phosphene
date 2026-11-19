@@ -3139,5 +3139,88 @@
         "pro": []
       }
     }
+  },
+  "5.0.71": {
+    "free": [
+      "If a download stops partway, Phosphene now keeps what it already saved and tries again by itself, from another place if needed.",
+      "Still stopped? Choose Download again in the Studio, or Resume in the Mac app. It carries on from where it stopped."
+    ],
+    "pro": [],
+    "date": "2026-11-19",
+    "headline": "Downloads that stop partway now carry on from where they stopped.",
+    "i18n": {
+      "de": {
+        "headline": "Downloads, die mittendrin abbrechen, machen jetzt dort weiter, wo sie aufgehört haben.",
+        "free": [
+          "Wenn ein Download mittendrin abbricht, behält Phosphene jetzt, was schon gespeichert ist, und versucht es von selbst noch einmal, wenn nötig von einer anderen Quelle.",
+          "Immer noch angehalten? Wähle im Studio noch einmal Herunterladen oder in der Mac-App Fortsetzen. Es geht dort weiter, wo es aufgehört hat."
+        ],
+        "pro": []
+      },
+      "es": {
+        "headline": "Las descargas que se detienen a medias ahora siguen desde donde se quedaron.",
+        "free": [
+          "Si una descarga se detiene a medias, Phosphene ahora conserva lo que ya guardó y vuelve a intentarlo solo, desde otro lugar si hace falta.",
+          "¿Sigue detenida? Elige Descargar otra vez en el Studio, o Reanudar en la app para Mac. Sigue desde donde se quedó."
+        ],
+        "pro": []
+      },
+      "fr": {
+        "headline": "Les téléchargements qui s’arrêtent en route reprennent maintenant là où ils s’étaient arrêtés.",
+        "free": [
+          "Si un téléchargement s’arrête en route, Phosphene garde maintenant ce qui est déjà enregistré et réessaie tout seul, depuis une autre source si besoin.",
+          "Toujours arrêté ? Choisis à nouveau Télécharger dans le Studio, ou Reprendre dans l’app Mac. Il reprend là où il s’était arrêté."
+        ],
+        "pro": []
+      },
+      "it": {
+        "headline": "I download che si fermano a metà ora riprendono da dove si erano fermati.",
+        "free": [
+          "Se un download si ferma a metà, Phosphene ora tiene ciò che ha già salvato e riprova da solo, da un’altra fonte se serve.",
+          "Ancora fermo? Scegli di nuovo Scarica nello Studio, o Riprendi nell’app per Mac. Riprende da dove si era fermato."
+        ],
+        "pro": []
+      },
+      "ja": {
+        "headline": "途中で止まったダウンロードが、止まったところから続くようになりました。",
+        "free": [
+          "ダウンロードが途中で止まっても、Phosphene はすでに保存した分を残し、必要なら別の場所から自動でやり直します。",
+          "それでも止まったままなら、Studio でもう一度「ダウンロード」を、Mac アプリでは「再開」を選んでください。止まったところから続きます。"
+        ],
+        "pro": []
+      },
+      "ko": {
+        "headline": "중간에 멈춘 다운로드가 이제 멈춘 곳부터 이어져요.",
+        "free": [
+          "다운로드가 중간에 멈추면 Phosphene이 이미 저장한 부분을 그대로 두고, 필요하면 다른 곳에서 스스로 다시 시도해요.",
+          "그래도 멈춰 있다면 Studio에서 다운로드를 다시 누르거나 Mac 앱에서 이어서 받기를 선택하세요. 멈춘 곳부터 이어져요."
+        ],
+        "pro": []
+      },
+      "pt": {
+        "headline": "Downloads que param no meio agora continuam de onde pararam.",
+        "free": [
+          "Se um download parar no meio, o Phosphene agora guarda o que já salvou e tenta de novo sozinho, de outro lugar se for preciso.",
+          "Ainda parado? Escolha Baixar de novo no Studio, ou Retomar no app para Mac. Ele continua de onde parou."
+        ],
+        "pro": []
+      },
+      "ru": {
+        "headline": "Загрузки, которые обрываются на середине, теперь продолжаются с того же места.",
+        "free": [
+          "Если загрузка оборвалась на середине, Phosphene теперь сохраняет уже скачанное и сам пробует снова, при необходимости из другого источника.",
+          "Всё ещё стоит? Нажмите «Скачать» ещё раз в Studio или «Продолжить» в приложении для Mac. Загрузка продолжится с того же места."
+        ],
+        "pro": []
+      },
+      "zh-Hans": {
+        "headline": "中途停下的下载，现在会从停下的地方继续。",
+        "free": [
+          "如果下载中途停下，Phosphene 现在会保留已经保存的部分，并自动重试，必要时换一个来源下载。",
+          "还是停着？在 Studio 里再点一次“下载”，或在 Mac 应用里选择“继续”。它会从停下的地方继续。"
+        ],
+        "pro": []
+      }
+    }
   }
 }

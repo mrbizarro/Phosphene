@@ -75,6 +75,7 @@ from __future__ import annotations
 import argparse
 import errno
 import hashlib
+import http.client
 import json
 import os
 import shutil
@@ -442,6 +443,11 @@ def download_shard(url: str, dest: Path, expect_bytes: int, expect_sha: str,
                             pct = (100.0 * have / expect_bytes) if expect_bytes else 100.0
                             log(f"[fetch] {label} {have >> 20} / {expect_bytes >> 20} MB ({pct:.1f}%)")
                             last = now
+            # A clean early EOF is an interrupted transfer, not a bad hash.
+            # Keep the prefix so a retry (including another source) can resume it.
+            size = dest.stat().st_size if dest.exists() else 0
+            if size < expect_bytes:
+                raise RuntimeError(f"download interrupted at {size} of {expect_bytes} bytes; saved for resume")
             got = sha256_file(dest)
             if got != expect_sha:
                 dest.unlink(missing_ok=True)
@@ -459,7 +465,7 @@ def download_shard(url: str, dest: Path, expect_bytes: int, expect_sha: str,
                 back = 5 * attempt
                 log(f"[fetch] {label} attempt {attempt}/{attempts} failed ({e}) — retrying in {back}s")
                 time.sleep(back)
-        except (urllib.error.URLError, OSError, RuntimeError) as e:
+        except (urllib.error.URLError, http.client.HTTPException, OSError, RuntimeError) as e:
             last_err = e
             if attempt < attempts:
                 back = 5 * attempt
@@ -481,7 +487,7 @@ def fetch_json(url: str, attempts: int, timeout: int) -> dict:
             last_err = e
             if attempt < attempts:
                 time.sleep(5 * attempt)
-        except (urllib.error.URLError, OSError, ValueError) as e:
+        except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as e:
             last_err = e
             if attempt < attempts:
                 time.sleep(5 * attempt)
@@ -783,7 +789,7 @@ def _fetch_locked(repo_key: str, files: dict, dest_dir: Path, mirror: dict,
     if failed:
         log(f"[fetch] {repo_key}: {len(failed)} of {len(files)} file(s) FAILED "
             f"({', '.join(failed)}) — run this again, it resumes and re-checks "
-            f"only what is missing")
+            f"only what is missing. In Studio choose Download again; in the Mac app choose Resume.")
         return 1
     log(f"[fetch] {repo_key}: done — {len(files)} file(s) verified against the manifest")
     _log_sources(repo_key)
@@ -840,6 +846,8 @@ def main(argv: list[str] | None = None) -> int:
             raise
         except Exception as e:  # noqa: BLE001 — the installer needs a cause, not a traceback
             log(f"[fetch] {key}: FAILED — {e}")
+            log("[fetch] Download stopped. Check your connection, then choose Download in Studio "
+                "or Resume in the Mac app. Saved progress will be reused.")
             one = 1
         if one == EXIT_BUSY:
             busy = True
