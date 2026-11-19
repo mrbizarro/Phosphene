@@ -5238,7 +5238,9 @@
   "settings.email_the_report": "Invia il report via email",
   "settings.open_the_report_page": "Apri la pagina del report",
   "settings.opens_an_email_to_the": "Apre un'email al team di Phosphene. Info sull'ambiente, versione e log recente (prima gli errori) vengono compilati per te.",
-  "settings.your_report_opened_in_your": "Il tuo report si è aperto nella tua app di posta."
+  "settings.your_report_opened_in_your": "Il tuo report si è aperto nella tua app di posta.",
+  "whatsnew.offer_founding_199": "Fondatore: $199 una volta sola per 3 anni, primi 100 acquirenti",
+  "whatsnew.offer_pro_from_15": "Pro da $15/mese"
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -10397,7 +10399,9 @@
   "settings.email_the_report": "e297c6d81a",
   "settings.open_the_report_page": "df864ded83",
   "settings.opens_an_email_to_the": "e2fff64e55",
-  "settings.your_report_opened_in_your": "77bba4d66b"
+  "settings.your_report_opened_in_your": "77bba4d66b",
+  "whatsnew.offer_founding_199": "373a0cef9f",
+  "whatsnew.offer_pro_from_15": "62f6e2e568"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "d40b3fcb5e",

@@ -165,6 +165,35 @@ function wnProSec(r, proUser, opts) {
 }
 
 // ---- 0. Now in Pro, at the top ------------------------------------------------------------------------------------
+// THE OFFER (owner, 18 Nov 2026, on the 5.0.54 window: "add in there a visible link to go and check up on the offers
+// ... Let's give them a chance to get into the lander"). Free users only, at the foot of the Now in Pro block: the
+// support line, the Get Pro button now carrying the monthly price, and one small Founding line under it, both to the
+// Pro page in the user's language (the site has every Studio language; the Chinese page carries the yuan Founding
+// price, so its line says yuan). Founding always reads "first 100 buyers", never a count, and no other price is
+// shown. Both keep the 5.0.65 tags (utm_medium=whats-new, utm_campaign=get-pro, utm_content=<version>, the closed
+// where word whats_new) and say their plan, which boot.js adds to the anonymous Get Pro count.
+const WN_SITE_LANG = {de: 'de', es: 'es', fr: 'fr', it: 'it', ja: 'ja', ko: 'ko', pt: 'pt', ru: 'ru', zh: 'zh'};
+
+function wnPricingUrl(url) {
+  const seg = WN_SITE_LANG[String(wnLang()).toLowerCase().split('-')[0]];
+  try {
+    const u = new URL(url || 'https://phosphene.video/pricing/');
+    if (seg && u.hostname === 'phosphene.video' && u.pathname.startsWith('/pricing')) u.pathname = '/' + seg + u.pathname;
+    return u.href;
+  } catch (e) { return url; }
+}
+
+function wnOffer(url, tag) {
+  const href = wnPricingUrl(url) || '';
+  const link = (cls, h, plan, text) => `<a class="${cls}" href="${wnEsc(h)}" data-plan="${plan}" data-utm-campaign="get-pro"${tag}>`
+    + `${wnEsc(text)} <span aria-hidden="true">↗</span></a>`;
+  return `<div class="wn-np-foot wn-np-offer"><p>${wnEsc(WN_ASK)}</p><div class="wn-np-offer-act">`
+    + link('wn-np-cta', href, 'monthly', T('whatsnew.offer_pro_from_15', 'Pro from $15/month'))
+    + link('wn-np-founding', href.replace(/#.*$/, '') + '#plans', 'founding',
+      T('whatsnew.offer_founding_199', 'Founding: $199 once for 3 years, first 100 buyers'))
+    + '</div></div>';
+}
+
 function wnNowPro(d) {
   const n = d.now_in_pro;
   const items = (n && n.items) || [], coming = (n && n.coming) || [];
@@ -190,12 +219,10 @@ function wnNowPro(d) {
     ? `<p class="wn-np-also"><span class="wn-np-also-k">${T('whatsnew.also_in_pro', 'Also in Pro')}</span> ${n.also.map(wnEsc).join(' · ')}</p>` : '';
   // The Pro page, tagged utm_medium=whats-new&utm_campaign=get-pro&utm_content=<version> (siteLinkApply adds them from
   // these data- attributes; data-pro-where keeps the anonymous Get Pro count on its closed word, whats_new).
-  const proPage = wnEsc((n.cta && n.cta.url) || n.pro_url || d.pricing_url);
+  const proUrl = (n.cta && n.cta.url) || n.pro_url || d.pricing_url;
+  const proPage = wnEsc(proUrl);
   const tag = ` data-utm-medium="whats-new" data-utm-content="${wnEsc(d.version || '')}" data-pro-where="whats_new" target="_blank" rel="noopener"`;
-  const cta = !proUser && n.cta
-    ? `<div class="wn-np-foot"><p>${wnEsc(WN_ASK)}</p>`
-      + `<a class="wn-np-cta" href="${proPage}" data-utm-campaign="get-pro"${tag}>`
-      + `${T('whatsnew.get_pro', 'Get Pro')} <span aria-hidden="true">↗</span></a></div>` : '';
+  const cta = !proUser && n.cta ? wnOffer(proUrl, tag) : '';
   const memberLink = proUser
     ? `<p class="wn-np-member"><a class="dlg-link wn-np-what" href="${proPage}" data-utm-campaign="pricing"${tag}>`
       + `${T('whatsnew.what_s_in_pro', "What's in Pro")} <span aria-hidden="true">↗</span></a></p>` : '';

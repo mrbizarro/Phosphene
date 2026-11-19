@@ -96,8 +96,9 @@ function siteLinkApply(a) {
     if (a && a.dataset.utmCampaign === 'get-pro' && typeof _uiEvent === 'function') {
       // data-pro-where names the surface when utm_content carries something else (What's new: the version).
       const where = (a.dataset.proWhere || a.dataset.utmContent || '').replace(/-/g, '_');
-      // The Pro window's plan buttons also say which plan (monthly, yearly, founding); nothing else rides along.
-      const plan = where === 'pro_modal' && ['monthly', 'yearly', 'founding'].includes(a.dataset.plan) ? a.dataset.plan : null;
+      // The Pro window's plan buttons and What's new's offer links also say which plan (monthly, yearly, founding);
+      // nothing else rides along.
+      const plan = (where === 'pro_modal' || where === 'whats_new') && ['monthly', 'yearly', 'founding'].includes(a.dataset.plan) ? a.dataset.plan : null;
       if (where && where !== 'speedup_line') _uiEvent('pro_click', plan ? {where, action: 'get', plan} : {where, action: 'get'});
     }
   }, true);

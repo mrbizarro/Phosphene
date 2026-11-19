@@ -5205,7 +5205,9 @@
   "settings.email_the_report": "レポートをメールで送る",
   "settings.open_the_report_page": "レポートのページを開く",
   "settings.opens_an_email_to_the": "Phosphene チームへのメールを開きます。環境情報、バージョン、最近のログ（エラーが先頭）は自動で入力されます。",
-  "settings.your_report_opened_in_your": "レポートをメールアプリで開きました。"
+  "settings.your_report_opened_in_your": "レポートをメールアプリで開きました。",
+  "whatsnew.offer_founding_199": "ファウンダー：$199 の一回払いで3年間、先着100名",
+  "whatsnew.offer_pro_from_15": "Pro は月 $15 から"
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -10364,7 +10366,9 @@
   "settings.email_the_report": "e297c6d81a",
   "settings.open_the_report_page": "df864ded83",
   "settings.opens_an_email_to_the": "e2fff64e55",
-  "settings.your_report_opened_in_your": "77bba4d66b"
+  "settings.your_report_opened_in_your": "77bba4d66b",
+  "whatsnew.offer_founding_199": "373a0cef9f",
+  "whatsnew.offer_pro_from_15": "62f6e2e568"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "2141c67ce2",

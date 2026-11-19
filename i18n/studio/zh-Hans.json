@@ -5205,7 +5205,9 @@
   "settings.email_the_report": "通过邮件发送报告",
   "settings.open_the_report_page": "打开报告页面",
   "settings.opens_an_email_to_the": "打开一封发给 Phosphene 团队的邮件。环境信息、版本和最近的日志（错误优先）会为你自动填好。",
-  "settings.your_report_opened_in_your": "你的报告已在邮件应用中打开。"
+  "settings.your_report_opened_in_your": "你的报告已在邮件应用中打开。",
+  "whatsnew.offer_founding_199": "创始会员：一次付 ¥1,330，享 3 年，限前 100 位买家",
+  "whatsnew.offer_pro_from_15": "Pro 每月 $15 起"
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -10364,7 +10366,9 @@
   "settings.email_the_report": "e297c6d81a",
   "settings.open_the_report_page": "df864ded83",
   "settings.opens_an_email_to_the": "e2fff64e55",
-  "settings.your_report_opened_in_your": "77bba4d66b"
+  "settings.your_report_opened_in_your": "77bba4d66b",
+  "whatsnew.offer_founding_199": "373a0cef9f",
+  "whatsnew.offer_pro_from_15": "62f6e2e568"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "d6e72ae332",

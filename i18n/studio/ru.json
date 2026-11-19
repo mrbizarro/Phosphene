@@ -5256,7 +5256,9 @@
   "settings.email_the_report": "Отправить отчёт по почте",
   "settings.open_the_report_page": "Открыть страницу отчёта",
   "settings.opens_an_email_to_the": "Открывает письмо команде Phosphene. Сведения о системе, версия и свежий журнал (сначала ошибки) заполняются за вас.",
-  "settings.your_report_opened_in_your": "Отчёт открыт в вашем почтовом приложении."
+  "settings.your_report_opened_in_your": "Отчёт открыт в вашем почтовом приложении.",
+  "whatsnew.offer_founding_199": "Основатель: $199 один раз за 3 года, первые 100 покупателей",
+  "whatsnew.offer_pro_from_15": "Pro от $15 в месяц"
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -10415,7 +10417,9 @@
   "settings.email_the_report": "e297c6d81a",
   "settings.open_the_report_page": "df864ded83",
   "settings.opens_an_email_to_the": "e2fff64e55",
-  "settings.your_report_opened_in_your": "77bba4d66b"
+  "settings.your_report_opened_in_your": "77bba4d66b",
+  "whatsnew.offer_founding_199": "373a0cef9f",
+  "whatsnew.offer_pro_from_15": "62f6e2e568"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "2997d999fb",

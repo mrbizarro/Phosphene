@@ -24127,8 +24127,8 @@ def pro_hint_answer(job_id: str, action: str) -> bool:
 def pro_click_report(where: str, action: str, plan: str = "") -> None:
     if where in PRO_HINT_WHERE and action in PRO_CLICK_ACTIONS:
         props = {"where": where, "action": action, "version": running_version()}
-        # Which plan button, only on a Get Pro press in the Pro window.
-        if plan in PRO_CLICK_PLANS and action == "get" and where == "pro_modal":
+        # Which plan button, only on a Get Pro press in the Pro window or on What's new's two price links (L154).
+        if plan in PRO_CLICK_PLANS and action == "get" and where in ("pro_modal", "whats_new"):
             props["plan"] = plan
         _analytics_capture("pro_click", props)
 

@@ -5205,7 +5205,9 @@
   "settings.email_the_report": "보고서를 이메일로 보내기",
   "settings.open_the_report_page": "보고 페이지 열기",
   "settings.opens_an_email_to_the": "Phosphene 팀에게 보내는 이메일을 엽니다. 환경 정보, 버전, 최근 로그(오류 먼저)가 자동으로 채워집니다.",
-  "settings.your_report_opened_in_your": "보고서가 메일 앱에서 열렸습니다."
+  "settings.your_report_opened_in_your": "보고서가 메일 앱에서 열렸습니다.",
+  "whatsnew.offer_founding_199": "파운더: $199 한 번 결제로 3년, 선착순 100명",
+  "whatsnew.offer_pro_from_15": "Pro 월 $15부터"
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",
@@ -10364,7 +10366,9 @@
   "settings.email_the_report": "e297c6d81a",
   "settings.open_the_report_page": "df864ded83",
   "settings.opens_an_email_to_the": "e2fff64e55",
-  "settings.your_report_opened_in_your": "77bba4d66b"
+  "settings.your_report_opened_in_your": "77bba4d66b",
+  "whatsnew.offer_founding_199": "373a0cef9f",
+  "whatsnew.offer_pro_from_15": "62f6e2e568"
  },
  "reviewed": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "21666252b0",

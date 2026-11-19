@@ -700,107 +700,107 @@
   "boot.avoid": {
    "text": "Avoid −",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles toggle avoid row",
-   "where": "boot.js:759"
+   "where": "boot.js:760"
   },
   "boot.avoid_2": {
    "text": "Avoid +",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles toggle avoid row",
-   "where": "boot.js:759"
+   "where": "boot.js:760"
   },
   "boot.clear": {
    "text": "Clear",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles render keyframe dynamic slots",
-   "where": "boot.js:253"
+   "where": "boot.js:254"
   },
   "boot.click_to_browse": {
    "text": "click to browse",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles render keyframe dynamic slots · FRAGMENT: the app joins it with the text around it (… = a value or other piece): «Drop … click to browse … Intermediate motion anchor between Start and End.»",
-   "where": "boot.js:249"
+   "where": "boot.js:250"
   },
   "boot.drop": {
    "text": "Drop",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles render keyframe dynamic slots",
-   "where": "boot.js:249"
+   "where": "boot.js:250"
   },
   "boot.fflf_needs_q8_it_always": {
    "text": "FFLF needs Q8 — it always renders the Q8 two-stage pass, whatever the Quality pill says. The model interpolates between the first and last frames.",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles set keyframe mode",
-   "where": "boot.js:181"
+   "where": "boot.js:182"
   },
   "boot.generated_with_yue2_by_multimodal": {
    "text": "Generated with YuE2 by Multimodal Art Projection · MLX port by vanch007",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles update model credit",
-   "where": "boot.js:694"
+   "where": "boot.js:695"
   },
   "boot.hailuo_h3_compact_q8": {
    "text": "Hailuo H3 · compact (Q8)",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles model credit label",
-   "where": "boot.js:666"
+   "where": "boot.js:667"
   },
   "boot.hailuo_h3_full_bf16": {
    "text": "Hailuo H3 · full (bf16)",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles model credit label",
-   "where": "boot.js:666"
+   "where": "boot.js:667"
   },
   "boot.hailuo_h3_passes_through_every": {
    "text": "Hailuo H3 passes through every still at its At(s) time and lands exactly on the end frame — with the sound and dialogue made around them.",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles set keyframe mode",
-   "where": "boot.js:176"
+   "where": "boot.js:177"
   },
   "boot.hailuo_h3_starts_on_the": {
    "text": "Hailuo H3 starts on the start frame and lands exactly on the end frame. The start frame is optional: leave it empty and H3 invents the opening, then arrives at your end frame.",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles set keyframe mode",
-   "where": "boot.js:177"
+   "where": "boot.js:178"
   },
   "boot.intermediate_motion_anchor_between_start": {
    "text": "Intermediate motion anchor between Start and End.",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles render keyframe dynamic slots",
-   "where": "boot.js:250"
+   "where": "boot.js:251"
   },
   "boot.keyframes_needs_q8_it_always": {
    "text": "{n} Keyframes needs Q8 — it always renders the Q8 two-stage pass, whatever the Quality pill says. Intermediate beats are locked at their At(s) times below.",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles set keyframe mode · placeholders {n} are filled in by the app",
-   "where": "boot.js:180"
+   "where": "boot.js:181"
   },
   "boot.kind_audio": {
    "text": "audio",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles outputs kind word",
-   "where": "boot.js:466"
+   "where": "boot.js:467"
   },
   "boot.kind_photos": {
    "text": "photos",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles outputs kind word",
-   "where": "boot.js:465"
+   "where": "boot.js:466"
   },
   "boot.kind_videos": {
    "text": "videos",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles outputs kind word",
-   "where": "boot.js:465"
+   "where": "boot.js:466"
   },
   "boot.loading": {
    "text": "Loading…",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles outputs load all",
-   "where": "boot.js:492"
+   "where": "boot.js:493"
   },
   "boot.minimax_h3_fl2va": {
    "text": "MiniMax H3 (FL2VA)",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles update model credit",
-   "where": "boot.js:721"
+   "where": "boot.js:722"
   },
   "boot.mlx_port_by_dgrauet": {
    "text": "MLX port by @dgrauet",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles update model credit",
-   "where": "boot.js:721"
+   "where": "boot.js:722"
   },
   "boot.outputs_n": {
    "text": "Outputs · {count}",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles outputs count title · placeholders {count} are filled in by the app",
-   "where": "boot.js:470"
+   "where": "boot.js:471"
   },
   "boot.outputs_n_kind": {
    "text": "Outputs · {count} {kind}",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles outputs count title · placeholders {count} {kind} are filled in by the app",
-   "where": "boot.js:471"
+   "where": "boot.js:472"
   },
   "boot.outputs_n_matches": {
    "text": {
@@ -808,7 +808,7 @@
     "other": "Outputs · {count} matches{kind}"
    },
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles outputs title text · placeholders {count} {kind} are filled in by the app · plural: {count} is the number",
-   "where": "boot.js:459"
+   "where": "boot.js:460"
   },
   "boot.outputs_n_outputs": {
    "text": {
@@ -816,32 +816,32 @@
     "other": "Outputs · {count} outputs"
    },
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles outputs title text · placeholders {count} are filled in by the app · plural: {count} is the number",
-   "where": "boot.js:461"
+   "where": "boot.js:462"
   },
   "boot.recent_uploads_click_to_use": {
    "text": "Recent uploads · click to use",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles render keyframe dynamic slots",
-   "where": "boot.js:258"
+   "where": "boot.js:259"
   },
   "boot.show_all": {
    "text": "Show all",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles outputs load all",
-   "where": "boot.js:507"
+   "where": "boot.js:508"
   },
   "boot.snapping_to": {
    "text": "snapping to ",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles set mode",
-   "where": "boot.js:838"
+   "where": "boot.js:839"
   },
   "boot.this_clip_was_rendered_with": {
    "text": "This clip was rendered with {label} — {credit}",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles update model credit · placeholders {credit} {label} are filled in by the app",
-   "where": "boot.js:730"
+   "where": "boot.js:731"
   },
   "boot.yue2_mlx_by_vanch007": {
    "text": "YuE2 · MLX by vanch007",
    "note": "Studio · in start-up of the Studio page and the output filters · written by the code that handles update model credit",
-   "where": "boot.js:693"
+   "where": "boot.js:694"
   },
   "bottomPane.logs": {
    "text": "Logs",
@@ -25002,52 +25002,47 @@
   "whatsnew.about_pro": {
    "text": "About Pro",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn take",
-   "where": "whats_new.js:212"
+   "where": "whats_new.js:239"
   },
   "whatsnew.also_in_pro": {
    "text": "Also in Pro",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn now pro",
-   "where": "whats_new.js:190"
+   "where": "whats_new.js:219"
   },
   "whatsnew.back_to": {
    "text": "Back to {version}",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn render · placeholders {version} are filled in by the app",
-   "where": "whats_new.js:289"
+   "where": "whats_new.js:316"
   },
   "whatsnew.close": {
    "text": "Close",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn shell",
-   "where": "whats_new.js:279"
+   "where": "whats_new.js:306"
   },
   "whatsnew.coming_next_in_pro": {
    "text": "Coming next in Pro",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn now pro",
-   "where": "whats_new.js:174"
+   "where": "whats_new.js:203"
   },
   "whatsnew.coming_next_in_your_pro": {
    "text": "Coming next in your Pro",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn now pro",
-   "where": "whats_new.js:174"
+   "where": "whats_new.js:203"
   },
   "whatsnew.earlier_releases": {
    "text": "Earlier releases",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn render",
-   "where": "whats_new.js:289"
+   "where": "whats_new.js:316"
   },
   "whatsnew.every_past_release": {
    "text": "Every past release",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn render",
-   "where": "whats_new.js:293"
+   "where": "whats_new.js:320"
   },
   "whatsnew.every_release_since_the_first": {
    "text": "Every release since the first, on phosphene.video",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn earlier",
-   "where": "whats_new.js:268"
-  },
-  "whatsnew.get_pro": {
-   "text": "Get Pro",
-   "note": "Studio · in the What's new window shown after an update · written by the code that handles wn now pro",
-   "where": "whats_new.js:198"
+   "where": "whats_new.js:295"
   },
   "whatsnew.highlight": {
    "text": "Highlight",
@@ -25062,12 +25057,12 @@
   "whatsnew.how_it_works": {
    "text": "How it works",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn how sec",
-   "where": "whats_new.js:241"
+   "where": "whats_new.js:268"
   },
   "whatsnew.included_in_your_pro": {
    "text": "Included in your Pro",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn now pro",
-   "where": "whats_new.js:176"
+   "where": "whats_new.js:205"
   },
   "whatsnew.measured_on_one_mac": {
    "text": "Measured on one Mac",
@@ -25087,22 +25082,32 @@
   "whatsnew.no_earlier_releases": {
    "text": "No earlier releases to show.",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn earlier",
-   "where": "whats_new.js:267"
+   "where": "whats_new.js:294"
   },
   "whatsnew.no_how_to_clip_for": {
    "text": "No how-to clip for this yet.",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles open how clip",
-   "where": "whats_new.js:418"
+   "where": "whats_new.js:445"
   },
   "whatsnew.nothing_new_to_show_for": {
    "text": "Nothing new to show for this version.",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles open whats new",
-   "where": "whats_new.js:394"
+   "where": "whats_new.js:421"
   },
   "whatsnew.now_in_pro": {
    "text": "Now in Pro",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn now pro",
-   "where": "whats_new.js:176"
+   "where": "whats_new.js:205"
+  },
+  "whatsnew.offer_founding_199": {
+   "text": "Founding: $199 once for 3 years, first 100 buyers",
+   "note": "Studio · in the What's new window shown after an update · written by the code that handles wn offer",
+   "where": "whats_new.js:193"
+  },
+  "whatsnew.offer_pro_from_15": {
+   "text": "Pro from $15/month",
+   "note": "Studio · in the What's new window shown after an update · written by the code that handles wn offer",
+   "where": "whats_new.js:191"
   },
   "whatsnew.phosphene_stays_free_and_open": {
    "text": "Phosphene stays free and open source. Pro gets new features and speed-ups first, and keeps the project going.",
@@ -25112,7 +25117,7 @@
   "whatsnew.soon": {
    "text": "Soon",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn now pro",
-   "where": "whats_new.js:177"
+   "where": "whats_new.js:206"
   },
   "whatsnew.support_phosphene": {
    "text": "Support Phosphene",
@@ -25127,17 +25132,17 @@
   "whatsnew.what_s_in_pro": {
    "text": "What's in Pro",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn now pro",
-   "where": "whats_new.js:201"
+   "where": "whats_new.js:228"
   },
   "whatsnew.what_s_new": {
    "text": "What's new",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn render",
-   "where": "whats_new.js:292"
+   "where": "whats_new.js:319"
   },
   "whatsnew.with_pro": {
    "text": "With Pro",
    "note": "Studio · in the What's new window shown after an update · written by the code that handles wn take",
-   "where": "whats_new.js:210"
+   "where": "whats_new.js:237"
   },
   "width.aria-label.width": {
    "text": "Width",
