@@ -12402,7 +12402,10 @@ H3_CHAIN_RAM_CODE = "ram_long"
 H3_LOWMEM_CHAIN_FLAG = "--vae-encode-chunk"
 # 15 s (three chained windows) on a 16 GB Mac: one switch. On (18 Nov 2026): on the low-memory
 # engine a 15 s Draft held to the 16 GB budget peaked at 8.2 GB (10 s: 9.2 GB), under the 10 GB budget.
-H3_LOWMEM_16GB_ALLOWS_15S = True
+# Off again (H40, 19 Nov 2026): that was a 64 GB Mac held to a budget; on real 16 GB M4 Macs the
+# fleet showed 15 s H3 clips running out of Metal memory 3 times out of 4 on the low-memory engine.
+# A 16 GB Mac keeps 10 s; the 15 s chip greys with its ram_15s reason and make_job falls back.
+H3_LOWMEM_16GB_ALLOWS_15S = False
 H3_CHAIN_RAM_CODE_15S = "ram_15s"
 
 

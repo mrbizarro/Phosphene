@@ -3056,5 +3056,88 @@
         "pro": []
       }
     }
+  },
+  "5.0.70": {
+    "free": [
+      "FLUX 3 no longer stops halfway through a picture with an error on M1 Max and M2 Max Macs. If one stopped for you, make it again.",
+      "On a 16 GB Mac, Hailuo H3 now makes clips up to 10 s. 15 s clips ran out of memory there, so the 15 s choice is greyed and says why."
+    ],
+    "pro": [],
+    "date": "2026-11-19",
+    "headline": "FLUX 3 pictures finish, and Hailuo H3 on 16 GB Macs stops running out of memory.",
+    "i18n": {
+      "de": {
+        "headline": "FLUX-3-Bilder werden fertig, und Hailuo H3 auf Macs mit 16 GB läuft nicht mehr aus dem Speicher.",
+        "free": [
+          "FLUX 3 bricht auf Macs mit M1 Max und M2 Max nicht mehr mitten im Bild mit einem Fehler ab. Wenn eins abgebrochen ist, erstelle es einfach neu.",
+          "Auf einem Mac mit 16 GB macht Hailuo H3 jetzt Clips bis 10 s. 15-s-Clips hatten dort zu wenig Speicher, daher ist die Auswahl 15 s ausgegraut und sagt, warum."
+        ],
+        "pro": []
+      },
+      "es": {
+        "headline": "Las imágenes de FLUX 3 terminan y Hailuo H3 ya no se queda sin memoria en Macs de 16 GB.",
+        "free": [
+          "FLUX 3 ya no se detiene a mitad de una imagen con un error en Macs con M1 Max y M2 Max. Si alguna se detuvo, vuelve a crearla.",
+          "En un Mac de 16 GB, Hailuo H3 ahora hace clips de hasta 10 s. Los clips de 15 s se quedaban sin memoria ahí, así que la opción de 15 s aparece en gris y explica por qué."
+        ],
+        "pro": []
+      },
+      "fr": {
+        "headline": "Les images FLUX 3 vont jusqu’au bout, et Hailuo H3 ne manque plus de mémoire sur les Mac de 16 Go.",
+        "free": [
+          "FLUX 3 ne s’arrête plus au milieu d’une image avec une erreur sur les Mac M1 Max et M2 Max. Si une image s’est arrêtée, refais-la.",
+          "Sur un Mac de 16 Go, Hailuo H3 fait maintenant des clips jusqu’à 10 s. Les clips de 15 s manquaient de mémoire sur ces Mac, donc le choix 15 s est grisé et explique pourquoi."
+        ],
+        "pro": []
+      },
+      "it": {
+        "headline": "Le immagini FLUX 3 arrivano alla fine e Hailuo H3 non esaurisce più la memoria sui Mac da 16 GB.",
+        "free": [
+          "FLUX 3 non si ferma più a metà immagine con un errore sui Mac M1 Max e M2 Max. Se un’immagine si è fermata, rifalla.",
+          "Su un Mac da 16 GB, Hailuo H3 ora crea clip fino a 10 s. Le clip da 15 s esaurivano la memoria, quindi la scelta 15 s è in grigio e spiega perché."
+        ],
+        "pro": []
+      },
+      "ja": {
+        "headline": "FLUX 3 の画像が最後まで仕上がり、16 GB の Mac で Hailuo H3 がメモリ不足にならなくなりました。",
+        "free": [
+          "M1 Max と M2 Max の Mac で、FLUX 3 が画像の途中でエラーで止まらなくなりました。止まった画像があれば、もう一度作成してください。",
+          "16 GB の Mac では、Hailuo H3 のクリップは最長 10 秒になりました。15 秒のクリップはメモリが足りなかったため、15 秒の選択肢はグレー表示になり、理由が表示されます。"
+        ],
+        "pro": []
+      },
+      "ko": {
+        "headline": "FLUX 3 이미지가 끝까지 완성되고, 16 GB Mac에서 Hailuo H3가 더 이상 메모리가 부족해지지 않아요.",
+        "free": [
+          "M1 Max와 M2 Max Mac에서 FLUX 3가 이미지 도중에 오류로 멈추지 않아요. 멈춘 이미지가 있다면 다시 만들어 보세요.",
+          "16 GB Mac에서는 이제 Hailuo H3가 최대 10초 클립을 만들어요. 15초 클립은 메모리가 부족했기 때문에 15초 선택이 회색으로 표시되고 이유를 알려 줘요."
+        ],
+        "pro": []
+      },
+      "pt": {
+        "headline": "As imagens do FLUX 3 terminam, e o Hailuo H3 não fica mais sem memória em Macs de 16 GB.",
+        "free": [
+          "O FLUX 3 não para mais no meio de uma imagem com um erro em Macs M1 Max e M2 Max. Se alguma parou, crie de novo.",
+          "Em um Mac de 16 GB, o Hailuo H3 agora faz clipes de até 10 s. Clipes de 15 s ficavam sem memória ali, então a opção de 15 s aparece em cinza e diz por quê."
+        ],
+        "pro": []
+      },
+      "ru": {
+        "headline": "Картинки FLUX 3 доделываются до конца, а Hailuo H3 на Mac с 16 ГБ больше не упирается в память.",
+        "free": [
+          "На Mac с M1 Max и M2 Max FLUX 3 больше не останавливается посреди картинки с ошибкой. Если картинка остановилась, создайте её заново.",
+          "На Mac с 16 ГБ Hailuo H3 теперь делает клипы до 10 с. Клипам на 15 с там не хватало памяти, поэтому вариант 15 с серый и объясняет почему."
+        ],
+        "pro": []
+      },
+      "zh-Hans": {
+        "headline": "FLUX 3 图片能完整生成，16 GB Mac 上的 Hailuo H3 不再内存不足。",
+        "free": [
+          "在 M1 Max 和 M2 Max Mac 上，FLUX 3 不会再在图片生成到一半时报错停止。如果之前有图片停下了，请重新生成。",
+          "在 16 GB 的 Mac 上，Hailuo H3 现在最长生成 10 秒的片段。15 秒的片段在这类 Mac 上内存不足，所以 15 秒选项会变灰并说明原因。"
+        ],
+        "pro": []
+      }
+    }
   }
 }

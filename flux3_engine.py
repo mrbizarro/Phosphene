@@ -63,6 +63,12 @@ def clean_env(base=None):
            and not k.startswith(("Malloc", "MFLUX_"))}
     env.update(PYTHONUNBUFFERED="1", HF_HUB_DISABLE_TELEMETRY="1",
                HF_HUB_DISABLE_PROGRESS_BARS="0", MLX_ENABLE_TF32="0")
+    # H38 (fleet, 18 Nov): the macOS Metal watchdog stopped FLUX 3 ("Command
+    # buffer execution failed: Impacting Interactivity", M1 Max). Smaller
+    # command buffers keep each one under it, same kernels, same picture;
+    # the size Qwen-Edit (image_engine.py) and the LTX helper use on M1/M2.
+    env.setdefault("MLX_MAX_OPS_PER_BUFFER", "10")
+    env.setdefault("MLX_MAX_MB_PER_BUFFER", "10")
     return env
 
 
