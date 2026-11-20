@@ -121,6 +121,36 @@ def pack_problems(root: Path, *, hashes: bool = False) -> list[str]:
     return errors
 
 
+def _hf_source():
+    """scripts/hf_source.py (the China mirror rule, 5.0.76), or None when it is missing."""
+    here = str(Path(__file__).resolve().parents[1])
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    try:
+        import hf_source
+        return hf_source
+    except ImportError:
+        return None
+
+
+def _mirror_catalog(sources: dict):
+    """When this session cannot reach huggingface.co: the hf_source module and the catalog
+    entries for both pinned repos (sizes + SHA-256 from Hugging Face). Raises when the
+    mirror cannot serve this pack. None = use Hugging Face as before."""
+    hs = _hf_source()
+    if hs is None or not hs.mirror_base() or hs.mode() == "hf" or not hs.use_mirror():
+        return None
+    entries = {}
+    for part, src in sources.items():
+        e = hs.catalog_repo(src["repo"])
+        if not e or e.get("revision") != src["revision"]:
+            raise ValueError(f"Hugging Face cannot be reached and {src['repo']} is not on the "
+                             "checked China mirror list")
+        entries[part] = {f["path"]: f for f in e["files"]}
+    hs.announce()
+    return hs, entries
+
+
 def choose_sources(api=None) -> dict:
     return {k: dict(v) for k, v in SOURCES.items()}
 
@@ -138,6 +168,7 @@ def fetch_pack(root: Path, min_free_gb: float) -> None:
         print("YuE2 pack verified; all files intact, no download needed.", flush=True)
         return
     sources = choose_sources(api)
+    mirror = _mirror_catalog(sources)
     stage = root / ".staging"
     receipts = {}
 
@@ -151,9 +182,21 @@ def fetch_pack(root: Path, min_free_gb: float) -> None:
             return dest
         print(f"Fetch {part}/{name} from {src['repo']} @ {src['revision']}", flush=True)
         for attempt in range(2):
-            staged = Path(hf_hub_download(repo_id=src["repo"], revision=src["revision"],
-                filename=src["prefix"] + name, local_dir=stage / part,
-                force_download=bool(attempt)))
+            if mirror is not None:
+                # China mirror: the bytes must match Hugging Face's size + SHA-256 from the
+                # catalog before they are used at all (the manifests included).
+                hs, entries = mirror
+                cat = entries[part].get(src["prefix"] + name)
+                if cat is None:
+                    raise ValueError(f"{part}/{name} is not on the checked China mirror list")
+                staged = stage / part / (src["prefix"] + name)
+                url = f"{hs.mirror_base()}/{src['repo']}/resolve/{src['revision']}/{src['prefix'] + name}"
+                hs.fetch_verified(url, staged, int(cat["size"]), str(cat["sha256"]),
+                                  part=staged.with_name(staged.name + ".mirror-part"))
+            else:
+                staged = Path(hf_hub_download(repo_id=src["repo"], revision=src["revision"],
+                    filename=src["prefix"] + name, local_dir=stage / part,
+                    force_download=bool(attempt)))
             actual = {"bytes": staged.stat().st_size, "sha256": digest(staged)}
             if rec and actual != {"bytes": rec["bytes"], "sha256": rec["sha256"]}:
                 if not attempt:
@@ -208,7 +251,8 @@ def fetch_pack(root: Path, min_free_gb: float) -> None:
     for name, rec in gen.items():
         download("generator", name, rec)
     vs = sources["vae"]
-    names = api.list_repo_files(vs["repo"], revision=vs["revision"])
+    names = (sorted(mirror[1]["vae"]) if mirror is not None
+             else api.list_repo_files(vs["repo"], revision=vs["revision"]))
     vae_names = set(VAE_FILES) | set(vae)
     vae_names.update(n[len(vs["prefix"]):] for n in names if n.startswith(vs["prefix"] + "licenses/"))
     for name in sorted(vae_names - {"weights_manifest.json"}):

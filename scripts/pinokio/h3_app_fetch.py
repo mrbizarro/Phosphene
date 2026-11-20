@@ -20,6 +20,15 @@ into the same folders, but:
 
 Nothing here needs git, Hugging Face tools or a login (the three repos are public).
 
+CHINA (5.0.76). huggingface.co is blocked in mainland China: a customer's install died here
+with "curl: (28) Failed to connect to huggingface.co port 443 after 30003 ms". One quick
+probe (scripts/hf_source.py) now decides the source for the session: when Hugging Face
+cannot be reached, the files come from the China mirror (hf-mirror.com) and the log says
+"Hugging Face unreachable, using the China mirror". A connection failure in the middle of a
+download switches too (never a 401/403/404/429). The mirror is not trusted: the sizes and
+checksums below were taken from Hugging Face, every file is checked before it gets its
+name, no login is ever sent, and its redirects must stay on HTTPS.
+
   usage : h3_app_fetch.py --root <H3 models folder> [--reserve-gb N] [--plan]
   output: plain lines, "@@progress <done> <total>" now and then, and on failure one
           "FATAL error: <reason + what to do>" line (the Studio shows the reason).
@@ -39,6 +48,48 @@ import time
 from pathlib import Path
 
 HF = os.environ.get("PHOSPHENE_H3_FETCH_ENDPOINT", "https://huggingface.co").rstrip("/")
+
+
+def _hf_source():
+    """scripts/hf_source.py, imported by name (a compiled Pro copy sits beside it as a .so).
+    None when it is missing: then Hugging Face only, exactly as before."""
+    try:
+        from scripts import hf_source as m          # run as an import from ROOT (the Studio)
+        return m
+    except ImportError:
+        pass
+    here = str(Path(__file__).resolve().parents[1])
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    try:
+        import hf_source as m                       # run as a script
+        return m
+    except ImportError:
+        return None
+
+
+#: The base this run downloads from: HF, or the mirror once the session switched.
+_SOURCE = {"base": HF, "mirror": False}
+
+
+def _use_mirror(log=True) -> bool:
+    """Switch this run to the China mirror (announced once). False when there is none."""
+    m = _hf_source()
+    if m is None or not m.mirror_base() or m.mode() == "hf":
+        return False
+    if not _SOURCE["mirror"]:
+        _SOURCE.update(base=m.mirror_base(), mirror=True)
+        if log:
+            m.announce()
+    return True
+
+
+def choose_source() -> str:
+    """Hugging Face, unless the session's probe says it cannot be reached."""
+    m = _hf_source()
+    if m is not None and m.use_mirror():
+        _use_mirror()
+    return _SOURCE["base"]
 
 # (repo, commit, path in repo, folder under the layout, bytes, kind, digest)
 #   kind "sha256": the LFS sha256 of the file; kind "git": the git blob id (sha1 of
@@ -150,8 +201,8 @@ def _gb(n: int) -> str:
     return f"{n / 1e9:.1f} GB"
 
 
-def _url(spec) -> str:
-    return f"{HF}/{spec[0]}/resolve/{spec[1]}/{spec[2]}"
+def _url(spec, base: str | None = None) -> str:
+    return f"{base or _SOURCE['base']}/{spec[0]}/resolve/{spec[1]}/{spec[2]}"
 
 
 def _progress(root: Path) -> None:
@@ -161,9 +212,18 @@ def _progress(root: Path) -> None:
 def _curl(url: str, part: Path) -> int:
     """One resumable transfer into `part` (continues from its size). curl's own retries
     cover short drops; a stall under 10 kB/s for 2 minutes ends the try."""
-    cmd = ["/usr/bin/curl", "-sS", "-L", "--fail", "-C", "-", "--retry", "5", "--retry-delay", "5",
-           "--retry-all-errors", "--connect-timeout", "30", "--speed-limit", "10240", "--speed-time", "120",
-           "-A", "Phosphene-H3-app-fetch", "-o", str(part), url]
+    # On Hugging Face: a short connect wait and few retries, so a blocked connection hands
+    # over to the mirror in about a minute instead of curl's 6 x 30 s per try. Redirects
+    # (the mirror's CDN) must stay on HTTPS; no credential is ever passed to curl.
+    on_hf = not _SOURCE["mirror"]
+    retries, connect = ("2", "15") if on_hf else ("5", "30")
+    # -q must be first: curl then ignores ~/.curlrc (it could add a header or relax the
+    # redirect rule for every request, the mirror's included).
+    cmd = ["/usr/bin/curl", "-q", "-sS", "-L", "--fail", "-C", "-", "--retry", retries, "--retry-delay", "5",
+           "--retry-all-errors", "--connect-timeout", connect, "--speed-limit", "10240", "--speed-time", "120",
+           "--max-redirs", "5", "-A", "Phosphene-H3-app-fetch", "-o", str(part), url]
+    if url.startswith("https://"):
+        cmd[2:2] = ["--proto-redir", "=https"]
     if not Path(cmd[0]).exists():
         cmd[0] = "curl"
     # The lock's fd goes to curl too: a curl left running by a killed parent keeps the
@@ -223,10 +283,18 @@ def fetch_one(root: Path, spec, tries: int = 6) -> str | None:
                 print(f"Downloading {spec[2]} ({_gb(size)})" + (f", resuming at {_gb(have)}" if have else ""), flush=True)
             rc = _curl(_url(spec), part)
             if rc != 0 and _size(part) < size:
+                m = _hf_source()
+                never_reached = m is not None and (rc in m.CURL_CONNECT_FAILURES
+                                                   or (rc == m.CURL_TIMEOUT and _size(part) == have))
+                if never_reached and not _SOURCE["mirror"] and _use_mirror(log=False):
+                    m.mark_unreachable()
+                    m.announce()
+                    continue                     # straight to the mirror, resuming the same part
                 if attempt < tries:
                     time.sleep(min(60, 5 * attempt))
                     continue
-                return (f"the download of {spec[2]} kept failing (curl exit {rc}). "
+                where = " from the China mirror" if _SOURCE["mirror"] else ""
+                return (f"the download of {spec[2]}{where} kept failing (curl exit {rc}). "
                         "Check the internet connection, then press Resume: what is downloaded is kept")
         if _size(part) != size:
             part.unlink(missing_ok=True)
@@ -235,8 +303,12 @@ def fetch_one(root: Path, spec, tries: int = 6) -> str | None:
             print(f"Checking {spec[2]}", flush=True)
         got = _digest(part, kind, size)
         if got != want:
-            print(f"  {spec[2]} did not match its checksum; downloading it again", flush=True)
             part.unlink(missing_ok=True)
+            if _SOURCE["mirror"] and big:
+                # A damaged copy from the mirror is not fetched again and again (41 GB each).
+                return (f"the China mirror sent a damaged copy of {spec[2]} (it did not match "
+                        "Hugging Face's checksum, so it was not used). Press Resume to try again later")
+            print(f"  {spec[2]} did not match its checksum; downloading it again", flush=True)
             continue
         os.replace(part, t)
         return None
@@ -268,6 +340,7 @@ def main(argv=None) -> int:
         print("FATAL error: another Hailuo H3 download is still running on this Mac. "
               "Wait a minute, then press Resume.", flush=True)
         return 1
+    choose_source()
     print(f"Hailuo H3 weights: {_gb(p['remaining_bytes'])} to download of {_gb(TOTAL_BYTES)}"
           f" (into {layout(root)})", flush=True)
     _progress(root)

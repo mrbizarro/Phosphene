@@ -50,6 +50,27 @@ import sys
 import urllib.request
 from pathlib import Path
 
+
+def _hf_urlopen(req, timeout=60):
+    """urllib.request.urlopen for a pinned-checksum Hugging Face download, with the China
+    mirror rule (scripts/hf_source.py, 5.0.76): the mirror when huggingface.co cannot be
+    reached, never a login sent there. Plain urlopen when the helper is missing."""
+    import importlib
+    import os as _os
+    import sys as _sys
+    try:
+        hs = importlib.import_module("scripts.hf_source")      # inside the panel (one copy)
+    except ImportError:
+        d = _os.path.dirname(_os.path.abspath(__file__))
+        d = d if _os.path.basename(d) == "scripts" else _os.path.join(d, "scripts")
+        if d not in _sys.path:
+            _sys.path.append(d)                                 # never ahead of the panel's own modules
+        try:
+            hs = importlib.import_module("hf_source")
+        except ImportError:
+            return urllib.request.urlopen(req, timeout=timeout)
+    return hs.urlopen(req, timeout)
+
 # ---- the upstream source (fetched, never re-hosted) -------------------------
 SOURCE_REPO = "lightx2v/Minimax-h3-Turbo"
 SOURCE_REVISION = "30f485ed874aa44c8183348ad361c5eabad318da"
@@ -290,7 +311,7 @@ def download_source(dest: Path) -> int:
         req = urllib.request.Request(SOURCE_URL, headers=headers)
         written = have
         try:
-            with urllib.request.urlopen(req, timeout=60) as resp, \
+            with _hf_urlopen(req, 60) as resp, \
                     open(dest, "ab" if have else "wb") as fh:
                 if have and resp.status != 206:
                     fh.seek(0)

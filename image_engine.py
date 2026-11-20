@@ -277,6 +277,70 @@ def _hub_unreachable_note(repo_id, cause: str = "") -> "str | None":
             f"The engine's last line: {c[:220]}.")
 
 
+def _hf_source_mod():
+    """scripts/hf_source.py (the China mirror rule), or None when it is missing."""
+    import importlib
+    try:
+        return importlib.import_module("scripts.hf_source")
+    except ImportError:
+        pass
+    import sys as _sys
+    here = Path(__file__).resolve().parent / "scripts"
+    if here.is_dir() and str(here) not in _sys.path:
+        _sys.path.insert(0, str(here))
+    try:
+        return importlib.import_module("hf_source")
+    except ImportError:
+        return None
+
+
+def mirror_seed_hub(repo_id, env: dict, on_log=None) -> bool:
+    """China (5.0.76, owner-approved 20 Nov 2026). Fleet H10: Macs in mainland China failed
+    every picture because the engine could not reach huggingface.co. When this session
+    cannot reach it and the model is on the checked list (scripts/hf_mirror_catalog.json:
+    every file's size and SHA-256 taken from Hugging Face at a pinned commit), fetch the
+    model from the China mirror into the Hugging Face cache first, verify every file, and
+    run the engine offline (HF_HUB_OFFLINE=1 in its env). Returns True when the engine runs
+    offline on the mirror's verified copy. A model that is not on the list is left to the
+    engine (it fails with the "could not reach huggingface.co" note, as before)."""
+    hs = _hf_source_mod()
+    if hs is None or not _is_hf_repo_id(repo_id) or not hs.mirror_base() or hs.mode() == "hf":
+        return False
+    if not hs.use_mirror():
+        return False
+    hub = _hf_hub_root(env)
+
+    def say(msg):
+        if on_log is not None:
+            try:
+                on_log(f"[download] {msg}")
+            except Exception:  # noqa: BLE001
+                pass
+
+    if not hs.catalog_repo(repo_id):
+        say(f"Hugging Face cannot be reached and {repo_id} cannot come from the China "
+            f"mirror ({hs.hf_only_reason(repo_id)}).")
+        return False
+    # Always through the seed: it checks every blob's bytes once (also blobs already in the
+    # cache) and downloads only what is missing or wrong.
+    last = {"pct": -10}
+
+    def prog(done, total):
+        pct = int(done * 100 / max(1, total))
+        if pct >= last["pct"] + 10:
+            last["pct"] = pct
+            say(f"{repo_id}: {done / 1e9:.1f} of {total / 1e9:.1f} GB from the China mirror")
+    try:
+        hs.seed_hub_cache(repo_id, hub, log=say, progress=prog)
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(
+            f"Phosphene could not download {repo_id} from the China mirror (hf-mirror.com): "
+            f"{str(e)[:200]}. What is downloaded is kept; Generate again to continue.") from e
+    say(f"{repo_id}: every file checked against Hugging Face's checksums.")
+    env["HF_HUB_OFFLINE"] = "1"
+    return True
+
+
 _REPAIR_MEMO: dict = {}   # repo_id -> on_disk_gb at the last repair attempt
 
 
@@ -1830,8 +1894,15 @@ def _generate_mflux(prompt: str, n: int, width: int, height: int,
     # `for raw in iter(readline, "")` which could block forever if mflux
     # stopped flushing — the deadline check after each line never tripped
     # and the queue worker hung indefinitely.
-    # A download that stopped partway must resume, not crash (#73).
+    # China (5.0.76): huggingface.co unreachable -> the model comes from the checked mirror
+    # first, verified, and the engine then loads it offline (no 30 s waits on a blocked host).
+    _seeded = False
     if _is_hf_repo_id(getattr(config, "mflux_model", None)):
+        _seeded = mirror_seed_hub(config.mflux_model, env, on_log)
+    # A download that stopped partway must resume, not crash (#73). Not after a mirror seed:
+    # the engine runs offline on the checked copy, and a stray partial file must not make
+    # the repair remove the snapshot just laid out.
+    if not _seeded and _is_hf_repo_id(getattr(config, "mflux_model", None)):
         _partial = repair_partial_hf_download(config.mflux_model, env)
         if _partial and on_log is not None:
             try:

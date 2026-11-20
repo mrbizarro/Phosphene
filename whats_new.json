@@ -3495,5 +3495,88 @@
   "5.0.75": {
     "silent": true,
     "date": "2026-11-20"
+  },
+  "5.0.76": {
+    "free": [
+      "If your Mac cannot reach Hugging Face (it is blocked in mainland China), Phosphene now gets Hailuo H3, pictures and music from a copy in China. Every file is checked first.",
+      "In the Mac app, a Studio update keeps the video and picture tools you already have, so nothing is set up again."
+    ],
+    "pro": [],
+    "date": "2026-11-20",
+    "headline": "Downloads now work in mainland China.",
+    "i18n": {
+      "de": {
+        "headline": "Downloads funktionieren jetzt in Festlandchina.",
+        "free": [
+          "Erreicht dein Mac Hugging Face nicht (in Festlandchina gesperrt), lädt Phosphene Hailuo H3, Bilder und Musik jetzt aus einer Kopie in China. Jede Datei wird vorher geprüft.",
+          "In der Mac-App behält ein Studio-Update die Video- und Bildwerkzeuge, die du schon hast. Nichts wird neu eingerichtet."
+        ],
+        "pro": []
+      },
+      "es": {
+        "headline": "Las descargas ya funcionan en China continental.",
+        "free": [
+          "Si tu Mac no llega a Hugging Face (bloqueado en China continental), Phosphene ahora baja Hailuo H3, imágenes y música de una copia en China. Cada archivo se comprueba antes.",
+          "En la app para Mac, una actualización del Studio conserva las herramientas de vídeo e imagen que ya tienes, así que no hay que instalar nada de nuevo."
+        ],
+        "pro": []
+      },
+      "fr": {
+        "headline": "Les téléchargements fonctionnent désormais en Chine continentale.",
+        "free": [
+          "Si votre Mac n'atteint pas Hugging Face (bloqué en Chine continentale), Phosphene prend Hailuo H3, images et musique sur une copie en Chine. Chaque fichier est vérifié avant.",
+          "Dans l'app Mac, une mise à jour du Studio garde les outils vidéo et image que vous avez déjà : rien n'est réinstallé."
+        ],
+        "pro": []
+      },
+      "it": {
+        "headline": "I download ora funzionano nella Cina continentale.",
+        "free": [
+          "Se il Mac non raggiunge Hugging Face (bloccato nella Cina continentale), Phosphene scarica Hailuo H3, immagini e musica da una copia in Cina. Ogni file viene controllato prima.",
+          "Nell'app per Mac, un aggiornamento dello Studio mantiene gli strumenti video e immagine che hai già: non si reinstalla nulla."
+        ],
+        "pro": []
+      },
+      "ja": {
+        "headline": "中国本土でもダウンロードできるようになりました。",
+        "free": [
+          "MacからHugging Faceにつながらない場合（中国本土ではブロック）、PhospheneはHailuo H3、画像、音楽を中国にあるコピーから取得します。どのファイルも使う前に確認されます。",
+          "Macアプリでは、Studioをアップデートしても手元の動画・画像ツールがそのまま残り、セットアップし直す必要はありません。"
+        ],
+        "pro": []
+      },
+      "ko": {
+        "headline": "이제 중국 본토에서도 다운로드할 수 있어요.",
+        "free": [
+          "Mac이 Hugging Face에 연결되지 않으면(중국 본토에서 차단) Phosphene이 Hailuo H3, 이미지, 음악을 중국에 있는 사본에서 받아요. 모든 파일은 먼저 확인해요.",
+          "Mac 앱에서 Studio를 업데이트해도 이미 있는 영상·이미지 도구가 그대로 남아서 다시 설치하지 않아요."
+        ],
+        "pro": []
+      },
+      "pt": {
+        "headline": "Os downloads agora funcionam na China continental.",
+        "free": [
+          "Se o Mac não alcança o Hugging Face (bloqueado na China continental), o Phosphene baixa Hailuo H3, imagens e música de uma cópia na China. Cada arquivo é verificado antes.",
+          "No app para Mac, uma atualização do Studio mantém as ferramentas de vídeo e imagem que você já tem: nada é instalado de novo."
+        ],
+        "pro": []
+      },
+      "ru": {
+        "headline": "Загрузки теперь работают в материковом Китае.",
+        "free": [
+          "Если Mac не открывает Hugging Face (он заблокирован в Китае), Phosphene берёт Hailuo H3, изображения и музыку из копии в Китае. Каждый файл сначала проверяется.",
+          "В приложении для Mac обновление Studio сохраняет ваши инструменты для видео и изображений: ничего не настраивается заново."
+        ],
+        "pro": []
+      },
+      "zh-Hans": {
+        "headline": "现在在中国大陆也能正常下载了。",
+        "free": [
+          "如果你的 Mac 无法连接 Hugging Face（在中国大陆被屏蔽），Phosphene 现在会从中国境内的副本下载 Hailuo H3、图片和音乐模型。每个文件使用前都会校验。",
+          "在 Mac 应用中，更新 Studio 时会保留你已有的视频和图片工具，无需重新安装。"
+        ],
+        "pro": []
+      }
+    }
   }
 }

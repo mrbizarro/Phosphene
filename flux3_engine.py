@@ -296,6 +296,33 @@ def _run(cmd, env, on_log, request=None, timeout=7200, guard=(), tail_out=None):
         proc.stdout.close()
 
 
+def _mirror_seed(pack, env, on_log):
+    """China (5.0.76): when this Mac cannot reach huggingface.co, fetch the pack from the
+    China mirror into the Hugging Face cache first (every file checked against the sizes
+    and SHA-256 in scripts/hf_mirror_catalog.json, taken from Hugging Face at this pack's
+    pinned commit), then let the worker load it offline (HF_HUB_OFFLINE=1)."""
+    try:
+        import importlib
+        hs = importlib.import_module("scripts.hf_source")
+    except ImportError:
+        return
+    if not hs.mirror_base() or hs.mode() == "hf" or not hs.use_mirror():
+        return
+    say = (lambda m: on_log(f"[download] {m}")) if on_log else (lambda m: None)
+    hub = cache_root(env)
+    entry = hs.catalog_repo(pack["repo"])
+    if not entry or entry.get("revision") != pack["revision"]:
+        say(f"Hugging Face cannot be reached and {pack['repo']} cannot come from the China "
+            f"mirror ({hs.hf_only_reason(pack['repo'])}).")
+        return
+    try:
+        hs.seed_hub_cache(pack["repo"], hub, log=say, pinned=True)   # the worker loads this exact revision
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"FLUX 3 could not download from the China mirror (hf-mirror.com): "
+                           f"{str(exc)[:200]}. What is downloaded is kept; retry to continue.") from exc
+    env["HF_HUB_OFFLINE"] = "1"
+
+
 def generate(prompt, n, width, height, output_dir, base_seed, config, refs, on_log, install_env=None):
     validate(config, width, height, refs)
     env = clean_env(install_env)
@@ -305,6 +332,7 @@ def generate(prompt, n, width, height, output_dir, base_seed, config, refs, on_l
     if missing > 0:
         require_space(cache_root(env), missing)
     require_space(output_dir, OUTPUT_HEADROOM, reserve=0)
+    _mirror_seed(pack, env, on_log)
     installing = not worker_ready()
     if installing and not worker_python().is_file():
         require_space(worker_root(), INSTALL_BUDGET)

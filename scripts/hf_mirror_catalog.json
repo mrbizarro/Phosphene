@@ -1,0 +1,884 @@
+{
+ "_comment": "Files Phosphene may take from the China mirror (hf-mirror.com) when huggingface.co cannot be reached. Every entry was read from huggingface.co at a pinned commit: size and SHA-256 per file (LFS hash from Hugging Face; small files downloaded from Hugging Face and hashed, git blob id cross-checked). Regenerate with scripts/build_hf_mirror_catalog.py; never edit by hand.",
+ "version": 1,
+ "source": "https://huggingface.co",
+ "repos": {
+  "DeepBeepMeep/MiniMax-H3": {
+   "revision": "3d3c6fb64d610dcd2d0ea5dd69a9360e69d5f24f",
+   "what": "Hailuo H3 video (the in-app download)",
+   "files": [
+    {
+     "path": "MiniMax-H3-FL2VA-pruned_bf16.safetensors",
+     "size": 41399442656,
+     "sha256": "85f57a3a7a26def920999f4be786ebb91d0e677ddf327d1848b7724ca829d187",
+     "blob": "85f57a3a7a26def920999f4be786ebb91d0e677ddf327d1848b7724ca829d187"
+    }
+   ],
+   "bytes": 41399442656
+  },
+  "ddalcu/MiniMax-H3-FL2VA-MLX-Serve-8bit": {
+   "revision": "64314cde0ac6d90f132bc94ae58e0c82f77396c6",
+   "what": "Hailuo H3 video (the in-app download)",
+   "files": [
+    {
+     "path": "LICENSE",
+     "size": 17604,
+     "sha256": "59b99642b95ea21630e311198ddbfffbfe05aadba0c2f5d884cbdf4efcc90f44",
+     "blob": "c389b45855337ccec8ddeb389f4fe902abcd0b19"
+    },
+    {
+     "path": "MODIFICATIONS.md",
+     "size": 1630,
+     "sha256": "3439a033d427a8b3225640fad4dc76787496982ee4565deafc556852a7af902a",
+     "blob": "5f97513622e2dada5e310f03fed7ead9eff7e880"
+    },
+    {
+     "path": "NOTICE",
+     "size": 552,
+     "sha256": "3ea3c60ee64954fc0898e68b7534e3613ba74586256aec6edad557b7f217c7c6",
+     "blob": "41d4acd322a0088b3055f6cdb07f289d0cfcac3b"
+    },
+    {
+     "path": "audio_vae.safetensors",
+     "size": 605254808,
+     "sha256": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+     "blob": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48"
+    },
+    {
+     "path": "config.json",
+     "size": 724,
+     "sha256": "add27928e87c54c6a88901d8a8c177df47691661e455f6747bc8916cee6149ec",
+     "blob": "3cfcb114392cd7846566fbe2cfdbab30b95b3a82"
+    },
+    {
+     "path": "merges.txt",
+     "size": 1671839,
+     "sha256": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3",
+     "blob": "20024bfe7c83998e9aeaf98a0cd6a2ce6306c2f0"
+    },
+    {
+     "path": "text_encoder.safetensors",
+     "size": 28222741760,
+     "sha256": "79514b061aa0acbeb802bbe37e4853f1b0d0e6fe7fad4f61624057201773bf56",
+     "blob": "79514b061aa0acbeb802bbe37e4853f1b0d0e6fe7fad4f61624057201773bf56"
+    },
+    {
+     "path": "tokenizer.json",
+     "size": 7032403,
+     "sha256": "a5d85b6dcc535e6b93115a9ef287e6132fdbf30270da6218194ba742261173c7",
+     "blob": "c6cc1014128b19d1fc46b1d30a23e3b1d35db421"
+    },
+    {
+     "path": "tokenizer_config.json",
+     "size": 11003,
+     "sha256": "a07e942ac874baa13758de8d1fbdb186683cc03416b5589e1b6671c6b3057c68",
+     "blob": "204d76f78dac6dedc820418c30bf01145de78a21"
+    },
+    {
+     "path": "video_vae.safetensors",
+     "size": 5207808496,
+     "sha256": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+     "blob": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522"
+    },
+    {
+     "path": "vocab.json",
+     "size": 2776833,
+     "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+     "blob": "4783fe10ac3adce15ac8f358ef5462739852c569"
+    }
+   ],
+   "bytes": 34047317652
+  },
+  "MiniMaxAI/MiniMax-H3": {
+   "revision": "42ed227ee7df40d41602854ae760620d6eb651fe",
+   "what": "Hailuo H3 video (the in-app download)",
+   "files": [
+    {
+     "path": "FL2VA/model_index.json",
+     "size": 719,
+     "sha256": "d1113e0f123c69f79cd0de35ca1771606ebc3ec924270d257b771f96f584aa6b",
+     "blob": "ed4dfb751d8417e5ab8cf58a6915214bda6ba676"
+    },
+    {
+     "path": "FL2VA/text_encoder/config.json",
+     "size": 1474,
+     "sha256": "d2dd0c60d01b9e195d9447c52da61c7302d28828524914c044d9c6e1b81d0427",
+     "blob": "29e925092dee9f14278c53e7e7d876cea8a997bc"
+    }
+   ],
+   "bytes": 2193
+  },
+  "Runpod/FLUX.2-klein-4B-mflux-4bit": {
+   "revision": "7ee1b3aa8178a1240050490072196a57da2bf2a9",
+   "what": "Pictures: FLUX.2 Klein 4B (the default picture model)",
+   "files": [
+    {
+     "path": ".gitattributes",
+     "size": 1580,
+     "sha256": "caf3ca02d5e883f643e939cbed54f94237f94c171797f0dfea5e25c7e33315b3",
+     "blob": "f1ca65ce6a5b0774360fde1ec05157d9f937aaa2"
+    },
+    {
+     "path": "README.md",
+     "size": 2836,
+     "sha256": "ac78bf64699ae716ca9b1d1da5b37cdd929235c59e2b1e7b617c5960d2f33dc8",
+     "blob": "7d1e1fc6ab08203f27f685fad59a5ef1c7e545c3"
+    },
+    {
+     "path": "config.json",
+     "size": 455,
+     "sha256": "2d09aef957ff45cccacf0bd4b9daae0684d1b802232343b387f5aee00b5fe238",
+     "blob": "fd8bd8ad4993a69c6c22bf8bb528b243af2759e6"
+    },
+    {
+     "path": "text_encoder/0.safetensors",
+     "size": 2135435091,
+     "sha256": "4425bbe79bdf4d171dfa16117d61a174a22bdfab971478bd9eb7962eea855212",
+     "blob": "4425bbe79bdf4d171dfa16117d61a174a22bdfab971478bd9eb7962eea855212"
+    },
+    {
+     "path": "text_encoder/1.safetensors",
+     "size": 127582109,
+     "sha256": "941c6099f3014d6e4eb6af7deba890e1423b41e0fe4a9a218afb6b17d61c8bc8",
+     "blob": "941c6099f3014d6e4eb6af7deba890e1423b41e0fe4a9a218afb6b17d61c8bc8"
+    },
+    {
+     "path": "text_encoder/model.safetensors.index.json",
+     "size": 51332,
+     "sha256": "594c9b5f3fbe132406a1ca3551b14226db1010053aa546f372dc0b5dd03a6f19",
+     "blob": "778b3419ca29f5295acf46d65540f1564379847f"
+    },
+    {
+     "path": "tokenizer/chat_template.jinja",
+     "size": 4168,
+     "sha256": "a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8",
+     "blob": "01be9b307daa2d425f7c168c9fb145a286e0afb4"
+    },
+    {
+     "path": "tokenizer/tokenizer.json",
+     "size": 11422650,
+     "sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506",
+     "blob": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506"
+    },
+    {
+     "path": "tokenizer/tokenizer_config.json",
+     "size": 348,
+     "sha256": "579073f506a3f85caed232bb91617cfb93028408d1f43ffaf66f3fc1aee9a9af",
+     "blob": "be8885e0c6b33e03bf589fdef5eaab60c7f35e1b"
+    },
+    {
+     "path": "transformer/0.safetensors",
+     "size": 2145323701,
+     "sha256": "b8b21514b059d129cf27ea0650ede92608ae05b8c99ab7239148c69da954f82b",
+     "blob": "b8b21514b059d129cf27ea0650ede92608ae05b8c99ab7239148c69da954f82b"
+    },
+    {
+     "path": "transformer/1.safetensors",
+     "size": 34727730,
+     "sha256": "a85ce666eaa791dd7d8082352a61a9f3e24b36e04604bbe3856e7bebd5d61589",
+     "blob": "a85ce666eaa791dd7d8082352a61a9f3e24b36e04604bbe3856e7bebd5d61589"
+    },
+    {
+     "path": "transformer/model.safetensors.index.json",
+     "size": 26908,
+     "sha256": "ca07f4f1b921c373d2e6323100c22dd7c7cd3ae9b6ef8fbe9b56e8f1883a9a93",
+     "blob": "6a5239e9c40951e75ae9ce1383d725639b9e9708"
+    },
+    {
+     "path": "vae/0.safetensors",
+     "size": 165107912,
+     "sha256": "5053e0f1a87db7b97dc9f43ddba152c0d77858e87ab515fdf2ed9e6ca0374fab",
+     "blob": "5053e0f1a87db7b97dc9f43ddba152c0d77858e87ab515fdf2ed9e6ca0374fab"
+    },
+    {
+     "path": "vae/model.safetensors.index.json",
+     "size": 17547,
+     "sha256": "404dcd01ec193bef1504a24ec3935bfbbb360c75365e17b241a00f9ec007c86b",
+     "blob": "36fe72fc73ddc28db3c427297272c984597cdae7"
+    }
+   ],
+   "bytes": 4619704367
+  },
+  "mflux-community/flux-3-image-klein-mflux-q8": {
+   "revision": "7e46237dea3999a9792959f5e000aeb1b9f9e7df",
+   "what": "Pictures: FLUX 3 distilled-q8",
+   "files": [
+    {
+     "path": "README.md",
+     "size": 2844,
+     "sha256": "f4b68015be88ebbc5218fee0ba49fd630a1c52a123943b9c0ae273b888661e15",
+     "blob": "dc92fcf258961841cbb160949f19d2434c10c3d7"
+    },
+    {
+     "path": "manifest.json",
+     "size": 78,
+     "sha256": "c00549d0d2d015149676ba8fff277b44a64b978193c9c70229e7d5b2f7a27a51",
+     "blob": "95d095cff9726eaefd9f376d82a0bc22083c1e5b"
+    },
+    {
+     "path": "text_encoder/0.safetensors",
+     "size": 2145931485,
+     "sha256": "600652856574e9f347866a481ab03ecf8a99086e7a84d0fcea5c1be339ea9032",
+     "blob": "600652856574e9f347866a481ab03ecf8a99086e7a84d0fcea5c1be339ea9032"
+    },
+    {
+     "path": "text_encoder/1.safetensors",
+     "size": 1699235116,
+     "sha256": "04fd5c383b8b41c3e0882c93d0def127370aa985847f24678945defdd6723707",
+     "blob": "04fd5c383b8b41c3e0882c93d0def127370aa985847f24678945defdd6723707"
+    },
+    {
+     "path": "text_encoder/chat_template.jinja",
+     "size": 5292,
+     "sha256": "3636d0f0bd6bef02654cdffdc447b79cb2cef8ab02cc75267345946291a489e4",
+     "blob": "124386803f142761528f710e77ae483f5f8c4fc4"
+    },
+    {
+     "path": "text_encoder/model.safetensors.index.json",
+     "size": 45636,
+     "sha256": "20e35695c0078a11aaf4a2766a227c5324ab2d2727583dfc8efd37538fdc835f",
+     "blob": "3e22924fc9e3470586dd22669bb1220e1ea1534b"
+    },
+    {
+     "path": "text_encoder/tokenizer.json",
+     "size": 11422650,
+     "sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506",
+     "blob": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506"
+    },
+    {
+     "path": "text_encoder/tokenizer_config.json",
+     "size": 692,
+     "sha256": "e1125421b81c2eedb6bf0e40a4aea9558d788018fd5bd19a21f2233839edf164",
+     "blob": "9702bdb33831d30d74bca00c4a63b619486b4ea0"
+    },
+    {
+     "path": "transformer/0.safetensors",
+     "size": 2134962964,
+     "sha256": "35978e837374f61578ff7ab5cbb7084e24f2ff2fb03b5f2c11e007f1d34a7c4a",
+     "blob": "35978e837374f61578ff7ab5cbb7084e24f2ff2fb03b5f2c11e007f1d34a7c4a"
+    },
+    {
+     "path": "transformer/1.safetensors",
+     "size": 2145827275,
+     "sha256": "c163baf4a4ab7ea8920a666557c8e711eb5077b8e5120a0c44af08ace7e4f1ee",
+     "blob": "c163baf4a4ab7ea8920a666557c8e711eb5077b8e5120a0c44af08ace7e4f1ee"
+    },
+    {
+     "path": "transformer/2.safetensors",
+     "size": 1614802516,
+     "sha256": "70c523328bec015552c712e803ff4982b712bf2876c368151b7dbde0eaa5026c",
+     "blob": "70c523328bec015552c712e803ff4982b712bf2876c368151b7dbde0eaa5026c"
+    },
+    {
+     "path": "transformer/model.safetensors.index.json",
+     "size": 61760,
+     "sha256": "ebda61d7f7bc622852205828e9e3370a77193188cf1dc3bb4081c5a66879c445",
+     "blob": "e2411a43e7da3a8287189023ed6015223c7833e9"
+    },
+    {
+     "path": "vae/0.safetensors",
+     "size": 166156486,
+     "sha256": "94068882f83f537035d4353c19a8fa0d0b9d0294ee3ad8834ef5e1eecc960861",
+     "blob": "94068882f83f537035d4353c19a8fa0d0b9d0294ee3ad8834ef5e1eecc960861"
+    },
+    {
+     "path": "vae/model.safetensors.index.json",
+     "size": 17547,
+     "sha256": "832ed7169c0915288b73b3381f9deca52d76fb51b134677bd28c7d2eb27e966b",
+     "blob": "7a1a67fa246801fc6b7d8dda31f1d5dcc5011aaf"
+    }
+   ],
+   "bytes": 9918472341
+  },
+  "mflux-community/flux-3-image-klein-mflux-q6": {
+   "revision": "ace05578b60f0185b0c1212d23fb13616d88d6c7",
+   "what": "Pictures: FLUX 3 distilled-q6",
+   "files": [
+    {
+     "path": "README.md",
+     "size": 2844,
+     "sha256": "07f1fe9e0abca0c98ff3ae568d938b5ac561a3320b614c600758b6aeea199d2f",
+     "blob": "3fc9ca9d6724b196711e3585eabefc45e67db174"
+    },
+    {
+     "path": "manifest.json",
+     "size": 78,
+     "sha256": "faed3d6c2ac990c20da9351a7f27cc15f562c648b672b93383350df72ea48727",
+     "blob": "e396eb6c7c9185675cad9588be79b79ddbecae0e"
+    },
+    {
+     "path": "text_encoder/0.safetensors",
+     "size": 2141676588,
+     "sha256": "f7b4b822cfa46ce3f90104c46d2131a93d0b4904bfcf4386c6c2eabd2ae002fc",
+     "blob": "f7b4b822cfa46ce3f90104c46d2131a93d0b4904bfcf4386c6c2eabd2ae002fc"
+    },
+    {
+     "path": "text_encoder/1.safetensors",
+     "size": 798847236,
+     "sha256": "1782697b7872c06f32aeb8ef104d4e5dae7c130982700a775b616e66f2c53d81",
+     "blob": "1782697b7872c06f32aeb8ef104d4e5dae7c130982700a775b616e66f2c53d81"
+    },
+    {
+     "path": "text_encoder/chat_template.jinja",
+     "size": 5292,
+     "sha256": "3636d0f0bd6bef02654cdffdc447b79cb2cef8ab02cc75267345946291a489e4",
+     "blob": "124386803f142761528f710e77ae483f5f8c4fc4"
+    },
+    {
+     "path": "text_encoder/model.safetensors.index.json",
+     "size": 45636,
+     "sha256": "e2a4b597efaefbe9088c26bb8fa69e582607973dfa6a5d1bbb985223ab2f4416",
+     "blob": "325718f3ea2764e968d401d24136a363ad4d550f"
+    },
+    {
+     "path": "text_encoder/tokenizer.json",
+     "size": 11422650,
+     "sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506",
+     "blob": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506"
+    },
+    {
+     "path": "text_encoder/tokenizer_config.json",
+     "size": 692,
+     "sha256": "e1125421b81c2eedb6bf0e40a4aea9558d788018fd5bd19a21f2233839edf164",
+     "blob": "9702bdb33831d30d74bca00c4a63b619486b4ea0"
+    },
+    {
+     "path": "transformer/0.safetensors",
+     "size": 2131045447,
+     "sha256": "c4527024102c044a51ee7b3baab90e9f50fcabdeab2a47e4c4dd037fd9de8b3e",
+     "blob": "c4527024102c044a51ee7b3baab90e9f50fcabdeab2a47e4c4dd037fd9de8b3e"
+    },
+    {
+     "path": "transformer/1.safetensors",
+     "size": 2139354166,
+     "sha256": "dc9f263a727653cc6dd4c9f002dcdfb6a2ccbed893016bf2b36b225718e34fd9",
+     "blob": "dc9f263a727653cc6dd4c9f002dcdfb6a2ccbed893016bf2b36b225718e34fd9"
+    },
+    {
+     "path": "transformer/2.safetensors",
+     "size": 238025357,
+     "sha256": "61de173e22c8f76af20e96b5037d53355b7ce8b256bee0d07c7b254f0d87dc5d",
+     "blob": "61de173e22c8f76af20e96b5037d53355b7ce8b256bee0d07c7b254f0d87dc5d"
+    },
+    {
+     "path": "transformer/model.safetensors.index.json",
+     "size": 61760,
+     "sha256": "bc5efa25005f41513b7813049baf6fd310f34cd51d43daec542efb314417b345",
+     "blob": "026732a23810e9d022367d31f5e36893894b01a0"
+    },
+    {
+     "path": "vae/0.safetensors",
+     "size": 165632190,
+     "sha256": "c386146c9a2a5a0f12da2a7a184b8b8352f4ec88c00d58dc0c94d536a0247116",
+     "blob": "c386146c9a2a5a0f12da2a7a184b8b8352f4ec88c00d58dc0c94d536a0247116"
+    },
+    {
+     "path": "vae/model.safetensors.index.json",
+     "size": 17547,
+     "sha256": "ae5e65725750e1744f15c9d67b1988caf92b31dcd046fc759e10b7950da28587",
+     "blob": "83aa607d369323ad15a7ef08acdae33093724048"
+    }
+   ],
+   "bytes": 7626137483
+  },
+  "mflux-community/flux-3-image-klein-mflux-q4": {
+   "revision": "79c0034de040c460e9685bf0127f40af042a2abe",
+   "what": "Pictures: FLUX 3 distilled-q4",
+   "files": [
+    {
+     "path": "README.md",
+     "size": 2956,
+     "sha256": "c79f12619fb85f6b08bab90ab09efb63bd45ff0462b215a82d655833904d7a56",
+     "blob": "04d34c448b5ebcc6a7ad327ff8d8488fb5aa6fb3"
+    },
+    {
+     "path": "manifest.json",
+     "size": 78,
+     "sha256": "fe3abd51fdd055b3561350237e059478cb7c46f13415f38ebbd3fba78201277a",
+     "blob": "4358b64fae2b51b47bae4fdf443edefd4f494a1c"
+    },
+    {
+     "path": "text_encoder/0.safetensors",
+     "size": 2035881396,
+     "sha256": "d6621c1001e0d81a0bb5a9405610fe78d3aff1658ded8a851ef2d4906c300e84",
+     "blob": "d6621c1001e0d81a0bb5a9405610fe78d3aff1658ded8a851ef2d4906c300e84"
+    },
+    {
+     "path": "text_encoder/chat_template.jinja",
+     "size": 5292,
+     "sha256": "3636d0f0bd6bef02654cdffdc447b79cb2cef8ab02cc75267345946291a489e4",
+     "blob": "124386803f142761528f710e77ae483f5f8c4fc4"
+    },
+    {
+     "path": "text_encoder/model.safetensors.index.json",
+     "size": 45636,
+     "sha256": "b48642ad8a77bc00df01298b9ebf479104fca6bc108525ed5f68e99d693788f8",
+     "blob": "239a22495ab525c5476b392131b7a01a52c1e21b"
+    },
+    {
+     "path": "text_encoder/tokenizer.json",
+     "size": 11422650,
+     "sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506",
+     "blob": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506"
+    },
+    {
+     "path": "text_encoder/tokenizer_config.json",
+     "size": 692,
+     "sha256": "e1125421b81c2eedb6bf0e40a4aea9558d788018fd5bd19a21f2233839edf164",
+     "blob": "9702bdb33831d30d74bca00c4a63b619486b4ea0"
+    },
+    {
+     "path": "transformer/0.safetensors",
+     "size": 2144245413,
+     "sha256": "2960aeb9ae939b9a61e0e500586e649e60b79688ff94f5f8d3387a9dc274bbdf",
+     "blob": "2960aeb9ae939b9a61e0e500586e649e60b79688ff94f5f8d3387a9dc274bbdf"
+    },
+    {
+     "path": "transformer/1.safetensors",
+     "size": 977011458,
+     "sha256": "82c98e6e30cd3acdfb7d975358db76206a9cee8f3de22ff725f9668bf8833880",
+     "blob": "82c98e6e30cd3acdfb7d975358db76206a9cee8f3de22ff725f9668bf8833880"
+    },
+    {
+     "path": "transformer/model.safetensors.index.json",
+     "size": 61760,
+     "sha256": "cda2c699ab6f985bb8f385a70cc88afc77b94a7652d491d24e2677cd4b794a32",
+     "blob": "db7096ba3b93e70abffb9da588080c6d397de8eb"
+    },
+    {
+     "path": "vae/0.safetensors",
+     "size": 165107888,
+     "sha256": "9c3376cde5b6f5166fbd4cead9d9e5d84f11702e2865149a2828378a14671b4b",
+     "blob": "9c3376cde5b6f5166fbd4cead9d9e5d84f11702e2865149a2828378a14671b4b"
+    },
+    {
+     "path": "vae/model.safetensors.index.json",
+     "size": 17547,
+     "sha256": "f7db5c6b987249ed9f8e0bead73dcb18155ac742f14cfb7242050923a861bb24",
+     "blob": "538ee88340277070cfd2cd796b074732d6caf577"
+    }
+   ],
+   "bytes": 5333802766
+  },
+  "mflux-community/flux-3-image-klein-base-mflux-q8": {
+   "revision": "f4555b2367dcad19c4dee1ddfb45ec1aeccdb857",
+   "what": "Pictures: FLUX 3 base-q8",
+   "files": [
+    {
+     "path": "README.md",
+     "size": 3071,
+     "sha256": "6d40b3ef707f5fd8cdc9fda2f66456ae45b9794b7d1c070a49ac51bb710047c6",
+     "blob": "8e4f13d6fb195fd237da82653f48191bacf1f12d"
+    },
+    {
+     "path": "manifest.json",
+     "size": 78,
+     "sha256": "596550b4749b987a88fdfa5c572931c2a1bc6e34bf259d819bfba442e1b96964",
+     "blob": "742d8b5e10c7ec35c58964e91d46ba3c4472eca1"
+    },
+    {
+     "path": "text_encoder/0.safetensors",
+     "size": 2145931485,
+     "sha256": "600652856574e9f347866a481ab03ecf8a99086e7a84d0fcea5c1be339ea9032",
+     "blob": "600652856574e9f347866a481ab03ecf8a99086e7a84d0fcea5c1be339ea9032"
+    },
+    {
+     "path": "text_encoder/1.safetensors",
+     "size": 1699235116,
+     "sha256": "04fd5c383b8b41c3e0882c93d0def127370aa985847f24678945defdd6723707",
+     "blob": "04fd5c383b8b41c3e0882c93d0def127370aa985847f24678945defdd6723707"
+    },
+    {
+     "path": "text_encoder/chat_template.jinja",
+     "size": 5292,
+     "sha256": "3636d0f0bd6bef02654cdffdc447b79cb2cef8ab02cc75267345946291a489e4",
+     "blob": "124386803f142761528f710e77ae483f5f8c4fc4"
+    },
+    {
+     "path": "text_encoder/model.safetensors.index.json",
+     "size": 45636,
+     "sha256": "20e35695c0078a11aaf4a2766a227c5324ab2d2727583dfc8efd37538fdc835f",
+     "blob": "3e22924fc9e3470586dd22669bb1220e1ea1534b"
+    },
+    {
+     "path": "text_encoder/tokenizer.json",
+     "size": 11422650,
+     "sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506",
+     "blob": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506"
+    },
+    {
+     "path": "text_encoder/tokenizer_config.json",
+     "size": 692,
+     "sha256": "e1125421b81c2eedb6bf0e40a4aea9558d788018fd5bd19a21f2233839edf164",
+     "blob": "9702bdb33831d30d74bca00c4a63b619486b4ea0"
+    },
+    {
+     "path": "transformer/0.safetensors",
+     "size": 2124099655,
+     "sha256": "80928b5749afe060017fd68516c4d02126aef389170d7c71d68ead5d7b93dcdb",
+     "blob": "80928b5749afe060017fd68516c4d02126aef389170d7c71d68ead5d7b93dcdb"
+    },
+    {
+     "path": "transformer/1.safetensors",
+     "size": 2145827275,
+     "sha256": "f8492ea3c3c0f21c08f79b411509e736788a3a41b61391655709058abd9b630c",
+     "blob": "f8492ea3c3c0f21c08f79b411509e736788a3a41b61391655709058abd9b630c"
+    },
+    {
+     "path": "transformer/2.safetensors",
+     "size": 1614802516,
+     "sha256": "54a7767a81b161d11230726b79d6a9c5b6c42929721e731028d7c938fca35fef",
+     "blob": "54a7767a81b161d11230726b79d6a9c5b6c42929721e731028d7c938fca35fef"
+    },
+    {
+     "path": "transformer/model.safetensors.index.json",
+     "size": 61370,
+     "sha256": "5a29486ddaa9bdf678fb85ad20b57171d27f937bbc005eb1b1616aa8fb0c5f2e",
+     "blob": "6b4116147a4231938888430cae68e54f1c3f1f6d"
+    },
+    {
+     "path": "vae/0.safetensors",
+     "size": 166156486,
+     "sha256": "94068882f83f537035d4353c19a8fa0d0b9d0294ee3ad8834ef5e1eecc960861",
+     "blob": "94068882f83f537035d4353c19a8fa0d0b9d0294ee3ad8834ef5e1eecc960861"
+    },
+    {
+     "path": "vae/model.safetensors.index.json",
+     "size": 17547,
+     "sha256": "832ed7169c0915288b73b3381f9deca52d76fb51b134677bd28c7d2eb27e966b",
+     "blob": "7a1a67fa246801fc6b7d8dda31f1d5dcc5011aaf"
+    }
+   ],
+   "bytes": 9907608869
+  },
+  "mflux-community/flux-3-image-klein-base-mflux-q6": {
+   "revision": "2fcf00e02258e86b599e553db5b2234ae819c7c3",
+   "what": "Pictures: FLUX 3 base-q6",
+   "files": [
+    {
+     "path": "README.md",
+     "size": 3071,
+     "sha256": "ed414edfdf28648dde8d461fe79c7c31f40bcd5c0672deb5e47f99a7b23b69e3",
+     "blob": "9928f7dd9d9b4ceb5884cafb38da8d6eb7fe0a62"
+    },
+    {
+     "path": "manifest.json",
+     "size": 78,
+     "sha256": "1bce946c5c62e03152df20bdf7889b721df7df5ef16909d0189f15f580b0407f",
+     "blob": "358b84bd67a451599741e402bed7b025641f18eb"
+    },
+    {
+     "path": "text_encoder/0.safetensors",
+     "size": 2141676588,
+     "sha256": "f7b4b822cfa46ce3f90104c46d2131a93d0b4904bfcf4386c6c2eabd2ae002fc",
+     "blob": "f7b4b822cfa46ce3f90104c46d2131a93d0b4904bfcf4386c6c2eabd2ae002fc"
+    },
+    {
+     "path": "text_encoder/1.safetensors",
+     "size": 798847236,
+     "sha256": "1782697b7872c06f32aeb8ef104d4e5dae7c130982700a775b616e66f2c53d81",
+     "blob": "1782697b7872c06f32aeb8ef104d4e5dae7c130982700a775b616e66f2c53d81"
+    },
+    {
+     "path": "text_encoder/chat_template.jinja",
+     "size": 5292,
+     "sha256": "3636d0f0bd6bef02654cdffdc447b79cb2cef8ab02cc75267345946291a489e4",
+     "blob": "124386803f142761528f710e77ae483f5f8c4fc4"
+    },
+    {
+     "path": "text_encoder/model.safetensors.index.json",
+     "size": 45636,
+     "sha256": "e2a4b597efaefbe9088c26bb8fa69e582607973dfa6a5d1bbb985223ab2f4416",
+     "blob": "325718f3ea2764e968d401d24136a363ad4d550f"
+    },
+    {
+     "path": "text_encoder/tokenizer.json",
+     "size": 11422650,
+     "sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506",
+     "blob": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506"
+    },
+    {
+     "path": "text_encoder/tokenizer_config.json",
+     "size": 692,
+     "sha256": "e1125421b81c2eedb6bf0e40a4aea9558d788018fd5bd19a21f2233839edf164",
+     "blob": "9702bdb33831d30d74bca00c4a63b619486b4ea0"
+    },
+    {
+     "path": "transformer/0.safetensors",
+     "size": 2122738024,
+     "sha256": "61a546b670faba54520c562f8932466e6ca8f653d6ee7b88c8a5eb19e212f85e",
+     "blob": "61a546b670faba54520c562f8932466e6ca8f653d6ee7b88c8a5eb19e212f85e"
+    },
+    {
+     "path": "transformer/1.safetensors",
+     "size": 2139354166,
+     "sha256": "f6febea718c82966c2086205b9740934daa0c3e01ac6ab32a367b023dbc2136b",
+     "blob": "f6febea718c82966c2086205b9740934daa0c3e01ac6ab32a367b023dbc2136b"
+    },
+    {
+     "path": "transformer/2.safetensors",
+     "size": 238025357,
+     "sha256": "2562fcd7e81e89327bbd52812c3f43507485354bf21f68f2dbbbb419706c68c9",
+     "blob": "2562fcd7e81e89327bbd52812c3f43507485354bf21f68f2dbbbb419706c68c9"
+    },
+    {
+     "path": "transformer/model.safetensors.index.json",
+     "size": 61370,
+     "sha256": "3fbe0a679d34fa57a737f7ec8d99031d41db441dde3dc0148d25835ad7f1e005",
+     "blob": "8fb0b5d545dde9836f3b7a725e84b1a1db720b21"
+    },
+    {
+     "path": "vae/0.safetensors",
+     "size": 165632190,
+     "sha256": "c386146c9a2a5a0f12da2a7a184b8b8352f4ec88c00d58dc0c94d536a0247116",
+     "blob": "c386146c9a2a5a0f12da2a7a184b8b8352f4ec88c00d58dc0c94d536a0247116"
+    },
+    {
+     "path": "vae/model.safetensors.index.json",
+     "size": 17547,
+     "sha256": "ae5e65725750e1744f15c9d67b1988caf92b31dcd046fc759e10b7950da28587",
+     "blob": "83aa607d369323ad15a7ef08acdae33093724048"
+    }
+   ],
+   "bytes": 7617829897
+  },
+  "mflux-community/flux-3-image-klein-base-mflux-q4": {
+   "revision": "2c418dea6a9de1e4f545ace0a974312cdc6a68a9",
+   "what": "Pictures: FLUX 3 base-q4",
+   "files": [
+    {
+     "path": "README.md",
+     "size": 3071,
+     "sha256": "ea229454e5002826d9d33b5dfb4f6bfc703abc123b6c319a721b8f91ce8a2fb2",
+     "blob": "a48069537aba5b243e60ad2c37148b7e635858be"
+    },
+    {
+     "path": "manifest.json",
+     "size": 78,
+     "sha256": "3039efe5aa09d09669932c9233f4399ba79fe88d31a25ad1741809e4aeefb50a",
+     "blob": "37bfbbc9b6bc2ef8f6ee2aa3d7e9d9b5d93c3e71"
+    },
+    {
+     "path": "text_encoder/0.safetensors",
+     "size": 2035881396,
+     "sha256": "d6621c1001e0d81a0bb5a9405610fe78d3aff1658ded8a851ef2d4906c300e84",
+     "blob": "d6621c1001e0d81a0bb5a9405610fe78d3aff1658ded8a851ef2d4906c300e84"
+    },
+    {
+     "path": "text_encoder/chat_template.jinja",
+     "size": 5292,
+     "sha256": "3636d0f0bd6bef02654cdffdc447b79cb2cef8ab02cc75267345946291a489e4",
+     "blob": "124386803f142761528f710e77ae483f5f8c4fc4"
+    },
+    {
+     "path": "text_encoder/model.safetensors.index.json",
+     "size": 45636,
+     "sha256": "b48642ad8a77bc00df01298b9ebf479104fca6bc108525ed5f68e99d693788f8",
+     "blob": "239a22495ab525c5476b392131b7a01a52c1e21b"
+    },
+    {
+     "path": "text_encoder/tokenizer.json",
+     "size": 11422650,
+     "sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506",
+     "blob": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506"
+    },
+    {
+     "path": "text_encoder/tokenizer_config.json",
+     "size": 692,
+     "sha256": "e1125421b81c2eedb6bf0e40a4aea9558d788018fd5bd19a21f2233839edf164",
+     "blob": "9702bdb33831d30d74bca00c4a63b619486b4ea0"
+    },
+    {
+     "path": "transformer/0.safetensors",
+     "size": 2143802722,
+     "sha256": "484985806f2d4a6937b17cf90dbe623724fe7be32d631a9907056ae290a12a14",
+     "blob": "484985806f2d4a6937b17cf90dbe623724fe7be32d631a9907056ae290a12a14"
+    },
+    {
+     "path": "transformer/1.safetensors",
+     "size": 971702678,
+     "sha256": "693207ae0190d8665e5cc86a7a98bba898a19d918053f79a5d752993a39d2025",
+     "blob": "693207ae0190d8665e5cc86a7a98bba898a19d918053f79a5d752993a39d2025"
+    },
+    {
+     "path": "transformer/model.safetensors.index.json",
+     "size": 61370,
+     "sha256": "81ded03226e5845c635c4a7207723e99e73f19cca12b1def0af752ddc5e017d6",
+     "blob": "08d92a2b574e505c9b9663e7d0850794c4790c36"
+    },
+    {
+     "path": "vae/0.safetensors",
+     "size": 165107888,
+     "sha256": "9c3376cde5b6f5166fbd4cead9d9e5d84f11702e2865149a2828378a14671b4b",
+     "blob": "9c3376cde5b6f5166fbd4cead9d9e5d84f11702e2865149a2828378a14671b4b"
+    },
+    {
+     "path": "vae/model.safetensors.index.json",
+     "size": 17547,
+     "sha256": "f7db5c6b987249ed9f8e0bead73dcb18155ac742f14cfb7242050923a861bb24",
+     "blob": "538ee88340277070cfd2cd796b074732d6caf577"
+    }
+   ],
+   "bytes": 5328051020
+  },
+  "vanch007/mlx-Yue2-3B": {
+   "revision": "fa66d203dd56d7e033e05ee8b32269768984c4cc",
+   "what": "Music: YuE2 generator",
+   "files": [
+    {
+     "path": "LICENSE",
+     "size": 20309,
+     "sha256": "060985741d20e70613b4c189c7de106cabd3fb2109fbbfb6d705c9d619417dd0",
+     "blob": "5b4b50fd3e4d4cadbc54c49cab3552d0eb303d48"
+    },
+    {
+     "path": "THIRD_PARTY_NOTICES.md",
+     "size": 793,
+     "sha256": "14d3fd9f6fee86b4260b69b0979735b99ffec8c6b4db254567047a4215cd9af3",
+     "blob": "8178461b1f6ec6f9977cf0e03b93abd39f5ba1af"
+    },
+    {
+     "path": "ar-8bit.safetensors",
+     "size": 2656158264,
+     "sha256": "7b7d7796d348e6f2abce0a28e116557f41e16c00c0e03ee47f540e3f3c3e1e45",
+     "blob": "7b7d7796d348e6f2abce0a28e116557f41e16c00c0e03ee47f540e3f3c3e1e45"
+    },
+    {
+     "path": "ar-bf16.safetensors",
+     "size": 4331951136,
+     "sha256": "67275a875e7c717a4ea63c4e7f6a8b5ea2704d04768049f87a6b9e5ecfe16dca",
+     "blob": "67275a875e7c717a4ea63c4e7f6a8b5ea2704d04768049f87a6b9e5ecfe16dca"
+    },
+    {
+     "path": "config.json",
+     "size": 959,
+     "sha256": "ad3477bbef890bf98ae196c1e4b44779494a6231c4ab66f32708eabadf265329",
+     "blob": "9584e50ba9d6e487690544e14dd7555edbe27973"
+    },
+    {
+     "path": "conversion.json",
+     "size": 3784,
+     "sha256": "48fa8aa551c1a33eb57e52c1a91453b2e8f4d39cd2f28d41ab8030b320f47012",
+     "blob": "081f3e77a4e4404c64d9e91c94aef46694579b80"
+    },
+    {
+     "path": "licenses/SnakeBeta-NVIDIA-MIT.txt",
+     "size": 1076,
+     "sha256": "da9858d516047d82096d01c112a61bd67f26d289039464d668a1d45f91738ecc",
+     "blob": "e9663595cc28938f88d6299acd3ba791542e4c0c"
+    },
+    {
+     "path": "licenses/stable-audio-tools-MIT.txt",
+     "size": 1069,
+     "sha256": "a1fac33b7bcd791b74fb33aeb439f825e7277e239fc119fb7d2ab6f084a0c101",
+     "blob": "f119f94cf2ec8269020dd0d8140a4c4b83cc65a1"
+    },
+    {
+     "path": "nar-bf16.safetensors",
+     "size": 2929490456,
+     "sha256": "e6dbc167e15241447708068ed5efc612aba1934878d04278583ec54d5dc10869",
+     "blob": "e6dbc167e15241447708068ed5efc612aba1934878d04278583ec54d5dc10869"
+    },
+    {
+     "path": "qwen.tiktoken",
+     "size": 2561218,
+     "sha256": "b2b1b8dfb5cc5f024bafc373121c6aba3f66f9a5a0269e243470a1de16a33186",
+     "blob": "9b9b0e0416d84d7c88333eb261c77e5fe2d7f7be"
+    }
+   ],
+   "bytes": 9920189064
+  },
+  "m-a-p/YuE2-Vae": {
+   "revision": "95535e72a97bc0f09b8ada125d26b4009428c0e8",
+   "what": "Music: YuE2 decoder",
+   "files": [
+    {
+     "path": ".gitattributes",
+     "size": 1634,
+     "sha256": "2344624b5ce0c6809fc513e84f41a93ba7f9bd82cd80dc916dd404f19edc9a3d",
+     "blob": "879737759a9148efb188533c968c3909e48cc6e9"
+    },
+    {
+     "path": "LICENSE",
+     "size": 20309,
+     "sha256": "060985741d20e70613b4c189c7de106cabd3fb2109fbbfb6d705c9d619417dd0",
+     "blob": "5b4b50fd3e4d4cadbc54c49cab3552d0eb303d48"
+    },
+    {
+     "path": "README.md",
+     "size": 8975,
+     "sha256": "4ff58df7b4b6a4a51fb2a709d21a5bba1b9cb4f142d50767c3efa40e53b6e88d",
+     "blob": "51e10824fd2aadae89ef6d8e9bd9c782a99a786c"
+    },
+    {
+     "path": "THIRD_PARTY_NOTICES.md",
+     "size": 793,
+     "sha256": "14d3fd9f6fee86b4260b69b0979735b99ffec8c6b4db254567047a4215cd9af3",
+     "blob": "8178461b1f6ec6f9977cf0e03b93abd39f5ba1af"
+    },
+    {
+     "path": "assets/architecture.png",
+     "size": 407643,
+     "sha256": "53345d556ec1762dc7071b76ab0d79518c8cdf52bbf48ad434c3c34926ff74a3",
+     "blob": "53345d556ec1762dc7071b76ab0d79518c8cdf52bbf48ad434c3c34926ff74a3"
+    },
+    {
+     "path": "assets/figure1.png",
+     "size": 147143,
+     "sha256": "c52f18c1aaad89b6411db96ad2625f9fd3547d08577fe071940f4ca5aac798e5",
+     "blob": "c52f18c1aaad89b6411db96ad2625f9fd3547d08577fe071940f4ca5aac798e5"
+    },
+    {
+     "path": "assets/logo.png",
+     "size": 14085,
+     "sha256": "d57837783827061e6e4c6c817468c3e904cce06015a51a95fbd46add27f7af48",
+     "blob": "544eb1bdb5d0548ab7a2fda5839c23d154415dd0"
+    },
+    {
+     "path": "config.json",
+     "size": 1378,
+     "sha256": "f0191bb9694009956de44e0c361a6f1334760be4c8f848e599bde242a54a0970",
+     "blob": "f68832bef1b99f53dd70460f6b0d336971a664b8"
+    },
+    {
+     "path": "licenses/SnakeBeta-NVIDIA-MIT.txt",
+     "size": 1076,
+     "sha256": "da9858d516047d82096d01c112a61bd67f26d289039464d668a1d45f91738ecc",
+     "blob": "e9663595cc28938f88d6299acd3ba791542e4c0c"
+    },
+    {
+     "path": "licenses/stable-audio-tools-MIT.txt",
+     "size": 1069,
+     "sha256": "a1fac33b7bcd791b74fb33aeb439f825e7277e239fc119fb7d2ab6f084a0c101",
+     "blob": "f119f94cf2ec8269020dd0d8140a4c4b83cc65a1"
+    },
+    {
+     "path": "model.safetensors",
+     "size": 530512720,
+     "sha256": "807ce9d5149fa27c5ad3e6582058469852e908f6c5acc8c8aa338e7ab7751346",
+     "blob": "807ce9d5149fa27c5ad3e6582058469852e908f6c5acc8c8aa338e7ab7751346"
+    },
+    {
+     "path": "modeling_vae.py",
+     "size": 25265,
+     "sha256": "b6578ff461e6be9fd079ca5ddf12893940f3b3338ff3435fceae89c466486f5a",
+     "blob": "79014d26619982b3eaa9b9c987c31d6f931930b0"
+    },
+    {
+     "path": "weights_manifest.json",
+     "size": 178,
+     "sha256": "017d64a4d288217a43fcac3866a0e1d55f796fa891d4dfb6de0bd170ab750026",
+     "blob": "c663bbfcc6238d5b35cd61bee56e6aab4c7e3876"
+    }
+   ],
+   "bytes": 531142268
+  }
+ },
+ "hf_only": {
+  "Lightricks/LTX-2.3": "it needs a Hugging Face login (the official LTX file is gated)",
+  "Lightricks/LTX-2": "it needs a Hugging Face login (gated)",
+  "black-forest-labs/FLUX.1-Krea-dev": "it needs a Hugging Face login (gated)",
+  "black-forest-labs/flux-3-image-klein": "it needs a Hugging Face login (gated)"
+ },
+ "built": "2026-11-20"
+}

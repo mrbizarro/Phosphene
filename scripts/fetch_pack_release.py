@@ -288,9 +288,49 @@ HF_OFFICIAL_COPIES: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 
+def _hf_source():
+    """The China mirror rule (scripts/hf_source.py beside this file), loaded by its exact
+    path because ``python -I`` leaves this folder off sys.path. None when it is missing:
+    then Hugging Face only, as before."""
+    global _HF_SOURCE
+    if _HF_SOURCE is None:
+        _HF_SOURCE = False
+        src = Path(__file__).with_name("hf_source.py")
+        if src.is_file():
+            try:
+                import importlib.util
+                spec = importlib.util.spec_from_file_location("phosphene_hf_source", src)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                _HF_SOURCE = mod
+            except Exception:  # noqa: BLE001 - a broken helper must not stop a download
+                _HF_SOURCE = False
+    return _HF_SOURCE or None
+
+
+_HF_SOURCE = None
+
+
 def _hf_base() -> str:
+    """Hugging Face, or (5.0.76) the China mirror when this session cannot reach it. Every
+    slice is still checked against the manifest's sha256, so the mirror cannot change what
+    lands on disk."""
     env = os.environ.get("PHOSPHENE_PACK_HF")
-    return HF_BASE if env is None else env.strip()
+    if env is not None:
+        return env.strip()
+    hs = _hf_source()
+    if hs is not None and hs.use_mirror():
+        hs.announce()
+        return hs.mirror_base()
+    return HF_BASE
+
+
+def _urlopen(req, timeout):
+    """urlopen, but a China-mirror address gets the safe redirect rule (HTTPS only)."""
+    hs = _hf_source()
+    if hs is not None and hs.is_mirror_url(req.full_url):
+        return hs.opener().open(req, timeout=timeout)
+    return urllib.request.urlopen(req, timeout=timeout)
 
 
 def hf_repo_of(repo: dict) -> str | None:
@@ -399,7 +439,7 @@ def _open(url: str, offset: int, timeout: int):
     if start is not None:
         # A slice of a whole file (the HF source): only a 206 is the slice we asked for.
         req.add_header("Range", f"bytes={start + offset}-{end}")
-        resp = urllib.request.urlopen(req, timeout=timeout)
+        resp = _urlopen(req, timeout)
         if resp.status != 206:
             resp.close()
             raise RuntimeError(f"source ignored the byte range (HTTP {resp.status})")

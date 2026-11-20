@@ -41,6 +41,34 @@ SOURCES = [
 ]
 
 
+def _hf_source():
+    """scripts/hf_source.py (the China mirror rule), or None when missing."""
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    try:
+        import hf_source
+        return hf_source
+    except ImportError:
+        return None
+
+
+def _sources():
+    """SOURCES, with the China mirror's copy of the Hugging Face file in its place when this
+    session cannot reach Hugging Face (5.0.76). A real answer from Hugging Face (404, 403...)
+    is not a reason to ask the mirror; a failure to connect is (see main). The size and
+    sha256 check is the same for every source."""
+    hs = _hf_source()
+    if hs is None or not hs.mirror_base() or hs.mode() == "hf" or not hs.use_mirror():
+        return list(SOURCES)
+    hs.announce()
+    out = []
+    for label, url in SOURCES:
+        alt = hs.to_mirror(url)
+        out.append(("hf-mirror.com (China mirror of huggingface.co/madebyollin/taeh3)", alt) if alt else (label, url))
+    return out
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("usage: h3_fetch_tae.py <target-path>", file=sys.stderr)
@@ -53,14 +81,31 @@ def main() -> int:
                 return 0
         print("existing TAE file does not match the known hash - refetching")
     os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
-    for label, url in SOURCES:
+    for label, url in _sources():
         print(f"fetching TAE draft decoder from {label} ...")
         try:
-            with urllib.request.urlopen(url, timeout=120) as r:
+            hs = _hf_source()
+            if hs is not None and hs.is_mirror_url(url):
+                r, _ = hs.open_url(url, 0, timeout=120)      # no login, HTTPS-only redirects
+            else:
+                r = urllib.request.urlopen(url, timeout=120)
+            with r:
                 data = r.read()
         except Exception as exc:                                  # noqa: BLE001
             print(f"  failed: {_plain(exc)}")
-            continue
+            hs = _hf_source()
+            alt = hs.to_mirror(url) if hs is not None else None
+            if alt and not hs.is_mirror_url(url) and hs._switch_after(exc):
+                hs.announce()
+                try:
+                    r, _ = hs.open_url(alt, 0, timeout=120)
+                    with r:
+                        data = r.read()
+                except Exception as exc2:                         # noqa: BLE001
+                    print(f"  failed: {_plain(exc2)}")
+                    continue
+            else:
+                continue
         digest = hashlib.sha256(data).hexdigest()
         if len(data) != EXPECTED_BYTES or digest != EXPECTED_SHA256:
             print(f"  rejected: {len(data)} bytes, sha256 {digest[:16]}... (expected "

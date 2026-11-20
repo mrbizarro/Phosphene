@@ -3969,7 +3969,7 @@ def _h3_turbo_download_bg(target_dir, push_log, asset: dict | None = None) -> No
         h = hashlib.sha256()
         written = 0
         last_log = 0.0
-        with urllib.request.urlopen(req, timeout=60) as resp, \
+        with _hf_urlopen(req, timeout=60) as resp, \
                 open(tmp, "wb") as fh:
             while True:
                 chunk = resp.read(1 << 20)
@@ -16073,7 +16073,7 @@ def _h3_tristep_download_bg(target_dir, push_log, asset: dict | None = None,
     import urllib.request
     asset = asset or {"file": H3_TRISTEP_FILE, "url": H3_TRISTEP_URL,
                       "sha256": H3_TRISTEP_SHA256, "bytes": H3_TRISTEP_BYTES}
-    opener = opener or urllib.request.urlopen
+    opener = opener or _hf_urlopen
     total = int(asset["bytes"])
     total_mb = total // (1 << 20)
     target_dir = Path(target_dir)
@@ -16382,7 +16382,7 @@ def _h3_flex_turbo_fetch_bg(target_dir, push_log, opener=None) -> None:
             req = urllib.request.Request(url, headers={"User-Agent": "Phosphene"})
             if have:
                 req.add_header("Range", f"bytes={have}-")
-            with (opener or urllib.request.urlopen)(req, timeout=60) as r, open(part, "ab" if have and getattr(r, "status", 200) == 206 else "wb") as fh:
+            with (opener or _hf_urlopen)(req, timeout=60) as r, open(part, "ab" if have and getattr(r, "status", 200) == 206 else "wb") as fh:
                 if not (have and getattr(r, "status", 200) == 206):
                     have = 0
                 while True:
@@ -17446,7 +17446,7 @@ def _h3restyle_download_bg(target_dir, push_log, opener=None) -> None:
         h = hashlib.sha256()
         written = 0
         last_log = 0.0
-        with (opener or urllib.request.urlopen)(req, timeout=60) as resp, open(tmp, "wb") as fh:
+        with (opener or _hf_urlopen)(req, timeout=60) as resp, open(tmp, "wb") as fh:
             while True:
                 chunk = resp.read(1 << 20)
                 if not chunk:
@@ -22733,6 +22733,26 @@ def h3_app_runner_loop(delay_s: float = 20.0, sleep=time.sleep) -> None:
         sleep(H3_APP_RUNNER_RETRY_S)
 
 
+def _hf_source():
+    """scripts/hf_source.py: where Hugging Face files come from (huggingface.co, or the China
+    mirror when it cannot be reached; 5.0.76). Imported by name so a compiled Pro copy works.
+    None when it is missing, which means Hugging Face only, as before."""
+    import importlib
+    try:
+        return importlib.import_module("scripts.hf_source")
+    except ImportError:
+        return None
+
+
+def _hf_urlopen(req, timeout=60):
+    """urllib.request.urlopen for the pinned-checksum Hugging Face downloads (the H3 add-ons,
+    Restyle, Crisper detail): the China mirror rule, never a login sent to the mirror."""
+    hs = _hf_source()
+    if hs is None:
+        return urllib.request.urlopen(req, timeout=timeout)
+    return hs.urlopen(req, timeout)
+
+
 # ---- Download Hailuo H3 inside the Mac app (5.0.9) ---------------------------------
 # A fresh Mac-app user had no way to get H3: the app builds the runner only when the
 # weights are already on the Mac, and the weights only came from Pinokio's install_h3.js.
@@ -27806,7 +27826,7 @@ def _crisper_detail_fetch_bg(target_dir, push_log, opener=None) -> None:
             req = urllib.request.Request(url, headers={"User-Agent": "Phosphene"})
             if have:
                 req.add_header("Range", f"bytes={have}-")
-            with (opener or urllib.request.urlopen)(req, timeout=60) as r:
+            with (opener or _hf_urlopen)(req, timeout=60) as r:
                 resumed = bool(have and getattr(r, "status", 200) == 206)
                 if not resumed:
                     have = 0
