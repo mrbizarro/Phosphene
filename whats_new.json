@@ -262,7 +262,7 @@
       "A cleaner What's new window: the headline, what is new for everyone and what is new in Pro, in one card."
     ],
     "pro": [
-      "Faster LTX clips now reach 16 to 24 GB Macs too: about 27 to 30% faster than Free."
+      "Faster LTX clips now reach 16 to 24 GB Macs too."
     ],
     "date": "2026-11-13",
     "headline": "Less memory on 16 GB Macs, models on an external drive, and more first videos that finish."
@@ -3491,5 +3491,9 @@
         "pro": []
       }
     }
+  },
+  "5.0.75": {
+    "silent": true,
+    "date": "2026-11-20"
   }
 }

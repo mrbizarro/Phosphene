@@ -2,7 +2,7 @@
 
 **Phosphene is a free, open-source Mac app that makes AI video with sound, pictures, songs and speech on your own Apple Silicon Mac.** It runs LTX-2.5, MiniMax H3 (Hailuo H3) and MiniMax-H3-Image locally with MLX: offline, no cloud, no API key, no account, no NVIDIA GPU.
 
-**Current release: v5.0.74.** Mac app or Pinokio · M1 to M5 · from 16 GB of memory · MIT licence · made by Mr Bizarro
+**Current release: v5.0.75.** Mac app or Pinokio · M1 to M5 · from 16 GB of memory · MIT licence · made by Mr Bizarro
 
 <p align="center">
   <a href="https://phosphene.video/?utm_source=github&amp;utm_medium=readme&amp;utm_campaign=home&amp;utm_content=hero"><img src="assets/readme/app_video.webp" alt="The Phosphene Mac app: the Video tab with LTX-2.5 selected, a prompt box, the player and a gallery of AI video clips made locally on a Mac" width="100%"></a>
@@ -148,7 +148,7 @@ Phosphene is open source under MIT and stays free. Every engine and feature avai
 
 | Pro | What it does |
 | --- | --- |
-| Faster LTX clips | About a quarter less waiting on a 5-second LTX-2.5 clip (152 s on Free, 113 s on Pro, same clip and seed, M4 Max 64 GB). On 16 to 24 GB Macs, clips are 27 to 30% faster. Every Mac from 16 GB |
+| Faster LTX clips | About a quarter less waiting on a 5-second LTX-2.5 clip (152 s on Free, 113 s on Pro, same clip and seed, M4 Max 64 GB). Every Mac from 16 GB |
 | Faster H3 picture-to-video | 5-second H3 clips: 14:57 on Free, 10:02 on Pro (M4 Max 64 GB). Macs with 36 GB or more |
 | Faster Flex Turbo | Quicker H3 drafts, about 1.5x faster than Flex on Free. Macs with 36 GB or more |
 | AI fill for Make it vertical | Paints real picture above and below instead of a blur. Macs with 48 GB or more |

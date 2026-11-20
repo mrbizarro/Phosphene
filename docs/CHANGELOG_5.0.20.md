@@ -11,6 +11,6 @@ Free for everyone:
 - The README is rewritten, and the iPhone app is described as part of Pro.
 
 Pro:
-- Faster LTX clips now reach 16 to 24 GB Macs: about 27 to 30% faster than Free.
+- Faster LTX clips now reach 16 to 24 GB Macs.
 
 Mac app: choose Check for Updates; this installs the Mac app 5.0.20 with Studio and Pro 5.0.20. Pinokio: press Update, then restart.
