@@ -46023,8 +46023,13 @@ def run_take_job_inner(job: dict) -> None:
         # trusted from the manifest — a Stop during (or before) the previous
         # run's frame extraction recorded a path that was never written, and
         # the resumed part then started from a missing image and failed again.
-        if not Path(resume_outs[-1]).is_file():
-            raise RuntimeError(f"part {start_k} of this take is no longer on disk — "
+        # H42: every kept part is joined at the end, not only the last one.
+        # Only the last was checked, so a take whose EARLIER part was deleted
+        # (stopped takes show their parts in the gallery) re-rendered the rest
+        # and then died at the join: "ffmpeg exit 254: Error opening input".
+        _gone = [i + 1 for i, o in enumerate(resume_outs) if not Path(o).is_file()]
+        if _gone:
+            raise RuntimeError(f"part {_gone[0]} of this take is no longer on disk — "
                                "it can't be resumed")
         last_png = str(take_dir / f"part{start_k}_last.png")
         _take_last_frame(ff, resume_outs[-1], last_png, job)

@@ -3408,5 +3408,88 @@
         ]
       }
     }
+  },
+  "5.0.74": {
+    "free": [
+      "Training: if a run stops because a file is missing, the card now names the file and says what to do: click Download all in the Train tab, or add your photos again.",
+      "One Shot: pressing Resume on a stopped One Shot whose earlier part was deleted now stops at once and names the missing part, instead of making the rest and failing at the end."
+    ],
+    "pro": [],
+    "date": "2026-11-20",
+    "headline": "Clearer messages when training or a resumed One Shot cannot go on.",
+    "i18n": {
+      "de": {
+        "headline": "Klarere Meldungen, wenn ein Training oder ein fortgesetzter One Shot nicht weitergeht.",
+        "free": [
+          "Training: Stoppt ein Lauf, weil eine Datei fehlt, nennt die Karte jetzt die Datei und sagt, was zu tun ist: Klicke im Tab „Training“ auf Download all oder füge deine Fotos neu hinzu.",
+          "One Shot: Fortsetzen bei einem gestoppten One Shot, dessen früherer Teil gelöscht wurde, stoppt jetzt sofort und nennt den fehlenden Teil, statt den Rest zu erstellen und am Ende zu scheitern."
+        ],
+        "pro": []
+      },
+      "es": {
+        "headline": "Mensajes más claros cuando un entrenamiento o un One Shot reanudado no puede seguir.",
+        "free": [
+          "Entrenamiento: si una sesión se detiene porque falta un archivo, la tarjeta ahora dice cuál y qué hacer: haz clic en Download all en la pestaña Entrenar o vuelve a añadir tus fotos.",
+          "One Shot: Reanudar un One Shot detenido cuya parte anterior se borró ahora se detiene al momento y nombra la parte que falta, en vez de hacer el resto y fallar al final."
+        ],
+        "pro": []
+      },
+      "fr": {
+        "headline": "Des messages plus clairs quand un entraînement ou un One Shot repris ne peut pas continuer.",
+        "free": [
+          "Entraînement : si une session s’arrête faute d’un fichier, la carte le nomme et dit quoi faire : clique sur Download all dans l’onglet Entraîner, ou ajoute à nouveau tes photos.",
+          "One Shot : Reprendre un One Shot arrêté dont une partie précédente a été supprimée s’arrête tout de suite et nomme la partie manquante, au lieu de faire le reste et d’échouer à la fin."
+        ],
+        "pro": []
+      },
+      "it": {
+        "headline": "Messaggi più chiari quando un addestramento o un One Shot ripreso non può continuare.",
+        "free": [
+          "Addestramento: se una sessione si ferma perché manca un file, la scheda ora indica il file e cosa fare: fai clic su Download all nella scheda Addestra, oppure aggiungi di nuovo le tue foto.",
+          "One Shot: Riprendi su un One Shot fermato la cui parte precedente è stata eliminata ora si ferma subito e indica la parte mancante, invece di creare il resto e fallire alla fine."
+        ],
+        "pro": []
+      },
+      "ja": {
+        "headline": "学習や再開したワンショットが続けられないときのメッセージがわかりやすくなりました。",
+        "free": [
+          "学習：ファイルが足りずに止まったとき、カードにそのファイル名とやることが表示されます。学習タブで Download all をクリックするか、写真を追加し直してください。",
+          "ワンショット：前のパートが削除された停止中のワンショットで 再開 を押すと、残りを作ってから最後に失敗するのではなく、すぐに止まって足りないパートを教えてくれます。"
+        ],
+        "pro": []
+      },
+      "ko": {
+        "headline": "학습이나 다시 시작한 One Shot을 이어갈 수 없을 때 안내가 더 분명해졌어요.",
+        "free": [
+          "학습: 파일이 없어서 멈추면 이제 카드에 그 파일 이름과 할 일이 나와요. 학습 탭에서 Download all을 누르거나 사진을 다시 추가하세요.",
+          "One Shot: 앞부분이 삭제된 멈춘 One Shot에서 다시 시작을 누르면, 나머지를 다 만든 뒤 끝에서 실패하지 않고 바로 멈추고 없는 부분을 알려줘요."
+        ],
+        "pro": []
+      },
+      "pt": {
+        "headline": "Mensagens mais claras quando um treino ou um One Shot retomado não pode continuar.",
+        "free": [
+          "Treino: se uma sessão parar porque falta um arquivo, o cartão agora mostra qual é e o que fazer: clique em Download all na aba Treinar ou adicione suas fotos de novo.",
+          "One Shot: Retomar um One Shot parado cuja parte anterior foi apagada agora para na hora e mostra a parte que falta, em vez de fazer o resto e falhar no final."
+        ],
+        "pro": []
+      },
+      "ru": {
+        "headline": "Понятнее сообщения, когда обучение или продолженный One Shot не может идти дальше.",
+        "free": [
+          "Обучение: если запуск остановился из-за отсутствующего файла, карточка теперь называет файл и говорит, что сделать: нажмите Download all на вкладке «Обучение» или добавьте фото заново.",
+          "One Shot: «Продолжить» для остановленного One Shot, у которого удалена одна из прошлых частей, теперь сразу останавливается и называет недостающую часть, а не делает остальное и падает в конце."
+        ],
+        "pro": []
+      },
+      "zh-Hans": {
+        "headline": "训练或继续一镜到底无法进行时，提示更清楚了。",
+        "free": [
+          "训练：如果因为缺少文件而停止，卡片现在会写出是哪个文件以及该怎么做：在“训练”标签页点 Download all，或重新添加你的照片。",
+          "一镜到底：已停止的一镜到底如果前面某一段被删除，按 继续 时现在会立刻停下并指出缺少哪一段，而不是先做完剩下的再在最后失败。"
+        ],
+        "pro": []
+      }
+    }
   }
 }

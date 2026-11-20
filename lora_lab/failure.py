@@ -98,6 +98,31 @@ def classify_exception(exc: BaseException | None) -> str:
     return "other"
 
 
+def missing_file_message(exc: BaseException | None) -> str | None:
+    """The plain sentence for a run that stopped on a missing file, or None
+    (hotfix H41, fleet 19-20 Nov 2026: "training stopped: missing_file (stage
+    preprocess)" on 2 Macs). The card only showed Python's own "[Errno 2] No
+    such file or directory: '/long/path'", which does not say what to add.
+    Names the missing file and the one thing to do about it. Stays on this Mac
+    (the card and the Logs tab); the fleet still gets only the class word."""
+    if exc is None or classify_exception(exc) != "missing_file":
+        return None
+    path = ""
+    for e in _chain(exc):
+        if isinstance(e, FileNotFoundError):
+            path = str(e.filename or "")
+            break
+    name = Path(path).name if path else ""
+    model_like = (not path or "mlx_models" in path or "huggingface" in path
+                  or Path(path).suffix.lower() in (".safetensors", ".json", ".model", ".bin"))
+    what = f" ({name})" if name else ""
+    if model_like:
+        return (f"a model file the photo preparation needs is missing{what}. "
+                "Open the Train tab and click Download all, then start again.")
+    return (f"a file from your training set is missing{what}. "
+            "Add your photos again in the Train tab, then start again.")
+
+
 def classify_detail(name: str, message: str = "") -> str:
     """Fixed categories only; never return any part of an exception's text."""
     text = message.lower()

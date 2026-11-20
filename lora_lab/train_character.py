@@ -108,7 +108,7 @@ from typing import Any
 import yaml
 
 from lora_lab.failure import (NAN_LOSS_ABORT_STEPS, NonFiniteLoss, classify_exception,
-                              is_finite_loss)
+                              is_finite_loss, missing_file_message)
 
 logger = logging.getLogger(__name__)
 
@@ -1205,7 +1205,7 @@ def run_pipeline(spec_path: Path) -> int:
         )
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc(file=sys.stderr)
-        emit_error_and_exit("preprocess", str(exc), exc=exc)
+        emit_error_and_exit("preprocess", missing_file_message(exc) or str(exc), exc=exc)
 
     try:
         checkpoint_path, training_wall_s = run_training(
