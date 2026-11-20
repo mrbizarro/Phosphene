@@ -5273,7 +5273,16 @@
   "yourProModal.close": "Cerrar",
   "yourProModal.title.close": "Cerrar",
   "yourProModal.your_licence": "Tu licencia",
-  "yourProTitle.your_pro": "Tu Pro"
+  "yourProTitle.your_pro": "Tu Pro",
+  "settings.updates": "Actualizaciones",
+  "settings.update_automatically": "Actualizar automáticamente",
+  "settings.update_automatically_help": "Si lo desactivas, tú decides cuándo actualizar. Las descargas que inicies pueden terminar.",
+  "settings.update_app_for_control": "Actualiza la app para Mac para usar esta opción.",
+  "settings.update_all_help": "Se aplica a Studio, Pro y la app para Mac. Si lo desactivas, tú decides cuándo actualizar.",
+  "settings.update_available": "Actualización disponible ({version})",
+  "settings.update": "Actualizar",
+  "settings.whats_new": "Novedades",
+  "settings.update_choice_not_saved": "No se pudo guardar esta opción. Inténtalo de nuevo."
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",

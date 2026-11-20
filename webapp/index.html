@@ -6547,6 +6547,18 @@ The last line" data-i18n-placeholder="musicLyricsRaw.placeholder.verse_write_the
       rendering choices wait for their own Save button.
     </div>
 
+    <div class="settings-section" id="settingsUpdatesSection">
+      <h3 data-i18n="settings.updates">Updates</h3>
+      <label class="spicy-row">
+        <input type="checkbox" id="settingsAutomaticUpdates" onchange="settingsAutomaticUpdatesChange(this)">
+        <span data-i18n="settings.update_automatically">Update automatically</span>
+      </label>
+      <p class="hint" id="settingsUpdatesHelp"></p>
+      <p class="hint" id="settingsUpdateAvailable" hidden></p>
+      <button type="button" class="ghost-btn" onclick="settingsUpdateNow()" data-i18n="settings.update">Update</button>
+      <button type="button" class="ghost-btn" onclick="settingsUpdatesWhatsNew()" data-i18n="settings.whats_new">What's new</button>
+    </div>
+
     <!-- Phosphene Pro: status and licence entry inside Settings (settings.js
          renderSettingsPro). Pinokio opens the Studio's own Pro dialog, which
          takes the key; the Mac app keeps its licence in the app, so the button

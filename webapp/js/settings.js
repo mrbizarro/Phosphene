@@ -1,3 +1,64 @@
+// The app owns all its update paths; Pinokio stores its choice with Studio settings.
+function renderAutomaticUpdates(cur) {
+  const box = document.getElementById('settingsAutomaticUpdates');
+  if (!box) return;
+  const app = window.phosAppUpdate;
+  const native = !!(app && Array.isArray(app.caps) && app.caps.includes('automaticUpdates'));
+  const mac = !!(BOOT && BOOT.distribution === 'mac-app');
+  box.checked = native ? app.automatic !== false : (cur || {}).update_automatically !== false;
+  box.disabled = mac && !native;
+  const help = document.getElementById('settingsUpdatesHelp');
+  if (help) help.textContent = mac && !native
+    ? T('settings.update_app_for_control', 'Update the Mac app to use this switch.')
+    : native
+      ? T('settings.update_all_help', 'Applies to Studio, Pro and the Mac app. When off, choose when to update.')
+      : T('settings.update_automatically_help', 'When off, choose when to update. Downloads you start yourself can still finish.');
+  const state = window._settingsVersionState || null;
+  const target = native ? (app.behind ? app.target : '')
+    : state && state.behind_by > 0 ? state.remote_version : '';
+  const label = document.getElementById('settingsUpdateAvailable');
+  if (label) {
+    label.hidden = !target;
+    label.textContent = target ? T('settings.update_available', 'Update available ({version})', {version: target}) : '';
+  }
+}
+
+async function settingsAutomaticUpdatesChange(box) {
+  const wanted = box.checked;
+  box.disabled = true;
+  if (window.phosAppUpdate && (window.phosAppUpdate.caps || []).includes('automaticUpdates')) {
+    try {
+      window.webkit.messageHandlers.phosphene.postMessage({type: 'setAutomaticUpdates', enabled: wanted});
+      // The native acknowledgement renders the actual persisted value.
+    } catch (e) { box.checked = !wanted; box.disabled = false; }
+    return;
+  }
+  try {
+    const body = new URLSearchParams({update_automatically: String(wanted)});
+    const response = await fetch('/settings', {method: 'POST', body});
+    if (!response.ok) throw new Error('save');
+    if (_settingsCache && _settingsCache.settings) _settingsCache.settings.update_automatically = wanted;
+  } catch (e) {
+    box.checked = !wanted;
+    document.getElementById('settingsStatus').textContent = T('settings.update_choice_not_saved', 'Could not save this choice. Try again.');
+  } finally { box.disabled = false; }
+}
+
+function settingsUpdateNow() {
+  if (window.phosAppUpdate && (window.phosAppUpdate.caps || []).includes('updateAll')) {
+    window.webkit.messageHandlers.phosphene.postMessage({type: 'updateAll'});
+  } else {
+    // Both requests are explicit: the off switch never prevents a person's Update click.
+    fetch('/remote/parts_retry', {method: 'POST'}).catch(() => {});
+    versionDoPull({skipConfirm: true});
+  }
+}
+
+function settingsUpdatesWhatsNew() {
+  // The release page includes the available version, even before it is installed.
+  window.open(siteLink('/changelog/', 'changelog', 'settings'), '_blank', 'noopener');
+}
+
 // webapp/js/settings.js — extracted verbatim from the panel page's inline
 // script block (slice 3 of docs/ARCHITECTURE.md). ES module: top-level
 // declarations are module-private; the publish block at the bottom is
@@ -933,6 +994,8 @@ async function openSettingsModal() {
   }
   const cur = _settingsCache.settings;
   const presets = _settingsCache.presets;
+  try { window._settingsVersionState = await (await fetch('/version')).json(); } catch (e) {}
+  renderAutomaticUpdates(cur);
   renderNotifyState(cur || {});
   applyAppearance();
   // Render preset cards (Standard, Video production, Web, Custom).
@@ -2320,6 +2383,7 @@ Object.assign(globalThis, {
   pushSubscription, pushToggle, pushTest,
   appearanceGet, applyAppearance, setAppearance,
   renderNotifyState, toggleNotify, askNotifyPermission,
+  renderAutomaticUpdates, settingsAutomaticUpdatesChange, settingsUpdateNow, settingsUpdatesWhatsNew,
   updateModelsCard, dismissModelsCard, applyTierGates, openTierModal,
   closeTierModal, openBugModal, closeBugModal, submitBugReport, copyBugDiagnostics, bugWhatInput,
   openSettingsModal, renderModelsDriveRows, renderGroupDirty, undoRenderSettings, settingsProOpen,

@@ -5255,7 +5255,16 @@
   "yourProModal.close": "Schließen",
   "yourProModal.title.close": "Schließen",
   "yourProModal.your_licence": "Deine Lizenz",
-  "yourProTitle.your_pro": "Dein Pro"
+  "yourProTitle.your_pro": "Dein Pro",
+  "settings.updates": "Updates",
+  "settings.update_automatically": "Automatisch aktualisieren",
+  "settings.update_automatically_help": "Wenn ausgeschaltet, entscheidest du, wann aktualisiert wird. Selbst gestartete Downloads können fertiglaufen.",
+  "settings.update_app_for_control": "Aktualisiere die Mac-App, um diesen Schalter zu nutzen.",
+  "settings.update_all_help": "Gilt für Studio, Pro und die Mac-App. Wenn ausgeschaltet, entscheidest du, wann aktualisiert wird.",
+  "settings.update_available": "Update verfügbar ({version})",
+  "settings.update": "Aktualisieren",
+  "settings.whats_new": "Was ist neu?",
+  "settings.update_choice_not_saved": "Die Auswahl konnte nicht gespeichert werden. Versuche es erneut."
  },
  "source": {
   "a2vEngineGroup.aria-label.lip_sync_engine": "274870c4f1",

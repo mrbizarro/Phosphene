@@ -81,6 +81,12 @@ function _versionBuildLabel(version, short) {
 }
 
 function renderVersionPill() {
+  const updateLabel = document.getElementById('settingsUpdateAvailable');
+  if (updateLabel && _versionState && !window.phosAppUpdate) {
+    const v = _versionState.behind_by > 0 ? _versionState.remote_version : '';
+    updateLabel.hidden = !v;
+    updateLabel.textContent = v ? T('settings.update_available', 'Update available ({version})', {version: v}) : '';
+  }
   const pill = document.getElementById('versionPill');
   if (!pill) return;
   const s = _versionState || {};
@@ -929,6 +935,7 @@ function _appUpdatePillClick() {
     : T('health.asked_phosphene_to_update_if', 'Asked Phosphene to update {name}. If this stays, quit Phosphene (⌘Q) and open it again — it updates when it opens.', {name}), 'info');
 }
 window.addEventListener('phos-app-update', () => {
+  if (typeof renderAutomaticUpdates === 'function') renderAutomaticUpdates();
   try { renderVersionPill(); } catch (e) {}
   try { _appUpdateAnnounce(); } catch (e) {}
 });
@@ -1331,7 +1338,7 @@ setInterval(refreshVersionPill, 5 * 60 * 1000);
 // Inline handlers in the markup and the other files resolve these through
 // the global scope; everything NOT listed here is private to this module.
 Object.assign(globalThis, {
-  renderVersionPill, updateHealthChip, versionPillClick, _uiEvent, armFirstUseReport,
+  renderVersionPill, updateHealthChip, versionPillClick, versionDoPull, _uiEvent, armFirstUseReport,
   // SYS-19: closeHealthPop wasn't published -- openTierModal (settings.js)
   // and openModelsModal (preview.js) need it so clicking a health-popover
   // row closes the popover before its modal opens on top of it.

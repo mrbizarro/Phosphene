@@ -1661,6 +1661,7 @@ def _settings_defaults() -> dict:
         # would mean asking someone to log into GitHub inside a local video
         # panel to suppress a prompt. Clicking through, or saying you already
         # starred, sets this once and the ask never returns on this install.
+        "update_automatically": True,
         "update_banner_dismissed": "",
         "star_prompt_done": False,
         # Broadcast messages the user already dismissed (list of message ids,
@@ -2018,6 +2019,15 @@ def _validate_settings_patch(patch: dict) -> tuple[dict, str | None]:
     # accepted here — they're panel bookkeeping written via
     # _settings_set_internal(), and a form must not be able to set the
     # install id (that would let a page correlate installs).
+    if "update_automatically" in patch:
+        v = patch["update_automatically"]
+        if isinstance(v, bool):
+            out["update_automatically"] = v
+        elif str(v).strip().lower() in ("true", "false", "1", "0", "on", "off"):
+            out["update_automatically"] = str(v).strip().lower() in ("true", "1", "on")
+        else:
+            return {}, "Invalid automatic update choice"
+
     if "analytics_enabled" in patch:
         # Same urlencoded-bool coercion as spicy_mode / models_card_dismissed.
         v = patch["analytics_enabled"]
@@ -2144,6 +2154,7 @@ def get_settings_public() -> dict:
         # no matter what the user had chosen.
         "h3_dit": str(s.get("h3_dit", "auto") or "auto"),
         "h3_vae_fp16": bool(s.get("h3_vae_fp16", True)),
+        "update_automatically": bool(s.get("update_automatically", True)),
         "update_banner_dismissed": str(s.get("update_banner_dismissed", "") or ""),
         "star_prompt_done": bool(s.get("star_prompt_done", False)),
         "broadcast_seen_ids": list(s.get("broadcast_seen_ids") or []),
