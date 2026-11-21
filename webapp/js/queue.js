@@ -5403,19 +5403,23 @@ function displayTitle(prompt, label, limit) {
     t = clean(inner);
   }
   if (!t) return '';
-  const sents = t.split(/(?<=[.!?])\s+/).map(x => x.trim()).filter(Boolean);
+  // 。！？ end a Chinese/Japanese sentence with no space after; a CJK character
+  // or Hangul syllable counts twice toward the short-sentence skip
+  // (clip_title._SENT_SPLIT, _width).
+  const sents = t.split(/(?<=[.!?])\s+|(?<=[。！？])(?![。！？」』”’"'）)])\s*/).map(x => x.trim()).filter(Boolean);
+  const width = (x) => x.length + (x.match(/[\u3000-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7a3\uf900-\ufaff\uff01-\uff60]/g) || []).length;
   const styleLead = /^(?:live-action(?:-style [a-z]+)?|cinematic|animated|photorealistic|vintage film|warm film look|film look)\s*,\s*/i;
   const styleOnly = /(?:shot on [A-Za-z0-9 ]{2,20}|film look|film grain|vhs look|tape damage|tape recording)$/i;
   const trigger = /^[A-Za-z]*\d[A-Za-z0-9_]*\s*,|^[a-z0-9_]*trn\s*,/i;
   let first = '';
   for (let i = 0; i < sents.length; i++) {
-    let c = sents[i].replace(/[.!?]+$/, '');
+    let c = sents[i].replace(/[.!?。！？]+$/, '');
     while (styleLead.test(c)) c = c.replace(styleLead, '');
     c = c.replace(trigger, '').trim();
-    if (i < sents.length - 1 && (styleOnly.test(c) || c.length < 12)) continue;
+    if (i < sents.length - 1 && (styleOnly.test(c) || width(c) < 12)) continue;
     first = c; break;
   }
-  first = first || sents[0].replace(/[.!?]+$/, '');
+  first = first || sents[0].replace(/[.!?。！？]+$/, '');
   if (first && first[0] === first[0].toLowerCase() && first[0] !== first[0].toUpperCase()) first = first[0].toUpperCase() + first.slice(1);
   return trim(first);
 }
