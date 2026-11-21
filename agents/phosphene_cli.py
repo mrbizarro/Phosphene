@@ -186,12 +186,13 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
         return p
 
-    def finishing(p):
+    def finishing(p, label=True):
         p.add_argument("--wait", action="store_true", help="wait until it is finished")
         p.add_argument("--out", help="copy the finished files here (implies --wait)")
         p.add_argument("--timeout", type=float, default=3600, help="seconds to wait (default 3600)")
         p.add_argument("--seed", type=int)
-        p.add_argument("--label")
+        if label:
+            p.add_argument("--label")
 
     make("status", cmd_status, "is Phosphene running, Free or Pro, what it can make")
     make("servers", cmd_servers, "every studio answering on this Mac")
@@ -213,14 +214,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("text")
     p.add_argument("--voice")
     p.add_argument("--speed", type=float)
-    finishing(p)
+    # No --label here or on music: the studio names a speech or music job itself
+    # (make_job), and no form field sets it, so the option did nothing.
+    finishing(p, label=False)
     p = make("music", cmd_music, "make a song or an instrumental")
     p.add_argument("style", help="the style: genre, instruments, mood")
     p.add_argument("--lyrics", help="a text file with the lyrics (none = instrumental)")
     p.add_argument("--instrumental", action="store_true")
     p.add_argument("--seconds", type=int)
     p.add_argument("--title")
-    finishing(p)
+    finishing(p, label=False)
     p = make("jobs", cmd_jobs, "running, queued and recent jobs")
     p.add_argument("--limit", type=int, default=10)
     p = make("wait", cmd_wait, "wait for a job to finish")
