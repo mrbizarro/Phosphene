@@ -30,13 +30,26 @@ def enabled(params: dict, audio: str, version: str) -> bool:
     return choice in ("1", "on", "true", "yes") or is_speech_audio(audio)
 
 
+# A sentence that directs the performer's mouth (the lip-sync contract, "his
+# mouth settles closed") has no place in an ambience prompt. Whole words only:
+# as bare substrings these also deleted "tulips", "clips", "eclipse", "slips".
+_LIPSYNC_DIRECTION = re.compile(
+    r"\blip.?sync|\bconsonants\b|\bmouth(?:s|ed|ing)?\b|\blips\b|\bsupplied voice\b", re.I)
+# ...and a mouth that is a place ("the river mouth", "the mouth of the cave")
+# is scenery, which is exactly what the bed should hear about.
+_PLACE_MOUTH = re.compile(
+    r"\b(?:river|stream|creek|estuary|harbou?r|bay|cave|tunnel|canyon)\s+mouths?\b|"
+    r"\bmouths?\s+of\s+(?:the|a|an|this|that)\s+"
+    r"(?:river|stream|creek|estuary|harbou?r|bay|cave|tunnel|canyon)\b", re.I)
+
+
 def sound_prompt(scene: str, override: str = "") -> str:
     # Quoted dialogue must not become a second performance in the bed.
     context = re.sub(r'"[^"\n]*"|“[^”\n]*”', "", override or scene)
     context = re.sub(r"\b(?:speaks?|says?|sings?|delivers?)\b[^.!?]*[.!?]?", "", context,
                      flags=re.I)
     context = " ".join(s for s in re.split(r"(?<=[.!?])\s+", context)
-                       if not re.search(r"lip.sync|consonants|mouth|lips|supplied voice", s, re.I))
+                       if not _LIPSYNC_DIRECTION.search(_PLACE_MOUTH.sub(" ", s)))
     context = " ".join(context.split())[:1800]
     return (
         "An establishing view of the environment, with the camera looking away from people. "
