@@ -15533,7 +15533,7 @@ html[data-pro=""] .tool-rail .workflow-tabs button[data-workflow="remote"] .new-
 .wn-np-row .wn-np-lines { flex: 1; min-width: 0; }
 .wn-np-clip { flex: none; width: 210px; padding: 0; border: 1px solid color-mix(in srgb, var(--site-violet) 40%, transparent); border-radius: 10px; overflow: hidden; background: #000; cursor: pointer; position: relative; }
 .wn-np-clip video { display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; }
-.wn-np-clip-k { position: absolute; left: 6px; bottom: 6px; font-size: 13px; padding: 2px 7px; border-radius: 999px; background: #000b; color: #fff; }
+.wn-np-clip-k { position: absolute; left: 6px; top: 6px; font-size: 13px; padding: 2px 7px; border-radius: 999px; background: #000b; color: #fff; }
 .wn-np-row { flex-wrap: wrap; }
 .wn-np-clip.is-on { width: 100%; flex-basis: 100%; order: 2; cursor: default; }
 .wn-np-clip.is-on .wn-np-clip-k { display: none; }
