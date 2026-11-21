@@ -12436,6 +12436,24 @@ H3_LOWMEM_CHAIN_FLAG = "--vae-encode-chunk"
 # A 16 GB Mac keeps 10 s; the 15 s chip greys with its ram_15s reason and make_job falls back.
 H3_LOWMEM_16GB_ALLOWS_15S = False
 H3_CHAIN_RAM_CODE_15S = "ram_15s"
+H3_NATIVE_RAM_CODE = "ram_native"
+
+
+def h3_native_fits_ram(ram_gb: float | None = None) -> bool:
+    """Whether this Mac has room for Native (1344x768). Even 3 s Native needs
+    11.0 GiB on the streamed plan, above a 16 GB Mac's 10.0 GiB budget (fleet
+    18-21 Nov 2026: 3 of 3 Native tries on 16 GB refused with h3_ram)."""
+    if (ram_gb is None
+            and os.environ.get("LTX_H3_FORCE_CAPABLE", "").strip() in ("1", "true", "yes")):
+        return True
+    ram = float(SYSTEM_RAM_GB if ram_gb is None else ram_gb)
+    return ram <= 0 or ram >= H3_CHAIN_MIN_RAM_GB
+
+
+def h3_native_ram_reason(ram_gb: float | None = None) -> str:
+    ram = float(SYSTEM_RAM_GB if ram_gb is None else ram_gb)
+    return (f"On this {int(round(ram))} GB Mac, Hailuo H3 goes up to High "
+            "(1024×576). Native (1344×768) runs out of memory here, so pick High.")
 
 
 def h3_lowmem_chain_supported() -> bool:
@@ -12481,6 +12499,8 @@ def h3_cell_gate(cell: dict) -> tuple[bool, str]:
     Returns (ok, reason) so the UI can grey a chip with a sentence and make_job
     can fall back with the same sentence in the log — one predicate, two
     consumers, no drift."""
+    if cell.get("quality") == "native" and not h3_native_fits_ram():
+        return (False, h3_native_ram_reason())
     _windows = int(cell.get("chain_windows") or 1)
     if int(cell.get("frames") or 0) > 130 and _windows <= 1 and h3_max_chain_windows_for_ram() != 0:
         # The single-pass (dense) 10 s holds every frame in one window: bigger than any chain,
@@ -12545,6 +12565,18 @@ def h3_fallback_tier(key: str) -> str:
         cand = H3_TIERS.get(f"{cell['quality']}_{ln['key']}")
         if cand and h3_cell_gate(cand)[0]:
             return cand["key"]
+    # Whole canvas unavailable here (Native on a 16 GB Mac): step down one real
+    # canvas rung (High -> Standard -> Draft) keeping the requested length.
+    q_order = float((H3_QUALITIES.get(cell["quality"]) or {}).get("order", 99))
+    lower_qs = sorted(
+        (q for q in H3_QUALITIES.values()
+         if q["offered"] and not q.get("fast_hd") and float(q["order"]) < q_order),
+        key=lambda q: float(q["order"]), reverse=True)
+    for q in lower_qs:
+        for ln in candidates:
+            cand = H3_TIERS.get(f"{q['key']}_{ln['key']}")
+            if cand and h3_cell_gate(cand)[0]:
+                return cand["key"]
     return H3_TIER_DEFAULT
 
 
@@ -19156,6 +19188,15 @@ def h3_supports_prompt_cache() -> bool:
     return _h3_runner_has_flag("--prompt-cache")
 
 
+def _h3_lowmem_small_mac(cmd: list[str], ram_gb: float | None = None) -> bool:
+    """Whether this H3 render runs on a <36 GB Mac on the streamed `--low-memory`
+    plan. There, untiled float32 TAE (`--draft-decode tae`, ~8.8 GiB on 124f) and
+    unpooled 640x384 live preview (`downscale=1`, ~3.1 GiB beside the DiT) exceed
+    what `memory_plan` priced and drove 16 GB `draft_5s` into Metal OOM."""
+    ram = float(SYSTEM_RAM_GB if ram_gb is None else ram_gb)
+    return "--low-memory" in cmd and 0 < ram < H3_MIN_RAM_GB_Q8
+
+
 def h3_supports_tae_draft() -> bool:
     """Whether the INSTALLED runner accepts `--draft-decode` (TAE fast decode).
 
@@ -19400,6 +19441,9 @@ def h3_visible_tiers() -> list[dict]:
             t["unavailable_gb"] = int(round(SYSTEM_RAM_GB))
         elif not ok and reason == h3_chain_15s_ram_reason():
             t["unavailable_code"] = H3_CHAIN_RAM_CODE_15S
+            t["unavailable_gb"] = int(round(SYSTEM_RAM_GB))
+        elif not ok and reason == h3_native_ram_reason():
+            t["unavailable_code"] = H3_NATIVE_RAM_CODE
             t["unavailable_gb"] = int(round(SYSTEM_RAM_GB))
         if "revoice_fits" in t:
             # Priced now, against the runner on disk (one that keeps the store on disk
@@ -24591,8 +24635,12 @@ _ANALYTICS_REFUSAL_REASONS = (
     ("h3_ram", ("needs about 64 gb of unified memory",
                 "on its reduced-ram lane",
                 "gb of unified memory on its reduced-ram q8 engine",
-                "this mac cannot make this clip:")),
-    ("h3_mode", ("doesn't serve mode",)),
+                "this mac cannot make this clip:",
+                "references needs a mac with ")),
+    ("h3_mode", ("doesn't serve mode",
+                 "makes clips of up to 5 seconds for now",
+                 "add sound scores up to ",
+                 "is past the end of ")),
     ("h3_lora_slots", ("adapter slot",)),
     # The vendored engine predates the Gemma 4 tower, so a 2.5 render would
     # die at the first prompt encode with mlx_lm's own words. Refused up
@@ -40329,7 +40377,11 @@ def make_job(form: dict[str, list[str]] | dict[str, str], *,
             _fallback = h3_fallback_tier(_h3_tier)
             push(f"h3_tier={_h3_tier!r} can't render here: {_reason} "
                  f"Rendering {_fallback!r} instead.")
-            if _reason in (h3_chain_ram_reason(), h3_chain_15s_ram_reason()):
+            if (_reason in (h3_chain_ram_reason(), h3_chain_15s_ram_reason())
+                    or (H3_TIERS[_fallback]["length"] != H3_TIERS[_h3_tier]["length"]
+                        and H3_TIERS[_h3_tier]["length"] in ("10s", "15s")
+                        and not h3_chain_fits_ram(
+                            windows=int(H3_TIERS[_h3_tier].get("chain_windows") or 1)))):
                 # Analytics (length_capped_from): this Mac's memory shortened the clip.
                 _h3_capped_from = H3_TIERS[_h3_tier]["length"]
             _h3_tier = _fallback
@@ -43773,8 +43825,9 @@ def h3_media_plan(job: dict, p: dict, mode: str, tier: dict, width: int,
         want = int(p.get("h3_a2v_frames") or frames) / float(H3_FPS)
         if avail is not None:
             if avail <= 0.2:
-                raise RuntimeError(f"Start at {start_t:.1f}s is past the end of "
-                                   f"{Path(audio).name} ({total:.1f}s).")
+                raise RenderRefused("h3_mode",
+                                    f"Start at {start_t:.1f}s is past the end of "
+                                    f"{Path(audio).name} ({total:.1f}s).")
             want = min(want, avail)
         want = min(want, H3_A2V_MAX_SECONDS)
         # The track decides the length. A short line still renders one whole
@@ -43814,8 +43867,9 @@ def h3_media_plan(job: dict, p: dict, mode: str, tier: dict, width: int,
     if dur <= 0:
         raise RuntimeError(f"{Path(src).name} has no readable video.")
     if dur > H3_V2A_MAX_SECONDS:
-        raise RuntimeError(f"Add sound scores up to {H3_V2A_MAX_SECONDS:.0f}s at a time; "
-                           f"{Path(src).name} is {dur:.1f}s. Cut it shorter first.")
+        raise RenderRefused("h3_mode",
+                            f"Add sound scores up to {H3_V2A_MAX_SECONDS:.0f}s at a time; "
+                            f"{Path(src).name} is {dur:.1f}s. Cut it shorter first.")
     delivered = int(round(dur * H3_FPS))
     out["window_frames"] = H3_WINDOW_FRAMES
     out["chain_windows"] = h3_windows_for(delivered)
@@ -43920,15 +43974,27 @@ def memory_top_apps(limit: int = 3, ps_output: str | None = None) -> list[tuple[
         except Exception:                                       # noqa: BLE001
             return []
     totals: dict[str, float] = {}
+    # WebKit's shared helper processes (no .app/) serve every app that shows web
+    # pages, the Phosphene Mac app's own window included. They count as Safari's
+    # tabs only while Safari itself is running; otherwise they are left out, so
+    # the line never tells someone to quit an app that is not open.
+    safari_open = "/Safari.app/" in (ps_output or "")
     for line in (ps_output or "").splitlines():
         rss, _, comm = line.strip().partition(" ")
-        if ".app/" not in comm:
-            continue
         try:
             kb = float(rss)
         except ValueError:
             continue
-        name = comm.split(".app/", 1)[0].rsplit("/", 1)[-1].strip()
+        if ".app/" in comm:
+            name = comm.split(".app/", 1)[0].rsplit("/", 1)[-1].strip()
+        elif "com.apple.WebKit." in comm:
+            if not safari_open:
+                continue
+            name = "Safari"
+        elif comm.rsplit("/", 1)[-1].strip() == "ollama":
+            name = "Ollama"
+        else:
+            continue
         if not name or any(s in name.lower() for s in _MEMORY_TOP_SKIP):
             continue
         totals[name] = totals.get(name, 0.0) + kb / 1024 ** 2
@@ -43940,14 +44006,26 @@ def _memory_top_apps_words(apps: list[tuple[str, float]]) -> str:
     return ", ".join(f"{n} {g:.1f} GB" for n, g in apps)
 
 
+def _h3_mem_pair_words(need_gib, free_gib) -> tuple[str, str]:
+    """Plain GB strings for (need, free). Uses one decimal when rounded whole
+    numbers would say 'needs about 9 GB and 9 GB is free' (e.g. 8.9 vs 8.6)."""
+    if need_gib is not None and free_gib is not None:
+        n, f = float(need_gib), float(free_gib)
+        fmt = ".1f" if (round(n) == round(f) or 0.0 < n - f < 1.0) else ".0f"
+        return f"about {n:{fmt}} GB", f" and {f:{fmt}} GB is free"
+    need = f"about {float(need_gib):.0f} GB" if need_gib is not None else "more memory"
+    free = f" and {float(free_gib):.0f} GB is free" if free_gib is not None else ""
+    return need, free
+
+
 def h3_admission_check(cmd: list[str], env: dict | None, cwd: str | None = None) -> dict:
     """Run the H3 runner with `--admission-only` and return its verdict:
-    {verdict: ok|busy|cannot|unknown, need_gib, free_gib, message}. Nothing
+    {verdict: ok|busy|cannot|unknown, need_gib, free_gib, mode, message}. Nothing
     loads; the runner exits 0 / 76 / 77 after printing one H3_ADMISSION line.
     Anything else (a crash, a timeout, an older runner) is "unknown", and the
     caller then runs the render as before - this check never blocks a render
     the runner itself would start."""
-    out = {"verdict": "unknown", "need_gib": None, "free_gib": None, "message": ""}
+    out = {"verdict": "unknown", "need_gib": None, "free_gib": None, "mode": "", "message": ""}
     try:
         res = subprocess.run(list(cmd) + ["--admission-only"], cwd=cwd, env=env,
                              capture_output=True, text=True, errors="replace",
@@ -43964,21 +44042,24 @@ def h3_admission_check(cmd: list[str], env: dict | None, cwd: str | None = None)
     adm = plan.get("admission") or {}
     out["need_gib"] = adm.get("need_gib")
     out["free_gib"] = adm.get("free_now_gib")
+    out["mode"] = str(plan.get("mode") or "")
     out["message"] = str(adm.get("message") or "")
     out["verdict"] = {0: "ok", H3_EXIT_CANNOT: "cannot", H3_EXIT_BUSY: "busy"}.get(
         res.returncode, "unknown")
     return out
 
 
-def h3_busy_refusal_message(need_gib, free_gib, apps: list[tuple[str, float]]) -> str:
-    need = f"about {float(need_gib):.0f} GB" if need_gib is not None else "more memory"
-    free = (f" and {float(free_gib):.0f} GB is free" if free_gib is not None else "")
+def h3_busy_refusal_message(need_gib, free_gib, apps: list[tuple[str, float]],
+                            *, longer: bool = False) -> str:
+    need, free = _h3_mem_pair_words(need_gib, free_gib)
     top = (f" The apps using the most right now: {_memory_top_apps_words(apps)}."
            if apps else "")
+    shorter = (" Or make a 5 s clip (needs about 3 GB less memory)."
+               if longer else "")
     return (f"Not enough free memory to start this Hailuo H3 clip: it needs {need}{free} "
             f"on this {SYSTEM_RAM_GB:.0f} GB Mac, and other apps kept it for "
             f"{H3_BUSY_WAIT_S / 60:.0f} minutes.{top} Quit some of them (browsers with "
-            "many tabs, games, other AI apps), then press Retry.")
+            f"many tabs, games, other AI apps), then press Retry.{shorter}")
 
 
 def h3_memory_hold(job: dict | None, cmd: list[str], env: dict | None,
@@ -43992,27 +44073,34 @@ def h3_memory_hold(job: dict | None, cmd: list[str], env: dict | None,
         return
     t0 = clock()
     check = h3_admission_check(cmd, env, cwd)
+    if job is not None and check.get("mode") in MEM_MODES:
+        job["mem_mode"] = check["mode"]
     if check["verdict"] != "busy":
         return
+    longer = "--chain-windows" in cmd
     try:
         while check["verdict"] == "busy":
             _raise_if_cancelled(job, "the H3 render")
             apps = memory_top_apps()
             if clock() - t0 >= H3_BUSY_WAIT_S:
                 raise RenderRefused("memory_low", h3_busy_refusal_message(
-                    check["need_gib"], check["free_gib"], apps))
+                    check["need_gib"], check["free_gib"], apps, longer=longer))
             if job is not None:
                 need, free = check["need_gib"], check["free_gib"]
+                if need is not None and free is not None:
+                    n_txt, f_txt = _h3_mem_pair_words(need, free)
+                    pair = f"this clip needs {n_txt}{f_txt}. "
+                else:
+                    pair = "other apps are using the memory this clip needs. "
                 job["waiting_note"] = (
-                    "Waiting for memory - "
-                    + (f"this clip needs about {float(need):.0f} GB and "
-                       f"{float(free):.0f} GB is free. " if need is not None and free is not None
-                       else "other apps are using the memory this clip needs. ")
+                    "Waiting for memory - " + pair
                     + (f"Using the most: {_memory_top_apps_words(apps)}. " if apps else "")
                     + "Quit some apps and it starts by itself.")
             push(f"[h3] waiting for memory: {check['message'] or 'other apps hold it'}")
             sleep(H3_BUSY_POLL_S)
             check = h3_admission_check(cmd, env, cwd)
+            if job is not None and check.get("mode") in MEM_MODES:
+                job["mem_mode"] = check["mode"]
     finally:
         if job is not None:
             job.pop("waiting_note", None)
@@ -44644,17 +44732,19 @@ def run_h3_job_inner(job: dict) -> None:
         # not-downloaded message would point at a button it does not have.
         _refs_floor = h3_refs.min_ram_gb(refs_spec)
         if SYSTEM_RAM_GB and float(SYSTEM_RAM_GB) + 0.5 < _refs_floor:
-            raise RuntimeError(f"{h3_refs.NAME} needs a Mac with {_refs_floor:.0f} GB of memory or more; "
-                               f"this Mac has {float(SYSTEM_RAM_GB):.0f} GB. Switch References off to "
-                               "render with Face to keep.")
+            raise RenderRefused("h3_ram",
+                                f"{h3_refs.NAME} needs a Mac with {_refs_floor:.0f} GB of memory or more; "
+                                f"this Mac has {float(SYSTEM_RAM_GB):.0f} GB. Switch References off to "
+                                "render with Face to keep.")
         refs_paths = h3_refs_paths(refs_spec)
         if not refs_paths["files_ok"]:
             raise RuntimeError(f"{h3_refs.NAME} is not downloaded yet: "
                                + "; ".join(refs_paths["missing"])
                                + ". Click Get References under the pictures (once).")
         if chain_windows > 1:
-            raise RuntimeError(f"{h3_refs.NAME} makes clips of up to 5 seconds for now. "
-                               "Pick 5 s, or switch References off for a longer clip.")
+            raise RenderRefused("h3_mode",
+                                f"{h3_refs.NAME} makes clips of up to 5 seconds for now. "
+                                "Pick 5 s, or switch References off for a longer clip.")
         # The prompt's "Picture 2" means slot 2 (review 19 Nov): an empty Picture 1 with pictures
         # in slots 2/3 would shift them down and the prompt would name the wrong one.
         if (not str(p.get("h3_reference") or "").strip()
@@ -44834,7 +44924,11 @@ def run_h3_job_inner(job: dict) -> None:
     _tae = None
     # NOT on a Fast draft: its owner-approved look is the full VAE
     # decode, and it is the clip an Upscale & Face Fix pass starts from.
-    if tier.get("draft") and not tristep and h3_supports_tae_draft():
+    # Also NOT on <36 GB Macs running `--low-memory`: there the streamed full
+    # Video VAE peaks near ~2 GiB, whereas untiled float32 TAE decodes all
+    # 124 frames in one conv call (~8.8 GiB) and caused 16 GB Metal OOMs.
+    if (tier.get("draft") and not tristep and h3_supports_tae_draft()
+            and not _h3_lowmem_small_mac(cmd)):
         _tae = h3_tae_checkpoint()
         if _tae is not None:
             cmd += ["--draft-decode", "tae", "--tae-checkpoint", str(_tae)]
@@ -44849,6 +44943,13 @@ def run_h3_job_inner(job: dict) -> None:
         _tae = _tae or h3_tae_checkpoint()
         cmd += ["--live-preview", "tae",
                 "--live-preview-dir", str(live_preview_dir(job["id"]))]
+        if (_h3_lowmem_small_mac(cmd)
+                and _h3_runner_has_flag("--live-preview-downscale")
+                and int(width) % 32 == 0 and int(height) % 32 == 0):
+            # 640x384 Draft has 960 latent cells (<= 1200 auto budget), which
+            # left live preview unpooled (~3.1 GiB transient beside the DiT)
+            # while Standard and High pooled 2x2 (~0.8 GiB). Pool 2x2 here too.
+            cmd += ["--live-preview-downscale", "2"]
         if not tae_used:
             cmd += ["--tae-checkpoint", str(_tae)]
     # Cache the draft's clean Stage-A latents beside the clip. This is what a
@@ -44984,6 +45085,9 @@ def run_h3_job_inner(job: dict) -> None:
     env["PYTHONUNBUFFERED"] = "1"
     for _k, _v in hostinfo.h3_env_defaults().items():
         env.setdefault(_k, _v)
+    if "--low-memory" in cmd and 0 < float(SYSTEM_RAM_GB or 0) < H3_CHAIN_MIN_RAM_GB:
+        # 16 GB Macs: decode one spatial tile per call (same pixels, lower peak).
+        env.setdefault("H3_VAE_BATCH", "1")
     # FP16 VAE decode — the default (h3_vae_fp16_decode()). Passed as the runner's
     # own flag so the argv says what ran; a runner that predates the flag
     # would reject it, so that case is said out loud instead of passed.
@@ -45118,6 +45222,8 @@ def run_h3_job_inner(job: dict) -> None:
     _modeled_per_step = (_h3_forward_seconds(_h3_packed_rows(width, height, window_frames))
                         * _h3_speed_factor(chain_windows))
     last_step, total_steps = 0, max(1, steps - 1)
+    # Closed memory snapshot at H3 start (mem_avail_gb, mem_pressure), matching LTX.
+    job["mem_at_start"] = memory_snapshot()
     # Last look before the GPU: a Stop pressed during any of the preparation
     # above (the companion fetch, the reference crop) ends the job here.
     _raise_if_cancelled(job, "the H3 render")
@@ -50492,6 +50598,22 @@ def worker_loop() -> None:
                              f"with the same problem, and {len(STATE['queue'])} more are "
                              f"waiting. Fix the cause above (Settings → Models for a "
                              f"missing or incomplete model), then press Resume.")
+                elif (isinstance(exc, RenderRefused) and exc.reason == "memory_low"
+                        and STATE["queue"] and not STATE["paused"]):
+                    # Fleet 21 Nov 2026: on a 16 GB Mac running a 24-shot Storyboard,
+                    # a memory_low refusal left the queue unpaused and popped the next
+                    # shot every 5 minutes into the same refusal. Other refusals
+                    # (missing separator, Q8 pack) stay non-pausing so mixed queues keep
+                    # running; low free memory affects the whole Mac until apps close.
+                    STATE["paused"] = True
+                    _err_resume = str(job.get("error") or exc).replace(
+                        "then press Retry.", "then press Resume.")
+                    STATE["paused_reason"] = (
+                        f"The queue is paused ({len(STATE['queue'])} more waiting) so the "
+                        f"rest of your renders do not fail while memory is tight. {_err_resume}")
+                    push(f"Paused the queue: not enough free memory to start this render, "
+                         f"and {len(STATE['queue'])} more are waiting. Close other apps as "
+                         f"said above, then press Resume.")
         finally:
             if job.get("status") in ("done", "failed"):
                 # The closed-tab alert. Off the GPU lock, best-effort, and only

@@ -2709,6 +2709,17 @@ function _h3FallbackCell(cell) {
     const c = h3CellFor(cell.quality, l.key);
     if (c && c.available !== false) return c;
   }
+  const curQ = h3QualityByKey(cell.quality);
+  const qOrder = curQ && Number.isFinite(Number(curQ.order)) ? Number(curQ.order) : 99;
+  const lowerQs = (H3.qualities || [])
+    .filter(q => !q.fast_hd && Number(q.order) < qOrder)
+    .sort((a, b) => Number(b.order) - Number(a.order));
+  for (const q of lowerQs) {
+    for (const l of lens) {
+      const c = h3CellFor(q.key, l.key);
+      if (c && c.available !== false) return c;
+    }
+  }
   return h3TierByKey(H3.default_tier);
 }
 
@@ -2743,6 +2754,12 @@ function cellUnavailableReason(cell) {
     const gb = Math.round(Number(cell.unavailable_gb) || 0) || 16;
     return T('engines.h3_15s_needs_more_memory',
       'On this {gb} GB Mac, Hailuo H3 makes clips up to 10 s. Longer clips run out of memory here, so make a 10 s clip.',
+      {gb});
+  }
+  if (cell.unavailable_code === 'ram_native') {
+    const gb = Math.round(Number(cell.unavailable_gb) || 0) || 16;
+    return T('engines.h3_native_needs_more_memory',
+      'On this {gb} GB Mac, Hailuo H3 goes up to High (1024\u00d7576). Native (1344\u00d7768) runs out of memory here, so pick High.',
       {gb});
   }
   return cell.unavailable_reason || '';

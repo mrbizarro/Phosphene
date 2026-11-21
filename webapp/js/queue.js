@@ -3699,6 +3699,16 @@ function friendlyJobError(raw, engine) {
       docsAnchor: 'memory',
     };
   }
+  // Fleet 21 Nov 2026: h3_busy_refusal_message naming the top memory apps is
+  // >280 chars, which tripped looksPlain's length cap and hid the whole
+  // memory + apps message inside Details behind "Press Retry / Report a bug".
+  if (/Not enough free memory to start this Hailuo H3 clip|This Mac can make this clip, but other apps are using the memory right now|This Mac cannot make this clip with the memory it has free right now/i.test(raw)) {
+    return {
+      friendly: T('queue.not_enough_free_memory', 'Not enough free memory right now.'),
+      hint: _redactLocalPaths(raw) || raw,
+      docsAnchor: 'memory',
+    };
+  }
   const rawLower = String(raw).toLowerCase();
   // SYS-07: these two are the #1 and #3 fleet failures (54 + 23 installs in
   // 30 days) and the message used to ask for a crashlog/bug report instead
