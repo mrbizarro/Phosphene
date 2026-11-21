@@ -103,7 +103,7 @@ def cmd_image(args, ph: Phosphene) -> int:
 
 
 def cmd_speech(args, ph: Phosphene) -> int:
-    doc = ph.speech(args.text, voice=args.voice, speed=args.speed)
+    doc = ph.speech(args.text, voice=args.voice, speed=args.speed, seed=args.seed)
     return _finish(args, ph, doc.get("job_id") or doc.get("id"))
 
 
