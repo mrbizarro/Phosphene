@@ -51,8 +51,9 @@ TOOLS = [
          "engine": {"type": "string", "enum": ["ltx", "h3"], "default": "ltx"},
          "image": {"type": "string", "description": "Absolute path of a start-frame picture (makes it image-to-video)."},
          "quality": {"type": "string", "description": "LTX: quick | balanced (default) | standard | high | high_720p. "
-                                                      "H3: draft | fast_hd | standard | high (see phosphene_status)."},
-         "seconds": {"type": "number", "description": "Length. LTX: about 2-10 s (default 5). H3: 3, 5, 10 or 15."},
+                                                      "H3: draft (default) | fast_hd | standard | high (see phosphene_status)."},
+         "seconds": {"type": "number", "description": "Length. LTX: about 2-10 s (default 5). "
+                                                      "H3: 3, 5 (default), 10 or 15; another length is refused."},
          "seed": _SEED, "label": {"type": "string"}, "wait": _WAIT}}},
     {"name": "phosphene_open_cut",
      "description": "Hand a finished cut to a person: turn your edit (clips with in-points and film positions, the "
