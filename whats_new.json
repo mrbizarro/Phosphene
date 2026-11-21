@@ -3578,5 +3578,78 @@
         "pro": []
       }
     }
+  },
+  "5.0.77": {
+    "free": [
+      "On Macs with 24 GB or less, a render that stopped while reading your prompt now waits for free memory before trying again, or tells you what to close."
+    ],
+    "pro": [],
+    "date": "2026-11-21",
+    "headline": "On Macs with 24 GB or less, a render that stops while reading your prompt now waits for memory.",
+    "i18n": {
+      "de": {
+        "headline": "Auf Macs mit 24 GB oder weniger wartet ein Render, der beim Lesen deines Prompts stoppt, jetzt auf Speicher.",
+        "free": [
+          "Auf Macs mit 24 GB oder weniger wartet ein Render, der beim Lesen deines Prompts gestoppt hat, jetzt auf freien Speicher, bevor er es neu versucht, oder sagt dir, was du schließen sollst."
+        ],
+        "pro": []
+      },
+      "es": {
+        "headline": "En Macs con 24 GB o menos, un render que se detiene al leer tu prompt ahora espera a tener memoria.",
+        "free": [
+          "En Macs con 24 GB o menos, un render que se detuvo al leer tu prompt ahora espera a tener memoria libre antes de reintentar, o te dice qué cerrar."
+        ],
+        "pro": []
+      },
+      "fr": {
+        "headline": "Sur les Mac de 24 Go ou moins, un rendu arrêté pendant la lecture de ton prompt attend maintenant de la mémoire.",
+        "free": [
+          "Sur les Mac de 24 Go ou moins, un rendu arrêté pendant la lecture de ton prompt attend maintenant de la mémoire libre avant de réessayer, ou te dit quoi fermer."
+        ],
+        "pro": []
+      },
+      "it": {
+        "headline": "Sui Mac con 24 GB o meno, un render che si ferma leggendo il tuo prompt ora aspetta la memoria.",
+        "free": [
+          "Sui Mac con 24 GB o meno, un render che si è fermato leggendo il tuo prompt ora aspetta memoria libera prima di riprovare, o ti dice cosa chiudere."
+        ],
+        "pro": []
+      },
+      "ja": {
+        "headline": "メモリ24 GB以下のMacで、プロンプトの読み込み中に止まったレンダリングがメモリの空きを待つようになりました。",
+        "free": [
+          "メモリ24 GB以下のMacでは、プロンプトの読み込み中に止まったレンダリングが、空きメモリを待ってから再試行するか、閉じるべきものを教えてくれます。"
+        ],
+        "pro": []
+      },
+      "ko": {
+        "headline": "24 GB 이하 Mac에서 프롬프트를 읽다가 멈춘 렌더가 이제 메모리를 기다립니다.",
+        "free": [
+          "24 GB 이하 Mac에서 프롬프트를 읽다가 멈춘 렌더가 이제 여유 메모리를 기다린 뒤 다시 시도하거나, 무엇을 닫아야 하는지 알려줍니다."
+        ],
+        "pro": []
+      },
+      "pt": {
+        "headline": "Em Macs com 24 GB ou menos, um render que para ao ler o seu prompt agora espera por memória.",
+        "free": [
+          "Em Macs com 24 GB ou menos, um render que parou ao ler o seu prompt agora espera memória livre antes de tentar de novo, ou diz o que fechar."
+        ],
+        "pro": []
+      },
+      "ru": {
+        "headline": "На Mac с 24 ГБ и меньше рендер, остановившийся при чтении промпта, теперь ждёт память.",
+        "free": [
+          "На Mac с 24 ГБ и меньше рендер, остановившийся при чтении промпта, теперь ждёт свободной памяти перед новой попыткой или подсказывает, что закрыть."
+        ],
+        "pro": []
+      },
+      "zh-Hans": {
+        "headline": "在 24 GB 或更小内存的 Mac 上，读取提示词时停下的渲染现在会等待内存。",
+        "free": [
+          "在 24 GB 或更小内存的 Mac 上，读取提示词时停下的渲染现在会先等待空闲内存再重试，或告诉你该关闭什么。"
+        ],
+        "pro": []
+      }
+    }
   }
 }

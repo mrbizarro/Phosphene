@@ -28804,6 +28804,15 @@ class WarmHelper:
                 with LOCK:
                     cancelled = bool(job is not None
                                      and job.get("cancel_requested"))
+                # H43 (fleet, 5.0.73-5.0.75): on 8-16 GB Macs the re-run read
+                # the prompt again with 2-4 GB free and macOS stopped it the
+                # same way. Before re-reading it on a small Mac, wait for
+                # memory (the #206 hold), else refuse plainly with what to
+                # close instead of a second GPU stop.
+                if ((pause_retry or can_retry) and not cancelled
+                        and self._last_phase == "encode"
+                        and small_mac_for_encode_hold()):
+                    ltx_encode_memory_hold(job)
                 if pause_retry and not cancelled:
                     abort_retry_used = True
                     if self._abort_cooldown(job):
